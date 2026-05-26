@@ -4,7 +4,7 @@ import {
   fetchModules, fetchHubKnowledge, multiSearchWiki, multiKeywordSearchWiki,
   fetchSessions, deleteSession,
   type WikiModule, type WikiDirRef, type HubKnowRef, type HubKnowledgeItem,
-  type SessionItem, type AISearchResponse, type MultiKeywordResult,
+  type SessionItem, type AISearchResponse,
 } from '@/api/wiki'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { useAppStore } from '@/store/appStore'
@@ -301,24 +301,30 @@ export default function WikiSearchPage() {
   const [searchError, setSearchError] = useState<string | null>(null)
 
   useEffect(() => {
-    setLoadingData(true)
-    Promise.all([
-      fetchModules(activeProjectDir || undefined).catch(() => []),
-      fetchHubKnowledge().catch(() => []),
-      fetchSessions(activeProjectDir || undefined).catch(() => []),
-    ]).then(([mods, hub, sess]) => {
-      setModules(mods ?? [])
-      setHubItems(hub ?? [])
-      setSessions(sess ?? [])
+    const load = async () => {
+      setLoadingData(true)
+      try {
+        const [mods, hub, sess] = await Promise.all([
+          fetchModules(activeProjectDir || undefined).catch(() => []),
+          fetchHubKnowledge().catch(() => []),
+          fetchSessions(activeProjectDir || undefined).catch(() => []),
+        ])
+        setModules(mods ?? [])
+        setHubItems(hub ?? [])
+        setSessions(sess ?? [])
 
-      const autoSelect = new Set<string>()
-      for (const m of (mods ?? [])) {
-        if (m.id === 'knowledge' || m.id === 'memory-project') {
-          autoSelect.add(m.id)
+        const autoSelect = new Set<string>()
+        for (const m of (mods ?? [])) {
+          if (m.id === 'knowledge' || m.id === 'memory-project') {
+            autoSelect.add(m.id)
+          }
         }
+        setSelected(autoSelect)
+      } finally {
+        setLoadingData(false)
       }
-      setSelected(autoSelect)
-    }).finally(() => setLoadingData(false))
+    }
+    load()
   }, [activeProjectDir])
 
   const handleToggle = (id: string) => {
@@ -407,8 +413,8 @@ export default function WikiSearchPage() {
           state: { aiResponse, searchQuery: query, sessionId: resp.session_id },
         })
       }
-    } catch (e: any) {
-      setSearchError(e.message)
+    } catch (e: unknown) {
+      setSearchError(e instanceof Error ? e.message : String(e))
       setSearching(false)
     }
   }, [query, selected, hubSelected, modules, hubItems, hubVersions, navigate, searchMode])

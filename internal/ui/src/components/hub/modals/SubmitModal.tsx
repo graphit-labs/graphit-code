@@ -38,13 +38,15 @@ export function SubmitModal({
 
   useEffect(() => {
     if (!open || !artifact) return
-    setScope(isUpdate ? existingScope : 'project')
-    setName(artifact.registry_name || artifact.local_id || '')
-    setVersion(isUpdate ? bumpPatch(artifact.registry_version || '1.0.0') : '1.0.0')
-    setDescription(artifact.registry_description || '')
-    setTags((artifact.registry_tags || []).join(', '))
-    setAuthor(artifact.registry_author || gitAuthor)
-    setDeps((artifact.registry_dependencies || []).map((d) => ({ ...d })))
+    queueMicrotask(() => {
+      setScope(isUpdate ? existingScope : 'project')
+      setName(artifact.registry_name || artifact.local_id || '')
+      setVersion(isUpdate ? bumpPatch(artifact.registry_version || '1.0.0') : '1.0.0')
+      setDescription(artifact.registry_description || '')
+      setTags((artifact.registry_tags || []).join(', '))
+      setAuthor(artifact.registry_author || gitAuthor)
+      setDeps((artifact.registry_dependencies || []).map((d) => ({ ...d })))
+    })
   }, [open, artifact])
 
   if (!open || !artifact) return null

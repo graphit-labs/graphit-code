@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchModules, WikiModule } from '@/api/wiki'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -116,7 +116,7 @@ export default function WikiContextsPage({ moduleFilter }: WikiContextsPageProps
   const subtitle = 'Browse indexed knowledge bases — project documentation, API specs, imported references, and shared knowledge.'
   const explorerBase = '/knowledge/explorer'
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     setLoading(true)
     fetchModules(activeProjectDir || undefined)
       .then(raw => {
@@ -126,10 +126,23 @@ export default function WikiContextsPage({ moduleFilter }: WikiContextsPageProps
       })
       .catch(console.error)
       .finally(() => setLoading(false))
-  }
+  }, [moduleFilter, activeProjectDir])
 
   useEffect(() => {
-    refresh()
+    const load = async () => {
+      setLoading(true)
+      try {
+        const raw = await fetchModules(activeProjectDir || undefined)
+        const all = raw ?? []
+        const filtered = all.filter(m => m.id === moduleFilter || m.id.startsWith(moduleFilter + '/'))
+        setModules(filtered)
+      } catch (e) {
+        console.error(e)
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
   }, [moduleFilter, activeProjectDir])
 
   const handleExplore = (mod: WikiModule) => {

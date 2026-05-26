@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Sidebar, MobileSidebar } from './Sidebar'
 import { ToastContainer } from '@/components/shared/Toast'
 
@@ -7,7 +7,7 @@ const LS = {
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback } catch { return fallback }
   },
   set(key: string, value: unknown) {
-    try { localStorage.setItem(key, JSON.stringify(value)) } catch {  }
+    try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* ignored */ }
   },
 }
 
@@ -51,7 +51,8 @@ function useResizable(
   }, [size, min, max, direction, storageKey])
 
   const sizeRef = useRef(size)
-  sizeRef.current = size
+  // eslint-disable-next-line react-hooks/immutability
+  useEffect(() => { sizeRef.current = size }, [size])
 
   return { size, onMouseDown }
 }

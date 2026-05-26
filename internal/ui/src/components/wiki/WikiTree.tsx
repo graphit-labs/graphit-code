@@ -67,7 +67,9 @@ function RootDirEntry({
   const hasChildren = Object.keys(dir.children).length > 0 || dir.pages.length > 0
 
   useEffect(() => {
-    if (forceOpen) setOpen(true)
+    if (forceOpen) {
+      queueMicrotask(() => setOpen(true))
+    }
   }, [forceOpen])
 
   return (

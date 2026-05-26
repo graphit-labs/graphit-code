@@ -36,7 +36,7 @@ export default function ProjectArtifactsPage() {
     finally { setLoading(false) }
   }, [activeProjectDir, activeIde, setProjectName])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { queueMicrotask(load) }, [load])
   useEffect(() => { if (!webMode) hubApi.getGitAuthor().then((d) => setGitAuthor(d.author)).catch(() => {}) }, [webMode])
 
   const handleUnlink = async (art: InstalledArtifact) => {

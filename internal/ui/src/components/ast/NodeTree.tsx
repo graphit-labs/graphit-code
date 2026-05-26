@@ -177,7 +177,9 @@ function RootDirEntry({
   const hasChildren = Object.keys(dir.children).length > 0 || dir.files.length > 0
 
   useEffect(() => {
-    if (forceOpen) setOpen(true)
+    if (forceOpen) {
+      queueMicrotask(() => setOpen(true))
+    }
   }, [forceOpen])
 
   return (
@@ -241,7 +243,7 @@ function RootDirEntry({
             .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             .map((node) => {
               const filePath = node.file || node.id || ''
-              let nodeName = node.name === '<nil>' ? '' : node.name
+              const nodeName = node.name === '<nil>' ? '' : node.name
               let fileName = filePath.split('/').pop() || nodeName || node.id
               if (fileName === '<nil>') fileName = node.id
               const isSelected = selectedNodeId === node.id

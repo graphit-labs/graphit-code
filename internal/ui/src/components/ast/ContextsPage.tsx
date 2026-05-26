@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { astApi, type Context } from '@/api/ast'
 import { showToast } from '@/hooks/useToast'
@@ -6,7 +6,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ConfirmModal } from '@/components/hub/modals/ConfirmModal'
 import { useAppStore } from '@/store/appStore'
-import { Database, Network, Trash2, ArrowRight, Code2, RefreshCw, Layers, GitBranch } from 'lucide-react'
+import { Database, Network, Trash2, ArrowRight, Code2, RefreshCw, Layers } from 'lucide-react'
 import { cn, formatCount } from '@/lib/utils'
 
 function ContextCard({
@@ -20,7 +20,7 @@ function ContextCard({
 }) {
   const isProject = ctx.type === 'project'
   const gradient = isProject ? "from-violet-500 to-indigo-500" : "from-blue-500 to-cyan-500"
-  const iconColor = isProject ? "text-violet-500" : "text-blue-500"
+
   const Icon = isProject ? Code2 : Database
 
   return (
@@ -116,7 +116,7 @@ export default function ContextsPage() {
   const [loading, setLoading] = useState(true)
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; id: string; name: string }>({ open: false, id: '', name: '' })
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       const data = await astApi.getContexts(activeProjectDir || undefined)
@@ -127,9 +127,9 @@ export default function ContextsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [activeProjectDir])
 
-  useEffect(() => { load() }, [activeProjectDir])
+  useEffect(() => { queueMicrotask(load) }, [load])
 
   const handleExplore = (id: string) => {
     setActiveContextId(id)

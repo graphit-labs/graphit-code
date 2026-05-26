@@ -95,7 +95,7 @@ interface SidebarProps {
 export function Sidebar({ onClose }: SidebarProps) {
   const location = useLocation()
   const { theme, toggle } = useTheme()
-  const { typeFilter, setTypeFilter, appMode, webMode, projectName, activeProjectDir } =
+  const { typeFilter, setTypeFilter, webMode, projectName, activeProjectDir } =
     useAppStore()
   const isRegistry = location.pathname.startsWith('/hub')
   const [showTypeFilters, setShowTypeFilters] = useState(true)
@@ -190,7 +190,7 @@ export function Sidebar({ onClose }: SidebarProps) {
         </NavSection>
 
         {}
-        {(appMode === 'ast' || true) && (
+        {
           <NavSection title="AST">
             <NavItem
               to="/ast/contexts"
@@ -205,7 +205,7 @@ export function Sidebar({ onClose }: SidebarProps) {
               onClick={close}
             />
           </NavSection>
-        )}
+        }
 
         {}
         {memoryModules.length > 0 && (

@@ -35,7 +35,7 @@ async function request<T>(
     const res = await fetch(url, { ...options })
     if (!res.ok) {
       let msg = `HTTP ${res.status}`
-      try { msg = (await res.json()).error ?? msg } catch {  }
+      try { msg = (await res.json()).error ?? msg } catch { /* ignored */ }
       throw new ApiError(res.status, msg)
     }
     return await res.json() as T

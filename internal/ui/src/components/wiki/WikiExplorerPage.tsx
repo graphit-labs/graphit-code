@@ -17,7 +17,7 @@ const LS = {
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback } catch { return fallback }
   },
   set(key: string, value: unknown) {
-    try { localStorage.setItem(key, JSON.stringify(value)) } catch {  }
+    try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* storage full */ }
   },
 }
 
@@ -61,7 +61,8 @@ function useResizable(
   }, [size, min, max, direction, storageKey])
 
   const sizeRef = useRef(size)
-  sizeRef.current = size
+  // eslint-disable-next-line react-hooks/immutability
+  useEffect(() => { sizeRef.current = size }, [size])
 
   return { size, onMouseDown }
 }
@@ -113,7 +114,7 @@ function preprocessWikiLinks(md: string): string {
     return `[${friendly}](wiki://${encodeURIComponent(target)})`
   })
 
-  processed = processed.replace(/`(\[[^\]]+\]\(wiki:\/\/[^\)]+\))`/g, '$1')
+  processed = processed.replace(/`(\[[^\]]+\]\(wiki:\/\/[^)]+\))`/g, '$1')
 
   return processed
 }
@@ -490,6 +491,7 @@ function PageList({ pages, selected, onSelect }: {
 function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   const [scale, setScale] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
   const dragging = useRef(false)
   const didDrag = useRef(false)
   const lastPos = useRef({ x: 0, y: 0 })
@@ -502,6 +504,7 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return
     dragging.current = true
+    setIsDragging(true)
     didDrag.current = false
     lastPos.current = { x: e.clientX, y: e.clientY }
     e.preventDefault()
@@ -516,7 +519,7 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
     lastPos.current = { x: e.clientX, y: e.clientY }
   }, [])
 
-  const handleMouseUp = useCallback(() => { dragging.current = false }, [])
+  const handleMouseUp = useCallback(() => { dragging.current = false; setIsDragging(false) }, [])
 
   const handleOverlayClick = useCallback(() => {
     if (!didDrag.current) onClose()
@@ -525,7 +528,7 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   return (
     <div
       className="fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center animate-in fade-in duration-200"
-      style={{ cursor: dragging.current ? 'grabbing' : 'grab' }}
+      style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
       onClick={handleOverlayClick}
       onWheel={handleWheel}
       onMouseDown={handleMouseDown}
@@ -622,9 +625,11 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
     history?: Array<{ role: string; content: string }>;
   } | null
   const cameFromExternalSearch = useRef(false)
-  if (externalState?.aiResponse || externalState?.keywordResults) {
-    cameFromExternalSearch.current = true
-  }
+  useEffect(() => {
+    if (externalState?.aiResponse || externalState?.keywordResults) {
+      cameFromExternalSearch.current = true
+    }
+  }, [externalState])
   const { activeProjectDir } = useAppStore()
   const [modules, setModules] = useState<WikiModule[]>([])
   const [selectedModule, setSelectedModule] = useState<WikiModule | null>(null)
@@ -665,50 +670,54 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
   }, [])
 
   useEffect(() => {
-    if (externalState?.aiResponse) {
-      setAiResponse(externalState.aiResponse)
-      setSearchQ(externalState.searchQuery ?? '')
-      setSearchMode('ai')
-      setView('ai-search')
-      setNavHistory([{ path: '__search__', title: `AI: ${externalState.searchQuery ?? ''}` }])
-      setNavIndex(0)
-      setSelectedPage(null)
-      if (externalState.sessionId) setAiSessionId(externalState.sessionId)
-      if (externalState.history) setAiHistory(externalState.history)
-      navigate(location.pathname, { replace: true, state: null })
-    } else if (externalState?.keywordResults) {
-      const results: SearchResult[] = externalState.keywordResults.map(r => ({
-        path: r.path,
-        title: `[${r.source_label}] ${r.title}`,
-        snippet: r.snippet,
-        score: r.score,
-      }))
-      setSearchResults(results)
-      setSearchQ(externalState.searchQuery ?? '')
-      setSearchMode('keyword')
-      setView('search')
-      setNavHistory([{ path: '__search__', title: `Search: ${externalState.searchQuery ?? ''}` }])
-      setNavIndex(0)
-      setSelectedPage(null)
-      navigate(location.pathname, { replace: true, state: null })
+    const applyExternalState = () => {
+      if (externalState?.aiResponse) {
+        setAiResponse(externalState.aiResponse)
+        setSearchQ(externalState.searchQuery ?? '')
+        setSearchMode('ai')
+        setView('ai-search')
+        setNavHistory([{ path: '__search__', title: `AI: ${externalState.searchQuery ?? ''}` }])
+        setNavIndex(0)
+        setSelectedPage(null)
+        if (externalState.sessionId) setAiSessionId(externalState.sessionId)
+        if (externalState.history) setAiHistory(externalState.history)
+        navigate(location.pathname, { replace: true, state: null })
+      } else if (externalState?.keywordResults) {
+        const results: SearchResult[] = externalState.keywordResults.map(r => ({
+          path: r.path,
+          title: `[${r.source_label}] ${r.title}`,
+          snippet: r.snippet,
+          score: r.score,
+        }))
+        setSearchResults(results)
+        setSearchQ(externalState.searchQuery ?? '')
+        setSearchMode('keyword')
+        setView('search')
+        setNavHistory([{ path: '__search__', title: `Search: ${externalState.searchQuery ?? ''}` }])
+        setNavIndex(0)
+        setSelectedPage(null)
+        navigate(location.pathname, { replace: true, state: null })
+      }
     }
+    applyExternalState()
   }, [externalState])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!sessionId || externalState?.aiResponse) return
     
-    setAiLoading(true)
-    setView('ai-search')
-    setSearchMode('ai')
-    setSelectedPage(null)
-    
-    loadSessionMessages(sessionId)
-      .then(messages => {
+    const loadSession = async () => {
+      setAiLoading(true)
+      setView('ai-search')
+      setSearchMode('ai')
+      setSelectedPage(null)
+      
+      try {
+        const messages = await loadSessionMessages(sessionId)
         const firstAssistantIdx = messages.findIndex(m => m.role === 'assistant')
         
-        let answer = ''
         let history: Array<{ role: string; content: string }> = []
         let queryText = 'AI Query'
+        let answer: string
         
         if (firstAssistantIdx !== -1) {
           answer = messages[firstAssistantIdx].content
@@ -745,17 +754,17 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
         setAiHistory(history)
         setNavHistory([{ path: '__search__', title: `AI: ${queryText}` }])
         setNavIndex(0)
-      })
-      .catch(err => {
+      } catch (_err) {
         setAiResponse({
           answer: '',
           results: [],
           error: 'Failed to load session history.',
         })
-      })
-      .finally(() => {
+      } finally {
         setAiLoading(false)
-      })
+      }
+    }
+    loadSession()
   }, [sessionId, externalState])
 
   useEffect(() => {
@@ -794,21 +803,33 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
 
   useEffect(() => {
     if (!selectedModule) return
-    setPages([]); setSelectedPage(null); setPageContent(null)
-    fetchPages(selectedModule.path).then(raw => {
-      const ps = raw ?? []
-      setPages(ps)
-      const idx = ps.find(p => p.path === 'index.md')
-      if (idx) setSelectedPage(idx.path)
-    }).catch(console.error)
+    const loadPages = async () => {
+      setPages([]); setSelectedPage(null); setPageContent(null)
+      try {
+        const raw = await fetchPages(selectedModule.path)
+        const ps = raw ?? []
+        setPages(ps)
+        const idx = ps.find(p => p.path === 'index.md')
+        if (idx) setSelectedPage(idx.path)
+      } catch (e) {
+        console.error(e)
+      }
+    }
+    loadPages()
   }, [selectedModule])
 
   useEffect(() => {
     if (!selectedModule || !selectedPage) return
-    setLoading(true)
-    fetchPage(selectedModule.path, selectedPage).then(c => {
-      setPageContent(c); setLoading(false)
-    }).catch(() => setLoading(false))
+    const loadPage = async () => {
+      setLoading(true)
+      try {
+        const c = await fetchPage(selectedModule.path, selectedPage)
+        setPageContent(c)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadPage()
   }, [selectedModule, selectedPage])
 
   const runSearch = useCallback(async () => {
@@ -1516,7 +1537,7 @@ function extractConsultedDocs(
     }
   }
 
-  const wikiUrlRegex = /wiki:\/\/([^\s\)]+)/g;
+  const wikiUrlRegex = /wiki:\/\/([^\s)]+)/g;
   wikiUrlRegex.lastIndex = 0;
   while ((match = wikiUrlRegex.exec(content)) !== null) {
     let target = decodeURIComponent(match[1])
@@ -1572,8 +1593,8 @@ function AISearchResultsView({ response, loading, sessionId, onChat, onSelect, o
       } else if (resp?.error) {
         setChatMessages(prev => [...prev, { role: 'error', content: resp.error! }])
       }
-    } catch (e: any) {
-      setChatMessages(prev => [...prev, { role: 'error', content: e.message }])
+    } catch (e: unknown) {
+      setChatMessages(prev => [...prev, { role: 'error', content: e instanceof Error ? e.message : String(e) }])
     } finally {
       setChatLoading(false)
     }

@@ -57,7 +57,7 @@ export default function RegistryPage() {
     }
   }, [activeProjectDir, activeIde, webMode, setActiveIde, setActiveProjectId, projectName])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => { queueMicrotask(loadData) }, [loadData])
 
   useEffect(() => {
     if (!webMode) {

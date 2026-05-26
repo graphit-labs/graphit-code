@@ -1,4 +1,4 @@
-const API = () => (window as any).__API_BASE__ ?? ''
+const API = () => window.__API_BASE__ ?? ''
 
 export interface WikiModule {
   id: string; label: string; path: string; context: string; pages: number; hasLog: boolean

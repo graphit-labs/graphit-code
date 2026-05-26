@@ -19,10 +19,10 @@ import { useAppStore } from '@/store/appStore'
 
 const LS = {
   get<T>(key: string, fallback: T): T {
-    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback } catch { return fallback }
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback } catch { /* parse error */ return fallback }
   },
   set(key: string, value: unknown) {
-    try { localStorage.setItem(key, JSON.stringify(value)) } catch {  }
+    try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* storage full */ }
   },
 }
 
@@ -68,7 +68,8 @@ function useResizable(
   }, [size, min, max, direction, storageKey])
 
   const sizeRef = useRef(size)
-  sizeRef.current = size
+  // eslint-disable-next-line react-hooks/immutability
+  useEffect(() => { sizeRef.current = size }, [size])
 
   return { size, onMouseDown }
 }
@@ -169,7 +170,7 @@ export default function ExplorerPage() {
           setProjectName(name)
           setProjectRoot(root)
           if (name) document.title = `Graphit AST — ${name}`
-        } catch {  }
+        } catch { /* non-critical context fetch */ }
       } catch {
         showToast('Failed to load graph', 'error')
       } finally {
@@ -200,12 +201,15 @@ export default function ExplorerPage() {
       showToast('Failed to load file', 'error')
       setSourceContent('// Could not load file content.')
     }
-  }, [decodedContextId])
+  }, [decodedContextId, activeProjectDir])
+
+  const handleFileClickRef = useRef(handleFileClick)
 
   const leftCollapsedRef = useRef(leftCollapsed)
-  leftCollapsedRef.current = leftCollapsed
-  const handleFileClickRef = useRef(handleFileClick)
-  handleFileClickRef.current = handleFileClick
+  useEffect(() => {
+    leftCollapsedRef.current = leftCollapsed
+    handleFileClickRef.current = handleFileClick
+  }, [leftCollapsed, handleFileClick])
 
   const handleNodeClick = useCallback((node: GraphNode | null) => {
     if (!node) { setSelectedNode(null); return }
@@ -234,6 +238,7 @@ export default function ExplorerPage() {
       const key = is3D ? 'graphit_physics_3d' : 'graphit_physics_2d'
       LS.set(key, physics)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [physics, is3D])
   useEffect(() => { LS.set('graphit_node_colors', nodeColors) }, [nodeColors])
   useEffect(() => { LS.set('graphit_hidden_labels', [...hiddenLabels]) }, [hiddenLabels])
@@ -354,28 +359,28 @@ export default function ExplorerPage() {
                     onToggleLabel={(l) =>
                       setHiddenLabels((prev) => {
                         const next = new Set(prev)
-                        next.has(l) ? next.delete(l) : next.add(l)
+                        if (next.has(l)) { next.delete(l) } else { next.add(l) }
                         return next
                       })
                     }
                     onToggleEdge={(t) =>
                       setHiddenEdgeTypes((prev) => {
                         const next = new Set(prev)
-                        next.has(t) ? next.delete(t) : next.add(t)
+                        if (next.has(t)) { next.delete(t) } else { next.add(t) }
                         return next
                       })
                     }
                     onToggleCluster={(c) =>
                       setHiddenClusters((prev) => {
                         const next = new Set(prev)
-                        next.has(c) ? next.delete(c) : next.add(c)
+                        if (next.has(c)) { next.delete(c) } else { next.add(c) }
                         return next
                       })
                     }
                     onToggleLang={(l) =>
                       setHiddenLangs((prev) => {
                         const next = new Set(prev)
-                        next.has(l) ? next.delete(l) : next.add(l)
+                        if (next.has(l)) { next.delete(l) } else { next.add(l) }
                         return next
                       })
                     }

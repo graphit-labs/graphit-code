@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 export interface Toast {
   id: string
@@ -24,7 +24,7 @@ export function useToast() {
     }, 4000)
   }, [])
 
-  _addToast = addToast
+  useEffect(() => { _addToast = addToast; return () => { _addToast = null } }, [addToast])
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))

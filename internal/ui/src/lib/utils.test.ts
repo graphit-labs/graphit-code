@@ -71,7 +71,7 @@ describe('UI Utilities', () => {
     it('should default to hub when window.__APP_MODE__ is undefined or invalid', () => {
       expect(getAppMode()).toBe('hub')
 
-      window.__APP_MODE__ = 'invalid' as any
+      window.__APP_MODE__ = 'invalid' as unknown as typeof window.__APP_MODE__
       expect(getAppMode()).toBe('hub')
     })
   })

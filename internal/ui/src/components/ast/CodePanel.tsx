@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import hljs from 'highlight.js'
 import { Copy, Search, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { showToast } from '@/hooks/useToast'
-import { cn } from '@/lib/utils'
 
 interface CodePanelProps {
   content: string
@@ -39,6 +38,7 @@ export function CodePanel({ content, filename, onClose }: CodePanelProps) {
         return hljs.highlightAuto(line).value
       }
     })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, lang])
 
   const copy = () => {

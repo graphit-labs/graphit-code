@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useRef, useCallback, useMemo, forwardRef } from 'react'
 import type { GraphNode, GraphEdge } from '@/api/ast'
 import { labelColor } from '@/lib/utils'
@@ -65,7 +66,7 @@ function degreeRadius(n: GraphNode, degree: number, maxDegree: number): number {
   return base * scale
 }
 
-function getNeighbourIds(selectedId: string | null, links: { source: any; target: any }[]): Set<string> | null {
+function getNeighbourIds(selectedId: string | null, links: { source: string | { id?: string }; target: string | { id?: string } }[]): Set<string> | null {
   if (!selectedId) return null
   const ids = new Set<string>([selectedId])
   for (const l of links) {
@@ -79,8 +80,8 @@ function getNeighbourIds(selectedId: string | null, links: { source: any; target
   return ids
 }
 
-function linkNodeId(endpoint: any): string {
-  return typeof endpoint === 'object' ? endpoint?.id : endpoint
+function linkNodeId(endpoint: string | { id?: string }): string {
+  return typeof endpoint === 'object' ? (endpoint?.id ?? '') : endpoint
 }
 
 function getBgColor(): string {
@@ -101,22 +102,25 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
   const graphRef = useRef<any>(null)
 
   const selectedIdRef = useRef<string | null>(selectedNodeId)
-  selectedIdRef.current = selectedNodeId
 
   const physicsRef = useRef(physics)
-  physicsRef.current = physics
 
   const clusterColorsRef = useRef(clusterColors)
-  clusterColorsRef.current = clusterColors
   const langColorsRef = useRef(langColors)
-  langColorsRef.current = langColors
   const nodeColorsRef = useRef(nodeColors)
-  nodeColorsRef.current = nodeColors
 
   const onNodeClickRef = useRef(onNodeClick)
-  onNodeClickRef.current = onNodeClick
 
-  console.log("GraphCanvas render!"); const visibleNodes = useMemo(() => nodes.filter((n) => {
+  useEffect(() => {
+    selectedIdRef.current = selectedNodeId
+    physicsRef.current = physics
+    clusterColorsRef.current = clusterColors
+    langColorsRef.current = langColors
+    nodeColorsRef.current = nodeColors
+    onNodeClickRef.current = onNodeClick
+  }, [selectedNodeId, physics, clusterColors, langColors, nodeColors, onNodeClick])
+
+  const visibleNodes = useMemo(() => nodes.filter((n) => {
     if (hiddenLabels.has(n.label)) return false
     if (hiddenClusters.size > 0) {
       const cluster = (n.properties?.cluster as string) ?? ''
@@ -139,9 +143,11 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
     )
   }, [links, visibleNodes, hiddenEdgeTypes])
   const visibleLinksRef = useRef(visibleLinks)
-  visibleLinksRef.current = visibleLinks
   const visibleNodesRef = useRef(visibleNodes)
-  visibleNodesRef.current = visibleNodes
+  useEffect(() => {
+    visibleLinksRef.current = visibleLinks
+    visibleNodesRef.current = visibleNodes
+  }, [visibleLinks, visibleNodes])
 
   const neighbourhoodRef = useRef<Set<string> | null>(null)
   useEffect(() => {
@@ -151,17 +157,19 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
   const { degreeMap, maxDegree } = useMemo(() => {
     const map = new Map<string, number>()
     for (const l of visibleLinks) {
-      const src = typeof l.source === 'string' ? l.source : (l.source as any)?.id
-      const tgt = typeof l.target === 'string' ? l.target : (l.target as any)?.id
+      const src = typeof l.source === 'string' ? l.source : (l.source as { id?: string })?.id
+      const tgt = typeof l.target === 'string' ? l.target : (l.target as { id?: string })?.id
       if (src) map.set(src, (map.get(src) ?? 0) + 1)
       if (tgt) map.set(tgt, (map.get(tgt) ?? 0) + 1)
     }
     return { degreeMap: map, maxDegree: Math.max(1, ...map.values()) }
-  }, [links, hiddenLabels, hiddenEdgeTypes])
+  }, [visibleLinks])
   const degreeMapRef = useRef(degreeMap)
   const maxDegreeRef = useRef(maxDegree)
-  degreeMapRef.current = degreeMap
-  maxDegreeRef.current = maxDegree
+  useEffect(() => {
+    degreeMapRef.current = degreeMap
+    maxDegreeRef.current = maxDegree
+  }, [degreeMap, maxDegree])
 
   const nodeMeshesRef = useRef<Map<string, any>>(new Map())
   
@@ -172,7 +180,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
   const langSpheresRef = useRef<Map<string, any>>(new Map())
 
   const clusterMapRef = useRef<Map<string, string[]>>(new Map())
-  useMemo(() => {
+  useEffect(() => {
     const map = new Map<string, string[]>()
     for (const n of visibleNodes) {
       const c = (n.properties?.cluster as string) ?? ''
@@ -182,12 +190,10 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
       }
     }
     clusterMapRef.current = map
-    return map
-  
-  }, [nodes, hiddenLabels, hiddenClusters])
+  }, [visibleNodes])
 
   const langMapRef = useRef<Map<string, string[]>>(new Map())
-  useMemo(() => {
+  useEffect(() => {
     const map = new Map<string, string[]>()
     for (const n of visibleNodes) {
       const l = (n.properties?.lang as string) ?? ''
@@ -197,9 +203,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
       }
     }
     langMapRef.current = map
-    return map
-  
-  }, [nodes, hiddenLabels, hiddenLangs])
+  }, [visibleNodes])
 
   const getClusterColor = useCallback((cluster: string, idx: number) => {
     return clusterColorsRef.current[cluster] ?? CLUSTER_DEFAULT_COLORS[idx % CLUSTER_DEFAULT_COLORS.length]
@@ -257,8 +261,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
       try {
         const renderer = graphRef.current.renderer?.()
         if (renderer?.dispose) renderer.dispose()
-      } catch {  }
-      try { graphRef.current._destructor?.() } catch {  }
+      } catch { /* renderer cleanup */ }
+      try { graphRef.current._destructor?.() } catch { /* destructor cleanup */ }
       graphRef.current = null
     }
     const el = containerRef.current

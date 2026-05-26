@@ -16,7 +16,7 @@ export function AliasModal({ open, artifactId, requireAlias, onConfirm, onCancel
 
   useEffect(() => {
     if (open) {
-      setAlias('')
+      queueMicrotask(() => setAlias(''))
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [open])
