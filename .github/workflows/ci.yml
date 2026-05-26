@@ -29,8 +29,8 @@ jobs:
       - name: Create UI dist placeholder
         run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 
-      - name: go vet
-        run: go vet ./...
+      - name: Vet
+        run: make vet
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
@@ -67,11 +67,11 @@ jobs:
           git config --global user.email "ci@graphit.dev"
 
       - name: Run tests
-        run: go test -v -race -count=1 ./...
+        run: make test
 
   # ── Build verification ─────────────────────────────────────────────────────
   build-check:
-    name: Build Check (core only)
+    name: Build Check
     runs-on: ubuntu-22.04
 
     steps:
@@ -92,12 +92,14 @@ jobs:
       - name: Create UI dist placeholder
         run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 
-      - name: Build core binary (sanity check)
+      - name: Setup native dependencies
+        run: make setup-lbug
+
+      - name: Build core binary
         run: |
-          make setup-lbug
           GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build \
             -tags "fts5" \
-            -ldflags "-X 'github.com/graphit-labs/graphit-code/internal/version.Version=ci-check'" \
+            -ldflags "-X 'github.com/graphit-labs/graphit-code/internal/version.Version=ci-${{ github.sha }}'" \
             -o /tmp/graphit-core-check \
             ./cmd/graphit
 
@@ -117,14 +119,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: internal/ui/package-lock.json
 
-      - name: Install dependencies
-        run: npm ci --prefer-offline
-        working-directory: internal/ui
+      - name: Build UI
+        run: make ui
 
-      - name: Lint
-        run: npm run lint
-        working-directory: internal/ui
-
-      - name: Build
-        run: npm run build
-        working-directory: internal/ui
+      - name: Lint UI
+        run: cd internal/ui && npm run lint
