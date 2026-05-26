@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, 'feature/**']
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Code Quality ───────────────────────────────────────────────────────────
+  lint:
+    name: Lint & Vet
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
+  # ── Tests ──────────────────────────────────────────────────────────────────
+  test:
+    name: Tests
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install CGO dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
+
+      - name: Run tests
+        run: go test -v -race -count=1 ./...
+
+  # ── Build verification ─────────────────────────────────────────────────────
+  build-check:
+    name: Build Check (core only)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install CGO dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
+
+      - name: Build core binary (sanity check)
+        run: |
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build \
+            -tags "fts5" \
+            -ldflags "-X 'github.com/graphit-labs/graphit-code/internal/version.Version=ci-check'" \
+            -o /tmp/graphit-core-check \
+            ./cmd/graphit
+
+  # ── UI Build ───────────────────────────────────────────────────────────────
+  ui-build:
+    name: UI Build
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: internal/ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+        working-directory: internal/ui
+
+      - name: Lint
+        run: npm run lint
+        working-directory: internal/ui
+
+      - name: Build
+        run: npm run build
+        working-directory: internal/ui

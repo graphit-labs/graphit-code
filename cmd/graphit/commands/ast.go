@@ -1,0 +1,391 @@
+package commands
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/ast"
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/spf13/cobra"
+)
+
+func newASTCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:               "ast",
+		Short:             "Code knowledge graph — index, query, watch, and manage AST graphs",
+		PersistentPreRunE: requireProject,
+	}
+
+	cmd.AddCommand(
+		newASTIndexCmd(),
+		newASTWatchCmd(),
+		newASTQueryCmd(),
+		newASTSchemaCmd(),
+		newASTEmbedCmd(),
+		newASTInstallCmd(),
+		newASTRemoveCmd(),
+		newASTSyncCmd(),
+		newASTExportCmd(),
+		newASTListCmd(),
+		newASTSourceCmd(),
+		newModuleRuleCmd("ast"),
+	)
+
+	return cmd
+}
+
+func newASTIndexCmd() *cobra.Command {
+	var workers int
+	var reset bool
+	var reindex bool
+	var cluster string
+	var noSource bool
+
+	cmd := &cobra.Command{
+		Use:   "index [path]",
+		Short: "Parse source code and build the AST knowledge graph",
+		Long: `Index source code into the knowledge graph.
+
+Default mode: Tree-sitter auto-detection for all supported languages.
+
+Cluster tagging:
+  --cluster <name>  Tag all indexed nodes with a logical cluster name.
+                    Enables filtered queries: MATCH (n:Class {cluster: '<name>'}) RETURN n
+
+Examples:
+  ` + brand.BinName() + ` ast index
+  ` + brand.BinName() + ` ast index ./src --cluster backend
+  ` + brand.BinName() + ` ast index . --cluster my-module --reindex
+
+  # Then query by cluster:
+  ` + brand.BinName() + ` ast query "MATCH (n:Function {cluster: 'backend'}) RETURN n.name, n.path LIMIT 20"
+  ` + brand.BinName() + ` ast query "MATCH (n:Class {cluster: 'erp-core'}) RETURN n.name"
+  ` + brand.BinName() + ` ast query "MATCH (n {cluster: 'my-module'}) RETURN label(n), n.name LIMIT 50"
+
+Flags:
+  --reset     Wipe the entire database before indexing
+  --reindex   Remove only this repository's data before re-indexing`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			targetPath := "."
+			if len(args) > 0 {
+				targetPath = args[0]
+			}
+
+			return runASTIndex(targetPath, workers, reset, reindex, cluster, noSource)
+		},
+	}
+	cmd.Flags().IntVar(&workers, "workers", 0, "Parallel worker count (default: all CPUs)")
+	cmd.Flags().BoolVar(&reset, "reset", false, "Wipe entire database before indexing")
+	cmd.Flags().BoolVar(&reindex, "reindex", false, "Remove only this repository before re-indexing")
+	cmd.Flags().StringVar(&cluster, "cluster", "", "Tag all indexed nodes with a logical cluster name for filtered queries")
+	cmd.Flags().BoolVar(&noSource, "no-source", false, "Skip storing source code in graph nodes (lighter index, no FTS/source retrieval)")
+	return cmd
+}
+
+func newASTWatchCmd() *cobra.Command {
+	var workers int
+	var cluster string
+
+	cmd := &cobra.Command{
+		Use:   "watch [path]",
+		Short: "Watch source code for changes and re-index incrementally",
+		Long: `Watch a directory for file changes and re-index modified files incrementally.
+
+Default mode: Tree-sitter (best for incremental single-file re-parsing).
+
+Examples:
+  ` + brand.BinName() + ` ast watch
+  ` + brand.BinName() + ` ast watch --cluster my-cluster`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			targetPath := "."
+			if len(args) > 0 {
+				targetPath = args[0]
+			}
+			return runASTWatch(targetPath, workers, cluster)
+		},
+	}
+	cmd.Flags().IntVar(&workers, "workers", 0, "Parallel worker count (default: 2)")
+	cmd.Flags().StringVar(&cluster, "cluster", "", "Tag all indexed nodes with a logical cluster name")
+	return cmd
+}
+
+func newASTQueryCmd() *cobra.Command {
+	var contextName string
+	var aiMode bool
+	var cypherOnly bool
+	var aiOptimized bool
+	var semanticMode bool
+	var ftsMode bool
+	var topK int
+
+	cmd := &cobra.Command{
+		Use:   "query <cypher-query | natural-language-question>",
+		Short: "Query the AST knowledge graph (Cypher, natural language, or semantic search)",
+		Long: `Execute a Cypher query, ask a natural language question, or perform semantic search.
+
+Without --ai, --semantic, or --fts: runs a raw Cypher query.
+With --ai: generates Cypher from natural language via the configured AI provider.
+With --semantic: performs vector similarity search using code embeddings.
+  Requires embeddings to be computed (run via daemon or manually).
+With --fts: performs BM25 keyword-based full-text search across source code.
+With --cypher: prints the generated Cypher without executing it.
+With --context: queries an imported context instead of the project graph.
+With --ai-optimized: outputs results in a compact, token-efficient tabular format
+  instead of verbose JSON. Reduces token consumption by 30-60%%. Recommended for
+  AI agents and LLM pipelines.
+
+Examples:
+  ` + brand.BinName() + ` ast query "MATCH (f:Function) RETURN f.name LIMIT 10"
+  ` + brand.BinName() + ` ast query "MATCH (f:Function) RETURN f.name, f.path LIMIT 10" --ai-optimized
+  ` + brand.BinName() + ` ast query "show all functions that call validate_cpf" --ai
+  ` + brand.BinName() + ` ast query "which tables are referenced?" --ai --cypher
+  ` + brand.BinName() + ` ast query "procedures" --ai --context oracle-schema
+  ` + brand.BinName() + ` ast query "authentication and login logic" --semantic
+  ` + brand.BinName() + ` ast query "error handling patterns" --semantic --top 20
+  ` + brand.BinName() + ` ast query "processOrder" --fts
+  ` + brand.BinName() + ` ast query "SELECT FROM users" --fts --top 15`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			query := strings.Join(args, " ")
+			if semanticMode {
+				return runASTSemanticSearch(query, contextName, topK, aiOptimized)
+			}
+			if ftsMode {
+				return runASTFullTextSearch(query, contextName, topK, aiOptimized)
+			}
+			return runASTQuery(query, contextName, aiMode, cypherOnly, aiOptimized)
+		},
+	}
+	cmd.Flags().StringVar(&contextName, "context", "", "Query an imported context instead of the project")
+	_ = cmd.RegisterFlagCompletionFunc("context", completionASTContexts())
+	cmd.Flags().BoolVar(&aiMode, "ai", false, "Generate Cypher from natural language via AI")
+	cmd.Flags().BoolVar(&cypherOnly, "cypher", false, "Print generated Cypher without executing (requires --ai)")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient tabular format for AI agents")
+	cmd.Flags().BoolVar(&semanticMode, "semantic", false, "Perform vector similarity search using code embeddings")
+	cmd.Flags().BoolVar(&ftsMode, "fts", false, "Perform BM25 keyword-based full-text search across source code")
+	cmd.Flags().IntVar(&topK, "top", 0, "Limit number of results for semantic/FTS search (0 = no limit)")
+	return cmd
+}
+
+func newASTSchemaCmd() *cobra.Command {
+	var contextName string
+
+	cmd := &cobra.Command{
+		Use:   "schema",
+		Short: "Show the AST graph schema and node properties",
+		Long: `Print the comprehensive AST graph schema — node labels, properties, and relationships.
+
+Useful for AI agents and LLMs to understand the graph structure before writing Cypher queries.
+
+Examples:
+  ` + brand.BinName() + ` ast schema
+  ` + brand.BinName() + ` ast schema --context oracle-schema`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runASTSchema(contextName)
+		},
+	}
+	cmd.Flags().StringVar(&contextName, "context", "", "Show schema for an imported context")
+	_ = cmd.RegisterFlagCompletionFunc("context", completionASTContexts())
+	return cmd
+}
+
+func newASTInstallCmd() *cobra.Command {
+	var contextName string
+	var reset bool
+	var list bool
+	var workers int
+
+	cmd := &cobra.Command{
+		Use:   "install [path] --context <name>",
+		Short: "Import an external project AST into a named context",
+		Long: `Import an external project's source code into a separate AST database.
+
+Each imported context gets its own LadybugDB at ~/` + brand.DotDir() + `/ast/<name>/ladybugdb.
+
+Examples:
+  ` + brand.BinName() + ` ast install /path/to/project --context oracle-schema
+  ` + brand.BinName() + ` ast install /path/to/project --context oracle-schema --reset
+  ` + brand.BinName() + ` ast install --list`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if list {
+				return runASTImportList()
+			}
+			if len(args) == 0 {
+				return fmt.Errorf("path argument required (or use --list)")
+			}
+			if contextName == "" {
+				return fmt.Errorf("--context is required for importing")
+			}
+			return runASTImport(args[0], contextName, reset, workers)
+		},
+	}
+	cmd.Flags().StringVar(&contextName, "context", "", "Name for the imported context (required)")
+	cmd.Flags().BoolVar(&reset, "reset", false, "Wipe the context database before importing")
+	cmd.Flags().BoolVar(&list, "list", false, "List all imported contexts")
+	cmd.Flags().IntVar(&workers, "workers", 0, "Parallel worker count (default: all CPUs)")
+	return cmd
+}
+
+func newASTRemoveCmd() *cobra.Command {
+	var contextName string
+
+	cmd := &cobra.Command{
+		Use:   "remove",
+		Short: "Remove the project AST graph or an imported context",
+		Long: `Without --context: clears the project's AST database (source files kept).
+With --context <name>: removes the imported context entirely (database + config).
+
+Examples:
+  ` + brand.BinName() + ` ast remove
+  ` + brand.BinName() + ` ast remove --context oracle-schema`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runASTClean(contextName)
+		},
+	}
+	cmd.Flags().StringVar(&contextName, "context", "", "Remove an imported context by name")
+	_ = cmd.RegisterFlagCompletionFunc("context", completionASTContexts())
+	return cmd
+}
+
+func newASTSyncCmd() *cobra.Command {
+	var contextName string
+
+	cmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Re-sync an imported AST context from the global cache",
+		Long: `Re-installs files for an imported AST context from the global cache.
+Use --context to specify which context to sync.
+
+Examples:
+  ` + brand.BinName() + ` ast sync --context oracle-schema`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runASTSync(contextName)
+		},
+	}
+	cmd.Flags().StringVar(&contextName, "context", "", "Sync a specific imported context by name")
+	_ = cmd.RegisterFlagCompletionFunc("context", completionASTContexts())
+	return cmd
+}
+
+func newASTExportCmd() *cobra.Command {
+	var format string
+	var outputDir string
+	var noSources bool
+
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export the AST knowledge graph (Obsidian vault or .ast bundle)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runASTExport(format, outputDir, noSources)
+		},
+	}
+	cmd.Flags().StringVar(&format, "format", "obsidian", "Export format (obsidian, bundle)")
+	cmd.Flags().StringVar(&outputDir, "output", "./"+brand.DotDir()+"/ast/export", "Output path")
+	cmd.Flags().BoolVar(&noSources, "no-sources", false, "Exclude file source content from bundle export")
+	return cmd
+}
+
+func newASTListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all installed AST contexts (including the local project)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runASTImportList()
+		},
+	}
+}
+
+func newASTSourceCmd() *cobra.Command {
+	var contextName string
+
+	cmd := &cobra.Command{
+		Use:   "source <relative-path>",
+		Short: "Show the stored source code for a file",
+		Long: `Retrieve the stored source content for a file from the SQLite content store.
+
+The path should be relative to the project root (as stored in the graph).
+Without --context, looks in the project's content store.
+With --context, looks in the imported context's content store.
+
+Examples:
+  ` + brand.BinName() + ` ast source internal/auth/jwt.go
+  ` + brand.BinName() + ` ast source pkg/forms.go --context oracle-schema`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runASTSource(args[0], contextName)
+		},
+	}
+	cmd.Flags().StringVar(&contextName, "context", "", "Look up source in an imported context")
+	_ = cmd.RegisterFlagCompletionFunc("context", completionASTContexts())
+	return cmd
+}
+
+func newASTEmbedCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "embed",
+		Short: "Generate vector embeddings for semantic search",
+		Long: `Compute vector embeddings for all code entities in the AST graph.
+
+Embeddings enable semantic search (` + brand.BinName() + ` ast query --semantic).
+Only entities that are new or have changed since the last run are processed,
+making subsequent runs fast when nothing has changed.
+
+Requires an embedding provider to be configured (see ` + brand.BinName() + ` setup).`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p := output.NewPrinter("")
+			ctx := context.Background()
+
+			task := p.StartTask("Checking pending embeddings...")
+
+			cfg := ast.DefaultEmbeddingConfig()
+			ladybugCfg := ast.DefaultLadybugConfig()
+			cacheDir := filepath.Dir(ladybugCfg.DBPath)
+
+			parseCache, cacheErr := ast.NewShardCache(cacheDir)
+			if cacheErr != nil {
+				task.Fail("Parse cache: %v", cacheErr)
+				return nil
+			}
+			cfg.ParseCache = parseCache
+
+			if embCache, embErr := ast.NewShardEmbCache(cacheDir, parseCache); embErr == nil {
+				cfg.EmbCache = embCache
+				defer embCache.Close()
+			}
+
+			probe := ast.NewEmbedder(nil, cfg)
+			pending := probe.CountPending(ctx)
+			if pending == 0 {
+				task.Done("All entities up to date")
+				return nil
+			}
+
+			task.Update("Loading embedding model...")
+			embClient, err := ai.NewEmbeddingClientFromConfig()
+			if err != nil {
+				task.Fail("Embedding client: %v", err)
+				return nil
+			}
+
+			cfg.OnProgress = func(done, total int) {
+				task.Update("Embedding: %d / %d", done, total)
+			}
+			embedder := ast.NewEmbedder(embClient, cfg)
+			n, err := embedder.RunCycle(ctx)
+			if err != nil {
+				task.Fail("Embedding cycle: %v", err)
+				return nil
+			}
+
+			task.Done("%d entities embedded", n)
+			return nil
+		},
+	}
+}

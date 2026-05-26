@@ -1,0 +1,255 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Linux amd64 ────────────────────────────────────────────────────────────
+  build-linux:
+    name: Build (linux-amd64)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: internal/ui/package-lock.json
+
+      - name: Install system dependencies (CGO)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libicu-dev \
+            pkg-config \
+            curl \
+            unzip
+
+      - name: Cache ONNX Runtime
+        uses: actions/cache@v4
+        with:
+          path: /tmp/onnxruntime-cache
+          key: onnxruntime-linux-x64-${{ env.ORT_VERSION }}
+        env:
+          ORT_VERSION: '1.25.0'
+
+      - name: Cache CodeRankEmbed model
+        uses: actions/cache@v4
+        with:
+          path: /tmp/coderankembed-cache
+          key: coderankembed-int8-model-v1
+
+      - name: Cache LadybugDB native library
+        uses: actions/cache@v4
+        with:
+          path: /tmp/lbug-cache
+          key: liblbug-linux-amd64-v0.13.1
+
+      - name: Build (Linux)
+        run: |
+          make build-linux \
+            VERSION="${{ github.ref_name }}" \
+            BRAND="graphit" \
+            DISPLAY_NAME="Graphit Code: AI Harness for Collaborative and Progressive Knowledge" \
+            LBUG_PLATFORMS="linux-amd64"
+
+      - name: Generate SHA-256 checksum
+        run: |
+          cd .build
+          sha256sum graphit-linux-amd64 > graphit-linux-amd64.sha256
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64
+          path: |
+            .build/graphit-linux-amd64
+            .build/graphit-linux-amd64.sha256
+          retention-days: 1
+
+  # ── Windows amd64 ──────────────────────────────────────────────────────────
+  build-windows:
+    name: Build (windows-amd64)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: internal/ui/package-lock.json
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            mingw-w64 \
+            zstd \
+            curl \
+            pkg-config \
+            unzip \
+            wget
+
+      - name: Install ICU for Windows (mingw-w64)
+        run: |
+          sudo apt-get install -y --no-install-recommends curl zstd
+          ICU_PKG="mingw-w64-x86_64-icu-75.1-2-any.pkg.tar.zst"
+          curl -sSLO "https://mirror.msys2.org/mingw/mingw64/${ICU_PKG}"
+          sudo mkdir -p /usr/x86_64-w64-mingw32/icu
+          sudo tar --use-compress-program=zstd -xf "${ICU_PKG}" \
+            -C /usr/x86_64-w64-mingw32/icu \
+            --strip-components=1 mingw64
+
+      - name: Cache ONNX Runtime (Windows)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/onnxruntime-cache
+          key: onnxruntime-win-x64-${{ env.ORT_VERSION }}
+        env:
+          ORT_VERSION: '1.25.0'
+
+      - name: Cache CodeRankEmbed model
+        uses: actions/cache@v4
+        with:
+          path: /tmp/coderankembed-cache
+          key: coderankembed-int8-model-v1
+
+      - name: Cache LadybugDB native library (Windows)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/lbug-cache
+          key: liblbug-windows-v0.13.1
+
+      - name: Build (Windows)
+        run: |
+          make build-windows \
+            VERSION="${{ github.ref_name }}" \
+            BRAND="graphit" \
+            DISPLAY_NAME="Graphit Code: AI Harness for Collaborative and Progressive Knowledge" \
+            LBUG_PLATFORMS="windows"
+
+      - name: Generate SHA-256 checksum
+        run: |
+          cd .build
+          sha256sum graphit-windows-amd64.exe > graphit-windows-amd64.exe.sha256
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-amd64
+          path: |
+            .build/graphit-windows-amd64.exe
+            .build/graphit-windows-amd64.exe.sha256
+          retention-days: 1
+
+  # ── Publish Release ────────────────────────────────────────────────────────
+  publish:
+    name: Publish GitHub Release
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Flatten artifact directories
+        run: |
+          mkdir -p release-assets
+          find dist/ -type f -exec cp {} release-assets/ \;
+          ls -la release-assets/
+
+      - name: Generate combined checksums file
+        run: |
+          cd release-assets
+          cat *.sha256 > checksums.sha256
+          echo "=== checksums.sha256 ==="
+          cat checksums.sha256
+
+      - name: Extract changelog for this tag
+        id: changelog
+        run: |
+          TAG="${{ github.ref_name }}"
+          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${TAG}$" | head -1)
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD" -- 2>/dev/null || echo "")
+          else
+            CHANGES=$(git log --pretty=format:"- %s (%h)" 2>/dev/null | head -20 || echo "")
+          fi
+          echo "changes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Graphit Code ${{ github.ref_name }}"
+          body: |
+            ## What's Changed
+
+            ${{ steps.changelog.outputs.changes }}
+
+            ## Installation
+
+            ### Linux (amd64)
+            ```bash
+            curl -fsSL https://github.com/graphit-labs/graphit-code/releases/download/${{ github.ref_name }}/graphit-linux-amd64 -o graphit
+            chmod +x graphit
+            sudo mv graphit /usr/local/bin/
+            ```
+
+            ### Windows (amd64)
+            Download `graphit-windows-amd64.exe` and add to your PATH.
+
+            ### Verify integrity
+            ```bash
+            sha256sum -c checksums.sha256
+            ```
+
+            ## Self-update
+            If you already have `graphit` installed:
+            ```bash
+            graphit self-update
+            ```
+          files: |
+            release-assets/graphit-linux-amd64
+            release-assets/graphit-linux-amd64.sha256
+            release-assets/graphit-windows-amd64.exe
+            release-assets/graphit-windows-amd64.exe.sha256
+            release-assets/checksums.sha256
+          fail_on_unmatched_files: true
+          make_latest: true
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

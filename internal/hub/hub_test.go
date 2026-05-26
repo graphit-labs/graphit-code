@@ -1,0 +1,89 @@
+package hub
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestHubHashing(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "graphit-hub-hash-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// 1. Hash of non-existent path
+	_, err = HashPath(filepath.Join(tempDir, "nonexistent"))
+	if err == nil {
+		t.Error("expected error for nonexistent path")
+	}
+
+	// 2. Hash of empty directory
+	emptyDir := filepath.Join(tempDir, "empty")
+	os.Mkdir(emptyDir, 0755)
+	_, err = HashPath(emptyDir)
+	if err == nil || !strings.Contains(err.Error(), "contains no files") {
+		t.Errorf("expected empty directory error, got: %v", err)
+	}
+
+	// 3. Hash of single file
+	filePath := filepath.Join(tempDir, "file.txt")
+	content := "some file content"
+	os.WriteFile(filePath, []byte(content), 0644)
+
+	h1, err := HashFile(filePath)
+	if err != nil {
+		t.Fatalf("failed to hash file: %v", err)
+	}
+
+	h2, err := HashPath(filePath)
+	if err != nil {
+		t.Fatalf("failed to hash path (file): %v", err)
+	}
+
+	if h1 != h2 {
+		t.Errorf("expected same hash from HashFile and HashPath: %s vs %s", h1, h2)
+	}
+
+	// 4. Hash of directory containing files
+	dirPath := filepath.Join(tempDir, "dir")
+	os.Mkdir(dirPath, 0755)
+	os.WriteFile(filepath.Join(dirPath, "f1.txt"), []byte("c1"), 0644)
+	os.WriteFile(filepath.Join(dirPath, "f2.txt"), []byte("c2"), 0644)
+
+	hDir, err := HashDirectory(dirPath)
+	if err != nil {
+		t.Fatalf("failed to hash directory: %v", err)
+	}
+	if hDir == "" {
+		t.Error("expected non-empty directory hash")
+	}
+
+	// 5. TruncateHash
+	truncated := TruncateHash(hDir, 8)
+	if len(truncated) != 8 {
+		t.Errorf("expected length 8, got %d", len(truncated))
+	}
+	truncatedShort := TruncateHash("123", 8)
+	if truncatedShort != "123" {
+		t.Errorf("expected '123', got %q", truncatedShort)
+	}
+
+	// 6. VerifyHash
+	ok, err := VerifyHash(filePath, h1)
+	if err != nil || !ok {
+		t.Errorf("VerifyHash failed: %v, %t", err, ok)
+	}
+
+	okEmpty, err := VerifyHash(filePath, "")
+	if err != nil || !okEmpty {
+		t.Errorf("VerifyHash with empty expected should succeed: %v, %t", err, okEmpty)
+	}
+
+	okFail, _ := VerifyHash(filePath, "wronghash")
+	if okFail {
+		t.Error("VerifyHash with wrong hash should fail")
+	}
+}

@@ -1,0 +1,16 @@
+{
+  "project": {
+    "id": "01KSH1CRFFG8Z74B5ZS78WW808",
+    "name": "graphit-labs/graphit-code",
+    "description": ""
+  },
+  "ides": [
+    "antigravity"
+  ],
+  "artifacts": {},
+  "config": {
+    "knowledge": {
+      "docs_dir": "docs"
+    }
+  }
+}

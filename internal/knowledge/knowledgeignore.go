@@ -1,0 +1,37 @@
+package knowledge
+
+import (
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/ignorer"
+)
+
+const KnowledgeIgnoreFile = ".knowledgeignore"
+
+var DefaultKnowledgeIgnorePatterns = []string{
+
+	"*.exe", "*.dll", "*.so", "*.dylib", "*.o", "*.a", "*.lib",
+	"*.class", "*.jar", "*.war", "*.pyc", "*.pyo", "*.whl", "*.egg",
+
+	"*.jpg", "*.jpeg", "*.png", "*.gif", "*.bmp", "*.ico", "*.svg", "*.webp",
+	"*.mp3", "*.mp4", "*.avi", "*.mov", "*.mkv", "*.flv", "*.wav", "*.flac",
+
+	"*.zip", "*.tar", "*.gz", "*.bz2", "*.7z", "*.rar", "*.xz",
+
+	"*.pdf", "*.doc", "*.docx", "*.xls", "*.xlsx", "*.ppt", "*.pptx",
+
+	"*.min.js", "*.min.css", "*.map",
+
+	"*.lock", "package-lock.json", "yarn.lock", "Cargo.lock", "go.sum",
+
+	"node_modules/", ".git/", "__pycache__/", ".venv/", "venv/",
+	"vendor/", "dist/", "build/", ".cache/", "coverage/",
+	".idea/", ".vscode/", ".vs/", "*.swp", "*.swo", "*~",
+
+	".DS_Store", "Thumbs.db",
+
+	brand.DotDir() + "/",
+}
+
+func NewKnowledgeIgnoreChecker(rootPath string) *ignorer.IgnoreChecker {
+	return ignorer.New(rootPath, rootPath, KnowledgeIgnoreFile, DefaultKnowledgeIgnorePatterns)
+}

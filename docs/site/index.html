@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Graphit Code — Enterprise Collaboration Hub for AI-Guided Software</title>
+  <meta name="description" content="Transform your local development into a collaborative enterprise ecosystem. Graphit Code provides deterministic AST understanding, persistent memory, and ecosystem discovery with zero dependencies and 100% data privacy.">
+  <meta name="color-scheme" content="light dark">
+
+  <script>
+    {
+      const colorScheme = localStorage.getItem("color-scheme");
+      if (colorScheme) {
+        document.documentElement.classList.toggle('dark', colorScheme === 'dark');
+        document.querySelector('meta[name="color-scheme"]').content = colorScheme;
+      } else {
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.classList.toggle('dark', prefersDark);
+      }
+    }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+    /* Robust Base CSS Architecture to Prevent Layout Breakage */
+    :root {
+      color-scheme: light dark;
+      --bg: #f8fafc;
+      --bg-glass: rgba(255, 255, 255, 0.75);
+      --fg: #0f172a;
+      --fg-muted: #475569;
+      --border: rgba(15, 23, 42, 0.1);
+      --border-glow: rgba(37, 99, 235, 0.3);
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --accent-1: #8b5cf6;
+      --accent-2: #06b6d4;
+      --accent-3: #10b981;
+      --accent-4: #f43f5e;
+      --card: rgba(255, 255, 255, 0.85);
+      --card-hover: rgba(255, 255, 255, 1);
+      
+      --glow-opacity: 0.15;
+      --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      --shadow-lg: 0 20px 40px -10px rgba(0, 0, 0, 0.1);
+    }
+
+    .dark {
+      --bg: #030712;
+      --bg-glass: rgba(3, 7, 18, 0.75);
+      --fg: #f8fafc;
+      --fg-muted: #94a3b8;
+      --border: rgba(255, 255, 255, 0.1);
+      --border-glow: rgba(99, 102, 241, 0.4);
+      --primary: #3b82f6;
+      --primary-hover: #60a5fa;
+      --accent-1: #a855f7;
+      --accent-2: #22d3ee;
+      --accent-3: #34d399;
+      --accent-4: #fb7185;
+      --card: rgba(15, 23, 42, 0.65);
+      --card-hover: rgba(30, 41, 59, 0.85);
+      
+      --glow-opacity: 0.25;
+      --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+      --shadow-lg: 0 20px 40px -10px rgba(0, 0, 0, 0.8);
+    }
+
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg);
+      color: var(--fg);
+      line-height: 1.6;
+      overflow-x: hidden;
+      transition: background-color 0.3s ease, color 0.3s ease;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    h1, h2, h3, h4, h5, h6, .display-font {
+      font-family: 'Outfit', sans-serif;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+    }
+
+    a { text-decoration: none; color: inherit; }
+
+    /* ─── Immersive Background ─── */
+    .mesh-bg {
+      position: fixed; inset: 0; z-index: -1;
+      overflow: hidden; background: var(--bg);
+    }
+    .mesh-orb {
+      position: absolute; border-radius: 50%; filter: blur(120px);
+      opacity: var(--glow-opacity); animation: drift 25s infinite alternate ease-in-out;
+      pointer-events: none;
+    }
+    .orb-1 { width: 60vw; height: 60vw; background: var(--primary); top: -20%; left: -10%; }
+    .orb-2 { width: 50vw; height: 50vw; background: var(--accent-1); bottom: -10%; right: -10%; animation-delay: -5s; }
+    .orb-3 { width: 40vw; height: 40vw; background: var(--accent-2); top: 30%; left: 30%; animation-delay: -10s; }
+
+    @keyframes drift {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(3%, 8%) scale(1.05); }
+    }
+
+    /* ─── Navigation ─── */
+    nav {
+      position: fixed; top: 0; width: 100%; z-index: 100;
+      background: var(--bg-glass);
+      backdrop-filter: blur(24px) saturate(1.5);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-container {
+      max-width: 1400px; margin: 0 auto; padding: 0 2rem;
+      height: 72px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .brand { display: flex; align-items: center; gap: 0.75rem; font-size: 1.25rem; font-weight: 800; font-family: 'Outfit'; }
+    .brand img { width: 28px; height: 28px; }
+    .nav-links { display: flex; align-items: center; gap: 1.5rem; }
+    .nav-link { font-size: 0.95rem; font-weight: 600; color: var(--fg-muted); transition: color 0.2s; }
+    .nav-link:hover { color: var(--fg); }
+    .theme-toggle {
+      background: none; border: none; cursor: pointer; color: var(--fg-muted);
+      padding: 0.5rem; border-radius: 8px; transition: all 0.2s; display: flex;
+    }
+    .theme-toggle:hover { color: var(--fg); background: var(--border); }
+    .dark .icon-sun { display: block; }
+    .dark .icon-moon { display: none; }
+    .icon-sun { display: none; }
+    .icon-moon { display: block; }
+
+    /* ─── Layout Primitives ─── */
+    .container { max-width: 1400px; margin: 0 auto; padding: 8rem 2rem; }
+    
+    .glass-panel {
+      background: var(--card); backdrop-filter: blur(24px);
+      border: 1px solid var(--border); border-radius: 24px;
+      box-shadow: var(--shadow-lg); transition: all 0.4s;
+    }
+    .glass-panel:hover { border-color: var(--border-glow); transform: translateY(-4px); }
+
+    .section-header { text-align: center; margin-bottom: 4rem; max-width: 900px; margin-inline: auto; }
+    .section-header h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 1rem; }
+    .section-header p { font-size: 1.125rem; color: var(--fg-muted); }
+
+    /* ─── Hero ─── */
+    .hero {
+      min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 10rem 2rem 4rem; position: relative;
+    }
+    .pill {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.5rem 1.25rem; border-radius: 99px;
+      background: rgba(37, 99, 235, 0.1); border: 1px solid var(--border-glow);
+      font-size: 0.875rem; font-weight: 700; color: var(--primary); margin-bottom: 2rem;
+    }
+    .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-3); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    
+    .hero h1 {
+      font-size: clamp(3rem, 8vw, 5.5rem); font-weight: 900;
+      margin-bottom: 1.5rem; max-width: 1200px;
+      background: linear-gradient(135deg, var(--fg) 30%, var(--fg-muted) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .hero p { font-size: clamp(1.1rem, 2vw, 1.35rem); color: var(--fg-muted); max-width: 800px; margin-bottom: 3rem; }
+    
+    .btn-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.5rem; padding: 1rem 2rem;
+      border-radius: 12px; font-size: 1.1rem; font-weight: 600; transition: all 0.3s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.39); }
+    .btn-primary:hover { transform: translateY(-2px); background: var(--primary-hover); }
+    .btn-glass { background: var(--card); border: 1px solid var(--border); color: var(--fg); backdrop-filter: blur(12px); }
+    .btn-glass:hover { transform: translateY(-2px); background: var(--card-hover); }
+
+    /* ─── Problem / Solution (Robust Split Card) ─── */
+    .split-layout { display: flex; flex-direction: column; gap: 2rem; }
+    @media(min-width: 900px) { .split-layout { flex-direction: row; } }
+    
+    .split-card { flex: 1; padding: 3rem; display: flex; flex-direction: column; gap: 1.5rem; }
+    .split-card h3 { font-size: 2rem; }
+    .split-card ul { list-style: none; padding-left: 0; display: flex; flex-direction: column; gap: 1rem; }
+    .split-card li { font-size: 1.1rem; color: var(--fg-muted); position: relative; padding-left: 1.75rem; }
+    
+    .problem h3 { color: var(--accent-4); } 
+    .problem li::before { content: "✕"; color: var(--accent-4); font-weight: 900; position: absolute; left: 0; top: 0;}
+    
+    .solution h3 { color: var(--accent-3); } 
+    .solution li::before { content: "✓"; color: var(--accent-3); font-weight: 900; position: absolute; left: 0; top: 0;}
+
+    /* ─── Robust Bento Grid ─── */
+    .bento-grid { 
+      display: grid; 
+      grid-template-columns: 1fr; 
+      gap: 1.5rem; 
+    }
+    @media(min-width: 1024px) {
+      .bento-grid { grid-template-columns: repeat(12, 1fr); }
+      .bento-span-8 { grid-column: span 8; }
+      .bento-span-4 { grid-column: span 4; }
+      .bento-span-12 { grid-column: span 12; }
+    }
+    
+    .bento-item { padding: 3rem; display: flex; flex-direction: column; gap: 1.5rem; justify-content: space-between; overflow: hidden;}
+    .bento-item h3 { font-size: 2rem; }
+    .bento-item p { color: var(--fg-muted); font-size: 1.1rem; }
+    .bento-icon { width: 64px; height: 64px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 32px; flex-shrink: 0;}
+    
+    /* Gradients */
+    .bg-ast { background: linear-gradient(to bottom right, var(--card), rgba(6,182,212,0.05)); }
+    .bg-ast .bento-icon { background: rgba(6,182,212,0.1); color: var(--accent-2); }
+    
+    .bg-memory { background: linear-gradient(to bottom right, var(--card), rgba(244,63,94,0.05)); }
+    .bg-memory .bento-icon { background: rgba(244,63,94,0.1); color: var(--accent-4); }
+    
+    .bg-wiki { background: linear-gradient(to bottom right, var(--card), rgba(139,92,246,0.05)); }
+    .bg-wiki .bento-icon { background: rgba(139,92,246,0.1); color: var(--accent-1); }
+    
+    .bg-hub { background: linear-gradient(to bottom right, var(--card), rgba(16,185,129,0.05)); }
+    .bg-hub .bento-icon { background: rgba(16,185,129,0.1); color: var(--accent-3); }
+    
+    .bg-improvements { background: linear-gradient(to bottom right, var(--card), rgba(37,99,235,0.05)); }
+    .bg-improvements .bento-icon { background: rgba(37,99,235,0.1); color: var(--primary); }
+
+    .bento-visual { margin-top: auto; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); display: flex;}
+    .bento-visual img { width: 100%; height: auto; object-fit: cover; display: block; }
+
+    .hub-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+    @media(min-width: 600px) { .hub-grid { grid-template-columns: repeat(4, 1fr); } }
+    
+    .hub-card { background: var(--bg); border: 1px solid var(--border); padding: 1.25rem; border-radius: 12px; }
+    .hub-card h4 { font-size: 1rem; margin-bottom: 0.25rem; }
+    .hub-card p { font-size: 0.85rem; color: var(--fg-muted); }
+
+    /* ─── Terminals ─── */
+    .terminal { background: #0f172a; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); width: 100%; }
+    .dark .terminal { background: #020617; }
+    .terminal-header { background: #1e293b; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 0.5rem; }
+    .dark .terminal-header { background: #0f172a; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink:0; }
+    .dot.r { background: #ef4444; } .dot.y { background: #eab308; } .dot.g { background: #22c55e; }
+    .terminal-body { padding: 1.5rem; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; color: #f8fafc; line-height: 1.7; overflow-x: auto; white-space: nowrap; word-break: normal;}
+    .terminal-body .c { color: #64748b; } .terminal-body .cmd { color: #38bdf8; } .terminal-body .arg { color: #34d399; } .terminal-body .str { color: #facc15; }
+    .copy-btn { background: transparent; border: none; color: #64748b; cursor: pointer; padding: 4px; border-radius: 6px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
+    .copy-btn:hover { color: #f8fafc; background: rgba(255,255,255,0.1); }
+    .grid-3 { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+    @media(min-width: 768px) { .grid-3 { grid-template-columns: repeat(3, 1fr); } }
+    
+    .feature-card { padding: 2.5rem; display: flex; flex-direction: column; gap: 1rem; align-items: center; text-align: center; }
+    .feature-card .icon { font-size: 3rem; }
+    .feature-card h4 { font-size: 1.25rem; }
+    .feature-card p { color: var(--fg-muted); font-size: 1rem; }
+
+    /* ─── Arch Diagram (CSS Based) ─── */
+    .arch-diagram {
+      display: flex; flex-direction: column; gap: 1.5rem; max-width: 900px; margin: 0 auto;
+    }
+    .arch-box {
+      background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+      padding: 1.5rem; text-align: center; font-weight: 600; color: var(--fg);
+    }
+    .arch-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;
+    }
+    .arch-item {
+      background: rgba(37, 99, 235, 0.05); border: 1px solid rgba(37, 99, 235, 0.2);
+      border-radius: 12px; padding: 1rem; font-size: 0.9rem; color: var(--fg-muted);
+      display: flex; flex-direction: column; gap: 0.5rem; justify-content: center;
+    }
+    .arch-item strong { color: var(--primary); font-size: 1.1rem;}
+    .arch-arrow { text-align: center; color: var(--fg-muted); font-size: 1.5rem; }
+
+    /* ─── Install Tabs ─── */
+    .install-tabs { display: flex; justify-content: center; gap: 0.5rem; margin-bottom: 2rem; flex-wrap: wrap; }
+    .install-tab { background: transparent; color: var(--fg-muted); border: 1px solid var(--border); padding: 0.75rem 2rem; border-radius: 12px; cursor: pointer; font-weight: 600; transition: all 0.2s; font-size: 1rem;}
+    .install-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .install-panel { display: none; max-width: 900px; margin: 0 auto; }
+    .install-panel.active { display: block; }
+
+    /* ─── Tags ─── */
+    .tag-container { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+    .tag { font-size: 0.85rem; font-weight: 700; padding: 0.25rem 0.75rem; border-radius: 8px; background: rgba(37,99,235,0.1); color: var(--primary); border: 1px solid rgba(37,99,235,0.2); }
+
+    /* ─── Animations ─── */
+    .reveal { opacity: 0; transform: translateY(30px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); }
+    .reveal.active { opacity: 1; transform: translateY(0); }
+
+    /* ─── Footer ─── */
+    footer { text-align: center; padding: 4rem 2rem; border-top: 1px solid var(--border); color: var(--fg-muted); }
+    footer a { color: var(--primary); font-weight: 600; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="mesh-bg">
+    <div class="mesh-orb orb-1"></div>
+    <div class="mesh-orb orb-2"></div>
+    <div class="mesh-orb orb-3"></div>
+  </div>
+
+  <nav>
+    <div class="nav-container">
+      <a href="#" class="brand"><img src="assets/logo.svg" alt="Logo"> Graphit Code</a>
+      <div class="nav-links">
+        <a href="#vision" class="nav-link">Vision</a>
+        <a href="#harness" class="nav-link">The Harness</a>
+        <a href="#ecosystem" class="nav-link">Ecosystem</a>
+        <a href="#install" class="nav-link">Install</a>
+        <a href="https://github.com/graphit-labs/graphit-code" class="btn btn-primary" style="padding: 0.5rem 1.25rem; border-radius: 8px; font-size: 0.9rem;">⭐ GitHub</a>
+        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle Theme">
+          <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+          <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero reveal active">
+    <div class="pill"><span class="dot"></span>Enterprise Collaboration Hub</div>
+    <h1>Stop Repeating Yourself.<br>Start Collaborating.</h1>
+    <p>Shift from being a solo engineer working with an AI assistant to a <strong>real collaborative flow within a complete enterprise ecosystem</strong>. Graphit Code provides deterministic code understanding, persistent memory, and seamless sharing across all your projects.</p>
+    <div class="btn-group">
+      <a href="#install" class="btn btn-primary">Install Now</a>
+      <a href="https://github.com/graphit-labs/graphit-code" class="btn btn-glass">View on GitHub</a>
+    </div>
+  </header>
+
+  <section id="vision" class="container">
+    <div class="section-header reveal">
+      <h2>The Enterprise Paradigm Shift</h2>
+      <p>Without a harness, your agent starts from zero every session, hallucinates APIs, and forgets context.</p>
+    </div>
+    <div class="split-layout reveal">
+      <div class="glass-panel split-card problem">
+        <h3>The Old Way</h3>
+        <ul>
+          <li>"I already told you — error responses follow this format..."</li>
+          <li>Agent greps blindly — misses structure, invents APIs.</li>
+          <li>Hallucinates endpoints from sibling services it can't see.</li>
+          <li>No architecture awareness beyond the current file.</li>
+          <li>Knowledge dies when the conversation ends.</li>
+        </ul>
+      </div>
+      <div class="glass-panel split-card solution">
+        <h3>With Graphit Code</h3>
+        <ul>
+          <li><strong>Progressive Knowledge:</strong> Memory compounds session over session.</li>
+          <li><strong>Deterministic AST:</strong> Cypher queries map your real architecture.</li>
+          <li><strong>Ecosystem Discovery:</strong> Seamlessly queries sibling codebases.</li>
+          <li><strong>Team Collaboration:</strong> Share skills, rules, and MCPs globally.</li>
+          <li><strong>Self-Documenting:</strong> Auto-generated Wiki your agent reads first.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="harness" class="container">
+    <div class="section-header reveal">
+      <h2>The Collaboration Engine</h2>
+      <p>Instant, auto-incremental, and zero-cost local LLM integration via your IDE.</p>
+    </div>
+    
+    <div class="bento-grid">
+      <!-- AST Explorer -->
+      <div class="glass-panel bento-item bento-span-8 bg-ast reveal">
+        <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+        <h3>AST Graph Explorer</h3>
+        <p>Built for blazing fast <strong>Go performance</strong>. Parses every file using Tree-sitter into LadybugDB. Query deterministic code structures with Cypher. <strong>Eliminates hallucinations</strong> by grounding answers in exact structural truths, and drastically <strong>reduces LLM token usage</strong> by passing only precise nodes instead of massive files.</p>
+        <div class="tag-container">
+          <span class="tag">Cypher Queries</span>
+          <span class="tag">Semantic Search</span>
+          <span class="tag">Deterministic Precision</span>
+        </div>
+        <div class="terminal" style="margin-top: 1.5rem;">
+          <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+          <div class="terminal-body">
+            <span class="c"># Query function call chains across the ecosystem</span><br>
+            <span class="cmd">graphit</span> <span class="arg">ast query</span> <span class="str">"MATCH (f:Function)-[:CALLS]-&gt;(t) RETURN f.name"</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Persistent Memory -->
+      <div class="glass-panel bento-item bento-span-4 bg-memory reveal">
+        <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="16" height="16" x="4" y="4" rx="2"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M20 15h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg></div>
+        <h3>Continuous Memory</h3>
+        <p>Your corrections and decisions persist automatically. Git-backed storage ensures full history. The <strong>Improvements Module</strong> works autonomously during your idle time to refine this memory.</p>
+        <div class="bento-visual"><img src="assets/memory-explorer.png" alt="Memory Explorer"></div>
+      </div>
+
+      <!-- Collaboration Hub -->
+      <div class="glass-panel bento-item bento-span-12 bg-hub reveal">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+          <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg></div>
+          <div>
+            <h3>The Enterprise Hub</h3>
+            <p style="margin: 0;">A decentralized, Git-based artifact registry. Import what your team knows, publish what you discover. Fosters <strong>progressive knowledge</strong> across the entire enterprise ecosystem, ensuring that every project benefits from shared intelligence. 100% private and trackable.</p>
+          </div>
+        </div>
+        <div class="hub-grid">
+          <div class="hub-card"><h4 style="color:var(--primary)">knowledge</h4><p>LLM Wikis</p></div>
+          <div class="hub-card"><h4 style="color:var(--accent-2)">ast</h4><p>Code Graphs</p></div>
+          <div class="hub-card"><h4 style="color:var(--accent-3)">skill</h4><p>Agent Skills</p></div>
+          <div class="hub-card"><h4 style="color:var(--accent-4)">rule</h4><p>Coding Standards</p></div>
+          <div class="hub-card"><h4 style="color:var(--accent-1)">agent</h4><p>Agent Profiles</p></div>
+          <div class="hub-card"><h4 style="color:#ef4444">mcp</h4><p>IDE Bridge Configs</p></div>
+          <div class="hub-card"><h4 style="color:#eab308">command</h4><p>Agent Actions</p></div>
+          <div class="hub-card"><h4 style="color:var(--primary)">power</h4><p>Bundled Artifacts</p></div>
+        </div>
+        <div class="bento-visual" style="margin-top: 1.5rem;"><img src="assets/hub-project-artifacts.png" alt="Hub Explorer"></div>
+      </div>
+      
+      <!-- LLM Wiki -->
+      <div class="glass-panel bento-item bento-span-8 bg-wiki reveal">
+        <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></div>
+        <h3>LLM Wiki & Visual Dashboard</h3>
+        <p>Designed explicitly for agents. Replaces opaque vector embeddings with deterministic <strong>self-discovery</strong> and explicit <strong>back-referencing</strong>. The agent organically navigates the wiki graph, guaranteeing 100% precise context retrieval without hallucinated semantic matches.</p>
+        <div class="bento-visual"><img src="assets/knowledge-wiki.png" alt="Knowledge Wiki"></div>
+      </div>
+
+      <!-- Improvements Module -->
+      <div class="glass-panel bento-item bento-span-4 bg-improvements reveal">
+        <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
+        <h3>Improvements</h3>
+        <p>Autonomous background orchestration. During idle time, it continuously reflects on your codebase to propose refactorings and audits based on strict, high-standard engineering best practices.</p>
+        <div class="terminal" style="margin-top: auto;">
+          <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+          <div class="terminal-body" style="padding: 1.25rem; white-space: normal;">
+            <span class="cmd" style="font-size: 0.85rem;">[Autonomous]</span><br>
+            <span class="c" style="font-size: 0.85rem;">Auditing against strict rules...</span><br>
+            <span class="arg" style="font-size: 0.85rem;">Refactoring proposed.</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="ecosystem" class="container">
+    <div class="section-header reveal">
+      <h2>Ecosystem Discovery</h2>
+      <p>Your agent knows every project on your machine. Auto-configurable rules and smart routing keep context intact across all microservices.</p>
+    </div>
+    
+    <div class="terminal reveal" style="max-width: 1000px; margin: 0 auto 3rem;">
+      <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+      <div class="terminal-body">
+        <span class="c"># Label your projects by team and domain</span><br>
+        <span class="cmd">graphit</span> <span class="arg">cluster</span> <span class="str">team backend</span><br>
+        <span class="cmd">graphit</span> <span class="arg">cluster</span> <span class="str">domain payments</span><br><br>
+        <span class="c"># The agent seamlessly queries sibling services to prevent hallucinating APIs</span><br>
+        <span class="cmd">graphit</span> <span class="arg">ast query</span> <span class="str">"MATCH (f:Function) WHERE f.name CONTAINS 'Validate' RETURN f.name"</span>
+      </div>
+    </div>
+
+    <div class="grid-3 reveal">
+      <div class="glass-panel feature-card">
+        <div class="icon" style="color: var(--accent-2)"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+        <h4>Query Sibling Code</h4>
+        <p>Perform AST Cypher queries across all discovered projects. Retrieve real function signatures across repo boundaries.</p>
+      </div>
+      <div class="glass-panel feature-card">
+        <div class="icon" style="color: var(--accent-1)"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="16" height="16" x="4" y="4" rx="2"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M20 15h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg></div>
+        <h4>Integrate from Knowledge</h4>
+        <p>The agent reads sibling wikis, memories, and architectures to understand enterprise conventions and auth flows natively.</p>
+      </div>
+      <div class="glass-panel feature-card">
+        <div class="icon" style="color: var(--accent-3)"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></div>
+        <h4>Flawless Integrations</h4>
+        <p>Reads actual routes and DTOs from sibling projects to generate precise integration code, completely eliminating API hallucinations.</p>
+      </div>
+    </div>
+  </section>
+  
+  <section id="pillars" class="container">
+    <div class="section-header reveal">
+      <h2>Built for Enterprise Teams</h2>
+      <p>Uncompromising privacy, performance, and flexibility.</p>
+    </div>
+    <div class="grid-3 reveal">
+      <div class="glass-panel feature-card" style="padding: 2rem;">
+        <div class="icon" style="color: var(--accent-3); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+        <h4>100% Private Data</h4>
+        <p>All data stays on your machine. 100% anonymous tracking via Git repo.</p>
+      </div>
+      <div class="glass-panel feature-card" style="padding: 2rem;">
+        <div class="icon" style="color: #eab308; font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+        <h4>Zero Cost</h4>
+        <p>No extra API keys. Uses your local IDE CLI integration natively.</p>
+      </div>
+      <div class="glass-panel feature-card" style="padding: 2rem;">
+        <div class="icon" style="color: var(--primary); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></div>
+        <h4>Auto Sync</h4>
+        <p>Runs smoothly in the background to automatically keep your knowledge and code graphs perfectly aligned in real-time.</p>
+      </div>
+      <div class="glass-panel feature-card" style="padding: 2rem;">
+        <div class="icon" style="color: var(--accent-4); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
+        <h4>Self-Contained</h4>
+        <p>Single binary, zero machine dependencies. Ready to deploy anywhere.</p>
+      </div>
+      <div class="glass-panel feature-card" style="padding: 2rem;">
+        <div class="icon" style="color: var(--accent-2); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></div>
+        <h4>Auto Configurable</h4>
+        <p>Customizable default rules global or per-project. IDE agnostic.</p>
+      </div>
+      <div class="glass-panel feature-card" style="padding: 2rem;">
+        <div class="icon" style="color: var(--primary); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/></svg></div>
+        <h4>Cross-Platform</h4>
+        <p>Linux, macOS, Windows. Seamless integrations for major IDEs.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture" class="container">
+    <div class="section-header reveal">
+      <h2>Architecture</h2>
+      <p>Single Binary, Full Platform.</p>
+    </div>
+    <div class="arch-diagram reveal">
+      <div class="arch-box" style="border-color: var(--border-glow);">
+        Developer / IDE (Claude, Cursor, Gemini, Kiro)
+      </div>
+      <div class="arch-arrow">↓</div>
+      <div class="arch-box" style="text-align: left; padding: 2rem;">
+        <h4 style="text-align: center; margin-bottom: 1.5rem; font-size: 1.25rem;">graphit (Single Embedded Binary)</h4>
+        
+        <div class="arch-grid" style="margin-bottom: 1rem;">
+          <div class="arch-item"><strong>AST Graph</strong>LadybugDB + Tree-sitter</div>
+          <div class="arch-item"><strong>LLM Wiki</strong>Agents Search</div>
+          <div class="arch-item"><strong>Memory</strong>Git-Backed Persistence</div>
+        </div>
+        
+        <div class="arch-grid" style="margin-bottom: 1.5rem;">
+          <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>Hub Registry</strong>Git-Backed Persistence</div>
+          <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>Cluster</strong>Ecosystem Discovery</div>
+          <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>MCP Server</strong>IDE Bridge</div>
+        </div>
+
+        <div class="arch-box" style="background: var(--bg); border: 1px solid var(--border);">
+          <strong>Web Dashboard</strong> (React + D3)<br>
+          <span style="font-size: 0.9rem; color: var(--fg-muted);">AST Explorer · Wiki · Memory · Hub Manager</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" class="container">
+    <div class="section-header reveal">
+      <h2>Install in Seconds</h2>
+      <p>Zero dependencies. Use GitHub Artifacts or compile via make.</p>
+    </div>
+    <div class="install-tabs reveal">
+      <button class="install-tab active" onclick="showTab('linux')">Linux</button>
+      <button class="install-tab" onclick="showTab('macos')">macOS</button>
+      <button class="install-tab" onclick="showTab('windows')">Windows</button>
+      <button class="install-tab" onclick="showTab('source')">Source</button>
+    </div>
+
+    <div id="tab-linux" class="install-panel active reveal">
+      <div class="terminal">
+        <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+        <div class="terminal-body">
+          <span class="c"># Download Pre-compiled Binary from GitHub Artifacts</span><br>
+          <span class="cmd">curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-linux-amd64 -o graphit</span><br>
+          <span class="cmd">chmod +x graphit</span><br>
+          <span class="cmd">sudo mv graphit /usr/local/bin/</span><br><br>
+          <span class="c"># Configure & Init</span><br>
+          <span class="cmd">graphit setup</span><br>
+          <span class="cmd">graphit init</span> <span class="arg">--ide</span> <span class="str">&lt;antigravity|gemini|claude|cursor|kiro|codex|opencode&gt;</span>
+        </div>
+      </div>
+    </div>
+    <div id="tab-macos" class="install-panel reveal">
+      <div class="terminal">
+        <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+        <div class="terminal-body">
+          <span class="c"># Download Pre-compiled Binary (Apple Silicon)</span><br>
+          <span class="cmd">curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-darwin-arm64 -o graphit</span><br>
+          <span class="cmd">chmod +x graphit</span><br>
+          <span class="cmd">sudo mv graphit /usr/local/bin/</span><br><br>
+          <span class="c"># Configure & Init</span><br>
+          <span class="cmd">graphit setup</span><br>
+          <span class="cmd">graphit init</span> <span class="arg">--ide</span> <span class="str">&lt;antigravity|gemini|claude|cursor|kiro|codex|opencode&gt;</span>
+        </div>
+      </div>
+    </div>
+    <div id="tab-windows" class="install-panel reveal">
+      <div class="terminal">
+        <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+        <div class="terminal-body">
+          <span class="c"># Download Pre-compiled Binary (PowerShell)</span><br>
+          <span class="cmd">Invoke-WebRequest -Uri "https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-windows-amd64.exe" -OutFile "graphit.exe"</span><br><br>
+          <span class="c"># Add graphit.exe to your PATH to run globally</span><br><br>
+          <span class="c"># Configure & Init</span><br>
+          <span class="cmd">.\graphit setup</span><br>
+          <span class="cmd">.\graphit init</span> <span class="arg">--ide</span> <span class="str">&lt;antigravity|gemini|claude|cursor|kiro|codex|opencode&gt;</span>
+        </div>
+      </div>
+    </div>
+    <div id="tab-source" class="install-panel reveal">
+      <div class="terminal">
+        <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+        <div class="terminal-body">
+          <span class="c"># Compile manually. Requires: Go 1.23+, Node.js 22+, Make</span><br>
+          <span class="cmd">git clone https://github.com/graphit-labs/graphit-code.git</span><br>
+          <span class="cmd">cd graphit-code</span><br>
+          <span class="cmd">make install</span><br><br>
+          <span class="c"># Builds and installs the binary to /usr/local/bin/</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="brand" style="justify-content: center; margin-bottom: 1rem;"><img src="assets/logo.svg" alt="Logo"> Graphit Code</div>
+    <p>The Enterprise Collaboration Hub for Software Development</p>
+    <div style="margin-top: 1.5rem; display: flex; justify-content: center; gap: 1.5rem;">
+      <a href="https://github.com/graphit-labs/graphit-code">GitHub</a>
+      <a href="https://github.com/graphit-labs/graphit-code/releases">Releases</a>
+      <a href="https://github.com/graphit-labs/graphit-code/blob/main/LICENSE">MIT License</a>
+    </div>
+    <p style="margin-top: 3rem; font-size: 0.875rem;">© 2024–2026 Graphit Labs. Built with Go, React, Tree-sitter, LadybugDB, and CodeRankEmbed.</p>
+  </footer>
+
+  <script>
+    // Theme toggle
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    themeToggleBtn.addEventListener('click', () => {
+      const isDark = document.documentElement.classList.contains('dark');
+      const newTheme = isDark ? 'light' : 'dark';
+      document.documentElement.classList.toggle('dark');
+      document.querySelector('meta[name="color-scheme"]').content = newTheme;
+      localStorage.setItem('color-scheme', newTheme);
+    });
+
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+      if (!localStorage.getItem('color-scheme')) {
+        document.documentElement.classList.toggle('dark', e.matches);
+      }
+    });
+
+    // Install Tabs
+    window.showTab = function(name) {
+      document.querySelectorAll('.install-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.install-tab').forEach(t => t.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.add('active');
+      event.target.classList.add('active');
+    };
+
+    // Scroll Reveals
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('active');
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+    // Terminal Copy Buttons
+    document.querySelectorAll('.terminal').forEach(terminal => {
+      const header = terminal.querySelector('.terminal-header');
+      if (header) {
+        const dots = Array.from(header.querySelectorAll('.dot'));
+        if (dots.length > 0) {
+          const dotContainer = document.createElement('div');
+          dotContainer.style.display = 'flex';
+          dotContainer.style.gap = '0.5rem';
+          dots.forEach(dot => dotContainer.appendChild(dot));
+          header.appendChild(dotContainer);
+        }
+        
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'copy-btn';
+        copyBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+        copyBtn.ariaLabel = "Copy code";
+        header.style.justifyContent = 'space-between';
+        header.appendChild(copyBtn);
+
+        copyBtn.addEventListener('click', () => {
+          const body = terminal.querySelector('.terminal-body');
+          if (body) {
+            navigator.clipboard.writeText(body.innerText).then(() => {
+              const originalHTML = copyBtn.innerHTML;
+              copyBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+              setTimeout(() => { copyBtn.innerHTML = originalHTML; }, 2000);
+            });
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>
