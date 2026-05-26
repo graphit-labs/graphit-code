@@ -33,7 +33,7 @@ jobs:
         run: make vet
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
           args: --timeout=5m
@@ -65,6 +65,9 @@ jobs:
         run: |
           git config --global user.name "CI Bot"
           git config --global user.email "ci@graphit.dev"
+
+      - name: Setup native dependencies
+        run: make setup-lbug
 
       - name: Run tests
         run: make test
