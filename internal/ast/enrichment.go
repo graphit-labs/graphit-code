@@ -742,7 +742,7 @@ func ScoreEntryPoints(ctx context.Context, db GraphDB) {
 		}
 
 		uq := `MATCH (f:Function {uid: $uid}) SET f.entry_point_score = $score`
-		db.Execute(ctx, uq, map[string]any{"uid": uid, "score": score})
+		_, _ = db.Execute(ctx, uq, map[string]any{"uid": uid, "score": score})
 	}
 }
 

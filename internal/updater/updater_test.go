@@ -200,8 +200,8 @@ func TestAtomicReplace(t *testing.T) {
 	exePath := filepath.Join(tempDir, "current-exe")
 	newPath := filepath.Join(tempDir, "new-exe")
 
-	os.WriteFile(exePath, []byte("old binary content"), 0755)
-	os.WriteFile(newPath, []byte("new binary content"), 0755)
+	_ = os.WriteFile(exePath, []byte("old binary content"), 0755)
+	_ = os.WriteFile(newPath, []byte("new binary content"), 0755)
 
 	err = AtomicReplace(newPath, exePath)
 	if err != nil {

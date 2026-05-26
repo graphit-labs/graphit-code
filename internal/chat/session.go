@@ -80,7 +80,7 @@ func (s *ChatSession) Append(msg ChatMessage) error {
 	if err != nil {
 		return fmt.Errorf("opening session file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -103,7 +103,7 @@ func (s *ChatSession) LoadHistory() ([]ChatMessage, error) {
 		}
 		return nil, fmt.Errorf("opening session file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var messages []ChatMessage
 	scanner := bufio.NewScanner(f)

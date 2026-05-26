@@ -103,7 +103,7 @@ func (m *ModelManager) download(ctx context.Context, url, destPath string) error
 	if err != nil {
 		return fmt.Errorf("HTTP GET %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
@@ -128,7 +128,7 @@ func (m *ModelManager) download(ctx context.Context, url, destPath string) error
 	}
 
 	if err := os.Rename(tmpPath, destPath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 

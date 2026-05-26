@@ -113,7 +113,7 @@ func Download(url, destPath string, progressFn func(downloaded, total int64)) er
 	if err != nil {
 		return fmt.Errorf("creating destination file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if progressFn == nil {
 		_, err = io.Copy(f, resp.Body)
@@ -182,7 +182,7 @@ func sha256File(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
@@ -196,7 +196,7 @@ func extractChecksum(checksumFile, targetName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {

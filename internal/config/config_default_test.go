@@ -136,8 +136,8 @@ func TestResolveConfig(t *testing.T) {
 
 	// Test 3: Env overrides project and defaults
 	origEnv := os.Getenv("GRAPHIT_DEFAULT_KEY")
-	defer os.Setenv("GRAPHIT_DEFAULT_KEY", origEnv)
-	os.Setenv("GRAPHIT_DEFAULT_KEY", "env_val")
+	defer func() { _ = os.Setenv("GRAPHIT_DEFAULT_KEY", origEnv) }()
+	_ = os.Setenv("GRAPHIT_DEFAULT_KEY", "env_val")
 
 	val = ResolveConfig("default.key", nil, projectCfg)
 	if val != "env_val" {
@@ -169,7 +169,7 @@ func TestResolveIDEAndCLI(t *testing.T) {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
-	os.Setenv("HOME", tempDir)
+	_ = os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", origHome)
 
 	// Save env and restore
@@ -483,8 +483,8 @@ func TestAppDirHomeError(t *testing.T) {
 		os.Setenv("USERPROFILE", origUserProfile)
 	}()
 
-	os.Unsetenv("HOME")
-	os.Unsetenv("USERPROFILE")
+	_ = os.Unsetenv("HOME")
+	_ = os.Unsetenv("USERPROFILE")
 
 	_, err := AppDir()
 	if err == nil {
@@ -627,7 +627,7 @@ func TestUncoveredBranches(t *testing.T) {
 	}
 
 	// 5. resolveAmbientIDE branch coverage: global config has it, and defaults has it
-	os.Unsetenv("GRAPHIT_IDE")
+	_ = os.Unsetenv("GRAPHIT_IDE")
 
 	// 5a. Global config has it
 	err = SetGlobalConfigValue("ide", "global_ide")

@@ -94,7 +94,7 @@ func buildWikiSourceContext(sources []WikiSource) string {
 	var b strings.Builder
 	b.WriteString("=== Active Wiki Sources ===\n")
 	for _, s := range sources {
-		b.WriteString(fmt.Sprintf("- [%s] %s\n", s.ID, s.Label))
+		_, _ = fmt.Fprintf(&b, "- [%s] %s\n", s.ID, s.Label)
 	}
 	return b.String()
 }

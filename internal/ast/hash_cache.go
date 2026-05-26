@@ -25,7 +25,7 @@ func NewHashCache(cacheDir string) *HashCache {
 
 	data, err := os.ReadFile(cachePath)
 	if err == nil {
-		json.Unmarshal(data, &hc.hashes)
+		_ = json.Unmarshal(data, &hc.hashes)
 	}
 	return hc
 }

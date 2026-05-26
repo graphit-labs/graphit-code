@@ -61,7 +61,7 @@ func OpenSearchIndex(dbPath string) (*SearchIndex, error) {
 	}
 	for _, q := range ddl {
 		if _, err := db.Exec(q); err != nil {
-			db.Close()
+			_ = db.Close()
 			return nil, fmt.Errorf("search index schema %q: %w", q[:min(60, len(q))], err)
 		}
 	}
@@ -87,42 +87,42 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 	if err != nil {
 		return fmt.Errorf("search begin: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
-	tx.Exec("DELETE FROM file_fts")
-	tx.Exec("DELETE FROM entity_fts")
-	tx.Exec("DELETE FROM entity_vec")
-	tx.Exec("DELETE FROM entity_vec_map")
+	_, _ = tx.Exec("DELETE FROM file_fts")
+	_, _ = tx.Exec("DELETE FROM entity_fts")
+	_, _ = tx.Exec("DELETE FROM entity_vec")
+	_, _ = tx.Exec("DELETE FROM entity_vec_map")
 
 	fileStmt, _ := tx.Prepare("INSERT INTO file_fts(path, name, source) VALUES (?, ?, ?)")
-	defer fileStmt.Close()
+	defer func() { _ = fileStmt.Close() }()
 
 	entityFTSStmt, _ := tx.Prepare("INSERT INTO entity_fts(uid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?)")
-	defer entityFTSStmt.Close()
+	defer func() { _ = entityFTSStmt.Close() }()
 
 	vecStmt, _ := tx.Prepare("INSERT INTO entity_vec(rowid, embedding) VALUES (?, ?)")
-	defer vecStmt.Close()
+	defer func() { _ = vecStmt.Close() }()
 
 	mapStmt, _ := tx.Prepare("INSERT INTO entity_vec_map(uid, vec_rowid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?)")
-	defer mapStmt.Close()
+	defer func() { _ = mapStmt.Close() }()
 
 	fileCount, entityCount, vecCount := 0, 0, 0
 	rowID := int64(1)
 
 	for relPath, entry := range entries {
-		fileStmt.Exec(relPath, filepath.Base(relPath), entry.Source)
+		_, _ = fileStmt.Exec(relPath, filepath.Base(relPath), entry.Source)
 		fileCount++
 
 		for _, e := range entry.Entities {
-			entityFTSStmt.Exec(e.UID, e.Name, e.Docstring, e.Label, e.Path, e.Line)
+			_, _ = entityFTSStmt.Exec(e.UID, e.Name, e.Docstring, e.Label, e.Path, e.Line)
 			entityCount++
 
 			if embLookup != nil {
 				if vec := embLookup(relPath, e.UID); vec != nil {
 					blob, err := sqlite_vec.SerializeFloat32(vec)
 					if err == nil {
-						vecStmt.Exec(rowID, blob)
-						mapStmt.Exec(e.UID, rowID, e.Name, e.Docstring, e.Label, e.Path, e.Line)
+						_, _ = vecStmt.Exec(rowID, blob)
+						_, _ = mapStmt.Exec(e.UID, rowID, e.Name, e.Docstring, e.Label, e.Path, e.Line)
 						vecCount++
 						rowID++
 					}
@@ -158,11 +158,11 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 	if err != nil {
 		return fmt.Errorf("search begin: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	for _, p := range allAffected {
-		tx.Exec("DELETE FROM file_fts WHERE path = ?", p)
-		tx.Exec("DELETE FROM entity_fts WHERE path = ?", p)
+		_, _ = tx.Exec("DELETE FROM file_fts WHERE path = ?", p)
+		_, _ = tx.Exec("DELETE FROM entity_fts WHERE path = ?", p)
 
 		rows, err := tx.Query("SELECT vec_rowid FROM entity_vec_map WHERE path = ?", p)
 		if err == nil {
@@ -173,16 +173,16 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 					rowids = append(rowids, rid)
 				}
 			}
-			rows.Close()
+			_ = rows.Close()
 			for _, rid := range rowids {
-				tx.Exec("DELETE FROM entity_vec WHERE rowid = ?", rid)
+				_, _ = tx.Exec("DELETE FROM entity_vec WHERE rowid = ?", rid)
 			}
 		}
-		tx.Exec("DELETE FROM entity_vec_map WHERE path = ?", p)
+		_, _ = tx.Exec("DELETE FROM entity_vec_map WHERE path = ?", p)
 	}
 
 	var maxRowID int64
-	tx.QueryRow("SELECT COALESCE(MAX(vec_rowid), 0) FROM entity_vec_map").Scan(&maxRowID)
+	_ = tx.QueryRow("SELECT COALESCE(MAX(vec_rowid), 0) FROM entity_vec_map").Scan(&maxRowID)
 	nextRowID := maxRowID + 1
 
 	fileCount, entityCount, vecCount := 0, 0, 0
@@ -192,12 +192,12 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 			continue
 		}
 
-		tx.Exec("INSERT INTO file_fts(path, name, source) VALUES (?, ?, ?)",
+		_, _ = tx.Exec("INSERT INTO file_fts(path, name, source) VALUES (?, ?, ?)",
 			p, filepath.Base(p), entry.Source)
 		fileCount++
 
 		for _, e := range entry.Entities {
-			tx.Exec("INSERT INTO entity_fts(uid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?)",
+			_, _ = tx.Exec("INSERT INTO entity_fts(uid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?)",
 				e.UID, e.Name, e.Docstring, e.Label, e.Path, e.Line)
 			entityCount++
 
@@ -205,8 +205,8 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 				if vec := embLookup(p, e.UID); vec != nil {
 					blob, err := sqlite_vec.SerializeFloat32(vec)
 					if err == nil {
-						tx.Exec("INSERT INTO entity_vec(rowid, embedding) VALUES (?, ?)", nextRowID, blob)
-						tx.Exec("INSERT INTO entity_vec_map(uid, vec_rowid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?)",
+						_, _ = tx.Exec("INSERT INTO entity_vec(rowid, embedding) VALUES (?, ?)", nextRowID, blob)
+						_, _ = tx.Exec("INSERT INTO entity_vec_map(uid, vec_rowid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?)",
 							e.UID, nextRowID, e.Name, e.Docstring, e.Label, e.Path, e.Line)
 						vecCount++
 						nextRowID++

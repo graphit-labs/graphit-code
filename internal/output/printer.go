@@ -100,46 +100,46 @@ func (p *Printer) Error(msg string, args ...any) {
 
 func (p *Printer) Warn(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(p.w, p.tagLine(yellow.Sprint(SymbolWarn+" "+line)))
+	_, _ = fmt.Fprintln(p.w, p.tagLine(yellow.Sprint(SymbolWarn+" "+line)))
 }
 
 func (p *Printer) Running(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(p.w, p.tagLine(cyan.Sprint(SymbolRunning+" "+line)))
+	_, _ = fmt.Fprintln(p.w, p.tagLine(cyan.Sprint(SymbolRunning+" "+line)))
 }
 
 func (p *Printer) Step(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+dim.Sprint(line))
+	_, _ = fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+dim.Sprint(line))
 }
 
 func (p *Printer) StepOK(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+green.Sprint(SymbolOK+" "+line))
+	_, _ = fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+green.Sprint(SymbolOK+" "+line))
 }
 
 func (p *Printer) StepError(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+red.Sprint(SymbolError+" "+line))
+	_, _ = fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+red.Sprint(SymbolError+" "+line))
 }
 
 func (p *Printer) StepWarn(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+yellow.Sprint(SymbolWarn+" "+line))
+	_, _ = fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+yellow.Sprint(SymbolWarn+" "+line))
 }
 
 func (p *Printer) Detail(key, value string) {
-	fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+dim.Sprint(key+":")+
+	_, _ = fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+dim.Sprint(key+":")+
 		" "+magenta.Sprint(value))
 }
 
 func (p *Printer) KeyValue(key string, value string) {
 	padded := fmt.Sprintf("%-14s", key+":")
-	fmt.Fprintln(p.w, "  "+dim.Sprint(padded)+" "+value)
+	_, _ = fmt.Fprintln(p.w, "  "+dim.Sprint(padded)+" "+value)
 }
 
 func (p *Printer) Data(content string) {
-	fmt.Fprintln(p.w, content)
+	_, _ = fmt.Fprintln(p.w, content)
 }
 
 func (p *Printer) Count(label string, n int) {
@@ -147,27 +147,27 @@ func (p *Printer) Count(label string, n int) {
 	if n == 1 {
 		plural = ""
 	}
-	fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+
+	_, _ = fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+
 		magenta.Sprintf("%d", n)+" "+dim.Sprintf("%s%s", label, plural))
 }
 
 func (p *Printer) ListItem(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolBullet)+" "+line)
+	_, _ = fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolBullet)+" "+line)
 }
 
 func (p *Printer) Header(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(p.w, "")
-	fmt.Fprintln(p.w, bold.Sprint(line))
+	_, _ = fmt.Fprintln(p.w, "")
+	_, _ = fmt.Fprintln(p.w, bold.Sprint(line))
 }
 
 func (p *Printer) Divider() {
-	fmt.Fprintln(p.w, dim.Sprint(strings.Repeat(SymbolDivider, 48)))
+	_, _ = fmt.Fprintln(p.w, dim.Sprint(strings.Repeat(SymbolDivider, 48)))
 }
 
 func (p *Printer) Blank() {
-	fmt.Fprintln(p.w)
+	_, _ = fmt.Fprintln(p.w)
 }
 
 func (p *Printer) Table(headers [2]string, rows [][2]string) {
@@ -182,13 +182,13 @@ func (p *Printer) Table(headers [2]string, rows [][2]string) {
 	lw += 2
 
 	sep := dim.Sprint(strings.Repeat(SymbolDivider, lw+30))
-	fmt.Fprintln(p.w, sep)
+	_, _ = fmt.Fprintln(p.w, sep)
 	_, _ = fmt.Fprintf(p.w, "%-*s  %s\n", lw, bold.Sprint(headers[0]), bold.Sprint(headers[1]))
-	fmt.Fprintln(p.w, sep)
+	_, _ = fmt.Fprintln(p.w, sep)
 	for _, r := range rows {
 		_, _ = fmt.Fprintf(p.w, "%-*s  %s\n", lw, r[0], r[1])
 	}
-	fmt.Fprintln(p.w, sep)
+	_, _ = fmt.Fprintln(p.w, sep)
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -261,9 +261,9 @@ func (t *Task) Done(msg string, args ...any) {
 
 	line := fmt.Sprintf(msg, args...)
 	if isTTY {
-		fmt.Fprintf(t.p.w, "\r\033[K")
+		_, _ = fmt.Fprintf(t.p.w, "\r\033[K")
 	}
-	fmt.Fprintln(t.p.w, t.p.tagLine(green.Sprint(SymbolOK+" "+line)))
+	_, _ = fmt.Fprintln(t.p.w, t.p.tagLine(green.Sprint(SymbolOK+" "+line)))
 }
 
 func (t *Task) Fail(msg string, args ...any) {
@@ -277,19 +277,19 @@ func (t *Task) Fail(msg string, args ...any) {
 
 	line := fmt.Sprintf(msg, args...)
 	if isTTY {
-		fmt.Fprintf(t.p.w, "\r\033[K")
+		_, _ = fmt.Fprintf(t.p.w, "\r\033[K")
 	}
-	fmt.Fprintln(t.p.w, t.p.tagLine(red.Sprint(SymbolError+" "+line)))
+	_, _ = fmt.Fprintln(t.p.w, t.p.tagLine(red.Sprint(SymbolError+" "+line)))
 }
 
 func Fatal(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(os.Stderr, red.Sprint(SymbolError+" "+line))
+	_, _ = fmt.Fprintln(os.Stderr, red.Sprint(SymbolError+" "+line))
 	os.Exit(1)
 }
 
 func Interrupted() {
-	fmt.Fprintln(os.Stdout, "")
-	fmt.Fprintln(os.Stdout, yellow.Sprint(SymbolWarn+" Interrupted."))
+	_, _ = fmt.Fprintln(os.Stdout, "")
+	_, _ = fmt.Fprintln(os.Stdout, yellow.Sprint(SymbolWarn+" Interrupted."))
 	os.Exit(130)
 }

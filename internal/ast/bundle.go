@@ -172,7 +172,7 @@ func ImportBundle(ctx context.Context, db GraphDB, bundlePath string) error {
 		if name, ok := propsMap["name"]; ok {
 			params["name"] = name
 			q := fmt.Sprintf(`MERGE (n:%s {name: $name}) SET %s`, node.Label, joinStrings(sets, ", "))
-			db.Execute(ctx, q, params)
+			_, _ = db.Execute(ctx, q, params)
 		}
 	}
 
@@ -186,7 +186,7 @@ func ImportBundle(ctx context.Context, db GraphDB, bundlePath string) error {
 		q := fmt.Sprintf(
 			`MATCH (a:%s {name: $sn}) MATCH (b:%s {name: $tn}) MERGE (a)-[:%s]->(b)`,
 			edge.SourceLabel, edge.TargetLabel, edge.Type)
-		db.Execute(ctx, q, params)
+		_, _ = db.Execute(ctx, q, params)
 	}
 
 	fmt.Fprintf(os.Stderr, "[BUNDLE] Imported %d nodes, %d edges from %s\n", len(nodes), len(edges), bundlePath)
@@ -208,7 +208,7 @@ func readJSONFromZip(f *zip.File, target any) error {
 	if err != nil {
 		return err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 	data, err := io.ReadAll(rc)
 	if err != nil {
 		return err

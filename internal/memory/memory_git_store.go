@@ -69,8 +69,7 @@ func (m *MemoryGitStore) syncRemote() {
 	remoteURL := config.MemoryRepoURL()
 	if remoteURL == "" {
 
-		if err := m.gitInRepo("remote", "remove", "origin"); err != nil { // ignore error
-		}
+		_ = m.gitInRepo("remote", "remove", "origin") // ignore error
 		return
 	}
 
@@ -122,8 +121,7 @@ func (m *MemoryGitStore) remoteBranchExists(branch string) bool {
 
 func (m *MemoryGitStore) bootstrapInitialCommit() error {
 
-	if err := m.gitInRepo("checkout", "-b", "main"); err != nil { // ignore error
-	}
+	_ = m.gitInRepo("checkout", "-b", "main") // ignore error
 	if err := m.gitInRepo("commit", "--allow-empty", "-m", "chore: initialise memory repository"); err != nil {
 		return fmt.Errorf("initial commit: %w", err)
 	}

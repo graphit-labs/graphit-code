@@ -103,7 +103,7 @@ func (c *proxyEmbeddingClient) EmbedBatch(ctx context.Context, texts []string) (
 	if err != nil {
 		return nil, fmt.Errorf("daemon embed request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("daemon embed: status %d", resp.StatusCode)
@@ -136,7 +136,7 @@ func (c *proxyEmbeddingClient) EmbedQuery(ctx context.Context, query string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("daemon embed query: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("daemon embed query: status %d", resp.StatusCode)

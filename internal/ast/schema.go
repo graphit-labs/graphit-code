@@ -123,9 +123,9 @@ func SchemaText(ctx context.Context, db GraphDB) (string, error) {
 		}
 
 		if len(props) > 0 {
-			buf.WriteString(fmt.Sprintf("- (any)-[:%s {%s}]->(any)\n", r, strings.Join(props, ", ")))
+			_, _ = fmt.Fprintf(&buf, "- (any)-[:%s {%s}]->(any)\n", r, strings.Join(props, ", "))
 		} else {
-			buf.WriteString(fmt.Sprintf("- (any)-[:%s]->(any)\n", r))
+			_, _ = fmt.Fprintf(&buf, "- (any)-[:%s]->(any)\n", r)
 		}
 	}
 

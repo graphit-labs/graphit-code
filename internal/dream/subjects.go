@@ -172,7 +172,7 @@ func RemoveSubject(projectDir, slug string) error {
 	}
 
 	resultPath := filepath.Join(dir, slug+resultExt)
-	os.Remove(resultPath)
+	_ = os.Remove(resultPath)
 
 	return nil
 }

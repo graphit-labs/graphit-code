@@ -102,7 +102,7 @@ created: 2026-05-26T00:00:00Z
 # Important Title
 
 This is the important memory details.`
-	os.WriteFile(impFile, []byte(impContent), 0644)
+	_ = os.WriteFile(impFile, []byte(impContent), 0644)
 
 	// Create a normal memory file
 	normFile := filepath.Join(tempDir, "456.md")
@@ -113,7 +113,7 @@ created: 2026-05-26T01:00:00Z
 # Recent Title
 
 This is recent memory body.`
-	os.WriteFile(normFile, []byte(normContent), 0644)
+	_ = os.WriteFile(normFile, []byte(normContent), 0644)
 
 	// Test listImportantInDir
 	impList, err := listImportantInDir(tempDir)

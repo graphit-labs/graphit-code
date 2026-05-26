@@ -82,8 +82,7 @@ func (g *GitStore) syncRemote() {
 	remoteURL := config.HubRepoURL()
 	if remoteURL == "" {
 
-		if err := g.gitInRepo("remote", "remove", "origin"); err != nil { // ignore error
-		}
+		_ = g.gitInRepo("remote", "remove", "origin") // ignore error
 		return
 	}
 

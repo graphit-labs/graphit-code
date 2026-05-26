@@ -329,7 +329,7 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir stri
 	if cacheDir != "" {
 		if jc, err := NewShardCache(cacheDir); err == nil {
 			cfg.ParseCache = jc
-			defer jc.Close()
+			defer func() { _ = jc.Close() }()
 
 			if ec, err := NewShardEmbCache(cacheDir, jc); err == nil {
 				cfg.EmbCache = ec

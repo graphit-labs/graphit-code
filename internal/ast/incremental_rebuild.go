@@ -84,7 +84,7 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 		DBPath: workingPath,
 	})
 	if err := workingBackend.connect(); err != nil {
-		workingBackend.Close()
+		_ = workingBackend.Close()
 		fmt.Fprintf(os.Stderr, "  › Open working failed — falling back to full rebuild\n")
 		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx)
 	}
