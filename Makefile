@@ -181,8 +181,12 @@ build-windows: ui setup-lbug fetch-ort-windows fetch-model
 
 build-all: build-linux build-darwin build-windows
 
-test:
-	go test -race -cover ./...
+test: setup-lbug
+	@LBUG_LIB="$(LBUG_MOD)/lib/dynamic/linux-amd64"; \
+	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
+		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \
+	fi; \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -cover ./...
 
 lint:
 	golangci-lint run ./...

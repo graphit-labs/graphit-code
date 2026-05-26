@@ -374,16 +374,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}, nil
 }
 
-func summarizePaths(paths []string, maxShow int) string {
-	if len(paths) == 0 {
-		return "unknown files"
-	}
-	if len(paths) <= maxShow {
-		return strings.Join(paths, ", ")
-	}
-	shown := strings.Join(paths[:maxShow], ", ")
-	return fmt.Sprintf("%s ... and %d more", shown, len(paths)-maxShow)
-}
+
 
 func fileContentHash(path string) string {
 	data, err := os.ReadFile(path)

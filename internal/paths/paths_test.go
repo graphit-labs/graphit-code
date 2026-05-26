@@ -229,7 +229,7 @@ func TestBuildPathsHooks(t *testing.T) {
 	// 2. With core.hooksPath set as absolute path
 	cmdConfigAbs := exec.Command("git", "config", "core.hooksPath", "/abs/custom/hooks")
 	cmdConfigAbs.Dir = tempProj
-	cmdConfigAbs.Run()
+	_ = cmdConfigAbs.Run()
 
 	pAbs := buildPaths("", tempProj)
 	if pAbs.RepoHooksDir != "/abs/custom/hooks" {
@@ -239,7 +239,7 @@ func TestBuildPathsHooks(t *testing.T) {
 	// 3. With core.hooksPath set as relative path
 	cmdConfigRel := exec.Command("git", "config", "core.hooksPath", "rel/custom/hooks")
 	cmdConfigRel.Dir = tempProj
-	cmdConfigRel.Run()
+	_ = cmdConfigRel.Run()
 
 	pRel := buildPaths("", tempProj)
 	expectedRelHooks := filepath.Join(tempProj, "rel/custom/hooks")

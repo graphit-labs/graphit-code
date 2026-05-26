@@ -48,7 +48,7 @@ func LatestRelease(repo string) (*Release, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetching latest release: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, fmt.Errorf("no releases found for repository %q", repo)
@@ -103,7 +103,7 @@ func Download(url, destPath string, progressFn func(downloaded, total int64)) er
 	if err != nil {
 		return fmt.Errorf("downloading %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("server returned status %d for %s", resp.StatusCode, url)
@@ -229,10 +229,10 @@ func compareVersions(a, b string) int {
 	for i := 0; i < maxLen; i++ {
 		var av, bv int
 		if i < len(aSegs) {
-			fmt.Sscanf(aSegs[i], "%d", &av)
+			_, _ = fmt.Sscanf(aSegs[i], "%d", &av)
 		}
 		if i < len(bSegs) {
-			fmt.Sscanf(bSegs[i], "%d", &bv)
+			_, _ = fmt.Sscanf(bSegs[i], "%d", &bv)
 		}
 		if av > bv {
 			return 1

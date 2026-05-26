@@ -29,7 +29,6 @@ var (
 	yellow  = color.New(color.FgYellow, color.Bold)
 	cyan    = color.New(color.FgCyan)
 	magenta = color.New(color.FgMagenta)
-	gray    = color.New(color.FgHiBlack)
 	bold    = color.New(color.Bold)
 	dim     = color.New(color.FgHiBlack)
 )
@@ -86,17 +85,17 @@ func (p *Printer) tagLine(content string) string {
 
 func (p *Printer) Info(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(p.w, p.tagLine(line))
+	_, _ = fmt.Fprintln(p.w, p.tagLine(line))
 }
 
 func (p *Printer) Success(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(p.w, p.tagLine(green.Sprint(SymbolOK+" "+line)))
+	_, _ = fmt.Fprintln(p.w, p.tagLine(green.Sprint(SymbolOK+" "+line)))
 }
 
 func (p *Printer) Error(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
-	fmt.Fprintln(p.w, p.tagLine(red.Sprint(SymbolError+" "+line)))
+	_, _ = fmt.Fprintln(p.w, p.tagLine(red.Sprint(SymbolError+" "+line)))
 }
 
 func (p *Printer) Warn(msg string, args ...any) {
@@ -184,10 +183,10 @@ func (p *Printer) Table(headers [2]string, rows [][2]string) {
 
 	sep := dim.Sprint(strings.Repeat(SymbolDivider, lw+30))
 	fmt.Fprintln(p.w, sep)
-	fmt.Fprintf(p.w, "%-*s  %s\n", lw, bold.Sprint(headers[0]), bold.Sprint(headers[1]))
+	_, _ = fmt.Fprintf(p.w, "%-*s  %s\n", lw, bold.Sprint(headers[0]), bold.Sprint(headers[1]))
 	fmt.Fprintln(p.w, sep)
 	for _, r := range rows {
-		fmt.Fprintf(p.w, "%-*s  %s\n", lw, r[0], r[1])
+		_, _ = fmt.Fprintf(p.w, "%-*s  %s\n", lw, r[0], r[1])
 	}
 	fmt.Fprintln(p.w, sep)
 }
@@ -235,7 +234,7 @@ func (p *Printer) StartTask(msg string, args ...any) *Task {
 				spinner := cyan.Sprint(spinnerFrames[frame%len(spinnerFrames)])
 				text := cyan.Sprint(SymbolRunning + " " + t.msg)
 				line := p.tagLine(text) + " " + spinner
-				fmt.Fprintf(p.w, "\r\033[K%s", line)
+				_, _ = fmt.Fprintf(p.w, "\r\033[K%s", line)
 				frame++
 				t.mu.Unlock()
 			}

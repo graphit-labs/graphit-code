@@ -145,8 +145,8 @@ func (a *FolderBasedAdapter) Sync(
 			if a.cfg.AgentsFile != "" {
 				content, err := os.ReadFile(agentSrc)
 				if err == nil {
-					compiledAgents.WriteString(fmt.Sprintf("\n# --- AGENT CONTEXT: %s ---\n%s\n",
-						strings.ToUpper(localName), string(content)))
+					fmt.Fprintf(&compiledAgents, "\n# --- AGENT CONTEXT: %s ---\n%s\n",
+						strings.ToUpper(localName), string(content))
 				}
 			}
 
@@ -506,7 +506,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
@@ -514,7 +514,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	_, err = io.Copy(out, in)
 	return err
 }

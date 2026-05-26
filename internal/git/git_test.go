@@ -59,7 +59,7 @@ func TestBlockManager(t *testing.T) {
 	}
 
 	// 4. Remove block with deleteIfEmpty
-	os.WriteFile(filePath, []byte("#!/bin/sh\n# --- M1 ---\necho 'hello'\n# --- END M1 ---\n"), 0755)
+	_ = os.WriteFile(filePath, []byte("#!/bin/sh\n# --- M1 ---\necho 'hello'\n# --- END M1 ---\n"), 0755)
 	removed, err = RemoveBlock(filePath, "M1", true)
 	if err != nil {
 		t.Fatalf("RemoveBlock failed: %v", err)
@@ -156,7 +156,7 @@ func TestGitCLIBackend(t *testing.T) {
 
 	// 4. Create and commit a file
 	filePath := filepath.Join(tempDir, "file.txt")
-	os.WriteFile(filePath, []byte("git test content"), 0644)
+	_ = os.WriteFile(filePath, []byte("git test content"), 0644)
 
 	err = g.Run(tempDir, "add", "file.txt")
 	if err != nil {

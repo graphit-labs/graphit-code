@@ -68,9 +68,10 @@ func SchemaText(ctx context.Context, db GraphDB) (string, error) {
 		if !ok1 || !ok2 {
 			continue
 		}
-		if typ == "NODE" {
+		switch typ {
+		case "NODE":
 			nodeTables = append(nodeTables, name)
-		} else if typ == "REL" {
+		case "REL":
 			relTables = append(relTables, name)
 		}
 	}
@@ -103,7 +104,7 @@ func SchemaText(ctx context.Context, db GraphDB) (string, error) {
 				props = append(props, pname)
 			}
 		}
-		buf.WriteString(fmt.Sprintf("- %s(%s)\n", t, strings.Join(props, ", ")))
+		fmt.Fprintf(&buf, "- %s(%s)\n", t, strings.Join(props, ", "))
 	}
 
 	buf.WriteString("\nRelationships:\n")

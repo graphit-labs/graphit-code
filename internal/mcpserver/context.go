@@ -103,11 +103,3 @@ func resolveWikiDir(module, projectDir, contextName string) string {
 	}
 }
 
-func loadProjectLockfileID(projectDir string) string {
-	lockPath := filepath.Join(projectDir, brand.LockFileName())
-	lf, err := hub.LoadLockfile(lockPath)
-	if err != nil || lf == nil {
-		return ""
-	}
-	return lf.Project.ID
-}

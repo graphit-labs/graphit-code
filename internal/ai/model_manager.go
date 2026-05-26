@@ -118,12 +118,12 @@ func (m *ModelManager) download(ctx context.Context, url, destPath string) error
 	written, err := io.Copy(f, resp.Body)
 	f.Close()
 	if err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write: %w", err)
 	}
 
 	if resp.ContentLength > 0 && written != resp.ContentLength {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("incomplete download: wrote %d of %d bytes", written, resp.ContentLength)
 	}
 

@@ -106,17 +106,17 @@ func TestCapitalize(t *testing.T) {
 func TestGlobalDirsAndResolvers(t *testing.T) {
 	// Save environment
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	// Create temp directory for testing
 	tempDir, err := os.MkdirTemp("", "brand-test-home")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Set HOME to tempDir
-	os.Setenv("HOME", tempDir)
+	_ = os.Setenv("HOME", tempDir)
 
 	Brand = "testbrand2"
 
@@ -152,7 +152,7 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create local rules dir: %v", err)
 	}
-	defer os.RemoveAll(filepath.Join(wd, ".testbrand2"))
+	defer func() { _ = os.RemoveAll(filepath.Join(wd, ".testbrand2")) }()
 
 	// Create local rule file
 	localRuleFile := filepath.Join(localRulesDir, "mymod.md")
@@ -185,7 +185,7 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 	}
 
 	// Clean up local rules file to test global fallback
-	os.RemoveAll(filepath.Join(wd, ".testbrand2"))
+	_ = os.RemoveAll(filepath.Join(wd, ".testbrand2"))
 
 	// Set up global rules dir
 	err = os.MkdirAll(expectedGlobalRulesDir, 0755)
@@ -225,12 +225,12 @@ func TestGlobalDirErr(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	origUserProfile := os.Getenv("USERPROFILE")
 	defer func() {
-		os.Setenv("HOME", origHome)
-		os.Setenv("USERPROFILE", origUserProfile)
+		_ = os.Setenv("HOME", origHome)
+		_ = os.Setenv("USERPROFILE", origUserProfile)
 	}()
 
-	os.Unsetenv("HOME")
-	os.Unsetenv("USERPROFILE")
+	_ = os.Unsetenv("HOME")
+	_ = os.Unsetenv("USERPROFILE")
 
 	// Verify GlobalDir returns empty string on error
 	// Note: on some environments, os.UserHomeDir might still succeed or fail depending on os configuration.

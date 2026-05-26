@@ -108,7 +108,7 @@ func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string) 
 	defer f.Close()
 
 	zw := zip.NewWriter(f)
-	defer zw.Close()
+	defer func() { _ = zw.Close() }()
 
 	manifest := BundleManifest{
 		Version:   "1.0",
@@ -135,7 +135,7 @@ func ImportBundle(ctx context.Context, db GraphDB, bundlePath string) error {
 	if err != nil {
 		return fmt.Errorf("open bundle: %w", err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 
 	var nodes []BundleNode
 	var edges []BundleEdge
@@ -157,7 +157,7 @@ func ImportBundle(ctx context.Context, db GraphDB, bundlePath string) error {
 		props := node.Properties
 		propsJSON, _ := json.Marshal(props)
 		var propsMap map[string]any
-		json.Unmarshal(propsJSON, &propsMap)
+		_ = json.Unmarshal(propsJSON, &propsMap)
 
 		sets := make([]string, 0, len(propsMap))
 		params := make(map[string]any)

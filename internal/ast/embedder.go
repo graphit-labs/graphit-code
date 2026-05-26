@@ -315,18 +315,7 @@ func (e *Embedder) Stats(ctx context.Context) ([]EmbeddingStats, error) {
 	return stats, nil
 }
 
-func embeddingToInt(v any) int {
-	switch vv := v.(type) {
-	case int:
-		return vv
-	case int64:
-		return int(vv)
-	case float64:
-		return int(vv)
-	default:
-		return 0
-	}
-}
+
 
 func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir string) error {
 	client, err := ai.NewEmbeddingClientFromConfig()

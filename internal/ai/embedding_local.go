@@ -187,13 +187,13 @@ func (c *localEmbeddingClient) EmbedBatch(ctx context.Context, texts []string) (
 	if err != nil {
 		return nil, fmt.Errorf("create input_ids tensor: %w", err)
 	}
-	defer inputIDsTensor.Destroy()
+	defer func() { _ = inputIDsTensor.Destroy() }()
 
 	attMaskTensor, err := ort.NewTensor(shape, attentionMask)
 	if err != nil {
 		return nil, fmt.Errorf("create attention_mask tensor: %w", err)
 	}
-	defer attMaskTensor.Destroy()
+	defer func() { _ = attMaskTensor.Destroy() }()
 
 	outputs := []ort.Value{nil}
 	c.mu.Lock()
@@ -208,7 +208,7 @@ func (c *localEmbeddingClient) EmbedBatch(ctx context.Context, texts []string) (
 	if outputs[0] == nil {
 		return nil, fmt.Errorf("no output from ONNX model")
 	}
-	defer outputs[0].Destroy()
+	defer func() { _ = outputs[0].Destroy() }()
 
 	outputTensor, ok := outputs[0].(*ort.Tensor[float32])
 	if !ok {
@@ -245,6 +245,6 @@ func (c *localEmbeddingClient) EmbedQuery(ctx context.Context, query string) ([]
 
 func (c *localEmbeddingClient) Close() {
 	if c.session != nil {
-		c.session.Destroy()
+		_ = c.session.Destroy()
 	}
 }

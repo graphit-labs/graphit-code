@@ -27,6 +27,6 @@ func ServeStatic(w http.ResponseWriter, r *http.Request) bool {
 	}
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	w.Write(data)
+	_, _ = w.Write(data)
 	return true
 }

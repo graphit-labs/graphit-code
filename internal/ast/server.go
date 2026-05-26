@@ -515,7 +515,7 @@ func validateReadOnlyQuery(cypher string) error {
 	upper := strings.ToUpper(strings.TrimSpace(cypher))
 	for _, kw := range []string{"CREATE", "DELETE", "SET ", "REMOVE", "MERGE", "DROP", "DETACH"} {
 		if strings.Contains(upper, kw) {
-			return fmt.Errorf("Write operations are not allowed from the visualizer")
+			return fmt.Errorf("write operations are not allowed from the visualizer")
 		}
 	}
 	return nil

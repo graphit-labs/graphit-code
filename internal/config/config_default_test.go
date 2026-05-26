@@ -179,8 +179,8 @@ func TestResolveIDEAndCLI(t *testing.T) {
 		os.Setenv("GRAPHIT_IDE", origEnvIDE)
 		os.Setenv("GRAPHIT_CLI", origEnvCLI)
 	}()
-	os.Unsetenv("GRAPHIT_IDE")
-	os.Unsetenv("GRAPHIT_CLI")
+	_ = os.Unsetenv("GRAPHIT_IDE")
+	_ = os.Unsetenv("GRAPHIT_CLI")
 
 	// Reset CompiledDefaults and cache for testing to ensure clean slate
 	origCompiledDefaults := CompiledDefaults

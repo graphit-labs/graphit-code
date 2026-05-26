@@ -148,7 +148,7 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 		}
 
 		if len(loaded) == 0 {
-			result.Answer = fmt.Sprintf("(no matching pages found for requested pages)")
+			result.Answer = "(no matching pages found for requested pages)"
 			return result, nil
 		}
 

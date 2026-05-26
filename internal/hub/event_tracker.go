@@ -113,8 +113,7 @@ func generateULID() string {
 	return string(ts) + string(rnd)
 }
 
-const clientSecretFile = "client_secret"
-const clientIDFile = "client_id"
+
 
 var (
 	clientSecretOnce  sync.Once

@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-
-	lbug "github.com/LadybugDB/go-ladybug"
 )
 
 func (k *LadybugBackend) DropAndRecreate(ctx interface{ Value(any) any }) error {
@@ -61,23 +59,6 @@ func (k *LadybugBackend) AtomicSwapDB(newDBPath string) error {
 	return nil
 }
 
-func (k *LadybugBackend) closeConnectionLocked() {
-	for _, stmt := range k.stmtCache {
-		stmt.Close()
-	}
-	k.stmtCache = make(map[string]*lbug.PreparedStatement)
-
-	if k.conn != nil {
-		k.conn.Close()
-		k.conn = nil
-	}
-	if k.db != nil {
-		k.db.Close()
-		k.db = nil
-	}
-	k.once = sync.Once{}
-}
-
 func CleanupInterruptedSwap(dbPath string) {
 	os.RemoveAll(dbPath + ".old")
 
@@ -90,18 +71,4 @@ func CleanupInterruptedSwap(dbPath string) {
 	}
 
 	os.RemoveAll(dbPath + ".staging")
-}
-
-func (k *LadybugBackend) execSingleQuery(query string, params map[string]any) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	if err := k.ensureConnected(); err != nil {
-		return err
-	}
-	res, err := k.runQuery(query, params)
-	if err != nil {
-		return err
-	}
-	res.Close()
-	return nil
 }

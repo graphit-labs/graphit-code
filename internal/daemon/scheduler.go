@@ -9,9 +9,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-func schedulerLabel() string {
-	return "com." + brand.Brand + ".daemon"
-}
+
 
 func cronMarker() string {
 	return "# " + strings.ToUpper(brand.Brand) + "_DAEMON_SCHEDULER"

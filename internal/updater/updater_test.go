@@ -173,7 +173,7 @@ func TestDownloadAndChecksum(t *testing.T) {
 	// 2. Checksum file
 	checksumFile := filepath.Join(tempDir, "checksums.sha256")
 	checksumContent := checksumHex + "  graphit-bin\n"
-	os.WriteFile(checksumFile, []byte(checksumContent), 0644)
+	_ = os.WriteFile(checksumFile, []byte(checksumContent), 0644)
 
 	err = VerifyChecksum(destFile, checksumFile)
 	if err != nil {
@@ -183,7 +183,7 @@ func TestDownloadAndChecksum(t *testing.T) {
 	// 3. Test verification failure (mismatch)
 	badChecksumFile := filepath.Join(tempDir, "bad_checksums.sha256")
 	badChecksumContent := "badhash  graphit-bin\n"
-	os.WriteFile(badChecksumFile, []byte(badChecksumContent), 0644)
+	_ = os.WriteFile(badChecksumFile, []byte(badChecksumContent), 0644)
 	err = VerifyChecksum(destFile, badChecksumFile)
 	if err == nil {
 		t.Error("expected VerifyChecksum to fail due to mismatch")

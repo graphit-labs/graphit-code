@@ -12,7 +12,7 @@ func FindFreePort(preferredPort int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	ln.Close()
+	_ = ln.Close()
 	return port, nil
 }
 

@@ -181,7 +181,7 @@ func (r *Runner) tick(ctx context.Context) {
 			r.mu.Unlock()
 		}()
 
-		dreamCtx := ctx
+		var dreamCtx context.Context
 		var cancel context.CancelFunc
 
 		if cfg.MaxDuration > 0 {
@@ -346,16 +346,7 @@ func (r *Runner) ensureWorktree(ctx context.Context, branch, dir string) error {
 	return nil
 }
 
-func (r *Runner) cleanupWorktree(dir string) {
-	g := gitmod.Default()
 
-	if err := g.Run(r.projectDir, "worktree", "remove", "--force", dir); err != nil {
-
-		_ = os.RemoveAll(dir)
-	}
-
-	_ = g.Run(r.projectDir, "worktree", "prune")
-}
 
 func (r *Runner) executeLocal(ctx context.Context, worktreeDir, prompt, ulid string) (string, error) {
 	dreamArtifactDir := filepath.Join(r.projectDir, brand.DotDir(), "dream")

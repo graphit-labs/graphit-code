@@ -120,7 +120,7 @@ func readPatternsFromFile(path string, domain []string) []gogitignore.Pattern {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var patterns []gogitignore.Pattern
 	scanner := bufio.NewScanner(f)

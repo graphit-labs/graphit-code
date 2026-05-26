@@ -69,8 +69,7 @@ func (m *MemoryGitStore) syncRemote() {
 	remoteURL := config.MemoryRepoURL()
 	if remoteURL == "" {
 
-		if err := m.gitInRepo("remote", "remove", "origin"); err != nil {
-
+		if err := m.gitInRepo("remote", "remove", "origin"); err != nil { // ignore error
 		}
 		return
 	}
@@ -123,8 +122,7 @@ func (m *MemoryGitStore) remoteBranchExists(branch string) bool {
 
 func (m *MemoryGitStore) bootstrapInitialCommit() error {
 
-	if err := m.gitInRepo("checkout", "-b", "main"); err != nil {
-
+	if err := m.gitInRepo("checkout", "-b", "main"); err != nil { // ignore error
 	}
 	if err := m.gitInRepo("commit", "--allow-empty", "-m", "chore: initialise memory repository"); err != nil {
 		return fmt.Errorf("initial commit: %w", err)
@@ -408,7 +406,7 @@ func copyFileData(src, dst string, mode os.FileMode) (retErr error) {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}

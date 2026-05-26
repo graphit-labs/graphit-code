@@ -38,9 +38,6 @@ func buildBlockRegex(marker string, style BlockStyle) *regexp.Regexp {
 	return regexp.MustCompile(`(?s)\n*` + start + `.*?` + end + `\n*`)
 }
 
-func markerRegex(marker string) *regexp.Regexp {
-	return buildBlockRegex(marker, ShellBlockStyle)
-}
 
 func stripBlock(content, marker string, style BlockStyle) string {
 	re := buildBlockRegex(marker, style)
@@ -105,7 +102,7 @@ func InjectBlockStyled(filePath, content, marker, shebang string, style BlockSty
 			return err
 		}
 		if shebang != "" {
-			os.Chmod(filePath, 0755)
+			_ = os.Chmod(filePath, 0755)
 		}
 		return nil
 	}
@@ -136,7 +133,7 @@ func InjectBlockStyled(filePath, content, marker, shebang string, style BlockSty
 	}
 
 	if shebang != "" {
-		os.Chmod(filePath, 0755)
+		_ = os.Chmod(filePath, 0755)
 	}
 	return nil
 }

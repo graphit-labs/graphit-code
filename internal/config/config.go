@@ -415,10 +415,7 @@ func IsModuleDisabled(module string, inlineCfg, projectCfg ConfigMap) bool {
 
 func ResolveIndexSource(inlineCfg, projectCfg ConfigMap) bool {
 	val := ResolveConfig("ast.index_source", inlineCfg, projectCfg)
-	if strings.EqualFold(val, "false") {
-		return false
-	}
-	return true
+	return !strings.EqualFold(val, "false")
 }
 
 func DisabledModules(inlineCfg, projectCfg ConfigMap) []string {

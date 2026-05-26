@@ -230,9 +230,7 @@ func (q *QueryService) FindByContent(ctx context.Context, term, repoPath string)
 		if err != nil {
 			continue
 		}
-		for _, r := range recordsToResults(res.Records, typeName) {
-			results = append(results, r)
-		}
+		results = append(results, recordsToResults(res.Records, typeName)...)
 	}
 
 	if len(results) > 20 {

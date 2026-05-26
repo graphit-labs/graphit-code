@@ -69,11 +69,12 @@ func main() {
 	env := os.Environ()
 
 	var pathEnv string
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		pathEnv = "PATH"
-	} else if runtime.GOOS == "darwin" {
+	case "darwin":
 		pathEnv = "DYLD_LIBRARY_PATH"
-	} else {
+	default:
 		pathEnv = "LD_LIBRARY_PATH"
 	}
 
@@ -141,15 +142,15 @@ func extractRuntime(runtimeDir string) error {
 			if gzErr != nil {
 				return fmt.Errorf("gzip open %s: %w", relPath, gzErr)
 			}
-			defer gr.Close()
+			defer func() { _ = gr.Close() }()
 
 			f, fErr := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 			if fErr != nil {
 				return fErr
 			}
 			if _, cpErr := io.Copy(f, gr); cpErr != nil {
-				f.Close()
-				os.Remove(destPath)
+				_ = f.Close()
+				_ = os.Remove(destPath)
 				return fmt.Errorf("gzip decompress %s: %w", relPath, cpErr)
 			}
 			return f.Close()
@@ -186,7 +187,7 @@ func writeLauncherStamp(appDir, coreBinPath string) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
@@ -20,7 +19,6 @@ type EmbedServer struct {
 	listener net.Listener
 	server   *http.Server
 	portFile string
-	mu       sync.Mutex
 }
 
 func NewEmbedServer(client ai.EmbeddingClient) *EmbedServer {

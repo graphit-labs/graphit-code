@@ -643,8 +643,8 @@ func formatRecordsTOON(records []ast.QueryRecord) string {
 
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("results[%d]{%s}:\n",
-		len(records), strings.Join(displayColumns, "|")))
+	fmt.Fprintf(&sb, "results[%d]{%s}:\n",
+		len(records), strings.Join(displayColumns, "|"))
 
 	for _, rec := range records {
 		vals := make([]string, len(columns))

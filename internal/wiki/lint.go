@@ -191,7 +191,7 @@ func isStale(content string, staleDays int) bool {
 func FormatReport(r *LintReport) string {
 	var b strings.Builder
 
-	b.WriteString(fmt.Sprintf("# Wiki Lint Report\n\n"))
+	b.WriteString("# Wiki Lint Report\n\n")
 	b.WriteString(fmt.Sprintf("**%s**\n\n", r.Summary()))
 
 	if len(r.Orphans) > 0 {
