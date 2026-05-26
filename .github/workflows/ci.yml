@@ -94,6 +94,10 @@ jobs:
 
       - name: Build core binary (sanity check)
         run: |
+          go mod download
+          # Fix permissions on vendored shared libraries (go-ladybug)
+          LBUG_DIR=$(go env GOMODCACHE)/github.com/\!ladybug\!d\!b/go-ladybug@*/lib/dynamic/linux-amd64
+          if [ -d $LBUG_DIR ]; then chmod -R a+rx $LBUG_DIR; fi
           GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build \
             -tags "fts5" \
             -ldflags "-X 'github.com/graphit-labs/graphit-code/internal/version.Version=ci-check'" \
