@@ -8,7 +8,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 )
 
@@ -47,15 +46,7 @@ type hubUpdateInput struct {
 	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory"`
 }
 
-func resolveIDE(ide string) string {
-	if ide != "" {
-		return ide
-	}
-	if env := os.Getenv(brand.EnvVar("IDE")); env != "" {
-		return env
-	}
-	return "claude"
-}
+
 
 func registerHubTools(server *mcp.Server) {
 
@@ -63,44 +54,13 @@ func registerHubTools(server *mcp.Server) {
 		Name:        "graphit_hub_list",
 		Description: "List available artifacts in the Graphit Hub registry, optionally filtered by type.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input hubListInput) (*mcp.CallToolResult, any, error) {
-		reg, err := hub.NewRegistryManager(ctx)
+		hubSvc := hub.NewHubAppService("")
+		summaries, err := hubSvc.ListSummary(ctx, input.Type)
 		if err != nil {
-			return errResult(fmt.Errorf("failed to load hub registry: %w", err))
+			return errResult(err)
 		}
-
-		var typeFilter hub.ArtifactType
-		if input.Type != "" {
-			typeFilter = hub.ArtifactType(input.Type)
-		}
-
-		entries := reg.ListEntries(typeFilter)
-		if len(entries) == 0 {
+		if len(summaries) == 0 {
 			return textResult("No artifacts found.")
-		}
-
-		type entrySummary struct {
-			ID          string   `json:"id"`
-			Name        string   `json:"name"`
-			Type        string   `json:"type"`
-			Description string   `json:"description,omitempty"`
-			Latest      string   `json:"latest,omitempty"`
-			Versions    []string `json:"versions,omitempty"`
-		}
-
-		summaries := make([]entrySummary, 0, len(entries))
-		for _, e := range entries {
-			name := e.Name
-			if name == "" {
-				name = e.ID
-			}
-			summaries = append(summaries, entrySummary{
-				ID:          e.ID,
-				Name:        name,
-				Type:        string(e.Type),
-				Description: e.Description,
-				Latest:      e.Latest,
-				Versions:    e.Versions,
-			})
 		}
 
 		data, err := json.MarshalIndent(summaries, "", "  ")
@@ -114,38 +74,16 @@ func registerHubTools(server *mcp.Server) {
 		Name:        "graphit_hub_search",
 		Description: "Search the Graphit Hub registry for artifacts by name, ID, or description.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input hubSearchInput) (*mcp.CallToolResult, any, error) {
-		reg, err := hub.NewRegistryManager(ctx)
+		hubSvc := hub.NewHubAppService("")
+		summaries, err := hubSvc.SearchSummary(ctx, input.Query, input.Type)
 		if err != nil {
-			return errResult(fmt.Errorf("failed to load hub registry: %w", err))
+			return errResult(err)
 		}
-
-		entries := reg.SearchEntries(input.Query, hub.ArtifactType(input.Type))
-		if len(entries) == 0 {
+		if len(summaries) == 0 {
 			return textResult(fmt.Sprintf("No results for %q.", input.Query))
 		}
 
-		type searchResultEntry struct {
-			ID          string `json:"id"`
-			Name        string `json:"name"`
-			Type        string `json:"type"`
-			Description string `json:"description,omitempty"`
-		}
-
-		results := make([]searchResultEntry, 0, len(entries))
-		for _, e := range entries {
-			name := e.Name
-			if name == "" {
-				name = e.ID
-			}
-			results = append(results, searchResultEntry{
-				ID:          e.ID,
-				Name:        name,
-				Type:        string(e.Type),
-				Description: e.Description,
-			})
-		}
-
-		data, err := json.MarshalIndent(results, "", "  ")
+		data, err := json.MarshalIndent(summaries, "", "  ")
 		if err != nil {
 			return errResult(fmt.Errorf("failed to format results: %w", err))
 		}
@@ -182,7 +120,8 @@ func registerHubTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		ide := resolveIDE(input.IDE)
+		hubSvc := hub.NewHubAppService(projectDir)
+		ide := hubSvc.ResolveIDE(input.IDE)
 
 		origWd, _ := os.Getwd()
 		_ = os.Chdir(projectDir)
@@ -208,7 +147,8 @@ func registerHubTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		ide := resolveIDE(input.IDE)
+		hubSvc := hub.NewHubAppService(projectDir)
+		ide := hubSvc.ResolveIDE(input.IDE)
 
 		origWd, _ := os.Getwd()
 		_ = os.Chdir(projectDir)
@@ -234,7 +174,8 @@ func registerHubTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		ide := resolveIDE(input.IDE)
+		hubSvc := hub.NewHubAppService(projectDir)
+		ide := hubSvc.ResolveIDE(input.IDE)
 
 		origWd, _ := os.Getwd()
 		_ = os.Chdir(projectDir)

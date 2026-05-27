@@ -18,6 +18,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/chat"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
+	"github.com/graphit-labs/graphit-code/internal/wikisvc"
 )
 
 type WikiModule struct {
@@ -802,22 +803,16 @@ func (h *WikiHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := chat.LoadSession(body.SessionID)
+	wikiSvc := wikisvc.NewWikiService("")
+	response, err := wikiSvc.ContinueChat(r.Context(), body.SessionID, body.Message)
 	if err != nil {
-		writeJSON(w, ChatResponse{Error: "session not found: " + err.Error()})
-		return
-	}
-
-	engine := chat.NewChatEngine(h.aiClient, session)
-	response, err := engine.Send(r.Context(), body.Message)
-	if err != nil {
-		writeJSON(w, ChatResponse{Error: "chat error: " + err.Error()})
+		writeJSON(w, ChatResponse{Error: err.Error()})
 		return
 	}
 
 	writeJSON(w, ChatResponse{
 		Answer:    response,
-		SessionID: session.ID,
+		SessionID: body.SessionID,
 	})
 }
 
@@ -837,7 +832,8 @@ func (h *WikiHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if projectDir == "" {
 			projectDir, _ = os.Getwd()
 		}
-		sessions, err := chat.ListSessions(projectDir)
+		wikiSvc := wikisvc.NewWikiService(projectDir)
+		sessions, err := wikiSvc.ListSessions()
 		if err != nil {
 			writeJSON(w, []SessionListItem{})
 			return
@@ -861,7 +857,8 @@ func (h *WikiHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "id required", http.StatusBadRequest)
 			return
 		}
-		if err := chat.DeleteSession(sessionID); err != nil {
+		wikiSvc := wikisvc.NewWikiService("")
+		if err := wikiSvc.DeleteSession(sessionID); err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}

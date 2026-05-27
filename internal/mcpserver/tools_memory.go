@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -137,38 +136,21 @@ func registerMemoryTools(server *mcp.Server) {
 			return nil, nil, err
 		}
 
-		if input.Type != "" && !memory.ValidMemoryType(input.Type) {
-			return nil, nil, fmt.Errorf("invalid memory type %q — valid types: convention, correction, decision, tension, fact, skill", input.Type)
-		}
-
-		userScope := input.Scope == "user"
-		svc, err := newMemorySvc(userScope, projectDir)
-		if err != nil {
-			return nil, nil, err
-		}
-		defer func() { _ = svc.Close() }()
-
-		var tagList []string
-		if input.Tags != "" {
-			for _, t := range strings.Split(input.Tags, ",") {
-				t = strings.TrimSpace(t)
-				if t != "" {
-					tagList = append(tagList, t)
-				}
-			}
-		}
-
-		slug, err := svc.AddMemory(input.Title, input.Content, memory.MemoryOpts{
+		memorySvc := memory.NewMemoryAppService(projectDir)
+		slug, err := memorySvc.InsertValidated(memory.MemoryInsertOpts{
+			Title:     input.Title,
+			Content:   input.Content,
+			Type:      input.Type,
+			Tags:      input.Tags,
+			Scope:     input.Scope,
 			Important: input.Important,
-			Type:      memory.MemoryType(input.Type),
-			Tags:      tagList,
 		})
 		if err != nil {
 			return nil, nil, err
 		}
 
 		scope := "project"
-		if userScope {
+		if input.Scope == "user" {
 			scope = "user"
 		}
 		return textResult(fmt.Sprintf("Memory %q saved [%s]", slug, scope))
@@ -211,45 +193,20 @@ func registerMemoryTools(server *mcp.Server) {
 			scope = "user"
 		}
 
-		origWd, _ := os.Getwd()
-		_ = os.Chdir(projectDir)
-		defer func() { _ = os.Chdir(origWd) }()
-
-		dir := memory.RawDir(scope)
-		if dir == "" {
-			return textResult(fmt.Sprintf("No memories found in %s scope.", scope))
-		}
-
-		entries, err := os.ReadDir(dir)
+		memorySvc := memory.NewMemoryAppService(projectDir)
+		results, err := memorySvc.SearchByKeyword(input.Query, scope)
 		if err != nil {
-			if os.IsNotExist(err) {
-				return textResult(fmt.Sprintf("No memories found in %s scope.", scope))
-			}
 			return nil, nil, err
-		}
-
-		termLower := strings.ToLower(input.Query)
-		var results []string
-		for _, e := range entries {
-			if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-				continue
-			}
-			absPath := filepath.Join(dir, e.Name())
-			data, readErr := os.ReadFile(absPath)
-			if readErr != nil {
-				continue
-			}
-			if strings.Contains(strings.ToLower(string(data)), termLower) {
-				title, _ := memory.ParseMemoryMetaPublic(absPath)
-				id := strings.TrimSuffix(e.Name(), ".md")
-				results = append(results, fmt.Sprintf("[%s] %s", id, title))
-			}
 		}
 
 		if len(results) == 0 {
 			return textResult(fmt.Sprintf("No memories matching %q in %s scope.", input.Query, scope))
 		}
 
-		return textResult(fmt.Sprintf("Found %d match(es):\n%s", len(results), strings.Join(results, "\n")))
+		var lines []string
+		for _, r := range results {
+			lines = append(lines, fmt.Sprintf("[%s] %s", r.ID, r.Title))
+		}
+		return textResult(fmt.Sprintf("Found %d match(es):\n%s", len(results), strings.Join(lines, "\n")))
 	})
 }

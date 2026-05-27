@@ -3,17 +3,13 @@ package mcpserver
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
-	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/chat"
-	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
+	"github.com/graphit-labs/graphit-code/internal/wikisvc"
 )
 
 type knowledgeQueryInput struct {
@@ -128,62 +124,20 @@ func registerKnowledgeTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		var sources []wiki.WikiSource
-
-		for _, w := range input.Wikis {
-			src, err := resolveWikiSource(w, projectDir)
-			if err != nil {
-				continue
-			}
-			sources = append(sources, src)
-		}
-
-		for _, ref := range input.HubRefs {
-			src, err := resolveHubKnowledgeSource(ctx, ref)
-			if err != nil {
-				return errResult(fmt.Errorf("hub knowledge %q: %w", ref, err))
-			}
-			sources = append(sources, src)
-		}
-
-		if len(sources) == 0 {
-			return errResult(fmt.Errorf("no valid wiki sources found — specify wikis or hub_refs"))
-		}
-
-		aiClient, err := ai.NewClientFromConfig()
-		if err != nil {
-			return errResult(fmt.Errorf("AI not configured: %w", err))
-		}
-
-		topK := input.TopK
-
-		result, err := wiki.SearchMultiWiki(ctx, aiClient, input.Query, wiki.MultiWikiSearchConfig{
-			Sources:           sources,
-			UseBM25:           true,
-			BM25TopNPerSource: topK,
+		wikiSvc := wikisvc.NewWikiService(projectDir)
+		result, err := wikiSvc.SearchMultiWiki(ctx, wikisvc.WikiSearchOpts{
+			Query:   input.Query,
+			Wikis:   input.Wikis,
+			HubRefs: input.HubRefs,
+			TopK:    input.TopK,
 		})
 		if err != nil {
 			return errResult(err)
 		}
 
-		chatSources := make([]chat.WikiSource, len(sources))
-		for i, s := range sources {
-			chatSources[i] = chat.WikiSource{ID: s.ID, Label: s.Label, Dir: s.Dir}
-		}
-		session := chat.NewSession(projectDir, chatSources, input.Query)
-
-		_ = session.Append(chat.ChatMessage{
-			Role:    "user",
-			Content: input.Query,
-		})
-		_ = session.Append(chat.ChatMessage{
-			Role:    "assistant",
-			Content: result.Answer,
-		})
-
 		var b strings.Builder
 		b.WriteString(result.Answer)
-		_, _ = fmt.Fprintf(&b, "\n\n---\nSession ID: %s (use graphit_wiki_chat to continue this conversation)", session.ID)
+		_, _ = fmt.Fprintf(&b, "\n\n---\nSession ID: %s (use graphit_wiki_chat to continue this conversation)", result.SessionID)
 
 		return textResult(b.String())
 	})
@@ -199,20 +153,10 @@ func registerKnowledgeTools(server *mcp.Server) {
 			return errResult(fmt.Errorf("message is required"))
 		}
 
-		session, err := chat.LoadSession(input.SessionID)
+		wikiSvc := wikisvc.NewWikiService("")
+		response, err := wikiSvc.ContinueChat(ctx, input.SessionID, input.Message)
 		if err != nil {
-			return errResult(fmt.Errorf("session not found: %w", err))
-		}
-
-		aiClient, err := ai.NewClientFromConfig()
-		if err != nil {
-			return errResult(fmt.Errorf("AI not configured: %w", err))
-		}
-
-		engine := chat.NewChatEngine(aiClient, session)
-		response, err := engine.Send(ctx, input.Message)
-		if err != nil {
-			return errResult(fmt.Errorf("chat error: %w", err))
+			return errResult(err)
 		}
 
 		return textResult(response)
@@ -227,7 +171,8 @@ func registerKnowledgeTools(server *mcp.Server) {
 			if input.SessionID == "" {
 				return errResult(fmt.Errorf("session_id is required for delete action"))
 			}
-			if err := chat.DeleteSession(input.SessionID); err != nil {
+			wikiSvc := wikisvc.NewWikiService("")
+			if err := wikiSvc.DeleteSession(input.SessionID); err != nil {
 				return errResult(err)
 			}
 			return textResult(fmt.Sprintf("Session %s deleted.", input.SessionID))
@@ -238,7 +183,8 @@ func registerKnowledgeTools(server *mcp.Server) {
 				return errResult(err)
 			}
 
-			sessions, err := chat.ListSessions(projectDir)
+			wikiSvc := wikisvc.NewWikiService(projectDir)
+			sessions, err := wikiSvc.ListSessions()
 			if err != nil {
 				return textResult("No sessions found.")
 			}
@@ -270,102 +216,4 @@ func registerKnowledgeTools(server *mcp.Server) {
 	})
 }
 
-func resolveWikiSource(name, projectDir string) (wiki.WikiSource, error) {
-	switch name {
-	case "project":
-		dir := filepath.Join(projectDir, brand.DotDir(), "knowledge", "project")
-		if _, err := os.Stat(dir); err != nil {
-			wikiSub := filepath.Join(dir, "wiki")
-			if _, err := os.Stat(wikiSub); err == nil {
-				dir = wikiSub
-			}
-		}
-		if _, err := os.Stat(dir); err != nil {
-			return wiki.WikiSource{}, fmt.Errorf("project knowledge wiki not found at %s", dir)
-		}
-		return wiki.WikiSource{
-			ID:    "project",
-			Label: filepath.Base(projectDir),
-			Dir:   dir,
-		}, nil
 
-	case "memory":
-		dir := filepath.Join(projectDir, brand.DotDir(), "memory", "project")
-		if _, err := os.Stat(dir); err != nil {
-			wikiSub := filepath.Join(dir, "wiki")
-			if _, err := os.Stat(wikiSub); err == nil {
-				dir = wikiSub
-			}
-		}
-		if _, err := os.Stat(dir); err != nil {
-			return wiki.WikiSource{}, fmt.Errorf("project memory wiki not found at %s", dir)
-		}
-		return wiki.WikiSource{
-			ID:    "memory",
-			Label: "Memory (project)",
-			Dir:   dir,
-		}, nil
-
-	default:
-		return resolveEcosystemWikiSource(name)
-	}
-}
-
-func resolveEcosystemWikiSource(projectID string) (wiki.WikiSource, error) {
-	lockMgr, err := hub.NewGlobalLockManager()
-	if err != nil {
-		return wiki.WikiSource{}, fmt.Errorf("cannot access global lock: %w", err)
-	}
-
-	projects, err := lockMgr.ListActiveProjects()
-	if err != nil {
-		return wiki.WikiSource{}, fmt.Errorf("cannot list ecosystem projects: %w", err)
-	}
-
-	for _, p := range projects {
-		if p.ID == projectID {
-			dir := filepath.Join(p.Dir, brand.DotDir(), "knowledge", "project")
-			if _, err := os.Stat(dir); err != nil {
-				wikiSub := filepath.Join(dir, "wiki")
-				if _, err := os.Stat(wikiSub); err == nil {
-					dir = wikiSub
-				}
-			}
-			if _, err := os.Stat(dir); err != nil {
-				return wiki.WikiSource{}, fmt.Errorf("wiki not found for project %s at %s", projectID, dir)
-			}
-			return wiki.WikiSource{
-				ID:    projectID,
-				Label: filepath.Base(p.Dir),
-				Dir:   dir,
-			}, nil
-		}
-	}
-
-	return wiki.WikiSource{}, fmt.Errorf("project %q not found in ecosystem — check global.lock.json", projectID)
-}
-
-func resolveHubKnowledgeSource(ctx context.Context, ref string) (wiki.WikiSource, error) {
-	reg, err := hub.NewRegistryManager(ctx)
-	if err != nil {
-		return wiki.WikiSource{}, fmt.Errorf("hub registry not available: %w", err)
-	}
-
-	hubSvc := hub.NewHubService(reg)
-
-	wikiDir, err := hubSvc.EnsureKnowledgeAvailable(ctx, ref)
-	if err != nil {
-		return wiki.WikiSource{}, err
-	}
-
-	artifactID := ref
-	if parts := strings.SplitN(ref, "@", 2); len(parts) == 2 {
-		artifactID = parts[0]
-	}
-
-	return wiki.WikiSource{
-		ID:    "hub/" + artifactID,
-		Label: artifactID,
-		Dir:   wikiDir,
-	}, nil
-}

@@ -29,6 +29,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/uiserver"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
+	"github.com/graphit-labs/graphit-code/internal/wikisvc"
 )
 
 func newASTBackend() (ast.GraphDB, error) {
@@ -2034,104 +2035,10 @@ func runWikiSearch(query string, wikiRefs, hubRefs []string, sessionName string,
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	var wikiSources []wiki.WikiSource
-	for _, ref := range wikiRefs {
-		ref = strings.TrimSpace(ref)
-		if ref == "" {
-			continue
-		}
-		switch ref {
-		case "project":
-			dir := filepath.Join(brand.DotDir(), "knowledge", "project")
-			wikiDir := dir
-			if _, err := os.Stat(filepath.Join(dir, "index.md")); err != nil {
-				sub := filepath.Join(dir, "wiki")
-				if _, err := os.Stat(filepath.Join(sub, "index.md")); err == nil {
-					wikiDir = sub
-				}
-			}
-			wikiSources = append(wikiSources, wiki.WikiSource{
-				ID:    "project",
-				Label: "Project Knowledge",
-				Dir:   wikiDir,
-			})
-		case "memory":
-			dir := filepath.Join(brand.DotDir(), "memory", "project")
-			wikiDir := dir
-			if _, err := os.Stat(filepath.Join(dir, "index.md")); err != nil {
-				sub := filepath.Join(dir, "wiki")
-				if _, err := os.Stat(filepath.Join(sub, "index.md")); err == nil {
-					wikiDir = sub
-				}
-			}
-			wikiSources = append(wikiSources, wiki.WikiSource{
-				ID:    "memory",
-				Label: "Project Memory",
-				Dir:   wikiDir,
-			})
-		default:
-
-			glm, glmErr := hub.NewGlobalLockManager()
-			if glmErr != nil {
-				p.Warn("Cannot resolve wiki %q: global lock unavailable: %v", ref, glmErr)
-				continue
-			}
-			lock, lockErr := glm.Load()
-			if lockErr != nil {
-				p.Warn("Cannot resolve wiki %q: %v", ref, lockErr)
-				continue
-			}
-			projEntry, ok := lock.Projects[ref]
-			if !ok || len(projEntry.Instances) == 0 {
-				p.Warn("Wiki %q: project not found in global lock", ref)
-				continue
-			}
-
-			dir := filepath.Join(projEntry.Instances[0].Dir, brand.DotDir(), "knowledge", "project")
-			wikiDir := dir
-			if _, err := os.Stat(filepath.Join(dir, "index.md")); err != nil {
-				sub := filepath.Join(dir, "wiki")
-				if _, err := os.Stat(filepath.Join(sub, "index.md")); err == nil {
-					wikiDir = sub
-				}
-			}
-			wikiSources = append(wikiSources, wiki.WikiSource{
-				ID:    ref,
-				Label: fmt.Sprintf("Project: %s", ref),
-				Dir:   wikiDir,
-			})
-		}
-	}
-
-	if len(hubRefs) > 0 {
-		reg, regErr := hub.NewRegistryManager(ctx)
-		if regErr != nil {
-			return fmt.Errorf("hub registry unavailable: %w", regErr)
-		}
-		hubSvc := hub.NewHubService(reg)
-
-		for _, ref := range hubRefs {
-			ref = strings.TrimSpace(ref)
-			if ref == "" {
-				continue
-			}
-			p.Step("Ensuring hub knowledge: %s", ref)
-			wikiDir, err := hubSvc.EnsureKnowledgeAvailable(ctx, ref)
-			if err != nil {
-				p.Warn("Hub wiki %q: %v", ref, err)
-				continue
-			}
-
-			sourceID := ref
-			if idx := strings.Index(ref, "@"); idx > 0 {
-				sourceID = ref[:idx]
-			}
-			wikiSources = append(wikiSources, wiki.WikiSource{
-				ID:    "hub/" + sourceID,
-				Label: fmt.Sprintf("Hub: %s", ref),
-				Dir:   wikiDir,
-			})
-		}
+	wikiSvc := wikisvc.NewWikiService(wd)
+	wikiSources, resolveErrs := wikiSvc.ResolveSources(ctx, wikiRefs, hubRefs)
+	for _, e := range resolveErrs {
+		p.Warn("%v", e)
 	}
 
 	if len(wikiSources) == 0 {
@@ -2281,15 +2188,17 @@ func runWikiSessions(deleteID string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
+	wikiSvc := wikisvc.NewWikiService(wd)
+
 	if deleteID != "" {
-		if err := chat.DeleteSession(deleteID); err != nil {
+		if err := wikiSvc.DeleteSession(deleteID); err != nil {
 			return fmt.Errorf("deleting session: %w", err)
 		}
 		p.Success("Session %s deleted", deleteID)
 		return nil
 	}
 
-	sessions, err := chat.ListSessions(wd)
+	sessions, err := wikiSvc.ListSessions()
 	if err != nil {
 		return err
 	}
