@@ -427,7 +427,7 @@
 
       <!-- Improvements Module -->
       <div class="glass-panel bento-item bento-span-4 bg-improvements reveal">
-        <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
+        <div class="bento-icon" style="color: var(--primary)"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
         <h3>Improvements</h3>
         <p>Autonomous background orchestration. During idle time, it continuously reflects on your codebase to propose refactorings and audits based on strict, high-standard engineering best practices.</p>
         <div class="terminal" style="margin-top: auto;">
@@ -436,6 +436,41 @@
             <span class="cmd" style="font-size: 0.85rem;">[Autonomous]</span><br>
             <span class="c" style="font-size: 0.85rem;">Auditing against strict rules...</span><br>
             <span class="arg" style="font-size: 0.85rem;">Refactoring proposed.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- MCP Agent Interface -->
+      <div class="glass-panel bento-item bento-span-8 bg-ast reveal" style="background: linear-gradient(to bottom right, var(--card), rgba(99,102,241,0.05));">
+        <div class="bento-icon" style="background: rgba(99,102,241,0.1); color: var(--accent-1);"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v12"/><path d="M6 12h12"/></svg></div>
+        <h3>MCP as Core Agent Interface</h3>
+        <p>AI Agents now interact with Graphit Code primarily via the <strong>Model Context Protocol (MCP)</strong> stdio interface. Exposes tree-sitter AST queries, persistent memories, wiki lookups, and lifecycle hooks natively. IDEs automatically configure and auto-start the stdio server, offering <strong>zero-latency execution</strong>.</p>
+        <div class="tag-container">
+          <span class="tag">Primary Interface</span>
+          <span class="tag">Zero-Latency Stdio</span>
+          <span class="tag">Standardized Schema</span>
+        </div>
+        <div class="terminal" style="margin-top: 1.5rem;">
+          <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+          <div class="terminal-body">
+            <span class="c"># Runs as a stdio server for native agent interactions</span><br>
+            <span class="cmd">graphit</span> <span class="arg">mcp</span> <span class="str">--stdio</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- HTTP & Tunnels -->
+      <div class="glass-panel bento-item bento-span-4 bg-improvements reveal" style="background: linear-gradient(to bottom right, var(--card), rgba(16,185,129,0.05));">
+        <div class="bento-icon" style="background: rgba(16,185,129,0.1); color: var(--accent-3);"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.2 8.4c.5-1.5.5-3 0-4.5s-1.5-3-3-4.5M2.8 15.6c-.5 1.5-.5 3 0 4.5s1.5 3 3 4.5"/></svg></div>
+        <h3>MCP HTTP & Tunnels</h3>
+        <p>Deploy the harness as an HTTP service or use secure tunnels (like ngrok, localtunnel) to expose the local MCP endpoint, allowing remote cloud-based LLM agents to securely inspect and compile your local code graphs.</p>
+        <div class="terminal" style="margin-top: auto;">
+          <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+          <div class="terminal-body" style="padding: 1.25rem;">
+            <span class="c"># Start HTTP MCP server</span><br>
+            <span class="cmd">graphit</span> <span class="arg">mcp</span> <span class="str">--http --port 8080</span><br><br>
+            <span class="c"># Securely tunnel via ngrok</span><br>
+            <span class="cmd">ngrok</span> <span class="arg">http</span> <span class="str">8080</span>
           </div>
         </div>
       </div>
@@ -540,7 +575,7 @@
         <div class="arch-grid" style="margin-bottom: 1.5rem;">
           <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>Hub Registry</strong>Git-Backed Persistence</div>
           <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>Cluster</strong>Ecosystem Discovery</div>
-          <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>MCP Server</strong>IDE Bridge</div>
+          <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>MCP Server</strong>Primary Interface (Stdio/HTTP + Tunnels)</div>
         </div>
 
         <div class="arch-box" style="background: var(--bg); border: 1px solid var(--border);">
