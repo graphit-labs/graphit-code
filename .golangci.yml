@@ -1,19 +1,34 @@
 version: "2"
-
 run:
   build-tags:
     - fts5
-
 linters:
   settings:
     govet:
-      disable:
-        - inline
-
-exclusions:
-  paths:
-    - "third_party"
-    - "internal/ui/node_modules"
-  presets:
-    - comments
-    - std-error-handling
+      disable-all: false
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+          - govet
+          - staticcheck
+        path: node_modules/
+    paths:
+      - node_modules
+      - third_party
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
