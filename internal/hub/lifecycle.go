@@ -4,11 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/paths"
 )
-
-var lifecyclePrinter = output.NewPrinter("")
 
 func OnInit(ctx context.Context, registry *RegistryManager, ide string) error {
 	svc := NewHubService(registry)
@@ -22,37 +19,26 @@ func OnInit(ctx context.Context, registry *RegistryManager, ide string) error {
 		lf = &Lockfile{Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta)}
 	}
 
-	lifecyclePrinter.Step("Creating project identity")
 	if err := SaveLockfile(pp.LockFilePath, lf); err != nil {
 		return fmt.Errorf("creating lockfile: %w", err)
 	}
 
-	if _, err := AddIDE(pp.LockFilePath, ide); err != nil {
-		lifecyclePrinter.StepWarn("Could not register IDE %q: %v", ide, err)
-	}
+	_, _ = AddIDE(pp.LockFilePath, ide)
 
-	lifecyclePrinter.Step("Provisioning baseline artifacts")
 	if registry.IsReady() {
 		baselines, err := registry.GetDefaultBaselines(ctx)
-		if err != nil {
-			lifecyclePrinter.StepWarn("Could not load baselines: %v", err)
-		} else {
+		if err == nil {
 			for _, baseline := range baselines {
 				entryID := baseline.ID
 				if baseline.Version != "" && baseline.Version != "latest" {
 					entryID = baseline.ID + "@" + baseline.Version
 				}
-				if _, err := svc.Install(ctx, entryID, "", ide, baseline.Type, "", ""); err != nil {
-					lifecyclePrinter.StepWarn("Baseline %q: %v", baseline.ID, err)
-				}
+				_, _ = svc.Install(ctx, entryID, "", ide, baseline.Type, "", "")
 			}
 		}
 	}
 
-	lifecyclePrinter.Step("Syncing IDE adapter (%s)", ide)
-	if err := syncIDEAdapter(ide, pp, lf); err != nil {
-		lifecyclePrinter.StepWarn("IDE adapter sync: %v", err)
-	}
+	_ = syncIDEAdapter(ide, pp, lf)
 
 	if registry.IsReady() {
 		tracker := NewEventTracker(registry.GitStore())
@@ -65,7 +51,6 @@ func OnInit(ctx context.Context, registry *RegistryManager, ide string) error {
 func OnUpdate(ctx context.Context, registry *RegistryManager, ide string) error {
 	svc := NewHubService(registry)
 	pp := paths.GetPaths(ide, false)
-	p := output.NewPrinter("")
 
 	if registry.IsReady() {
 		lf, _ := LoadLockfile(pp.LockFilePath)
@@ -75,20 +60,11 @@ func OnUpdate(ctx context.Context, registry *RegistryManager, ide string) error 
 		}
 	}
 
-	p.Step("Checking for artifact updates")
-
-	results := svc.UpdateAll(ctx, ide, "")
-	for artID, err := range results {
-		if err != nil {
-			p.StepWarn("Update failed for %q: %v", artID, err)
-		}
-	}
+	_ = svc.UpdateAll(ctx, ide, "")
 
 	lf, _ := LoadLockfile(pp.LockFilePath)
 	if lf != nil {
-		if err := syncIDEAdapter(ide, pp, lf); err != nil {
-			p.StepWarn("IDE adapter sync: %v", err)
-		}
+		_ = syncIDEAdapter(ide, pp, lf)
 	}
 
 	return nil
@@ -97,8 +73,6 @@ func OnUpdate(ctx context.Context, registry *RegistryManager, ide string) error 
 func OnRemove(ctx context.Context, registry *RegistryManager, ide string) error {
 	svc := NewHubService(registry)
 	pp := paths.GetPaths(ide, false)
-
-	p := output.NewPrinter("")
 
 	if registry.IsReady() {
 		lf, _ := LoadLockfile(pp.LockFilePath)
@@ -110,17 +84,10 @@ func OnRemove(ctx context.Context, registry *RegistryManager, ide string) error 
 		tracker.TrackEvent("project.remove", projectID, nil, map[string]string{"ide": ide})
 	}
 
-	remaining, err := RemoveIDE(pp.LockFilePath, ide)
-	if err != nil {
-		p.StepWarn("Could not deregister IDE: %v", err)
-	}
+	remaining, _ := RemoveIDE(pp.LockFilePath, ide)
 
 	if len(remaining) == 0 {
-
-		p.Step("Removing all artifacts")
-		if err := svc.UninstallAll(ctx, ide, ""); err != nil {
-			p.StepWarn("Artifact cleanup: %v", err)
-		}
+		_ = svc.UninstallAll(ctx, ide, "")
 	}
 
 	return nil

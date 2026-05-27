@@ -21,7 +21,7 @@ The Hub provides these artifact types — each serves a different purpose:
 | Type | What it provides | After installation |
 |---|---|---|
 | `knowledge` | Pre-indexed documentation wiki for a framework/library | Read the wiki at `.graphit/knowledge/<id>/index.md` |
-| `ast` | Pre-indexed code graph of a framework's source code | Query with `graphit ast query "..." --context <id>` |
+| `ast` | Pre-indexed code graph of a framework's source code | Query via `graphit_ast_query` tool (passing absolute `project_dir` and setting `context` parameter to the artifact ID) |
 | `rule` | Coding conventions, style guides, governance rules | Auto-injected into IDE rules file |
 | `skill` | Detailed methodology for specific tasks (e.g. testing, migration) | Available as an on-demand skill |
 | `command` | Reusable CLI workflows/commands | Available in IDE's commands directory |
@@ -35,28 +35,34 @@ If you encounter a framework, module, or domain concept you are not fully certai
 about, DO NOT guess its API or structure. Check if it is available in the Hub.
 
 ### 1. Discovery
-To see all available artifacts or filter by type:
-```bash
-graphit hub list
-graphit hub list --type <knowledge|ast|rule|skill|command|agent|mcp|power>
+To see all available artifacts or filter by type, call the `graphit_hub_list` tool:
+```
+graphit_hub_list(type: "<knowledge|ast|rule|skill|command|agent|mcp|power>")
 ```
 
 ### 2. Inspection
-To see the details, tags, and description of a specific artifact:
-```bash
-graphit hub show <artifact-id>
+To see the details, tags, and description of a specific artifact, call the `graphit_hub_show` tool:
+```
+graphit_hub_show(id: "<artifact-id>")
 ```
 
 ### 3. Installation
-To download and install the artifact into the current project:
-```bash
-graphit hub install <artifact-id> --ide <antigravity|gemini|claude|cursor|kiro|codex|opencode>
+To download and install the artifact into the current project, call the `graphit_hub_install` tool (passing absolute `project_dir`):
+```
+graphit_hub_install(project_dir: "/path/to/project", id: "<artifact-id>", ide: "<ide>", alias: "<alias>")
 ```
 
 ### 4. Updates
-To keep all installed artifacts up to date with the latest versions:
-```bash
-graphit hub update
+To keep all installed artifacts up to date, call the `graphit_hub_update` tool (passing absolute `project_dir`):
+```
+graphit_hub_update(project_dir: "/path/to/project")
+```
+
+### 5. Link & Unlink (Local Development)
+To link or unlink local development artifacts into the current project, call `graphit_hub_link` or `graphit_hub_unlink` (passing absolute `project_dir`):
+```
+graphit_hub_link(project_dir: "/path/to/project", name: "<name>", source_path: "/path/to/source", type: "<type>")
+graphit_hub_unlink(project_dir: "/path/to/project", name: "<name>", type: "<type>")
 ```
 
 ## Using Installed Artifacts
@@ -65,8 +71,7 @@ Once installed, artifacts enhance your capabilities automatically:
 
 - **Knowledge**: Read the wiki `.graphit/knowledge/<id>/index.md` to understand
   a framework's API, architecture, and patterns — never guess.
-- **AST**: Query the code graph to find functions, classes, and relationships
-  in the framework's source: `graphit ast query "..." --context <id>`
+- **AST**: Query the code graph of the installed context using the `graphit_ast_query` tool (passing absolute `project_dir` and setting `context` parameter to the installed artifact ID).
 - **Rules**: Automatically injected — follow the conventions they define.
 - **Skills**: Read the skill when the task matches its domain. Skills appear
   in the IDE's skills directory.
@@ -79,54 +84,52 @@ Once installed, artifacts enhance your capabilities automatically:
 
 > No hub artifacts are currently installed in this project.
 
-Run `graphit hub install <artifact-id> --ide <ide>` to install one.
+Call the `graphit_hub_install` tool (passing absolute `project_dir`) to install one.
 
 ## 🌐 Ecosystem Project Discovery
 
 **When you need to find other projects in the work ecosystem** (e.g., to understand
 cross-project dependencies, shared libraries, related services, or sibling projects),
-**consult the project lock file:**
+**call the `graphit_cluster_projects` tool (passing absolute `project_dir` parameter):**
 
 ```
-.graphit/cluster.lock.json
+graphit_cluster_projects(project_dir: "/path/to/project")
 ```
 
-This file is **automatically generated** during `graphit sync` and contains only the
-sibling projects that belong to the **same cluster** as the current project.
-Clusters are managed via `graphit cluster <key> <value>` — projects sharing at
-least one identical cluster label are grouped together. Projects without any labels
-form their own default group.
+This tool returns a JSON map containing all sibling projects that belong to the **same cluster**
+as the current project. Clusters are managed via `graphit_cluster_set`, `graphit_cluster_get`,
+and `graphit_cluster_unset` MCP tools — projects sharing at least one identical cluster label
+are grouped together. Projects without any labels form their own default group.
 
 Each sibling project entry includes:
 
 | Field | Description |
 |---|---|
-| `projects.<id>.dir` | Absolute path to the project root directory |
-| `projects.<id>.name` | Human-readable project name |
-| `projects.<id>.description` | Project description |
-| `projects.<id>.cluster` | Cluster labels (key→value map) |
-| `projects.<id>.registeredAt` | When the project was registered |
+| `dir` | Absolute path to the project root directory |
+| `name` | Human-readable project name |
+| `description` | Project description |
+| `cluster` | Cluster labels (key→value map) |
+| `registeredAt` | When the project was registered |
 
-**With the project paths from this file you can:**
+**With the project paths from this tool you can:**
 
-- **Discover and navigate** — find sibling project directories and read their source, docs, or lockfile
-- **Query code in another project** — run AST or full-text search against a sibling:
-  ```bash
-  cd /path/to/other-project && graphit ast query "MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path" --ai-optimized
+- **Discover and navigate** — find sibling project directories and read their source or docs
+- **Query code in another project** — run AST query against a sibling (always pass its absolute path in the `project_dir` parameter):
   ```
-- **Read another project's knowledge wiki** — understand its architecture without grepping:
-  ```bash
-  cat /path/to/other-project/.graphit/knowledge/project/index.md
+  graphit_ast_query(project_dir: "/path/to/other-project", query: "MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path", ai_optimized: true)
+  ```
+- **Read another project's knowledge wiki** — understand its architecture without grepping by using the `view_file` (or read file) tool on:
+  ```
+  /path/to/other-project/.graphit/knowledge/project/index.md
   ```
 - **Make cross-project changes** — if the user asks to modify code in another project,
-  use the path from `cluster.lock.json` to locate, read, and edit files there directly
+  use the path from the tool output to locate, read, and edit files there directly
 
 **Example workflow:** The user asks "how does the auth service validate tokens?".
-You read `.graphit/cluster.lock.json`, find the auth service project path,
-then run `cd /path/to/auth-service && graphit ast query "MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number" --ai-optimized`
-to locate the validation logic, and read the relevant source files.
+You call `graphit_cluster_projects` to find the auth service project path,
+then call `graphit_ast_query` with `project_dir: "/path/to/auth-service"`, `query: "MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number"`, and `ai_optimized: true` to locate the validation logic, and read the relevant source files.
 
 ## ⚠️ Rule
 
 Rely entirely on the official artifacts from the Hub rather than generic internet knowledge.
-When in doubt: `graphit hub list` → `graphit hub show <id>` → `graphit hub install <id>`.
+When in doubt: call `graphit_hub_list` → `graphit_hub_show` → `graphit_hub_install`.

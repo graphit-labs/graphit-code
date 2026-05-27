@@ -50,7 +50,7 @@ No exceptions. No shortcuts. If the documentation is missing, the task is NOT do
 
 1. **Do the work** — implement the code change.
 2. **Write the documentation** — update or create the relevant docs.
-3. **Index the wiki** — run `graphit sync &` (fire-and-forget).
+3. **Sync the wiki** — call the `graphit_sync` tool (passing absolute `project_dir` parameter).
 4. **Only then** report the task as complete.
 
 ### 🔒 MANDATORY: Clean Code Documentation Policy
@@ -224,24 +224,22 @@ Examples of INVALID fallback (protocol violations):
 |---|---|
 | **project** (this project) | `.graphit/knowledge/project/index.md` |
 
-### ⚡ MANDATORY: Background Reindex After Every File Modification
+### ⚡ MANDATORY: Sync After Every File Modification
 
 **After ANY modification to ANY file in `docs/` (edit, create, rename, or delete),
-you MUST trigger an sync in the background:**
+you MUST trigger a project sync by calling the `graphit_sync` tool (passing absolute `project_dir` parameter):**
 
-```bash
-graphit sync &
+```
+graphit_sync(project_dir: "/path/to/project")
 ```
 
 **This is NON-NEGOTIABLE.** The framework depends on an up-to-date wiki to function.
-Without reindexing, the knowledge wiki becomes stale and subsequent lookups return
+Without syncing, the knowledge wiki becomes stale and subsequent lookups return
 outdated or incomplete results — breaking the knowledge pipeline.
 
 **Rules:**
-- Run **fire-and-forget** — do NOT wait for it to finish. Continue your work immediately.
-- Run it after **every** docs modification, not just at the end of a task.
-- If you modified multiple docs, a single index call at the end covers all changes.
-- **Forgetting to reindex is a framework integrity violation.**
+- Call `graphit_sync` immediately after any docs modification.
+- **Forgetting to call sync is a framework integrity violation.**
 
 ## Documentation Requirements
 
@@ -524,7 +522,7 @@ This enables a new agent to understand the full trajectory.>
   architecture doc must be updated.
 - If a task involves a design decision, create an ADR in `docs/decisions/` AND
   reference it from the task log's Trade-offs section.
-- Task logs are the "how it happened" — specs and ADRs are the "what it is".
+- Task logs are the "how it happened" — specs and ADRs are the "what it is",
 ---
 
 > **Note:** The section below covers integration and interface documentation specifically.
@@ -542,16 +540,16 @@ This enables a new agent to understand the full trajectory.>
 
 ### Before implementing ANY integration with an external system:
 
-**Step 1 — Search the hub for an existing knowledge artifact:**
+**Step 1 — Search the hub for an existing knowledge artifact using the `graphit_hub_list` tool:**
 
-```bash
-graphit hub search "<system-name> --type knowledge"
+```
+graphit_hub_list(project_dir: "/path/to/project", type: "knowledge")
 ```
 
-**Step 2 — If found, install it immediately:**
+**Step 2 — If found, install it immediately using the `graphit_knowledge_install` tool (passing absolute `project_dir` and the context `name`):**
 
-```bash
-graphit knowledge import <artifact-name> --ide <antigravity|gemini|claude|cursor|kiro|codex|opencode>
+```
+graphit_knowledge_install(project_dir: "/path/to/project", name: "<artifact-name>")
 ```
 
 This installs the artifact at .graphit/knowledge/<name>/.
@@ -865,8 +863,8 @@ type Query {
 ## Workflow
 
 **0. (MANDATORY) Before touching any external system:**
-   - Run `graphit hub search "<system-name>"` — always.
-   - If found: `graphit knowledge import <name>` and read the wiki.
+   - Call `graphit_hub_list` tool filtering by name/type — always.
+   - If found: call `graphit_knowledge_install` with `name` and read the wiki.
    - If not found: document what the user provides, never assume.
 
 1. **Before creating an integration**: check the wiki index to avoid duplication.

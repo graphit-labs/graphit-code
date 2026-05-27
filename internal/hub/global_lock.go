@@ -18,16 +18,49 @@ const GlobalLockVersion = 2
 
 const GlobalHubLockFile = "global.lock.json"
 
+type ClusterMap map[string][]string
+
+func (c *ClusterMap) UnmarshalJSON(data []byte) error {
+	var m map[string][]string
+	if err := json.Unmarshal(data, &m); err == nil {
+		*c = m
+		return nil
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	m = make(map[string][]string)
+	for k, v := range raw {
+		switch val := v.(type) {
+		case string:
+			m[k] = []string{val}
+		case []any:
+			var strs []string
+			for _, item := range val {
+				if s, ok := item.(string); ok {
+					strs = append(strs, s)
+				}
+			}
+			m[k] = strs
+		}
+	}
+	*c = m
+	return nil
+}
+
 type ProjectEntry struct {
 	Instances []InstanceEntry `json:"instances"`
 }
 
 type InstanceEntry struct {
-	Dir          string              `json:"dir"`
-	Name         string              `json:"name,omitempty"`
-	Description  string              `json:"description,omitempty"`
-	Cluster      map[string][]string `json:"cluster,omitempty"`
-	RegisteredAt string              `json:"registeredAt"`
+	Dir          string     `json:"dir"`
+	Name         string     `json:"name,omitempty"`
+	Description  string     `json:"description,omitempty"`
+	Cluster      ClusterMap `json:"cluster,omitempty"`
+	RegisteredAt string     `json:"registeredAt"`
 }
 
 type GlobalHubLock struct {

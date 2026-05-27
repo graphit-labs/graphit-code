@@ -185,13 +185,11 @@ func (s *UIServer) handleRegistry(w http.ResponseWriter, r *http.Request) {
 	activeProjectID := getMUI(proj, "id", "")
 
 	var projectCluster map[string][]string
-	clusterLockPath := filepath.Join(projectDir, brand.DotDir(), ProjectLockFile)
-	if data, err := os.ReadFile(clusterLockPath); err == nil {
-		var cl struct {
-			Cluster map[string][]string `json:"cluster"`
-		}
-		if json.Unmarshal(data, &cl) == nil {
-			projectCluster = cl.Cluster
+	if mgr, err := NewGlobalLockManager(); err == nil {
+		if lock, err := mgr.Load(); err == nil {
+			if _, currentInst := resolveCurrentProject(projectDir, lock); currentInst != nil {
+				projectCluster = currentInst.Cluster
+			}
 		}
 	}
 
@@ -392,13 +390,11 @@ func (s *UIServer) handleProjectArtifacts(w http.ResponseWriter, r *http.Request
 	}
 
 	var projectCluster map[string][]string
-	clusterLockPath := filepath.Join(projectDir, brand.DotDir(), ProjectLockFile)
-	if data, err := os.ReadFile(clusterLockPath); err == nil {
-		var cl struct {
-			Cluster map[string][]string `json:"cluster"`
-		}
-		if json.Unmarshal(data, &cl) == nil {
-			projectCluster = cl.Cluster
+	if mgr, err := NewGlobalLockManager(); err == nil {
+		if lock, err := mgr.Load(); err == nil {
+			if _, currentInst := resolveCurrentProject(projectDir, lock); currentInst != nil {
+				projectCluster = currentInst.Cluster
+			}
 		}
 	}
 

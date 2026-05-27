@@ -10,7 +10,6 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/memory"
-	"github.com/graphit-labs/graphit-code/internal/output"
 )
 
 const (
@@ -33,6 +32,8 @@ type Config struct {
 	DisableEmbedding bool
 
 	DisableDream bool
+
+	OnEvent func(level string, msg string)
 }
 
 func GlobalDaemonDir() string {
@@ -59,7 +60,6 @@ type Daemon struct {
 	pid          *PIDFile
 	builder      ProjectModuleBuilder
 	supervisors  map[string]*ProjectSupervisor
-	printer      *output.Printer
 	logFile      *os.File
 	mu           sync.RWMutex
 	bootStamp    string
@@ -78,7 +78,12 @@ func New(cfg Config, builder ProjectModuleBuilder) *Daemon {
 		pid:         NewPIDFile(),
 		builder:     builder,
 		supervisors: make(map[string]*ProjectSupervisor),
-		printer:     output.NewPrinter("daemon"),
+	}
+}
+
+func (d *Daemon) event(level string, format string, args ...any) {
+	if d.cfg.OnEvent != nil {
+		d.cfg.OnEvent(level, fmt.Sprintf(format, args...))
 	}
 }
 
@@ -114,10 +119,10 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 	d.log("daemon started (pid=%d, discovery_interval=%s, version_check=%s, stamp=%s)",
 		os.Getpid(), d.cfg.DiscoveryInterval, d.cfg.VersionCheckInterval, d.bootStamp)
 
-	d.printer.Running("Global daemon started")
-	d.printer.Step("Discovery interval: %s", d.cfg.DiscoveryInterval)
-	d.printer.Step("Press Ctrl+C to stop")
-	d.printer.Blank()
+	d.event("running", "Global daemon started")
+	d.event("step", "Discovery interval: %s", d.cfg.DiscoveryInterval)
+	d.event("step", "Press Ctrl+C to stop")
+	d.event("blank", "")
 
 	d.reconcileProjects(ctx, discoverFn)
 
@@ -137,7 +142,7 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 		case <-versionTicker.C:
 			if d.stampChanged() {
 				d.log("launcher stamp changed — spawning new daemon before shutdown")
-				d.printer.Warn("New version detected — upgrading daemon")
+				d.event("warn", "New version detected — upgrading daemon")
 
 				d.pid.Remove()
 				d.pidHandedOff = true
@@ -174,7 +179,7 @@ func (d *Daemon) reconcileProjects(ctx context.Context, discoverFn func() ([]Pro
 	for id, sup := range d.supervisors {
 		if _, ok := discovered[id]; !ok {
 			d.log("[%s] project removed — stopping supervisor", id)
-			d.printer.StepWarn("Project removed: %s", sup.projectDir)
+			d.event("step_warn", "Project removed: %s", sup.projectDir)
 			sup.Stop()
 			delete(d.supervisors, id)
 		}
@@ -186,12 +191,12 @@ func (d *Daemon) reconcileProjects(ctx context.Context, discoverFn func() ([]Pro
 		}
 
 		d.log("[%s] new project discovered: %s", id, proj.Dir)
-		d.printer.StepOK("New project: %s", proj.Dir)
+		d.event("step_ok", "New project: %s", proj.Dir)
 
 		modules, closerFns, err := d.builder(proj.Dir)
 		if err != nil {
 			d.log("[%s] failed to build modules: %v", id, err)
-			d.printer.StepWarn("Failed to start project %s: %v", proj.Dir, err)
+			d.event("step_warn", "Failed to start project %s: %v", proj.Dir, err)
 			continue
 		}
 
@@ -217,7 +222,7 @@ func (d *Daemon) reconcileProjects(ctx context.Context, discoverFn func() ([]Pro
 
 func (d *Daemon) shutdown() {
 	d.log("daemon shutting down…")
-	d.printer.Warn("Shutting down…")
+	d.event("warn", "Shutting down…")
 
 	d.mu.Lock()
 	sups := make([]*ProjectSupervisor, 0, len(d.supervisors))
@@ -246,10 +251,10 @@ func (d *Daemon) shutdown() {
 		d.log("all project supervisors stopped gracefully")
 	case <-time.After(10 * time.Second):
 		d.log("shutdown timed out after 10s")
-		d.printer.Warn("Shutdown timed out after 10s")
+		d.event("warn", "Shutdown timed out after 10s")
 	}
 
-	d.printer.Success("Daemon stopped")
+	d.event("success", "Daemon stopped")
 
 	memory.WaitForPendingPushes()
 

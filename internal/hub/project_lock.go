@@ -1,21 +1,9 @@
 package hub
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
-
-	"github.com/graphit-labs/graphit-code/internal/brand"
 )
-
-const ProjectLockFile = "cluster.lock.json"
-
-type ProjectLock struct {
-	Version  int                          `json:"version"`
-	Cluster  map[string][]string          `json:"cluster,omitempty"`
-	Projects map[string]*SiblingProject   `json:"projects"`
-}
 
 type SiblingProject struct {
 	Dir          string              `json:"dir"`
@@ -25,20 +13,20 @@ type SiblingProject struct {
 	RegisteredAt string              `json:"registeredAt"`
 }
 
-func SyncProjectLock(projectDir string) {
+func GetClusterProjects(projectDir string) (map[string]*SiblingProject, error) {
 	mgr, err := NewGlobalLockManager()
 	if err != nil {
-		return
+		return nil, fmt.Errorf("global lock: %w", err)
 	}
 
 	lock, err := mgr.Load()
 	if err != nil {
-		return
+		return nil, fmt.Errorf("load global lock: %w", err)
 	}
 
 	currentID, currentInst := resolveCurrentProject(projectDir, lock)
 	if currentID == "" {
-		return
+		return nil, fmt.Errorf("project is not initialized or registered in global lock")
 	}
 
 	siblings := make(map[string]*SiblingProject)
@@ -66,23 +54,9 @@ func SyncProjectLock(projectDir string) {
 			}
 		}
 	}
-
-	pl := &ProjectLock{
-		Version:  1,
-		Cluster:  currentInst.Cluster,
-		Projects: siblings,
-	}
-
-	dotDir := filepath.Join(projectDir, brand.DotDir())
-	if err := os.MkdirAll(dotDir, 0o755); err != nil {
-		return
-	}
-	data, err := json.MarshalIndent(pl, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(filepath.Join(dotDir, ProjectLockFile), data, 0o644)
+	return siblings, nil
 }
+
 
 func resolveCurrentProject(projectDir string, lock *GlobalHubLock) (string, *InstanceEntry) {
 	absDir, err := filepath.Abs(projectDir)

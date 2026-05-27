@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -132,10 +133,13 @@ func registerHubTools(server *mcp.Server) {
 			return errResult(fmt.Errorf("failed to load hub registry: %w", err))
 		}
 
-		presenter := hub.NewHubPresenter(reg)
-		presenter.Install(ctx, input.ID, "", ide, hub.ArtifactType(input.Type))
+		svc := hub.NewHubService(reg)
+		result, err := svc.Install(ctx, input.ID, "", ide, hub.ArtifactType(input.Type), "", "")
+		if err != nil {
+			return errResult(err)
+		}
 
-		return textResult(fmt.Sprintf("Artifact %q installed successfully.", input.ID))
+		return textResult(fmt.Sprintf("Artifact %q installed successfully: %s (%s) @%s", input.ID, result.Name, result.ArtType, result.Version))
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -159,8 +163,10 @@ func registerHubTools(server *mcp.Server) {
 			return errResult(fmt.Errorf("failed to load hub registry: %w", err))
 		}
 
-		presenter := hub.NewHubPresenter(reg)
-		presenter.Uninstall(ctx, input.ID, hub.ArtifactType(input.Type), ide)
+		svc := hub.NewHubService(reg)
+		if err := svc.Uninstall(ctx, input.ID, hub.ArtifactType(input.Type), true, ide, ""); err != nil {
+			return errResult(err)
+		}
 
 		return textResult(fmt.Sprintf("Artifact %q uninstalled.", input.ID))
 	})
@@ -186,14 +192,26 @@ func registerHubTools(server *mcp.Server) {
 			return errResult(fmt.Errorf("failed to load hub registry: %w", err))
 		}
 
-		presenter := hub.NewHubPresenter(reg)
+		svc := hub.NewHubService(reg)
 
 		if input.ID != "" {
-			presenter.UpdateOneArtifact(ctx, input.ID, hub.ArtifactType(input.Type), ide)
+			if err := svc.UpdateOne(ctx, input.ID, hub.ArtifactType(input.Type), ide, ""); err != nil {
+				return errResult(err)
+			}
 			return textResult(fmt.Sprintf("Artifact %q updated.", input.ID))
 		}
 
-		presenter.Update(ctx, ide)
+		results := svc.UpdateAll(ctx, ide, "")
+		var errs []string
+		for artID, err := range results {
+			if err != nil {
+				errChs := fmt.Sprintf("%s: %v", artID, err)
+				errs = append(errs, errChs)
+			}
+		}
+		if len(errs) > 0 {
+			return textResult(fmt.Sprintf("Update completed with errors:\n%s", strings.Join(errs, "\n")))
+		}
 		return textResult("All artifacts updated.")
 	})
 }

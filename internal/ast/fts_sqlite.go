@@ -94,16 +94,28 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 	_, _ = tx.Exec("DELETE FROM entity_vec")
 	_, _ = tx.Exec("DELETE FROM entity_vec_map")
 
-	fileStmt, _ := tx.Prepare("INSERT INTO file_fts(path, name, source) VALUES (?, ?, ?)")
+	fileStmt, err := tx.Prepare("INSERT INTO file_fts(path, name, source) VALUES (?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("prepare file_fts: %w", err)
+	}
 	defer func() { _ = fileStmt.Close() }()
 
-	entityFTSStmt, _ := tx.Prepare("INSERT INTO entity_fts(uid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?)")
+	entityFTSStmt, err := tx.Prepare("INSERT INTO entity_fts(uid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("prepare entity_fts: %w", err)
+	}
 	defer func() { _ = entityFTSStmt.Close() }()
 
-	vecStmt, _ := tx.Prepare("INSERT INTO entity_vec(rowid, embedding) VALUES (?, ?)")
+	vecStmt, err := tx.Prepare("INSERT INTO entity_vec(rowid, embedding) VALUES (?, ?)")
+	if err != nil {
+		return fmt.Errorf("prepare entity_vec: %w", err)
+	}
 	defer func() { _ = vecStmt.Close() }()
 
-	mapStmt, _ := tx.Prepare("INSERT INTO entity_vec_map(uid, vec_rowid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	mapStmt, err := tx.Prepare("INSERT INTO entity_vec_map(uid, vec_rowid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("prepare entity_vec_map: %w", err)
+	}
 	defer func() { _ = mapStmt.Close() }()
 
 	fileCount, entityCount, vecCount := 0, 0, 0

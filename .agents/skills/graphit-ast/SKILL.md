@@ -29,16 +29,18 @@ containment hierarchy — pre-indexed and instantly queryable.
 
 | Your tool | AST equivalent | Why AST wins |
 |---|---|---|
-| `grep -r "functionName" src/` | `MATCH (f:Function {name: 'functionName'}) RETURN f.path` | AST: O(1) indexed lookup. Grep: O(n) scan, false positives in comments/strings |
-| Semantic search for "who calls X" | `MATCH (a)-[:CALLS]->(b {name: 'X'}) RETURN a.name, a.path` | AST: exact CALLS edges. Semantic: guesses from text proximity |
-| IDE code symbols / go-to-definition | `MATCH (n:Class {name: 'X'}) RETURN n.path, n.line_number` | AST: works across files, languages, and imported contexts |
-| Reading files to understand structure | `MATCH (f:File {path: 'X'})-[:CONTAINS]->(e) RETURN label(e), e.name` | AST: instant file skeleton. File reading: manual, token-heavy |
-| `grep` for import usage | `MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'X'}) RETURN f.path` | AST: pre-resolved import graph. Grep: regex on `import` statements |
-| Searching for class hierarchy | `MATCH (a:Class)-[:INHERITS*]->(b:Class {name: 'X'}) RETURN a.name` | AST: transitive closure in one query. Manual: file-by-file tracing |
+| `grep -r "functionName" src/` | Call `graphit_ast_query` with `query: "MATCH (f:Function {name: 'functionName'}) RETURN f.path, f.line_number"` | AST: O(1) indexed lookup. Grep: O(n) scan, false positives in comments/strings |
+| Semantic search for "who calls X" | Call `graphit_ast_query` with `query: "MATCH (a)-[:CALLS]->(b {name: 'X'}) RETURN a.name, a.path"` | AST: exact CALLS edges. Semantic: guesses from text proximity |
+| IDE code symbols / go-to-definition | Call `graphit_ast_query` with `query: "MATCH (n:Class {name: 'X'}) RETURN n.path, n.line_number"` | AST: works across files, languages, and imported contexts |
+| Reading files to understand structure | Call `graphit_ast_query` with `query: "MATCH (f:File {path: 'X'})-[:CONTAINS]->(e) RETURN label(e), e.name"` | AST: instant file skeleton. File reading: manual, token-heavy |
+| `grep` for import usage | Call `graphit_ast_query` with `query: "MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'X'}) RETURN f.path"` | AST: pre-resolved import graph. Grep: regex on `import` statements |
+| Searching for class hierarchy | Call `graphit_ast_query` with `query: "MATCH (a:Class)-[:INHERITS*]->(b:Class {name: 'X'}) RETURN a.name"` | AST: transitive closure in one query. Manual: file-by-file tracing |
 
 ### 🔒 When you MUST use the AST graph (MANDATORY — no exceptions)
 
-| Scenario | What to do | What NOT to do |
+To execute any Cypher queries below, call the `graphit_ast_query` tool (passing absolute `project_dir` and setting `ai_optimized: true`):
+
+| Scenario | What to do (Cypher query) | What NOT to do |
 |---|---|---|
 | **Finding where a function is defined** | `MATCH (f:Function {name: 'X'}) RETURN f.path, f.line_number` | ❌ Don't grep for `function X` or `def X` |
 | **Finding who calls a function** | `MATCH (a)-[:CALLS]->(b:Function {name: 'X'}) RETURN a.name, a.path` | ❌ Don't grep for the function name across all files |
@@ -74,9 +76,9 @@ containment hierarchy — pre-indexed and instantly queryable.
 You have access to a LadybugDB graph database with the entire project's AST.
 Use the following multi-phase workflow to explore it:
 
-### 🔒 MANDATORY: Always use `--ai-optimized` output
+### 🔒 MANDATORY: Always set `ai_optimized: true`
 
-**You MUST append `--ai-optimized` to EVERY `graphit ast query` command.**
+**You MUST set the `ai_optimized` parameter to `true` in EVERY `graphit_ast_query` tool invocation.**
 This flag outputs results in a compact, token-efficient tabular format (TOON)
 instead of verbose JSON. It reduces token consumption by 30-60%.
 
@@ -90,7 +92,7 @@ Headers are declared once in the header line, then each row is pipe-separated.
 Empty values are represented as empty strings between pipes.
 Nested arrays use `[a,b,c]` syntax, nested maps use `{k:v,k:v}` syntax.
 
-**Example:** `graphit ast query "MATCH (f:Function) RETURN f.name, f.path" --ai-optimized` produces:
+**Example:** Calling `graphit_ast_query` with `query: "MATCH (f:Function) RETURN f.name, f.path"` and `ai_optimized: true` produces:
 ```
 results[3]{f.name|f.path}:
   main|src/main.go
@@ -102,10 +104,7 @@ instead of ~30 lines of JSON with repeated keys, braces, and quotes.
 ### Phase 1: Know the schema
 
 Node labels are dynamic (projects may have different entity types). To discover
-which labels and relationships exist in the current graph, run:
-```bash
-graphit ast schema
-```
+which labels and relationships exist in the current graph, call the `graphit_ast_schema` tool (passing `project_dir`).
 
 However, **property names are fixed and universal.** You MUST use the exact
 property names listed below — inventing names will crash queries.
@@ -129,9 +128,9 @@ property names listed below — inventing names will crash queries.
 
 ### Phase 2: Pre-search (Grounding)
 
-**Never guess entity names.** Use a loose text search first to find exact names:
-```bash
-graphit ast query "MATCH (n) WHERE toLower(n.name) CONTAINS toLower('keyword') RETURN DISTINCT n.name as name, label(n) as label" --ai-optimized
+**Never guess entity names.** Use a loose text search first by calling `graphit_ast_query` with `ai_optimized: true` and:
+```
+query: "MATCH (n) WHERE toLower(n.name) CONTAINS toLower('keyword') RETURN DISTINCT n.name as name, label(n) as label"
 ```
 This prevents wasted queries on misspelled or assumed names.
 
@@ -144,17 +143,16 @@ This prevents wasted queries on misspelled or assumed names.
 ### Phase 2.5: Semantic Search (Intent-Based Discovery)
 
 When grounding (Phase 2) returns no results — or when your search is
-**conceptual/intent-based** rather than name-based — use semantic search:
-```bash
-graphit ast query "authentication and session management" --semantic --ai-optimized
-graphit ast query "error handling and retry logic" --semantic --top 20 --ai-optimized
+**conceptual/intent-based** rather than name-based — call the `graphit_ast_search_semantic` tool (passing absolute `project_dir` and natural language `query`):
+```
+graphit_ast_search_semantic(project_dir: "/path/to/project", query: "authentication and session management")
 ```
 
-> ⚠️ **CRITICAL: `--semantic` accepts PLAIN TEXT only — NEVER Cypher.**
+> ⚠️ **CRITICAL: `graphit_ast_search_semantic` accepts PLAIN TEXT only — NEVER Cypher.**
 > The query string is used as a natural-language description to find similar code
 > via vector embeddings. Passing a Cypher `MATCH` statement will return garbage.
-> ✅ Correct: `graphit ast query "payment processing" --semantic --ai-optimized`
-> ❌ Wrong: `graphit ast query "MATCH (f:Function) WHERE ..." --semantic --ai-optimized`
+> ✅ Correct: Call `graphit_ast_search_semantic` with `query: "payment processing"`
+> ❌ Wrong: Call `graphit_ast_search_semantic` with `query: "MATCH (f:Function) WHERE ..."`
 
 Semantic search uses **vector embeddings** (via sqlite-vec cosine similarity) to find
 entities by meaning, not just name. Use it when:
@@ -164,23 +162,22 @@ entities by meaning, not just name. Use it when:
 - The user describes intent rather than specific code entities
 
 **Important:** Semantic search requires embeddings to have been computed.
-If results are empty, run `graphit sync &` to start background sync and generate embeddings for future use.
+If results are empty, call the `graphit_sync` tool (passing `project_dir`) to start background sync and generate embeddings for future use.
 
 ### Phase 2.7: Full-Text Search (Keyword-Based Discovery)
 
 When you need to find code by **exact keywords, function names, SQL fragments,
-or source code patterns** — use full-text search:
-```bash
-graphit ast query "processOrder" --fts --ai-optimized
-graphit ast query "SELECT FROM users" --fts --top 15 --ai-optimized
+or source code patterns** — call the `graphit_ast_search_fts` tool (passing absolute `project_dir` and keywords `query`):
+```
+graphit_ast_search_fts(project_dir: "/path/to/project", query: "processOrder")
 ```
 
-> ⚠️ **CRITICAL: `--fts` accepts PLAIN TEXT only — NEVER Cypher.**
+> ⚠️ **CRITICAL: `graphit_ast_search_fts` accepts PLAIN TEXT only — NEVER Cypher.**
 > The query string is used as keywords for BM25 full-text ranking.
 > Passing a Cypher `MATCH` statement will NOT search source code — it will
 > try to match the literal Cypher text and return nothing.
-> ✅ Correct: `graphit ast query "payment" --fts --ai-optimized`
-> ❌ Wrong: `graphit ast query "MATCH (f:File) WHERE toLower(f.source) CONTAINS 'payment'" --fts --ai-optimized`
+> ✅ Correct: Call `graphit_ast_search_fts` with `query: "payment"`
+> ❌ Wrong: Call `graphit_ast_search_fts` with `query: "MATCH (f:File) WHERE ..."`
 
 FTS uses **BM25 scoring** to rank results by keyword relevance. Use it when:
 - You know the exact keyword or identifier name
@@ -190,59 +187,64 @@ FTS uses **BM25 scoring** to rank results by keyword relevance. Use it when:
 
 **FTS also indexes `:File` source content.** This means you can search for any
 text pattern that appears in source files — error messages, string literals,
-comments, or code fragments — without using grep:
-```bash
+comments, or code fragments — without using grep: call `graphit_ast_search_fts` (passing absolute `project_dir` and keyword `query`):
+```
 # Search for a string literal or error message across all source files
-graphit ast query "connection refused" --fts --ai-optimized
+graphit_ast_search_fts(project_dir: "/path/to/project", query: "connection refused")
 
 # Find files containing a specific code pattern
-graphit ast query "TODO refactor" --fts --top 20 --ai-optimized
+graphit_ast_search_fts(project_dir: "/path/to/project", query: "TODO refactor")
 ```
 
-**FTS vs Semantic:** Use `--fts` for exact keyword matching, `--semantic` for
+**FTS vs Semantic:** Use `graphit_ast_search_fts` for exact keyword matching, `graphit_ast_search_semantic` for
 meaning-based discovery. They are complementary — try both when uncertain.
 
 ### Phase 3: Precise Graph Query
 
-Once you know the exact names and labels from Phase 2, construct the final query.
-Common patterns:
+Once you know the exact names and labels from Phase 2, construct the final query. Call the `graphit_ast_query` tool (passing `project_dir`, `query`, and `ai_optimized: true`):
 
+> ⚠️ **Multi-label search:** When unsure which label an entity has, search across multiple types:
+> ```
+> Call graphit_ast_query with query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND f.name = 'Search' RETURN f.name, f.path, f.line_number, label(f) AS type"
+> ```
+
+Common queries to pass in `query` parameter:
 ```bash
 # Who calls this function?
-graphit ast query "MATCH (a:Function)-[:CALLS]->(b:Function {name: 'ExactName'}) RETURN a.name, a.path" --ai-optimized
+MATCH (a:Function)-[:CALLS]->(b:Function {name: 'ExactName'}) RETURN a.name, a.path
 
 # What does this function call?
-graphit ast query "MATCH (a:Function {name: 'ExactName'})-[:CALLS]->(b) RETURN b.name, label(b)" --ai-optimized
+MATCH (a:Function {name: 'ExactName'})-[:CALLS]->(b) RETURN b.name, label(b)
 
 # Class inheritance chain
-graphit ast query "MATCH (a:Class)-[:INHERITS*]->(b:Class {name: 'BaseClass'}) RETURN a.name, a.path" --ai-optimized
+MATCH (a:Class)-[:INHERITS*]->(b:Class {name: 'BaseClass'}) RETURN a.name, a.path
 
 # All entities in a file
-graphit ast query "MATCH (f:File {path: 'src/main.go'})-[:CONTAINS]->(e) RETURN label(e) as type, e.name, e.line_number ORDER BY e.line_number" --ai-optimized
+MATCH (f:File {path: 'src/main.go'})-[:CONTAINS]->(e) RETURN label(e) as type, e.name, e.line_number ORDER BY e.line_number
 
 # Import graph — who imports this module?
-graphit ast query "MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'react'}) RETURN f.path" --ai-optimized
+MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'react'}) RETURN f.path
 
 # DML dependencies — what tables does this procedure touch?
-graphit ast query "MATCH (p:Procedure {name: 'processOrder'})-[r]->(t:Table) RETURN type(r), t.name" --ai-optimized
+MATCH (p:Procedure {name: 'processOrder'})-[r]->(t:Table) RETURN type(r), t.name
 
 # Find unused functions (no callers)
-graphit ast query "MATCH (f:Function) WHERE NOT ()-[:CALLS]->(f) RETURN f.name, f.path" --ai-optimized
+MATCH (f:Function) WHERE NOT ()-[:CALLS]->(f) RETURN f.name, f.path
 
 # High-complexity functions
-graphit ast query "MATCH (f:Function) WHERE f.cyclomatic_complexity > 10 RETURN f.name, f.cyclomatic_complexity, f.path ORDER BY f.cyclomatic_complexity DESC" --ai-optimized
+MATCH (f:Function) WHERE f.cyclomatic_complexity > 10 RETURN f.name, f.cyclomatic_complexity, f.path ORDER BY f.cyclomatic_complexity DESC
 
 # Entry points — functions scored as application entry points (main, handlers, tests)
-graphit ast query "MATCH (f:Function) WHERE f.entry_point_score > 50 RETURN f.name, f.entry_point_score, f.path ORDER BY f.entry_point_score DESC" --ai-optimized
+MATCH (f:Function) WHERE f.entry_point_score > 50 RETURN f.name, f.entry_point_score, f.path ORDER BY f.entry_point_score DESC
 
 # Receiver type — trace self/this method calls to their owning class
-graphit ast query "MATCH (a:Function)-[r:CALLS]->(b:Function) WHERE r.receiver_type IS NOT NULL AND r.receiver_type <> '' RETURN a.name, b.name, r.receiver_type" --ai-optimized
+MATCH (a:Function)-[r:CALLS]->(b:Function) WHERE r.receiver_type IS NOT NULL AND r.receiver_type <> '' RETURN a.name, b.name, r.receiver_type
 
 # Interface implementations — who implements interface X?
-graphit ast query "MATCH (c:Class)-[:IMPLEMENTS]->(i:Interface {name: 'Handler'}) RETURN c.name, c.path" --ai-optimized
+MATCH (c:Class)-[:IMPLEMENTS]->(i:Interface {name: 'Handler'}) RETURN c.name, c.path
 
 # Project config & detected frameworks
-graphit ast query "MATCH (c:File {path: '__config__'}) RETURN c.source AS configs, c.lang AS frameworks" --ai-optimized
+MATCH (c:File {path: '__config__'}) RETURN c.source AS configs, c.lang AS frameworks
 ```
 
 ### 📖 Graph Exploration Cookbook — IDE-like Operations
@@ -252,156 +254,164 @@ use in IDEs. **Always prefer these graph queries over text-based tools.**
 
 #### 1. Find Usages — Who uses this method/function?
 
+Query templates to run with `graphit_ast_query`:
 ```bash
 # Direct callers of a function/method
-graphit ast query "MATCH (caller)-[:CALLS]->(target:Function {name: 'ProcessPayment'}) RETURN caller.name, label(caller) AS type, caller.path" --ai-optimized
+MATCH (caller)-[:CALLS]->(target:Function {name: 'ProcessPayment'}) RETURN caller.name, label(caller) AS type, caller.path
 
 # All callers, including indirect (transitive call chain up to 3 levels)
-graphit ast query "MATCH (caller)-[:CALLS*1..3]->(target:Function {name: 'Validate'}) RETURN DISTINCT caller.name, caller.path" --ai-optimized
+MATCH (caller)-[:CALLS*1..3]->(target:Function {name: 'Validate'}) RETURN DISTINCT caller.name, caller.path
 
 # Who uses a class? (instantiation, inheritance, field type references)
-graphit ast query "MATCH (user)-[r]->(c:Class {name: 'UserService'}) RETURN user.name, label(user) AS user_type, type(r) AS relationship" --ai-optimized
+MATCH (user)-[r]->(c:Class {name: 'UserService'}) RETURN user.name, label(user) AS user_type, type(r) AS relationship
 
 # Who uses a module/package? (import tracking)
-graphit ast query "MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'express'}) RETURN f.path, f.name" --ai-optimized
+MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'express'}) RETURN f.path, f.name
 ```
 
 #### 2. Find Implementors — Who implements an interface/trait?
 
+Query templates to run with `graphit_ast_query`:
 ```bash
 # Direct implementors of an interface
-graphit ast query "MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'Repository'}) RETURN impl.name, label(impl) AS type, impl.path" --ai-optimized
+MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'Repository'}) RETURN impl.name, label(impl) AS type, impl.path
 
 # All implementors of a trait (works for Go interfaces, Java interfaces, Dart abstract classes)
-graphit ast query "MATCH (impl)-[:IMPLEMENTS]->(t:Trait {name: 'Serializable'}) RETURN impl.name, impl.path" --ai-optimized
+MATCH (impl)-[:IMPLEMENTS]->(t:Trait {name: 'Serializable'}) RETURN impl.name, impl.path
 
 # Find parent interface usages — who calls methods of ANY implementor of interface X?
-# (useful for refactoring: if you change the interface, who is affected?)
-graphit ast query "MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'Handler'}) MATCH (caller)-[:CALLS]->(m:Function) WHERE m.path = impl.path RETURN caller.name, caller.path, impl.name AS implementor" --ai-optimized
+MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'Handler'}) MATCH (caller)-[:CALLS]->(m:Function) WHERE m.path = impl.path RETURN caller.name, caller.path, impl.name AS implementor
 
 # Interface + all concrete method dispatch (receiver_type tracking)
-graphit ast query "MATCH (caller)-[r:CALLS]->(method:Function) WHERE r.receiver_type CONTAINS 'Service' RETURN caller.name, method.name, r.receiver_type, caller.path" --ai-optimized
+MATCH (caller)-[r:CALLS]->(method:Function) WHERE r.receiver_type CONTAINS 'Service' RETURN caller.name, method.name, r.receiver_type, caller.path
 ```
 
 #### 3. Call Hierarchy — Upstream and Downstream
 
+Query templates to run with `graphit_ast_query`:
 ```bash
 # Outgoing calls — what does this function call? (call tree downward)
-graphit ast query "MATCH (f:Function {name: 'HandleRequest'})-[:CALLS]->(callee) RETURN callee.name, label(callee) AS type" --ai-optimized
+MATCH (f:Function {name: 'HandleRequest'})-[:CALLS]->(callee) RETURN callee.name, label(callee) AS type
 
 # Incoming calls — who calls this function? (call tree upward)
-graphit ast query "MATCH (caller)-[:CALLS]->(f:Function {name: 'SaveOrder'}) RETURN caller.name, label(caller) AS type, caller.path" --ai-optimized
+MATCH (caller)-[:CALLS]->(f:Function {name: 'SaveOrder'}) RETURN caller.name, label(caller) AS type, caller.path
 
 # Full bidirectional call context (called by + calls)
-graphit ast query "MATCH (caller)-[:CALLS]->(f:Function {name: 'ProcessItem'}) RETURN 'called_by' AS direction, caller.name, caller.path UNION ALL MATCH (f:Function {name: 'ProcessItem'})-[:CALLS]->(callee) RETURN 'calls' AS direction, callee.name, callee.path" --ai-optimized
+MATCH (caller)-[:CALLS]->(f:Function {name: 'ProcessItem'}) RETURN 'called_by' AS direction, caller.name, caller.path UNION ALL MATCH (f:Function {name: 'ProcessItem'})-[:CALLS]->(callee) RETURN 'calls' AS direction, callee.name, callee.path
 
 # Method call chain — trace self/this method calls through receiver types
-graphit ast query "MATCH (a:Function)-[r:CALLS]->(b:Function) WHERE r.receiver_type = 'OrderService' RETURN a.name AS caller, b.name AS method, a.path" --ai-optimized
+MATCH (a:Function)-[r:CALLS]->(b:Function) WHERE r.receiver_type = 'OrderService' RETURN a.name AS caller, b.name AS method, a.path
 ```
 
 #### 4. Inheritance & Type Hierarchy
 
+Query templates to run with `graphit_ast_query`:
 ```bash
 # Direct subclasses of a class
-graphit ast query "MATCH (child:Class)-[:INHERITS]->(parent:Class {name: 'BaseController'}) RETURN child.name, child.path" --ai-optimized
+MATCH (child:Class)-[:INHERITS]->(parent:Class {name: 'BaseController'}) RETURN child.name, child.path
 
 # Full inheritance chain (transitive — all ancestors)
-graphit ast query "MATCH (c:Class {name: 'AdminController'})-[:INHERITS*]->(ancestor:Class) RETURN ancestor.name, ancestor.path" --ai-optimized
+MATCH (c:Class {name: 'AdminController'})-[:INHERITS*]->(ancestor:Class) RETURN ancestor.name, ancestor.path
 
 # Full inheritance tree (transitive — all descendants of a base class)
-graphit ast query "MATCH (descendant:Class)-[:INHERITS*]->(base:Class {name: 'AbstractEntity'}) RETURN descendant.name, descendant.path" --ai-optimized
+MATCH (descendant:Class)-[:INHERITS*]->(base:Class {name: 'AbstractEntity'}) RETURN descendant.name, descendant.path
 
 # Combined: class hierarchy + interface implementations
-graphit ast query "MATCH (c:Class {name: 'UserRepository'})-[r]->(target) WHERE type(r) IN ['INHERITS', 'IMPLEMENTS'] RETURN type(r) AS relation, target.name, label(target) AS target_type" --ai-optimized
+MATCH (c:Class {name: 'UserRepository'})-[r]->(target) WHERE type(r) IN ['INHERITS', 'IMPLEMENTS'] RETURN type(r) AS relation, target.name, label(target) AS target_type
 ```
 
 #### 5. Containment — File/Class/Package Structure
 
+Query templates to run with `graphit_ast_query`:
 ```bash
 # All entities defined in a file (file skeleton)
-graphit ast query "MATCH (f:File)-[:CONTAINS]->(e) WHERE f.path ENDS WITH 'service.go' RETURN label(e) AS type, e.name, e.line_number ORDER BY e.line_number" --ai-optimized
+MATCH (f:File)-[:CONTAINS]->(e) WHERE f.path ENDS WITH 'service.go' RETURN label(e) AS type, e.name, e.line_number ORDER BY e.line_number
 
 # All methods of a class
-graphit ast query "MATCH (c:Class {name: 'OrderService'})-[:CONTAINS]->(m:Function) RETURN m.name, m.line_number, m.is_exported" --ai-optimized
+MATCH (c:Class {name: 'OrderService'})-[:CONTAINS]->(m:Function) RETURN m.name, m.line_number, m.is_exported
 
 # All fields/properties of a class
-graphit ast query "MATCH (c:Class {name: 'User'})-[:HAS_FIELD]->(f:Field) RETURN f.name, f.value" --ai-optimized
+MATCH (c:Class {name: 'User'})-[:HAS_FIELD]->(f:Field) RETURN f.name, f.value
 
 # All classes in a directory/module
-graphit ast query "MATCH (f:File)-[:CONTAINS]->(c:Class) WHERE f.path STARTS WITH 'src/services/' RETURN c.name, f.path" --ai-optimized
+MATCH (f:File)-[:CONTAINS]->(c:Class) WHERE f.path STARTS WITH 'src/services/' RETURN c.name, f.path
 
 # Package/namespace structure
-graphit ast query "MATCH (p:Package)-[:CONTAINS]->(e) RETURN p.name AS package, label(e) AS type, e.name" --ai-optimized
+MATCH (p:Package)-[:CONTAINS]->(e) RETURN p.name AS package, label(e) AS type, e.name
 ```
 
 #### 6. Field & Property Access Tracking
 
+Query templates to run with `graphit_ast_query`:
 ```bash
 # Who reads a specific field?
-graphit ast query "MATCH (reader)-[:READS_FIELD]->(f:Field {name: 'balance'}) RETURN reader.name, label(reader) AS type, reader.path" --ai-optimized
+MATCH (reader)-[:READS_FIELD]->(f:Field {name: 'balance'}) RETURN reader.name, label(reader) AS type, reader.path
 
 # Who writes/modifies a specific field?
-graphit ast query "MATCH (writer)-[:WRITES_FIELD]->(f:Field {name: 'status'}) RETURN writer.name, label(writer) AS type, writer.path" --ai-optimized
+MATCH (writer)-[:WRITES_FIELD]->(f:Field {name: 'status'}) RETURN writer.name, label(writer) AS type, writer.path
 
 # All field access (read + write) for a given entity
-graphit ast query "MATCH (accessor)-[r]->(f:Field {name: 'email'}) WHERE type(r) IN ['READS_FIELD', 'WRITES_FIELD'] RETURN accessor.name, type(r) AS access_type, accessor.path" --ai-optimized
+MATCH (accessor)-[r]->(f:Field {name: 'email'}) WHERE type(r) IN ['READS_FIELD', 'WRITES_FIELD'] RETURN accessor.name, type(r) AS access_type, accessor.path
 ```
 
 #### 7. DML & Database Dependency Tracking
 
+Query templates to run with `graphit_ast_query`:
 ```bash
 # What tables does a procedure/function read from?
-graphit ast query "MATCH (p:Procedure {name: 'getCustomerOrders'})-[:SELECTS]->(t:Table) RETURN t.name" --ai-optimized
+MATCH (p:Procedure {name: 'getCustomerOrders'})-[:SELECTS]->(t:Table) RETURN t.name
 
 # What procedures INSERT into a specific table? (write impact)
-graphit ast query "MATCH (writer)-[:INSERTS]->(t:Table {name: 'audit_log'}) RETURN writer.name, label(writer) AS type, writer.path" --ai-optimized
+MATCH (writer)-[:INSERTS]->(t:Table {name: 'audit_log'}) RETURN writer.name, label(writer) AS type, writer.path
 
 # Full DML dependency map for a table (who reads, writes, updates, deletes?)
-graphit ast query "MATCH (entity)-[r]->(t:Table {name: 'orders'}) WHERE type(r) IN ['SELECTS', 'INSERTS', 'UPDATES', 'DELETES'] RETURN entity.name, type(r) AS operation, label(entity) AS entity_type" --ai-optimized
+MATCH (entity)-[r]->(t:Table {name: 'orders'}) WHERE type(r) IN ['SELECTS', 'INSERTS', 'UPDATES', 'DELETES'] RETURN entity.name, type(r) AS operation, label(entity) AS entity_type
 
 # DDL impact — who creates/alters/drops this table?
-graphit ast query "MATCH (entity)-[r]->(t:Table {name: 'users'}) WHERE type(r) IN ['CREATES', 'ALTERS', 'DROPS'] RETURN entity.name, type(r) AS ddl_op, entity.path" --ai-optimized
+MATCH (entity)-[r]->(t:Table {name: 'users'}) WHERE type(r) IN ['CREATES', 'ALTERS', 'DROPS'] RETURN entity.name, type(r) AS ddl_op, entity.path
 ```
 
 #### 8. Refactoring Impact Analysis
 
+Query templates to run with `graphit_ast_query`:
 ```bash
 # COMPLETE impact of renaming/changing a function — all inbound edges
-graphit ast query "MATCH (dependent)-[r]->(target:Function {name: 'calculateTotal'}) RETURN dependent.name, label(dependent) AS dep_type, type(r) AS relation, dependent.path" --ai-optimized
+MATCH (dependent)-[r]->(target:Function {name: 'calculateTotal'}) RETURN dependent.name, label(dependent) AS dep_type, type(r) AS relation, dependent.path
 
 # COMPLETE impact of changing an interface — implementors + callers of implementors
-graphit ast query "MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'PaymentGateway'}) RETURN impl.name, impl.path UNION ALL MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'PaymentGateway'}) MATCH (caller)-[:CALLS]->(m:Function) WHERE m.path = impl.path RETURN caller.name AS name, caller.path AS path" --ai-optimized
+MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'PaymentGateway'}) RETURN impl.name, impl.path UNION ALL MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'PaymentGateway'}) MATCH (caller)-[:CALLS]->(m:Function) WHERE m.path = impl.path RETURN caller.name AS name, caller.path AS path
 
 # Safe-to-delete check — is this function called anywhere?
-graphit ast query "MATCH (f:Function {name: 'legacyHelper'}) OPTIONAL MATCH (caller)-[:CALLS]->(f) RETURN f.name, f.path, count(caller) AS caller_count" --ai-optimized
+MATCH (f:Function {name: 'legacyHelper'}) OPTIONAL MATCH (caller)-[:CALLS]->(f) RETURN f.name, f.path, count(caller) AS caller_count
 
 # Move-file impact — all entities in a file and their external dependents
-graphit ast query "MATCH (f:File {path: 'src/utils/helpers.go'})-[:CONTAINS]->(entity) OPTIONAL MATCH (external)-[r]->(entity) WHERE external.path <> 'src/utils/helpers.go' RETURN entity.name, label(entity) AS type, count(external) AS external_deps" --ai-optimized
+MATCH (f:File {path: 'src/utils/helpers.go'})-[:CONTAINS]->(entity) OPTIONAL MATCH (external)-[r]->(entity) WHERE external.path <> 'src/utils/helpers.go' RETURN entity.name, label(entity) AS type, count(external) AS external_deps
 ```
 
 #### 9. Cross-Cutting Queries
 
+Query templates to run with `graphit_ast_query`:
 ```bash
 # Find all entry points (handlers, main functions, test functions)
-graphit ast query "MATCH (f:Function) WHERE f.entry_point_score > 50 RETURN f.name, f.entry_point_score, f.path ORDER BY f.entry_point_score DESC" --ai-optimized
+MATCH (f:Function) WHERE f.entry_point_score > 50 RETURN f.name, f.entry_point_score, f.path ORDER BY f.entry_point_score DESC
 
 # Find all functions with high complexity (candidates for refactoring)
-graphit ast query "MATCH (f:Function) WHERE f.cyclomatic_complexity > 15 RETURN f.name, f.cyclomatic_complexity, f.path ORDER BY f.cyclomatic_complexity DESC" --ai-optimized
+MATCH (f:Function) WHERE f.cyclomatic_complexity > 15 RETURN f.name, f.cyclomatic_complexity, f.path ORDER BY f.cyclomatic_complexity DESC
 
 # Find orphan functions (never called — dead code candidates)
-graphit ast query "MATCH (f:Function) WHERE NOT ()-[:CALLS]->(f) AND f.entry_point_score < 10 RETURN f.name, f.path" --ai-optimized
+MATCH (f:Function) WHERE NOT ()-[:CALLS]->(f) AND f.entry_point_score < 10 RETURN f.name, f.path
 
 # Cross-language dependencies (e.g., Go calling a function defined in SQL)
-graphit ast query "MATCH (caller)-[:CALLS]->(callee) WHERE caller.lang <> callee.lang RETURN caller.name, caller.lang, callee.name, callee.lang, caller.path" --ai-optimized
+MATCH (caller)-[:CALLS]->(callee) WHERE caller.lang <> callee.lang RETURN caller.name, caller.lang, callee.name, callee.lang, caller.path
 
 # Find circular dependencies between files
-graphit ast query "MATCH (a:File)-[:IMPORTS]->(m1:Module)<-[:CONTAINS]-(b:File)-[:IMPORTS]->(m2:Module)<-[:CONTAINS]-(a) WHERE a.path < b.path RETURN a.path, b.path" --ai-optimized
+MATCH (a:File)-[:IMPORTS]->(m1:Module)<-[:CONTAINS]-(b:File)-[:IMPORTS]->(m2:Module)<-[:CONTAINS]-(a) WHERE a.path < b.path RETURN a.path, b.path
 
 # Annotation/decorator usage — find all entities with a specific annotation
-graphit ast query "MATCH (a:Annotation {name: 'Deprecated'})<-[:CONTAINS]-(owner) RETURN label(owner) AS type, owner.name, owner.path" --ai-optimized
+MATCH (a:Annotation {name: 'Deprecated'})<-[:CONTAINS]-(owner) RETURN label(owner) AS type, owner.name, owner.path
 
 # Parameter analysis — what parameters does a function expect?
-graphit ast query "MATCH (f:Function {name: 'createUser'})-[:HAS_PARAMETER]->(p:Parameter) RETURN p.name, p.value, p.line_number" --ai-optimized
+MATCH (f:Function {name: 'createUser'})-[:HAS_PARAMETER]->(p:Parameter) RETURN p.name, p.value, p.line_number
 ```
 
 ### Phase 4: Source Code Extraction
@@ -412,52 +422,32 @@ through an AST query and want its content in the same round-trip.
 
 > **⚠️ IMPORTANT: If you already know the file path** and just need to read its content,
 > **use your native IDE file-reading tools** (e.g., `view_file`). They are faster and simpler.
-> The AST `f.source` pattern is for **discovery workflows** where you found a file through
-> structural queries and want metadata + source in a single query.
 
 **Imported ast contexts** also may contain **source code** included in their imported graph,
-try query for it to understand the imported code and the overall behaviour of the external contexts.
+try querying for it to understand the imported code and the overall behavior of the external contexts.
 
 #### 4a. Get the entire source of a file
 
-```bash
-# Retrieve the complete source code of a specific file
-graphit ast query "MATCH (f:File {path: 'internal/auth/handler.go'}) RETURN f.source" --ai-optimized
+Call the `graphit_ast_source` tool (passing absolute `project_dir` and `path`):
+```
+graphit_ast_source(project_dir: "/path/to/project", path: "internal/auth/handler.go")
 ```
 
 #### 4b. Get source of a specific function/class (using line range from the graph)
 
-Use a **two-step pattern**: first find the entity's location, then extract its source from the File node.
-
-```bash
-# Step 1: Find the function location
-graphit ast query "MATCH (f:Function {name: 'HandleLogin'}) RETURN f.path, f.line_number, f.end_line" --ai-optimized
-
-# Step 2: Get the file source and extract the relevant lines
-graphit ast query "MATCH (f:File {path: 'internal/auth/handler.go'}) RETURN f.source" --ai-optimized
-```
+Use a **two-step pattern**: first call `graphit_ast_query` to find the entity's location, then extract its source using the file-reading tools or `graphit_ast_source`.
 
 #### 4c. Get source of all functions in a file with their line ranges
 
-```bash
-# List all functions with their line ranges, then fetch the file source to correlate
-graphit ast query "MATCH (file:File {path: 'src/services/payment.go'})-[:CONTAINS]->(fn:Function) RETURN fn.name, fn.line_number, fn.end_line ORDER BY fn.line_number" --ai-optimized
-
-# Then get the full file source to slice out individual function bodies
-graphit ast query "MATCH (f:File {path: 'src/services/payment.go'}) RETURN f.source" --ai-optimized
-```
+1. Call `graphit_ast_query` with `query: "MATCH (file:File {path: 'src/services/payment.go'})-[:CONTAINS]->(fn:Function) RETURN fn.name, fn.line_number, fn.end_line ORDER BY fn.line_number"` to get line ranges.
+2. Call `graphit_ast_source` with `path: "src/services/payment.go"` to get the source content.
 
 #### 4d. Quick source peek — verify a function's implementation
 
-```bash
-# One-shot: get function metadata + full file source for immediate code review
-graphit ast query "MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source" --ai-optimized
+One-shot query via `graphit_ast_query`:
 ```
-
-> **When to use file-reading tools instead:** If you already know the file path,
-> use your native IDE file-reading tools directly — they are faster and don't consume
-> graph query resources. Use `f.source` only when combining discovery + source in one shot,
-> or when the `source` property output is too large and you need a specific line range.
+MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source
+```
 
 ## Cypher Guidelines
 
@@ -468,27 +458,16 @@ graphit ast query "MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:Fil
 - LadybugDB strict typing: DO NOT access properties unless you explicitly MATCH the label that contains them. If a property is not shared by ALL possible labels in a pattern, LadybugDB will crash!
 - Return only what you need. Avoid returning entire node objects (`RETURN n`); instead, return specific properties (`RETURN n.name, n.path`) to keep output concise.
 - Use `LIMIT` only when you want to cap results — don't add it by default.
-- Do NOT use the `--context` flag when working with the current project. Only use `--context <name>` when querying an imported third-party AST from the Hub.
+- Do NOT use the `context` parameter on tools when working with the current project. Only specify `context` when querying an imported third-party AST context.
 
 ## Cluster Filtering
 
-When indexing with `--cluster <name>`, all nodes are tagged with a `cluster` property.
-This allows you to logically group indexations and query them selectively.
-
-### Indexing with a cluster tag:
-```bash
-graphit ast index ./src --cluster backend
-graphit ast index ./legacy --parser plsql --cluster erp-core
-```
+When indexing, all nodes are tagged with a `cluster` property.
 
 ### Querying by cluster:
-```bash
-graphit ast query "MATCH (n:Function {cluster: 'backend'}) RETURN n.name, n.path" --ai-optimized
-graphit ast query "MATCH (n:Class {cluster: 'erp-core'}) RETURN n.name" --ai-optimized
-graphit ast query "MATCH (n {cluster: 'my-module'}) RETURN label(n), n.name" --ai-optimized
 ```
-
-The `cluster` property is indexed on all node labels for fast lookups.
+Call graphit_ast_query with query: "MATCH (n:Function {cluster: 'backend'}) RETURN n.name, n.path"
+```
 
 ## 🔄 Fallback to Built-In Tools — ONLY for What the Graph Does Not Contain
 
@@ -499,52 +478,25 @@ the definitive structural model. Your tools exist only for non-structural querie
 
 Your tools are allowed ONLY when ALL of these conditions are true:
 
-1. You **already queried the AST graph** for the information
+1. You **already queried the AST graph** for the information using the correct tools
 2. The graph **genuinely cannot answer** (e.g., string literal content, comment text, runtime values)
 3. You **state explicitly** to the user: "The AST graph cannot answer X, falling back to text search"
 
 **If even ONE of these conditions is not met, you MUST NOT use your tools.**
 
-Examples of valid fallback:
-- Searching for a specific error message string → grep source code (graph doesn't index string literals)
-- Finding TODO comments → grep for `// TODO` (graph has optional docstring, not all comments)
-- Checking environment variable usage → grep for `process.env.X` (runtime values, not structural)
-
-Examples of INVALID fallback (protocol violations):
-- Grepping for function definitions instead of querying the graph → ❌ graph has all functions indexed
-- Using code symbols to find class hierarchy → ❌ graph has INHERITS edges with transitive closure
-- Reading files to understand what a module exports → ❌ graph has CONTAINS edges from File to entities
-- Searching for "who calls X" via grep → ❌ graph has CALLS edges between functions
-
-### ❌ Anti-patterns (violations of this protocol)
-
-| Anti-pattern | Why it is a violation |
-|---|---|
-| `grep -r "functionName" src/` | Brute-force; graph has O(1) indexed lookup for all entity names |
-| Using IDE go-to-definition | Graph works cross-file, cross-language, cross-context |
-| Reading files to understand structure | Graph gives instant file skeleton via CONTAINS edges |
-| Semantic search for "who calls X" | Graph has exact CALLS edges — no guessing needed |
-| Manually tracing imports file by file | Graph has pre-resolved IMPORTS edges |
-| Counting branches to estimate complexity | Graph has pre-computed `complexity` property |
-| Assuming you know all usages | Graph knows ALL callers, importers, inheritors — your memory doesn't |
-
-## ⚡ MANDATORY: Background Reindex After Every File Modification
+## ⚡ MANDATORY: Sync After Every File Modification
 
 **After ANY modification to ANY source code file (edit, create, rename, or delete),
-you MUST trigger an incremental sync in the background:**
-
-```bash
-graphit sync &
+you MUST trigger a project sync by calling the `graphit_sync` tool (passing absolute `project_dir`):**
+```
+graphit_sync(project_dir: "/path/to/project")
 ```
 
 **This is NON-NEGOTIABLE.** The framework depends on an up-to-date index to function.
-Without reindexing, the AST graph becomes stale and subsequent queries return
+Without syncing, the AST graph becomes stale and subsequent queries return
 outdated or incomplete results — breaking the analysis pipeline.
 
 **Rules:**
-- Run **fire-and-forget** — do NOT wait for it to finish. Continue your work immediately.
-- Run it after **every** file modification, not just at the end of a task.
-- If you modified multiple files, a single index call at the end covers all changes.
-- The AST graph will reflect your changes the next time it is queried.
-- **Forgetting to reindex is a framework integrity violation.**
+- Call `graphit_sync` immediately after any source code file modifications.
+- **Forgetting to call sync is a framework integrity violation.**
 

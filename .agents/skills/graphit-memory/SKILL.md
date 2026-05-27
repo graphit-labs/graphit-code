@@ -37,11 +37,11 @@ in these situations — proactively, without being asked:
 | **Before proposing** architecture or technical approach | Decisions, tensions, conventions that constrain options | Avoid contradicting prior decisions the user already made |
 | **User seems frustrated** or repeats an instruction | Corrections about your behavior | You may be ignoring a correction already memorized |
 
-**How to search:** `graphit memory search "<relevant keywords>"`
+**How to search:** call `graphit_memory_search` tool (passing absolute `project_dir` parameter)
 
 ## 🔒 This Framework IS Your Memory — No Other Exists
 
-- **ALWAYS** use `graphit memory insert` to persist facts across sessions.
+- **ALWAYS** use the `graphit_memory_insert` tool (passing absolute `project_dir` parameter) to persist facts across sessions.
 - **NEVER** use IDE-native memory, model memory, or any built-in "remember" feature.
 - **ALWAYS** read the memory wiki to recall — never rely on what you "think you know".
 - This applies to ALL persistent facts: conventions, corrections, decisions, preferences.
@@ -58,7 +58,7 @@ This ensures memories are complete and actionable across sessions.
 
 #### 📝 Memory Content Template
 
-When creating a memory, always include these four fields in `--content`:
+When creating a memory, always include these four fields in the `content` parameter:
 
 ```
 What: <what was done or what happened>
@@ -69,29 +69,29 @@ Impact: <how it impacted the system — side effects, files changed, behavior ch
 
 #### Trigger Table
 
-| You observe... | Action | Command |
+| You observe... | Action | Tool Call (always pass absolute `project_dir` parameter) |
 |---|---|---|
-| User says "always/never/prefer/avoid/must" about code | Store as convention | `graphit memory insert "<rule>" --type convention --important` |
-| User corrects your behavior or approach | Store the correction | `graphit memory insert "<correction>" --type correction --important --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| User **guides, orients, or gives direction** on how to proceed | Store the guidance | `graphit memory insert "<guidance>" --type convention --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| User **intervenes** mid-task to change course or redirect | Store the intervention as correction | `graphit memory insert "<intervention>" --type correction --important --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| User gives a **tip, hint, or suggestion** on how to do something | Store as skill | `graphit memory insert "<tip>" --type skill --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| User **explains how something works** or why it's done a certain way | Store as fact | `graphit memory insert "<knowledge>" --type fact --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| User **shows you a workflow** or operational procedure (e.g., "run make install first") | Store as skill | `graphit memory insert "<procedure>" --type skill --important --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| User **repeats an instruction** they already gave (frustration signal) | Store as correction | `graphit memory insert "<what you missed>" --type correction --important --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| You **complete a task** (new feature, refactor, or significant change) | Record what was done | `graphit memory insert "<task summary>" --type fact --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| You **modify an existing feature** (behavior change, extension, or rework) | Record the modification | `graphit memory insert "<feature> modified: <summary>" --type fact --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| You **fix a bug** | Record the bug fix | `graphit memory insert "Bug fix: <summary>" --type skill --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| You make an architectural/design choice | Record the decision | `graphit memory insert "<decision>" --type decision --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| You chose X over Y with explicit trade-offs | Capture the tension | `graphit memory insert "<choice>" --type tension --content "Chose: X\nOver: Y\nBecause: ...\nAccepting: ...\nImpact: ..."` |
-| You **discover something unexpected** during investigation | Store the discovery | `graphit memory insert "<discovery>" --type fact --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| You find a **workaround or creative solution** to a problem | Store the workaround | `graphit memory insert "<workaround>" --type skill --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| You make a **non-obvious inference** that proves correct | Store the inference | `graphit memory insert "<inference>" --type skill --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| You **solve a complicated multi-step problem** | Store the full solution | `graphit memory insert "<problem → solution>" --type skill --important --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| You debug a non-obvious issue successfully | Save as a skill | `graphit memory insert "<solution>" --type skill --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| User reveals a non-obvious project fact | Store the fact | `graphit memory insert "<fact>" --type fact --content "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| New instruction contradicts existing memory | Replace the memory | `graphit memory delete <old-id>` then `graphit memory insert "<new>"` |
-| Memory is >30 days old and still relevant | Refresh it | `graphit memory update <id> --content "<refreshed>"` |
+| User says "always/never/prefer/avoid/must" about code | Store as convention | `graphit_memory_insert` with `title: "<rule>"`, `type: "convention"`, `important: true` |
+| User corrects your behavior or approach | Store the correction | `graphit_memory_insert` with `title: "<correction>"`, `type: "correction"`, `important: true`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| User **guides, orients, or gives direction** on how to proceed | Store the guidance | `graphit_memory_insert` with `title: "<guidance>"`, `type: "convention"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| User **intervenes** mid-task to change course or redirect | Store the intervention as correction | `graphit_memory_insert` with `title: "<intervention>"`, `type: "correction"`, `important: true`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| User gives a **tip, hint, or suggestion** on how to do something | Store as skill | `graphit_memory_insert` with `title: "<tip>"`, `type: "skill"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| User **explains how something works** or why it's done a certain way | Store as fact | `graphit_memory_insert` with `title: "<knowledge>"`, `type: "fact"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| User **shows you a workflow** or operational procedure (e.g., "run make install first") | Store as skill | `graphit_memory_insert` with `title: "<procedure>"`, `type: "skill"`, `important: true`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| User **repeats an instruction** they already gave (frustration signal) | Store as correction | `graphit_memory_insert` with `title: "<what you missed>"`, `type: "correction"`, `important: true`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You **complete a task** (new feature, refactor, or significant change) | Record what was done | `graphit_memory_insert` with `title: "<task summary>"`, `type: "fact"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You **modify an existing feature** (behavior change, extension, or rework) | Record the modification | `graphit_memory_insert` with `title: "<feature> modified: <summary>"`, `type: "fact"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You **fix a bug** | Record the bug fix | `graphit_memory_insert` with `title: "Bug fix: <summary>"`, `type: "skill"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You make an architectural/design choice | Record the decision | `graphit_memory_insert` with `title: "<decision>"`, `type: "decision"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You chose X over Y with explicit trade-offs | Capture the tension | `graphit_memory_insert` with `title: "<choice>"`, `type: "tension"`, `content: "Chose: X\nOver: Y\nBecause: ...\nAccepting: ...\nImpact: ..."` |
+| You **discover something unexpected** during investigation | Store the discovery | `graphit_memory_insert` with `title: "<discovery>"`, `type: "fact"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You find a **workaround or creative solution** to a problem | Store the workaround | `graphit_memory_insert` with `title: "<workaround>"`, `type: "skill"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You make a **non-obvious inference** that proves correct | Store the inference | `graphit_memory_insert` with `title: "<inference>"`, `type: "skill"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You **solve a complicated multi-step problem** | Store the full solution | `graphit_memory_insert` with `title: "<problem → solution>"`, `type: "skill"`, `important: true`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You debug a non-obvious issue successfully | Save as a skill | `graphit_memory_insert` with `title: "<solution>"`, `type: "skill"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| User reveals a non-obvious project fact | Store the fact | `graphit_memory_insert` with `title: "<fact>"`, `type: "fact"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| New instruction contradicts existing memory | Replace the memory | `graphit_memory_delete` with `id: "<old-id>"` then `graphit_memory_insert` with `title: "<new>"` |
+| Memory is >30 days old and still relevant | Refresh it | `graphit_memory_update` with `id: "<id>"`, `content: "<refreshed>"` |
 
 ### 📖 Read Triggers — Consult Memory Before Acting
 
@@ -118,7 +118,7 @@ Every memory has a `type` that determines how it is stored and surfaced:
 | `fact` | Non-obvious project facts, environment details | rarely |
 | `skill` | Debugged workflows, reusable solution patterns | rarely |
 
-Default type when `--type` is omitted: `fact`.
+Default type when `type` is omitted: `fact`.
 
 ## 📖 How to Retrieve Memories
 
@@ -135,46 +135,51 @@ Read the wiki files directly — you have full file access:
 3. Check `## Backlinks` for related memories
 4. **Never** grep raw memory files — the wiki is pre-compiled and faster
 
-## 📋 CLI Quick Reference
+## 📋 MCP Tools Reference
 
-```bash
+All memory actions must be executed via the corresponding MCP tools. Always pass the absolute `project_dir` parameter.
+
+```
 # Insert (default: project scope, type: fact)
-graphit memory insert "<title>" --content "<body>" --type <type>
+graphit_memory_insert(project_dir: "/path/to/project", title: "<title>", content: "<body>", type: "<type>")
 
 # Insert important convention
-graphit memory insert "<title>" --content "<body>" --type convention --important
+graphit_memory_insert(project_dir: "/path/to/project", title: "<title>", content: "<body>", type: "convention", important: true)
 
 # Insert correction
-graphit memory insert "<title>" --content "<body>" --type correction --important
+graphit_memory_insert(project_dir: "/path/to/project", title: "<title>", content: "<body>", type: "correction", important: true)
 
 # Insert with tags
-graphit memory insert "<title>" --content "<body>" --tags "auth,security"
+graphit_memory_insert(project_dir: "/path/to/project", title: "<title>", content: "<body>", tags: "auth,security")
 
 # Insert user-scoped memory
-graphit memory insert "<title>" --user
+graphit_memory_insert(project_dir: "/path/to/project", title: "<title>", content: "<body>", scope: "user")
 
 # Update existing memory
-graphit memory update <id> --content "<new body>"
+graphit_memory_update(project_dir: "/path/to/project", id: "<id>", content: "<new body>")
 
 # Delete
-graphit memory delete <id>
+graphit_memory_delete(project_dir: "/path/to/project", id: "<id>")
 
 # Search (lightweight, no AI)
-graphit memory search "<term>"
+graphit_memory_search(project_dir: "/path/to/project", query: "<term>")
+
+# AI Consultation (Search with AI response synthesis)
+graphit_memory_query(project_dir: "/path/to/project", query: "<natural language question>")
 
 # Promote/demote importance
-graphit memory promote <id>
-graphit memory demote <id>
+graphit_memory_promote(project_dir: "/path/to/project", id: "<id>")
+graphit_memory_demote(project_dir: "/path/to/project", id: "<id>")
 
 # List all
-graphit memory list
-graphit memory important
+graphit_memory_list(project_dir: "/path/to/project")
+graphit_memory_important(project_dir: "/path/to/project")
 
 # Maintenance (run periodically or when memory feels cluttered)
-graphit memory consolidate          # AI-driven: find duplicates, contradictions
-graphit memory consolidate --apply   # auto-apply safe suggestions
-graphit memory gc                    # find stale/empty memories (dry-run)
-graphit memory gc --dry-run=false    # delete GC candidates
+graphit_memory_consolidate(project_dir: "/path/to/project")                # AI-driven: find duplicates, contradictions
+graphit_memory_consolidate(project_dir: "/path/to/project", apply: true)    # auto-apply safe suggestions
+graphit_memory_gc(project_dir: "/path/to/project")                         # find stale/empty memories (dry-run)
+graphit_memory_gc(project_dir: "/path/to/project", dry_run: false)         # delete GC candidates
 ```
 
 ## 🔄 Contradiction Protocol
@@ -182,8 +187,8 @@ graphit memory gc --dry-run=false    # delete GC candidates
 When the user's new instruction contradicts an existing memory:
 
 1. Read the wiki index to find the contradicted memory
-2. Delete it: `graphit memory delete <id>`
-3. Create the replacement: `graphit memory insert "<new>" ...`
+2. Delete it: call `graphit_memory_delete` tool with `id: "<id>"` (passing absolute `project_dir`)
+3. Create the replacement: call `graphit_memory_insert` tool with `title: "<new>"` ...
 4. Confirm: "Updated memory: removed '<old title>' and saved '<new title>'"
 
 ## 📣 Transparency Rules
@@ -195,19 +200,13 @@ When the user's new instruction contradicts an existing memory:
 ## ⚡ Reindex After Writes
 
 After any write (`insert`, `delete`, `update`, `promote`, `demote`), the auto-cycle
-runs automatically. If it fails, trigger manually:
-
-```bash
-graphit memory index &
-```
-
-Run fire-and-forget — do NOT wait.
+runs automatically. If it fails, trigger manually calling the `graphit_memory_index` tool (passing absolute `project_dir` parameter).
 
 ## ⛔ Critical Rules (Never Violate)
 
 1. **Read memory at session start.** Your context lives there. Skipping = repeating mistakes.
 2. **Never leave a correction un-memorized.** If the user corrects you, save it immediately.
-3. **Never edit .md memory files directly.** Always use `graphit memory` commands.
+3. **Never edit .md memory files directly.** Always use `graphit_memory_*` MCP tools.
 4. **Capture trade-offs, not just facts.** "We chose X over Y because Z" > "We use X".
 5. **Handle contradictions.** Remove old + create new. Don't leave conflicting memories.
-6. **Promote critical memories.** Conventions, corrections, and constraints should be `--important`.
+6. **Promote critical memories.** Conventions, corrections, and constraints should be marked important.

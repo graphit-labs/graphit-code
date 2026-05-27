@@ -146,6 +146,26 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 		}()
 	}
 
+	p := output.NewPrinter("daemon")
+	cfg.OnEvent = func(level string, msg string) {
+		switch level {
+		case "running":
+			p.Running("%s", msg)
+		case "step":
+			p.Step("%s", msg)
+		case "step_ok":
+			p.StepOK("%s", msg)
+		case "step_warn":
+			p.StepWarn("%s", msg)
+		case "warn":
+			p.Warn("%s", msg)
+		case "success":
+			p.Success("%s", msg)
+		case "blank":
+			p.Blank()
+		}
+	}
+
 	d := daemon.New(cfg, builder)
 
 	discoverFn := func() ([]daemon.ProjectInfo, error) {

@@ -22,8 +22,8 @@ func newClusterCmd() *cobra.Command {
 		Short: "Manage project cluster labels for ecosystem grouping",
 		Long: `Manage cluster labels that group related projects together.
 
-Projects with shared cluster labels are considered siblings and appear in each
-other's ` + brand.DotDir() + `/cluster.lock.json file, enabling cross-project discovery.
+Projects with shared cluster labels are considered siblings and are dynamically resolved,
+enabling cross-project discovery via the 'projects' subcommand or MCP tool.
 
 Examples:
   ` + brand.BinName() + ` cluster team backend       # Set label team=backend
@@ -57,7 +57,6 @@ Examples:
 					return fmt.Errorf("unset cluster label: %v", err)
 				}
 				p.Success("Removed cluster label: %s", flagUnset)
-				hub.SyncProjectLock(wd)
 				return nil
 			}
 
@@ -107,7 +106,6 @@ Examples:
 				return fmt.Errorf("set cluster label: %v", err)
 			}
 			p.Success("Set cluster label: %s=%s", key, value)
-			hub.SyncProjectLock(wd)
 			return nil
 		},
 	}
@@ -116,5 +114,51 @@ Examples:
 	cmd.Flags().BoolVar(&flagGetAll, "list", false, "List all cluster labels")
 	cmd.Flags().StringVar(&flagUnset, "unset", "", "Remove a cluster label")
 
+	cmd.AddCommand(newClusterProjectsCmd())
+
 	return cmd
 }
+
+func newClusterProjectsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "projects",
+		Short:   "List sibling projects in the same cluster",
+		PreRunE: requireProject,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			p := output.NewPrinter("")
+			wd, _ := os.Getwd()
+			siblings, err := hub.GetClusterProjects(wd)
+			if err != nil {
+				return err
+			}
+			if len(siblings) == 0 {
+				p.StepWarn("No sibling projects found in the cluster")
+				return nil
+			}
+			p.Header("Cluster Projects")
+			keys := make([]string, 0, len(siblings))
+			for k := range siblings {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, name := range keys {
+				proj := siblings[name]
+				p.KeyValue(name, proj.Dir)
+				if proj.Description != "" {
+					p.Step("Description: %s", proj.Description)
+				}
+				if len(proj.Cluster) > 0 {
+					var labels []string
+					for k, v := range proj.Cluster {
+						labels = append(labels, fmt.Sprintf("%s=%s", k, strings.Join(v, ",")))
+					}
+					sort.Strings(labels)
+					p.Step("Labels:      %s", strings.Join(labels, " | "))
+				}
+			}
+			return nil
+		},
+	}
+	return cmd
+}
+

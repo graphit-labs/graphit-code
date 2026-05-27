@@ -213,8 +213,6 @@ auto-generated values and interactive prompts.`,
 				}
 			}
 
-			hub.SyncProjectLock(wd)
-
 			p.Step("Starting background sync...")
 			spawnFullSync(wd, ide)
 
@@ -694,8 +692,6 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 
 			projectCfg := loadProjectConfigFromDir(wd)
 
-			hub.SyncProjectLock(wd)
-
 			if !config.IsModuleDisabled("ast", nil, projectCfg) {
 				task := p.StartTask("Reindexing AST graph...")
 				absPath, _ := filepath.Abs(wd)
@@ -784,15 +780,33 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 				}
 			}
 
+			explicitIDE, _ := cmd.Flags().GetString("ide")
+			lf, err := hub.LoadLockfile(filepath.Join(wd, brand.LockFileName()))
+			var idesToSync []string
+			if explicitIDE != "" {
+				idesToSync = []string{explicitIDE}
+			} else if err == nil && lf != nil && len(lf.IDEs) > 0 {
+				idesToSync = lf.IDEs
+			} else {
+				idesToSync = []string{ide}
+			}
+
 			task = p.StartTask("Updating IDE rules...")
-			installAllRules(p, wd, ide)
+			for _, targetIDE := range idesToSync {
+				installAllRules(p, wd, targetIDE)
+			}
 			task.Done("IDE rules updated")
 
 			task = p.StartTask("Syncing IDE adapter...")
-			lf, err := hub.LoadLockfile(filepath.Join(wd, brand.LockFileName()))
 			if err == nil && lf != nil {
-				if syncErr := hub.SyncIDEAdapter(ide, lf); syncErr != nil {
-					task.Fail("IDE adapter: %v", syncErr)
+				var syncErrs []string
+				for _, targetIDE := range idesToSync {
+					if syncErr := hub.SyncIDEAdapter(targetIDE, lf); syncErr != nil {
+						syncErrs = append(syncErrs, fmt.Sprintf("%s: %v", targetIDE, syncErr))
+					}
+				}
+				if len(syncErrs) > 0 {
+					task.Fail("IDE adapters sync failed: %s", strings.Join(syncErrs, "; "))
 				} else {
 					task.Done("IDE adapter synced")
 				}

@@ -10,6 +10,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/term"
+
+	"github.com/graphit-labs/graphit-code/internal/output"
 )
 
 type PipelineOptions struct {
@@ -155,7 +159,12 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	t1 := time.Now()
 	parseOpts := ParseOptions{}
 
-	origStdout := os.Stdout
+	var origStdout *os.File
+	if !output.IsMuted() && term.IsTerminal(int(os.Stdout.Fd())) {
+		origStdout = os.Stdout
+	} else {
+		origStdout = os.Stderr
+	}
 
 	dryRun := os.Getenv("AST_DRY_RUN") == "1"
 

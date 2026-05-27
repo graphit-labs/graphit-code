@@ -29,7 +29,7 @@ tags: [knowledge, index]
 ### 🤝 Customização & Colaboração
 - [[brand_customization]] — Customização dinâmica de marca (brand branding), prefixos de variáveis de ambiente, arquivos lock e marcadores de hooks.
 - [[hub_collaboration]] — O hub descentralizado de conhecimento para compartilhamento de skills, regras, prompts e esquemas de AST determinísticos.
-- [[cluster_microservices]] — Agrupamento lógico de ecossistemas de projetos (clusters), geração de `cluster.lock.json` e auto-descoberta de serviços e dependências.
+- [[cluster_microservices]] — Agrupamento lógico de ecossistemas de projetos (clusters) e auto-descoberta dinâmica de serviços e dependências.
 
 ### 🖥️ Interface de Usuário (UI)
 - [[ui_interface]] — Visão detalhada do painel de controle React SPA, explorador tridimensional da AST (canvas 3D D3 force directed), chat Wiki e gerenciador do Hub.

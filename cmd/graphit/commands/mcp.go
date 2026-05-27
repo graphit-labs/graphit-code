@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 
+	"github.com/graphit-labs/graphit-code/internal/mcpstdio"
 	"github.com/graphit-labs/graphit-code/internal/mcpserver"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/spf13/cobra"
@@ -35,7 +36,7 @@ Examples:
 
 			if stdio {
 				output.Mute()
-				return mcpserver.ServeStdio(ctx)
+				return mcpstdio.Serve(ctx)
 			}
 
 			p.Info("Starting MCP server (HTTP transport)...")

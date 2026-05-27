@@ -280,8 +280,27 @@ func (a *FolderBasedAdapter) MCPConfig() string {
 	return expanded
 }
 
+func getGraphitExecutable() string {
+	exe, err := os.Executable()
+	if err == nil {
+		if eval, err := filepath.EvalSymlinks(exe); err == nil {
+			return eval
+		}
+		return exe
+	}
+	return brand.BinName()
+}
+
 func (a *FolderBasedAdapter) syncAllMCP(mcpTarget, projectID string, installed map[string]map[string]string) error {
 	desiredServers := map[string]any{}
+
+	// Auto-install/update core MCP stdio server
+	coreServerKey := brand.MCPServerName("code-stdio")
+	desiredServers[coreServerKey] = map[string]any{
+		"command": getGraphitExecutable(),
+		"args":    []string{"mcp", "--stdio"},
+		"env":     map[string]string{},
+	}
 
 	for eid, edata := range installed {
 		if edata["type"] != "mcp" {

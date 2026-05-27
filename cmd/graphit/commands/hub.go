@@ -2,10 +2,12 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -61,7 +63,7 @@ func newHubInstallCmd() *cobra.Command {
 	var artType string
 
 	cmd := &cobra.Command{
-		Use:   "install <artifact-id[@version]>",
+		Use:   "install <artifact-id>[@version]",
 		Short: "Install an artifact from the hub",
 		Args:  cobra.MinimumNArgs(1),
 		Example: `  ` + brand.BinName() + ` hub install my-rule
@@ -76,9 +78,16 @@ func newHubInstallCmd() *cobra.Command {
 				return err
 			}
 
-			svc := hub.NewHubPresenter(reg)
+			p := output.NewPrinter("hub")
+			svc := hub.NewHubService(reg)
 			for _, id := range args {
-				svc.Install(ctx, id, alias, ide, hub.ArtifactType(artType))
+				p.Running("Installing %s...", id)
+				result, err := svc.Install(ctx, id, alias, ide, hub.ArtifactType(artType), "", "")
+				if err != nil {
+					p.Error("Install failed: %v", err)
+					return err
+				}
+				p.Success("Installed %s (%s) @%s", result.Name, result.ArtType, result.Version)
 			}
 
 			wd, _ := os.Getwd()
@@ -110,13 +119,18 @@ func newHubUninstallCmd() *cobra.Command {
 				return err
 			}
 
-			svc := hub.NewHubPresenter(reg)
+			p := output.NewPrinter("hub")
+			svc := hub.NewHubService(reg)
 			for _, id := range args {
-				svc.Uninstall(ctx, id, hub.ArtifactType(artType), ide)
+				p.Running("Removing %s...", id)
+				if err := svc.Uninstall(ctx, id, hub.ArtifactType(artType), true, ide, ""); err != nil {
+					p.Error("Uninstall failed: %v", err)
+					return err
+				}
+				p.Success("Removed %s", id)
 
 				if artType == "knowledge" || artType == "" {
 					wd, _ := os.Getwd()
-					p := output.NewPrinter("hub:uninstall")
 					knDir := filepath.Join(wd, brand.DotDir(), "knowledge", id)
 					if _, statErr := os.Stat(knDir); statErr == nil {
 						if rmErr := os.RemoveAll(knDir); rmErr == nil {
@@ -171,12 +185,40 @@ Examples:
 				return err
 			}
 
-			svc := hub.NewHubPresenter(reg)
+			p := output.NewPrinter("hub")
+			svc := hub.NewHubService(reg)
 
 			if len(args) > 0 {
-				svc.UpdateOneArtifact(ctx, args[0], hub.ArtifactType(artType), ide)
+				id := args[0]
+				p.Running("Updating %s...", id)
+				if err := svc.UpdateOne(ctx, id, hub.ArtifactType(artType), ide, ""); err != nil {
+					p.Error("Update failed: %v", err)
+					return err
+				}
+				p.Success("Updated %s", id)
 			} else {
-				svc.Update(ctx, ide)
+				p.Running("Checking for updates...")
+				results := svc.UpdateAll(ctx, ide, "")
+				if len(results) == 0 {
+					p.Info("All artifacts are up to date.")
+					return nil
+				}
+
+				updated := 0
+				for artID, err := range results {
+					if err != nil {
+						p.StepWarn("Update failed for %q: %v", artID, err)
+					} else {
+						p.StepOK("Updated %s", artID)
+						updated++
+					}
+				}
+
+				if updated > 0 {
+					p.Success("Updated %d artifact(s).", updated)
+				} else {
+					p.Info("All artifacts are up to date.")
+				}
 			}
 			return nil
 		},
@@ -199,8 +241,37 @@ func newHubListCmd() *cobra.Command {
 				return err
 			}
 
-			svc := hub.NewHubPresenter(reg)
-			svc.ListEntries(hub.ArtifactType(artType))
+			p := output.NewPrinter("hub")
+			entries := reg.ListEntries(hub.ArtifactType(artType))
+			if len(entries) == 0 {
+				p.Info("No entries found.")
+				return nil
+			}
+
+			sort.Slice(entries, func(i, j int) bool {
+				if entries[i].Type != entries[j].Type {
+					return entries[i].Type < entries[j].Type
+				}
+				return entries[i].ID < entries[j].ID
+			})
+
+			rows := make([][2]string, 0, len(entries))
+			for _, e := range entries {
+				name := e.Name
+				if name == "" {
+					name = e.ID
+				}
+				version := e.Latest
+				if version == "" {
+					version = "—"
+				}
+				rows = append(rows, [2]string{
+					fmt.Sprintf("%-12s  %s", string(e.Type), name),
+					fmt.Sprintf("%s  (%s)", e.ID, version),
+				})
+			}
+
+			p.Table([2]string{"TYPE / NAME", "ID / VERSION"}, rows)
 			return nil
 		},
 	}
@@ -228,8 +299,37 @@ func newHubSearchCmd() *cobra.Command {
 				return err
 			}
 
-			svc := hub.NewHubPresenter(reg)
-			svc.SearchEntries(term, hub.ArtifactType(artType))
+			p := output.NewPrinter("hub")
+			entries := reg.SearchEntries(term, hub.ArtifactType(artType))
+			if len(entries) == 0 {
+				p.Info("No results for %q.", term)
+				return nil
+			}
+
+			rows := make([][2]string, 0, len(entries))
+			for _, e := range entries {
+				name := e.Name
+				if name == "" {
+					name = e.ID
+				}
+				desc := e.Description
+				if len(desc) > 60 {
+					desc = desc[:57] + "..."
+				}
+				if desc == "" {
+					desc = "—"
+				}
+				version := e.Latest
+				if version == "" {
+					version = "—"
+				}
+				rows = append(rows, [2]string{
+					fmt.Sprintf("%-12s  %s", string(e.Type), name),
+					fmt.Sprintf("%s  (%s)  %s", e.ID, version, desc),
+				})
+			}
+
+			p.Table([2]string{"TYPE / NAME", "ID / VERSION / DESCRIPTION"}, rows)
 			return nil
 		},
 	}
@@ -254,8 +354,43 @@ func newHubShowCmd() *cobra.Command {
 				return err
 			}
 
-			svc := hub.NewHubPresenter(reg)
-			svc.ShowEntry(args[0], hub.ArtifactType(artType))
+			p := output.NewPrinter("hub")
+			entry := reg.GetEntry(args[0], hub.ArtifactType(artType))
+			if entry == nil {
+				p.Error("Entry %q not found in registry.", args[0])
+				return nil
+			}
+
+			p.Header("Artifact: %s", entry.Name)
+			p.KeyValue("ID", entry.ID)
+			p.KeyValue("Type", string(entry.Type))
+			p.KeyValue("Latest", entry.Latest)
+			if len(entry.Versions) > 0 {
+				p.Step("Available versions:")
+				for _, v := range entry.Versions {
+					p.ListItem("%s", v)
+				}
+			}
+			p.KeyValue("Description", entry.Description)
+			if len(entry.Tags) > 0 {
+				joinStrings := func(ss []string) string {
+					result := ""
+					for i, s := range ss {
+						if i > 0 {
+							result += ", "
+						}
+						result += s
+					}
+					return result
+				}
+				p.KeyValue("Tags", joinStrings(entry.Tags))
+			}
+			if len(entry.Dependencies) > 0 {
+				p.Step("Dependencies:")
+				for _, dep := range entry.Dependencies {
+					p.ListItem("%s (%s)", dep.ID, dep.Type)
+				}
+			}
 			return nil
 		},
 	}
@@ -308,16 +443,22 @@ func newHubSubmitCmd() *cobra.Command {
 				Tags:        tagList,
 			}
 
-			svc := hub.NewHubPresenter(reg)
+			p := output.NewPrinter("hub")
 			if version == "" {
 				version = "1.0.0"
 			}
-			svc.Submit(ctx, entryID, localPath, meta, version)
+			p.Running("Publishing %s@%s to hub...", entryID, version)
+			p.Step("Zipping artifact files")
+
+			if err := reg.PublishEntry(ctx, entryID, localPath, meta, version); err != nil {
+				p.Error("Publish failed: %v", err)
+				return err
+			}
+			p.Success("Published %s@%s", entryID, version)
 
 			ide := resolveIDEFlag(cmd)
 			hubSvc := hub.NewHubService(reg)
 			if err := hubSvc.RecordPublish(ctx, entryID, hub.ArtifactType(artType), version, ide, ""); err != nil {
-				p := output.NewPrinter("hub")
 				p.StepWarn("Lockfile update: %v", err)
 			}
 
@@ -344,8 +485,20 @@ func newHubProjectsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc := hub.NewHubPresenter(reg)
-			svc.ListProjects()
+
+			p := output.NewPrinter("hub")
+			projects := reg.ListProjects()
+			if len(projects) == 0 {
+				p.Info("No projects registered.")
+				return nil
+			}
+
+			rows := make([][2]string, 0, len(projects))
+			for _, proj := range projects {
+				rows = append(rows, [2]string{proj.Name, proj.RemoteID})
+			}
+
+			p.Table([2]string{"PROJECT", "REMOTE ID"}, rows)
 			return nil
 		},
 	}
@@ -399,7 +552,6 @@ func getRegistry(ctx context.Context) (*hub.RegistryManager, error) {
 	if err != nil {
 		p := output.NewPrinter("hub")
 		p.StepWarn("Hub registry unavailable — running in offline mode")
-
 	}
 	return reg, nil
 }
@@ -431,8 +583,20 @@ MCP:           Not supported (requires actual IDE configuration)`,
 				return err
 			}
 
-			svc := hub.NewHubPresenter(reg)
-			svc.Link(ctx, args[0], sourcePath, ide, hub.ArtifactType(artType))
+			p := output.NewPrinter("hub")
+			svc := hub.NewHubService(reg)
+			p.Running("Linking %s from %s...", args[0], sourcePath)
+
+			result, err := svc.Link(ctx, args[0], sourcePath, ide, hub.ArtifactType(artType), "")
+			if err != nil {
+				p.Error("Link failed: %v", err)
+				return err
+			}
+
+			for _, link := range result.Links {
+				p.Step("%s", link)
+			}
+			p.Success("Linked %s (%s)", result.ArtifactID, result.ArtType)
 
 			wd, _ := os.Getwd()
 			_ = hub.InstallRule(wd, ide)
@@ -466,8 +630,15 @@ func newHubUnlinkCmd() *cobra.Command {
 				return err
 			}
 
-			svc := hub.NewHubPresenter(reg)
-			svc.Unlink(ctx, args[0], hub.ArtifactType(artType), ide)
+			p := output.NewPrinter("hub")
+			svc := hub.NewHubService(reg)
+			p.Running("Unlinking %s...", args[0])
+
+			if err := svc.Unlink(ctx, args[0], ide, hub.ArtifactType(artType), ""); err != nil {
+				p.Error("Unlink failed: %v", err)
+				return err
+			}
+			p.Success("Unlinked %s", args[0])
 
 			wd, _ := os.Getwd()
 			_ = hub.InstallRule(wd, ide)
