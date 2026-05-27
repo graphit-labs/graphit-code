@@ -69,7 +69,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 
 	ticker := time.NewTicker(w.cfg.Debounce / 2)
 	defer ticker.Stop()
-	defer w.fsw.Close()
+	defer func() { _ = w.fsw.Close() }()
 
 	for {
 		select {

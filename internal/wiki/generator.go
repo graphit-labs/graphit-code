@@ -160,24 +160,24 @@ func genericEntityPage(ent EntitySummary, tag string) string {
 	confidence := computeConfidence(ent)
 
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("title: %s\n", ent.Name))
-	b.WriteString(fmt.Sprintf("type: %s\n", ent.Type))
-	b.WriteString(fmt.Sprintf("source: %s\n", ent.Path))
-	b.WriteString(fmt.Sprintf("updated: %s\n", now))
-	b.WriteString(fmt.Sprintf("confidence: %.2f\n", confidence))
+	_, _ = fmt.Fprintf(&b, "title: %s\n", ent.Name)
+	_, _ = fmt.Fprintf(&b, "type: %s\n", ent.Type)
+	_, _ = fmt.Fprintf(&b, "source: %s\n", ent.Path)
+	_, _ = fmt.Fprintf(&b, "updated: %s\n", now)
+	_, _ = fmt.Fprintf(&b, "confidence: %.2f\n", confidence)
 	b.WriteString("source_count: 1\n")
-	b.WriteString(fmt.Sprintf("tags: [%s, %s]\n", tag, ent.Type))
+	_, _ = fmt.Fprintf(&b, "tags: [%s, %s]\n", tag, ent.Type)
 	b.WriteString("---\n\n")
-	b.WriteString(fmt.Sprintf("# %s\n\n", ent.Name))
+	_, _ = fmt.Fprintf(&b, "# %s\n\n", ent.Name)
 	if ent.Summary != "" {
-		b.WriteString(fmt.Sprintf("> %s\n\n", ent.Summary))
+		_, _ = fmt.Fprintf(&b, "> %s\n\n", ent.Summary)
 	}
-	b.WriteString(fmt.Sprintf("**Source:** `%s`  \n", ent.Path))
-	b.WriteString(fmt.Sprintf("**Type:** %s  \n", ent.Type))
-	b.WriteString(fmt.Sprintf("**Confidence:** %.0f%%\n\n", confidence*100))
+	_, _ = fmt.Fprintf(&b, "**Source:** `%s`  \n", ent.Path)
+	_, _ = fmt.Fprintf(&b, "**Type:** %s  \n", ent.Type)
+	_, _ = fmt.Fprintf(&b, "**Confidence:** %.0f%%\n\n", confidence*100)
 
 	if ent.Path != "" {
-		b.WriteString(fmt.Sprintf("*Provenance: ^[%s]*\n\n", ent.Path))
+		_, _ = fmt.Fprintf(&b, "*Provenance: ^[%s]*\n\n", ent.Path)
 	}
 
 	b.WriteString("---\n*Navigate: [[index]] · [[log]]*\n")
@@ -212,29 +212,29 @@ func communityPage(c Community, labels map[int]string, tag string) string {
 	var b strings.Builder
 	now := time.Now().UTC().Format("2006-01-02")
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("title: %s\n", c.Label))
+	_, _ = fmt.Fprintf(&b, "title: %s\n", c.Label)
 	b.WriteString("type: community\n")
-	b.WriteString(fmt.Sprintf("members: %d\n", len(c.Members)))
-	b.WriteString(fmt.Sprintf("cohesion: %.2f\n", c.Cohesion))
-	b.WriteString(fmt.Sprintf("updated: %s\n", now))
-	b.WriteString(fmt.Sprintf("tags: [%s, community]\n", tag))
+	_, _ = fmt.Fprintf(&b, "members: %d\n", len(c.Members))
+	_, _ = fmt.Fprintf(&b, "cohesion: %.2f\n", c.Cohesion)
+	_, _ = fmt.Fprintf(&b, "updated: %s\n", now)
+	_, _ = fmt.Fprintf(&b, "tags: [%s, community]\n", tag)
 	b.WriteString("---\n\n")
-	b.WriteString(fmt.Sprintf("# %s\n\n", c.Label))
-	b.WriteString(fmt.Sprintf("> **%d members** · cohesion %.2f\n\n", len(c.Members), c.Cohesion))
+	_, _ = fmt.Fprintf(&b, "# %s\n\n", c.Label)
+	_, _ = fmt.Fprintf(&b, "> **%d members** · cohesion %.2f\n\n", len(c.Members), c.Cohesion)
 	b.WriteString("## Key Concepts\n\n")
 	for i, uid := range c.Members {
 		if i >= 30 {
-			b.WriteString(fmt.Sprintf("\n*... and %d more members. See [[index]].*\n", len(c.Members)-30))
+			_, _ = fmt.Fprintf(&b, "\n*... and %d more members. See [[index]].*\n", len(c.Members)-30)
 			break
 		}
 		name := extractNameFromUID(uid)
-		b.WriteString(fmt.Sprintf("- [[%s]]\n", SafeFilename(name)))
+		_, _ = fmt.Fprintf(&b, "- [[%s]]\n", SafeFilename(name))
 	}
 	b.WriteString("\n## Related Communities\n\n")
 	found := false
 	for _, otherLabel := range labels {
 		if otherLabel != c.Label {
-			b.WriteString(fmt.Sprintf("- [[%s]]\n", SafeFilename(otherLabel)))
+			_, _ = fmt.Fprintf(&b, "- [[%s]]\n", SafeFilename(otherLabel))
 			found = true
 		}
 	}
@@ -252,14 +252,14 @@ func godNodePage(gn map[string]any, labels map[int]string, tag string) string {
 	label, _ := gn["label"].(string)
 	now := time.Now().UTC().Format("2006-01-02")
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("title: %s\n", name))
-	b.WriteString(fmt.Sprintf("type: %s\n", strings.ToLower(label)))
-	b.WriteString(fmt.Sprintf("connections: %d\n", degree))
-	b.WriteString(fmt.Sprintf("updated: %s\n", now))
-	b.WriteString(fmt.Sprintf("tags: [%s, god-node]\n", tag))
+	_, _ = fmt.Fprintf(&b, "title: %s\n", name)
+	_, _ = fmt.Fprintf(&b, "type: %s\n", strings.ToLower(label))
+	_, _ = fmt.Fprintf(&b, "connections: %d\n", degree)
+	_, _ = fmt.Fprintf(&b, "updated: %s\n", now)
+	_, _ = fmt.Fprintf(&b, "tags: [%s, god-node]\n", tag)
 	b.WriteString("---\n\n")
-	b.WriteString(fmt.Sprintf("# %s\n\n", name))
-	b.WriteString(fmt.Sprintf("> **God node** — %d connections · type: %s\n\n", degree, label))
+	_, _ = fmt.Fprintf(&b, "# %s\n\n", name)
+	_, _ = fmt.Fprintf(&b, "> **God node** — %d connections · type: %s\n\n", degree, label)
 	b.WriteString("This is one of the most connected concepts in the graph.\n\n")
 	b.WriteString("---\n*Navigate: [[index]]*\n")
 	_ = labels
@@ -272,14 +272,14 @@ func genericIndexPage(entities []EntitySummary, communities []Community, godNode
 	title := cases.Title(language.English).String(tag) + " Wiki"
 
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("title: %s\n", title))
-	b.WriteString(fmt.Sprintf("updated: %s\n", now))
-	b.WriteString(fmt.Sprintf("tags: [%s, index]\n", tag))
+	_, _ = fmt.Fprintf(&b, "title: %s\n", title)
+	_, _ = fmt.Fprintf(&b, "updated: %s\n", now)
+	_, _ = fmt.Fprintf(&b, "tags: [%s, index]\n", tag)
 	b.WriteString("---\n\n")
-	b.WriteString(fmt.Sprintf("# %s\n\n", title))
-	b.WriteString(fmt.Sprintf("> %s knowledge wiki. **Start here.** Scan the catalog below, then follow [[wikilinks]] to drill into specific pages.\n", cases.Title(language.English).String(tag)))
-	b.WriteString(fmt.Sprintf("> Check [[log]] for the timeline of updates. Last updated: %s\n\n", now))
-	b.WriteString(fmt.Sprintf("**%d nodes · %d edges · %d communities · %d articles**\n\n", totalNodes, totalEdges, len(communities), len(entities)))
+	_, _ = fmt.Fprintf(&b, "# %s\n\n", title)
+	_, _ = fmt.Fprintf(&b, "> %s knowledge wiki. **Start here.** Scan the catalog below, then follow [[wikilinks]] to drill into specific pages.\n", cases.Title(language.English).String(tag))
+	_, _ = fmt.Fprintf(&b, "> Check [[log]] for the timeline of updates. Last updated: %s\n\n", now)
+	_, _ = fmt.Fprintf(&b, "**%d nodes · %d edges · %d communities · %d articles**\n\n", totalNodes, totalEdges, len(communities), len(entities))
 
 	byType := make(map[string][]EntitySummary)
 	for _, ent := range entities {
@@ -294,7 +294,7 @@ func genericIndexPage(entities []EntitySummary, communities []Community, godNode
 	b.WriteString("---\n\n")
 	b.WriteString("## Catalog\n\n")
 	for _, t := range types {
-		b.WriteString(fmt.Sprintf("### %s\n\n", cases.Title(language.English).String(t)))
+		_, _ = fmt.Fprintf(&b, "### %s\n\n", cases.Title(language.English).String(t))
 		for _, ent := range byType[t] {
 			link := fmt.Sprintf("[[%s]]", SafeFilename(ent.Name))
 			if ent.Summary != "" {
@@ -303,9 +303,9 @@ func genericIndexPage(entities []EntitySummary, communities []Community, godNode
 				if len(summary) > 80 {
 					summary = summary[:80] + "…"
 				}
-				b.WriteString(fmt.Sprintf("- %s — %s\n", link, summary))
+				_, _ = fmt.Fprintf(&b, "- %s — %s\n", link, summary)
 			} else {
-				b.WriteString(fmt.Sprintf("- %s (`%s`)\n", link, ent.Path))
+				_, _ = fmt.Fprintf(&b, "- %s (`%s`)\n", link, ent.Path)
 			}
 		}
 		b.WriteString("\n")
@@ -315,7 +315,7 @@ func genericIndexPage(entities []EntitySummary, communities []Community, godNode
 		b.WriteString("## Communities\n\n")
 		b.WriteString("> Thematic clusters detected by graph analysis. Each community page lists its members and cross-links.\n\n")
 		for _, c := range communities {
-			b.WriteString(fmt.Sprintf("- [[%s]] — %d members, cohesion %.2f\n", SafeFilename(c.Label), len(c.Members), c.Cohesion))
+			_, _ = fmt.Fprintf(&b, "- [[%s]] — %d members, cohesion %.2f\n", SafeFilename(c.Label), len(c.Members), c.Cohesion)
 		}
 		b.WriteString("\n")
 	}
@@ -326,7 +326,7 @@ func genericIndexPage(entities []EntitySummary, communities []Community, godNode
 		for _, gn := range godNodes {
 			name, _ := gn["name"].(string)
 			degree, _ := gn["degree"].(int)
-			b.WriteString(fmt.Sprintf("- [[%s]] — %d connections\n", SafeFilename(name), degree))
+			_, _ = fmt.Fprintf(&b, "- [[%s]] — %d connections\n", SafeFilename(name), degree)
 		}
 		b.WriteString("\n")
 	}
@@ -340,7 +340,7 @@ func genericIndexPage(entities []EntitySummary, communities []Community, godNode
 	b.WriteString("6. **Read the Log** — [[log]] shows the timeline of wiki updates: what was indexed, when.\n\n")
 	b.WriteString("> **Tip:** In Obsidian, open Graph View to see the full link structure visually.\n> Use Dataview to query `source_count`, `type`, `confidence`, and `updated` frontmatter fields.\n\n")
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("*Generated by %s · %s · [[log]]*\n", brand.DisplayName, now))
+	_, _ = fmt.Fprintf(&b, "*Generated by %s · %s · [[log]]*\n", brand.DisplayName, now)
 	return b.String()
 }
 

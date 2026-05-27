@@ -116,7 +116,7 @@ func (m *ModelManager) download(ctx context.Context, url, destPath string) error
 	}
 
 	written, err := io.Copy(f, resp.Body)
-	f.Close()
+	_ = f.Close()
 	if err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write: %w", err)

@@ -105,7 +105,7 @@ func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string) 
 	if err != nil {
 		return fmt.Errorf("create bundle: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	zw := zip.NewWriter(f)
 	defer func() { _ = zw.Close() }()

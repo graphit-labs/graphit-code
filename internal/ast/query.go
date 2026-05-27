@@ -72,7 +72,7 @@ func NewQueryService(db GraphDB) *QueryService {
 
 func (q *QueryService) Close() {
 	if q.searchIndex != nil {
-		q.searchIndex.Close()
+		_ = q.searchIndex.Close()
 		q.searchIndex = nil
 	}
 }

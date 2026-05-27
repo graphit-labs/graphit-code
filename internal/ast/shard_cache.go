@@ -93,9 +93,9 @@ func NewShardCache(cacheDir string) (*ShardCache, error) {
 		filepath.Join(cacheDir, "parse.db-shm"),
 		filepath.Join(cacheDir, "hashes.json"),
 	} {
-		os.Remove(legacy)
+		_ = os.Remove(legacy)
 	}
-	os.RemoveAll(filepath.Join(cacheDir, "parsed"))
+	_ = os.RemoveAll(filepath.Join(cacheDir, "parsed"))
 
 	return sc, nil
 }
@@ -266,8 +266,8 @@ func (sc *ShardCache) Remove(relPath string) {
 	delete(sc.edges, relPath)
 	delete(sc.dirty, relPath)
 
-	os.Remove(sc.shardPath(relPath, ".nodes.json"))
-	os.Remove(sc.shardPath(relPath, ".edges.json"))
+	_ = os.Remove(sc.shardPath(relPath, ".nodes.json"))
+	_ = os.Remove(sc.shardPath(relPath, ".edges.json"))
 
 	sc.dirty[""] = true
 }
@@ -279,8 +279,8 @@ func (sc *ShardCache) Invalidate() {
 	sc.nodes = make(map[string]*shardNodes)
 	sc.edges = make(map[string]*shardEdges)
 	sc.dirty = make(map[string]bool)
-	os.RemoveAll(filepath.Join(sc.dir, "shards"))
-	os.Remove(filepath.Join(sc.dir, "manifest.json"))
+	_ = os.RemoveAll(filepath.Join(sc.dir, "shards"))
+	_ = os.Remove(filepath.Join(sc.dir, "manifest.json"))
 }
 
 func (sc *ShardCache) Save() error {
@@ -434,7 +434,7 @@ func writeShard(path string, data any) error {
 		return err
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 	return nil

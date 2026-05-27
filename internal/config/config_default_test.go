@@ -168,16 +168,16 @@ func TestResolveIDEAndCLI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 	_ = os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", origHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	// Save env and restore
 	origEnvIDE := os.Getenv("GRAPHIT_IDE")
 	origEnvCLI := os.Getenv("GRAPHIT_CLI")
 	defer func() {
-		os.Setenv("GRAPHIT_IDE", origEnvIDE)
-		os.Setenv("GRAPHIT_CLI", origEnvCLI)
+		_ = os.Setenv("GRAPHIT_IDE", origEnvIDE)
+		_ = os.Setenv("GRAPHIT_CLI", origEnvCLI)
 	}()
 	_ = os.Unsetenv("GRAPHIT_IDE")
 	_ = os.Unsetenv("GRAPHIT_CLI")
@@ -274,8 +274,8 @@ func TestResolveProjectIDE(t *testing.T) {
 
 	// Test priority 4: lockfileIDEs matching ambient resolved
 	origEnv := os.Getenv("GRAPHIT_IDE")
-	defer os.Setenv("GRAPHIT_IDE", origEnv)
-	os.Setenv("GRAPHIT_IDE", "ambient_ide")
+	defer func() { _ = os.Setenv("GRAPHIT_IDE", origEnv) }()
+	_ = os.Setenv("GRAPHIT_IDE", "ambient_ide")
 
 	ide = ResolveProjectIDE("", nil, nil, []string{"other_ide", "ambient_ide"})
 	if ide != "ambient_ide" {
@@ -340,14 +340,14 @@ func TestRepoURLsAndDirs(t *testing.T) {
 func TestGlobalConfigOperations(t *testing.T) {
 	// Set HOME to a temporary directory so we don't mutate local user files
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	tempDir, err := os.MkdirTemp("", "config-test-home")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
-	os.Setenv("HOME", tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
+	_ = os.Setenv("HOME", tempDir)
 
 	// Validate AppDir
 	appDir, err := AppDir()
@@ -434,12 +434,12 @@ func TestResolveUrls(t *testing.T) {
 	origHubEnv := os.Getenv("GRAPHIT_HUB_REPO")
 	origMemEnv := os.Getenv("GRAPHIT_MEMORY_REPO")
 	defer func() {
-		os.Setenv("GRAPHIT_HUB_REPO", origHubEnv)
-		os.Setenv("GRAPHIT_MEMORY_REPO", origMemEnv)
+		_ = os.Setenv("GRAPHIT_HUB_REPO", origHubEnv)
+		_ = os.Setenv("GRAPHIT_MEMORY_REPO", origMemEnv)
 	}()
 
-	os.Setenv("GRAPHIT_HUB_REPO", "env-hub-repo")
-	os.Setenv("GRAPHIT_MEMORY_REPO", "env-mem-repo")
+	_ = os.Setenv("GRAPHIT_HUB_REPO", "env-hub-repo")
+	_ = os.Setenv("GRAPHIT_MEMORY_REPO", "env-mem-repo")
 
 	if HubRepoURL() != "env-hub-repo" {
 		t.Errorf("expected env-hub-repo, got %q", HubRepoURL())
@@ -479,8 +479,8 @@ func TestAppDirHomeError(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	origUserProfile := os.Getenv("USERPROFILE")
 	defer func() {
-		os.Setenv("HOME", origHome)
-		os.Setenv("USERPROFILE", origUserProfile)
+		_ = os.Setenv("HOME", origHome)
+		_ = os.Setenv("USERPROFILE", origUserProfile)
 	}()
 
 	_ = os.Unsetenv("HOME")
@@ -539,14 +539,14 @@ func TestAppDirHomeError(t *testing.T) {
 
 func TestAppDirMkdirError(t *testing.T) {
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	tempDir, err := os.MkdirTemp("", "config-mkdir-err")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
-	os.Setenv("HOME", tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
+	_ = os.Setenv("HOME", tempDir)
 
 	// Create a regular file where the brand directory should be created
 	conflictPath := filepath.Join(tempDir, ".graphit")
@@ -578,11 +578,11 @@ func TestUncoveredBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	origHome := os.Getenv("HOME")
-	defer os.Setenv("HOME", origHome)
-	os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+	_ = os.Setenv("HOME", tempDir)
 
 	cfg := ConfigMap{
 		"empty_sec": map[string]any{},
@@ -619,8 +619,8 @@ func TestUncoveredBranches(t *testing.T) {
 
 	// 4. ResolveProjectIDE when lockfileIDEs is empty
 	origEnv := os.Getenv("GRAPHIT_IDE")
-	defer os.Setenv("GRAPHIT_IDE", origEnv)
-	os.Setenv("GRAPHIT_IDE", "ambient_ide")
+	defer func() { _ = os.Setenv("GRAPHIT_IDE", origEnv) }()
+	_ = os.Setenv("GRAPHIT_IDE", "ambient_ide")
 	ide := ResolveProjectIDE("", nil, nil, nil)
 	if ide != "ambient_ide" {
 		t.Errorf("expected ambient_ide, got %q", ide)

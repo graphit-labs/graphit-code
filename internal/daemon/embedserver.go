@@ -47,11 +47,11 @@ func (s *EmbedServer) Start(ctx context.Context) error {
 	port := s.listener.Addr().(*net.TCPAddr).Port
 
 	if err := os.MkdirAll(filepath.Dir(s.portFile), 0o755); err != nil {
-		s.listener.Close()
+		_ = s.listener.Close()
 		return fmt.Errorf("embed server: creating dir: %w", err)
 	}
 	if err := os.WriteFile(s.portFile, []byte(fmt.Sprintf("%d\n", port)), 0o644); err != nil {
-		s.listener.Close()
+		_ = s.listener.Close()
 		return fmt.Errorf("embed server: writing port file: %w", err)
 	}
 
@@ -61,8 +61,8 @@ func (s *EmbedServer) Start(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		s.server.Shutdown(context.Background())
-		os.Remove(s.portFile)
+		_ = s.server.Shutdown(context.Background())
+		_ = os.Remove(s.portFile)
 	}()
 
 	err = s.server.Serve(s.listener)
@@ -106,7 +106,7 @@ func (s *EmbedServer) handleEmbed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Texts) == 0 {
-		json.NewEncoder(w).Encode(embedResponse{Vectors: [][]float32{}})
+		_ = json.NewEncoder(w).Encode(embedResponse{Vectors: [][]float32{}})
 		return
 	}
 
@@ -117,7 +117,7 @@ func (s *EmbedServer) handleEmbed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(embedResponse{Vectors: vectors})
+	_ = json.NewEncoder(w).Encode(embedResponse{Vectors: vectors})
 }
 
 func (s *EmbedServer) handleEmbedQuery(w http.ResponseWriter, r *http.Request) {
@@ -145,12 +145,12 @@ func (s *EmbedServer) handleEmbedQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(queryResponse{Vector: vec})
+	_ = json.NewEncoder(w).Encode(queryResponse{Vector: vec})
 }
 
 func (s *EmbedServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(healthResponse{
+	_ = json.NewEncoder(w).Encode(healthResponse{
 		Status: "ok",
 		Model:  s.client.ModelName(),
 	})

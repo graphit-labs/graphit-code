@@ -73,10 +73,10 @@ func hashDirectory(dir string) (string, error) {
 			return "", fmt.Errorf("opening %q: %w", rel, err)
 		}
 		if _, err := io.Copy(h, f); err != nil {
-			f.Close()
+			_ = f.Close()
 			return "", fmt.Errorf("reading %q: %w", rel, err)
 		}
-		f.Close()
+		_ = f.Close()
 
 		outer.Write(h.Sum(nil))
 	}
@@ -89,7 +89,7 @@ func HashFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {

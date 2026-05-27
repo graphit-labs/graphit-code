@@ -36,7 +36,7 @@ func openASTDB(projectDir, contextName string) (ast.GraphDB, error) {
 	if err := os.Chdir(projectDir); err != nil {
 		return nil, fmt.Errorf("cannot chdir to %s: %w", projectDir, err)
 	}
-	defer os.Chdir(origWd)
+	defer func() { _ = os.Chdir(origWd) }()
 
 	var cfg ast.LadybugConfig
 	if contextName != "" {
@@ -84,7 +84,7 @@ func newMemorySvc(userScope bool, projectDir string) (*memory.MemoryService, err
 func resolveWikiDir(module, projectDir, contextName string) string {
 	origWd, _ := os.Getwd()
 	_ = os.Chdir(projectDir)
-	defer os.Chdir(origWd)
+	defer func() { _ = os.Chdir(origWd) }()
 
 	switch module {
 	case "knowledge":

@@ -99,7 +99,7 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 		return fmt.Errorf("opening log file: %w", err)
 	}
 	d.logFile = lf
-	defer lf.Close()
+	defer func() { _ = lf.Close() }()
 
 	if err := d.pid.Write(); err != nil {
 		return fmt.Errorf("writing pid file: %w", err)
@@ -274,7 +274,7 @@ func (d *Daemon) log(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	line := fmt.Sprintf("[%s] %s\n", time.Now().Format("2006-01-02 15:04:05"), msg)
 	d.mu.RLock()
-	d.logFile.WriteString(line)
+	_, _ = d.logFile.WriteString(line)
 	d.mu.RUnlock()
 }
 

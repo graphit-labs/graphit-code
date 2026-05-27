@@ -62,11 +62,11 @@ func TestDirsAndScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp home: %v", err)
 	}
-	defer os.RemoveAll(tempHome)
+	defer func() { _ = os.RemoveAll(tempHome) }()
 
 	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempHome)
-	defer os.Setenv("HOME", origHome)
+	_ = os.Setenv("HOME", tempHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	baseDir := GlobalBaseDir()
 	expectedBase := filepath.Join(tempHome, "."+brand.Brand, "memory")
@@ -91,7 +91,7 @@ func TestListAndRenderMemoriesInDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Create an important memory file
 	impFile := filepath.Join(tempDir, "123_important_.md")

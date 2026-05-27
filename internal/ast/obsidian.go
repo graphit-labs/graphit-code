@@ -236,7 +236,7 @@ func (e *ObsidianExporter) writeFiles(ctx context.Context, dir string) error {
 		f, err := os.Create(notePath)
 		if err == nil {
 			_ = fileTmpl.Execute(f, note)
-			f.Close()
+			_ = f.Close()
 		}
 		indexLines = append(indexLines, fmt.Sprintf("- [[files/%s|%s]]", slug, name))
 	}

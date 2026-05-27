@@ -113,7 +113,7 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return nil, nil, err
 		}
-		defer svc.Close()
+		defer func() { _ = svc.Close() }()
 
 		memories, err := svc.ListMemories()
 		if err != nil {
@@ -146,7 +146,7 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return nil, nil, err
 		}
-		defer svc.Close()
+		defer func() { _ = svc.Close() }()
 
 		var tagList []string
 		if input.Tags != "" {
@@ -188,7 +188,7 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return nil, nil, err
 		}
-		defer svc.Close()
+		defer func() { _ = svc.Close() }()
 
 		if err := svc.RemoveMemory(input.ID); err != nil {
 			return nil, nil, err

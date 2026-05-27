@@ -34,7 +34,7 @@ func NewShardEmbCache(cacheDir string, parseCache *ShardCache) (*ShardEmbCache, 
 	}
 
 	shardsDir := filepath.Join(cacheDir, "shards")
-	filepath.Walk(shardsDir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(shardsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
 		}
@@ -48,7 +48,7 @@ func NewShardEmbCache(cacheDir string, parseCache *ShardCache) (*ShardEmbCache, 
 
 		loaded, loadErr := loadShard[shardEmb](path)
 		if loadErr != nil || loaded.Version != shardEmbVersion {
-			os.Remove(path)
+			_ = os.Remove(path)
 			return nil
 		}
 		if loaded.Embeddings == nil {
@@ -58,8 +58,8 @@ func NewShardEmbCache(cacheDir string, parseCache *ShardCache) (*ShardEmbCache, 
 		return nil
 	})
 
-	os.Remove(filepath.Join(cacheDir, "embeddings.json"))
-	os.Remove(filepath.Join(cacheDir, "embeddings.json.tmp"))
+	_ = os.Remove(filepath.Join(cacheDir, "embeddings.json"))
+	_ = os.Remove(filepath.Join(cacheDir, "embeddings.json.tmp"))
 
 	if parseCache != nil {
 		ec.prune(parseCache)
@@ -77,13 +77,13 @@ func (ec *ShardEmbCache) prune(parseCache *ShardCache) {
 		if !exists {
 
 			delete(ec.data, relPath)
-			os.Remove(ec.shardPath(relPath))
+			_ = os.Remove(ec.shardPath(relPath))
 			continue
 		}
 		if me.Hash != emb.Hash {
 
 			delete(ec.data, relPath)
-			os.Remove(ec.shardPath(relPath))
+			_ = os.Remove(ec.shardPath(relPath))
 		}
 	}
 }

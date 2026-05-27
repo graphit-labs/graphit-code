@@ -179,14 +179,14 @@ func bm25PreFilter(wikiDir, query string, topN int) string {
 
 	var b strings.Builder
 	b.WriteString("=== BM25 Relevant Pages (pre-filtered) ===\n")
-	b.WriteString(fmt.Sprintf("Query: %q — top %d by BM25 relevance:\n\n", query, len(results)))
+	_, _ = fmt.Fprintf(&b, "Query: %q — top %d by BM25 relevance:\n\n", query, len(results))
 
 	for i, r := range results {
-		b.WriteString(fmt.Sprintf("%d. [[%s]]", i+1, strings.TrimSuffix(r.Path, ".md")))
+		_, _ = fmt.Fprintf(&b, "%d. [[%s]]", i+1, strings.TrimSuffix(r.Path, ".md"))
 		if r.Title != "" {
-			b.WriteString(fmt.Sprintf(" — %s", r.Title))
+			_, _ = fmt.Fprintf(&b, " — %s", r.Title)
 		}
-		b.WriteString(fmt.Sprintf(" (score: %.3f)\n", r.Score))
+		_, _ = fmt.Fprintf(&b, " (score: %.3f)\n", r.Score)
 	}
 
 	return b.String()

@@ -14,9 +14,9 @@ func TestGetPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp home: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", origHome)
+	defer func() { _ = os.RemoveAll(tempDir) }()
+	_ = os.Setenv("HOME", tempDir)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	// Test GetPaths
 	p := GetPaths("test-ide", false)
@@ -47,7 +47,7 @@ func TestResolveGitDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp project: %v", err)
 	}
-	defer os.RemoveAll(tempProj)
+	defer func() { _ = os.RemoveAll(tempProj) }()
 
 	// Case 1: .git does not exist
 	gitDir1 := resolveGitDir(tempProj)
@@ -67,7 +67,7 @@ func TestResolveGitDir(t *testing.T) {
 	}
 
 	// Clean up .git directory
-	os.RemoveAll(dotGitDir)
+	_ = os.RemoveAll(dotGitDir)
 
 	// Case 3: .git is a file but empty/invalid
 	err = os.WriteFile(dotGitDir, []byte("invalid content"), 0644)
@@ -120,7 +120,7 @@ func TestSafeSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	srcFile := filepath.Join(tempDir, "src.txt")
 	err = os.WriteFile(srcFile, []byte("hello"), 0644)
@@ -209,7 +209,7 @@ func TestBuildPathsHooks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp project: %v", err)
 	}
-	defer os.RemoveAll(tempProj)
+	defer func() { _ = os.RemoveAll(tempProj) }()
 
 	// Initialize real git repo so git config queries will execute successfully
 	cmdInit := exec.Command("git", "init")

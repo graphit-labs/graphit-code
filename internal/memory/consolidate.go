@@ -154,14 +154,14 @@ func detectStaleMemories(memories []memorySnapshot) []ConsolidationAction {
 func aiConsolidation(ctx context.Context, client ai.Client, memories []memorySnapshot) (*ConsolidationReport, error) {
 	var memoryList strings.Builder
 	for i, m := range memories {
-		memoryList.WriteString(fmt.Sprintf("--- Memory %d ---\n", i+1))
-		memoryList.WriteString(fmt.Sprintf("ID: %s\n", m.ID))
-		memoryList.WriteString(fmt.Sprintf("Title: %s\n", m.Title))
-		memoryList.WriteString(fmt.Sprintf("Type: %s\n", m.Type))
-		memoryList.WriteString(fmt.Sprintf("Created: %s\n", m.CreatedAt))
-		memoryList.WriteString(fmt.Sprintf("Important: %v\n", m.Important))
+		_, _ = fmt.Fprintf(&memoryList, "--- Memory %d ---\n", i+1)
+		_, _ = fmt.Fprintf(&memoryList, "ID: %s\n", m.ID)
+		_, _ = fmt.Fprintf(&memoryList, "Title: %s\n", m.Title)
+		_, _ = fmt.Fprintf(&memoryList, "Type: %s\n", m.Type)
+		_, _ = fmt.Fprintf(&memoryList, "Created: %s\n", m.CreatedAt)
+		_, _ = fmt.Fprintf(&memoryList, "Important: %v\n", m.Important)
 		if m.Body != "" {
-			memoryList.WriteString(fmt.Sprintf("Content:\n%s\n", m.Body))
+			_, _ = fmt.Fprintf(&memoryList, "Content:\n%s\n", m.Body)
 		}
 		memoryList.WriteString("\n")
 	}

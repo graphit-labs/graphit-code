@@ -104,15 +104,15 @@ func registerKnowledgeTools(server *mcp.Server) {
 		}
 
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("Found %d results for %q:\n\n", len(results), input.Query))
+		_, _ = fmt.Fprintf(&b, "Found %d results for %q:\n\n", len(results), input.Query)
 		for i, r := range results {
-			b.WriteString(fmt.Sprintf("%d. %s", i+1, strings.TrimSuffix(r.Path, ".md")))
+			_, _ = fmt.Fprintf(&b, "%d. %s", i+1, strings.TrimSuffix(r.Path, ".md"))
 			if r.Title != "" {
-				b.WriteString(fmt.Sprintf(" — %s", r.Title))
+				_, _ = fmt.Fprintf(&b, " — %s", r.Title)
 			}
-			b.WriteString(fmt.Sprintf(" (score: %.3f)\n", r.Score))
+			_, _ = fmt.Fprintf(&b, " (score: %.3f)\n", r.Score)
 			if r.Snippet != "" {
-				b.WriteString(fmt.Sprintf("   %s\n", r.Snippet))
+				_, _ = fmt.Fprintf(&b, "   %s\n", r.Snippet)
 			}
 		}
 
@@ -183,7 +183,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 
 		var b strings.Builder
 		b.WriteString(result.Answer)
-		b.WriteString(fmt.Sprintf("\n\n---\nSession ID: %s (use graphit_wiki_chat to continue this conversation)", session.ID))
+		_, _ = fmt.Fprintf(&b, "\n\n---\nSession ID: %s (use graphit_wiki_chat to continue this conversation)", session.ID)
 
 		return textResult(b.String())
 	})
@@ -247,19 +247,19 @@ func registerKnowledgeTools(server *mcp.Server) {
 			}
 
 			var b strings.Builder
-			b.WriteString(fmt.Sprintf("Found %d session(s):\n\n", len(sessions)))
+			_, _ = fmt.Fprintf(&b, "Found %d session(s):\n\n", len(sessions))
 			for i, s := range sessions {
-				b.WriteString(fmt.Sprintf("%d. [%s] %s\n", i+1, s.ID, s.Title))
-				b.WriteString(fmt.Sprintf("   Created: %s | Updated: %s | Messages: %d\n",
+				_, _ = fmt.Fprintf(&b, "%d. [%s] %s\n", i+1, s.ID, s.Title)
+				_, _ = fmt.Fprintf(&b, "   Created: %s | Updated: %s | Messages: %d\n",
 					s.CreatedAt.Format("2006-01-02 15:04"),
 					s.UpdatedAt.Format("2006-01-02 15:04"),
-					s.MessageCount))
+					s.MessageCount)
 				if len(s.WikiSources) > 0 {
 					srcNames := make([]string, len(s.WikiSources))
 					for j, ws := range s.WikiSources {
 						srcNames[j] = ws.Label
 					}
-					b.WriteString(fmt.Sprintf("   Sources: %s\n", strings.Join(srcNames, ", ")))
+					_, _ = fmt.Fprintf(&b, "   Sources: %s\n", strings.Join(srcNames, ", "))
 				}
 			}
 			return textResult(b.String())

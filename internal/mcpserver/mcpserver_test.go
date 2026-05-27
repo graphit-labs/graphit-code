@@ -22,7 +22,7 @@ func TestMCPServerBasic(t *testing.T) {
 	logVerbose(true, "test verbose log: %s", "hello")
 	logVerbose(false, "should not log: %s", "world")
 
-	w.Close()
+	_ = w.Close()
 	var buf bytes.Buffer
 	os.Stderr = oldStderr
 	_, _ = buf.ReadFrom(r)

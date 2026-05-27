@@ -242,7 +242,7 @@ func (s *SearchIndex) SearchFiles(query string, topK int) ([]SearchResult, error
 	if err != nil {
 		return nil, nil
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []SearchResult
 	for rows.Next() {
@@ -277,7 +277,7 @@ func (s *SearchIndex) SearchEntities(query string, topK int) ([]SearchResult, er
 	if err != nil {
 		return nil, nil
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []SearchResult
 	for rows.Next() {
@@ -320,7 +320,7 @@ func (s *SearchIndex) SemanticSearch(queryVec []float32, topK int) ([]SearchResu
 	if err != nil {
 		return nil, nil
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []SearchResult
 	for rows.Next() {

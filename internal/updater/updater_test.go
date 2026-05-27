@@ -129,7 +129,7 @@ func TestDownloadAndChecksum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	mockContent := "my update binary content"
 	h := sha256.New()
@@ -195,7 +195,7 @@ func TestAtomicReplace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	exePath := filepath.Join(tempDir, "current-exe")
 	newPath := filepath.Join(tempDir, "new-exe")

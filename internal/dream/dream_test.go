@@ -31,7 +31,7 @@ func TestDreamSubjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp project: %v", err)
 	}
-	defer os.RemoveAll(tempProj)
+	defer func() { _ = os.RemoveAll(tempProj) }()
 
 	// 1. Add Subject
 	sub, err := AddSubject(tempProj, "My Dream Subject", "Instructions to dream about.")
@@ -70,7 +70,7 @@ func TestDreamSubjects(t *testing.T) {
 
 	// Mark done by writing done file
 	donePath := filepath.Join(SubjectsDir(tempProj), "my-dream-subject"+resultExt)
-	os.WriteFile(donePath, []byte("Done content"), 0644)
+	_ = os.WriteFile(donePath, []byte("Done content"), 0644)
 
 	listDone, _ := ListSubjects(tempProj)
 	if len(listDone) != 1 || !listDone[0].Done {

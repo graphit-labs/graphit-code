@@ -476,7 +476,7 @@ func (s *UIServer) handleInstall(w http.ResponseWriter, r *http.Request) {
 		ProjectDir string `json:"project_dir"`
 		Version    string `json:"version"`
 	}
-	json.NewDecoder(r.Body).Decode(&body)
+	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.IDE == "" {
 		body.IDE = s.ide
 	}
@@ -500,7 +500,7 @@ func (s *UIServer) handleUninstall(w http.ResponseWriter, r *http.Request) {
 		Type       string `json:"type"`
 		ProjectDir string `json:"project_dir"`
 	}
-	json.NewDecoder(r.Body).Decode(&body)
+	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.IDE == "" {
 		body.IDE = s.ide
 	}
@@ -517,7 +517,7 @@ func (s *UIServer) handleUpdateAll(w http.ResponseWriter, r *http.Request) {
 		IDE        string `json:"ide"`
 		ProjectDir string `json:"project_dir"`
 	}
-	json.NewDecoder(r.Body).Decode(&body)
+	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.IDE == "" {
 		body.IDE = s.ide
 	}
@@ -533,7 +533,7 @@ func (s *UIServer) handleUpdateOne(w http.ResponseWriter, r *http.Request) {
 		IDE        string `json:"ide"`
 		ProjectDir string `json:"project_dir"`
 	}
-	json.NewDecoder(r.Body).Decode(&body)
+	_ = json.NewDecoder(r.Body).Decode(&body)
 	if body.IDE == "" {
 		body.IDE = s.ide
 	}
@@ -708,7 +708,7 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSONUI(w, map[string]any{"success": false, "error": "failed to create temp dir"})
 		return
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	isPower := artType == "power"
 
@@ -719,7 +719,7 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if file != nil {
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		destPath := filepath.Join(tmpDir, header.Filename)
 		out, err := os.Create(destPath)
@@ -728,11 +728,11 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := io.Copy(out, file); err != nil {
-			out.Close()
+			_ = out.Close()
 			writeJSONUI(w, map[string]any{"success": false, "error": "failed to write file"})
 			return
 		}
-		out.Close()
+		_ = out.Close()
 
 		if strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
 			extractDir := filepath.Join(tmpDir, "extracted")
@@ -828,7 +828,7 @@ func (s *UIServer) handleUI(w http.ResponseWriter, r *http.Request) {
 </script>`, apiBase)
 	data = bytes.Replace(data, []byte("</head>"), []byte(injection+"</head>"), 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 func CorsWrap(h http.Handler) http.Handler {
@@ -848,7 +848,7 @@ func corsWrap(h http.Handler) http.Handler { return CorsWrap(h) }
 
 func writeJSONUI(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func readJSONFileUI(path string) map[string]any {
@@ -878,7 +878,7 @@ func extractZip(zipPath, destDir string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return err
@@ -909,16 +909,16 @@ func extractZip(zipPath, destDir string) error {
 
 		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
 		if err != nil {
-			rc.Close()
+			_ = rc.Close()
 			return err
 		}
 		if _, err := io.Copy(out, rc); err != nil {
-			out.Close()
-			rc.Close()
+			_ = out.Close()
+			_ = rc.Close()
 			return err
 		}
-		out.Close()
-		rc.Close()
+		_ = out.Close()
+		_ = rc.Close()
 	}
 	return nil
 }

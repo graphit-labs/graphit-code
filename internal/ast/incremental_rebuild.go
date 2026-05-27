@@ -14,7 +14,7 @@ import (
 )
 
 func CopyDBDir(src, dst string) error {
-	os.RemoveAll(dst)
+	_ = os.RemoveAll(dst)
 
 	if runtime.GOOS == "linux" {
 		cmd := exec.Command("cp", "-a", "--reflink=auto", src, dst)
@@ -75,7 +75,7 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 	swapped := false
 	defer func() {
 		if !swapped {
-			os.RemoveAll(workingPath)
+			_ = os.RemoveAll(workingPath)
 		}
 	}()
 
@@ -88,8 +88,8 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 		fmt.Fprintf(os.Stderr, "  › Open working failed — falling back to full rebuild\n")
 		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx)
 	}
-	workingBackend.execQuery("INSTALL json")
-	workingBackend.execQuery("LOAD EXTENSION json")
+	_ = workingBackend.execQuery("INSTALL json")
+	_ = workingBackend.execQuery("LOAD EXTENSION json")
 	openTime := time.Since(t2)
 
 	var searchWg sync.WaitGroup
@@ -98,7 +98,7 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 		searchWg.Add(1)
 		go func() {
 			defer searchWg.Done()
-			searchIdx.UpdateIncremental(cache, changedFiles, deletedFiles, embLookup)
+			_ = searchIdx.UpdateIncremental(cache, changedFiles, deletedFiles, embLookup)
 		}()
 	}
 
@@ -118,7 +118,7 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 	enrichTime := time.Since(t5)
 
 	_ = workingBackend.Shutdown()
-	workingBackend.Close()
+	_ = workingBackend.Close()
 
 	if err := lb.AtomicSwapDB(workingPath); err != nil {
 		return fmt.Errorf("atomic swap prod: %w", err)
@@ -146,7 +146,7 @@ func fullRebuildWithSearch(ctx context.Context, lb *LadybugBackend, cache *Shard
 	}
 	if searchIdx != nil {
 		embLookup := buildEmbLookup(cache, embCache)
-		searchIdx.RebuildFromCache(cache, embLookup)
+		_ = searchIdx.RebuildFromCache(cache, embLookup)
 	}
 	return nil
 }
@@ -171,9 +171,9 @@ func deleteFileData(ctx context.Context, db GraphDB, paths []string) {
 
 	params := map[string]any{"paths": paths}
 
-	db.Execute(ctx, `UNWIND $paths AS p MATCH (f:File {path: p})-[:CONTAINS]->(e) DETACH DELETE e`, params)
+	_, _ = db.Execute(ctx, `UNWIND $paths AS p MATCH (f:File {path: p})-[:CONTAINS]->(e) DETACH DELETE e`, params)
 
-	db.Execute(ctx, `UNWIND $paths AS p MATCH (f:File {path: p}) DETACH DELETE f`, params)
+	_, _ = db.Execute(ctx, `UNWIND $paths AS p MATCH (f:File {path: p}) DETACH DELETE f`, params)
 }
 
 func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
@@ -217,7 +217,7 @@ func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
 	}
 
 	tmpDir, _ := os.MkdirTemp("", "graphit-incr-*")
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	const edgeUnwindThreshold = 200
 

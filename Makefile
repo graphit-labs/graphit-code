@@ -1,5 +1,6 @@
 .PHONY: build build-all install clean fmt vet run ui ui-dev setup-lbug \
-       fetch-ort-linux fetch-ort-darwin fetch-ort-windows fetch-model lint
+       fetch-ort-linux fetch-ort-darwin fetch-ort-windows fetch-model lint \
+       ui-lint ci check test
 
 MODULE   := github.com/graphit-labs/graphit-code
 CMD      := ./cmd/graphit
@@ -191,11 +192,29 @@ test: setup-lbug
 lint:
 	golangci-lint run ./...
 
+ui-lint:
+	cd internal/ui && npm run lint
+
 fmt:
 	gofmt -w .
 
 vet:
 	go vet ./...
+
+# ── CI reproduce (matches .github/workflows/ci.yml) ──────────────────────────
+# Run all checks that GitHub Actions runs, in the same order.
+# Usage: make ci
+ci: vet lint test ui ui-lint
+	@echo ""
+	@echo "  ✅ All CI checks passed."
+	@echo ""
+
+# ── Quick pre-push check (no build, no UI) ───────────────────────────────────
+# Usage: make check
+check: vet lint test
+	@echo ""
+	@echo "  ✅ Go checks passed (vet + lint + test)."
+	@echo ""
 
 clean:
 	rm -rf $(BIN_DIR)
@@ -207,3 +226,4 @@ run:
 update-deps:
 	go get -u ./...
 	go mod tidy
+

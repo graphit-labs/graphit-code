@@ -38,7 +38,7 @@ func (k *LadybugBackend) AtomicSwapDB(newDBPath string) error {
 	currentPath := k.cfg.DBPath
 	oldPath := currentPath + ".old"
 
-	os.RemoveAll(oldPath)
+	_ = os.RemoveAll(oldPath)
 
 	if err := os.Rename(currentPath, oldPath); err != nil && !os.IsNotExist(err) {
 
@@ -53,22 +53,22 @@ func (k *LadybugBackend) AtomicSwapDB(newDBPath string) error {
 		return fmt.Errorf("atomic swap: rename new→current: %w", err)
 	}
 
-	os.RemoveAll(oldPath)
-	os.Remove(currentPath + ".wal")
+	_ = os.RemoveAll(oldPath)
+	_ = os.Remove(currentPath + ".wal")
 
 	return nil
 }
 
 func CleanupInterruptedSwap(dbPath string) {
-	os.RemoveAll(dbPath + ".old")
+	_ = os.RemoveAll(dbPath + ".old")
 
 	matches, _ := filepath.Glob(dbPath + ".*")
 	for _, m := range matches {
 		if m == dbPath+".wal" || strings.HasPrefix(m, dbPath+".search.sqlite") {
 			continue
 		}
-		os.RemoveAll(m)
+		_ = os.RemoveAll(m)
 	}
 
-	os.RemoveAll(dbPath + ".staging")
+	_ = os.RemoveAll(dbPath + ".staging")
 }

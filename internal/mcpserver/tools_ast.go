@@ -67,7 +67,7 @@ func registerASTTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 
 		result, err := db.Query(ctx, input.Query, nil)
 		if err != nil {
@@ -98,7 +98,7 @@ func registerASTTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 
 		topK := input.TopK
 
@@ -128,7 +128,7 @@ func registerASTTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 
 		topK := input.TopK
 
@@ -165,7 +165,7 @@ func registerASTTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 
 		aiClient, err := ai.NewClientFromConfig()
 		if err != nil {
@@ -201,7 +201,7 @@ func registerASTTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 
 		schemaText, err := ast.SchemaText(ctx, db)
 		if err != nil {

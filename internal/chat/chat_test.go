@@ -28,11 +28,11 @@ func setupChatTestHome(t *testing.T) string {
 		t.Fatalf("failed to create temp home: %v", err)
 	}
 	origHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempHome)
+	_ = os.Setenv("HOME", tempHome)
 
 	t.Cleanup(func() {
-		os.Setenv("HOME", origHome)
-		os.RemoveAll(tempHome)
+		_ = os.Setenv("HOME", origHome)
+		_ = os.RemoveAll(tempHome)
 	})
 
 	return tempHome

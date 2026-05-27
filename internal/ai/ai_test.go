@@ -14,7 +14,7 @@ func TestTryFallbackCLIAndComplete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Create dummy "grok" shell script binary
 	dummyGrok := filepath.Join(tempDir, "grok")
@@ -29,8 +29,8 @@ echo "grok completed"
 
 	// Set PATH to include tempDir
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", tempDir+":"+origPath)
-	defer os.Setenv("PATH", origPath)
+	_ = os.Setenv("PATH", tempDir+":"+origPath)
+	defer func() { _ = os.Setenv("PATH", origPath) }()
 
 	// Try finding grok CLI client
 	client := tryFallbackCLI("xai", "grok")
@@ -66,8 +66,8 @@ echo "grok completed"
 func TestNewClientFromConfigError(t *testing.T) {
 	// Temporarily clear PATH so no AI binary is found
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	defer os.Setenv("PATH", origPath)
+	_ = os.Setenv("PATH", "")
+	defer func() { _ = os.Setenv("PATH", origPath) }()
 
 	// Test NewClientFromConfig when no executable is in PATH
 	_, err := NewClientFromConfig()

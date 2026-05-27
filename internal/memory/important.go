@@ -88,8 +88,8 @@ func RenderImportantBlock(scope string) string {
 	b.WriteString("> They are automatically maintained. Do not edit this section.\n\n")
 
 	for _, e := range entries {
-		b.WriteString(fmt.Sprintf("### %s\n", e.Title))
-		b.WriteString(fmt.Sprintf("*ID: `%s`*\n\n", e.ID))
+		_, _ = fmt.Fprintf(&b, "### %s\n", e.Title)
+		_, _ = fmt.Fprintf(&b, "*ID: `%s`*\n\n", e.ID)
 		if e.Content != "" {
 			b.WriteString(e.Content + "\n")
 		}
@@ -162,9 +162,9 @@ func RenderRecentBlock(scope string, limit int) string {
 	for _, e := range entries {
 		summary := firstLineFromContent(e.Content)
 		if summary != "" {
-			b.WriteString(fmt.Sprintf("- **%s** — %s *(ID: `%s`)*\n", e.Title, summary, e.ID))
+			_, _ = fmt.Fprintf(&b, "- **%s** — %s *(ID: `%s`)*\n", e.Title, summary, e.ID)
 		} else {
-			b.WriteString(fmt.Sprintf("- **%s** *(ID: `%s`)*\n", e.Title, e.ID))
+			_, _ = fmt.Fprintf(&b, "- **%s** *(ID: `%s`)*\n", e.Title, e.ID)
 		}
 	}
 	b.WriteString("\n")

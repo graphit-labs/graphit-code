@@ -45,7 +45,7 @@ func RunIndexPipeline(ctx context.Context, rootPath, wikiDir string, cfg IndexCo
 	}
 
 	if cfg.Reset {
-		os.RemoveAll(wikiDir)
+		_ = os.RemoveAll(wikiDir)
 	}
 
 	wikiResult, err := GenerateKnowledgeWiki(ctx, rootPath, wikiDir)

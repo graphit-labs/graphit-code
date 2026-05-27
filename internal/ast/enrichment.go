@@ -835,7 +835,7 @@ func RunEnrichment(ctx context.Context, db GraphDB, rootPath string) {
 		}
 		configStr := strings.Join(props, ",")
 		q := `MERGE (c:File {path: '__config__'}) SET c.name = 'project_config', c.source = $config`
-		db.Execute(ctx, q, map[string]any{"config": configStr})
+		_, _ = db.Execute(ctx, q, map[string]any{"config": configStr})
 	}
 
 	frameworks := DetectFrameworks(ctx, db)
@@ -846,7 +846,7 @@ func RunEnrichment(ctx context.Context, db GraphDB, rootPath string) {
 		}
 		fwStr := strings.Join(fwParts, ",")
 		q := `MERGE (c:File {path: '__config__'}) SET c.lang = $frameworks`
-		db.Execute(ctx, q, map[string]any{"frameworks": fwStr})
+		_, _ = db.Execute(ctx, q, map[string]any{"frameworks": fwStr})
 	}
 
 	ScoreEntryPoints(ctx, db)

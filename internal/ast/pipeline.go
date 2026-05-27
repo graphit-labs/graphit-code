@@ -141,8 +141,8 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 
 	if len(changedFiles) == 0 && len(deletedFiles) == 0 && jsonCache != nil && jsonCache.Count() > 0 && !opts.ForceRebuild {
 
-		jsonCache.Save()
-		jsonCache.Close()
+		_ = jsonCache.Save()
+		_ = jsonCache.Close()
 		totalTime := time.Since(t0)
 		return &PipelineResult{
 			TotalFiles:  len(files),
@@ -279,16 +279,16 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		parsedFilesCount++
 
 		runtime.ReadMemStats(&memStats)
-		fmt.Fprintf(origStdout, "\r\033[K  › Parsing: %d / %d  [Errors: %d | Mem: %dMB]",
+		_, _ = fmt.Fprintf(origStdout, "\r\033[K  › Parsing: %d / %d  [Errors: %d | Mem: %dMB]",
 			parsedFilesCount, len(changedFiles), parseErrors+writeErrors,
 			memStats.HeapInuse/1024/1024)
 	}
-	fmt.Fprintln(origStdout)
+	_, _ = fmt.Fprintln(origStdout)
 
 	parseTime := time.Since(t1)
 
 	if jsonCache != nil && !dryRun {
-		jsonCache.Save()
+		_ = jsonCache.Save()
 	}
 
 	if !dryRun && jsonCache != nil && jsonCache.Count() > 0 {
@@ -317,7 +317,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			idxPath := lb.cfg.DBPath + ".search.sqlite"
 			if si, err := OpenSearchIndex(idxPath); err == nil {
 				searchIdx = si
-				defer searchIdx.Close()
+				defer func() { _ = searchIdx.Close() }()
 			}
 		}
 
@@ -341,7 +341,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			err = RebuildFromJSON(ctx, db, jsonCache, embCache, opts.Cluster, abs)
 			if err == nil && searchIdx != nil {
 				embLookup := buildEmbLookup(jsonCache, embCache)
-				searchIdx.RebuildFromCache(jsonCache, embLookup)
+				_ = searchIdx.RebuildFromCache(jsonCache, embLookup)
 			}
 		}
 		if err != nil {
@@ -352,7 +352,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}
 
 	if jsonCache != nil {
-		jsonCache.Close()
+		_ = jsonCache.Close()
 	}
 
 	totalTime := time.Since(t0)

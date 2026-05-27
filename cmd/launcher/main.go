@@ -50,7 +50,7 @@ func main() {
 
 		cleanupOldRuntimes(filepath.Join(appDir, "runtime"), versionSafe)
 
-		os.RemoveAll(runtimeDir)
+		_ = os.RemoveAll(runtimeDir)
 
 		if err := extractRuntime(runtimeDir); err != nil {
 			fmt.Fprintf(os.Stderr, "Error extracting runtime: %v\n", err)
@@ -174,7 +174,7 @@ func cleanupOldRuntimes(runtimeBaseDir, currentVersion string) {
 		if entry.IsDir() && entry.Name() != currentVersion {
 			oldPath := filepath.Join(runtimeBaseDir, entry.Name())
 
-			os.RemoveAll(oldPath)
+			_ = os.RemoveAll(oldPath)
 		}
 	}
 }

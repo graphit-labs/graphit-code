@@ -234,7 +234,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	db, shouldClose := s.dbForContext(r)
 	if shouldClose {
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 	}
 
 	ctx := r.Context()
@@ -257,7 +257,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
 	db, shouldClose := s.dbForContext(r)
 	if shouldClose {
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 	}
 
 	ctx := r.Context()
@@ -326,7 +326,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	db, shouldClose := s.dbForContext(r)
 	if shouldClose {
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 	}
 
 	qs := NewQueryService(db)
@@ -353,7 +353,7 @@ func (s *Server) handleFTS(w http.ResponseWriter, r *http.Request) {
 
 	db, shouldClose := s.dbForContext(r)
 	if shouldClose {
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 	}
 
 	qs := NewQueryService(db)
@@ -435,7 +435,7 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 </script>`, apiBase)
 	data = bytes.Replace(data, []byte("</head>"), []byte(injection+"</head>"), 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
@@ -445,7 +445,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 
 	db, shouldClose := s.dbForContext(r)
 	if shouldClose {
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 	}
 
 	ctx := r.Context()
@@ -670,7 +670,7 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		shouldClose = true
 	}
 	if shouldClose {
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 	}
 
 	ctx := r.Context()
@@ -744,7 +744,7 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 					edgeCount = toInt(c)
 				}
 			}
-			otherDB.Close()
+			_ = otherDB.Close()
 		}
 		backend := "ladybug"
 		if !isDifferentProject {
@@ -795,7 +795,7 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 			if eRes, err := ctxDB.Query(ctx, "MATCH ()-[r]->() RETURN count(r) AS c", nil); err == nil && len(eRes.Records) > 0 {
 				ic["edge_count"] = toInt(eRes.Records[0]["c"])
 			}
-			ctxDB.Close()
+			_ = ctxDB.Close()
 
 			contexts = append(contexts, ic)
 		}
@@ -820,7 +820,7 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 			if eRes, err := ctxDB.Query(ctx, "MATCH ()-[r]->() RETURN count(r) AS c", nil); err == nil && len(eRes.Records) > 0 {
 				ic["edge_count"] = toInt(eRes.Records[0]["c"])
 			}
-			ctxDB.Close()
+			_ = ctxDB.Close()
 
 			contexts = append(contexts, ic)
 		}
@@ -904,7 +904,7 @@ func (s *Server) handleGenerateCypher(w http.ResponseWriter, r *http.Request) {
 
 	db, shouldClose := s.dbForContext(r)
 	if shouldClose {
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 	}
 
 	resp, err := GenerateAICypher(r.Context(), db, s.aiClient, AICypherRequest{
@@ -1194,7 +1194,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go watcher.Start(ctx)
+	go func() { _ = watcher.Start(ctx) }()
 
 	watcherRegistry[body.Path] = &watcherEntry{watcher: watcher, cancel: cancel}
 	writeJSON(w, map[string]string{"status": "watching", "path": body.Path})

@@ -457,7 +457,7 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 		if err != nil {
 			return fmt.Errorf("preparing AST publish: %w", err)
 		}
-		defer os.RemoveAll(prepared)
+		defer func() { _ = os.RemoveAll(prepared) }()
 		publishPath = prepared
 	}
 
@@ -803,13 +803,13 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	_, err = io.Copy(out, in)
 	return err

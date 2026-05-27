@@ -12,7 +12,7 @@ func TestHubHashing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// 1. Hash of non-existent path
 	_, err = HashPath(filepath.Join(tempDir, "nonexistent"))
@@ -22,7 +22,7 @@ func TestHubHashing(t *testing.T) {
 
 	// 2. Hash of empty directory
 	emptyDir := filepath.Join(tempDir, "empty")
-	os.Mkdir(emptyDir, 0755)
+	_ = os.Mkdir(emptyDir, 0755)
 	_, err = HashPath(emptyDir)
 	if err == nil || !strings.Contains(err.Error(), "contains no files") {
 		t.Errorf("expected empty directory error, got: %v", err)
@@ -31,7 +31,7 @@ func TestHubHashing(t *testing.T) {
 	// 3. Hash of single file
 	filePath := filepath.Join(tempDir, "file.txt")
 	content := "some file content"
-	os.WriteFile(filePath, []byte(content), 0644)
+	_ = os.WriteFile(filePath, []byte(content), 0644)
 
 	h1, err := HashFile(filePath)
 	if err != nil {
@@ -49,9 +49,9 @@ func TestHubHashing(t *testing.T) {
 
 	// 4. Hash of directory containing files
 	dirPath := filepath.Join(tempDir, "dir")
-	os.Mkdir(dirPath, 0755)
-	os.WriteFile(filepath.Join(dirPath, "f1.txt"), []byte("c1"), 0644)
-	os.WriteFile(filepath.Join(dirPath, "f2.txt"), []byte("c2"), 0644)
+	_ = os.Mkdir(dirPath, 0755)
+	_ = os.WriteFile(filepath.Join(dirPath, "f1.txt"), []byte("c1"), 0644)
+	_ = os.WriteFile(filepath.Join(dirPath, "f2.txt"), []byte("c2"), 0644)
 
 	hDir, err := HashDirectory(dirPath)
 	if err != nil {

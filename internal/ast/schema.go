@@ -28,25 +28,25 @@ func CreateGraphSchema(ctx context.Context, db GraphDB, labels ...string) error 
 		q := fmt.Sprintf(`CREATE CONSTRAINT %s_unique IF NOT EXISTS FOR (n:%s) REQUIRE n.name IS UNIQUE`, label, label)
 		if _, err := db.Execute(ctx, q, nil); err != nil {
 			q2 := fmt.Sprintf(`CREATE INDEX FOR (n:%s) ON (n.name)`, label)
-			db.Execute(ctx, q2, nil)
+			_, _ = db.Execute(ctx, q2, nil)
 		}
 
 		q = fmt.Sprintf(`CREATE INDEX %s_lang IF NOT EXISTS FOR (n:%s) ON (n.lang)`, label, label)
 		if _, err := db.Execute(ctx, q, nil); err != nil {
 			q2 := fmt.Sprintf(`CREATE INDEX FOR (n:%s) ON (n.lang)`, label)
-			db.Execute(ctx, q2, nil)
+			_, _ = db.Execute(ctx, q2, nil)
 		}
 
 		qn := fmt.Sprintf(`CREATE INDEX %s_name IF NOT EXISTS FOR (n:%s) ON (n.name)`, label, label)
 		if _, err := db.Execute(ctx, qn, nil); err != nil {
 			qn2 := fmt.Sprintf(`CREATE INDEX FOR (n:%s) ON (n.name)`, label)
-			db.Execute(ctx, qn2, nil)
+			_, _ = db.Execute(ctx, qn2, nil)
 		}
 
 		qc := fmt.Sprintf(`CREATE INDEX %s_cluster IF NOT EXISTS FOR (n:%s) ON (n.cluster)`, label, label)
 		if _, err := db.Execute(ctx, qc, nil); err != nil {
 			qc2 := fmt.Sprintf(`CREATE INDEX FOR (n:%s) ON (n.cluster)`, label)
-			db.Execute(ctx, qc2, nil)
+			_, _ = db.Execute(ctx, qc2, nil)
 		}
 	}
 

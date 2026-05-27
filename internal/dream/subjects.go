@@ -60,7 +60,7 @@ func AddSubject(projectDir, title, body string) (*Subject, error) {
 	}
 
 	var content strings.Builder
-	content.WriteString(fmt.Sprintf("# %s\n\n", title))
+	_, _ = fmt.Fprintf(&content, "# %s\n\n", title)
 	if body != "" {
 		content.WriteString(body)
 		if !strings.HasSuffix(body, "\n") {

@@ -104,14 +104,14 @@ func memoryEntityPage(id, title, createdAt string, important bool, body, memType
 	var b strings.Builder
 	now := time.Now().UTC().Format("2006-01-02")
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("title: %s\n", title))
-	b.WriteString(fmt.Sprintf("id: %s\n", id))
-	b.WriteString(fmt.Sprintf("updated: %s\n", now))
+	_, _ = fmt.Fprintf(&b, "title: %s\n", title)
+	_, _ = fmt.Fprintf(&b, "id: %s\n", id)
+	_, _ = fmt.Fprintf(&b, "updated: %s\n", now)
 	if createdAt != "" {
-		b.WriteString(fmt.Sprintf("created: %s\n", createdAt))
+		_, _ = fmt.Fprintf(&b, "created: %s\n", createdAt)
 	}
 	if memType != "" {
-		b.WriteString(fmt.Sprintf("type: %s\n", memType))
+		_, _ = fmt.Fprintf(&b, "type: %s\n", memType)
 	}
 	tags := "memory"
 	if important {
@@ -120,9 +120,9 @@ func memoryEntityPage(id, title, createdAt string, important bool, body, memType
 	if memType != "" {
 		tags += ", " + memType
 	}
-	b.WriteString(fmt.Sprintf("tags: [%s]\n", tags))
+	_, _ = fmt.Fprintf(&b, "tags: [%s]\n", tags)
 	b.WriteString("---\n\n")
-	b.WriteString(fmt.Sprintf("# %s\n\n", title))
+	_, _ = fmt.Fprintf(&b, "# %s\n\n", title)
 
 	if memType != "" {
 		typeEmojis := map[string]string{
@@ -133,7 +133,7 @@ func memoryEntityPage(id, title, createdAt string, important bool, body, memType
 		if emoji == "" {
 			emoji = "📄"
 		}
-		b.WriteString(fmt.Sprintf("> %s **Type:** %s\n\n", emoji, memType))
+		_, _ = fmt.Fprintf(&b, "> %s **Type:** %s\n\n", emoji, memType)
 	}
 
 	if important {
@@ -145,7 +145,7 @@ func memoryEntityPage(id, title, createdAt string, important bool, body, memType
 			age := time.Since(t)
 			if age > 30*24*time.Hour {
 				days := int(age.Hours() / 24)
-				b.WriteString(fmt.Sprintf("> ⚠️ **Stale memory** — created %d days ago. Consider refreshing with `memory update %s`.\n\n", days, id))
+				_, _ = fmt.Fprintf(&b, "> ⚠️ **Stale memory** — created %d days ago. Consider refreshing with `memory update %s`.\n\n", days, id)
 			}
 		}
 	}
@@ -163,12 +163,12 @@ func memoryIndexPage(docs []memDoc) string {
 
 	b.WriteString("---\n")
 	b.WriteString("title: Memory Wiki\n")
-	b.WriteString(fmt.Sprintf("updated: %s\n", now))
+	_, _ = fmt.Fprintf(&b, "updated: %s\n", now)
 	b.WriteString("tags: [memory, index]\n")
 	b.WriteString("---\n\n")
 	b.WriteString("# Memory Wiki\n\n")
-	b.WriteString(fmt.Sprintf("> %s memory wiki. **Start here.** Scan the catalog below, then follow [[wikilinks]] to drill into specific pages.\n", brand.DisplayName))
-	b.WriteString(fmt.Sprintf("> Check [[log]] for the timeline of updates. Last updated: %s\n\n", now))
+	_, _ = fmt.Fprintf(&b, "> %s memory wiki. **Start here.** Scan the catalog below, then follow [[wikilinks]] to drill into specific pages.\n", brand.DisplayName)
+	_, _ = fmt.Fprintf(&b, "> Check [[log]] for the timeline of updates. Last updated: %s\n\n", now)
 
 	importantCount := 0
 	for _, d := range docs {
@@ -176,7 +176,7 @@ func memoryIndexPage(docs []memDoc) string {
 			importantCount++
 		}
 	}
-	b.WriteString(fmt.Sprintf("**%d memories · %d important**\n\n", len(docs), importantCount))
+	_, _ = fmt.Fprintf(&b, "**%d memories · %d important**\n\n", len(docs), importantCount)
 	b.WriteString("---\n\n")
 
 	if importantCount > 0 {
@@ -189,9 +189,9 @@ func memoryIndexPage(docs []memDoc) string {
 			link := fmt.Sprintf("[[%s]]", safeMemFilename(d.title))
 			summary := firstLine(d.body)
 			if summary != "" {
-				b.WriteString(fmt.Sprintf("- %s — %s\n", link, summary))
+				_, _ = fmt.Fprintf(&b, "- %s — %s\n", link, summary)
 			} else {
-				b.WriteString(fmt.Sprintf("- %s\n", link))
+				_, _ = fmt.Fprintf(&b, "- %s\n", link)
 			}
 		}
 		b.WriteString("\n")
@@ -220,7 +220,7 @@ func memoryIndexPage(docs []memDoc) string {
 		if len(typed) == 0 {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("## %s %s\n\n", tp.emoji, tp.label))
+		_, _ = fmt.Fprintf(&b, "## %s %s\n\n", tp.emoji, tp.label)
 		for _, d := range typed {
 			link := fmt.Sprintf("[[%s]]", safeMemFilename(d.title))
 			prefix := ""
@@ -229,9 +229,9 @@ func memoryIndexPage(docs []memDoc) string {
 			}
 			summary := firstLine(d.body)
 			if summary != "" {
-				b.WriteString(fmt.Sprintf("- %s%s — %s\n", prefix, link, summary))
+				_, _ = fmt.Fprintf(&b, "- %s%s — %s\n", prefix, link, summary)
 			} else {
-				b.WriteString(fmt.Sprintf("- %s%s\n", prefix, link))
+				_, _ = fmt.Fprintf(&b, "- %s%s\n", prefix, link)
 			}
 		}
 		b.WriteString("\n")
@@ -253,9 +253,9 @@ func memoryIndexPage(docs []memDoc) string {
 			}
 			summary := firstLine(d.body)
 			if summary != "" {
-				b.WriteString(fmt.Sprintf("- %s%s — %s\n", prefix, link, summary))
+				_, _ = fmt.Fprintf(&b, "- %s%s — %s\n", prefix, link, summary)
 			} else {
-				b.WriteString(fmt.Sprintf("- %s%s\n", prefix, link))
+				_, _ = fmt.Fprintf(&b, "- %s%s\n", prefix, link)
 			}
 		}
 		b.WriteString("\n")
@@ -266,7 +266,7 @@ func memoryIndexPage(docs []memDoc) string {
 	b.WriteString("2. **Check Important** — ⭐ items are critical project decisions surfaced in IDE rules.\n")
 	b.WriteString("3. **Read the Log** — [[log]] shows the timeline of wiki updates.\n\n")
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("*Generated by %s · %s · [[log]]*\n", brand.DisplayName, now))
+	_, _ = fmt.Fprintf(&b, "*Generated by %s · %s · [[log]]*\n", brand.DisplayName, now)
 	return b.String()
 }
 

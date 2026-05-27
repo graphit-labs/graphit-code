@@ -137,7 +137,7 @@ func (s *ChatSession) BuildContext(maxMessages int) (string, error) {
 	var b strings.Builder
 	b.WriteString("=== Conversation History ===\n")
 	for _, msg := range messages {
-		b.WriteString(fmt.Sprintf("[%s] %s\n\n", msg.Role, msg.Content))
+		_, _ = fmt.Fprintf(&b, "[%s] %s\n\n", msg.Role, msg.Content)
 	}
 	return b.String(), nil
 }

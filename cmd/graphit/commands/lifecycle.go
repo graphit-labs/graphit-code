@@ -596,8 +596,8 @@ func newSelfUpdateCmd() *cobra.Command {
 				return fmt.Errorf("create temp file: %w", err)
 			}
 			tmpPath := tmpFile.Name()
-			tmpFile.Close()
-			defer os.Remove(tmpPath)
+			_ = tmpFile.Close()
+			defer func() { _ = os.Remove(tmpPath) }()
 
 			task.Update("Downloading %s...", binaryName)
 			if err := updater.Download(binaryURL, tmpPath, nil); err != nil {
@@ -611,8 +611,8 @@ func newSelfUpdateCmd() *cobra.Command {
 				return fmt.Errorf("create checksum temp file: %w", err)
 			}
 			checksumTmpPath := checksumTmp.Name()
-			checksumTmp.Close()
-			defer os.Remove(checksumTmpPath)
+			_ = checksumTmp.Close()
+			defer func() { _ = os.Remove(checksumTmpPath) }()
 
 			if err := updater.Download(checksumURL, checksumTmpPath, nil); err != nil {
 				task.Fail("Download checksums failed: %v", err)
@@ -718,7 +718,7 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 					} else {
 						task.Done("AST: %d files indexed (%.1fs)", result.ParsedFiles, result.TotalTime.Seconds())
 					}
-					db.Close()
+					_ = db.Close()
 				}
 			}
 
@@ -750,14 +750,14 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 						p.StepWarn("Memory project sync: %v", err)
 						syncOK = false
 					}
-					projSvc.Close()
+					_ = projSvc.Close()
 				}
 				if userSvc, _, svcErr := newMemorySvc(true); svcErr == nil {
 					if err := userSvc.SyncToLocal(); err != nil {
 						p.StepWarn("Memory user sync: %v", err)
 						syncOK = false
 					}
-					userSvc.Close()
+					_ = userSvc.Close()
 				}
 				_ = memStore
 				if syncOK {
@@ -859,7 +859,7 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 				cfg.ParseCache = parseCache
 				if embCache, embErr := ast.NewShardEmbCache(cacheDir, parseCache); embErr == nil {
 					cfg.EmbCache = embCache
-					defer embCache.Close()
+					defer func() { _ = embCache.Close() }()
 				}
 			}
 			embedder := ast.NewEmbedder(embClient, cfg)
@@ -980,9 +980,9 @@ func syncLogError(module, format string, args ...any) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(f, "%s [sync:%s] %s\n", time.Now().UTC().Format(time.RFC3339), module, msg)
+	_, _ = fmt.Fprintf(f, "%s [sync:%s] %s\n", time.Now().UTC().Format(time.RFC3339), module, msg)
 }
 
 func runMemoryMaintenance(ctx context.Context, projectDir string) {

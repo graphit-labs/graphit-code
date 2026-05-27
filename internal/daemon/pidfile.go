@@ -36,7 +36,7 @@ func (pf *PIDFile) Write() error {
 }
 
 func (pf *PIDFile) Remove() {
-	os.Remove(pf.path)
+	_ = os.Remove(pf.path)
 }
 
 func (pf *PIDFile) Read() (*pidData, error) {

@@ -357,7 +357,7 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 
 			if embCache, embErr := ast.NewShardEmbCache(cacheDir, parseCache); embErr == nil {
 				cfg.EmbCache = embCache
-				defer embCache.Close()
+				defer func() { _ = embCache.Close() }()
 			}
 
 			probe := ast.NewEmbedder(nil, cfg)

@@ -212,7 +212,7 @@ func runASTIndex(targetPath string, workers int, reset bool, reindex bool, clust
 		p.Step("Resetting entire database...")
 		ladybugCfg := ast.DefaultLadybugConfig()
 		projectDir := filepath.Dir(ladybugCfg.DBPath)
-		os.RemoveAll(projectDir)
+		_ = os.RemoveAll(projectDir)
 		p.StepOK("Database reset complete")
 	}
 
@@ -221,7 +221,7 @@ func runASTIndex(targetPath string, workers int, reset bool, reindex bool, clust
 
 		return fmt.Errorf("backend init: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -332,7 +332,7 @@ func runASTWatch(targetPath string, workers int, cluster string) error {
 	if err != nil {
 		return fmt.Errorf("backend init: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	_ = ast.CreateGraphSchema(context.Background(), db)
 
@@ -381,7 +381,7 @@ func runUnifiedServe(repoPath string) error {
 	if err != nil {
 		return fmt.Errorf("ast backend: %w", err)
 	}
-	defer astDB.Close()
+	defer func() { _ = astDB.Close() }()
 
 	astJobs := ast.NewJobManager()
 
@@ -433,7 +433,7 @@ func runASTQuery(query string, contextName string, aiMode bool, cypherOnly bool,
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 
@@ -516,7 +516,7 @@ func runASTSemanticSearch(query string, contextName string, topK int, aiOptimize
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 
@@ -580,7 +580,7 @@ func runASTFullTextSearch(query, contextName string, topK int, aiOptimized bool)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	qs := ast.NewQueryService(db)
@@ -745,7 +745,7 @@ func runASTImport(sourcePath, name string, reset bool, workers int) error {
 	if reset {
 		task.Update("Resetting context database...")
 		contextDir := filepath.Dir(ictx.DBPath)
-		os.RemoveAll(contextDir)
+		_ = os.RemoveAll(contextDir)
 		p.StepOK("Context database reset")
 	}
 
@@ -754,7 +754,7 @@ func runASTImport(sourcePath, name string, reset bool, workers int) error {
 		task.Fail("Backend init: %v", err)
 		return fmt.Errorf("backend init: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -808,7 +808,7 @@ func runASTImport(sourcePath, name string, reset bool, workers int) error {
 			} else {
 				p.Step("Memory context synced → %s", memsvc.LocalDir())
 			}
-			memsvc.Close()
+			_ = memsvc.Close()
 		}
 	}
 	return nil
@@ -821,7 +821,7 @@ func runASTExport(format, outputDir string, noSources bool) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repoPath, _ := os.Getwd()
 	absDir, _ := filepath.Abs(outputDir)
@@ -878,7 +878,7 @@ func runASTClean(contextName string) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	if _, err := db.Execute(ctx, `MATCH (n) DETACH DELETE n`, nil); err != nil {
@@ -900,7 +900,7 @@ func runASTSource(relPath, contextName string) error {
 	}
 
 	db := ast.NewLadybugDB(cfg)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	res, err := db.Query(ctx, `MATCH (f:File {path: $path}) RETURN f.source AS source`, map[string]any{"path": relPath})
@@ -1167,7 +1167,7 @@ func runASTSchema(contextName string) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	schemaText, err := ast.SchemaText(ctx, db)
@@ -1235,7 +1235,7 @@ func runMemoryAdd(title, content string, userScope, linkProject, important bool,
 	if err != nil {
 		return err
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	if memType != "" && !memory.ValidMemoryType(memType) {
 		return fmt.Errorf("invalid memory type %q — valid types: convention, correction, decision, tension, fact, skill", memType)
@@ -1293,7 +1293,7 @@ func runMemoryUpdate(id, content, title string, userScope bool) error {
 	if err != nil {
 		return err
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	if err := svc.UpdateMemory(id, title, content); err != nil {
 		return err
@@ -1371,7 +1371,7 @@ func runMemoryRemove(slug string, userScope bool) error {
 	if err != nil {
 		return err
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	if err := svc.RemoveMemory(slug); err != nil {
 		return err
@@ -1389,7 +1389,7 @@ func runMemoryList(userScope bool) error {
 	if err != nil {
 		return err
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	memories, err := svc.ListMemories()
 	if err != nil {
@@ -1422,7 +1422,7 @@ func runMemoryIndex(userScope bool) error {
 	if err != nil {
 		return err
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	task := p.StartTask("Indexing memories → %s...", svc.LocalDir())
 	if err := svc.IndexMemories(ctx); err != nil {
@@ -1483,7 +1483,7 @@ func runMemoryImport(projectID string) error {
 	if err != nil {
 		return err
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	task := p.StartTask("Importing external memory context %q...", projectID)
 	if err := svc.SyncToLocal(); err != nil {
@@ -1535,7 +1535,7 @@ func runMemoryPromote(id string, userScope bool) error {
 	if err != nil {
 		return err
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	if err := svc.PromoteMemory(id); err != nil {
 		return err
@@ -1553,7 +1553,7 @@ func runMemoryDemote(id string, userScope bool) error {
 	if err != nil {
 		return err
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	if err := svc.DemoteMemory(id); err != nil {
 		return err
@@ -1589,7 +1589,7 @@ func runMemoryExport() error {
 	if err != nil {
 		return err
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	p.Running("Indexing and exporting project memories…")
 	if err := svc.IndexMemories(ctx); err != nil {
@@ -1633,7 +1633,7 @@ func runMemorySync(contextName string) error {
 	if err != nil {
 		return err
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 	task := p.StartTask("Syncing memory context %q...", contextName)
 	if err := svc.SyncToLocal(); err != nil {
 		task.Fail("Sync failed: %v", err)
@@ -1715,7 +1715,7 @@ func runMemoryConsolidate(userScope, apply bool) error {
 		if svcErr != nil {
 			return svcErr
 		}
-		defer svc.Close()
+		defer func() { _ = svc.Close() }()
 
 		applied := 0
 		for _, a := range report.Suggestions {
@@ -1796,7 +1796,7 @@ func runMemoryGC(userScope, dryRun bool, staleDays int) error {
 	if svcErr != nil {
 		return svcErr
 	}
-	defer svc.Close()
+	defer func() { _ = svc.Close() }()
 
 	deleted, _ := memory.ApplyGC(ctx, scope, report.Candidates, svc)
 	p.Success("Deleted %d/%d candidates", deleted, len(report.Candidates))
@@ -1816,7 +1816,7 @@ func watchAndReindex(rootPath string, useLouvain bool, reindex func() error) err
 	if err != nil {
 		return fmt.Errorf("creating watcher: %w", err)
 	}
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	dotDir := brand.DotDir()
 	if err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
@@ -1898,7 +1898,7 @@ func runASTSync(contextName string) error {
 		task.Fail("Backend init: %v", err)
 		return fmt.Errorf("backend init: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

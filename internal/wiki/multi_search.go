@@ -59,8 +59,8 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 
 			continue
 		}
-		contextBuilder.WriteString(fmt.Sprintf("=== [%s] index.md (%s) ===\n%s\n\n",
-			src.ID, src.Label, string(indexContent)))
+		_, _ = fmt.Fprintf(&contextBuilder, "=== [%s] index.md (%s) ===\n%s\n\n",
+			src.ID, src.Label, string(indexContent))
 		result.TokensSent += len(indexContent) / 4
 	}
 
@@ -212,15 +212,15 @@ func bm25PreFilterMulti(sources []WikiSource, query string, topNPerSource int) s
 
 	var b strings.Builder
 	b.WriteString("=== BM25 Relevant Pages (pre-filtered, multi-wiki) ===\n")
-	b.WriteString(fmt.Sprintf("Query: %q — top results per wiki source:\n\n", query))
+	_, _ = fmt.Fprintf(&b, "Query: %q — top results per wiki source:\n\n", query)
 
 	for i, r := range allResults {
-		b.WriteString(fmt.Sprintf("%d. [%s]/[[%s]]",
-			i+1, r.SourceID, strings.TrimSuffix(r.Path, ".md")))
+		_, _ = fmt.Fprintf(&b, "%d. [%s]/[[%s]]",
+			i+1, r.SourceID, strings.TrimSuffix(r.Path, ".md"))
 		if r.Title != "" {
-			b.WriteString(fmt.Sprintf(" — %s", r.Title))
+			_, _ = fmt.Fprintf(&b, " — %s", r.Title)
 		}
-		b.WriteString(fmt.Sprintf(" (score: %.3f, source: %s)\n", r.Score, r.SourceLabel))
+		_, _ = fmt.Fprintf(&b, " (score: %.3f, source: %s)\n", r.Score, r.SourceLabel)
 	}
 
 	return b.String()
@@ -229,7 +229,7 @@ func bm25PreFilterMulti(sources []WikiSource, query string, topNPerSource int) s
 func buildMultiSearchSystemPrompt(sources []WikiSource) string {
 	var sourceList strings.Builder
 	for _, s := range sources {
-		sourceList.WriteString(fmt.Sprintf("- [%s]: %s\n", s.ID, s.Label))
+		_, _ = fmt.Fprintf(&sourceList, "- [%s]: %s\n", s.ID, s.Label)
 	}
 
 	return fmt.Sprintf(`You are a knowledge search agent operating across multiple Obsidian-compatible wikis.

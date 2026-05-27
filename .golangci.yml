@@ -1,0 +1,19 @@
+version: "2"
+
+run:
+  build-tags:
+    - fts5
+
+linters:
+  settings:
+    govet:
+      disable:
+        - inline
+
+exclusions:
+  paths:
+    - "third_party"
+    - "internal/ui/node_modules"
+  presets:
+    - comments
+    - std-error-handling

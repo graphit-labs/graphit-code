@@ -41,7 +41,7 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 	swapped := false
 	defer func() {
 		if !swapped {
-			os.RemoveAll(tempDBPath)
+			_ = os.RemoveAll(tempDBPath)
 		}
 	}()
 
@@ -51,18 +51,18 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 	tempBackend := NewLadybugDB(tempCfg)
 
 	if err := tempBackend.connect(); err != nil {
-		tempBackend.Close()
+		_ = tempBackend.Close()
 		return fmt.Errorf("temp DB connect: %w", err)
 	}
 
 	if err := tempBackend.initSchemaForLabels(schemaInfo); err != nil {
-		tempBackend.Close()
+		_ = tempBackend.Close()
 		return fmt.Errorf("schema: %w", err)
 	}
 
-	tempBackend.execQuery("INSTALL json")
+	_ = tempBackend.execQuery("INSTALL json")
 	if err := tempBackend.execQuery("LOAD EXTENSION json"); err != nil {
-		tempBackend.Close()
+		_ = tempBackend.Close()
 		return fmt.Errorf("load json extension: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "  › Schema: %.1fs\n", time.Since(t1).Seconds())
@@ -70,10 +70,10 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 	t2 := time.Now()
 	tmpDir, err := os.MkdirTemp("", "graphit-rebuild-*")
 	if err != nil {
-		tempBackend.Close()
+		_ = tempBackend.Close()
 		return fmt.Errorf("tmpdir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	nodeCount, edgeCount := 0, 0
 	var copyErrors int64
@@ -246,7 +246,7 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 	fmt.Fprintf(os.Stderr, "  › Post-processing (enrichment): %.1fs\n", time.Since(t4).Seconds())
 
 	_ = tempBackend.Shutdown()
-	tempBackend.Close()
+	_ = tempBackend.Close()
 
 	fmt.Fprintf(os.Stderr, "  › Swapping DB (atomic)…\n")
 	if err := lb.AtomicSwapDB(tempDBPath); err != nil {
@@ -262,7 +262,7 @@ func writeJSONFile(path string, data []map[string]any) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	enc := json.NewEncoder(f)
 	return enc.Encode(data)
 }

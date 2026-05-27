@@ -192,13 +192,13 @@ func FormatReport(r *LintReport) string {
 	var b strings.Builder
 
 	b.WriteString("# Wiki Lint Report\n\n")
-	b.WriteString(fmt.Sprintf("**%s**\n\n", r.Summary()))
+	_, _ = fmt.Fprintf(&b, "**%s**\n\n", r.Summary())
 
 	if len(r.Orphans) > 0 {
 		b.WriteString("## Orphan Pages\n\n")
 		b.WriteString("> Pages with no inbound or outbound wikilinks. Consider adding [[wikilinks]] or removing them.\n\n")
 		for _, p := range r.Orphans {
-			b.WriteString(fmt.Sprintf("- `%s.md`\n", p))
+			_, _ = fmt.Fprintf(&b, "- `%s.md`\n", p)
 		}
 		b.WriteString("\n")
 	}
@@ -207,7 +207,7 @@ func FormatReport(r *LintReport) string {
 		b.WriteString("## Broken Links\n\n")
 		b.WriteString("> [[wikilinks]] pointing to pages that don't exist.\n\n")
 		for _, bl := range r.BrokenLinks {
-			b.WriteString(fmt.Sprintf("- `[[%s]]` in `%s.md`\n", bl.Target, bl.Source))
+			_, _ = fmt.Fprintf(&b, "- `[[%s]]` in `%s.md`\n", bl.Target, bl.Source)
 		}
 		b.WriteString("\n")
 	}
@@ -216,7 +216,7 @@ func FormatReport(r *LintReport) string {
 		b.WriteString("## Stale Pages\n\n")
 		b.WriteString("> Pages not updated recently. Consider re-indexing.\n\n")
 		for _, p := range r.StalePages {
-			b.WriteString(fmt.Sprintf("- `%s.md`\n", p))
+			_, _ = fmt.Fprintf(&b, "- `%s.md`\n", p)
 		}
 		b.WriteString("\n")
 	}
@@ -225,7 +225,7 @@ func FormatReport(r *LintReport) string {
 		b.WriteString("## Empty Pages\n\n")
 		b.WriteString("> Pages with ≤ 10 words of content.\n\n")
 		for _, p := range r.EmptyPages {
-			b.WriteString(fmt.Sprintf("- `%s.md`\n", p))
+			_, _ = fmt.Fprintf(&b, "- `%s.md`\n", p)
 		}
 		b.WriteString("\n")
 	}
@@ -234,13 +234,13 @@ func FormatReport(r *LintReport) string {
 		b.WriteString("## Missing Frontmatter\n\n")
 		b.WriteString("> Pages missing required YAML frontmatter fields.\n\n")
 		for _, fi := range r.MissingFields {
-			b.WriteString(fmt.Sprintf("- `%s.md` — missing: %s\n", fi.Page, strings.Join(fi.MissingFields, ", ")))
+			_, _ = fmt.Fprintf(&b, "- `%s.md` — missing: %s\n", fi.Page, strings.Join(fi.MissingFields, ", "))
 		}
 		b.WriteString("\n")
 	}
 
 	if r.FixesApplied > 0 {
-		b.WriteString(fmt.Sprintf("\n**Fixes applied:** %d backlinks injected\n", r.FixesApplied))
+		_, _ = fmt.Fprintf(&b, "\n**Fixes applied:** %d backlinks injected\n", r.FixesApplied)
 	}
 
 	return b.String()

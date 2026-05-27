@@ -26,11 +26,11 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 
 	b.WriteString("# Dream Session — Autonomous Reflection & Improvement\n\n")
 
-	b.WriteString(fmt.Sprintf("**Dream ID**: `%s`\n", ulid))
-	b.WriteString(fmt.Sprintf("**Project**: `%s`\n", projectDir))
-	b.WriteString(fmt.Sprintf("**Started**: `%s`\n", time.Now().UTC().Format(time.RFC3339)))
-	b.WriteString(fmt.Sprintf("**IDE**: `%s`\n", ide))
-	b.WriteString(fmt.Sprintf("**Tool**: `%s`\n\n", brand.BinName()))
+	_, _ = fmt.Fprintf(&b, "**Dream ID**: `%s`\n", ulid)
+	_, _ = fmt.Fprintf(&b, "**Project**: `%s`\n", projectDir)
+	_, _ = fmt.Fprintf(&b, "**Started**: `%s`\n", time.Now().UTC().Format(time.RFC3339))
+	_, _ = fmt.Fprintf(&b, "**IDE**: `%s`\n", ide)
+	_, _ = fmt.Fprintf(&b, "**Tool**: `%s`\n\n", brand.BinName())
 
 	b.WriteString("## Context\n\n")
 	b.WriteString("You are an autonomous AI agent running locally during an idle ")
@@ -38,24 +38,23 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 	b.WriteString("analyze the developer's work patterns across conversations, and autonomously ")
 	b.WriteString("improve the project and artifacts (skills, rules, memories) where beneficial.\n\n")
 
-	b.WriteString(fmt.Sprintf("You are operating with IDE context `%s`. ", ide))
+	_, _ = fmt.Fprintf(&b, "You are operating with IDE context `%s`. ", ide)
 	b.WriteString("Use this when interacting with the hub, syncing rules, or any IDE-scoped operations. ")
-	b.WriteString(fmt.Sprintf("For example: `%s sync --ide %s` or `%s hub install --ide %s`.\n\n", brand.BinName(), ide, brand.BinName(), ide))
+	_, _ = fmt.Fprintf(&b, "For example: `%s sync --ide %s` or `%s hub install --ide %s`.\n\n", brand.BinName(), ide, brand.BinName(), ide)
 
 	if subject != nil {
 		b.WriteString("## 🎯 Assigned Subject\n\n")
 		b.WriteString("**This dream session has a specific subject assigned by the developer.**\n")
 		b.WriteString("You MUST prioritize this subject above general exploration.\n\n")
-		b.WriteString(fmt.Sprintf("**Subject**: %s\n", subject.Title))
-		b.WriteString(fmt.Sprintf("**Instruction file**: `%s`\n\n", subject.Path))
+		_, _ = fmt.Fprintf(&b, "**Subject**: %s\n", subject.Title)
+		_, _ = fmt.Fprintf(&b, "**Instruction file**: `%s`\n\n", subject.Path)
 		b.WriteString("### Subject Instructions\n\n")
 		b.WriteString("```\n")
 		b.WriteString(subject.Body)
 		b.WriteString("```\n\n")
 		b.WriteString("### Subject Completion Protocol\n\n")
 		b.WriteString("When you have completed work on this subject:\n")
-		b.WriteString(fmt.Sprintf("1. Create the result file at `%s/%s%s` with a summary of what was done\n",
-			SubjectsDir(projectDir), subject.Slug, resultExt))
+		_, _ = fmt.Fprintf(&b, "1. Create the result file at `%s/%s%s` with a summary of what was done\n", 			SubjectsDir(projectDir), subject.Slug, resultExt)
 		b.WriteString("2. Reference this subject in your dream report under **Changes Made** with the tag `[subject]`\n")
 		b.WriteString("3. Include a section **Subject Resolution** in your dream report explaining:\n")
 		b.WriteString("   - What the developer asked for (the subject)\n")
@@ -64,7 +63,7 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 		b.WriteString("   - Whether the subject is fully resolved or partially addressed\n\n")
 		b.WriteString("The result file should be a concise markdown summary:\n\n")
 		b.WriteString("```markdown\n")
-		b.WriteString(fmt.Sprintf("# %s — Result\n\n", subject.Title))
+		_, _ = fmt.Fprintf(&b, "# %s — Result\n\n", subject.Title)
 		b.WriteString("## Resolution\n\n")
 		b.WriteString("[Explain what was done to address the subject]\n\n")
 		b.WriteString("## Changes\n\n")
@@ -85,7 +84,7 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 	b.WriteString("- **Internalize that some code patterns exist for good reasons, even if they look suboptimal at first glance**\n\n")
 
 	b.WriteString("### 2. Review Past Dream Reports\n\n")
-	b.WriteString(fmt.Sprintf("Before starting your analysis, read **all** existing dream reports in `%s/dream/`.\n", brand.DotDir()))
+	_, _ = fmt.Fprintf(&b, "Before starting your analysis, read **all** existing dream reports in `%s/dream/`.\n", brand.DotDir())
 	b.WriteString("This includes the report from the current session (if this is a progressive session).\n\n")
 	b.WriteString("Pay special attention to the **\"Recommendations for Future\"** section of each report.\n")
 	b.WriteString("These are improvements that a previous dream session identified but could not apply.\n")
@@ -172,7 +171,7 @@ func buildDreamEnvelope(ulid string, subject *Subject) string {
 
 	b.WriteString("### 10. Document Everything\n\n")
 	b.WriteString("Reports you write there are always visible to the developer.\n\n")
-	b.WriteString(fmt.Sprintf("Create or update the report at `%s/dream/%s.md`.\n\n", brand.DotDir(), ulid))
+	_, _ = fmt.Fprintf(&b, "Create or update the report at `%s/dream/%s.md`.\n\n", brand.DotDir(), ulid)
 
 	b.WriteString("**CRITICAL: The dream report is the primary deliverable of every session.** ")
 	b.WriteString("It must be comprehensive, detailed, and self-contained — a developer reading it ")
@@ -183,11 +182,11 @@ func buildDreamEnvelope(ulid string, subject *Subject) string {
 
 	b.WriteString("```markdown\n")
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("title: Dream Session %s\n", ulid))
-	b.WriteString(fmt.Sprintf("created: %s\n", time.Now().UTC().Format(time.RFC3339)))
+	_, _ = fmt.Fprintf(&b, "title: Dream Session %s\n", ulid)
+	_, _ = fmt.Fprintf(&b, "created: %s\n", time.Now().UTC().Format(time.RFC3339))
 	b.WriteString("type: dream-report\n")
 	if subject != nil {
-		b.WriteString(fmt.Sprintf("subject: %s\n", subject.Slug))
+		_, _ = fmt.Fprintf(&b, "subject: %s\n", subject.Slug)
 	}
 	b.WriteString("---\n\n")
 
@@ -195,9 +194,9 @@ func buildDreamEnvelope(ulid string, subject *Subject) string {
 
 	if subject != nil {
 		b.WriteString("## Subject Resolution\n\n")
-		b.WriteString(fmt.Sprintf("**Subject**: %s\n", subject.Title))
-		b.WriteString(fmt.Sprintf("**Slug**: `%s`\n", subject.Slug))
-		b.WriteString(fmt.Sprintf("**Instruction file**: `%s`\n\n", subject.Path))
+		_, _ = fmt.Fprintf(&b, "**Subject**: %s\n", subject.Title)
+		_, _ = fmt.Fprintf(&b, "**Slug**: `%s`\n", subject.Slug)
+		_, _ = fmt.Fprintf(&b, "**Instruction file**: `%s`\n\n", subject.Path)
 		b.WriteString("### What was requested\n\n")
 		b.WriteString("[Summarize what the developer asked for in the subject]\n\n")
 		b.WriteString("### Analysis & Findings\n\n")
@@ -392,16 +391,16 @@ func buildDreamEnvelope(ulid string, subject *Subject) string {
 	b.WriteString("```\n\n")
 
 	b.WriteString("### 11. Commit Your Code Changes\n\n")
-	b.WriteString(fmt.Sprintf("You are working on branch `dream/%s`. ", ulid))
+	_, _ = fmt.Fprintf(&b, "You are working on branch `dream/%s`. ", ulid)
 	b.WriteString("Commit CODE changes (improvements, refactors) to this branch.\n")
-	b.WriteString(fmt.Sprintf("The dream report at `%s/dream/%s.md` lives in the project directory ", brand.DotDir(), ulid))
+	_, _ = fmt.Fprintf(&b, "The dream report at `%s/dream/%s.md` lives in the project directory ", brand.DotDir(), ulid)
 	b.WriteString("and does NOT need to be committed — it persists automatically.\n\n")
 
 	b.WriteString("### 12. Deep Sleep — Signal When Done\n\n")
 	b.WriteString("After completing your analysis, you MUST decide whether there are further improvements to make.\n\n")
 	b.WriteString("**If you found NOTHING to improve** (the codebase is in good shape, or you have already ")
 	b.WriteString("exhausted all improvements in previous progressive sessions), signal **deep sleep** by creating:\n\n")
-	b.WriteString(fmt.Sprintf("```bash\ntouch %s/dream/%s%s\n```\n\n", brand.DotDir(), ulid, DeepSleepSentinelName()))
+	_, _ = fmt.Fprintf(&b, "```bash\ntouch %s/dream/%s%s\n```\n\n", brand.DotDir(), ulid, DeepSleepSentinelName())
 	b.WriteString("This tells the daemon that this dream cycle is complete. No more sessions will run until ")
 	b.WriteString("the developer makes new changes to the project and a new cycle begins.\n\n")
 	b.WriteString("**If you DID make improvements**, do NOT create this file — the daemon will schedule ")
@@ -417,10 +416,10 @@ func buildDreamEnvelope(ulid string, subject *Subject) string {
 	b.WriteString("- PREFER documentation and test improvements when uncertain about a code change\n")
 	b.WriteString("- PRIORITIZE security fixes over style improvements\n")
 	b.WriteString("- NEVER introduce new dependencies without strong justification\n")
-	b.WriteString(fmt.Sprintf("- ALWAYS create `%s/dream/%s%s` if you found nothing to improve\n",
-		brand.DotDir(), ulid, DeepSleepSentinelName()))
-	b.WriteString(fmt.Sprintf("- NEVER create `%s/dream/%s%s` if you made any changes\n",
-		brand.DotDir(), ulid, DeepSleepSentinelName()))
+	_, _ = fmt.Fprintf(&b, "- ALWAYS create `%s/dream/%s%s` if you found nothing to improve\n",
+		brand.DotDir(), ulid, DeepSleepSentinelName())
+	_, _ = fmt.Fprintf(&b, "- NEVER create `%s/dream/%s%s` if you made any changes\n",
+		brand.DotDir(), ulid, DeepSleepSentinelName())
 
 	return b.String()
 }
@@ -429,14 +428,14 @@ func buildDreamArtifact(ulid, agentOutput string) string {
 	var b strings.Builder
 
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("title: Dream Session %s\n", ulid))
-	b.WriteString(fmt.Sprintf("created: %s\n", time.Now().UTC().Format(time.RFC3339)))
+	_, _ = fmt.Fprintf(&b, "title: Dream Session %s\n", ulid)
+	_, _ = fmt.Fprintf(&b, "created: %s\n", time.Now().UTC().Format(time.RFC3339))
 	b.WriteString("type: dream-report\n")
 	b.WriteString("---\n\n")
 
 	b.WriteString("# Dream Report\n\n")
-	b.WriteString(fmt.Sprintf("**Dream ID**: `%s`\n", ulid))
-	b.WriteString(fmt.Sprintf("**Timestamp**: `%s`\n\n", time.Now().UTC().Format(time.RFC3339)))
+	_, _ = fmt.Fprintf(&b, "**Dream ID**: `%s`\n", ulid)
+	_, _ = fmt.Fprintf(&b, "**Timestamp**: `%s`\n\n", time.Now().UTC().Format(time.RFC3339))
 
 	b.WriteString("## Agent Output\n\n")
 	b.WriteString(agentOutput)

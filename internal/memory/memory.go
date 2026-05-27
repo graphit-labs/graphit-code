@@ -237,17 +237,17 @@ func (m *MemoryService) UpdateMemory(id, newTitle, newBody string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	var b strings.Builder
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("id: %s\n", id))
-	b.WriteString(fmt.Sprintf("title: %s\n", title))
-	b.WriteString(fmt.Sprintf("scope: %s\n", m.scope))
-	b.WriteString(fmt.Sprintf("scope_id: %s\n", m.scopeID))
+	_, _ = fmt.Fprintf(&b, "id: %s\n", id)
+	_, _ = fmt.Fprintf(&b, "title: %s\n", title)
+	_, _ = fmt.Fprintf(&b, "scope: %s\n", m.scope)
+	_, _ = fmt.Fprintf(&b, "scope_id: %s\n", m.scopeID)
 	if createdAt != "" {
-		b.WriteString(fmt.Sprintf("created_at: %s\n", createdAt))
+		_, _ = fmt.Fprintf(&b, "created_at: %s\n", createdAt)
 	}
-	b.WriteString(fmt.Sprintf("updated_at: %s\n", now))
+	_, _ = fmt.Fprintf(&b, "updated_at: %s\n", now)
 	b.WriteString("tags: [memory]\n")
 	b.WriteString("---\n\n")
-	b.WriteString(fmt.Sprintf("# %s\n\n", title))
+	_, _ = fmt.Fprintf(&b, "# %s\n\n", title)
 	if newBody != "" {
 		b.WriteString(newBody)
 		if !strings.HasSuffix(newBody, "\n") {
@@ -517,30 +517,30 @@ func buildMemoryFile(id, title, body, scope, scopeID, origProjectID string, impo
 	now := time.Now().UTC().Format(time.RFC3339)
 	var b strings.Builder
 	b.WriteString("---\n")
-	b.WriteString(fmt.Sprintf("id: %s\n", id))
-	b.WriteString(fmt.Sprintf("title: %s\n", title))
-	b.WriteString(fmt.Sprintf("scope: %s\n", scope))
-	b.WriteString(fmt.Sprintf("scope_id: %s\n", scopeID))
+	_, _ = fmt.Fprintf(&b, "id: %s\n", id)
+	_, _ = fmt.Fprintf(&b, "title: %s\n", title)
+	_, _ = fmt.Fprintf(&b, "scope: %s\n", scope)
+	_, _ = fmt.Fprintf(&b, "scope_id: %s\n", scopeID)
 	if origProjectID != "" {
-		b.WriteString(fmt.Sprintf("project_id: %s\n", origProjectID))
+		_, _ = fmt.Fprintf(&b, "project_id: %s\n", origProjectID)
 	}
 	if memType != "" {
-		b.WriteString(fmt.Sprintf("type: %s\n", memType))
+		_, _ = fmt.Fprintf(&b, "type: %s\n", memType)
 	}
 	if important {
 		b.WriteString("important: true\n")
 	}
-	b.WriteString(fmt.Sprintf("created_at: %s\n", now))
-	b.WriteString(fmt.Sprintf("updated_at: %s\n", now))
+	_, _ = fmt.Fprintf(&b, "created_at: %s\n", now)
+	_, _ = fmt.Fprintf(&b, "updated_at: %s\n", now)
 
 	tagSet := []string{"memory", scope}
 	if memType != "" {
 		tagSet = append(tagSet, memType)
 	}
 	tagSet = append(tagSet, userTags...)
-	b.WriteString(fmt.Sprintf("tags: [%s]\n", strings.Join(tagSet, ", ")))
+	_, _ = fmt.Fprintf(&b, "tags: [%s]\n", strings.Join(tagSet, ", "))
 	b.WriteString("---\n\n")
-	b.WriteString(fmt.Sprintf("# %s\n\n", title))
+	_, _ = fmt.Fprintf(&b, "# %s\n\n", title)
 	if body != "" {
 		b.WriteString(body)
 		if !strings.HasSuffix(body, "\n") {

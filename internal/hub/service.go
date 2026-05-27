@@ -141,23 +141,23 @@ func (s *HubService) Install(
 			if shardCache.Count() > 0 {
 				db := ast.NewLadybugDB(ast.LadybugConfig{DBPath: dbPath})
 				if err := ast.CreateGraphSchema(ctx, db); err != nil {
-					db.Close()
-					shardCache.Close()
+					_ = db.Close()
+					_ = shardCache.Close()
 					return nil, fmt.Errorf("creating AST schema: %w", err)
 				}
 				var embCache *ast.ShardEmbCache
 				if ec, embErr := ast.NewShardEmbCache(cloneDir, shardCache); embErr == nil {
 					embCache = ec
-					defer embCache.Close()
+					defer func() { _ = embCache.Close() }()
 				}
 				if err := ast.RebuildFromJSON(ctx, db, shardCache, embCache, "", ""); err != nil {
-					db.Close()
-					shardCache.Close()
+					_ = db.Close()
+					_ = shardCache.Close()
 					return nil, fmt.Errorf("rebuilding AST DB from cache: %w", err)
 				}
-				db.Close()
+				_ = db.Close()
 			}
-			shardCache.Close()
+			_ = shardCache.Close()
 			cachePath = globalDir
 
 			astDir := filepath.Join(pp.ActiveProjectDir, brand.DotDir(), "ast")

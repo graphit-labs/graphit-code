@@ -22,23 +22,23 @@ func setupTestHome(t *testing.T) (string, func()) {
 	origMcpKeys := os.Getenv("GRAPHIT_IDE")
 	origDaemon := os.Getenv("GRAPHIT_MODULES_DAEMON")
 
-	os.Setenv("HOME", tempHome)
-	os.Setenv("GRAPHIT_MODULES_DAEMON", "false") // Disable daemon start in PersistentPreRun
-	os.Unsetenv("GRAPHIT_IDE")
+	_ = os.Setenv("HOME", tempHome)
+	_ = os.Setenv("GRAPHIT_MODULES_DAEMON", "false") // Disable daemon start in PersistentPreRun
+	_ = os.Unsetenv("GRAPHIT_IDE")
 
 	cleanup := func() {
-		os.Setenv("HOME", origHome)
+		_ = os.Setenv("HOME", origHome)
 		if origMcpKeys != "" {
-			os.Setenv("GRAPHIT_IDE", origMcpKeys)
+			_ = os.Setenv("GRAPHIT_IDE", origMcpKeys)
 		} else {
-			os.Unsetenv("GRAPHIT_IDE")
+			_ = os.Unsetenv("GRAPHIT_IDE")
 		}
 		if origDaemon != "" {
-			os.Setenv("GRAPHIT_MODULES_DAEMON", origDaemon)
+			_ = os.Setenv("GRAPHIT_MODULES_DAEMON", origDaemon)
 		} else {
-			os.Unsetenv("GRAPHIT_MODULES_DAEMON")
+			_ = os.Unsetenv("GRAPHIT_MODULES_DAEMON")
 		}
-		os.RemoveAll(tempHome)
+		_ = os.RemoveAll(tempHome)
 	}
 
 	return tempHome, cleanup
@@ -61,17 +61,17 @@ func executeCommand(args ...string) (string, error) {
 
 	// Explicitly reset the flags of the config command to false
 	if configCmd, _, err := rootCmd.Find([]string{"config"}); err == nil && configCmd != nil {
-		configCmd.Flags().Set("global", "false")
-		configCmd.Flags().Set("get", "false")
-		configCmd.Flags().Set("unset", "false")
-		configCmd.Flags().Set("list", "false")
-		configCmd.Flags().Set("secret", "false")
+		_ = configCmd.Flags().Set("global", "false")
+		_ = configCmd.Flags().Set("get", "false")
+		_ = configCmd.Flags().Set("unset", "false")
+		_ = configCmd.Flags().Set("list", "false")
+		_ = configCmd.Flags().Set("secret", "false")
 	}
 
 	execErr := rootCmd.Execute()
 
 	// Restore and read from pipe
-	w.Close()
+	_ = w.Close()
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, r)
 	os.Stdout = oldStdout
@@ -184,12 +184,12 @@ func TestCLIConfigProjectWithInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp project: %v", err)
 	}
-	defer os.RemoveAll(tempProj)
+	defer func() { _ = os.RemoveAll(tempProj) }()
 
 	// Change current working directory to the project directory
 	oldWd, _ := os.Getwd()
-	os.Chdir(tempProj)
-	defer os.Chdir(oldWd)
+	_ = os.Chdir(tempProj)
+	defer func() { _ = os.Chdir(oldWd) }()
 
 	// Create the global config directory first
 	err = os.MkdirAll(filepath.Join(tempHome, "."+brand.Brand), 0755)

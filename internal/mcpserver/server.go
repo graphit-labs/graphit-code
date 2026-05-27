@@ -70,7 +70,7 @@ func ServeHTTP(ctx context.Context, opts Options) error {
 
 	go func() {
 		<-sigCtx.Done()
-		httpServer.Close()
+		_ = httpServer.Close()
 	}()
 
 	log.Printf("MCP server listening on http://%s/mcp\n", addr)

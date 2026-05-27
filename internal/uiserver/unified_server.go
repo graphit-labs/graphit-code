@@ -106,5 +106,5 @@ func (s *UnifiedServer) handleUI(w http.ResponseWriter, r *http.Request) {
 </script>`, apiBase, s.projectName)
 	data = bytes.Replace(data, []byte("</head>"), []byte(injection+"</head>"), 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(data)
+	_, _ = w.Write(data)
 }

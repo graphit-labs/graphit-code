@@ -227,9 +227,9 @@ func injectBacklinksSection(content string, inbound []string, titles map[string]
 	for _, src := range inbound {
 		title := titles[src]
 		if title == "" || title == src {
-			b.WriteString(fmt.Sprintf("- [[%s]]\n", src))
+			_, _ = fmt.Fprintf(&b, "- [[%s]]\n", src)
 		} else {
-			b.WriteString(fmt.Sprintf("- [[%s]] — %s\n", src, title))
+			_, _ = fmt.Fprintf(&b, "- [[%s]] — %s\n", src, title)
 		}
 	}
 

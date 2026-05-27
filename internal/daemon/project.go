@@ -88,7 +88,7 @@ func (ps *ProjectSupervisor) Start(ctx context.Context, logFn func(string, ...an
 	}
 
 	if ps.projectLogFile != nil {
-		ps.projectLogFile.Close()
+		_ = ps.projectLogFile.Close()
 	}
 }
 
@@ -117,7 +117,7 @@ func (ps *ProjectSupervisor) projectLog(format string, args ...any) {
 
 	ps.mu.RLock()
 	if ps.projectLogFile != nil {
-		ps.projectLogFile.WriteString(line)
+		_, _ = ps.projectLogFile.WriteString(line)
 	}
 	ps.mu.RUnlock()
 
