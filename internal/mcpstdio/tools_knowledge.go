@@ -239,7 +239,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		}
 
 		branch := fmt.Sprintf("knowledge/project/%s", input.Name)
-		knowledge.EnsureContextSymlink(input.Name)
+		knowledge.EnsureContextCopy(input.Name)
 		wikiDir := knowledge.WikiDirForContext(input.Name)
 		globalCtxBase := filepath.Dir(wikiDir)
 		localDocsDir := filepath.Join(globalCtxBase, "docs")
@@ -313,7 +313,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 				return errResult(err)
 			}
 			branch := fmt.Sprintf("knowledge/project/%s", input.Context)
-			knowledge.EnsureContextSymlink(input.Context)
+			knowledge.EnsureContextCopy(input.Context)
 			wikiDir := knowledge.WikiDirForContext(input.Context)
 			globalCtxBase := filepath.Dir(wikiDir)
 			localDocsDir := filepath.Join(globalCtxBase, "docs")

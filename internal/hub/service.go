@@ -123,8 +123,8 @@ func (s *HubService) Install(
 			if err := os.MkdirAll(knowledgeDir, 0o755); err != nil {
 				return nil, fmt.Errorf("creating knowledge dir: %w", err)
 			}
-			if err := paths.SafeSymlink(cloneDir, linkPath); err != nil {
-				return nil, fmt.Errorf("creating symlink to knowledge: %w", err)
+			if err := paths.SafeCopyDir(cloneDir, linkPath); err != nil {
+				return nil, fmt.Errorf("copying knowledge to project: %w", err)
 			}
 
 		case TypeAST:
@@ -756,10 +756,10 @@ func (s *HubService) Link(
 		if err := os.MkdirAll(knDir, 0o755); err != nil {
 			return nil, err
 		}
-		if err := paths.SafeSymlink(sourceKnowledge, linkPath); err != nil {
-			return nil, fmt.Errorf("creating knowledge symlink: %w", err)
+		if err := paths.SafeCopyDir(sourceKnowledge, linkPath); err != nil {
+			return nil, fmt.Errorf("copying knowledge to project: %w", err)
 		}
-		result.Links = append(result.Links, linkPath+" → "+sourceKnowledge)
+		result.Links = append(result.Links, "copied "+sourceKnowledge+" → "+linkPath)
 
 	case TypeMCP:
 

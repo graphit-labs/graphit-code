@@ -10,7 +10,6 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/config"
 	gitmod "github.com/graphit-labs/graphit-code/internal/git"
-	"github.com/graphit-labs/graphit-code/internal/paths"
 )
 
 type MemoryGitStore struct {
@@ -378,9 +377,7 @@ func (m *MemoryGitStore) addWorktree(branch, destDir string) error {
 	return g.Run(m.repoDir, "worktree", "add", destDir, branch)
 }
 
-func safeMemorySymlink(source, linkPath string) error {
-	return paths.SafeSymlink(source, linkPath)
-}
+
 
 func copyDirRecursive(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {

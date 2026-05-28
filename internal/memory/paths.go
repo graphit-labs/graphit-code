@@ -71,22 +71,22 @@ func EnsureScopeDirs(scope, projectDir string) error {
 	return nil
 }
 
-func EnsureContextSymlink(contextName, projectDir string) {
+func EnsureContextCopy(contextName, projectDir string) {
 	if projectDir == "" {
 		return
 	}
 
 	wikiDir := MemoryWikiGlobalDir(contextName, contextName)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] context symlink: mkdir %s failed: %v\n", wikiDir, err)
+		fmt.Fprintf(os.Stderr, "[memory] context copy: mkdir %s failed: %v\n", wikiDir, err)
 	}
 
-	linkPath := filepath.Join(projectDir, ProjectLinkDir(contextName))
-	if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] context symlink: mkdir parent %s failed: %v\n", filepath.Dir(linkPath), err)
+	copyPath := filepath.Join(projectDir, ProjectLinkDir(contextName))
+	if err := os.MkdirAll(filepath.Dir(copyPath), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "[memory] context copy: mkdir parent %s failed: %v\n", filepath.Dir(copyPath), err)
 	}
-	if err := paths.SafeSymlink(wikiDir, linkPath); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] context symlink: %s → %s failed: %v\n", linkPath, wikiDir, err)
+	if err := paths.SyncCopyDir(wikiDir, copyPath); err != nil {
+		fmt.Fprintf(os.Stderr, "[memory] context copy: %s → %s failed: %v\n", wikiDir, copyPath, err)
 	}
 }
 

@@ -1033,7 +1033,7 @@ func runKnowledgeImport(name string, reset, useLouvain bool) error {
 
 	branch := fmt.Sprintf("knowledge/project/%s", name)
 
-	knowledge.EnsureContextSymlink(name)
+	knowledge.EnsureContextCopy(name)
 
 	wikiDir := knowledge.WikiDirForContext(name)
 	globalCtxBase := filepath.Dir(wikiDir)

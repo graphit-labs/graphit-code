@@ -76,7 +76,7 @@ type MemoryStoreProvider interface {
 }
 
 func SyncContextFromMemoryRepo(ctx context.Context, contextName, projectDir string, store MemoryStoreProvider) *CycleResult {
-	EnsureContextSymlink(contextName, projectDir)
+	EnsureContextCopy(contextName, projectDir)
 	rawDir := RawDir(contextName)
 	branch := fmt.Sprintf("memory/project/%s", contextName)
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	gitmod "github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -117,7 +118,7 @@ func (m *MemoryService) EnsureInitialised() error {
 	return nil
 }
 
-func (m *MemoryService) ensureProjectSymlink(wtDir string) {
+func (m *MemoryService) ensureProjectCopy(wtDir string) {
 	if m.projectLinkDir == "" {
 		return
 	}
@@ -127,15 +128,15 @@ func (m *MemoryService) ensureProjectSymlink(wtDir string) {
 	}
 
 	if err := os.MkdirAll(m.wikiDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] symlink: mkdir %s failed: %v\n", m.wikiDir, err)
+		fmt.Fprintf(os.Stderr, "[memory] copy: mkdir %s failed: %v\n", m.wikiDir, err)
 	}
 
-	linkPath := filepath.Join(projectDir, m.projectLinkDir)
-	if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] symlink: mkdir parent %s failed: %v\n", filepath.Dir(linkPath), err)
+	copyPath := filepath.Join(projectDir, m.projectLinkDir)
+	if err := os.MkdirAll(filepath.Dir(copyPath), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "[memory] copy: mkdir parent %s failed: %v\n", filepath.Dir(copyPath), err)
 	}
-	if err := safeMemorySymlink(m.wikiDir, linkPath); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] symlink: %s → %s failed: %v\n", linkPath, m.wikiDir, err)
+	if err := paths.SyncCopyDir(m.wikiDir, copyPath); err != nil {
+		fmt.Fprintf(os.Stderr, "[memory] copy: %s → %s failed: %v\n", m.wikiDir, copyPath, err)
 	}
 }
 
@@ -442,7 +443,7 @@ func (m *MemoryService) syncToLocalInternal(skipNetwork bool) error {
 
 	m.wikiDir = MemoryWikiGlobalDir(string(m.scope), m.scopeID)
 
-	m.ensureProjectSymlink(wtDir)
+	m.ensureProjectCopy(wtDir)
 
 	if err := os.MkdirAll(m.wikiDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "[memory] sync: mkdir wiki %s failed: %v\n", m.wikiDir, err)

@@ -27,7 +27,7 @@ func WikiDirForContext(name string) string {
 	return globalKnowledgeContextDir(name)
 }
 
-func EnsureContextSymlink(name string) {
+func EnsureContextCopy(name string) {
 	if name == "" || name == "__project__" {
 		return
 	}
@@ -39,7 +39,7 @@ func EnsureContextSymlink(name string) {
 	if err := os.MkdirAll(filepath.Dir(linkDir), 0o755); err != nil {
 		return
 	}
-	_ = paths.SafeSymlink(globalDir, linkDir)
+	_ = paths.SyncCopyDir(globalDir, linkDir)
 }
 
 func InstalledContexts() []string {

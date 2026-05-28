@@ -37,11 +37,16 @@ func TestKnowledgePathsAndIgnore(t *testing.T) {
 		t.Errorf("expected %s, got %s", expectedOther, wikiCtxOther)
 	}
 
-	// 2. EnsureContextSymlink
-	EnsureContextSymlink("context-abc")
+	// 2. EnsureContextCopy
+	EnsureContextCopy("context-abc")
 	linkDir := filepath.Join(brand.DotDir(), "knowledge", "context-abc")
-	if _, err := os.Lstat(linkDir); err != nil {
-		t.Errorf("expected symlink at %s, got error: %v", linkDir, err)
+	info, err := os.Lstat(linkDir)
+	if err != nil {
+		t.Errorf("expected directory at %s, got error: %v", linkDir, err)
+	} else if info.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("expected real directory at %s, got symlink", linkDir)
+	} else if !info.IsDir() {
+		t.Errorf("expected directory at %s, got file", linkDir)
 	}
 
 	// 3. NewKnowledgeIgnoreChecker
