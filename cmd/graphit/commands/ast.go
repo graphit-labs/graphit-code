@@ -304,26 +304,56 @@ func newASTListCmd() *cobra.Command {
 
 func newASTSourceCmd() *cobra.Command {
 	var contextName string
+	var entity string
+	var entityType string
+	var head int
+	var tail int
+	var startLine int
+	var endLine int
+	var pattern string
+	var isRegex bool
+	var before int
+	var after int
+	var lineNumbers bool
 
 	cmd := &cobra.Command{
 		Use:   "source <relative-path>",
-		Short: "Show the stored source code for a file",
-		Long: `Retrieve the stored source content for a file from the SQLite content store.
+		Short: "Show the stored source code for a file with grep/head/tail capabilities",
+		Long: `Retrieve and display stored source content from the code graph with IDE-like capabilities.
 
 The path should be relative to the project root (as stored in the graph).
-Without --context, looks in the project's content store.
-With --context, looks in the imported context's content store.
+
+Options allow viewing portions of files, searching for patterns, and extracting
+entity source code using line range information from the graph.
 
 Examples:
   ` + brand.BinName() + ` ast source internal/auth/jwt.go
+  ` + brand.BinName() + ` ast source internal/auth/jwt.go --head 20
+  ` + brand.BinName() + ` ast source internal/auth/jwt.go --tail 30
+  ` + brand.BinName() + ` ast source internal/auth/jwt.go --start 50 --end 80
+  ` + brand.BinName() + ` ast source internal/auth/jwt.go --entity ValidateToken
+  ` + brand.BinName() + ` ast source internal/auth/jwt.go --entity ValidateToken --entity-type Function
+  ` + brand.BinName() + ` ast source internal/auth/jwt.go --pattern "func.*Validate" --regex --before 2 --after 5
+  ` + brand.BinName() + ` ast source internal/auth/jwt.go --line-numbers --head 10
   ` + brand.BinName() + ` ast source pkg/forms.go --context oracle-schema`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runASTSource(args[0], contextName)
+			return runASTSource(args[0], contextName, entity, entityType, head, tail, startLine, endLine, pattern, isRegex, before, after, lineNumbers)
 		},
 	}
 	cmd.Flags().StringVar(&contextName, "context", "", "Look up source in an imported context")
 	_ = cmd.RegisterFlagCompletionFunc("context", completionASTContexts())
+	cmd.Flags().StringVar(&entity, "entity", "", "Entity name (function, class, etc.) to extract using line range from graph")
+	cmd.Flags().StringVar(&entityType, "entity-type", "", "Entity type for disambiguation: Function, Class, Method, Struct, etc.")
+	cmd.Flags().IntVar(&head, "head", 0, "Show only the first N lines")
+	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the last N lines")
+	cmd.Flags().IntVar(&startLine, "start", 0, "Start line number (1-indexed)")
+	cmd.Flags().IntVar(&endLine, "end", 0, "End line number (1-indexed, inclusive)")
+	cmd.Flags().StringVar(&pattern, "pattern", "", "Search for a pattern (literal text or regex with --regex)")
+	cmd.Flags().BoolVar(&isRegex, "regex", false, "Treat --pattern as a regular expression")
+	cmd.Flags().IntVar(&before, "before", 0, "Number of context lines before each pattern match")
+	cmd.Flags().IntVar(&after, "after", 0, "Number of context lines after each pattern match")
+	cmd.Flags().BoolVar(&lineNumbers, "line-numbers", false, "Include line numbers in the output")
 	return cmd
 }
 

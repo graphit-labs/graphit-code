@@ -43,6 +43,23 @@ type astSchemaInput struct {
 	Context    string `json:"context,omitempty" jsonschema:"Named imported context"`
 }
 
+type astSourceInput struct {
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory (defaults to server working directory)"`
+	Path        string `json:"path" jsonschema:"Relative path to the file (required)"`
+	Context     string `json:"context,omitempty" jsonschema:"Named imported context where the file resides"`
+	Entity      string `json:"entity,omitempty" jsonschema:"Entity name (function, class, etc.) to extract source using its line range from the graph"`
+	EntityType  string `json:"entity_type,omitempty" jsonschema:"Entity type for disambiguation: Function, Class, Method, Struct, etc."`
+	Head        int    `json:"head,omitempty" jsonschema:"Show only the first N lines"`
+	Tail        int    `json:"tail,omitempty" jsonschema:"Show only the last N lines"`
+	StartLine   int    `json:"start_line,omitempty" jsonschema:"Start line number (1-indexed)"`
+	EndLine     int    `json:"end_line,omitempty" jsonschema:"End line number (1-indexed, inclusive)"`
+	Pattern     string `json:"pattern,omitempty" jsonschema:"Search for a pattern (literal text or regex if regex=true)"`
+	IsRegex     bool   `json:"regex,omitempty" jsonschema:"Treat pattern as a regular expression"`
+	Before      int    `json:"before,omitempty" jsonschema:"Number of context lines before each pattern match"`
+	After       int    `json:"after,omitempty" jsonschema:"Number of context lines after each pattern match"`
+	LineNumbers bool   `json:"line_numbers,omitempty" jsonschema:"Include line numbers in the output"`
+}
+
 func textResult(text string) (*mcp.CallToolResult, any, error) {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: text}},
@@ -209,5 +226,46 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(fmt.Errorf("schema retrieval failed: %w", err))
 		}
 		return textResult(schemaText)
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("ast", "source"),
+		Description: "Retrieve source code from the indexed code graph with support for head/tail, line ranges, entity extraction, and pattern search with context.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, input astSourceInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDir(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+
+		db, err := openASTDB(projectDir, input.Context)
+		if err != nil {
+			return errResult(err)
+		}
+		defer func() { _ = db.Close() }()
+
+		svc := ast.NewSourceService(db)
+		result, err := svc.GetSource(ctx, ast.SourceRequest{
+			Path:        input.Path,
+			Entity:      input.Entity,
+			EntityType:  input.EntityType,
+			Head:        input.Head,
+			Tail:        input.Tail,
+			StartLine:   input.StartLine,
+			EndLine:     input.EndLine,
+			Pattern:     input.Pattern,
+			IsRegex:     input.IsRegex,
+			Before:      input.Before,
+			After:       input.After,
+			LineNumbers: input.LineNumbers,
+		})
+		if err != nil {
+			return errResult(err)
+		}
+
+		if result.Source == "" && len(result.Matches) == 0 {
+			return textResult(fmt.Sprintf("No matches found for pattern %q in %s", input.Pattern, input.Path))
+		}
+
+		return textResult(result.Source)
 	})
 }

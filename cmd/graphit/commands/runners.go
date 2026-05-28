@@ -890,7 +890,7 @@ func runASTClean(contextName string) error {
 	return nil
 }
 
-func runASTSource(relPath, contextName string) error {
+func runASTSource(relPath, contextName, entity, entityType string, head, tail, startLine, endLine int, pattern string, isRegex bool, before, after int, lineNumbers bool) error {
 	p := output.NewPrinter("")
 
 	var cfg ast.LadybugConfig
@@ -904,25 +904,35 @@ func runASTSource(relPath, contextName string) error {
 	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
-	res, err := db.Query(ctx, `MATCH (f:File {path: $path}) RETURN f.source AS source`, map[string]any{"path": relPath})
+	svc := ast.NewSourceService(db)
+	result, err := svc.GetSource(ctx, ast.SourceRequest{
+		Path:        relPath,
+		Entity:      entity,
+		EntityType:  entityType,
+		Head:        head,
+		Tail:        tail,
+		StartLine:   startLine,
+		EndLine:     endLine,
+		Pattern:     pattern,
+		IsRegex:     isRegex,
+		Before:      before,
+		After:       after,
+		LineNumbers: lineNumbers,
+	})
 	if err != nil {
-		return fmt.Errorf("query file source: %w", err)
+		return err
 	}
 
-	if len(res.Records) == 0 {
-		p.Warn("No source found for %q", relPath)
-		if contextName != "" {
-			p.Step("Context: %s", contextName)
-		}
-		return fmt.Errorf("file not found: %s", relPath)
+	if result.Entity != nil {
+		p.Step("%s %s (lines %d-%d)", result.Entity.Type, result.Entity.Name, result.Entity.StartLine, result.Entity.EndLine)
 	}
 
-	src, ok := res.Records[0]["source"].(string)
-	if !ok || src == "" {
-		return fmt.Errorf("file source is empty: %s", relPath)
+	if result.Source == "" && len(result.Matches) == 0 {
+		p.Warn("No matches found for pattern %q in %s", pattern, relPath)
+		return nil
 	}
 
-	p.Data(src)
+	p.Data(result.Source)
 	return nil
 }
 
