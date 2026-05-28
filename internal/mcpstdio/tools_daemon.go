@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 )
 
@@ -29,7 +30,7 @@ type DaemonStatusResult struct {
 
 func registerDaemonTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_daemon_status",
+		Name:        brand.MCPToolName("daemon", "status"),
 		Description: "Check status of the global background daemon process.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input daemonStatusInput) (*mcp.CallToolResult, any, error) {
 		pid := daemon.NewPIDFile()
@@ -58,7 +59,7 @@ func registerDaemonTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_daemon_stop",
+		Name:        brand.MCPToolName("daemon", "stop"),
 		Description: "Stop the running global daemon process.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input daemonStopInput) (*mcp.CallToolResult, any, error) {
 		pid := daemon.NewPIDFile()

@@ -9,6 +9,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/ast"
+	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
 type astQueryInput struct {
@@ -55,7 +56,7 @@ func errResult(err error) (*mcp.CallToolResult, any, error) {
 func registerASTTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_query",
+		Name:        brand.MCPToolName("ast", "query"),
 		Description: "Execute a Cypher query against the AST code graph database. Returns matching records as JSON.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input astQueryInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -86,7 +87,7 @@ func registerASTTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_search_fts",
+		Name:        brand.MCPToolName("ast", "search_fts"),
 		Description: "Perform a BM25 full-text search across all code entities and files in the AST graph. Returns results ranked by relevance.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input astFTSInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -116,7 +117,7 @@ func registerASTTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_search_semantic",
+		Name:        brand.MCPToolName("ast", "search_semantic"),
 		Description: "Perform a semantic vector similarity search over the AST graph using natural language. Requires an embedding model.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input astSemanticInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -153,7 +154,7 @@ func registerASTTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_query_ai",
+		Name:        brand.MCPToolName("ast", "query_ai"),
 		Description: "Convert a natural language question about the codebase into a Cypher query using AI, execute it, and return both the generated query and results.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input astAIQueryInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -189,7 +190,7 @@ func registerASTTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_schema",
+		Name:        brand.MCPToolName("ast", "schema"),
 		Description: "Return the AST graph database schema: node labels, properties, and relationship types.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input astSchemaInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)

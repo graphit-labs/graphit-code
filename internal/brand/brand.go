@@ -37,6 +37,10 @@ func EnvVar(suffix string) string { return EnvPrefix() + "_" + suffix }
 
 func MCPServerName(module string) string { return Brand + "-" + module + "-mcp" }
 
+func MCPToolName(parts ...string) string { return Brand + "_" + strings.Join(parts, "_") }
+
+func MCPToolRef(parts ...string) string { return "`" + MCPToolName(parts...) + "`" }
+
 func PrinterPrefix(module string) string { return Brand + ":" + module }
 
 func TempDirPrefix(module string) string { return Brand + "-" + module + "-" }

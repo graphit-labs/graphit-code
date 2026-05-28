@@ -28,6 +28,11 @@ func ImprovementsRuleContent() string {
 var improvementsSkillName = brand.SkillDirName("improvements")
 
 func ImprovementsRouterContent() string {
+	dreamAddRef := brand.MCPToolRef("dream", "subject_add")
+	dreamAdd := brand.MCPToolName("dream", "subject_add")
+	dreamListRef := brand.MCPToolRef("dream", "subject_list")
+	dreamRemoveRef := brand.MCPToolRef("dream", "subject_remove")
+
 	lines := []string{
 		"# 🔧 Code Improvement Methodology",
 		"",
@@ -57,16 +62,16 @@ func ImprovementsRouterContent() string {
 		"When the user asks you to **schedule**, **queue**, or **leave something for the next dream**,",
 		"create a dream subject. The Dream module picks up pending subjects during idle periods.",
 		"",
-		"- **Add via MCP**: call `graphit_dream_subject_add` with `title: \"Title\"`, `body: \"Detailed instructions\"` (always passing absolute `project_dir` parameter)",
+		"- **Add via MCP**: call " + dreamAddRef + " with `title: \"Title\"`, `body: \"Detailed instructions\"` (always passing absolute `project_dir` parameter)",
 		"- **Add via file**: Create `" + brand.DotDir() + "/dream/subjects/<slug>.md` with a `# Title` heading and instructions",
-		"- **List subjects**: call `graphit_dream_subject_list` (always passing absolute `project_dir` parameter)",
-		"- **Remove**: call `graphit_dream_subject_remove` with `slug: \"<slug>\"` (always passing absolute `project_dir` parameter)",
+		"- **List subjects**: call " + dreamListRef + " (always passing absolute `project_dir` parameter)",
+		"- **Remove**: call " + dreamRemoveRef + " with `slug: \"<slug>\"` (always passing absolute `project_dir` parameter)",
 		"- **Completion**: The dream agent creates `<slug>.done.md` when finished",
 		"",
 		"## 🔗 Subagent Improvements",
 		"",
 		"**When spawning subagents, include in their prompt:**",
-		"\"If you notice code patterns that could be improved but are outside your current scope, create a dream subject by calling the `graphit_dream_subject_add` tool: `graphit_dream_subject_add` with `title: \"<improvement title>\"`, `body: \"<detailed description of what to improve and why>\"` (always passing absolute `project_dir` parameter).\"",
+		"\"If you notice code patterns that could be improved but are outside your current scope, create a dream subject by calling the " + dreamAddRef + " tool: `" + dreamAdd + "` with `title: \"<improvement title>\"`, `body: \"<detailed description of what to improve and why>\"` (always passing absolute `project_dir` parameter).\"",
 		"",
 		"## ⛔ Critical Rules",
 		"",

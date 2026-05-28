@@ -20,6 +20,13 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 	dotBrand := brand.DotDir()
 	displayName := brand.DisplayName
 
+	syncRef := brand.MCPToolRef("sync")
+	syncTool := brand.MCPToolName("sync")
+	hubListRef := brand.MCPToolRef("hub", "list")
+	hubList := brand.MCPToolName("hub", "list")
+	knowledgeInstallRef := brand.MCPToolRef("knowledge", "install")
+	knowledgeInstall := brand.MCPToolName("knowledge", "install")
+
 	lines := []string{
 		"# Knowledge Maintenance Rule",
 		"",
@@ -68,7 +75,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"1. **Do the work** — implement the code change.",
 		"2. **Write the documentation** — update or create the relevant docs.",
-		"3. **Sync the wiki** — call the `graphit_sync` tool (passing absolute `project_dir` parameter).",
+		"3. **Sync the wiki** — call the " + syncRef + " tool (passing absolute `project_dir` parameter).",
 		"4. **Only then** report the task as complete.",
 		"",
 		"### 🔒 MANDATORY: Clean Code Documentation Policy",
@@ -255,10 +262,10 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"### ⚡ MANDATORY: Sync After Every File Modification",
 		"",
 		"**After ANY modification to ANY file in `docs/` (edit, create, rename, or delete),",
-		"you MUST trigger a project sync by calling the `graphit_sync` tool (passing absolute `project_dir` parameter):**",
+		"you MUST trigger a project sync by calling the " + syncRef + " tool (passing absolute `project_dir` parameter):**",
 		"",
 		"```",
-		"graphit_sync(project_dir: \"/path/to/project\")",
+		syncTool + "(project_dir: \"/path/to/project\")",
 		"```",
 		"",
 		"**This is NON-NEGOTIABLE.** The framework depends on an up-to-date wiki to function.",
@@ -266,7 +273,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"outdated or incomplete results — breaking the knowledge pipeline.",
 		"",
 		"**Rules:**",
-		"- Call `graphit_sync` immediately after any docs modification.",
+		"- Call " + syncRef + " immediately after any docs modification.",
 		"- **Forgetting to call sync is a framework integrity violation.**",
 		"",
 		"## Documentation Requirements",
@@ -571,16 +578,16 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"### Before implementing ANY integration with an external system:",
 		"",
-		"**Step 1 — Search the hub for an existing knowledge artifact using the `graphit_hub_list` tool:**",
+		"**Step 1 — Search the hub for an existing knowledge artifact using the " + hubListRef + " tool:**",
 		"",
 		"```",
-		`graphit_hub_list(project_dir: "/path/to/project", type: "knowledge")`,
+		hubList + `(project_dir: "/path/to/project", type: "knowledge")`,
 		"```",
 		"",
-		"**Step 2 — If found, install it immediately using the `graphit_knowledge_install` tool (passing absolute `project_dir` and the context `name`):**",
+		"**Step 2 — If found, install it immediately using the " + knowledgeInstallRef + " tool (passing absolute `project_dir` and the context `name`):**",
 		"",
 		"```",
-		"graphit_knowledge_install(project_dir: \"/path/to/project\", name: \"<artifact-name>\")",
+		knowledgeInstall + "(project_dir: \"/path/to/project\", name: \"<artifact-name>\")",
 		"```",
 		"",
 		"This installs the artifact at "+dotBrand+"/knowledge/<name>/.",
@@ -894,8 +901,8 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"## Workflow",
 		"",
 		"**0. (MANDATORY) Before touching any external system:**",
-		"   - Call `graphit_hub_list` tool filtering by name/type — always.",
-		"   - If found: call `graphit_knowledge_install` with `name` and read the wiki.",
+		"   - Call " + hubListRef + " tool filtering by name/type — always.",
+		"   - If found: call " + knowledgeInstallRef + " with `name` and read the wiki.",
 		"   - If not found: document what the user provides, never assume.",
 		"",
 		"1. **Before creating an integration**: check the wiki index to avoid duplication.",
@@ -921,6 +928,10 @@ func KnowledgeRouterContent(docsDir string) string {
 		docsDir = "."
 	}
 	dotBrand := brand.DotDir()
+
+	syncRef := brand.MCPToolRef("sync")
+	hubListRef := brand.MCPToolRef("hub", "list")
+
 	lines := []string{
 		"# 📚 Knowledge & Documentation",
 		"",
@@ -953,7 +964,7 @@ func KnowledgeRouterContent(docsDir string) string {
 		"2. **Follow the skill's documentation workflow** — determine what type of change",
 		"   you made (architecture, feature, decision, bug fix, integration, etc.) and",
 		"   create or update the corresponding `docs/` files as specified in the skill.",
-		"3. **Sync the wiki** — call the `graphit_sync` tool (passing absolute `project_dir` parameter) after any docs change.",
+		"3. **Sync the wiki** — call the " + syncRef + " tool (passing absolute `project_dir` parameter) after any docs change.",
 		"4. **Only then** report the task as complete.",
 		"",
 		"**This is NON-NEGOTIABLE.** You do NOT get to skip documentation because the user",
@@ -966,24 +977,24 @@ func KnowledgeRouterContent(docsDir string) string {
 		"",
 		"- **Wiki index**: `" + dotBrand + "/knowledge/project/index.md`",
 		"- **Task logs**: `docs/tasks/<task-name>.md` — log every task with full detail",
-		"- **Sync after docs changes**: call the `graphit_sync` tool (passing absolute `project_dir` parameter)",
-		"- **Hub search before integration**: call the `graphit_hub_list` tool (passing absolute `project_dir` parameter and `type: \"knowledge\"`)",
+		"- **Sync after docs changes**: call the " + syncRef + " tool (passing absolute `project_dir` parameter)",
+		"- **Hub search before integration**: call the " + hubListRef + " tool (passing absolute `project_dir` parameter and `type: \"knowledge\"`)",
 		"",
 		"## ✅ After EVERY Code Change (MANDATORY checklist)",
 		"",
 		"**Do NOT report the task as complete until ALL items are checked:**",
 		"",
 		"1. Create/update `docs/tasks/<task-name>.md` (at minimum: objective, files changed, key decisions)",
-		"2. Call the `graphit_sync` tool (passing absolute `project_dir` parameter)",
+		"2. Call the " + syncRef + " tool (passing absolute `project_dir` parameter)",
 		"3. If architectural change → update `docs/architecture/`",
 		"4. If design decision → create ADR in `docs/decisions/`",
 		"",
-		"**A task without documentation is NOT complete. A task without calling `graphit_sync` tool is NOT complete.**",
+		"**A task without documentation is NOT complete. A task without calling " + syncRef + " tool is NOT complete.**",
 		"",
 		"## ⛔ Critical Rules (always enforced, no skill read needed)",
 		"",
 		"1. **Document EVERYTHING** — documentation is implicit in every task, never optional.",
-		"2. **Definition of done**: code + documentation + task log + calling `graphit_sync` tool. If any are missing, the task is NOT complete.",
+		"2. **Definition of done**: code + documentation + task log + calling " + syncRef + " tool. If any are missing, the task is NOT complete.",
 		"3. **Log every task** — create/update `docs/tasks/<task-name>.md` with implementation details,",
 		"   technical debt, trade-offs, and system knowledge. Detail level must allow another agent to",
 		"   continue exactly where you left off.",
@@ -998,7 +1009,7 @@ func KnowledgeRouterContent(docsDir string) string {
 		"   be kept up-to-date on any future change.",
 		"6. **Never guess API contracts** — search the hub first, use knowledge wiki, never hallucinate.",
 		"7. **Wiki-first retrieval** — NEVER grep docs/ directly; always read `index.md` first.",
-		"8. **Reindex after changes** — call the `graphit_sync` tool after every source file or docs modification.",
+		"8. **Reindex after changes** — call the " + syncRef + " tool after every source file or docs modification.",
 		"9. **Never edit managed rule blocks** — blocks wrapped in `<!-- " + strings.ToUpper(brand.Brand) + " ... BLOCK -->` / `<!-- END ... -->` sentinels",
 		"   in global rules files (AGENTS.md) are **auto-managed by the framework**.",
 		"   NEVER create, modify, rewrite, or delete these blocks. They are regenerated automatically",
@@ -1013,7 +1024,7 @@ func KnowledgeRouterContent(docsDir string) string {
 		"**When spawning subagents that modify code, include in their prompt:**",
 		"",
 		"> \"After code changes, create a task log at `docs/tasks/<task-name>.md` with: objective,",
-		"> files changed, and key decisions. Then call `graphit_sync` tool (passing absolute `project_dir` parameter).\"",
+		"> files changed, and key decisions. Then call " + syncRef + " tool (passing absolute `project_dir` parameter).\"",
 		"",
 		"## 🔗 MANDATORY: Subagent Propagation",
 		"",

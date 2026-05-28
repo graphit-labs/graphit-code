@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 )
 
@@ -52,7 +53,7 @@ type hubUpdateInput struct {
 func registerHubTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_hub_list",
+		Name:        brand.MCPToolName("hub", "list"),
 		Description: "List available artifacts in the Graphit Hub registry, optionally filtered by type.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input hubListInput) (*mcp.CallToolResult, any, error) {
 		hubSvc := hub.NewHubAppService("")
@@ -72,7 +73,7 @@ func registerHubTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_hub_search",
+		Name:        brand.MCPToolName("hub", "search"),
 		Description: "Search the Graphit Hub registry for artifacts by name, ID, or description.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input hubSearchInput) (*mcp.CallToolResult, any, error) {
 		hubSvc := hub.NewHubAppService("")
@@ -92,7 +93,7 @@ func registerHubTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_hub_show",
+		Name:        brand.MCPToolName("hub", "show"),
 		Description: "Show detailed information about a specific artifact in the Graphit Hub.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input hubShowInput) (*mcp.CallToolResult, any, error) {
 		reg, err := hub.NewRegistryManager(ctx)
@@ -113,7 +114,7 @@ func registerHubTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_hub_install",
+		Name:        brand.MCPToolName("hub", "install"),
 		Description: "Install an artifact from the Graphit Hub into the current project.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input hubInstallInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -143,7 +144,7 @@ func registerHubTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_hub_uninstall",
+		Name:        brand.MCPToolName("hub", "uninstall"),
 		Description: "Remove an installed artifact from the current project.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input hubUninstallInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -172,7 +173,7 @@ func registerHubTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_hub_update",
+		Name:        brand.MCPToolName("hub", "update"),
 		Description: "Update installed hub artifacts. Without an ID updates all artifacts. With an ID updates only that specific artifact.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input hubUpdateInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)

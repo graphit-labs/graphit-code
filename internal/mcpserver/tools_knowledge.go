@@ -8,6 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"github.com/graphit-labs/graphit-code/internal/wikisvc"
 )
@@ -48,7 +49,7 @@ type wikiSessionsInput struct {
 func registerKnowledgeTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_query",
+		Name:        brand.MCPToolName("knowledge", "query"),
 		Description: "Search the project knowledge wiki using AI-powered retrieval. Returns a synthesized answer based on project documentation, architecture, and decisions.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeQueryInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -79,7 +80,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_search",
+		Name:        brand.MCPToolName("knowledge", "search"),
 		Description: "Search the project knowledge wiki using BM25 keyword ranking. Returns matching pages with relevance scores and snippets. Does not require AI — fast lexical search.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeSearchInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -116,7 +117,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_wiki_search",
+		Name:        brand.MCPToolName("wiki", "search"),
 		Description: "Search across multiple wiki sources using AI-powered retrieval. Supports project wiki, memory wiki, ecosystem project wikis, and hub knowledge artifacts. Returns a synthesized answer and creates a chat session for follow-up questions.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input wikiSearchInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -143,7 +144,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_wiki_chat",
+		Name:        brand.MCPToolName("wiki", "chat"),
 		Description: "Continue a wiki chat session started by graphit_wiki_search. Send follow-up questions in the same conversation context.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input wikiChatInput) (*mcp.CallToolResult, any, error) {
 		if input.SessionID == "" {
@@ -163,7 +164,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_wiki_sessions",
+		Name:        brand.MCPToolName("wiki", "sessions"),
 		Description: "List or delete wiki chat sessions. Use action 'list' to see all sessions for a project, or 'delete' to remove a specific session.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input wikiSessionsInput) (*mcp.CallToolResult, any, error) {
 		switch input.Action {

@@ -72,7 +72,7 @@ type dreamLastSeen struct {
 
 func registerDreamTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_dream_status",
+		Name:        brand.MCPToolName("dream", "status"),
 		Description: "Show status and configuration of the dream module.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input dreamStatusInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -139,7 +139,7 @@ func registerDreamTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_dream_reports",
+		Name:        brand.MCPToolName("dream", "reports"),
 		Description: "List dream session reports.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input dreamReportsInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -185,7 +185,7 @@ func registerDreamTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_dream_subject_list",
+		Name:        brand.MCPToolName("dream", "subject_list"),
 		Description: "List dream subjects — instructions left for future dream sessions.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input dreamSubjectListInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -206,7 +206,7 @@ func registerDreamTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_dream_subject_add",
+		Name:        brand.MCPToolName("dream", "subject_add"),
 		Description: "Add a new dream subject for a future dream session.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input dreamSubjectAddInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -227,7 +227,7 @@ func registerDreamTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_dream_subject_remove",
+		Name:        brand.MCPToolName("dream", "subject_remove"),
 		Description: "Remove a dream subject by slug.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input dreamSubjectRemoveInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)

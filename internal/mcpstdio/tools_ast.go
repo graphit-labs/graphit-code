@@ -94,7 +94,7 @@ type astEmbedInput struct {
 
 func registerASTTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_index",
+		Name:        brand.MCPToolName("ast", "index"),
 		Description: "Index files in the project to build the AST code graph database.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astIndexInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -160,7 +160,7 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_query",
+		Name:        brand.MCPToolName("ast", "query"),
 		Description: "Execute a Cypher query against the AST code graph database.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astQueryInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -183,7 +183,7 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_search_fts",
+		Name:        brand.MCPToolName("ast", "search_fts"),
 		Description: "Perform a BM25 full-text search across all code entities and files in the AST graph.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astFTSInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -212,7 +212,7 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_search_semantic",
+		Name:        brand.MCPToolName("ast", "search_semantic"),
 		Description: "Perform a semantic vector similarity search over the AST graph using natural language.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astSemanticInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -248,7 +248,7 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_query_ai",
+		Name:        brand.MCPToolName("ast", "query_ai"),
 		Description: "Convert a natural language question about the codebase into a Cypher query using AI, execute it, and return results.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astAIQueryInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -280,7 +280,7 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_schema",
+		Name:        brand.MCPToolName("ast", "schema"),
 		Description: "Return the AST graph database schema: node labels, properties, and relationship types.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astSchemaInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -303,7 +303,7 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_install",
+		Name:        brand.MCPToolName("ast", "install"),
 		Description: "Import another local repository's code graph as a named context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astInstallInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -359,7 +359,7 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_remove",
+		Name:        brand.MCPToolName("ast", "remove"),
 		Description: "Remove an imported context or clear the main project code graph.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astRemoveInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -396,7 +396,7 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_list",
+		Name:        brand.MCPToolName("ast", "list"),
 		Description: "List all imported AST contexts and their repository paths.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astListInput) (*mcp.CallToolResult, any, error) {
 		_, err := resolveProjectDir(input.ProjectDir)
@@ -409,7 +409,7 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_source",
+		Name:        brand.MCPToolName("ast", "source"),
 		Description: "Retrieve the full source code text of a specific file indexed in the code graph.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astSourceInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -441,7 +441,7 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_export",
+		Name:        brand.MCPToolName("ast", "export"),
 		Description: "Export the AST database to Obsidian markdown format or an archive bundle.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astExportInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -478,7 +478,7 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_ast_embed",
+		Name:        brand.MCPToolName("ast", "embed"),
 		Description: "Run embedding cycle to precompute or update semantic embeddings.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astEmbedInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)

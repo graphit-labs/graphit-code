@@ -78,7 +78,7 @@ type knowledgeListInput struct {
 
 func registerKnowledgeTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_index",
+		Name:        brand.MCPToolName("knowledge", "index"),
 		Description: "Index docs/ into the knowledge graph and regenerate the wiki.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeIndexInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -115,7 +115,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_query",
+		Name:        brand.MCPToolName("knowledge", "query"),
 		Description: "Search the project knowledge wiki using AI-powered retrieval.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeQueryInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -150,7 +150,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_search",
+		Name:        brand.MCPToolName("knowledge", "search"),
 		Description: "Search the project knowledge wiki using BM25 keyword ranking.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeSearchInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -175,7 +175,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_schema",
+		Name:        brand.MCPToolName("knowledge", "schema"),
 		Description: "Show the knowledge graph schema and node properties.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeSchemaInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -189,7 +189,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_lint",
+		Name:        brand.MCPToolName("knowledge", "lint"),
 		Description: "Audit the knowledge wiki for structural issues.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeLintInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -224,7 +224,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_install",
+		Name:        brand.MCPToolName("knowledge", "install"),
 		Description: "Import an external knowledge context from the hub.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeInstallInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -267,7 +267,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_remove",
+		Name:        brand.MCPToolName("knowledge", "remove"),
 		Description: "Remove the project knowledge graph or an imported context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeRemoveInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -298,7 +298,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_sync",
+		Name:        brand.MCPToolName("knowledge", "sync"),
 		Description: "Re-sync an imported context from the global cache or rebuild local wiki.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeSyncInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -348,7 +348,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_export",
+		Name:        brand.MCPToolName("knowledge", "export"),
 		Description: "Export the project knowledge wiki and graph to the hub.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeExportInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -400,7 +400,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_knowledge_list",
+		Name:        brand.MCPToolName("knowledge", "list"),
 		Description: "List all articles in the local knowledge wiki.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeListInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)

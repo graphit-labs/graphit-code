@@ -114,7 +114,7 @@ type memorySyncInput struct {
 
 func registerMemoryTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_insert",
+		Name:        brand.MCPToolName("memory", "insert"),
 		Description: "Add a new memory to the project or user memory store.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryInsertInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -167,7 +167,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_update",
+		Name:        brand.MCPToolName("memory", "update"),
 		Description: "Update the title or content of an existing memory.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryUpdateInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -192,7 +192,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_delete",
+		Name:        brand.MCPToolName("memory", "delete"),
 		Description: "Delete a memory entry by ID.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryDeleteInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -217,7 +217,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_list",
+		Name:        brand.MCPToolName("memory", "list"),
 		Description: "List all memories in the project or user store.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryListInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -244,7 +244,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_search",
+		Name:        brand.MCPToolName("memory", "search"),
 		Description: "Search for text matching in raw memory files.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySearchInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -313,7 +313,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_query",
+		Name:        brand.MCPToolName("memory", "query"),
 		Description: "Search memories with AI Consultation and return a synthesized response.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryQueryInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -351,7 +351,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_important",
+		Name:        brand.MCPToolName("memory", "important"),
 		Description: "List all memories marked as important.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryImportantInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -377,7 +377,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_promote",
+		Name:        brand.MCPToolName("memory", "promote"),
 		Description: "Promote a memory to important status.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryPromoteInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -402,7 +402,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_demote",
+		Name:        brand.MCPToolName("memory", "demote"),
 		Description: "Demote a memory from important status.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryDemoteInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -427,7 +427,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_consolidate",
+		Name:        brand.MCPToolName("memory", "consolidate"),
 		Description: "Analyze memory wiki for staleness, duplicates, contradictions, and suggestions.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryConsolidateInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -482,7 +482,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_gc",
+		Name:        brand.MCPToolName("memory", "gc"),
 		Description: "Garbage collect inactive or stale memories.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryGCInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -529,7 +529,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_index",
+		Name:        brand.MCPToolName("memory", "index"),
 		Description: "Regenerate the semantic wiki index of the memory store.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryIndexInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -554,7 +554,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_export",
+		Name:        brand.MCPToolName("memory", "export"),
 		Description: "Index and sync project memories back to the local git repository.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryExportInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -579,14 +579,14 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_schema",
+		Name:        brand.MCPToolName("memory", "schema"),
 		Description: "Show the memory graph database schema details.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySchemaInput) (*mcp.CallToolResult, any, error) {
 		return textResult("Memory Graph Schema\nNode labels: Document, Section\nEdge labels: REFERENCES, CONTAINS\nProperties:\n - Document: id, title, scope, scope_id, created_at, tags\n - Section: name, summary, section_level")
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_remove",
+		Name:        brand.MCPToolName("memory", "remove"),
 		Description: "Remove a memory context sync connection.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryRemoveInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -602,7 +602,7 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_memory_sync",
+		Name:        brand.MCPToolName("memory", "sync"),
 		Description: "Sync memories from an external context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySyncInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)

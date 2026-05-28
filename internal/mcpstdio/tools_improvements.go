@@ -5,6 +5,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
+
 	"github.com/graphit-labs/graphit-code/internal/improvements"
 )
 
@@ -14,7 +16,7 @@ type improvementsRulesInput struct {
 
 func registerImprovementsTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_improvements_rules",
+		Name:        brand.MCPToolName("improvements", "rules"),
 		Description: "Output the resolved code improvement analysis methodology rules.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input improvementsRulesInput) (*mcp.CallToolResult, any, error) {
 		if input.Default {

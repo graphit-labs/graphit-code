@@ -14,6 +14,26 @@ const hubBlockName = "HUB_DISCOVERY"
 func HubRuleContent(installed []InstalledArtifactInfo) string {
 	dotBrand := brand.DotDir()
 
+	astQueryRef := brand.MCPToolRef("ast", "query")
+	astQuery := brand.MCPToolName("ast", "query")
+	hubListRef := brand.MCPToolRef("hub", "list")
+	hubList := brand.MCPToolName("hub", "list")
+	hubShowRef := brand.MCPToolRef("hub", "show")
+	hubShow := brand.MCPToolName("hub", "show")
+	hubInstallRef := brand.MCPToolRef("hub", "install")
+	hubInstall := brand.MCPToolName("hub", "install")
+	hubUpdateRef := brand.MCPToolRef("hub", "update")
+	hubUpdate := brand.MCPToolName("hub", "update")
+	hubLink := brand.MCPToolName("hub", "link")
+	hubLinkRef := brand.MCPToolRef("hub", "link")
+	hubUnlink := brand.MCPToolName("hub", "unlink")
+	hubUnlinkRef := brand.MCPToolRef("hub", "unlink")
+	clusterProjectsRef := brand.MCPToolRef("cluster", "projects")
+	clusterProjects := brand.MCPToolName("cluster", "projects")
+	clusterSetRef := brand.MCPToolRef("cluster", "set")
+	clusterGetRef := brand.MCPToolRef("cluster", "get")
+	clusterUnsetRef := brand.MCPToolRef("cluster", "unset")
+
 	lines := []string{
 		"# Hub Discovery Rule",
 		"",
@@ -33,7 +53,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"| Type | What it provides | After installation |",
 		"|---|---|---|",
 		"| `knowledge` | Pre-indexed documentation wiki for a framework/library | Read the wiki at `" + dotBrand + "/knowledge/<id>/index.md` |",
-		"| `ast` | Pre-indexed code graph of a framework's source code | Query via `graphit_ast_query` tool (passing absolute `project_dir` and setting `context` parameter to the artifact ID) |",
+		"| `ast` | Pre-indexed code graph of a framework's source code | Query via " + astQueryRef + " tool (passing absolute `project_dir` and setting `context` parameter to the artifact ID) |",
 		"| `rule` | Coding conventions, style guides, governance rules | Auto-injected into IDE rules file |",
 		"| `skill` | Detailed methodology for specific tasks (e.g. testing, migration) | Available as an on-demand skill |",
 		"| `command` | Reusable CLI workflows/commands | Available in IDE's commands directory |",
@@ -47,34 +67,34 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"about, DO NOT guess its API or structure. Check if it is available in the Hub.",
 		"",
 		"### 1. Discovery",
-		"To see all available artifacts or filter by type, call the `graphit_hub_list` tool:",
+		"To see all available artifacts or filter by type, call the " + hubListRef + " tool:",
 		"```",
-		"graphit_hub_list(type: \"<knowledge|ast|rule|skill|command|agent|mcp|power>\")",
+		hubList + "(type: \"<knowledge|ast|rule|skill|command|agent|mcp|power>\")",
 		"```",
 		"",
 		"### 2. Inspection",
-		"To see the details, tags, and description of a specific artifact, call the `graphit_hub_show` tool:",
+		"To see the details, tags, and description of a specific artifact, call the " + hubShowRef + " tool:",
 		"```",
-		"graphit_hub_show(id: \"<artifact-id>\")",
+		hubShow + "(id: \"<artifact-id>\")",
 		"```",
 		"",
 		"### 3. Installation",
-		"To download and install the artifact into the current project, call the `graphit_hub_install` tool (passing absolute `project_dir`):",
+		"To download and install the artifact into the current project, call the " + hubInstallRef + " tool (passing absolute `project_dir`):",
 		"```",
-		"graphit_hub_install(project_dir: \"/path/to/project\", id: \"<artifact-id>\", ide: \"<ide>\", alias: \"<alias>\")",
+		hubInstall + "(project_dir: \"/path/to/project\", id: \"<artifact-id>\", ide: \"<ide>\", alias: \"<alias>\")",
 		"```",
 		"",
 		"### 4. Updates",
-		"To keep all installed artifacts up to date, call the `graphit_hub_update` tool (passing absolute `project_dir`):",
+		"To keep all installed artifacts up to date, call the " + hubUpdateRef + " tool (passing absolute `project_dir`):",
 		"```",
-		"graphit_hub_update(project_dir: \"/path/to/project\")",
+		hubUpdate + "(project_dir: \"/path/to/project\")",
 		"```",
 		"",
 		"### 5. Link & Unlink (Local Development)",
-		"To link or unlink local development artifacts into the current project, call `graphit_hub_link` or `graphit_hub_unlink` (passing absolute `project_dir`):",
+		"To link or unlink local development artifacts into the current project, call " + hubLinkRef + " or " + hubUnlinkRef + " (passing absolute `project_dir`):",
 		"```",
-		"graphit_hub_link(project_dir: \"/path/to/project\", name: \"<name>\", source_path: \"/path/to/source\", type: \"<type>\")",
-		"graphit_hub_unlink(project_dir: \"/path/to/project\", name: \"<name>\", type: \"<type>\")",
+		hubLink + "(project_dir: \"/path/to/project\", name: \"<name>\", source_path: \"/path/to/source\", type: \"<type>\")",
+		hubUnlink + "(project_dir: \"/path/to/project\", name: \"<name>\", type: \"<type>\")",
 		"```",
 		"",
 		"## Using Installed Artifacts",
@@ -83,7 +103,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"",
 		"- **Knowledge**: Read the wiki `" + dotBrand + "/knowledge/<id>/index.md` to understand",
 		"  a framework's API, architecture, and patterns — never guess.",
-		"- **AST**: Query the code graph of the installed context using the `graphit_ast_query` tool (passing absolute `project_dir` and setting `context` parameter to the installed artifact ID).",
+		"- **AST**: Query the code graph of the installed context using the " + astQueryRef + " tool (passing absolute `project_dir` and setting `context` parameter to the installed artifact ID).",
 		"- **Rules**: Automatically injected — follow the conventions they define.",
 		"- **Skills**: Read the skill when the task matches its domain. Skills appear",
 		"  in the IDE's skills directory.",
@@ -99,7 +119,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		lines = append(lines,
 			"> No hub artifacts are currently installed in this project.",
 			"",
-			"Call the `graphit_hub_install` tool (passing absolute `project_dir`) to install one.",
+			"Call the " + hubInstallRef + " tool (passing absolute `project_dir`) to install one.",
 		)
 	} else {
 		lines = append(lines,
@@ -154,7 +174,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 				}
 				lines = append(lines,
 					"**"+a.Name+" (`"+a.ID+"`)** — "+a.Description,
-					"  - Query: call `graphit_ast_query` with `project_dir` set to project root, `context` set to `\""+contextID+"\"`, and `query` set to your Cypher query.",
+					"  - Query: call " + astQueryRef + " with `project_dir` set to project root, `context` set to `\""+contextID+"\"`, and `query` set to your Cypher query.",
 					"",
 				)
 			}
@@ -222,15 +242,15 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"",
 		"**When you need to find other projects in the work ecosystem** (e.g., to understand",
 		"cross-project dependencies, shared libraries, related services, or sibling projects),",
-		"**call the `graphit_cluster_projects` tool (passing absolute `project_dir` parameter):**",
+		"**call the " + clusterProjectsRef + " tool (passing absolute `project_dir` parameter):**",
 		"",
 		"```",
-		"graphit_cluster_projects(project_dir: \"/path/to/project\")",
+		clusterProjects + "(project_dir: \"/path/to/project\")",
 		"```",
 		"",
 		"This tool returns a JSON map containing all sibling projects that belong to the **same cluster**",
-		"as the current project. Clusters are managed via `graphit_cluster_set`, `graphit_cluster_get`,",
-		"and `graphit_cluster_unset` MCP tools — projects sharing at least one identical cluster label",
+		"as the current project. Clusters are managed via " + clusterSetRef + ", " + clusterGetRef + ",",
+		"and " + clusterUnsetRef + " MCP tools — projects sharing at least one identical cluster label",
 		"are grouped together. Projects without any labels form their own default group.",
 		"",
 		"Each sibling project entry includes:",
@@ -248,7 +268,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"- **Discover and navigate** — find sibling project directories and read their source or docs",
 		"- **Query code in another project** — run AST query against a sibling (always pass its absolute path in the `project_dir` parameter):",
 		"  ```",
-		"  graphit_ast_query(project_dir: \"/path/to/other-project\", query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path\", ai_optimized: true)",
+		"  " + astQuery + "(project_dir: \"/path/to/other-project\", query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path\", ai_optimized: true)",
 		"  ```",
 		"- **Read another project's knowledge wiki** — understand its architecture without grepping by using the `view_file` (or read file) tool on:",
 		"  ```",
@@ -258,8 +278,8 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"  use the path from the tool output to locate, read, and edit files there directly",
 		"",
 		"**Example workflow:** The user asks \"how does the auth service validate tokens?\".",
-		"You call `graphit_cluster_projects` to find the auth service project path,",
-		"then call `graphit_ast_query` with `project_dir: \"/path/to/auth-service\"`, `query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number\"`, and `ai_optimized: true` to locate the validation logic, and read the relevant source files.",
+		"You call " + clusterProjectsRef + " to find the auth service project path,",
+		"then call " + astQueryRef + " with `project_dir: \"/path/to/auth-service\"`, `query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number\"`, and `ai_optimized: true` to locate the validation logic, and read the relevant source files.",
 	)
 
 	lines = append(lines,
@@ -267,7 +287,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"## ⚠️ Rule",
 		"",
 		"Rely entirely on the official artifacts from the Hub rather than generic internet knowledge.",
-		"When in doubt: call `graphit_hub_list` → `graphit_hub_show` → `graphit_hub_install`.",
+		"When in doubt: call " + hubListRef + " → " + hubShowRef + " → " + hubInstallRef + ".",
 	)
 
 	return strings.Join(lines, "\n") + "\n"
@@ -277,6 +297,19 @@ var hubSkillName = brand.SkillDirName("hub")
 
 func HubRouterContent(installed []InstalledArtifactInfo) string {
 	dotBrand := brand.DotDir()
+
+	astQueryRef := brand.MCPToolRef("ast", "query")
+	astQuery := brand.MCPToolName("ast", "query")
+	hubListRef := brand.MCPToolRef("hub", "list")
+	hubShowRef := brand.MCPToolRef("hub", "show")
+	hubInstallRef := brand.MCPToolRef("hub", "install")
+	hubUpdateRef := brand.MCPToolRef("hub", "update")
+	clusterProjectsRef := brand.MCPToolRef("cluster", "projects")
+	clusterProjects := brand.MCPToolName("cluster", "projects")
+	clusterSetRef := brand.MCPToolRef("cluster", "set")
+	clusterGetRef := brand.MCPToolRef("cluster", "get")
+	clusterUnsetRef := brand.MCPToolRef("cluster", "unset")
+
 	lines := []string{
 		"# 🔗 Hub Discovery",
 		"",
@@ -289,7 +322,7 @@ func HubRouterContent(installed []InstalledArtifactInfo) string {
 		"- Needing documentation or code examples for an external dependency",
 		"- Looking for reusable rules, skills, commands, agents, or MCP servers",
 		"- Setting up a new project or adding new dependencies",
-		"- When `graphit_ast_query` returns no results for an external library (it might have a hub artifact)",
+		"- When " + astQueryRef + " returns no results for an external library (it might have a hub artifact)",
 		"",
 		"## 🔒 MANDATORY: Read Skill Before Acting",
 		"",
@@ -301,35 +334,35 @@ func HubRouterContent(installed []InstalledArtifactInfo) string {
 		"",
 		"## Quick Reference (always active)",
 		"",
-		"- **Search**: call `graphit_hub_list` tool",
-		"- **Filter**: call `graphit_hub_list` tool with `type` parameter",
-		"- **Inspect**: call `graphit_hub_show` tool with `id` parameter",
-		"- **Install**: call `graphit_hub_install` tool (passing absolute `project_dir` parameter)",
-		"- **Update**: call `graphit_hub_update` tool (passing absolute `project_dir` parameter)",
+		"- **Search**: call " + hubListRef + " tool",
+		"- **Filter**: call " + hubListRef + " tool with `type` parameter",
+		"- **Inspect**: call " + hubShowRef + " tool with `id` parameter",
+		"- **Install**: call " + hubInstallRef + " tool (passing absolute `project_dir` parameter)",
+		"- **Update**: call " + hubUpdateRef + " tool (passing absolute `project_dir` parameter)",
 		"",
 		"## ⛔ Critical Rule",
 		"",
 		"**NEVER guess APIs or structures.** If uncertain about a framework or library,",
-		"check the Hub first: call `graphit_hub_list` → `graphit_hub_show` → `graphit_hub_install`.",
+		"check the Hub first: call " + hubListRef + " → " + hubShowRef + " → " + hubInstallRef + ".",
 		"",
 		"## 🔗 Subagent Hub Access",
 		"",
 		"**When spawning subagents that work with external libraries, include in their prompt:**",
-		`"Before implementing integrations with external libraries, check if knowledge artifacts exist: call ` + "`graphit_hub_list` with `type: \"knowledge\"` → call `graphit_hub_install` with `id: \"<id>\"` (passing absolute `project_dir`).\"",
+		`"Before implementing integrations with external libraries, check if knowledge artifacts exist: call ` + hubListRef + ` with ` + "`type: \"knowledge\"` → call " + hubInstallRef + " with `id: \"<id>\"` (passing absolute `project_dir`).\"",
 		"",
 		"## 🌐 Ecosystem Project Discovery",
 		"",
 		"**When you need to find other projects in the work ecosystem** (e.g., to understand",
 		"cross-project dependencies, shared libraries, related services, or sibling projects),",
-		"**call the `graphit_cluster_projects` tool (passing absolute `project_dir` parameter):**",
+		"**call the " + clusterProjectsRef + " tool (passing absolute `project_dir` parameter):**",
 		"",
 		"```",
-		"graphit_cluster_projects(project_dir: \"/path/to/project\")",
+		clusterProjects + "(project_dir: \"/path/to/project\")",
 		"```",
 		"",
 		"This tool returns a JSON map containing all sibling projects that belong to the **same cluster**",
-		"as the current project. Clusters are managed via `graphit_cluster_set`, `graphit_cluster_get`,",
-		"and `graphit_cluster_unset` MCP tools.",
+		"as the current project. Clusters are managed via " + clusterSetRef + ", " + clusterGetRef + ",",
+		"and " + clusterUnsetRef + " MCP tools.",
 		"",
 		"Each sibling project entry includes:",
 		"",
@@ -346,7 +379,7 @@ func HubRouterContent(installed []InstalledArtifactInfo) string {
 		"- **Discover and navigate** — find sibling project directories and read their source, docs, or lockfile",
 		"- **Query code in another project** — run AST query against a sibling (always pass its absolute path in the `project_dir` parameter):",
 		"  ```",
-		"  graphit_ast_query(project_dir: \"/path/to/other-project\", query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path\", ai_optimized: true)",
+		"  " + astQuery + "(project_dir: \"/path/to/other-project\", query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path\", ai_optimized: true)",
 		"  ```",
 		"- **Read another project's knowledge wiki** — understand its architecture without grepping by using the `view_file` (or read file) tool on:",
 		"  ```",
@@ -356,8 +389,8 @@ func HubRouterContent(installed []InstalledArtifactInfo) string {
 		"  use the path from the tool output to locate, read, and edit files there directly",
 		"",
 		"**Example workflow:** The user asks \"how does the auth service validate tokens?\".",
-		"You call `graphit_cluster_projects` to find the auth service project path,",
-		"then call `graphit_ast_query` with `project_dir: \"/path/to/auth-service\"`, `query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number\"`, and `ai_optimized: true` to locate the validation logic, and read the relevant source files.",
+		"You call " + clusterProjectsRef + " to find the auth service project path,",
+		"then call " + astQueryRef + " with `project_dir: \"/path/to/auth-service\"`, `query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number\"`, and `ai_optimized: true` to locate the validation logic, and read the relevant source files.",
 	}
 
 	lines = append(lines, "", "## Installed Artifacts", "")

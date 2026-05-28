@@ -7,6 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
 	"github.com/graphit-labs/graphit-code/internal/wikisvc"
 )
@@ -33,7 +34,7 @@ type wikiSessionsInput struct {
 
 func registerWikiTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_wiki_search",
+		Name:        brand.MCPToolName("wiki", "search"),
 		Description: "Search across multiple wiki sources using AI-powered retrieval.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiSearchInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -65,7 +66,7 @@ func registerWikiTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_wiki_chat",
+		Name:        brand.MCPToolName("wiki", "chat"),
 		Description: "Continue a wiki chat session started by graphit_wiki_search.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiChatInput) (*mcp.CallToolResult, any, error) {
 		if input.SessionID == "" {
@@ -85,7 +86,7 @@ func registerWikiTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_wiki_sessions",
+		Name:        brand.MCPToolName("wiki", "sessions"),
 		Description: "List or delete wiki chat sessions.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiSessionsInput) (*mcp.CallToolResult, any, error) {
 		switch input.Action {

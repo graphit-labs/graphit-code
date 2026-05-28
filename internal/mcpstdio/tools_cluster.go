@@ -33,7 +33,7 @@ type clusterProjectsInput struct {
 
 func registerClusterTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_cluster_set",
+		Name:        brand.MCPToolName("cluster", "set"),
 		Description: "Set a cluster label for grouping the project in the ecosystem.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input clusterSetInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -71,7 +71,7 @@ func registerClusterTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_cluster_get",
+		Name:        brand.MCPToolName("cluster", "get"),
 		Description: "Get a specific cluster label value, or all cluster labels set on the project.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input clusterGetInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -119,7 +119,7 @@ func registerClusterTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_cluster_unset",
+		Name:        brand.MCPToolName("cluster", "unset"),
 		Description: "Remove a cluster label from the project.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input clusterUnsetInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -157,7 +157,7 @@ func registerClusterTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_cluster_projects",
+		Name:        brand.MCPToolName("cluster", "projects"),
 		Description: "List sibling projects in the same cluster as the current project.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input clusterProjectsInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)

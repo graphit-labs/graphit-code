@@ -69,7 +69,7 @@ type versionInput struct{}
 
 func registerLifecycleTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_init",
+		Name:        brand.MCPToolName("init"),
 		Description: "Initialize a new project in the given project directory, creating project identity and lockfiles.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input initInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -138,7 +138,7 @@ func registerLifecycleTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_sync",
+		Name:        brand.MCPToolName("sync"),
 		Description: "Sync and reindex all local modules, AST DB, memory wikis, and update IDE rules.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input syncInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -206,7 +206,7 @@ func registerLifecycleTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_update",
+		Name:        brand.MCPToolName("update"),
 		Description: "Update all installed hub artifacts to their latest version and refresh rules.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input updateInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -239,7 +239,7 @@ func registerLifecycleTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_remove",
+		Name:        brand.MCPToolName("remove"),
 		Description: "Uninstall and remove Graphit from the current project.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input removeInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
@@ -278,7 +278,7 @@ func registerLifecycleTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_config_set",
+		Name:        brand.MCPToolName("config", "set"),
 		Description: "Set a configuration key to the specified value globally or locally.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configSetInput) (*mcp.CallToolResult, any, error) {
 		if input.Global {
@@ -310,7 +310,7 @@ func registerLifecycleTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_config_get",
+		Name:        brand.MCPToolName("config", "get"),
 		Description: "Get the value of a configuration key.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configGetInput) (*mcp.CallToolResult, any, error) {
 		if input.Global {
@@ -342,7 +342,7 @@ func registerLifecycleTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_config_unset",
+		Name:        brand.MCPToolName("config", "unset"),
 		Description: "Unset a configuration key.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configUnsetInput) (*mcp.CallToolResult, any, error) {
 		if input.Global {
@@ -371,7 +371,7 @@ func registerLifecycleTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_config_list",
+		Name:        brand.MCPToolName("config", "list"),
 		Description: "List all configuration keys and their values.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input configListInput) (*mcp.CallToolResult, any, error) {
 		var cfg config.ConfigMap
@@ -398,7 +398,7 @@ func registerLifecycleTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "graphit_version",
+		Name:        brand.MCPToolName("version"),
 		Description: "Get the current version of the Graphit CLI and MCP server.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input versionInput) (*mcp.CallToolResult, any, error) {
 		return textResult(version.Version)
