@@ -195,6 +195,18 @@ Graphit Code is a single self-contained binary written in Go. All data persists 
 
 ---
 
+## Enterprise & Brand Customization (White-Labeling)
+
+Graphit Code is built to be customized for private, self-hosted enterprise environments:
+- **100% Private Data:** Local syntactic parsing (Tree-sitter), local embedded graph database (LadybugDB), local embedding computations (ONNX runtime), and Git-backed repositories that stay inside your private network.
+- **Custom Branding (White-Labeling):** Compile the binary using Go `-ldflags` overrides to customize the binary name (`Brand`), the display name (`DisplayName`), environment variables, and default Git-backed registry repositories.
+- **Private Team Ecosystems:** Set up team-wide coding standards, shared agent skills, and local microservices discovery securely.
+- **Keyless AI Harness:** Run agentic tasks without configuring separate LLM API keys. The framework leverages the active sessions, credentials, and quotas of developers' existing IDE and CLI agents natively.
+
+For instructions, see the **[Private Branding & Customization Guide](docs/guides/private_brand_customization.md)**.
+
+---
+
 ## Documentation
 
 Visit the **[Documentation Hub](docs/README.md)** for a complete index of all guides and manuals.
@@ -203,6 +215,7 @@ Visit the **[Documentation Hub](docs/README.md)** for a complete index of all gu
 - **[Getting Started](docs/guides/getting_started.md)**: Install, requirements, setup, and verification.
 - **[CLI Command Reference](docs/guides/cli_reference.md)**: Manual detailing every command and flag.
 - **[User Manual](docs/guides/user_manual.md)**: Interactive canvas, memories, and dreaming.
+- **[Private Branding & Customization](docs/guides/private_brand_customization.md)**: White-labeling build parameters, private hubs, and secure networks.
 
 ### Technical Specifications
 - **[System Architecture](docs/architecture/architecture_overview.md)**: Layer design and process wrapper.
