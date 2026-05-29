@@ -141,24 +141,16 @@ graphit ui  # Opens http://localhost:8080
 ### 2. AST Graph Explorer — Instant & Deterministic
 Query the AST across the ecosystem instantly. Auto-incremental indexing ensures your agent always knows exactly where a function is defined or called. **Eliminates hallucinations** by grounding answers in exact structural truths, and drastically **reduces LLM token usage** by passing only precise nodes instead of massive files.
 
-<p align="center">
-  <img src="docs/site/assets/ast-cypher-query.png" alt="AST Cypher Query with Results" width="100%">
-</p>
-
 ### 3. LLM Wiki & Knowledge Discovery
 Documentation designed for agents. Replaces opaque vector embeddings with deterministic **self-discovery** and explicit **back-referencing**. The agent organically explores the wiki graph to find exact context, guaranteeing precise retrieval without hallucinated semantic matches.
 - **Auto Sync:** Runs smoothly in the background to automatically keep your knowledge and code graphs perfectly aligned in real-time.
 
 <p align="center">
-  <img src="docs/site/assets/knowledge-wiki.png" alt="Knowledge Wiki Explorer" width="100%">
+  <img src="docs/site/assets/memory-explorer.png" alt="Memory Explorer" width="100%">
 </p>
 
 ### 4. Continuous Collaborative Memory
 Supports both **shared project memory** for the entire team and **personal memory** tailored to the individual user. The system automatically self-refines its memories over time, guaranteeing extreme assertiveness in the agent's actions by recalling conventions, corrections, and past decisions across all sessions.
-
-<p align="center">
-  <img src="docs/site/assets/memory-explorer.png" alt="Memory Explorer" width="100%">
-</p>
 
 ### 5. Standard Skills & Router Strategy
 Graphit Code ships with default explicit standard skills. To prevent LLM context exhaustion and loss of attention, it employs a **router strategy** that loads only the relevant context when needed. All rules are fully customizable globally or per project.
@@ -205,12 +197,25 @@ Graphit Code is a single self-contained binary written in Go. All data persists 
 
 ## Documentation
 
-Explore the technical specifications:
-- [AST Module](docs/specs/ast_module.md)
-- [Wiki Module](docs/specs/wiki_module.md)
-- [Memory Module](docs/specs/memory_module.md)
-- [Hub Collaboration](docs/specs/hub_collaboration.md)
-- [Cluster Discovery](docs/specs/cluster_microservices.md)
+Visit the **[Documentation Hub](docs/README.md)** for a complete index of all guides and manuals.
+
+### User Guides
+- **[Getting Started](docs/guides/getting_started.md)**: Install, requirements, setup, and verification.
+- **[CLI Command Reference](docs/guides/cli_reference.md)**: Manual detailing every command and flag.
+- **[User Manual](docs/guides/user_manual.md)**: Interactive canvas, memories, and dreaming.
+
+### Technical Specifications
+- **[System Architecture](docs/architecture/architecture_overview.md)**: Layer design and process wrapper.
+- **[AST Module Spec](docs/specs/ast_module.md)**: Graph database LadybugDB, Cypher builder, and parser.
+- **[Wiki Module Spec](docs/specs/wiki_module.md)**: Obsidian wiki, LPA, fuzzy match, and search engine.
+- **[Memory Module Spec](docs/specs/memory_module.md)**: Scope partitioning and consolidation.
+- **[Hub Collaboration Spec](docs/specs/hub_collaboration.md)**: Registry git-store and locks.
+- **[Daemon Module Spec](docs/specs/daemon_module.md)**: Supervisors, schedulers, and servers.
+- **[Dream Module Spec](docs/specs/dream_module.md)**: Background worker, idle timeout monitoring, and worktree isolation.
+- **[Improvements Module Spec](docs/specs/improvements_module.md)**: Rules resolved order and Clean Code.
+- **[UI Dashboard Spec](docs/specs/ui_dashboard.md)**: React force-directed canvas and uiserver handlers.
+- **[AI Engine Spec](docs/specs/ai_engine.md)**: ONNX models, embedding providers, and prompt completions.
+- **[Cluster Discovery Spec](docs/specs/cluster_microservices.md)**: Projects registry and cross-project delegated queries.
 
 ---
 
