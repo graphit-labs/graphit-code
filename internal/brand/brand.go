@@ -45,8 +45,6 @@ func PrinterPrefix(module string) string { return Brand + ":" + module }
 
 func TempDirPrefix(module string) string { return Brand + "-" + module + "-" }
 
-func JarName() string { return Brand + "-antlr-parser.jar" }
-
 func ManagedMCPKey() string { return "_" + Brand + "ManagedMcpKeys" }
 
 func GlobalDir() string {

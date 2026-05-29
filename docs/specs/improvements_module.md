@@ -97,4 +97,4 @@ Every code modification triggers a mandatory reflection process:
 
 1. **Convention Extraction**: The agent reflects on the changes made to identify recurring patterns or preferences.
 2. **Memory Staging**: Extracted preferences are stored as project or user memories using the `memory` package.
-3. **Hub Deployment**: Staged improvements or templates are packaged and deployed to the central Registry Hub.
+3. **Hub Staging & Codification**: Staged improvements, templates, or instructions are codified as local artifacts (such as custom `skills`, `rules`, `commands`, or `workflows`) inside the project's `.agents/` directory. These local artifacts can then be shared with the team via standard Git version control, or explicitly registered/submitted to the Hub repository using CLI commands if collaborative reuse across projects is desired.

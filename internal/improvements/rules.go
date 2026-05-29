@@ -526,7 +526,7 @@ func DefaultRules() string {
 	b.WriteString("  2. [rule] no-direct-db-access\n")
 	b.WriteString("     → Enforces repository layer as the only DB access point\n")
 	b.WriteString("     Path: .agents/rules/no-direct-db-access.md\n\n")
-	b.WriteString("To submit to the Hub (optional):\n")
+	b.WriteString("To manually publish/submit this artifact to the shared remote Hub repository (optional):\n")
 	b.WriteString("  graphit hub submit <artifact-id> <path> --type <type> --version 1.0.0\n")
 	b.WriteString("```\n\n")
 
@@ -544,7 +544,7 @@ func DefaultRules() string {
 	b.WriteString("- Look in the IDE artifact directories for existing artifacts\n")
 	b.WriteString("- If an existing skill/rule is incomplete or could benefit from what you learned, **update it directly**\n")
 	b.WriteString("- Report what you changed in the Reflection Summary\n\n")
-	b.WriteString("To submit updates to the Hub:\n")
+	b.WriteString("To manually publish/submit updates to the remote Hub:\n")
 	b.WriteString("```bash\n")
 	b.WriteString("graphit hub submit <artifact-id> <path> --type <type> --version <new-version>\n")
 	b.WriteString("```\n\n")

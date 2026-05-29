@@ -27,7 +27,7 @@ This format enables AI agents to explore technical manuals through deterministic
 
 ## 📂 Obsidian Wiki Compilation
 
-On synchronization (`graphit sync`), the indexer pipeline scans markdown files inside the project's documentation folder (e.g. `docs/`).
+On synchronization (`graphit sync`), the indexer pipeline scans markdown files inside the project's root directory (by default, or a custom folder if configured under the `knowledge.docs_dir` key in `graphit.lock.json`).
 It compiles these files into a structured wiki path (default: `.graphit/knowledge/project/`):
 
 - **`index.md`**: The entry point.
@@ -56,34 +56,27 @@ Louvain optimizes the modularity score (a metric indicating the density of conne
 
 ---
 
-## 🔍 Search Engines: Hybrid RRF & Trigram Fuzzy Resolution
+## 🔍 Search Engine: Lexical BM25 & Trigram Link Resolution
 
-The Wiki search engine uses a hybrid retrieval model:
+The Wiki search engine uses a lexical retrieval model combined with a spelling-tolerant page link resolver:
 
-### 1. BM25 Search (`internal/wiki/bm25.go`)
-An implementation of the Okapi BM25 TF-IDF ranking function.
+### 1. BM25 Pre-Filtering (`internal/wiki/bm25.go`)
+An implementation of the Okapi BM25 TF-IDF ranking algorithm.
 It calculates document relevance based on term frequency and document length normalization:
 ```go
 score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl / avg_dl))
 ```
 **Stopwords filtering**: Removes generic English articles and prepositions (e.g. *the, an, that, with*).
+This lexical search runs as a pre-filtering pass when a query is received to initialize the AI discovery loop with relevant page references.
 
-### 2. Trigram Fuzzy Resolution
-To resolve typos or spelling discrepancies in page links, `internal/wiki/search.go` implements trigram similarity:
+### 2. Trigram Fuzzy Link Resolution
+To resolve typos or spelling discrepancies in page link requests made by the user or the LLM agent, `internal/wiki/search.go` implements trigram similarity:
 - Splits words into sets of three-letter character sequences (trigrams).
-- Computes Jaccard similarity:
+- Computes the Jaccard similarity coefficient:
   ```go
   similarity = len(intersection(trigrams_A, trigrams_B)) / len(union(trigrams_A, trigrams_B))
   ```
-- If similarity is above `0.65`, it fuzzy-resolves the page name.
-
-### 3. Reciprocal Rank Fusion (RRF)
-RRF combines search results from the lexical BM25 index and the semantic vector embeddings:
-- Re-ranks documents based on their reciprocal position in each individual rank list:
-  ```go
-  RRF_Score(d) = sum( 1 / (k + rank_i(d)) )
-  ```
-  (where `k` is a constant, default 60).
+- If the similarity coefficient is above `0.65`, the engine fuzzy-resolves the page request to the closest matching document filename.
 
 ---
 

@@ -9,7 +9,6 @@ keywords:
   - Cypher
   - parser
   - Tree-sitter
-  - ANTLR
 prerequisites:
   - "docs/architecture/architecture_overview.md"
 related:
@@ -92,16 +91,9 @@ LadybugDB uses standard graph database constraints, but does not support all com
 
 The engine supports multiple language parsers to build the tree:
 
-### 1. Tree-sitter Adapters (`internal/ast/treesitter_adapter.go`)
+### Tree-sitter Adapters (`internal/ast/treesitter_adapter.go`)
 Used to parse mainstream languages (like Go, Dart, TypeScript, JavaScript) into the AST database.
 It compiles nodes by analyzing variables, structure, and functions matching the target language rules.
-
-### 2. ANTLR Adapters
-Graphit Code includes parser support for enterprise databases and legacy systems.
-It compiles grammars using an ANTLR Java wrapper:
-- **PL/SQL Grammar**: Parses Oracle PL/SQL packages, procedures, triggers, columns, tables, and selects/updates/deletes DML actions.
-- **NiFi Grammar**: Indexes Apache NiFi configurations.
-- **Oracle Forms & Reports**: Parses Oracle Forms `.fmt` and `.rex` code.
 
 ---
 
@@ -115,3 +107,34 @@ To index massive codebases without consuming heavy CPU cycles, `internal/ast/pip
    If a file's hash matches the database's `content_hash`, parsing is skipped, preserving existing nodes.
 3. **Thread-Safe Batching**:
    Files are queued into worker pools. Go workers process files concurrently, pushing results to a single-threaded SQLite writer connection to avoid database write contention.
+
+---
+
+## 🔍 Search Engines: Hybrid RRF & Trigram FTS
+
+The AST query engine features a multi-pass hybrid retrieval pipeline (`internal/ast/fts_sqlite.go` / `internal/ast/query.go`) to resolve natural language and code identifiers to exact structural entities and files:
+
+### 1. Multi-Pass FTS5 Search
+For lexical matching, the search index splits complex code identifiers (e.g., camelCase, PascalCase, snake_case) into separate words and executes multiple query passes using SQLite's FTS5 engine:
+- **Phrase Pass**: Searches for the exact raw query string in quotes.
+- **AND Pass**: Requires all query tokens to be present.
+- **OR Pass**: Matches documents containing any query tokens.
+- **Prefix Pass**: Appends a wildcard (`*`) to all query tokens to match partial prefixes.
+
+### 2. SQLite Trigram Matching
+To resolve typos and support robust substring matching in entity names, the engine leverages a SQLite trigram index:
+- Splits code identifiers into three-character sequences.
+- Performs fast trigram lookups on the `entity_trigram` table.
+
+### 3. Semantic Vector Search
+When vector embeddings are enabled and synchronized, the engine performs a semantic vector search:
+- Computes high-dimensional embeddings for queries using the model manager.
+- Performs cosine similarity lookup using the SQLite-vec extension on the `entity_vec` table.
+
+### 4. Reciprocal Rank Fusion (RRF)
+To unify rankings across all lexical passes, trigram lookups, and semantic search streams, the engine fuses scores using Reciprocal Rank Fusion:
+```go
+RRF_Score(d) = sum( weight / (k + rank_i(d)) )
+```
+(where `k` is a constant, default 60, and each pass uses a custom weight).
+This ensures exact lexical hits rank highly, while semantic and fuzzy matches boost relevant candidates when the exact name isn't matched.

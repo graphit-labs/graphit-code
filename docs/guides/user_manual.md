@@ -45,7 +45,8 @@ The AST Explorer features an interactive **3D force-directed node canvas** that 
   The canvas renders the matching subset of nodes, while the results panel lists data in a tabular format.
 
 ### 2. Wiki and Knowledge Explorer
-The Wiki Explorer indexes the files in your `docs/` folder:
+The Wiki Explorer indexes the markdown files in your codebase:
+- **Default Indexing Path**: By default, it scans the entire project root directory (respecting ignore rules). You can customize this by setting `knowledge.docs_dir` in your configuration to point to a specific directory (like `docs/`).
 - **Index & Logs**: Read a compiled list of all registered documents, categorized into community graphs.
 - **Search**: Perform unified searches combining Full-Text Search (FTS) and semantic keyword matching.
 - **Wikilinks**: Click on highlighted links to explore adjacent topics and track inbound back-references.

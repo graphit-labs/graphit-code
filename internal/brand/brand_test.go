@@ -63,9 +63,6 @@ func TestSimpleBrandFunctions(t *testing.T) {
 	if TempDirPrefix("mod") != "testbrand-mod-" {
 		t.Errorf("TempDirPrefix() = %q; want %q", TempDirPrefix("mod"), "testbrand-mod-")
 	}
-	if JarName() != "testbrand-antlr-parser.jar" {
-		t.Errorf("JarName() = %q; want %q", JarName(), "testbrand-antlr-parser.jar")
-	}
 	if ManagedMCPKey() != "_testbrandManagedMcpKeys" {
 		t.Errorf("ManagedMCPKey() = %q; want %q", ManagedMCPKey(), "_testbrandManagedMcpKeys")
 	}

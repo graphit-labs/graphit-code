@@ -45,7 +45,7 @@ Understand how the Graphit Code system is structured:
 
 Explore the engineering specifications of each internal package:
 
-- **[AST Module Specification](specs/ast_module.md)**: LadybugDB graph schema, Cypher translation, ANTLR parser, and language syntax trees.
+- **[AST Module Specification](specs/ast_module.md)**: LadybugDB graph schema, Cypher translation, language syntax trees, and hybrid FTS/semantic search.
 - **[Wiki Module Specification](specs/wiki_module.md)**: Obsidian wiki, BM25 indices, Louvain community detection, and fuzzy reference resolution.
 - **[Memory Module Specification](specs/memory_module.md)**: Git-backed project and user memory wikis, cycles, and memory rules.
 - **[Hub Collaboration Specification](specs/hub_collaboration.md)**: Registry managers, lockfile metadata tracking, and artifact publishing.
