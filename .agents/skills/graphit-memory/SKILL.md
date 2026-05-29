@@ -73,7 +73,6 @@ Impact: <how it impacted the system — side effects, files changed, behavior ch
 |---|---|---|
 | User says "always/never/prefer/avoid/must" about code | Store as convention | `graphit_memory_insert` with `title: "<rule>"`, `type: "convention"`, `important: true` |
 | User corrects your behavior or approach | Store the correction | `graphit_memory_insert` with `title: "<correction>"`, `type: "correction"`, `important: true`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| User **gives any instruction or directive** (even without "always/never") | **Evaluate for memory** — determine if it contains a convention, preference, correction, fact, or skill worth persisting. If yes, memorize it with the appropriate type. NEVER just say "understood" or confirm comprehension without evaluating. | `graphit_memory_insert` with appropriate `type` if the instruction is worth persisting |
 | User **guides, orients, or gives direction** on how to proceed | Store the guidance | `graphit_memory_insert` with `title: "<guidance>"`, `type: "convention"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
 | User **intervenes** mid-task to change course or redirect | Store the intervention as correction | `graphit_memory_insert` with `title: "<intervention>"`, `type: "correction"`, `important: true`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
 | User gives a **tip, hint, or suggestion** on how to do something | Store as skill | `graphit_memory_insert` with `title: "<tip>"`, `type: "skill"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
@@ -211,4 +210,3 @@ runs automatically. If it fails, trigger manually calling the `graphit_memory_in
 4. **Capture trade-offs, not just facts.** "We chose X over Y because Z" > "We use X".
 5. **Handle contradictions.** Remove old + create new. Don't leave conflicting memories.
 6. **Promote critical memories.** Conventions, corrections, and constraints should be marked important.
-7. **NEVER just say "understood" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate whether it should be memorized. If it contains a convention, preference, correction, workflow, fact, or any persistent knowledge, create a memory immediately. Only skip memorization if the instruction is purely about an ephemeral, one-shot action with no future relevance.

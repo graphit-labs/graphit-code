@@ -55,6 +55,8 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 		}
 	}
 
+	loadedPages := make(map[string]bool)
+
 	for turn := 0; turn < cfg.MaxTurns; turn++ {
 		result.Turns = turn + 1
 
@@ -117,21 +119,29 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 		}
 
 		var loaded []string
+		foundAny := false
 		for _, page := range pages {
-			content := loadWikiPage(cfg.WikiDir, page)
+			content, resolvedSlug := loadWikiPage(cfg.WikiDir, page)
 			if content != "" {
-				loaded = append(loaded, fmt.Sprintf("=== %s.md ===\n%s", page, content))
-				result.TokensSent += len(content) / 4
+				foundAny = true
+				if !loadedPages[resolvedSlug] {
+					loadedPages[resolvedSlug] = true
+					loaded = append(loaded, fmt.Sprintf("=== %s.md ===\n%s", resolvedSlug, content))
+					result.TokensSent += len(content) / 4
+				}
 			}
 		}
 
-		if len(loaded) == 0 {
-
+		if !foundAny {
 			result.Answer = fmt.Sprintf("(no matching pages found for: %s)", strings.Join(pages, ", "))
 			return result, nil
 		}
 
-		context_ = fmt.Sprintf("%s\n\n%s", context_, strings.Join(loaded, "\n\n"))
+		if len(loaded) > 0 {
+			context_ = fmt.Sprintf("%s\n\n%s", context_, strings.Join(loaded, "\n\n"))
+		} else {
+			context_ = fmt.Sprintf("%s\n\nSystem: All requested pages (%s) are already loaded in the context above.", context_, strings.Join(pages, ", "))
+		}
 	}
 
 	finalMsg := fmt.Sprintf(
@@ -200,7 +210,7 @@ func BM25Search(wikiDir, query string, topN int) []BM25Result {
 	results := idx.Search(query, topN)
 
 	for i := range results {
-		content := loadWikiPage(wikiDir, strings.TrimSuffix(results[i].Path, ".md"))
+		content, _ := loadWikiPage(wikiDir, strings.TrimSuffix(results[i].Path, ".md"))
 		if content != "" {
 			results[i].Snippet = extractSnippet(content, query)
 		}
@@ -297,7 +307,7 @@ func parsePageList(reply string) []string {
 	return pages
 }
 
-func loadWikiPage(wikiDir, page string) string {
+func loadWikiPage(wikiDir, page string) (string, string) {
 	candidates := []string{
 		filepath.Join(wikiDir, page+".md"),
 		filepath.Join(wikiDir, SafeFilename(page)+".md"),
@@ -305,8 +315,96 @@ func loadWikiPage(wikiDir, page string) string {
 	for _, p := range candidates {
 		data, err := os.ReadFile(p)
 		if err == nil {
-			return string(data)
+			slug := strings.TrimSuffix(filepath.Base(p), ".md")
+			return string(data), slug
 		}
+	}
+
+	// Fallback to fuzzy matching using trigrams
+	if bestMatch := findBestFuzzyMatch(wikiDir, page); bestMatch != "" {
+		p := filepath.Join(wikiDir, bestMatch+".md")
+		data, err := os.ReadFile(p)
+		if err == nil {
+			return string(data), bestMatch
+		}
+	}
+
+	return "", ""
+}
+
+func cleanForFuzzy(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func getTrigrams(s string) map[string]bool {
+	s = strings.ToLower(s)
+	trigrams := make(map[string]bool)
+	if len(s) < 3 {
+		trigrams[s] = true
+		return trigrams
+	}
+	for i := 0; i <= len(s)-3; i++ {
+		trigrams[s[i:i+3]] = true
+	}
+	return trigrams
+}
+
+func trigramSimilarity(s1, s2 string) float64 {
+	t1 := getTrigrams(s1)
+	t2 := getTrigrams(s2)
+
+	intersection := 0
+	for k := range t1 {
+		if t2[k] {
+			intersection++
+		}
+	}
+	union := len(t1) + len(t2) - intersection
+	if union == 0 {
+		return 0.0
+	}
+	return float64(intersection) / float64(union)
+}
+
+func findBestFuzzyMatch(wikiDir, targetPage string) string {
+	targetClean := cleanForFuzzy(targetPage)
+	if targetClean == "" {
+		return ""
+	}
+
+	entries, err := os.ReadDir(wikiDir)
+	if err != nil {
+		return ""
+	}
+
+	bestMatch := ""
+	bestScore := 0.0
+
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+		slug := strings.TrimSuffix(entry.Name(), ".md")
+		if slug == "index" || slug == "log" {
+			continue
+		}
+
+		slugClean := cleanForFuzzy(slug)
+		score := trigramSimilarity(targetClean, slugClean)
+		if score > bestScore {
+			bestScore = score
+			bestMatch = slug
+		}
+	}
+
+	if bestScore >= 0.65 {
+		return bestMatch
 	}
 	return ""
 }

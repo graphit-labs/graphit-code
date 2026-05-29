@@ -66,11 +66,12 @@ func BuildCrossRefGraph(wikiDir string) (*CrossRefGraph, error) {
 		seen := make(map[string]bool)
 		for _, m := range matches {
 			target := m[1]
-			if target == slug || seen[target] {
+			resolvedTarget := ResolveSlug(target)
+			if resolvedTarget == "" || resolvedTarget == slug || seen[resolvedTarget] {
 				continue
 			}
-			seen[target] = true
-			graph.Outbound[slug] = append(graph.Outbound[slug], target)
+			seen[resolvedTarget] = true
+			graph.Outbound[slug] = append(graph.Outbound[slug], resolvedTarget)
 		}
 	}
 
@@ -185,18 +186,60 @@ type BrokenLinkInfo struct {
 	Source string
 }
 
+func stripCodeBlocks(content string) string {
+	var sb strings.Builder
+	inFenced := false
+	inInline := false
+
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inFenced = !inFenced
+			continue
+		}
+		if inFenced {
+			continue
+		}
+
+		var lineBuilder strings.Builder
+		runes := []rune(line)
+		for j := 0; j < len(runes); j++ {
+			if runes[j] == '`' {
+				inInline = !inInline
+				continue
+			}
+			if !inInline {
+				lineBuilder.WriteRune(runes[j])
+			}
+		}
+		sb.WriteString(lineBuilder.String() + "\n")
+	}
+	return sb.String()
+}
+
 func FindWikiLinks(content string) []string {
+	content = stripCodeBlocks(content)
 	matches := reXRefWikiLink.FindAllStringSubmatch(content, -1)
 	seen := make(map[string]bool)
 	var result []string
 	for _, m := range matches {
-		target := m[1]
-		if !seen[target] {
+		target := ResolveSlug(m[1])
+		if target != "" && !seen[target] {
 			seen[target] = true
 			result = append(result, target)
 		}
 	}
 	return result
+}
+
+func ResolveSlug(rawLink string) string {
+	target := rawLink
+	if idx := strings.Index(target, "|"); idx >= 0 {
+		target = target[:idx]
+	}
+	target = strings.TrimSpace(target)
+	return SafeFilename(target)
 }
 
 const backlinksHeader = "## Backlinks"

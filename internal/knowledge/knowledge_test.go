@@ -3,6 +3,7 @@ package knowledge
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -58,3 +59,126 @@ func TestKnowledgePathsAndIgnore(t *testing.T) {
 		t.Error("expected node_modules file to be ignored")
 	}
 }
+
+func TestAutoLinking(t *testing.T) {
+	titlesMap := map[string]string{
+		"Daemon Service": "Daemon_Service",
+		"AST Indexer":    "AST_Indexer",
+	}
+
+	// 1. Basic auto-linking
+	content := "This is a document about Daemon Service and how AST Indexer behaves."
+	linked, refs := autoLinkContent(content, titlesMap, "Some_Other_Page")
+	expectedLinked := "This is a document about [[Daemon_Service|Daemon Service]] and how [[AST_Indexer|AST Indexer]] behaves."
+	if linked != expectedLinked {
+		t.Errorf("expected %q, got %q", expectedLinked, linked)
+	}
+	if len(refs) != 2 || refs[0] != "AST_Indexer" || refs[1] != "Daemon_Service" {
+		t.Errorf("unexpected refs: %v", refs)
+	}
+
+	// 2. Do not link self
+	contentSelf := "Daemon Service talks to AST Indexer."
+	linkedSelf, refsSelf := autoLinkContent(contentSelf, titlesMap, "Daemon_Service")
+	expectedSelf := "Daemon Service talks to [[AST_Indexer|AST Indexer]]."
+	if linkedSelf != expectedSelf {
+		t.Errorf("expected %q, got %q", expectedSelf, linkedSelf)
+	}
+	if len(refsSelf) != 1 || refsSelf[0] != "AST_Indexer" {
+		t.Errorf("unexpected refsSelf: %v", refsSelf)
+	}
+
+	// 3. Ignore code blocks and inline code and existing links
+	contentIgnored := "Use `Daemon Service` and block:\n```go\nvar d = Daemon Service\n```\nAnd existing link [[Daemon_Service|Daemon Service]]."
+	linkedIgnored, _ := autoLinkContent(contentIgnored, titlesMap, "Some_Other_Page")
+	if linkedIgnored != contentIgnored {
+		t.Errorf("expected no auto-linking for code blocks or existing links, got %q", linkedIgnored)
+	}
+}
+
+func TestSplitDocByHeaders(t *testing.T) {
+	longContent := strings.Repeat("word ", 160)
+	doc := knowledgeDoc{
+		title:   "Test Document",
+		docType: "guide",
+		path:    "test.md",
+		body: `---
+title: Test Document
+---
+This is the parent introduction.
+
+## Section One
+` + longContent + `
+
+## Section Two
+Short section content.
+
+## Empty Section
+
+`,
+	}
+
+	splits := splitDocByHeaders(doc)
+	// We expect 2 documents: the parent (which keeps Section Two and Empty Section) and Section One (which is split because it is long).
+	if len(splits) != 2 {
+		t.Fatalf("expected 2 split docs, got %d", len(splits))
+	}
+
+	parent := splits[0]
+	if parent.title != "Test Document" {
+		t.Errorf("expected parent title Test Document, got %q", parent.title)
+	}
+	if !strings.Contains(parent.body, "## Section One\nSee: [[Test Document - Section One]]") {
+		t.Errorf("parent body missing link to Section One: %q", parent.body)
+	}
+	if !strings.Contains(parent.body, "## Section Two\nShort section content.") {
+		t.Errorf("parent body should retain Section Two inline: %q", parent.body)
+	}
+	if !strings.Contains(parent.body, "## Empty Section") {
+		t.Errorf("parent body should retain Empty Section: %q", parent.body)
+	}
+
+	s1 := splits[1]
+	if s1.title != "Test Document - Section One" {
+		t.Errorf("unexpected title for section one: %q", s1.title)
+	}
+	if s1.body != strings.TrimSpace(longContent) {
+		t.Errorf("unexpected body for section one: %q", s1.body)
+	}
+	if s1.parentTitle != "Test Document" {
+		t.Errorf("expected parentTitle Test Document, got %q", s1.parentTitle)
+	}
+}
+
+func TestResolveWikiLinksInBody(t *testing.T) {
+	titlesMap := map[string]string{
+		"Test Document":              "Test_Document",
+		"Test Document - Section One": "Test_Document_-_Section_One",
+	}
+
+	// 1. Exact matches and labels
+	body := "Read [[Test Document - Section One]] or look at [[Test Document|Custom Label]]."
+	resolved := resolveWikiLinksInBody(body, titlesMap)
+	expected := "Read [[Test_Document_-_Section_One]] or look at [[Test_Document|Custom Label]]."
+	if resolved != expected {
+		t.Errorf("expected %q, got %q", expected, resolved)
+	}
+
+	// 2. Case-insensitive matches
+	bodyCI := "Read [[test document - section one]] or [[TEST DOCUMENT]]."
+	resolvedCI := resolveWikiLinksInBody(bodyCI, titlesMap)
+	expectedCI := "Read [[Test_Document_-_Section_One]] or [[Test_Document]]."
+	if resolvedCI != expectedCI {
+		t.Errorf("expected %q, got %q", expectedCI, resolvedCI)
+	}
+
+	// 3. Trigram fuzzy matches (typos)
+	bodyFuzzy := "Read [[Test Docment]] or [[Test Document - Sectin One]]."
+	resolvedFuzzy := resolveWikiLinksInBody(bodyFuzzy, titlesMap)
+	expectedFuzzy := "Read [[Test_Document]] or [[Test_Document_-_Section_One]]."
+	if resolvedFuzzy != expectedFuzzy {
+		t.Errorf("expected %q, got %q", expectedFuzzy, resolvedFuzzy)
+	}
+}
+
+

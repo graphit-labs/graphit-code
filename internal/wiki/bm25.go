@@ -111,6 +111,31 @@ func (idx *BM25Index) Search(query string, topN int) []BM25Result {
 		return nil
 	}
 
+	// Spelling correction / query expansion using trigrams
+	expandedTerms := make([]string, len(queryTerms))
+	for i, term := range queryTerms {
+		if idx.termDocCount[term] > 0 {
+			expandedTerms[i] = term
+			continue
+		}
+
+		bestVocab := ""
+		bestScore := 0.0
+		for vocab := range idx.termDocCount {
+			score := trigramSimilarity(term, vocab)
+			if score > bestScore {
+				bestScore = score
+				bestVocab = vocab
+			}
+		}
+
+		if bestScore >= 0.60 {
+			expandedTerms[i] = bestVocab
+		} else {
+			expandedTerms[i] = term
+		}
+	}
+
 	type scored struct {
 		docID string
 		score float64
@@ -119,7 +144,7 @@ func (idx *BM25Index) Search(query string, topN int) []BM25Result {
 	var results []scored
 	for docID, termFreqs := range idx.docTermFreqs {
 		score := 0.0
-		for _, term := range queryTerms {
+		for _, term := range expandedTerms {
 			tf := float64(termFreqs[term])
 			if tf == 0 {
 				continue

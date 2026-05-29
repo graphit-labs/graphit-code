@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { ChevronRight, ChevronDown, Folder, FolderOpen, FileText } from 'lucide-react'
+import { FileText, ChevronDown, ChevronRight } from 'lucide-react'
 import type { WikiPageMeta } from '@/api/wiki'
 
 interface WikiTreeProps {
@@ -10,148 +10,154 @@ interface WikiTreeProps {
   confColor: (c: number) => string
 }
 
-interface DirNode {
-  name: string
-  path: string
-  children: Record<string, DirNode>
-  pages: WikiPageMeta[]
+interface FlatNode {
+  page: WikiPageMeta
+  displayTitle: string
+  parentPath: string | null
+  children: FlatNode[]
 }
 
-function buildTree(pages: WikiPageMeta[]): DirNode {
-  const root: DirNode = { name: '', path: '', children: {}, pages: [] }
+function buildHierarchy(pages: WikiPageMeta[]): FlatNode[] {
+  const pageMap = new Map<string, WikiPageMeta>()
+  pages.forEach(p => pageMap.set(p.title, p))
 
-  for (const page of pages) {
-    const tags = page.tags && page.tags.length > 0 ? page.tags : ['untagged']
-    
-    for (const tag of tags) {
-      if (!root.children[tag]) {
-        root.children[tag] = { name: tag, path: tag, children: {}, pages: [] }
-      }
-      if (!root.children[tag].pages.some(p => p.path === page.path)) {
-        root.children[tag].pages.push(page)
+  const nodes: FlatNode[] = pages.map(p => {
+    let parentPath: string | null = null
+    let displayTitle = p.title
+
+    const idx = p.title.indexOf(' - ')
+    if (idx > 0) {
+      const parentTitle = p.title.substring(0, idx)
+      const parentPage = pageMap.get(parentTitle)
+      if (parentPage) {
+        parentPath = parentPage.path
+        displayTitle = p.title.substring(idx + 3)
       }
     }
-  }
 
-  return root
+    return {
+      page: p,
+      displayTitle,
+      parentPath,
+      children: []
+    }
+  })
+
+  const nodeMap = new Map<string, FlatNode>()
+  nodes.forEach(n => nodeMap.set(n.page.path, n))
+
+  const rootNodes: FlatNode[] = []
+  nodes.forEach(n => {
+    if (n.parentPath) {
+      const parentNode = nodeMap.get(n.parentPath)
+      if (parentNode) {
+        parentNode.children.push(n)
+      } else {
+        rootNodes.push(n)
+      }
+    } else {
+      rootNodes.push(n)
+    }
+  })
+
+  rootNodes.sort((a, b) => a.page.title.localeCompare(b.page.title))
+  nodes.forEach(n => {
+    n.children.sort((a, b) => a.page.title.localeCompare(b.page.title))
+  })
+
+  return rootNodes
 }
 
-function getExpandedPaths(pages: WikiPageMeta[], selectedPath: string | null): Set<string> {
-  if (!selectedPath) return new Set()
-  const page = pages.find(p => p.path === selectedPath)
-  if (!page) return new Set()
-
-  const tags = page.tags && page.tags.length > 0 ? page.tags : ['untagged']
-  return new Set(tags)
-}
-
-function RootDirEntry({
-  dir,
-  depth,
+function NodeEntry({
+  node,
   selectedPath,
-  expandedPaths,
   onSelect,
   confColor,
   selectedRef,
 }: {
-  dir: DirNode
-  depth: number
+  node: FlatNode
   selectedPath: string | null
-  expandedPaths: Set<string>
   onSelect: (path: string) => void
   confColor: (c: number) => string
   selectedRef: React.RefObject<HTMLButtonElement | null>
 }) {
-  const forceOpen = dir.path ? expandedPaths.has(dir.path) : false
-  const [open, setOpen] = useState(depth === 0 || forceOpen)
-  const hasChildren = Object.keys(dir.children).length > 0 || dir.pages.length > 0
+  const hasChildren = node.children.length > 0
+  const isSelected = selectedPath === node.page.path
+  const [open, setOpen] = useState(true)
+
+  const hasSelectedChild = useMemo(() => {
+    if (!selectedPath) return false
+    const checkSelected = (n: FlatNode): boolean => {
+      if (n.page.path === selectedPath) return true
+      return n.children.some(checkSelected)
+    }
+    return node.children.some(checkSelected)
+  }, [node.children, selectedPath])
 
   useEffect(() => {
-    if (forceOpen) {
-      queueMicrotask(() => setOpen(true))
+    if (hasSelectedChild) {
+      const id = setTimeout(() => setOpen(true), 0)
+      return () => clearTimeout(id)
     }
-  }, [forceOpen])
+  }, [hasSelectedChild])
 
   return (
-    <div className="relative">
-      {dir.name && (
-        <button
-          className="flex items-center gap-2 w-full px-2 py-1.5 hover:bg-accent/40 text-left rounded-lg text-xs font-semibold text-foreground/90 transition-all group my-0.5"
-          style={{ paddingLeft: `${8 + depth * 12}px` }}
-          onClick={() => setOpen((v) => !v)}
-        >
-          {hasChildren ? (
-            open ? (
-              <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground/60 group-hover:text-foreground transition-colors" />
+    <div className="flex flex-col">
+      <div className="group relative flex items-center w-full my-0.5">
+        {hasChildren && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setOpen(!open)
+            }}
+            className="absolute left-1 p-0.5 rounded hover:bg-accent/40 text-muted-foreground/60 hover:text-foreground z-10"
+          >
+            {open ? (
+              <ChevronDown className="w-3 h-3" />
             ) : (
-              <ChevronRight className="w-3.5 h-3.5 shrink-0 text-muted-foreground/60 group-hover:text-foreground transition-colors" />
-            )
-          ) : (
-            <span className="w-3.5" />
+              <ChevronRight className="w-3 h-3" />
+            )}
+          </button>
+        )}
+
+        <button
+          ref={isSelected ? selectedRef as React.RefObject<HTMLButtonElement> : undefined}
+          onClick={() => onSelect(node.page.path)}
+          className={cn(
+            'flex items-center gap-2 w-full py-1.5 text-left hover:bg-accent/45 transition-all duration-150 rounded-lg text-xs border border-transparent',
+            hasChildren ? 'pl-6' : 'pl-3',
+            isSelected
+              ? 'bg-primary/10 text-primary border-primary/20 font-bold shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
           )}
-          {open ? (
-            <FolderOpen className="w-4 h-4 text-primary shrink-0" />
-          ) : (
-            <Folder className="w-4 h-4 text-primary/75 shrink-0" />
-          )}
-          <span className="truncate flex-1 font-semibold">{dir.name}</span>
-          {dir.pages.length > 0 && (
-            <span className="text-[10px] font-bold text-muted-foreground/50 bg-accent/20 px-1.5 py-0.5 rounded border border-border/10 opacity-0 group-hover:opacity-100 transition-opacity">
-              {dir.pages.length}
-            </span>
+          title={node.page.title}
+        >
+          <FileText className={cn(
+            "w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-105",
+            isSelected ? 'text-primary' : 'text-muted-foreground/50'
+          )} />
+          <span className="truncate flex-1 font-medium">{node.displayTitle}</span>
+          {node.page.confidence > 0 && (
+            <span
+              title={`Confidence: ${Math.round(node.page.confidence * 100)}%`}
+              className={cn('w-2 h-2 rounded-full shrink-0 border border-black/10 shadow-sm mr-1.5', confColor(node.page.confidence))}
+            />
           )}
         </button>
-      )}
+      </div>
 
-      {(open || !dir.name) && (
-        <div className={cn(dir.name && "relative ml-3.5 border-l border-border/25 pl-1.5")}>
-          {Object.values(dir.children)
-            .sort((a, b) => a.name.localeCompare(b.name))
-            .map((child) => (
-              <RootDirEntry
-                key={child.path}
-                dir={child}
-                depth={dir.name ? depth + 1 : depth}
-                selectedPath={selectedPath}
-                expandedPaths={expandedPaths}
-                onSelect={onSelect}
-                confColor={confColor}
-                selectedRef={selectedRef}
-              />
-            ))}
-
-          {dir.pages
-            .sort((a, b) => a.title.localeCompare(b.title))
-            .map((page) => {
-              const isSelected = selectedPath === page.path
-              return (
-                <button
-                  key={page.path}
-                  ref={isSelected ? selectedRef as React.RefObject<HTMLButtonElement> : undefined}
-                  onClick={() => onSelect(page.path)}
-                  style={{ paddingLeft: `${8 + (dir.name ? depth + 1 : depth) * 12}px` }}
-                  className={cn(
-                    'flex items-center gap-2 w-full px-2.5 py-1.5 text-left hover:bg-accent/40 transition-all duration-150 rounded-lg text-xs group my-0.5 border border-transparent',
-                    isSelected
-                      ? 'bg-primary/10 text-primary border-primary/20 font-bold shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                  title={page.title}
-                >
-                  <FileText className={cn(
-                    "w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-105",
-                    isSelected ? 'text-primary' : 'text-muted-foreground/60'
-                  )} />
-                  <span className="truncate flex-1 font-medium">{page.title}</span>
-                  {page.confidence > 0 && (
-                    <span
-                      title={`Confidence: ${Math.round(page.confidence * 100)}%`}
-                      className={cn('w-2 h-2 rounded-full shrink-0 border border-black/10 shadow-sm', confColor(page.confidence))}
-                    />
-                  )}
-                </button>
-              )
-            })}
+      {hasChildren && open && (
+        <div className="relative ml-4 border-l border-border/25 pl-2 space-y-0.5 animate-in slide-in-from-top-1 duration-150">
+          {node.children.map((child) => (
+            <NodeEntry
+              key={child.page.path}
+              node={child}
+              selectedPath={selectedPath}
+              onSelect={onSelect}
+              confColor={confColor}
+              selectedRef={selectedRef}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -159,12 +165,7 @@ function RootDirEntry({
 }
 
 export function WikiTree({ pages, selectedPath, onSelect, confColor }: WikiTreeProps) {
-  const tree = useMemo(() => buildTree(pages), [pages])
-  const expandedPaths = useMemo(
-    () => getExpandedPaths(pages, selectedPath),
-    [pages, selectedPath],
-  )
-
+  const rootNodes = useMemo(() => buildHierarchy(pages), [pages])
   const selectedRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
@@ -176,16 +177,17 @@ export function WikiTree({ pages, selectedPath, onSelect, confColor }: WikiTreeP
   if (pages.length === 0) return null
 
   return (
-    <div className="flex flex-col text-xs mt-1 border-t border-border/20 pt-2 space-y-0.5">
-      <RootDirEntry
-        dir={tree}
-        depth={0}
-        selectedPath={selectedPath}
-        expandedPaths={expandedPaths}
-        onSelect={onSelect}
-        confColor={confColor}
-        selectedRef={selectedRef}
-      />
+    <div className="flex flex-col text-xs mt-1 border-t border-border/20 pt-2 space-y-0.5 max-h-[calc(100vh-280px)] overflow-y-auto pr-1 select-none scrollbar-thin">
+      {rootNodes.map(node => (
+        <NodeEntry
+          key={node.page.path}
+          node={node}
+          selectedPath={selectedPath}
+          onSelect={onSelect}
+          confColor={confColor}
+          selectedRef={selectedRef}
+        />
+      ))}
     </div>
   )
 }

@@ -362,7 +362,6 @@ func scanDir(out *[]WikiModule, base, current, moduleID, label string, depth int
 	}
 }
 
-var reWikiLink = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 var reH1 = regexp.MustCompile(`(?m)^#\s+(.+)$`)
 var reFMTags = regexp.MustCompile(`(?m)^tags:\s*\[([^\]]+)\]`)
 var reFMConfidence = regexp.MustCompile(`(?m)^confidence:\s*([0-9.]+)`)
@@ -439,10 +438,7 @@ func extractPageMeta(relPath, content string) WikiPageMeta {
 		}
 	}
 
-	links := make([]string, 0)
-	for _, m := range reWikiLink.FindAllStringSubmatch(content, -1) {
-		links = append(links, m[1])
-	}
+	links := wiki.FindWikiLinks(content)
 
 	words := len(strings.Fields(content))
 

@@ -76,6 +76,8 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 
 	systemPrompt := buildMultiSearchSystemPrompt(cfg.Sources)
 
+	loadedPages := make(map[string]bool)
+
 	for turn := 0; turn < cfg.MaxTurns; turn++ {
 		result.Turns = turn + 1
 
@@ -138,21 +140,34 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 		}
 
 		var loaded []string
+		foundAny := false
 		for _, pg := range pages {
-			content := loadWikiPage(pg.dir, pg.page)
+			content, resolvedSlug := loadWikiPage(pg.dir, pg.page)
 			if content != "" {
-				header := fmt.Sprintf("=== [%s] %s.md ===\n%s", pg.sourceID, pg.page, content)
-				loaded = append(loaded, header)
-				result.TokensSent += len(content) / 4
+				foundAny = true
+				if !loadedPages[resolvedSlug] {
+					loadedPages[resolvedSlug] = true
+					header := fmt.Sprintf("=== [%s] %s.md ===\n%s", pg.sourceID, resolvedSlug, content)
+					loaded = append(loaded, header)
+					result.TokensSent += len(content) / 4
+				}
 			}
 		}
 
-		if len(loaded) == 0 {
+		if !foundAny {
 			result.Answer = "(no matching pages found for requested pages)"
 			return result, nil
 		}
 
-		context_ = fmt.Sprintf("%s\n\n%s", context_, strings.Join(loaded, "\n\n"))
+		if len(loaded) > 0 {
+			context_ = fmt.Sprintf("%s\n\n%s", context_, strings.Join(loaded, "\n\n"))
+		} else {
+			var requestedNames []string
+			for _, pg := range pages {
+				requestedNames = append(requestedNames, fmt.Sprintf("[%s]/%s", pg.sourceID, pg.page))
+			}
+			context_ = fmt.Sprintf("%s\n\nSystem: All requested pages (%s) are already loaded in the context above.", context_, strings.Join(requestedNames, ", "))
+		}
 	}
 
 	finalMsg := fmt.Sprintf(
@@ -320,7 +335,7 @@ func parseMultiPageList(reply string, sources []WikiSource) []multiPageRequest {
 				continue
 			}
 			for _, src := range sources {
-				if loadWikiPage(src.Dir, page) != "" {
+				if content, _ := loadWikiPage(src.Dir, page); content != "" {
 					requests = append(requests, multiPageRequest{
 						sourceID: src.ID,
 						page:     page,

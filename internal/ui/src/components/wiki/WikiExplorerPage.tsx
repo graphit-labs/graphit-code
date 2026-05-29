@@ -326,7 +326,7 @@ function WikiMarkdown({ content, onLink }: { content: string; onLink: (page: str
   )
 }
 
-function preprocessContent(raw: string, title: string): string {
+function preprocessContent(raw: string, title: string, type?: string): string {
   const lines = raw.split('\n')
   let i = 0
   if (lines[0]?.trim() === '---') {
@@ -334,6 +334,22 @@ function preprocessContent(raw: string, title: string): string {
     while (i < lines.length && lines[i].trim() !== '---') i++
     i++
   }
+
+  const hasContentHeader = lines.some(line => line.trim() === '## Content')
+  const isSpecialPage = type === 'log' || type === 'index' || type === 'community' || type === 'god-node'
+
+  if (isSpecialPage || !hasContentHeader) {
+    while (i < lines.length && lines[i].trim() === '') i++
+    const out: string[] = []
+    for (; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (line === '---' && i + 1 < lines.length && lines[i + 1].trim().startsWith('*Navigate:')) break
+      if (line.startsWith('*Navigate:') && line.endsWith('*')) continue
+      out.push(lines[i])
+    }
+    return out.join('\n')
+  }
+
   const preambleRe = /^(#{1,2}\s|>\s|\*\*Source:\*\*|\*\*Type:\*\*|\*\*Confidence:\*\*|\*Provenance:|\*Navigate:|---$|$)/
   let foundContent = false
   while (i < lines.length) {
@@ -649,6 +665,13 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [navHistory, setNavHistory] = useState<{ path: string; title: string }[]>([])
   const [navIndex, setNavIndex] = useState(-1)
+
+  const { processedMarkdown, hasH1 } = useMemo(() => {
+    if (!pageContent) return { processedMarkdown: '', hasH1: false }
+    const processed = preprocessContent(pageContent.content, pageContent.title, pageContent.type)
+    const hasH1 = processed.trim().startsWith('# ')
+    return { processedMarkdown: processed, hasH1 }
+  }, [pageContent])
   
   const left = useResizable(280, 200, 480, 'right', 'graphit_wiki_left_width')
   const [leftCollapsed, setLeftCollapsed] = useState(
@@ -1360,7 +1383,12 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
                   </div>
 
                   <div className="min-h-[250px] pb-10">
-                    <WikiMarkdown content={preprocessContent(pageContent.content, pageContent.title)} onLink={onWikiLink} />
+                    {!hasH1 && (
+                      <h1 className="text-2xl font-heading font-extrabold tracking-tight text-foreground mt-0 mb-6 pb-2 border-b border-border/40 leading-snug">
+                        {pageContent.title}
+                      </h1>
+                    )}
+                    <WikiMarkdown content={processedMarkdown} onLink={onWikiLink} />
                   </div>
 
                   {(pageContent.links ?? []).length > 0 && (

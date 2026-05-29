@@ -139,64 +139,73 @@ This prevents wasted queries on misspelled or assumed names.
 > ✅ Correct: `RETURN label(n) AS type`
 > ❌ Wrong: `RETURN n.kind` / `RETURN n.type` / `RETURN n.label`
 
-### Phase 2.3: Hybrid Search (RECOMMENDED — Best Results)
+### Phase 2.5: Semantic Search (Intent-Based Discovery)
 
-**This is the RECOMMENDED default for text-based discovery.** It combines BM25 full-text
-search with semantic vector search using Reciprocal Rank Fusion (RRF, k=60) to produce
-a unified ranking — call the `graphit_ast_search` tool (passing absolute `project_dir` and `query`):
+When grounding (Phase 2) returns no results — or when your search is
+**conceptual/intent-based** rather than name-based — call the `graphit_ast_search_semantic` tool (passing absolute `project_dir` and natural language `query`):
 ```
-graphit_ast_search(project_dir: "/path/to/project", query: "authentication and session management")
+graphit_ast_search_semantic(project_dir: "/path/to/project", query: "authentication and session management")
 ```
 
-Hybrid search automatically:
-- Splits code identifiers (e.g., `handleHTTPRequest` → `handle HTTP Request`) for better FTS matching
-- Runs multi-pass BM25 (phrase, AND, OR, prefix, trigram) + semantic vector similarity
-- Fuses results via RRF where exact matches rank higher than semantic, but semantic boosts partial matches
-- Falls back to FTS-only when embeddings are unavailable
+> ⚠️ **CRITICAL: `graphit_ast_search_semantic` accepts PLAIN TEXT only — NEVER Cypher.**
+> The query string is used as a natural-language description to find similar code
+> via vector embeddings. Passing a Cypher `MATCH` statement will return garbage.
+> ✅ Correct: Call `graphit_ast_search_semantic` with `query: "payment processing"`
+> ❌ Wrong: Call `graphit_ast_search_semantic` with `query: "MATCH (f:Function) WHERE ..."`
 
-Use the optional `mode` parameter to restrict to a single search type:
-- `mode: "hybrid"` (default) — combined FTS + semantic via RRF
-- `mode: "fts"` — BM25 keyword search only
-- `mode: "semantic"` — vector similarity only
+Semantic search uses **vector embeddings** (via sqlite-vec cosine similarity) to find
+entities by meaning, not just name. Use it when:
+- You don't know the exact function/class name
+- You're exploring a concept across the codebase (e.g., "payment processing")
+- Structural queries return too few results
+- The user describes intent rather than specific code entities
 
-> ⚠️ **CRITICAL: `graphit_ast_search` accepts PLAIN TEXT only — NEVER Cypher.**
-> The query string is used as keywords or natural language to find similar code.
-> Passing a Cypher `MATCH` statement will return garbage.
-> ✅ Correct: Call `graphit_ast_search` with `query: "payment processing"`
-> ❌ Wrong: Call `graphit_ast_search` with `query: "MATCH (f:Function) WHERE ..."`
+**Important:** Semantic search requires embeddings to have been computed.
+If results are empty, call the `graphit_sync` tool (passing `project_dir`) to start background sync and generate embeddings for future use.
 
-**Important:** Semantic mode requires embeddings to have been computed.
-If semantic results are empty, call the `graphit_sync` tool (passing `project_dir`) to generate embeddings.
-In hybrid mode, it gracefully falls back to FTS-only when embeddings are unavailable.
+### Phase 2.7: Full-Text Search (Keyword-Based Discovery)
+
+When you need to find code by **exact keywords, function names, SQL fragments,
+or source code patterns** — call the `graphit_ast_search_fts` tool (passing absolute `project_dir` and keywords `query`):
+```
+graphit_ast_search_fts(project_dir: "/path/to/project", query: "processOrder")
+```
+
+> ⚠️ **CRITICAL: `graphit_ast_search_fts` accepts PLAIN TEXT only — NEVER Cypher.**
+> The query string is used as keywords for BM25 full-text ranking.
+> Passing a Cypher `MATCH` statement will NOT search source code — it will
+> try to match the literal Cypher text and return nothing.
+> ✅ Correct: Call `graphit_ast_search_fts` with `query: "payment"`
+> ❌ Wrong: Call `graphit_ast_search_fts` with `query: "MATCH (f:File) WHERE ..."`
+
+FTS uses **BM25 scoring** to rank results by keyword relevance. Use it when:
+- You know the exact keyword or identifier name
+- You're searching for SQL fragments, error strings, or code patterns
+- Semantic search is not available (embeddings not computed)
+- You want faster results than semantic search (no model inference required)
+
+**FTS also indexes `:File` source content.** This means you can search for any
+text pattern that appears in source files — error messages, string literals,
+comments, or code fragments — without using grep: call `graphit_ast_search_fts` (passing absolute `project_dir` and keyword `query`):
+```
+# Search for a string literal or error message across all source files
+graphit_ast_search_fts(project_dir: "/path/to/project", query: "connection refused")
+
+# Find files containing a specific code pattern
+graphit_ast_search_fts(project_dir: "/path/to/project", query: "TODO refactor")
+```
+
+**FTS vs Semantic:** Use `graphit_ast_search_fts` for exact keyword matching, `graphit_ast_search_semantic` for
+meaning-based discovery. They are complementary — try both when uncertain.
 
 ### Phase 3: Precise Graph Query
 
 Once you know the exact names and labels from Phase 2, construct the final query. Call the `graphit_ast_query` tool (passing `project_dir`, `query`, and `ai_optimized: true`):
 
-> ⚠️ **Multi-label search — DEFAULT BEHAVIOR when searching by name:**
-> Many entities share the same name but differ only in label. Languages have subtle
-> distinctions that you CANNOT reliably predict from the name alone:
-> - **Function vs Method**: In Go, `func Search(...)` is a Function, but `func (idx *BM25Index) Search(...)` is a Method. In Python/Java, class methods are Methods, standalone ones are Functions.
-> - **Class vs Struct**: In Go/Rust, `type X struct` is a Struct, not a Class. In Python/Java, it's a Class.
-> - **Interface vs Trait**: In Go, `type X interface` is an Interface. In Rust, `trait X` is a Trait.
-> - **Variable vs Constant**: `var x` vs `const x` — same name, different labels.
->
-> **RULE: When searching for an entity by name and you are NOT 100% certain of its exact label,
-> ALWAYS use a multi-label query.** This is the SAFE DEFAULT — a single-label query risks missing results silently.
+> ⚠️ **Multi-label search:** When unsure which label an entity has, search across multiple types:
 > ```
-> # Instead of: MATCH (f:Function {name: 'Search'}) ...  (MISSES methods!)
-> # Use:
 > Call graphit_ast_query with query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND f.name = 'Search' RETURN f.name, f.path, f.line_number, label(f) AS type"
 > ```
->
-> **Common multi-label pairs to always consider:**
-> | Looking for | Use these labels |
-> |---|---|
-> | A callable (function/method) | `label(f) = 'Function' OR label(f) = 'Method'` |
-> | A type definition (class/struct) | `label(f) = 'Class' OR label(f) = 'Struct'` |
-> | An abstraction (interface/trait) | `label(f) = 'Interface' OR label(f) = 'Trait'` |
-> | A named value (variable/constant) | `label(f) = 'Variable' OR label(f) = 'Constant'` |
-> | Anything — full discovery | `MATCH (n) WHERE n.name = 'X' RETURN n.name, label(n) AS type, n.path` |
 
 Common queries to pass in `query` parameter:
 ```bash
@@ -487,7 +496,6 @@ MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, 
 - **Property names are exact.** Refer to the Property Reference table in Phase 1. NEVER guess property names — if it's not in the table, it doesn't exist.
 - **Shared properties only.** When matching unlabeled nodes (e.g., `MATCH (n) WHERE ...`), you may ONLY access properties shared by ALL labels: `name`, `path`, `line_number`, `end_line`, `docstring`, `lang`. For label-specific properties (e.g., `cyclomatic_complexity`, `is_exported`, `source`), you MUST specify the label in the MATCH (e.g., `(n:Function)`, `(f:File)`).
 - LadybugDB strict typing: DO NOT access properties unless you explicitly MATCH the label that contains them. If a property is not shared by ALL possible labels in a pattern, LadybugDB will crash!
-- **Multi-label by default.** When searching for an entity by name, NEVER hardcode a single label unless you have already confirmed the exact label from a prior query. Languages have subtle distinctions — Go uses Function vs Method, Class vs Struct; Rust uses Trait vs Interface. Use multi-label patterns: `MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND f.name = 'X'`. A query that returns extra rows is far better than one that silently misses results.
 - Return only what you need. Avoid returning entire node objects (`RETURN n`); instead, return specific properties (`RETURN n.name, n.path`) to keep output concise.
 - Use `LIMIT` only when you want to cap results — don't add it by default.
 - Do NOT use the `context` parameter on tools when working with the current project. Only specify `context` when querying an imported third-party AST context.
