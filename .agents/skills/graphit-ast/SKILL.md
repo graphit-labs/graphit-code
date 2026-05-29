@@ -64,7 +64,6 @@ To execute any Cypher queries below, call the `graphit_ast_query` tool (passing 
 | Scenario | Use instead |
 |---|---|
 | Reading a file whose path you already know | Your native IDE file-reading tools (view_file, etc.) — faster and simpler |
-| Reading exact source code of a specific function | File-reading tools (after getting path+line from AST) |
 | Searching inside string literals or comments | grep/ripgrep on source files |
 | Editing source code | File edit tools |
 | Running tests or builds | Terminal commands |
@@ -416,35 +415,76 @@ MATCH (f:Function {name: 'createUser'})-[:HAS_PARAMETER]->(p:Parameter) RETURN p
 
 ### Phase 4: Source Code Extraction
 
-The AST graph stores, optionally, the **complete source code** of every indexed file in the
-`source` property of `:File` nodes. This is useful when you **discovered** a file
-through an AST query and want its content in the same round-trip.
+The AST graph stores the **complete source code** of every indexed file. The `graphit_ast_source` tool
+provides IDE-like capabilities to navigate source code efficiently — equivalent to `grep`, `head`, `tail`, and more.
 
 > **⚠️ IMPORTANT: If you already know the file path** and just need to read its content,
 > **use your native IDE file-reading tools** (e.g., `view_file`). They are faster and simpler.
+> Use `graphit_ast_source` when you **discovered** a file through an AST query and want its content in the same round-trip,
+> or when you need **advanced slicing** (entity extraction, pattern search with context).
 
 **Imported ast contexts** also may contain **source code** included in their imported graph,
 try querying for it to understand the imported code and the overall behavior of the external contexts.
 
 #### 4a. Get the entire source of a file
 
-Call the `graphit_ast_source` tool (passing absolute `project_dir` and `path`):
+Call `graphit_ast_source` (passing absolute `project_dir` and `path`):
 ```
 graphit_ast_source(project_dir: "/path/to/project", path: "internal/auth/handler.go")
 ```
 
-#### 4b. Get source of a specific function/class (using line range from the graph)
+#### 4b. Get source with line numbers
 
-Use a **two-step pattern**: first call `graphit_ast_query` to find the entity's location, then extract its source using the file-reading tools or `graphit_ast_source`.
+```
+graphit_ast_source(project_dir: "/path/to/project", path: "internal/auth/handler.go", line_numbers: true)
+```
 
-#### 4c. Get source of all functions in a file with their line ranges
+#### 4c. Head / Tail — view first or last N lines
 
-1. Call `graphit_ast_query` with `query: "MATCH (file:File {path: 'src/services/payment.go'})-[:CONTAINS]->(fn:Function) RETURN fn.name, fn.line_number, fn.end_line ORDER BY fn.line_number"` to get line ranges.
-2. Call `graphit_ast_source` with `path: "src/services/payment.go"` to get the source content.
+```bash
+# First 20 lines of a file
+graphit_ast_source(project_dir: "/path/to/project", path: "internal/auth/handler.go", head: 20)
 
-#### 4d. Quick source peek — verify a function's implementation
+# Last 30 lines of a file
+graphit_ast_source(project_dir: "/path/to/project", path: "internal/auth/handler.go", tail: 30)
+```
 
-One-shot query via `graphit_ast_query`:
+#### 4d. Line range — extract specific lines
+
+```
+graphit_ast_source(project_dir: "/path/to/project", path: "internal/auth/handler.go", start_line: 50, end_line: 80)
+```
+
+#### 4e. Entity extraction — get source of a function/class/method by name
+
+Extracts the source using the entity's `line_number` and `end_line` from the graph — **no need for a two-step query**:
+```bash
+# Extract a function by name
+graphit_ast_source(project_dir: "/path/to/project", path: "internal/auth/handler.go", entity: "ValidateToken")
+
+# Disambiguate when multiple entities share the same name
+graphit_ast_source(project_dir: "/path/to/project", path: "internal/auth/handler.go", entity: "ValidateToken", entity_type: "Function")
+```
+
+#### 4f. Pattern search — grep-like search within a file
+
+```bash
+# Search for a literal text pattern
+graphit_ast_source(project_dir: "/path/to/project", path: "internal/auth/handler.go", pattern: "error")
+
+# Regex pattern with context lines (before/after)
+graphit_ast_source(project_dir: "/path/to/project", path: "internal/auth/handler.go", pattern: "func.*Validate", regex: true, before: 2, after: 5)
+```
+
+#### 4g. Combined — entity + pattern (search within entity source)
+
+```
+graphit_ast_source(project_dir: "/path/to/project", path: "internal/auth/handler.go", entity: "ValidateToken", pattern: "error", before: 1, after: 1)
+```
+
+#### 4h. Quick source peek — one-shot via `graphit_ast_query`
+
+When you want metadata + source in a single call:
 ```
 MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source
 ```

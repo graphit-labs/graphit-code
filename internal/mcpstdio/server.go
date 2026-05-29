@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
@@ -41,12 +42,28 @@ func NewServer() *mcp.Server {
 func Serve(ctx context.Context) error {
 	output.Mute()
 	log.SetOutput(os.Stderr)
+
 	server := NewServer()
-	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
+
+	// Use IOTransport with explicit reader/writer instead of StdioTransport
+	// which hardcodes os.Stdin/os.Stdout. This decouples the JSON-RPC
+	// transport from the Go-level os.Stdout variable, so even if something
+	// reassigns os.Stdout, the transport is unaffected.
+	transport := &mcp.IOTransport{
+		Reader: io.NopCloser(os.Stdin),
+		Writer: nopWriteCloser{os.Stdout},
+	}
+
+	if err := server.Run(ctx, transport); err != nil {
 		return fmt.Errorf("MCP stdio error: %w", err)
 	}
 	return nil
 }
+
+// nopWriteCloser wraps a Writer with a no-op Close.
+type nopWriteCloser struct{ io.Writer }
+
+func (nopWriteCloser) Close() error { return nil }
 
 // safeTool wraps a tool handler with panic recovery and background daemon autostart validation.
 func safeTool[T any](

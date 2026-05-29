@@ -46,7 +46,10 @@ func init() {
 
 func IsTTY() bool { return isTTY }
 
-func Mute() { muted = true }
+func Mute() {
+	muted = true
+	color.NoColor = true
+}
 
 func Unmute() { muted = false }
 
@@ -289,6 +292,9 @@ func Fatal(msg string, args ...any) {
 }
 
 func Interrupted() {
+	if muted {
+		os.Exit(130)
+	}
 	_, _ = fmt.Fprintln(os.Stdout, "")
 	_, _ = fmt.Fprintln(os.Stdout, yellow.Sprint(SymbolWarn+" Interrupted."))
 	os.Exit(130)

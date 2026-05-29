@@ -146,7 +146,7 @@ Cypher guidelines, cookbook patterns, and fallback protocols you must follow.
 - **Never guess names**: Ground with `toLower(n.name) CONTAINS toLower('keyword')`
 - **Semantic search**: call `graphit_ast_search_semantic` (passing absolute `project_dir` and natural language `query`)
 - **FTS (source text search)**: call `graphit_ast_search_fts` (passing absolute `project_dir` and keyword `query`). Searches entity names AND `:File` source content. Use instead of grep.
-- **Get source code (discovery)**: call `graphit_ast_source` (passing absolute `project_dir` and relative `path`). Retrieves source from the graph when you discovered a file through AST. If you already know the path, use your IDE's file-reading tools instead.
+- **Get source code (discovery)**: call `graphit_ast_source` (passing absolute `project_dir` and relative `path`). Retrieves source from the graph when you discovered a file through AST. Supports `head`/`tail` (first/last N lines), `start_line`/`end_line` (line range), `entity`/`entity_type` (extract entity source by name), `pattern`/`regex`/`before`/`after` (grep-like search with context), and `line_numbers`. If you already know the path, use your IDE's file-reading tools instead.
 - **One-shot: get metadata + full file source**: call `graphit_ast_query` with `query: "MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source"`, `ai_optimized: true`
 - **Reindex after changes**: call `graphit_sync` tool (passing absolute `project_dir`)
 
