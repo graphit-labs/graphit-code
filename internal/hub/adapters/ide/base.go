@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -281,12 +282,14 @@ func (a *FolderBasedAdapter) MCPConfig() string {
 }
 
 func getGraphitExecutable() string {
-	exe, err := os.Executable()
-	if err == nil {
-		if eval, err := filepath.EvalSymlinks(exe); err == nil {
+	if p := os.Getenv(brand.EnvVar("LAUNCHER_PATH")); p != "" {
+		return p
+	}
+	if p, err := exec.LookPath(brand.BinName()); err == nil {
+		if eval, err := filepath.EvalSymlinks(p); err == nil {
 			return eval
 		}
-		return exe
+		return p
 	}
 	return brand.BinName()
 }

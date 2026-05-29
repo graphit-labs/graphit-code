@@ -93,6 +93,15 @@ func main() {
 	}
 	cmd.Env = env
 
+	launcherExe, _ := os.Executable()
+	if launcherExe != "" {
+		if eval, err := filepath.EvalSymlinks(launcherExe); err == nil {
+			launcherExe = eval
+		}
+		env = append(env, fmt.Sprintf("%s=%s", brand.EnvVar("LAUNCHER_PATH"), launcherExe))
+		cmd.Env = env
+	}
+
 	sanitizeInheritedFDs()
 
 	if err := execCore(coreBinPath, env); err != nil {
