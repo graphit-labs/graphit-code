@@ -511,22 +511,7 @@ func (q *QueryService) FullTextSearch(ctx context.Context, query string, topK in
 	if q.searchIndex == nil {
 		return nil, nil
 	}
-
-	fileResults, _ := q.searchIndex.SearchFiles(query, topK)
-	entityResults, _ := q.searchIndex.SearchEntities(query, topK)
-
-	results := make([]SearchResult, 0, len(fileResults)+len(entityResults))
-	results = append(results, fileResults...)
-	results = append(results, entityResults...)
-
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].RelevanceScore > results[j].RelevanceScore
-	})
-
-	if topK > 0 && len(results) > topK {
-		results = results[:topK]
-	}
-	return results, nil
+	return q.searchIndex.Search(query, topK)
 }
 
 func (q *QueryService) SemanticSearch(ctx context.Context, query string, topK int, cluster string) ([]SearchResult, error) {

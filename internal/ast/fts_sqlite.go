@@ -7,9 +7,11 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
@@ -19,6 +21,8 @@ import (
 func init() {
 	sqlite_vec.Auto()
 }
+
+const ftsSchemaVersion = 2
 
 type SearchIndex struct {
 	db     *sql.DB
@@ -39,21 +43,53 @@ func OpenSearchIndex(dbPath string) (*SearchIndex, error) {
 		return nil, fmt.Errorf("search index open: %w", err)
 	}
 
-	ddl := []string{
+	if err := migrateSearchSchema(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("search schema migrate: %w", err)
+	}
 
+	return &SearchIndex{db: db, path: dbPath}, nil
+}
+
+func migrateSearchSchema(db *sql.DB) error {
+	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS search_meta (key TEXT PRIMARY KEY, value TEXT)`)
+
+	var version int
+	row := db.QueryRow(`SELECT CAST(value AS INTEGER) FROM search_meta WHERE key = 'schema_version'`)
+	_ = row.Scan(&version)
+
+	if version == ftsSchemaVersion {
+		return nil
+	}
+
+	dropTables := []string{
+		`DROP TABLE IF EXISTS file_fts`,
+		`DROP TABLE IF EXISTS entity_fts`,
+		`DROP TABLE IF EXISTS entity_trigram`,
+	}
+	for _, q := range dropTables {
+		_, _ = db.Exec(q)
+	}
+
+	ddl := []string{
 		`CREATE VIRTUAL TABLE IF NOT EXISTS file_fts USING fts5(
 			path, name, source,
-			tokenize='unicode61'
+			tokenize='unicode61 remove_diacritics 2',
+			prefix='2 3 4'
 		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS entity_fts USING fts5(
 			uid, name, docstring, entity_type, path, line_number UNINDEXED,
-			tokenize='unicode61'
+			tokenize='unicode61 remove_diacritics 2',
+			prefix='2 3 4'
+		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS entity_trigram USING fts5(
+			uid UNINDEXED, name, entity_type UNINDEXED, path UNINDEXED, line_number UNINDEXED,
+			tokenize='trigram case_sensitive 0'
 		)`,
 
 		`CREATE VIRTUAL TABLE IF NOT EXISTS entity_vec USING vec0(
 			embedding float[768]
 		)`,
-
 		`CREATE TABLE IF NOT EXISTS entity_vec_map(
 			uid TEXT PRIMARY KEY,
 			vec_rowid INTEGER NOT NULL,
@@ -66,12 +102,24 @@ func OpenSearchIndex(dbPath string) (*SearchIndex, error) {
 	}
 	for _, q := range ddl {
 		if _, err := db.Exec(q); err != nil {
-			_ = db.Close()
-			return nil, fmt.Errorf("search index schema %q: %w", q[:min(60, len(q))], err)
+			return fmt.Errorf("search index schema %q: %w", q[:min(60, len(q))], err)
 		}
 	}
 
-	return &SearchIndex{db: db, path: dbPath}, nil
+	rankSetup := []string{
+		`INSERT INTO file_fts(file_fts, rank) VALUES('rank', 'bm25(2.0, 8.0, 1.0)')`,
+		`INSERT INTO entity_fts(entity_fts, rank) VALUES('rank', 'bm25(0.0, 10.0, 3.0, 2.0, 1.0)')`,
+	}
+	for _, q := range rankSetup {
+		if _, err := db.Exec(q); err != nil {
+			return fmt.Errorf("search rank setup: %w", err)
+		}
+	}
+
+	_, _ = db.Exec(`INSERT OR REPLACE INTO search_meta (key, value) VALUES ('schema_version', ?)`,
+		fmt.Sprintf("%d", ftsSchemaVersion))
+
+	return nil
 }
 
 func (s *SearchIndex) Close() error {
@@ -96,6 +144,7 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 
 	_, _ = tx.Exec("DELETE FROM file_fts")
 	_, _ = tx.Exec("DELETE FROM entity_fts")
+	_, _ = tx.Exec("DELETE FROM entity_trigram")
 	_, _ = tx.Exec("DELETE FROM entity_vec")
 	_, _ = tx.Exec("DELETE FROM entity_vec_map")
 
@@ -110,6 +159,12 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 		return fmt.Errorf("prepare entity_fts: %w", err)
 	}
 	defer func() { _ = entityFTSStmt.Close() }()
+
+	trigramStmt, err := tx.Prepare("INSERT INTO entity_trigram(uid, name, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?)")
+	if err != nil {
+		return fmt.Errorf("prepare entity_trigram: %w", err)
+	}
+	defer func() { _ = trigramStmt.Close() }()
 
 	vecStmt, err := tx.Prepare("INSERT INTO entity_vec(rowid, embedding) VALUES (?, ?)")
 	if err != nil {
@@ -132,6 +187,7 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 
 		for _, e := range entry.Entities {
 			_, _ = entityFTSStmt.Exec(e.UID, e.Name, e.Docstring, e.Label, e.Path, e.Line)
+			_, _ = trigramStmt.Exec(e.UID, e.Name, e.Label, e.Path, e.Line)
 			entityCount++
 
 			if embLookup != nil {
@@ -151,6 +207,8 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("search commit: %w", err)
 	}
+
+	s.optimizeTables()
 
 	s.log().Info("search index rebuild",
 		"files", fileCount, "entities", entityCount, "vectors", vecCount,
@@ -181,6 +239,7 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 	for _, p := range allAffected {
 		_, _ = tx.Exec("DELETE FROM file_fts WHERE path = ?", p)
 		_, _ = tx.Exec("DELETE FROM entity_fts WHERE path = ?", p)
+		_, _ = tx.Exec("DELETE FROM entity_trigram WHERE path = ?", p)
 
 		rows, err := tx.Query("SELECT vec_rowid FROM entity_vec_map WHERE path = ?", p)
 		if err == nil {
@@ -217,6 +276,8 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 		for _, e := range entry.Entities {
 			_, _ = tx.Exec("INSERT INTO entity_fts(uid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?)",
 				e.UID, e.Name, e.Docstring, e.Label, e.Path, e.Line)
+			_, _ = tx.Exec("INSERT INTO entity_trigram(uid, name, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?)",
+				e.UID, e.Name, e.Label, e.Path, e.Line)
 			entityCount++
 
 			if embLookup != nil {
@@ -244,76 +305,288 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 	return nil
 }
 
+func (s *SearchIndex) optimizeTables() {
+	_, _ = s.db.Exec(`INSERT INTO file_fts(file_fts) VALUES('optimize')`)
+	_, _ = s.db.Exec(`INSERT INTO entity_fts(entity_fts) VALUES('optimize')`)
+	_, _ = s.db.Exec(`INSERT INTO entity_trigram(entity_trigram) VALUES('optimize')`)
+}
+
+// ---------------------------------------------------------------------------
+// Public Search API — kept for backward compatibility
+// ---------------------------------------------------------------------------
+
 func (s *SearchIndex) SearchFiles(query string, topK int) ([]SearchResult, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	limit := topK
-	if limit <= 0 {
-		limit = -1
-	}
-
-	rows, err := s.db.Query(
-		`SELECT path, name, bm25(file_fts) AS score
-		 FROM file_fts WHERE file_fts MATCH ?
-		 ORDER BY score LIMIT ?`,
-		escapeFTSSQLite(query), limit)
+	res, err := s.Search(query, topK)
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-
-	var results []SearchResult
-	for rows.Next() {
-		var path, name string
-		var score float64
-		if err := rows.Scan(&path, &name, &score); err != nil {
-			continue
+	var files []SearchResult
+	for _, r := range res {
+		if r.Type == "file" {
+			files = append(files, r)
 		}
-		results = append(results, SearchResult{
-			Type: "file", SearchType: "fts",
-			Name: name, Path: path,
-			RelevanceScore: -score,
-		})
 	}
-	return results, nil
+	return files, nil
 }
 
 func (s *SearchIndex) SearchEntities(query string, topK int) ([]SearchResult, error) {
+	res, err := s.Search(query, topK)
+	if err != nil {
+		return nil, err
+	}
+	var entities []SearchResult
+	for _, r := range res {
+		if r.Type != "file" {
+			entities = append(entities, r)
+		}
+	}
+	return entities, nil
+}
+
+// ---------------------------------------------------------------------------
+// Multi-pass search engine
+// ---------------------------------------------------------------------------
+
+type searchPass struct {
+	name   string
+	weight float64
+	query  string
+}
+
+const rrfK = 60
+
+func (s *SearchIndex) Search(query string, topK int) ([]SearchResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	limit := topK
-	if limit <= 0 {
-		limit = -1
+	tokens := tokenizeQuery(query)
+	if len(tokens) == 0 {
+		return nil, nil
 	}
 
-	rows, err := s.db.Query(
-		`SELECT uid, name, docstring, entity_type, path, line_number, bm25(entity_fts) AS score
-		 FROM entity_fts WHERE entity_fts MATCH ?
-		 ORDER BY score LIMIT ?`,
-		escapeFTSSQLite(query), limit)
+	limit := topK
+	if limit <= 0 {
+		limit = 50
+	}
+	fetchLimit := limit * 3
+
+	passes := buildSearchPasses(tokens, query)
+
+	type rankedDoc struct {
+		result SearchResult
+		key    string
+		score  float64
+	}
+
+	docScores := make(map[string]*rankedDoc)
+
+	for _, pass := range passes {
+		if pass.query == "" {
+			continue
+		}
+
+		var passResults []SearchResult
+
+		fileRes := s.queryFTS("file_fts", pass.query, fetchLimit)
+		entityRes := s.queryFTS("entity_fts", pass.query, fetchLimit)
+		passResults = append(passResults, fileRes...)
+		passResults = append(passResults, entityRes...)
+
+		for rank, r := range passResults {
+			key := deduplicationKey(r)
+			rrfScore := pass.weight / float64(rrfK+rank+1)
+
+			if existing, ok := docScores[key]; ok {
+				existing.score += rrfScore
+				if r.RelevanceScore > existing.result.RelevanceScore {
+					existing.result = r
+				}
+			} else {
+				docScores[key] = &rankedDoc{
+					result: r,
+					key:    key,
+					score:  rrfScore,
+				}
+			}
+		}
+	}
+
+	trigramResults := s.queryTrigram(tokens, fetchLimit)
+	trigramWeight := 0.7
+	for rank, r := range trigramResults {
+		key := deduplicationKey(r)
+		rrfScore := trigramWeight / float64(rrfK+rank+1)
+
+		if existing, ok := docScores[key]; ok {
+			existing.score += rrfScore
+			if r.RelevanceScore > existing.result.RelevanceScore {
+				existing.result = r
+			}
+		} else {
+			docScores[key] = &rankedDoc{
+				result: r,
+				key:    key,
+				score:  rrfScore,
+			}
+		}
+	}
+
+	results := make([]SearchResult, 0, len(docScores))
+	for _, rd := range docScores {
+		rd.result.RelevanceScore = rd.score
+		results = append(results, rd.result)
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].RelevanceScore > results[j].RelevanceScore
+	})
+
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+
+	return results, nil
+}
+
+func buildSearchPasses(tokens []string, rawQuery string) []searchPass {
+	var passes []searchPass
+
+	if len(tokens) > 1 {
+		passes = append(passes, searchPass{
+			name:   "phrase",
+			weight: 3.0,
+			query:  buildPhraseQuery(rawQuery),
+		})
+
+		passes = append(passes, searchPass{
+			name:   "and",
+			weight: 2.5,
+			query:  buildANDQuery(tokens),
+		})
+	}
+
+	passes = append(passes, searchPass{
+		name:   "or",
+		weight: 1.5,
+		query:  buildORQuery(tokens),
+	})
+
+	passes = append(passes, searchPass{
+		name:   "prefix",
+		weight: 1.0,
+		query:  buildPrefixQuery(tokens),
+	})
+
+	return passes
+}
+
+// ---------------------------------------------------------------------------
+// FTS5 query execution helpers
+// ---------------------------------------------------------------------------
+
+func (s *SearchIndex) queryFTS(table, ftsQuery string, limit int) []SearchResult {
+	var query string
+	switch table {
+	case "file_fts":
+		query = `SELECT path, name, rank FROM file_fts WHERE file_fts MATCH ? ORDER BY rank LIMIT ?`
+	case "entity_fts":
+		query = `SELECT uid, name, docstring, entity_type, path, line_number, rank
+		         FROM entity_fts WHERE entity_fts MATCH ? ORDER BY rank LIMIT ?`
+	default:
+		return nil
+	}
+
+	rows, err := s.db.Query(query, ftsQuery, limit)
 	if err != nil {
-		return nil, nil
+		return nil
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []SearchResult
+
+	switch table {
+	case "file_fts":
+		for rows.Next() {
+			var path, name string
+			var score float64
+			if err := rows.Scan(&path, &name, &score); err != nil {
+				continue
+			}
+			results = append(results, SearchResult{
+				Type: "file", SearchType: "fts",
+				Name: name, Path: path,
+				RelevanceScore: -score,
+			})
+		}
+	case "entity_fts":
+		for rows.Next() {
+			var uid, name, docstring, entityType, path string
+			var line int
+			var score float64
+			if err := rows.Scan(&uid, &name, &docstring, &entityType, &path, &line, &score); err != nil {
+				continue
+			}
+			results = append(results, SearchResult{
+				Type: strings.ToLower(entityType), SearchType: "fts",
+				Name: name, Path: path, Line: line, Docstring: docstring,
+				RelevanceScore: -score,
+			})
+		}
+	}
+
+	return results
+}
+
+func (s *SearchIndex) queryTrigram(tokens []string, limit int) []SearchResult {
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	var longTokens []string
+	for _, t := range tokens {
+		if len(t) >= 3 {
+			longTokens = append(longTokens, t)
+		}
+	}
+	if len(longTokens) == 0 {
+		return nil
+	}
+
+	parts := make([]string, len(longTokens))
+	for i, t := range longTokens {
+		parts[i] = `"` + strings.ReplaceAll(t, `"`, ``) + `"`
+	}
+	trigramQuery := strings.Join(parts, " OR ")
+
+	rows, err := s.db.Query(
+		`SELECT uid, name, entity_type, path, line_number
+		 FROM entity_trigram WHERE entity_trigram MATCH ?
+		 LIMIT ?`,
+		trigramQuery, limit)
+	if err != nil {
+		return nil
 	}
 	defer func() { _ = rows.Close() }()
 
 	var results []SearchResult
 	for rows.Next() {
-		var uid, name, docstring, entityType, path string
+		var uid, name, entityType, path string
 		var line int
-		var score float64
-		if err := rows.Scan(&uid, &name, &docstring, &entityType, &path, &line, &score); err != nil {
+		if err := rows.Scan(&uid, &name, &entityType, &path, &line); err != nil {
 			continue
 		}
 		results = append(results, SearchResult{
 			Type: strings.ToLower(entityType), SearchType: "fts",
-			Name: name, Path: path, Line: line, Docstring: docstring,
-			RelevanceScore: -score,
+			Name: name, Path: path, Line: line,
+			RelevanceScore: 0.1,
 		})
 	}
-	return results, nil
+	return results
 }
+
+// ---------------------------------------------------------------------------
+// Semantic search (unchanged)
+// ---------------------------------------------------------------------------
 
 func (s *SearchIndex) SemanticSearch(queryVec []float32, topK int) ([]SearchResult, error) {
 	s.mu.RLock()
@@ -359,13 +632,92 @@ func (s *SearchIndex) SemanticSearch(queryVec []float32, topK int) ([]SearchResu
 	return results, nil
 }
 
-func escapeFTSSQLite(query string) string {
-	terms := strings.Fields(query)
-	for i, t := range terms {
-		t = strings.ReplaceAll(t, "\"", "")
-		if t != "" {
-			terms[i] = "\"" + t + "\""
+// ---------------------------------------------------------------------------
+// Query building — FTS5 syntax generators
+// ---------------------------------------------------------------------------
+
+var fts5Reserved = map[string]bool{
+	"AND": true, "OR": true, "NOT": true, "NEAR": true,
+}
+
+func tokenizeQuery(query string) []string {
+	raw := strings.Fields(query)
+	tokens := make([]string, 0, len(raw))
+	for _, t := range raw {
+		t = stripFTSSpecialChars(t)
+		if t == "" || fts5Reserved[strings.ToUpper(t)] {
+			continue
 		}
+		tokens = append(tokens, t)
 	}
-	return strings.Join(terms, " ")
+	return tokens
+}
+
+func stripFTSSpecialChars(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == '"' || r == '*' || r == '^' || r == '(' || r == ')' || r == '{' || r == '}' || r == ':' {
+			continue
+		}
+		if unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func quoteToken(t string) string {
+	return `"` + strings.ReplaceAll(t, `"`, ``) + `"`
+}
+
+func buildPhraseQuery(raw string) string {
+	clean := strings.ReplaceAll(raw, `"`, ``)
+	clean = strings.TrimSpace(clean)
+	if clean == "" {
+		return ""
+	}
+	return `"` + clean + `"`
+}
+
+func buildANDQuery(tokens []string) string {
+	if len(tokens) == 0 {
+		return ""
+	}
+	parts := make([]string, len(tokens))
+	for i, t := range tokens {
+		parts[i] = quoteToken(t)
+	}
+	return strings.Join(parts, " ")
+}
+
+func buildORQuery(tokens []string) string {
+	if len(tokens) == 0 {
+		return ""
+	}
+	parts := make([]string, len(tokens))
+	for i, t := range tokens {
+		parts[i] = quoteToken(t)
+	}
+	return strings.Join(parts, " OR ")
+}
+
+func buildPrefixQuery(tokens []string) string {
+	if len(tokens) == 0 {
+		return ""
+	}
+	parts := make([]string, len(tokens))
+	for i, t := range tokens {
+		parts[i] = quoteToken(t) + "*"
+	}
+	return strings.Join(parts, " OR ")
+}
+
+// ---------------------------------------------------------------------------
+// Deduplication
+// ---------------------------------------------------------------------------
+
+func deduplicationKey(r SearchResult) string {
+	return r.Path + "\x00" + r.Name + "\x00" + fmt.Sprintf("%d", r.Line)
 }
