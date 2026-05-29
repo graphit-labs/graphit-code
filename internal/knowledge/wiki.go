@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
@@ -451,7 +452,24 @@ type knowledgeDoc struct {
 
 func safeFilename(name string) string {
 	r := strings.NewReplacer("/", "-", " ", "_", ":", "-", "\\", "-", "?", "", "*", "")
-	return r.Replace(name)
+	name = r.Replace(name)
+
+	var b strings.Builder
+	for _, r := range name {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_' || r == '-' || r == '.' {
+			b.WriteRune(r)
+		}
+	}
+	name = b.String()
+
+	for strings.Contains(name, "__") {
+		name = strings.ReplaceAll(name, "__", "_")
+	}
+	for strings.Contains(name, "--") {
+		name = strings.ReplaceAll(name, "--", "-")
+	}
+	name = strings.Trim(name, "_-")
+	return name
 }
 
 func uniqueKSlug(base string, used map[string]bool) string {

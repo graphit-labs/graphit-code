@@ -181,4 +181,25 @@ func TestResolveWikiLinksInBody(t *testing.T) {
 	}
 }
 
+func TestSafeFilenameEmojis(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"AI Engine Specification - 🔌 Embedding Backends", "AI_Engine_Specification_-_Embedding_Backends"},
+		{"AST Module Specification - 🗄️ Database Architecture - LadybugDB", "AST_Module_Specification_-_Database_Architecture_-_LadybugDB"},
+		{"🤖 AI-Agent Self-Discovery Loop", "AI-Agent_Self-Discovery_Loop"},
+		{"Simple Title", "Simple_Title"},
+		{"Title/With/Slashes", "Title-With-Slashes"},
+		{"Some 🚀 emoji", "Some_emoji"},
+	}
+
+	for _, tc := range tests {
+		got := safeFilename(tc.input)
+		if got != tc.want {
+			t.Errorf("safeFilename(%q) = %q; want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
 
