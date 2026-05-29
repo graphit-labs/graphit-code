@@ -3,6 +3,7 @@ package ast
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -19,10 +21,13 @@ func init() {
 }
 
 type SearchIndex struct {
-	db   *sql.DB
-	path string
-	mu   sync.RWMutex
+	db     *sql.DB
+	path   string
+	mu     sync.RWMutex
+	Logger *slog.Logger
 }
+
+func (s *SearchIndex) log() *slog.Logger { return slogutil.Resolve(s.Logger) }
 
 func OpenSearchIndex(dbPath string) (*SearchIndex, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
@@ -147,8 +152,9 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 		return fmt.Errorf("search commit: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "    Search index rebuild: %d files, %d entities, %d vectors in %.0fms\n",
-		fileCount, entityCount, vecCount, time.Since(t0).Seconds()*1000)
+	s.log().Info("search index rebuild",
+		"files", fileCount, "entities", entityCount, "vectors", vecCount,
+		"duration_ms", time.Since(t0).Seconds()*1000)
 	return nil
 }
 
@@ -232,8 +238,9 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 		return fmt.Errorf("search commit: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "    Search index update: %d files, %d entities, %d vectors in %.0fms\n",
-		fileCount, entityCount, vecCount, time.Since(t0).Seconds()*1000)
+	s.log().Info("search index update",
+		"files", fileCount, "entities", entityCount, "vectors", vecCount,
+		"duration_ms", time.Since(t0).Seconds()*1000)
 	return nil
 }
 

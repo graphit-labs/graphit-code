@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 const (
@@ -26,8 +28,11 @@ const (
 )
 
 type ModelManager struct {
+	Logger   *slog.Logger
 	cacheDir string
 }
+
+func (m *ModelManager) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
 
 func NewModelManager() (*ModelManager, error) {
 	home, err := os.UserHomeDir()
@@ -60,18 +65,18 @@ func (m *ModelManager) EnsureModel(ctx context.Context) (modelPath, tokenizerPat
 	}
 
 	if !m.isValid(cachedModel, modelONNXMinSize) {
-		fmt.Fprintf(os.Stderr, "[embedder] downloading CodeRankEmbed-137M INT8 model (~132MB)...\n")
+		m.log().Info("downloading model", "model", "CodeRankEmbed-137M-INT8", "size", "~132MB")
 		if err := m.download(ctx, modelONNXURL, cachedModel); err != nil {
 			return "", "", fmt.Errorf("download model: %w", err)
 		}
 		if !m.isValid(cachedModel, modelONNXMinSize) {
 			return "", "", fmt.Errorf("downloaded model too small — expected at least %d bytes", modelONNXMinSize)
 		}
-		fmt.Fprintf(os.Stderr, "[embedder] model download complete\n")
+		m.log().Info("model download complete")
 	}
 
 	if !m.isValid(cachedTokenizer, tokenizerJSONMinSize) {
-		fmt.Fprintf(os.Stderr, "[embedder] downloading tokenizer...\n")
+		m.log().Info("downloading tokenizer")
 		if err := m.download(ctx, tokenizerJSONURL, cachedTokenizer); err != nil {
 			return "", "", fmt.Errorf("download tokenizer: %w", err)
 		}

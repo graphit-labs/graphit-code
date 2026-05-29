@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +17,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	paths_pkg "github.com/graphit-labs/graphit-code/internal/paths"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 type ArtifactType string
@@ -113,6 +115,7 @@ const (
 )
 
 type RegistryManager struct {
+	Logger   *slog.Logger
 	gitStore *GitStore
 
 	entries  map[ArtifactType]map[string]*Entry
@@ -120,6 +123,8 @@ type RegistryManager struct {
 
 	registryPaths []string
 }
+
+func (r *RegistryManager) log() *slog.Logger { return slogutil.Resolve(r.Logger) }
 
 func NewRegistryManager(ctx context.Context, paths ...string) (*RegistryManager, error) {
 	m := &RegistryManager{
@@ -142,7 +147,7 @@ func NewRegistryManager(ctx context.Context, paths ...string) (*RegistryManager,
 			m.gitStore = nil
 		} else {
 			if err := m.loadRegistry(); err != nil {
-				fmt.Fprintf(os.Stderr, "[hub] load registry: %v\n", err)
+				m.log().Warn("load registry", "error", err)
 			}
 		}
 	}
@@ -516,7 +521,7 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 	}
 
 	if _, err := m.BuildRegistryCache(); err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] rebuild cache after publish: %v\n", err)
+		m.log().Warn("rebuild cache after publish", "error", err)
 	}
 
 	return nil
@@ -543,7 +548,7 @@ func (m *RegistryManager) DeleteEntry(ctx context.Context, entryID string, entry
 
 	for _, ver := range entry.Versions {
 		if err := m.gitStore.DeleteArtifactBranch(entry.Type, entryID, ver, entry.ProjectID); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] delete branch %s@%s: %v\n", entryID, ver, err)
+			m.log().Warn("delete branch", "id", entryID, "version", ver, "error", err)
 		}
 	}
 
@@ -551,7 +556,7 @@ func (m *RegistryManager) DeleteEntry(ctx context.Context, entryID string, entry
 	projDir := m.gitStore.AbsPath(projectDir(projKey))
 	entryFilePath := filepath.Join(projDir, entryFileName)
 	if err := os.Remove(entryFilePath); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "[hub] remove entry file %s: %v\n", entryFilePath, err)
+		m.log().Warn("remove entry file", "path", entryFilePath, "error", err)
 	}
 
 	delete(m.entries[entry.Type], entryID)
@@ -564,7 +569,7 @@ func (m *RegistryManager) DeleteEntry(ctx context.Context, entryID string, entry
 	}
 
 	if _, err := m.BuildRegistryCache(); err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] rebuild cache after delete: %v\n", err)
+		m.log().Warn("rebuild cache after delete", "error", err)
 	}
 
 	return nil
@@ -605,7 +610,7 @@ func (m *RegistryManager) UpsertProject(ctx context.Context, remoteID, name, des
 	}
 
 	if _, err := m.BuildRegistryCache(); err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] rebuild cache after upsert: %v\n", err)
+		m.log().Warn("rebuild cache after upsert", "error", err)
 	}
 
 	return proj, nil
@@ -633,7 +638,7 @@ func prepareASTPublish(srcDir string) (string, error) {
 	manifestSrc := filepath.Join(srcDir, "manifest.json")
 	if data, err := os.ReadFile(manifestSrc); err == nil {
 		if err := os.WriteFile(filepath.Join(tmpDir, "manifest.json"), data, 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] ast-publish: write manifest: %v\n", err)
+			slog.Warn("ast-publish: write manifest", "error", err)
 		}
 	}
 

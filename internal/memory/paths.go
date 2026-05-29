@@ -2,12 +2,14 @@ package memory
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/paths"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 func GlobalBaseDir() string {
@@ -71,22 +73,23 @@ func EnsureScopeDirs(scope, projectDir string) error {
 	return nil
 }
 
-func EnsureContextCopy(contextName, projectDir string) {
+func EnsureContextCopy(contextName, projectDir string, logger *slog.Logger) {
+	log := slogutil.Resolve(logger)
 	if projectDir == "" {
 		return
 	}
 
 	wikiDir := MemoryWikiGlobalDir(contextName, contextName)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] context copy: mkdir %s failed: %v\n", wikiDir, err)
+		log.Warn("context copy: mkdir failed", "dir", wikiDir, "error", err)
 	}
 
 	copyPath := filepath.Join(projectDir, ProjectLinkDir(contextName))
 	if err := os.MkdirAll(filepath.Dir(copyPath), 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] context copy: mkdir parent %s failed: %v\n", filepath.Dir(copyPath), err)
+		log.Warn("context copy: mkdir parent failed", "dir", filepath.Dir(copyPath), "error", err)
 	}
 	if err := paths.SyncCopyDir(wikiDir, copyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] context copy: %s → %s failed: %v\n", wikiDir, copyPath, err)
+		log.Warn("context copy failed", "src", wikiDir, "dst", copyPath, "error", err)
 	}
 }
 

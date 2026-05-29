@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/paths"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 const GlobalLockVersion = 2
@@ -87,9 +89,12 @@ type ProjectInstall struct {
 }
 
 type GlobalLockManager struct {
+	Logger   *slog.Logger
 	mu       sync.Mutex
 	lockPath string
 }
+
+func (m *GlobalLockManager) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
 
 func NewGlobalLockManager() (*GlobalLockManager, error) {
 	globalDir := brand.GlobalDir()
@@ -490,7 +495,7 @@ func (m *GlobalLockManager) ListActiveProjects() ([]ActiveProject, error) {
 
 	if dirty {
 		if err := m.save(lock); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] save global lock (stale cleanup): %v\n", err)
+			m.log().Warn("save global lock (stale cleanup)", "error", err)
 		}
 	}
 

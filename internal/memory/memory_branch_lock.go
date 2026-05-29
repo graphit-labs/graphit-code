@@ -2,7 +2,6 @@ package memory
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -65,7 +64,7 @@ func (m *MemoryGitStore) SelectiveFetch(branches ...string) error {
 	}
 
 	if err := m.gitInRepo("fetch", "--depth=1", "--filter=blob:none", "origin"); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] fetch: %v\n", err)
+		m.log().Warn("fetch failed", "error", err)
 	}
 	return nil
 }
@@ -169,10 +168,10 @@ func (m *MemoryGitStore) ValidateMemBranchRefs() (int, error) {
 func (m *MemoryGitStore) pruneLocalBranch(branch string) {
 	wtDir := m.worktreeDirForBranch(branch)
 	if err := os.RemoveAll(wtDir); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] prune: remove worktree %s: %v\n", wtDir, err)
+		m.log().Warn("prune: remove worktree failed", "dir", wtDir, "error", err)
 	}
 	if err := m.gitInRepo("branch", "-D", branch); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] prune: delete branch %s: %v\n", branch, err)
+		m.log().Warn("prune: delete branch failed", "branch", branch, "error", err)
 	}
 }
 

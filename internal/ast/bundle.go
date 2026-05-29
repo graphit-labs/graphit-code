@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 type BundleNode struct {
@@ -31,7 +34,8 @@ type BundleManifest struct {
 	EdgeCount int    `json:"edge_count"`
 }
 
-func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string) error {
+func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string, logger *slog.Logger) error {
+	log := slogutil.Resolve(logger)
 	abs, _ := filepath.Abs(repoPath)
 	prefix := abs + "/"
 
@@ -126,11 +130,12 @@ func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string) 
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "[BUNDLE] Exported %d nodes, %d edges to %s\n", len(nodes), len(edges), outputPath)
+	log.Info("bundle exported", "nodes", len(nodes), "edges", len(edges), "path", outputPath)
 	return nil
 }
 
-func ImportBundle(ctx context.Context, db GraphDB, bundlePath string) error {
+func ImportBundle(ctx context.Context, db GraphDB, bundlePath string, logger *slog.Logger) error {
+	log := slogutil.Resolve(logger)
 	zr, err := zip.OpenReader(bundlePath)
 	if err != nil {
 		return fmt.Errorf("open bundle: %w", err)
@@ -189,7 +194,7 @@ func ImportBundle(ctx context.Context, db GraphDB, bundlePath string) error {
 		_, _ = db.Execute(ctx, q, params)
 	}
 
-	fmt.Fprintf(os.Stderr, "[BUNDLE] Imported %d nodes, %d edges from %s\n", len(nodes), len(edges), bundlePath)
+	log.Info("bundle imported", "nodes", len(nodes), "edges", len(edges), "path", bundlePath)
 	return nil
 }
 

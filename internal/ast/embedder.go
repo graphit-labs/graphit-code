@@ -3,12 +3,13 @@ package ast
 import (
 	"context"
 	"fmt"
-	"os"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 type EmbeddingConfig struct {
@@ -33,7 +34,10 @@ func DefaultEmbeddingConfig() EmbeddingConfig {
 type Embedder struct {
 	client ai.EmbeddingClient
 	cfg    EmbeddingConfig
+	Logger *slog.Logger
 }
+
+func (e *Embedder) log() *slog.Logger { return slogutil.Resolve(e.Logger) }
 
 func NewEmbedder(client ai.EmbeddingClient, cfg EmbeddingConfig) *Embedder {
 	return &Embedder{
@@ -101,7 +105,7 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 		n, err := e.processLabel(ctx, label, &done, grandTotal)
 		done += n
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[embedder] %s: %v\n", label, err)
+			e.log().Warn("process label", "label", label, "error", err)
 		}
 	}
 
@@ -213,7 +217,7 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 		}
 
 		if err := e.cfg.EmbCache.Save(); err != nil {
-			fmt.Fprintf(os.Stderr, "[embedder] cache save: %v\n", err)
+			e.log().Warn("embedding cache save", "error", err)
 		}
 
 		if e.cfg.OnProgress != nil && grandTotal > 0 {
@@ -317,10 +321,12 @@ func (e *Embedder) Stats(ctx context.Context) ([]EmbeddingStats, error) {
 
 
 
-func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir string) error {
+func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir string, logger *slog.Logger) error {
+	log := slogutil.Resolve(logger)
+
 	client, err := ai.NewEmbeddingClientFromConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[embedder] failed to create embedding client: %v\n", err)
+		log.Error("failed to create embedding client", "error", err)
 		return fmt.Errorf("embedding client: %w", err)
 	}
 
@@ -338,14 +344,15 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir stri
 	}
 
 	embedder := NewEmbedder(client, cfg)
+	embedder.Logger = logger
 
 	dbPath := filepath.Join(cacheDir, "ladybugdb")
 
 	if n, err := embedder.RunCycle(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "[embedder] initial cycle error: %v\n", err)
+		log.Warn("initial cycle error", "error", err)
 	} else if n > 0 {
-		fmt.Fprintf(os.Stderr, "[embedder] initial cycle: %d entities embedded\n", n)
-		triggerEmbeddingRebuild(ctx, dbPath, cfg.ParseCache, cfg.EmbCache)
+		log.Info("initial cycle complete", "entities_embedded", n)
+		triggerEmbeddingRebuild(ctx, dbPath, cfg.ParseCache, cfg.EmbCache, logger)
 	}
 
 	ticker := time.NewTicker(interval)
@@ -362,16 +369,18 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir stri
 			}
 
 			if n, err := embedder.RunCycle(ctx); err != nil {
-				fmt.Fprintf(os.Stderr, "[embedder] cycle error: %v\n", err)
+				log.Warn("cycle error", "error", err)
 			} else if n > 0 {
-				fmt.Fprintf(os.Stderr, "[embedder] embedded %d entities\n", n)
-				triggerEmbeddingRebuild(ctx, dbPath, cfg.ParseCache, cfg.EmbCache)
+				log.Info("embedding cycle complete", "entities_embedded", n)
+				triggerEmbeddingRebuild(ctx, dbPath, cfg.ParseCache, cfg.EmbCache, logger)
 			}
 		}
 	}
 }
 
-func triggerEmbeddingRebuild(ctx context.Context, dbPath string, parseCache *ShardCache, embCache *ShardEmbCache) {
+func triggerEmbeddingRebuild(ctx context.Context, dbPath string, parseCache *ShardCache, embCache *ShardEmbCache, logger *slog.Logger) {
+	log := slogutil.Resolve(logger)
+
 	if parseCache == nil || embCache == nil {
 		return
 	}
@@ -379,15 +388,15 @@ func triggerEmbeddingRebuild(ctx context.Context, dbPath string, parseCache *Sha
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "[embedder] rebuilding DB to inject embeddings…\n")
+	log.Info("rebuilding DB to inject embeddings")
 	t0 := time.Now()
 
 	lb := NewLadybugDB(LadybugConfig{DBPath: dbPath})
 
-	if err := RebuildFromJSON(ctx, lb, parseCache, embCache, "", ""); err != nil {
-		fmt.Fprintf(os.Stderr, "[embedder] rebuild error: %v\n", err)
+	if err := RebuildFromJSON(ctx, lb, parseCache, embCache, "", "", logger); err != nil {
+		log.Error("rebuild error", "error", err)
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "[embedder] rebuild complete (%.1fs)\n", time.Since(t0).Seconds())
+	log.Info("rebuild complete", "duration_s", time.Since(t0).Seconds())
 }

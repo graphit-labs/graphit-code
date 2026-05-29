@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,15 +21,19 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/netutil"
 	"github.com/graphit-labs/graphit-code/internal/paths"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	graphitui "github.com/graphit-labs/graphit-code/internal/ui"
 )
 
 type UIServer struct {
-	svc  *HubService
-	port int
-	mux  *http.ServeMux
-	ide  string
+	Logger *slog.Logger
+	svc    *HubService
+	port   int
+	mux    *http.ServeMux
+	ide    string
 }
+
+func (u *UIServer) log() *slog.Logger { return slogutil.Resolve(u.Logger) }
 
 func NewUIServer(svc *HubService, ide string) (*UIServer, error) {
 	port, err := netutil.FindFreePort(8100)
@@ -632,7 +637,7 @@ func (s *UIServer) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	if body.ProjectDir != "" {
 		ide := s.resolveIDE(r)
 		if err := s.svc.RecordPublish(ctx, body.ID, ArtifactType(body.Type), body.Version, ide, body.ProjectDir); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] record publish in lockfile: %v\n", err)
+			s.log().Warn("record publish in lockfile", "error", err)
 		}
 	}
 
@@ -801,7 +806,7 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if recordDir != "" {
 		ide := s.resolveIDE(r)
 		if err := s.svc.RecordPublish(ctx, artifactID, ArtifactType(artType), version, ide, recordDir); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] record upload-publish in lockfile: %v\n", err)
+			s.log().Warn("record upload-publish in lockfile", "error", err)
 		}
 	}
 

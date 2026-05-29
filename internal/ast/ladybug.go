@@ -3,6 +3,7 @@ package ast
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +12,7 @@ import (
 
 	lbug "github.com/LadybugDB/go-ladybug"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 var (
@@ -77,15 +79,18 @@ func LadybugConfigForContext(name string) LadybugConfig {
 }
 
 type LadybugBackend struct {
-	cfg  LadybugConfig
-	db   *lbug.Database
-	conn *lbug.Connection
-	mu   sync.Mutex
-	once sync.Once
+	cfg    LadybugConfig
+	db     *lbug.Database
+	conn   *lbug.Connection
+	mu     sync.Mutex
+	once   sync.Once
+	Logger *slog.Logger
 
 	stmtCache  map[string]*lbug.PreparedStatement
 	connectErr error
 }
+
+func (k *LadybugBackend) log() *slog.Logger { return slogutil.Resolve(k.Logger) }
 
 func NewLadybugDB(cfg LadybugConfig) *LadybugBackend {
 	return &LadybugBackend{cfg: cfg, stmtCache: make(map[string]*lbug.PreparedStatement)}
@@ -467,7 +472,7 @@ func (k *LadybugBackend) runBatchPhase(queries []BatchQuery) []string {
 				if len(qShort) > 80 {
 					qShort = qShort[:80] + "…"
 				}
-				fmt.Fprintf(os.Stderr, "\n[ladybug:batch] ERROR query=%s err=%s\n", qShort, err)
+				k.log().Error("batch query failed", "query", qShort, "error", err)
 				errs = append(errs, err.Error())
 			}
 		} else {

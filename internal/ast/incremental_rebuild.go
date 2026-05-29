@@ -3,6 +3,7 @@ package ast
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 func CopyDBDir(src, dst string) error {
@@ -32,7 +35,9 @@ func CopyDBDir(src, dst string) error {
 
 func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCache,
 	embCache *ShardEmbCache, changedFiles []string, deletedFiles []string,
-	cluster, rootPath string, searchIdx *SearchIndex) error {
+	cluster, rootPath string, searchIdx *SearchIndex, logger *slog.Logger) error {
+
+	log := slogutil.Resolve(logger)
 
 	if len(changedFiles) == 0 && len(deletedFiles) == 0 {
 		return nil
@@ -42,14 +47,14 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 	allAffected = append(allAffected, changedFiles...)
 	allAffected = append(allAffected, deletedFiles...)
 
-	fmt.Fprintf(os.Stderr, "\n  › Incremental: %d changed, %d deleted (of %d total)\n",
-		len(changedFiles), len(deletedFiles), cache.Count())
+	log.Info("incremental rebuild",
+		"changed", len(changedFiles), "deleted", len(deletedFiles), "total", cache.Count())
 
 	prodPath := lb.cfg.DBPath
 
 	if _, err := os.Stat(prodPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "  › No production DB — falling back to full rebuild\n")
-		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx)
+		log.Warn("no production DB, falling back to full rebuild")
+		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx, logger)
 	}
 
 	cmsThreshold := cache.Count() * 20 / 100
@@ -57,9 +62,9 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 		cmsThreshold = 5
 	}
 	if len(allAffected) > cmsThreshold {
-		fmt.Fprintf(os.Stderr, "  › %d affected files > threshold (%d) — using fast full rebuild\n",
-			len(allAffected), cmsThreshold)
-		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx)
+		log.Info("threshold exceeded, using full rebuild",
+			"affected", len(allAffected), "threshold", cmsThreshold)
+		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx, logger)
 	}
 
 	totalStart := time.Now()
@@ -67,8 +72,8 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 	t1 := time.Now()
 	workingPath := prodPath + "." + shortHex()
 	if err := CopyDBDir(prodPath, workingPath); err != nil {
-		fmt.Fprintf(os.Stderr, "  › Copy prod failed — falling back to full rebuild\n")
-		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx)
+		log.Warn("copy prod failed, falling back to full rebuild")
+		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx, logger)
 	}
 	copyTime := time.Since(t1)
 
@@ -85,8 +90,8 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 	})
 	if err := workingBackend.connect(); err != nil {
 		_ = workingBackend.Close()
-		fmt.Fprintf(os.Stderr, "  › Open working failed — falling back to full rebuild\n")
-		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx)
+		log.Warn("open working DB failed, falling back to full rebuild")
+		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx, logger)
 	}
 	_ = workingBackend.execQuery("INSTALL json")
 	_ = workingBackend.execQuery("LOAD EXTENSION json")
@@ -109,12 +114,12 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 	t4 := time.Now()
 	var insertErrors int64
 	if len(changedFiles) > 0 {
-		insertErrors = insertChangedFiles(ctx, workingBackend, cache, embCache, changedFiles, cluster)
+		insertErrors = insertChangedFiles(ctx, workingBackend, cache, embCache, changedFiles, cluster, logger)
 	}
 	insertTime := time.Since(t4)
 
 	t5 := time.Now()
-	RunEnrichment(ctx, workingBackend, rootPath)
+	RunEnrichment(ctx, workingBackend, rootPath, logger)
 	enrichTime := time.Since(t5)
 
 	_ = workingBackend.Shutdown()
@@ -126,22 +131,26 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 	swapped = true
 
 	mutateTime := time.Since(totalStart)
-	fmt.Fprintf(os.Stderr, "  › Production updated: %.2fs (copy=%.0fms open=%.0fms delete=%.0fms insert=%.0fms enrich=%.0fms errors=%d)\n",
-		mutateTime.Seconds(),
-		copyTime.Seconds()*1000, openTime.Seconds()*1000, deleteTime.Seconds()*1000,
-		insertTime.Seconds()*1000, enrichTime.Seconds()*1000, insertErrors)
+	log.Info("production updated",
+		"total_s", mutateTime.Seconds(),
+		"copy_ms", copyTime.Seconds()*1000,
+		"open_ms", openTime.Seconds()*1000,
+		"delete_ms", deleteTime.Seconds()*1000,
+		"insert_ms", insertTime.Seconds()*1000,
+		"enrich_ms", enrichTime.Seconds()*1000,
+		"errors", insertErrors)
 
 	searchWg.Wait()
 
-	fmt.Fprintf(os.Stderr, "  › Total incremental: %.2fs\n", time.Since(totalStart).Seconds())
+	log.Info("total incremental", "duration_s", time.Since(totalStart).Seconds())
 
 	return nil
 }
 
 func fullRebuildWithSearch(ctx context.Context, lb *LadybugBackend, cache *ShardCache,
-	embCache *ShardEmbCache, cluster, rootPath string, searchIdx *SearchIndex) error {
+	embCache *ShardEmbCache, cluster, rootPath string, searchIdx *SearchIndex, logger *slog.Logger) error {
 
-	if err := RebuildFromJSON(ctx, lb, cache, embCache, cluster, rootPath); err != nil {
+	if err := RebuildFromJSON(ctx, lb, cache, embCache, cluster, rootPath, logger); err != nil {
 		return err
 	}
 	if searchIdx != nil {
@@ -177,7 +186,9 @@ func deleteFileData(ctx context.Context, db GraphDB, paths []string) {
 }
 
 func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
-	embCache *ShardEmbCache, changedFiles []string, cluster string) int64 {
+	embCache *ShardEmbCache, changedFiles []string, cluster string, logger *slog.Logger) int64 {
+
+	log := slogutil.Resolve(logger)
 
 	changedEntries := make(map[string]*parseCacheEntry, len(changedFiles))
 	for _, p := range changedFiles {
@@ -211,7 +222,7 @@ func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
 		}
 		q := fmt.Sprintf("UNWIND $batch AS row CREATE (n:`%s` {%s})", table, strings.Join(props, ", "))
 		if _, err := db.Execute(ctx, q, map[string]any{"batch": data}); err != nil {
-			fmt.Fprintf(os.Stderr, "  [node-err] %s: %v\n", table, err)
+			log.Error("insert node", "table", table, "error", err)
 			insertErrors++
 		}
 	}
@@ -245,7 +256,7 @@ func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
 				relTable, setClause,
 			)
 			if _, err := db.Execute(ctx, q, map[string]any{"batch": data}); err != nil {
-				fmt.Fprintf(os.Stderr, "  [edge-err] %s(%s→%s): %v\n", relTable, fromLabel, toLabel, err)
+				log.Error("insert edge", "rel", relTable, "from", fromLabel, "to", toLabel, "error", err)
 				insertErrors++
 			}
 			return
@@ -262,7 +273,7 @@ func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
 		q := fmt.Sprintf("COPY `%s` FROM (LOAD FROM '%s' RETURN %s) (from=\"%s\", to=\"%s\")",
 			relTable, p, retClause, fromLabel, toLabel)
 		if err := lb.execQuery(q); err != nil {
-			fmt.Fprintf(os.Stderr, "  [edge-err] %s(%s→%s): %v\n", relTable, fromLabel, toLabel, err)
+			log.Error("insert edge", "rel", relTable, "from", fromLabel, "to", toLabel, "error", err)
 			insertErrors++
 		}
 	}

@@ -4,16 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"golang.org/x/term"
-
-	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 type PipelineOptions struct {
@@ -25,6 +23,8 @@ type PipelineOptions struct {
 	ExcludeExts  map[string]bool
 	Cluster      string
 	ForceRebuild bool
+	Logger       *slog.Logger
+	OnProgress   func(phase string, current, total, errors int)
 }
 
 type PipelineResult struct {
@@ -78,12 +78,14 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		files = filtered
 	}
 
+	logger := slogutil.Resolve(opts.Logger)
+
 	var jsonCache *ShardCache
 	if opts.CacheDir != "" {
 		var err error
 		jsonCache, err = NewShardCache(opts.CacheDir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "  [warn] JSON cache: %v (falling back to full parse)\n", err)
+			logger.Warn("json cache fallback", "error", err)
 		}
 	}
 
@@ -159,12 +161,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	t1 := time.Now()
 	parseOpts := ParseOptions{}
 
-	var origStdout *os.File
-	if !output.IsMuted() && term.IsTerminal(int(os.Stdout.Fd())) {
-		origStdout = os.Stdout
-	} else {
-		origStdout = os.Stderr
-	}
+
 
 	dryRun := os.Getenv("AST_DRY_RUN") == "1"
 
@@ -242,7 +239,6 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		writeErrorFiles  []string
 		writeDuration    time.Duration
 	)
-	var memStats runtime.MemStats
 	engineStats := make(map[string]int)
 
 	engineLabel := "tree-sitter"
@@ -287,12 +283,10 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 
 		parsedFilesCount++
 
-		runtime.ReadMemStats(&memStats)
-		_, _ = fmt.Fprintf(origStdout, "\r\033[K  › Parsing: %d / %d  [Errors: %d | Mem: %dMB]",
-			parsedFilesCount, len(changedFiles), parseErrors+writeErrors,
-			memStats.HeapInuse/1024/1024)
+		if opts.OnProgress != nil {
+			opts.OnProgress("parsing", parsedFilesCount, len(changedFiles), parseErrors+writeErrors)
+		}
 	}
-	_, _ = fmt.Fprintln(origStdout)
 
 	parseTime := time.Since(t1)
 
@@ -342,12 +336,12 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				}
 			}
 
-			fmt.Fprintf(os.Stderr, "  › Strategy: INCREMENTAL (%d changed + %d deleted of %d total)\n",
-				len(changedRels), len(deletedFiles), jsonCache.Count())
-			err = IncrementalRebuild(ctx, lb, jsonCache, embCache, changedRels, deletedFiles, opts.Cluster, abs, searchIdx)
+			logger.Info("strategy selected", "type", "incremental",
+				"changed", len(changedRels), "deleted", len(deletedFiles), "total", jsonCache.Count())
+			err = IncrementalRebuild(ctx, lb, jsonCache, embCache, changedRels, deletedFiles, opts.Cluster, abs, searchIdx, opts.Logger)
 		} else {
-			fmt.Fprintf(os.Stderr, "  › Strategy: FULL REBUILD (%d files)\n", jsonCache.Count())
-			err = RebuildFromJSON(ctx, db, jsonCache, embCache, opts.Cluster, abs)
+			logger.Info("strategy selected", "type", "full-rebuild", "files", jsonCache.Count())
+			err = RebuildFromJSON(ctx, db, jsonCache, embCache, opts.Cluster, abs, opts.Logger)
 			if err == nil && searchIdx != nil {
 				embLookup := buildEmbLookup(jsonCache, embCache)
 				_ = searchIdx.RebuildFromCache(jsonCache, embLookup)

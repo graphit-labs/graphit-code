@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	gitmod "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/paths"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -56,6 +58,7 @@ type MemoryEntry struct {
 }
 
 type MemoryService struct {
+	Logger         *slog.Logger
 	scope          MemoryScope
 	scopeID        string
 	gitStore       *MemoryGitStore
@@ -63,6 +66,8 @@ type MemoryService struct {
 	projectLinkDir string
 	wikiDir        string
 }
+
+func (m *MemoryService) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
 
 func NewMemoryService(scope MemoryScope, scopeID string, store *MemoryGitStore) *MemoryService {
 	localDir := MemoryLocalDir(string(scope))
@@ -79,7 +84,7 @@ func NewMemoryServiceForContext(contextName string, store *MemoryGitStore) *Memo
 func newMemorySvcInternal(scope MemoryScope, scopeID, localDir, projectLinkDir string, store *MemoryGitStore) *MemoryService {
 
 	wikiDir := MemoryWikiGlobalDir(string(scope), scopeID)
-	return &MemoryService{
+	svc := &MemoryService{
 		scope:          scope,
 		scopeID:        scopeID,
 		gitStore:       store,
@@ -87,6 +92,10 @@ func newMemorySvcInternal(scope MemoryScope, scopeID, localDir, projectLinkDir s
 		projectLinkDir: projectLinkDir,
 		wikiDir:        wikiDir,
 	}
+	if store != nil {
+		store.Logger = svc.Logger
+	}
+	return svc
 }
 
 func (m *MemoryService) Close() error { return nil }
@@ -113,7 +122,7 @@ func (m *MemoryService) EnsureInitialised() error {
 	}
 
 	if err := m.syncToLocalFast(); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] init %s/%s: local sync failed: %v\n", m.scope, m.scopeID, err)
+		m.log().Warn("init local sync failed", "scope", m.scope, "scopeID", m.scopeID, "error", err)
 	}
 	return nil
 }
@@ -128,15 +137,15 @@ func (m *MemoryService) ensureProjectCopy(wtDir string) {
 	}
 
 	if err := os.MkdirAll(m.wikiDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] copy: mkdir %s failed: %v\n", m.wikiDir, err)
+		m.log().Warn("copy: mkdir failed", "dir", m.wikiDir, "error", err)
 	}
 
 	copyPath := filepath.Join(projectDir, m.projectLinkDir)
 	if err := os.MkdirAll(filepath.Dir(copyPath), 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] copy: mkdir parent %s failed: %v\n", filepath.Dir(copyPath), err)
+		m.log().Warn("copy: mkdir parent failed", "dir", filepath.Dir(copyPath), "error", err)
 	}
 	if err := paths.SyncCopyDir(m.wikiDir, copyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] copy: %s → %s failed: %v\n", m.wikiDir, copyPath, err)
+		m.log().Warn("copy failed", "src", m.wikiDir, "dst", copyPath, "error", err)
 	}
 }
 
@@ -189,7 +198,7 @@ func (m *MemoryService) AddMemory(title, body string, opts MemoryOpts) (string, 
 	}
 
 	if err := m.syncToLocalFast(); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] add %s: post-write sync failed: %v\n", id, err)
+		m.log().Warn("post-write sync failed", "op", "add", "id", id, "error", err)
 	}
 	return id, nil
 }
@@ -266,7 +275,7 @@ func (m *MemoryService) UpdateMemory(id, newTitle, newBody string) error {
 	}
 
 	if err := m.syncToLocalFast(); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] update %s: post-write sync failed: %v\n", id, err)
+		m.log().Warn("post-write sync failed", "op", "update", "id", id, "error", err)
 	}
 	return nil
 }
@@ -307,7 +316,7 @@ func (m *MemoryService) RemoveMemory(id string) error {
 	}
 
 	if err := m.syncToLocalFast(); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] remove %s: post-write sync failed: %v\n", id, err)
+		m.log().Warn("post-write sync failed", "op", "remove", "id", id, "error", err)
 	}
 	return nil
 }
@@ -372,7 +381,7 @@ func (m *MemoryService) changeRelevance(id string, promote bool) error {
 	}
 
 	if err := m.syncToLocalFast(); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] %s %s: post-write sync failed: %v\n", verb, id, err)
+		m.log().Warn("post-write sync failed", "op", verb, "id", id, "error", err)
 	}
 	return nil
 }
@@ -446,12 +455,12 @@ func (m *MemoryService) syncToLocalInternal(skipNetwork bool) error {
 	m.ensureProjectCopy(wtDir)
 
 	if err := os.MkdirAll(m.wikiDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] sync: mkdir wiki %s failed: %v\n", m.wikiDir, err)
+		m.log().Warn("sync: mkdir wiki failed", "dir", m.wikiDir, "error", err)
 	}
 
 	ctx := context.Background()
 	if err := m.IndexMemories(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] sync %s/%s: wiki indexing failed: %v\n", m.scope, m.scopeID, err)
+		m.log().Warn("wiki indexing failed", "scope", m.scope, "scopeID", m.scopeID, "error", err)
 	}
 	return nil
 }

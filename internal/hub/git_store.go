@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,12 +13,16 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/config"
 	gitmod "github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 type GitStore struct {
+	Logger    *slog.Logger
 	repoDir   string
 	cacheBase string
 }
+
+func (g *GitStore) log() *slog.Logger { return slogutil.Resolve(g.Logger) }
 
 func NewGitStore(inlineCfg, projectCfg config.ConfigMap) (*GitStore, error) {
 	hubDir, err := config.HubRepoDirPath()
@@ -55,11 +60,11 @@ func (g *GitStore) EnsureInitialised() error {
 	}
 
 	if err := g.gitInRepo("config", "fetch.depth", "1"); err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] git config fetch.depth: %v\n", err)
+		g.log().Warn("git config fetch.depth", "error", err)
 	}
 
 	if err := g.gitInRepo("config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main"); err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] git config remote.origin.fetch: %v\n", err)
+		g.log().Warn("git config remote.origin.fetch", "error", err)
 	}
 
 	if out, err := g.gitOutputInRepo("for-each-ref", "--format=%(refname)", "refs/remotes/origin/"); err == nil {
@@ -67,7 +72,7 @@ func (g *GitStore) EnsureInitialised() error {
 			ref = strings.TrimSpace(ref)
 			if ref != "" && ref != "refs/remotes/origin/main" {
 				if err := g.gitInRepo("update-ref", "-d", ref); err != nil {
-					fmt.Fprintf(os.Stderr, "[hub] prune stale ref %s: %v\n", ref, err)
+					g.log().Warn("prune stale ref", "ref", ref, "error", err)
 				}
 			}
 		}
@@ -94,12 +99,12 @@ func (g *GitStore) syncRemote() {
 	if strings.TrimSpace(out) == "" {
 
 		if err := g.gitInRepo("remote", "add", "origin", remoteURL); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] remote add origin %s: %v\n", remoteURL, err)
+			g.log().Warn("remote add origin", "url", remoteURL, "error", err)
 		}
 	} else {
 
 		if err := g.gitInRepo("remote", "set-url", "origin", remoteURL); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] remote set-url origin %s: %v\n", remoteURL, err)
+			g.log().Warn("remote set-url origin", "url", remoteURL, "error", err)
 		}
 	}
 }
@@ -143,7 +148,7 @@ func (g *GitStore) Sync() error {
 
 		if g.isRebasing() {
 			if abortErr := g.gitInRepo("rebase", "--abort"); abortErr != nil {
-				fmt.Fprintf(os.Stderr, "[hub] rebase --abort failed: %v\n", abortErr)
+				g.log().Error("rebase --abort failed", "error", abortErr)
 			}
 			return fmt.Errorf("conflict detected during hub sync — another user may have modified the same artifact version; please retry")
 		}
@@ -351,25 +356,25 @@ func (g *GitStore) SyncEvents() {
 	gt := gitExec()
 	treeHash, err := g.buildTreeFromDir(stagingDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] events: build tree: %v\n", err)
+		g.log().Warn("events: build tree", "error", err)
 		return
 	}
 
 	commitSHA, err := g.gitOutputInRepo("commit-tree", treeHash, "-m", "events batch: "+generateULID())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] events: commit-tree: %v\n", err)
+		g.log().Warn("events: commit-tree", "error", err)
 		return
 	}
 	commitSHA = strings.TrimSpace(commitSHA)
 
 	refName := eventsRefPrefix() + generateULID()
 	if err := g.gitInRepo("update-ref", refName, commitSHA); err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] events: update-ref %s: %v\n", refName, err)
+		g.log().Warn("events: update-ref", "ref", refName, "error", err)
 		return
 	}
 
 	if err := gt.Run(g.repoDir, "push", "origin", refName); err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] events: push %s: %v\n", refName, err)
+		g.log().Warn("events: push", "ref", refName, "error", err)
 		return
 	}
 
@@ -633,7 +638,7 @@ func (g *GitStore) MemoryWorktree(branch string) (*MemoryWorktree, error) {
 		g.syncRemote()
 		directRefspec := fmt.Sprintf("+refs/heads/%s:refs/heads/%s", branch, branch)
 		if err := g.gitInRepo("fetch", "--depth=1", "--filter=blob:none", "origin", directRefspec); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] memory fetch %s: %v\n", branch, err)
+			g.log().Warn("memory fetch", "branch", branch, "error", err)
 		}
 	}
 
@@ -652,7 +657,7 @@ func (g *GitStore) MemoryWorktree(branch string) (*MemoryWorktree, error) {
 		wt := &MemoryWorktree{g: g, branch: branch, dir: wtDir}
 		if g.hasRemote() {
 			if err := wt.Pull(); err != nil {
-				fmt.Fprintf(os.Stderr, "[hub] memory refresh %s: %v\n", branch, err)
+				g.log().Warn("memory refresh", "branch", branch, "error", err)
 			}
 		}
 		return wt, nil
@@ -730,7 +735,7 @@ func (w *MemoryWorktree) CommitAndPush(message string) error {
 	w.g.syncRemote()
 
 	if err := g.Run(w.dir, "pull", "--rebase", "-X", "ours", "--depth=1", "origin", w.branch); err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] pre-push rebase %s: %v\n", w.branch, err)
+		w.g.log().Warn("pre-push rebase", "branch", w.branch, "error", err)
 	}
 
 	if err := g.Run(w.dir, "push", "--set-upstream", "origin", w.branch); err != nil {

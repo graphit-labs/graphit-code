@@ -6,11 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 var validDMLEdgeTypes = map[string]bool{
@@ -20,7 +23,9 @@ var validDMLEdgeTypes = map[string]bool{
 	"TRUNCATES": true, "REFERENCES": true,
 }
 
-func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCache *ShardEmbCache, cluster, rootPath string) error {
+func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCache *ShardEmbCache, cluster, rootPath string, logger *slog.Logger) error {
+	log := slogutil.Resolve(logger)
+
 	lb, ok := db.(*LadybugBackend)
 	if !ok {
 		return fmt.Errorf("rebuild requires LadybugBackend")
@@ -30,7 +35,7 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 	if len(entries) == 0 {
 		return nil
 	}
-	fmt.Fprintf(os.Stderr, "\n  › Cache: %d files\n", len(entries))
+	log.Info("cache loaded", "files", len(entries))
 
 	t1 := time.Now()
 	ri := newRebuildIndex(entries)
@@ -65,7 +70,7 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 		_ = tempBackend.Close()
 		return fmt.Errorf("load json extension: %w", err)
 	}
-	fmt.Fprintf(os.Stderr, "  › Schema: %.1fs\n", time.Since(t1).Seconds())
+	log.Info("schema initialized", "duration_s", time.Since(t1).Seconds())
 
 	t2 := time.Now()
 	tmpDir, err := os.MkdirTemp("", "graphit-rebuild-*")
@@ -84,7 +89,7 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 		}
 		p := filepath.Join(tmpDir, name+".json")
 		if err := writeJSONFile(p, data); err != nil {
-			fmt.Fprintf(os.Stderr, "  [error] write %s.json: %v\n", name, err)
+			log.Error("write json file", "name", name, "error", err)
 			atomic.AddInt64(&copyErrors, 1)
 			return ""
 		}
@@ -98,7 +103,7 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 		}
 		q := fmt.Sprintf("COPY `%s`(%s) FROM '%s'", table, strings.Join(cols, ","), p)
 		if err := tempBackend.execQuery(q); err != nil {
-			fmt.Fprintf(os.Stderr, "  [error] COPY %s: %v\n", table, err)
+			log.Error("COPY node", "table", table, "error", err)
 			atomic.AddInt64(&copyErrors, 1)
 		}
 		nodeCount++
@@ -115,7 +120,7 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 		q := fmt.Sprintf(`COPY `+"`%s`"+` FROM (LOAD FROM '%s' RETURN %s) (from="%s", to="%s")`,
 			relTable, p, retClause, fromLabel, toLabel)
 		if err := tempBackend.execQuery(q); err != nil {
-			fmt.Fprintf(os.Stderr, "  [error] COPY %s(%s→%s): %v\n", relTable, fromLabel, toLabel, err)
+			log.Error("COPY edge", "rel", relTable, "from", fromLabel, "to", toLabel, "error", err)
 			atomic.AddInt64(&copyErrors, 1)
 		}
 		edgeCount++
@@ -234,21 +239,22 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 	}
 
 	edgeTime := time.Since(t3)
-	fmt.Fprintf(os.Stderr, "  › COPY nodes: %d (%.1fs) | edges: %d (%.1fs)\n",
-		nodeCount, nodeTime.Seconds(), edgeCount, edgeTime.Seconds())
+	log.Info("COPY complete",
+		"nodes", nodeCount, "node_duration_s", nodeTime.Seconds(),
+		"edges", edgeCount, "edge_duration_s", edgeTime.Seconds())
 	if copyErrors > 0 {
-		fmt.Fprintf(os.Stderr, "  [error] %d COPY errors\n", copyErrors)
+		log.Error("COPY errors", "count", copyErrors)
 	}
 
 	t4 := time.Now()
-	RunEnrichment(ctx, tempBackend, rootPath)
+	RunEnrichment(ctx, tempBackend, rootPath, logger)
 
-	fmt.Fprintf(os.Stderr, "  › Post-processing (enrichment): %.1fs\n", time.Since(t4).Seconds())
+	log.Info("post-processing complete", "duration_s", time.Since(t4).Seconds())
 
 	_ = tempBackend.Shutdown()
 	_ = tempBackend.Close()
 
-	fmt.Fprintf(os.Stderr, "  › Swapping DB (atomic)…\n")
+	log.Info("swapping DB", "mode", "atomic")
 	if err := lb.AtomicSwapDB(tempDBPath); err != nil {
 		return fmt.Errorf("atomic swap: %w", err)
 	}

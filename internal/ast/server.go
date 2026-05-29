@@ -1248,7 +1248,7 @@ func (s *Server) handleExportBundle(w http.ResponseWriter, r *http.Request) {
 		body.OutputPath = body.RepoPath + ".ast"
 	}
 
-	if err := ExportBundle(r.Context(), s.db, body.RepoPath, body.OutputPath); err != nil {
+	if err := ExportBundle(r.Context(), s.db, body.RepoPath, body.OutputPath, nil); err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}

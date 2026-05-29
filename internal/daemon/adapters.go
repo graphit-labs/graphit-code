@@ -28,7 +28,7 @@ func NewEmbeddingModule(rootPath string, interval time.Duration, cacheDir string
 func (m *EmbeddingModule) Name() string { return "embedding" }
 
 func (m *EmbeddingModule) Start(ctx context.Context) error {
-	return ast.RunEmbeddingLoop(ctx, m.interval, m.cacheDir)
+	return ast.RunEmbeddingLoop(ctx, m.interval, m.cacheDir, nil)
 }
 
 type DreamModule struct {

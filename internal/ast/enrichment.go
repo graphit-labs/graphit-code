@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 type configFileEntry struct {
@@ -824,7 +827,8 @@ func scoreFunction(name, decorators string, isExported bool, lang string) int {
 	return score
 }
 
-func RunEnrichment(ctx context.Context, db GraphDB, rootPath string) {
+func RunEnrichment(ctx context.Context, db GraphDB, rootPath string, logger *slog.Logger) {
+	log := slogutil.Resolve(logger)
 
 	configs := DetectProjectConfig(ctx, db, rootPath)
 	if len(configs) > 0 {
@@ -852,6 +856,6 @@ func RunEnrichment(ctx context.Context, db GraphDB, rootPath string) {
 	ScoreEntryPoints(ctx, db)
 
 	if len(configs) > 0 || len(frameworks) > 0 {
-		fmt.Fprintf(os.Stderr, "  › Enrichment: configs=%d frameworks=%d\n", len(configs), len(frameworks))
+		log.Debug("enrichment complete", "configs", len(configs), "frameworks", len(frameworks))
 	}
 }

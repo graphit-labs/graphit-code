@@ -1,13 +1,15 @@
 package ast
 
 import (
-	"fmt"
-	"os"
+	"log/slog"
 	"path/filepath"
 	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
-func PreScanForImports(files []string) map[string][]string {
+func PreScanForImports(files []string, logger *slog.Logger) map[string][]string {
+	log := slogutil.Resolve(logger)
 	importsMap := make(map[string][]string)
 
 	byExt := make(map[string][]string)
@@ -25,11 +27,11 @@ func PreScanForImports(files []string) map[string][]string {
 		langMap := genericPreScan(tsParser, paths)
 		mergeImportsMap(importsMap, langMap)
 		if len(langMap) > 0 {
-			fmt.Fprintf(os.Stderr, "[PRE-SCAN] %s: %d definitions from %d files\n", ext, len(langMap), len(paths))
+			log.Debug("pre-scan extension", "ext", ext, "definitions", len(langMap), "files", len(paths))
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "[PRE-SCAN] Total: %d cross-file definitions\n", len(importsMap))
+	log.Debug("pre-scan complete", "total_definitions", len(importsMap))
 	return importsMap
 }
 

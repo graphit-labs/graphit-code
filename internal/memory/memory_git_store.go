@@ -3,6 +3,7 @@ package memory
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,12 +11,16 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/config"
 	gitmod "github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 type MemoryGitStore struct {
+	Logger  *slog.Logger
 	repoDir string
 	wtBase  string
 }
+
+func (m *MemoryGitStore) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
 
 func NewMemoryGitStore() (*MemoryGitStore, error) {
 	repoDir, err := config.MemoryRepoDirPath()
@@ -45,7 +50,7 @@ func (m *MemoryGitStore) EnsureInitialised() error {
 	}
 
 	if err := m.gitInRepo("config", "fetch.depth", "1"); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] git config fetch.depth: %v\n", err)
+		m.log().Warn("git config fetch.depth failed", "error", err)
 	}
 
 	m.syncRemote()
@@ -55,7 +60,7 @@ func (m *MemoryGitStore) EnsureInitialised() error {
 			ref = strings.TrimSpace(ref)
 			if ref != "" && ref != "refs/remotes/origin/main" {
 				if err := m.gitInRepo("update-ref", "-d", ref); err != nil {
-					fmt.Fprintf(os.Stderr, "[memory] prune stale ref %s: %v\n", ref, err)
+					m.log().Warn("prune stale ref failed", "ref", ref, "error", err)
 				}
 			}
 		}
@@ -84,14 +89,14 @@ func (m *MemoryGitStore) syncRemote() {
 	if currentURL == "" {
 
 		if err := m.gitInRepo("remote", "add", "origin", remoteURL); err != nil {
-			fmt.Fprintf(os.Stderr, "[memory] remote add origin %s: %v\n", remoteURL, err)
+			m.log().Warn("remote add origin failed", "url", remoteURL, "error", err)
 			return
 		}
 		_ = m.gitInRepo("config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main")
 	} else {
 
 		if err := m.gitInRepo("remote", "set-url", "origin", remoteURL); err != nil {
-			fmt.Fprintf(os.Stderr, "[memory] remote set-url origin %s: %v\n", remoteURL, err)
+			m.log().Warn("remote set-url origin failed", "url", remoteURL, "error", err)
 		}
 	}
 }
@@ -145,7 +150,7 @@ func (m *MemoryGitStore) memoryWorktreeInternal(branch string, skipNetwork bool)
 		m.syncRemote()
 
 		if err := m.SelectiveFetch(branch); err != nil {
-			fmt.Fprintf(os.Stderr, "[memory] selective fetch for %s: %v\n", branch, err)
+			m.log().Warn("selective fetch failed", "branch", branch, "error", err)
 		}
 	}
 
@@ -161,10 +166,10 @@ func (m *MemoryGitStore) memoryWorktreeInternal(branch string, skipNetwork bool)
 	wtDir := m.worktreeDirForBranch(branch)
 
 	if _, err := os.Stat(filepath.Join(wtDir, ".git")); err == nil {
-		wt := &MemoryWorktree{store: m, branch: branch, dir: wtDir}
+		wt := &MemoryWorktree{store: m, branch: branch, dir: wtDir, logger: m.Logger}
 		if !skipNetwork {
 			if err := wt.Pull(); err != nil {
-				fmt.Fprintf(os.Stderr, "[memory] pull %s: %v\n", branch, err)
+				wt.log().Warn("pull failed", "branch", branch, "error", err)
 			}
 		}
 		return wt, nil
@@ -178,13 +183,13 @@ func (m *MemoryGitStore) memoryWorktreeInternal(branch string, skipNetwork bool)
 	}
 
 	if err := m.RegisterBranch(branch, wtDir); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] register branch %s: %v\n", branch, err)
+		m.log().Warn("register branch failed", "branch", branch, "error", err)
 	}
 
-	wt := &MemoryWorktree{store: m, branch: branch, dir: wtDir}
+	wt := &MemoryWorktree{store: m, branch: branch, dir: wtDir, logger: m.Logger}
 	if !skipNetwork {
 		if err := wt.Pull(); err != nil {
-			fmt.Fprintf(os.Stderr, "[memory] pull %s: %v\n", branch, err)
+			wt.log().Warn("pull failed", "branch", branch, "error", err)
 		}
 	}
 
@@ -241,7 +246,10 @@ type MemoryWorktree struct {
 	store  *MemoryGitStore
 	branch string
 	dir    string
+	logger *slog.Logger
 }
+
+func (w *MemoryWorktree) log() *slog.Logger { return slogutil.Resolve(w.logger) }
 
 func (w *MemoryWorktree) Dir() string { return w.dir }
 
@@ -329,12 +337,12 @@ func (m *MemoryGitStore) pushBranchInBackground(branch, wtDir string) {
 		if m.remoteBranchExists(branch) {
 			if err := g.Run(wtDir, "pull", "--rebase", "--allow-unrelated-histories",
 				"-X", "ours", "--depth=1", "origin", branch); err != nil {
-				fmt.Fprintf(os.Stderr, "[memory] background pull --rebase %s: %v\n", branch, err)
+				m.log().Warn("background pull --rebase failed", "branch", branch, "error", err)
 			}
 		}
 
 		if err := g.Run(wtDir, "push", "--set-upstream", "origin", branch); err != nil {
-			fmt.Fprintf(os.Stderr, "[memory] background push %s: %v\n", branch, err)
+			m.log().Warn("background push failed", "branch", branch, "error", err)
 		}
 	}()
 }
@@ -342,7 +350,7 @@ func (m *MemoryGitStore) pushBranchInBackground(branch, wtDir string) {
 func (w *MemoryWorktree) Prune() error {
 
 	if _, err := w.store.DeregisterBranch(w.branch, w.dir); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] prune: deregister branch %s: %v\n", w.branch, err)
+		w.log().Warn("prune: deregister branch failed", "branch", w.branch, "error", err)
 	}
 
 	g := gitmod.Default()

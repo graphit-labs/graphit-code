@@ -3,6 +3,7 @@ package hub
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,13 +13,17 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	ideAdapter "github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/paths"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 type HubService struct {
+	Logger   *slog.Logger
 	registry *RegistryManager
 	tracker  *EventTracker
 	lockMgr  *GlobalLockManager
 }
+
+func (s *HubService) log() *slog.Logger { return slogutil.Resolve(s.Logger) }
 
 func NewHubService(registry *RegistryManager) *HubService {
 	var tracker *EventTracker
@@ -150,7 +155,7 @@ func (s *HubService) Install(
 					embCache = ec
 					defer func() { _ = embCache.Close() }()
 				}
-				if err := ast.RebuildFromJSON(ctx, db, shardCache, embCache, "", ""); err != nil {
+				if err := ast.RebuildFromJSON(ctx, db, shardCache, embCache, "", "", nil); err != nil {
 					_ = db.Close()
 					_ = shardCache.Close()
 					return nil, fmt.Errorf("rebuilding AST DB from cache: %w", err)
@@ -175,19 +180,19 @@ func (s *HubService) Install(
 				targetPath, err := ideAdapter.ArtifactTypePath(pp.ActiveProjectDir, ide, string(artType), localID)
 				if err == nil {
 					if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-						fmt.Fprintf(os.Stderr, "[hub] creating target dir for %s: %v\n", localID, err)
+						s.log().Warn("creating target dir", "artifact", localID, "error", err)
 					}
 					fm := ideAdapter.GetFileMode(ide, string(artType))
 					if fm == "folder" {
 						_ = os.RemoveAll(targetPath)
 						if err := copyDir(cloneDir, targetPath); err != nil {
-							fmt.Fprintf(os.Stderr, "[hub] copying artifact %s to IDE dir: %v\n", localID, err)
+							s.log().Warn("copying artifact to IDE dir", "artifact", localID, "error", err)
 						}
 					} else {
 						srcFile := findCanonicalFile(string(artType), cloneDir)
 						if srcFile != "" {
 							if err := copyFile(srcFile, targetPath); err != nil {
-								fmt.Fprintf(os.Stderr, "[hub] copying artifact %s to IDE dir: %v\n", localID, err)
+								s.log().Warn("copying artifact to IDE dir", "artifact", localID, "error", err)
 							}
 						}
 					}
@@ -246,7 +251,7 @@ func (s *HubService) Install(
 			entry.Name, entry.Description, versionHash,
 			cachePath, lf.Project.ID, projDir, cloneDir,
 		); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] register install %s@%s: %v\n", realID, resolvedVersion, err)
+			s.log().Warn("register install", "id", realID, "version", resolvedVersion, "error", err)
 		}
 	}
 
@@ -278,7 +283,7 @@ func (s *HubService) Install(
 		}
 
 		if _, err := s.Install(ctx, depIDVersioned, "", ide, dep.Type, realID, projectDir); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] install dependency %s for %s: %v\n", dep.ID, realID, err)
+			s.log().Warn("install dependency", "dependency", dep.ID, "parent", realID, "error", err)
 		}
 	}
 
@@ -371,7 +376,7 @@ func (s *HubService) recordPublishInGlobalLock(
 		name, description, versionHash,
 		"", projectID, projectDir, "",
 	); err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] register publish %s@%s in global lock: %v\n", entryID, version, err)
+		s.log().Warn("register publish in global lock", "id", entryID, "version", version, "error", err)
 	}
 }
 
@@ -413,7 +418,7 @@ func (s *HubService) Uninstall(
 
 	for _, memberID := range meta.Members {
 		if err := s.Uninstall(ctx, memberID, "", false, ide, projectDir); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] uninstall member %s (dep of %s): %v\n", memberID, entryID, err)
+			s.log().Warn("uninstall member", "member", memberID, "parent", entryID, "error", err)
 		}
 	}
 
@@ -427,7 +432,7 @@ func (s *HubService) Uninstall(
 	}
 
 	if err := s.preUninstallHook(ctx, artType, entryID, meta, pp); err != nil {
-		fmt.Fprintf(os.Stderr, "[hub] pre-uninstall hook %s/%s: %v\n", artType, entryID, err)
+		s.log().Warn("pre-uninstall hook", "type", artType, "id", entryID, "error", err)
 	}
 
 	if !ideIndependentTypes[artType] && ide != "" {
@@ -466,12 +471,12 @@ func (s *HubService) Uninstall(
 		}
 		orphaned, gcErr := s.lockMgr.RegisterUninstall(entryID, meta.Version, artType, projectID)
 		if gcErr != nil {
-			fmt.Fprintf(os.Stderr, "[hub] deregister %s@%s: %v\n", entryID, meta.Version, gcErr)
+			s.log().Warn("deregister", "id", entryID, "version", meta.Version, "error", gcErr)
 		}
 		if orphaned {
 
 			if _, gcErr := s.lockMgr.GCOrphans(); gcErr != nil {
-				fmt.Fprintf(os.Stderr, "[hub] GC orphans after %s: %v\n", entryID, gcErr)
+				s.log().Warn("GC orphans", "after", entryID, "error", gcErr)
 			}
 		}
 	}
@@ -595,7 +600,7 @@ func (s *HubService) UpdateOne(ctx context.Context, entryID string, entryType Ar
 		if meta.Hash != localHash {
 			meta.Hash = localHash
 			if err := SaveLockfile(pp.LockFilePath, lf); err != nil {
-				fmt.Fprintf(os.Stderr, "[hub] update hash for %s: %v\n", resolvedID, err)
+				s.log().Warn("update hash", "id", resolvedID, "error", err)
 			}
 		}
 		return nil
@@ -645,7 +650,7 @@ func (s *HubService) UninstallAll(ctx context.Context, ide, projectDir string) e
 	for artType, typeMap := range lf.Artifacts {
 		for artID := range typeMap {
 			if err := s.Uninstall(ctx, artID, artType, true, ide, projectDir); err != nil {
-				fmt.Fprintf(os.Stderr, "[hub] uninstall-all %s/%s: %v\n", artType, artID, err)
+				s.log().Warn("uninstall-all", "type", artType, "id", artID, "error", err)
 			}
 		}
 	}
@@ -933,7 +938,7 @@ func (s *HubService) EnsureKnowledgeAvailable(ctx context.Context, artifactID st
 			entry.Name, entry.Description, versionHash,
 			cloneDir, "__transient__", "", cloneDir,
 		); err != nil {
-			fmt.Fprintf(os.Stderr, "[hub] register transient install %s@%s: %v\n", realID, resolvedVersion, err)
+			s.log().Warn("register transient install", "id", realID, "version", resolvedVersion, "error", err)
 		}
 	}
 

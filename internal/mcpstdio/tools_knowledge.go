@@ -257,7 +257,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 				return err
 			}
 			memStore, _ := memory.NewMemoryGitStore()
-			memory.OnHubImport(ctx, input.Name, projectDir, memStore)
+			memory.OnHubImport(ctx, input.Name, projectDir, memStore, nil)
 			return nil
 		})
 		if err != nil {

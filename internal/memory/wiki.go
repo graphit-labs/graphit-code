@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,13 +12,14 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 type WikiResult struct {
 	ArticlesWritten int
 }
 
-func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string) (*WikiResult, error) {
+func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*slog.Logger) (*WikiResult, error) {
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating wiki dir: %w", err)
 	}
@@ -95,7 +97,11 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string) (*WikiResult,
 		return result, err
 	}
 
-	appendMemLog(filepath.Join(wikiDir, "log.md"), len(docs), result.ArticlesWritten)
+	var wikiLogger *slog.Logger
+	if len(logger) > 0 {
+		wikiLogger = logger[0]
+	}
+	appendMemLog(filepath.Join(wikiDir, "log.md"), len(docs), result.ArticlesWritten, wikiLogger)
 
 	return result, nil
 }
@@ -270,7 +276,8 @@ func memoryIndexPage(docs []memDoc) string {
 	return b.String()
 }
 
-func appendMemLog(logPath string, totalMemories, articlesWritten int) {
+func appendMemLog(logPath string, totalMemories, articlesWritten int, logger *slog.Logger) {
+	log := slogutil.Resolve(logger)
 	now := time.Now().UTC().Format("2006-01-02")
 	entry := fmt.Sprintf("## [%s] index | Wiki regenerated\n\n"+
 		"- Memories: %d\n- Articles written: %d\n\n",
@@ -292,7 +299,7 @@ func appendMemLog(logPath string, totalMemories, articlesWritten int) {
 		content += "\n" + entry
 	}
 	if err := os.WriteFile(logPath, []byte(content), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] wiki log: write %s failed: %v\n", logPath, err)
+		log.Warn("wiki log: write failed", "path", logPath, "error", err)
 	}
 }
 

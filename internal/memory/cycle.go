@@ -3,8 +3,11 @@ package memory
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 type CycleResult struct {
@@ -56,7 +59,8 @@ func RunAllContextCycles(ctx context.Context) []*CycleResult {
 	return results
 }
 
-func SyncAndCycle(ctx context.Context, scope, scopeID string, store MemoryStoreProvider) *CycleResult {
+func SyncAndCycle(ctx context.Context, scope, scopeID string, store MemoryStoreProvider, logger *slog.Logger) *CycleResult {
+	log := slogutil.Resolve(logger)
 	rawDir := WorktreeRawDir(scope, scopeID)
 	branch := memoryBranch(scope, scopeID)
 
@@ -64,7 +68,7 @@ func SyncAndCycle(ctx context.Context, scope, scopeID string, store MemoryStoreP
 
 		if err := store.ExtractBranchDir(branch, ".", rawDir); err != nil {
 
-			fmt.Fprintf(os.Stderr, "[memory] sync %s: extract branch %q failed: %v\n", scope, branch, err)
+			log.Warn("sync: extract branch failed", "scope", scope, "branch", branch, "error", err)
 		}
 	}
 
@@ -75,25 +79,27 @@ type MemoryStoreProvider interface {
 	ExtractBranchDir(branch, relDir, targetDir string) error
 }
 
-func SyncContextFromMemoryRepo(ctx context.Context, contextName, projectDir string, store MemoryStoreProvider) *CycleResult {
-	EnsureContextCopy(contextName, projectDir)
+func SyncContextFromMemoryRepo(ctx context.Context, contextName, projectDir string, store MemoryStoreProvider, logger *slog.Logger) *CycleResult {
+	log := slogutil.Resolve(logger)
+	EnsureContextCopy(contextName, projectDir, logger)
 	rawDir := RawDir(contextName)
 	branch := fmt.Sprintf("memory/project/%s", contextName)
 
 	if store != nil {
 		if err := store.ExtractBranchDir(branch, ".", rawDir); err != nil {
-			fmt.Fprintf(os.Stderr, "[memory] sync context %q: extract branch %q failed: %v\n", contextName, branch, err)
+			log.Warn("sync context: extract branch failed", "context", contextName, "branch", branch, "error", err)
 		}
 	}
 
 	return RunCycle(ctx, contextName, rawDir, WikiDir(contextName))
 }
 
-func OnHubImport(ctx context.Context, contextName, projectDir string, store MemoryStoreProvider) {
+func OnHubImport(ctx context.Context, contextName, projectDir string, store MemoryStoreProvider, logger *slog.Logger) {
+	log := slogutil.Resolve(logger)
 
 	go func() {
-		if res := SyncContextFromMemoryRepo(ctx, contextName, projectDir, store); res.Err != nil {
-			fmt.Fprintf(os.Stderr, "[memory] hub import context %q: %v\n", contextName, res.Err)
+		if res := SyncContextFromMemoryRepo(ctx, contextName, projectDir, store, logger); res.Err != nil {
+			log.Warn("hub import context failed", "context", contextName, "error", res.Err)
 		}
 	}()
 }
@@ -105,17 +111,18 @@ func memoryBranch(scope, scopeID string) string {
 	return fmt.Sprintf("memory/project/%s", scope)
 }
 
-func EnsureWikiIndexExists(scope string) {
+func EnsureWikiIndexExists(scope string, logger *slog.Logger) {
+	log := slogutil.Resolve(logger)
 	wikiDir := WikiDir(scope)
 	indexPath := filepath.Join(wikiDir, "index.md")
 	if _, err := os.Stat(indexPath); err == nil {
 		return
 	}
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] ensure wiki index: mkdir %s failed: %v\n", wikiDir, err)
+		log.Warn("ensure wiki index: mkdir failed", "dir", wikiDir, "error", err)
 	}
 	content := fmt.Sprintf("---\ntitle: Memory Wiki (%s)\ntags: [memory, %s]\n---\n\n# Memory Wiki\n\n*(No memories indexed yet. Run `memory index` to populate.)*\n", scope, scope)
 	if err := os.WriteFile(indexPath, []byte(content), 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "[memory] ensure wiki index: write %s failed: %v\n", indexPath, err)
+		log.Warn("ensure wiki index: write failed", "path", indexPath, "error", err)
 	}
 }

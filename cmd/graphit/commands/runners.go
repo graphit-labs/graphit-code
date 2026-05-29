@@ -837,7 +837,7 @@ func runASTExport(format, outputDir string, noSources bool) error {
 		p.Success("Exported to %s", absDir)
 	case "bundle":
 		p.Info("Exporting .ast bundle → %s", absDir)
-		if err := ast.ExportBundle(context.Background(), db, repoPath, absDir); err != nil {
+		if err := ast.ExportBundle(context.Background(), db, repoPath, absDir, nil); err != nil {
 			return err
 		}
 		p.Success("Exported to %s (with sources)", absDir)
@@ -1074,7 +1074,7 @@ func runKnowledgeImport(name string, reset, useLouvain bool) error {
 
 	memStore, _ := memory.NewMemoryGitStore()
 	wd, _ := os.Getwd()
-	memory.OnHubImport(ctx, name, wd, memStore)
+	memory.OnHubImport(ctx, name, wd, memStore, nil)
 	p.Step("Memory auto-cycle triggered for context %q (background)", name)
 
 	p.Success("Context %q ready", name)

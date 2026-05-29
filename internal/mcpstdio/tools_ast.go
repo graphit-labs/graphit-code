@@ -487,7 +487,7 @@ func registerASTTools(server *mcp.Server) {
 				return errResult(err)
 			}
 		case "bundle":
-			if err := ast.ExportBundle(ctx, db, projectDir, absDir); err != nil {
+			if err := ast.ExportBundle(ctx, db, projectDir, absDir, nil); err != nil {
 				return errResult(err)
 			}
 		default:
