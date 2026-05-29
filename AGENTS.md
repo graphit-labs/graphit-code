@@ -132,13 +132,12 @@ Cypher guidelines, cookbook patterns, and fallback protocols you must follow.
 
 | Instead of this grep | Use this AST tool call (passing absolute `project_dir` parameter) |
 |---|---|
-| `grep_search: func myFunction` | `graphit_ast_query` with `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'myfunction' RETURN f.name, f.path, f.line_number, label(f) AS type"`, `ai_optimized: true` |
+| `grep_search: func myFunction` | `graphit_ast_query` with `query: "MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'myfunction' RETURN f.name, f.path, f.line_number"`, `ai_optimized: true` |
 | `grep_search: type MyStruct` | `graphit_ast_query` with `query: "MATCH (n) WHERE toLower(n.name) CONTAINS 'mystruct' RETURN n.name, label(n) AS type, n.path"`, `ai_optimized: true` |
 | `grep_search: import "package"` | `graphit_ast_query` with `query: "MATCH (f:File)-[:IMPORTS]->(m:Module) WHERE toLower(m.name) CONTAINS 'package' RETURN f.path"`, `ai_optimized: true` |
 | `grep -l "keyword" *.go` | `graphit_ast_search_fts` with `query: "keyword"` |
 | `find ... -name "*.go" \| xargs grep -l "daemon"` | `graphit_ast_search_fts` with `query: "daemon"` |
-| Searching for a callable by name | `graphit_ast_query` with `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'search' RETURN f.name, f.path, f.line_number, label(f) AS type"`, `ai_optimized: true` |
-| Searching for a type definition by name | `graphit_ast_query` with `query: "MATCH (n) WHERE (label(n) = 'Class' OR label(n) = 'Struct' OR label(n) = 'Interface' OR label(n) = 'Trait') AND toLower(n.name) CONTAINS 'handler' RETURN n.name, n.path, label(n) AS type"`, `ai_optimized: true` |
+| Searching for an entity that could be more than one type | `graphit_ast_query` with `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'search' RETURN f.name, f.path, f.line_number, label(f) AS type"`, `ai_optimized: true` |
 
 ## Quick Reference (always active)
 
@@ -170,7 +169,6 @@ Cypher guidelines, cookbook patterns, and fallback protocols you must follow.
 7. **Node type = label, not property** — `n.kind`, `n.type`, `n.label` DO NOT EXIST. Use `label(n)` function instead (e.g., `RETURN label(n) AS type`).
 8. **`graphit_ast_search_fts` and `graphit_ast_search_semantic` = PLAIN TEXT only** — these parameters accept keywords or natural language, NEVER Cypher queries. Only `graphit_ast_query` accepts Cypher.
 9. **BLOCKED: grep_search for definitions** — NEVER use grep_search with queries like `func X`, `type X`, `class X`, `struct X`, `interface X`, `import X`. These are STRUCTURAL queries — call `graphit_ast_query` ALWAYS.
-10. **Multi-label by default** — When searching by name, NEVER assume a single label (e.g., `Function`). Languages have subtle distinctions: Go has Function vs Method, Class vs Struct; Rust has Trait vs Interface. **ALWAYS use multi-label queries** (e.g., `label(f) = 'Function' OR label(f) = 'Method'`) unless you already confirmed the exact label from a prior query. A single-label search that misses results is WORSE than a multi-label search that returns a few extra rows.
 
 ## 🔗 MANDATORY: Subagent Propagation
 
@@ -179,10 +177,9 @@ multi-agent mechanism), you MUST include these instructions in the subagent's pr
 
 1. Add to every subagent system_prompt or task prompt:
    "IMPORTANT: For code exploration, use `graphit_ast_query` and other AST MCP tools instead of grep_search (always pass absolute `project_dir` parameter):
-   - Find callable (function or method): call `graphit_ast_query` with `query: \"MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'NAME' RETURN f.name, f.path, f.line_number, label(f) AS type\"`, `ai_optimized: true`
+   - Find function: call `graphit_ast_query` with `query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'NAME' RETURN f.name, f.path, f.line_number\"`, `ai_optimized: true`
    - Find callers: call `graphit_ast_query` with `query: \"MATCH (a)-[:CALLS]->(b {name: 'NAME'}) RETURN a.name, a.path\"`, `ai_optimized: true`
    - Full-text search: call `graphit_ast_search_fts` with `query: \"KEYWORD\"`
-   - ALWAYS use multi-label queries when searching by name (e.g., Function OR Method, Class OR Struct). Never assume a single label.
    - After code changes: call `graphit_sync` tool
    Read and follow all rules in the project's AGENTS.md before starting work."
 2. For `define_subagent`, inject these as part of the `system_prompt` parameter.

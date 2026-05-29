@@ -112,6 +112,7 @@ func RuleContent(contexts []string) string {
 		"|---|---|---|",
 		"| User says \"always/never/prefer/avoid/must\" about code | Store as convention | " + memInsertRef + " with `title: \"<rule>\"`, `type: \"convention\"`, `important: true` |",
 		"| User corrects your behavior or approach | Store the correction | " + memInsertRef + " with `title: \"<correction>\"`, `type: \"correction\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| User **gives any instruction or directive** (even without \"always/never\") | **Evaluate for memory** — determine if it contains a convention, preference, correction, fact, or skill worth persisting. If yes, memorize it with the appropriate type. NEVER just say \"understood\" or confirm comprehension without evaluating. | " + memInsertRef + " with appropriate `type` if the instruction is worth persisting |",
 		"| User **guides, orients, or gives direction** on how to proceed | Store the guidance | " + memInsertRef + " with `title: \"<guidance>\"`, `type: \"convention\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
 		"| User **intervenes** mid-task to change course or redirect | Store the intervention as correction | " + memInsertRef + " with `title: \"<intervention>\"`, `type: \"correction\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
 		"| User gives a **tip, hint, or suggestion** on how to do something | Store as skill | " + memInsertRef + " with `title: \"<tip>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
@@ -258,6 +259,7 @@ func RuleContent(contexts []string) string {
 		"4. **Capture trade-offs, not just facts.** \"We chose X over Y because Z\" > \"We use X\".",
 		"5. **Handle contradictions.** Remove old + create new. Don't leave conflicting memories.",
 		"6. **Promote critical memories.** Conventions, corrections, and constraints should be marked important.",
+		"7. **NEVER just say \"understood\" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate whether it should be memorized. If it contains a convention, preference, correction, workflow, fact, or any persistent knowledge, create a memory immediately. Only skip memorization if the instruction is purely about an ephemeral, one-shot action with no future relevance.",
 	)
 
 	importantBlock := RenderImportantBlock("project")
@@ -323,6 +325,7 @@ func MemoryRouterContent(contexts []string) string {
 		"",
 		"#### User interaction (always memorize):",
 		"- User **corrects** your behavior or approach → store as correction (with important: true)",
+		"- User **gives any instruction or directive** → **evaluate for memory** — NEVER just say \"understood\". Determine if it contains a convention, preference, correction, fact, or skill worth persisting. If yes, memorize with the appropriate type",
 		"- User **guides or orients** on how to proceed → store as convention",
 		"- User **intervenes** mid-task to redirect or change course → store as correction (with important: true)",
 		"- User **explains how something works** or shows a procedure → store as skill/fact",
@@ -365,6 +368,7 @@ func MemoryRouterContent(contexts []string) string {
 		"3. **Never edit .md memory files directly.** Use " + memWildcard + " MCP tools.",
 		"4. **ALWAYS use " + memInsertRef + "** — NEVER use IDE-native memory.",
 		"5. **Always confirm**: \"Memorized: '<title>'\" or \"Following memory: '<title>'\".",
+		"6. **NEVER just say \"understood\" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate if it should be memorized. If it has future relevance, create a memory.",
 		"",
 		"## 🔗 MANDATORY: Subagent Memory Access",
 		"",

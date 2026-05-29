@@ -202,30 +202,10 @@ meaning-based discovery. They are complementary — try both when uncertain.
 
 Once you know the exact names and labels from Phase 2, construct the final query. Call the `graphit_ast_query` tool (passing `project_dir`, `query`, and `ai_optimized: true`):
 
-> ⚠️ **Multi-label search — DEFAULT BEHAVIOR when searching by name:**
-> Many entities share the same name but differ only in label. Languages have subtle
-> distinctions that you CANNOT reliably predict from the name alone:
-> - **Function vs Method**: In Go, `func Search(...)` is a Function, but `func (idx *BM25Index) Search(...)` is a Method. In Python/Java, class methods are Methods, standalone ones are Functions.
-> - **Class vs Struct**: In Go/Rust, `type X struct` is a Struct, not a Class. In Python/Java, it's a Class.
-> - **Interface vs Trait**: In Go, `type X interface` is an Interface. In Rust, `trait X` is a Trait.
-> - **Variable vs Constant**: `var x` vs `const x` — same name, different labels.
->
-> **RULE: When searching for an entity by name and you are NOT 100% certain of its exact label,
-> ALWAYS use a multi-label query.** This is the SAFE DEFAULT — a single-label query risks missing results silently.
+> ⚠️ **Multi-label search:** When unsure which label an entity has, search across multiple types:
 > ```
-> # Instead of: MATCH (f:Function {name: 'Search'}) ...  (MISSES methods!)
-> # Use:
 > Call graphit_ast_query with query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND f.name = 'Search' RETURN f.name, f.path, f.line_number, label(f) AS type"
 > ```
->
-> **Common multi-label pairs to always consider:**
-> | Looking for | Use these labels |
-> |---|---|
-> | A callable (function/method) | `label(f) = 'Function' OR label(f) = 'Method'` |
-> | A type definition (class/struct) | `label(f) = 'Class' OR label(f) = 'Struct'` |
-> | An abstraction (interface/trait) | `label(f) = 'Interface' OR label(f) = 'Trait'` |
-> | A named value (variable/constant) | `label(f) = 'Variable' OR label(f) = 'Constant'` |
-> | Anything — full discovery | `MATCH (n) WHERE n.name = 'X' RETURN n.name, label(n) AS type, n.path` |
 
 Common queries to pass in `query` parameter:
 ```bash
@@ -516,7 +496,6 @@ MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, 
 - **Property names are exact.** Refer to the Property Reference table in Phase 1. NEVER guess property names — if it's not in the table, it doesn't exist.
 - **Shared properties only.** When matching unlabeled nodes (e.g., `MATCH (n) WHERE ...`), you may ONLY access properties shared by ALL labels: `name`, `path`, `line_number`, `end_line`, `docstring`, `lang`. For label-specific properties (e.g., `cyclomatic_complexity`, `is_exported`, `source`), you MUST specify the label in the MATCH (e.g., `(n:Function)`, `(f:File)`).
 - LadybugDB strict typing: DO NOT access properties unless you explicitly MATCH the label that contains them. If a property is not shared by ALL possible labels in a pattern, LadybugDB will crash!
-- **Multi-label by default.** When searching for an entity by name, NEVER hardcode a single label unless you have already confirmed the exact label from a prior query. Languages have subtle distinctions — Go uses Function vs Method, Class vs Struct; Rust uses Trait vs Interface. Use multi-label patterns: `MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND f.name = 'X'`. A query that returns extra rows is far better than one that silently misses results.
 - Return only what you need. Avoid returning entire node objects (`RETURN n`); instead, return specific properties (`RETURN n.name, n.path`) to keep output concise.
 - Use `LIMIT` only when you want to cap results — don't add it by default.
 - Do NOT use the `context` parameter on tools when working with the current project. Only specify `context` when querying an imported third-party AST context.
