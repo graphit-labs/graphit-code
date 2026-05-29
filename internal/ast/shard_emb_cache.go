@@ -20,7 +20,7 @@ type shardEmb struct {
 	Embeddings map[string][]float32 `json:"emb"`
 }
 
-const shardEmbVersion = 1
+const shardEmbVersion = 2
 
 func NewShardEmbCache(cacheDir string, parseCache *ShardCache) (*ShardEmbCache, error) {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {

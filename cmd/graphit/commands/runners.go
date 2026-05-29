@@ -503,14 +503,14 @@ func runASTQuery(query string, contextName string, aiMode bool, cypherOnly bool,
 	return nil
 }
 
-func runASTSemanticSearch(query string, contextName string, topK int, aiOptimized bool) error {
+func runASTHybridSearch(query string, contextName string, topK int, aiOptimized bool) error {
 	p := output.NewPrinter("")
 
 	var db ast.GraphDB
 	var err error
 	if contextName != "" {
 		db, err = newASTBackendForContextReadOnly(contextName)
-		p.Info("Semantic search in context: %s", contextName)
+		p.Info("Hybrid search in context: %s", contextName)
 	} else {
 		db, err = newASTBackendReadOnly()
 	}
@@ -520,85 +520,31 @@ func runASTSemanticSearch(query string, contextName string, topK int, aiOptimize
 	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
-
-	embClient, err := ai.NewEmbeddingClientFromConfig()
-	if err != nil {
-		return fmt.Errorf("embedding client: %w (configure with: graphit config ai.embedding_provider ollama)", err)
-	}
-
 	qs := ast.NewQueryService(db)
-	qs.SetEmbeddingClient(embClient)
 
-	if topK > 0 {
-		p.Running("Semantic search: %q (model: %s, top %d)", query, embClient.ModelName(), topK)
-	} else {
-		p.Running("Semantic search: %q (model: %s)", query, embClient.ModelName())
-	}
-
-	results, err := qs.SemanticSearch(ctx, query, topK, "")
-	if err != nil {
-		return fmt.Errorf("semantic search failed: %w", err)
-	}
-
-	if len(results) == 0 {
-		p.Info("No results. Embeddings may not be computed yet — check: graphit daemon status")
-		return nil
-	}
-
-	if aiOptimized {
-
-		records := make([]ast.QueryRecord, len(results))
-		for i, r := range results {
-			records[i] = ast.QueryRecord{
-				"type":      r.Type,
-				"name":      r.Name,
-				"path":      r.Path,
-				"line":      r.Line,
-				"distance":  r.Distance,
-				"docstring": r.Docstring,
-			}
+	embClient, embErr := ai.NewEmbeddingClientFromConfig()
+	if embErr == nil {
+		qs.SetEmbeddingClient(embClient)
+		if topK > 0 {
+			p.Running("Hybrid search: %q (model: %s, top %d)", query, embClient.ModelName(), topK)
+		} else {
+			p.Running("Hybrid search: %q (model: %s)", query, embClient.ModelName())
 		}
-		p.Data(formatRecordsTOON(records))
 	} else {
-		out, _ := json.MarshalIndent(results, "", "  ")
-		p.Data(string(out))
+		if topK > 0 {
+			p.Running("Hybrid search: %q (FTS-only, top %d)", query, topK)
+		} else {
+			p.Running("Hybrid search: %q (FTS-only, no embedding client)", query)
+		}
 	}
-	p.Count("result", len(results))
-	return nil
-}
 
-func runASTFullTextSearch(query, contextName string, topK int, aiOptimized bool) error {
-	p := output.NewPrinter("")
-
-	var db ast.GraphDB
-	var err error
-	if contextName != "" {
-		db, err = newASTBackendForContextReadOnly(contextName)
-		p.Info("FTS search in context: %s", contextName)
-	} else {
-		db, err = newASTBackendReadOnly()
-	}
+	results, err := qs.HybridSearch(ctx, query, topK)
 	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-
-	ctx := context.Background()
-	qs := ast.NewQueryService(db)
-
-	if topK > 0 {
-		p.Running("Full-text search: %q (BM25, top %d)", query, topK)
-	} else {
-		p.Running("Full-text search: %q (BM25)", query)
-	}
-
-	results, err := qs.FullTextSearch(ctx, query, topK)
-	if err != nil {
-		return fmt.Errorf("full-text search failed: %w", err)
+		return fmt.Errorf("hybrid search failed: %w", err)
 	}
 
 	if len(results) == 0 {
-		p.Info("No results. FTS indexes may not be built yet — re-index with: graphit ast index .")
+		p.Info("No results. Indexes may not be built yet — re-index with: graphit ast index . && graphit ast embed")
 		return nil
 	}
 
@@ -621,6 +567,8 @@ func runASTFullTextSearch(query, contextName string, topK int, aiOptimized bool)
 	p.Count("result", len(results))
 	return nil
 }
+
+
 
 func formatRecordsTOON(records []ast.QueryRecord) string {
 	if len(records) == 0 {

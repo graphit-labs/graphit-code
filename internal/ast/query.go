@@ -3,7 +3,7 @@ package ast
 import (
 	"context"
 	"fmt"
-	"math"
+
 	"sort"
 	"strings"
 
@@ -21,17 +21,6 @@ type SearchResult struct {
 	SearchType     string
 	RelevanceScore float64
 	Distance       float64
-}
-
-type RelatedCode struct {
-	Query        string
-	Functions    []SearchResult
-	Classes      []SearchResult
-	Variables    []SearchResult
-	Content      []SearchResult
-	Semantic     []SearchResult
-	Ranked       []SearchResult
-	TotalMatches int
 }
 
 type CallChainResult struct {
@@ -139,48 +128,6 @@ func (q *QueryService) FindByClassName(
 		return recordsToResults(res.Records, "class"), nil
 	}
 	return q.fullTextSearch(ctx, "Class", name, editDistance, repoPath, "class")
-}
-
-func (q *QueryService) FindRelatedCode(
-	ctx context.Context,
-	query string,
-	fuzzy bool,
-	editDistance int,
-	repoPath string,
-) (*RelatedCode, error) {
-	result := &RelatedCode{Query: query}
-
-	fns, _ := q.FindByFunctionName(ctx, query, fuzzy, repoPath, editDistance)
-	cls, _ := q.FindByClassName(ctx, query, fuzzy, repoPath, editDistance)
-	vars, _ := q.FindByVariableName(ctx, query, repoPath)
-	content, _ := q.FindByContent(ctx, query, repoPath)
-
-	result.Functions = scoreResults(fns, 0.9, "function_name")
-	result.Classes = scoreResults(cls, 0.8, "class_name")
-	result.Variables = scoreResults(vars, 0.7, "variable_name")
-	result.Content = scoreResults(content, 0.6, "content")
-
-	semantic, _ := q.SemanticSearch(ctx, query, 10, "")
-	result.Semantic = scoreResults(semantic, 1.0, "semantic")
-
-	all := make([]SearchResult, 0, len(fns)+len(cls)+len(vars)+len(content)+len(semantic))
-	all = append(all, result.Semantic...)
-	all = append(all, result.Functions...)
-	all = append(all, result.Classes...)
-	all = append(all, result.Variables...)
-	all = append(all, result.Content...)
-
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].RelevanceScore > all[j].RelevanceScore
-	})
-
-	n := 15
-	if len(all) < n {
-		n = len(all)
-	}
-	result.Ranked = all[:n]
-	result.TotalMatches = len(all)
-	return result, nil
 }
 
 func (q *QueryService) FindByVariableName(ctx context.Context, name, repoPath string) ([]SearchResult, error) {
@@ -442,18 +389,6 @@ func recordToResult(r QueryRecord, typeName string) SearchResult {
 	return sr
 }
 
-func scoreResults(results []SearchResult, baseScore float64, searchType string) []SearchResult {
-	for i := range results {
-		score := baseScore
-		if results[i].IsDepend {
-			score -= 0.2
-		}
-		results[i].RelevanceScore = math.Round(score*100) / 100
-		results[i].SearchType = searchType
-	}
-	return results
-}
-
 func recordsToMaps(records []QueryRecord) []map[string]any {
 	result := make([]map[string]any, 0, len(records))
 	for _, r := range records {
@@ -548,6 +483,37 @@ func (q *QueryService) SemanticSearch(ctx context.Context, query string, topK in
 	}
 
 	return results, nil
+}
+
+func (q *QueryService) HybridSearch(ctx context.Context, query string, topK int) ([]SearchResult, error) {
+	if q.searchIndex == nil {
+		return nil, nil
+	}
+
+	var queryVec []float32
+	if q.embeddingClient != nil {
+		var err error
+		if qe, ok := q.embeddingClient.(ai.QueryEmbedder); ok {
+			queryVec, err = qe.EmbedQuery(ctx, query)
+		} else {
+			queryVec, err = q.embeddingClient.Embed(ctx, query)
+		}
+		if err != nil {
+			queryVec = nil
+		}
+
+		if queryVec != nil {
+			if len(queryVec) < ai.EmbeddingDimensions {
+				padded := make([]float32, ai.EmbeddingDimensions)
+				copy(padded, queryVec)
+				queryVec = padded
+			} else if len(queryVec) > ai.EmbeddingDimensions {
+				queryVec = queryVec[:ai.EmbeddingDimensions]
+			}
+		}
+	}
+
+	return q.searchIndex.HybridSearch(query, queryVec, topK)
 }
 
 type AIClient interface {

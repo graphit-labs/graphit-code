@@ -18,17 +18,11 @@ type astQueryInput struct {
 	Context    string `json:"context,omitempty" jsonschema:"Named imported context to query instead of the default project"`
 }
 
-type astFTSInput struct {
-	Query      string `json:"query" jsonschema:"Keywords to search for using BM25 full-text search"`
-	TopK       int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
+type astSearchInput struct {
 	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory (defaults to server working directory)"`
-	Context    string `json:"context,omitempty" jsonschema:"Named imported context to search"`
-}
-
-type astSemanticInput struct {
-	Query      string `json:"query" jsonschema:"Natural language query for semantic vector search"`
-	TopK       int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
-	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory (defaults to server working directory)"`
+	Query      string `json:"query" jsonschema:"Search query (keywords, natural language, or code identifiers)"`
+	TopK       int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 15)"`
+	Mode       string `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
 	Context    string `json:"context,omitempty" jsonschema:"Named imported context to search"`
 }
 
@@ -104,9 +98,9 @@ func registerASTTools(server *mcp.Server) {
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("ast", "search_fts"),
-		Description: "Perform a BM25 full-text search across all code entities and files in the AST graph. Returns results ranked by relevance.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, input astFTSInput) (*mcp.CallToolResult, any, error) {
+		Name:        brand.MCPToolName("ast", "search"),
+		Description: "Hybrid search combining BM25 full-text and semantic vector search with Reciprocal Rank Fusion (RRF). Supports three modes: hybrid (default, best results), fts (keyword only), semantic (vector only).",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, input astSearchInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -119,55 +113,56 @@ func registerASTTools(server *mcp.Server) {
 		defer func() { _ = db.Close() }()
 
 		topK := input.TopK
-
-		qs := ast.NewQueryService(db)
-		results, err := qs.FullTextSearch(ctx, input.Query, topK)
-		if err != nil {
-			return errResult(fmt.Errorf("full-text search failed: %w", err))
-		}
-
-		data, err := json.MarshalIndent(results, "", "  ")
-		if err != nil {
-			return errResult(fmt.Errorf("marshal results: %w", err))
-		}
-		return textResult(string(data))
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("ast", "search_semantic"),
-		Description: "Perform a semantic vector similarity search over the AST graph using natural language. Requires an embedding model.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, input astSemanticInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
-		if err != nil {
-			return errResult(err)
-		}
-
-		db, err := openASTDB(projectDir, input.Context)
-		if err != nil {
-			return errResult(err)
-		}
-		defer func() { _ = db.Close() }()
-
-		topK := input.TopK
-
-		embClient, err := ai.NewEmbeddingClientFromConfig()
-		if err != nil {
-			return errResult(fmt.Errorf("embedding client init failed: %w", err))
+		if topK <= 0 {
+			topK = 15
 		}
 
 		qs := ast.NewQueryService(db)
-		qs.SetEmbeddingClient(embClient)
+		defer qs.Close()
 
-		results, err := qs.SemanticSearch(ctx, input.Query, topK, "")
-		if err != nil {
-			return errResult(fmt.Errorf("semantic search failed: %w", err))
-		}
+		switch input.Mode {
+		case "fts":
+			results, err := qs.FullTextSearch(ctx, input.Query, topK)
+			if err != nil {
+				return errResult(fmt.Errorf("full-text search failed: %w", err))
+			}
+			data, err := json.MarshalIndent(results, "", "  ")
+			if err != nil {
+				return errResult(fmt.Errorf("marshal results: %w", err))
+			}
+			return textResult(string(data))
 
-		data, err := json.MarshalIndent(results, "", "  ")
-		if err != nil {
-			return errResult(fmt.Errorf("marshal results: %w", err))
+		case "semantic":
+			embClient, err := ai.NewEmbeddingClientFromConfig()
+			if err != nil {
+				return errResult(fmt.Errorf("embedding client init failed: %w", err))
+			}
+			qs.SetEmbeddingClient(embClient)
+			results, err := qs.SemanticSearch(ctx, input.Query, topK, "")
+			if err != nil {
+				return errResult(fmt.Errorf("semantic search failed: %w", err))
+			}
+			data, err := json.MarshalIndent(results, "", "  ")
+			if err != nil {
+				return errResult(fmt.Errorf("marshal results: %w", err))
+			}
+			return textResult(string(data))
+
+		default: // hybrid
+			embClient, embErr := ai.NewEmbeddingClientFromConfig()
+			if embErr == nil {
+				qs.SetEmbeddingClient(embClient)
+			}
+			results, err := qs.HybridSearch(ctx, input.Query, topK)
+			if err != nil {
+				return errResult(fmt.Errorf("hybrid search failed: %w", err))
+			}
+			data, err := json.MarshalIndent(results, "", "  ")
+			if err != nil {
+				return errResult(fmt.Errorf("marshal results: %w", err))
+			}
+			return textResult(string(data))
 		}
-		return textResult(string(data))
 	})
 
 	mcp.AddTool(server, &mcp.Tool{

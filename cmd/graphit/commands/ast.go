@@ -120,20 +120,20 @@ func newASTQueryCmd() *cobra.Command {
 	var aiMode bool
 	var cypherOnly bool
 	var aiOptimized bool
-	var semanticMode bool
-	var ftsMode bool
+	var hybridMode bool
+
 	var topK int
 
 	cmd := &cobra.Command{
 		Use:   "query <cypher-query | natural-language-question>",
 		Short: "Query the AST knowledge graph (Cypher, natural language, or semantic search)",
-		Long: `Execute a Cypher query, ask a natural language question, or perform semantic search.
+		Long: `Execute a Cypher query, ask a natural language question, or perform hybrid search.
 
-Without --ai, --semantic, or --fts: runs a raw Cypher query.
+Without --ai or --hybrid: runs a raw Cypher query.
 With --ai: generates Cypher from natural language via the configured AI provider.
-With --semantic: performs vector similarity search using code embeddings.
-  Requires embeddings to be computed (run via daemon or manually).
-With --fts: performs BM25 keyword-based full-text search across source code.
+With --hybrid: performs combined BM25 + semantic vector search via Reciprocal Rank Fusion (RRF).
+  Combines keyword-based and meaning-based search for best results. Recommended default.
+  Falls back to FTS-only when embeddings are unavailable.
 With --cypher: prints the generated Cypher without executing it.
 With --context: queries an imported context instead of the project graph.
 With --ai-optimized: outputs results in a compact, token-efficient tabular format
@@ -146,19 +146,15 @@ Examples:
   ` + brand.BinName() + ` ast query "show all functions that call validate_cpf" --ai
   ` + brand.BinName() + ` ast query "which tables are referenced?" --ai --cypher
   ` + brand.BinName() + ` ast query "procedures" --ai --context oracle-schema
-  ` + brand.BinName() + ` ast query "authentication and login logic" --semantic
-  ` + brand.BinName() + ` ast query "error handling patterns" --semantic --top 20
-  ` + brand.BinName() + ` ast query "processOrder" --fts
-  ` + brand.BinName() + ` ast query "SELECT FROM users" --fts --top 15`,
+  ` + brand.BinName() + ` ast query "authentication and login logic" --hybrid
+  ` + brand.BinName() + ` ast query "authentication and login logic" --hybrid --top 20`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := strings.Join(args, " ")
-			if semanticMode {
-				return runASTSemanticSearch(query, contextName, topK, aiOptimized)
+			if hybridMode {
+				return runASTHybridSearch(query, contextName, topK, aiOptimized)
 			}
-			if ftsMode {
-				return runASTFullTextSearch(query, contextName, topK, aiOptimized)
-			}
+
 			return runASTQuery(query, contextName, aiMode, cypherOnly, aiOptimized)
 		},
 	}
@@ -167,9 +163,8 @@ Examples:
 	cmd.Flags().BoolVar(&aiMode, "ai", false, "Generate Cypher from natural language via AI")
 	cmd.Flags().BoolVar(&cypherOnly, "cypher", false, "Print generated Cypher without executing (requires --ai)")
 	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient tabular format for AI agents")
-	cmd.Flags().BoolVar(&semanticMode, "semantic", false, "Perform vector similarity search using code embeddings")
-	cmd.Flags().BoolVar(&ftsMode, "fts", false, "Perform BM25 keyword-based full-text search across source code")
-	cmd.Flags().IntVar(&topK, "top", 0, "Limit number of results for semantic/FTS search (0 = no limit)")
+	cmd.Flags().BoolVar(&hybridMode, "hybrid", false, "Perform combined BM25 + semantic search via Reciprocal Rank Fusion (recommended)")
+	cmd.Flags().IntVar(&topK, "top", 0, "Limit number of results for hybrid search (0 = no limit)")
 	return cmd
 }
 

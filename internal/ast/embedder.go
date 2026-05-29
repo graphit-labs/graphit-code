@@ -81,6 +81,7 @@ type entityRow struct {
 	Path      string
 	Line      int
 	EndLine   int
+	Context   string
 }
 
 func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
@@ -162,6 +163,7 @@ func (e *Embedder) scanEntities(label string) []entityRow {
 				Path:      ent.Path,
 				Line:      ent.Line,
 				EndLine:   ent.EndLine,
+				Context:   ent.Context,
 			})
 		}
 	}
@@ -230,6 +232,12 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 
 func (e *Embedder) buildEmbeddingText(row entityRow) string {
 	var parts []string
+
+	parts = append(parts, "["+row.Label+"] "+row.Path)
+
+	if row.Context != "" {
+		parts = append(parts, "context: "+row.Context)
+	}
 
 	parts = append(parts, row.Name)
 

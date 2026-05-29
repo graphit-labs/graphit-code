@@ -132,20 +132,20 @@ Cypher guidelines, cookbook patterns, and fallback protocols you must follow.
 
 | Instead of this grep | Use this AST tool call (passing absolute `project_dir` parameter) |
 |---|---|
-| `grep_search: func myFunction` | `graphit_ast_query` with `query: "MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'myfunction' RETURN f.name, f.path, f.line_number"`, `ai_optimized: true` |
+| `grep_search: func myFunction` | `graphit_ast_query` with `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'myfunction' RETURN f.name, f.path, f.line_number, label(f) AS type"`, `ai_optimized: true` |
 | `grep_search: type MyStruct` | `graphit_ast_query` with `query: "MATCH (n) WHERE toLower(n.name) CONTAINS 'mystruct' RETURN n.name, label(n) AS type, n.path"`, `ai_optimized: true` |
 | `grep_search: import "package"` | `graphit_ast_query` with `query: "MATCH (f:File)-[:IMPORTS]->(m:Module) WHERE toLower(m.name) CONTAINS 'package' RETURN f.path"`, `ai_optimized: true` |
-| `grep -l "keyword" *.go` | `graphit_ast_search_fts` with `query: "keyword"` |
-| `find ... -name "*.go" \| xargs grep -l "daemon"` | `graphit_ast_search_fts` with `query: "daemon"` |
-| Searching for an entity that could be more than one type | `graphit_ast_query` with `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'search' RETURN f.name, f.path, f.line_number, label(f) AS type"`, `ai_optimized: true` |
+| `grep -l "keyword" *.go` | `graphit_ast_search` with `query: "keyword"` |
+| `find ... -name "*.go" \| xargs grep -l "daemon"` | `graphit_ast_search` with `query: "daemon"` |
+| Searching for a callable by name | `graphit_ast_query` with `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'search' RETURN f.name, f.path, f.line_number, label(f) AS type"`, `ai_optimized: true` |
+| Searching for a type definition by name | `graphit_ast_query` with `query: "MATCH (n) WHERE (label(n) = 'Class' OR label(n) = 'Struct' OR label(n) = 'Interface' OR label(n) = 'Trait') AND toLower(n.name) CONTAINS 'handler' RETURN n.name, n.path, label(n) AS type"`, `ai_optimized: true` |
 
 ## Quick Reference (always active)
 
 - **Always use**: call `graphit_ast_query` tool (passing absolute `project_dir` and setting `ai_optimized: true`)
 - **Discover node labels**: call `graphit_ast_schema` tool (passing absolute `project_dir`)
 - **Never guess names**: Ground with `toLower(n.name) CONTAINS toLower('keyword')`
-- **Semantic search**: call `graphit_ast_search_semantic` (passing absolute `project_dir` and natural language `query`)
-- **FTS (source text search)**: call `graphit_ast_search_fts` (passing absolute `project_dir` and keyword `query`). Searches entity names AND `:File` source content. Use instead of grep.
+- **Hybrid search (RECOMMENDED)**: call `graphit_ast_search` (passing absolute `project_dir` and `query`). Combines BM25 FTS + semantic vector search via Reciprocal Rank Fusion (RRF). Supports `mode: "hybrid"` (default), `"fts"`, or `"semantic"`.
 - **Get source code (discovery)**: call `graphit_ast_source` (passing absolute `project_dir` and relative `path`). Retrieves source from the graph when you discovered a file through AST. Supports `head`/`tail` (first/last N lines), `start_line`/`end_line` (line range), `entity`/`entity_type` (extract entity source by name), `pattern`/`regex`/`before`/`after` (grep-like search with context), and `line_numbers`. If you already know the path, use your IDE's file-reading tools instead.
 - **One-shot: get metadata + full file source**: call `graphit_ast_query` with `query: "MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source"`, `ai_optimized: true`
 - **Reindex after changes**: call `graphit_sync` tool (passing absolute `project_dir`)
@@ -167,8 +167,9 @@ Cypher guidelines, cookbook patterns, and fallback protocols you must follow.
 5. **Use relative paths** — `path` is always relative to project root.
 6. **Reindex after changes** — call `graphit_sync` tool (passing absolute `project_dir`) after every source file modification.
 7. **Node type = label, not property** — `n.kind`, `n.type`, `n.label` DO NOT EXIST. Use `label(n)` function instead (e.g., `RETURN label(n) AS type`).
-8. **`graphit_ast_search_fts` and `graphit_ast_search_semantic` = PLAIN TEXT only** — these parameters accept keywords or natural language, NEVER Cypher queries. Only `graphit_ast_query` accepts Cypher.
+8. **`graphit_ast_search` = PLAIN TEXT only** — this parameter accepts keywords or natural language, NEVER Cypher queries. Only `graphit_ast_query` accepts Cypher.
 9. **BLOCKED: grep_search for definitions** — NEVER use grep_search with queries like `func X`, `type X`, `class X`, `struct X`, `interface X`, `import X`. These are STRUCTURAL queries — call `graphit_ast_query` ALWAYS.
+10. **Multi-label by default** — When searching by name, NEVER assume a single label (e.g., `Function`). Languages have subtle distinctions: Go has Function vs Method, Class vs Struct; Rust has Trait vs Interface. **ALWAYS use multi-label queries** (e.g., `label(f) = 'Function' OR label(f) = 'Method'`) unless you already confirmed the exact label from a prior query. A single-label search that misses results is WORSE than a multi-label search that returns a few extra rows.
 
 ## 🔗 MANDATORY: Subagent Propagation
 
@@ -177,9 +178,11 @@ multi-agent mechanism), you MUST include these instructions in the subagent's pr
 
 1. Add to every subagent system_prompt or task prompt:
    "IMPORTANT: For code exploration, use `graphit_ast_query` and other AST MCP tools instead of grep_search (always pass absolute `project_dir` parameter):
-   - Find function: call `graphit_ast_query` with `query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'NAME' RETURN f.name, f.path, f.line_number\"`, `ai_optimized: true`
+   - Find callable (function or method): call `graphit_ast_query` with `query: \"MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'NAME' RETURN f.name, f.path, f.line_number, label(f) AS type\"`, `ai_optimized: true`
    - Find callers: call `graphit_ast_query` with `query: \"MATCH (a)-[:CALLS]->(b {name: 'NAME'}) RETURN a.name, a.path\"`, `ai_optimized: true`
-   - Full-text search: call `graphit_ast_search_fts` with `query: \"KEYWORD\"`
+   - Search (hybrid, RECOMMENDED): call `graphit_ast_search` with `query: \"KEYWORD\"`
+   - FTS-only search: call `graphit_ast_search` with `query: \"KEYWORD\"`, `mode: \"fts\"`
+   - ALWAYS use multi-label queries when searching by name (e.g., Function OR Method, Class OR Struct). Never assume a single label.
    - After code changes: call `graphit_sync` tool
    Read and follow all rules in the project's AGENTS.md before starting work."
 2. For `define_subagent`, inject these as part of the `system_prompt` parameter.
@@ -302,6 +305,7 @@ then call `graphit_ast_query` with `project_dir: "/path/to/auth-service"`, `quer
 
 #### User interaction (always memorize):
 - User **corrects** your behavior or approach → store as correction (with important: true)
+- User **gives any instruction or directive** → **evaluate for memory** — NEVER just say "understood". Determine if it contains a convention, preference, correction, fact, or skill worth persisting. If yes, memorize with the appropriate type
 - User **guides or orients** on how to proceed → store as convention
 - User **intervenes** mid-task to redirect or change course → store as correction (with important: true)
 - User **explains how something works** or shows a procedure → store as skill/fact
@@ -344,6 +348,7 @@ contradiction protocols, and transparency rules you must follow.
 3. **Never edit .md memory files directly.** Use `graphit_memory_*` MCP tools.
 4. **ALWAYS use `graphit_memory_insert`** — NEVER use IDE-native memory.
 5. **Always confirm**: "Memorized: '<title>'" or "Following memory: '<title>'".
+6. **NEVER just say "understood" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate if it should be memorized. If it has future relevance, create a memory.
 
 ## 🔗 MANDATORY: Subagent Memory Access
 

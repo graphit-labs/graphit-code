@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,7 +21,7 @@ func init() {
 	sqlite_vec.Auto()
 }
 
-const ftsSchemaVersion = 2
+const ftsSchemaVersion = 3
 
 type SearchIndex struct {
 	db     *sql.DB
@@ -182,11 +181,14 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 	rowID := int64(1)
 
 	for relPath, entry := range entries {
-		_, _ = fileStmt.Exec(relPath, filepath.Base(relPath), entry.Source)
+		baseName := filepath.Base(relPath)
+		splitBaseName := baseName + " " + splitCodeIdentifier(baseName)
+		_, _ = fileStmt.Exec(relPath, splitBaseName, entry.Source)
 		fileCount++
 
 		for _, e := range entry.Entities {
-			_, _ = entityFTSStmt.Exec(e.UID, e.Name, e.Docstring, e.Label, e.Path, e.Line)
+			splitName := e.Name + " " + splitCodeIdentifier(e.Name)
+			_, _ = entityFTSStmt.Exec(e.UID, splitName, e.Docstring, e.Label, e.Path, e.Line)
 			_, _ = trigramStmt.Exec(e.UID, e.Name, e.Label, e.Path, e.Line)
 			entityCount++
 
@@ -269,13 +271,16 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 			continue
 		}
 
+		baseName := filepath.Base(p)
+		splitBaseName := baseName + " " + splitCodeIdentifier(baseName)
 		_, _ = tx.Exec("INSERT INTO file_fts(path, name, source) VALUES (?, ?, ?)",
-			p, filepath.Base(p), entry.Source)
+			p, splitBaseName, entry.Source)
 		fileCount++
 
 		for _, e := range entry.Entities {
+			splitName := e.Name + " " + splitCodeIdentifier(e.Name)
 			_, _ = tx.Exec("INSERT INTO entity_fts(uid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?)",
-				e.UID, e.Name, e.Docstring, e.Label, e.Path, e.Line)
+				e.UID, splitName, e.Docstring, e.Label, e.Path, e.Line)
 			_, _ = tx.Exec("INSERT INTO entity_trigram(uid, name, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?)",
 				e.UID, e.Name, e.Label, e.Path, e.Line)
 			entityCount++
@@ -591,7 +596,10 @@ func (s *SearchIndex) queryTrigram(tokens []string, limit int) []SearchResult {
 func (s *SearchIndex) SemanticSearch(queryVec []float32, topK int) ([]SearchResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.semanticSearchLocked(queryVec, topK)
+}
 
+func (s *SearchIndex) semanticSearchLocked(queryVec []float32, topK int) ([]SearchResult, error) {
 	blob, err := sqlite_vec.SerializeFloat32(queryVec)
 	if err != nil {
 		return nil, fmt.Errorf("serialize query vec: %w", err)
@@ -623,12 +631,103 @@ func (s *SearchIndex) SemanticSearch(queryVec []float32, topK int) ([]SearchResu
 		if err := rows.Scan(&rowid, &distance, &name, &docstring, &entityType, &path, &line); err != nil {
 			continue
 		}
+		cosineSim := 1.0 - (distance*distance)/2.0
 		results = append(results, SearchResult{
 			Type: strings.ToLower(entityType), SearchType: "semantic",
 			Name: name, Path: path, Line: line, Docstring: docstring,
-			RelevanceScore: 1.0 - math.Min(distance, 1.0),
+			RelevanceScore: cosineSim,
 		})
 	}
+	return results, nil
+}
+
+// HybridSearch combines BM25 full-text search with semantic vector search
+// using Reciprocal Rank Fusion (RRF, k=60) to produce a unified ranking.
+func (s *SearchIndex) HybridSearch(query string, queryVec []float32, topK int) ([]SearchResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	tokens := tokenizeQuery(query)
+	if len(tokens) == 0 && queryVec == nil {
+		return nil, nil
+	}
+
+	limit := topK
+	if limit <= 0 {
+		limit = 50
+	}
+	fetchLimit := limit * 3
+
+	type rankedDoc struct {
+		result SearchResult
+		key    string
+		score  float64
+	}
+
+	docScores := make(map[string]*rankedDoc)
+
+	addResults := func(results []SearchResult, weight float64) {
+		for rank, r := range results {
+			key := deduplicationKey(r)
+			rrfScore := weight / float64(rrfK+rank+1)
+			if existing, ok := docScores[key]; ok {
+				existing.score += rrfScore
+				if r.RelevanceScore > existing.result.RelevanceScore {
+					existing.result = r
+				}
+			} else {
+				docScores[key] = &rankedDoc{
+					result: r,
+					key:    key,
+					score:  rrfScore,
+				}
+			}
+		}
+	}
+
+	if len(tokens) > 0 {
+		passes := buildSearchPasses(tokens, query)
+		for _, pass := range passes {
+			if pass.query == "" {
+				continue
+			}
+			var passResults []SearchResult
+			fileRes := s.queryFTS("file_fts", pass.query, fetchLimit)
+			entityRes := s.queryFTS("entity_fts", pass.query, fetchLimit)
+			passResults = append(passResults, fileRes...)
+			passResults = append(passResults, entityRes...)
+			addResults(passResults, pass.weight)
+		}
+
+		trigramResults := s.queryTrigram(tokens, fetchLimit)
+		addResults(trigramResults, 0.7)
+	}
+
+	if queryVec != nil {
+		semanticResults, err := s.semanticSearchLocked(queryVec, fetchLimit)
+		if err == nil && len(semanticResults) > 0 {
+			for i := range semanticResults {
+				semanticResults[i].SearchType = "hybrid"
+			}
+			addResults(semanticResults, 2.0)
+		}
+	}
+
+	results := make([]SearchResult, 0, len(docScores))
+	for _, rd := range docScores {
+		rd.result.RelevanceScore = rd.score
+		rd.result.SearchType = "hybrid"
+		results = append(results, rd.result)
+	}
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].RelevanceScore > results[j].RelevanceScore
+	})
+
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
+	}
+
 	return results, nil
 }
 
@@ -642,15 +741,23 @@ var fts5Reserved = map[string]bool{
 
 func tokenizeQuery(query string) []string {
 	raw := strings.Fields(query)
-	tokens := make([]string, 0, len(raw))
+	tokens := make([]string, 0, len(raw)*2)
 	for _, t := range raw {
 		t = stripFTSSpecialChars(t)
 		if t == "" || fts5Reserved[strings.ToUpper(t)] {
 			continue
 		}
 		tokens = append(tokens, t)
+		if splits := splitCodeIdentifier(t); splits != t {
+			for _, s := range strings.Fields(splits) {
+				s = stripFTSSpecialChars(s)
+				if s != "" && !fts5Reserved[strings.ToUpper(s)] {
+					tokens = append(tokens, s)
+				}
+			}
+		}
 	}
-	return tokens
+	return dedupTokens(tokens)
 }
 
 func stripFTSSpecialChars(s string) string {
@@ -720,4 +827,77 @@ func buildPrefixQuery(tokens []string) string {
 
 func deduplicationKey(r SearchResult) string {
 	return r.Path + "\x00" + r.Name + "\x00" + fmt.Sprintf("%d", r.Line)
+}
+
+func dedupTokens(tokens []string) []string {
+	seen := make(map[string]bool, len(tokens))
+	out := make([]string, 0, len(tokens))
+	for _, t := range tokens {
+		low := strings.ToLower(t)
+		if !seen[low] {
+			seen[low] = true
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// Code identifier splitting
+// ---------------------------------------------------------------------------
+
+// splitCodeIdentifier splits camelCase, PascalCase, snake_case, and dot.notation
+// identifiers into space-separated tokens. Returns the original string unchanged
+// if no splitting occurred.
+func splitCodeIdentifier(name string) string {
+	if name == "" {
+		return name
+	}
+
+	normalized := strings.NewReplacer("_", " ", ".", " ", "-", " ").Replace(name)
+
+	var parts []string
+	for _, word := range strings.Fields(normalized) {
+		parts = append(parts, splitCamelCase(word)...)
+	}
+
+	result := strings.Join(parts, " ")
+	if result == name {
+		return name
+	}
+	return result
+}
+
+func splitCamelCase(s string) []string {
+	if s == "" {
+		return nil
+	}
+
+	runes := []rune(s)
+	var parts []string
+	start := 0
+
+	for i := 1; i < len(runes); i++ {
+		prevUpper := unicode.IsUpper(runes[i-1])
+		currUpper := unicode.IsUpper(runes[i])
+		currLower := unicode.IsLower(runes[i])
+
+		if !prevUpper && currUpper {
+			parts = append(parts, string(runes[start:i]))
+			start = i
+		} else if prevUpper && currLower && i-start > 1 {
+			parts = append(parts, string(runes[start:i-1]))
+			start = i - 1
+		}
+	}
+	parts = append(parts, string(runes[start:]))
+
+	var filtered []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
 }

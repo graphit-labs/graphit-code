@@ -115,7 +115,6 @@ func (s *Server) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/relationships", s.handleRelationships)
 	mux.HandleFunc("GET /api/complexity", s.handleComplexity)
 	mux.HandleFunc("GET /api/most_complex", s.handleMostComplex)
-	mux.HandleFunc("GET /api/fts", s.handleFTS)
 
 	mux.HandleFunc("GET /api/jobs", s.handleListJobs)
 	mux.HandleFunc("GET /api/jobs/{id}", s.handleGetJob)
@@ -318,36 +317,8 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fuzzy := q.Get("fuzzy") == "true"
-	editDist := 2
-	if d, err := strconv.Atoi(q.Get("edit_distance")); err == nil {
-		editDist = d
-	}
-
-	db, shouldClose := s.dbForContext(r)
-	if shouldClose {
-		defer func() { _ = db.Close() }()
-	}
-
-	qs := NewQueryService(db)
-	result, err := qs.FindRelatedCode(r.Context(), term, fuzzy, editDist, s.repoPath)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, result)
-}
-
-func (s *Server) handleFTS(w http.ResponseWriter, r *http.Request) {
-	qp := r.URL.Query()
-	term := qp.Get("q")
-	if term == "" {
-		writeError(w, http.StatusBadRequest, "q param required")
-		return
-	}
 	topK := 20
-	if v, err := strconv.Atoi(qp.Get("top")); err == nil && v > 0 {
+	if v, err := strconv.Atoi(q.Get("top")); err == nil && v > 0 {
 		topK = v
 	}
 
@@ -357,13 +328,18 @@ func (s *Server) handleFTS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	qs := NewQueryService(db)
-	results, err := qs.FullTextSearch(r.Context(), term, topK)
+	embClient, err := ai.NewEmbeddingClientFromConfig()
+	if err == nil {
+		qs.SetEmbeddingClient(embClient)
+	}
+	
+	result, err := qs.HybridSearch(r.Context(), term, topK)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	writeJSON(w, results)
+	writeJSON(w, result)
 }
 
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
