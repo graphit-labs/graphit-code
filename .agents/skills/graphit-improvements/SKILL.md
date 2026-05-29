@@ -571,7 +571,7 @@ After creating artifacts, inform the user:
      → Enforces repository layer as the only DB access point
      Path: .agents/rules/no-direct-db-access.md
 
-To submit to the Hub (optional):
+To manually publish/submit this artifact to the shared remote Hub repository (optional):
   graphit hub submit <artifact-id> <path> --type <type> --version 1.0.0
 ```
 
@@ -593,7 +593,7 @@ If the project already has IDE artifacts (skills, rules, commands), check whethe
 - If an existing skill/rule is incomplete or could benefit from what you learned, **update it directly**
 - Report what you changed in the Reflection Summary
 
-To submit updates to the Hub:
+To manually publish/submit updates to the remote Hub:
 ```bash
 graphit hub submit <artifact-id> <path> --type <type> --version <new-version>
 ```
