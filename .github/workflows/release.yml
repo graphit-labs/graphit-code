@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
 
 permissions:
   contents: write
@@ -28,14 +28,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: "22"
+          cache: "npm"
           cache-dependency-path: internal/ui/package-lock.json
 
       - name: Install system dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
+
+      - name: Create UI dist placeholder
+        run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 
       - name: Vet
         run: make vet
@@ -79,8 +82,8 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: "22"
+          cache: "npm"
           cache-dependency-path: internal/ui/package-lock.json
 
       - name: Install system dependencies (CGO)
@@ -98,7 +101,7 @@ jobs:
           path: /tmp/onnxruntime-cache
           key: onnxruntime-linux-x64-${{ env.ORT_VERSION }}
         env:
-          ORT_VERSION: '1.25.0'
+          ORT_VERSION: "1.25.0"
 
       - name: Cache CodeRankEmbed model
         uses: actions/cache@v4
@@ -153,8 +156,8 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: "22"
+          cache: "npm"
           cache-dependency-path: internal/ui/package-lock.json
 
       - name: Install system dependencies (Homebrew)
@@ -167,7 +170,7 @@ jobs:
           path: /tmp/onnxruntime-cache
           key: onnxruntime-osx-arm64-${{ env.ORT_VERSION }}
         env:
-          ORT_VERSION: '1.25.0'
+          ORT_VERSION: "1.25.0"
 
       - name: Cache CodeRankEmbed model
         uses: actions/cache@v4
@@ -222,8 +225,8 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: "22"
+          cache: "npm"
           cache-dependency-path: internal/ui/package-lock.json
 
       - name: Install cross-compilation tools
@@ -253,7 +256,7 @@ jobs:
           path: /tmp/onnxruntime-cache
           key: onnxruntime-win-x64-${{ env.ORT_VERSION }}
         env:
-          ORT_VERSION: '1.25.0'
+          ORT_VERSION: "1.25.0"
 
       - name: Cache CodeRankEmbed model
         uses: actions/cache@v4
