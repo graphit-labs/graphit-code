@@ -47,8 +47,31 @@ It tracks sibling services, launches dedicated `ProjectSupervisor` threads for n
 
 ### 2. Project Supervisors
 Each active project has an isolated supervisor thread monitoring watch modules:
+- **`SyncModule`**: Polls `git status --porcelain -unormal` + `git rev-parse HEAD` every 5 seconds. If the combined hash changes (uncommitted edits OR new commits), it debounces 1 second then reindexes:
+  - **AST graph** (LadybugDB) — full incremental pipeline
+  - **Knowledge wiki** — recompiles from configurable docs directory (`knowledge.docs_dir`)
+  - Respects `.gitignore` (via git) and `.astignore` (via `ignorer.IgnoreChecker`)
+  - Reads per-project config from the project lockfile (inline → env → project → global → compiled defaults)
 - **`EmbeddingModule`**: Triggers every 2 minutes. It scans files for modified AST nodes, generates high-dimensional embeddings, and indexes them into the local SQLite vector database.
 - **`DreamModule`**: Initiates background agent routines during processor idle periods, executing queued code improvements and documentation audits.
+
+### 3. Global Modules
+Modules that run once per daemon (not per-project):
+- **`MemorySyncModule`**: Watches all active memory git worktrees (`~/.graphit/memory-wt/`) every 10 seconds. Detects changes via `git status` + `git rev-parse HEAD` combined hash. When memory raw files change (project or user scope), recompiles the corresponding memory wiki via `memory.RunCycle`.
+- **`EmbedServer`**: Shared ONNX embedding model server for vector search.
+
+### 4. Git-Based Change Detection
+All watchers use a combined state hash instead of filesystem notifications:
+```
+hash = SHA256(git_rev_parse_HEAD + "\n" + git_status_porcelain)
+```
+This captures both uncommitted changes AND committed-then-cleaned changes between polls, avoiding the race condition where a commit between two polls makes `git status` appear clean both times.
+
+Advantages over `fsnotify`:
+- Zero file descriptors (no per-directory inotify watches)
+- Automatically respects `.gitignore`
+- Works across all OS platforms identically
+- No file descriptor exhaustion on large projects
 
 ---
 
@@ -87,3 +110,19 @@ When a user upgrades their CLI tool via `self-update`, the running daemon must b
    - It invokes a graceful shutdown sequence for the old daemon, stopping child project supervisors.
 3. **Port handoff**:
    The old daemon frees occupied ports (e.g. standard SSE embedding server connections) to allow the replacing instance to bind cleanly.
+
+---
+
+## 🔐 SSH Error Handling
+
+Git operations use `BatchMode=yes` via `GIT_SSH_COMMAND` to prevent SSH from hanging on interactive prompts (unknown hosts, password requests).
+
+When an SSH host key verification fails, the `wrapSSHError` function in `internal/git/cli_backend.go` intercepts the error and returns an actionable message:
+```
+SSH host key verification failed for "github.com".
+Verify the host manually:
+  ssh -T git@github.com
+Then retry the operation.
+```
+
+This prevents the daemon from hanging indefinitely on first-time connections to unknown hosts.

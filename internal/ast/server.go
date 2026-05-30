@@ -567,6 +567,9 @@ func extractUserQueryGraph(rec map[string]any, nodesMap map[string]map[string]an
 func extractBuiltinQueryGraph(rec map[string]any, nodesMap map[string]map[string]any, edges *[]map[string]any) {
 
 	srcID := ladybugIDStr(rec["src_id"])
+	if srcID == "" {
+		return
+	}
 	srcLabel := safeStr(rec["src_label"])
 	srcName := safeStr(rec["src_name"])
 	srcPath := safeStr(rec["src_path"])
@@ -583,13 +586,14 @@ func extractBuiltinQueryGraph(rec map[string]any, nodesMap map[string]map[string
 	if _, exists := nodesMap[srcID]; !exists {
 		nodesMap[srcID] = buildGraphNode(srcID, srcLabel, srcName, srcPath, srcCluster, srcLang)
 	}
-	if _, exists := nodesMap[dstID]; !exists {
-		nodesMap[dstID] = buildGraphNode(dstID, dstLabel, dstName, dstPath, dstCluster, dstLang)
+	if dstID != "" {
+		if _, exists := nodesMap[dstID]; !exists {
+			nodesMap[dstID] = buildGraphNode(dstID, dstLabel, dstName, dstPath, dstCluster, dstLang)
+		}
+		*edges = append(*edges, map[string]any{
+			"source": srcID, "target": dstID, "type": strings.ToUpper(relType),
+		})
 	}
-
-	*edges = append(*edges, map[string]any{
-		"source": srcID, "target": dstID, "type": strings.ToUpper(relType),
-	})
 }
 
 func writeGraphResponse(w http.ResponseWriter, nodesMap map[string]map[string]any, edges []map[string]any, tabCols []string, tabRows [][]any, isUserQuery bool) {

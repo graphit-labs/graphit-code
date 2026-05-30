@@ -115,11 +115,15 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 			projectCfg = lf.Config
 		}
 
+		disableSync := config.IsModuleDisabled("sync", nil, projectCfg)
 		disableEmbedding := cfg.DisableEmbedding || sharedEmbedClient == nil || config.IsModuleDisabled("embedding", nil, projectCfg)
 		disableDream := cfg.DisableDream || config.IsModuleDisabled("dream", nil, projectCfg)
 
 		cacheDir := filepath.Join(projectDir, brand.DotDir(), "ast", "project")
 
+		if !disableSync {
+			modules = append(modules, daemon.NewSyncModule(projectDir, cacheDir))
+		}
 		if !disableEmbedding {
 			modules = append(modules, daemon.NewEmbeddingModule(projectDir, 2*time.Minute, cacheDir))
 		}
@@ -145,6 +149,11 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 			_ = server.Start(ctx)
 		}()
 	}
+
+	go func() {
+		memSync := daemon.NewMemorySyncModule()
+		_ = memSync.Start(ctx)
+	}()
 
 	p := output.NewPrinter("daemon")
 	cfg.OnEvent = func(level string, msg string) {

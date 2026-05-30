@@ -110,6 +110,16 @@ To index massive codebases without consuming heavy CPU cycles, `internal/ast/pip
 
 ---
 
+## 👁️ File Watcher (`internal/ast/watcher.go`)
+
+The AST watcher monitors source file changes to trigger automatic reindexing. It uses **git-based polling** instead of filesystem notifications (`fsnotify`):
+
+- **Polling**: Runs `git status --porcelain -unormal` + `git rev-parse HEAD` every 2 seconds
+- **Combined state hash**: `SHA256(HEAD_commit + status_output)` — detects both uncommitted edits and committed changes between polls
+- **Filtering**: Applies `.gitignore` (via git) and `.astignore` (via `ignorer.IgnoreChecker`)
+- **Debounce**: 500ms after last detected change before triggering reindex
+- **Zero file descriptors**: No inotify/kqueue watches needed, avoiding resource exhaustion on large projects
+
 ## 🔍 Search Engines: Hybrid RRF & Trigram FTS
 
 The AST query engine features a multi-pass hybrid retrieval pipeline (`internal/ast/fts_sqlite.go` / `internal/ast/query.go`) to resolve natural language and code identifiers to exact structural entities and files:

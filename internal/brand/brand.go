@@ -17,6 +17,8 @@ var DefaultHubRepoURL = "git@github.com:graphit-labs/graphit-code.git"
 
 var DefaultMemoryRepoURL = ""
 
+var SelfUpdateURL = ""
+
 func DotDir() string { return "." + Brand }
 
 func LockFileName() string { return Brand + ".lock.json" }

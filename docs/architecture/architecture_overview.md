@@ -43,10 +43,16 @@ graph TD
         
         Daemon --> EmbedSvc["Embedding Server (ONNX)"]
         Daemon --> ProjectWatch["Project Supervisor"]
+        Daemon --> MemSync["Memory Sync (Global)"]
+        
+        ProjectWatch --> SyncMod["SyncModule (Git Polling)"]
+        SyncMod --> AST
+        SyncMod --> Wiki
     end
     
     AST -- Parses Code --> FileSystem["Local Workspace FileSystem"]
     Mem -- Commits to --> GitLocal["Local Private Git Memory Repo"]
+    MemSync -- Watches --> GitLocal
     Hub -- Links to --> GitHub["Central Registry Git Repo"]
     
     Core -- Decoupled UI Server --> ReactUI["React UI Dashboard (Vite)"]

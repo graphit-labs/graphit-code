@@ -32,8 +32,13 @@ type Asset struct {
 	Size               int64  `json:"size"`
 }
 
-func LatestRelease(repo string) (*Release, error) {
-	url := fmt.Sprintf("%s/repos/%s/releases/latest", githubAPIBase, repo)
+func LatestRelease(repo, selfUpdateURL string) (*Release, error) {
+	var url string
+	if selfUpdateURL != "" {
+		url = strings.TrimRight(selfUpdateURL, "/")
+	} else {
+		url = fmt.Sprintf("%s/repos/%s/releases/latest", githubAPIBase, repo)
+	}
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {

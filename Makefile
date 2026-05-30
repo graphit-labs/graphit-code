@@ -12,6 +12,7 @@ VERSION      ?= dev
 GITHUB_REPO  ?= graphit-labs/graphit-code
 DEFAULT_HUB_REPO    ?= git@github.com:graphit-labs/graphit-code.git
 DEFAULT_MEMORY_REPO ?=
+SELF_UPDATE_URL ?=
 COMPILE_CONFIG ?=
 
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.Brand=$(BRAND)'
@@ -20,6 +21,7 @@ LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/version.Version=$(V
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.GitHubRepo=$(GITHUB_REPO)'
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.DefaultHubRepoURL=$(DEFAULT_HUB_REPO)'
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.DefaultMemoryRepoURL=$(DEFAULT_MEMORY_REPO)'
+LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.SelfUpdateURL=$(SELF_UPDATE_URL)'
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/config.CompiledDefaults=$(COMPILE_CONFIG)'
 
 BUILD_TAGS := fts5

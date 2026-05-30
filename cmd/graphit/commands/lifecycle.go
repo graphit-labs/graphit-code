@@ -549,7 +549,7 @@ func newSelfUpdateCmd() *cobra.Command {
 
 			task := p.StartTask("Checking for updates...")
 
-			if brand.GitHubRepo == "" {
+			if brand.GitHubRepo == "" && brand.SelfUpdateURL == "" {
 				task.Fail("No update source configured")
 				return fmt.Errorf("self-update is not configured for this build — contact your distributor")
 			}
@@ -561,8 +561,8 @@ func newSelfUpdateCmd() *cobra.Command {
 			}
 			currentExe, _ = filepath.EvalSymlinks(currentExe)
 
-			task.Update("Fetching latest release from GitHub...")
-			release, err := updater.LatestRelease(brand.GitHubRepo)
+			task.Update("Fetching latest release...")
+			release, err := updater.LatestRelease(brand.GitHubRepo, brand.SelfUpdateURL)
 			if err != nil {
 				task.Fail("Failed to fetch latest release: %v", err)
 				return fmt.Errorf("fetching latest release: %w", err)

@@ -17,7 +17,8 @@ func (c *cliBackend) Run(repoDir string, args ...string) error {
 	cmd.Stdout = &combined
 	cmd.Stderr = &combined
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: %s", err, CleanStderr(combined.String()))
+		stderr := combined.String()
+		return wrapSSHError(fmt.Errorf("%w: %s", err, CleanStderr(stderr)), stderr)
 	}
 	return nil
 }
@@ -28,7 +29,8 @@ func (c *cliBackend) RunOutput(repoDir string, args ...string) (string, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("%w: %s", err, CleanStderr(stderr.String()))
+		stderrStr := stderr.String()
+		return "", wrapSSHError(fmt.Errorf("%w: %s", err, CleanStderr(stderrStr)), stderrStr)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -51,7 +53,8 @@ func (c *cliBackend) RunWithEnv(repoDir string, env map[string]string, args ...s
 	cmd.Stdout = &combined
 	cmd.Stderr = &combined
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%w: %s", err, CleanStderr(combined.String()))
+		stderr := combined.String()
+		return wrapSSHError(fmt.Errorf("%w: %s", err, CleanStderr(stderr)), stderr)
 	}
 	return nil
 }
@@ -62,7 +65,8 @@ func (c *cliBackend) RunOutputWithEnv(repoDir string, env map[string]string, arg
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("%w: %s", err, CleanStderr(stderr.String()))
+		stderrStr := stderr.String()
+		return "", wrapSSHError(fmt.Errorf("%w: %s", err, CleanStderr(stderrStr)), stderrStr)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
@@ -83,8 +87,49 @@ func (c *cliBackend) buildCmd(repoDir string, env map[string]string, args ...str
 		fullArgs = args
 	}
 	cmd := exec.Command("git", fullArgs...)
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), MapToEnv(env)...)
+	baseEnv := os.Environ()
+	if _, ok := os.LookupEnv("GIT_SSH_COMMAND"); !ok {
+		baseEnv = append(baseEnv, "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
 	}
+	if len(env) > 0 {
+		baseEnv = append(baseEnv, MapToEnv(env)...)
+	}
+	cmd.Env = baseEnv
 	return cmd
 }
+
+func wrapSSHError(err error, stderr string) error {
+	if err == nil {
+		return nil
+	}
+	lower := strings.ToLower(stderr)
+	if strings.Contains(lower, "host key verification failed") ||
+		strings.Contains(lower, "no matching host key") ||
+		strings.Contains(lower, "known_hosts") {
+		host := extractHost(stderr)
+		hint := "the remote host is not in your known_hosts file.\n"
+		if host != "" {
+			hint += fmt.Sprintf("  Verify the host manually:  ssh -T %s\n", host)
+		} else {
+			hint += "  Verify the host manually:  ssh -T git@<hostname>\n"
+		}
+		hint += "  Once verified, retry the operation."
+		return fmt.Errorf("%w\n\n%s", err, hint)
+	}
+	return err
+}
+
+func extractHost(stderr string) string {
+	for _, line := range strings.Split(stderr, "\n") {
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "host key verification") || strings.Contains(lower, "known_hosts") {
+			for _, token := range strings.Fields(line) {
+				if strings.Contains(token, "@") {
+					return strings.Trim(token, "'\"")
+				}
+			}
+		}
+	}
+	return ""
+}
+

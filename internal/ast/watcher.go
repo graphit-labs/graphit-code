@@ -2,14 +2,13 @@ package ast
 
 import (
 	"context"
-	"io/fs"
+	"crypto/sha256"
+	"fmt"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
-	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
 )
 
@@ -21,13 +20,16 @@ type WatcherConfig struct {
 	IndexSource bool
 
 	Cluster string
+
+	PollInterval time.Duration
 }
 
 func DefaultWatcherConfig() WatcherConfig {
 	return WatcherConfig{
-		Debounce:    500 * time.Millisecond,
-		Workers:     2,
-		IndexSource: true,
+		Debounce:     500 * time.Millisecond,
+		Workers:      2,
+		IndexSource:  true,
+		PollInterval: 2 * time.Second,
 	}
 }
 
@@ -38,16 +40,12 @@ type Watcher struct {
 	cfg      WatcherConfig
 	jobs     *JobManager
 	ic       *ignorer.IgnoreChecker
-
-	fsw     *fsnotify.Watcher
-	pending map[string]time.Time
-	mu      sync.Mutex
+	g        git.Git
 }
 
 func NewWatcher(db GraphDB, rootPath, repoPath string, cfg WatcherConfig, jobs *JobManager) (*Watcher, error) {
-	fsw, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, err
+	if cfg.PollInterval <= 0 {
+		cfg.PollInterval = 2 * time.Second
 	}
 	return &Watcher{
 		db:       db,
@@ -56,93 +54,132 @@ func NewWatcher(db GraphDB, rootPath, repoPath string, cfg WatcherConfig, jobs *
 		cfg:      cfg,
 		jobs:     jobs,
 		ic:       NewAstIgnoreChecker(rootPath),
-		fsw:      fsw,
-		pending:  make(map[string]time.Time),
+		g:        git.Default(),
 	}, nil
 }
 
 func (w *Watcher) Start(ctx context.Context) error {
+	var lastHash string
 
-	if err := w.addDirsRecursive(w.rootPath); err != nil {
-		return err
-	}
-
-	ticker := time.NewTicker(w.cfg.Debounce / 2)
+	ticker := time.NewTicker(w.cfg.PollInterval)
 	defer ticker.Stop()
-	defer func() { _ = w.fsw.Close() }()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-
-		case event, ok := <-w.fsw.Events:
-			if !ok {
-				return nil
-			}
-			w.handleEvent(event)
-
-		case <-w.fsw.Errors:
-
 		case <-ticker.C:
-			w.flushPending(ctx)
+			hash := w.statusHash()
+			if hash == lastHash || lastHash == "" {
+				lastHash = hash
+				continue
+			}
+			lastHash = hash
+
+			if !w.waitDebounce(ctx, hash) {
+				return ctx.Err()
+			}
+
+			lastHash = w.statusHash()
+
+			changed := w.changedFiles()
+			if len(changed) > 0 {
+				w.reindexFiles(ctx, changed)
+			}
 		}
 	}
 }
 
-func (w *Watcher) handleEvent(event fsnotify.Event) {
-	path := event.Name
+func (w *Watcher) waitDebounce(ctx context.Context, hash string) bool {
+	timer := time.NewTimer(w.cfg.Debounce)
+	defer timer.Stop()
 
-	if rel, err := filepath.Rel(w.rootPath, path); err == nil && rel != "." {
-		top := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-		if top == ".git" || top == brand.DotDir() {
-			return
+	poll := time.NewTicker(250 * time.Millisecond)
+	defer poll.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-timer.C:
+			return true
+		case <-poll.C:
+			current := w.statusHash()
+			if current != hash {
+				hash = current
+				timer.Reset(w.cfg.Debounce)
+			}
 		}
 	}
+}
 
-	ext := strings.ToLower(filepath.Ext(path))
-	if !HasTreeSitterForExtension(ext) {
+func (w *Watcher) statusHash() string {
+	status, _ := w.g.RunOutput(w.rootPath, "status", "--porcelain", "-unormal")
+	head, _ := w.g.RunOutput(w.rootPath, "rev-parse", "HEAD")
 
-		if event.Has(fsnotify.Create) {
-			_ = w.fsw.Add(path)
-		}
-		return
+	status = w.filterIgnored(status)
+	combined := head + "\n" + status
+	h := sha256.Sum256([]byte(combined))
+	return fmt.Sprintf("%x", h[:8])
+}
+
+func (w *Watcher) changedFiles() []string {
+	out, err := w.g.RunOutput(w.rootPath, "status", "--porcelain", "-unormal")
+	if err != nil {
+		return nil
 	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		rel := strings.TrimSpace(line[3:])
+		if rel == "" {
+			continue
+		}
+		rel = strings.TrimSuffix(rel, "/")
 
-	if rel, err := filepath.Rel(w.rootPath, path); err == nil && rel != "." {
 		if w.ic.IsIgnored(rel, false) {
-			return
+			continue
 		}
-	}
 
-	w.mu.Lock()
-	w.pending[path] = time.Now()
-	w.mu.Unlock()
+		ext := strings.ToLower(filepath.Ext(rel))
+		if !HasTreeSitterForExtension(ext) {
+			continue
+		}
+
+		abs := filepath.Join(w.rootPath, rel)
+		files = append(files, abs)
+	}
+	return files
 }
 
-func (w *Watcher) flushPending(ctx context.Context) {
-	now := time.Now()
-	w.mu.Lock()
-
-	ready := make([]string, 0)
-	for path, lastEvent := range w.pending {
-		if now.Sub(lastEvent) >= w.cfg.Debounce {
-			ready = append(ready, path)
-			delete(w.pending, path)
+func (w *Watcher) filterIgnored(porcelain string) string {
+	var kept []string
+	for _, line := range strings.Split(porcelain, "\n") {
+		if len(line) < 4 {
+			continue
 		}
+		path := strings.TrimSpace(line[3:])
+		if path == "" {
+			continue
+		}
+		path = strings.TrimSuffix(path, "/")
+		if w.ic.IsIgnored(path, false) {
+			continue
+		}
+		kept = append(kept, line)
 	}
-	w.mu.Unlock()
+	return strings.Join(kept, "\n")
+}
 
-	if len(ready) == 0 {
-		return
-	}
-
+func (w *Watcher) reindexFiles(ctx context.Context, files []string) {
 	writer := NewGraphWriter(w.db, w.rootPath, w.cfg.IndexSource)
 	writer.cluster = w.cfg.Cluster
 	sem := make(chan struct{}, w.cfg.Workers)
 	opts := ParseOptions{}
 
-	for _, path := range ready {
+	for _, path := range files {
 		sem <- struct{}{}
 		go func(p string) {
 			defer func() { <-sem }()
@@ -174,24 +211,4 @@ func (w *Watcher) reindexFile(ctx context.Context, writer *GraphWriter, path str
 	}
 
 	_ = writer.WriteFileIncremental(ctx, pf, w.repoPath)
-}
-
-func (w *Watcher) addDirsRecursive(root string) error {
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || !d.IsDir() {
-			return nil
-		}
-
-		base := filepath.Base(path)
-		if base == ".git" || base == brand.DotDir() {
-			return filepath.SkipDir
-		}
-
-		if rel, relErr := filepath.Rel(w.rootPath, path); relErr == nil && rel != "." {
-			if w.ic.IsIgnored(rel, true) {
-				return filepath.SkipDir
-			}
-		}
-		return w.fsw.Add(path)
-	})
 }

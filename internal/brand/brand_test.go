@@ -13,12 +13,14 @@ func TestSimpleBrandFunctions(t *testing.T) {
 	origGitHubRepo := GitHubRepo
 	origDefaultHubRepoURL := DefaultHubRepoURL
 	origDefaultMemoryRepoURL := DefaultMemoryRepoURL
+	origSelfUpdateURL := SelfUpdateURL
 	defer func() {
 		Brand = origBrand
 		DisplayName = origDisplayName
 		GitHubRepo = origGitHubRepo
 		DefaultHubRepoURL = origDefaultHubRepoURL
 		DefaultMemoryRepoURL = origDefaultMemoryRepoURL
+		SelfUpdateURL = origSelfUpdateURL
 	}()
 
 	Brand = "testbrand"
@@ -26,6 +28,7 @@ func TestSimpleBrandFunctions(t *testing.T) {
 	GitHubRepo = "test/repo"
 	DefaultHubRepoURL = "git@github.com:test/repo.git"
 	DefaultMemoryRepoURL = "git@github.com:test/memory.git"
+	SelfUpdateURL = "https://my-server.example.com/releases/latest"
 
 	if DotDir() != ".testbrand" {
 		t.Errorf("DotDir() = %q; want %q", DotDir(), ".testbrand")

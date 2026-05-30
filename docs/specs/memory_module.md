@@ -110,3 +110,15 @@ If a new convention contradicts an older memory, the pipeline overrides the stal
 ### 3. Git Push
 To ensure sync reliability without interrupting user workflow, commits are pushed asynchronously.
 The CLI calls `memory.WaitForPendingPushes()` on exit to ensure that background Git pushes finish before the shell command terminates.
+
+---
+
+## 🔄 Daemon Auto-Sync (`MemorySyncModule`)
+
+The daemon includes a global `MemorySyncModule` that watches all active memory git worktrees:
+
+- **Discovery**: Reads `~/.graphit/memory.lock.json` to find active branches (project and user scopes)
+- **Polling**: Every 10 seconds, runs `git status --porcelain -unormal` + `git rev-parse HEAD` on each worktree
+- **Detection**: Combined state hash detects both uncommitted raw file edits and committed changes (from `memory_insert`/`memory_update` MCP calls)
+- **Recompilation**: When changes are detected, calls `memory.RunCycle` to regenerate the memory wiki from raw files
+- **Global scope**: Runs once per daemon instance, not per-project, since memory worktrees live in `~/.graphit/memory-wt/`

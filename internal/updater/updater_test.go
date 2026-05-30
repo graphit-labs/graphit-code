@@ -35,7 +35,7 @@ func TestLatestRelease(t *testing.T) {
 		},
 	}
 
-	rel, err := LatestRelease("org/repo")
+	rel, err := LatestRelease("org/repo", "")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -55,7 +55,7 @@ func TestLatestRelease(t *testing.T) {
 			}, nil
 		},
 	}
-	_, err = LatestRelease("org/repo")
+	_, err = LatestRelease("org/repo", "")
 	if err == nil || !strings.Contains(err.Error(), "no releases found") {
 		t.Errorf("expected 404 releases error, got %v", err)
 	}
@@ -66,9 +66,44 @@ func TestLatestRelease(t *testing.T) {
 			return nil, errors.New("network error")
 		},
 	}
-	_, err = LatestRelease("org/repo")
+	_, err = LatestRelease("org/repo", "")
 	if err == nil {
 		t.Error("expected network error")
+	}
+}
+
+func TestLatestReleaseCustomURL(t *testing.T) {
+	origTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = origTransport }()
+
+	var capturedURL string
+	http.DefaultTransport = &mockRoundTripper{
+		roundTripFunc: func(req *http.Request) (*http.Response, error) {
+			capturedURL = req.URL.String()
+			jsonResp := `{"tag_name":"v2.0.0","assets":[{"name":"custom-linux-amd64","browser_download_url":"http://custom/binary","size":99}]}`
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(jsonResp)),
+			}, nil
+		},
+	}
+
+	rel, err := LatestRelease("org/repo", "https://my-server.example.com/api/releases/latest")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if rel.TagName != "v2.0.0" {
+		t.Errorf("expected tag_name v2.0.0, got %s", rel.TagName)
+	}
+	if capturedURL != "https://my-server.example.com/api/releases/latest" {
+		t.Errorf("expected custom URL, got %s", capturedURL)
+	}
+
+	// Verify trailing slash is stripped
+	capturedURL = ""
+	_, _ = LatestRelease("org/repo", "https://my-server.example.com/releases/")
+	if capturedURL != "https://my-server.example.com/releases" {
+		t.Errorf("expected trailing slash stripped, got %s", capturedURL)
 	}
 }
 

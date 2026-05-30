@@ -13,9 +13,10 @@ import (
 	"syscall"
 	"time"
 
+	"crypto/sha256"
 	"io/fs"
 
-	"github.com/fsnotify/fsnotify"
+	"github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	_ "github.com/graphit-labs/graphit-code/internal/ast/cypher" // registers AI Cypher generator
@@ -380,7 +381,10 @@ func runUnifiedServe(repoPath string) error {
 
 	astDB, err := newASTBackendReadOnly()
 	if err != nil {
-		return fmt.Errorf("ast backend: %w", err)
+		astDB, err = newASTBackend()
+		if err != nil {
+			return fmt.Errorf("ast backend: %w", err)
+		}
 	}
 	defer func() { _ = astDB.Close() }()
 
@@ -1771,66 +1775,47 @@ func watchAndReindex(rootPath string, useLouvain bool, reindex func() error) err
 		p.Warn("Initial index error: %v", err)
 	}
 
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return fmt.Errorf("creating watcher: %w", err)
-	}
-	defer func() { _ = watcher.Close() }()
-
-	dotDir := brand.DotDir()
-	if err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || !d.IsDir() {
-			return nil
-		}
-		base := filepath.Base(path)
-		if base == ".git" || base == dotDir {
-			return filepath.SkipDir
-		}
-		return watcher.Add(path)
-	}); err != nil {
-		return fmt.Errorf("adding paths to watcher: %w", err)
-	}
+	g := git.Default()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
-	var debounce *time.Timer
+	var lastHash string
+	pollTicker := time.NewTicker(2 * time.Second)
+	defer pollTicker.Stop()
+
 	for {
 		select {
-		case event, ok := <-watcher.Events:
-			if !ok {
-				return nil
-			}
-			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) {
-
-				if rel, relErr := filepath.Rel(rootPath, event.Name); relErr == nil {
-					top := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-					if top == ".git" || top == dotDir {
-						continue
-					}
-				}
-				if debounce != nil {
-					debounce.Stop()
-				}
-				debounce = time.AfterFunc(500*time.Millisecond, func() {
-					p.Running("Change detected, re-indexing…")
-					if err := reindex(); err != nil {
-						p.Warn("Re-index error: %v", err)
-					} else {
-						p.Success("Re-index complete")
-					}
-				})
-			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return nil
-			}
-			p.Warn("Watcher error: %v", err)
 		case <-sig:
 			output.Interrupted()
 			return nil
+		case <-pollTicker.C:
+			hash := cliWatchHash(g, rootPath)
+			if hash == lastHash || lastHash == "" {
+				lastHash = hash
+				continue
+			}
+
+			time.Sleep(500 * time.Millisecond)
+			lastHash = cliWatchHash(g, rootPath)
+
+			p.Running("Change detected, re-indexing…")
+			if err := reindex(); err != nil {
+				p.Warn("Re-index error: %v", err)
+			} else {
+				p.Success("Re-index complete")
+			}
 		}
 	}
+}
+
+func cliWatchHash(g git.Git, dir string) string {
+	status, _ := g.RunOutput(dir, "status", "--porcelain", "-unormal")
+	head, _ := g.RunOutput(dir, "rev-parse", "HEAD")
+
+	combined := head + "\n" + status
+	h := sha256.Sum256([]byte(combined))
+	return fmt.Sprintf("%x", h[:8])
 }
 
 func runASTSync(contextName string) error {

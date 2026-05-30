@@ -51,6 +51,7 @@ The following variables in `internal/brand/brand.go` can be overridden at compil
 | `GitHubRepo` | `graphit-labs/graphit-code` | Default repository used for update checks and issues. |
 | `DefaultHubRepoURL` | `git@github.com:graphit...` | Default private Git repository used to synchronize team skills and rules. |
 | `DefaultMemoryRepoURL` | `""` | Default private Git repository used to synchronize project memories. |
+| `SelfUpdateURL` | `""` | Custom URL for self-update releases endpoint. When set, `self-update` fetches release metadata from this URL instead of the GitHub API. The endpoint must return JSON in the GitHub Release format. When empty, falls back to `https://api.github.com/repos/{GitHubRepo}/releases/latest`. |
 
 ### Compilation Example
 
@@ -61,14 +62,26 @@ To build your custom binary, inject these variables into the compiler:
 BRAND="devkit"
 DISPLAY_NAME="Enterprise DevKit AI Harness"
 HUB_URL="git@github.com:mycompany/devkit-hub.git"
+SELF_UPDATE_URL="https://releases.mycompany.com/devkit/latest"
 MODULE="github.com/graphit-labs/graphit-code"
 
 # Compile CLI core
 go build -tags "fts5" -ldflags \
   "-X '${MODULE}/internal/brand.Brand=${BRAND}' \
    -X '${MODULE}/internal/brand.DisplayName=${DISPLAY_NAME}' \
-   -X '${MODULE}/internal/brand.DefaultHubRepoURL=${HUB_URL}'" \
+   -X '${MODULE}/internal/brand.DefaultHubRepoURL=${HUB_URL}' \
+   -X '${MODULE}/internal/brand.SelfUpdateURL=${SELF_UPDATE_URL}'" \
   -o .build/devkit-linux-amd64 ./cmd/launcher
+```
+
+Or using Make variables:
+
+```bash
+make build-linux \
+  BRAND=devkit \
+  DISPLAY_NAME="Enterprise DevKit AI Harness" \
+  DEFAULT_HUB_REPO="git@github.com:mycompany/devkit-hub.git" \
+  SELF_UPDATE_URL="https://releases.mycompany.com/devkit/latest"
 ```
 
 Once built, the custom binary (e.g., `devkit`) will automatically:
