@@ -561,6 +561,11 @@ func newSelfUpdateCmd() *cobra.Command {
 			}
 			currentExe, _ = filepath.EvalSymlinks(currentExe)
 
+			launcherPath := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
+			if launcherPath != "" {
+				currentExe = launcherPath
+			}
+
 			task.Update("Fetching latest release...")
 			release, err := updater.LatestRelease(brand.GitHubRepo, brand.SelfUpdateURL)
 			if err != nil {
