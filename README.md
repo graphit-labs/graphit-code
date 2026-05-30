@@ -168,7 +168,9 @@ graphit init --ide <antigravity|gemini|claude|cursor|kiro|codex|opencode>
 ## Quick Start
 
 ```bash
-# 1. Setup global hub and memory repos
+# 1. Setup global hub and memory repos. During this interactive setup, you can point to 
+# your organization's private Git repositories (e.g., self-hosted GitLab or GitHub 
+# Enterprise) to establish a secure, collaborative environment for your IT team.
 graphit setup
 
 # 2. Initialize your project (Auto-configures IDE rules, indexes AST + Wiki)
@@ -200,7 +202,7 @@ Graphit Code is a single self-contained binary written in Go. All data persists 
 Graphit Code is built to be customized for private, self-hosted enterprise environments:
 - **100% Private Data:** Local syntactic parsing (Tree-sitter), local embedded graph database (LadybugDB), local embedding computations (ONNX runtime), and Git-backed repositories that stay inside your private network.
 - **Custom Branding (White-Labeling):** Compile the binary using Go `-ldflags` overrides to customize the binary name (`Brand`), the display name (`DisplayName`), environment variables, and default Git-backed registry repositories.
-- **Private Team Ecosystems:** Set up team-wide coding standards, shared agent skills, and local microservices discovery securely.
+- **Private Team Ecosystems (Git-Backed):** Set up team-wide coding standards, shared agent memories, and custom developer skills without relying on cloud-hosted SaaS databases. During the interactive `graphit setup` command, developers configure private Git repositories (e.g., self-hosted GitLab, Bitbucket, or GitHub Enterprise) as backend sync stores. The harness pushes/pulls memories, rules, and skills through standard SSH/HTTPS Git authentication, establishing a secure collaborative environment for your entire IT team.
 - **Keyless AI Harness:** Run agentic tasks without configuring separate LLM API keys. The framework leverages the active sessions, credentials, and quotas of developers' existing IDE and CLI agents natively.
 
 For instructions, see the **[Private Branding & Customization Guide](docs/guides/private_brand_customization.md)**.

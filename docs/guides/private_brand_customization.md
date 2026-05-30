@@ -29,7 +29,7 @@ Unlike traditional AI developer assistants that rely on cloud APIs and external 
 
 1. **Local Graph Database:** Syntactic analysis is executed locally using Tree-sitter and stored inside an embedded **LadybugDB** instance on the developer's machine.
 2. **Local Embeddings:** Semantic indexing utilizes a local ONNX runtime executing the `CodeRankEmbed-137M` model. No code leaves the developer's machine to compute vector embeddings.
-3. **Git-Backed Hubs & Memory:** Memories and registries are stored as standard Git repositories. You can point them to your organization's private self-hosted GitLab, Bitbucket, or GitHub Enterprise instances.
+3. **Git-Backed Hubs & Memory:** Memories and registries are stored as standard Git repositories. During the interactive `graphit setup` process, you can point them to your organization's private self-hosted GitLab, Bitbucket, or GitHub Enterprise instances to create a secure, shared collaborative workspace.
 4. **Secure Local Tunnels:** If cloud-based LLM agents need access to your local context, you can set up secure, encrypted reverse tunnels (e.g., ngrok) bound to local TCP port listeners.
 
 ---
@@ -91,6 +91,29 @@ Codify complex developer workflows (e.g., k8s debugging, internal API structures
 
 ### 3. Local Cluster Discovery
 Use the local daemon cluster discovery to allow agents to discover other projects on the same machine. This enables agents to query sibling microservice structures locally to generate integration code without exposing private endpoints.
+
+### 4. Collaborative Private IT Ecosystems (Git-Backed Setup)
+
+Instead of relying on centralized databases or cloud-hosted synchronization services, Graphit Code achieves team collaboration by leveraging **standard Git repositories as backend sync stores**. This means your IT team's memories, coding rules, and custom developer skills are tracked, versioned, and shared securely using your existing Git infrastructure.
+
+#### Configuration during CLI Setup
+
+When developers run the interactive setup command:
+
+```bash
+graphit setup
+```
+
+The CLI prompts for key collaboration configurations:
+
+```text
+? Enter the Git URL for the Shared Hub Registry (e.g., git@github.com:company/graphit-hub.git):
+? Enter the Git URL for the Shared Memory Repository (e.g., git@github.com:company/graphit-memory.git):
+```
+
+Once configured:
+1. **Standard Git Authentication:** The CLI uses the developer's local SSH keys or Git credentials (e.g., HTTPS access tokens) to interact with the remote repository. No new credentials or keys are managed by Graphit Code, maintaining strict security boundaries and leveraging existing SSO/access controls.
+2. **Push/Pull Sync Loop:** Staged memories, custom developer skills, and global coding rules are updated on the developer's machine and synced with the remote repository during synchronization (`graphit sync`), ensuring the entire team stays in a progressive, collaborative knowledge loop.
 
 ---
 
