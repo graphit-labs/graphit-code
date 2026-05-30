@@ -8,7 +8,7 @@ BIN_DIR  := .build
 
 BRAND        ?= graphit
 DISPLAY_NAME ?= Graphit Code: AI Harness for Collaborative and Progressive Knowledge
-VERSION      ?= dev
+VERSION      ?= v0.1.3
 GITHUB_REPO  ?= graphit-labs/graphit-code
 DEFAULT_HUB_REPO    ?= git@github.com:graphit-labs/graphit-code.git
 DEFAULT_MEMORY_REPO ?=
