@@ -52,7 +52,6 @@ func (m *SyncModule) Start(ctx context.Context) error {
 				lastHash = hash
 				continue
 			}
-			lastHash = hash
 
 			if !waitDebounce(ctx, g, m.projectDir, ic, hash) {
 				return ctx.Err()

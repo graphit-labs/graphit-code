@@ -74,7 +74,6 @@ func (w *Watcher) Start(ctx context.Context) error {
 				lastHash = hash
 				continue
 			}
-			lastHash = hash
 
 			if !w.waitDebounce(ctx, hash) {
 				return ctx.Err()
