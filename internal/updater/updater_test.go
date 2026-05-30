@@ -225,6 +225,54 @@ func TestDownloadAndChecksum(t *testing.T) {
 	}
 }
 
+func TestVerifyChecksumPerAsset(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "graphit-per-asset-checksum-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	content := "binary content for per-asset checksum test"
+	h := sha256.New()
+	h.Write([]byte(content))
+	checksumHex := hex.EncodeToString(h.Sum(nil))
+
+	binaryFile := filepath.Join(tempDir, ".graphit-update-123456")
+	_ = os.WriteFile(binaryFile, []byte(content), 0644)
+
+	// Format: "hash  filename" (standard sha256sum output)
+	checksumWithName := filepath.Join(tempDir, "graphit-linux-amd64.sha256")
+	_ = os.WriteFile(checksumWithName, []byte(checksumHex+"  graphit-linux-amd64\n"), 0644)
+
+	if err := VerifyChecksum(binaryFile, checksumWithName); err != nil {
+		t.Errorf("VerifyChecksum with hash+filename format failed: %v", err)
+	}
+
+	// Format: hash only
+	checksumHashOnly := filepath.Join(tempDir, "hash-only.sha256")
+	_ = os.WriteFile(checksumHashOnly, []byte(checksumHex+"\n"), 0644)
+
+	if err := VerifyChecksum(binaryFile, checksumHashOnly); err != nil {
+		t.Errorf("VerifyChecksum with hash-only format failed: %v", err)
+	}
+
+	// Mismatch
+	badChecksum := filepath.Join(tempDir, "bad.sha256")
+	_ = os.WriteFile(badChecksum, []byte("badhash  graphit-linux-amd64\n"), 0644)
+
+	if err := VerifyChecksum(binaryFile, badChecksum); err == nil {
+		t.Error("expected VerifyChecksum to fail due to mismatch")
+	}
+
+	// Empty file
+	emptyChecksum := filepath.Join(tempDir, "empty.sha256")
+	_ = os.WriteFile(emptyChecksum, []byte(""), 0644)
+
+	if err := VerifyChecksum(binaryFile, emptyChecksum); err == nil {
+		t.Error("expected VerifyChecksum to fail for empty checksum file")
+	}
+}
+
 func TestAtomicReplace(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "graphit-replace-test-*")
 	if err != nil {

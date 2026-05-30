@@ -581,12 +581,7 @@ func newSelfUpdateCmd() *cobra.Command {
 				task.Fail("No binary available for this platform (%s)", binaryName)
 				return fmt.Errorf("no release asset %q found in %s", binaryName, release.TagName)
 			}
-
-			checksumURL := updater.FindAsset(release, "checksums.sha256")
-			if checksumURL == "" {
-				task.Fail("No checksums file in release")
-				return fmt.Errorf("checksums.sha256 not found in release %s", release.TagName)
-			}
+			checksumURL := binaryURL + ".sha256"
 
 			tmpFile, err := os.CreateTemp(filepath.Dir(currentExe), "."+brand.Brand+"-update-*")
 			if err != nil {
@@ -603,7 +598,7 @@ func newSelfUpdateCmd() *cobra.Command {
 				return fmt.Errorf("downloading binary: %w", err)
 			}
 
-			checksumTmp, err := os.CreateTemp("", brand.Brand+"-checksums-*")
+			checksumTmp, err := os.CreateTemp("", brand.Brand+"-checksum-*")
 			if err != nil {
 				task.Fail("Create checksum temp file: %v", err)
 				return fmt.Errorf("create checksum temp file: %w", err)
@@ -613,8 +608,8 @@ func newSelfUpdateCmd() *cobra.Command {
 			defer func() { _ = os.Remove(checksumTmpPath) }()
 
 			if err := updater.Download(checksumURL, checksumTmpPath, nil); err != nil {
-				task.Fail("Download checksums failed: %v", err)
-				return fmt.Errorf("downloading checksums: %w", err)
+				task.Fail("Download checksum failed: %v", err)
+				return fmt.Errorf("downloading checksum: %w", err)
 			}
 
 			task.Update("Verifying checksum...")

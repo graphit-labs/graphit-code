@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -148,7 +147,7 @@ func Download(url, destPath string, progressFn func(downloaded, total int64)) er
 }
 
 func VerifyChecksum(filePath, checksumFilePath string) error {
-	expectedHash, err := extractChecksum(checksumFilePath, filepath.Base(filePath))
+	expectedHash, err := readChecksumFile(checksumFilePath)
 	if err != nil {
 		return fmt.Errorf("reading checksum file: %w", err)
 	}
@@ -162,6 +161,25 @@ func VerifyChecksum(filePath, checksumFilePath string) error {
 		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedHash, actualHash)
 	}
 	return nil
+}
+
+func readChecksumFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		return parts[0], nil
+	}
+	return "", fmt.Errorf("empty checksum file: %s", path)
 }
 
 func AtomicReplace(newBinary, currentExe string) error {
@@ -196,28 +214,7 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func extractChecksum(checksumFile, targetName string) (string, error) {
-	f, err := os.Open(checksumFile)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = f.Close() }()
 
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
-			continue
-		}
-
-		name := strings.TrimPrefix(parts[1], "*")
-		if name == targetName {
-			return parts[0], nil
-		}
-	}
-	return "", fmt.Errorf("checksum for %q not found in %s", targetName, checksumFile)
-}
 
 func compareVersions(a, b string) int {
 	aParts := strings.SplitN(a, "-", 2)
