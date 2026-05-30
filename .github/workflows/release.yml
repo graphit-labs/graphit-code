@@ -9,9 +9,61 @@ permissions:
   contents: write
 
 jobs:
+  # ── CI Gate ─────────────────────────────────────────────────────────────────
+  # All builds depend on CI passing. Prevents releasing broken code.
+  ci:
+    name: CI Gate
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: internal/ui/package-lock.json
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
+
+      - name: Vet
+        run: make vet
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          args: --timeout=5m
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "CI Bot"
+          git config --global user.email "ci@graphit.dev"
+
+      - name: Test
+        run: make test
+
+      - name: UI Build
+        run: make ui
+
+      - name: UI Lint
+        run: make ui-lint
+
   # ── Linux amd64 ────────────────────────────────────────────────────────────
   build-linux:
     name: Build (linux-amd64)
+    needs: [ci]
     runs-on: ubuntu-22.04
 
     steps:
@@ -82,9 +134,79 @@ jobs:
             .build/graphit-linux-amd64.sha256
           retention-days: 1
 
+  # ── macOS arm64 (Apple Silicon) ────────────────────────────────────────────
+  build-darwin:
+    name: Build (darwin-arm64)
+    needs: [ci]
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: internal/ui/package-lock.json
+
+      - name: Install system dependencies (Homebrew)
+        run: |
+          brew install icu4c pkg-config
+
+      - name: Cache ONNX Runtime (macOS)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/onnxruntime-cache
+          key: onnxruntime-osx-arm64-${{ env.ORT_VERSION }}
+        env:
+          ORT_VERSION: '1.25.0'
+
+      - name: Cache CodeRankEmbed model
+        uses: actions/cache@v4
+        with:
+          path: /tmp/coderankembed-cache
+          key: coderankembed-int8-model-v1
+
+      - name: Cache LadybugDB native library (macOS)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/lbug-cache
+          key: liblbug-darwin-v0.13.1
+
+      - name: Build (macOS)
+        run: |
+          make build-darwin \
+            VERSION="${{ github.ref_name }}" \
+            BRAND="graphit" \
+            DISPLAY_NAME="Graphit Code: AI Harness for Collaborative and Progressive Knowledge" \
+            LBUG_PLATFORMS="darwin"
+
+      - name: Generate SHA-256 checksum
+        run: |
+          cd .build
+          shasum -a 256 graphit-darwin-arm64 > graphit-darwin-arm64.sha256
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: darwin-arm64
+          path: |
+            .build/graphit-darwin-arm64
+            .build/graphit-darwin-arm64.sha256
+          retention-days: 1
+
   # ── Windows amd64 ──────────────────────────────────────────────────────────
   build-windows:
     name: Build (windows-amd64)
+    needs: [ci]
     runs-on: ubuntu-22.04
 
     steps:
@@ -170,7 +292,7 @@ jobs:
   # ── Publish Release ────────────────────────────────────────────────────────
   publish:
     name: Publish GitHub Release
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-darwin, build-windows]
     runs-on: ubuntu-22.04
 
     steps:
@@ -229,6 +351,13 @@ jobs:
             sudo mv graphit /usr/local/bin/
             ```
 
+            ### macOS (Apple Silicon)
+            ```bash
+            curl -fsSL https://github.com/graphit-labs/graphit-code/releases/download/${{ github.ref_name }}/graphit-darwin-arm64 -o graphit
+            chmod +x graphit
+            sudo mv graphit /usr/local/bin/
+            ```
+
             ### Windows (amd64)
             Download `graphit-windows-amd64.exe` and add to your PATH.
 
@@ -245,6 +374,8 @@ jobs:
           files: |
             release-assets/graphit-linux-amd64
             release-assets/graphit-linux-amd64.sha256
+            release-assets/graphit-darwin-arm64
+            release-assets/graphit-darwin-arm64.sha256
             release-assets/graphit-windows-amd64.exe
             release-assets/graphit-windows-amd64.exe.sha256
             release-assets/checksums.sha256
