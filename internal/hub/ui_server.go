@@ -430,8 +430,13 @@ func scanMCPArtifacts(mcpPath string) []map[string]any {
 
 	managed, _ := conf[brand.ManagedMCPKey()].(map[string]any)
 
+	coreServer := brand.MCPServerName("code-stdio")
+
 	var results []map[string]any
 	for name := range servers {
+		if name == coreServer {
+			continue
+		}
 
 		if managed != nil {
 			if _, ok := managed[name]; !ok {
