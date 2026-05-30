@@ -98,6 +98,16 @@ func ManagedSkillPrefix() string {
 	return Brand + "-"
 }
 
+func CoreSkillIDs() map[string]bool {
+	return map[string]bool{
+		SkillDirName("ast"):          true,
+		SkillDirName("hub"):          true,
+		SkillDirName("knowledge"):    true,
+		SkillDirName("memory"):       true,
+		SkillDirName("improvements"): true,
+	}
+}
+
 func defaultSkillPlaceholder() string {
 	return "{{_" + strings.ToUpper(Brand) + "_DEFAULT_SKILL_CONTENT_}}"
 }

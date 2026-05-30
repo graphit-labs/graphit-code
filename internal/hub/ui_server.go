@@ -231,6 +231,10 @@ func (s *UIServer) handleProjectArtifacts(w http.ResponseWriter, r *http.Request
 			if sec, ok := section.(map[string]any); ok {
 				for artID, info := range sec {
 					inf, _ := info.(map[string]any)
+
+					if artType == "skill" && brand.CoreSkillIDs()[artID] {
+						continue
+					}
 					art := map[string]any{
 						"local_id":  artID,
 						"type":      artType,

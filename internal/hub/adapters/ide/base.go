@@ -263,7 +263,7 @@ func (a *FolderBasedAdapter) ScanLocal(projectDir string) []LocalArtifact {
 				results = append(results, LocalArtifact{ID: id, Type: artType, Path: full, IsFile: true})
 			} else if fm.Mode == "folder" && entry.IsDir() {
 
-				if artType == "skill" && strings.HasPrefix(entry.Name(), brand.ManagedSkillPrefix()) {
+				if artType == "skill" && brand.CoreSkillIDs()[entry.Name()] {
 					continue
 				}
 				results = append(results, LocalArtifact{ID: entry.Name(), Type: artType, Path: full, IsFile: false})
