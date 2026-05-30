@@ -15,6 +15,10 @@ func cronMarker() string {
 	return "# " + strings.ToUpper(brand.Brand) + "_DAEMON_SCHEDULER"
 }
 
+func schedulerLabel() string {
+	return brand.Brand + ".daemon"
+}
+
 func resolveExePath() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {

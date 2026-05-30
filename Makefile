@@ -1,6 +1,6 @@
 .PHONY: build build-all install clean fmt vet run ui ui-dev setup-lbug \
        fetch-ort-linux fetch-ort-darwin fetch-ort-windows fetch-model lint \
-       ui-lint ci check test
+       ui-lint ci check test build-windows-native
 
 MODULE   := github.com/graphit-labs/graphit-code
 CMD      := ./cmd/graphit
@@ -171,13 +171,30 @@ build-darwin: ui setup-lbug fetch-ort-darwin fetch-model
 build-windows: ui setup-lbug fetch-ort-windows fetch-model
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
-	CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_CFLAGS="-I/usr/x86_64-w64-mingw32/icu/include" CGO_CXXFLAGS="-I/usr/x86_64-w64-mingw32/icu/include" CGO_LDFLAGS="-L/usr/x86_64-w64-mingw32/icu/lib -licuuc -licuin -licudt -lstdc++ -static-libgcc -static-libstdc++" GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
+	CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_CFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_CXXFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_LDFLAGS="-L/usr/x86_64-w64-mingw32/icu/lib -licuuc -licuin -licudt -lstdc++ -static-libgcc -static-libstdc++" GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug*/lib/dynamic/windows -name "lbug_shared.dll" -exec cp -L {} cmd/launcher/runtime/ \;
 	find /usr/x86_64-w64-mingw32 -name "*.dll" -exec cp -L {} cmd/launcher/runtime/ \; 2>/dev/null || true
 	cp -L $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll cmd/launcher/runtime/
 	$(call bundle_model)
 	@mkdir -p $(BIN_DIR)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
+	rm -rf cmd/launcher/runtime/*
+
+build-windows-native: ui setup-lbug fetch-ort-windows fetch-model
+	@mkdir -p cmd/launcher/runtime
+	rm -rf cmd/launcher/runtime/*
+	CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-L/mingw64/lib -licuuc -licuin -licudt -lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
+	GOPATH_UNIX=$$(cygpath -u "$$(go env GOPATH)") && find $$GOPATH_UNIX/pkg/mod/github.com/!ladybug!d!b/go-ladybug*/lib/dynamic/windows -name "lbug_shared.dll" -exec cp -L {} cmd/launcher/runtime/ \;
+	cp /mingw64/bin/libicuuc*.dll cmd/launcher/runtime/ 2>/dev/null || true
+	cp /mingw64/bin/libicuin*.dll cmd/launcher/runtime/ 2>/dev/null || true
+	cp /mingw64/bin/libicudt*.dll cmd/launcher/runtime/ 2>/dev/null || true
+	cp /mingw64/bin/libgcc_s_seh-1.dll cmd/launcher/runtime/ 2>/dev/null || true
+	cp /mingw64/bin/libstdc++-6.dll cmd/launcher/runtime/ 2>/dev/null || true
+	cp /mingw64/bin/libwinpthread-1.dll cmd/launcher/runtime/ 2>/dev/null || true
+	cp -L $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll cmd/launcher/runtime/
+	$(call bundle_model)
+	@mkdir -p $(BIN_DIR)
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
 build-all: build-linux build-darwin build-windows

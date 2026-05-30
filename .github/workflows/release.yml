@@ -206,15 +206,33 @@ jobs:
             .build/graphit-darwin-arm64.sha256
           retention-days: 1
 
-  # ── Windows amd64 ──────────────────────────────────────────────────────────
+  # ── Windows amd64 (native) ──────────────────────────────────────────────────
   build-windows:
     name: Build (windows-amd64)
     needs: [ci]
-    runs-on: ubuntu-22.04
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-icu
+            mingw-w64-x86_64-sqlite3
+            make
+            unzip
+            curl
+            tar
+            gzip
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -229,54 +247,36 @@ jobs:
           cache: "npm"
           cache-dependency-path: internal/ui/package-lock.json
 
-      - name: Install cross-compilation tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            mingw-w64 \
-            zstd \
-            curl \
-            pkg-config \
-            unzip \
-            wget
-
-      - name: Install ICU for Windows (mingw-w64)
-        run: |
-          sudo apt-get install -y --no-install-recommends curl zstd
-          ICU_PKG="mingw-w64-x86_64-icu-75.1-2-any.pkg.tar.zst"
-          curl -sSLO "https://mirror.msys2.org/mingw/mingw64/${ICU_PKG}"
-          sudo mkdir -p /usr/x86_64-w64-mingw32/icu
-          sudo tar --use-compress-program=zstd -xf "${ICU_PKG}" \
-            -C /usr/x86_64-w64-mingw32/icu \
-            --strip-components=1 mingw64
-
       - name: Cache ONNX Runtime (Windows)
         uses: actions/cache@v4
         with:
-          path: /tmp/onnxruntime-cache
-          key: onnxruntime-win-x64-${{ env.ORT_VERSION }}
-        env:
-          ORT_VERSION: "1.25.0"
+          path: C:\cache\ort
+          key: onnxruntime-win-x64-1.25.0
 
       - name: Cache CodeRankEmbed model
         uses: actions/cache@v4
         with:
-          path: /tmp/coderankembed-cache
+          path: C:\cache\model
           key: coderankembed-int8-model-v1
 
       - name: Cache LadybugDB native library (Windows)
         uses: actions/cache@v4
         with:
-          path: /tmp/lbug-cache
+          path: C:\cache\lbug
           key: liblbug-windows-v0.13.1
 
-      - name: Build (Windows)
+      - name: Build (Windows native)
         run: |
-          make build-windows \
+          make build-windows-native \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
             DISPLAY_NAME="Graphit Code: AI Harness for Collaborative and Progressive Knowledge" \
-            LBUG_PLATFORMS="windows"
+            GITHUB_REPO="graphit-labs/graphit-code" \
+            DEFAULT_HUB_REPO="git@github.com:graphit-labs/graphit-code.git" \
+            LBUG_PLATFORMS="windows" \
+            ORT_CACHE="/c/cache/ort" \
+            MODEL_CACHE="/c/cache/model" \
+            LBUG_CACHE="/c/cache/lbug"
 
       - name: Generate SHA-256 checksum
         run: |
