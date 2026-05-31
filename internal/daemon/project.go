@@ -18,7 +18,8 @@ type ProjectSupervisor struct {
 	modules        []*moduleEntry
 	closers        []io.Closer
 	cancel         context.CancelFunc
-	mu             sync.RWMutex
+	mu             sync.RWMutex // protects stopped, cancel
+	logMu          sync.Mutex   // protects projectLogFile writes (separate to avoid deadlock)
 	stopped        bool
 	projectLogFile *os.File
 	globalLogFn    func(string, ...any)
@@ -115,11 +116,11 @@ func (ps *ProjectSupervisor) projectLog(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	line := fmt.Sprintf("[%s] %s\n", time.Now().Format("2006-01-02 15:04:05"), msg)
 
-	ps.mu.RLock()
+	ps.logMu.Lock()
+	defer ps.logMu.Unlock()
 	if ps.projectLogFile != nil {
 		_, _ = ps.projectLogFile.WriteString(line)
 	}
-	ps.mu.RUnlock()
 
 	if ps.globalLogFn != nil {
 		ps.globalLogFn("[%s] %s", ps.projectID, msg)

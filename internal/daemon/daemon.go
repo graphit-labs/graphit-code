@@ -61,7 +61,8 @@ type Daemon struct {
 	builder      ProjectModuleBuilder
 	supervisors  map[string]*ProjectSupervisor
 	logFile      *os.File
-	mu           sync.RWMutex
+	mu           sync.RWMutex  // protects supervisors map
+	logMu        sync.Mutex    // protects logFile writes (separate to avoid deadlock)
 	bootStamp    string
 	pidHandedOff bool
 }
@@ -278,9 +279,11 @@ func (d *Daemon) log(format string, args ...any) {
 	}
 	msg := fmt.Sprintf(format, args...)
 	line := fmt.Sprintf("[%s] %s\n", time.Now().Format("2006-01-02 15:04:05"), msg)
-	d.mu.RLock()
+	// Uses a dedicated logMu instead of d.mu to avoid deadlock:
+	// reconcileProjects() holds d.mu.Lock() and calls d.log().
+	d.logMu.Lock()
+	defer d.logMu.Unlock()
 	_, _ = d.logFile.WriteString(line)
-	d.mu.RUnlock()
 }
 
 type closerFunc func() error

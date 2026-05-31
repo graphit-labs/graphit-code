@@ -45,8 +45,8 @@ func (m *JobManager) Create(id, path string, total int) *Job {
 		StartedAt: time.Now(),
 	}
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.jobs[id] = job
-	m.mu.Unlock()
 	return job
 }
 
@@ -68,13 +68,7 @@ func (m *JobManager) List() []*Job {
 	return out
 }
 
-func (m *JobManager) Update(id string, fn func(*Job)) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if j, ok := m.jobs[id]; ok {
-		fn(j)
-	}
-}
+
 
 func (m *JobManager) Tick(id string, errs []string) {
 	m.mu.Lock()
