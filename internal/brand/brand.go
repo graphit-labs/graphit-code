@@ -13,7 +13,7 @@ var GitHubRepo = ""
 
 var DisplayName = "Graphit Code: AI Harness for Collaborative and Progressive Knowledge"
 
-var DefaultHubRepoURL = "git@github.com:graphit-labs/graphit-code.git"
+var DefaultHubRepoURL = ""
 
 var DefaultMemoryRepoURL = ""
 

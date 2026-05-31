@@ -49,7 +49,7 @@ The following variables in `internal/brand/brand.go` can be overridden at compil
 | `Brand` | `graphit` | Short identifier used for directories, file prefixes, and rules (e.g., `.mybrand/`, `mybrand.lock.json`). |
 | `DisplayName` | `Graphit Code: AI Harness...` | The formal product name displayed in CLI help and user interface headers. |
 | `GitHubRepo` | `graphit-labs/graphit-code` | Default repository used for update checks and issues. |
-| `DefaultHubRepoURL` | `git@github.com:graphit...` | Default private Git repository used to synchronize team skills and rules. |
+| `DefaultHubRepoURL` | `""` | Default private Git repository used to synchronize team skills and rules. |
 | `DefaultMemoryRepoURL` | `""` | Default private Git repository used to synchronize project memories. |
 | `SelfUpdateURL` | `""` | Custom URL for self-update releases endpoint. When set, `self-update` fetches release metadata from this URL instead of the GitHub API. The endpoint must return JSON in the GitHub Release format. When empty, falls back to `https://api.github.com/repos/{GitHubRepo}/releases/latest`. |
 
@@ -92,9 +92,42 @@ Once built, the custom binary (e.g., `devkit`) will automatically:
 
 ---
 
-## 🤝 Setting up Private Collaboration Ecosystems
+## 🤝 Setting Up Private Collaboration Ecosystems
+
+> **This is the defining advantage of Graphit Code.** By configuring private Git repositories for the Hub and Memory, you transform Graphit from a solo developer tool into a **team-wide collaboration platform** where knowledge, standards, and corrections compound across every developer — all within your private infrastructure.
 
 By deploying branded binaries across your engineering teams, you establish a secure, shared knowledge loop:
+
+### The Two Pillars of Team Collaboration
+
+#### 🔗 Hub Repository — Centralized Team Artifact Registry
+
+The Hub is a **single Git repository** that acts as the centralized registry for all shared team artifacts. During `graphit setup`, developers configure the Hub Git URL (e.g., `git@gitlab.company.com:team/graphit-hub.git`), and the CLI automatically synchronizes artifacts via standard SSH/HTTPS Git authentication.
+
+**What the Hub shares across your team:**
+
+| Artifact Type | Description | Impact |
+|---|---|---|
+| **Rules** | Company-wide coding standards and conventions | Every developer's IDE enforces the same standards automatically |
+| **Skills** | Codified workflows (k8s debugging, API patterns, deployments) | Every agent knows team-specific procedures without being told |
+| **Knowledge** | Framework docs, API specs, integration guides | Agents never hallucinate APIs — they consult the registry first |
+| **MCP Servers** | Shared IDE bridge configurations | Standardized tooling across the organization |
+| **Commands** | Reusable agent actions | Consistent automation patterns for all developers |
+| **Agent Profiles** | Pre-configured agent personas | New team members start with optimally configured agents |
+| **Powers** | Bundled multi-artifact packages | Complex capabilities deployed as a single install |
+
+All artifacts are version-controlled via Git, can be reviewed through Pull Requests, and distributed through your existing authentication (SSH keys, SSO, access tokens). This means your team's standards **evolve collaboratively** — not through top-down mandates, but through organic knowledge sharing.
+
+#### 🧠 Memory Repository — Collective Team Intelligence
+
+The Memory repository is a **separate Git repository** where shared project memories are stored and synchronized. When configured during `graphit setup`, every developer's agent contributes to and benefits from a collective memory that **compounds across the entire team**.
+
+**What shared memory enables:**
+
+- **Corrections propagate team-wide** — When one developer corrects their agent ("we don't use that library anymore", "error responses must follow this format"), the correction is saved to the shared memory repo. On the next sync, **every developer's agent learns the same lesson** without being told individually.
+- **Conventions are enforced automatically** — Architecture decisions, API patterns, naming conventions, and coding standards stored as memories are followed by every agent on the team, ensuring perfect consistency.
+- **Institutional knowledge persists** — When team members leave or new members join, the collective memory persists. New developers' agents **immediately benefit from months of accumulated corrections, decisions, and contextual knowledge**, eliminating onboarding friction.
+- **Full audit trail via Git history** — Every memory change is a Git commit: tracked, auditable, diffable, and reversible. You can see exactly when a convention was established, who contributed it, and how it evolved.
 
 ### 1. Centralized Rule Staging
 Define company-wide coding guidelines or project-specific rules in your private Hub repository (e.g., `devkit-hub`). When developers run `devkit sync` or `devkit init`, the CLI pulls these rules and injects them directly into their IDE profiles (e.g., `.cursorrules`, `.claudecoderc`).
@@ -105,11 +138,7 @@ Codify complex developer workflows (e.g., k8s debugging, internal API structures
 ### 3. Local Cluster Discovery
 Use the local daemon cluster discovery to allow agents to discover other projects on the same machine. This enables agents to query sibling microservice structures locally to generate integration code without exposing private endpoints.
 
-### 4. Collaborative Private IT Ecosystems (Git-Backed Setup)
-
-Instead of relying on centralized databases or cloud-hosted synchronization services, Graphit Code achieves team collaboration by leveraging **standard Git repositories as backend sync stores**. This means your IT team's memories, coding rules, and custom developer skills are tracked, versioned, and shared securely using your existing Git infrastructure.
-
-#### Configuration during CLI Setup
+### 4. Configuration During CLI Setup
 
 When developers run the interactive setup command:
 
@@ -127,6 +156,21 @@ The CLI prompts for key collaboration configurations:
 Once configured:
 1. **Standard Git Authentication:** The CLI uses the developer's local SSH keys or Git credentials (e.g., HTTPS access tokens) to interact with the remote repository. No new credentials or keys are managed by Graphit Code, maintaining strict security boundaries and leveraging existing SSO/access controls.
 2. **Push/Pull Sync Loop:** Staged memories, custom developer skills, and global coding rules are updated on the developer's machine and synced with the remote repository during synchronization (`graphit sync`), ensuring the entire team stays in a progressive, collaborative knowledge loop.
+
+### 5. The Result: A Fully Self-Hosted Collaboration Loop
+
+```
+Your Private Git Server (GitLab / Bitbucket / GitHub Enterprise)
+├── team/graphit-hub.git      ← Shared rules, skills, knowledge, MCP servers
+└── team/graphit-memory.git   ← Shared corrections, conventions, decisions
+
+Every developer:
+  graphit setup  →  configure private repo URLs (once)
+  graphit sync   →  push/pull team knowledge (continuous)
+  graphit init   →  inject shared rules into IDE (per project)
+```
+
+**Zero cloud dependencies. Zero SaaS subscriptions. Zero data leaving your network. Zero cost.**
 
 ---
 

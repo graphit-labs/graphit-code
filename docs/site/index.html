@@ -204,6 +204,7 @@
     @media(min-width: 1024px) {
       .bento-grid { grid-template-columns: repeat(12, 1fr); }
       .bento-span-8 { grid-column: span 8; }
+      .bento-span-6 { grid-column: span 6; }
       .bento-span-4 { grid-column: span 4; }
       .bento-span-12 { grid-column: span 12; }
     }
@@ -312,6 +313,7 @@
         <a href="#vision" class="nav-link">Vision</a>
         <a href="#harness" class="nav-link">The Harness</a>
         <a href="#ecosystem" class="nav-link">Ecosystem</a>
+        <a href="#team-collab" class="nav-link">Team</a>
         <a href="#install" class="nav-link">Install</a>
         <a href="https://github.com/graphit-labs/graphit-code/tree/main/docs" class="nav-link">Docs</a>
         <a href="https://github.com/graphit-labs/graphit-code" class="btn btn-primary" style="padding: 0.5rem 1.25rem; border-radius: 8px; font-size: 0.9rem;">⭐ GitHub</a>
@@ -550,6 +552,91 @@
         <div class="icon" style="color: var(--primary); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/></svg></div>
         <h4>Cross-Platform</h4>
         <p>Linux, macOS, Windows. Seamless integrations for major IDEs.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── PRIVATE TEAM COLLABORATION (Hero Feature) ─── -->
+  <section id="team-collab" class="container" style="padding-top: 4rem; padding-bottom: 4rem;">
+    <div class="section-header reveal">
+      <div class="pill" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.4); color: var(--accent-3);">
+        <span class="dot" style="background: var(--accent-3);"></span>Game-Changer
+      </div>
+      <h2>Private Team Collaboration</h2>
+      <p>The feature that sets Graphit Code apart. Configure <strong>private Git repositories</strong> as your team's Hub and Memory backend — and unlock a fully private, self-hosted ecosystem where AI agents across your entire organization <strong>share knowledge, learn from corrections, and enforce standards automatically</strong>.</p>
+    </div>
+
+    <div class="bento-grid reveal">
+      <!-- Hub Repository -->
+      <div class="glass-panel bento-item bento-span-6 bg-hub" style="border: 2px solid rgba(16, 185, 129, 0.25);">
+        <div class="bento-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-3);">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
+        </div>
+        <h3>🔗 Hub Repository<br><small style="font-size: 0.55em; color: var(--fg-muted); font-weight: 400;">Your Team's Artifact Center</small></h3>
+        <p>Point the Hub to <strong>any private Git repository</strong> (GitLab, Bitbucket, GitHub Enterprise) during <code style="background: var(--border); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em;">graphit setup</code>. It becomes the <strong>centralized registry</strong> for everything your team shares:</p>
+        <ul style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.75rem;">
+          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-3); font-weight: 900;">✓</span><strong>Coding Rules</strong> — Company-wide standards auto-injected into every IDE</li>
+          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-3); font-weight: 900;">✓</span><strong>Team Skills</strong> — Codified workflows every agent discovers</li>
+          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-3); font-weight: 900;">✓</span><strong>Knowledge Artifacts</strong> — API specs and integration docs</li>
+          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-3); font-weight: 900;">✓</span><strong>MCP Servers & Agent Profiles</strong> — Shared automation</li>
+        </ul>
+        <div class="tag-container">
+          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">Git-Versioned</span>
+          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">PR-Reviewed</span>
+          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">SSH/SSO Auth</span>
+        </div>
+      </div>
+
+      <!-- Memory Repository -->
+      <div class="glass-panel bento-item bento-span-6 bg-memory" style="border: 2px solid rgba(244, 63, 94, 0.25);">
+        <div class="bento-icon" style="background: rgba(244, 63, 94, 0.15); color: var(--accent-4);">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Z"/><path d="M12 6v6l4 2"/></svg>
+        </div>
+        <h3>🧠 Memory Repository<br><small style="font-size: 0.55em; color: var(--fg-muted); font-weight: 400;">Collective Team Intelligence</small></h3>
+        <p>Point the Memory sync to a <strong>separate private Git repository</strong>. Your team gains <strong>shared persistent memory</strong> that compounds across every developer:</p>
+        <ul style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.75rem;">
+          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Corrections propagate</strong> — Fix once, the entire team learns</li>
+          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Conventions are learned once</strong> — Automatic consistency</li>
+          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Institutional knowledge persists</strong> — Zero onboarding friction</li>
+          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Full Git history</strong> — Tracked, auditable, reversible</li>
+        </ul>
+        <div class="tag-container">
+          <span class="tag" style="background: rgba(244, 63, 94, 0.1); color: var(--accent-4); border-color: rgba(244, 63, 94, 0.3);">Progressive</span>
+          <span class="tag" style="background: rgba(244, 63, 94, 0.1); color: var(--accent-4); border-color: rgba(244, 63, 94, 0.3);">Team-Wide</span>
+          <span class="tag" style="background: rgba(244, 63, 94, 0.1); color: var(--accent-4); border-color: rgba(244, 63, 94, 0.3);">Auto-Refined</span>
+        </div>
+      </div>
+
+      <!-- Full-width collaboration flow -->
+      <div class="glass-panel bento-item bento-span-12" style="background: linear-gradient(135deg, var(--card), rgba(16, 185, 129, 0.08)); border: 2px solid rgba(16, 185, 129, 0.2); text-align: center;">
+        <h3 style="font-size: 1.5rem;">The Collaboration Flow</h3>
+        <p style="max-width: 700px; margin: 0 auto;">One-time setup per developer. After that, every <code style="background: var(--border); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em;">graphit sync</code> automatically propagates team knowledge. <strong>Zero cloud dependencies. Zero SaaS subscriptions. Zero data leaving your network.</strong></p>
+        <div class="terminal" style="margin-top: 1.5rem; max-width: 800px; margin-left: auto; margin-right: auto;">
+          <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
+          <div class="terminal-body" style="text-align: left;">
+            <span class="c"># One-time setup — point to your team's private Git repos</span><br>
+            <span class="cmd">graphit</span> <span class="arg">setup</span><br>
+            <span class="c"># → Hub Git URL:    git@gitlab.company.com:team/graphit-hub.git</span><br>
+            <span class="c"># → Memory Git URL: git@gitlab.company.com:team/graphit-memory.git</span><br><br>
+            <span class="c"># That's it. Every sync propagates team knowledge automatically.</span><br>
+            <span class="cmd">graphit</span> <span class="arg">sync</span>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: center; gap: 2rem; margin-top: 2rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--accent-3); font-weight: 700;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            100% Private
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--accent-2); font-weight: 700;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Team-Wide Sync
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--accent-1); font-weight: 700;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 14.14 14.14"/></svg>
+            Zero Cost
+          </div>
+        </div>
       </div>
     </div>
   </section>

@@ -31,6 +31,7 @@ Follow these manuals to get started and master Graphit Code:
 - **[CLI Command Reference](guides/cli_reference.md)**: Detailed reference sheet of all commands and options.
 - **[User Manual](guides/user_manual.md)**: Operator manual for writing wikis, managing memories, using the registry hub, and navigating the 3D dashboard.
 - **[Private Branding & Customization](guides/private_brand_customization.md)**: Build custom branded binaries, configure private hubs, and deploy 100% private developer harnesses.
+  - 🏆 **[Private Team Collaboration](guides/private_brand_customization.md#-setting-up-private-collaboration-ecosystems)**: Configure private Git repositories as your team's **Hub** (centralized artifact registry) and **Memory** (shared team intelligence) — enabling a fully private, self-hosted collaboration ecosystem where knowledge, corrections, and standards compound across every developer.
 
 ---
 

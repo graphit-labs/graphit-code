@@ -61,6 +61,75 @@ Memory is persistent and automatic. The system includes an **Improvements Module
 
 ---
 
+## 🏆 The Ultimate Team Advantage: Private Collaborative Ecosystems
+
+> **This is the game-changer.** Graphit Code isn't just a tool for individuals — it's a **team collaboration platform** powered entirely by standard Git.
+
+Most AI-assisted development tools treat each developer as an island. Knowledge is siloed, context is lost between sessions, and there's no mechanism for the team to learn collectively. **Graphit Code solves this at the infrastructure level:**
+
+### 🔗 Private Hub Registry — Your Team's Artifact Center
+
+During the interactive `graphit setup`, you can point the **Hub** to any private Git repository (self-hosted GitLab, Bitbucket, GitHub Enterprise, or any SSH/HTTPS accessible repo). This single repository becomes the **centralized artifact registry** for your entire team:
+
+- **Shared Coding Rules** — Enforce company-wide standards automatically across every developer's IDE.
+- **Team Skills** — Codify complex workflows (k8s debugging, internal API patterns, deployment checklists) so every agent on the team knows the procedures.
+- **Knowledge Artifacts** — Publish documentation about frameworks, APIs, and integration specs that every developer's agent can discover and install.
+- **MCP Servers, Commands, Agent Profiles** — Share reusable automation across the entire organization.
+
+Every artifact is versioned via Git, reviewed via Pull Requests, and distributed securely through your existing authentication infrastructure (SSH keys, SSO, access tokens).
+
+### 🧠 Shared Memory Repository — Collective Team Intelligence
+
+Point the **Memory** sync to a separate private Git repository and your team gains **shared persistent memory**:
+
+- **Corrections compound across the team** — When one developer corrects their agent ("we don't use that library anymore"), the correction propagates to everyone.
+- **Conventions are learned once** — Architecture decisions, API patterns, and coding standards are stored as team-wide memories that every agent follows automatically.
+- **Institutional knowledge persists** — New team members' agents immediately benefit from the collective learning of the entire team. No more onboarding friction.
+- **Full Git history** — Every memory change is tracked, auditable, and reversible.
+
+### 🚀 The Result: A Private, Self-Hosted Collaboration Loop
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Your Private Git Server                   │
+│  (GitLab / Bitbucket / GitHub Enterprise / Any Git Host)    │
+│                                                             │
+│   ┌──────────────────┐      ┌──────────────────────────┐   │
+│   │  Hub Repository   │      │  Memory Repository        │   │
+│   │  (Team Artifacts) │      │  (Shared Learning)        │   │
+│   │                   │      │                           │   │
+│   │  • Rules          │      │  • Corrections            │   │
+│   │  • Skills         │      │  • Conventions            │   │
+│   │  • Knowledge      │      │  • Decisions              │   │
+│   │  • MCP Servers    │      │  • Institutional Memory   │   │
+│   └────────┬──────────┘      └────────────┬──────────────┘   │
+│            │                              │                  │
+└────────────┼──────────────────────────────┼──────────────────┘
+             │        git push/pull         │
+     ┌───────┴──────────────────────────────┴───────┐
+     │       Every Developer on the Team            │
+     │                                              │
+     │   graphit setup  →  configure private repos  │
+     │   graphit sync   →  push/pull team knowledge │
+     │   graphit init   →  inject rules into IDE    │
+     └──────────────────────────────────────────────┘
+```
+
+**Zero cloud dependencies. Zero SaaS subscriptions. Zero data leaving your network.**  
+Your team's knowledge stays 100% private, versioned in Git, and shared securely through your existing infrastructure.
+
+```bash
+# One-time setup per developer — point to your team's private repos
+graphit setup
+# → Enter Hub Git URL:    git@gitlab.company.com:team/graphit-hub.git
+# → Enter Memory Git URL: git@gitlab.company.com:team/graphit-memory.git
+
+# That's it. Every sync propagates team knowledge automatically.
+graphit sync
+```
+
+---
+
 ## Installation
 
 **Zero dependencies required.** Supports Windows, Linux, and macOS out of the box. Fully auto-configurable.
