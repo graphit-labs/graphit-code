@@ -82,9 +82,8 @@ Once installed, artifacts enhance your capabilities automatically:
 
 ## Installed Artifacts
 
-> No hub artifacts are currently installed in this project.
-
-Call the `graphit_hub_install` tool (passing absolute `project_dir`) to install one.
+To check installed artifacts, call the `graphit_hub_list` tool (passing absolute `project_dir` parameter).
+Use `graphit_hub_show` to inspect details of any artifact.
 
 ## 🌐 Ecosystem Project Discovery
 

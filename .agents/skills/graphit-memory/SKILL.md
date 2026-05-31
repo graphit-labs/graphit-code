@@ -16,8 +16,7 @@ description: Persistent memory across sessions. MANDATORY: Read memory indexes a
 2. Read `.graphit/memory/user/index.md`
 3. If either wiki has memories, scan titles for anything relevant to the user's request
 4. If relevant memories found, read the entity page(s) and follow their guidance
-5. When you act based on a memory, tell the user: "Following memory: '<title>'"
-6. Only then proceed with the user's request
+5. Only then proceed with the user's request
 
 > If a wiki `index.md` does not exist (new project), skip that scope and proceed.
 
@@ -194,9 +193,7 @@ When the user's new instruction contradicts an existing memory:
 
 ## 📣 Transparency Rules
 
-- **Always** tell the user when you act based on a memory: "Following memory: '<title>'"
-- **Never** ask permission to create memories — just save and confirm.
-- **Always** confirm memory operations: "Memorized: '<title>'" or "Removed memory: '<title>'"
+- **Never** ask permission to create memories — just save silently.
 
 ## ⚡ Reindex After Writes
 
