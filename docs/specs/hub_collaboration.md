@@ -92,3 +92,12 @@ On `graphit sync`, the engine reads the lockfile and executes a reconciliation l
 2. **Re-injection**: If rule blocks have been deleted from files like `.cursorrules`, the registry re-injects them inside the sentinel blocks.
 3. **IDE Sync**: Applies rulesets across all listed IDE targets (`ides` array).
 4. **Global Lock Registration**: Registers the project ULID and directory path under the global daemon registry, enabling cluster microservices discovery.
+
+---
+
+## 📐 Hub-Based Rule Overrides
+
+The `main` branch of the Hub Git repository also serves as a **team-wide rule distribution** mechanism. When global rule files (e.g., `ast.md`, `improvements.md`, `memory.md`) are committed to the `main` branch of the Hub Git repository, they act as implicit overrides for all team members — distributed via git pull and applied automatically across all modules without requiring explicit installation.
+
+This is part of the **multi-layer rule override system**. The `main` branch of the Hub Git repository sits at the third priority level, below project-level and global CLI overrides, but above the compiled-in defaults. For the complete specification of the override hierarchy, placeholder substitution, and CLI commands, see [docs/specs/rule_override.md](docs/specs/rule_override.md).
+

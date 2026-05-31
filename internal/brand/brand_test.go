@@ -130,6 +130,11 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 		t.Errorf("GlobalRulesDir() = %q; want %q", GlobalRulesDir(), expectedGlobalRulesDir)
 	}
 
+	expectedHubRulesDir := filepath.Join(expectedGlobalDir, "hub", "rules")
+	if HubRulesDir() != expectedHubRulesDir {
+		t.Errorf("HubRulesDir() = %q; want %q", HubRulesDir(), expectedHubRulesDir)
+	}
+
 	// Test ResolveModuleRule and ResolveModuleSkill: fallback to defaultContent
 	res := ResolveModuleRule("mymod", "default-val")
 	if res != "default-val" {
@@ -217,6 +222,66 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 	resSkill = ResolveModuleSkill("myskill", "default-skill-val")
 	if resSkill != expectedSkill {
 		t.Errorf("ResolveModuleSkill global = %q; want %q", resSkill, expectedSkill)
+	}
+
+	// Clean up global rules to test Hub fallback
+	_ = os.RemoveAll(expectedGlobalRulesDir)
+
+	// Set up Hub rules dir (simulates main branch of Hub Git repo)
+	err = os.MkdirAll(expectedHubRulesDir, 0755)
+	if err != nil {
+		t.Fatalf("failed to create hub rules dir: %v", err)
+	}
+
+	hubRuleContent := "hub-rule-content: {{_TESTBRAND2_DEFAULT_RULE_CONTENT_}}"
+	hubRuleFile := filepath.Join(expectedHubRulesDir, "mymod.md")
+	err = os.WriteFile(hubRuleFile, []byte(hubRuleContent), 0644)
+	if err != nil {
+		t.Fatalf("failed to write hub rule: %v", err)
+	}
+
+	hubSkillContent := "hub-skill-content: {{_TESTBRAND2_DEFAULT_SKILL_CONTENT_}}"
+	hubSkillFile := filepath.Join(expectedHubRulesDir, "myskill_skill.md")
+	err = os.WriteFile(hubSkillFile, []byte(hubSkillContent), 0644)
+	if err != nil {
+		t.Fatalf("failed to write hub skill: %v", err)
+	}
+
+	// Test ResolveModuleRule from Hub rules dir
+	res = ResolveModuleRule("mymod", "default-val")
+	expectedHubRule := "hub-rule-content: default-val"
+	if res != expectedHubRule {
+		t.Errorf("ResolveModuleRule hub = %q; want %q", res, expectedHubRule)
+	}
+
+	// Test ResolveModuleSkill from Hub rules dir
+	resSkill = ResolveModuleSkill("myskill", "default-skill-val")
+	expectedHubSkill := "hub-skill-content: default-skill-val"
+	if resSkill != expectedHubSkill {
+		t.Errorf("ResolveModuleSkill hub = %q; want %q", resSkill, expectedHubSkill)
+	}
+
+	// Test precedence: global CLI override wins over Hub override
+	err = os.MkdirAll(expectedGlobalRulesDir, 0755)
+	if err != nil {
+		t.Fatalf("failed to re-create global rules dir: %v", err)
+	}
+	err = os.WriteFile(globalRuleFile, []byte(ruleContent), 0644)
+	if err != nil {
+		t.Fatalf("failed to re-write global rule: %v", err)
+	}
+	err = os.WriteFile(globalSkillFile, []byte(skillContent), 0644)
+	if err != nil {
+		t.Fatalf("failed to re-write global skill: %v", err)
+	}
+
+	res = ResolveModuleRule("mymod", "default-val")
+	if res != expectedRule {
+		t.Errorf("ResolveModuleRule precedence (global > hub) = %q; want %q", res, expectedRule)
+	}
+	resSkill = ResolveModuleSkill("myskill", "default-skill-val")
+	if resSkill != expectedSkill {
+		t.Errorf("ResolveModuleSkill precedence (global > hub) = %q; want %q", resSkill, expectedSkill)
 	}
 }
 

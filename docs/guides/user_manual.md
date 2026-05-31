@@ -118,23 +118,83 @@ cat .graphit/dream/<session-id>.md
 
 ---
 
-## Customizing Code Improvement Rules
+## Customizing Module Rules and Skills
 
-Both the on-demand IDE agent and the background Dream agent follow a set of strict engineering analysis rules (Clean Code, Security, Concurrency, and Observability).
-You can customize these rules for your project or user environment:
+Both the on-demand IDE agent and the background Dream agent follow **rules** and **skills** defined per module (AST, Knowledge, Memory, Hub, and Improvements).
+Rules are the compact instructions injected into the global rules file (e.g., `AGENTS.md`). Skills are the detailed instruction files that agents read on-demand.
+Graphit Code provides a **multi-layer override system** so you can customize both at different scopes.
+
+### Override Hierarchy (highest to lowest priority)
+
+1. **Project-Level** — `.graphit/rules/<module>.md` / `<module>_skill.md` in the project directory. Applies only to that project.
+2. **Global CLI** — `~/.graphit/rules/<module>.md` / `<module>_skill.md`. Applies to all projects on your machine.
+3. **Hub Main Branch** — `rules/<module>.md` / `rules/<module>_skill.md` on the `main` branch of the Hub Git repository. Applies to all team members automatically.
+4. **Compiled-In Default** — Built into the Graphit Code binary.
+
+The first source found wins. This means a project-level override always takes precedence, followed by the user's global override, then the team's Hub-distributed override, and finally the built-in default.
+
+### Managing Rules via CLI
+
+Every module exposes a `rule` subcommand:
 
 ```bash
-# Output resolved rules
+# Output resolved rules (respecting the full override hierarchy)
 graphit improvements rules
 
-# Set a custom rules file override for this project
+# Show only the compiled-in default (ignore all overrides)
+graphit improvements rules --default
+
+# Set a custom global CLI override from a file
 graphit improvements rules my-rules.md
 
-# Restore default ruleset
+# Restore default ruleset (removes the global CLI override)
 graphit improvements rules --unset
 ```
 
----
+This works for all modules: `graphit ast rule`, `graphit knowledge rule`, `graphit memory rule`, `graphit hub rule`, `graphit improvements rules`.
+
+### Embedding the Default with Placeholders
+
+Custom rule and skill files support placeholders that embed the compiled-in default content, allowing you to **wrap** the defaults with additional instructions:
+
+**For rules** — use `{{_GRAPHIT_DEFAULT_RULE_CONTENT_}}`:
+
+```markdown
+# My Custom Security Requirements
+- All endpoints must enforce mTLS in production.
+
+## Standard Analysis
+{{_GRAPHIT_DEFAULT_RULE_CONTENT_}}
+```
+
+**For skills** — use `{{_GRAPHIT_DEFAULT_SKILL_CONTENT_}}`:
+
+```markdown
+# Extra Skill Instructions
+- Always check for race conditions in concurrent code.
+
+## Standard Skill
+{{_GRAPHIT_DEFAULT_SKILL_CONTENT_}}
+```
+
+The placeholders are replaced at runtime with the full default content. This lets you extend the defaults rather than completely replacing them.
+
+### Team-Wide Rules and Skills via Hub
+
+To enforce standards across your entire team, commit rule and/or skill files to the `rules/` directory on the `main` branch of the Hub Git repository. For example:
+
+```
+hub-repo (main branch)
+└── rules/
+    ├── improvements.md          # team-wide improvements rule override
+    ├── ast.md                   # team-wide AST rule override
+    └── memory_skill.md          # team-wide memory skill override
+```
+
+Every team member will receive these overrides automatically on `graphit sync` or `graphit update` — they are distributed via git pull, without needing each developer to manually configure their machine.
+
+> For the full technical specification, see `docs/specs/rule_override.md`.
+
 
 ## Managed Rules and Sentinel Blocks
 

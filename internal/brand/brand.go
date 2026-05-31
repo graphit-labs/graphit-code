@@ -65,6 +65,14 @@ func GlobalRulesDir() string {
 	return filepath.Join(d, "rules")
 }
 
+func HubRulesDir() string {
+	d := GlobalDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "hub", "rules")
+}
+
 func defaultRulePlaceholder() string {
 	return "{{_" + strings.ToUpper(Brand) + "_DEFAULT_RULE_CONTENT_}}"
 }
@@ -83,6 +91,14 @@ func ResolveModuleRule(module, defaultContent string) string {
 	if rulesDir != "" {
 		globalPath := filepath.Join(rulesDir, module+".md")
 		if data, err := os.ReadFile(globalPath); err == nil {
+			return strings.ReplaceAll(string(data), placeholder, defaultContent)
+		}
+	}
+
+	hubDir := HubRulesDir()
+	if hubDir != "" {
+		hubPath := filepath.Join(hubDir, module+".md")
+		if data, err := os.ReadFile(hubPath); err == nil {
 			return strings.ReplaceAll(string(data), placeholder, defaultContent)
 		}
 	}
@@ -127,6 +143,14 @@ func ResolveModuleSkill(module, defaultContent string) string {
 	if rulesDir != "" {
 		globalPath := filepath.Join(rulesDir, fileName)
 		if data, err := os.ReadFile(globalPath); err == nil {
+			return strings.ReplaceAll(string(data), placeholder, defaultContent)
+		}
+	}
+
+	hubDir := HubRulesDir()
+	if hubDir != "" {
+		hubPath := filepath.Join(hubDir, fileName)
+		if data, err := os.ReadFile(hubPath); err == nil {
 			return strings.ReplaceAll(string(data), placeholder, defaultContent)
 		}
 	}
