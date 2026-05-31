@@ -1167,7 +1167,7 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	watcher, err := NewWatcher(s.db, body.Path, s.repoPath, DefaultWatcherConfig(), s.jobs)
+	watcher, err := NewWatcher(s.db, body.Path, DefaultWatcherConfig())
 	if err != nil {
 		writeError(w, 500, err.Error())
 		return

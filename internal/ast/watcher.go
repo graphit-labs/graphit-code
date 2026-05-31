@@ -37,23 +37,19 @@ func DefaultWatcherConfig() WatcherConfig {
 type Watcher struct {
 	db       GraphDB
 	rootPath string
-	repoPath string
 	cfg      WatcherConfig
-	jobs     *JobManager
 	ic       *ignorer.IgnoreChecker
 	g        git.Git
 }
 
-func NewWatcher(db GraphDB, rootPath, repoPath string, cfg WatcherConfig, jobs *JobManager) (*Watcher, error) {
+func NewWatcher(db GraphDB, rootPath string, cfg WatcherConfig) (*Watcher, error) {
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = 2 * time.Second
 	}
 	return &Watcher{
 		db:       db,
 		rootPath: rootPath,
-		repoPath: repoPath,
 		cfg:      cfg,
-		jobs:     jobs,
 		ic:       NewAstIgnoreChecker(rootPath),
 		g:        git.Default(),
 	}, nil

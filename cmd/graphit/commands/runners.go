@@ -344,8 +344,7 @@ func runASTWatch(targetPath string, workers int, cluster string) error {
 	}
 	cfg.Cluster = cluster
 
-	jobs := ast.NewJobManager()
-	watcher, err := ast.NewWatcher(db, absPath, absPath, cfg, jobs)
+	watcher, err := ast.NewWatcher(db, absPath, cfg)
 	if err != nil {
 		return fmt.Errorf("watcher init: %w", err)
 	}
