@@ -50,7 +50,7 @@ func (s *EmbedServer) Start(ctx context.Context) error {
 		_ = s.listener.Close()
 		return fmt.Errorf("embed server: creating dir: %w", err)
 	}
-	if err := os.WriteFile(s.portFile, []byte(fmt.Sprintf("%d\n", port)), 0o644); err != nil {
+	if err := os.WriteFile(s.portFile, []byte(fmt.Sprintf("%d\n", port)), 0o600); err != nil {
 		_ = s.listener.Close()
 		return fmt.Errorf("embed server: writing port file: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -12,6 +13,25 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 )
+
+// sanitizeContextName validates a user-supplied context name to prevent
+// path traversal attacks. It strips directory components and rejects
+// names that could escape the intended directory.
+func sanitizeContextName(name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("context name is required")
+	}
+	// Strip any directory components
+	clean := filepath.Base(name)
+	if clean == "." || clean == ".." || clean == string(os.PathSeparator) {
+		return "", fmt.Errorf("invalid context name %q", name)
+	}
+	// Extra safety: reject if it still contains separators (shouldn't after Base)
+	if strings.ContainsAny(clean, "/\\") {
+		return "", fmt.Errorf("invalid context name %q: must not contain path separators", name)
+	}
+	return clean, nil
+}
 
 func resolveProjectDir(projectDir string) (string, error) {
 	if projectDir == "" {

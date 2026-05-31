@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	crand "crypto/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -447,8 +447,9 @@ func (r *Runner) saveStateLocked() {
 func generateDreamID() string {
 	now := time.Now().UTC()
 	ts := now.Format("20060102T150405")
-	r := rand.New(rand.NewSource(now.UnixNano()))
-	suffix := fmt.Sprintf("%04x", r.Intn(0xFFFF))
+	b := make([]byte, 2)
+	_, _ = crand.Read(b)
+	suffix := fmt.Sprintf("%04x", b)
 	return ts + "-" + suffix
 }
 

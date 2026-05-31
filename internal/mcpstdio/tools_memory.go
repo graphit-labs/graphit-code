@@ -594,11 +594,15 @@ func registerMemoryTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		linkDir := filepath.Join(projectDir, brand.DotDir(), "memory", input.Context)
+		cleanCtx, err := sanitizeContextName(input.Context)
+		if err != nil {
+			return errResult(err)
+		}
+		linkDir := filepath.Join(projectDir, brand.DotDir(), "memory", cleanCtx)
 		if err := os.RemoveAll(linkDir); err != nil {
 			return errResult(err)
 		}
-		return textResult(fmt.Sprintf("Removed memory context %q", input.Context))
+		return textResult(fmt.Sprintf("Removed memory context %q", cleanCtx))
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -615,7 +619,11 @@ func registerMemoryTools(server *mcp.Server) {
 			if err != nil {
 				return err
 			}
-			svc := memory.NewMemoryServiceForContext(input.Context, ms)
+			cleanCtx, err := sanitizeContextName(input.Context)
+			if err != nil {
+				return err
+			}
+			svc := memory.NewMemoryServiceForContext(cleanCtx, ms)
 			defer func() { _ = svc.Close() }()
 
 			return svc.SyncToLocal()

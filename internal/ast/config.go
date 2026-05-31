@@ -85,7 +85,7 @@ func SaveConfig(cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configFile, data, 0o644)
+	return os.WriteFile(configFile, data, 0o600)
 }
 
 func GetConfigValue(key string) string {

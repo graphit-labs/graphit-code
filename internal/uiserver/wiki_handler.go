@@ -108,7 +108,17 @@ func (h *WikiHandler) handlePages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wikiDir = resolveDir(wikiDir)
-	pages, err := listWikiPages(wikiDir)
+	absDir, err := filepath.Abs(filepath.Clean(wikiDir))
+	if err != nil {
+		http.Error(w, "invalid dir", http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(absDir)
+	if err != nil || !info.IsDir() {
+		http.Error(w, "dir not found or not a directory", http.StatusBadRequest)
+		return
+	}
+	pages, err := listWikiPages(absDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -636,14 +646,31 @@ Wiki Content:
 
 func corsJSON(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if isAllowedOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		h(w, r)
 	}
+}
+
+func isAllowedOrigin(origin string) bool {
+	if origin == "" {
+		return true // same-origin requests have no Origin header
+	}
+	return strings.HasPrefix(origin, "http://localhost:") ||
+		strings.HasPrefix(origin, "http://127.0.0.1:") ||
+		strings.HasPrefix(origin, "http://[::1]:") ||
+		origin == "http://localhost" ||
+		origin == "http://127.0.0.1" ||
+		origin == "http://[::1]"
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

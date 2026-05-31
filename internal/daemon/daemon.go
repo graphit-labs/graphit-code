@@ -100,7 +100,7 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 	if err := os.MkdirAll(filepath.Dir(d.cfg.LogPath), 0o755); err != nil {
 		return fmt.Errorf("creating log dir: %w", err)
 	}
-	lf, err := os.OpenFile(d.cfg.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	lf, err := os.OpenFile(d.cfg.LogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return fmt.Errorf("opening log file: %w", err)
 	}

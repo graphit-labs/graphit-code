@@ -731,7 +731,11 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if file != nil {
 		defer func() { _ = file.Close() }()
 
-		destPath := filepath.Join(tmpDir, header.Filename)
+		safeFilename := filepath.Base(header.Filename)
+		if safeFilename == "." || safeFilename == ".." {
+			safeFilename = "upload"
+		}
+		destPath := filepath.Join(tmpDir, safeFilename)
 		out, err := os.Create(destPath)
 		if err != nil {
 			writeJSONUI(w, map[string]any{"success": false, "error": "failed to save file"})
@@ -843,15 +847,32 @@ func (s *UIServer) handleUI(w http.ResponseWriter, r *http.Request) {
 
 func CorsWrap(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		if isAllowedOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(204)
 			return
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+func isAllowedOrigin(origin string) bool {
+	if origin == "" {
+		return true // same-origin requests have no Origin header
+	}
+	return strings.HasPrefix(origin, "http://localhost:") ||
+		strings.HasPrefix(origin, "http://127.0.0.1:") ||
+		strings.HasPrefix(origin, "http://[::1]:") ||
+		origin == "http://localhost" ||
+		origin == "http://127.0.0.1" ||
+		origin == "http://[::1]"
 }
 
 func corsWrap(h http.Handler) http.Handler { return CorsWrap(h) }

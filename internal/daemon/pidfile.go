@@ -32,7 +32,7 @@ func (pf *PIDFile) Write() error {
 		return fmt.Errorf("creating pid dir: %w", err)
 	}
 	content := fmt.Sprintf("%d\n%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
-	return os.WriteFile(pf.path, []byte(content), 0o644)
+	return os.WriteFile(pf.path, []byte(content), 0o600)
 }
 
 func (pf *PIDFile) Remove() {

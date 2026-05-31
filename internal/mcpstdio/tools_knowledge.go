@@ -276,11 +276,15 @@ func registerKnowledgeTools(server *mcp.Server) {
 		}
 
 		if input.Context != "" {
-			linkDir := filepath.Join(projectDir, brand.DotDir(), "knowledge", input.Context)
+			cleanCtx, err := sanitizeContextName(input.Context)
+			if err != nil {
+				return errResult(err)
+			}
+			linkDir := filepath.Join(projectDir, brand.DotDir(), "knowledge", cleanCtx)
 			if err := os.RemoveAll(linkDir); err != nil {
 				return errResult(err)
 			}
-			return textResult(fmt.Sprintf("Knowledge context %q removed.", input.Context))
+			return textResult(fmt.Sprintf("Knowledge context %q removed.", cleanCtx))
 		}
 
 		wikiDir := knowledge.WikiDir()
@@ -307,14 +311,18 @@ func registerKnowledgeTools(server *mcp.Server) {
 		}
 
 		if input.Context != "" {
+			cleanCtx, err := sanitizeContextName(input.Context)
+			if err != nil {
+				return errResult(err)
+			}
 			projectCfg := loadProjectConfig(projectDir)
 			gs, err := hub.NewGitStore(nil, projectCfg)
 			if err != nil {
 				return errResult(err)
 			}
-			branch := fmt.Sprintf("knowledge/project/%s", input.Context)
-			knowledge.EnsureContextCopy(input.Context)
-			wikiDir := knowledge.WikiDirForContext(input.Context)
+			branch := fmt.Sprintf("knowledge/project/%s", cleanCtx)
+			knowledge.EnsureContextCopy(cleanCtx)
+			wikiDir := knowledge.WikiDirForContext(cleanCtx)
 			globalCtxBase := filepath.Dir(wikiDir)
 			localDocsDir := filepath.Join(globalCtxBase, "docs")
 			err = withProjectDir(projectDir, func() error {
@@ -328,7 +336,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 			if err != nil {
 				return errResult(err)
 			}
-			return textResult(fmt.Sprintf("Sync context %q complete.", input.Context))
+			return textResult(fmt.Sprintf("Sync context %q complete.", cleanCtx))
 		}
 
 		projectCfg := loadProjectConfig(projectDir)
