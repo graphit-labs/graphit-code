@@ -116,7 +116,7 @@ The Hub is a **single Git repository** that acts as the centralized registry for
 | **Agent Profiles** | Pre-configured agent personas | New team members start with optimally configured agents |
 | **Powers** | Bundled multi-artifact packages | Complex capabilities deployed as a single install |
 
-All artifacts are version-controlled via Git, can be reviewed through Pull Requests, and distributed through your existing authentication (SSH keys, SSO, access tokens). This means your team's standards **evolve collaboratively** — not through top-down mandates, but through organic knowledge sharing.
+All artifacts are version-controlled via Git, published directly, and distributed through your existing authentication (SSH keys, SSO, access tokens). This means your standards **evolve organically** — whether you're a solo developer curating your own toolkit or a team sharing knowledge across dozens of engineers.
 
 #### 🧠 Memory Repository — Collective Team Intelligence
 
