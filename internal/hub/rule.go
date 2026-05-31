@@ -1,7 +1,6 @@
 package hub
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
@@ -113,128 +112,13 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"- **Powers**: All bundled artifacts are installed — use each by its individual type.",
 	}
 
-	lines = append(lines, "", "## Installed Artifacts", "")
-
-	if len(installed) == 0 {
-		lines = append(lines,
-			"> No hub artifacts are currently installed in this project.",
-			"",
-			"Call the " + hubInstallRef + " tool (passing absolute `project_dir`) to install one.",
-		)
-	} else {
-		lines = append(lines,
-			"The following hub artifacts are installed in this project.",
-			"**Use the paths and commands below — never guess their APIs.**",
-			"",
-			"| ID | Name | Type | Description |",
-			"|---|---|---|---|",
-		)
-		for _, a := range installed {
-			desc := a.Description
-			if desc == "" {
-				desc = "—"
-			}
-			name := a.Name
-			if name == "" {
-				name = a.ID
-			}
-			lines = append(lines,
-				fmt.Sprintf("| `%s` | %s | %s | %s |", a.ID, name, a.Type, desc),
-			)
-		}
-		lines = append(lines, "")
-
-		byType := make(map[ArtifactType][]InstalledArtifactInfo)
-		for _, a := range installed {
-			byType[a.Type] = append(byType[a.Type], a)
-		}
-
-		if arts, ok := byType[TypeKnowledge]; ok {
-			lines = append(lines, "### Knowledge Wiki Paths", "")
-			for _, a := range arts {
-				pathID := a.ProjectID
-				if pathID == "" {
-					pathID = a.ID
-				}
-				wikiPath := dotBrand + "/knowledge/" + pathID + "/index.md"
-				lines = append(lines,
-					"**"+a.Name+" (`"+a.ID+"`)** — "+a.Description,
-					"  - Index: `"+wikiPath+"`",
-					"",
-				)
-			}
-		}
-
-		if arts, ok := byType[TypeAST]; ok {
-			lines = append(lines, "### AST Contexts", "")
-			for _, a := range arts {
-				contextID := a.ProjectID
-				if contextID == "" {
-					contextID = a.ID
-				}
-				lines = append(lines,
-					"**"+a.Name+" (`"+a.ID+"`)** — "+a.Description,
-					"  - Query: call " + astQueryRef + " with `project_dir` set to project root, `context` set to `\""+contextID+"\"`, and `query` set to your Cypher query.",
-					"",
-				)
-			}
-		}
-
-		if arts, ok := byType[TypeRule]; ok {
-			lines = append(lines, "### Installed Rules", "")
-			for _, a := range arts {
-				lines = append(lines,
-					"**"+a.Name+" (`"+a.ID+"`)** — "+a.Description,
-					"  - Auto-injected into IDE rules. Follow the conventions defined.",
-					"",
-				)
-			}
-		}
-
-		if arts, ok := byType[TypeSkill]; ok {
-			lines = append(lines, "### Installed Skills", "")
-			for _, a := range arts {
-				lines = append(lines,
-					"**"+a.Name+" (`"+a.ID+"`)** — "+a.Description,
-					"  - Read this skill when its domain matches your current task.",
-					"",
-				)
-			}
-		}
-
-		if arts, ok := byType[TypeCommand]; ok {
-			lines = append(lines, "### Installed Commands", "")
-			for _, a := range arts {
-				lines = append(lines,
-					"**"+a.Name+" (`"+a.ID+"`)** — "+a.Description,
-					"  - Available in IDE commands directory.",
-					"",
-				)
-			}
-		}
-
-		if arts, ok := byType[TypeAgent]; ok {
-			lines = append(lines, "### Installed Agents", "")
-			for _, a := range arts {
-				lines = append(lines,
-					"**"+a.Name+" (`"+a.ID+"`)** — "+a.Description,
-					"  - Pre-configured agent persona with domain expertise.",
-					"",
-				)
-			}
-		}
-
-		if arts, ok := byType[TypeMCP]; ok {
-			lines = append(lines, "### Installed MCP Servers", "")
-			for _, a := range arts {
-				lines = append(lines,
-					"**"+a.Name+" (`"+a.ID+"`)** — "+a.Description,
-					"  - Auto-configured in IDE MCP settings. Available as external tools.",
-					"",
-				)
-			}
-		}
-	}
+	lines = append(lines,
+		"",
+		"## Installed Artifacts",
+		"",
+		"To check installed artifacts, call the "+hubListRef+" tool (passing absolute `project_dir` parameter).",
+		"Use "+hubShowRef+" to inspect details of any artifact.",
+	)
 
 	lines = append(lines,
 		"",
@@ -295,20 +179,13 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 
 var hubSkillName = brand.SkillDirName("hub")
 
-func HubRouterContent(installed []InstalledArtifactInfo) string {
-	dotBrand := brand.DotDir()
-
-	astQueryRef := brand.MCPToolRef("ast", "query")
-	astQuery := brand.MCPToolName("ast", "query")
+func HubRouterContent(installed []InstalledArtifactInfo, globalRulesFile string) string {
 	hubListRef := brand.MCPToolRef("hub", "list")
 	hubShowRef := brand.MCPToolRef("hub", "show")
 	hubInstallRef := brand.MCPToolRef("hub", "install")
 	hubUpdateRef := brand.MCPToolRef("hub", "update")
 	clusterProjectsRef := brand.MCPToolRef("cluster", "projects")
-	clusterProjects := brand.MCPToolName("cluster", "projects")
-	clusterSetRef := brand.MCPToolRef("cluster", "set")
-	clusterGetRef := brand.MCPToolRef("cluster", "get")
-	clusterUnsetRef := brand.MCPToolRef("cluster", "unset")
+	astQueryRef := brand.MCPToolRef("ast", "query")
 
 	lines := []string{
 		"# 🔗 Hub Discovery",
@@ -328,9 +205,8 @@ func HubRouterContent(installed []InstalledArtifactInfo) string {
 		"",
 		"**When ANY activation trigger above matches your current task, you MUST read the",
 		"`" + hubSkillName + "` skill BEFORE executing your first Hub operation.**",
-		"The Quick Reference below is a cheat sheet for agents who already read the skill —",
-		"it is NOT a substitute. The skill contains artifact type details, usage patterns,",
-		"installation workflows, and post-install protocols you must follow.",
+		"The skill contains artifact types, usage patterns, installation workflows,",
+		"ecosystem project discovery, and post-install protocols.",
 		"",
 		"## Quick Reference (always active)",
 		"",
@@ -339,81 +215,18 @@ func HubRouterContent(installed []InstalledArtifactInfo) string {
 		"- **Inspect**: call " + hubShowRef + " tool with `id` parameter",
 		"- **Install**: call " + hubInstallRef + " tool (passing absolute `project_dir` parameter)",
 		"- **Update**: call " + hubUpdateRef + " tool (passing absolute `project_dir` parameter)",
+		"- **Ecosystem**: call " + clusterProjectsRef + " tool to find sibling projects",
 		"",
 		"## ⛔ Critical Rule",
 		"",
 		"**NEVER guess APIs or structures.** If uncertain about a framework or library,",
 		"check the Hub first: call " + hubListRef + " → " + hubShowRef + " → " + hubInstallRef + ".",
 		"",
-		"## 🔗 Subagent Hub Access",
+		"## 🔗 Subagent Propagation",
 		"",
-		"**When spawning subagents that work with external libraries, include in their prompt:**",
-		`"Before implementing integrations with external libraries, check if knowledge artifacts exist: call ` + hubListRef + ` with ` + "`type: \"knowledge\"` → call " + hubInstallRef + " with `id: \"<id>\"` (passing absolute `project_dir`).\"",
-		"",
-		"## 🌐 Ecosystem Project Discovery",
-		"",
-		"**When you need to find other projects in the work ecosystem** (e.g., to understand",
-		"cross-project dependencies, shared libraries, related services, or sibling projects),",
-		"**call the " + clusterProjectsRef + " tool (passing absolute `project_dir` parameter):**",
-		"",
-		"```",
-		clusterProjects + "(project_dir: \"/path/to/project\")",
-		"```",
-		"",
-		"This tool returns a JSON map containing all sibling projects that belong to the **same cluster**",
-		"as the current project. Clusters are managed via " + clusterSetRef + ", " + clusterGetRef + ",",
-		"and " + clusterUnsetRef + " MCP tools.",
-		"",
-		"Each sibling project entry includes:",
-		"",
-		"| Field | Description |",
-		"|---|---|",
-		"| `dir` | Absolute path to the project root directory |",
-		"| `name` | Human-readable project name |",
-		"| `description` | Project description |",
-		"| `cluster` | Cluster labels (key→value map) |",
-		"| `registeredAt` | When the project was registered |",
-		"",
-		"**With the project paths from this tool you can:**",
-		"",
-		"- **Discover and navigate** — find sibling project directories and read their source, docs, or lockfile",
-		"- **Query code in another project** — run AST query against a sibling (always pass its absolute path in the `project_dir` parameter):",
-		"  ```",
-		"  " + astQuery + "(project_dir: \"/path/to/other-project\", query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path\", ai_optimized: true)",
-		"  ```",
-		"- **Read another project's knowledge wiki** — understand its architecture without grepping by using the `view_file` (or read file) tool on:",
-		"  ```",
-		"  /path/to/other-project/" + dotBrand + "/knowledge/project/index.md",
-		"  ```",
-		"- **Make cross-project changes** — if the user asks to modify code in another project,",
-		"  use the path from the tool output to locate, read, and edit files there directly",
-		"",
-		"**Example workflow:** The user asks \"how does the auth service validate tokens?\".",
-		"You call " + clusterProjectsRef + " to find the auth service project path,",
-		"then call " + astQueryRef + " with `project_dir: \"/path/to/auth-service\"`, `query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number\"`, and `ai_optimized: true` to locate the validation logic, and read the relevant source files.",
+		"When spawning subagents that work with external libraries, include in their prompt:",
+		`"Before implementing integrations, check Hub for knowledge artifacts: call ` + hubListRef + ` → ` + hubInstallRef + ` (passing absolute ` + "`project_dir`" + `). Read the project's ` + "`" + globalRulesFile + "`" + ` before starting work."`,
 	}
-
-	lines = append(lines, "", "## Installed Artifacts", "")
-	if len(installed) == 0 {
-		lines = append(lines,
-			"> No hub artifacts are currently installed in this project.",
-		)
-	} else {
-		lines = append(lines,
-			"| ID | Type | Description |",
-			"|---|---|---|",
-		)
-		for _, a := range installed {
-			desc := a.Description
-			if desc == "" {
-				desc = "—"
-			}
-			lines = append(lines,
-				fmt.Sprintf("| `%s` | %s | %s |", a.ID, a.Type, desc),
-			)
-		}
-	}
-
 	return strings.Join(lines, "\n") + "\n"
 }
 
@@ -428,7 +241,7 @@ func InstallRule(projectDir, ideName string) error {
 
 	installed := LoadInstalledArtifacts()
 
-	routerContent := brand.ResolveModuleRule("hub", HubRouterContent(installed))
+	routerContent := brand.ResolveModuleRule("hub", HubRouterContent(installed, ide.GlobalRulesFile(ideName)))
 	if err := ide.InjectManagedBlock(projectDir, ideName, hubBlockName, routerContent); err != nil {
 		return err
 	}

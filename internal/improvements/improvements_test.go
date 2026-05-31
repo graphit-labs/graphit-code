@@ -11,7 +11,7 @@ func TestImprovementsRuleBasic(t *testing.T) {
 		t.Errorf("unexpected rule content: %q", ruleContent)
 	}
 
-	routerContent := ImprovementsRouterContent()
+	routerContent := ImprovementsRouterContent("AGENTS.md")
 	if !strings.Contains(routerContent, "# 🔧 Code Improvement Methodology") {
 		t.Errorf("unexpected router content: %q", routerContent)
 	}

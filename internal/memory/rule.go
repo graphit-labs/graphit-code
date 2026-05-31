@@ -14,8 +14,8 @@ func RuleContent(contexts []string) string {
 	dotBrand := brand.DotDir()
 	displayName := brand.DisplayName
 
-	memInsert := brand.MCPToolName("memory", "insert")
 	memInsertRef := brand.MCPToolRef("memory", "insert")
+	memInsert := brand.MCPToolName("memory", "insert")
 	memDelete := brand.MCPToolName("memory", "delete")
 	memDeleteRef := brand.MCPToolRef("memory", "delete")
 	memUpdate := brand.MCPToolName("memory", "update")
@@ -45,18 +45,10 @@ func RuleContent(contexts []string) string {
 		"2. Read `" + dotBrand + "/memory/user/index.md`",
 		"3. If either wiki has memories, scan titles for anything relevant to the user's request",
 		"4. If relevant memories found, read the entity page(s) and follow their guidance",
-		"5. When you act based on a memory, tell the user: \"Following memory: '<title>'\"",
-		"6. Only then proceed with the user's request",
+		"5. Only then proceed with the user's request",
 		"",
 		"> If a wiki `index.md` does not exist (new project), skip that scope and proceed.",
 		"",
-	}
-
-	for _, ctx := range contexts {
-		ctxPath := dotBrand + "/memory/" + ctx + "/index.md"
-		lines = append(lines,
-			"> Also read imported context: `"+ctxPath+"`",
-		)
 	}
 
 	lines = append(lines,
@@ -242,9 +234,7 @@ func RuleContent(contexts []string) string {
 		"",
 		"## 📣 Transparency Rules",
 		"",
-		"- **Always** tell the user when you act based on a memory: \"Following memory: '<title>'\"",
-		"- **Never** ask permission to create memories — just save and confirm.",
-		"- **Always** confirm memory operations: \"Memorized: '<title>'\" or \"Removed memory: '<title>'\"",
+		"- **Never** ask permission to create memories — just save silently.",
 		"",
 		"## ⚡ Reindex After Writes",
 		"",
@@ -262,29 +252,16 @@ func RuleContent(contexts []string) string {
 		"7. **NEVER just say \"understood\" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate whether it should be memorized. If it contains a convention, preference, correction, workflow, fact, or any persistent knowledge, create a memory immediately. Only skip memorization if the instruction is purely about an ephemeral, one-shot action with no future relevance.",
 	)
 
-	importantBlock := RenderImportantBlock("project")
-	if importantBlock != "" {
-		lines = append(lines, "", importantBlock)
-	}
-
-	recentBlock := RenderRecentBlock("project", 5)
-	if recentBlock != "" {
-		lines = append(lines, "", recentBlock)
-	}
-
 	return strings.Join(lines, "\n") + "\n"
 }
 
 var memorySkillName = brand.SkillDirName("memory")
 
-func MemoryRouterContent(contexts []string) string {
+func MemoryRouterContent(contexts []string, globalRulesFile string) string {
 	dotBrand := brand.DotDir()
-
 	memInsertRef := brand.MCPToolRef("memory", "insert")
 	memDeleteRef := brand.MCPToolRef("memory", "delete")
 	memSearchRef := brand.MCPToolRef("memory", "search")
-	memInsert := brand.MCPToolName("memory", "insert")
-	memWildcard := "`" + brand.Brand + "_memory_*`"
 
 	lines := []string{
 		"# 🧠 Memory Management",
@@ -298,44 +275,18 @@ func MemoryRouterContent(contexts []string) string {
 		"",
 		"1. Use `view_file` to read `" + dotBrand + "/memory/project/index.md`",
 		"2. Use `view_file` to read `" + dotBrand + "/memory/user/index.md`",
-		"3. If any memory title relates to the user's request → read that page and say: \"Following memory: '<title>'\"",
+		"3. If any memory title relates to the user's request → read that page and follow its guidance",
 		"",
 		"> If a file does not exist (new project), skip it. Use `view_file` — NOT `cat` via run_command.",
-	}
-
-	for _, ctx := range contexts {
-		ctxPath := dotBrand + "/memory/" + ctx + "/index.md"
-		lines = append(lines,
-			"> Also read imported context: `"+ctxPath+"`",
-		)
-	}
-
-	lines = append(lines,
 		"",
 		"## Activation Triggers — You MUST read the `"+memorySkillName+"` skill when:",
 		"",
 		"### 💾 Save triggers (memorize immediately):",
 		"",
-		"**Every memory MUST follow the What/Why/How/Impact template in the content parameter.**",
-		"",
-		"#### Task lifecycle (always memorize):",
-		"- You **complete a task** (new feature, refactor, significant change) → store what/why/how/impact",
-		"- You **modify an existing feature** (behavior change, extension, rework) → store what changed and impact",
-		"- You **fix a bug** → store the root cause, fix, and system impact as skill",
-		"",
-		"#### User interaction (always memorize):",
-		"- User **corrects** your behavior or approach → store as correction (with important: true)",
-		"- User **gives any instruction or directive** → **evaluate for memory** — NEVER just say \"understood\". Determine if it contains a convention, preference, correction, fact, or skill worth persisting. If yes, memorize with the appropriate type",
-		"- User **guides or orients** on how to proceed → store as convention",
-		"- User **intervenes** mid-task to redirect or change course → store as correction (with important: true)",
-		"- User **explains how something works** or shows a procedure → store as skill/fact",
-		"- User gives a **tip, hint, or suggestion** → store as skill",
-		"- User **repeats an instruction** (frustration signal) → store as correction (with important: true)",
-		"- User says \"always/never/prefer/avoid/must\" about code → store convention",
-		"",
-		"#### Agent discoveries (always memorize):",
-		"- You make a design decision or choose between alternatives → record decision",
-		"- You **discover something unexpected** or solve a non-obvious problem → store as skill",
+		"- Task completed, modified, or bug fixed → store what/why/how/impact",
+		"- User corrects, guides, instructs, or repeats → memorize as correction/convention",
+		"- User explains a procedure or gives a tip → store as skill",
+		"- You discover something unexpected or make a design decision → store as skill/decision",
 		"- New instruction contradicts existing memory → replace it",
 		"",
 		"### 📖 Read triggers (consult memory before acting):",
@@ -361,32 +312,17 @@ func MemoryRouterContent(contexts []string) string {
 		"- **Delete**: call " + memDeleteRef + " tool (passing absolute `project_dir` parameter)",
 		"- **Search**: call " + memSearchRef + " tool (passing absolute `project_dir` parameter)",
 		"",
-		"## ⛔ Critical Rules (always enforced)",
+		"## ⛔ Key Rules (read skill for complete list)",
 		"",
-		"1. **Read memory at session start.** Skipping = repeating past mistakes.",
-		"2. **Never leave a correction un-memorized.** Save immediately.",
-		"3. **Never edit .md memory files directly.** Use " + memWildcard + " MCP tools.",
-		"4. **ALWAYS use " + memInsertRef + "** — NEVER use IDE-native memory.",
-		"5. **Always confirm**: \"Memorized: '<title>'\" or \"Following memory: '<title>'\".",
-		"6. **NEVER just say \"understood\" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate if it should be memorized. If it has future relevance, create a memory.",
+		"- **Read memory at session start.** Skipping = repeating past mistakes.",
+		"- **Never leave a correction un-memorized.** Save immediately.",
+		"- **NEVER just say \"understood\".** Evaluate if the user's instruction should be memorized.",
+		"- **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.",
 		"",
-		"## 🔗 MANDATORY: Subagent Memory Access",
+		"## 🔗 Subagent Propagation",
 		"",
-		"**When spawning subagents (via `define_subagent`, `invoke_subagent`, or any multi-agent mechanism),",
-		"include these memory instructions in the subagent's system_prompt or task Prompt:**",
-		"",
-		"Add to every subagent prompt:",
-		"\"IMPORTANT: Before starting work, read `"+dotBrand+"/memory/project/index.md` via view_file for project context, conventions, and past corrections.",
-		"If any memory is relevant to your task, follow its guidance.",
-		"After completing work, if you discovered something non-obvious, save it by calling the " + memInsertRef + " tool: `" + memInsert + "` with `title: \\\"<discovery>\\\"`, `type: \\\"skill\\\"`, and `content: \\\"<details>\\\"` (always passing absolute `project_dir` parameter).\"",
-		"",
-		"For `define_subagent`, inject these as part of the `system_prompt` parameter.",
-		"For `invoke_subagent` of existing types (like 'research'), add these to the `Prompt` parameter.",
-	)
-
-	importantBlock := RenderImportantBlock("project")
-	if importantBlock != "" {
-		lines = append(lines, "", importantBlock)
+		"When spawning subagents, include in their prompt:",
+		"\"Before starting work, read the project's `" + globalRulesFile + "` and `" + dotBrand + "/memory/project/index.md` via view_file. After work, if you discovered something non-obvious, save it via " + memInsertRef + " (passing absolute `project_dir`).\"",
 	}
 
 	return strings.Join(lines, "\n") + "\n"
@@ -403,7 +339,7 @@ func InstallRule(projectDir, ideName string) error {
 
 	contexts := AllContextDirs()
 
-	routerContent := brand.ResolveModuleRule("memory", MemoryRouterContent(contexts))
+	routerContent := brand.ResolveModuleRule("memory", MemoryRouterContent(contexts, ide.GlobalRulesFile(ideName)))
 	if err := ide.InjectManagedBlock(projectDir, ideName, memoryBlockName, routerContent); err != nil {
 		return err
 	}

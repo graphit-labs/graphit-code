@@ -250,12 +250,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"| **project** (this project) | `" + dotBrand + "/knowledge/project/index.md` |",
 	}
 
-	for _, ctx := range contexts {
-		indexPath := dotBrand + "/knowledge/" + ctx + "/index.md"
-		lines = append(lines,
-			"| **"+ctx+"** (imported) | `"+indexPath+"` |",
-		)
-	}
+
 
 	lines = append(lines,
 		"",
@@ -923,7 +918,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 
 var knowledgeSkillName = brand.SkillDirName("knowledge")
 
-func KnowledgeRouterContent(docsDir string) string {
+func KnowledgeRouterContent(docsDir, globalRulesFile string) string {
 	if docsDir == "" {
 		docsDir = "."
 	}
@@ -959,19 +954,11 @@ func KnowledgeRouterContent(docsDir string) string {
 		"",
 		"**After you modify, create, or delete ANY source file, you MUST:**",
 		"",
-		"1. **Read the `" + knowledgeSkillName + "` skill** — it contains the full documentation",
-		"   workflow, templates, and rules you must follow.",
-		"2. **Follow the skill's documentation workflow** — determine what type of change",
-		"   you made (architecture, feature, decision, bug fix, integration, etc.) and",
-		"   create or update the corresponding `docs/` files as specified in the skill.",
-		"3. **Sync the wiki** — call the " + syncRef + " tool (passing absolute `project_dir` parameter) after any docs change.",
-		"4. **Only then** report the task as complete.",
+		"1. Read the `" + knowledgeSkillName + "` skill and follow its documentation workflow",
+		"2. Create/update task log at `docs/tasks/<task-name>.md`",
+		"3. Call the " + syncRef + " tool (passing absolute `project_dir` parameter)",
 		"",
-		"**This is NON-NEGOTIABLE.** You do NOT get to skip documentation because the user",
-		"didn't ask for it. Documentation is implicit in every task. If you wrote code but",
-		"did not read the skill and follow its documentation workflow, you are NOT finished.",
-		"",
-		"> **Short version:** Code changed → read `" + knowledgeSkillName + "` skill → document → sync → done.",
+		"**Documentation is implicit in every task. A task without docs + sync is NOT complete.**",
 		"",
 		"## Quick Reference (always active)",
 		"",
@@ -980,61 +967,10 @@ func KnowledgeRouterContent(docsDir string) string {
 		"- **Sync after docs changes**: call the " + syncRef + " tool (passing absolute `project_dir` parameter)",
 		"- **Hub search before integration**: call the " + hubListRef + " tool (passing absolute `project_dir` parameter and `type: \"knowledge\"`)",
 		"",
-		"## ✅ After EVERY Code Change (MANDATORY checklist)",
+		"## 🔗 Subagent Propagation",
 		"",
-		"**Do NOT report the task as complete until ALL items are checked:**",
-		"",
-		"1. Create/update `docs/tasks/<task-name>.md` (at minimum: objective, files changed, key decisions)",
-		"2. Call the " + syncRef + " tool (passing absolute `project_dir` parameter)",
-		"3. If architectural change → update `docs/architecture/`",
-		"4. If design decision → create ADR in `docs/decisions/`",
-		"",
-		"**A task without documentation is NOT complete. A task without calling " + syncRef + " tool is NOT complete.**",
-		"",
-		"## ⛔ Critical Rules (always enforced, no skill read needed)",
-		"",
-		"1. **Document EVERYTHING** — documentation is implicit in every task, never optional.",
-		"2. **Definition of done**: code + documentation + task log + calling " + syncRef + " tool. If any are missing, the task is NOT complete.",
-		"3. **Log every task** — create/update `docs/tasks/<task-name>.md` with implementation details,",
-		"   technical debt, trade-offs, and system knowledge. Detail level must allow another agent to",
-		"   continue exactly where you left off.",
-		"4. **Document ALL use cases** — every task log MUST include a complete `## Use Cases` section",
-		"   listing every use case implemented or modified, with actor, preconditions, main flow,",
-		"   alternative flows, error scenarios, postconditions, and affected files. Use cases MUST be",
-		"   kept up-to-date on any future change — they are living documentation, never a one-time snapshot.",
-		"5. **Write ALL test cases & acceptance criteria** — every task log MUST include a",
-		"   `## Test Cases & Acceptance Criteria` section with BDD/Gherkin scenarios (Given/When/Then)",
-		"   covering every use case. Each scenario must be independent, traceable (Ref: UC-XX), and use",
-		"   specific test data. Cover happy paths, error cases, and boundary conditions. Test cases MUST",
-		"   be kept up-to-date on any future change.",
-		"6. **Never guess API contracts** — search the hub first, use knowledge wiki, never hallucinate.",
-		"7. **Wiki-first retrieval** — NEVER grep docs/ directly; always read `index.md` first.",
-		"8. **Reindex after changes** — call the " + syncRef + " tool after every source file or docs modification.",
-		"9. **Never edit managed rule blocks** — blocks wrapped in `<!-- " + strings.ToUpper(brand.Brand) + " ... BLOCK -->` / `<!-- END ... -->` sentinels",
-		"   in global rules files (AGENTS.md) are **auto-managed by the framework**.",
-		"   NEVER create, modify, rewrite, or delete these blocks. They are regenerated automatically",
-		"   on every project initialization and sync.",
-		"10. **Documentation in `docs/`, not in code comments** — all explanations, architecture,",
-		"    specs, and guides go in `docs/`.",
-		"    Only critical comments (safety, gotchas, legal, directives) belong in code. The code must be",
-		"    clean, readable, and self-explanatory — never cluttered with explanatory comments.",
-		"",
-		"## 🔗 Subagent Documentation",
-		"",
-		"**When spawning subagents that modify code, include in their prompt:**",
-		"",
-		"> \"After code changes, create a task log at `docs/tasks/<task-name>.md` with: objective,",
-		"> files changed, and key decisions. Then call " + syncRef + " tool (passing absolute `project_dir` parameter).\"",
-		"",
-		"## 🔗 MANDATORY: Subagent Propagation",
-		"",
-		"**When you orchestrate subagents (via `define_subagent`, `invoke_subagent`, or any",
-		"multi-agent mechanism), you MUST inject this entire instruction block into each",
-		"subagent's system prompt or task instructions. Do NOT skip or summarize it.**",
-		"",
-		"When creating a subagent, include everything from the `" + strings.ToUpper(brand.Brand) + " " + knowledgeBlockName + " BLOCK` start sentinel",
-		"to the `END " + strings.ToUpper(brand.Brand) + " " + knowledgeBlockName + " BLOCK` sentinel (inclusive) in the subagent's prompt.",
-		"This is a conditional instruction — only act on it when you are launching a subagent.",
+		"When spawning subagents that modify code, include in their prompt:",
+		"\"After code changes, create docs/tasks/<task-name>.md and call " + syncRef + " tool (passing absolute `project_dir` parameter). Read the project's `" + globalRulesFile + "` before starting work.\"",
 	}
 	result := strings.Join(lines, "\n") + "\n"
 	if docsDir != "docs" {
@@ -1066,7 +1002,7 @@ func InstallRule(projectDir, ideName string) error {
 
 	docsDir := resolveDocsDirFromProject(projectDir)
 
-	routerContent := brand.ResolveModuleRule("knowledge", KnowledgeRouterContent(docsDir))
+	routerContent := brand.ResolveModuleRule("knowledge", KnowledgeRouterContent(docsDir, ide.GlobalRulesFile(ideName)))
 	if err := ide.InjectManagedBlock(projectDir, ideName, knowledgeBlockName, routerContent); err != nil {
 		return err
 	}

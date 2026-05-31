@@ -547,7 +547,7 @@ func ASTRuleContent() string {
 
 var astSkillName = brand.SkillDirName("ast")
 
-func ASTRouterContent() string {
+func ASTRouterContent(globalRulesFile string) string {
 	lines := []string{
 		"# 🔍 AST Code Exploration",
 		"",
@@ -582,8 +582,6 @@ func ASTRouterContent() string {
 		"| `grep_search: import \"package\"` | " + brand.MCPToolRef("ast", "query") + " with `query: \"MATCH (f:File)-[:IMPORTS]->(m:Module) WHERE toLower(m.name) CONTAINS 'package' RETURN f.path\"`, `ai_optimized: true` |",
 		"| `grep -l \"keyword\" *.go` | " + brand.MCPToolRef("ast", "search") + " with `query: \"keyword\"` |",
 		"| `find ... -name \"*.go\" \\| xargs grep -l \"daemon\"` | " + brand.MCPToolRef("ast", "search") + " with `query: \"daemon\"` |",
-		"| Searching for a callable by name | " + brand.MCPToolRef("ast", "query") + " with `query: \"MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'search' RETURN f.name, f.path, f.line_number, label(f) AS type\"`, `ai_optimized: true` |",
-		"| Searching for a type definition by name | " + brand.MCPToolRef("ast", "query") + " with `query: \"MATCH (n) WHERE (label(n) = 'Class' OR label(n) = 'Struct' OR label(n) = 'Interface' OR label(n) = 'Trait') AND toLower(n.name) CONTAINS 'handler' RETURN n.name, n.path, label(n) AS type\"`, `ai_optimized: true` |",
 		"",
 		"## Quick Reference (always active)",
 		"",
@@ -603,35 +601,16 @@ func ASTRouterContent() string {
 		"- **CALLS edge**: `source_file`, `line_number`, `full_call_name`, `receiver_type`",
 		"- **IMPORTS edge**: `alias`, `full_import_name`, `imported_name`, `line_number`, `source_file`",
 		"",
-		"## ⛔ Critical Rules (always enforced, no skill read needed)",
+		"## ⛔ Key Rules (read skill for complete list)",
 		"",
-		"1. **AST graph BEFORE text search** — NEVER use grep/ripgrep for structural queries the graph can answer.",
-		"2. **AST graph BEFORE IDE tools** — ALWAYS query the AST graph BEFORE using built-in code search, file reading, or semantic search tools. The graph has the complete codebase pre-indexed with relationships.",
-		"3. **Always `ai_optimized: true`** — set parameter to `true` on every " + brand.MCPToolRef("ast", "query") + " tool call.",
-		"4. **Never return `RETURN n`** — always return specific properties (`n.name, n.path`).",
-		"5. **Use relative paths** — `path` is always relative to project root.",
-		"6. **Reindex after changes** — call " + brand.MCPToolRef("sync") + " tool (passing absolute `project_dir`) after every source file modification.",
-		"7. **Node type = label, not property** — `n.kind`, `n.type`, `n.label` DO NOT EXIST. Use `label(n)` function instead (e.g., `RETURN label(n) AS type`).",
-		"8. **" + brand.MCPToolRef("ast", "search") + " = PLAIN TEXT only** — this parameter accepts keywords or natural language, NEVER Cypher queries. Only " + brand.MCPToolRef("ast", "query") + " accepts Cypher.",
-		"9. **BLOCKED: grep_search for definitions** — NEVER use grep_search with queries like `func X`, `type X`, `class X`, `struct X`, `interface X`, `import X`. These are STRUCTURAL queries — call " + brand.MCPToolRef("ast", "query") + " ALWAYS.",
-		"10. **Multi-label by default** — When searching by name, NEVER assume a single label (e.g., `Function`). Languages have subtle distinctions: Go has Function vs Method, Class vs Struct; Rust has Trait vs Interface. **ALWAYS use multi-label queries** (e.g., `label(f) = 'Function' OR label(f) = 'Method'`) unless you already confirmed the exact label from a prior query. A single-label search that misses results is WORSE than a multi-label search that returns a few extra rows.",
+		"- **AST BEFORE grep** — NEVER use grep/ripgrep for structural queries.",
+		"- **Always `ai_optimized: true`** on every " + brand.MCPToolRef("ast", "query") + " call.",
+		"- **Multi-label by default** — use `label(f) = 'Function' OR label(f) = 'Method'`, never assume a single label.",
 		"",
-		"## 🔗 MANDATORY: Subagent Propagation",
+		"## 🔗 Subagent Propagation",
 		"",
-		"**When you orchestrate subagents (via `define_subagent`, `invoke_subagent`, or any",
-		"multi-agent mechanism), you MUST include these instructions in the subagent's prompt:**",
-		"",
-		"1. Add to every subagent system_prompt or task prompt:",
-		"   \"IMPORTANT: For code exploration, use " + brand.MCPToolRef("ast", "query") + " and other AST MCP tools instead of grep_search (always pass absolute `project_dir` parameter):",
-		"   - Find callable (function or method): call " + brand.MCPToolRef("ast", "query") + " with `query: \\\"MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'NAME' RETURN f.name, f.path, f.line_number, label(f) AS type\\\"`, `ai_optimized: true`",
-		"   - Find callers: call " + brand.MCPToolRef("ast", "query") + " with `query: \\\"MATCH (a)-[:CALLS]->(b {name: 'NAME'}) RETURN a.name, a.path\\\"`, `ai_optimized: true`",
-		"   - Search (hybrid, RECOMMENDED): call " + brand.MCPToolRef("ast", "search") + " with `query: \\\"KEYWORD\\\"`",
-		"   - FTS-only search: call " + brand.MCPToolRef("ast", "search") + " with `query: \\\"KEYWORD\\\"`, `mode: \\\"fts\\\"`",
-		"   - ALWAYS use multi-label queries when searching by name (e.g., Function OR Method, Class OR Struct). Never assume a single label.",
-		"   - After code changes: call " + brand.MCPToolRef("sync") + " tool",
-		"   Read and follow all rules in the project's AGENTS.md before starting work.\"",
-		"2. For `define_subagent`, inject these as part of the `system_prompt` parameter.",
-		"3. For `invoke_subagent` of existing types (like 'research'), add these to the `Prompt` parameter.",
+		"When spawning subagents, include in their prompt:",
+		"\"For code exploration, use " + brand.MCPToolRef("ast", "query") + " and " + brand.MCPToolRef("ast", "search") + " MCP tools instead of grep_search (always pass absolute `project_dir`). Use multi-label queries. Read the project's `" + globalRulesFile + "` before starting work.\"",
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
@@ -645,7 +624,7 @@ func InstallRule(projectDir, ideName string) error {
 		}
 	}
 
-	routerContent := brand.ResolveModuleRule("ast", ASTRouterContent())
+	routerContent := brand.ResolveModuleRule("ast", ASTRouterContent(ide.GlobalRulesFile(ideName)))
 	if err := ide.InjectManagedBlock(projectDir, ideName, astBlockName, routerContent); err != nil {
 		return err
 	}

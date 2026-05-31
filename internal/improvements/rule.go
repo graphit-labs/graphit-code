@@ -27,9 +27,9 @@ func ImprovementsRuleContent() string {
 
 var improvementsSkillName = brand.SkillDirName("improvements")
 
-func ImprovementsRouterContent() string {
+func ImprovementsRouterContent(globalRulesFile string) string {
 	dreamAddRef := brand.MCPToolRef("dream", "subject_add")
-	dreamAdd := brand.MCPToolName("dream", "subject_add")
+
 	dreamListRef := brand.MCPToolRef("dream", "subject_list")
 	dreamRemoveRef := brand.MCPToolRef("dream", "subject_remove")
 
@@ -63,15 +63,9 @@ func ImprovementsRouterContent() string {
 		"create a dream subject. The Dream module picks up pending subjects during idle periods.",
 		"",
 		"- **Add via MCP**: call " + dreamAddRef + " with `title: \"Title\"`, `body: \"Detailed instructions\"` (always passing absolute `project_dir` parameter)",
-		"- **Add via file**: Create `" + brand.DotDir() + "/dream/subjects/<slug>.md` with a `# Title` heading and instructions",
 		"- **List subjects**: call " + dreamListRef + " (always passing absolute `project_dir` parameter)",
 		"- **Remove**: call " + dreamRemoveRef + " with `slug: \"<slug>\"` (always passing absolute `project_dir` parameter)",
 		"- **Completion**: The dream agent creates `<slug>.done.md` when finished",
-		"",
-		"## 🔗 Subagent Improvements",
-		"",
-		"**When spawning subagents, include in their prompt:**",
-		"\"If you notice code patterns that could be improved but are outside your current scope, create a dream subject by calling the " + dreamAddRef + " tool: `" + dreamAdd + "` with `title: \"<improvement title>\"`, `body: \"<detailed description of what to improve and why>\"` (always passing absolute `project_dir` parameter).\"",
 		"",
 		"## ⛔ Critical Rules",
 		"",
@@ -80,15 +74,10 @@ func ImprovementsRouterContent() string {
 		"- After any improvement session, you MUST execute the **Post-Task Reflection**",
 		"  phase: reflect, update memories, and stage new artifacts for the Hub.",
 		"",
-		"## 🔗 MANDATORY: Subagent Propagation",
+		"## 🔗 Subagent Propagation",
 		"",
-		"**When you orchestrate subagents (via `define_subagent`, `invoke_subagent`, or any",
-		"multi-agent mechanism), you MUST inject this entire instruction block into each",
-		"subagent's system prompt or task instructions. Do NOT skip or summarize it.**",
-		"",
-		"When creating a subagent, include everything from the `" + strings.ToUpper(brand.Brand) + " " + improvementsBlockName + " BLOCK` start sentinel",
-		"to the `END " + strings.ToUpper(brand.Brand) + " " + improvementsBlockName + " BLOCK` sentinel (inclusive) in the subagent's prompt.",
-		"This is a conditional instruction — only act on it when you are actually launching a subagent.",
+		"When spawning subagents, include in their prompt:",
+		"\"If you notice improvable code patterns outside your scope, create a dream subject via " + dreamAddRef + " (passing absolute `project_dir`). Read the project's `" + globalRulesFile + "` before starting work.\"",
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
@@ -102,7 +91,7 @@ func InstallRule(projectDir, ideName string) error {
 		}
 	}
 
-	routerContent := brand.ResolveModuleRule("improvements_rule", ImprovementsRouterContent())
+	routerContent := brand.ResolveModuleRule("improvements_rule", ImprovementsRouterContent(ide.GlobalRulesFile(ideName)))
 	if err := ide.InjectManagedBlock(projectDir, ideName, improvementsBlockName, routerContent); err != nil {
 		return err
 	}
