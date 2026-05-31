@@ -22,6 +22,47 @@ It parses source files into an in-memory graph database, enabling AI agents to t
 
 ---
 
+## 🌐 Supported Languages
+
+Graphit Code supports **16 programming languages** via Tree-sitter parsers. Each language has dedicated query patterns that extract specific structural entities from source files.
+
+| # | Language | Extensions | Key Extracted Entities |
+|---|---|---|---|
+| 1 | **Go** | `.go` | Function, Method, Struct, Interface, Type, Constant, Variable, Field, Parameter |
+| 2 | **TypeScript** | `.ts` | Function, Class, Interface, Type, Enum, Variable, Field, Parameter, Decorator |
+| 3 | **TypeScript (TSX)** | `.tsx` | Function, Class, Interface, Type, Enum, Variable, Field, Parameter, Decorator |
+| 4 | **JavaScript** | `.js`, `.jsx`, `.mjs` | Function, Class, Variable, Field, Parameter, Export |
+| 5 | **Python** | `.py` | Function, Class, Variable, Parameter, Decorator |
+| 6 | **Java** | `.java` | Function (Method + Constructor), Class, Interface, Enum, Variable, Field, Parameter, Package, Annotation |
+| 7 | **Rust** | `.rs` | Function, Struct, Enum, Trait, Type, Constant, Variable, Field, Parameter, Attribute |
+| 8 | **C** | `.c`, `.h` | Function, Struct, Enum, Type, Variable, Field, Parameter |
+| 9 | **C++** | `.cpp`, `.hpp`, `.cc`, `.cxx` | Function, Class, Struct, Enum, Namespace, Type, Field, Parameter |
+| 10 | **C#** | `.cs` | Function (Method), Class, Interface, Enum, Struct, Property, Namespace, Field, Parameter, Attribute |
+| 11 | **Kotlin** | `.kt`, `.kts` | Function, Class, Interface, Enum, Variable, Field, Parameter, Package, Annotation |
+| 12 | **Swift** | `.swift` | Function, Class, Struct, Enum, Protocol (Interface), Variable, Field, Parameter |
+| 13 | **Dart** | `.dart` | Function, Method, Class, Enum, Mixin (Interface), Variable, Field, Parameter |
+| 14 | **PHP** | `.php` | Function, Method, Class, Interface, Trait, Enum, Constant, Namespace (Package), Field, Parameter, Attribute |
+| 15 | **Ruby** | `.rb` | Function, Class, Module, Variable, Field, Parameter |
+| 16 | **SQL** | `.sql` | Function, Table, View |
+
+### Cross-Language Extraction Capabilities
+
+For every supported language, the parser extracts the following relationship data (when applicable to the language):
+
+| Capability | Description | Languages |
+|---|---|---|
+| **Function Calls** | Traces which functions/methods call which others | All 16 |
+| **Import Resolution** | Maps module dependencies and import chains | All except SQL |
+| **Class Inheritance** | `extends` / superclass relationships | JS, TS, Python, Java, C#, C++, Kotlin, Swift, Dart, PHP, Ruby |
+| **Interface Implementation** | `implements` / protocol conformance | TS, Java, C#, Kotlin, PHP, Rust |
+| **Field Access Tracking** | Reads and writes to class/struct fields | Go, JS, TS, Java, C#, C, C++, Kotlin, Swift, Python, Rust, PHP, Ruby |
+| **Decorator / Annotation** | Attribute / annotation extraction | TS, Python, Java, C#, Kotlin, Swift, Rust, PHP |
+| **Object Instantiation** | `new` expression tracking | JS, TS, Java, C#, C++, PHP |
+| **Cyclomatic Complexity** | Computed for every function/method | All 16 |
+| **Export Visibility** | `is_exported` flag per entity | Go, JS, TS |
+
+---
+
 ## 🗄️ Database Architecture: LadybugDB
 
 The AST database is backed by **LadybugDB**, an embedded graph database from the `github.com/LadybugDB/go-ladybug` library.
@@ -97,16 +138,49 @@ It compiles nodes by analyzing variables, structure, and functions matching the 
 
 ---
 
-## 🔄 Incremental Indexing Pipeline
+## 🔄 Indexing Pipeline: Full & Incremental
 
-To index massive codebases without consuming heavy CPU cycles, `internal/ast/pipeline.go` implements an **Incremental Rebuild** routine:
+The AST module supports two indexing modes to balance completeness with performance.
 
-1. **Hash Cache (`internal/ast/hash_cache.go`)**:
-   During setup, the pipeline scans files and stores a SHA256 checksum hash.
-2. **Parse Cache**:
-   If a file's hash matches the database's `content_hash`, parsing is skipped, preserving existing nodes.
-3. **Thread-Safe Batching**:
-   Files are queued into worker pools. Go workers process files concurrently, pushing results to a single-threaded SQLite writer connection to avoid database write contention.
+### Full Indexing Pipeline
+
+Triggered on first `graphit init` or when the database is missing/corrupted. The complete pipeline:
+
+```
+Source Files → File Discovery → Tree-sitter Parse → Entity Extraction → Graph Write → FTS5 Index → Trigram Index → Vector Embedding
+```
+
+1. **File Discovery**: Walks the project directory, respecting `.gitignore` and `.astignore` rules. Detects language via file extension.
+2. **Tree-sitter Parse**: Each file is parsed into a concrete syntax tree using the appropriate language grammar.
+3. **Entity Extraction**: Tree-sitter queries extract structured entities (functions, classes, imports, calls, fields, etc.) from the syntax tree.
+4. **Graph Write**: Extracted entities are written as nodes and relationships into LadybugDB. Each entity gets a unique `uid` and is linked to its parent file via `CONTAINS` edges.
+5. **FTS5 Index**: Entity names are split (camelCase, snake_case) and indexed in SQLite FTS5 for multi-pass full-text search.
+6. **Trigram Index**: Entity names are decomposed into 3-character trigrams for fuzzy matching and typo tolerance.
+7. **Vector Embedding**: When enabled, entity contexts are embedded via the local ONNX model (CodeRankEmbed-137M) and stored in SQLite-vec for semantic search.
+
+### Incremental Indexing Pipeline
+
+Triggered on every subsequent `graphit sync` or by the file watcher. Only processes changed files:
+
+1. **Hash Cache (`internal/ast/hash_cache.go`)**: During setup, the pipeline scans files and stores a SHA-256 checksum hash per file.
+2. **Change Detection**: Compares current file hashes against the stored cache. Only files with modified hashes enter the parse pipeline.
+3. **Selective Graph Update**: For each changed file, the pipeline:
+   - Removes all existing nodes and edges belonging to that file from LadybugDB.
+   - Re-parses the file via Tree-sitter.
+   - Re-writes the extracted entities and relationships.
+   - Updates the FTS5, trigram, and vector indices for affected entities.
+4. **Thread-Safe Batching**: Files are queued into concurrent Go worker pools. Workers parse files in parallel, pushing results to a single-threaded SQLite writer connection to avoid database write contention.
+5. **Shard Cache (`internal/ast/shard_cache.go`)**: Parsed AST results are cached as JSON shards on disk, enabling fast rebuilds without re-parsing unchanged files.
+
+### Performance Characteristics
+
+| Metric | Full Index | Incremental Index |
+|---|---|---|
+| **Trigger** | First init, database rebuild | File change detected |
+| **Scope** | All project files | Only changed files |
+| **Typical Duration** | Seconds (medium projects) to minutes (large monorepos) | Milliseconds to low seconds |
+| **CPU Impact** | Moderate (concurrent workers) | Minimal |
+| **Graph Consistency** | Full rebuild guarantees correctness | Hash-validated partial updates |
 
 ---
 

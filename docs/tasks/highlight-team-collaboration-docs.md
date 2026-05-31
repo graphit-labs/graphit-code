@@ -1,14 +1,16 @@
 ---
-title: "Highlight Private Team Collaboration in Documentation"
+title: "Documentation Enhancements: Team Collaboration + AST Languages & Architecture"
 status: complete
 date: 2026-05-30
 ---
 
-# Highlight Private Team Collaboration in Documentation
+# Documentation Enhancements: Team Collaboration + AST Languages & Architecture
 
 ## Objective
 
-Add prominent, highlighted sections across the main README, GitHub Pages site, and documentation guides to showcase the project's key differentiator: the ability to configure private Git repositories as the Hub (centralized team artifacts) and Memory (shared team intelligence), enabling fully private collaborative ecosystems for IT teams.
+Two major documentation enhancements:
+1. Add prominent sections highlighting the project's key differentiator: private Git repositories for Hub and Memory enabling team collaboration.
+2. Add comprehensive AST documentation: all 16 supported languages, entity/relationship mapping, and full vs incremental indexing architecture.
 
 ## Files Changed
 
@@ -16,6 +18,17 @@ Add prominent, highlighted sections across the main README, GitHub Pages site, a
 - **docs/site/index.html** — Added new "Private Team Collaboration" section with "Game-Changer" pill badge, side-by-side bento cards for Hub and Memory repos, collaboration flow terminal, and privacy badges. Added `bento-span-6` CSS rule. Added "Team" navigation link.
 - **docs/guides/private_brand_customization.md** — Restructured the "Setting Up Private Collaboration Ecosystems" section with elevated intro, "Two Pillars of Team Collaboration" subsections (Hub + Memory), artifact types table, and "Fully Self-Hosted Collaboration Loop" diagram.
 - **docs/README.md** — Added highlighted link to the Private Team Collaboration section under the existing Private Branding guide entry.
+
+### AST Documentation (Phase 2)
+
+- **README.md** — Added "Supported Languages (16)" table, "What the AST Maps" (nodes/relationships/properties), and "Indexing: Full & Incremental" under the AST Graph Explorer section.
+- **docs/site/index.html** — Replaced generic tags with 16 language badges, nodes/edges summary, and capability tags (Full & Incremental Indexing, Cypher Queries, Hybrid Search).
+- **docs/specs/ast_module.md** — Added "Supported Languages" section with 16-language table and Cross-Language Extraction Capabilities matrix. Replaced "Incremental Indexing Pipeline" with comprehensive "Indexing Pipeline: Full & Incremental" covering full pipeline (7 steps), incremental pipeline (5 steps), and Performance Characteristics table.
+
+### Other Changes
+
+- **internal/brand/brand.go** — Cleared `DefaultHubRepoURL` to empty string (was `git@github.com:graphit-labs/graphit-code.git`).
+- **Makefile** — Cleared `DEFAULT_HUB_REPO` to empty string.
 
 ## Key Decisions
 

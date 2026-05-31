@@ -210,6 +210,40 @@ graphit ui  # Opens http://localhost:8080
 ### 2. AST Graph Explorer — Instant & Deterministic
 Query the AST across the ecosystem instantly. Auto-incremental indexing ensures your agent always knows exactly where a function is defined or called. **Eliminates hallucinations** by grounding answers in exact structural truths, and drastically **reduces LLM token usage** by passing only precise nodes instead of massive files.
 
+#### Supported Languages (16)
+
+| Language | Extensions | Extracted Entities |
+|---|---|---|
+| **Go** | `.go` | Functions, Methods, Structs, Interfaces, Types, Constants, Variables, Fields, Parameters |
+| **TypeScript** | `.ts`, `.tsx` | Functions, Classes, Interfaces, Types, Enums, Variables, Fields, Parameters, Decorators |
+| **JavaScript** | `.js`, `.jsx`, `.mjs` | Functions, Classes, Variables, Fields, Parameters, Exports |
+| **Python** | `.py` | Functions, Classes, Variables, Parameters, Decorators |
+| **Java** | `.java` | Functions, Classes, Interfaces, Enums, Variables, Fields, Parameters, Packages, Annotations |
+| **Rust** | `.rs` | Functions, Structs, Enums, Traits, Types, Constants, Variables, Fields, Parameters |
+| **C** | `.c`, `.h` | Functions, Structs, Enums, Types, Variables, Fields, Parameters |
+| **C++** | `.cpp`, `.hpp`, `.cc`, `.cxx` | Functions, Classes, Structs, Enums, Namespaces, Types, Fields, Parameters |
+| **C#** | `.cs` | Functions, Classes, Interfaces, Enums, Structs, Properties, Namespaces, Fields, Parameters |
+| **Kotlin** | `.kt`, `.kts` | Functions, Classes, Interfaces, Enums, Variables, Fields, Parameters, Packages |
+| **Swift** | `.swift` | Functions, Classes, Structs, Enums, Protocols, Variables, Fields, Parameters |
+| **Dart** | `.dart` | Functions, Methods, Classes, Enums, Mixins, Variables, Fields, Parameters |
+| **PHP** | `.php` | Functions, Methods, Classes, Interfaces, Traits, Enums, Constants, Namespaces, Fields, Parameters |
+| **Ruby** | `.rb` | Functions, Classes, Modules, Variables, Fields, Parameters |
+| **SQL** | `.sql` | Functions, Tables, Views |
+
+#### What the AST Maps
+
+Every source file is parsed via **Tree-sitter** into a graph stored in **LadybugDB** (embedded graph database). The graph captures:
+
+- **Nodes:** `File`, `Directory`, `Function`, `Method`, `Class`, `Struct`, `Interface`, `Trait`, `Enum`, `Type`, `Module`, `Variable`, `Constant`, `Parameter`, `Field`, `Namespace`, `Package`, `Table`, `View`, `Export`
+- **Relationships:** `CONTAINS` (ownership), `IMPORTS` (dependencies), `CALLS` (invocations), `HAS_PARAMETER`, `HAS_FIELD`, `READS_FIELD` / `WRITES_FIELD` (data access tracing), `INHERITS`, `IMPLEMENTS`
+- **Properties:** `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported`, `entry_point_score`, `docstring`, `source`, `lang`, `cluster`
+
+#### Indexing: Full & Incremental
+
+- **Full Index:** Scans every file via Tree-sitter, extracts entities, writes the graph, builds FTS5 + trigram + vector indices.
+- **Incremental Index:** Uses SHA-256 hash cache per file — only changed files are re-parsed and re-written. Concurrent worker pool with single-threaded graph writer prevents contention.
+- **File Watcher:** Git-based polling (every 2s) with 500ms debounce. Detects both uncommitted edits and committed changes. Zero file descriptors used.
+
 ### 3. LLM Wiki & Knowledge Discovery
 Documentation designed for agents. Replaces opaque vector embeddings with deterministic **self-discovery** and explicit **back-referencing**. The agent organically explores the wiki graph to find exact context, guaranteeing precise retrieval without hallucinated semantic matches.
 - **Auto Sync:** Runs smoothly in the background to automatically keep your knowledge and code graphs perfectly aligned in real-time.
