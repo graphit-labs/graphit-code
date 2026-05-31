@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -81,10 +82,12 @@ func (w *Watcher) Start(ctx context.Context) error {
 
 			lastHash = w.statusHash()
 
-			changed := w.changedFiles()
-			if len(changed) > 0 {
-				w.reindexFiles(ctx, changed)
+			pipeOpts := PipelineOptions{
+				Workers:     SafeWorkers(w.cfg.Workers),
+				IndexSource: w.cfg.IndexSource,
+				Cluster:     w.cfg.Cluster,
 			}
+			_, _ = RunPipeline(ctx, w.db, w.rootPath, pipeOpts)
 		}
 	}
 }
@@ -113,44 +116,31 @@ func (w *Watcher) waitDebounce(ctx context.Context, hash string) bool {
 }
 
 func (w *Watcher) statusHash() string {
-	status, _ := w.g.RunOutput(w.rootPath, "status", "--porcelain", "-unormal")
+	status, _ := w.g.RunOutput(w.rootPath, "status", "--porcelain", "-uall")
 	head, _ := w.g.RunOutput(w.rootPath, "rev-parse", "HEAD")
 
 	status = w.filterIgnored(status)
-	combined := head + "\n" + status
+	mtimes := dirtyFileMtimes(status, w.rootPath)
+	combined := head + "\n" + status + "\n" + mtimes
 	h := sha256.Sum256([]byte(combined))
 	return fmt.Sprintf("%x", h[:8])
 }
 
-func (w *Watcher) changedFiles() []string {
-	out, err := w.g.RunOutput(w.rootPath, "status", "--porcelain", "-unormal")
-	if err != nil {
-		return nil
-	}
-	var files []string
-	for _, line := range strings.Split(out, "\n") {
+func dirtyFileMtimes(porcelain, rootDir string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(porcelain, "\n") {
 		if len(line) < 4 {
 			continue
 		}
 		rel := strings.TrimSpace(line[3:])
-		if rel == "" {
+		if rel == "" || strings.HasSuffix(rel, "/") {
 			continue
 		}
-		rel = strings.TrimSuffix(rel, "/")
-
-		if w.ic.IsIgnored(rel, false) {
-			continue
+		if info, err := os.Stat(filepath.Join(rootDir, rel)); err == nil {
+			fmt.Fprintf(&b, "%s:%d\n", rel, info.ModTime().UnixNano())
 		}
-
-		ext := strings.ToLower(filepath.Ext(rel))
-		if !HasTreeSitterForExtension(ext) {
-			continue
-		}
-
-		abs := filepath.Join(w.rootPath, rel)
-		files = append(files, abs)
 	}
-	return files
+	return b.String()
 }
 
 func (w *Watcher) filterIgnored(porcelain string) string {
@@ -172,42 +162,3 @@ func (w *Watcher) filterIgnored(porcelain string) string {
 	return strings.Join(kept, "\n")
 }
 
-func (w *Watcher) reindexFiles(ctx context.Context, files []string) {
-	writer := NewGraphWriter(w.db, w.rootPath, w.cfg.IndexSource)
-	writer.cluster = w.cfg.Cluster
-	sem := make(chan struct{}, w.cfg.Workers)
-	opts := ParseOptions{}
-
-	for _, path := range files {
-		sem <- struct{}{}
-		go func(p string) {
-			defer func() { <-sem }()
-			w.reindexFile(ctx, writer, p, opts)
-		}(path)
-	}
-
-	for i := 0; i < w.cfg.Workers; i++ {
-		sem <- struct{}{}
-	}
-
-	if r, ok := w.db.(Releaser); ok {
-		r.Release()
-	}
-}
-
-func (w *Watcher) reindexFile(ctx context.Context, writer *GraphWriter, path string, opts ParseOptions) {
-	tsParser := &TreeSitterParser{}
-	pf, err := tsParser.Parse(path, false, opts)
-	if pf != nil {
-		pf.RepoPath = w.repoPath
-	}
-
-	if err != nil {
-		abs, _ := filepath.Abs(path)
-		rel := writer.rel(abs)
-		_ = writer.db.ExecuteBatch(ctx, writer.getDeleteQueries(rel))
-		return
-	}
-
-	_ = writer.WriteFileIncremental(ctx, pf, w.repoPath)
-}

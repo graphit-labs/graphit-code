@@ -1810,12 +1810,30 @@ func watchAndReindex(rootPath string, useLouvain bool, reindex func() error) err
 }
 
 func cliWatchHash(g git.Git, dir string) string {
-	status, _ := g.RunOutput(dir, "status", "--porcelain", "-unormal")
+	status, _ := g.RunOutput(dir, "status", "--porcelain", "-uall")
 	head, _ := g.RunOutput(dir, "rev-parse", "HEAD")
 
-	combined := head + "\n" + status
+	mtimes := cliDirtyFileMtimes(status, dir)
+	combined := head + "\n" + status + "\n" + mtimes
 	h := sha256.Sum256([]byte(combined))
 	return fmt.Sprintf("%x", h[:8])
+}
+
+func cliDirtyFileMtimes(porcelain, rootDir string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(porcelain, "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		rel := strings.TrimSpace(line[3:])
+		if rel == "" || strings.HasSuffix(rel, "/") {
+			continue
+		}
+		if info, err := os.Stat(filepath.Join(rootDir, rel)); err == nil {
+			fmt.Fprintf(&b, "%s:%d\n", rel, info.ModTime().UnixNano())
+		}
+	}
+	return b.String()
 }
 
 func runASTSync(contextName string) error {

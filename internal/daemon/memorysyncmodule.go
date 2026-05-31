@@ -96,10 +96,11 @@ func parseBranch(branch string) (scope, scopeID string) {
 }
 
 func memoryWorktreeHash(g git.Git, wtDir string) string {
-	status, _ := g.RunOutput(wtDir, "status", "--porcelain", "-unormal")
+	status, _ := g.RunOutput(wtDir, "status", "--porcelain", "-uall")
 	head, _ := g.RunOutput(wtDir, "rev-parse", "HEAD")
 
-	combined := head + "\n" + status
+	mtimes := dirtyFileMtimes(status, wtDir)
+	combined := head + "\n" + status + "\n" + mtimes
 	h := sha256.Sum256([]byte(combined))
 	return fmt.Sprintf("%x", h[:8])
 }
