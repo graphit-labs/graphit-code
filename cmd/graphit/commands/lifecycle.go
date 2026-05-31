@@ -541,9 +541,8 @@ func lockfilePath() string {
 
 func newSelfUpdateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "self-update",
-		Short:   "Update the " + brand.BinName() + " binary to the latest version",
-		PreRunE: requireSetup,
+		Use:   "self-update",
+		Short: "Update the " + brand.BinName() + " binary to the latest version",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p := output.NewPrinter("")
 
@@ -588,10 +587,14 @@ func newSelfUpdateCmd() *cobra.Command {
 			}
 			checksumURL := binaryURL + ".sha256"
 
-			tmpFile, err := os.CreateTemp(filepath.Dir(currentExe), "."+brand.Brand+"-update-*")
+			tmpDir := filepath.Dir(currentExe)
+			tmpFile, err := os.CreateTemp(tmpDir, "."+brand.Brand+"-update-*")
 			if err != nil {
-				task.Fail("Create temp file: %v", err)
-				return fmt.Errorf("create temp file: %w", err)
+				tmpFile, err = os.CreateTemp("", brand.Brand+"-update-*")
+				if err != nil {
+					task.Fail("Create temp file: %v", err)
+					return fmt.Errorf("create temp file: %w", err)
+				}
 			}
 			tmpPath := tmpFile.Name()
 			_ = tmpFile.Close()

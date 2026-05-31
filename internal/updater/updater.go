@@ -191,14 +191,46 @@ func AtomicReplace(newBinary, currentExe string) error {
 	}
 
 	if err := os.Rename(newBinary, currentExe); err != nil {
-
-		_ = os.Rename(backupPath, currentExe)
-		return fmt.Errorf("replacing binary: %w", err)
+		if isCrossDevice(err) {
+			if cpErr := copyFile(newBinary, currentExe); cpErr != nil {
+				_ = os.Rename(backupPath, currentExe)
+				return fmt.Errorf("copying binary across filesystems: %w", cpErr)
+			}
+			_ = os.Remove(newBinary)
+		} else {
+			_ = os.Rename(backupPath, currentExe)
+			return fmt.Errorf("replacing binary: %w", err)
+		}
 	}
 
 	_ = os.Remove(backupPath)
 	return nil
 }
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = out.Close() }()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
+}
+
 
 func sha256File(path string) (string, error) {
 	f, err := os.Open(path)

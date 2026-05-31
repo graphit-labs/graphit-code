@@ -325,3 +325,67 @@ func TestCompareVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestAtomicReplaceCrossDir(t *testing.T) {
+	targetDir, err := os.MkdirTemp("", "graphit-replace-target-*")
+	if err != nil {
+		t.Fatalf("failed to create target dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(targetDir) }()
+
+	sourceDir, err := os.MkdirTemp("", "graphit-replace-source-*")
+	if err != nil {
+		t.Fatalf("failed to create source dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(sourceDir) }()
+
+	exePath := filepath.Join(targetDir, "current-exe")
+	newPath := filepath.Join(sourceDir, "new-exe")
+
+	_ = os.WriteFile(exePath, []byte("old binary content"), 0755)
+	_ = os.WriteFile(newPath, []byte("new binary content"), 0755)
+
+	err = AtomicReplace(newPath, exePath)
+	if err != nil {
+		t.Fatalf("AtomicReplace across dirs failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(exePath)
+	if string(data) != "new binary content" {
+		t.Errorf("expected 'new binary content', got %q", string(data))
+	}
+
+	if _, err := os.Stat(newPath); !os.IsNotExist(err) {
+		t.Error("expected source file to be cleaned up")
+	}
+}
+
+func TestCopyFile(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "graphit-copy-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	srcPath := filepath.Join(tmpDir, "src")
+	dstPath := filepath.Join(tmpDir, "dst")
+
+	content := "binary content for copy test"
+	_ = os.WriteFile(srcPath, []byte(content), 0755)
+
+	err = copyFile(srcPath, dstPath)
+	if err != nil {
+		t.Fatalf("copyFile failed: %v", err)
+	}
+
+	data, _ := os.ReadFile(dstPath)
+	if string(data) != content {
+		t.Errorf("expected %q, got %q", content, string(data))
+	}
+
+	info, _ := os.Stat(dstPath)
+	if info.Mode().Perm()&0111 == 0 {
+		t.Error("expected destination to be executable")
+	}
+}
+
