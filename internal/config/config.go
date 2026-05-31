@@ -363,6 +363,15 @@ func HubRepoURL() string {
 	return ResolveHubRepo(nil, nil)
 }
 
+func IsSetupDone() bool {
+	path, err := globalConfigPath()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(path)
+	return err == nil
+}
+
 func ResolveMemoryRepo(inlineCfg, projectCfg ConfigMap) string {
 	return ResolveConfig("memory.repo", inlineCfg, projectCfg)
 }

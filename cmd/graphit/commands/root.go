@@ -95,11 +95,7 @@ func requireProject(_ *cobra.Command, _ []string) error {
 }
 
 func requireSetup(cmd *cobra.Command, _ []string) error {
-
-	inlineCfg := parseInlineConfig(cmd)
-	projectCfg := loadProjectConfig()
-	repo := config.ResolveHubRepo(inlineCfg, projectCfg)
-	if repo == "" {
+	if !config.IsSetupDone() {
 		return errors.New(errNotSetup)
 	}
 	return nil
