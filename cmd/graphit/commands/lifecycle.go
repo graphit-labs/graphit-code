@@ -219,7 +219,7 @@ auto-generated values and interactive prompts.`,
 			return nil
 		},
 	}
-	cmd.Flags().String("ide", "", "Target IDE (antigravity, cursor, claude, kiro, gemini)")
+	cmd.Flags().String("ide", "", "Target IDE (antigravity, cursor, claude, gemini, kiro, codex, opencode)")
 	registerIDEFlagCompletion(cmd)
 	cmd.Flags().StringVar(&flagID, "id", "", "Project ULID (overrides auto-generated ID)")
 	cmd.Flags().StringVar(&flagName, "name", "", "Project name (overrides auto-detected name)")
@@ -257,7 +257,7 @@ func newUpdateCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("ide", "", "Target IDE (antigravity, cursor, claude, kiro, gemini)")
+	cmd.Flags().String("ide", "", "Target IDE (antigravity, cursor, claude, gemini, kiro, codex, opencode)")
 	registerIDEFlagCompletion(cmd)
 	return cmd
 }
@@ -307,7 +307,7 @@ func newRemoveCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("ide", "", "Target IDE (antigravity, cursor, claude, kiro, gemini)")
+	cmd.Flags().String("ide", "", "Target IDE (antigravity, cursor, claude, gemini, kiro, codex, opencode)")
 	registerIDEFlagCompletion(cmd)
 	return cmd
 }
@@ -847,7 +847,7 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 			return nil
 		},
 	}
-	cmd.Flags().String("ide", "", "Target IDE (antigravity, cursor, claude, kiro, gemini)")
+	cmd.Flags().String("ide", "", "Target IDE (antigravity, cursor, claude, gemini, kiro, codex, opencode)")
 	registerIDEFlagCompletion(cmd)
 	cmd.Flags().Bool("no-background", false, "Run all tasks synchronously in the same terminal")
 	cmd.Flags().Bool("heavy", false, "Run only heavy tasks (embeddings, memory GC) with terminal output")

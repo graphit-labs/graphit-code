@@ -1,11 +1,14 @@
 package ide
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	toml "github.com/pelletier/go-toml/v2"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	gitblk "github.com/graphit-labs/graphit-code/internal/git"
@@ -19,7 +22,11 @@ func NewAntigravityAdapter() *FolderBasedAdapter {
 		CommandsDir: "workflows",
 		SkillsDir:   "skills",
 		AgentsDir:   "agents",
-		MCPFilePath: "~/.gemini/antigravity/mcp_config.json",
+		MCPFilePath: "~/.gemini/config/mcp_config.json",
+		MCPExtraPaths: []string{
+			"~/.gemini/antigravity/mcp_config.json",
+			"~/.gemini/settings.json",
+		},
 		FileTypes: map[string]FileMode{
 			"rule":    {Mode: "file", Ext: "md"},
 			"command": {Mode: "file", Ext: "md"},
@@ -115,31 +122,19 @@ func NewKiroAdapter() *FolderBasedAdapter {
 	})
 }
 
-func NewCodexAdapter() *FolderBasedAdapter {
-	return NewFolderBasedAdapter(FolderConfig{
-		RootDirName: ".codex",
-		RulesDir:    "rules",
-		CommandsDir: "commands",
-		SkillsDir:   "skills",
-		AgentsDir:   "agents",
-		MCPFilePath: "~/.codex/config.toml",
-		FileTypes: map[string]FileMode{
-			"rule":    {Mode: "file", Ext: "md"},
-			"command": {Mode: "file", Ext: "md"},
-			"agent":   {Mode: "file", Ext: "md"},
-			"skill":   {Mode: "folder", Ext: ""},
-		},
-	})
+type CodexAdapter struct {
+	*FolderBasedAdapter
 }
 
-func NewOpenCodeAdapter() *FolderBasedAdapter {
-	return NewFolderBasedAdapter(FolderConfig{
-		RootDirName: ".opencode",
-		RulesDir:    "agents",
-		CommandsDir: "commands",
-		SkillsDir:   "skills",
-		AgentsDir:   "agents",
-		MCPFilePath: "~/.config/opencode/opencode.json",
+func NewCodexAdapter() *CodexAdapter {
+	base := NewFolderBasedAdapter(FolderConfig{
+		RootDirName:   ".codex",
+		RulesDir:      "rules",
+		CommandsDir:   "commands",
+		SkillsDir:     "skills",
+		AgentsDir:     "agents",
+		MCPFilePath:   "~/.codex/config.toml",
+		MCPCustomSync: true,
 		FileTypes: map[string]FileMode{
 			"rule":    {Mode: "file", Ext: "md"},
 			"command": {Mode: "file", Ext: "md"},
@@ -147,6 +142,209 @@ func NewOpenCodeAdapter() *FolderBasedAdapter {
 			"skill":   {Mode: "folder", Ext: ""},
 		},
 	})
+	return &CodexAdapter{base}
+}
+
+func (a *CodexAdapter) Sync(installed map[string]map[string]string, pp *paths.ProjectPaths, projectID string) error {
+	if err := a.FolderBasedAdapter.Sync(installed, pp, projectID); err != nil {
+		return err
+	}
+	mcpTarget, _ := expandHome(a.cfg.MCPFilePath)
+	return a.syncCodexMCP(mcpTarget, projectID, installed)
+}
+
+func (a *CodexAdapter) Remove(pp *paths.ProjectPaths, installed map[string]map[string]string) error {
+	if err := a.FolderBasedAdapter.Remove(pp, installed); err != nil {
+		return err
+	}
+	mcpTarget, _ := expandHome(a.cfg.MCPFilePath)
+	return a.removeCodexMCP(mcpTarget)
+}
+
+type codexMCPServer struct {
+	Command string   `toml:"command"`
+	Args    []string `toml:"args"`
+	Enabled bool     `toml:"enabled"`
+}
+
+func (a *CodexAdapter) syncCodexMCP(mcpTarget, _ string, _ map[string]map[string]string) error {
+	coreServerKey := brand.MCPServerName("code-stdio")
+	exe := getGraphitExecutable()
+
+	_ = os.MkdirAll(filepath.Dir(mcpTarget), 0o755)
+
+	cfg := map[string]any{}
+	if data, err := os.ReadFile(mcpTarget); err == nil {
+		_ = toml.Unmarshal(data, &cfg)
+	}
+
+	servers, _ := cfg["mcp_servers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
+	}
+
+	servers[coreServerKey] = codexMCPServer{
+		Command: exe,
+		Args:    []string{"mcp", "--stdio"},
+		Enabled: true,
+	}
+	cfg["mcp_servers"] = servers
+
+	out, err := toml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(mcpTarget, out, 0o644)
+}
+
+func (a *CodexAdapter) removeCodexMCP(mcpTarget string) error {
+	data, err := os.ReadFile(mcpTarget)
+	if err != nil {
+		return nil
+	}
+
+	cfg := map[string]any{}
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return nil
+	}
+
+	coreServerKey := brand.MCPServerName("code-stdio")
+
+	if servers, ok := cfg["mcp_servers"].(map[string]any); ok {
+		delete(servers, coreServerKey)
+		if len(servers) == 0 {
+			delete(cfg, "mcp_servers")
+		} else {
+			cfg["mcp_servers"] = servers
+		}
+	}
+
+	out, err := toml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(mcpTarget, out, 0o644)
+}
+
+type OpenCodeAdapter struct {
+	*FolderBasedAdapter
+}
+
+func NewOpenCodeAdapter() *OpenCodeAdapter {
+	base := NewFolderBasedAdapter(FolderConfig{
+		RootDirName:   ".opencode",
+		RulesDir:      "agents",
+		CommandsDir:   "commands",
+		SkillsDir:     "skills",
+		AgentsDir:     "agents",
+		MCPFilePath:   "~/.config/opencode/opencode.json",
+		MCPCustomSync: true,
+		FileTypes: map[string]FileMode{
+			"rule":    {Mode: "file", Ext: "md"},
+			"command": {Mode: "file", Ext: "md"},
+			"agent":   {Mode: "file", Ext: "md"},
+			"skill":   {Mode: "folder", Ext: ""},
+		},
+	})
+	return &OpenCodeAdapter{base}
+}
+
+func (a *OpenCodeAdapter) Sync(installed map[string]map[string]string, pp *paths.ProjectPaths, projectID string) error {
+	if err := a.FolderBasedAdapter.Sync(installed, pp, projectID); err != nil {
+		return err
+	}
+	mcpTarget, _ := expandHome(a.cfg.MCPFilePath)
+	return a.syncOpenCodeMCP(mcpTarget, projectID)
+}
+
+func (a *OpenCodeAdapter) Remove(pp *paths.ProjectPaths, installed map[string]map[string]string) error {
+	if err := a.FolderBasedAdapter.Remove(pp, installed); err != nil {
+		return err
+	}
+	mcpTarget, _ := expandHome(a.cfg.MCPFilePath)
+	return a.removeOpenCodeMCP(mcpTarget)
+}
+
+func (a *OpenCodeAdapter) syncOpenCodeMCP(mcpTarget, _ string) error {
+	_ = os.MkdirAll(filepath.Dir(mcpTarget), 0o755)
+
+	targetData := map[string]any{}
+	if data, err := os.ReadFile(mcpTarget); err == nil {
+		_ = json.Unmarshal(data, &targetData)
+	}
+
+	existingMCP, _ := targetData["mcp"].(map[string]any)
+	if existingMCP == nil {
+		existingMCP = map[string]any{}
+	}
+
+	coreServerKey := brand.MCPServerName("code-stdio")
+	exe := getGraphitExecutable()
+
+	// OpenCode format: command is an array, type is "local"
+	existingMCP[coreServerKey] = map[string]any{
+		"type":    "local",
+		"command": []string{exe, "mcp", "--stdio"},
+		"enabled": true,
+	}
+
+	targetData["mcp"] = existingMCP
+
+	// Also write under mcpServers for cross-tool compatibility
+	existingServers, _ := targetData["mcpServers"].(map[string]any)
+	if existingServers == nil {
+		existingServers = map[string]any{}
+	}
+	existingServers[coreServerKey] = map[string]any{
+		"command": exe,
+		"args":    []string{"mcp", "--stdio"},
+		"env":     map[string]string{},
+	}
+	targetData["mcpServers"] = existingServers
+
+	out, err := json.MarshalIndent(targetData, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(mcpTarget, out, 0o644)
+}
+
+func (a *OpenCodeAdapter) removeOpenCodeMCP(mcpTarget string) error {
+	data, err := os.ReadFile(mcpTarget)
+	if err != nil {
+		return nil
+	}
+
+	targetData := map[string]any{}
+	if err := json.Unmarshal(data, &targetData); err != nil {
+		return nil
+	}
+
+	coreServerKey := brand.MCPServerName("code-stdio")
+
+	if mcp, ok := targetData["mcp"].(map[string]any); ok {
+		delete(mcp, coreServerKey)
+		if len(mcp) == 0 {
+			delete(targetData, "mcp")
+		} else {
+			targetData["mcp"] = mcp
+		}
+	}
+
+	if servers, ok := targetData["mcpServers"].(map[string]any); ok {
+		delete(servers, coreServerKey)
+		if len(servers) == 0 {
+			delete(targetData, "mcpServers")
+		} else {
+			targetData["mcpServers"] = servers
+		}
+	}
+
+	out, err := json.MarshalIndent(targetData, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(mcpTarget, out, 0o644)
 }
 
 var geminiBlockMarker = brand.ManagedBlockMarker()
@@ -172,6 +370,10 @@ func NewGeminiAdapter() *GeminiAdapter {
 		SkillsDir:   "skills",
 		AgentsDir:   "agents",
 		MCPFilePath: "~/.gemini/settings.json",
+		MCPExtraPaths: []string{
+			"~/.gemini/config/mcp_config.json",
+			"~/.gemini/antigravity/mcp_config.json",
+		},
 		FileTypes: map[string]FileMode{
 			"rule":    {Mode: "file", Ext: "md"},
 			"command": {Mode: "file", Ext: "md"},
@@ -309,6 +511,12 @@ func installSkillForAdapter(adapter Adapter, projectDir, skillName, content stri
 	case *ClaudeAdapter:
 		rootDir = a.cfg.RootDirName
 		skillsDir = a.cfg.SkillsDir
+	case *CodexAdapter:
+		rootDir = a.cfg.RootDirName
+		skillsDir = a.cfg.SkillsDir
+	case *OpenCodeAdapter:
+		rootDir = a.cfg.RootDirName
+		skillsDir = a.cfg.SkillsDir
 	case *FolderBasedAdapter:
 		rootDir = a.cfg.RootDirName
 		skillsDir = a.cfg.SkillsDir
@@ -337,6 +545,12 @@ func removeSkillForAdapter(adapter Adapter, projectDir, skillName string) error 
 		rootDir = a.cfg.RootDirName
 		skillsDir = a.cfg.SkillsDir
 	case *ClaudeAdapter:
+		rootDir = a.cfg.RootDirName
+		skillsDir = a.cfg.SkillsDir
+	case *CodexAdapter:
+		rootDir = a.cfg.RootDirName
+		skillsDir = a.cfg.SkillsDir
+	case *OpenCodeAdapter:
 		rootDir = a.cfg.RootDirName
 		skillsDir = a.cfg.SkillsDir
 	case *FolderBasedAdapter:
@@ -386,6 +600,14 @@ func ArtifactTypePath(projectDir, ideName, artifactType, artifactName string) (s
 		rootDir = a.cfg.RootDirName
 		typeDir = a.getTypeDir(artifactType)
 		fm = a.getFileMode(artifactType)
+	case *CodexAdapter:
+		rootDir = a.cfg.RootDirName
+		typeDir = a.getTypeDir(artifactType)
+		fm = a.getFileMode(artifactType)
+	case *OpenCodeAdapter:
+		rootDir = a.cfg.RootDirName
+		typeDir = a.getTypeDir(artifactType)
+		fm = a.getFileMode(artifactType)
 	case *FolderBasedAdapter:
 		rootDir = a.cfg.RootDirName
 		typeDir = a.getTypeDir(artifactType)
@@ -417,6 +639,10 @@ func GetFileMode(ideName, artifactType string) string {
 	case *GeminiAdapter:
 		return a.getFileMode(artifactType).Mode
 	case *ClaudeAdapter:
+		return a.getFileMode(artifactType).Mode
+	case *CodexAdapter:
+		return a.getFileMode(artifactType).Mode
+	case *OpenCodeAdapter:
 		return a.getFileMode(artifactType).Mode
 	case *FolderBasedAdapter:
 		return a.getFileMode(artifactType).Mode

@@ -7,11 +7,11 @@ require (
 	github.com/UserNobody14/tree-sitter-dart v0.0.0-20260508020638-507c5546dc73
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/fatih/color v1.18.0
-	github.com/fsnotify/fsnotify v1.7.0
 	github.com/go-git/go-git/v5 v5.19.0
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/oklog/ulid/v2 v2.1.1
+	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.8.0
 	github.com/sugarme/tokenizer v0.3.0

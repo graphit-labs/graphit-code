@@ -37,15 +37,29 @@ type FileMode struct {
 }
 
 type FolderConfig struct {
-	RootDirName string
-	RulesDir    string
-	CommandsDir string
-	SkillsDir   string
-	AgentsDir   string
-	AgentsFile  string
-	MCPFilePath string
+	RootDirName   string
+	RulesDir      string
+	CommandsDir   string
+	SkillsDir     string
+	AgentsDir     string
+	AgentsFile    string
+	MCPFilePath   string
+	MCPExtraPaths []string
+	MCPCustomSync bool
 
 	FileTypes map[string]FileMode
+}
+
+func (c *FolderConfig) allMCPPaths() []string {
+	if c.MCPCustomSync {
+		return nil
+	}
+	var paths []string
+	if c.MCPFilePath != "" {
+		paths = append(paths, c.MCPFilePath)
+	}
+	paths = append(paths, c.MCPExtraPaths...)
+	return paths
 }
 
 var canonicalSourceNames = map[string]string{
@@ -152,8 +166,8 @@ func (a *FolderBasedAdapter) Sync(
 			}
 
 		case "mcp":
-			if a.cfg.MCPFilePath != "" {
-				mcpTarget := os.ExpandEnv(strings.ReplaceAll(a.cfg.MCPFilePath,
+			for _, mp := range a.cfg.allMCPPaths() {
+				mcpTarget := os.ExpandEnv(strings.ReplaceAll(mp,
 					"{active_project_dir}", pp.ActiveProjectDir))
 				mcpTarget, _ = expandHome(mcpTarget)
 				_ = a.syncMCP(eid, sourcePath, mcpTarget, projectID, installed)
@@ -168,8 +182,8 @@ func (a *FolderBasedAdapter) Sync(
 		}
 	}
 
-	if a.cfg.MCPFilePath != "" {
-		mcpTarget := os.ExpandEnv(strings.ReplaceAll(a.cfg.MCPFilePath,
+	for _, mp := range a.cfg.allMCPPaths() {
+		mcpTarget := os.ExpandEnv(strings.ReplaceAll(mp,
 			"{active_project_dir}", pp.ActiveProjectDir))
 		mcpTarget, _ = expandHome(mcpTarget)
 		_ = a.syncAllMCP(mcpTarget, projectID, installed)
@@ -220,8 +234,8 @@ func (a *FolderBasedAdapter) Remove(pp *paths.ProjectPaths, installed map[string
 		_ = os.Remove(filepath.Join(pp.ActiveProjectDir, a.cfg.AgentsFile))
 	}
 
-	if a.cfg.MCPFilePath != "" {
-		mcpTarget := os.ExpandEnv(strings.ReplaceAll(a.cfg.MCPFilePath,
+	for _, mp := range a.cfg.allMCPPaths() {
+		mcpTarget := os.ExpandEnv(strings.ReplaceAll(mp,
 			"{active_project_dir}", pp.ActiveProjectDir))
 		mcpTarget, _ = expandHome(mcpTarget)
 		_ = a.removeMCPClaims(mcpTarget, projectIDFrom(installed), installed)
