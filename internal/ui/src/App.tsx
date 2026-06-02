@@ -14,6 +14,8 @@ const ExplorerPage = lazy(() => import('./components/ast/ExplorerPage'))
 const WikiExplorerPage = lazy(() => import('./components/wiki/WikiExplorerPage'))
 const WikiContextsPage = lazy(() => import('./components/wiki/WikiContextsPage'))
 const WikiSearchPage = lazy(() => import('./components/wiki/WikiSearchPage'))
+const DaemonDashboard = lazy(() => import('./components/daemon/DaemonDashboard'))
+const DreamDashboard = lazy(() => import('./components/dream/DreamDashboard'))
 
 function Fallback() {
   return (
@@ -98,6 +100,8 @@ export default function App() {
                     <Route path="/knowledge/contexts" element={<KnowledgeContextsPage />} />
                     <Route path="/wiki/search" element={<WikiSearchPage />} />
                     <Route path="/wiki" element={<Navigate to="/wiki/search" replace />} />
+                    <Route path="/system/daemon" element={<DaemonDashboard />} />
+                    <Route path="/system/dream" element={<DreamDashboard />} />
                     <Route path="*" element={<DefaultRedirect />} />
                   </Routes>
                 </Suspense>

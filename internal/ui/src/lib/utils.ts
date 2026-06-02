@@ -68,3 +68,16 @@ export function labelColor(label: string): string {
   colorCache.set(label, color)
   return color
 }
+
+export function wikiLinkFriendlyName(raw: string): string {
+  return raw
+    .replace(/\.md$/, '')
+    .replace(/^ADR-_/, 'ADR: ')
+    .replace(/^ADR:_/, 'ADR: ')
+    .replace(/^community-/, '')
+    .replace(/^god-node-/, '')
+    .replace(/_/g, ' ')
+    .replace(/—/g, ' — ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}

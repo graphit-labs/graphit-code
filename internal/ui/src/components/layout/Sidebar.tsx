@@ -28,6 +28,7 @@ import {
   User,
   FolderGit2,
   Search,
+  Sparkles,
 } from 'lucide-react'
 
 interface NavItemProps {
@@ -227,6 +228,22 @@ export function Sidebar({ onClose }: SidebarProps) {
             })}
           </NavSection>
         )}
+
+        {}
+        <NavSection title="System">
+          <NavItem
+            to="/system/daemon"
+            icon={<Server className="w-3.5 h-3.5" />}
+            label="Daemon"
+            onClick={close}
+          />
+          <NavItem
+            to="/system/dream"
+            icon={<Sparkles className="w-3.5 h-3.5" />}
+            label="Dream"
+            onClick={close}
+          />
+        </NavSection>
 
         {}
         {isRegistry && (

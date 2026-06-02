@@ -52,6 +52,9 @@ func NewUnifiedServer(
 	wikiHandler := NewWikiHandler(hubSvc)
 	wikiHandler.RegisterAPIRoutes(mux)
 
+	daemonDreamHandler := NewDaemonDreamHandler(hubSvc)
+	daemonDreamHandler.RegisterAPIRoutes(mux)
+
 	s := &UnifiedServer{port: port, projectName: projectName, mux: mux}
 
 	// /health — liveness probe
