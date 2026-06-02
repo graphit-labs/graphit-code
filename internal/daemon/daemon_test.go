@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -322,7 +323,7 @@ func TestCloserFunc_ReturnsError(t *testing.T) {
 	fn := closerFunc(func() error {
 		return os.ErrClosed
 	})
-	if err := fn.Close(); err != os.ErrClosed {
+	if err := fn.Close(); !errors.Is(err, os.ErrClosed) {
 		t.Errorf("expected os.ErrClosed, got %v", err)
 	}
 }

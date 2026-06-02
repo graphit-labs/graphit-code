@@ -54,6 +54,20 @@ func NewUnifiedServer(
 
 	s := &UnifiedServer{port: port, projectName: projectName, mux: mux}
 
+	// /health — liveness probe
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	// /ready — readiness probe
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"status":"ready","port":%d}`, s.port)
+	})
+
 	mux.HandleFunc("/", s.handleUI)
 
 	return s, nil

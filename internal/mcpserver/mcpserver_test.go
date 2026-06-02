@@ -221,11 +221,11 @@ func TestLogVerbose(t *testing.T) {
 func TestResolveProjectDir(t *testing.T) {
 	// Create a temp directory for testing
 	tmpDir := t.TempDir()
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
 
 	tests := []struct {
 		name      string
@@ -287,11 +287,11 @@ func TestResolveProjectDir(t *testing.T) {
 
 func TestResolveProjectDir_RelativePath(t *testing.T) {
 	tmpDir := t.TempDir()
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
 	subDir := filepath.Join(tmpDir, "subdir")
 	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -315,11 +315,11 @@ func TestResolveProjectDir_RelativePath(t *testing.T) {
 
 func TestResolveWikiDir(t *testing.T) {
 	tmpDir := t.TempDir()
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
 
 	tests := []struct {
 		name       string
@@ -389,11 +389,11 @@ func TestResolveWikiDir(t *testing.T) {
 
 func TestResolveMemoryWikiDir(t *testing.T) {
 	tmpDir := t.TempDir()
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
 
 	tests := []struct {
 		name        string
@@ -1454,11 +1454,11 @@ func TestHTTPHandler_UnsupportedMethod(t *testing.T) {
 
 func TestResolveProjectDir_SymlinkTarget(t *testing.T) {
 	tmpDir := t.TempDir()
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
 	realDir := filepath.Join(tmpDir, "real")
 	if err := os.MkdirAll(realDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -1481,11 +1481,11 @@ func TestResolveProjectDir_SymlinkTarget(t *testing.T) {
 
 func TestResolveProjectDir_FileNotDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
-        os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "user"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "memory", "testctx"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "project"), 0755)
+        _ = os.MkdirAll(filepath.Join(tmpDir, ".graphit", "knowledge", "testctx"), 0755)
 	filePath := filepath.Join(tmpDir, "file.txt")
 	if err := os.WriteFile(filePath, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
