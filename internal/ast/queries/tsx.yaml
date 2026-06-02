@@ -1,0 +1,60 @@
+language: typescript
+extensions: [".tsx"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration name: (identifier) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(method_definition name: (property_identifier) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(variable_declarator name: (identifier) @name value: (arrow_function))'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_declaration name: (type_identifier) @name)'
+  - data_key: interfaces
+    graph_label: Interface
+    pattern: '(interface_declaration name: (type_identifier) @name)'
+  - data_key: types
+    graph_label: Type
+    pattern: '(type_alias_declaration name: (type_identifier) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(enum_declaration name: (identifier) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(import_statement source: (string) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(lexical_declaration (variable_declarator name: (identifier) @name))'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(export_statement source: (string) @name)'
+  - data_key: calls
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    pattern: '(call_expression function: (member_expression property: (property_identifier) @name))'
+  - data_key: instantiations
+    pattern: '(new_expression constructor: (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(required_parameter pattern: (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(optional_parameter pattern: (identifier) @name)'
+  - data_key: heritage
+    pattern: '(extends_clause value: (identifier) @name)'
+  - data_key: implements
+    pattern: '(implements_clause (type_identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(public_field_definition name: (property_identifier) @name)'
+  - data_key: field_reads
+    pattern: '(member_expression property: (property_identifier) @name)'
+  - data_key: field_writes
+    pattern: '(assignment_expression left: (member_expression property: (property_identifier) @name))'
+  - data_key: decorators
+    pattern: '(decorator (identifier) @name)'
+  - data_key: decorators
+    pattern: '(decorator (call_expression function: (identifier) @name))'

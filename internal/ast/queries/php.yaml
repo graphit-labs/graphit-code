@@ -1,0 +1,51 @@
+language: php
+extensions: [".php"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition name: (name) @name)'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_declaration name: (name) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_declaration name: (name) @name)'
+  - data_key: interfaces
+    graph_label: Interface
+    pattern: '(interface_declaration name: (name) @name)'
+  - data_key: traits
+    graph_label: Trait
+    pattern: '(trait_declaration name: (name) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(enum_declaration name: (name) @name)'
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_declaration (const_element (name) @name))'
+  - data_key: namespaces
+    graph_label: Package
+    pattern: '(namespace_definition name: (namespace_name) @name)'
+  - data_key: calls
+    pattern: '(function_call_expression function: (name) @name)'
+  - data_key: calls
+    pattern: '(member_call_expression name: (name) @name)'
+  - data_key: calls
+    pattern: '(scoped_call_expression name: (name) @name)'
+  - data_key: instantiations
+    pattern: '(object_creation_expression (name) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(simple_parameter name: (variable_name (name) @name))'
+  - data_key: heritage
+    pattern: '(base_clause (name) @name)'
+  - data_key: implements
+    pattern: '(class_interface_clause (name) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(property_declaration name: (variable_name (name) @name))'
+  - data_key: field_reads
+    pattern: '(member_access_expression name: (name) @name)'
+  - data_key: field_writes
+    pattern: '(assignment_expression left: (member_access_expression name: (name) @name))'
+  - data_key: decorators
+    pattern: '(attribute (name) @name)'

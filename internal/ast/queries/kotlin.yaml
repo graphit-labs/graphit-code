@@ -1,0 +1,40 @@
+language: kotlin
+extensions: [".kt", ".kts"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration (simple_identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_declaration (type_identifier) @name)'
+  - data_key: interfaces
+    graph_label: Interface
+    pattern: '(class_declaration (type_identifier) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(class_declaration (type_identifier) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(import_header (identifier) @name)'
+  - data_key: packages
+    graph_label: Package
+    pattern: '(package_header (identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(property_declaration (variable_declaration (simple_identifier) @name))'
+  - data_key: decorators
+    pattern: '(annotation (user_type (type_identifier) @name))'
+  - data_key: calls
+    pattern: '(call_expression (simple_identifier) @name)'
+  - data_key: calls
+    pattern: '(call_expression (navigation_expression (simple_identifier) @name))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter (simple_identifier) @name)'
+  - data_key: heritage
+    pattern: '(delegation_specifier (user_type (type_identifier) @name))'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(class_body (property_declaration (variable_declaration (simple_identifier) @name)))'
+  - data_key: field_reads
+    pattern: '(navigation_expression (simple_identifier) @name)'

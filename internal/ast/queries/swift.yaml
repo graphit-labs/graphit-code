@@ -1,0 +1,37 @@
+language: swift
+extensions: [".swift"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration name: (simple_identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_declaration name: (type_identifier) @name)'
+  - data_key: structs
+    graph_label: Struct
+    pattern: '(class_declaration name: (type_identifier) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(class_declaration name: (type_identifier) @name)'
+  - data_key: protocols
+    graph_label: Interface
+    pattern: '(protocol_declaration name: (type_identifier) @name)'
+  - data_key: decorators
+    pattern: '(attribute (user_type (type_identifier) @name))'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(property_declaration (pattern (simple_identifier) @name))'
+  - data_key: calls
+    pattern: '(call_expression (simple_identifier) @name)'
+  - data_key: calls
+    pattern: '(call_expression (navigation_expression (simple_identifier) @name))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter name: (simple_identifier) @name)'
+  - data_key: heritage
+    pattern: '(inheritance_specifier (user_type (type_identifier) @name))'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(class_body (property_declaration (pattern (simple_identifier) @name)))'
+  - data_key: field_reads
+    pattern: '(navigation_expression (simple_identifier) @name)'

@@ -57,7 +57,7 @@ func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts Pipeline
 	writer := NewGraphWriter(db, abs, opts.IndexSource)
 	writer.cluster = opts.Cluster
 
-	tsParser := &TreeSitterParser{}
+	tsParser := &TreeSitterParser{projectDir: abs}
 	return runFileWorkerPool(ctx, db, writer, abs, tsParser, t0, opts)
 }
 

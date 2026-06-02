@@ -1,0 +1,38 @@
+language: ruby
+extensions: [".rb"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(method name: (identifier) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(singleton_method name: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class name: (constant) @name)'
+  - data_key: modules
+    graph_label: Module
+    pattern: '(module name: (constant) @name)'
+  - data_key: calls
+    pattern: '(call method: (identifier) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(call method: (identifier) @_method arguments: (argument_list (string (string_content) @name)) (#eq? @_method "require"))'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(call method: (identifier) @_method arguments: (argument_list (string (string_content) @name)) (#eq? @_method "require_relative"))'
+  - data_key: heritage
+    pattern: '(class superclass: (superclass (constant) @name))'
+  - data_key: heritage
+    pattern: '(call method: (identifier) @_method arguments: (argument_list (constant) @name) (#eq? @_method "include"))'
+  - data_key: heritage
+    pattern: '(call method: (identifier) @_method arguments: (argument_list (constant) @name) (#eq? @_method "extend"))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(method_parameters (identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment left: (constant) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(instance_variable) @name'

@@ -1,0 +1,34 @@
+language: c
+extensions: [".c", ".h"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition declarator: (function_declarator declarator: (identifier) @name))'
+  - data_key: structs
+    graph_label: Struct
+    pattern: '(struct_specifier name: (type_identifier) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(enum_specifier name: (type_identifier) @name)'
+  - data_key: types
+    graph_label: Type
+    pattern: '(type_definition declarator: (type_identifier) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(preproc_include path: (string_literal) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(preproc_include path: (system_lib_string) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(declaration declarator: (init_declarator declarator: (identifier) @name))'
+  - data_key: calls
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter_declaration declarator: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration declarator: (field_identifier) @name)'
+  - data_key: field_reads
+    pattern: '(field_expression field: (field_identifier) @name)'

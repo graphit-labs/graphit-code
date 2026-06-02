@@ -8,7 +8,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
-func PreScanForImports(files []string, logger *slog.Logger) map[string][]string {
+func PreScanForImports(files []string, logger *slog.Logger, projectDir ...string) map[string][]string {
 	log := slogutil.Resolve(logger)
 	importsMap := make(map[string][]string)
 
@@ -18,7 +18,11 @@ func PreScanForImports(files []string, logger *slog.Logger) map[string][]string 
 		byExt[ext] = append(byExt[ext], f)
 	}
 
-	tsParser := &TreeSitterParser{}
+	pd := ""
+	if len(projectDir) > 0 {
+		pd = projectDir[0]
+	}
+	tsParser := &TreeSitterParser{projectDir: pd}
 	for ext, paths := range byExt {
 		if !HasTreeSitterForExtension(ext) {
 			continue

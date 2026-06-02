@@ -238,6 +238,16 @@ Every source file is parsed via **Tree-sitter** into a graph stored in **Ladybug
 - **Relationships:** `CONTAINS` (ownership), `IMPORTS` (dependencies), `CALLS` (invocations), `HAS_PARAMETER`, `HAS_FIELD`, `READS_FIELD` / `WRITES_FIELD` (data access tracing), `INHERITS`, `IMPLEMENTS`
 - **Properties:** `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported`, `entry_point_score`, `docstring`, `source`, `lang`, `cluster`
 
+#### Fully Customizable Query Patterns
+
+All Tree-sitter extraction patterns are defined as **external YAML files** — not hardcoded. You can customize which entities are extracted from each language without recompiling:
+
+- **Per Project:** `.graphit/ast/queries/<language>.yaml` — override for one project only.
+- **User Global:** `~/.graphit/ast/queries/<language>.yaml` — your customizations across all projects.
+- **Runtime Defaults:** `~/.graphit/runtime/<version>/ast/queries/` — factory defaults, auto-extracted from the binary per version.
+
+Resolution follows a cascading priority chain: **project → user global → runtime → embedded**. See the [User Manual](docs/guides/user_manual.md#customizing-ast-tree-sitter-queries) for examples, and the [AST Module Spec](docs/specs/ast_module.md#-external-query-customization) for the full technical reference.
+
 #### Indexing: Full & Incremental
 
 - **Full Index:** Scans every file via Tree-sitter, extracts entities, writes the graph, builds FTS5 + trigram + vector indices.

@@ -1,0 +1,48 @@
+language: javascript
+extensions: [".js", ".jsx", ".mjs"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration name: (identifier) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(method_definition name: (property_identifier) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(variable_declarator name: (identifier) @name value: (arrow_function))'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(variable_declarator name: (identifier) @name value: (function_expression))'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_declaration name: (identifier) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(import_statement source: (string) @name)'
+  - data_key: exports
+    graph_label: Export
+    pattern: '(export_statement declaration: (function_declaration name: (identifier) @name))'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(lexical_declaration (variable_declarator name: (identifier) @name))'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(export_statement source: (string) @name)'
+  - data_key: calls
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    pattern: '(call_expression function: (member_expression property: (property_identifier) @name))'
+  - data_key: instantiations
+    pattern: '(new_expression constructor: (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(formal_parameters (identifier) @name)'
+  - data_key: heritage
+    pattern: '(class_heritage (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_definition property: (property_identifier) @name)'
+  - data_key: field_reads
+    pattern: '(member_expression property: (property_identifier) @name)'
+  - data_key: field_writes
+    pattern: '(assignment_expression left: (member_expression property: (property_identifier) @name))'

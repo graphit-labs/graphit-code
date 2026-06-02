@@ -138,6 +138,119 @@ It compiles nodes by analyzing variables, structure, and functions matching the 
 
 ---
 
+## 🎯 External Query Customization
+
+All Tree-sitter query patterns are defined as **external YAML files** rather than hardcoded in the binary. This allows users to customize which AST entities are extracted from each language — adding new patterns, removing defaults, or completely replacing the query set — without recompiling.
+
+### YAML Query Schema
+
+Each language has a dedicated YAML file defining the Tree-sitter S-expression patterns used during parsing:
+
+```yaml
+language: go                    # Tree-sitter language name (required)
+extensions: [".go"]             # File extensions to match (optional — if omitted, applies to all extensions of the language)
+replace: false                  # false = append to lower-priority queries; true = completely replace them
+queries:
+  - data_key: functions         # Internal category (functions, classes, imports, calls, etc.)
+    graph_label: Function       # LadybugDB node label (empty = relational data like calls/heritage)
+    pattern: '(function_declaration name: (identifier) @name)'
+    name_capture: name          # Capture group for the entity name (defaults to "name")
+
+  - data_key: goroutines        # Custom category example
+    graph_label: Function
+    pattern: '(go_statement (call_expression function: (identifier) @fn))'
+    name_capture: fn
+```
+
+**Fields:**
+
+| Field | Required | Description |
+|---|---|---|
+| `language` | ✅ | Tree-sitter language identifier (e.g., `go`, `python`, `typescript`) |
+| `extensions` | ❌ | File extensions filter. If omitted, applies to all extensions registered for the language |
+| `replace` | ❌ | When `true`, replaces all lower-priority queries for this language. Default: `false` (append) |
+| `queries[].data_key` | ✅ | Internal entity category. Standard keys: `functions`, `methods`, `classes`, `structs`, `interfaces`, `enums`, `types`, `traits`, `imports`, `exports`, `variables`, `constants`, `calls`, `instantiations`, `parameters`, `fields`, `field_reads`, `field_writes`, `heritage`, `implements`, `decorators`, `namespaces`, `packages`, `modules`, `tables`, `views` |
+| `queries[].graph_label` | ❌ | LadybugDB node label. If empty, the data is used for relationship extraction only (e.g., calls, heritage) |
+| `queries[].pattern` | ✅ | Tree-sitter S-expression query pattern |
+| `queries[].name_capture` | ❌ | Name of the capture group for the entity name. Defaults to `name` |
+
+### Resolution Chain (4 Levels)
+
+Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Priority 1 — Project Override                                             │
+│  .graphit/ast/queries/<language>.yaml                                      │
+│  Applies only to this project. Highest priority.                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Priority 2 — User Global                                                  │
+│  ~/.graphit/ast/queries/<language>.yaml                                    │
+│  User-editable. Applies to all projects. NEVER written by the framework.   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Priority 3 — Runtime Defaults                                             │
+│  ~/.graphit/runtime/<version>/ast/queries/<language>.yaml                  │
+│  Managed by the framework. Extracted from the binary on first run.         │
+│  Overwritten on each version upgrade.                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Priority 4 — Embedded Fallback                                            │
+│  Compiled into the binary via go:embed                                     │
+│  Used only if the runtime directory is unavailable.                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key behaviors:**
+- On first parse, the binary automatically extracts all 16 default YAML files to `~/.graphit/runtime/<version>/ast/queries/`.
+- The **runtime directory is version-scoped** — each binary version gets its own clean set of defaults, so upgrades never conflict with previous versions.
+- The **user global directory** (`~/.graphit/ast/queries/`) is never touched by the framework. Only the user creates/edits files there.
+- If a **project** has a `go.yaml`, only Go queries come from the project level; other languages still resolve normally through user → runtime → embedded.
+- All query patterns are **validated at load time** against the Tree-sitter grammar. Invalid patterns are logged and skipped without breaking the parse.
+
+### Directory Structure
+
+```
+~/.graphit/
+├── ast/
+│   └── queries/                    ← User Global (Priority 2) — user-editable
+│       └── go.yaml                 ← Custom Go queries for all projects
+│
+└── runtime/
+    └── v1.2.3/
+        └── ast/
+            └── queries/            ← Runtime Defaults (Priority 3) — framework-managed
+                ├── c.yaml
+                ├── cpp.yaml
+                ├── csharp.yaml
+                ├── dart.yaml
+                ├── go.yaml
+                ├── java.yaml
+                ├── javascript.yaml
+                ├── kotlin.yaml
+                ├── php.yaml
+                ├── python.yaml
+                ├── ruby.yaml
+                ├── rust.yaml
+                ├── sql.yaml
+                ├── swift.yaml
+                ├── tsx.yaml
+                └── typescript.yaml
+
+your-project/
+└── .graphit/
+    └── ast/
+        └── queries/                ← Project Override (Priority 1)
+            └── go.yaml             ← Custom Go queries for this project only
+```
+
+### Implementation Details
+
+- **Loader:** `internal/ast/query_loader.go` — handles loading, parsing, validation, and caching.
+- **Embedded FS:** `internal/ast/queries_embed.go` — `//go:embed queries/*.yaml` bundles all defaults into the binary.
+- **Thread Safety:** All caches use `sync.Map` and `sync.Once` for safe concurrent access during parallel file parsing.
+- **Runtime Dir:** `brand.RuntimeDir(version)` returns `~/.graphit/runtime/<version>/` — version-scoped to avoid conflicts across upgrades.
+
+---
+
 ## 🔄 Indexing Pipeline: Full & Incremental
 
 The AST module supports two indexing modes to balance completeness with performance.

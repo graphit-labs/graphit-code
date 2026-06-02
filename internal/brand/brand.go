@@ -57,6 +57,18 @@ func GlobalDir() string {
 	return filepath.Join(home, "."+Brand)
 }
 
+// RuntimeDir returns a version-scoped directory for framework-managed runtime
+// files: ~/.graphit/runtime/<version>/. These files are managed by the binary
+// and may be overwritten on each version upgrade. User customizations should
+// go in GlobalDir() instead.
+func RuntimeDir(version string) string {
+	d := GlobalDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "runtime", version)
+}
+
 func GlobalRulesDir() string {
 	d := GlobalDir()
 	if d == "" {

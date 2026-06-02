@@ -1,0 +1,38 @@
+language: go
+extensions: [".go"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration name: (identifier) @name)'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_declaration name: (field_identifier) @name)'
+  - data_key: structs
+    graph_label: Struct
+    pattern: '(type_declaration (type_spec name: (type_identifier) @name type: (struct_type)))'
+  - data_key: interfaces
+    graph_label: Interface
+    pattern: '(type_declaration (type_spec name: (type_identifier) @name type: (interface_type)))'
+  - data_key: types
+    graph_label: Type
+    pattern: '(type_declaration (type_spec name: (type_identifier) @name))'
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_spec name: (identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(var_spec name: (identifier) @name)'
+  - data_key: calls
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    pattern: '(call_expression function: (selector_expression field: (field_identifier) @name))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter_declaration name: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration name: (field_identifier) @name)'
+  - data_key: field_reads
+    pattern: '(selector_expression field: (field_identifier) @name)'
+  - data_key: field_writes
+    pattern: '(assignment_statement left: (selector_expression field: (field_identifier) @name))'

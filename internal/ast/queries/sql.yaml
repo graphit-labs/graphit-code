@@ -1,0 +1,12 @@
+language: sql
+extensions: [".sql"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(create_function_statement name: (identifier) @name)'
+  - data_key: tables
+    graph_label: Table
+    pattern: '(create_table_statement name: (identifier) @name)'
+  - data_key: views
+    graph_label: View
+    pattern: '(create_view_statement name: (identifier) @name)'

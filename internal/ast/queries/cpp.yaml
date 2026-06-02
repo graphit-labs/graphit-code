@@ -1,0 +1,46 @@
+language: cpp
+extensions: [".cpp", ".hpp", ".cc", ".cxx"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition declarator: (function_declarator declarator: (identifier) @name))'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (identifier) @name)))'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_specifier name: (type_identifier) @name)'
+  - data_key: structs
+    graph_label: Struct
+    pattern: '(struct_specifier name: (type_identifier) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(enum_specifier name: (type_identifier) @name)'
+  - data_key: namespaces
+    graph_label: Namespace
+    pattern: '(namespace_definition name: (identifier) @name)'
+  - data_key: types
+    graph_label: Type
+    pattern: '(type_definition declarator: (type_identifier) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(preproc_include path: (string_literal) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(preproc_include path: (system_lib_string) @name)'
+  - data_key: calls
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    pattern: '(call_expression function: (field_expression field: (field_identifier) @name))'
+  - data_key: instantiations
+    pattern: '(new_expression type: (type_identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter_declaration declarator: (identifier) @name)'
+  - data_key: heritage
+    pattern: '(base_class_clause (type_identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration declarator: (field_identifier) @name)'
+  - data_key: field_reads
+    pattern: '(field_expression field: (field_identifier) @name)'

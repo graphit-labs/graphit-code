@@ -1,0 +1,49 @@
+language: java
+extensions: [".java"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(method_declaration name: (identifier) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(constructor_declaration name: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_declaration name: (identifier) @name)'
+  - data_key: interfaces
+    graph_label: Interface
+    pattern: '(interface_declaration name: (identifier) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(enum_declaration name: (identifier) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(import_declaration (scoped_identifier) @name)'
+  - data_key: packages
+    graph_label: Package
+    pattern: '(package_declaration (scoped_identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(local_variable_declaration declarator: (variable_declarator name: (identifier) @name))'
+  - data_key: decorators
+    pattern: '(marker_annotation name: (identifier) @name)'
+  - data_key: decorators
+    pattern: '(annotation name: (identifier) @name)'
+  - data_key: calls
+    pattern: '(method_invocation name: (identifier) @name)'
+  - data_key: instantiations
+    pattern: '(object_creation_expression type: (type_identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(formal_parameter name: (identifier) @name)'
+  - data_key: heritage
+    pattern: '(superclass (type_identifier) @name)'
+  - data_key: implements
+    pattern: '(super_interfaces (type_list (type_identifier) @name))'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration declarator: (variable_declarator name: (identifier) @name))'
+  - data_key: field_reads
+    pattern: '(field_access field: (identifier) @name)'
+  - data_key: field_writes
+    pattern: '(assignment_expression left: (field_access field: (identifier) @name))'

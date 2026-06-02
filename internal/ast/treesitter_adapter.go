@@ -1249,7 +1249,9 @@ func init() {
 	}
 }
 
-type TreeSitterParser struct{}
+type TreeSitterParser struct {
+	projectDir string
+}
 
 func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
@@ -1282,12 +1284,18 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 		Entities: make(map[string][]Entity),
 	}
 
+	// Merge external queries if projectDir is set
+	queries := cfg.Queries
+	if t.projectDir != "" {
+		queries = mergedQueriesFor(t.projectDir, cfg.Language, ext, cfg.Queries, cfg.TSLang)
+	}
+
 	specificLabels := map[string]bool{
 		"Struct": true, "Interface": true, "Class": true, "Trait": true, "Enum": true,
 	}
 	seenNames := map[string]bool{}
 
-	for _, qdef := range cfg.Queries {
+	for _, qdef := range queries {
 		q, qErr := sitter.NewQuery([]byte(qdef.Pattern), cfg.TSLang)
 		if qErr != nil {
 			continue
@@ -1866,9 +1874,13 @@ func TreeSitterLangForExtension(ext string) string {
 	return ""
 }
 
-func GetTreeSitterParser(ext string) *TreeSitterParser {
+func GetTreeSitterParser(ext string, projectDir ...string) *TreeSitterParser {
 	if HasTreeSitterForExtension(ext) {
-		return &TreeSitterParser{}
+		pd := ""
+		if len(projectDir) > 0 {
+			pd = projectDir[0]
+		}
+		return &TreeSitterParser{projectDir: pd}
 	}
 	return nil
 }

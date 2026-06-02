@@ -118,6 +118,111 @@ cat .graphit/dream/<session-id>.md
 
 ---
 
+## Customizing AST Tree-sitter Queries
+
+The AST module extracts code entities (functions, classes, imports, etc.) from source files using **Tree-sitter query patterns**. These patterns are defined in **YAML files** that you can fully customize — adding new extraction patterns, removing defaults, or replacing the entire query set for a language — all without recompiling.
+
+### How It Works
+
+When Graphit Code parses a source file, it resolves query patterns using a **4-level priority chain**:
+
+1. **Project** (`.graphit/ast/queries/`) — Highest priority. Applies only to this project.
+2. **User Global** (`~/.graphit/ast/queries/`) — Your personal customizations. Applies to all projects. **Never written by the framework.**
+3. **Runtime** (`~/.graphit/runtime/<version>/ast/queries/`) — Factory defaults extracted from the binary. **Automatically updated on each version upgrade.**
+4. **Embedded** — Compiled into the binary. Used only if the runtime directory is unavailable.
+
+For each language, the **first source that provides queries wins**. If you create a `go.yaml` in your project, only Go queries use the project version — all other languages continue resolving from user → runtime → embedded.
+
+### Viewing the Defaults
+
+After your first `graphit sync` or `graphit ast index`, the runtime defaults are extracted to:
+```
+~/.graphit/runtime/<version>/ast/queries/
+```
+
+Browse these files to see every Tree-sitter pattern used for each language:
+```bash
+ls ~/.graphit/runtime/*/ast/queries/
+# c.yaml  cpp.yaml  csharp.yaml  dart.yaml  go.yaml  java.yaml
+# javascript.yaml  kotlin.yaml  php.yaml  python.yaml  ruby.yaml
+# rust.yaml  sql.yaml  swift.yaml  tsx.yaml  typescript.yaml
+```
+
+### Customizing Globally (All Projects)
+
+To modify queries for all your projects, copy the default file to the user global directory and edit it:
+
+```bash
+# Create the user global directory
+mkdir -p ~/.graphit/ast/queries/
+
+# Copy the runtime default as a starting point
+cp ~/.graphit/runtime/*/ast/queries/go.yaml ~/.graphit/ast/queries/go.yaml
+
+# Edit to add your custom patterns
+$EDITOR ~/.graphit/ast/queries/go.yaml
+```
+
+### Customizing Per Project
+
+To customize queries for a single project, create the file in the project's `.graphit/` directory:
+
+```bash
+mkdir -p .graphit/ast/queries/
+cp ~/.graphit/runtime/*/ast/queries/python.yaml .graphit/ast/queries/python.yaml
+$EDITOR .graphit/ast/queries/python.yaml
+```
+
+### Example: Adding Custom Patterns
+
+To track goroutines as function entities in Go, add a new query entry to `go.yaml`:
+
+```yaml
+language: go
+extensions: [".go"]
+queries:
+  # ... keep existing queries ...
+
+  # Custom: track goroutine launches
+  - data_key: goroutines
+    graph_label: Function
+    pattern: '(go_statement (call_expression function: (identifier) @fn))'
+    name_capture: fn
+```
+
+### Example: Completely Replacing Queries
+
+Set `replace: true` to discard all lower-priority queries and use only your definitions:
+
+```yaml
+language: sql
+extensions: [".sql"]
+replace: true   # Ignore runtime/embedded defaults entirely
+queries:
+  - data_key: tables
+    graph_label: Table
+    pattern: '(create_table_statement name: (identifier) @name)'
+  - data_key: procedures
+    graph_label: Function
+    pattern: '(create_procedure_statement name: (identifier) @name)'
+```
+
+### YAML Reference
+
+| Field | Required | Description |
+|---|---|---|
+| `language` | ✅ | Tree-sitter language name (e.g., `go`, `python`, `typescript`) |
+| `extensions` | ❌ | File extensions filter (e.g., `[".ts"]`). Omit to match all extensions |
+| `replace` | ❌ | `true` = replace lower-priority queries; `false` = append (default) |
+| `queries[].data_key` | ✅ | Entity category: `functions`, `classes`, `imports`, `calls`, `fields`, etc. |
+| `queries[].graph_label` | ❌ | LadybugDB node label (e.g., `Function`, `Class`). Empty = relational data |
+| `queries[].pattern` | ✅ | Tree-sitter S-expression query |
+| `queries[].name_capture` | ❌ | Capture group name for the entity. Default: `name` |
+
+> For the full technical specification and implementation details, see `docs/specs/ast_module.md`.
+
+---
+
 ## Customizing Module Rules and Skills
 
 Both the on-demand IDE agent and the background Dream agent follow **rules** and **skills** defined per module (AST, Knowledge, Memory, Hub, and Improvements).

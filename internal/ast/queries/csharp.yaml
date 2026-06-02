@@ -1,0 +1,44 @@
+language: csharp
+extensions: [".cs"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(method_declaration name: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_declaration name: (identifier) @name)'
+  - data_key: interfaces
+    graph_label: Interface
+    pattern: '(interface_declaration name: (identifier) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(enum_declaration name: (identifier) @name)'
+  - data_key: structs
+    graph_label: Struct
+    pattern: '(struct_declaration name: (identifier) @name)'
+  - data_key: properties
+    graph_label: Property
+    pattern: '(property_declaration name: (identifier) @name)'
+  - data_key: namespaces
+    graph_label: Namespace
+    pattern: '(namespace_declaration name: (identifier) @name)'
+  - data_key: calls
+    pattern: '(invocation_expression function: (identifier) @name)'
+  - data_key: calls
+    pattern: '(invocation_expression function: (member_access_expression name: (identifier) @name))'
+  - data_key: instantiations
+    pattern: '(object_creation_expression type: (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter name: (identifier) @name)'
+  - data_key: heritage
+    pattern: '(base_list (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration (variable_declaration (variable_declarator (identifier) @name)))'
+  - data_key: field_reads
+    pattern: '(member_access_expression name: (identifier) @name)'
+  - data_key: field_writes
+    pattern: '(assignment_expression left: (member_access_expression name: (identifier) @name))'
+  - data_key: decorators
+    pattern: '(attribute (identifier) @name)'

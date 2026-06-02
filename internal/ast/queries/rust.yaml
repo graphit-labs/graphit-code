@@ -1,0 +1,48 @@
+language: rust
+extensions: [".rs"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_item name: (identifier) @name)'
+  - data_key: structs
+    graph_label: Struct
+    pattern: '(struct_item name: (type_identifier) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(enum_item name: (type_identifier) @name)'
+  - data_key: traits
+    graph_label: Trait
+    pattern: '(trait_item name: (type_identifier) @name)'
+  - data_key: types
+    graph_label: Type
+    pattern: '(type_item name: (type_identifier) @name)'
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_item name: (identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(static_item name: (identifier) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(use_declaration argument: (scoped_identifier) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(use_declaration argument: (identifier) @name)'
+  - data_key: calls
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    pattern: '(call_expression function: (scoped_identifier name: (identifier) @name))'
+  - data_key: calls
+    pattern: '(call_expression function: (field_expression field: (field_identifier) @name))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter pattern: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration name: (field_identifier) @name)'
+  - data_key: field_reads
+    pattern: '(field_expression field: (field_identifier) @name)'
+  - data_key: decorators
+    pattern: '(attribute_item (attribute (identifier) @name))'
+  - data_key: implements
+    pattern: '(impl_item trait: (type_identifier) @name)'
