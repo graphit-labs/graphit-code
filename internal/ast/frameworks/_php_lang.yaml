@@ -1,0 +1,19 @@
+# PHP language-specific rules.
+# Extracted from importRules in enrichment.go (lines 663-665).
+
+framework: _php_lang
+languages: [php]
+
+import_detection:
+  - pattern: Illuminate
+    match: prefix
+    framework: laravel
+    category: web
+  - pattern: Symfony
+    match: prefix
+    framework: symfony
+    category: web
+  - pattern: Doctrine
+    match: prefix
+    framework: doctrine
+    category: orm

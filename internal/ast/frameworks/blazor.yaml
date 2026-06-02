@@ -1,0 +1,19 @@
+# Blazor framework detection rules.
+# Extracted from frameworkRules (lines 308-312).
+# HubMethodName is under the signalr sub-framework.
+
+framework: blazor
+languages: [csharp]
+
+decorator_detection:
+  - name: Parameter
+    category: ui
+  - name: CascadingParameter
+    category: ui
+  - name: Inject
+    category: di
+  - name: JSInvokable
+    category: interop
+  - name: HubMethodName
+    framework: signalr
+    category: realtime

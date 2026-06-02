@@ -1,0 +1,13 @@
+# Mockito testing framework detection rules.
+# Extracted from frameworkRules (lines 259-261).
+
+framework: mockito
+languages: [java, kotlin]
+
+decorator_detection:
+  - name: MockBean
+    category: test
+  - name: Mock
+    category: test
+  - name: InjectMocks
+    category: test

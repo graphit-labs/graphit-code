@@ -1,0 +1,94 @@
+# Spring Framework detection rules.
+# Extracted from frameworkRules (lines 210-235), heritageRules (lines 561-562),
+# and scoreFunction() decorator scoring.
+
+framework: spring
+languages: [java, kotlin]
+
+decorator_detection:
+  # Web
+  - name: Controller
+    category: web
+  - name: RestController
+    category: web
+  - name: RequestMapping
+    category: web
+  - name: GetMapping
+    category: web
+  - name: PostMapping
+    category: web
+  - name: PutMapping
+    category: web
+  - name: DeleteMapping
+    category: web
+  - name: PatchMapping
+    category: web
+  - name: PathVariable
+    category: web
+  - name: RequestBody
+    category: web
+  - name: RequestParam
+    category: web
+  - name: ResponseBody
+    category: web
+  - name: ResponseStatus
+    category: web
+  - name: ExceptionHandler
+    category: web
+  - name: CrossOrigin
+    category: web
+
+  # Dependency Injection
+  - name: Service
+    category: di
+  - name: Component
+    category: di
+  - name: Autowired
+    category: di
+  - name: Inject
+    category: di
+  - name: Bean
+    category: di
+
+  # Configuration
+  - name: Configuration
+    category: config
+  - name: Value
+    category: config
+
+  # ORM
+  - name: Repository
+    category: orm
+  - name: Transactional
+    category: orm
+
+  # Validation
+  - name: Validated
+    category: validation
+  - name: Valid
+    category: validation
+
+heritage_detection:
+  - parent: JpaRepository
+    framework: spring_data
+    category: orm
+  - parent: CrudRepository
+    framework: spring_data
+    category: orm
+
+entry_points:
+  decorators:
+    - name: GetMapping
+      score: 70
+    - name: PostMapping
+      score: 70
+    - name: PutMapping
+      score: 70
+    - name: DeleteMapping
+      score: 70
+    - name: RequestMapping
+      score: 70
+    - name: Controller
+      score: 50
+    - name: RestController
+      score: 50

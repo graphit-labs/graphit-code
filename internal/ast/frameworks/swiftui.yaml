@@ -1,0 +1,39 @@
+# SwiftUI framework detection rules.
+# Extracted from frameworkRules (lines 464-473) and heritageRules (lines 575-576).
+# Includes Combine and XCTest heritage.
+
+framework: swiftui
+languages: [swift]
+
+decorator_detection:
+  - name: State
+    category: ui
+  - name: Binding
+    category: ui
+  - name: Published
+    category: ui
+  - name: ObservedObject
+    category: ui
+  - name: EnvironmentObject
+    category: ui
+  - name: StateObject
+    category: ui
+  - name: Environment
+    category: ui
+  - name: ViewBuilder
+    category: ui
+  - name: AppStorage
+    category: ui
+  - name: FetchRequest
+    category: data
+
+heritage_detection:
+  # Combine framework
+  - parent: ObservableObject
+    framework: combine
+    category: state
+
+  # XCTest
+  - parent: XCTestCase
+    framework: xctest
+    category: test

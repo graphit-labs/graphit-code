@@ -1,0 +1,13 @@
+# Pydantic validation framework detection rules.
+# Extracted from frameworkRules (lines 354-356).
+
+framework: pydantic
+languages: [python]
+
+decorator_detection:
+  - name: validator
+    category: validation
+  - name: field_validator
+    category: validation
+  - name: model_validator
+    category: validation

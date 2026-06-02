@@ -1,0 +1,102 @@
+# Language-agnostic base entry-point scoring rules.
+# Extracted from scoreFunction() in enrichment.go (lines 752-828).
+
+framework: _base
+languages: []
+
+entry_points:
+  # --- Name-based scoring ---
+  name_rules:
+    - pattern: main
+      match: exact           # name == "main" || name == "Main"
+      score: 80
+    - pattern: "Test"
+      match: prefix          # strings.HasPrefix(name, "Test")
+      score: 60
+    - pattern: "test_"
+      match: prefix          # strings.HasPrefix(name, "test_")
+      score: 60
+    - pattern: init
+      match: exact
+      score: 40
+    - pattern: setup
+      match: exact
+      score: 40
+    - pattern: configure
+      match: exact
+      score: 40
+    - pattern: handler
+      match: suffix_lower    # strings.HasSuffix(nameLower, "handler")
+      score: 30
+    - pattern: controller
+      match: suffix_lower    # strings.HasSuffix(nameLower, "controller")
+      score: 30
+    - pattern: cmd
+      match: prefix_lower    # strings.HasPrefix(nameLower, "cmd")
+      score: 20
+    - pattern: run
+      match: prefix_lower    # strings.HasPrefix(nameLower, "run")
+      score: 20
+
+  exported_bonus: 10
+  max_score: 100
+
+  # --- Decorator-based scoring ---
+  decorators:
+    # HTTP route decorators → score 70
+    - name: GetMapping
+      score: 70
+    - name: PostMapping
+      score: 70
+    - name: PutMapping
+      score: 70
+    - name: DeleteMapping
+      score: 70
+    - name: RequestMapping
+      score: 70
+    - name: HttpGet
+      score: 70
+    - name: HttpPost
+      score: 70
+    - name: HttpPut
+      score: 70
+    - name: HttpDelete
+      score: 70
+    - name: Get
+      score: 70
+    - name: Post
+      score: 70
+    - name: Put
+      score: 70
+    - name: Delete
+      score: 70
+    - name: Route
+      score: 70
+    - name: route
+      score: 70
+
+    # app.* route decorators → score 70 (prefix "app." + suffix get/post/put/delete)
+    - name: "app.get"
+      score: 70
+    - name: "app.post"
+      score: 70
+    - name: "app.put"
+      score: 70
+    - name: "app.delete"
+      score: 70
+
+    # Test decorators → score 60
+    - name: Test
+      score: 60
+    - name: test
+      score: 60
+    - name: pytest.fixture
+      score: 60
+
+    # Controller decorators → score 50
+    - name: Controller
+      score: 50
+    - name: RestController
+      score: 50
+    - name: ApiController
+      score: 50

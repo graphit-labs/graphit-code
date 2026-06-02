@@ -1,0 +1,34 @@
+# Serde & Diesel detection rules.
+# Extracted from frameworkRules (lines 452-458).
+# Also includes async_trait (line 450).
+
+framework: serde
+languages: [rust]
+
+decorator_detection:
+  # Serde serialization
+  - name: derive
+    category: serialization
+  - name: Serialize
+    category: serialization
+  - name: Deserialize
+    category: serialization
+
+  # Diesel ORM (bundled here as Rust data layer)
+  - name: Insertable
+    framework: diesel
+    category: orm
+  - name: Queryable
+    framework: diesel
+    category: orm
+  - name: AsChangeset
+    framework: diesel
+    category: orm
+  - name: table
+    framework: diesel
+    category: orm
+
+  # async_trait (related Rust async utility)
+  - name: async_trait
+    framework: async_trait
+    category: async

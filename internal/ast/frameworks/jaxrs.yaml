@@ -1,0 +1,21 @@
+# JAX-RS (Java API for RESTful Web Services) detection rules.
+# Extracted from frameworkRules (lines 266-272).
+
+framework: jaxrs
+languages: [java]
+
+decorator_detection:
+  - name: Path
+    category: web
+  - name: GET
+    category: web
+  - name: POST
+    category: web
+  - name: PUT
+    category: web
+  - name: DELETE
+    category: web
+  - name: Produces
+    category: web
+  - name: Consumes
+    category: web

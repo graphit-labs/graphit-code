@@ -1,0 +1,25 @@
+# Entity Framework Core detection rules.
+# Extracted from frameworkRules (lines 300-306) and heritageRules (line 559).
+
+framework: ef_core
+languages: [csharp]
+
+decorator_detection:
+  - name: DbContext
+    category: orm
+  - name: DbSet
+    category: orm
+  - name: Key
+    category: orm
+  - name: Required
+    category: validation
+  - name: MaxLength
+    category: validation
+  - name: ForeignKey
+    category: orm
+  - name: NotMapped
+    category: orm
+
+heritage_detection:
+  - parent: DbContext
+    category: orm

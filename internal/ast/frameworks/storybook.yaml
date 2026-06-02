@@ -1,0 +1,11 @@
+# Storybook detection rules.
+# Extracted from frameworkRules (lines 396-397).
+
+framework: storybook
+languages: [javascript, typescript, tsx]
+
+decorator_detection:
+  - name: Meta
+    category: test
+  - name: Story
+    category: test

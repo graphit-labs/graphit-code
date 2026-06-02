@@ -1284,10 +1284,12 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 		Entities: make(map[string][]Entity),
 	}
 
-	// Merge external queries if projectDir is set
+	// Load language config from YAML (includes queries + exports + context types etc)
+	var langConfig *ExternalQueryFile
 	queries := cfg.Queries
 	if t.projectDir != "" {
 		queries = mergedQueriesFor(t.projectDir, cfg.Language, ext, cfg.Queries, cfg.TSLang)
+		langConfig = resolvedLangConfigFor(t.projectDir, cfg.Language, ext)
 	}
 
 	specificLabels := map[string]bool{
@@ -1335,7 +1337,7 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 					complexity = ComputeCyclomaticComplexity(entitySource)
 				}
 
-				contextName, contextType := resolveParentContext(capture.Node, src)
+				contextName, contextType := resolveParentContext(capture.Node, src, langConfig)
 
 				result.AddEntity(qdef.DataKey, Entity{
 					Name:        name,
@@ -1356,11 +1358,11 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 		q.Close()
 	}
 
-	extractDocstrings(root, src, result)
+	extractDocstrings(root, src, result, langConfig)
 
 	attachDecorators(result)
 
-	detectExports(root, src, result, cfg.Language)
+	detectExports(root, src, result, cfg.Language, langConfig)
 
 	if callEntities, ok := result.Entities["calls"]; ok {
 		for _, e := range callEntities {
@@ -1441,32 +1443,25 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 		delete(result.Entities, "field_writes")
 	}
 
-	resolveReceiverTypes(result, src, cfg.Language)
+	resolveReceiverTypes(result, src, cfg.Language, langConfig)
 
 	return result, nil
 }
 
-func resolveParentContext(node *sitter.Node, src []byte) (string, string) {
-	parentTypes := map[string]string{
-		"class_declaration":     "Class",
-		"class_definition":      "Class",
-		"interface_declaration": "Interface",
-		"struct_declaration":    "Struct",
-		"trait_declaration":     "Trait",
-		"namespace_declaration": "Namespace",
-		"enum_declaration":      "Enum",
+func resolveParentContext(node *sitter.Node, src []byte, langConfig *ExternalQueryFile) (string, string) {
+	parentTypes := defaultContextTypes
+	anonTypes := defaultAnonFuncTypes
 
-		"function_declaration": "Function",
-		"function_definition":  "Function",
-
-		"method_declaration": "Method",
-		"method_definition":  "Method",
-	}
-
-	anonFuncTypes := map[string]bool{
-		"arrow_function":      true,
-		"function_expression": true,
-		"function":            true,
+	if langConfig != nil {
+		if len(langConfig.ContextTypes) > 0 {
+			parentTypes = langConfig.ContextTypes
+		}
+		if len(langConfig.AnonFuncTypes) > 0 {
+			anonTypes = make(map[string]bool, len(langConfig.AnonFuncTypes))
+			for _, t := range langConfig.AnonFuncTypes {
+				anonTypes[t] = true
+			}
+		}
 	}
 
 	current := node.Parent()
@@ -1480,7 +1475,7 @@ func resolveParentContext(node *sitter.Node, src []byte) (string, string) {
 			}
 		}
 
-		if anonFuncTypes[nodeType] {
+		if anonTypes[nodeType] {
 			grandparent := current.Parent()
 			if grandparent != nil && grandparent.Type() == "variable_declarator" {
 				nameNode := grandparent.ChildByFieldName("name")
@@ -1494,23 +1489,54 @@ func resolveParentContext(node *sitter.Node, src []byte) (string, string) {
 	return "", ""
 }
 
-var declarationTypes = map[string]bool{
-
-	"function_declaration": true, "method_declaration": true, "method_definition": true,
-	"function_definition": true, "function_item": true,
-
-	"class_declaration": true, "class_definition": true, "struct_item": true,
-	"interface_declaration": true, "trait_item": true, "enum_item": true,
-	"enum_declaration": true, "struct_declaration": true, "type_item": true,
-	"protocol_declaration": true, "namespace_definition": true,
-
-	"variable_declarator": true, "lexical_declaration": true,
-	"property_declaration": true,
+// Default context types (used when no YAML config is available)
+var defaultContextTypes = map[string]string{
+	"class_declaration":     "Class",
+	"class_definition":      "Class",
+	"interface_declaration": "Interface",
+	"struct_declaration":    "Struct",
+	"trait_declaration":     "Trait",
+	"namespace_declaration": "Namespace",
+	"enum_declaration":      "Enum",
+	"function_declaration":  "Function",
+	"function_definition":   "Function",
+	"method_declaration":    "Method",
+	"method_definition":     "Method",
 }
 
-func extractDocstrings(root *sitter.Node, src []byte, result *ParsedFile) {
+var defaultAnonFuncTypes = map[string]bool{
+	"arrow_function":      true,
+	"function_expression": true,
+	"function":            true,
+}
+
+
+
+func extractDocstrings(root *sitter.Node, src []byte, result *ParsedFile, langConfig *ExternalQueryFile) {
 	if root == nil {
 		return
+	}
+
+	// Build declaration and comment type sets from YAML config
+	var declTypes map[string]bool
+	var comTypes map[string]bool
+	if langConfig != nil && len(langConfig.DeclarationTypes) > 0 {
+		declTypes = make(map[string]bool, len(langConfig.DeclarationTypes))
+		for _, dt := range langConfig.DeclarationTypes {
+			declTypes[dt] = true
+		}
+	}
+	if langConfig != nil && len(langConfig.CommentTypes) > 0 {
+		comTypes = make(map[string]bool, len(langConfig.CommentTypes))
+		for _, ct := range langConfig.CommentTypes {
+			comTypes[ct] = true
+		}
+	}
+	if declTypes == nil {
+		return
+	}
+	if comTypes == nil {
+		comTypes = defaultCommentTypes
 	}
 
 	type entityKey struct {
@@ -1536,11 +1562,11 @@ func extractDocstrings(root *sitter.Node, src []byte, result *ParsedFile) {
 			}
 
 			nodeType := child.Type()
-			if declarationTypes[nodeType] {
+			if declTypes[nodeType] {
 
 				if i > 0 {
 					prev := node.Child(i - 1)
-					if prev != nil && isCommentNode(prev.Type()) {
+					if prev != nil && comTypes[prev.Type()] {
 						commentText := cleanDocstring(prev.Content(src))
 						if commentText != "" {
 							declLine := int(child.StartPoint().Row) + 1
@@ -1587,8 +1613,14 @@ func extractDocstrings(root *sitter.Node, src []byte, result *ParsedFile) {
 }
 
 func isCommentNode(nodeType string) bool {
-	return nodeType == "comment" || nodeType == "block_comment" ||
-		nodeType == "line_comment" || nodeType == "multiline_comment"
+	return defaultCommentTypes[nodeType]
+}
+
+var defaultCommentTypes = map[string]bool{
+	"comment":           true,
+	"block_comment":     true,
+	"line_comment":      true,
+	"multiline_comment": true,
 }
 
 func cleanDocstring(raw string) string {
@@ -1662,7 +1694,7 @@ func attachDecorators(result *ParsedFile) {
 	delete(result.Entities, "decorators")
 }
 
-func resolveReceiverTypes(result *ParsedFile, src []byte, lang string) {
+func resolveReceiverTypes(result *ParsedFile, src []byte, lang string, langConfig *ExternalQueryFile) {
 	if len(result.CallSites) == 0 {
 		return
 	}
@@ -1678,7 +1710,7 @@ func resolveReceiverTypes(result *ParsedFile, src []byte, lang string) {
 		}
 	}
 
-	selfKeywords := selfKeywordsForLang(lang)
+	selfKeywords := selfKeywordsForLang(lang, langConfig)
 
 	for i := range result.CallSites {
 		call := &result.CallSites[i]
@@ -1710,60 +1742,56 @@ func resolveReceiverTypes(result *ParsedFile, src []byte, lang string) {
 	}
 }
 
-func selfKeywordsForLang(lang string) []string {
-	switch lang {
-	case "javascript", "typescript", "tsx", "java", "kotlin", "csharp", "dart":
-		return []string{"this."}
-	case "python":
-		return []string{"self."}
-	case "php":
-		return []string{"$this->"}
-	case "ruby":
-		return []string{"self."}
-	case "rust":
-		return []string{"self."}
-	case "swift":
-		return []string{"self."}
-	case "go":
-
-		return nil
-	default:
-		return nil
+func selfKeywordsForLang(lang string, langConfig *ExternalQueryFile) []string {
+	_ = lang
+	if langConfig != nil && langConfig.SelfKeywords != nil {
+		return langConfig.SelfKeywords
 	}
+	return nil
 }
 
-func detectExports(root *sitter.Node, src []byte, result *ParsedFile, lang string) {
+func detectExports(root *sitter.Node, src []byte, result *ParsedFile, lang string, langConfig *ExternalQueryFile) {
 
 	exportedNames := make(map[string]bool)
 
-	if lang == "javascript" || lang == "typescript" {
+	// Determine export strategy from YAML config or hardcoded fallback
+	var strategy string
+	var stratConfig map[string]string
+	var stratConfigList map[string][]string
 
-		if root != nil {
-			for i := 0; i < int(root.ChildCount()); i++ {
-				child := root.Child(i)
-				if child == nil {
-					continue
-				}
-				if child.Type() == "export_statement" {
+	if langConfig != nil && langConfig.Exports != nil {
+		strategy = langConfig.Exports.Strategy
+		stratConfig = langConfig.Exports.Config
+		stratConfigList = langConfig.Exports.ConfigList
+	} else {
+		strategy = "none"
+	}
 
-					decl := child.ChildByFieldName("declaration")
-					if decl != nil {
-						nameNode := decl.ChildByFieldName("name")
-						if nameNode != nil {
-							exportedNames[nameNode.Content(src)] = true
-						}
+	// Pre-scan for export_statement strategy
+	if strategy == "export_statement" && root != nil {
+		for i := 0; i < int(root.ChildCount()); i++ {
+			child := root.Child(i)
+			if child == nil {
+				continue
+			}
+			if child.Type() == "export_statement" {
+				decl := child.ChildByFieldName("declaration")
+				if decl != nil {
+					nameNode := decl.ChildByFieldName("name")
+					if nameNode != nil {
+						exportedNames[nameNode.Content(src)] = true
 					}
+				}
 
-					for j := 0; j < int(child.ChildCount()); j++ {
-						spec := child.Child(j)
-						if spec != nil && spec.Type() == "export_clause" {
-							for k := 0; k < int(spec.ChildCount()); k++ {
-								es := spec.Child(k)
-								if es != nil && es.Type() == "export_specifier" {
-									nameNode := es.ChildByFieldName("name")
-									if nameNode != nil {
-										exportedNames[nameNode.Content(src)] = true
-									}
+				for j := 0; j < int(child.ChildCount()); j++ {
+					spec := child.Child(j)
+					if spec != nil && spec.Type() == "export_clause" {
+						for k := 0; k < int(spec.ChildCount()); k++ {
+							es := spec.Child(k)
+							if es != nil && es.Type() == "export_specifier" {
+								nameNode := es.ChildByFieldName("name")
+								if nameNode != nil {
+									exportedNames[nameNode.Content(src)] = true
 								}
 							}
 						}
@@ -1784,58 +1812,7 @@ func detectExports(root *sitter.Node, src []byte, result *ParsedFile, lang strin
 				continue
 			}
 
-			exported := false
-			switch lang {
-			case "go":
-
-				if len(e.Name) > 0 && e.Name[0] >= 'A' && e.Name[0] <= 'Z' {
-					exported = true
-				}
-			case "python":
-
-				if len(e.Name) > 0 && e.Name[0] != '_' {
-					exported = true
-				}
-			case "javascript", "typescript":
-
-				if exportedNames[e.Name] {
-					exported = true
-				}
-			case "java", "kotlin", "csharp":
-
-				if e.Source != "" && containsModifier(e.Source, "public") {
-					exported = true
-				}
-			case "rust":
-
-				if e.Source != "" && containsModifier(e.Source, "pub") {
-					exported = true
-				}
-			case "php":
-
-				if e.Source != "" && containsModifier(e.Source, "public") {
-					exported = true
-				}
-			case "swift":
-
-				if e.Source != "" {
-					if !containsModifier(e.Source, "private") && !containsModifier(e.Source, "fileprivate") {
-						exported = true
-					}
-				} else {
-					exported = true
-				}
-			case "ruby":
-
-				if len(e.Name) > 0 && e.Name[0] != '_' {
-					exported = true
-				}
-			case "c", "cpp":
-
-				if e.Source != "" && !containsModifier(e.Source, "static") {
-					exported = true
-				}
-			}
+			exported := isExported(strategy, e, exportedNames, stratConfig, stratConfigList)
 
 			if exported {
 				if e.Properties == nil {
@@ -1847,6 +1824,55 @@ func detectExports(root *sitter.Node, src []byte, result *ParsedFile, lang strin
 	}
 
 	delete(result.Entities, "exports")
+}
+
+// isExported determines if an entity is exported based on the export strategy.
+func isExported(strategy string, e *Entity, exportedNames map[string]bool, config map[string]string, configList map[string][]string) bool {
+	switch strategy {
+	case "capitalized_name":
+		return len(e.Name) > 0 && e.Name[0] >= 'A' && e.Name[0] <= 'Z'
+
+	case "no_prefix":
+		prefix := config["prefix"]
+		if prefix == "" {
+			prefix = "_"
+		}
+		return len(e.Name) > 0 && !strings.HasPrefix(e.Name, prefix)
+
+	case "export_statement":
+		return exportedNames[e.Name]
+
+	case "modifier":
+		keyword := config["keyword"]
+		if keyword == "" {
+			return false
+		}
+		return e.Source != "" && containsModifier(e.Source, keyword)
+
+	case "no_modifier":
+		keywords := configList["keywords"]
+		if len(keywords) == 0 {
+			return true
+		}
+		if e.Source == "" {
+			return true
+		}
+		for _, kw := range keywords {
+			if containsModifier(e.Source, kw) {
+				return false
+			}
+		}
+		return true
+
+	case "no_static":
+		return e.Source != "" && !containsModifier(e.Source, "static")
+
+	case "none":
+		return false
+
+	default:
+		return false
+	}
 }
 
 func containsModifier(source, modifier string) bool {

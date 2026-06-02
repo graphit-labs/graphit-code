@@ -1,0 +1,74 @@
+# ASP.NET framework detection rules.
+# Extracted from frameworkRules (lines 284-298) and heritageRules (lines 555-558).
+# Includes ASP.NET Razor and SignalR sub-frameworks.
+
+framework: aspnet
+languages: [csharp]
+
+decorator_detection:
+  # Web
+  - name: ApiController
+    category: web
+  - name: HttpGet
+    category: web
+  - name: HttpPost
+    category: web
+  - name: HttpPut
+    category: web
+  - name: HttpDelete
+    category: web
+  - name: HttpPatch
+    category: web
+  - name: Route
+    category: web
+  - name: FromBody
+    category: web
+  - name: FromQuery
+    category: web
+  - name: FromRoute
+    category: web
+  - name: ProducesResponseType
+    category: web
+  - name: ValidateAntiForgeryToken
+    category: web
+
+  # Auth
+  - name: Authorize
+    category: auth
+  - name: AllowAnonymous
+    category: auth
+
+  # ASP.NET Razor
+  - name: BindProperty
+    framework: aspnet_razor
+    category: web
+
+heritage_detection:
+  # ASP.NET Core
+  - parent: ControllerBase
+    category: web
+  - parent: Controller
+    category: web
+
+  # ASP.NET Razor Pages
+  - parent: PageModel
+    framework: aspnet_razor
+    category: web
+
+  # SignalR
+  - parent: Hub
+    framework: signalr
+    category: realtime
+
+entry_points:
+  decorators:
+    - name: HttpGet
+      score: 70
+    - name: HttpPost
+      score: 70
+    - name: HttpPut
+      score: 70
+    - name: HttpDelete
+      score: 70
+    - name: ApiController
+      score: 50

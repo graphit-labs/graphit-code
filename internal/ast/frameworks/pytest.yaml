@@ -1,0 +1,24 @@
+# Pytest testing framework detection rules.
+# Extracted from frameworkRules (lines 348-352).
+# Includes unittest.patch.
+
+framework: pytest
+languages: [python]
+
+decorator_detection:
+  - name: pytest.fixture
+    category: test
+  - name: pytest.mark.parametrize
+    category: test
+  - name: pytest.mark.skip
+    category: test
+  - name: pytest.mark.asyncio
+    category: test
+  - name: patch
+    framework: unittest
+    category: test
+
+entry_points:
+  decorators:
+    - name: pytest.fixture
+      score: 60

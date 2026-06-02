@@ -1,0 +1,71 @@
+# Go language-specific rules.
+# Extracted from scoreFunction() lang switch and importRules in enrichment.go.
+
+framework: _go_lang
+languages: [go]
+
+entry_points:
+  # Go-specific: init() gets score 70 (overrides base 40)
+  name_rules:
+    - pattern: init
+      match: exact
+      score: 70              # score = max(score, 70)
+
+import_detection:
+  # Go module import paths (match: prefix for path-based matching)
+  - pattern: "github.com/gin-gonic/gin"
+    match: prefix
+    framework: gin
+    category: web
+  - pattern: "github.com/labstack/echo"
+    match: prefix
+    framework: echo
+    category: web
+  - pattern: "github.com/gofiber/fiber"
+    match: prefix
+    framework: fiber
+    category: web
+  - pattern: "github.com/gorilla/mux"
+    match: prefix
+    framework: gorilla
+    category: web
+  - pattern: "github.com/go-chi/chi"
+    match: prefix
+    framework: chi
+    category: web
+  - pattern: "net/http"
+    match: prefix
+    framework: stdlib
+    category: web
+  - pattern: "google.golang.org/grpc"
+    match: prefix
+    framework: grpc
+    category: rpc
+  - pattern: "google.golang.org/protobuf"
+    match: prefix
+    framework: protobuf
+    category: serialization
+  - pattern: "gorm.io/gorm"
+    match: prefix
+    framework: gorm
+    category: orm
+  - pattern: "github.com/jmoiron/sqlx"
+    match: prefix
+    framework: sqlx
+    category: orm
+  - pattern: "go.uber.org/zap"
+    match: prefix
+    framework: zap
+    category: logging
+  - pattern: "github.com/stretchr/testify"
+    match: prefix
+    framework: testify
+    category: test
+  - pattern: "github.com/spf13/cobra"
+    match: prefix
+    framework: cobra
+    category: cli
+  - pattern: "github.com/spf13/viper"
+    match: prefix
+    framework: viper
+    category: config

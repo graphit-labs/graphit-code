@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"embed"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -16,12 +17,30 @@ import (
 )
 
 // ExternalQueryFile represents a YAML file with custom tree-sitter queries
-// for a specific language. Files are loaded from .graphit/ast/queries/.
+// and language configuration. Files are loaded from .graphit/ast/queries/.
 type ExternalQueryFile struct {
 	Language   string             `yaml:"language"`
 	Extensions []string           `yaml:"extensions,omitempty"`
 	Replace    bool               `yaml:"replace"`
 	Queries    []ExternalQueryDef `yaml:"queries"`
+
+	// Language-level configuration (all optional — engine uses sensible defaults)
+	Exports          *ExportConfig     `yaml:"exports,omitempty"`
+	SelfKeywords     []string          `yaml:"self_keywords,omitempty"`
+	ContextTypes     map[string]string `yaml:"context_types,omitempty"`
+	AnonFuncTypes    []string          `yaml:"anon_func_types,omitempty"`
+	DeclarationTypes []string          `yaml:"declaration_types,omitempty"`
+	CommentTypes     []string          `yaml:"comment_types,omitempty"`
+}
+
+// ExportConfig defines how the engine determines export/visibility for a language.
+type ExportConfig struct {
+	// Strategy is one of: capitalized_name, no_prefix, modifier, export_statement,
+	// no_modifier, no_static, none.
+	Strategy string            `yaml:"strategy"`
+	Config   map[string]string `yaml:"config,omitempty"`
+	// ConfigList holds list-type config values (e.g. keywords for no_modifier).
+	ConfigList map[string][]string `yaml:"config_list,omitempty"`
 }
 
 // ExternalQueryDef represents a single tree-sitter query pattern from an
@@ -34,57 +53,209 @@ type ExternalQueryDef struct {
 }
 
 // ---------------------------------------------------------------------------
+// Framework definitions
+// ---------------------------------------------------------------------------
+
+// FrameworkFile represents a YAML file with framework detection rules
+// and entry point scoring overrides. Files are loaded from .graphit/ast/frameworks/.
+type FrameworkFile struct {
+	Framework string   `yaml:"framework"`
+	Languages []string `yaml:"languages,omitempty"`
+
+	DecoratorDetection []DecoratorRule   `yaml:"decorator_detection,omitempty"`
+	HeritageDetection  []HeritageRule    `yaml:"heritage_detection,omitempty"`
+	ImportDetection    []ImportRule      `yaml:"import_detection,omitempty"`
+	EntryPoints        *EntryPointConfig `yaml:"entry_points,omitempty"`
+}
+
+// DecoratorRule maps a decorator name to a framework category.
+type DecoratorRule struct {
+	Name     string `yaml:"name"`
+	Category string `yaml:"category"`
+	// FrameworkName overrides the parent FrameworkFile.Framework name.
+	FrameworkName string `yaml:"framework_name,omitempty"`
+}
+
+// HeritageRule maps a parent class/interface name to a framework category.
+type HeritageRule struct {
+	Parent   string `yaml:"parent"`
+	Category string `yaml:"category"`
+	// FrameworkName overrides the parent FrameworkFile.Framework name.
+	FrameworkName string `yaml:"framework_name,omitempty"`
+}
+
+// ImportRule matches import paths to detect framework usage.
+type ImportRule struct {
+	Pattern  string `yaml:"pattern"`
+	Match    string `yaml:"match"` // "prefix" or "exact"
+	Category string `yaml:"category"`
+	// FrameworkName overrides the parent FrameworkFile.Framework name.
+	FrameworkName string `yaml:"framework_name,omitempty"`
+}
+
+// EntryPointConfig defines entry point scoring rules for a framework.
+type EntryPointConfig struct {
+	// Name-based scoring (glob patterns: "main", "Test*", "*Handler")
+	Names []NameScoreRule `yaml:"names,omitempty"`
+	// Decorator-based scoring
+	Decorators []DecoratorScoreRule `yaml:"decorators,omitempty"`
+	// Bonus for exported functions
+	ExportedBonus int `yaml:"exported_bonus,omitempty"`
+	// Maximum score cap
+	MaxScore int `yaml:"max_score,omitempty"`
+}
+
+// NameScoreRule scores functions by name pattern.
+type NameScoreRule struct {
+	Pattern string `yaml:"pattern"`
+	Score   int    `yaml:"score"`
+}
+
+// DecoratorScoreRule scores functions by decorator name.
+type DecoratorScoreRule struct {
+	Name  string `yaml:"name"`
+	Score int    `yaml:"score"`
+}
+
+// ---------------------------------------------------------------------------
+// Ecosystem definitions
+// ---------------------------------------------------------------------------
+
+// EcosystemFile represents the ecosystems.yaml configuration.
+type EcosystemFile struct {
+	ConfigFiles []EcosystemEntry `yaml:"config_files"`
+}
+
+// EcosystemEntry maps a config filename to a language and ecosystem.
+type EcosystemEntry struct {
+	Filename  string `yaml:"filename"`
+	Language  string `yaml:"language"`
+	Ecosystem string `yaml:"ecosystem"`
+	Glob      bool   `yaml:"glob,omitempty"`
+	// Extract allows extracting metadata from file content.
+	Extract []EcosystemExtract `yaml:"extract,omitempty"`
+}
+
+// EcosystemExtract defines a field to extract from a config file.
+type EcosystemExtract struct {
+	Field string `yaml:"field"` // JSON field path
+	Store string `yaml:"store"` // key to store in detected map
+}
+
+// ---------------------------------------------------------------------------
 // Directory paths
 // ---------------------------------------------------------------------------
 
-// userQueriesDir returns the user-editable global queries directory:
-// ~/.graphit/ast/queries/
-// This directory is NEVER written to by the framework — only the user modifies it.
-func userQueriesDir() string {
+// userASTDir returns the user-editable global AST directory: ~/.graphit/ast/
+func userASTDir() string {
 	d := brand.GlobalDir()
 	if d == "" {
 		return ""
 	}
-	return filepath.Join(d, "ast", "queries")
+	return filepath.Join(d, "ast")
 }
 
-// runtimeQueriesDir returns the version-scoped runtime queries directory:
-// ~/.graphit/runtime/<version>/ast/queries/
-// This directory is managed by the framework and overwritten on each version.
-func runtimeQueriesDir() string {
+// runtimeASTDir returns the version-scoped runtime AST directory.
+func runtimeASTDir() string {
 	d := brand.RuntimeDir(version.Version)
 	if d == "" {
 		return ""
 	}
-	return filepath.Join(d, "ast", "queries")
+	return filepath.Join(d, "ast")
 }
 
-// projectQueriesDir returns the project-level queries directory.
+// projectASTDir returns the project-level AST directory.
+func projectASTDir(projectDir string) string {
+	return filepath.Join(projectDir, brand.DotDir(), "ast")
+}
+
+func userQueriesDir() string {
+	d := userASTDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "queries")
+}
+
+func runtimeQueriesDir() string {
+	d := runtimeASTDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "queries")
+}
+
 func projectQueriesDir(projectDir string) string {
-	return filepath.Join(projectDir, brand.DotDir(), "ast", "queries")
+	return filepath.Join(projectASTDir(projectDir), "queries")
+}
+
+func userFrameworksDir() string {
+	d := userASTDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "frameworks")
+}
+
+func runtimeFrameworksDir() string {
+	d := runtimeASTDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "frameworks")
+}
+
+func projectFrameworksDir(projectDir string) string {
+	return filepath.Join(projectASTDir(projectDir), "frameworks")
 }
 
 // ---------------------------------------------------------------------------
 // Runtime defaults extraction
 // ---------------------------------------------------------------------------
 
-// EnsureDefaultQueries writes embedded default query files to the runtime
-// directory (~/.graphit/runtime/<version>/ast/queries/).
-// Files are ALWAYS overwritten because the runtime dir is version-scoped —
-// each binary version gets its own clean set of defaults.
+// EnsureDefaultQueries writes embedded default files (queries, frameworks,
+// ecosystems) to the runtime directory (~/.graphit/runtime/<version>/ast/).
+// Files are ALWAYS overwritten because the runtime dir is version-scoped.
 func EnsureDefaultQueries() error {
-	dir := runtimeQueriesDir()
-	if dir == "" {
+	astDir := runtimeASTDir()
+	if astDir == "" {
 		return nil
 	}
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create runtime queries dir: %w", err)
+	// Extract queries/*.yaml
+	queriesDir := filepath.Join(astDir, "queries")
+	if err := extractEmbedDir(embeddedQueryFS, "queries", queriesDir); err != nil {
+		return fmt.Errorf("extract embedded queries: %w", err)
 	}
 
-	entries, err := fs.ReadDir(embeddedQueryFS, "queries")
+	// Extract frameworks/*.yaml
+	frameworksDir := filepath.Join(astDir, "frameworks")
+	if err := extractEmbedDir(embeddedFrameworkFS, "frameworks", frameworksDir); err != nil {
+		return fmt.Errorf("extract embedded frameworks: %w", err)
+	}
+
+	// Extract ecosystems.yaml
+	if data, err := fs.ReadFile(embeddedEcosystemFS, "ecosystems.yaml"); err == nil {
+		dest := filepath.Join(astDir, "ecosystems.yaml")
+		if mkErr := os.MkdirAll(filepath.Dir(dest), 0o755); mkErr == nil {
+			if wErr := os.WriteFile(dest, data, 0o644); wErr != nil {
+				slog.Warn("skip embedded ecosystems.yaml: write error", "error", wErr)
+			}
+		}
+	}
+
+	return nil
+}
+
+// extractEmbedDir extracts all YAML files from an embedded FS directory to destDir.
+func extractEmbedDir(fsys embed.FS, srcDir, destDir string) error {
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("create dir %s: %w", destDir, err)
+	}
+
+	entries, err := fs.ReadDir(fsys, srcDir)
 	if err != nil {
-		return fmt.Errorf("read embedded queries: %w", err)
+		return fmt.Errorf("read embedded dir %s: %w", srcDir, err)
 	}
 
 	for _, entry := range entries {
@@ -92,21 +263,16 @@ func EnsureDefaultQueries() error {
 			continue
 		}
 		name := entry.Name()
-		destPath := filepath.Join(dir, name)
-
-		data, err := fs.ReadFile(embeddedQueryFS, "queries/"+name)
+		data, err := fs.ReadFile(fsys, srcDir+"/"+name)
 		if err != nil {
-			slog.Warn("skip embedded query: read error", "name", name, "error", err)
+			slog.Warn("skip embedded file: read error", "name", name, "error", err)
 			continue
 		}
-
-		// Always overwrite — runtime dir is version-scoped
-		if err := os.WriteFile(destPath, data, 0o644); err != nil {
-			slog.Warn("skip embedded query: write error", "name", name, "error", err)
+		if err := os.WriteFile(filepath.Join(destDir, name), data, 0o644); err != nil {
+			slog.Warn("skip embedded file: write error", "name", name, "error", err)
 			continue
 		}
 	}
-
 	return nil
 }
 
@@ -214,7 +380,7 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 	}
 	qf.Queries = valid
 
-	if len(qf.Queries) == 0 {
+	if len(qf.Queries) == 0 && !hasLangConfig(&qf) {
 		return qf, false
 	}
 
@@ -531,4 +697,287 @@ func mergedQueriesFor(projectDir, lang, ext string, builtIn []tsQueryDef, tsLang
 
 	mergedQueryCache.Store(cacheKey, result)
 	return result
+}
+
+// hasLangConfig returns true if the file has any language configuration
+// sections beyond queries (exports, self_keywords, context_types, etc).
+func hasLangConfig(qf *ExternalQueryFile) bool {
+	return qf.Exports != nil ||
+		len(qf.SelfKeywords) > 0 ||
+		len(qf.ContextTypes) > 0 ||
+		len(qf.AnonFuncTypes) > 0 ||
+		len(qf.DeclarationTypes) > 0 ||
+		len(qf.CommentTypes) > 0
+}
+
+// ---------------------------------------------------------------------------
+// Language Config Resolution
+// ---------------------------------------------------------------------------
+
+// resolvedLangConfigFor returns the language configuration for a given language
+// and extension. It walks the resolution chain and returns the first file that
+// provides the requested language config.
+func resolvedLangConfigFor(projectDir, lang, ext string) *ExternalQueryFile {
+	resolved := resolveQueriesForLang(projectDir, lang, ext)
+	for i := range resolved {
+		if hasLangConfig(&resolved[i]) {
+			return &resolved[i]
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Framework Loading
+// ---------------------------------------------------------------------------
+
+// loadFrameworksFromDir scans *.yaml files in a directory and returns
+// all valid framework files.
+func loadFrameworksFromDir(dir string) ([]FrameworkFile, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read frameworks dir: %w", err)
+	}
+
+	var result []FrameworkFile
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".yaml" && ext != ".yml" {
+			continue
+		}
+
+		path := filepath.Join(dir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			slog.Warn("skip framework file: read error", "path", path, "error", err)
+			continue
+		}
+
+		var ff FrameworkFile
+		if err := yaml.Unmarshal(data, &ff); err != nil {
+			slog.Warn("skip framework file: YAML parse error", "path", path, "error", err)
+			continue
+		}
+		if ff.Framework == "" {
+			slog.Warn("skip framework file: missing 'framework' field", "path", path)
+			continue
+		}
+		result = append(result, ff)
+	}
+
+	return result, nil
+}
+
+// loadFrameworksFromEmbed loads framework files from the embedded filesystem.
+func loadFrameworksFromEmbed() []FrameworkFile {
+	entries, err := fs.ReadDir(embeddedFrameworkFS, "frameworks")
+	if err != nil {
+		return nil
+	}
+
+	var result []FrameworkFile
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".yaml" && ext != ".yml" {
+			continue
+		}
+
+		data, err := fs.ReadFile(embeddedFrameworkFS, "frameworks/"+name)
+		if err != nil {
+			continue
+		}
+
+		var ff FrameworkFile
+		if err := yaml.Unmarshal(data, &ff); err != nil {
+			continue
+		}
+		if ff.Framework == "" {
+			continue
+		}
+		result = append(result, ff)
+	}
+
+	return result
+}
+
+// Framework caches
+var frameworkCache sync.Map // map[string][]FrameworkFile (projectDir -> frameworks)
+var userFrameworksOnce sync.Once
+var userFrameworksCache []FrameworkFile
+var runtimeFrameworksOnce sync.Once
+var runtimeFrameworksCache []FrameworkFile
+var embeddedFrameworksOnce sync.Once
+var embeddedFrameworksCache []FrameworkFile
+
+func loadEmbeddedFrameworksCached() []FrameworkFile {
+	embeddedFrameworksOnce.Do(func() {
+		embeddedFrameworksCache = loadFrameworksFromEmbed()
+	})
+	return embeddedFrameworksCache
+}
+
+func loadRuntimeFrameworksCached() []FrameworkFile {
+	runtimeFrameworksOnce.Do(func() {
+		dir := runtimeFrameworksDir()
+		if dir != "" {
+			ff, err := loadFrameworksFromDir(dir)
+			if err != nil {
+				slog.Warn("runtime framework load error", "error", err)
+			}
+			runtimeFrameworksCache = ff
+		}
+	})
+	return runtimeFrameworksCache
+}
+
+func loadUserFrameworksCached() []FrameworkFile {
+	userFrameworksOnce.Do(func() {
+		dir := userFrameworksDir()
+		if dir != "" {
+			ff, err := loadFrameworksFromDir(dir)
+			if err != nil {
+				slog.Warn("user framework load error", "error", err)
+			}
+			userFrameworksCache = ff
+		}
+	})
+	return userFrameworksCache
+}
+
+func loadProjectFrameworksCached(projectDir string) []FrameworkFile {
+	if cached, ok := frameworkCache.Load(projectDir); ok {
+		return cached.([]FrameworkFile)
+	}
+
+	ff, err := loadFrameworksFromDir(projectFrameworksDir(projectDir))
+	if err != nil {
+		slog.Warn("project framework load error", "dir", projectDir, "error", err)
+		ff = nil
+	}
+
+	frameworkCache.Store(projectDir, ff)
+	return ff
+}
+
+// ResolveFrameworks returns all applicable framework files for a project,
+// merging from all 4 levels. Unlike queries (which use precedence override),
+// frameworks MERGE from all levels — project frameworks extend runtime+user ones.
+func ResolveFrameworks(projectDir string) []FrameworkFile {
+	ensureOnce.Do(func() {
+		if err := EnsureDefaultQueries(); err != nil {
+			slog.Warn("failed to ensure defaults", "error", err)
+		}
+	})
+
+	var all []FrameworkFile
+
+	// Embedded (lowest priority — always included as base)
+	all = append(all, loadEmbeddedFrameworksCached()...)
+
+	// Runtime (overrides embedded via filename collision handled below)
+	all = append(all, loadRuntimeFrameworksCached()...)
+
+	// User global (extends/overrides)
+	all = append(all, loadUserFrameworksCached()...)
+
+	// Project (highest priority — extends)
+	if projectDir != "" {
+		all = append(all, loadProjectFrameworksCached(projectDir)...)
+	}
+
+	return all
+}
+
+// ---------------------------------------------------------------------------
+// Ecosystem Loading
+// ---------------------------------------------------------------------------
+
+// loadEcosystemFile loads an ecosystems.yaml file from a path.
+func loadEcosystemFile(path string) (*EcosystemFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var ef EcosystemFile
+	if err := yaml.Unmarshal(data, &ef); err != nil {
+		return nil, fmt.Errorf("YAML parse error: %w", err)
+	}
+	return &ef, nil
+}
+
+// Ecosystem caches
+var ecosystemOnce sync.Once
+var ecosystemCache []EcosystemEntry
+
+// ResolveEcosystems returns the merged ecosystem entries from all levels.
+// Like frameworks, ecosystems MERGE from all levels.
+func ResolveEcosystems(projectDir string) []EcosystemEntry {
+	ensureOnce.Do(func() {
+		if err := EnsureDefaultQueries(); err != nil {
+			slog.Warn("failed to ensure defaults", "error", err)
+		}
+	})
+
+	// For ecosystems, we load once and merge. Project can add entries.
+	var all []EcosystemEntry
+
+	// Embedded
+	if data, err := fs.ReadFile(embeddedEcosystemFS, "ecosystems.yaml"); err == nil {
+		var ef EcosystemFile
+		if err := yaml.Unmarshal(data, &ef); err == nil {
+			all = append(all, ef.ConfigFiles...)
+		}
+	}
+
+	// Runtime
+	if dir := runtimeASTDir(); dir != "" {
+		if ef, err := loadEcosystemFile(filepath.Join(dir, "ecosystems.yaml")); err == nil && ef != nil {
+			all = append(all, ef.ConfigFiles...)
+		}
+	}
+
+	// User global
+	if dir := userASTDir(); dir != "" {
+		if ef, err := loadEcosystemFile(filepath.Join(dir, "ecosystems.yaml")); err == nil && ef != nil {
+			all = append(all, ef.ConfigFiles...)
+		}
+	}
+
+	// Project
+	if projectDir != "" {
+		if ef, err := loadEcosystemFile(filepath.Join(projectASTDir(projectDir), "ecosystems.yaml")); err == nil && ef != nil {
+			all = append(all, ef.ConfigFiles...)
+		}
+	}
+
+	return all
+}
+
+// resetAllCaches clears all cached data. Used by tests.
+func resetAllCaches() {
+	resetQueryCaches()
+	frameworkCache = sync.Map{}
+	userFrameworksOnce = sync.Once{}
+	userFrameworksCache = nil
+	runtimeFrameworksOnce = sync.Once{}
+	runtimeFrameworksCache = nil
+	embeddedFrameworksOnce = sync.Once{}
+	embeddedFrameworksCache = nil
+	ecosystemOnce = sync.Once{}
+	ecosystemCache = nil
 }

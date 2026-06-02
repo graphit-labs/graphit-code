@@ -1,0 +1,23 @@
+# Ruby language-specific rules.
+# Extracted from importRules in enrichment.go (lines 667-670).
+
+framework: _ruby_lang
+languages: [ruby]
+
+import_detection:
+  - pattern: rails
+    match: prefix
+    framework: rails
+    category: web
+  - pattern: sinatra
+    match: prefix
+    framework: sinatra
+    category: web
+  - pattern: rspec
+    match: prefix
+    framework: rspec
+    category: test
+  - pattern: sidekiq
+    match: prefix
+    framework: sidekiq
+    category: async

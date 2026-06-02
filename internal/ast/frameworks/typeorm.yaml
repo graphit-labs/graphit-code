@@ -1,0 +1,17 @@
+# TypeORM detection rules.
+# Extracted from frameworkRules (lines 391-394).
+# Note: Entity, Table, Column, ManyToMany, OneToOne are in jpa.yaml for Java;
+# TypeORM has its own specific decorators listed here.
+
+framework: typeorm
+languages: [javascript, typescript]
+
+decorator_detection:
+  - name: PrimaryGeneratedColumn
+    category: orm
+  - name: ManyToOne
+    category: orm
+  - name: OneToMany
+    category: orm
+  - name: JoinColumn
+    category: orm

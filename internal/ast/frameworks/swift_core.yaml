@@ -1,0 +1,16 @@
+# Swift core language detection rules.
+# Extracted from frameworkRules (lines 480-482).
+
+framework: swift_core
+languages: [swift]
+
+decorator_detection:
+  - name: available
+    framework: swift
+    category: compat
+  - name: discardableResult
+    framework: swift
+    category: core
+  - name: testable
+    framework: xctest
+    category: test

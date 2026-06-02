@@ -1,0 +1,13 @@
+# Jakarta EE (EJB) detection rules.
+# Extracted from frameworkRules (lines 263-265).
+
+framework: jakarta
+languages: [java]
+
+decorator_detection:
+  - name: Stateless
+    category: ejb
+  - name: Stateful
+    category: ejb
+  - name: Singleton
+    category: ejb

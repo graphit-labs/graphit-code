@@ -1,0 +1,9 @@
+# Laravel framework detection rules.
+# Extracted from frameworkRules (line 399).
+
+framework: laravel
+languages: [php]
+
+decorator_detection:
+  - name: middleware
+    category: middleware

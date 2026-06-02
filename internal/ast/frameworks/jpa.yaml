@@ -1,0 +1,29 @@
+# JPA (Java Persistence API) detection rules.
+# Extracted from frameworkRules (lines 240-250).
+
+framework: jpa
+languages: [java, kotlin]
+
+decorator_detection:
+  - name: Entity
+    category: orm
+  - name: Table
+    category: orm
+  - name: Column
+    category: orm
+  - name: Id
+    category: orm
+  - name: GeneratedValue
+    category: orm
+  - name: ManyToOne
+    category: orm
+  - name: OneToMany
+    category: orm
+  - name: ManyToMany
+    category: orm
+  - name: OneToOne
+    category: orm
+  - name: JoinColumn
+    category: orm
+  - name: Query
+    category: orm

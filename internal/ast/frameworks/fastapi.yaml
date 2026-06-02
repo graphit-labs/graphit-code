@@ -1,0 +1,36 @@
+# FastAPI framework detection rules.
+# Extracted from frameworkRules (lines 322-330).
+
+framework: fastapi
+languages: [python]
+
+decorator_detection:
+  - name: app.get
+    category: web
+  - name: app.post
+    category: web
+  - name: app.put
+    category: web
+  - name: app.delete
+    category: web
+  - name: app.patch
+    category: web
+  - name: app.middleware
+    category: middleware
+  - name: router.get
+    category: web
+  - name: router.post
+    category: web
+  - name: Depends
+    category: di
+
+entry_points:
+  decorators:
+    - name: app.get
+      score: 70
+    - name: app.post
+      score: 70
+    - name: app.put
+      score: 70
+    - name: app.delete
+      score: 70

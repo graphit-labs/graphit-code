@@ -1,0 +1,13 @@
+# Rust language-specific rules.
+# No language-specific import rules are defined in importRules for Rust;
+# Rust framework detection is handled by decorator-based rules (actix, rocket,
+# tokio, serde, diesel, rust_test) in their respective YAML files.
+
+framework: _rust_lang
+languages: [rust]
+
+# Rust uses decorator_detection rules from framework-specific files
+# (actix.yaml, rocket.yaml, tokio.yaml, serde.yaml, rust_test.yaml).
+# No language-level import_detection is needed because Rust crate imports
+# are matched via decorator attributes rather than module import paths.
+decorator_detection: []

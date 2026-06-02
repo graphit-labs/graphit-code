@@ -1,0 +1,62 @@
+# Python language-specific rules.
+# Extracted from scoreFunction() lang switch and importRules in enrichment.go.
+
+framework: _python_lang
+languages: [python]
+
+entry_points:
+  # Python-specific: __main__ gets score 80
+  name_rules:
+    - pattern: __main__
+      match: exact
+      score: 80              # score = max(score, 80)
+
+import_detection:
+  - pattern: django
+    match: prefix
+    framework: django
+    category: web
+  - pattern: flask
+    match: prefix
+    framework: flask
+    category: web
+  - pattern: fastapi
+    match: prefix
+    framework: fastapi
+    category: web
+  - pattern: sqlalchemy
+    match: prefix
+    framework: sqlalchemy
+    category: orm
+  - pattern: celery
+    match: prefix
+    framework: celery
+    category: async
+  - pattern: pytest
+    match: prefix
+    framework: pytest
+    category: test
+  - pattern: pydantic
+    match: prefix
+    framework: pydantic
+    category: validation
+  - pattern: numpy
+    match: prefix
+    framework: numpy
+    category: data
+  - pattern: pandas
+    match: prefix
+    framework: pandas
+    category: data
+  - pattern: torch
+    match: prefix
+    framework: pytorch
+    category: ml
+  - pattern: tensorflow
+    match: prefix
+    framework: tensorflow
+    category: ml
+  - pattern: scrapy
+    match: prefix
+    framework: scrapy
+    category: scraping

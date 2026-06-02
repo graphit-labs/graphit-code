@@ -37,3 +37,57 @@ queries:
     pattern: '(attribute attribute: (identifier) @name)'
   - data_key: field_writes
     pattern: '(assignment left: (attribute attribute: (identifier) @name))'
+
+# Export detection strategy — extracted from detectExports()
+exports:
+  strategy: no_prefix
+  config:
+    prefix: "_"
+
+# Self/this keywords for receiver type resolution — extracted from selfKeywordsForLang()
+self_keywords: ["self."]
+
+# Parent context type mapping — extracted from resolveParentContext()
+context_types:
+  class_declaration: Class
+  class_definition: Class
+  interface_declaration: Interface
+  struct_declaration: Struct
+  trait_declaration: Trait
+  namespace_declaration: Namespace
+  enum_declaration: Enum
+  function_declaration: Function
+  function_definition: Function
+  method_declaration: Method
+  method_definition: Method
+
+# Anonymous function types for variable_declarator resolution — extracted from resolveParentContext()
+anon_func_types: []
+
+# Declaration types for docstring attachment — extracted from declarationTypes map
+declaration_types:
+  - function_declaration
+  - method_declaration
+  - method_definition
+  - function_definition
+  - function_item
+  - class_declaration
+  - class_definition
+  - struct_item
+  - interface_declaration
+  - trait_item
+  - enum_item
+  - enum_declaration
+  - struct_declaration
+  - type_item
+  - protocol_declaration
+  - namespace_definition
+  - variable_declarator
+  - lexical_declaration
+  - property_declaration
+
+# Comment node types for docstring extraction — extracted from isCommentNode()
+comment_types:
+  - comment
+  - block_comment
+  - line_comment

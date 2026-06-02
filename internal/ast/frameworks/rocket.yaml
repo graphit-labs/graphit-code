@@ -1,0 +1,13 @@
+# Rocket framework detection rules.
+# Extracted from frameworkRules (lines 445-447).
+
+framework: rocket
+languages: [rust]
+
+decorator_detection:
+  - name: "rocket::get"
+    category: web
+  - name: "rocket::post"
+    category: web
+  - name: "rocket::launch"
+    category: web

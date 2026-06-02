@@ -1,0 +1,15 @@
+# xUnit testing framework detection rules.
+# Extracted from frameworkRules (lines 314-317).
+
+framework: xunit
+languages: [csharp]
+
+decorator_detection:
+  - name: Fact
+    category: test
+  - name: Theory
+    category: test
+  - name: InlineData
+    category: test
+  - name: ClassData
+    category: test

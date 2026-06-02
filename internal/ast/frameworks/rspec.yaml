@@ -1,0 +1,17 @@
+# RSpec testing framework detection rules.
+# Extracted from frameworkRules (lines 431-435).
+
+framework: rspec
+languages: [ruby]
+
+decorator_detection:
+  - name: describe
+    category: test
+  - name: context
+    category: test
+  - name: it
+    category: test
+  - name: subject
+    category: test
+  - name: let
+    category: test
