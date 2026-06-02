@@ -65,8 +65,8 @@ var tsExtMap map[string]*tsLangConfig
 
 func init() {
 	tsExtMap = make(map[string]*tsLangConfig)
-	embedded := loadQueriesFromEmbed()
-	for _, qf := range embedded {
+	runtimeQ := loadRuntimeCached()
+	for _, qf := range runtimeQ {
 		grammar, ok := treeSitterGrammars[qf.Language]
 		if !ok {
 			continue

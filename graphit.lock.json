@@ -7,10 +7,5 @@
   "ides": [
     "antigravity"
   ],
-  "artifacts": {},
-  "config": {
-    "knowledge": {
-      "docs_dir": "docs"
-    }
-  }
+  "artifacts": {}
 }

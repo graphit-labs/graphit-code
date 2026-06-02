@@ -113,6 +113,14 @@ define bundle_model
 	cp $(MODEL_CACHE)/tokenizer.json cmd/launcher/runtime/models/tokenizer.json
 endef
 
+define bundle_ast
+	@mkdir -p cmd/launcher/runtime/ast/queries
+	@mkdir -p cmd/launcher/runtime/ast/frameworks
+	cp internal/ast/queries/*.yaml cmd/launcher/runtime/ast/queries/
+	cp internal/ast/frameworks/*.yaml cmd/launcher/runtime/ast/frameworks/
+	cp internal/ast/ecosystems.yaml cmd/launcher/runtime/ast/
+endef
+
 fetch-ort-linux:
 	@mkdir -p $(ORT_CACHE)
 	@if [ ! -f $(ORT_CACHE)/onnxruntime-linux-x64-$(ORT_VERSION)/lib/libonnxruntime.so ]; then \
@@ -152,6 +160,7 @@ build-linux: ui setup-lbug fetch-ort-linux fetch-model
 	rm -f cmd/launcher/runtime/*.so.*.*
 	cp -L $(ORT_CACHE)/onnxruntime-linux-x64-$(ORT_VERSION)/lib/libonnxruntime.so cmd/launcher/runtime/
 	$(call bundle_model)
+	$(call bundle_ast)
 	@mkdir -p $(BIN_DIR)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-linux-amd64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
@@ -166,6 +175,7 @@ build-darwin: ui setup-lbug fetch-ort-darwin fetch-model
 	rm -f cmd/launcher/runtime/*.*.*.dylib
 	cp -L $(ORT_CACHE)/onnxruntime-osx-arm64-$(ORT_VERSION)/lib/libonnxruntime.dylib cmd/launcher/runtime/
 	$(call bundle_model)
+	$(call bundle_ast)
 	@mkdir -p $(BIN_DIR)
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-darwin-arm64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
@@ -178,6 +188,7 @@ build-windows: ui setup-lbug fetch-ort-windows fetch-model
 	find /usr/x86_64-w64-mingw32 -name "*.dll" -exec cp -L {} cmd/launcher/runtime/ \; 2>/dev/null || true
 	cp -L $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll cmd/launcher/runtime/
 	$(call bundle_model)
+	$(call bundle_ast)
 	@mkdir -p $(BIN_DIR)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
@@ -195,6 +206,7 @@ build-windows-native: ui setup-lbug fetch-ort-windows fetch-model
 	cp /mingw64/bin/libwinpthread-1.dll cmd/launcher/runtime/ 2>/dev/null || true
 	cp -L $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll cmd/launcher/runtime/
 	$(call bundle_model)
+	$(call bundle_ast)
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*

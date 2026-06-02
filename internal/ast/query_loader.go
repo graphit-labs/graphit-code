@@ -1,9 +1,7 @@
 package ast
 
 import (
-	"embed"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -215,71 +213,9 @@ func projectFrameworksDir(projectDir string) string {
 }
 
 // ---------------------------------------------------------------------------
-// Runtime defaults extraction
+// Runtime defaults — extracted by the launcher to ~/.graphit/runtime/<version>/ast/
+// No embedded extraction needed; the launcher handles this during binary setup.
 // ---------------------------------------------------------------------------
-
-// EnsureDefaultQueries writes embedded default files (queries, frameworks,
-// ecosystems) to the runtime directory (~/.graphit/runtime/<version>/ast/).
-// Files are ALWAYS overwritten because the runtime dir is version-scoped.
-func EnsureDefaultQueries() error {
-	astDir := runtimeASTDir()
-	if astDir == "" {
-		return nil
-	}
-
-	// Extract queries/*.yaml
-	queriesDir := filepath.Join(astDir, "queries")
-	if err := extractEmbedDir(embeddedQueryFS, "queries", queriesDir); err != nil {
-		return fmt.Errorf("extract embedded queries: %w", err)
-	}
-
-	// Extract frameworks/*.yaml
-	frameworksDir := filepath.Join(astDir, "frameworks")
-	if err := extractEmbedDir(embeddedFrameworkFS, "frameworks", frameworksDir); err != nil {
-		return fmt.Errorf("extract embedded frameworks: %w", err)
-	}
-
-	// Extract ecosystems.yaml
-	if data, err := fs.ReadFile(embeddedEcosystemFS, "ecosystems.yaml"); err == nil {
-		dest := filepath.Join(astDir, "ecosystems.yaml")
-		if mkErr := os.MkdirAll(filepath.Dir(dest), 0o755); mkErr == nil {
-			if wErr := os.WriteFile(dest, data, 0o644); wErr != nil {
-				slog.Warn("skip embedded ecosystems.yaml: write error", "error", wErr)
-			}
-		}
-	}
-
-	return nil
-}
-
-// extractEmbedDir extracts all YAML files from an embedded FS directory to destDir.
-func extractEmbedDir(fsys embed.FS, srcDir, destDir string) error {
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return fmt.Errorf("create dir %s: %w", destDir, err)
-	}
-
-	entries, err := fs.ReadDir(fsys, srcDir)
-	if err != nil {
-		return fmt.Errorf("read embedded dir %s: %w", srcDir, err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		data, err := fs.ReadFile(fsys, srcDir+"/"+name)
-		if err != nil {
-			slog.Warn("skip embedded file: read error", "name", name, "error", err)
-			continue
-		}
-		if err := os.WriteFile(filepath.Join(destDir, name), data, 0o644); err != nil {
-			slog.Warn("skip embedded file: write error", "name", name, "error", err)
-			continue
-		}
-	}
-	return nil
-}
 
 // ---------------------------------------------------------------------------
 // Loading
@@ -323,36 +259,7 @@ func loadQueriesFromDir(dir string) ([]ExternalQueryFile, error) {
 	return result, nil
 }
 
-// loadQueriesFromEmbed loads query files from the embedded filesystem.
-func loadQueriesFromEmbed() []ExternalQueryFile {
-	entries, err := fs.ReadDir(embeddedQueryFS, "queries")
-	if err != nil {
-		return nil
-	}
 
-	var result []ExternalQueryFile
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if ext != ".yaml" && ext != ".yml" {
-			continue
-		}
-
-		data, err := fs.ReadFile(embeddedQueryFS, "queries/"+name)
-		if err != nil {
-			continue
-		}
-
-		if qf, ok := parseQueryFile(data, "embedded:"+name); ok {
-			result = append(result, qf)
-		}
-	}
-
-	return result
-}
 
 // parseQueryFile parses and validates a single YAML query file.
 func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
@@ -522,13 +429,6 @@ var userQueriesCache []ExternalQueryFile
 var runtimeQueriesOnce sync.Once
 var runtimeQueriesCache []ExternalQueryFile
 
-// embeddedQueriesOnce ensures embedded queries are loaded only once.
-var embeddedQueriesOnce sync.Once
-var embeddedQueriesCache []ExternalQueryFile
-
-// ensureOnce ensures default queries are extracted only once per process.
-var ensureOnce sync.Once
-
 // resetQueryCaches clears all cached queries. Used by tests.
 func resetQueryCaches() {
 	externalQueryCache = sync.Map{}
@@ -537,18 +437,9 @@ func resetQueryCaches() {
 	userQueriesCache = nil
 	runtimeQueriesOnce = sync.Once{}
 	runtimeQueriesCache = nil
-	embeddedQueriesOnce = sync.Once{}
-	embeddedQueriesCache = nil
-	ensureOnce = sync.Once{}
 }
 
-// loadEmbeddedCached loads embedded default queries (once).
-func loadEmbeddedCached() []ExternalQueryFile {
-	embeddedQueriesOnce.Do(func() {
-		embeddedQueriesCache = loadQueriesFromEmbed()
-	})
-	return embeddedQueriesCache
-}
+
 
 // loadRuntimeCached loads runtime queries from
 // ~/.graphit/runtime/<version>/ast/queries/ (once).
@@ -594,7 +485,7 @@ func loadProjectCached(projectDir string) []ExternalQueryFile {
 // resolveQueriesForLang returns the resolved query files for a given language
 // and extension using the precedence chain:
 //
-//	project > user global > runtime > embedded
+//	project > user global > runtime
 //
 // For each language+extension pair, the highest-priority source that provides
 // queries wins. This is per-language override, not merge.
@@ -613,16 +504,9 @@ func resolveQueriesForLang(projectDir, lang, ext string) []ExternalQueryFile {
 		return userMatch
 	}
 
-	// 3. Check runtime (~/.graphit/runtime/<version>/ast/queries/) — framework defaults
+	// 3. Check runtime (~/.graphit/runtime/<version>/ast/queries/) — launcher-extracted defaults
 	runtimeQ := loadRuntimeCached()
-	runtimeMatch := filterByLangExt(runtimeQ, lang, ext)
-	if len(runtimeMatch) > 0 {
-		return runtimeMatch
-	}
-
-	// 4. Fall back to embedded (compiled into binary)
-	embeddedQ := loadEmbeddedCached()
-	return filterByLangExt(embeddedQ, lang, ext)
+	return filterByLangExt(runtimeQ, lang, ext)
 }
 
 // filterByLangExt filters query files that match a language and extension.
@@ -654,7 +538,7 @@ func filterByLangExt(files []ExternalQueryFile, lang, ext string) []ExternalQuer
 //
 // Resolution order:
 //
-//	project > user global > runtime > embedded
+//	project > user global > runtime
 //
 // YAML is the only source of queries — there is no hardcoded Go fallback.
 func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []tsQueryDef {
@@ -662,13 +546,6 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []t
 	if cached, ok := mergedQueryCache.Load(cacheKey); ok {
 		return cached.([]tsQueryDef)
 	}
-
-	// Ensure defaults are extracted to runtime dir on first use
-	ensureOnce.Do(func() {
-		if err := EnsureDefaultQueries(); err != nil {
-			slog.Warn("failed to ensure default queries", "error", err)
-		}
-	})
 
 	resolved := resolveQueriesForLang(projectDir, lang, ext)
 	if len(resolved) == 0 {
@@ -731,21 +608,14 @@ func resolvedLangConfigFor(projectDir, lang, ext string) *ExternalQueryFile {
 
 // ResolveAllLangConfigs returns all language configurations from every level of the
 // resolution chain. It collects unique language configs, one per language, using the
-// same precedence as queries (project > user > runtime > embedded).
+// same precedence as queries (project > user > runtime).
 func ResolveAllLangConfigs(projectDir string) []*ExternalQueryFile {
-	ensureOnce.Do(func() {
-		if err := EnsureDefaultQueries(); err != nil {
-			slog.Warn("failed to ensure defaults", "error", err)
-		}
-	})
-
 	// Collect all languages from all loaded query files
 	seen := make(map[string]bool)
 	var result []*ExternalQueryFile
 
 	// Walk all loaded query files to discover available languages
 	sources := [][]ExternalQueryFile{
-		loadEmbeddedCached(),
 		loadRuntimeCached(),
 		loadUserCached(),
 	}
@@ -821,57 +691,12 @@ func loadFrameworksFromDir(dir string) ([]FrameworkFile, error) {
 	return result, nil
 }
 
-// loadFrameworksFromEmbed loads framework files from the embedded filesystem.
-func loadFrameworksFromEmbed() []FrameworkFile {
-	entries, err := fs.ReadDir(embeddedFrameworkFS, "frameworks")
-	if err != nil {
-		return nil
-	}
-
-	var result []FrameworkFile
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if ext != ".yaml" && ext != ".yml" {
-			continue
-		}
-
-		data, err := fs.ReadFile(embeddedFrameworkFS, "frameworks/"+name)
-		if err != nil {
-			continue
-		}
-
-		var ff FrameworkFile
-		if err := yaml.Unmarshal(data, &ff); err != nil {
-			continue
-		}
-		if ff.Framework == "" {
-			continue
-		}
-		result = append(result, ff)
-	}
-
-	return result
-}
-
 // Framework caches
 var frameworkCache sync.Map // map[string][]FrameworkFile (projectDir -> frameworks)
 var userFrameworksOnce sync.Once
 var userFrameworksCache []FrameworkFile
 var runtimeFrameworksOnce sync.Once
 var runtimeFrameworksCache []FrameworkFile
-var embeddedFrameworksOnce sync.Once
-var embeddedFrameworksCache []FrameworkFile
-
-func loadEmbeddedFrameworksCached() []FrameworkFile {
-	embeddedFrameworksOnce.Do(func() {
-		embeddedFrameworksCache = loadFrameworksFromEmbed()
-	})
-	return embeddedFrameworksCache
-}
 
 func loadRuntimeFrameworksCached() []FrameworkFile {
 	runtimeFrameworksOnce.Do(func() {
@@ -917,21 +742,12 @@ func loadProjectFrameworksCached(projectDir string) []FrameworkFile {
 }
 
 // ResolveFrameworks returns all applicable framework files for a project,
-// merging from all 4 levels. Unlike queries (which use precedence override),
+// merging from all levels. Unlike queries (which use precedence override),
 // frameworks MERGE from all levels — project frameworks extend runtime+user ones.
 func ResolveFrameworks(projectDir string) []FrameworkFile {
-	ensureOnce.Do(func() {
-		if err := EnsureDefaultQueries(); err != nil {
-			slog.Warn("failed to ensure defaults", "error", err)
-		}
-	})
-
 	var all []FrameworkFile
 
-	// Embedded (lowest priority — always included as base)
-	all = append(all, loadEmbeddedFrameworksCached()...)
-
-	// Runtime (overrides embedded via filename collision handled below)
+	// Runtime (base — launcher-extracted defaults)
 	all = append(all, loadRuntimeFrameworksCached()...)
 
 	// User global (extends/overrides)
@@ -970,24 +786,9 @@ func loadEcosystemFile(path string) (*EcosystemFile, error) {
 // ResolveEcosystems returns the merged ecosystem entries from all levels.
 // Like frameworks, ecosystems MERGE from all levels.
 func ResolveEcosystems(projectDir string) []EcosystemEntry {
-	ensureOnce.Do(func() {
-		if err := EnsureDefaultQueries(); err != nil {
-			slog.Warn("failed to ensure defaults", "error", err)
-		}
-	})
-
-	// For ecosystems, we load once and merge. Project can add entries.
 	var all []EcosystemEntry
 
-	// Embedded
-	if data, err := fs.ReadFile(embeddedEcosystemFS, "ecosystems.yaml"); err == nil {
-		var ef EcosystemFile
-		if err := yaml.Unmarshal(data, &ef); err == nil {
-			all = append(all, ef.ConfigFiles...)
-		}
-	}
-
-	// Runtime
+	// Runtime (base — launcher-extracted defaults)
 	if dir := runtimeASTDir(); dir != "" {
 		if ef, err := loadEcosystemFile(filepath.Join(dir, "ecosystems.yaml")); err == nil && ef != nil {
 			all = append(all, ef.ConfigFiles...)

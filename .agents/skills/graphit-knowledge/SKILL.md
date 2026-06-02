@@ -1,6 +1,6 @@
 ---
 name: graphit-knowledge
-description: Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, you MUST create/update documentation in docs/ and run sync. Read the knowledge wiki (index.md) BEFORE searching docs/ with grep. Use this skill whenever understanding project features, creating documentation, or working with integrations.
+description: Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, you MUST create/update documentation in ./ and run sync. Read the knowledge wiki (index.md) BEFORE searching ./ with grep. Use this skill whenever understanding project features, creating documentation, or working with integrations.
 ---
 
 # Knowledge Maintenance Rule
@@ -23,7 +23,7 @@ No exceptions. No shortcuts. If the documentation is missing, the task is NOT do
 - **Document EVERYTHING you do** — even when the user does NOT explicitly ask.
   Documentation is implicit in every task. It is never optional.
 - **Every code change, architectural decision, new feature, bug fix, refactor,
-  or behavioral change MUST be reflected in the `docs/` directory** before
+  or behavioral change MUST be reflected in the `./` directory** before
   you report the task as complete.
 - **The definition of done is: code + documentation.** If you wrote code but
   did not update the relevant docs, you are not finished.
@@ -36,15 +36,15 @@ No exceptions. No shortcuts. If the documentation is missing, the task is NOT do
 
 | What you did | Where to document |
 |---|---|
-| Changed system architecture or module structure | `docs/architecture/` |
-| Made a non-trivial architectural or design decision | `docs/decisions/` (ADR) |
-| Added or modified a feature | `docs/specs/<feature>.md` |
-| Changed how a module, function, or service behaves | `docs/` (relevant section) |
-| Fixed a bug with root cause worth remembering | `docs/` or project memory |
-| Discovered undocumented behavior during investigation | `docs/` (create new doc) |
-| Added, removed, or changed a dependency | `docs/architecture/` |
-| Completed ANY task (code, fix, refactor, investigation) | `docs/tasks/<task-name>.md` |
-| Changed configuration, environment, or deployment | `docs/` (relevant section) |
+| Changed system architecture or module structure | `./architecture/` |
+| Made a non-trivial architectural or design decision | `./decisions/` (ADR) |
+| Added or modified a feature | `./specs/<feature>.md` |
+| Changed how a module, function, or service behaves | `./` (relevant section) |
+| Fixed a bug with root cause worth remembering | `./` or project memory |
+| Discovered undocumented behavior during investigation | `./` (create new doc) |
+| Added, removed, or changed a dependency | `./architecture/` |
+| Completed ANY task (code, fix, refactor, investigation) | `./tasks/<task-name>.md` |
+| Changed configuration, environment, or deployment | `./` (relevant section) |
 
 ### Workflow
 
@@ -55,23 +55,23 @@ No exceptions. No shortcuts. If the documentation is missing, the task is NOT do
 
 ### 🔒 MANDATORY: Clean Code Documentation Policy
 
-> **Code documentation lives in `docs/`, NOT in code comments.**
+> **Code documentation lives in `./`, NOT in code comments.**
 > The code itself MUST be clean, readable, and self-explanatory.
 > All knowledge, explanations,
 > architecture descriptions, usage guides, and behavioral documentation
-> belong in `docs/` — never cluttering the source code.
+> belong in `./` — never cluttering the source code.
 
-**What MUST go in `docs/` (never in code comments):**
+**What MUST go in `./` (never in code comments):**
 
 | Documentation type | Where it goes |
 |---|---|
-| How a module/feature works | `docs/specs/<feature>.md` or `docs/architecture/` |
-| Why a design decision was made | `docs/decisions/<adr>.md` |
-| API contracts, endpoints, schemas | `docs/` (OpenAPI, AsyncAPI, etc.) |
-| Usage examples and guides | `docs/` or project README |
-| Function/method behavior descriptions | `docs/specs/` (not docstrings for explanation) |
-| Module relationships and dependencies | `docs/architecture/` |
-| Task implementation details | `docs/tasks/<task>.md` |
+| How a module/feature works | `./specs/<feature>.md` or `./architecture/` |
+| Why a design decision was made | `./decisions/<adr>.md` |
+| API contracts, endpoints, schemas | `./` (OpenAPI, AsyncAPI, etc.) |
+| Usage examples and guides | `./` or project README |
+| Function/method behavior descriptions | `./specs/` (not docstrings for explanation) |
+| Module relationships and dependencies | `./architecture/` |
+| Task implementation details | `./tasks/<task>.md` |
 
 **What is ALLOWED in code (critical comments only):**
 
@@ -82,20 +82,20 @@ No exceptions. No shortcuts. If the documentation is missing, the task is NOT do
 | **Legal / license headers** | `// Copyright 2026 ...` |
 | **Compiler/linter directives** | `//go:generate`, `//nolint:...` |
 | **TODO/FIXME with ticket reference** | `// TODO(#123): remove after migration` |
-| **Intentional deviation markers** | `// DECISION: see docs/decisions/003-...` |
+| **Intentional deviation markers** | `// DECISION: see ./decisions/003-...` |
 
 **Anti-patterns (NEVER do these):**
 
 - ❌ Writing multi-line comments explaining what a function does — make the function self-explanatory instead
-- ❌ Documenting module architecture in file headers — that belongs in `docs/architecture/`
-- ❌ Explaining business logic in comments — document it in `docs/specs/`
-- ❌ Writing usage guides or examples in code comments — put them in `docs/`
+- ❌ Documenting module architecture in file headers — that belongs in `./architecture/`
+- ❌ Explaining business logic in comments — document it in `./specs/`
+- ❌ Writing usage guides or examples in code comments — put them in `./`
 - ❌ Leaving verbose docstrings that describe implementation details — the code should speak for itself
 - ❌ Using comments as a substitute for readable code — refactor the code instead
 
 **The golden rule:** If you feel the need to write a comment explaining *what* the code does,
 rewrite the code to be self-explanatory. If you need to explain *why* a non-obvious choice
-was made, add a one-line critical comment pointing to the relevant `docs/` file.
+was made, add a one-line critical comment pointing to the relevant `./` file.
 
 ## 🔒 MANDATORY: Wiki-First Knowledge Retrieval — Replaces Your Tools
 
@@ -114,23 +114,23 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 
 | Your tool | Wiki equivalent | Why wiki wins |
 |---|---|---|
-| `grep -r "auth" docs/` | Read `index.md` → find auth entity → follow link | Wiki: 1 page read. Grep: reads ALL files |
-| Semantic search across docs/ | Read `index.md` → scan catalog | Wiki: structured scan. Semantic: noisy, expensive |
-| Reading every .md in docs/ | Read `index.md` (~2000 tokens for 80 pages) | Wiki: 40% fewer tokens, pre-summarized |
+| `grep -r "auth" ./` | Read `index.md` → find auth entity → follow link | Wiki: 1 page read. Grep: reads ALL files |
+| Semantic search across ./ | Read `index.md` → scan catalog | Wiki: structured scan. Semantic: noisy, expensive |
+| Reading every .md in ./ | Read `index.md` (~2000 tokens for 80 pages) | Wiki: 40% fewer tokens, pre-summarized |
 | `grep` for reverse references | Check `## Backlinks` section on entity page | Wiki: instant, pre-computed. Grep: O(n) scan |
 
 ### 🔒 When you MUST use the wiki (MANDATORY — no exceptions)
 
 | Scenario | What to do | What NOT to do |
 |---|---|---|
-| **Understanding a feature** | Read `index.md` → find the spec → read it | ❌ Don't grep docs/ for keywords |
-| **Finding an ADR / decision** | Read `index.md` → check "Decision" section → follow link | ❌ Don't scan docs/decisions/ file by file |
-| **Checking if something is documented** | Read `index.md` → scan the catalog | ❌ Don't use `find` or `ls` on docs/ |
+| **Understanding a feature** | Read `index.md` → find the spec → read it | ❌ Don't grep ./ for keywords |
+| **Finding an ADR / decision** | Read `index.md` → check "Decision" section → follow link | ❌ Don't scan ./decisions/ file by file |
+| **Checking if something is documented** | Read `index.md` → scan the catalog | ❌ Don't use `find` or `ls` on ./ |
 | **Understanding module relationships** | Read community pages and god nodes | ❌ Don't grep for import statements |
 | **Finding all mentions of a concept** | Read the entity page → check `## Backlinks` | ❌ Don't grep across all wiki files |
 | **Checking conventions or patterns** | Read `index.md` → find the guide/spec | ❌ Don't rely on memory or guessing |
 | **Verifying a fact before coding** | Read the entity page → check `confidence` score | ❌ Don't assume you know the answer |
-| **Tracing a decision's rationale** | Read the ADR page → follow provenance link to raw source | ❌ Don't read raw docs/ without wiki context first |
+| **Tracing a decision's rationale** | Read the ADR page → follow provenance link to raw source | ❌ Don't read raw ./ without wiki context first |
 
 ### When you should NOT use the wiki
 
@@ -139,7 +139,7 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 | Reading/editing actual source code (.go, .ts, etc.) | Normal file tools |
 | Searching inside string literals or code comments | grep/ripgrep on source code |
 | Running tests or build commands | Terminal commands |
-| Editing docs/ files (writing, not reading) | File edit tools |
+| Editing ./ files (writing, not reading) | File edit tools |
 
 ### How to search (step-by-step)
 
@@ -184,7 +184,7 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 | Anti-pattern | Why it is a violation |
 |---|---|
 | `grep -r "keyword" .graphit/knowledge/` | Brute-force scan on a compiled database; ignores all structure |
-| Reading docs/ files directly without checking wiki first | Skips the pre-compiled summary, wastes tokens on raw content |
+| Reading ./ files directly without checking wiki first | Skips the pre-compiled summary, wastes tokens on raw content |
 | Using semantic search to find project docs | Wiki index.md is faster and more precise than embedding search |
 | Reading all .md files in wiki/ sequentially | Token bomb; index.md catalogs everything in ~2000 tokens |
 | Skipping frontmatter and reading body only | Misses confidence, provenance, type, and freshness metadata |
@@ -211,12 +211,12 @@ Your tools are allowed ONLY when ALL of these conditions are true:
 Examples of valid fallback:
 - Wiki has no entity for a newly added module → grep source code for it
 - Wiki entity exists but `confidence < 0.3` and content is empty → read raw source via provenance
-- Topic is not in docs/ at all (e.g., searching inside test files) → grep is appropriate
+- Topic is not in ./ at all (e.g., searching inside test files) → grep is appropriate
 
 Examples of INVALID fallback (protocol violations):
 - Skipping the wiki because "grep is faster" → ❌ wiki is pre-compiled and always faster
 - Using semantic search without reading index.md first → ❌ index.md costs ~2000 tokens
-- Grepping docs/ because you "didn't find it quickly" in the wiki → ❌ you must complete all 6 steps first
+- Grepping ./ because you "didn't find it quickly" in the wiki → ❌ you must complete all 6 steps first
 
 ### Wiki Paths
 
@@ -226,7 +226,7 @@ Examples of INVALID fallback (protocol violations):
 
 ### ⚡ MANDATORY: Sync After Every File Modification
 
-**After ANY modification to ANY file in `docs/` (edit, create, rename, or delete),
+**After ANY modification to ANY file in `./` (edit, create, rename, or delete),
 you MUST trigger a project sync by calling the `graphit_sync` tool (passing absolute `project_dir` parameter):**
 
 ```
@@ -244,27 +244,27 @@ outdated or incomplete results — breaking the knowledge pipeline.
 ## Documentation Requirements
 
 ### Architecture Documentation
-- Update docs/architecture/ when changing system structure, adding modules, or modifying dependencies.
+- Update ./architecture/ when changing system structure, adding modules, or modifying dependencies.
 - Maintain accurate component diagrams (PlantUML) showing current module relationships.
 - Document API boundaries and integration points.
 
 ### Decision Records
-- When making a non-trivial architectural decision, create an ADR in docs/decisions/.
+- When making a non-trivial architectural decision, create an ADR in ./decisions/.
 - ADR format: ## Status, ## Context, ## Decision, ## Consequences.
 
 ### Technical Documentation
-- Keep docs/ files accurate when modifying the systems they describe.
+- Keep ./ files accurate when modifying the systems they describe.
 - Update function/module descriptions when behavior changes.
 
 ### Feature Specifications
-- Create detailed spec files in `docs/specs/` for new features and maintain it updated with future evolution.
+- Create detailed spec files in `./specs/` for new features and maintain it updated with future evolution.
 - A spec can be a detailed markdown file describing: purpose, scope, inputs/outputs, and acceptance criteria.
 - Specs improve discoverability and serve as context for future sessions.
-- Use filenames like `docs/specs/<feature-name>.md`.
+- Use filenames like `./specs/<feature-name>.md`.
 
 ### 🔒 MANDATORY: Task Logs — Continuity for Multi-Agent & Multi-Session Work
 
-> **Every task you perform MUST be logged in `docs/tasks/`.** This is your
+> **Every task you perform MUST be logged in `./tasks/`.** This is your
 > institutional memory. Another agent — or you in a future session — MUST be able
 > to read your task log and continue exactly where you left off, resolve remaining
 > technical debts, or understand every trade-off you made.
@@ -280,7 +280,7 @@ any session. Without task logs, institutional knowledge is lost between sessions
 
 | Scenario | Action |
 |---|---|
-| Starting a new task (feature, bug fix, refactor, investigation) | Create `docs/tasks/<task-name>.md` |
+| Starting a new task (feature, bug fix, refactor, investigation) | Create `./tasks/<task-name>.md` |
 | Continuing a previously started task | Update the existing task log with new progress |
 | Finishing a task | Update status to `done`, document final state and remaining debts |
 | Discovering technical debt during any work | Add to the relevant task log's `## Technical Debt` section |
@@ -511,7 +511,7 @@ This enables a new agent to understand the full trajectory.>
 
 #### Naming convention
 
-- Use kebab-case: `docs/tasks/fix-memory-sync-race-condition.md`
+- Use kebab-case: `./tasks/fix-memory-sync-race-condition.md`
 - Be descriptive: prefer `migrate-hub-to-branch-per-artifact.md` over `hub-refactor.md`
 - Group related sub-tasks under a single task log when they share the same objective
 
@@ -520,7 +520,7 @@ This enables a new agent to understand the full trajectory.>
 - Task logs complement — not replace — architecture docs, ADRs, and specs.
 - If a task results in an architectural change, BOTH the task log AND the
   architecture doc must be updated.
-- If a task involves a design decision, create an ADR in `docs/decisions/` AND
+- If a task involves a design decision, create an ADR in `./decisions/` AND
   reference it from the task log's Trade-offs section.
 - Task logs are the "how it happened" — specs and ADRs are the "what it is",
 ---
@@ -569,7 +569,7 @@ This installs the artifact at .graphit/knowledge/<name>/.
 
 **Every interface, integration, or data exchange mechanism that this system
 provides or consumes — regardless of paradigm or transport — MUST have a
-complete, formal specification file in `docs/`.**
+complete, formal specification file in `./`.**
 
 There are **NO exceptions**. If the system communicates with the outside world
 (or between internal services) through ANY of the following mechanisms, it
@@ -627,10 +627,10 @@ a compiled, cross-referenced wiki.
 
 | Your tool | Wiki equivalent | Why wiki wins |
 |---|---|---|
-| `grep -r "endpoint" docs/` | Read `index.md` → find endpoint → follow link | Wiki: 1 page read. Grep: scans all spec files |
+| `grep -r "endpoint" ./` | Read `index.md` → find endpoint → follow link | Wiki: 1 page read. Grep: scans all spec files |
 | Reading raw OpenAPI YAML directly | Read wiki entity page (pre-summarized) | Wiki: structured summary with confidence. YAML: verbose, noisy |
 | `grep` for "which APIs use this schema" | Check `## Backlinks` on schema entity page | Wiki: instant reverse lookup. Grep: O(n) scan |
-| Listing docs/ to find specs | Read `index.md` → scan by paradigm type | Wiki: grouped catalog. ls: flat listing with no context |
+| Listing ./ to find specs | Read `index.md` → scan by paradigm type | Wiki: grouped catalog. ls: flat listing with no context |
 
 ### 🔒 When you MUST use the wiki (MANDATORY — no exceptions)
 
@@ -639,7 +639,7 @@ a compiled, cross-referenced wiki.
 | **Finding an API endpoint** | Read `index.md` → find the spec page → read it | ❌ Don't grep YAML files for path strings |
 | **Understanding a schema** | Read `index.md` → find schema entity → read it | ❌ Don't open raw .yaml and search for `schemas:` |
 | **Finding which APIs use a model** | Read entity page → check `## Backlinks` | ❌ Don't grep for `$ref` across all YAML files |
-| **Checking if a integration exists** | Read `index.md` → scan the catalog | ❌ Don't use `find` or `ls` on docs/ |
+| **Checking if a integration exists** | Read `index.md` → scan the catalog | ❌ Don't use `find` or `ls` on ./ |
 | **Understanding auth for an API** | Read the spec entity page → check security section | ❌ Don't grep for "security" across all specs |
 | **Checking API versioning** | Read entity frontmatter → check `updated` and `source` | ❌ Don't read raw spec version fields |
 | **Verifying field names and types** | Read entity page → follow provenance to raw spec | ❌ Don't guess from model memory |
@@ -678,7 +678,7 @@ a compiled, cross-referenced wiki.
 
 | Anti-pattern | Why it is a violation |
 |---|---|
-| `grep -r "keyword" docs/` | Brute-force on raw specs; ignores compiled wiki |
+| `grep -r "keyword" ./` | Brute-force on raw specs; ignores compiled wiki |
 | Reading .yaml/.proto files directly without checking wiki first | Skips pre-compiled summary; wastes tokens on raw verbose content |
 | Using semantic search to find integration docs | Wiki index.md is faster and more precise |
 | Reading all .md files in wiki/ sequentially | Token bomb; index.md catalogs everything |
@@ -705,12 +705,12 @@ Your tools are allowed ONLY when ALL of these conditions are true:
 Examples of valid fallback:
 - Wiki has no entity for a newly added external API → read the raw spec file directly
 - Wiki entity exists but `confidence < 0.3` → verify against raw spec via provenance link
-- Integration was never documented in docs/ → ask the user to document it first
+- Integration was never documented in ./ → ask the user to document it first
 
 Examples of INVALID fallback (protocol violations):
 - Grepping .yaml files because "the wiki was slow" → ❌ wiki is pre-compiled and always faster
 - Reading raw proto/graphql without checking wiki first → ❌ wiki has structured summaries
-- Using semantic search on docs/ → ❌ index.md gives grouped catalog in ~2000 tokens
+- Using semantic search on ./ → ❌ index.md gives grouped catalog in ~2000 tokens
 
 ## Documentation Requirements
 

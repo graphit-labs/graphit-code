@@ -304,32 +304,12 @@ func TestProjectQueriesDir(t *testing.T) {
 	}
 }
 
-func TestLoadQueriesFromEmbed(t *testing.T) {
-	result := loadQueriesFromEmbed()
-	if len(result) == 0 {
-		t.Fatal("expected embedded queries to be loaded, got 0")
-	}
+// TestLoadQueriesFromEmbed was removed: loadQueriesFromEmbed no longer exists.
+// AST YAML files are now embedded in the launcher and extracted to the runtime
+// directory, not compiled into the core binary.
 
-	// Check that we have at least the languages we know exist
-	langSet := make(map[string]bool)
-	for _, qf := range result {
-		langSet[qf.Language] = true
-	}
-
-	expectedLangs := []string{"go", "python", "javascript", "typescript", "java", "rust", "c", "cpp", "ruby", "swift", "dart", "kotlin", "php", "csharp", "sql"}
-	for _, lang := range expectedLangs {
-		if !langSet[lang] {
-			t.Errorf("expected embedded queries for language %q", lang)
-		}
-	}
-}
-
-func TestEnsureDefaultQueries(t *testing.T) {
-	// This test uses a temp dir as home, so we can't test the actual global dir
-	// without mocking brand.GlobalDir(). Test that the function doesn't crash.
-	// The actual global dir test would require env manipulation.
-	t.Log("EnsureDefaultQueries is tested indirectly via embedded loading")
-}
+// TestEnsureDefaultQueries was removed: EnsureDefaultQueries no longer exists.
+// The launcher handles extracting default queries to the runtime directory.
 
 func TestResolveQueriesForLang_ProjectOverridesGlobal(t *testing.T) {
 	resetQueryCaches()
@@ -362,22 +342,9 @@ queries:
 	}
 }
 
-func TestResolveQueriesForLang_FallsBackToEmbedded(t *testing.T) {
-	resetQueryCaches()
-
-	// Empty project — no project or global queries
-	dir := t.TempDir()
-
-	resolved := resolveQueriesForLang(dir, "go", ".go")
-	if len(resolved) == 0 {
-		t.Fatal("expected embedded fallback, got 0 results")
-	}
-
-	// Should get the embedded go queries
-	if resolved[0].Language != "go" {
-		t.Errorf("expected language 'go', got %q", resolved[0].Language)
-	}
-}
+// TestResolveQueriesForLang_FallsBackToEmbedded was removed: the embedded
+// fallback no longer exists in the core binary. Queries are loaded from the
+// runtime directory (extracted by the launcher) instead.
 
 func TestFilterByLangExt(t *testing.T) {
 	files := []ExternalQueryFile{

@@ -297,9 +297,9 @@ exports:
   strategy: none
 ```
 
-### Resolution Chain (4 Levels)
+### Resolution Chain (3 Levels)
 
-Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in. The resolution order is **project → user global → runtime → embedded** — all levels are YAML-only. The only hardcoded part is the **grammar registry** (`treeSitterGrammars` map), which maps language names to compiled Tree-sitter grammars. Everything else — extensions, queries, exports, context types — comes from YAML configuration.
+Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in. The resolution order is **project → user global → runtime** — all levels are YAML-only. The only hardcoded part is the **grammar registry** (`treeSitterGrammars` map), which maps language names to compiled Tree-sitter grammars. Everything else — extensions, queries, exports, context types — comes from YAML configuration.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -313,17 +313,13 @@ Query files are resolved using a cascading priority system. For each language, t
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Priority 3 — Runtime Defaults                                             │
 │  ~/.graphit/runtime/<version>/ast/queries/<language>.yaml                  │
-│  Managed by the framework. Extracted from the binary on first run.         │
+│  Managed by the framework. Extracted by the launcher during binary setup.  │
 │  Overwritten on each version upgrade.                                      │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Priority 4 — Embedded Defaults                                            │
-│  Compiled into the binary via //go:embed queries/*.yaml                    │
-│  Used only if no runtime YAML has been extracted yet.                      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key behaviors:**
-- On first parse, the binary automatically extracts all 16 default YAML files to `~/.graphit/runtime/<version>/ast/queries/`.
+- The launcher automatically extracts all 16 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
 - The **runtime directory is version-scoped** — each binary version gets its own clean set of defaults, so upgrades never conflict with previous versions.
 - The **user global directory** (`~/.graphit/ast/queries/`) is never touched by the framework. Only the user creates/edits files there.
 - If a **project** has a `go.yaml`, only Go queries come from the project level; other languages still resolve normally through user → runtime.
@@ -379,7 +375,7 @@ your-project/
 ### Implementation Details
 
 - **Loader:** `internal/ast/query_loader.go` — handles loading, parsing, validation, and caching.
-- **Embedded FS:** `internal/ast/queries_embed.go` — `//go:embed queries/*.yaml` bundles all defaults into the binary.
+- **Launcher Extraction:** YAML files are extracted by the launcher to `~/.graphit/runtime/<version>/ast/` during binary setup — no embedded FS in the binary.
 - **Thread Safety:** All caches use `sync.Map` and `sync.Once` for safe concurrent access during parallel file parsing.
 - **Runtime Dir:** `brand.RuntimeDir(version)` returns `~/.graphit/runtime/<version>/` — version-scoped to avoid conflicts across upgrades.
 
@@ -477,9 +473,9 @@ entry_points:                    # Entry point scoring rules
 | `entry_points.exported_bonus` | `int` | Bonus score added for exported functions (combines with name/decorator scores) |
 | `entry_points.max_score` | `int` | Maximum score cap — final score is clamped to this value |
 
-### Resolution: Additive Merge (4 Levels)
+### Resolution: Additive Merge (3 Levels)
 
-Unlike query files (which use **precedence override** — highest-priority source wins per language), framework files use **additive merging** — frameworks from ALL 4 levels are combined:
+Unlike query files (which use **precedence override** — highest-priority source wins per language), framework files use **additive merging** — frameworks from all 3 levels are combined:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -574,9 +570,9 @@ config_files:
 | `config_files[].extract[].field` | ✅ | `string` | JSON/TOML field path to extract (e.g., `"project.name"`) |
 | `config_files[].extract[].store` | ✅ | `string` | Key under which to store the extracted value |
 
-### Resolution: Additive Merge (4 Levels)
+### Resolution: Additive Merge (3 Levels)
 
-Like frameworks, ecosystem files use **additive merging** — entries from all 4 levels are combined:
+Like frameworks, ecosystem files use **additive merging** — entries from all 3 levels are combined:
 
 | Level | Path | Behavior |
 |---|---|---|

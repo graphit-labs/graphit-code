@@ -7,7 +7,7 @@
 ## Activation Triggers — You MUST read the `graphit-knowledge` skill when:
 
 - Understanding project features, architecture, decisions, or specifications
-- Creating, updating, or searching documentation in `docs/`
+- Creating, updating, or searching documentation in `./`
 - Working with external system integrations or API specifications
 - Searching for project knowledge (wiki, backlinks, provenance)
 - Discovering or documenting undocumented integrations
@@ -26,7 +26,7 @@ integration protocols you must follow.
 **After you modify, create, or delete ANY source file, you MUST:**
 
 1. Read the `graphit-knowledge` skill and follow its documentation workflow
-2. Create/update task log at `docs/tasks/<task-name>.md`
+2. Create/update task log at `./tasks/<task-name>.md`
 3. Call the `graphit_sync` tool (passing absolute `project_dir` parameter)
 
 **Documentation is implicit in every task. A task without docs + sync is NOT complete.**
@@ -34,14 +34,14 @@ integration protocols you must follow.
 ## Quick Reference (always active)
 
 - **Wiki index**: `.graphit/knowledge/project/index.md`
-- **Task logs**: `docs/tasks/<task-name>.md` — log every task with full detail
+- **Task logs**: `./tasks/<task-name>.md` — log every task with full detail
 - **Sync after docs changes**: call the `graphit_sync` tool (passing absolute `project_dir` parameter)
 - **Hub search before integration**: call the `graphit_hub_list` tool (passing absolute `project_dir` parameter and `type: "knowledge"`)
 
 ## 🔗 Subagent Propagation
 
 When spawning subagents that modify code, include in their prompt:
-"After code changes, create docs/tasks/<task-name>.md and call `graphit_sync` tool (passing absolute `project_dir` parameter). Read the project's `AGENTS.md` before starting work."
+"After code changes, create ./tasks/<task-name>.md and call `graphit_sync` tool (passing absolute `project_dir` parameter). Read the project's `AGENTS.md` before starting work."
 <!-- END GRAPHIT KNOWLEDGE BLOCK -->
 
 <!-- GRAPHIT AST_EXPLORER BLOCK -->

@@ -124,16 +124,15 @@ The AST module extracts code entities (functions, classes, imports, etc.) from s
 
 ### How It Works
 
-When Graphit Code parses a source file, it resolves query patterns using a **4-level priority chain** (all YAML — there is no hardcoded Go fallback):
+When Graphit Code parses a source file, it resolves query patterns using a **3-level priority chain** (all YAML — there is no hardcoded Go fallback):
 
 1. **Project** (`.graphit/ast/queries/`) — Highest priority. Applies only to this project.
 2. **User Global** (`~/.graphit/ast/queries/`) — Your personal customizations. Applies to all projects. **Never written by the framework.**
-3. **Runtime** (`~/.graphit/runtime/<version>/ast/queries/`) — Factory defaults extracted from the binary. **Automatically updated on each version upgrade.**
-4. **Embedded** — YAML files compiled into the binary itself. Used only when the runtime directory has not been extracted yet (e.g., fresh install before the first sync).
+3. **Runtime** (`~/.graphit/runtime/<version>/ast/queries/`) — Factory defaults extracted by the launcher during binary setup. **Automatically updated on each version upgrade.**
 
-> The runtime defaults serve as the base. They are automatically extracted from the embedded YAML on first run and updated on each version upgrade. Grammars (compiled Tree-sitter parsers) are the only truly hardcoded component — all extraction rules, export strategies, and scoring are YAML-driven.
+> The runtime defaults serve as the base. They are automatically extracted by the launcher during binary setup and updated on each version upgrade. Grammars (compiled Tree-sitter parsers) are the only truly hardcoded component — all extraction rules, export strategies, and scoring are YAML-driven.
 
-For each language, the **first source that provides queries wins**. If you create a `go.yaml` in your project, only Go queries use the project version — all other languages continue resolving from user → runtime → embedded.
+For each language, the **first source that provides queries wins**. If you create a `go.yaml` in your project, only Go queries use the project version — all other languages continue resolving from user → runtime.
 
 ### Viewing the Defaults
 
@@ -199,7 +198,7 @@ Set `replace: true` to discard all lower-priority queries and use only your defi
 ```yaml
 language: sql
 extensions: [".sql"]
-replace: true   # Ignore runtime/embedded defaults entirely
+replace: true   # Ignore runtime defaults entirely
 queries:
   - data_key: tables
     graph_label: Table
@@ -558,7 +557,7 @@ cp ~/.graphit/runtime/*/ast/queries/python.yaml .graphit/ast/queries/python.yaml
 $EDITOR .graphit/ast/queries/python.yaml
 ```
 
-> Language configuration follows the same 4-level resolution chain as queries: project → user global → runtime → embedded (all YAML). The first source that provides configuration for a language wins.
+> Language configuration follows the same 3-level resolution chain as queries: project → user global → runtime (all YAML). The first source that provides configuration for a language wins.
 
 ---
 
