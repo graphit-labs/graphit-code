@@ -24,7 +24,7 @@ It parses source files into an in-memory graph database, enabling AI agents to t
 
 ## 🌐 Supported Languages
 
-Graphit Code supports **16 programming languages** via Tree-sitter parsers. Each language has dedicated query patterns that extract specific structural entities from source files.
+Graphit Code supports **16 programming languages** via Tree-sitter parsers. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires compiling its Tree-sitter grammar into the binary; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
 
 | # | Language | Extensions | Key Extracted Entities |
 |---|---|---|---|
@@ -59,7 +59,7 @@ For every supported language, the parser extracts the following relationship dat
 | **Decorator / Annotation** | Attribute / annotation extraction | TS, Python, Java, C#, Kotlin, Swift, Rust, PHP |
 | **Object Instantiation** | `new` expression tracking | JS, TS, Java, C#, C++, PHP |
 | **Cyclomatic Complexity** | Computed for every function/method | All 16 |
-| **Export Visibility** | `is_exported` flag per entity | Go, JS, TS |
+| **Export Visibility** | `is_exported` flag per entity — detection strategy is configurable via the `exports` field in language YAML (see [Export Strategies](#export-strategies)) | All 16 (strategy varies by language) |
 
 ---
 
@@ -138,9 +138,9 @@ It compiles nodes by analyzing variables, structure, and functions matching the 
 
 ---
 
-## 🎯 External Query Customization
+## 🎯 External YAML Configuration
 
-All Tree-sitter query patterns are defined as **external YAML files** rather than hardcoded in the binary. This allows users to customize which AST entities are extracted from each language — adding new patterns, removing defaults, or completely replacing the query set — without recompiling.
+All Tree-sitter query patterns and language behavior settings are defined as **external YAML files** rather than hardcoded in the binary. This allows users to customize which AST entities are extracted from each language — adding new patterns, removing defaults, or completely replacing the query set — without recompiling. The language YAML also controls export detection, self-reference keywords, context type mapping, anonymous function resolution, docstring attachment, and comment recognition.
 
 ### YAML Query Schema
 
@@ -156,13 +156,19 @@ queries:
     pattern: '(function_declaration name: (identifier) @name)'
     name_capture: name          # Capture group for the entity name (defaults to "name")
 
+  - data_key: calls             # Relation example — edges, not nodes
+    type: relation              # "entity" (default) or "relation"
+    relation_type: CALLS        # How the relation is routed (see Relation Routing)
+    graph_label: ""             # Empty — relational data only
+    pattern: '(call_expression function: (identifier) @name)'
+
   - data_key: goroutines        # Custom category example
     graph_label: Function
     pattern: '(go_statement (call_expression function: (identifier) @fn))'
     name_capture: fn
 ```
 
-**Fields:**
+**Query Fields:**
 
 | Field | Required | Description |
 |---|---|---|
@@ -170,13 +176,130 @@ queries:
 | `extensions` | ❌ | File extensions filter. If omitted, applies to all extensions registered for the language |
 | `replace` | ❌ | When `true`, replaces all lower-priority queries for this language. Default: `false` (append) |
 | `queries[].data_key` | ✅ | Internal entity category. Standard keys: `functions`, `methods`, `classes`, `structs`, `interfaces`, `enums`, `types`, `traits`, `imports`, `exports`, `variables`, `constants`, `calls`, `instantiations`, `parameters`, `fields`, `field_reads`, `field_writes`, `heritage`, `implements`, `decorators`, `namespaces`, `packages`, `modules`, `tables`, `views` |
+| `queries[].type` | ❌ | `"entity"` (default) or `"relation"`. Determines how the engine processes the extracted data. Entities become graph nodes; relations become edges (CallSites or References) |
+| `queries[].relation_type` | ⚠️ | Required when `type: "relation"`. Defines how the relation is routed: `CALLS` and `INSTANTIATES` → CallSites, `DECORATOR` and `EXPORT` → special internal processing, all others (e.g. `INHERITS`, `IMPLEMENTS`, `READS_FIELD`, `WRITES_FIELD`) → References. See [Relation Routing](#relation-routing) |
 | `queries[].graph_label` | ❌ | LadybugDB node label. If empty, the data is used for relationship extraction only (e.g., calls, heritage) |
 | `queries[].pattern` | ✅ | Tree-sitter S-expression query pattern |
 | `queries[].name_capture` | ❌ | Name of the capture group for the entity name. Defaults to `name` |
 
+### Relation Routing
+
+When a query has `type: relation`, the `relation_type` field determines how the extracted data is routed through the engine:
+
+| `relation_type` | Destination | Description |
+|---|---|---|
+| `CALLS` | `result.CallSites` | Standard function/method call edges |
+| `INSTANTIATES` | `result.CallSites` | Constructor invocations — stored with a `new:` prefix on the call name |
+| `DECORATOR` | Internal: `attachDecorators` | Consumed by the decorator attachment pipeline |
+| `EXPORT` | Internal: `detectExports` | Consumed by the export detection pipeline |
+| Any other string | `result.References` | Generic references — used for `INHERITS`, `IMPLEMENTS`, `READS_FIELD`, `WRITES_FIELD`, and any custom relation type |
+
+> **Extensibility:** New relation types can be added via YAML without recompilation. Any `relation_type` string that doesn't match one of the special cases above is automatically routed to `result.References`. For field-access relations (e.g., `READS_FIELD`, `WRITES_FIELD`), the engine uses the entity's context to resolve the target field.
+
+### Language Configuration Fields
+
+Beyond queries, each language YAML file can define additional fields that control how the engine processes entities for that language. All fields are optional — the engine uses sensible defaults when they are omitted. A YAML file is valid if it has either `queries` entries **or** at least one language configuration field.
+
+```yaml
+language: python
+extensions: [".py"]
+queries: [...]                   # Tree-sitter query patterns (see above)
+
+# --- Language Configuration Fields (all optional) ---
+exports:
+  strategy: no_prefix
+  config:
+    prefix: "_"
+
+self_keywords: ["self."]
+
+context_types:
+  class_definition: Class
+  function_definition: Function
+
+anon_func_types:
+  - arrow_function
+  - function_expression
+
+declaration_types:
+  - function_definition
+  - class_definition
+
+comment_types:
+  - comment
+  - block_comment
+```
+
+**Language Configuration Fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `exports` | Object | Export detection strategy configuration. Controls how the engine sets `is_exported` on each entity. See [Export Strategies](#export-strategies) |
+| `self_keywords` | `string[]` | Array of self-reference keywords used for receiver type resolution during call tracking. Examples: `["this."]` for Java/JS/TS, `["self."]` for Python/Rust/Swift. Empty array for languages without self-references (Go, C) |
+| `context_types` | `map[string]string` | Maps Tree-sitter node type names to graph labels for parent context resolution. Determines which AST containers provide the `context` and `context_type` properties for nested entities. Example: `class_definition: Class` causes functions inside a `class_definition` node to receive `context_type: Class` |
+| `anon_func_types` | `string[]` | Array of Tree-sitter node types that represent anonymous functions. Used to resolve `variable_declarator` assignments to function entities (e.g., `const fn = () => {}` becomes a Function node). Example: `["arrow_function", "function_expression"]` for JavaScript |
+| `declaration_types` | `string[]` | Array of Tree-sitter node types that can have docstrings attached. The engine looks for comment nodes immediately before these declaration types and extracts the text as the entity's `docstring` property |
+| `comment_types` | `string[]` | Array of Tree-sitter node types recognized as comments. Used by the docstring extraction engine. Common values: `["comment", "block_comment", "line_comment"]` |
+
+#### Export Strategies
+
+The `exports` field defines how the engine determines the `is_exported` flag on each entity. Seven strategies are supported:
+
+| Strategy | Languages | Logic | Config Fields |
+|---|---|---|---|
+| `capitalized_name` | Go | Entity is exported if its name starts with an uppercase letter | None |
+| `export_statement` | JavaScript, TypeScript | Entity is exported if it appears inside an `export` statement (matched via a `data_key: exports` query) | None |
+| `modifier` | Java, C#, Rust, PHP | Entity is exported if its parent declaration contains a specific modifier keyword | `config.keyword` — the modifier to check for (e.g., `"public"`) |
+| `no_prefix` | Python, Ruby, Dart | Entity is exported if its name does NOT start with a specific prefix | `config.prefix` — the private prefix (e.g., `"_"`) |
+| `no_modifier` | Swift | Entity is exported if its parent declaration does NOT contain any of the specified access-control keywords | `config_list.keywords` — array of private keywords (e.g., `["private", "fileprivate"]`) |
+| `no_static` | C, C++ | Entity is exported if its declaration does NOT have the `static` modifier (file-scope linkage) | None |
+| `none` | SQL | No export detection — `is_exported` is always `false` | None |
+
+**`exports` Sub-Fields:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `strategy` | `string` | ✅ | One of the 7 strategy names listed above |
+| `config` | `map[string]string` | ❌ | Key-value pairs for strategies that need a single config value. Used by `modifier` (`keyword`) and `no_prefix` (`prefix`) |
+| `config_list` | `map[string][]string` | ❌ | Key-to-list pairs for strategies that need multiple values. Used by `no_modifier` (`keywords`) |
+
+**Examples:**
+
+```yaml
+# Go — capitalized names are exported
+exports:
+  strategy: capitalized_name
+
+# Java — entities with "public" modifier are exported
+exports:
+  strategy: modifier
+  config:
+    keyword: "public"
+
+# Python — names NOT starting with "_" are exported
+exports:
+  strategy: no_prefix
+  config:
+    prefix: "_"
+
+# Swift — entities WITHOUT "private" or "fileprivate" are exported
+exports:
+  strategy: no_modifier
+  config_list:
+    keywords: ["private", "fileprivate"]
+
+# C — non-static functions are exported
+exports:
+  strategy: no_static
+
+# SQL — no export concept
+exports:
+  strategy: none
+```
+
 ### Resolution Chain (4 Levels)
 
-Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in:
+Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in. The resolution order is **project → user global → runtime → embedded** — all levels are YAML-only. The only hardcoded part is the **grammar registry** (`treeSitterGrammars` map), which maps language names to compiled Tree-sitter grammars. Everything else — extensions, queries, exports, context types — comes from YAML configuration.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -193,9 +316,9 @@ Query files are resolved using a cascading priority system. For each language, t
 │  Managed by the framework. Extracted from the binary on first run.         │
 │  Overwritten on each version upgrade.                                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  Priority 4 — Embedded Fallback                                            │
-│  Compiled into the binary via go:embed                                     │
-│  Used only if the runtime directory is unavailable.                        │
+│  Priority 4 — Embedded Defaults                                            │
+│  Compiled into the binary via //go:embed queries/*.yaml                    │
+│  Used only if no runtime YAML has been extracted yet.                      │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -203,43 +326,54 @@ Query files are resolved using a cascading priority system. For each language, t
 - On first parse, the binary automatically extracts all 16 default YAML files to `~/.graphit/runtime/<version>/ast/queries/`.
 - The **runtime directory is version-scoped** — each binary version gets its own clean set of defaults, so upgrades never conflict with previous versions.
 - The **user global directory** (`~/.graphit/ast/queries/`) is never touched by the framework. Only the user creates/edits files there.
-- If a **project** has a `go.yaml`, only Go queries come from the project level; other languages still resolve normally through user → runtime → embedded.
-- All query patterns are **validated at load time** against the Tree-sitter grammar. Invalid patterns are logged and skipped without breaking the parse.
+- If a **project** has a `go.yaml`, only Go queries come from the project level; other languages still resolve normally through user → runtime.
 
 ### Directory Structure
 
 ```
 ~/.graphit/
 ├── ast/
-│   └── queries/                    ← User Global (Priority 2) — user-editable
-│       └── go.yaml                 ← Custom Go queries for all projects
+│   ├── queries/                    ← User Global (Priority 2) — user-editable
+│   │   └── go.yaml                 ← Custom Go queries for all projects
+│   ├── frameworks/                 ← User Global frameworks (see Framework YAML section)
+│   └── ecosystems.yaml             ← User Global ecosystem overrides
 │
 └── runtime/
     └── v1.2.3/
         └── ast/
-            └── queries/            ← Runtime Defaults (Priority 3) — framework-managed
-                ├── c.yaml
-                ├── cpp.yaml
-                ├── csharp.yaml
-                ├── dart.yaml
-                ├── go.yaml
-                ├── java.yaml
-                ├── javascript.yaml
-                ├── kotlin.yaml
-                ├── php.yaml
-                ├── python.yaml
-                ├── ruby.yaml
-                ├── rust.yaml
-                ├── sql.yaml
-                ├── swift.yaml
-                ├── tsx.yaml
-                └── typescript.yaml
+            ├── queries/            ← Runtime Defaults (Priority 3) — framework-managed
+            │   ├── c.yaml
+            │   ├── cpp.yaml
+            │   ├── csharp.yaml
+            │   ├── dart.yaml
+            │   ├── go.yaml
+            │   ├── java.yaml
+            │   ├── javascript.yaml
+            │   ├── kotlin.yaml
+            │   ├── php.yaml
+            │   ├── python.yaml
+            │   ├── ruby.yaml
+            │   ├── rust.yaml
+            │   ├── sql.yaml
+            │   ├── swift.yaml
+            │   ├── tsx.yaml
+            │   └── typescript.yaml
+            ├── frameworks/         ← Runtime Default frameworks
+            │   ├── _go_lang.yaml
+            │   ├── _python_lang.yaml
+            │   ├── spring.yaml
+            │   ├── django.yaml
+            │   └── ... (59 framework files)
+            └── ecosystems.yaml     ← Runtime Default ecosystem mappings
 
 your-project/
 └── .graphit/
     └── ast/
-        └── queries/                ← Project Override (Priority 1)
-            └── go.yaml             ← Custom Go queries for this project only
+        ├── queries/                ← Project Override (Priority 1)
+        │   └── go.yaml             ← Custom Go queries for this project only
+        ├── frameworks/             ← Project-level framework rules
+        │   └── my_framework.yaml
+        └── ecosystems.yaml         ← Project-level ecosystem entries
 ```
 
 ### Implementation Details
@@ -248,6 +382,255 @@ your-project/
 - **Embedded FS:** `internal/ast/queries_embed.go` — `//go:embed queries/*.yaml` bundles all defaults into the binary.
 - **Thread Safety:** All caches use `sync.Map` and `sync.Once` for safe concurrent access during parallel file parsing.
 - **Runtime Dir:** `brand.RuntimeDir(version)` returns `~/.graphit/runtime/<version>/` — version-scoped to avoid conflicts across upgrades.
+
+---
+
+## 🏗️ Framework YAML Configuration
+
+Framework YAML files provide **YAML-driven framework and library detection** — recognizing frameworks through decorators, class inheritance, and import paths — and define **entry point scoring rules** that assign importance scores to functions based on their names, decorators, and export status.
+
+### Purpose
+
+When the engine indexes a project, framework YAML files allow it to:
+- **Detect frameworks** by matching decorator names (e.g., `@RestController` → Spring), parent class/interface names (e.g., `JpaRepository` → Spring Data), and import paths (e.g., `github.com/gin-gonic/gin` → Gin)
+- **Score entry points** by assigning importance scores to functions based on name patterns (glob-style), decorator presence, and export visibility — used by the `entry_point_score` property on Function/Method nodes
+
+### Framework YAML Schema
+
+```yaml
+framework: spring                # Framework identifier (required)
+languages: [java, kotlin]        # Languages this framework applies to (optional — all if omitted)
+
+decorator_detection:             # Detect framework via decorator/annotation names
+  - name: RestController
+    category: web
+  - name: Service
+    category: di
+    framework_name: spring_di    # Override parent framework name (optional)
+
+heritage_detection:              # Detect framework via class inheritance / interface implementation
+  - parent: JpaRepository
+    category: orm
+    framework_name: spring_data  # Override parent framework name (optional)
+
+import_detection:                # Detect framework via import paths
+  - pattern: "org.springframework"
+    match: prefix                # "prefix" (default), "exact", "contains", "suffix", or "regex"
+    category: web
+    framework_name: spring       # Override parent framework name (optional)
+
+entry_points:                    # Entry point scoring rules
+  names:                         # Score by function name (glob patterns)
+    - pattern: main
+      score: 80
+    - pattern: "Test*"
+      score: 60
+    - pattern: "*Handler"
+      score: 30
+
+  decorators:                    # Score by decorator presence
+    - name: GetMapping
+      score: 70
+    - name: Controller
+      score: 50
+
+  exported_bonus: 10             # Bonus score for exported functions
+  max_score: 100                 # Score cap (prevents runaway accumulation)
+```
+
+**Top-Level Fields:**
+
+| Field | Required | Type | Description |
+|---|---|---|---|
+| `framework` | ✅ | `string` | Framework identifier (e.g., `spring`, `django`, `react`). Used as the default framework name in detection results |
+| `languages` | ❌ | `string[]` | Languages this framework applies to. If omitted, applies to all languages. Language names match those in query YAML files |
+| `decorator_detection` | ❌ | `DecoratorRule[]` | Rules to detect framework usage via decorator/annotation names |
+| `heritage_detection` | ❌ | `HeritageRule[]` | Rules to detect framework usage via parent class or interface names |
+| `import_detection` | ❌ | `ImportRule[]` | Rules to detect framework usage via import path patterns |
+| `entry_points` | ❌ | `EntryPointConfig` | Entry point scoring configuration |
+
+**Detection Rule Sub-Schemas:**
+
+| Field | Type | Description |
+|---|---|---|
+| `decorator_detection[].name` | `string` | Decorator/annotation name to match (e.g., `RestController`, `pytest.fixture`) |
+| `decorator_detection[].category` | `string` | Framework category (e.g., `web`, `di`, `orm`, `test`, `config`) |
+| `decorator_detection[].framework_name` | `string` | Optional override for the parent `framework` name |
+| `heritage_detection[].parent` | `string` | Parent class or interface name to match |
+| `heritage_detection[].category` | `string` | Framework category |
+| `heritage_detection[].framework_name` | `string` | Optional override for the parent `framework` name |
+| `import_detection[].pattern` | `string` | Import path pattern to match against |
+| `import_detection[].match` | `string` | Match mode: `"prefix"` (default, path starts with pattern), `"exact"` (full match), `"contains"` (pattern appears anywhere in the path), `"suffix"` (path ends with pattern), or `"regex"` (pattern is a Go regexp) |
+| `import_detection[].category` | `string` | Framework category |
+| `import_detection[].framework_name` | `string` | Optional override for the parent `framework` name |
+
+**Entry Point Sub-Schema:**
+
+| Field | Type | Description |
+|---|---|---|
+| `entry_points.names[]` | `NameScoreRule[]` | Name-based scoring rules. `pattern` supports glob syntax: `*` matches any characters, `?` matches a single character. Examples: `"main"` (exact), `"Test*"` (prefix), `"*Handler"` (suffix), `"cmd*"` (prefix) |
+| `entry_points.names[].pattern` | `string` | Glob pattern to match against the function/method name |
+| `entry_points.names[].score` | `int` | Score to assign when the pattern matches |
+| `entry_points.decorators[]` | `DecoratorScoreRule[]` | Decorator-based scoring rules |
+| `entry_points.decorators[].name` | `string` | Decorator name to match |
+| `entry_points.decorators[].score` | `int` | Score to assign when the decorator is present |
+| `entry_points.exported_bonus` | `int` | Bonus score added for exported functions (combines with name/decorator scores) |
+| `entry_points.max_score` | `int` | Maximum score cap — final score is clamped to this value |
+
+### Resolution: Additive Merge (4 Levels)
+
+Unlike query files (which use **precedence override** — highest-priority source wins per language), framework files use **additive merging** — frameworks from ALL 4 levels are combined:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Level 3 — Project Level (highest priority, extends all below)             │
+│  .graphit/ast/frameworks/*.yaml                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Level 2 — User Global (extends runtime)                                    │
+│  ~/.graphit/ast/frameworks/*.yaml                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Level 1 — Runtime Defaults (base)                                         │
+│  ~/.graphit/runtime/<version>/ast/frameworks/*.yaml                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+This means a project can add custom framework rules **without losing** any of the 59 built-in framework definitions (Spring, Django, FastAPI, React, NestJS, Rails, Flutter, SwiftUI, etc.). Language-specific base rules (entry point defaults, import detection) are also included as `_<lang>_lang.yaml` framework files.
+
+### Example: Creating a Custom Framework YAML
+
+To add detection for a custom internal framework, create a YAML file at the project or user-global level:
+
+```yaml
+# .graphit/ast/frameworks/mycompany_rpc.yaml
+framework: mycompany_rpc
+languages: [go]
+
+decorator_detection:
+  - name: RPCEndpoint
+    category: rpc
+  - name: RPCMiddleware
+    category: middleware
+
+import_detection:
+  - pattern: "github.com/mycompany/rpc"
+    match: prefix
+    category: rpc
+
+entry_points:
+  decorators:
+    - name: RPCEndpoint
+      score: 70
+  names:
+    - pattern: "*Handler"
+      score: 40
+```
+
+---
+
+## 🌍 Ecosystem YAML Configuration
+
+Ecosystem YAML files map **configuration filenames** to **language and ecosystem identifiers**, enabling automatic project type detection. When the engine scans a project's root directory, it matches filenames against these entries to determine which languages and ecosystems (build tools, package managers, test frameworks) are present.
+
+### Purpose
+
+The ecosystem configuration is used by `DetectProjectConfig()` to build a project profile — identifying the primary language, package manager, build system, and toolchain without parsing source files. This information is used for framework resolution, dependency analysis, and intelligent indexing.
+
+### Schema
+
+Ecosystem entries are defined in a single `ecosystems.yaml` file:
+
+```yaml
+config_files:
+  - filename: go.mod
+    language: go
+    ecosystem: go
+
+  - filename: package.json
+    language: javascript
+    ecosystem: node
+
+  - filename: "*.csproj"           # Glob pattern matching
+    language: csharp
+    ecosystem: dotnet
+    glob: true                     # Enable glob matching
+
+  - filename: pyproject.toml
+    language: python
+    ecosystem: python
+    extract:                       # Optional: extract metadata from file content
+      - field: "project.name"     # JSON/TOML field path
+        store: "project_name"     # Key to store in detected map
+```
+
+**Fields:**
+
+| Field | Required | Type | Description |
+|---|---|---|---|
+| `config_files[].filename` | ✅ | `string` | Config filename to match in the project root. Can be a glob pattern if `glob: true` |
+| `config_files[].language` | ✅ | `string` | Language identifier (matches the `language` field in query YAML files) |
+| `config_files[].ecosystem` | ✅ | `string` | Ecosystem identifier (e.g., `node`, `cargo`, `gradle`, `pip`, `bundler`) |
+| `config_files[].glob` | ❌ | `bool` | When `true`, treats `filename` as a glob pattern (e.g., `"*.csproj"`). Default: `false` |
+| `config_files[].extract` | ❌ | `ExtractRule[]` | Rules for extracting metadata from the config file's content |
+| `config_files[].extract[].field` | ✅ | `string` | JSON/TOML field path to extract (e.g., `"project.name"`) |
+| `config_files[].extract[].store` | ✅ | `string` | Key under which to store the extracted value |
+
+### Resolution: Additive Merge (4 Levels)
+
+Like frameworks, ecosystem files use **additive merging** — entries from all 4 levels are combined:
+
+| Level | Path | Behavior |
+|---|---|---|
+| Runtime | `~/.graphit/runtime/<version>/ast/ecosystems.yaml` | Base — factory defaults (120+ entries covering 16 languages) |
+| User Global | `~/.graphit/ast/ecosystems.yaml` | Extends runtime — user-editable, never modified by framework |
+| Project | `.graphit/ast/ecosystems.yaml` | Extends all — project-specific overrides |
+
+This allows projects to add detection for custom config files without losing any of the built-in mappings.
+
+### Example Entries
+
+Below are representative entries from the built-in `ecosystems.yaml`:
+
+```yaml
+config_files:
+  # JavaScript / TypeScript
+  - filename: package.json
+    language: javascript
+    ecosystem: node
+  - filename: tsconfig.json
+    language: typescript
+    ecosystem: node
+  - filename: vite.config.ts
+    language: typescript
+    ecosystem: vite
+
+  # Go
+  - filename: go.mod
+    language: go
+    ecosystem: go
+
+  # Python
+  - filename: pyproject.toml
+    language: python
+    ecosystem: python
+  - filename: manage.py
+    language: python
+    ecosystem: django
+
+  # Rust
+  - filename: Cargo.toml
+    language: rust
+    ecosystem: cargo
+
+  # C# (.NET) — glob patterns
+  - filename: "*.csproj"
+    language: csharp
+    ecosystem: dotnet
+    glob: true
+  - filename: "*.sln"
+    language: csharp
+    ecosystem: dotnet
+    glob: true
+```
 
 ---
 

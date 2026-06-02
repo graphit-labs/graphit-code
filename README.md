@@ -238,13 +238,27 @@ Every source file is parsed via **Tree-sitter** into a graph stored in **Ladybug
 - **Relationships:** `CONTAINS` (ownership), `IMPORTS` (dependencies), `CALLS` (invocations), `HAS_PARAMETER`, `HAS_FIELD`, `READS_FIELD` / `WRITES_FIELD` (data access tracing), `INHERITS`, `IMPLEMENTS`
 - **Properties:** `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported`, `entry_point_score`, `docstring`, `source`, `lang`, `cluster`
 
-#### Fully Customizable Query Patterns
+#### Fully Customizable — Pure YAML-Driven Engine
 
-All Tree-sitter extraction patterns are defined as **external YAML files** — not hardcoded. You can customize which entities are extracted from each language without recompiling:
+The entire AST pipeline is driven by **external YAML files** — not hardcoded. Every aspect of language understanding, framework detection, and scoring is runtime-customizable without recompilation:
+
+- **Tree-sitter Query Patterns** — 16 language YAML files define all extraction patterns (functions, classes, imports, calls, etc.)
+- **Framework Detection** — 51+ framework definitions across 59 YAML files. Decorators, heritage classes, and import patterns for frameworks like React, Django, Spring Boot, Flutter, Express, FastAPI, and many more.
+- **Ecosystem Detection** — `ecosystems.yaml` with 120+ entries classifying projects by technology stack (web, mobile, API, database, CLI, etc.)
+- **Entry Point Scoring** — Scoring rules embedded in each language YAML determine how functions are ranked as potential entry points.
+- **Language Configuration** — Export strategies, import match types (`prefix`, `exact`, `contains`, `suffix`, `regex`), `self`/`this` keywords, context type mappings, relation types, and declaration types are all defined per-language in YAML.
+- **Relation Types** — All entity and relation types (e.g., `CALLS`, `IMPORTS`, `INHERITS`, `IMPLEMENTS`, `READS_FIELD`, `WRITES_FIELD`) are defined in YAML. New relation types can be added without recompilation.
+
+All configuration follows a **4-level cascading resolution chain**:
 
 - **Per Project:** `.graphit/ast/queries/<language>.yaml` — override for one project only.
 - **User Global:** `~/.graphit/ast/queries/<language>.yaml` — your customizations across all projects.
 - **Runtime Defaults:** `~/.graphit/runtime/<version>/ast/queries/` — factory defaults, auto-extracted from the binary per version.
+- **Embedded:** Built-in YAML defaults compiled into the binary — used only when no external file is found at any higher level.
+
+**Extend without recompilation:** Add new frameworks, ecosystem patterns, entry point scoring rules, relation types, and customize all language behavior by simply dropping YAML files into the project or user directory. Community contributions can be YAML-only PRs — no Go knowledge required.
+
+> **Note:** The only compiled component is the **grammar registry** — the mapping of each language to its Tree-sitter grammar. Adding support for an entirely new programming language requires its grammar to be compiled into the binary. However, everything else — extraction queries, export strategies, import matching, relation types, context type mappings, scoring, and framework detection — is fully YAML-driven and customizable at any resolution level.
 
 Resolution follows a cascading priority chain: **project → user global → runtime → embedded**. See the [User Manual](docs/guides/user_manual.md#customizing-ast-tree-sitter-queries) for examples, and the [AST Module Spec](docs/specs/ast_module.md#-external-query-customization) for the full technical reference.
 

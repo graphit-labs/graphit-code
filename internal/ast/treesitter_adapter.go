@@ -29,1221 +29,54 @@ type tsLangConfig struct {
 	Language   string
 	Extensions []string
 	TSLang     *sitter.Language
-	Queries    []tsQueryDef
 }
 
+// tsQueryDef mirrors ExternalQueryDef for direct struct cast.
 type tsQueryDef struct {
-	DataKey     string
-	GraphLabel  string
-	Pattern     string
-	NameCapture string
+	DataKey      string
+	GraphLabel   string
+	Pattern      string
+	NameCapture  string
+	Type         string
+	RelationType string
 }
 
-var treeSitterLangs = []tsLangConfig{
-	{
-		Language:   "javascript",
-		Extensions: []string{".js", ".jsx", ".mjs"},
-		TSLang:     javascript.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(method_definition name: (property_identifier) @name)`,
-			},
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(variable_declarator name: (identifier) @name value: (arrow_function))`,
-			},
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(variable_declarator name: (identifier) @name value: (function_expression))`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(import_statement source: (string) @name)`,
-			},
-			{
-				DataKey: "exports", GraphLabel: "Export", NameCapture: "name",
-				Pattern: `(export_statement declaration: (function_declaration name: (identifier) @name))`,
-			},
 
-			{
-				DataKey: "variables", GraphLabel: "Variable", NameCapture: "name",
-				Pattern: `(lexical_declaration (variable_declarator name: (identifier) @name))`,
-			},
-
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(export_statement source: (string) @name)`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (identifier) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (member_expression property: (property_identifier) @name))`,
-			},
-			{
-				DataKey: "instantiations", GraphLabel: "", NameCapture: "name",
-				Pattern: `(new_expression constructor: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(formal_parameters (identifier) @name)`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(class_heritage (identifier) @name)`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(field_definition property: (property_identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(member_expression property: (property_identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_writes", GraphLabel: "", NameCapture: "name",
-				Pattern: `(assignment_expression left: (member_expression property: (property_identifier) @name))`,
-			},
-		},
-	},
-	{
-		Language:   "typescript",
-		Extensions: []string{".ts"},
-		TSLang:     typescript.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(method_definition name: (property_identifier) @name)`,
-			},
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(variable_declarator name: (identifier) @name value: (arrow_function))`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class_declaration name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "interfaces", GraphLabel: "Interface", NameCapture: "name",
-				Pattern: `(interface_declaration name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "types", GraphLabel: "Type", NameCapture: "name",
-				Pattern: `(type_alias_declaration name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "enums", GraphLabel: "Enum", NameCapture: "name",
-				Pattern: `(enum_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(import_statement source: (string) @name)`,
-			},
-
-			{
-				DataKey: "variables", GraphLabel: "Variable", NameCapture: "name",
-				Pattern: `(lexical_declaration (variable_declarator name: (identifier) @name))`,
-			},
-
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(export_statement source: (string) @name)`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (identifier) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (member_expression property: (property_identifier) @name))`,
-			},
-			{
-				DataKey: "instantiations", GraphLabel: "", NameCapture: "name",
-				Pattern: `(new_expression constructor: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(required_parameter pattern: (identifier) @name)`,
-			},
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(optional_parameter pattern: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(extends_clause value: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "implements", GraphLabel: "", NameCapture: "name",
-				Pattern: `(implements_clause (type_identifier) @name)`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(public_field_definition name: (property_identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(member_expression property: (property_identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_writes", GraphLabel: "", NameCapture: "name",
-				Pattern: `(assignment_expression left: (member_expression property: (property_identifier) @name))`,
-			},
-
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(decorator (identifier) @name)`,
-			},
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(decorator (call_expression function: (identifier) @name))`,
-			},
-		},
-	},
-
-	{
-		Language:   "typescript",
-		Extensions: []string{".tsx"},
-		TSLang:     tsx.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(method_definition name: (property_identifier) @name)`,
-			},
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(variable_declarator name: (identifier) @name value: (arrow_function))`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class_declaration name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "interfaces", GraphLabel: "Interface", NameCapture: "name",
-				Pattern: `(interface_declaration name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "types", GraphLabel: "Type", NameCapture: "name",
-				Pattern: `(type_alias_declaration name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "enums", GraphLabel: "Enum", NameCapture: "name",
-				Pattern: `(enum_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(import_statement source: (string) @name)`,
-			},
-
-			{
-				DataKey: "variables", GraphLabel: "Variable", NameCapture: "name",
-				Pattern: `(lexical_declaration (variable_declarator name: (identifier) @name))`,
-			},
-
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(export_statement source: (string) @name)`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (identifier) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (member_expression property: (property_identifier) @name))`,
-			},
-			{
-				DataKey: "instantiations", GraphLabel: "", NameCapture: "name",
-				Pattern: `(new_expression constructor: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(required_parameter pattern: (identifier) @name)`,
-			},
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(optional_parameter pattern: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(extends_clause value: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "implements", GraphLabel: "", NameCapture: "name",
-				Pattern: `(implements_clause (type_identifier) @name)`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(public_field_definition name: (property_identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(member_expression property: (property_identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_writes", GraphLabel: "", NameCapture: "name",
-				Pattern: `(assignment_expression left: (member_expression property: (property_identifier) @name))`,
-			},
-
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(decorator (identifier) @name)`,
-			},
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(decorator (call_expression function: (identifier) @name))`,
-			},
-		},
-	},
-	{
-		Language:   "csharp",
-		Extensions: []string{".cs"},
-		TSLang:     csharp.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(method_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "interfaces", GraphLabel: "Interface", NameCapture: "name",
-				Pattern: `(interface_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "enums", GraphLabel: "Enum", NameCapture: "name",
-				Pattern: `(enum_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "structs", GraphLabel: "Struct", NameCapture: "name",
-				Pattern: `(struct_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "properties", GraphLabel: "Property", NameCapture: "name",
-				Pattern: `(property_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "namespaces", GraphLabel: "Namespace", NameCapture: "name",
-				Pattern: `(namespace_declaration name: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(invocation_expression function: (identifier) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(invocation_expression function: (member_access_expression name: (identifier) @name))`,
-			},
-			{
-				DataKey: "instantiations", GraphLabel: "", NameCapture: "name",
-				Pattern: `(object_creation_expression type: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(parameter name: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(base_list (identifier) @name)`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(field_declaration (variable_declaration (variable_declarator (identifier) @name)))`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(member_access_expression name: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_writes", GraphLabel: "", NameCapture: "name",
-				Pattern: `(assignment_expression left: (member_access_expression name: (identifier) @name))`,
-			},
-
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(attribute (identifier) @name)`,
-			},
-		},
-	},
-	{
-		Language:   "php",
-		Extensions: []string{".php"},
-		TSLang:     php.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_definition name: (name) @name)`,
-			},
-			{
-				DataKey: "methods", GraphLabel: "Method", NameCapture: "name",
-				Pattern: `(method_declaration name: (name) @name)`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class_declaration name: (name) @name)`,
-			},
-			{
-				DataKey: "interfaces", GraphLabel: "Interface", NameCapture: "name",
-				Pattern: `(interface_declaration name: (name) @name)`,
-			},
-			{
-				DataKey: "traits", GraphLabel: "Trait", NameCapture: "name",
-				Pattern: `(trait_declaration name: (name) @name)`,
-			},
-			{
-				DataKey: "enums", GraphLabel: "Enum", NameCapture: "name",
-				Pattern: `(enum_declaration name: (name) @name)`,
-			},
-			{
-				DataKey: "constants", GraphLabel: "Constant", NameCapture: "name",
-				Pattern: `(const_declaration (const_element (name) @name))`,
-			},
-			{
-				DataKey: "namespaces", GraphLabel: "Package", NameCapture: "name",
-				Pattern: `(namespace_definition name: (namespace_name) @name)`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(function_call_expression function: (name) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(member_call_expression name: (name) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(scoped_call_expression name: (name) @name)`,
-			},
-			{
-				DataKey: "instantiations", GraphLabel: "", NameCapture: "name",
-				Pattern: `(object_creation_expression (name) @name)`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(simple_parameter name: (variable_name (name) @name))`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(base_clause (name) @name)`,
-			},
-
-			{
-				DataKey: "implements", GraphLabel: "", NameCapture: "name",
-				Pattern: `(class_interface_clause (name) @name)`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(property_declaration name: (variable_name (name) @name))`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(member_access_expression name: (name) @name)`,
-			},
-
-			{
-				DataKey: "field_writes", GraphLabel: "", NameCapture: "name",
-				Pattern: `(assignment_expression left: (member_access_expression name: (name) @name))`,
-			},
-
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(attribute (name) @name)`,
-			},
-		},
-	},
-	{
-		Language:   "go",
-		Extensions: []string{".go"},
-		TSLang:     golang.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "methods", GraphLabel: "Method", NameCapture: "name",
-				Pattern: `(method_declaration name: (field_identifier) @name)`,
-			},
-			{
-				DataKey: "structs", GraphLabel: "Struct", NameCapture: "name",
-				Pattern: `(type_declaration (type_spec name: (type_identifier) @name type: (struct_type)))`,
-			},
-			{
-				DataKey: "interfaces", GraphLabel: "Interface", NameCapture: "name",
-				Pattern: `(type_declaration (type_spec name: (type_identifier) @name type: (interface_type)))`,
-			},
-			{
-				DataKey: "types", GraphLabel: "Type", NameCapture: "name",
-				Pattern: `(type_declaration (type_spec name: (type_identifier) @name))`,
-			},
-			{
-				DataKey: "constants", GraphLabel: "Constant", NameCapture: "name",
-				Pattern: `(const_spec name: (identifier) @name)`,
-			},
-			{
-				DataKey: "variables", GraphLabel: "Variable", NameCapture: "name",
-				Pattern: `(var_spec name: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (identifier) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (selector_expression field: (field_identifier) @name))`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(parameter_declaration name: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(field_declaration name: (field_identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(selector_expression field: (field_identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_writes", GraphLabel: "", NameCapture: "name",
-				Pattern: `(assignment_statement left: (selector_expression field: (field_identifier) @name))`,
-			},
-		},
-	},
-	{
-		Language:   "sql",
-		Extensions: []string{".sql"},
-		TSLang:     sql.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(create_function_statement name: (identifier) @name)`,
-			},
-			{
-				DataKey: "tables", GraphLabel: "Table", NameCapture: "name",
-				Pattern: `(create_table_statement name: (identifier) @name)`,
-			},
-			{
-				DataKey: "views", GraphLabel: "View", NameCapture: "name",
-				Pattern: `(create_view_statement name: (identifier) @name)`,
-			},
-		},
-	},
-
-	{
-		Language:   "python",
-		Extensions: []string{".py"},
-		TSLang:     python.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_definition name: (identifier) @name)`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class_definition name: (identifier) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(import_statement name: (dotted_name) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(import_from_statement module_name: (dotted_name) @name)`,
-			},
-
-			{
-				DataKey: "variables", GraphLabel: "Variable", NameCapture: "name",
-				Pattern: `(assignment left: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(decorator (identifier) @name)`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call function: (identifier) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call function: (attribute attribute: (identifier) @name))`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(parameters (identifier) @name)`,
-			},
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(parameters (default_parameter name: (identifier) @name))`,
-			},
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(parameters (typed_parameter (identifier) @name))`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(class_definition superclasses: (argument_list (identifier) @name))`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(attribute attribute: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_writes", GraphLabel: "", NameCapture: "name",
-				Pattern: `(assignment left: (attribute attribute: (identifier) @name))`,
-			},
-		},
-	},
-
-	{
-		Language:   "java",
-		Extensions: []string{".java"},
-		TSLang:     java.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(method_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(constructor_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "interfaces", GraphLabel: "Interface", NameCapture: "name",
-				Pattern: `(interface_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "enums", GraphLabel: "Enum", NameCapture: "name",
-				Pattern: `(enum_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(import_declaration (scoped_identifier) @name)`,
-			},
-			{
-				DataKey: "packages", GraphLabel: "Package", NameCapture: "name",
-				Pattern: `(package_declaration (scoped_identifier) @name)`,
-			},
-
-			{
-				DataKey: "variables", GraphLabel: "Variable", NameCapture: "name",
-				Pattern: `(local_variable_declaration declarator: (variable_declarator name: (identifier) @name))`,
-			},
-
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(marker_annotation name: (identifier) @name)`,
-			},
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(annotation name: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(method_invocation name: (identifier) @name)`,
-			},
-			{
-				DataKey: "instantiations", GraphLabel: "", NameCapture: "name",
-				Pattern: `(object_creation_expression type: (type_identifier) @name)`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(formal_parameter name: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(superclass (type_identifier) @name)`,
-			},
-
-			{
-				DataKey: "implements", GraphLabel: "", NameCapture: "name",
-				Pattern: `(super_interfaces (type_list (type_identifier) @name))`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(field_declaration declarator: (variable_declarator name: (identifier) @name))`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(field_access field: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_writes", GraphLabel: "", NameCapture: "name",
-				Pattern: `(assignment_expression left: (field_access field: (identifier) @name))`,
-			},
-		},
-	},
-
-	{
-		Language:   "rust",
-		Extensions: []string{".rs"},
-		TSLang:     rust.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_item name: (identifier) @name)`,
-			},
-			{
-				DataKey: "structs", GraphLabel: "Struct", NameCapture: "name",
-				Pattern: `(struct_item name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "enums", GraphLabel: "Enum", NameCapture: "name",
-				Pattern: `(enum_item name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "traits", GraphLabel: "Trait", NameCapture: "name",
-				Pattern: `(trait_item name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "types", GraphLabel: "Type", NameCapture: "name",
-				Pattern: `(type_item name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "constants", GraphLabel: "Constant", NameCapture: "name",
-				Pattern: `(const_item name: (identifier) @name)`,
-			},
-			{
-				DataKey: "variables", GraphLabel: "Variable", NameCapture: "name",
-				Pattern: `(static_item name: (identifier) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(use_declaration argument: (scoped_identifier) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(use_declaration argument: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (identifier) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (scoped_identifier name: (identifier) @name))`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (field_expression field: (field_identifier) @name))`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(parameter pattern: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(field_declaration name: (field_identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(field_expression field: (field_identifier) @name)`,
-			},
-
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(attribute_item (attribute (identifier) @name))`,
-			},
-
-			{
-				DataKey: "implements", GraphLabel: "", NameCapture: "name",
-				Pattern: `(impl_item trait: (type_identifier) @name)`,
-			},
-		},
-	},
-
-	{
-		Language:   "c",
-		Extensions: []string{".c", ".h"},
-		TSLang:     c.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_definition declarator: (function_declarator declarator: (identifier) @name))`,
-			},
-			{
-				DataKey: "structs", GraphLabel: "Struct", NameCapture: "name",
-				Pattern: `(struct_specifier name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "enums", GraphLabel: "Enum", NameCapture: "name",
-				Pattern: `(enum_specifier name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "types", GraphLabel: "Type", NameCapture: "name",
-				Pattern: `(type_definition declarator: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(preproc_include path: (string_literal) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(preproc_include path: (system_lib_string) @name)`,
-			},
-
-			{
-				DataKey: "variables", GraphLabel: "Variable", NameCapture: "name",
-				Pattern: `(declaration declarator: (init_declarator declarator: (identifier) @name))`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(parameter_declaration declarator: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(field_declaration declarator: (field_identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(field_expression field: (field_identifier) @name)`,
-			},
-		},
-	},
-
-	{
-		Language:   "cpp",
-		Extensions: []string{".cpp", ".hpp", ".cc", ".cxx"},
-		TSLang:     cpp.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_definition declarator: (function_declarator declarator: (identifier) @name))`,
-			},
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (identifier) @name)))`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class_specifier name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "structs", GraphLabel: "Struct", NameCapture: "name",
-				Pattern: `(struct_specifier name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "enums", GraphLabel: "Enum", NameCapture: "name",
-				Pattern: `(enum_specifier name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "namespaces", GraphLabel: "Namespace", NameCapture: "name",
-				Pattern: `(namespace_definition name: (identifier) @name)`,
-			},
-			{
-				DataKey: "types", GraphLabel: "Type", NameCapture: "name",
-				Pattern: `(type_definition declarator: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(preproc_include path: (string_literal) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(preproc_include path: (system_lib_string) @name)`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (identifier) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression function: (field_expression field: (field_identifier) @name))`,
-			},
-			{
-				DataKey: "instantiations", GraphLabel: "", NameCapture: "name",
-				Pattern: `(new_expression type: (type_identifier) @name)`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(parameter_declaration declarator: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(base_class_clause (type_identifier) @name)`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(field_declaration declarator: (field_identifier) @name)`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(field_expression field: (field_identifier) @name)`,
-			},
-		},
-	},
-
-	{
-		Language:   "kotlin",
-		Extensions: []string{".kt", ".kts"},
-		TSLang:     kotlin.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_declaration (simple_identifier) @name)`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class_declaration (type_identifier) @name)`,
-			},
-			{
-				DataKey: "interfaces", GraphLabel: "Interface", NameCapture: "name",
-				Pattern: `(class_declaration (type_identifier) @name)`,
-			},
-			{
-				DataKey: "enums", GraphLabel: "Enum", NameCapture: "name",
-				Pattern: `(class_declaration (type_identifier) @name)`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(import_header (identifier) @name)`,
-			},
-			{
-				DataKey: "packages", GraphLabel: "Package", NameCapture: "name",
-				Pattern: `(package_header (identifier) @name)`,
-			},
-
-			{
-				DataKey: "variables", GraphLabel: "Variable", NameCapture: "name",
-				Pattern: `(property_declaration (variable_declaration (simple_identifier) @name))`,
-			},
-
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(annotation (user_type (type_identifier) @name))`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression (simple_identifier) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression (navigation_expression (simple_identifier) @name))`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(parameter (simple_identifier) @name)`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(delegation_specifier (user_type (type_identifier) @name))`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(class_body (property_declaration (variable_declaration (simple_identifier) @name)))`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(navigation_expression (simple_identifier) @name)`,
-			},
-		},
-	},
-
-	{
-		Language:   "ruby",
-		Extensions: []string{".rb"},
-		TSLang:     ruby.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(method name: (identifier) @name)`,
-			},
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(singleton_method name: (identifier) @name)`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class name: (constant) @name)`,
-			},
-			{
-				DataKey: "modules", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(module name: (constant) @name)`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call method: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(call method: (identifier) @_method arguments: (argument_list (string (string_content) @name)) (#eq? @_method "require"))`,
-			},
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(call method: (identifier) @_method arguments: (argument_list (string (string_content) @name)) (#eq? @_method "require_relative"))`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(class superclass: (superclass (constant) @name))`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call method: (identifier) @_method arguments: (argument_list (constant) @name) (#eq? @_method "include"))`,
-			},
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call method: (identifier) @_method arguments: (argument_list (constant) @name) (#eq? @_method "extend"))`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(method_parameters (identifier) @name)`,
-			},
-
-			{
-				DataKey: "variables", GraphLabel: "Variable", NameCapture: "name",
-				Pattern: `(assignment left: (constant) @name)`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(instance_variable) @name`,
-			},
-		},
-	},
-
-	{
-		Language:   "swift",
-		Extensions: []string{".swift"},
-		TSLang:     swift.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_declaration name: (simple_identifier) @name)`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class_declaration name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "structs", GraphLabel: "Struct", NameCapture: "name",
-				Pattern: `(class_declaration name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "enums", GraphLabel: "Enum", NameCapture: "name",
-				Pattern: `(class_declaration name: (type_identifier) @name)`,
-			},
-			{
-				DataKey: "protocols", GraphLabel: "Interface", NameCapture: "name",
-				Pattern: `(protocol_declaration name: (type_identifier) @name)`,
-			},
-
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(attribute (user_type (type_identifier) @name))`,
-			},
-
-			{
-				DataKey: "variables", GraphLabel: "Variable", NameCapture: "name",
-				Pattern: `(property_declaration (pattern (simple_identifier) @name))`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression (simple_identifier) @name)`,
-			},
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(call_expression (navigation_expression (simple_identifier) @name))`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(parameter name: (simple_identifier) @name)`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(inheritance_specifier (user_type (type_identifier) @name))`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(class_body (property_declaration (pattern (simple_identifier) @name)))`,
-			},
-
-			{
-				DataKey: "field_reads", GraphLabel: "", NameCapture: "name",
-				Pattern: `(navigation_expression (simple_identifier) @name)`,
-			},
-		},
-	},
-
-	{
-		Language:   "dart",
-		Extensions: []string{".dart"},
-		TSLang:     dart.GetLanguage(),
-		Queries: []tsQueryDef{
-			{
-				DataKey: "functions", GraphLabel: "Function", NameCapture: "name",
-				Pattern: `(function_signature name: (identifier) @name)`,
-			},
-			{
-				DataKey: "methods", GraphLabel: "Method", NameCapture: "name",
-				Pattern: `(method_signature (function_signature name: (identifier) @name))`,
-			},
-			{
-				DataKey: "classes", GraphLabel: "Class", NameCapture: "name",
-				Pattern: `(class_definition name: (identifier) @name)`,
-			},
-			{
-				DataKey: "enums", GraphLabel: "Enum", NameCapture: "name",
-				Pattern: `(enum_declaration name: (identifier) @name)`,
-			},
-			{
-				DataKey: "interfaces", GraphLabel: "Interface", NameCapture: "name",
-				Pattern: `(mixin_declaration name: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "imports", GraphLabel: "Module", NameCapture: "name",
-				Pattern: `(import_specification (configurable_uri (uri (string_literal) @name)))`,
-			},
-
-			{
-				DataKey: "calls", GraphLabel: "", NameCapture: "name",
-				Pattern: `(identifier) @name`,
-			},
-
-			{
-				DataKey: "parameters", GraphLabel: "Parameter", NameCapture: "name",
-				Pattern: `(formal_parameter name: (identifier) @name)`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(superclass (type_identifier) @name)`,
-			},
-
-			{
-				DataKey: "implements", GraphLabel: "", NameCapture: "name",
-				Pattern: `(interfaces (type_identifier) @name)`,
-			},
-
-			{
-				DataKey: "heritage", GraphLabel: "", NameCapture: "name",
-				Pattern: `(mixins (type_identifier) @name)`,
-			},
-
-			{
-				DataKey: "fields", GraphLabel: "Field", NameCapture: "name",
-				Pattern: `(declaration (initialized_identifier (identifier) @name))`,
-			},
-
-			{
-				DataKey: "decorators", GraphLabel: "", NameCapture: "name",
-				Pattern: `(annotation name: (identifier) @name)`,
-			},
-		},
-	},
+var treeSitterGrammars = map[string]*sitter.Language{
+	"javascript": javascript.GetLanguage(),
+	"typescript": typescript.GetLanguage(),
+	"tsx":        tsx.GetLanguage(),
+	"python":     python.GetLanguage(),
+	"go":         golang.GetLanguage(),
+	"java":       java.GetLanguage(),
+	"kotlin":     kotlin.GetLanguage(),
+	"csharp":     csharp.GetLanguage(),
+	"ruby":       ruby.GetLanguage(),
+	"php":        php.GetLanguage(),
+	"rust":       rust.GetLanguage(),
+	"swift":      swift.GetLanguage(),
+	"dart":       dart.GetLanguage(),
+	"c":          c.GetLanguage(),
+	"cpp":        cpp.GetLanguage(),
+	"sql":        sql.GetLanguage(),
 }
 
 var tsExtMap map[string]*tsLangConfig
 
 func init() {
 	tsExtMap = make(map[string]*tsLangConfig)
-	for i := range treeSitterLangs {
-		cfg := &treeSitterLangs[i]
-		for _, ext := range cfg.Extensions {
+	embedded := loadQueriesFromEmbed()
+	for _, qf := range embedded {
+		grammar, ok := treeSitterGrammars[qf.Language]
+		if !ok {
+			continue
+		}
+		cfg := &tsLangConfig{
+			Language:   qf.Language,
+			Extensions: qf.Extensions,
+			TSLang:     grammar,
+		}
+		for _, ext := range qf.Extensions {
 			tsExtMap[ext] = cfg
 		}
 	}
@@ -1284,11 +117,11 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 		Entities: make(map[string][]Entity),
 	}
 
-	// Load language config from YAML (includes queries + exports + context types etc)
+
 	var langConfig *ExternalQueryFile
-	queries := cfg.Queries
+	var queries []tsQueryDef
 	if t.projectDir != "" {
-		queries = mergedQueriesFor(t.projectDir, cfg.Language, ext, cfg.Queries, cfg.TSLang)
+		queries = mergedQueriesFor(t.projectDir, cfg.Language, ext, cfg.TSLang)
 		langConfig = resolvedLangConfigFor(t.projectDir, cfg.Language, ext)
 	}
 
@@ -1360,92 +193,78 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 
 	extractDocstrings(root, src, result, langConfig)
 
-	attachDecorators(result)
 
-	detectExports(root, src, result, cfg.Language, langConfig)
+	relationTypes := buildRelationTypeMap(queries)
 
-	if callEntities, ok := result.Entities["calls"]; ok {
-		for _, e := range callEntities {
-			result.CallSites = append(result.CallSites, CallInfo{
-				Name:       e.Name,
-				Line:       e.Line,
-				SourceName: e.Context,
-				SourceType: e.ContextType,
-			})
-		}
-		delete(result.Entities, "calls")
-	}
+	attachDecorators(result, relationTypes)
 
-	if instEntities, ok := result.Entities["instantiations"]; ok {
-		for _, e := range instEntities {
-			result.CallSites = append(result.CallSites, CallInfo{
-				Name:       e.Name,
-				Line:       e.Line,
-				FullName:   "new:" + e.Name,
-				SourceName: e.Context,
-				SourceType: e.ContextType,
-			})
-		}
-		delete(result.Entities, "instantiations")
-	}
+	detectExports(root, src, result, cfg.Language, langConfig, relationTypes)
 
-	if heritageEntities, ok := result.Entities["heritage"]; ok {
-		for _, e := range heritageEntities {
-			result.References = append(result.References, ReferenceInfo{
-				TargetName: e.Name,
-				RelType:    "INHERITS",
-				Line:       e.Line,
-				SourceName: e.Context,
-			})
-		}
-		delete(result.Entities, "heritage")
-	}
 
-	if implEntities, ok := result.Entities["implements"]; ok {
-		for _, e := range implEntities {
-			result.References = append(result.References, ReferenceInfo{
-				TargetName: e.Name,
-				RelType:    "IMPLEMENTS",
-				Line:       e.Line,
-				SourceName: e.Context,
-			})
-		}
-		delete(result.Entities, "implements")
-	}
-
-	if readEntities, ok := result.Entities["field_reads"]; ok {
-		for _, e := range readEntities {
-			if e.Context == "" {
-				continue
-			}
-			result.References = append(result.References, ReferenceInfo{
-				TargetName: e.Name,
-				RelType:    "READS_FIELD",
-				Line:       e.Line,
-				SourceName: e.Context,
-			})
-		}
-		delete(result.Entities, "field_reads")
-	}
-
-	if writeEntities, ok := result.Entities["field_writes"]; ok {
-		for _, e := range writeEntities {
-			if e.Context == "" {
-				continue
-			}
-			result.References = append(result.References, ReferenceInfo{
-				TargetName: e.Name,
-				RelType:    "WRITES_FIELD",
-				Line:       e.Line,
-				SourceName: e.Context,
-			})
-		}
-		delete(result.Entities, "field_writes")
-	}
+	processRelations(result, relationTypes)
 
 	resolveReceiverTypes(result, src, cfg.Language, langConfig)
 
 	return result, nil
+}
+
+
+func buildRelationTypeMap(queries []tsQueryDef) map[string]string {
+	m := make(map[string]string)
+	for _, q := range queries {
+		if q.Type == "relation" && q.RelationType != "" {
+			m[q.DataKey] = q.RelationType
+		}
+	}
+	return m
+}
+
+
+func processRelations(result *ParsedFile, relationTypes map[string]string) {
+	for dk, relType := range relationTypes {
+		entities, ok := result.Entities[dk]
+		if !ok {
+			continue
+		}
+
+		switch relType {
+		case "CALLS":
+			for _, e := range entities {
+				result.CallSites = append(result.CallSites, CallInfo{
+					Name:       e.Name,
+					Line:       e.Line,
+					SourceName: e.Context,
+					SourceType: e.ContextType,
+				})
+			}
+		case "INSTANTIATES":
+			for _, e := range entities {
+				result.CallSites = append(result.CallSites, CallInfo{
+					Name:       e.Name,
+					Line:       e.Line,
+					FullName:   "new:" + e.Name,
+					SourceName: e.Context,
+					SourceType: e.ContextType,
+				})
+			}
+		case "DECORATOR", "EXPORT":
+			continue
+		default:
+			for _, e := range entities {
+				if strings.HasSuffix(relType, "_FIELD") && e.Context == "" {
+					continue
+				}
+				result.References = append(result.References, ReferenceInfo{
+					TargetName: e.Name,
+					RelType:    relType,
+					Line:       e.Line,
+					SourceName: e.Context,
+				})
+			}
+		}
+
+		delete(result.Entities, dk)
+	}
 }
 
 func resolveParentContext(node *sitter.Node, src []byte, langConfig *ExternalQueryFile) (string, string) {
@@ -1489,7 +308,7 @@ func resolveParentContext(node *sitter.Node, src []byte, langConfig *ExternalQue
 	return "", ""
 }
 
-// Default context types (used when no YAML config is available)
+
 var defaultContextTypes = map[string]string{
 	"class_declaration":     "Class",
 	"class_definition":      "Class",
@@ -1517,7 +336,7 @@ func extractDocstrings(root *sitter.Node, src []byte, result *ParsedFile, langCo
 		return
 	}
 
-	// Build declaration and comment type sets from YAML config
+
 	var declTypes map[string]bool
 	var comTypes map[string]bool
 	if langConfig != nil && len(langConfig.DeclarationTypes) > 0 {
@@ -1643,7 +462,7 @@ func cleanDocstring(raw string) string {
 	return strings.Join(cleaned, "\n")
 }
 
-func attachDecorators(result *ParsedFile) {
+func attachDecorators(result *ParsedFile, relationTypes map[string]string) {
 	decoratorEntities, ok := result.Entities["decorators"]
 	if !ok || len(decoratorEntities) == 0 {
 		return
@@ -1656,8 +475,7 @@ func attachDecorators(result *ParsedFile) {
 	}
 	var allEntities []entityRef
 	for dk, entities := range result.Entities {
-		if dk == "decorators" || dk == "calls" || dk == "instantiations" ||
-			dk == "heritage" || dk == "implements" || dk == "field_reads" || dk == "field_writes" {
+		if _, isRelation := relationTypes[dk]; isRelation {
 			continue
 		}
 		for i, e := range entities {
@@ -1750,11 +568,11 @@ func selfKeywordsForLang(lang string, langConfig *ExternalQueryFile) []string {
 	return nil
 }
 
-func detectExports(root *sitter.Node, src []byte, result *ParsedFile, lang string, langConfig *ExternalQueryFile) {
+func detectExports(root *sitter.Node, src []byte, result *ParsedFile, lang string, langConfig *ExternalQueryFile, relationTypes map[string]string) {
 
 	exportedNames := make(map[string]bool)
 
-	// Determine export strategy from YAML config or hardcoded fallback
+
 	var strategy string
 	var stratConfig map[string]string
 	var stratConfigList map[string][]string
@@ -1767,7 +585,7 @@ func detectExports(root *sitter.Node, src []byte, result *ParsedFile, lang strin
 		strategy = "none"
 	}
 
-	// Pre-scan for export_statement strategy
+
 	if strategy == "export_statement" && root != nil {
 		for i := 0; i < int(root.ChildCount()); i++ {
 			child := root.Child(i)
@@ -1802,8 +620,7 @@ func detectExports(root *sitter.Node, src []byte, result *ParsedFile, lang strin
 	}
 
 	for dataKey := range result.Entities {
-		if dataKey == "calls" || dataKey == "instantiations" ||
-			dataKey == "heritage" || dataKey == "implements" || dataKey == "field_reads" || dataKey == "field_writes" {
+		if _, isRelation := relationTypes[dataKey]; isRelation {
 			continue
 		}
 		for i := range result.Entities[dataKey] {
@@ -1826,7 +643,7 @@ func detectExports(root *sitter.Node, src []byte, result *ParsedFile, lang strin
 	delete(result.Entities, "exports")
 }
 
-// isExported determines if an entity is exported based on the export strategy.
+
 func isExported(strategy string, e *Entity, exportedNames map[string]bool, config map[string]string, configList map[string][]string) bool {
 	switch strategy {
 	case "capitalized_name":

@@ -26,28 +26,46 @@ queries:
     graph_label: Package
     pattern: '(namespace_definition name: (namespace_name) @name)'
   - data_key: calls
+    type: relation
+    relation_type: CALLS
     pattern: '(function_call_expression function: (name) @name)'
   - data_key: calls
+    type: relation
+    relation_type: CALLS
     pattern: '(member_call_expression name: (name) @name)'
   - data_key: calls
+    type: relation
+    relation_type: CALLS
     pattern: '(scoped_call_expression name: (name) @name)'
   - data_key: instantiations
+    type: relation
+    relation_type: INSTANTIATES
     pattern: '(object_creation_expression (name) @name)'
   - data_key: parameters
     graph_label: Parameter
     pattern: '(simple_parameter name: (variable_name (name) @name))'
   - data_key: heritage
+    type: relation
+    relation_type: INHERITS
     pattern: '(base_clause (name) @name)'
   - data_key: implements
+    type: relation
+    relation_type: IMPLEMENTS
     pattern: '(class_interface_clause (name) @name)'
   - data_key: fields
     graph_label: Field
     pattern: '(property_declaration name: (variable_name (name) @name))'
   - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
     pattern: '(member_access_expression name: (name) @name)'
   - data_key: field_writes
+    type: relation
+    relation_type: WRITES_FIELD
     pattern: '(assignment_expression left: (member_access_expression name: (name) @name))'
   - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
     pattern: '(attribute (name) @name)'
 
 # Export detection strategy — extracted from detectExports()
@@ -103,3 +121,100 @@ comment_types:
   - comment
   - block_comment
   - line_comment
+
+# Entry point scoring rules (base language rules)
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "Test*"
+      score: 60
+    - pattern: "test_*"
+      score: 60
+    - pattern: init
+      score: 40
+    - pattern: setup
+      score: 40
+    - pattern: configure
+      score: 40
+    - pattern: "*Handler"
+      score: 30
+    - pattern: "*Controller"
+      score: 30
+    - pattern: "cmd*"
+      score: 20
+    - pattern: "run*"
+      score: 20
+
+  exported_bonus: 10
+  max_score: 100
+
+  decorators:
+    # HTTP route decorators
+    - name: GetMapping
+      score: 70
+    - name: PostMapping
+      score: 70
+    - name: PutMapping
+      score: 70
+    - name: DeleteMapping
+      score: 70
+    - name: RequestMapping
+      score: 70
+    - name: HttpGet
+      score: 70
+    - name: HttpPost
+      score: 70
+    - name: HttpPut
+      score: 70
+    - name: HttpDelete
+      score: 70
+    - name: Get
+      score: 70
+    - name: Post
+      score: 70
+    - name: Put
+      score: 70
+    - name: Delete
+      score: 70
+    - name: Route
+      score: 70
+    - name: route
+      score: 70
+    - name: "app.get"
+      score: 70
+    - name: "app.post"
+      score: 70
+    - name: "app.put"
+      score: 70
+    - name: "app.delete"
+      score: 70
+    # Test decorators
+    - name: Test
+      score: 60
+    - name: test
+      score: 60
+    - name: pytest.fixture
+      score: 60
+    # Controller decorators
+    - name: Controller
+      score: 50
+    - name: RestController
+      score: 50
+    - name: ApiController
+      score: 50
+
+# Import detection (language-level framework detection)
+import_detection:
+  - pattern: Illuminate
+    match: prefix
+    framework: laravel
+    category: web
+  - pattern: Symfony
+    match: prefix
+    framework: symfony
+    category: web
+  - pattern: Doctrine
+    match: prefix
+    framework: doctrine
+    category: orm

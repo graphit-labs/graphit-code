@@ -20,20 +20,30 @@ queries:
     graph_label: Module
     pattern: '(import_specification (configurable_uri (uri (string_literal) @name)))'
   - data_key: calls
+    type: relation
+    relation_type: CALLS
     pattern: '(identifier) @name'
   - data_key: parameters
     graph_label: Parameter
     pattern: '(formal_parameter name: (identifier) @name)'
   - data_key: heritage
+    type: relation
+    relation_type: INHERITS
     pattern: '(superclass (type_identifier) @name)'
   - data_key: implements
+    type: relation
+    relation_type: IMPLEMENTS
     pattern: '(interfaces (type_identifier) @name)'
   - data_key: heritage
+    type: relation
+    relation_type: INHERITS
     pattern: '(mixins (type_identifier) @name)'
   - data_key: fields
     graph_label: Field
     pattern: '(declaration (initialized_identifier (identifier) @name))'
   - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
     pattern: '(annotation name: (identifier) @name)'
 
 # Export detection strategy — extracted from detectExports()
@@ -89,3 +99,85 @@ comment_types:
   - comment
   - block_comment
   - line_comment
+
+# Entry point scoring rules (base language rules)
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "Test*"
+      score: 60
+    - pattern: "test_*"
+      score: 60
+    - pattern: init
+      score: 40
+    - pattern: setup
+      score: 40
+    - pattern: configure
+      score: 40
+    - pattern: "*Handler"
+      score: 30
+    - pattern: "*Controller"
+      score: 30
+    - pattern: "cmd*"
+      score: 20
+    - pattern: "run*"
+      score: 20
+
+  exported_bonus: 10
+  max_score: 100
+
+  decorators:
+    # HTTP route decorators
+    - name: GetMapping
+      score: 70
+    - name: PostMapping
+      score: 70
+    - name: PutMapping
+      score: 70
+    - name: DeleteMapping
+      score: 70
+    - name: RequestMapping
+      score: 70
+    - name: HttpGet
+      score: 70
+    - name: HttpPost
+      score: 70
+    - name: HttpPut
+      score: 70
+    - name: HttpDelete
+      score: 70
+    - name: Get
+      score: 70
+    - name: Post
+      score: 70
+    - name: Put
+      score: 70
+    - name: Delete
+      score: 70
+    - name: Route
+      score: 70
+    - name: route
+      score: 70
+    - name: "app.get"
+      score: 70
+    - name: "app.post"
+      score: 70
+    - name: "app.put"
+      score: 70
+    - name: "app.delete"
+      score: 70
+    # Test decorators
+    - name: Test
+      score: 60
+    - name: test
+      score: 60
+    - name: pytest.fixture
+      score: 60
+    # Controller decorators
+    - name: Controller
+      score: 50
+    - name: RestController
+      score: 50
+    - name: ApiController
+      score: 50

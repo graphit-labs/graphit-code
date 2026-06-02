@@ -31,6 +31,11 @@ type ExternalQueryFile struct {
 	AnonFuncTypes    []string          `yaml:"anon_func_types,omitempty"`
 	DeclarationTypes []string          `yaml:"declaration_types,omitempty"`
 	CommentTypes     []string          `yaml:"comment_types,omitempty"`
+
+	// Entry point scoring — language-level base rules (merged with framework rules)
+	EntryPoints *EntryPointConfig `yaml:"entry_points,omitempty"`
+	// Import detection — language-level import patterns for framework detection
+	ImportDetection []ImportRule `yaml:"import_detection,omitempty"`
 }
 
 // ExportConfig defines how the engine determines export/visibility for a language.
@@ -39,17 +44,17 @@ type ExportConfig struct {
 	// no_modifier, no_static, none.
 	Strategy string            `yaml:"strategy"`
 	Config   map[string]string `yaml:"config,omitempty"`
-	// ConfigList holds list-type config values (e.g. keywords for no_modifier).
 	ConfigList map[string][]string `yaml:"config_list,omitempty"`
 }
 
-// ExternalQueryDef represents a single tree-sitter query pattern from an
-// external YAML file. NameCapture defaults to "name" when omitted.
+
 type ExternalQueryDef struct {
-	DataKey     string `yaml:"data_key"`
-	GraphLabel  string `yaml:"graph_label"`
-	Pattern     string `yaml:"pattern"`
-	NameCapture string `yaml:"name_capture,omitempty"`
+	DataKey      string `yaml:"data_key"`
+	GraphLabel   string `yaml:"graph_label"`
+	Pattern      string `yaml:"pattern"`
+	NameCapture  string `yaml:"name_capture,omitempty"`
+	Type         string `yaml:"type,omitempty"`          // "entity" (default) or "relation"
+	RelationType string `yaml:"relation_type,omitempty"` // e.g. CALLS, INHERITS, READS_FIELD
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +78,7 @@ type DecoratorRule struct {
 	Name     string `yaml:"name"`
 	Category string `yaml:"category"`
 	// FrameworkName overrides the parent FrameworkFile.Framework name.
-	FrameworkName string `yaml:"framework_name,omitempty"`
+	FrameworkName string `yaml:"framework,omitempty"`
 }
 
 // HeritageRule maps a parent class/interface name to a framework category.
@@ -81,16 +86,16 @@ type HeritageRule struct {
 	Parent   string `yaml:"parent"`
 	Category string `yaml:"category"`
 	// FrameworkName overrides the parent FrameworkFile.Framework name.
-	FrameworkName string `yaml:"framework_name,omitempty"`
+	FrameworkName string `yaml:"framework,omitempty"`
 }
 
 // ImportRule matches import paths to detect framework usage.
 type ImportRule struct {
 	Pattern  string `yaml:"pattern"`
-	Match    string `yaml:"match"` // "prefix" or "exact"
+	Match    string `yaml:"match"`
 	Category string `yaml:"category"`
 	// FrameworkName overrides the parent FrameworkFile.Framework name.
-	FrameworkName string `yaml:"framework_name,omitempty"`
+	FrameworkName string `yaml:"framework,omitempty"`
 }
 
 // EntryPointConfig defines entry point scoring rules for a framework.
@@ -645,22 +650,20 @@ func filterByLangExt(files []ExternalQueryFile, lang, ext string) []ExternalQuer
 }
 
 // mergedQueriesFor returns the final merged queries for a given project,
-// language, extension, and built-in queries. Results are cached.
+// language, and extension. Results are cached.
 //
 // Resolution order:
 //
-//	project > user global > runtime > embedded > hardcoded Go
+//	project > user global > runtime > embedded
 //
-// The external queries (from whichever level wins) completely replace the
-// built-in Go queries when found. Built-in Go queries serve as last-resort
-// fallback only.
-func mergedQueriesFor(projectDir, lang, ext string, builtIn []tsQueryDef, tsLang *sitter.Language) []tsQueryDef {
+// YAML is the only source of queries — there is no hardcoded Go fallback.
+func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []tsQueryDef {
 	cacheKey := projectDir + "|" + lang + "|" + ext
 	if cached, ok := mergedQueryCache.Load(cacheKey); ok {
 		return cached.([]tsQueryDef)
 	}
 
-	// Ensure defaults are extracted to global dir on first use
+	// Ensure defaults are extracted to runtime dir on first use
 	ensureOnce.Do(func() {
 		if err := EnsureDefaultQueries(); err != nil {
 			slog.Warn("failed to ensure default queries", "error", err)
@@ -669,8 +672,7 @@ func mergedQueriesFor(projectDir, lang, ext string, builtIn []tsQueryDef, tsLang
 
 	resolved := resolveQueriesForLang(projectDir, lang, ext)
 	if len(resolved) == 0 {
-		// No external queries at any level — use hardcoded Go fallback
-		return builtIn
+		return nil
 	}
 
 	// Convert resolved external queries to tsQueryDef, validating patterns
@@ -691,11 +693,9 @@ func mergedQueriesFor(projectDir, lang, ext string, builtIn []tsQueryDef, tsLang
 		}
 	}
 
-	if len(result) == 0 {
-		return builtIn
+	if len(result) > 0 {
+		mergedQueryCache.Store(cacheKey, result)
 	}
-
-	mergedQueryCache.Store(cacheKey, result)
 	return result
 }
 
@@ -707,7 +707,9 @@ func hasLangConfig(qf *ExternalQueryFile) bool {
 		len(qf.ContextTypes) > 0 ||
 		len(qf.AnonFuncTypes) > 0 ||
 		len(qf.DeclarationTypes) > 0 ||
-		len(qf.CommentTypes) > 0
+		len(qf.CommentTypes) > 0 ||
+		qf.EntryPoints != nil ||
+		len(qf.ImportDetection) > 0
 }
 
 // ---------------------------------------------------------------------------
@@ -725,6 +727,50 @@ func resolvedLangConfigFor(projectDir, lang, ext string) *ExternalQueryFile {
 		}
 	}
 	return nil
+}
+
+// ResolveAllLangConfigs returns all language configurations from every level of the
+// resolution chain. It collects unique language configs, one per language, using the
+// same precedence as queries (project > user > runtime > embedded).
+func ResolveAllLangConfigs(projectDir string) []*ExternalQueryFile {
+	ensureOnce.Do(func() {
+		if err := EnsureDefaultQueries(); err != nil {
+			slog.Warn("failed to ensure defaults", "error", err)
+		}
+	})
+
+	// Collect all languages from all loaded query files
+	seen := make(map[string]bool)
+	var result []*ExternalQueryFile
+
+	// Walk all loaded query files to discover available languages
+	sources := [][]ExternalQueryFile{
+		loadEmbeddedCached(),
+		loadRuntimeCached(),
+		loadUserCached(),
+	}
+	if projectDir != "" {
+		sources = append(sources, loadProjectCached(projectDir))
+	}
+
+	for _, files := range sources {
+		for _, f := range files {
+			if f.Language != "" && !seen[f.Language] {
+				seen[f.Language] = true
+				// Resolve the config using the precedence chain
+				ext := ""
+				if len(f.Extensions) > 0 {
+					ext = f.Extensions[0]
+				}
+				cfg := resolvedLangConfigFor(projectDir, f.Language, ext)
+				if cfg != nil {
+					result = append(result, cfg)
+				}
+			}
+		}
+	}
+
+	return result
 }
 
 // ---------------------------------------------------------------------------

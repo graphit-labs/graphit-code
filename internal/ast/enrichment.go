@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
@@ -68,6 +69,7 @@ func DetectFrameworks(ctx context.Context, db GraphDB, projectDir string) map[st
 		framework string
 		category  string
 		match     string
+		regex     *regexp.Regexp // compiled regex for match=regex
 	}
 	importLookup := make(map[string]importEntry) // pattern -> importEntry
 
@@ -96,6 +98,26 @@ func DetectFrameworks(ctx context.Context, db GraphDB, projectDir string) map[st
 				framework: name,
 				category:  imp.Category,
 				match:     imp.Match,
+				regex:     compileImportRegex(imp.Match, imp.Pattern),
+			}
+		}
+	}
+
+	// Also load import detection from language YAMLs (language-level rules)
+	for _, langCfg := range ResolveAllLangConfigs(projectDir) {
+		for _, imp := range langCfg.ImportDetection {
+			// Only add if not already overridden by a framework file
+			if _, exists := importLookup[imp.Pattern]; !exists {
+				name := imp.FrameworkName
+				if name == "" {
+					name = langCfg.Language
+				}
+				importLookup[imp.Pattern] = importEntry{
+					framework: name,
+					category:  imp.Category,
+					match:     imp.Match,
+					regex:     compileImportRegex(imp.Match, imp.Pattern),
+				}
 			}
 		}
 	}
@@ -159,10 +181,18 @@ func DetectFrameworks(ctx context.Context, db GraphDB, projectDir string) map[st
 
 			for pattern, entry := range importLookup {
 				matched := false
-				if entry.match == "exact" {
+				switch entry.match {
+				case "exact":
 					matched = fullName == pattern || name == pattern
-				} else {
-					// prefix match (default)
+				case "contains":
+					matched = strings.Contains(fullName, pattern) || strings.Contains(name, pattern)
+				case "suffix":
+					matched = strings.HasSuffix(fullName, pattern) || strings.HasSuffix(name, pattern)
+				case "regex":
+					if entry.regex != nil {
+						matched = entry.regex.MatchString(fullName) || entry.regex.MatchString(name)
+					}
+				default: // "prefix" or empty
 					matched = fullName == pattern || strings.HasPrefix(fullName, pattern+"/") ||
 						name == pattern || strings.HasPrefix(name, pattern)
 				}
@@ -176,11 +206,20 @@ func DetectFrameworks(ctx context.Context, db GraphDB, projectDir string) map[st
 	return detected
 }
 
-
+func compileImportRegex(match, pattern string) *regexp.Regexp {
+	if match != "regex" {
+		return nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		slog.Warn("invalid import regex pattern", "pattern", pattern, "error", err)
+		return nil
+	}
+	return re
+}
 
 func ScoreEntryPoints(ctx context.Context, db GraphDB, projectDir string) {
 
-	// Load YAML entry point rules
 	frameworks := ResolveFrameworks(projectDir)
 	var nameRules []NameScoreRule
 	var decRules []DecoratorScoreRule
@@ -196,6 +235,20 @@ func ScoreEntryPoints(ctx context.Context, db GraphDB, projectDir string) {
 			}
 			if fw.EntryPoints.MaxScore > 0 {
 				maxScore = fw.EntryPoints.MaxScore
+			}
+		}
+	}
+
+	// Also load entry point rules from language YAMLs (language-level base scoring)
+	for _, langCfg := range ResolveAllLangConfigs(projectDir) {
+		if langCfg.EntryPoints != nil {
+			nameRules = append(nameRules, langCfg.EntryPoints.Names...)
+			decRules = append(decRules, langCfg.EntryPoints.Decorators...)
+			if langCfg.EntryPoints.ExportedBonus > 0 {
+				exportedBonus = langCfg.EntryPoints.ExportedBonus
+			}
+			if langCfg.EntryPoints.MaxScore > 0 {
+				maxScore = langCfg.EntryPoints.MaxScore
 			}
 		}
 	}

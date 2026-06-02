@@ -124,12 +124,14 @@ The AST module extracts code entities (functions, classes, imports, etc.) from s
 
 ### How It Works
 
-When Graphit Code parses a source file, it resolves query patterns using a **4-level priority chain**:
+When Graphit Code parses a source file, it resolves query patterns using a **4-level priority chain** (all YAML — there is no hardcoded Go fallback):
 
 1. **Project** (`.graphit/ast/queries/`) — Highest priority. Applies only to this project.
 2. **User Global** (`~/.graphit/ast/queries/`) — Your personal customizations. Applies to all projects. **Never written by the framework.**
 3. **Runtime** (`~/.graphit/runtime/<version>/ast/queries/`) — Factory defaults extracted from the binary. **Automatically updated on each version upgrade.**
-4. **Embedded** — Compiled into the binary. Used only if the runtime directory is unavailable.
+4. **Embedded** — YAML files compiled into the binary itself. Used only when the runtime directory has not been extracted yet (e.g., fresh install before the first sync).
+
+> The runtime defaults serve as the base. They are automatically extracted from the embedded YAML on first run and updated on each version upgrade. Grammars (compiled Tree-sitter parsers) are the only truly hardcoded component — all extraction rules, export strategies, and scoring are YAML-driven.
 
 For each language, the **first source that provides queries wins**. If you create a `go.yaml` in your project, only Go queries use the project version — all other languages continue resolving from user → runtime → embedded.
 
@@ -207,7 +209,7 @@ queries:
     pattern: '(create_procedure_statement name: (identifier) @name)'
 ```
 
-### YAML Reference
+### YAML Reference — Query Files
 
 | Field | Required | Description |
 |---|---|---|
@@ -215,11 +217,512 @@ queries:
 | `extensions` | ❌ | File extensions filter (e.g., `[".ts"]`). Omit to match all extensions |
 | `replace` | ❌ | `true` = replace lower-priority queries; `false` = append (default) |
 | `queries[].data_key` | ✅ | Entity category: `functions`, `classes`, `imports`, `calls`, `fields`, etc. |
+| `queries[].type` | ❌ | `"entity"` (default) or `"relation"`. Entities become graph nodes; relations become edges. |
+| `queries[].relation_type` | ❌* | Required when `type: relation`. Edge label in the graph: `CALLS`, `INSTANTIATES`, `INHERITS`, `IMPLEMENTS`, `READS_FIELD`, `WRITES_FIELD`, `DECORATOR`, `EXPORT`, or any custom string. |
 | `queries[].graph_label` | ❌ | LadybugDB node label (e.g., `Function`, `Class`). Empty = relational data |
 | `queries[].pattern` | ✅ | Tree-sitter S-expression query |
 | `queries[].name_capture` | ❌ | Capture group name for the entity. Default: `name` |
+| `exports` | ❌ | Export detection config (see [Language Configuration](#customizing-language-configuration)) |
+| `exports.strategy` | ✅* | One of: `capitalized_name`, `no_prefix`, `modifier`, `export_statement`, `no_modifier`, `no_static`, `none` |
+| `exports.config` | ❌ | Key-value config for the strategy (e.g., `prefix: "_"`) |
+| `exports.config_list` | ❌ | List-type config values (e.g., `keywords: [private, protected]`) |
+| `self_keywords` | ❌ | Self/this keywords for receiver type resolution (e.g., `["self.", "this."]`) |
+| `context_types` | ❌ | Map of Tree-sitter node types to graph labels (e.g., `class_definition: Class`) |
+| `anon_func_types` | ❌ | Tree-sitter node types for anonymous function detection |
+| `declaration_types` | ❌ | Node types eligible for docstring attachment |
+| `comment_types` | ❌ | Node types recognized as comments for docstring extraction |
+
+### YAML Reference — Framework Files
+
+| Field | Required | Description |
+|---|---|---|
+| `framework` | ✅ | Framework identifier (e.g., `spring`, `flask`, `express`) |
+| `languages` | ❌ | Languages this framework applies to (e.g., `[java, kotlin]`) |
+| `decorator_detection[]` | ❌ | List of decorator names and categories to detect framework usage |
+| `decorator_detection[].name` | ✅ | Decorator name to match (e.g., `RestController`) |
+| `decorator_detection[].category` | ✅ | Framework category (e.g., `web`, `orm`, `di`, `test`) |
+| `decorator_detection[].framework_name` | ❌ | Override the parent `framework` name for this rule |
+| `heritage_detection[]` | ❌ | List of parent class/interface names to detect via inheritance |
+| `heritage_detection[].parent` | ✅ | Parent class or interface name (e.g., `JpaRepository`) |
+| `heritage_detection[].category` | ✅ | Framework category |
+| `heritage_detection[].framework_name` | ❌ | Override the parent `framework` name |
+| `import_detection[]` | ❌ | List of import path patterns to detect framework usage |
+| `import_detection[].pattern` | ✅ | Import path pattern (e.g., `github.com/gin-gonic/gin`) |
+| `import_detection[].match` | ❌ | Match strategy: `"prefix"` (default), `"exact"`, `"contains"`, `"suffix"`, or `"regex"` (Go `regexp` syntax) |
+| `import_detection[].category` | ✅ | Framework category |
+| `import_detection[].framework_name` | ❌ | Override the parent `framework` name |
+| `entry_points` | ❌ | Entry point scoring rules (see [Entry Point Scoring](#customizing-entry-point-scoring)) |
+| `entry_points.names[]` | ❌ | Name-based scoring rules using glob patterns |
+| `entry_points.names[].pattern` | ✅ | Glob pattern: `main` (exact), `Test*` (prefix), `*Handler` (suffix), `*cmd*` (contains) |
+| `entry_points.names[].score` | ✅ | Score to add when the pattern matches |
+| `entry_points.decorators[]` | ❌ | Decorator-based scoring rules |
+| `entry_points.decorators[].name` | ✅ | Decorator name to match |
+| `entry_points.decorators[].score` | ✅ | Score to add when the decorator is present |
+| `entry_points.exported_bonus` | ❌ | Bonus score for exported functions (default: `10`) |
+| `entry_points.max_score` | ❌ | Maximum score cap (default: `100`) |
+
+### YAML Reference — Ecosystems File
+
+| Field | Required | Description |
+|---|---|---|
+| `config_files[]` | ✅ | List of ecosystem detection entries |
+| `config_files[].filename` | ✅ | Config filename to detect (e.g., `package.json`, `Cargo.toml`) |
+| `config_files[].language` | ✅ | Language associated with this config file |
+| `config_files[].ecosystem` | ✅ | Ecosystem identifier (e.g., `node`, `cargo`, `django`) |
+| `config_files[].glob` | ❌ | `true` = treat `filename` as a glob pattern (e.g., `*.csproj`) |
 
 > For the full technical specification and implementation details, see `docs/specs/ast_module.md`.
+
+---
+
+## Customizing Framework Detection
+
+The AST module automatically detects which frameworks your project uses (e.g., Spring, Flask, Express, Angular) by scanning decorators, class inheritance, and import paths. These detection rules are defined in **framework YAML files** that you can fully customize.
+
+### How It Works
+
+When Graphit Code detects frameworks, it loads framework rules from **all three levels and merges them** (unlike queries, which use precedence-based override):
+
+1. **Runtime** (`~/.graphit/runtime/<version>/ast/frameworks/`) — Factory defaults extracted from the binary.
+2. **User Global** (`~/.graphit/ast/frameworks/`) — Your personal framework rules. Apply to all projects.
+3. **Project** (`.graphit/ast/frameworks/`) — Highest priority. Applies only to this project.
+
+All levels are merged together — your project-level framework files **extend** the built-in rules rather than replacing them. This means you can add detection for your custom internal frameworks without losing detection for standard ones.
+
+### Viewing the Defaults
+
+After your first `graphit sync`, the default framework rules are extracted to:
+```
+~/.graphit/runtime/<version>/ast/frameworks/
+```
+
+Browse these files to see all built-in framework detection rules:
+```bash
+ls ~/.graphit/runtime/*/ast/frameworks/
+# _go_lang.yaml   _java_lang.yaml   angular.yaml   django.yaml
+# express.yaml    flask.yaml        nestjs.yaml    spring.yaml
+# vue.yaml        ...
+```
+
+Files prefixed with `_` (e.g., `_go_lang.yaml`) contain language-level base rules including entry point scoring, while unprefixed files contain framework-specific detection rules.
+
+### Framework YAML Schema
+
+Each framework YAML file can contain the following sections:
+
+```yaml
+framework: my_framework        # Unique framework identifier (required)
+languages: [python, javascript] # Languages this framework applies to
+
+decorator_detection:            # Detect framework by decorator/annotation usage
+  - name: MyDecorator
+    category: web               # Category: web, orm, di, test, config, etc.
+
+heritage_detection:             # Detect framework by class inheritance
+  - parent: BaseController
+    category: web
+    framework_name: my_fw_web   # Optional: override the framework name
+
+import_detection:               # Detect framework by import path patterns
+  - pattern: "my-framework"
+    match: prefix               # "prefix" (default), "exact", "contains", "suffix", or "regex"
+    category: web
+
+entry_points:                   # Entry point scoring (see next section)
+  names: [...]
+  decorators: [...]
+  exported_bonus: 10
+  max_score: 100
+```
+
+### Example: Adding Detection for a Custom Internal Framework
+
+Suppose your team uses an internal Python RPC framework called `acme-rpc`. Create a framework file at `.graphit/ast/frameworks/acme_rpc.yaml`:
+
+```yaml
+framework: acme_rpc
+languages: [python]
+
+decorator_detection:
+  - name: rpc_method
+    category: rpc
+  - name: rpc_service
+    category: rpc
+
+heritage_detection:
+  - parent: AcmeServiceBase
+    category: rpc
+
+import_detection:
+  - pattern: "acme.rpc"
+    match: prefix
+    category: rpc
+  - pattern: "^acme\\.(rpc|grpc)\\.v[0-9]+$"
+    match: regex
+    category: rpc
+
+entry_points:
+  decorators:
+    - name: rpc_method
+      score: 70
+    - name: rpc_service
+      score: 50
+```
+
+After running `graphit sync`, the framework detection will identify your internal RPC framework alongside standard ones. You can then query detected frameworks via:
+```cypher
+MATCH (c:File {path: '__config__'}) RETURN c.lang AS frameworks
+```
+
+---
+
+## Customizing Entry Point Scoring
+
+The `entry_point_score` property on Function nodes indicates how likely a function is to be an application entry point (e.g., `main`, HTTP handlers, test functions). This score is computed from YAML rules defined in framework files.
+
+### How Scoring Works
+
+The scoring engine evaluates each function against three criteria. Scores from all matching rules are **summed together**, then capped at `max_score`:
+
+1. **Name-based scoring** — Matches function names using glob patterns.
+2. **Decorator-based scoring** — Matches specific decorators/annotations.
+3. **Exported bonus** — Adds a flat bonus if the function is exported.
+
+### Name-Based Scoring with Glob Patterns
+
+Name patterns support four matching modes:
+
+| Pattern | Mode | Example Match |
+|---|---|---|
+| `main` | Exact | `main` only |
+| `Test*` | Prefix | `TestLogin`, `TestPayment` |
+| `*Handler` | Suffix | `AuthHandler`, `PaymentHandler` |
+| `*cmd*` | Contains | `cmdStart`, `runCmdLoop` |
+
+> Name matching is case-insensitive. The pattern `Test*` matches both `TestFoo` and `testFoo`.
+
+### Decorator-Based Scoring
+
+Decorator rules match by exact name, optionally with a suffix match (e.g., a decorator `PostMapping` matches both `PostMapping` and `org.springframework.web.bind.annotation.PostMapping`).
+
+### Configuration Fields
+
+- **`exported_bonus`** — Flat score added to every exported/public function (default: `10`).
+- **`max_score`** — Hard cap on the total score (default: `100`).
+
+### Example: Customizing Scoring for a Project
+
+To boost the entry point score for CLI command handlers in a Go project, create `.graphit/ast/frameworks/my_cli.yaml`:
+
+```yaml
+framework: my_project_cli
+languages: [go]
+
+entry_points:
+  names:
+    - pattern: "Execute*"
+      score: 60
+    - pattern: "Run*"
+      score: 50
+    - pattern: "*Cmd"
+      score: 40
+  decorators:
+    - name: cobra.Command
+      score: 70
+  exported_bonus: 15
+  max_score: 100
+```
+
+After `graphit sync`, you can query high-scoring entry points:
+```cypher
+MATCH (f:Function) WHERE f.entry_point_score > 50
+RETURN f.name, f.entry_point_score, f.path
+ORDER BY f.entry_point_score DESC
+```
+
+---
+
+## Customizing Ecosystem Detection
+
+Ecosystem detection identifies your project's build tools, package managers, and development environment by checking for the presence of well-known configuration files (e.g., `package.json`, `Cargo.toml`, `pyproject.toml`).
+
+### What `ecosystems.yaml` Does
+
+The `ecosystems.yaml` file contains a list of `config_files` entries. Each entry maps a config filename to a language and ecosystem identifier. When Graphit Code finds a matching file in your project root, it records the ecosystem in the AST graph's `__config__` node.
+
+### How Resolution Works
+
+Like frameworks, ecosystem entries **merge from all levels**:
+1. **Runtime** → 2. **User Global** (`~/.graphit/ast/ecosystems.yaml`) → 3. **Project** (`.graphit/ast/ecosystems.yaml`)
+
+All entries from every level are combined — project-level entries extend the built-in list.
+
+### Example: Adding Custom Config File Patterns
+
+If your organization uses a custom build system with a `build.acme` config file, create `.graphit/ast/ecosystems.yaml` in your project:
+
+```yaml
+config_files:
+  - filename: build.acme
+    language: go
+    ecosystem: acme_build
+
+  - filename: ".acme-ci.yaml"
+    language: go
+    ecosystem: acme_ci
+
+  # Glob patterns are supported for dynamic filenames
+  - filename: "*.acme"
+    language: go
+    ecosystem: acme_build
+    glob: true
+```
+
+After `graphit sync`, the detected ecosystems will be visible in:
+```cypher
+MATCH (c:File {path: '__config__'}) RETURN c.source AS configs
+```
+
+---
+
+## Customizing Language Configuration
+
+Beyond Tree-sitter queries, each language YAML file can also define language-level configuration that controls how the AST engine resolves exports, self references, parent contexts, and docstrings.
+
+### Export Strategies
+
+The `exports` section defines how the engine determines whether a function, class, or variable is exported (public). There are six strategies:
+
+| Strategy | Description | Example Languages |
+|---|---|---|
+| `capitalized_name` | Exported if the name starts with an uppercase letter | Go |
+| `no_prefix` | Exported if the name does **not** start with a given prefix | Python (`_` prefix = private) |
+| `modifier` | Exported if a visibility modifier keyword is present | Java, C# (`public`) |
+| `export_statement` | Exported if referenced in an `export` statement | JavaScript, TypeScript |
+| `no_modifier` | Exported if **none** of the private modifier keywords are present | Ruby (`private`, `protected`) |
+| `no_static` | Exported if the function is not static | Swift |
+| `none` | No export detection (all entities treated equally) | C, SQL |
+
+Example configuration:
+```yaml
+# Python: exported if name does NOT start with "_"
+exports:
+  strategy: no_prefix
+  config:
+    prefix: "_"
+
+# Java: exported if "public" modifier is present
+exports:
+  strategy: modifier
+  config:
+    keyword: "public"
+```
+
+### Self Keywords
+
+The `self_keywords` list defines the keywords used for receiver type resolution (tracking method calls through `self.method()` or `this.method()`):
+
+```yaml
+self_keywords: ["self."]          # Python
+self_keywords: ["this.", "this->"] # Java, C++
+```
+
+### Context Types
+
+The `context_types` map tells the engine how to resolve parent context for nested entities. It maps Tree-sitter node type names to graph labels:
+
+```yaml
+context_types:
+  class_definition: Class
+  function_definition: Function
+  method_definition: Method
+  struct_declaration: Struct
+  interface_declaration: Interface
+```
+
+### Declaration Types and Comment Types
+
+- **`declaration_types`** — Node types eligible for docstring attachment. When the engine encounters a comment immediately before a declaration node, it attaches the comment as a `docstring` property.
+- **`comment_types`** — Node types recognized as comments for docstring extraction (e.g., `comment`, `block_comment`, `line_comment`).
+
+### How to Override Per Project
+
+To customize language configuration for a specific project, create or copy the language YAML file into `.graphit/ast/queries/`:
+
+```bash
+# Copy the default Python config as a starting point
+mkdir -p .graphit/ast/queries/
+cp ~/.graphit/runtime/*/ast/queries/python.yaml .graphit/ast/queries/python.yaml
+
+# Edit the export strategy, self keywords, etc.
+$EDITOR .graphit/ast/queries/python.yaml
+```
+
+> Language configuration follows the same 4-level resolution chain as queries: project → user global → runtime → embedded (all YAML). The first source that provides configuration for a language wins.
+
+---
+
+## Adding New Language Support
+
+Adding support for a new programming language requires **two things**:
+
+1. **The Tree-sitter grammar** must be compiled into the Graphit Code binary (requires recompilation)
+2. **A language YAML file** defining extraction rules, export strategy, self keywords, context types, etc.
+
+Once the Tree-sitter grammar is available, all extraction behavior is controlled entirely through YAML — no additional Go code is needed. Grammars (compiled Tree-sitter parsers) are the only hardcoded component.
+
+### Step-by-Step Guide
+
+**1. Create a new `<language>.yaml` file:**
+
+```bash
+mkdir -p .graphit/ast/queries/
+$EDITOR .graphit/ast/queries/haskell.yaml
+```
+
+**2. Define queries, exports, and language configuration:**
+
+```yaml
+language: haskell
+extensions: [".hs"]
+
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function name: (variable) @name)'
+  - data_key: types
+    graph_label: Type
+    pattern: '(type_alias name: (type_constructor) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_definition name: (type_constructor) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(import_declaration module: (module_identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    graph_label: ""
+    pattern: '(function_application function: (variable) @name)'
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  class_definition: Class
+  instance_definition: Class
+
+declaration_types:
+  - function
+  - type_alias
+  - class_definition
+
+comment_types:
+  - comment
+  - block_comment
+```
+
+**3. Run `graphit sync` to index:**
+
+```bash
+graphit sync
+```
+
+The new language will be immediately available for AST queries.
+
+### Important Notes
+
+- **Tree-sitter grammar requirement**: The YAML file defines *extraction rules* only. The Tree-sitter grammar itself (the parser that produces the syntax tree) must be compiled into the Graphit Code binary. Adding a new grammar requires recompilation. If the grammar isn't available, the YAML file will be silently skipped.
+- **Pattern validation**: Invalid Tree-sitter patterns are detected at parse time and logged as warnings, while valid patterns proceed normally.
+- **Customizing existing languages**: For the 16 languages already supported, all extraction rules, export detection, scoring, context resolution, and docstring attachment are fully YAML-driven. Changing the YAML is sufficient — no rebuild needed.
+
+---
+
+## Adding New Framework Support
+
+You can add detection for any framework by creating a framework YAML file. This is useful for internal frameworks, niche libraries, or recently released tools not yet included in the defaults.
+
+### Step-by-Step Guide
+
+**1. Create a framework YAML file:**
+
+For a project-level framework, create it in `.graphit/ast/frameworks/`. For a global framework (all projects), use `~/.graphit/ast/frameworks/`.
+
+```bash
+mkdir -p .graphit/ast/frameworks/
+$EDITOR .graphit/ast/frameworks/fastapi.yaml
+```
+
+**2. Define detection rules:**
+
+```yaml
+framework: fastapi
+languages: [python]
+
+# Detect by decorators applied to functions/classes
+decorator_detection:
+  - name: app.get
+    category: web
+  - name: app.post
+    category: web
+  - name: app.put
+    category: web
+  - name: app.delete
+    category: web
+  - name: Depends
+    category: di
+
+# Detect by class inheritance
+heritage_detection:
+  - parent: BaseModel
+    framework_name: pydantic
+    category: validation
+
+# Detect by import paths
+import_detection:
+  - pattern: fastapi
+    match: prefix
+    category: web
+  - pattern: pydantic
+    match: prefix
+    framework_name: pydantic
+    category: validation
+
+# Score entry points specific to this framework
+entry_points:
+  decorators:
+    - name: app.get
+      score: 70
+    - name: app.post
+      score: 70
+    - name: app.put
+      score: 70
+    - name: app.delete
+      score: 70
+    - name: Depends
+      score: 30
+```
+
+**3. Run `graphit sync`:**
+
+```bash
+graphit sync
+```
+
+**4. Verify detection:**
+
+```cypher
+MATCH (c:File {path: '__config__'}) RETURN c.lang AS frameworks
+```
+
+### Tips
+
+- **Use `framework_name`** on individual rules to attribute detection to a sub-framework (e.g., `pydantic` detected via a `fastapi` framework file).
+- **Combine all three detection methods** (decorators, heritage, imports) for robust detection — different projects may use the framework in different ways.
+- **Entry point scoring** in framework files is additive — if multiple framework files define scoring rules, all matching rules contribute to the final score.
+- **Testing your rules**: After `graphit sync`, query for frameworks and entry points to verify that your rules produce the expected results.
 
 ---
 
