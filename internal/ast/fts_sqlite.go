@@ -636,6 +636,7 @@ func (s *SearchIndex) semanticSearchLocked(queryVec []float32, topK int) ([]Sear
 			Type: strings.ToLower(entityType), SearchType: "semantic",
 			Name: name, Path: path, Line: line, Docstring: docstring,
 			RelevanceScore: cosineSim,
+			Distance:       distance,
 		})
 	}
 	return results, nil
