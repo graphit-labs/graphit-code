@@ -21,7 +21,7 @@ related:
 # Improvements Module Specification
 
 The Improvements module provides the analytical rules and post-task reflection protocols that govern how AI agents analyze, review, and refactor code.
-It ensures that both autonomous background cycles (Dream module) and on-demand agent revisions conform to strict engineering standards.
+It ensures that on-demand agent revisions conform to strict engineering standards (the Dream module now focuses on skill generation rather than code improvements).
 
 ---
 

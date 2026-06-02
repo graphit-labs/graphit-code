@@ -68,5 +68,5 @@ graph TD
 The completion dispatcher (`internal/ai/ai.go`) routes text synthesis prompts:
 
 - **Client Configuration**: Leverages client settings configured globally in `~/.graphit/config.json`.
-- **System Prompts**: Guides AI behaviors for key background tasks, including the wiki discovery synthesis loop, memory consolidation analyses, and code improvement suggestions.
+- **System Prompts**: Guides AI behaviors for key background tasks, including the wiki discovery synthesis loop, memory consolidation analyses, and autonomous skill generation.
 - **Decoupling**: All chat completions are stateless, preserving the user's private data locally.

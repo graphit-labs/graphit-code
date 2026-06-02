@@ -254,8 +254,8 @@ export default function DreamDashboard() {
       <div className="glass-panel rounded-2xl p-8 flex flex-col items-center justify-center text-center h-[350px] text-muted-foreground gap-3 shadow-sm">
         <FileText className="w-10 h-10 opacity-30" />
         <div>
-          <h4 className="font-bold text-foreground text-sm">Select a task or audit</h4>
-          <p className="text-xs mt-1">Select a queued subject or general audit report from the sidebar list to view details.</p>
+          <h4 className="font-bold text-foreground text-sm">Select an item</h4>
+          <p className="text-xs mt-1">Select a queued subject or a session report from the sidebar list to view details.</p>
         </div>
       </div>
     )
@@ -271,7 +271,7 @@ export default function DreamDashboard() {
           <div>
             <h1 className="text-3xl font-heading font-bold tracking-tight text-foreground">Dream</h1>
             <p className="text-[14px] text-muted-foreground mt-1">
-              Queue instructions for the autonomous AI developer, run while you sleep
+              Autonomous skill generation and knowledge mining while you sleep
             </p>
           </div>
         </div>
@@ -336,7 +336,7 @@ export default function DreamDashboard() {
             <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Total Reports</p>
             <h3 className="text-lg font-bold font-heading">{status?.total_reports ?? 0}</h3>
             <p className="text-[10px] text-muted-foreground">
-              Generated sleep sessions
+              Generated dream sessions
             </p>
           </div>
         </div>
@@ -414,10 +414,10 @@ export default function DreamDashboard() {
             </div>
           </div>
 
-          {/* General Audits List */}
+          {/* Session Reports List */}
           <div className="glass-panel rounded-2xl overflow-hidden flex flex-col max-h-[350px] shadow-sm">
             <div className="px-5 py-4 border-b border-border/40 bg-card/40">
-              <span className="font-heading font-semibold text-sm">General Audits</span>
+              <span className="font-heading font-semibold text-sm">Session Reports</span>
             </div>
             <div className="overflow-y-auto flex-1 divide-y divide-border/30 scrollbar-thin">
               {reports.length > 0 ? (
@@ -451,7 +451,7 @@ export default function DreamDashboard() {
               ) : (
                 <div className="p-8 text-center text-muted-foreground flex flex-col items-center gap-2">
                   <Inbox className="w-8 h-8 opacity-40" />
-                  <p className="text-xs">No general audits run yet.</p>
+                  <p className="text-xs">No dream sessions completed yet.</p>
                 </div>
               )}
             </div>
@@ -499,7 +499,7 @@ export default function DreamDashboard() {
                   type="text"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="e.g. Add unit tests for git module"
+                  placeholder="e.g. Create skill for deployment workflow"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/80 transition-all duration-200"
                   required
                 />

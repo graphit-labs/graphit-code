@@ -14,7 +14,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
-	gitmod "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
 )
 
@@ -241,7 +240,7 @@ func (r *Runner) checkDeepSleep(ulid string) {
 		return
 	}
 
-	r.log("dream: deep sleep signal detected for session %s — no more improvements to make", ulid)
+	r.log("dream: deep sleep signal detected for session %s — no more skills or patterns to extract", ulid)
 
 	r.mu.Lock()
 	r.state.Exhausted = true
@@ -285,16 +284,9 @@ func (r *Runner) resolveConfig() DreamConfig {
 }
 
 func (r *Runner) executeDream(ctx context.Context, ulid string) error {
-	branchName := "dream/" + ulid
-	worktreeDir := filepath.Join(r.projectDir, brand.DotDir(), "dream", "worktrees", ulid)
-
 	dreamArtifactDir := filepath.Join(r.projectDir, brand.DotDir(), "dream")
 
-	r.log("dream: session %s starting (branch=%s)", ulid, branchName)
-
-	if err := r.ensureWorktree(ctx, branchName, worktreeDir); err != nil {
-		return fmt.Errorf("ensuring dream worktree: %w", err)
-	}
+	r.log("dream: session %s starting", ulid)
 
 	if err := os.MkdirAll(dreamArtifactDir, 0o755); err != nil {
 		return fmt.Errorf("creating dream artifact dir: %w", err)
@@ -306,9 +298,9 @@ func (r *Runner) executeDream(ctx context.Context, ulid string) error {
 		r.log("dream: picked subject %q (%s)", s.Title, s.Slug)
 	}
 
-	r.log("dream: executing AI agent locally for %s", worktreeDir)
+	r.log("dream: executing AI agent locally for %s", r.projectDir)
 	prompt := buildDreamPrompt(r.projectDir, ulid, r.ide, subject)
-	result, err := r.executeLocal(ctx, worktreeDir, prompt, ulid)
+	result, err := r.executeLocal(ctx, prompt, ulid)
 	if err != nil {
 		return fmt.Errorf("executing dream agent: %w", err)
 	}
@@ -318,56 +310,30 @@ func (r *Runner) executeDream(ctx context.Context, ulid string) error {
 		return fmt.Errorf("writing dream artifact: %w", err)
 	}
 
-	if err := r.commitDream(ctx, worktreeDir, ulid); err != nil {
-		return fmt.Errorf("committing dream: %w", err)
-	}
-
-	r.log("dream: session %s completed — report at %s, code on branch %s", ulid, artifactPath, branchName)
+	r.log("dream: session %s completed — report at %s", ulid, artifactPath)
 	return nil
 }
 
-func (r *Runner) ensureWorktree(ctx context.Context, branch, dir string) error {
-
-	if _, err := os.Stat(dir); err == nil {
-		r.log("dream: reusing existing worktree at %s", dir)
-		return nil
-	}
-
-	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
-		return err
-	}
-
-	g := gitmod.Default()
-	if err := g.Run(r.projectDir, "worktree", "add", dir, "-b", branch); err != nil {
-		return fmt.Errorf("creating dream worktree: %w", err)
-	}
-
-	r.log("dream: created new worktree at %s on branch %s", dir, branch)
-	return nil
-}
-
-
-
-func (r *Runner) executeLocal(ctx context.Context, worktreeDir, prompt, ulid string) (string, error) {
+func (r *Runner) executeLocal(ctx context.Context, prompt, ulid string) (string, error) {
 	dreamArtifactDir := filepath.Join(r.projectDir, brand.DotDir(), "dream")
 
 	agentInstruction := fmt.Sprintf(`%s
 
 IMPORTANT INSTRUCTIONS:
-- You are working in a git worktree on branch dream/%s
-- This may be a progressive session — check for existing work on this branch
-- Code changes (improvements, refactors) go into the worktree and will be committed
+- You are working DIRECTLY in the project directory — there is no git worktree or branch
+- This may be a progressive session — check past dream reports for continuity
+- Your mission is to generate skills, evaluate existing skills, create integration patterns, and generate memories
+- Skills and memories are written in-place to the directories determined by installed adapters
 - The dream report MUST be written to %s/%s.md
 - Write your findings in the report describing:
-  1. What you analyzed and reflected on
-  2. What you learned about the system
-  3. What improvements you made (if any) and why
-  4. How the changes impact the codebase
-  5. What memories or context you based your decisions on
-- Commit all CODE changes with a descriptive message
-- Focus on code quality, reuse, patterns, and best practices
+  1. What conversations you analyzed and what patterns you found
+  2. What skills you created or improved (with rationale)
+  3. What skill effectiveness issues you diagnosed and fixed
+  4. What integration skills you created for external developers
+  5. What memories you created from undocumented knowledge
+- Do NOT make code changes — only generate/improve skills, rules, commands, and memories
 - Use IDE context: %s
-`, prompt, ulid, dreamArtifactDir, ulid, r.ide)
+`, prompt, dreamArtifactDir, ulid, r.ide)
 
 	client, err := ai.NewClientFromConfig()
 	if err != nil {
@@ -381,28 +347,6 @@ IMPORTANT INSTRUCTIONS:
 
 	artifact := buildDreamArtifact(ulid, out)
 	return artifact, nil
-}
-
-func (r *Runner) commitDream(ctx context.Context, worktreeDir, ulid string) error {
-	g := gitmod.Default()
-
-	if err := g.Run(worktreeDir, "add", "-A"); err != nil {
-		return fmt.Errorf("git add: %w", err)
-	}
-
-	if err := g.Run(worktreeDir, "diff", "--cached", "--quiet"); err == nil {
-
-		r.log("dream: no changes to commit for session %s", ulid)
-		return nil
-	}
-
-	msg := fmt.Sprintf("dream(%s): autonomous reflection and improvement", ulid)
-	authorVal := fmt.Sprintf("%s Dream <dream@%s>", brand.DisplayName, brand.Brand)
-	if err := g.Run(worktreeDir, "commit", "-m", msg, "--author", authorVal); err != nil {
-		return fmt.Errorf("git commit: %w", err)
-	}
-
-	return nil
 }
 
 func StatePath(projectDir string) string {

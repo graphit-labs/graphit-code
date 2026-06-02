@@ -21,7 +21,7 @@ related:
 # User Manual
 
 This manual explains how to interact with the Graphit Code system.
-It covers how to use the visual dashboard, manage the memory database, set up autonomous code improvements, and work within the docs-as-code collaborative flow.
+It covers how to use the visual dashboard, manage the memory database, set up autonomous skill generation, and work within the docs-as-code collaborative flow.
 
 ---
 
@@ -88,26 +88,28 @@ graphit memory delete --title "API_Response_Format"
 
 ---
 
-## Autonomous Idle Improvements (Dreaming)
+## Autonomous Skill Generation (Dreaming)
 
-The Dream module allows AI agents to refactor and optimize your code autonomously when you are away:
+The Dream module allows AI agents to mine conversation history and generate reusable knowledge autonomously when you are away:
 1. **Preconditions**: The daemon process must be running (`graphit daemon`).
 2. **Idle Inactivity**: The system monitors file changes. If no modifications occur within the idle timeout (default: 2 hours), a dream session is triggered.
-3. **Worktree Isolation**: The agent operates inside a temporary, isolated git worktree branch. It will never block or interfere with your unstaged active edits.
-4. **Committing Changes**: Approved improvements are committed to a `dream/session-id` branch with special author tags.
+3. **Conversation Mining**: The agent reviews past conversation logs to identify recurring patterns, corrections, and undocumented conventions.
+4. **Skill Generation**: Identified patterns are crystallized into reusable skills, rules, and commands.
+5. **Skill Effectiveness Evaluation**: Existing skills are analyzed for failures and improved using a self-healing loop with root cause classification.
+6. **Integration Skills**: The module creates skills designed for external developers integrating with your project.
 
-### Submitting Refactoring Subjects
-You can queue tasks or instructions for the background agent to solve during its next dream cycle:
+### Submitting Dream Subjects
+You can queue tasks or instructions for the background agent to work on during its next dream cycle:
 ```bash
 # Register a subject for the next dream cycle
-graphit dream subject add "Refactor database connection pool" --body "Check internal/db/ for connection leaks and optimize active pool sizing"
+graphit dream subject add "Create skill for deployment workflow" --body "Review conversations about deployment to extract a reusable skill"
 
 # Check subjects queue
 graphit dream subject list
 ```
 
 ### Reviewing Dream Reports
-After the session finishes, it produces a markdown report detailing its reflection, modifications, and findings:
+After the session finishes, it produces a markdown report detailing the skill generation findings, conversation analysis results, and any new memories or skills created:
 ```bash
 # List recent dream reports
 graphit dream reports
@@ -727,7 +729,7 @@ MATCH (c:File {path: '__config__'}) RETURN c.lang AS frameworks
 
 ## Customizing Module Rules and Skills
 
-Both the on-demand IDE agent and the background Dream agent follow **rules** and **skills** defined per module (AST, Knowledge, Memory, Hub, and Improvements).
+The on-demand IDE agent follows **rules** and **skills** defined per module (AST, Knowledge, Memory, Hub, and Improvements). The background Dream agent uses these artifacts as context for autonomous skill generation and knowledge mining.
 Rules are the compact instructions injected into the global rules file (e.g., `AGENTS.md`). Skills are the detailed instruction files that agents read on-demand.
 Graphit Code provides a **multi-layer override system** so you can customize both at different scopes.
 

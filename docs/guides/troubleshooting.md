@@ -728,7 +728,7 @@ graphit sync  # Ensures daemon is running
 
 ### Dream reports not generated
 
-**Cause:** The dream module only activates after an idle timeout (configurable, default varies). The project must have pending subjects or discoverable work.
+**Cause:** The dream module only activates after an idle timeout (configurable, default varies). Reports contain skill generation findings, conversation analysis results, and newly created memories or skills. The project must have pending subjects or discoverable conversation patterns.
 
 **Solutions:**
 1. Check for pending subjects:

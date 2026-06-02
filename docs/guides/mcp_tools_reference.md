@@ -803,7 +803,7 @@ Tools for multi-source wiki search with AI-powered retrieval and chat sessions.
 
 ## Dream Tools
 
-Tools for managing the autonomous dream module — background sessions that run during idle periods.
+Tools for managing the autonomous dream module — skill generation and knowledge mining during idle periods.
 
 ### `graphit_dream_status`
 

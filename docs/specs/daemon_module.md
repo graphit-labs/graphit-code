@@ -53,7 +53,7 @@ Each active project has an isolated supervisor thread monitoring watch modules:
   - Respects `.gitignore` (via git) and `.astignore` (via `ignorer.IgnoreChecker`)
   - Reads per-project config from the project lockfile (inline → env → project → global → compiled defaults)
 - **`EmbeddingModule`**: Triggers every 2 minutes. It scans files for modified AST nodes, generates high-dimensional embeddings, and indexes them into the local SQLite vector database.
-- **`DreamModule`**: Initiates background agent routines during processor idle periods, executing queued code improvements and documentation audits.
+- **`DreamModule`**: Initiates background agent routines during processor idle periods, mining conversation patterns and generating skills, memories, and integration artifacts.
 
 ### 3. Global Modules
 Modules that run once per daemon (not per-project):

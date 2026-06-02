@@ -57,7 +57,7 @@ Share knowledge, personal and shared memories, skills, rules, and MCP servers ac
 Everything stays in your possession. Data is 100% private and anonymous. Git provides persistence for all memories and knowledge. There is **zero additional cost** and no LLM API key required, because Graphit operates via your existing local IDE and CLI agents.
 
 **5. Progressive, Continuous Improvement**  
-Memory is persistent and automatic. The system includes an **Improvements Module** capable of autonomous work during idle time. It constantly refines, audits, and generates knowledge to push your ecosystem forward.
+Memory is persistent and automatic. The system includes an autonomous **Dream Module** that works during idle time — mining conversation history, crystallizing recurring patterns into reusable skills, evaluating and improving existing skills, and generating memories from undocumented knowledge.
 
 ---
 
@@ -349,7 +349,7 @@ Graphit Code is a single self-contained binary written in Go. All data persists 
 - **AST Module:** LadybugDB + Tree-sitter.
 - **Knowledge Module:** LLM Wiki & explicit back-referencing.
 - **Hub & Memory:** Git-backed transparent artifact storage.
-- **Improvements Module:** Background agent orchestration for autonomous code improvement.
+- **Dream Module:** Background skill generation, conversation mining, and knowledge extraction.
 
 ---
 
@@ -372,7 +372,7 @@ Visit the **[Documentation Hub](docs/README.md)** for a complete index of all gu
 ### User Guides
 - **[Getting Started](docs/guides/getting_started.md)**: Install, requirements, setup, and verification.
 - **[CLI Command Reference](docs/guides/cli_reference.md)**: Manual detailing every command and flag.
-- **[User Manual](docs/guides/user_manual.md)**: Interactive canvas, memories, and dreaming.
+- **[User Manual](docs/guides/user_manual.md)**: Interactive canvas, memories, and autonomous skill generation.
 - **[Private Branding & Customization](docs/guides/private_brand_customization.md)**: White-labeling build parameters, private hubs, and secure networks.
 
 ### Technical Specifications
@@ -382,7 +382,7 @@ Visit the **[Documentation Hub](docs/README.md)** for a complete index of all gu
 - **[Memory Module Spec](docs/specs/memory_module.md)**: Scope partitioning and consolidation.
 - **[Hub Collaboration Spec](docs/specs/hub_collaboration.md)**: Registry git-store and locks.
 - **[Daemon Module Spec](docs/specs/daemon_module.md)**: Supervisors, schedulers, and servers.
-- **[Dream Module Spec](docs/specs/dream_module.md)**: Background worker, idle timeout monitoring, and worktree isolation.
+- **[Dream Module Spec](docs/specs/dream_module.md)**: Autonomous skill generation, conversation mining, and knowledge extraction.
 - **[Improvements Module Spec](docs/specs/improvements_module.md)**: Rules resolved order and Clean Code.
 - **[UI Dashboard Spec](docs/specs/ui_dashboard.md)**: React force-directed canvas and uiserver handlers.
 - **[AI Engine Spec](docs/specs/ai_engine.md)**: ONNX models, embedding providers, and prompt completions.

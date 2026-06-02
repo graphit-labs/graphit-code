@@ -318,7 +318,7 @@ graphit daemon <subcommand> [flags]
 - `scheduler <install|remove|status>`: Manage OS system launchers (cron, launchd, task scheduler).
 
 ### `dream`
-Controls autonomous idle improvement agents.
+Controls autonomous skill generation and knowledge mining.
 ```bash
 graphit dream <subcommand> [flags]
 ```

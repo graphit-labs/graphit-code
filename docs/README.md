@@ -52,7 +52,7 @@ Explore the engineering specifications of each internal package:
 - **[Memory Module Specification](specs/memory_module.md)**: Git-backed project and user memory wikis, cycles, and memory rules.
 - **[Hub Collaboration Specification](specs/hub_collaboration.md)**: Registry managers, lockfile metadata tracking, and artifact publishing.
 - **[Daemon Module Specification](specs/daemon_module.md)**: Background daemon, shared embedding model client, OS schedulers, and replacement spawns.
-- **[Dream Module Specification](specs/dream_module.md)**: Background worker, idle timeout monitoring, isolated git worktrees, and report generation.
+- **[Dream Module Specification](specs/dream_module.md)**: Autonomous skill generation, conversation mining, skill effectiveness evaluation, and knowledge extraction.
 - **[Improvements Module Specification](specs/improvements_module.md)**: Resolution order, engineering analysis methodology (Clean Code, Security, Observability), and reflection phase.
 - **[UI Dashboard Specification](specs/ui_dashboard.md)**: Vite-React application, Force-Directed 3D canvas, state stores, and uiserver handlers.
 - **[AI Engine Specification](specs/ai_engine.md)**: Model manager, embedding backends (local, proxy, lazy), and Cypher AI helpers.
