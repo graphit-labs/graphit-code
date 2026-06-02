@@ -185,6 +185,9 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
+		if input.AiOptimized {
+			return textResult(ast.FormatRecordsTOON(result.Records))
+		}
 		return jsonResult(result.Records)
 	}))
 
