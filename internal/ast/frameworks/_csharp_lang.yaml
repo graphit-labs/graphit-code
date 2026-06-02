@@ -1,49 +1,40 @@
-# Language-agnostic base entry-point scoring rules.
-# Extracted from scoreFunction() in enrichment.go (lines 752-828).
+# C# language rules — self-contained, no external base dependency.
+# Entry-point scoring rules are embedded directly.
 
-framework: _base
-languages: []
+framework: _csharp_lang
+languages: [csharp]
 
+# ---------------------------------------------------------------------------
+# Entry-point scoring (embedded base rules)
+# ---------------------------------------------------------------------------
 entry_points:
-  # --- Name-based scoring ---
-  name_rules:
+  names:
     - pattern: main
-      match: exact           # name == "main" || name == "Main"
       score: 80
-    - pattern: "Test"
-      match: prefix          # strings.HasPrefix(name, "Test")
+    - pattern: "Test*"
       score: 60
-    - pattern: "test_"
-      match: prefix          # strings.HasPrefix(name, "test_")
+    - pattern: "test_*"
       score: 60
     - pattern: init
-      match: exact
       score: 40
     - pattern: setup
-      match: exact
       score: 40
     - pattern: configure
-      match: exact
       score: 40
-    - pattern: handler
-      match: suffix_lower    # strings.HasSuffix(nameLower, "handler")
+    - pattern: "*Handler"
       score: 30
-    - pattern: controller
-      match: suffix_lower    # strings.HasSuffix(nameLower, "controller")
+    - pattern: "*Controller"
       score: 30
-    - pattern: cmd
-      match: prefix_lower    # strings.HasPrefix(nameLower, "cmd")
+    - pattern: "cmd*"
       score: 20
-    - pattern: run
-      match: prefix_lower    # strings.HasPrefix(nameLower, "run")
+    - pattern: "run*"
       score: 20
 
   exported_bonus: 10
   max_score: 100
 
-  # --- Decorator-based scoring ---
   decorators:
-    # HTTP route decorators → score 70
+    # HTTP route decorators
     - name: GetMapping
       score: 70
     - name: PostMapping
@@ -74,8 +65,6 @@ entry_points:
       score: 70
     - name: route
       score: 70
-
-    # app.* route decorators → score 70 (prefix "app." + suffix get/post/put/delete)
     - name: "app.get"
       score: 70
     - name: "app.post"
@@ -84,16 +73,14 @@ entry_points:
       score: 70
     - name: "app.delete"
       score: 70
-
-    # Test decorators → score 60
+    # Test decorators
     - name: Test
       score: 60
     - name: test
       score: 60
     - name: pytest.fixture
       score: 60
-
-    # Controller decorators → score 50
+    # Controller decorators
     - name: Controller
       score: 50
     - name: RestController

@@ -1,8 +1,8 @@
-# Ruby language rules — self-contained, no external base dependency.
-# Includes all entry-point scoring rules (no language-specific overrides).
+# SQL language rules — self-contained, no external base dependency.
+# Import/decorator detection comes from framework-specific files.
 
-framework: _ruby_lang
-languages: [ruby]
+framework: _sql_lang
+languages: [sql]
 
 # ---------------------------------------------------------------------------
 # Entry-point scoring (embedded base rules)
@@ -87,24 +87,3 @@ entry_points:
       score: 50
     - name: ApiController
       score: 50
-
-# ---------------------------------------------------------------------------
-# Import detection (Ruby gems)
-# ---------------------------------------------------------------------------
-import_detection:
-  - pattern: rails
-    match: prefix
-    framework: rails
-    category: web
-  - pattern: sinatra
-    match: prefix
-    framework: sinatra
-    category: web
-  - pattern: rspec
-    match: prefix
-    framework: rspec
-    category: test
-  - pattern: sidekiq
-    match: prefix
-    framework: sidekiq
-    category: async
