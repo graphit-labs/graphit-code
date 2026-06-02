@@ -70,7 +70,8 @@ function useResizable(
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { useTheme } from '@/hooks/useTheme'
 
 function wikiLinkFriendlyName(raw: string): string {
   return raw
@@ -148,6 +149,7 @@ function CodeCopyButton({ code }: { code: string }) {
 
 function WikiMarkdown({ content, onLink }: { content: string; onLink: (page: string) => void }) {
   const processed = useMemo(() => preprocessWikiLinks(content), [content])
+  const { theme } = useTheme()
 
   return (
     <div className="wiki-prose prose prose-sm dark:prose-invert max-w-none">
@@ -262,7 +264,7 @@ function WikiMarkdown({ content, onLink }: { content: string; onLink: (page: str
                 {lang ? (
                   <SyntaxHighlighter
                     language={lang}
-                    style={oneLight}
+                    style={theme === 'dark' ? oneDark : oneLight}
                     customStyle={{
                       margin: 0,
                       padding: '1.25rem',
