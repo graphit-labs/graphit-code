@@ -29,6 +29,7 @@ type clusterUnsetInput struct {
 
 type clusterProjectsInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Label      string `json:"label,omitempty" jsonschema:"Optional cluster label key to filter by"`
 }
 
 func registerClusterTools(server *mcp.Server) {
@@ -158,7 +159,7 @@ func registerClusterTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("cluster", "projects"),
-		Description: "List sibling projects in the same cluster as the current project.",
+		Description: "List all projects in the same cluster as the current project (including itself). Optionally filter by a specific cluster label key.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input clusterProjectsInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -167,11 +168,11 @@ func registerClusterTools(server *mcp.Server) {
 
 		var result any
 		err = withProjectDir(projectDir, func() error {
-			siblings, err := hub.GetClusterProjects(projectDir)
+			projects, err := hub.GetClusterProjects(projectDir, input.Label)
 			if err != nil {
 				return err
 			}
-			result = siblings
+			result = projects
 			return nil
 		})
 		if err != nil {

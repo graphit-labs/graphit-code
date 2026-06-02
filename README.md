@@ -290,6 +290,35 @@ Supports and synchronizes across multiple IDEs working together (Claude Code, Cu
 graphit init --ide <antigravity|gemini|claude|cursor|kiro|codex|opencode>
 ```
 
+### 7. Cluster Discovery — Cross-Project Ecosystem
+
+Group related projects with **cluster labels** and let your agent discover, navigate, and query the entire ecosystem. Projects sharing at least one label are automatically linked as cluster members.
+
+```bash
+# Assign labels to group projects
+graphit cluster domain backend
+graphit cluster team payments
+
+# View your labels
+graphit cluster --list
+
+# Discover all projects in your cluster
+graphit cluster projects
+
+# Filter by a specific label
+graphit cluster projects domain
+```
+
+Your AI agent uses the same discovery via MCP (`graphit_cluster_projects`) to:
+- **Find sibling projects** and read their source or documentation
+- **Query code across projects** using AST with the sibling's `project_dir`
+- **Read another project's wiki** to understand APIs and contracts
+- **Make cross-project changes** using the discovered paths
+
+This prevents **integration hallucinations** — the agent sees real routes, DTOs, and interfaces from the actual sibling codebases instead of guessing.
+
+> See the [Cluster Discovery Spec](docs/specs/cluster_microservices.md) for the full technical reference.
+
 ---
 
 ## Quick Start

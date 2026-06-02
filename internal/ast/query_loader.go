@@ -966,9 +966,6 @@ func loadEcosystemFile(path string) (*EcosystemFile, error) {
 	return &ef, nil
 }
 
-// Ecosystem caches
-var ecosystemOnce sync.Once
-var ecosystemCache []EcosystemEntry
 
 // ResolveEcosystems returns the merged ecosystem entries from all levels.
 // Like frameworks, ecosystems MERGE from all levels.
@@ -1014,16 +1011,3 @@ func ResolveEcosystems(projectDir string) []EcosystemEntry {
 	return all
 }
 
-// resetAllCaches clears all cached data. Used by tests.
-func resetAllCaches() {
-	resetQueryCaches()
-	frameworkCache = sync.Map{}
-	userFrameworksOnce = sync.Once{}
-	userFrameworksCache = nil
-	runtimeFrameworksOnce = sync.Once{}
-	runtimeFrameworksCache = nil
-	embeddedFrameworksOnce = sync.Once{}
-	embeddedFrameworksCache = nil
-	ecosystemOnce = sync.Once{}
-	ecosystemCache = nil
-}

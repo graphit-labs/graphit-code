@@ -431,9 +431,7 @@ func extractDocstrings(root *sitter.Node, src []byte, result *ParsedFile, langCo
 	walk(root)
 }
 
-func isCommentNode(nodeType string) bool {
-	return defaultCommentTypes[nodeType]
-}
+
 
 var defaultCommentTypes = map[string]bool{
 	"comment":           true,

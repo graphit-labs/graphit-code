@@ -29,7 +29,7 @@ Examples:
   ` + brand.BinName() + ` cluster team backend       # Set label team=backend
   ` + brand.BinName() + ` cluster domain payments     # Set label domain=payments
   ` + brand.BinName() + ` cluster --get team           # Get value of 'team' label
-  ` + brand.BinName() + ` cluster --get                # List all labels
+  ` + brand.BinName() + ` cluster --list                # List all labels
   ` + brand.BinName() + ` cluster --unset team         # Remove 'team' label`,
 		PreRunE: requireProject,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -110,7 +110,7 @@ Examples:
 		},
 	}
 
-	cmd.Flags().StringVar(&flagGet, "get", "", "Get value of a cluster label (use without value to list all)")
+	cmd.Flags().StringVar(&flagGet, "get", "", "Get value of a cluster label")
 	cmd.Flags().BoolVar(&flagGetAll, "list", false, "List all cluster labels")
 	cmd.Flags().StringVar(&flagUnset, "unset", "", "Remove a cluster label")
 
@@ -121,28 +121,47 @@ Examples:
 
 func newClusterProjectsCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "projects",
-		Short:   "List sibling projects in the same cluster",
+		Use:   "projects [label]",
+		Short: "List projects in the same cluster",
+		Long: `List all projects that belong to the same cluster as the current project.
+
+Optionally pass a label key to filter results to only projects sharing that specific label.`,
+		Example: `  ` + brand.BinName() + ` cluster projects                # List all cluster projects
+  ` + brand.BinName() + ` cluster projects domain         # Only projects sharing the "domain" label`,
 		PreRunE: requireProject,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			p := output.NewPrinter("")
 			wd, _ := os.Getwd()
-			siblings, err := hub.GetClusterProjects(wd)
+
+			var labelFilter string
+			if len(args) > 0 {
+				labelFilter = args[0]
+			}
+
+			projects, err := hub.GetClusterProjects(wd, labelFilter)
 			if err != nil {
 				return err
 			}
-			if len(siblings) == 0 {
-				p.StepWarn("No sibling projects found in the cluster")
+			if len(projects) == 0 {
+				if labelFilter != "" {
+					p.StepWarn("No projects found with label %q", labelFilter)
+				} else {
+					p.StepWarn("No projects found in the cluster")
+				}
 				return nil
 			}
-			p.Header("Cluster Projects")
-			keys := make([]string, 0, len(siblings))
-			for k := range siblings {
+			if labelFilter != "" {
+				p.Header("Cluster Projects (label: %s)", labelFilter)
+			} else {
+				p.Header("Cluster Projects")
+			}
+			keys := make([]string, 0, len(projects))
+			for k := range projects {
 				keys = append(keys, k)
 			}
 			sort.Strings(keys)
 			for _, name := range keys {
-				proj := siblings[name]
+				proj := projects[name]
 				p.KeyValue(name, proj.Dir)
 				if proj.Description != "" {
 					p.Step("Description: %s", proj.Description)
