@@ -74,19 +74,30 @@ func OnRemove(ctx context.Context, registry *RegistryManager, ide string) error 
 	svc := NewHubService(registry)
 	pp := paths.GetPaths(ide, false)
 
+	lf, _ := LoadLockfile(pp.LockFilePath)
+	projectID := ""
+	if lf != nil {
+		projectID = lf.Project.ID
+	}
+
 	if registry.IsReady() {
-		lf, _ := LoadLockfile(pp.LockFilePath)
-		projectID := ""
-		if lf != nil {
-			projectID = lf.Project.ID
-		}
 		tracker := NewEventTracker(registry.GitStore())
 		tracker.TrackEvent("project.remove", projectID, nil, map[string]string{"ide": ide})
 	}
 
 	remaining, _ := RemoveIDE(pp.LockFilePath, ide)
 
+	if adapter, err := getIDEAdapter(ide); err == nil && adapter != nil {
+		flat := buildInstalledFlat(lf, pp, projectID)
+		_ = adapter.Remove(pp, flat)
+	}
+
 	if len(remaining) == 0 {
+		if projectID != "" {
+			if mgr, err := NewGlobalLockManager(); err == nil {
+				_ = mgr.UnregisterProject(projectID, pp.ActiveProjectDir)
+			}
+		}
 		_ = svc.UninstallAll(ctx, ide, "")
 	}
 
@@ -104,18 +115,29 @@ func syncIDEAdapter(ide string, pp *paths.ProjectPaths, lf *Lockfile) error {
 		return err
 	}
 
+	flat := buildInstalledFlat(lf, pp, lf.Project.ID)
+
+	return adapter.Sync(flat, pp, lf.Project.ID)
+}
+
+func buildInstalledFlat(lf *Lockfile, pp *paths.ProjectPaths, projectID string) map[string]map[string]string {
 	flat := make(map[string]map[string]string)
+	if lf == nil {
+		return flat
+	}
 	for artType, typeMap := range lf.Artifacts {
 		for artID, meta := range typeMap {
 			artPath := resolveArtifactPath(meta, artType, artID, pp)
 			flat[artID] = map[string]string{
-				"type":    string(artType),
-				"path":    artPath,
-				"version": meta.Version,
-				"hash":    meta.Hash,
+				"type":       string(artType),
+				"path":       artPath,
+				"version":    meta.Version,
+				"hash":       meta.Hash,
+				"project_id": projectID,
 			}
 		}
 	}
 
-	return adapter.Sync(flat, pp, lf.Project.ID)
+	return flat
 }
+

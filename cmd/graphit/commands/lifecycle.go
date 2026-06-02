@@ -294,15 +294,6 @@ func newRemoveCmd() *cobra.Command {
 
 			removeAllRules(p, wd, ide)
 
-			if mgr, err := hub.NewGlobalLockManager(); err == nil {
-				lockPath := filepath.Join(wd, brand.LockFileName())
-				if lf, err := hub.LoadLockfile(lockPath); err == nil && lf != nil {
-					if err := mgr.UnregisterProject(lf.Project.ID, wd); err != nil {
-						p.StepWarn("Global project unregistration: %v", err)
-					}
-				}
-			}
-
 			p.Success("%s removed from this project", brand.DisplayName)
 			return nil
 		},

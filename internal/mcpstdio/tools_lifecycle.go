@@ -267,13 +267,6 @@ func registerLifecycleTools(server *mcp.Server) {
 			_ = r(projectDir, resolvedIDE)
 		}
 
-		if mgr, err := hub.NewGlobalLockManager(); err == nil {
-			lockPath := filepath.Join(projectDir, brand.LockFileName())
-			if lf, err := hub.LoadLockfile(lockPath); err == nil && lf != nil {
-				_ = mgr.UnregisterProject(lf.Project.ID, projectDir)
-			}
-		}
-
 		return textResult("Graphit removed from this project successfully.")
 	}))
 
