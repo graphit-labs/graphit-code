@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -66,7 +67,7 @@ func (s *EmbedServer) Start(ctx context.Context) error {
 	}()
 
 	err = s.server.Serve(s.listener)
-	if err == http.ErrServerClosed {
+	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
 	return err

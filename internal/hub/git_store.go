@@ -482,11 +482,8 @@ func (g *GitStore) EnsureArtifactClone(artType ArtifactType, id, version, projec
 				branchExists = true
 			}
 		}
-	} else {
-
-		if g.gitOutputInRepoNoErr("rev-parse", "--verify", "refs/heads/"+branch) != "" {
-			branchExists = true
-		}
+	} else if g.gitOutputInRepoNoErr("rev-parse", "--verify", "refs/heads/"+branch) != "" {
+		branchExists = true
 	}
 
 	if !branchExists {
@@ -689,7 +686,7 @@ func (w *MemoryWorktree) Pull() error {
 
 	if err := gitExec().Run(w.dir, "pull", "--rebase", "--autostash", "--depth=1",
 		"origin", w.branch); err != nil {
-		return fmt.Errorf("pulling memory branch: %v", err)
+		return fmt.Errorf("pulling memory branch: %w", err)
 	}
 	return nil
 }
@@ -726,7 +723,7 @@ func (w *MemoryWorktree) CommitAndPush(message string) error {
 	}
 
 	if err := g.Run(w.dir, "commit", "-m", message); err != nil {
-		return fmt.Errorf("committing memory changes: %v", err)
+		return fmt.Errorf("committing memory changes: %w", err)
 	}
 
 	if !w.g.hasRemote() {
@@ -739,7 +736,7 @@ func (w *MemoryWorktree) CommitAndPush(message string) error {
 	}
 
 	if err := g.Run(w.dir, "push", "--set-upstream", "origin", w.branch); err != nil {
-		return fmt.Errorf("pushing memory branch %q: %v", w.branch, err)
+		return fmt.Errorf("pushing memory branch %q: %w", w.branch, err)
 	}
 
 	return nil

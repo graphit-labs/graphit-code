@@ -34,7 +34,10 @@ func NewSyncModule(projectDir, cacheDir string) *SyncModule {
 func (m *SyncModule) Name() string { return "sync" }
 
 func (m *SyncModule) Start(ctx context.Context) error {
-	g := git.Default()
+	g, err := git.DefaultErr()
+	if err != nil {
+		return fmt.Errorf("sync module requires git: %w", err)
+	}
 	ic := ignorer.New(m.projectDir, m.projectDir, ast.AstIgnoreFile, nil)
 
 	var lastHash string

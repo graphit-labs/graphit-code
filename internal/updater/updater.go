@@ -177,6 +177,9 @@ func readChecksumFile(path string) (string, error) {
 			continue
 		}
 		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			continue
+		}
 		return parts[0], nil
 	}
 	return "", fmt.Errorf("empty checksum file: %s", path)

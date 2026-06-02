@@ -3,6 +3,7 @@ package uiserver
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -81,7 +82,7 @@ func (s *UnifiedServer) Start(ctx context.Context) error {
 
 	select {
 	case e := <-errCh:
-		if e != nil && e != http.ErrServerClosed {
+		if e != nil && !errors.Is(e, http.ErrServerClosed) {
 			return e
 		}
 	default:

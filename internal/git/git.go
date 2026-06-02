@@ -27,14 +27,27 @@ type Git interface {
 var (
 	defaultInstance Git
 	defaultOnce     sync.Once
+	defaultInitErr  error
 )
 
+// Default returns the singleton Git instance. Returns nil if git is not
+// available in PATH — callers that cannot tolerate this should use DefaultErr.
 func Default() Git {
 	defaultOnce.Do(func() {
 		if _, err := exec.LookPath("git"); err != nil {
-			panic(fmt.Sprintf("git CLI not found in PATH: %v — run 'graphit setup' to verify prerequisites", err))
+			defaultInitErr = fmt.Errorf("git CLI not found in PATH: %w", err)
+			return
 		}
 		defaultInstance = &cliBackend{}
 	})
 	return defaultInstance
 }
+
+// DefaultErr returns the singleton Git instance along with any initialization
+// error. Use this instead of Default when you need to handle missing git
+// gracefully rather than risking a nil-pointer dereference.
+func DefaultErr() (Git, error) {
+	_ = Default()
+	return defaultInstance, defaultInitErr
+}
+

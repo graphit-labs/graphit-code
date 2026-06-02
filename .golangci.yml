@@ -3,9 +3,36 @@ run:
   build-tags:
     - fts5
 linters:
+  enable:
+    - gosec
+    - errorlint
+    - gocritic
   settings:
     govet:
       disable-all: false
+    gosec:
+      excludes:
+        - G104  # Unhandled errors in defers — project convention: _ = f.Close()
+        - G110  # Decompression bomb — controlled model extraction in launcher
+        - G112  # Slow body reads — CLI tool, not a public server
+        - G115  # Integer overflow — architecture-safe int→uint64 conversions
+        - G118  # tls.Listen — internal-only dev servers
+        - G120  # URL handling — CLI operates on user-provided URLs
+        - G122  # Net/http URL — internal-only dev servers
+        - G204  # Subprocess via variable — CLI tool spawns processes by design
+        - G304  # File inclusion via variable — CLI tool operates on user-provided paths
+        - G305  # File traversal in archive — controlled extraction in launcher
+        - G306  # File permissions > 0600 — executables require 0755
+        - G404  # Weak random — used for non-crypto purposes (IDs, temp names)
+        - G602  # Slice bounds — false positive on controlled loops
+        - G702  # Command injection — CLI tool executes commands by design
+        - G703  # Path traversal — CLI tool operates on user-provided paths
+        - G705  # Map range mutation — false positive on controlled patterns
+        - G101  # Hardcoded credentials — false positive on HuggingFace model URLs
+    gocritic:
+      disabled-checks:
+        - ifElseChain      # Too noisy for command routing patterns
+        - singleCaseSwitch # Intentional in some places for future extensibility
   exclusions:
     generated: lax
     presets:
@@ -19,6 +46,9 @@ linters:
           - govet
           - staticcheck
         path: node_modules/
+      - linters:
+          - gosec
+        path: _test\.go
     paths:
       - node_modules
       - third_party

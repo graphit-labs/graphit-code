@@ -368,7 +368,9 @@ func (w *GraphWriter) WriteChunkIncremental(ctx context.Context, chunk []*Parsed
 		}
 	}
 
-	allCallsData := append(parentCallsData, fileCallsData...)
+	allCallsData := make([]map[string]any, 0, len(parentCallsData)+len(fileCallsData))
+	allCallsData = append(allCallsData, parentCallsData...)
+	allCallsData = append(allCallsData, fileCallsData...)
 	if len(allCallsData) > 0 {
 		cmds = append(cmds, BatchQuery{
 			Cypher: `UNWIND $data AS row MERGE (t:Function {uid: row.uid}) ON CREATE SET t.name=row.uid, t.is_stub=true`,

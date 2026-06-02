@@ -1,0 +1,34 @@
+version: 2
+updates:
+  # Go module dependencies
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - go
+    commit-message:
+      prefix: "deps(go):"
+
+  # npm dependencies (React UI)
+  - package-ecosystem: npm
+    directory: /internal/ui
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - javascript
+    commit-message:
+      prefix: "deps(npm):"
+
+  # GitHub Actions versions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "deps(actions):"

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -107,7 +108,8 @@ func main() {
 	if err := execCore(coreBinPath, env); err != nil {
 
 		if err := cmd.Run(); err != nil {
-			if exitError, ok := err.(*exec.ExitError); ok {
+			var exitError *exec.ExitError
+			if errors.As(err, &exitError) {
 				os.Exit(exitError.ExitCode())
 			}
 			fmt.Fprintf(os.Stderr, "Error executing core binary: %v\n", err)

@@ -272,7 +272,7 @@ func (w *MemoryWorktree) Pull() error {
 	if err := g.Run(w.dir, "pull", "--rebase", "--autostash",
 		"--allow-unrelated-histories", "-X", "ours", "--depth=1",
 		"origin", w.branch); err != nil {
-		return fmt.Errorf("pulling memory branch: %v", err)
+		return fmt.Errorf("pulling memory branch: %w", err)
 	}
 	return nil
 }
@@ -309,7 +309,7 @@ func (w *MemoryWorktree) CommitAndPush(message string) error {
 	}
 
 	if err := gitmod.Default().Run(wt, "commit", "-m", message); err != nil {
-		return fmt.Errorf("committing memory changes: %v", err)
+		return fmt.Errorf("committing memory changes: %w", err)
 	}
 
 	w.store.pushBranchInBackground(w.branch, w.dir)

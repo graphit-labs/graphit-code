@@ -46,12 +46,16 @@ func NewWatcher(db GraphDB, rootPath string, cfg WatcherConfig) (*Watcher, error
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = 2 * time.Second
 	}
+	g, err := git.DefaultErr()
+	if err != nil {
+		return nil, fmt.Errorf("watcher requires git: %w", err)
+	}
 	return &Watcher{
 		db:       db,
 		rootPath: rootPath,
 		cfg:      cfg,
 		ic:       NewAstIgnoreChecker(rootPath),
-		g:        git.Default(),
+		g:        g,
 	}, nil
 }
 

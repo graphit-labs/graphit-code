@@ -1694,7 +1694,10 @@ func watchAndReindex(rootPath string, useLouvain bool, reindex func() error) err
 		p.Warn("Initial index error: %v", err)
 	}
 
-	g := git.Default()
+	g, err := git.DefaultErr()
+	if err != nil {
+		return fmt.Errorf("git required for watch: %w", err)
+	}
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)

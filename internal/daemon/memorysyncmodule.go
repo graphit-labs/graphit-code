@@ -27,7 +27,10 @@ func NewMemorySyncModule() *MemorySyncModule {
 func (m *MemorySyncModule) Name() string { return "memory-sync" }
 
 func (m *MemorySyncModule) Start(ctx context.Context) error {
-	g := git.Default()
+	g, err := git.DefaultErr()
+	if err != nil {
+		return fmt.Errorf("memory-sync module requires git: %w", err)
+	}
 	hashes := make(map[string]string)
 
 	ticker := time.NewTicker(memorySyncPollInterval)

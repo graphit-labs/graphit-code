@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -70,7 +71,7 @@ func (s *UIServer) Start(ctx context.Context) error {
 	_ = srv.Shutdown(shutCtx)
 	select {
 	case e := <-errCh:
-		if e != nil && e != http.ErrServerClosed {
+		if e != nil && !errors.Is(e, http.ErrServerClosed) {
 			return e
 		}
 	default:

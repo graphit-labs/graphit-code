@@ -48,7 +48,7 @@ func (k *LadybugBackend) AtomicSwapDB(newDBPath string) error {
 	if err := os.Rename(newDBPath, currentPath); err != nil {
 
 		if restoreErr := os.Rename(oldPath, currentPath); restoreErr != nil {
-			return fmt.Errorf("atomic swap CRITICAL: new→current failed (%v) AND restore failed (%v)", err, restoreErr)
+			return fmt.Errorf("atomic swap CRITICAL: new→current failed (%w) AND restore failed (%w)", err, restoreErr)
 		}
 		return fmt.Errorf("atomic swap: rename new→current: %w", err)
 	}

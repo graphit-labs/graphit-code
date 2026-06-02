@@ -141,7 +141,7 @@ func (s *SourceService) GetSource(ctx context.Context, req SourceRequest) (*Sour
 
 	if req.Tail > 0 && req.Tail < len(lines) {
 		tailStart := len(lines) - req.Tail
-		lineOffset = lineOffset + tailStart
+		lineOffset += tailStart
 		lines = lines[tailStart:]
 		result.StartLine = lineOffset
 		result.EndLine = lineOffset + len(lines) - 1

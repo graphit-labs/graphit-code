@@ -38,7 +38,7 @@ Examples:
 			lp := lockfilePath()
 			lf, err := hub.LoadLockfile(lp)
 			if err != nil || lf == nil {
-				return fmt.Errorf("cannot load project lockfile: %v", err)
+				return fmt.Errorf("cannot load project lockfile: %w", err)
 			}
 			projectID := lf.Project.ID
 			if projectID == "" {
@@ -47,14 +47,14 @@ Examples:
 
 			mgr, err := hub.NewGlobalLockManager()
 			if err != nil {
-				return fmt.Errorf("global lock: %v", err)
+				return fmt.Errorf("global lock: %w", err)
 			}
 
 			wd, _ := os.Getwd()
 
 			if flagUnset != "" {
 				if err := mgr.UnsetCluster(projectID, wd, flagUnset); err != nil {
-					return fmt.Errorf("unset cluster label: %v", err)
+					return fmt.Errorf("unset cluster label: %w", err)
 				}
 				p.Success("Removed cluster label: %s", flagUnset)
 				return nil
@@ -64,7 +64,7 @@ Examples:
 				if flagGet != "" {
 					vals, err := mgr.GetCluster(projectID, wd, flagGet)
 					if err != nil {
-						return fmt.Errorf("get cluster label: %v", err)
+						return fmt.Errorf("get cluster label: %w", err)
 					}
 					if len(vals) == 0 {
 						p.StepWarn("Label %q is not set", flagGet)
@@ -74,7 +74,7 @@ Examples:
 				} else {
 					labels, err := mgr.GetAllClusterLabels(projectID, wd)
 					if err != nil {
-						return fmt.Errorf("get cluster labels: %v", err)
+						return fmt.Errorf("get cluster labels: %w", err)
 					}
 					if len(labels) == 0 {
 						p.StepWarn("No cluster labels set")
@@ -103,7 +103,7 @@ Examples:
 			}
 
 			if err := mgr.SetCluster(projectID, wd, key, value); err != nil {
-				return fmt.Errorf("set cluster label: %v", err)
+				return fmt.Errorf("set cluster label: %w", err)
 			}
 			p.Success("Set cluster label: %s=%s", key, value)
 			return nil

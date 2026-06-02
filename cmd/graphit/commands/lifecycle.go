@@ -1044,7 +1044,9 @@ func runMemoryMaintenance(ctx context.Context, projectDir string) {
 				}
 			}
 
-			allActions := append(report.Contradictions, report.Stale...)
+			allActions := make([]memory.ConsolidationAction, 0, len(report.Contradictions)+len(report.Stale)+len(report.Suggestions))
+			allActions = append(allActions, report.Contradictions...)
+			allActions = append(allActions, report.Stale...)
 			allActions = append(allActions, report.Suggestions...)
 			for _, action := range allActions {
 				if action.Type == "delete" {

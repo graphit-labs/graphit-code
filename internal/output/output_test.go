@@ -2,6 +2,7 @@ package output
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -313,7 +314,8 @@ func TestFatalAndInterrupted(t *testing.T) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	if e, ok := err.(*exec.ExitError); ok && !e.Success() {
+	var e *exec.ExitError
+	if errors.As(err, &e) && !e.Success() {
 		// Expected exit code 1
 		errOut := stderr.String()
 		if !strings.Contains(errOut, SymbolError) || !strings.Contains(errOut, "crash now") {
@@ -330,8 +332,9 @@ func TestFatalAndInterrupted(t *testing.T) {
 	cmd2.Stdout = &stdout2
 	cmd2.Stderr = &stderr2
 	err2 := cmd2.Run()
-	if e, ok := err2.(*exec.ExitError); ok {
-		exitCode := e.ExitCode()
+	var e2 *exec.ExitError
+	if errors.As(err2, &e2) {
+		exitCode := e2.ExitCode()
 		if exitCode != 130 {
 			t.Errorf("expected Interrupted exit code 130, got %d", exitCode)
 		}
