@@ -43,7 +43,7 @@ queries:
   - data_key: field_writes
     type: relation
     relation_type: WRITES_FIELD
-    pattern: '(assignment_statement left: (selector_expression field: (field_identifier) @name))'
+    pattern: '(assignment_statement left: (expression_list (selector_expression field: (field_identifier) @name)))'
 
 # Export detection strategy — extracted from detectExports()
 exports:
