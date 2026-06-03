@@ -213,8 +213,9 @@ auto-generated values and interactive prompts.`,
 				}
 			}
 
-			p.Step("Starting background sync...")
-			spawnFullSync(wd, ide)
+			p.Running("Synchronizing project...")
+			runSyncPhase1(ctx, wd, []string{ide}, p)
+			spawnBackgroundSync(wd, ide)
 
 			return nil
 		},
@@ -684,147 +685,18 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 
 			p.Running("Synchronizing project...")
 
-			projectCfg := loadProjectConfigFromDir(wd)
-
-			if !config.IsModuleDisabled("ast", nil, projectCfg) {
-				task := p.StartTask("Reindexing AST graph...")
-				absPath, _ := filepath.Abs(wd)
-				db, err := newASTBackend()
-				if err != nil {
-					task.Fail("AST backend: %v", err)
-				} else {
-					_ = ast.CreateGraphSchema(ctx, db)
-					ladybugCfg := ast.DefaultLadybugConfig()
-					pipeOpts := ast.PipelineOptions{
-						Workers:     ast.SafeWorkers(0),
-						IndexSource: config.ResolveIndexSource(nil, nil),
-						CacheDir:    filepath.Dir(ladybugCfg.DBPath),
-					}
-					result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)
-					if err != nil {
-						task.Fail("AST index: %v", err)
-					} else if result.ParsedFiles == 0 {
-						task.Done("AST: %d files up to date", result.TotalFiles)
-					} else {
-						task.Done("AST: %d files indexed (%.1fs)", result.ParsedFiles, result.TotalTime.Seconds())
-					}
-					_ = db.Close()
-				}
-			}
-
-			if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
-				task := p.StartTask("Reindexing knowledge wiki...")
-				docsDir := config.ResolveDocsDir(nil, projectCfg)
-				docsPath := filepath.Join(wd, docsDir)
-				if _, err := os.Stat(docsPath); err == nil {
-					wikiDir := knowledge.WikiDir()
-					cfg := knowledge.IndexConfig{UseLouvain: false}
-					if _, err := knowledge.RunIndexPipeline(ctx, docsPath, wikiDir, cfg); err != nil {
-						task.Fail("Knowledge index: %v", err)
-					} else {
-						task.Done("Knowledge wiki reindexed")
-					}
-				} else {
-					task.Done("No %s/ directory — skipping", docsDir)
-				}
-			}
-
-			task := p.StartTask("Syncing memory repository...")
-			memStore, err := memory.NewMemoryGitStore()
-			if err != nil {
-				task.Fail("Memory store: %v", err)
-			} else {
-				syncOK := true
-				if projSvc, _, svcErr := newMemorySvc(false); svcErr == nil {
-					if err := projSvc.SyncToLocal(); err != nil {
-						p.StepWarn("Memory project sync: %v", err)
-						syncOK = false
-					}
-					_ = projSvc.Close()
-				}
-				if userSvc, _, svcErr := newMemorySvc(true); svcErr == nil {
-					if err := userSvc.SyncToLocal(); err != nil {
-						p.StepWarn("Memory user sync: %v", err)
-						syncOK = false
-					}
-					_ = userSvc.Close()
-				}
-				_ = memStore
-				if syncOK {
-					task.Done("Memory repository synced")
-				}
-			}
-
-			if !config.IsModuleDisabled("memory", nil, projectCfg) {
-				task = p.StartTask("Reindexing memory wikis...")
-				memory.RunProjectCycle(ctx)
-				memory.RunUserCycle(ctx)
-				task.Done("Memory wikis reindexed")
-			}
-
-			task = p.StartTask("Syncing hub repository...")
-			gs, err := hub.NewGitStore(nil, loadProjectConfig())
-			if err != nil {
-				task.Fail("Hub not configured: %v", err)
-			} else {
-				if err := gs.Sync(); err != nil {
-					task.Fail("Hub sync: %v", err)
-				} else {
-					task.Done("Hub repository synced")
-				}
-			}
-
 			explicitIDE, _ := cmd.Flags().GetString("ide")
-			lf, err := hub.LoadLockfile(filepath.Join(wd, brand.LockFileName()))
+			lf, lfErr := hub.LoadLockfile(filepath.Join(wd, brand.LockFileName()))
 			var idesToSync []string
 			if explicitIDE != "" {
 				idesToSync = []string{explicitIDE}
-			} else if err == nil && lf != nil && len(lf.IDEs) > 0 {
+			} else if lfErr == nil && lf != nil && len(lf.IDEs) > 0 {
 				idesToSync = lf.IDEs
 			} else {
 				idesToSync = []string{ide}
 			}
 
-			task = p.StartTask("Updating IDE rules...")
-			for _, targetIDE := range idesToSync {
-				installAllRules(p, wd, targetIDE)
-			}
-			task.Done("IDE rules updated")
-
-			task = p.StartTask("Syncing IDE adapter...")
-			if err == nil && lf != nil {
-				var syncErrs []string
-				for _, targetIDE := range idesToSync {
-					if syncErr := hub.SyncIDEAdapter(targetIDE, lf); syncErr != nil {
-						syncErrs = append(syncErrs, fmt.Sprintf("%s: %v", targetIDE, syncErr))
-					}
-				}
-				if len(syncErrs) > 0 {
-					task.Fail("IDE adapters sync failed: %s", strings.Join(syncErrs, "; "))
-				} else {
-					task.Done("IDE adapter synced")
-				}
-			} else {
-				task.Done("No lockfile — skipping IDE adapter sync")
-			}
-
-			task = p.StartTask("Syncing git hooks...")
-			hm := git.NewHookManager("")
-			if config.IsModuleDisabled("hooks", nil, projectCfg) {
-				if err := hm.Remove(); err != nil {
-					task.Fail("Git hooks removal: %v", err)
-				} else {
-					task.Done("Git hooks removed (disabled by config)")
-				}
-			} else {
-				if err := hm.Install(false); err != nil {
-					task.Fail("Git hooks: %v", err)
-				} else {
-					task.Done("Git hooks synced")
-				}
-			}
-
-			p.Success("Sync complete")
+			runSyncPhase1(ctx, wd, idesToSync, p)
 
 			noBg, _ := cmd.Flags().GetBool("no-background")
 			if noBg {
@@ -926,30 +798,141 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 	}
 }
 
-func spawnFullSync(wd, ide string) {
-	exe, err := os.Executable()
+// runSyncPhase1 runs the synchronous sync tasks (AST reindex, knowledge/memory
+// wiki reindex, hub/memory repo sync, IDE rules & adapter, git hooks).
+// It is used by both the "init" and "sync" commands.
+func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *output.Printer) {
+	projectCfg := loadProjectConfigFromDir(wd)
+
+	if !config.IsModuleDisabled("ast", nil, projectCfg) {
+		task := p.StartTask("Reindexing AST graph...")
+		absPath, _ := filepath.Abs(wd)
+		db, err := newASTBackend()
+		if err != nil {
+			task.Fail("AST backend: %v", err)
+		} else {
+			_ = ast.CreateGraphSchema(ctx, db)
+			ladybugCfg := ast.DefaultLadybugConfig()
+			pipeOpts := ast.PipelineOptions{
+				Workers:     ast.SafeWorkers(0),
+				IndexSource: config.ResolveIndexSource(nil, nil),
+				CacheDir:    filepath.Dir(ladybugCfg.DBPath),
+			}
+			result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)
+			if err != nil {
+				task.Fail("AST index: %v", err)
+			} else if result.ParsedFiles == 0 {
+				task.Done("AST: %d files up to date", result.TotalFiles)
+			} else {
+				task.Done("AST: %d files indexed (%.1fs)", result.ParsedFiles, result.TotalTime.Seconds())
+			}
+			_ = db.Close()
+		}
+	}
+
+	if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
+		task := p.StartTask("Reindexing knowledge wiki...")
+		docsDir := config.ResolveDocsDir(nil, projectCfg)
+		docsPath := filepath.Join(wd, docsDir)
+		if _, err := os.Stat(docsPath); err == nil {
+			wikiDir := knowledge.WikiDir()
+			cfg := knowledge.IndexConfig{UseLouvain: false}
+			if _, err := knowledge.RunIndexPipeline(ctx, docsPath, wikiDir, cfg); err != nil {
+				task.Fail("Knowledge index: %v", err)
+			} else {
+				task.Done("Knowledge wiki reindexed")
+			}
+		} else {
+			task.Done("No %s/ directory — skipping", docsDir)
+		}
+	}
+
+	task := p.StartTask("Syncing memory repository...")
+	memStore, err := memory.NewMemoryGitStore()
 	if err != nil {
-		syncLogError("spawn", "executable path: %v", err)
-		return
+		task.Fail("Memory store: %v", err)
+	} else {
+		syncOK := true
+		if projSvc, _, svcErr := newMemorySvc(false); svcErr == nil {
+			if err := projSvc.SyncToLocal(); err != nil {
+				p.StepWarn("Memory project sync: %v", err)
+				syncOK = false
+			}
+			_ = projSvc.Close()
+		}
+		if userSvc, _, svcErr := newMemorySvc(true); svcErr == nil {
+			if err := userSvc.SyncToLocal(); err != nil {
+				p.StepWarn("Memory user sync: %v", err)
+				syncOK = false
+			}
+			_ = userSvc.Close()
+		}
+		_ = memStore
+		if syncOK {
+			task.Done("Memory repository synced")
+		}
 	}
 
-	args := []string{"sync", "--no-background"}
-	if ide != "" {
-		args = append(args, "--ide", ide)
+	if !config.IsModuleDisabled("memory", nil, projectCfg) {
+		task = p.StartTask("Reindexing memory wikis...")
+		memory.RunProjectCycle(ctx)
+		memory.RunUserCycle(ctx)
+		task.Done("Memory wikis reindexed")
 	}
 
-	cmd := exec.Command(exe, args...)
-	cmd.Dir = wd
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-
-	if err := cmd.Start(); err != nil {
-		syncLogError("spawn", "start: %v", err)
-		return
+	task = p.StartTask("Syncing hub repository...")
+	gs, err := hub.NewGitStore(nil, loadProjectConfig())
+	if err != nil {
+		task.Fail("Hub not configured: %v", err)
+	} else {
+		if err := gs.Sync(); err != nil {
+			task.Fail("Hub sync: %v", err)
+		} else {
+			task.Done("Hub repository synced")
+		}
 	}
 
-	_ = cmd.Process.Release()
+	task = p.StartTask("Updating IDE rules...")
+	for _, targetIDE := range idesToSync {
+		installAllRules(p, wd, targetIDE)
+	}
+	task.Done("IDE rules updated")
+
+	task = p.StartTask("Syncing IDE adapter...")
+	lf, lfErr := hub.LoadLockfile(filepath.Join(wd, brand.LockFileName()))
+	if lfErr == nil && lf != nil {
+		var syncErrs []string
+		for _, targetIDE := range idesToSync {
+			if syncErr := hub.SyncIDEAdapter(targetIDE, lf); syncErr != nil {
+				syncErrs = append(syncErrs, fmt.Sprintf("%s: %v", targetIDE, syncErr))
+			}
+		}
+		if len(syncErrs) > 0 {
+			task.Fail("IDE adapters sync failed: %s", strings.Join(syncErrs, "; "))
+		} else {
+			task.Done("IDE adapter synced")
+		}
+	} else {
+		task.Done("No lockfile — skipping IDE adapter sync")
+	}
+
+	task = p.StartTask("Syncing git hooks...")
+	hm := git.NewHookManager("")
+	if config.IsModuleDisabled("hooks", nil, projectCfg) {
+		if err := hm.Remove(); err != nil {
+			task.Fail("Git hooks removal: %v", err)
+		} else {
+			task.Done("Git hooks removed (disabled by config)")
+		}
+	} else {
+		if err := hm.Install(false); err != nil {
+			task.Fail("Git hooks: %v", err)
+		} else {
+			task.Done("Git hooks synced")
+		}
+	}
+
+	p.Success("Sync complete")
 }
 
 func spawnBackgroundSync(wd, ide string) {
