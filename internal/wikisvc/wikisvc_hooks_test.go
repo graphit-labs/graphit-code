@@ -787,6 +787,37 @@ func TestWikiSearchResult_Fields(t *testing.T) {
 	}
 }
 
+// --- Default hook closure tests ---
+// These tests verify that the default hook closures (which wrap real implementations)
+// are exercisable. They will fail with expected errors since real services aren't
+// available in the test environment, but the closure code itself gets executed.
+
+func TestDefaultHook_SearchMultiWiki(t *testing.T) {
+	// Save the default closure before any test overrides it
+	defaultSearchMultiWiki := searchMultiWiki
+
+	// Call the default closure — it wraps wiki.SearchMultiWiki.
+	// This will fail because wiki.SearchMultiWiki requires real sources,
+	// but the closure body (line 35: return wiki.SearchMultiWiki(...)) gets executed.
+	_, err := defaultSearchMultiWiki(context.Background(), &mockAIClient{}, "test", wiki.MultiWikiSearchConfig{})
+	// We expect an error (no wiki sources provided)
+	if err == nil {
+		t.Error("expected error from default searchMultiWiki hook")
+	}
+}
+
+func TestDefaultHook_NewChatEngine(t *testing.T) {
+	// Save the default closure before any test overrides it
+	defaultNewChatEngine := newChatEngine
+
+	// Call the default closure — it wraps chat.NewChatEngine.
+	// This should succeed (creates a real ChatEngine).
+	engine := defaultNewChatEngine(&mockAIClient{}, &chat.ChatSession{ID: "test"})
+	if engine == nil {
+		t.Error("expected non-nil engine from default newChatEngine hook")
+	}
+}
+
 // helper
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && containsSubstr(s, substr)
@@ -805,13 +836,16 @@ func jsonEscape(s string) string {
 	// Simple escape for test file paths (handles backslashes on Windows)
 	result := ""
 	for _, c := range s {
-		if c == '\\' {
+		switch c {
+		case '\\':
 			result += "\\\\"
-		} else if c == '"' {
+		case '"':
 			result += "\\\""
-		} else {
+		default:
 			result += string(c)
 		}
 	}
 	return result
 }
+
+
