@@ -223,6 +223,9 @@ test: setup-lbug
 lint:
 	golangci-lint run ./...
 
+vulncheck:
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 ui-lint:
 	cd internal/ui && npm run lint
 
@@ -235,16 +238,16 @@ vet:
 # ── CI reproduce (matches .github/workflows/ci.yml) ──────────────────────────
 # Run all checks that GitHub Actions runs, in the same order.
 # Usage: make ci
-ci: vet lint test ui ui-lint
+ci: vet lint vulncheck test ui ui-lint
 	@echo ""
 	@echo "  ✅ All CI checks passed."
 	@echo ""
 
 # ── Quick pre-push check (no build, no UI) ───────────────────────────────────
 # Usage: make check
-check: vet lint test
+check: vet lint vulncheck test
 	@echo ""
-	@echo "  ✅ Go checks passed (vet + lint + test)."
+	@echo "  ✅ Go checks passed (vet + lint + vulncheck + test)."
 	@echo ""
 
 clean:

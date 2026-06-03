@@ -1,6 +1,6 @@
 module github.com/graphit-labs/graphit-code
 
-go 1.25.6
+go 1.25.11
 
 require (
 	github.com/LadybugDB/go-ladybug v0.13.1
