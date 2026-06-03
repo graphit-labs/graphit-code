@@ -245,7 +245,9 @@ func TestDaemon_ReconcileProjects_MultipleClosers(t *testing.T) {
 		t.Error("supervisor p1 not found")
 	}
 
+	// Cancel parent context and wait for goroutines to exit before TempDir cleanup.
 	cancel()
+	time.Sleep(100 * time.Millisecond)
 }
 
 // ---------------------------------------------------------------------------

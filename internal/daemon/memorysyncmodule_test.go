@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -89,7 +90,7 @@ func TestSyncModule_Start_RunsBriefly(t *testing.T) {
 	cancel()
 
 	err := <-errCh
-	if err != nil && err != context.Canceled {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Logf("SyncModule.Start returned: %v (may require git)", err)
 	}
 }
