@@ -1,10 +1,13 @@
 package daemon
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -325,5 +328,449 @@ func TestCloserFunc_ReturnsError(t *testing.T) {
 	})
 	if err := fn.Close(); !errors.Is(err, os.ErrClosed) {
 		t.Errorf("expected os.ErrClosed, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// daemon.go — reconcileProjects
+// ---------------------------------------------------------------------------
+
+func TestDaemon_ReconcileProjects_DiscoveryError(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "test.log")
+	lf, _ := os.Create(logPath)
+	defer lf.Close()
+
+	d := &Daemon{
+		logFile:     lf,
+		supervisors: make(map[string]*ProjectSupervisor),
+		builder: func(projectDir string) ([]WatchModule, []func() error, error) {
+			return nil, nil, nil
+		},
+	}
+
+	discoverErr := func() ([]ProjectInfo, error) {
+		return nil, errors.New("discovery failed")
+	}
+
+	ctx := context.Background()
+	d.reconcileProjects(ctx, discoverErr)
+
+	data, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(data), "discovery failed") {
+		t.Error("expected log to contain 'discovery failed'")
+	}
+}
+
+func TestDaemon_ReconcileProjects_NewProject(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "test.log")
+	lf, _ := os.Create(logPath)
+	defer lf.Close()
+
+	projectDir := t.TempDir()
+	startedCh := make(chan struct{}, 1)
+	d := &Daemon{
+		logFile:     lf,
+		supervisors: make(map[string]*ProjectSupervisor),
+		builder: func(dir string) ([]WatchModule, []func() error, error) {
+			mod := &fakeModule{
+				name: "test-mod",
+				startFn: func(ctx context.Context) error {
+					select {
+					case startedCh <- struct{}{}:
+					default:
+					}
+					<-ctx.Done()
+					return ctx.Err()
+				},
+			}
+			return []WatchModule{mod}, nil, nil
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	discover := func() ([]ProjectInfo, error) {
+		return []ProjectInfo{{ID: "p1", Dir: projectDir}}, nil
+	}
+
+	d.reconcileProjects(ctx, discover)
+
+	if len(d.supervisors) != 1 {
+		t.Errorf("expected 1 supervisor, got %d", len(d.supervisors))
+	}
+	if _, ok := d.supervisors["p1"]; !ok {
+		t.Error("expected supervisor for project 'p1'")
+	}
+
+	select {
+	case <-startedCh:
+	case <-time.After(2 * time.Second):
+		t.Error("module start was not called within timeout")
+	}
+
+	cancel()
+}
+
+func TestDaemon_ReconcileProjects_RemoveProject(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "test.log")
+	lf, _ := os.Create(logPath)
+	defer lf.Close()
+
+	d := &Daemon{
+		logFile:     lf,
+		supervisors: make(map[string]*ProjectSupervisor),
+		builder: func(dir string) ([]WatchModule, []func() error, error) {
+			return nil, nil, nil
+		},
+	}
+
+	ps := newProjectSupervisor("old-proj", "/tmp/old", nil)
+	_, cancel := context.WithCancel(context.Background())
+	ps.cancel = cancel
+	d.supervisors["old-proj"] = ps
+
+	ctx := context.Background()
+	discover := func() ([]ProjectInfo, error) {
+		return []ProjectInfo{}, nil
+	}
+
+	d.reconcileProjects(ctx, discover)
+
+	if len(d.supervisors) != 0 {
+		t.Errorf("expected 0 supervisors after removal, got %d", len(d.supervisors))
+	}
+}
+
+func TestDaemon_ReconcileProjects_BuilderError(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "test.log")
+	lf, _ := os.Create(logPath)
+	defer lf.Close()
+
+	d := &Daemon{
+		logFile:     lf,
+		supervisors: make(map[string]*ProjectSupervisor),
+		builder: func(dir string) ([]WatchModule, []func() error, error) {
+			return nil, nil, errors.New("build error")
+		},
+	}
+
+	ctx := context.Background()
+	discover := func() ([]ProjectInfo, error) {
+		return []ProjectInfo{{ID: "p1", Dir: "/tmp/p"}}, nil
+	}
+
+	d.reconcileProjects(ctx, discover)
+
+	if len(d.supervisors) != 0 {
+		t.Errorf("expected 0 supervisors on builder error, got %d", len(d.supervisors))
+	}
+}
+
+func TestDaemon_ReconcileProjects_NoModules(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "test.log")
+	lf, _ := os.Create(logPath)
+	defer lf.Close()
+
+	d := &Daemon{
+		logFile:     lf,
+		supervisors: make(map[string]*ProjectSupervisor),
+		builder: func(dir string) ([]WatchModule, []func() error, error) {
+			return nil, nil, nil
+		},
+	}
+
+	ctx := context.Background()
+	discover := func() ([]ProjectInfo, error) {
+		return []ProjectInfo{{ID: "p1", Dir: "/tmp/p"}}, nil
+	}
+
+	d.reconcileProjects(ctx, discover)
+
+	if len(d.supervisors) != 0 {
+		t.Errorf("expected 0 supervisors when no modules, got %d", len(d.supervisors))
+	}
+}
+
+func TestDaemon_ReconcileProjects_SkipExisting(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "test.log")
+	lf, _ := os.Create(logPath)
+	defer lf.Close()
+
+	d := &Daemon{
+		logFile:     lf,
+		supervisors: make(map[string]*ProjectSupervisor),
+		builder: func(dir string) ([]WatchModule, []func() error, error) {
+			t.Error("builder should not be called for existing project")
+			return nil, nil, nil
+		},
+	}
+
+	d.supervisors["p1"] = newProjectSupervisor("p1", "/tmp/p", nil)
+
+	ctx := context.Background()
+	discover := func() ([]ProjectInfo, error) {
+		return []ProjectInfo{{ID: "p1", Dir: "/tmp/p"}}, nil
+	}
+
+	d.reconcileProjects(ctx, discover)
+	if len(d.supervisors) != 1 {
+		t.Errorf("expected 1 supervisor, got %d", len(d.supervisors))
+	}
+}
+
+func TestDaemon_ReconcileProjects_WithClosers(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "test.log")
+	lf, _ := os.Create(logPath)
+	defer lf.Close()
+
+	projectDir := t.TempDir()
+	var closerCalled int32
+	d := &Daemon{
+		logFile:     lf,
+		supervisors: make(map[string]*ProjectSupervisor),
+		builder: func(dir string) ([]WatchModule, []func() error, error) {
+			mod := &fakeModule{
+				name: "test",
+				startFn: func(ctx context.Context) error {
+					<-ctx.Done()
+					return ctx.Err()
+				},
+			}
+			closer := func() error {
+				atomic.AddInt32(&closerCalled, 1)
+				return nil
+			}
+			return []WatchModule{mod}, []func() error{closer}, nil
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	discover := func() ([]ProjectInfo, error) {
+		return []ProjectInfo{{ID: "p1", Dir: projectDir}}, nil
+	}
+
+	d.reconcileProjects(ctx, discover)
+	time.Sleep(50 * time.Millisecond)
+
+	if len(d.supervisors) != 1 {
+		t.Errorf("expected 1 supervisor, got %d", len(d.supervisors))
+	}
+
+	sup := d.supervisors["p1"]
+	if len(sup.closers) != 1 {
+		t.Errorf("expected 1 closer, got %d", len(sup.closers))
+	}
+
+	cancel()
+	time.Sleep(100 * time.Millisecond)
+
+	_ = atomic.LoadInt32(&closerCalled)
+}
+
+// ---------------------------------------------------------------------------
+// daemon.go — shutdown
+// ---------------------------------------------------------------------------
+
+func TestDaemon_Shutdown_NoSupervisors(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "test.log")
+	lf, _ := os.Create(logPath)
+	defer lf.Close()
+
+	d := &Daemon{
+		logFile:     lf,
+		supervisors: make(map[string]*ProjectSupervisor),
+		cfg: Config{
+			OnEvent: func(level, msg string) {},
+		},
+	}
+
+	d.shutdown()
+
+	data, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(data), "daemon shutting down") {
+		t.Error("expected 'daemon shutting down' in log")
+	}
+	if !strings.Contains(string(data), "daemon stopped") {
+		t.Error("expected 'daemon stopped' in log")
+	}
+}
+
+func TestDaemon_Shutdown_WithSupervisors(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "test.log")
+	lf, _ := os.Create(logPath)
+	defer lf.Close()
+
+	d := &Daemon{
+		logFile:     lf,
+		supervisors: make(map[string]*ProjectSupervisor),
+		cfg: Config{
+			OnEvent: func(level, msg string) {},
+		},
+	}
+
+	ps := newProjectSupervisor("p1", "/tmp/p1", nil)
+	_, cancel := context.WithCancel(context.Background())
+	ps.cancel = cancel
+	d.supervisors["p1"] = ps
+
+	d.shutdown()
+
+	if !ps.stopped {
+		t.Error("supervisor should be stopped after shutdown")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// daemon.go — Start (integration tests)
+// ---------------------------------------------------------------------------
+
+func TestDaemon_Start_ContextCancelled(t *testing.T) {
+	tempHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	_ = os.Setenv("HOME", tempHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "daemon.log")
+
+	cfg := Config{
+		LogPath:              logPath,
+		DiscoveryInterval:    100 * time.Millisecond,
+		VersionCheckInterval: 100 * time.Millisecond,
+	}
+
+	d := New(cfg, func(dir string) ([]WatchModule, []func() error, error) {
+		return nil, nil, nil
+	})
+	d.pid = &PIDFile{path: filepath.Join(tmp, "daemon.pid")}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx, func() ([]ProjectInfo, error) {
+			return nil, nil
+		})
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	err := <-errCh
+	if err != nil {
+		t.Errorf("expected nil error after context cancel, got %v", err)
+	}
+}
+
+func TestDaemon_Start_AlreadyRunning(t *testing.T) {
+	tempHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	_ = os.Setenv("HOME", tempHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "daemon.log")
+	pidPath := filepath.Join(tmp, "daemon.pid")
+
+	content := fmt.Sprintf("%d\n%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
+	if err := os.WriteFile(pidPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := Config{LogPath: logPath}
+	d := New(cfg, nil)
+	d.pid = &PIDFile{path: pidPath}
+
+	err := d.Start(context.Background(), func() ([]ProjectInfo, error) {
+		return nil, nil
+	})
+	if err == nil {
+		t.Error("expected error for already running daemon")
+	}
+	if !strings.Contains(err.Error(), "already running") {
+		t.Errorf("expected 'already running' in error, got %v", err)
+	}
+}
+
+func TestDaemon_Start_LogDirError(t *testing.T) {
+	tempHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	_ = os.Setenv("HOME", tempHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
+	tmp := t.TempDir()
+	blockFile := filepath.Join(tmp, "block")
+	if err := os.WriteFile(blockFile, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(blockFile, "subdir", "daemon.log")
+
+	cfg := Config{LogPath: logPath}
+	d := New(cfg, nil)
+	d.pid = &PIDFile{path: filepath.Join(tmp, "nonexist.pid")}
+
+	err := d.Start(context.Background(), func() ([]ProjectInfo, error) {
+		return nil, nil
+	})
+	if err == nil {
+		t.Error("expected error creating log dir")
+	}
+	if !strings.Contains(err.Error(), "creating log dir") {
+		t.Errorf("expected 'creating log dir' in error, got %v", err)
+	}
+}
+
+func TestDaemon_Start_DiscoveryTickerFires(t *testing.T) {
+	tempHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	_ = os.Setenv("HOME", tempHome)
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "daemon.log")
+
+	var discoveryCount int32
+	cfg := Config{
+		LogPath:              logPath,
+		DiscoveryInterval:    50 * time.Millisecond,
+		VersionCheckInterval: 10 * time.Second,
+	}
+
+	d := New(cfg, func(dir string) ([]WatchModule, []func() error, error) {
+		return nil, nil, nil
+	})
+	d.pid = &PIDFile{path: filepath.Join(tmp, "daemon.pid")}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- d.Start(ctx, func() ([]ProjectInfo, error) {
+			atomic.AddInt32(&discoveryCount, 1)
+			return nil, nil
+		})
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	err := <-errCh
+	if err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+	if atomic.LoadInt32(&discoveryCount) < 2 {
+		t.Errorf("expected at least 2 discovery calls, got %d", atomic.LoadInt32(&discoveryCount))
 	}
 }
