@@ -14,6 +14,54 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
+// Package-level function hooks for dependency injection in tests.
+// Each defaults to the real implementation.
+var (
+	newAIClientFromConfig = func() (ai.Client, error) { return ai.NewClientFromConfig() }
+
+	newGlobalLockManager = func() (*hub.GlobalLockManager, error) { return hub.NewGlobalLockManager() }
+
+	newRegistryManager = func(ctx context.Context) (*hub.RegistryManager, error) {
+		return hub.NewRegistryManager(ctx)
+	}
+
+	newHubService = func(reg *hub.RegistryManager) interface {
+		EnsureKnowledgeAvailable(ctx context.Context, ref string) (string, error)
+	} {
+		return hub.NewHubService(reg)
+	}
+
+	searchMultiWiki = func(ctx context.Context, client ai.Client, query string, cfg wiki.MultiWikiSearchConfig) (*wiki.SearchResult, error) {
+		return wiki.SearchMultiWiki(ctx, client, query, cfg)
+	}
+
+	newChatSession = func(projectDir string, sources []chat.WikiSource, query string) *chat.ChatSession {
+		return chat.NewSession(projectDir, sources, query)
+	}
+
+	loadChatSession = func(sessionID string) (*chat.ChatSession, error) {
+		return chat.LoadSession(sessionID)
+	}
+
+	newChatEngine = func(client ai.Client, session *chat.ChatSession) interface {
+		Send(ctx context.Context, message string) (string, error)
+	} {
+		return chat.NewChatEngine(client, session)
+	}
+
+	listChatSessions = func(projectDir string) ([]*chat.ChatSession, error) {
+		return chat.ListSessions(projectDir)
+	}
+
+	latestChatSession = func(projectDir string) (*chat.ChatSession, error) {
+		return chat.LatestSession(projectDir)
+	}
+
+	deleteChatSession = func(id string) error {
+		return chat.DeleteSession(id)
+	}
+)
+
 // WikiSearchOpts is a view-agnostic DTO for multi-wiki search orchestration.
 type WikiSearchOpts struct {
 	Query   string
@@ -68,7 +116,7 @@ func (s *WikiService) resolveLocalSource(id, label, dir string) (wiki.WikiSource
 }
 
 func (s *WikiService) resolveEcosystemSource(projectID string) (wiki.WikiSource, error) {
-	lockMgr, err := hub.NewGlobalLockManager()
+	lockMgr, err := newGlobalLockManager()
 	if err != nil {
 		return wiki.WikiSource{}, fmt.Errorf("cannot access global lock: %w", err)
 	}
@@ -103,12 +151,12 @@ func (s *WikiService) resolveEcosystemSource(projectID string) (wiki.WikiSource,
 }
 
 func (s *WikiService) ResolveHubKnowledgeSource(ctx context.Context, ref string) (wiki.WikiSource, error) {
-	reg, err := hub.NewRegistryManager(ctx)
+	reg, err := newRegistryManager(ctx)
 	if err != nil {
 		return wiki.WikiSource{}, fmt.Errorf("hub registry not available: %w", err)
 	}
 
-	hubSvc := hub.NewHubService(reg)
+	hubSvc := newHubService(reg)
 	wikiDir, err := hubSvc.EnsureKnowledgeAvailable(ctx, ref)
 	if err != nil {
 		return wiki.WikiSource{}, err
@@ -157,13 +205,13 @@ func (s *WikiService) SearchMultiWiki(ctx context.Context, opts WikiSearchOpts) 
 		return nil, fmt.Errorf("no valid wiki sources found — specify wikis or hub_refs")
 	}
 
-	aiClient, err := ai.NewClientFromConfig()
+	aiClient, err := newAIClientFromConfig()
 	if err != nil {
 		return nil, fmt.Errorf("AI not configured: %w", err)
 	}
 
 	topK := opts.TopK
-	result, err := wiki.SearchMultiWiki(ctx, aiClient, opts.Query, wiki.MultiWikiSearchConfig{
+	result, err := searchMultiWiki(ctx, aiClient, opts.Query, wiki.MultiWikiSearchConfig{
 		Sources:           sources,
 		UseBM25:           true,
 		BM25TopNPerSource: topK,
@@ -176,7 +224,7 @@ func (s *WikiService) SearchMultiWiki(ctx context.Context, opts WikiSearchOpts) 
 	for i, src := range sources {
 		chatSources[i] = chat.WikiSource{ID: src.ID, Label: src.Label, Dir: src.Dir}
 	}
-	session := chat.NewSession(s.projectDir, chatSources, opts.Query)
+	session := newChatSession(s.projectDir, chatSources, opts.Query)
 
 	_ = session.Append(chat.ChatMessage{Role: "user", Content: opts.Query})
 	_ = session.Append(chat.ChatMessage{Role: "assistant", Content: result.Answer})
@@ -189,28 +237,28 @@ func (s *WikiService) SearchMultiWiki(ctx context.Context, opts WikiSearchOpts) 
 }
 
 func (s *WikiService) ContinueChat(ctx context.Context, sessionID, message string) (string, error) {
-	session, err := chat.LoadSession(sessionID)
+	session, err := loadChatSession(sessionID)
 	if err != nil {
 		return "", fmt.Errorf("session not found: %w", err)
 	}
 
-	aiClient, err := ai.NewClientFromConfig()
+	aiClient, err := newAIClientFromConfig()
 	if err != nil {
 		return "", fmt.Errorf("AI not configured: %w", err)
 	}
 
-	engine := chat.NewChatEngine(aiClient, session)
+	engine := newChatEngine(aiClient, session)
 	return engine.Send(ctx, message)
 }
 
 func (s *WikiService) ListSessions() ([]*chat.ChatSession, error) {
-	return chat.ListSessions(s.projectDir)
+	return listChatSessions(s.projectDir)
 }
 
 func (s *WikiService) LatestSession() (*chat.ChatSession, error) {
-	return chat.LatestSession(s.projectDir)
+	return latestChatSession(s.projectDir)
 }
 
 func (s *WikiService) DeleteSession(id string) error {
-	return chat.DeleteSession(id)
+	return deleteChatSession(id)
 }
