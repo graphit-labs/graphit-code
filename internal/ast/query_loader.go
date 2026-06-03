@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/graphit-labs/graphit-code/internal/ast/wasmts"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/version"
-	sitter "github.com/smacker/go-tree-sitter"
 	"gopkg.in/yaml.v3"
 )
 
@@ -346,7 +346,7 @@ func toTSQueryDefs(external []ExternalQueryDef) []tsQueryDef {
 //
 // Invalid patterns (those that fail tree-sitter compilation) are logged and
 // skipped.
-func MergeQueries(builtIn []tsQueryDef, externals []ExternalQueryFile, lang string, ext string, tsLang *sitter.Language) []tsQueryDef {
+func MergeQueries(builtIn []tsQueryDef, externals []ExternalQueryFile, lang string, ext string, tsLang *wasmts.Language) []tsQueryDef {
 	var applicable []ExternalQueryFile
 	for _, ef := range externals {
 		if ef.Language != lang {
@@ -394,7 +394,7 @@ func MergeQueries(builtIn []tsQueryDef, externals []ExternalQueryFile, lang stri
 
 			// Validate pattern compiles
 			if tsLang != nil {
-				q, err := sitter.NewQuery([]byte(qd.Pattern), tsLang)
+				q, err := tsLang.NewQuery(qd.Pattern)
 				if err != nil {
 					slog.Warn("skip external query: invalid pattern",
 						"language", lang, "data_key", qd.DataKey, "error", err)
@@ -541,7 +541,7 @@ func filterByLangExt(files []ExternalQueryFile, lang, ext string) []ExternalQuer
 //	project > user global > runtime
 //
 // YAML is the only source of queries — there is no hardcoded Go fallback.
-func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []tsQueryDef {
+func mergedQueriesFor(projectDir, lang, ext string, tsLang *wasmts.Language) []tsQueryDef {
 	cacheKey := projectDir + "|" + lang + "|" + ext
 	if cached, ok := mergedQueryCache.Load(cacheKey); ok {
 		return cached.([]tsQueryDef)
@@ -558,7 +558,7 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []t
 		for _, eq := range ef.Queries {
 			qd := tsQueryDef(eq)
 			if tsLang != nil {
-				q, err := sitter.NewQuery([]byte(qd.Pattern), tsLang)
+				q, err := tsLang.NewQuery(qd.Pattern)
 				if err != nil {
 					slog.Warn("skip resolved query: invalid pattern",
 						"language", lang, "data_key", qd.DataKey, "error", err)

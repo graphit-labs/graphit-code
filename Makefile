@@ -1,6 +1,6 @@
 .PHONY: build build-all install clean fmt vet run ui ui-dev setup-lbug \
        fetch-ort-linux fetch-ort-darwin fetch-ort-windows fetch-model lint \
-       ui-lint ci check test build-windows-native
+       ui-lint ci check test build-windows-native build-grammars
 
 MODULE   := github.com/graphit-labs/graphit-code
 CMD      := ./cmd/graphit
@@ -37,6 +37,29 @@ LBUG_MOD     := $(shell go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybu
 LBUG_CACHE   := /tmp/lbug-cache
 
 LBUG_PLATFORMS ?= $(shell uname -s | sed 's/Darwin/darwin/;s/Linux/linux-amd64/;s/MINGW.*/windows/')
+
+# Tree-sitter WASM grammar compilation
+GRAMMAR_CSRC := internal/ast/wasmts/csrc
+GRAMMAR_OUT  := internal/ast/grammars
+ZIG          ?= zig
+
+# All exported WASM functions (ts runtime + node API)
+WASM_EXPORTS := \
+	-Wl,--export=malloc -Wl,--export=free -Wl,--export=strlen \
+	-Wl,--export=ts_parser_new -Wl,--export=ts_parser_parse_string \
+	-Wl,--export=ts_parser_set_language -Wl,--export=ts_parser_delete \
+	-Wl,--export=ts_query_new -Wl,--export=ts_query_delete \
+	-Wl,--export=ts_query_cursor_new -Wl,--export=ts_query_cursor_delete \
+	-Wl,--export=ts_query_cursor_exec -Wl,--export=ts_query_cursor_next_match \
+	-Wl,--export=ts_query_capture_name_for_id -Wl,--export=ts_language_version \
+	-Wl,--export=ts_tree_root_node -Wl,--export=ts_tree_delete \
+	-Wl,--export=ts_node_string -Wl,--export=ts_node_child_count \
+	-Wl,--export=ts_node_named_child_count -Wl,--export=ts_node_child \
+	-Wl,--export=ts_node_named_child -Wl,--export=ts_node_type \
+	-Wl,--export=ts_node_start_byte -Wl,--export=ts_node_end_byte \
+	-Wl,--export=ts_node_start_point -Wl,--export=ts_node_end_point \
+	-Wl,--export=ts_node_parent -Wl,--export=ts_node_child_by_field_name \
+	-Wl,--export=ts_node_is_error -Wl,--export=ts_node_is_null
 
 ui:
 	cd internal/ui && npm ci --prefer-offline
@@ -116,10 +139,50 @@ endef
 define bundle_ast
 	@mkdir -p cmd/launcher/runtime/ast/queries
 	@mkdir -p cmd/launcher/runtime/ast/frameworks
+	@mkdir -p cmd/launcher/runtime/ast/grammars
 	cp internal/ast/queries/*.yaml cmd/launcher/runtime/ast/queries/
 	cp internal/ast/frameworks/*.yaml cmd/launcher/runtime/ast/frameworks/
 	cp internal/ast/ecosystems.yaml cmd/launcher/runtime/ast/
+	@if ls internal/ast/grammars/*.wasm 1>/dev/null 2>&1; then \
+		cp internal/ast/grammars/*.wasm cmd/launcher/runtime/ast/grammars/; \
+	fi
 endef
+
+# build_grammar(dir, funcname) — compiles one grammar to WASM.
+# Each .wasm is self-contained: tree-sitter runtime + grammar.
+# Output is platform-independent (runs on Windows/macOS/Linux via wazero).
+define build_grammar
+	@echo "  → tree-sitter-$(2).wasm"
+	@SCANNER=""; \
+	if [ -f $(GRAMMAR_CSRC)/$(1)/scanner.c ]; then SCANNER="$(GRAMMAR_CSRC)/$(1)/scanner.c"; fi; \
+	$(ZIG) cc --target=wasm32-wasi-musl -mexec-model=reactor \
+		-I $(GRAMMAR_CSRC)/ \
+		$(GRAMMAR_CSRC)/lib.c $(GRAMMAR_CSRC)/$(1)/parser.c $$SCANNER \
+		-o $(GRAMMAR_OUT)/tree-sitter-$(2).wasm \
+		-Oz -fPIC -Wl,--no-entry -Wl,-z -Wl,stack-size=65536 -Wl,--strip-debug \
+		$(WASM_EXPORTS) -Wl,--export=tree_sitter_$(2)
+endef
+
+build-grammars:
+	@echo "Building tree-sitter WASM grammars (requires zig)..."
+	@mkdir -p $(GRAMMAR_OUT)
+	$(call build_grammar,c,c)
+	$(call build_grammar,cpp,cpp)
+	$(call build_grammar,csharp,c_sharp)
+	$(call build_grammar,dart,dart)
+	$(call build_grammar,golang,go)
+	$(call build_grammar,java,java)
+	$(call build_grammar,javascript,javascript)
+	$(call build_grammar,kotlin,kotlin)
+	$(call build_grammar,php,php)
+	$(call build_grammar,python,python)
+	$(call build_grammar,ruby,ruby)
+	$(call build_grammar,rust,rust)
+	$(call build_grammar,sql,sql)
+	$(call build_grammar,swift,swift)
+	$(call build_grammar,typescript,typescript)
+	$(call build_grammar,tsx,tsx)
+	@echo "✓ Built $$(ls -1 $(GRAMMAR_OUT)/*.wasm | wc -l) grammars"
 
 fetch-ort-linux:
 	@mkdir -p $(ORT_CACHE)

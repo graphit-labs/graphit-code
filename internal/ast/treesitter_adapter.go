@@ -1,34 +1,17 @@
 package ast
 
 import (
-	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/c"
-	"github.com/smacker/go-tree-sitter/cpp"
-	"github.com/smacker/go-tree-sitter/csharp"
-	"github.com/smacker/go-tree-sitter/golang"
-	"github.com/smacker/go-tree-sitter/java"
-	"github.com/smacker/go-tree-sitter/javascript"
-	"github.com/smacker/go-tree-sitter/kotlin"
-	"github.com/smacker/go-tree-sitter/php"
-	"github.com/smacker/go-tree-sitter/python"
-	"github.com/smacker/go-tree-sitter/ruby"
-	"github.com/smacker/go-tree-sitter/rust"
-	"github.com/smacker/go-tree-sitter/sql"
-	"github.com/smacker/go-tree-sitter/swift"
-	"github.com/smacker/go-tree-sitter/typescript/tsx"
-	"github.com/smacker/go-tree-sitter/typescript/typescript"
-
-	dart "github.com/graphit-labs/graphit-code/internal/ast/lang_dart"
+	"github.com/graphit-labs/graphit-code/internal/ast/wasmts"
 )
 
 type tsLangConfig struct {
 	Language   string
 	Extensions []string
-	TSLang     *sitter.Language
+	TSLang     *wasmts.Language
 }
 
 // tsQueryDef mirrors ExternalQueryDef for direct struct cast.
@@ -42,32 +25,40 @@ type tsQueryDef struct {
 }
 
 
-var treeSitterGrammars = map[string]*sitter.Language{
-	"javascript": javascript.GetLanguage(),
-	"typescript": typescript.GetLanguage(),
-	"tsx":        tsx.GetLanguage(),
-	"python":     python.GetLanguage(),
-	"go":         golang.GetLanguage(),
-	"java":       java.GetLanguage(),
-	"kotlin":     kotlin.GetLanguage(),
-	"csharp":     csharp.GetLanguage(),
-	"ruby":       ruby.GetLanguage(),
-	"php":        php.GetLanguage(),
-	"rust":       rust.GetLanguage(),
-	"swift":      swift.GetLanguage(),
-	"dart":       dart.GetLanguage(),
-	"c":          c.GetLanguage(),
-	"cpp":        cpp.GetLanguage(),
-	"sql":        sql.GetLanguage(),
+var tsExtMap map[string]*tsLangConfig
+
+// grammarNameMap maps the language name from YAML configs to the tree-sitter
+// grammar function name convention. Most are identical, but some differ:
+//   "go" -> "go" (tree_sitter_go)
+//   "csharp" -> "c_sharp" (tree_sitter_c_sharp)
+var grammarNameMap = map[string]string{
+	"csharp": "c_sharp",
 }
 
-var tsExtMap map[string]*tsLangConfig
+func grammarFuncName(lang string) string {
+	if mapped, ok := grammarNameMap[lang]; ok {
+		return mapped
+	}
+	return lang
+}
 
 func init() {
 	tsExtMap = make(map[string]*tsLangConfig)
+
+	// Load all individual .wasm grammar files from the resolution chain
+	builtinGrammars := initBuiltinGrammars()
+	if builtinGrammars == nil {
+		slog.Debug("no WASM grammars loaded, tree-sitter unavailable")
+		return
+	}
+
+	// Load YAML query files and match them with available grammars.
+	// YAML uses language names like "csharp", but the grammar function
+	// is "c_sharp" — grammarFuncName() handles the mapping.
 	runtimeQ := loadRuntimeCached()
 	for _, qf := range runtimeQ {
-		grammar, ok := treeSitterGrammars[qf.Language]
+		funcName := grammarFuncName(qf.Language)
+		grammar, ok := builtinGrammars[funcName]
 		if !ok {
 			continue
 		}
@@ -90,7 +81,13 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
 	cfg, ok := tsExtMap[ext]
 	if !ok {
-		return nil, fmt.Errorf("no tree-sitter grammar for %s", ext)
+		// Try loading a plug-and-play grammar from the project directory
+		langName := strings.TrimPrefix(ext, ".")
+		lang, err := getLanguage(langName, t.projectDir)
+		if err != nil {
+			return nil, fmt.Errorf("no tree-sitter grammar for %s", ext)
+		}
+		cfg = &tsLangConfig{Language: langName, Extensions: []string{ext}, TSLang: lang}
 	}
 
 	src, err := ReadFileBytes(path)
@@ -98,16 +95,22 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 		return nil, err
 	}
 
-	parser := sitter.NewParser()
-	parser.SetLanguage(cfg.TSLang)
+	parser, err := cfg.TSLang.NewParser()
+	if err != nil {
+		return nil, fmt.Errorf("tree-sitter create parser %s: %w", path, err)
+	}
+	defer parser.Close()
 
-	tree, err := parser.ParseCtx(context.Background(), nil, src)
+	tree, err := parser.Parse(src)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse %s: %w", path, err)
 	}
 	defer tree.Close()
 
-	root := tree.RootNode()
+	root, err := tree.RootNode()
+	if err != nil {
+		return nil, fmt.Errorf("tree-sitter root node %s: %w", path, err)
+	}
 
 	result := &ParsedFile{
 		Path:     path,
@@ -131,22 +134,31 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 	seenNames := map[string]bool{}
 
 	for _, qdef := range queries {
-		q, qErr := sitter.NewQuery([]byte(qdef.Pattern), cfg.TSLang)
+		q, qErr := cfg.TSLang.NewQuery(qdef.Pattern)
 		if qErr != nil {
 			continue
 		}
 
-		qc := sitter.NewQueryCursor()
-		qc.Exec(q, root)
+		qc, qcErr := cfg.TSLang.NewQueryCursor()
+		if qcErr != nil {
+			q.Close()
+			continue
+		}
+
+		if err := qc.Exec(q, root); err != nil {
+			q.Close()
+			qc.Close()
+			continue
+		}
 
 		for {
-			match, ok := qc.NextMatch()
-			if !ok {
+			match, ok, err := qc.NextMatch(src)
+			if err != nil || !ok {
 				break
 			}
 
 			for _, capture := range match.Captures {
-				name := capture.Node.Content(src)
+				name := capture.Node.Content()
 				if name == "" {
 					continue
 				}
@@ -159,18 +171,23 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 					continue
 				}
 
-				startLine := int(capture.Node.StartPoint().Row) + 1
-				endLine := int(capture.Node.EndPoint().Row) + 1
+				startPt, spErr := capture.Node.StartPoint()
+				endPt, epErr := capture.Node.EndPoint()
+				if spErr != nil || epErr != nil {
+					continue
+				}
+				startLine := int(startPt.Row) + 1
+				endLine := int(endPt.Row) + 1
 
-				parent := capture.Node.Parent()
+				parent, _ := capture.Node.Parent()
 				entitySource := ""
 				complexity := 1
 				if parent != nil {
-					entitySource = parent.Content(src)
+					entitySource = parent.Content()
 					complexity = ComputeCyclomaticComplexity(entitySource)
 				}
 
-				contextName, contextType := resolveParentContext(capture.Node, src, langConfig)
+				contextName, contextType := resolveParentContextWASM(capture.Node, langConfig)
 
 				result.AddEntity(qdef.DataKey, Entity{
 					Name:        name,
@@ -189,16 +206,17 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 			}
 		}
 		q.Close()
+		qc.Close()
 	}
 
-	extractDocstrings(root, src, result, langConfig)
+	extractDocstringsWASM(root, result, langConfig)
 
 
 	relationTypes := buildRelationTypeMap(queries)
 
 	attachDecorators(result, relationTypes)
 
-	detectExports(root, src, result, cfg.Language, langConfig, relationTypes)
+	detectExportsWASM(root, result, cfg.Language, langConfig, relationTypes)
 
 
 	processRelations(result, relationTypes)
@@ -267,7 +285,7 @@ func processRelations(result *ParsedFile, relationTypes map[string]string) {
 	}
 }
 
-func resolveParentContext(node *sitter.Node, src []byte, langConfig *ExternalQueryFile) (string, string) {
+func resolveParentContextWASM(node *wasmts.Node, langConfig *ExternalQueryFile) (string, string) {
 	parentTypes := defaultContextTypes
 	anonTypes := defaultAnonFuncTypes
 
@@ -283,27 +301,33 @@ func resolveParentContext(node *sitter.Node, src []byte, langConfig *ExternalQue
 		}
 	}
 
-	current := node.Parent()
+	current, _ := node.Parent()
 	for current != nil {
-		nodeType := current.Type()
+		nodeType, err := current.Type()
+		if err != nil {
+			break
+		}
 		if label, ok := parentTypes[nodeType]; ok {
 
-			nameNode := current.ChildByFieldName("name")
+			nameNode, _ := current.ChildByFieldName("name")
 			if nameNode != nil {
-				return nameNode.Content(src), label
+				return nameNode.Content(), label
 			}
 		}
 
 		if anonTypes[nodeType] {
-			grandparent := current.Parent()
-			if grandparent != nil && grandparent.Type() == "variable_declarator" {
-				nameNode := grandparent.ChildByFieldName("name")
-				if nameNode != nil {
-					return nameNode.Content(src), "Function"
+			grandparent, _ := current.Parent()
+			if grandparent != nil {
+				gpType, _ := grandparent.Type()
+				if gpType == "variable_declarator" {
+					nameNode, _ := grandparent.ChildByFieldName("name")
+					if nameNode != nil {
+						return nameNode.Content(), "Function"
+					}
 				}
 			}
 		}
-		current = current.Parent()
+		current, _ = current.Parent()
 	}
 	return "", ""
 }
@@ -331,7 +355,7 @@ var defaultAnonFuncTypes = map[string]bool{
 
 
 
-func extractDocstrings(root *sitter.Node, src []byte, result *ParsedFile, langConfig *ExternalQueryFile) {
+func extractDocstringsWASM(root *wasmts.Node, result *ParsedFile, langConfig *ExternalQueryFile) {
 	if root == nil {
 		return
 	}
@@ -372,29 +396,40 @@ func extractDocstrings(root *sitter.Node, src []byte, result *ParsedFile, langCo
 		}
 	}
 
-	var walk func(node *sitter.Node)
-	walk = func(node *sitter.Node) {
-		for i := 0; i < int(node.ChildCount()); i++ {
-			child := node.Child(i)
-			if child == nil {
+	var walk func(node *wasmts.Node)
+	walk = func(node *wasmts.Node) {
+		childCount, err := node.ChildCount()
+		if err != nil {
+			return
+		}
+		for i := 0; i < int(childCount); i++ {
+			child, err := node.Child(i)
+			if err != nil || child == nil {
 				continue
 			}
 
-			nodeType := child.Type()
+			nodeType, err := child.Type()
+			if err != nil {
+				continue
+			}
 			if declTypes[nodeType] {
 
 				if i > 0 {
-					prev := node.Child(i - 1)
-					if prev != nil && comTypes[prev.Type()] {
-						commentText := cleanDocstring(prev.Content(src))
-						if commentText != "" {
-							declLine := int(child.StartPoint().Row) + 1
+					prev, err := node.Child(i - 1)
+					if err == nil && prev != nil {
+						prevType, _ := prev.Type()
+						if comTypes[prevType] {
+							commentText := cleanDocstring(prev.Content())
+							if commentText != "" {
+								sp, _ := child.StartPoint()
+								declLine := int(sp.Row) + 1
 
-							nameNode := child.ChildByFieldName("name")
-							if nameNode != nil {
-								name := nameNode.Content(src)
-								if e, ok := entityIdx[entityKey{declLine, name}]; ok {
-									e.Docstring = commentText
+								nameNode, _ := child.ChildByFieldName("name")
+								if nameNode != nil {
+									name := nameNode.Content()
+									if e, ok := entityIdx[entityKey{declLine, name}]; ok {
+										e.Docstring = commentText
+									}
 								}
 							}
 						}
@@ -402,19 +437,30 @@ func extractDocstrings(root *sitter.Node, src []byte, result *ParsedFile, langCo
 				}
 
 				if nodeType == "function_definition" || nodeType == "class_definition" {
-					body := child.ChildByFieldName("body")
-					if body != nil && body.ChildCount() > 0 {
-						firstStmt := body.Child(0)
-						if firstStmt != nil && firstStmt.Type() == "expression_statement" {
-							if firstStmt.ChildCount() > 0 {
-								expr := firstStmt.Child(0)
-								if expr != nil && expr.Type() == "string" {
-									declLine := int(child.StartPoint().Row) + 1
-									nameNode := child.ChildByFieldName("name")
-									if nameNode != nil {
-										name := nameNode.Content(src)
-										if e, ok := entityIdx[entityKey{declLine, name}]; ok && e.Docstring == "" {
-											e.Docstring = cleanDocstring(expr.Content(src))
+					body, _ := child.ChildByFieldName("body")
+					if body != nil {
+						bodyCC, _ := body.ChildCount()
+						if bodyCC > 0 {
+							firstStmt, _ := body.Child(0)
+							if firstStmt != nil {
+								fsType, _ := firstStmt.Type()
+								if fsType == "expression_statement" {
+									fsCC, _ := firstStmt.ChildCount()
+									if fsCC > 0 {
+										expr, _ := firstStmt.Child(0)
+										if expr != nil {
+											exprType, _ := expr.Type()
+											if exprType == "string" {
+												sp, _ := child.StartPoint()
+												declLine := int(sp.Row) + 1
+												nameNode, _ := child.ChildByFieldName("name")
+												if nameNode != nil {
+													name := nameNode.Content()
+													if e, ok := entityIdx[entityKey{declLine, name}]; ok && e.Docstring == "" {
+														e.Docstring = cleanDocstring(expr.Content())
+													}
+												}
+											}
 										}
 									}
 								}
@@ -446,7 +492,7 @@ func cleanDocstring(raw string) string {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 
-		for _, prefix := range []string{"///", "//!", "//", "/**", "*/", "*", "# ", "#", "\"\"\"", "'''", "/*"} {
+		for _, prefix := range []string{"///", "//!", "//", "/**", "*/", "*", "# ", "#", `"""`, "'''", "/*"} {
 			if strings.HasPrefix(line, prefix) {
 				line = strings.TrimPrefix(line, prefix)
 				line = strings.TrimSpace(line)
@@ -566,7 +612,7 @@ func selfKeywordsForLang(lang string, langConfig *ExternalQueryFile) []string {
 	return nil
 }
 
-func detectExports(root *sitter.Node, src []byte, result *ParsedFile, lang string, langConfig *ExternalQueryFile, relationTypes map[string]string) {
+func detectExportsWASM(root *wasmts.Node, result *ParsedFile, lang string, langConfig *ExternalQueryFile, relationTypes map[string]string) {
 
 	exportedNames := make(map[string]bool)
 
@@ -585,29 +631,41 @@ func detectExports(root *sitter.Node, src []byte, result *ParsedFile, lang strin
 
 
 	if strategy == "export_statement" && root != nil {
-		for i := 0; i < int(root.ChildCount()); i++ {
-			child := root.Child(i)
-			if child == nil {
+		childCount, _ := root.ChildCount()
+		for i := 0; i < int(childCount); i++ {
+			child, err := root.Child(i)
+			if err != nil || child == nil {
 				continue
 			}
-			if child.Type() == "export_statement" {
-				decl := child.ChildByFieldName("declaration")
+			childType, _ := child.Type()
+			if childType == "export_statement" {
+				decl, _ := child.ChildByFieldName("declaration")
 				if decl != nil {
-					nameNode := decl.ChildByFieldName("name")
+					nameNode, _ := decl.ChildByFieldName("name")
 					if nameNode != nil {
-						exportedNames[nameNode.Content(src)] = true
+						exportedNames[nameNode.Content()] = true
 					}
 				}
 
-				for j := 0; j < int(child.ChildCount()); j++ {
-					spec := child.Child(j)
-					if spec != nil && spec.Type() == "export_clause" {
-						for k := 0; k < int(spec.ChildCount()); k++ {
-							es := spec.Child(k)
-							if es != nil && es.Type() == "export_specifier" {
-								nameNode := es.ChildByFieldName("name")
+				cc, _ := child.ChildCount()
+				for j := 0; j < int(cc); j++ {
+					spec, _ := child.Child(j)
+					if spec == nil {
+						continue
+					}
+					specType, _ := spec.Type()
+					if specType == "export_clause" {
+						specCC, _ := spec.ChildCount()
+						for k := 0; k < int(specCC); k++ {
+							es, _ := spec.Child(k)
+							if es == nil {
+								continue
+							}
+							esType, _ := es.Type()
+							if esType == "export_specifier" {
+								nameNode, _ := es.ChildByFieldName("name")
 								if nameNode != nil {
-									exportedNames[nameNode.Content(src)] = true
+									exportedNames[nameNode.Content()] = true
 								}
 							}
 						}
