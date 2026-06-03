@@ -95,6 +95,16 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 		return nil, err
 	}
 
+	// Lock the WASM module for the entire parse operation. All tree-sitter
+	// operations (parser, tree, query, node) go through the same Module.call()
+	// which operates on shared WASM linear memory. Concurrent access from
+	// multiple goroutines corrupts memory and causes fatal "split stack
+	// overflow" panics in wazero's AOT compiler engine.
+	// Different language grammars use separate modules, so they still run
+	// in parallel — only same-language files are serialized.
+	cfg.TSLang.LockModule()
+	defer cfg.TSLang.UnlockModule()
+
 	parser, err := cfg.TSLang.NewParser()
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter create parser %s: %w", path, err)

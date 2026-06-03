@@ -671,7 +671,6 @@ Flags:
 Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 		PreRunE: requireSetupAndProject,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ide := resolveIDEFlag(cmd)
 			wd, _ := os.Getwd()
 
 			if heavy, _ := cmd.Flags().GetBool("heavy"); heavy {
@@ -691,20 +690,16 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 			if explicitIDE != "" {
 				idesToSync = []string{explicitIDE}
 			} else if lfErr == nil && lf != nil && len(lf.IDEs) > 0 {
-				idesToSync = lf.IDEs
-			} else {
-				idesToSync = []string{ide}
+				idesToSync = hub.FilterSupportedIDEs(lf.IDEs)
 			}
 
 			runSyncPhase1(ctx, wd, idesToSync, p)
 
 			noBg, _ := cmd.Flags().GetBool("no-background")
 			if noBg {
-
 				runSyncHeavyTasks(ctx, wd, p)
 			} else {
-
-				spawnBackgroundSync(wd, ide)
+				spawnBackgroundSync(wd, "")
 			}
 
 			return nil

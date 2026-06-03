@@ -147,7 +147,13 @@ func registerLifecycleTools(server *mcp.Server) {
 		}
 
 		projectCfg, ides := loadProjectLockInfo(projectDir)
-		resolvedIDE := config.ResolveProjectIDE(input.IDE, nil, projectCfg, ides)
+
+		var idesToSync []string
+		if input.IDE != "" {
+			idesToSync = []string{input.IDE}
+		} else if len(ides) > 0 {
+			idesToSync = hub.FilterSupportedIDEs(ides)
+		}
 
 		// 1. AST Indexing
 		if !config.IsModuleDisabled("ast", nil, projectCfg) {
@@ -187,19 +193,23 @@ func registerLifecycleTools(server *mcp.Server) {
 			_ = gs.Sync()
 		}
 
-		// 5. Install IDE rules
-		for _, r := range []func(string, string) error{
-			knowledge.InstallRule,
-			ast.InstallRule,
-			hub.InstallRule,
-			memory.InstallRule,
-		} {
-			_ = r(projectDir, resolvedIDE)
+		// 5. Install IDE rules for all IDEs
+		for _, targetIDE := range idesToSync {
+			for _, r := range []func(string, string) error{
+				knowledge.InstallRule,
+				ast.InstallRule,
+				hub.InstallRule,
+				memory.InstallRule,
+			} {
+				_ = r(projectDir, targetIDE)
+			}
 		}
 
-		// 6. Sync IDE adapter
+		// 6. Sync IDE adapters for all IDEs
 		if lf, err := hub.LoadLockfile(filepath.Join(projectDir, brand.LockFileName())); err == nil && lf != nil {
-			_ = hub.SyncIDEAdapter(resolvedIDE, lf)
+			for _, targetIDE := range idesToSync {
+				_ = hub.SyncIDEAdapter(targetIDE, lf)
+			}
 		}
 
 		return textResult("Sync completed successfully.")

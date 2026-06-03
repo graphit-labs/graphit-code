@@ -26,7 +26,14 @@ type Engine struct {
 
 // Module represents a loaded and instantiated WASM module.
 // It holds cached references to all exported functions.
+//
+// IMPORTANT: A single Module instance wraps one WASM linear memory region.
+// WASM memory is NOT thread-safe — concurrent calls to malloc/free/parse
+// corrupt the shared memory, causing fatal "split stack overflow" panics
+// in wazero's AOT compiler engine. All calls to a Module must be serialized
+// via the embedded mutex.
 type Module struct {
+	mu   sync.Mutex
 	mod  api.Module
 	fns  map[string]api.Function
 	ctx  context.Context
@@ -149,6 +156,7 @@ func (e *Engine) Close() error {
 // --- Module helpers ---
 
 // call invokes an exported function by name with the given arguments.
+// Callers must hold m.mu when calling this to prevent concurrent WASM memory access.
 func (m *Module) call(name string, args ...uint64) ([]uint64, error) {
 	fn, ok := m.fns[name]
 	if !ok {
@@ -156,6 +164,13 @@ func (m *Module) call(name string, args ...uint64) ([]uint64, error) {
 	}
 	return fn.Call(m.ctx, args...)
 }
+
+// Lock acquires the module mutex. Must be called before any compound operation
+// that involves multiple WASM calls (e.g., allocate + write + parse + free).
+func (m *Module) Lock() { m.mu.Lock() }
+
+// Unlock releases the module mutex.
+func (m *Module) Unlock() { m.mu.Unlock() }
 
 // allocateString writes a Go string into WASM linear memory.
 // Returns (pointer, size, free_func, error). Caller must call free_func().
