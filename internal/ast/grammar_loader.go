@@ -36,7 +36,6 @@ func initWASMEngine() (*wasmts.Engine, error) {
 }
 
 // userCacheDir returns a cache directory for wazero compilation cache.
-// Works on Windows (%LocalAppData%), macOS (~/Library/Caches), Linux (~/.cache).
 func userCacheDir() string {
 	dir, err := os.UserCacheDir()
 	if err != nil {
@@ -55,7 +54,6 @@ func userCacheDir() string {
 //  2. User global: ~/.graphit/ast/grammars/
 //  3. Runtime: ~/.graphit/runtime/<version>/ast/grammars/
 func getLanguage(langName string, projectDir string) (*wasmts.Language, error) {
-	// Fast path: already loaded
 	if v, ok := loadedLanguages.Load(langName); ok {
 		return v.(*wasmts.Language), nil
 	}
@@ -69,7 +67,6 @@ func getLanguage(langName string, projectDir string) (*wasmts.Language, error) {
 	// language name used in YAML configs (e.g. "csharp" → "c_sharp")
 	funcName := grammarFuncName(langName)
 
-	// Find the .wasm file for this grammar
 	wasmPath := findGrammarWASM(funcName, projectDir)
 	if wasmPath == "" {
 		return nil, fmt.Errorf("no .wasm grammar found for %q (searched as tree-sitter-%s.wasm)", langName, funcName)
@@ -86,7 +83,6 @@ func getLanguage(langName string, projectDir string) (*wasmts.Language, error) {
 		"path", wasmPath,
 		"size", len(wasmBytes))
 
-	// Each grammar is its own WASM module (contains ts runtime + grammar)
 	moduleName := "tree-sitter-" + funcName
 	mod, err := engine.LoadModule(moduleName, wasmBytes)
 	if err != nil {
@@ -122,22 +118,18 @@ func findGrammarWASM(funcName string, projectDir string) string {
 
 // grammarSearchDirs returns directories to search for .wasm grammars,
 // ordered by priority (highest first).
-// Uses filepath.Join for cross-platform path compatibility (Windows/macOS/Linux).
 func grammarSearchDirs(projectDir string) []string {
 	var dirs []string
 
-	// 1. Project-level (highest priority)
 	if projectDir != "" {
 		dirs = append(dirs, filepath.Join(projectDir, ".graphit", "ast", "grammars"))
 	}
 
-	// 2. User global
 	home, _ := os.UserHomeDir()
 	if home != "" {
 		dirs = append(dirs, filepath.Join(home, ".graphit", "ast", "grammars"))
 	}
 
-	// 3. Runtime (lowest priority — bundled with release)
 	if home != "" {
 		dirs = append(dirs, filepath.Join(home, ".graphit", "runtime", version.Version, "ast", "grammars"))
 	}
@@ -145,8 +137,7 @@ func grammarSearchDirs(projectDir string) []string {
 	return dirs
 }
 
-// initBuiltinGrammars loads all .wasm grammar files found in the resolution chain
-// and returns a map of available languages. Called during init().
+// initBuiltinGrammars loads all .wasm grammar files found in the resolution chain.
 func initBuiltinGrammars() map[string]*wasmts.Language {
 	engine, err := initWASMEngine()
 	if err != nil {
@@ -154,11 +145,9 @@ func initBuiltinGrammars() map[string]*wasmts.Language {
 		return nil
 	}
 
-	// Scan all grammar directories for .wasm files
 	searchDirs := grammarSearchDirs("")
 	result := make(map[string]*wasmts.Language)
 
-	// Collect all .wasm files, respecting priority (first found wins)
 	seen := make(map[string]bool)
 	for _, dir := range searchDirs {
 		entries, err := os.ReadDir(dir)
@@ -169,7 +158,6 @@ func initBuiltinGrammars() map[string]*wasmts.Language {
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".wasm") {
 				continue
 			}
-			// Extract function name from filename: tree-sitter-<name>.wasm → <name>
 			name := strings.TrimSuffix(entry.Name(), ".wasm")
 			name = strings.TrimPrefix(name, "tree-sitter-")
 			if name == "" || seen[name] {
@@ -207,7 +195,7 @@ func initBuiltinGrammars() map[string]*wasmts.Language {
 		for k := range result {
 			names = append(names, k)
 		}
-		slog.Info("loaded tree-sitter WASM grammars",
+		slog.Debug("loaded tree-sitter WASM grammars",
 			"count", len(result),
 			"languages", strings.Join(names, ", "))
 	} else {
@@ -218,7 +206,6 @@ func initBuiltinGrammars() map[string]*wasmts.Language {
 }
 
 // CloseGrammarEngine shuts down the WASM engine.
-// Should be called at program exit.
 func CloseGrammarEngine() {
 	if grammarEngine != nil {
 		grammarEngine.Close()

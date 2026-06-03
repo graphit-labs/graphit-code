@@ -3,9 +3,8 @@ package mcpserver
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
-	"os"
 	"os/signal"
 	"syscall"
 
@@ -73,7 +72,7 @@ func ServeHTTP(ctx context.Context, opts Options) error {
 		_ = httpServer.Close()
 	}()
 
-	log.Printf("MCP server listening on http://%s/mcp\n", addr)
+	slog.Info("MCP server listening", "addr", "http://"+addr+"/mcp")
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("MCP HTTP server error: %w", err)
 	}
@@ -89,8 +88,3 @@ func ServeStdio(ctx context.Context) error {
 	return nil
 }
 
-func logVerbose(verbose bool, format string, args ...any) {
-	if verbose {
-		fmt.Fprintf(os.Stderr, format+"\n", args...)
-	}
-}

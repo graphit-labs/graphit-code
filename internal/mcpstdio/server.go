@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -41,14 +41,11 @@ func NewServer() *mcp.Server {
 
 func Serve(ctx context.Context) error {
 	output.Mute()
-	log.SetOutput(os.Stderr)
 
 	server := NewServer()
 
-	// Use IOTransport with explicit reader/writer instead of StdioTransport
-	// which hardcodes os.Stdin/os.Stdout. This decouples the JSON-RPC
-	// transport from the Go-level os.Stdout variable, so even if something
-	// reassigns os.Stdout, the transport is unaffected.
+	// IOTransport instead of StdioTransport: decouples from os.Stdout
+	// so output.Mute() reassignments don't break the JSON-RPC channel.
 	transport := &mcp.IOTransport{
 		Reader: io.NopCloser(os.Stdin),
 		Writer: nopWriteCloser{os.Stdout},
@@ -60,7 +57,6 @@ func Serve(ctx context.Context) error {
 	return nil
 }
 
-// nopWriteCloser wraps a Writer with a no-op Close.
 type nopWriteCloser struct{ io.Writer }
 
 func (nopWriteCloser) Close() error { return nil }
@@ -77,9 +73,8 @@ func safeTool[T any](
 				session = nil
 			}
 		}()
-		// Check if the daemon is running, and lift it if necessary, just like the CLI does
 		if _, dErr := daemon.EnsureRunning(); dErr != nil {
-			log.Printf("[MCP] Failed to ensure daemon is running: %v\n", dErr)
+			slog.Warn("failed to ensure daemon is running", "error", dErr)
 		}
 		return handler(ctx, req, input)
 	}

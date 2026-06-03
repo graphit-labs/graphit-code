@@ -1061,15 +1061,4 @@ func TestCovBoost_ResolveMemoryWikiDir_UserScope(t *testing.T) {
 	_ = result
 }
 
-// TestCovBoost_LogVerbose exercises the logVerbose function
-// (lines 92-95 in server.go)
-func TestCovBoost_LogVerbose(t *testing.T) {
-	t.Parallel()
-
-	// Test verbose=true — exercises line 94
-	logVerbose(true, "test %s", "message")
-
-	// Test verbose=false — exercises the early return
-	logVerbose(false, "should not print %s", "anything")
-}
 
