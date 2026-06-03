@@ -17,9 +17,9 @@ import (
 // Package-level function hooks for dependency injection in tests.
 // Each defaults to the real implementation.
 var (
-	newAIClientFromConfig = func() (ai.Client, error) { return ai.NewClientFromConfig() }
+	newAIClientFromConfig = ai.NewClientFromConfig
 
-	newGlobalLockManager = func() (*hub.GlobalLockManager, error) { return hub.NewGlobalLockManager() }
+	newGlobalLockManager = hub.NewGlobalLockManager
 
 	newRegistryManager = func(ctx context.Context) (*hub.RegistryManager, error) {
 		return hub.NewRegistryManager(ctx)
@@ -35,13 +35,9 @@ var (
 		return wiki.SearchMultiWiki(ctx, client, query, cfg)
 	}
 
-	newChatSession = func(projectDir string, sources []chat.WikiSource, query string) *chat.ChatSession {
-		return chat.NewSession(projectDir, sources, query)
-	}
+	newChatSession = chat.NewSession
 
-	loadChatSession = func(sessionID string) (*chat.ChatSession, error) {
-		return chat.LoadSession(sessionID)
-	}
+	loadChatSession = chat.LoadSession
 
 	newChatEngine = func(client ai.Client, session *chat.ChatSession) interface {
 		Send(ctx context.Context, message string) (string, error)
@@ -49,17 +45,11 @@ var (
 		return chat.NewChatEngine(client, session)
 	}
 
-	listChatSessions = func(projectDir string) ([]*chat.ChatSession, error) {
-		return chat.ListSessions(projectDir)
-	}
+	listChatSessions = chat.ListSessions
 
-	latestChatSession = func(projectDir string) (*chat.ChatSession, error) {
-		return chat.LatestSession(projectDir)
-	}
+	latestChatSession = chat.LatestSession
 
-	deleteChatSession = func(id string) error {
-		return chat.DeleteSession(id)
-	}
+	deleteChatSession = chat.DeleteSession
 )
 
 // WikiSearchOpts is a view-agnostic DTO for multi-wiki search orchestration.
