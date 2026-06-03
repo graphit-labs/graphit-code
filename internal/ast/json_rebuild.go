@@ -57,6 +57,8 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 
 	if err := tempBackend.connect(); err != nil {
 		_ = tempBackend.Close()
+		log.Error("temp DB connect failed — LadybugDB file will NOT be created",
+			"path", tempDBPath, "error", err)
 		return fmt.Errorf("temp DB connect: %w", err)
 	}
 

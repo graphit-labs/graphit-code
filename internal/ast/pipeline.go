@@ -307,7 +307,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		lb, isLB := db.(*LadybugBackend)
 		productionDBExists := false
 		if isLB {
-			if info, statErr := os.Stat(lb.cfg.DBPath); statErr == nil && info.IsDir() {
+			if _, statErr := os.Stat(lb.cfg.DBPath); statErr == nil {
 				productionDBExists = true
 			}
 		}

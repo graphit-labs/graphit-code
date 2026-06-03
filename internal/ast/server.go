@@ -22,6 +22,13 @@ import (
 	graphitui "github.com/graphit-labs/graphit-code/internal/ui"
 )
 
+type cachedDB struct {
+	db       GraphDB
+	lastUsed time.Time
+}
+
+const dbCacheTTL = 5 * time.Minute
+
 type Server struct {
 	db       GraphDB
 	jobs     *JobManager
@@ -30,6 +37,9 @@ type Server struct {
 	port     int
 	ln       net.Listener
 	mux      *http.ServeMux
+
+	dbCacheMu sync.Mutex
+	dbCache   map[string]*cachedDB
 }
 
 func NewServer(db GraphDB, jobs *JobManager, repoPath string) (*Server, error) {
@@ -48,6 +58,7 @@ func NewServer(db GraphDB, jobs *JobManager, repoPath string) (*Server, error) {
 		port:     port,
 		ln:       ln,
 		mux:      http.NewServeMux(),
+		dbCache:  make(map[string]*cachedDB),
 	}
 	s.registerRoutes()
 	return s, nil
@@ -64,7 +75,8 @@ func NewServerOnPort(db GraphDB, jobs *JobManager, repoPath string, port int) (*
 		repoPath: repoPath,
 		port:     port,
 
-		mux: http.NewServeMux(),
+		mux:     http.NewServeMux(),
+		dbCache: make(map[string]*cachedDB),
 	}
 
 	return s, nil
@@ -84,10 +96,15 @@ func (s *Server) Start(ctx context.Context) error {
 		errCh <- srv.Serve(s.ln)
 	}()
 
+	// Periodically evict stale cached DB connections.
+	go s.evictStaleCaches(ctx)
+
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+
+	s.closeDBCache()
 
 	select {
 	case err := <-errCh:
@@ -157,7 +174,59 @@ func (e *emptyGraphDB) Ping(_ context.Context) error                         { r
 func (e *emptyGraphDB) BackendType() string                                  { return "empty" }
 func (e *emptyGraphDB) Close() error                                         { return nil }
 
-func (s *Server) dbForContext(r *http.Request) (GraphDB, bool) {
+func (s *Server) getOrCreateCachedDB(dbPath string, readOnly bool) GraphDB {
+	s.dbCacheMu.Lock()
+	defer s.dbCacheMu.Unlock()
+
+	if cached, ok := s.dbCache[dbPath]; ok {
+		cached.lastUsed = time.Now()
+		return cached.db
+	}
+
+	var db GraphDB
+	cfg := LadybugConfig{DBPath: dbPath, ReadOnly: readOnly}
+	if readOnly {
+		db = NewLadybugDBReadOnly(cfg)
+	} else {
+		db = NewLadybugDB(cfg)
+	}
+	s.dbCache[dbPath] = &cachedDB{db: db, lastUsed: time.Now()}
+	return db
+}
+
+func (s *Server) closeDBCache() {
+	s.dbCacheMu.Lock()
+	defer s.dbCacheMu.Unlock()
+
+	for key, cached := range s.dbCache {
+		_ = cached.db.Close()
+		delete(s.dbCache, key)
+	}
+}
+
+func (s *Server) evictStaleCaches(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.dbCacheMu.Lock()
+			now := time.Now()
+			for key, cached := range s.dbCache {
+				if now.Sub(cached.lastUsed) > dbCacheTTL {
+					_ = cached.db.Close()
+					delete(s.dbCache, key)
+				}
+			}
+			s.dbCacheMu.Unlock()
+		}
+	}
+}
+
+func (s *Server) dbForContext(r *http.Request) GraphDB {
 	ctxName := r.URL.Query().Get("context")
 
 	requestedDir := r.URL.Query().Get("project_dir")
@@ -174,28 +243,25 @@ func (s *Server) dbForContext(r *http.Request) (GraphDB, bool) {
 				importDBPath = resolved
 			}
 			if _, err := os.Stat(importDBPath); err == nil {
-				db := NewLadybugDBReadOnly(LadybugConfig{DBPath: importDBPath, ReadOnly: true})
-				return db, true
+				return s.getOrCreateCachedDB(importDBPath, true)
 			}
-			return &emptyGraphDB{}, false
+			return &emptyGraphDB{}
 		}
 
 		otherDBPath := filepath.Join(requestedDir, brand.DotDir(), "ast", "project", "ladybugdb")
 		if _, err := os.Stat(otherDBPath); err == nil {
-			db := NewLadybugDBReadOnly(LadybugConfig{DBPath: otherDBPath, ReadOnly: true})
-			return db, true
+			return s.getOrCreateCachedDB(otherDBPath, true)
 		}
 
-		return &emptyGraphDB{}, false
+		return &emptyGraphDB{}
 	}
 
 	if ctxName == "" || ctxName == "__project__" {
-		return s.db, false
+		return s.db
 	}
 
 	cfg := LadybugConfigForContext(ctxName)
-	db := NewLadybugDB(cfg)
-	return db, true
+	return s.getOrCreateCachedDB(cfg.DBPath, false)
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
@@ -232,10 +298,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		r.URL.RawQuery = q.Encode()
 	}
 
-	db, shouldClose := s.dbForContext(r)
-	if shouldClose {
-		defer func() { _ = db.Close() }()
-	}
+	db := s.dbForContext(r)
 
 	ctx := r.Context()
 	result, err := db.Query(ctx, body.Cypher, body.Params)
@@ -255,10 +318,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
-	db, shouldClose := s.dbForContext(r)
-	if shouldClose {
-		defer func() { _ = db.Close() }()
-	}
+	db := s.dbForContext(r)
 
 	ctx := r.Context()
 
@@ -323,17 +383,15 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		topK = v
 	}
 
-	db, shouldClose := s.dbForContext(r)
-	if shouldClose {
-		defer func() { _ = db.Close() }()
-	}
+	db := s.dbForContext(r)
 
 	qs := NewQueryService(db)
+	defer qs.Close()
 	embClient, err := ai.NewEmbeddingClientFromConfig()
 	if err == nil {
 		qs.SetEmbeddingClient(embClient)
 	}
-	
+
 	result, err := qs.HybridSearch(r.Context(), term, topK)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -420,10 +478,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	repoPath := q.Get("repo_path")
 	cypherQuery := q.Get("cypher_query")
 
-	db, shouldClose := s.dbForContext(r)
-	if shouldClose {
-		defer func() { _ = db.Close() }()
-	}
+	db := s.dbForContext(r)
 
 	ctx := r.Context()
 
@@ -644,14 +699,10 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	contextName := r.URL.Query().Get("context")
-	db, shouldClose := s.db, false
+	db := s.db
 	if contextName != "" && contextName != "__project__" {
 		cfg := LadybugConfigForContext(contextName)
-		db = NewLadybugDB(cfg)
-		shouldClose = true
-	}
-	if shouldClose {
-		defer func() { _ = db.Close() }()
+		db = s.getOrCreateCachedDB(cfg.DBPath, false)
 	}
 
 	ctx := r.Context()
@@ -714,7 +765,7 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 
-			otherDB := NewLadybugDBReadOnly(LadybugConfig{DBPath: projectDBPath, ReadOnly: true})
+			otherDB := s.getOrCreateCachedDB(projectDBPath, true)
 			if res, err := otherDB.Query(ctx, "MATCH (n) RETURN count(n) AS c", nil); err == nil && len(res.Records) > 0 {
 				if c, ok := res.Records[0]["c"]; ok {
 					nodeCount = toInt(c)
@@ -725,7 +776,6 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 					edgeCount = toInt(c)
 				}
 			}
-			_ = otherDB.Close()
 		}
 		backend := "ladybug"
 		if !isDifferentProject {
@@ -769,14 +819,13 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 				"database": "ladybugdb", "db_path": dbPath,
 			}
 
-			ctxDB := NewLadybugDBReadOnly(LadybugConfig{DBPath: dbPath, ReadOnly: true})
+			ctxDB := s.getOrCreateCachedDB(dbPath, true)
 			if nRes, err := ctxDB.Query(ctx, "MATCH (n) RETURN count(n) AS c", nil); err == nil && len(nRes.Records) > 0 {
 				ic["node_count"] = toInt(nRes.Records[0]["c"])
 			}
 			if eRes, err := ctxDB.Query(ctx, "MATCH ()-[r]->() RETURN count(r) AS c", nil); err == nil && len(eRes.Records) > 0 {
 				ic["edge_count"] = toInt(eRes.Records[0]["c"])
 			}
-			_ = ctxDB.Close()
 
 			contexts = append(contexts, ic)
 		}
@@ -794,14 +843,14 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 				"imported_at": ictx.ImportedAt, "db_path": ictx.DBPath,
 			}
 
-			ctxDB := NewLadybugDB(LadybugConfigForContext(key))
+			cfg := LadybugConfigForContext(key)
+			ctxDB := s.getOrCreateCachedDB(cfg.DBPath, false)
 			if nRes, err := ctxDB.Query(ctx, "MATCH (n) RETURN count(n) AS c", nil); err == nil && len(nRes.Records) > 0 {
 				ic["node_count"] = toInt(nRes.Records[0]["c"])
 			}
 			if eRes, err := ctxDB.Query(ctx, "MATCH ()-[r]->() RETURN count(r) AS c", nil); err == nil && len(eRes.Records) > 0 {
 				ic["edge_count"] = toInt(eRes.Records[0]["c"])
 			}
-			_ = ctxDB.Close()
 
 			contexts = append(contexts, ic)
 		}
@@ -883,10 +932,7 @@ func (s *Server) handleGenerateCypher(w http.ResponseWriter, r *http.Request) {
 		r.URL.RawQuery = q.Encode()
 	}
 
-	db, shouldClose := s.dbForContext(r)
-	if shouldClose {
-		defer func() { _ = db.Close() }()
-	}
+	db := s.dbForContext(r)
 
 	resp, err := GenerateAICypher(r.Context(), db, s.aiClient, AICypherRequest{
 		UserQuery:  body.Query,

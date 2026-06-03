@@ -12,6 +12,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -74,6 +75,9 @@ func init() {
 }
 
 func Execute() {
+	slogutil.InitFileLogger(brand.GlobalDir())
+	defer slogutil.CloseFileLogger()
+
 	err := rootCmd.Execute()
 
 	memory.WaitForPendingPushes()

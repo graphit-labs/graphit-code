@@ -108,6 +108,7 @@ func (k *LadybugBackend) connect() error {
 
 		if err := os.MkdirAll(filepath.Dir(k.cfg.DBPath), 0o755); err != nil {
 			k.connectErr = fmt.Errorf("ladybug: create dir: %w", err)
+			k.log().Error("ladybug: failed to create directory", "path", k.cfg.DBPath, "error", err)
 			return
 		}
 
@@ -119,11 +120,14 @@ func (k *LadybugBackend) connect() error {
 		db, err := lbug.OpenDatabase(k.cfg.DBPath, sysCfg)
 		if err != nil {
 			k.connectErr = fmt.Errorf("ladybug open: %w", err)
+			k.log().Error("ladybug: failed to open database", "path", k.cfg.DBPath, "readonly", k.cfg.ReadOnly, "error", err)
 			return
 		}
 		conn, err := lbug.OpenConnection(db)
 		if err != nil {
 			k.connectErr = fmt.Errorf("ladybug connection: %w", err)
+			k.log().Error("ladybug: failed to open connection", "path", k.cfg.DBPath, "error", err)
+			db.Close() // close the database if connection failed
 			return
 		}
 		k.db = db
@@ -351,7 +355,11 @@ func (k *LadybugBackend) ensureConnected() error {
 	if k.conn != nil {
 		return nil
 	}
-	return k.connect()
+	if err := k.connect(); err != nil {
+		k.log().Error("ladybug: connection unavailable", "path", k.cfg.DBPath, "error", err)
+		return err
+	}
+	return nil
 }
 
 func (k *LadybugBackend) runQuery(cypher string, params map[string]any) (*lbug.QueryResult, error) {
@@ -569,17 +577,16 @@ func (k *LadybugBackend) Ping(ctx context.Context) error {
 func (k *LadybugBackend) BackendType() string { return "ladybug" }
 
 func (k *LadybugBackend) Shutdown() error {
-	if k.db == nil {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if k.conn == nil || k.db == nil {
 		return nil
 	}
 
-	conn, err := lbug.OpenConnection(k.db)
+	res, err := k.conn.Query("CHECKPOINT")
 	if err != nil {
-		return fmt.Errorf("ladybug shutdown: open checkpoint connection: %w", err)
-	}
-	defer conn.Close()
-	res, err := conn.Query("CHECKPOINT")
-	if err != nil {
+		k.log().Warn("ladybug shutdown: CHECKPOINT failed", "error", err)
 		return fmt.Errorf("ladybug shutdown: CHECKPOINT: %w", err)
 	}
 	res.Close()

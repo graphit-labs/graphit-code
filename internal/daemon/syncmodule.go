@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,14 +109,18 @@ func (m *SyncModule) reindexAST(ctx context.Context, projectCfg config.ConfigMap
 	db := ast.NewLadybugDB(cfg)
 	defer func() { _ = db.Close() }()
 
-	_ = ast.CreateGraphSchema(ctx, db)
+	if err := ast.CreateGraphSchema(ctx, db); err != nil {
+		slog.Error("daemon: failed to create graph schema", "path", cfg.DBPath, "error", err)
+	}
 
 	pipeOpts := ast.PipelineOptions{
 		Workers:     ast.SafeWorkers(0),
 		IndexSource: config.ResolveIndexSource(nil, projectCfg),
 		CacheDir:    filepath.Dir(cfg.DBPath),
 	}
-	_, _ = ast.RunPipeline(ctx, db, m.projectDir, pipeOpts)
+	if _, err := ast.RunPipeline(ctx, db, m.projectDir, pipeOpts); err != nil {
+		slog.Error("daemon: AST pipeline failed", "path", cfg.DBPath, "error", err)
+	}
 }
 
 func (m *SyncModule) reindexKnowledge(ctx context.Context, projectCfg config.ConfigMap) {
