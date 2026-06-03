@@ -389,3 +389,326 @@ func TestCopyFile(t *testing.T) {
 	}
 }
 
+func TestLatestReleaseNon200Status(t *testing.T) {
+	origTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = origTransport }()
+
+	http.DefaultTransport = &mockRoundTripper{
+		roundTripFunc: func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusInternalServerError,
+				Body:       io.NopCloser(strings.NewReader("Internal Server Error")),
+			}, nil
+		},
+	}
+
+	_, err := LatestRelease("org/repo", "")
+	if err == nil || !strings.Contains(err.Error(), "status 500") {
+		t.Errorf("expected status 500 error, got %v", err)
+	}
+}
+
+func TestLatestReleaseInvalidJSON(t *testing.T) {
+	origTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = origTransport }()
+
+	http.DefaultTransport = &mockRoundTripper{
+		roundTripFunc: func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("not json")),
+			}, nil
+		},
+	}
+
+	_, err := LatestRelease("org/repo", "")
+	if err == nil || !strings.Contains(err.Error(), "decoding") {
+		t.Errorf("expected decoding error, got %v", err)
+	}
+}
+
+func TestDownloadWithoutProgress(t *testing.T) {
+	origTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = origTransport }()
+
+	content := "binary data"
+	http.DefaultTransport = &mockRoundTripper{
+		roundTripFunc: func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(content)),
+			}, nil
+		},
+	}
+
+	tmpDir := t.TempDir()
+	dest := filepath.Join(tmpDir, "download-noprogress")
+	err := Download("http://example.com/binary", dest, nil)
+	if err != nil {
+		t.Fatalf("Download without progress failed: %v", err)
+	}
+	data, _ := os.ReadFile(dest)
+	if string(data) != content {
+		t.Errorf("expected %q, got %q", content, string(data))
+	}
+}
+
+func TestDownloadServerError(t *testing.T) {
+	origTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = origTransport }()
+
+	http.DefaultTransport = &mockRoundTripper{
+		roundTripFunc: func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusForbidden,
+				Body:       io.NopCloser(strings.NewReader("Forbidden")),
+			}, nil
+		},
+	}
+
+	tmpDir := t.TempDir()
+	dest := filepath.Join(tmpDir, "download-forbidden")
+	err := Download("http://example.com/binary", dest, nil)
+	if err == nil || !strings.Contains(err.Error(), "status 403") {
+		t.Errorf("expected status 403 error, got %v", err)
+	}
+}
+
+func TestDownloadNetworkError(t *testing.T) {
+	origTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = origTransport }()
+
+	http.DefaultTransport = &mockRoundTripper{
+		roundTripFunc: func(req *http.Request) (*http.Response, error) {
+			return nil, errors.New("connection refused")
+		},
+	}
+
+	tmpDir := t.TempDir()
+	dest := filepath.Join(tmpDir, "download-err")
+	err := Download("http://example.com/binary", dest, nil)
+	if err == nil || !strings.Contains(err.Error(), "downloading") {
+		t.Errorf("expected download error, got %v", err)
+	}
+}
+
+func TestDownloadDestFileError(t *testing.T) {
+	origTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = origTransport }()
+
+	http.DefaultTransport = &mockRoundTripper{
+		roundTripFunc: func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("data")),
+			}, nil
+		},
+	}
+
+	// Dest path doesn't exist (parent dir missing)
+	err := Download("http://example.com/binary", "/nonexistent/dir/file", nil)
+	if err == nil || !strings.Contains(err.Error(), "creating destination file") {
+		t.Errorf("expected dest file error, got %v", err)
+	}
+}
+
+func TestAtomicReplaceMissingCurrent(t *testing.T) {
+	tmpDir := t.TempDir()
+	newPath := filepath.Join(tmpDir, "new-exe")
+	_ = os.WriteFile(newPath, []byte("new"), 0755)
+
+	// Current exe doesn't exist — Rename should fail
+	err := AtomicReplace(newPath, filepath.Join(tmpDir, "nonexistent"))
+	if err == nil || !strings.Contains(err.Error(), "backing up") {
+		t.Errorf("expected backing up error, got %v", err)
+	}
+}
+
+func TestAtomicReplaceRenameNewFails(t *testing.T) {
+	tmpDir := t.TempDir()
+	exePath := filepath.Join(tmpDir, "current-exe")
+	_ = os.WriteFile(exePath, []byte("old"), 0755)
+
+	// New path doesn't exist — second Rename should fail
+	err := AtomicReplace(filepath.Join(tmpDir, "nonexistent-new"), exePath)
+	if err == nil {
+		t.Error("expected error when new binary doesn't exist")
+	}
+	// Original should be restored
+	data, readErr := os.ReadFile(exePath)
+	if readErr != nil {
+		t.Errorf("expected original restored, got read error: %v", readErr)
+	}
+	if string(data) != "old" {
+		t.Errorf("expected original content 'old', got %q", string(data))
+	}
+}
+
+func TestCopyFileSourceNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+	err := copyFile(filepath.Join(tmpDir, "missing"), filepath.Join(tmpDir, "dst"))
+	if err == nil {
+		t.Error("expected error when source doesn't exist")
+	}
+}
+
+func TestCopyFileDestError(t *testing.T) {
+	tmpDir := t.TempDir()
+	src := filepath.Join(tmpDir, "src")
+	_ = os.WriteFile(src, []byte("data"), 0644)
+
+	// Dest path in nonexistent parent dir
+	err := copyFile(src, filepath.Join(tmpDir, "subdir", "dst"))
+	if err == nil {
+		t.Error("expected error when dest dir doesn't exist")
+	}
+}
+
+func TestSha256FileMissing(t *testing.T) {
+	_, err := sha256File("/nonexistent/file")
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestReadChecksumFileMissing(t *testing.T) {
+	_, err := readChecksumFile("/nonexistent/checksum")
+	if err == nil {
+		t.Error("expected error for missing checksum file")
+	}
+}
+
+func TestReadChecksumFileBlankLines(t *testing.T) {
+	tmpDir := t.TempDir()
+	f := filepath.Join(tmpDir, "checksums.sha256")
+	_ = os.WriteFile(f, []byte("\n\n  \nabcdef1234567890  file.bin\n"), 0644)
+
+	hash, err := readChecksumFile(f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hash != "abcdef1234567890" {
+		t.Errorf("expected hash 'abcdef1234567890', got %q", hash)
+	}
+}
+
+func TestVerifyChecksumSha256Error(t *testing.T) {
+	tmpDir := t.TempDir()
+	checksumFile := filepath.Join(tmpDir, "checksums.sha256")
+	_ = os.WriteFile(checksumFile, []byte("abc123  file.bin\n"), 0644)
+
+	// File to verify doesn't exist
+	err := VerifyChecksum(filepath.Join(tmpDir, "nonexistent"), checksumFile)
+	if err == nil || !strings.Contains(err.Error(), "computing checksum") {
+		t.Errorf("expected computing checksum error, got %v", err)
+	}
+}
+
+func TestIsCrossDevice(t *testing.T) {
+	// Test with a non-cross-device error
+	regularErr := errors.New("regular error")
+	if isCrossDevice(regularErr) {
+		t.Error("expected false for regular error")
+	}
+
+	// Test with nil-ish cases
+	if isCrossDevice(nil) {
+		t.Error("expected false for nil error")
+	}
+}
+
+func TestDownloadReadError(t *testing.T) {
+	origTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = origTransport }()
+
+	http.DefaultTransport = &mockRoundTripper{
+		roundTripFunc: func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Body:          io.NopCloser(&errorReader{err: errors.New("read error"), afterBytes: 5}),
+				ContentLength: 100,
+			}, nil
+		},
+	}
+
+	tmpDir := t.TempDir()
+	dest := filepath.Join(tmpDir, "download-readfail")
+	err := Download("http://example.com/binary", dest, func(downloaded, total int64) {})
+	if err == nil || !strings.Contains(err.Error(), "reading response body") {
+		t.Errorf("expected read error, got %v", err)
+	}
+}
+
+type errorReader struct {
+	err        error
+	afterBytes int
+	read       int
+}
+
+func (r *errorReader) Read(p []byte) (int, error) {
+	if r.read >= r.afterBytes {
+		return 0, r.err
+	}
+	n := len(p)
+	remaining := r.afterBytes - r.read
+	if n > remaining {
+		n = remaining
+	}
+	for i := 0; i < n; i++ {
+		p[i] = 'X'
+	}
+	r.read += n
+	return n, nil
+}
+
+func TestLatestReleaseInvalidURL(t *testing.T) {
+	// Test with invalid URL that causes http.NewRequest to fail
+	_, err := LatestRelease("", "://invalid-url")
+	if err == nil || !strings.Contains(err.Error(), "creating request") {
+		t.Errorf("expected creating request error, got %v", err)
+	}
+}
+
+func TestDownloadInvalidURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	dest := filepath.Join(tmpDir, "download")
+	err := Download("://invalid-url", dest, nil)
+	if err == nil || !strings.Contains(err.Error(), "creating download request") {
+		t.Errorf("expected creating download request error, got %v", err)
+	}
+}
+
+func TestDownloadWriteError(t *testing.T) {
+	origTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = origTransport }()
+
+	http.DefaultTransport = &mockRoundTripper{
+		roundTripFunc: func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Body:          io.NopCloser(strings.NewReader(strings.Repeat("X", 1024))),
+				ContentLength: 1024,
+			}, nil
+		},
+	}
+
+	// /dev/full exists on Linux — writes to it fail with ENOSPC
+	devFull := "/dev/full"
+	if _, err := os.Stat(devFull); err == nil {
+		err := Download("http://example.com/binary", devFull, func(downloaded, total int64) {})
+		if err == nil {
+			t.Error("expected write error to /dev/full")
+		}
+	}
+}
+
+func TestReadChecksumFileWhitespaceOnly(t *testing.T) {
+	tmpDir := t.TempDir()
+	f := filepath.Join(tmpDir, "checksums.sha256")
+	_ = os.WriteFile(f, []byte("   \n\t\n  \n"), 0644)
+
+	_, err := readChecksumFile(f)
+	if err == nil || !strings.Contains(err.Error(), "empty checksum file") {
+		t.Errorf("expected empty checksum file error, got %v", err)
+	}
+}

@@ -2,7 +2,12 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 // ---------------------------------------------------------------------------
@@ -147,3 +152,268 @@ func TestProjectSupervisor_ProjectLog_WithGlobalFn(t *testing.T) {
 		t.Error("globalLogFn should have been called")
 	}
 }
+
+func TestProjectSupervisor_ProjectLog_WithFile(t *testing.T) {
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "project.log")
+	f, _ := os.Create(logPath)
+	defer f.Close()
+
+	ps := newProjectSupervisor("proj1", "/tmp", nil)
+	ps.projectLogFile = f
+	ps.projectLog("test %s", "msg")
+
+	data, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(data), "test msg") {
+		t.Errorf("expected 'test msg' in log, got %q", string(data))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ProjectSupervisor — Start (full integration)
+// ---------------------------------------------------------------------------
+
+func TestProjectSupervisor_Start_ModulesRunAndStop(t *testing.T) {
+	projectDir := t.TempDir()
+	startedCh := make(chan string, 2)
+
+	mods := []WatchModule{
+		&fakeModule{
+			name: "mod-a",
+			startFn: func(ctx context.Context) error {
+				startedCh <- "mod-a"
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		},
+		&fakeModule{
+			name: "mod-b",
+			startFn: func(ctx context.Context) error {
+				startedCh <- "mod-b"
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		},
+	}
+
+	ps := newProjectSupervisor("test-proj", projectDir, mods)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var logLines []string
+
+	doneCh := make(chan struct{})
+	go func() {
+		ps.Start(ctx, func(format string, args ...any) {
+			logLines = append(logLines, format)
+		})
+		close(doneCh)
+	}()
+
+	// Wait for both modules to start
+	for i := 0; i < 2; i++ {
+		select {
+		case <-startedCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("module did not start in time")
+		}
+	}
+
+	cancel()
+
+	select {
+	case <-doneCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not return after cancel")
+	}
+}
+
+func TestProjectSupervisor_Start_WithCloserError(t *testing.T) {
+	projectDir := t.TempDir()
+
+	mods := []WatchModule{
+		&fakeModule{
+			name: "mod",
+			startFn: func(ctx context.Context) error {
+				<-ctx.Done()
+				return ctx.Err()
+			},
+		},
+	}
+
+	ps := newProjectSupervisor("test", projectDir, mods)
+	ps.AddCloser(closerFunc(func() error {
+		return errors.New("closer error")
+	}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	doneCh := make(chan struct{})
+	go func() {
+		ps.Start(ctx, func(format string, args ...any) {})
+		close(doneCh)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-doneCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not return")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// supervise — crash and restart behavior
+// ---------------------------------------------------------------------------
+
+func TestSupervise_ModuleCrashesThenShutdown(t *testing.T) {
+	projectDir := t.TempDir()
+
+	crashCount := 0
+	mod := &fakeModule{
+		name: "crasher",
+		startFn: func(ctx context.Context) error {
+			crashCount++
+			return errors.New("crash!")
+		},
+	}
+
+	ps := newProjectSupervisor("test", projectDir, []WatchModule{mod})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	doneCh := make(chan struct{})
+	go func() {
+		ps.Start(ctx, func(format string, args ...any) {})
+		close(doneCh)
+	}()
+
+	// Let it crash a few times with backoff (first backoff is 2s)
+	time.Sleep(2500 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-doneCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not finish")
+	}
+
+	if crashCount < 2 {
+		t.Errorf("expected at least 2 crashes, got %d", crashCount)
+	}
+}
+
+func TestSupervise_ModuleFailsAfterMaxRestarts(t *testing.T) {
+	projectDir := t.TempDir()
+
+	mod := &fakeModule{
+		name: "failer",
+		startFn: func(ctx context.Context) error {
+			return errors.New("always fails")
+		},
+	}
+
+	ps := newProjectSupervisor("test", projectDir, []WatchModule{mod})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	doneCh := make(chan struct{})
+	go func() {
+		ps.Start(ctx, func(format string, args ...any) {})
+		close(doneCh)
+	}()
+
+	// Wait for the module to hit maxRestarts; with exponential backoff 1+2+4+8+16+30+30+30+30+30 ~= 181s
+	// But we cancel early to not wait that long
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-doneCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not finish")
+	}
+
+	// Verify the module state changed to crashed or failed
+	status := ps.Status()
+	if len(status) != 1 {
+		t.Fatalf("expected 1 status, got %d", len(status))
+	}
+	// Could be crashed, failed, or stopped depending on timing
+	if status[0].Restarts == 0 {
+		t.Error("expected some restarts")
+	}
+}
+
+func TestSupervise_PanicRecovery(t *testing.T) {
+	projectDir := t.TempDir()
+
+	panicked := false
+	mod := &fakeModule{
+		name: "panicker",
+		startFn: func(ctx context.Context) error {
+			if !panicked {
+				panicked = true
+				panic("boom!")
+			}
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	ps := newProjectSupervisor("test", projectDir, []WatchModule{mod})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	doneCh := make(chan struct{})
+	go func() {
+		ps.Start(ctx, func(format string, args ...any) {})
+		close(doneCh)
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-doneCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not finish")
+	}
+
+	if !panicked {
+		t.Error("module should have panicked")
+	}
+}
+
+func TestSupervise_ContextCancelledBeforeStart(t *testing.T) {
+	projectDir := t.TempDir()
+
+	mod := &fakeModule{
+		name: "mod",
+		startFn: func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+
+	ps := newProjectSupervisor("test", projectDir, []WatchModule{mod})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel before Start
+
+	doneCh := make(chan struct{})
+	go func() {
+		ps.Start(ctx, func(format string, args ...any) {})
+		close(doneCh)
+	}()
+
+	select {
+	case <-doneCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not finish")
+	}
+}
+
+

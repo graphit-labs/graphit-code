@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -57,6 +58,25 @@ func TestPIDFile_WriteAndRead(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// PIDFile — Write error when dir cannot be created
+// ---------------------------------------------------------------------------
+
+func TestPIDFile_Write_MkdirError(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create a file where a dir is expected
+	blockFile := filepath.Join(tmpDir, "block")
+	_ = os.WriteFile(blockFile, []byte("x"), 0o600)
+	pf := &PIDFile{path: filepath.Join(blockFile, "sub", "test.pid")}
+	err := pf.Write()
+	if err == nil {
+		t.Error("expected error when dir creation fails")
+	}
+	if !strings.Contains(err.Error(), "creating pid dir") {
+		t.Errorf("expected 'creating pid dir' in error, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // PIDFile — Read when file does not exist
 // ---------------------------------------------------------------------------
 
@@ -86,7 +106,7 @@ func TestPIDFile_Read_Malformed(t *testing.T) {
 		{
 			name:    "empty file",
 			content: "",
-			wantErr: true, // after TrimSpace, lines[0] is "" → Atoi fails
+			wantErr: true,
 		},
 		{
 			name:    "non-numeric PID",
@@ -101,7 +121,7 @@ func TestPIDFile_Read_Malformed(t *testing.T) {
 		{
 			name:    "valid with bad timestamp",
 			content: "12345\nnot-a-timestamp\n",
-			wantErr: false, // timestamp parse error is silently ignored
+			wantErr: false,
 		},
 		{
 			name:    "whitespace around PID",
@@ -179,7 +199,7 @@ func TestPIDFile_Remove_NoFile(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// PIDFile — IsAlive (test with current process PID)
+// PIDFile — IsAlive
 // ---------------------------------------------------------------------------
 
 func TestPIDFile_IsAlive_CurrentProcess(t *testing.T) {
@@ -201,8 +221,6 @@ func TestPIDFile_IsAlive_CurrentProcess(t *testing.T) {
 func TestPIDFile_IsAlive_DeadProcess(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "test.pid")
-	// Use a PID that is extremely unlikely to be alive.
-	// PID 2^22 = 4194304 is valid on Linux but very unlikely to be running.
 	fakePID := 4194304
 	content := fmt.Sprintf("%d\n2024-01-01T00:00:00Z\n", fakePID)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
@@ -213,7 +231,7 @@ func TestPIDFile_IsAlive_DeadProcess(t *testing.T) {
 	if pd != nil {
 		t.Errorf("IsAlive returned non-nil for dead PID %d", fakePID)
 	}
-	// After IsAlive finds dead process, it should remove the pid file
+	// Should remove stale pid file
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Error("IsAlive should remove stale pid file for dead process")
 	}
@@ -227,8 +245,22 @@ func TestPIDFile_IsAlive_NoFile(t *testing.T) {
 	}
 }
 
+func TestPIDFile_IsAlive_MalformedFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.pid")
+	// Write malformed content — Read returns error
+	if err := os.WriteFile(path, []byte("notapid\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	pf := &PIDFile{path: path}
+	pd := pf.IsAlive()
+	if pd != nil {
+		t.Errorf("expected nil for malformed pid file, got %+v", pd)
+	}
+}
+
 // ---------------------------------------------------------------------------
-// PIDFile — Signal edge case: no file
+// PIDFile — Signal
 // ---------------------------------------------------------------------------
 
 func TestPIDFile_Signal_NoFile(t *testing.T) {
@@ -240,12 +272,76 @@ func TestPIDFile_Signal_NoFile(t *testing.T) {
 	}
 }
 
+func TestPIDFile_Signal_CurrentProcess(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.pid")
+	content := fmt.Sprintf("%d\n2024-01-01T00:00:00Z\n", os.Getpid())
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	pf := &PIDFile{path: path}
+	// Signal 0 checks if process exists
+	err := pf.Signal(syscall.Signal(0))
+	if err != nil {
+		t.Errorf("expected no error for signal 0 to current process, got %v", err)
+	}
+}
+
+func TestPIDFile_Signal_DeadProcess(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.pid")
+	fakePID := 4194304
+	content := fmt.Sprintf("%d\n2024-01-01T00:00:00Z\n", fakePID)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	pf := &PIDFile{path: path}
+	err := pf.Signal(syscall.Signal(0))
+	if err == nil {
+		t.Error("expected error signalling dead process")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PIDFile — SignalOS
+// ---------------------------------------------------------------------------
+
 func TestPIDFile_SignalOS_NoFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	pf := &PIDFile{path: filepath.Join(tmpDir, "nonexistent.pid")}
 	err := pf.SignalOS(os.Kill)
 	if err == nil {
 		t.Error("expected error when no pid file exists")
+	}
+}
+
+func TestPIDFile_SignalOS_CurrentProcess(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.pid")
+	content := fmt.Sprintf("%d\n2024-01-01T00:00:00Z\n", os.Getpid())
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	pf := &PIDFile{path: path}
+	// Signal 0 checks if process exists
+	err := pf.SignalOS(syscall.Signal(0))
+	if err != nil {
+		t.Errorf("expected no error for signal 0 to current process, got %v", err)
+	}
+}
+
+func TestPIDFile_SignalOS_DeadProcess(t *testing.T) {
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "test.pid")
+	fakePID := 4194304
+	content := fmt.Sprintf("%d\n2024-01-01T00:00:00Z\n", fakePID)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	pf := &PIDFile{path: path}
+	err := pf.SignalOS(syscall.Signal(0))
+	if err == nil {
+		t.Error("expected error signalling dead process")
 	}
 }
 

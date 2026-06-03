@@ -306,5 +306,86 @@ func TestGlobalDirErr(t *testing.T) {
 		if GlobalRulesDir() != "" {
 			t.Errorf("expected GlobalRulesDir() to be empty when GlobalDir() is empty")
 		}
+		// HubRulesDir should also return empty when GlobalDir is empty
+		if HubRulesDir() != "" {
+			t.Errorf("expected HubRulesDir() to be empty when GlobalDir() is empty")
+		}
+		// RuntimeDir should also return empty when GlobalDir is empty
+		if RuntimeDir("v1.0.0") != "" {
+			t.Errorf("expected RuntimeDir() to be empty when GlobalDir() is empty")
+		}
 	}
 }
+
+func TestMCPToolNameAndRef(t *testing.T) {
+	origBrand := Brand
+	defer func() { Brand = origBrand }()
+
+	Brand = "testbrand"
+
+	// MCPToolName with single part
+	if got := MCPToolName("ast"); got != "testbrand_ast" {
+		t.Errorf("MCPToolName(ast) = %q; want %q", got, "testbrand_ast")
+	}
+
+	// MCPToolName with multiple parts
+	if got := MCPToolName("dream", "subject_add"); got != "testbrand_dream_subject_add" {
+		t.Errorf("MCPToolName(dream, subject_add) = %q; want %q", got, "testbrand_dream_subject_add")
+	}
+
+	// MCPToolRef with single part
+	if got := MCPToolRef("ast"); got != "`testbrand_ast`" {
+		t.Errorf("MCPToolRef(ast) = %q; want %q", got, "`testbrand_ast`")
+	}
+
+	// MCPToolRef with multiple parts
+	if got := MCPToolRef("dream", "subject_add"); got != "`testbrand_dream_subject_add`" {
+		t.Errorf("MCPToolRef(dream, subject_add) = %q; want %q", got, "`testbrand_dream_subject_add`")
+	}
+}
+
+func TestRuntimeDir(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
+	origBrand := Brand
+	defer func() { Brand = origBrand }()
+
+	tempDir, err := os.MkdirTemp("", "brand-runtime-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	_ = os.Setenv("HOME", tempDir)
+	Brand = "testbrand3"
+
+	expected := filepath.Join(tempDir, ".testbrand3", "runtime", "v1.2.3")
+	if got := RuntimeDir("v1.2.3"); got != expected {
+		t.Errorf("RuntimeDir(v1.2.3) = %q; want %q", got, expected)
+	}
+}
+
+func TestCoreSkillIDs(t *testing.T) {
+	origBrand := Brand
+	defer func() { Brand = origBrand }()
+	Brand = "testbrand"
+
+	ids := CoreSkillIDs()
+	expectedIDs := []string{
+		"testbrand-ast",
+		"testbrand-hub",
+		"testbrand-knowledge",
+		"testbrand-memory",
+		"testbrand-improvements",
+	}
+	for _, id := range expectedIDs {
+		if !ids[id] {
+			t.Errorf("CoreSkillIDs() missing %q", id)
+		}
+	}
+	if len(ids) != len(expectedIDs) {
+		t.Errorf("CoreSkillIDs() has %d entries; want %d", len(ids), len(expectedIDs))
+	}
+}
+

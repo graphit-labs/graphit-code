@@ -690,3 +690,116 @@ func TestUncoveredBranches(t *testing.T) {
 	}
 }
 
+func TestIsSetupDone(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
+	tempDir := t.TempDir()
+	_ = os.Setenv("HOME", tempDir)
+
+	// Before creating config file, IsSetupDone should return false
+	if IsSetupDone() {
+		t.Error("expected IsSetupDone() to be false before config exists")
+	}
+
+	// Create config file
+	err := SetGlobalConfigValue("setup.done", "true")
+	if err != nil {
+		t.Fatalf("failed to set global config: %v", err)
+	}
+
+	// After creating config file, IsSetupDone should return true
+	if !IsSetupDone() {
+		t.Error("expected IsSetupDone() to be true after config exists")
+	}
+}
+
+func TestIsSetupDoneHomeError(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origUserProfile := os.Getenv("USERPROFILE")
+	defer func() {
+		_ = os.Setenv("HOME", origHome)
+		_ = os.Setenv("USERPROFILE", origUserProfile)
+	}()
+
+	_ = os.Unsetenv("HOME")
+	_ = os.Unsetenv("USERPROFILE")
+
+	// Should return false when HOME is not set (globalConfigPath errors)
+	if IsSetupDone() {
+		t.Error("expected IsSetupDone() to be false when HOME is unset")
+	}
+}
+
+func TestLoadGlobalConfigReadError(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	defer func() { _ = os.Setenv("HOME", origHome) }()
+
+	tempDir := t.TempDir()
+	_ = os.Setenv("HOME", tempDir)
+
+	// Create the app dir
+	appDir := filepath.Join(tempDir, ".graphit")
+	err := os.MkdirAll(appDir, 0o700)
+	if err != nil {
+		t.Fatalf("failed to create app dir: %v", err)
+	}
+
+	// Create config as a directory (not a file) to cause a non-NotExist read error
+	configPath := filepath.Join(appDir, "config.json")
+	err = os.MkdirAll(configPath, 0o755)
+	if err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+
+	_, err = LoadGlobalConfig()
+	if err == nil {
+		t.Error("expected read error when config.json is a directory")
+	}
+	if !strings.Contains(err.Error(), "reading global config") {
+		t.Errorf("expected 'reading global config' error, got: %v", err)
+	}
+}
+
+func TestIsModuleDisabledOptIn(t *testing.T) {
+	// "dream" is in OptInModules, so by default it should be disabled
+	if !IsModuleDisabled("dream", nil, nil) {
+		t.Error("expected 'dream' opt-in module to be disabled by default")
+	}
+
+	// Explicitly enabling it
+	cfgTrue := ConfigMap{
+		"modules": map[string]any{
+			"dream": "true",
+		},
+	}
+	if IsModuleDisabled("dream", nil, cfgTrue) {
+		t.Error("expected 'dream' module to be enabled when explicitly set to true")
+	}
+
+	// Explicitly disabling it
+	cfgFalse := ConfigMap{
+		"modules": map[string]any{
+			"dream": "false",
+		},
+	}
+	if !IsModuleDisabled("dream", nil, cfgFalse) {
+		t.Error("expected 'dream' module to be disabled when explicitly set to false")
+	}
+}
+
+func TestIsOptInModule(t *testing.T) {
+	// "dream" should be opt-in
+	if !isOptInModule("dream") {
+		t.Error("expected 'dream' to be an opt-in module")
+	}
+	if !isOptInModule("DREAM") {
+		t.Error("expected case-insensitive match for 'DREAM' as opt-in module")
+	}
+
+	// "ast" should not be opt-in
+	if isOptInModule("ast") {
+		t.Error("expected 'ast' to NOT be an opt-in module")
+	}
+}
+

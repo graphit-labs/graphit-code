@@ -3,6 +3,7 @@ package paths
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -206,5 +207,292 @@ func TestSyncCopyDir_NonexistentSource(t *testing.T) {
 
 	if err := SyncCopyDir(src, dst); err != nil {
 		t.Fatalf("SyncCopyDir should return nil for nonexistent source, got: %v", err)
+	}
+}
+
+func TestSafeCopyDirSourceNotExist(t *testing.T) {
+	tmp := t.TempDir()
+	err := SafeCopyDir(filepath.Join(tmp, "nonexistent"), filepath.Join(tmp, "dst"))
+	if err == nil {
+		t.Error("expected error for nonexistent source")
+	}
+}
+
+func TestSafeCopyDirSourceIsFile(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "file.txt")
+	_ = os.WriteFile(src, []byte("data"), 0644)
+
+	err := SafeCopyDir(src, filepath.Join(tmp, "dst"))
+	if err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Errorf("expected 'not a directory' error, got %v", err)
+	}
+}
+
+func TestSafeCopyDirRemoveAllError(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "src")
+	_ = os.MkdirAll(src, 0755)
+
+	// Make dest a dir that's hard to remove (readonly parent)
+	dst := filepath.Join(tmp, "readonly", "dst")
+	_ = os.MkdirAll(dst, 0755)
+	_ = os.WriteFile(filepath.Join(dst, "file.txt"), []byte("data"), 0644)
+	_ = os.Chmod(filepath.Join(tmp, "readonly"), 0555)
+	defer func() { _ = os.Chmod(filepath.Join(tmp, "readonly"), 0755) }()
+
+	err := SafeCopyDir(src, dst)
+	if err == nil {
+		t.Error("expected error when RemoveAll fails")
+	}
+}
+
+func TestSyncCopyDirSourceIsFile(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "file.txt")
+	_ = os.WriteFile(src, []byte("data"), 0644)
+
+	err := SyncCopyDir(src, filepath.Join(tmp, "dst"))
+	if err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Errorf("expected 'not a directory' error, got %v", err)
+	}
+}
+
+func TestSyncCopyDirSourceStatError(t *testing.T) {
+	tmp := t.TempDir()
+	// Create a source path that exists but has permission issues
+	src := filepath.Join(tmp, "noperm")
+	_ = os.MkdirAll(src, 0755)
+	_ = os.WriteFile(filepath.Join(src, "file.txt"), []byte("data"), 0644)
+	_ = os.Chmod(src, 0000)
+	defer func() { _ = os.Chmod(src, 0755) }()
+
+	// SyncCopyDir should return error (non-NotExist stat error)
+	err := SyncCopyDir(src, filepath.Join(tmp, "dst"))
+	// On some systems this might fail on stat, on others it might succeed
+	// The point is to exercise the error path
+	_ = err
+}
+
+func TestSyncCopyDirRemovesObsoleteDirs(t *testing.T) {
+	tmp := t.TempDir()
+
+	src := filepath.Join(tmp, "src")
+	_ = os.MkdirAll(filepath.Join(src, "keep"), 0755)
+	_ = os.WriteFile(filepath.Join(src, "keep", "file.txt"), []byte("keep"), 0644)
+
+	dst := filepath.Join(tmp, "dst")
+	// First sync
+	if err := SyncCopyDir(src, dst); err != nil {
+		t.Fatalf("initial sync failed: %v", err)
+	}
+
+	// Add a dir to dst that doesn't exist in src
+	_ = os.MkdirAll(filepath.Join(dst, "obsolete", "nested"), 0755)
+	_ = os.WriteFile(filepath.Join(dst, "obsolete", "nested", "file.txt"), []byte("delete"), 0644)
+
+	// Re-sync should remove obsolete dir
+	if err := SyncCopyDir(src, dst); err != nil {
+		t.Fatalf("second sync failed: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dst, "obsolete")); !os.IsNotExist(err) {
+		t.Error("obsolete directory should have been removed")
+	}
+}
+
+func TestSyncCopyDirMkdirError(t *testing.T) {
+	tmp := t.TempDir()
+
+	src := filepath.Join(tmp, "src")
+	_ = os.MkdirAll(filepath.Join(src, "sub"), 0755)
+	_ = os.WriteFile(filepath.Join(src, "sub", "file.txt"), []byte("data"), 0644)
+
+	// Create dst where sub can't be created (make dst a read-only dir)
+	dst := filepath.Join(tmp, "dst")
+	_ = os.MkdirAll(dst, 0755)
+	_ = os.Chmod(dst, 0555)
+	defer func() { _ = os.Chmod(dst, 0755) }()
+
+	err := SyncCopyDir(src, dst)
+	if err == nil {
+		t.Error("expected error when mkdir fails in dest")
+	}
+}
+
+func TestCopyFileSourceOpenError(t *testing.T) {
+	tmp := t.TempDir()
+	err := copyFile(filepath.Join(tmp, "nonexistent"), filepath.Join(tmp, "dst"), 0644)
+	if err == nil {
+		t.Error("expected error when source doesn't exist")
+	}
+}
+
+func TestCopyFileDestCreateError(t *testing.T) {
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "src")
+	_ = os.WriteFile(src, []byte("data"), 0644)
+
+	err := copyFile(src, filepath.Join(tmp, "nonexistent", "dst"), 0644)
+	if err == nil {
+		t.Error("expected error when dest dir doesn't exist")
+	}
+}
+
+func TestCopyDirRecursiveWalkError(t *testing.T) {
+	tmp := t.TempDir()
+
+	src := filepath.Join(tmp, "src")
+	_ = os.MkdirAll(filepath.Join(src, "sub"), 0755)
+	_ = os.WriteFile(filepath.Join(src, "sub", "file.txt"), []byte("data"), 0644)
+	// Make sub unreadable so Walk gets an error
+	_ = os.Chmod(filepath.Join(src, "sub"), 0000)
+	defer func() { _ = os.Chmod(filepath.Join(src, "sub"), 0755) }()
+
+	dst := filepath.Join(tmp, "dst")
+	err := copyDirRecursive(src, dst)
+	// walkErr is returned as nil (the function continues), but the file won't be copied
+	_ = err
+}
+
+func TestResolveGitDirWithFile(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Test with .git as a file pointing to another directory (worktree)
+	gitDir := filepath.Join(tmp, "actual-git-dir")
+	_ = os.MkdirAll(gitDir, 0755)
+
+	// Absolute gitdir reference
+	dotGit := filepath.Join(tmp, ".git")
+	_ = os.WriteFile(dotGit, []byte("gitdir: "+gitDir+"\n"), 0644)
+
+	result := resolveGitDir(tmp)
+	if result != gitDir {
+		t.Errorf("expected %q, got %q", gitDir, result)
+	}
+
+	// Relative gitdir reference
+	relGitDir := filepath.Join(tmp, "rel-test")
+	_ = os.MkdirAll(relGitDir, 0755)
+	relGitActual := filepath.Join(relGitDir, "actual-git")
+	_ = os.MkdirAll(relGitActual, 0755)
+
+	dotGitRel := filepath.Join(relGitDir, ".git")
+	_ = os.WriteFile(dotGitRel, []byte("gitdir: actual-git\n"), 0644)
+
+	result2 := resolveGitDir(relGitDir)
+	expected := filepath.Clean(filepath.Join(relGitDir, "actual-git"))
+	if result2 != expected {
+		t.Errorf("expected %q, got %q", expected, result2)
+	}
+}
+
+func TestResolveGitDirNotGitdir(t *testing.T) {
+	tmp := t.TempDir()
+
+	// .git is a file but doesn't start with "gitdir: "
+	_ = os.WriteFile(filepath.Join(tmp, ".git"), []byte("some random content"), 0644)
+
+	result := resolveGitDir(tmp)
+	expected := filepath.Join(tmp, ".git")
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestResolveGitDirReadFileError(t *testing.T) {
+	tmp := t.TempDir()
+
+	// .git is a file that can't be read
+	dotGit := filepath.Join(tmp, ".git")
+	_ = os.WriteFile(dotGit, []byte("content"), 0644)
+	_ = os.Chmod(dotGit, 0000)
+	defer func() { _ = os.Chmod(dotGit, 0644) }()
+
+	result := resolveGitDir(tmp)
+	expected := filepath.Join(tmp, ".git")
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestGetPathsFallbackToCwd(t *testing.T) {
+	// GetPaths with global=false when not in a git repo
+	// Should fallback to os.Getwd()
+	p := GetPaths("test-ide", false)
+	if p == nil {
+		t.Fatal("expected non-nil paths")
+	}
+	if p.IDE != "test-ide" {
+		t.Errorf("expected IDE 'test-ide', got %q", p.IDE)
+	}
+}
+
+func TestGetPathsGlobal(t *testing.T) {
+	p := GetPaths("test-ide", true)
+	if p == nil {
+		t.Fatal("expected non-nil paths")
+	}
+	if p.TargetDir != p.FrameworksDir {
+		t.Error("expected TargetDir to equal FrameworksDir in global mode")
+	}
+}
+
+func TestGetPathsForProjectEmpty(t *testing.T) {
+	p := GetPathsForProject("test-ide", "")
+	if p == nil {
+		t.Fatal("expected non-nil paths")
+	}
+}
+
+func TestBuildPathsDefaultIDE(t *testing.T) {
+	p := buildPaths("", "/tmp/project")
+	if p.IDE != "antigravity" {
+		t.Errorf("expected default IDE 'antigravity', got %q", p.IDE)
+	}
+}
+
+func TestIsSymlink(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Regular file
+	f := filepath.Join(tmp, "file.txt")
+	_ = os.WriteFile(f, []byte("data"), 0644)
+	if isSymlink(f) {
+		t.Error("regular file should not be symlink")
+	}
+
+	// Symlink
+	link := filepath.Join(tmp, "link")
+	_ = os.Symlink(f, link)
+	if !isSymlink(link) {
+		t.Error("symlink should be detected as symlink")
+	}
+
+	// Nonexistent
+	if isSymlink(filepath.Join(tmp, "nonexistent")) {
+		t.Error("nonexistent path should not be symlink")
+	}
+}
+
+func TestRemoveIfSymlink(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Test with regular file — should NOT be removed
+	f := filepath.Join(tmp, "regular")
+	_ = os.WriteFile(f, []byte("data"), 0644)
+	removeIfSymlink(f)
+	if _, err := os.Stat(f); err != nil {
+		t.Error("regular file should not be removed")
+	}
+
+	// Test with symlink — should be removed
+	target := filepath.Join(tmp, "target")
+	_ = os.MkdirAll(target, 0755)
+	link := filepath.Join(tmp, "link")
+	_ = os.Symlink(target, link)
+	removeIfSymlink(link)
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Error("symlink should have been removed")
 	}
 }

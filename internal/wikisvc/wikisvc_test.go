@@ -162,3 +162,84 @@ func TestResolveSources_EmptyInput(t *testing.T) {
 		t.Errorf("expected 0 errors, got %d", len(errs))
 	}
 }
+
+func TestListSessions_Empty(t *testing.T) {
+	svc := NewWikiService(t.TempDir())
+	sessions, err := svc.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions error: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Errorf("expected 0 sessions, got %d", len(sessions))
+	}
+}
+
+func TestLatestSession_NoSessions(t *testing.T) {
+	svc := NewWikiService(t.TempDir())
+	_, err := svc.LatestSession()
+	if err == nil {
+		t.Error("expected error when no sessions exist")
+	}
+}
+
+func TestDeleteSession_NotFound(t *testing.T) {
+	svc := NewWikiService(t.TempDir())
+	err := svc.DeleteSession("nonexistent-session-id")
+	if err == nil {
+		t.Error("expected error when session not found")
+	}
+}
+
+func TestContinueChat_SessionNotFound(t *testing.T) {
+	svc := NewWikiService(t.TempDir())
+	ctx := context.Background()
+	_, err := svc.ContinueChat(ctx, "nonexistent-session", "hello")
+	if err == nil {
+		t.Error("expected error when session not found")
+	}
+}
+
+func TestSearchMultiWiki_NoSources(t *testing.T) {
+	svc := NewWikiService(t.TempDir())
+	ctx := context.Background()
+	_, err := svc.SearchMultiWiki(ctx, WikiSearchOpts{
+		Query: "test",
+		Wikis: []string{"nonexistent"},
+	})
+	if err == nil {
+		t.Error("expected error when no valid sources")
+	}
+}
+
+func TestResolveHubKnowledgeSource_Error(t *testing.T) {
+	svc := NewWikiService(t.TempDir())
+	ctx := context.Background()
+	// Hub registry won't be available in test env
+	_, err := svc.ResolveHubKnowledgeSource(ctx, "nonexistent-artifact@v1")
+	if err == nil {
+		t.Error("expected error when hub registry not available")
+	}
+}
+
+func TestResolveSources_WithHubRef(t *testing.T) {
+	svc := NewWikiService(t.TempDir())
+	ctx := context.Background()
+	// Hub refs should fail gracefully
+	sources, errs := svc.ResolveSources(ctx, nil, []string{"some-hub-ref@v1"})
+	if len(sources) != 0 {
+		t.Errorf("expected 0 sources from invalid hub ref, got %d", len(sources))
+	}
+	if len(errs) == 0 {
+		t.Error("expected errors for invalid hub ref")
+	}
+}
+
+func TestResolveWikiSource_Ecosystem_NotInLock(t *testing.T) {
+	svc := NewWikiService(t.TempDir())
+	// "custom-project" is not project/memory, so goes to ecosystem path
+	_, err := svc.ResolveWikiSource("custom-project")
+	if err == nil {
+		t.Error("expected error for ecosystem project not in lock file")
+	}
+}
+

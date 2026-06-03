@@ -306,6 +306,11 @@ func TestFatalAndInterrupted(t *testing.T) {
 		Interrupted()
 		return
 	}
+	if os.Getenv("BE_CRASHER") == "interrupted_muted" {
+		Mute()
+		Interrupted()
+		return
+	}
 
 	// Run Fatal subcommand
 	cmd := exec.Command(os.Args[0], "-test.run=TestFatalAndInterrupted")
@@ -345,4 +350,97 @@ func TestFatalAndInterrupted(t *testing.T) {
 	} else {
 		t.Errorf("expected Interrupted exit code 130, got error: %v", err2)
 	}
+
+	// Run muted Interrupted subcommand
+	cmd3 := exec.Command(os.Args[0], "-test.run=TestFatalAndInterrupted")
+	cmd3.Env = append(os.Environ(), "BE_CRASHER=interrupted_muted")
+	var stdout3, stderr3 bytes.Buffer
+	cmd3.Stdout = &stdout3
+	cmd3.Stderr = &stderr3
+	err3 := cmd3.Run()
+	var e3 *exec.ExitError
+	if errors.As(err3, &e3) {
+		exitCode := e3.ExitCode()
+		if exitCode != 130 {
+			t.Errorf("expected muted Interrupted exit code 130, got %d", exitCode)
+		}
+		// When muted, there should be no output on stdout
+		out := stdout3.String()
+		if strings.Contains(out, "Interrupted") {
+			t.Errorf("expected no output when muted, got %q", out)
+		}
+	} else {
+		t.Errorf("expected muted Interrupted exit, got error: %v", err3)
+	}
 }
+
+func TestTaskTTYDoneWhileSpinnerRunning(t *testing.T) {
+	// This tests the branch in the spinner goroutine where it checks t.done
+	// inside the ticker.C case and returns early (lines 232-234).
+	// We set t.done = true directly (without closing stopCh) so the goroutine's
+	// select can only pick ticker.C and will observe done==true.
+	isTTYOrig := isTTY
+	defer func() { isTTY = isTTYOrig }()
+	isTTY = true
+
+	p := NewPrinter("TASK")
+	var buf bytes.Buffer
+	p = p.WithWriter(&buf)
+
+	task := p.StartTask("quick task")
+
+	// Wait for at least one spinner frame to render (proves goroutine is running)
+	time.Sleep(120 * time.Millisecond)
+
+	// Set done=true WITHOUT closing stopCh, so the goroutine's select
+	// can only receive from ticker.C and will hit the if-t.done branch
+	task.mu.Lock()
+	task.done = true
+	task.mu.Unlock()
+
+	// Wait for the goroutine to pick up the ticker.C case and exit
+	time.Sleep(200 * time.Millisecond)
+
+	// Clean up by closing stopCh (safe since done is already true and goroutine exited)
+	close(task.stopCh)
+}
+
+
+func TestTaskNonTTYFail(t *testing.T) {
+	isTTYOrig := isTTY
+	defer func() { isTTY = isTTYOrig }()
+	isTTY = false
+
+	p := NewPrinter("TASK")
+	var buf bytes.Buffer
+	p = p.WithWriter(&buf)
+
+	task := p.StartTask("fail task")
+	buf.Reset()
+	task.Fail("failed %s", "msg")
+	out := buf.String()
+	if !strings.Contains(out, SymbolError) || !strings.Contains(out, "failed msg") {
+		t.Errorf("expected fail output in non-TTY, got %q", out)
+	}
+}
+
+func TestTaskDoubleFailNonTTY(t *testing.T) {
+	isTTYOrig := isTTY
+	defer func() { isTTY = isTTYOrig }()
+	isTTY = false
+
+	p := NewPrinter("TASK")
+	var buf bytes.Buffer
+	p = p.WithWriter(&buf)
+
+	task := p.StartTask("task")
+	task.Fail("first fail")
+	buf.Reset()
+	task.Fail("second fail")
+	task.Done("second done")
+	out := buf.String()
+	if out != "" {
+		t.Errorf("expected no output after double fail/done, got %q", out)
+	}
+}
+

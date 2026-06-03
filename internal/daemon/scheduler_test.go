@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -17,14 +19,13 @@ func TestCronMarker(t *testing.T) {
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)
 	}
-	// Must start with "# " (valid cron comment)
 	if !strings.HasPrefix(got, "# ") {
 		t.Errorf("cronMarker should start with '# ', got %q", got)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// resolveExePath — basic validation
+// resolveExePath
 // ---------------------------------------------------------------------------
 
 func TestResolveExePath(t *testing.T) {
@@ -35,14 +36,21 @@ func TestResolveExePath(t *testing.T) {
 	if exe == "" {
 		t.Error("expected non-empty path")
 	}
-	// Should be an absolute path
 	if !strings.HasPrefix(exe, "/") {
 		t.Errorf("expected absolute path, got %q", exe)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// removeCronEntry (Linux-only, but the function is pure string manipulation)
+// IsSchedulerInstalled
+// ---------------------------------------------------------------------------
+
+func TestIsSchedulerInstalled_NoPanic(t *testing.T) {
+	_ = IsSchedulerInstalled()
+}
+
+// ---------------------------------------------------------------------------
+// removeCronEntry
 // ---------------------------------------------------------------------------
 
 func TestRemoveCronEntry_NoMarker(t *testing.T) {
@@ -58,7 +66,6 @@ func TestRemoveCronEntry_WithMarker(t *testing.T) {
 	marker := "# GRAPHIT_DAEMON_SCHEDULER"
 	crontab := "0 * * * * /usr/bin/command\n" + marker + "\n* * * * * /usr/bin/graphit daemon\n5 * * * * /usr/bin/other\n"
 	result := removeCronEntry(crontab, marker)
-	// Should remove the marker line and the line after it
 	if strings.Contains(result, marker) {
 		t.Error("marker should be removed")
 	}
@@ -96,7 +103,6 @@ func TestRemoveCronEntry_OnlyMarker(t *testing.T) {
 	marker := "# MARKER"
 	crontab := marker + "\n* * * * * /cmd\n"
 	result := removeCronEntry(crontab, marker)
-	// The trailing empty line from the split may remain
 	trimmed := strings.TrimSpace(result)
 	if strings.Contains(trimmed, marker) {
 		t.Error("marker should be removed")
@@ -126,11 +132,133 @@ func TestRemoveCronEntry_MultipleOccurrences(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// IsSchedulerInstalled — (cannot truly test install without crontab,
-// but we can verify the function doesn't panic)
+// SchedulerStatus
 // ---------------------------------------------------------------------------
 
-func TestIsSchedulerInstalled_NoPanic(t *testing.T) {
-	// Just verify it doesn't panic — the result depends on actual crontab state
-	_ = IsSchedulerInstalled()
+func TestSchedulerStatus_NoCrontab(t *testing.T) {
+	status := SchedulerStatus()
+	// On systems without crontab, this should return a "not installed" message
+	if status == "" {
+		t.Error("expected non-empty status")
+	}
 }
+
+// ---------------------------------------------------------------------------
+// InstallScheduler / RemoveScheduler  — requires crontab
+// ---------------------------------------------------------------------------
+
+func TestInstallScheduler_RequiresCrontab(t *testing.T) {
+	// Skip if crontab is not available
+	if _, err := exec.LookPath("crontab"); err != nil {
+		t.Skip("crontab not in PATH")
+	}
+
+	// Save the current crontab
+	out, _ := exec.Command("crontab", "-l").Output()
+	defer func() {
+		// Restore
+		cmd := exec.Command("crontab", "-")
+		cmd.Stdin = strings.NewReader(string(out))
+		_ = cmd.Run()
+	}()
+
+	// Install
+	if err := InstallScheduler(); err != nil {
+		t.Fatalf("InstallScheduler: %v", err)
+	}
+
+	// Verify it's installed
+	status := SchedulerStatus()
+	if !strings.Contains(status, "installed") {
+		t.Errorf("expected 'installed' in status after install, got %q", status)
+	}
+
+	// Remove
+	if err := RemoveScheduler(); err != nil {
+		t.Fatalf("RemoveScheduler: %v", err)
+	}
+
+	// Verify it's removed
+	status = SchedulerStatus()
+	if !strings.Contains(status, "not installed") {
+		t.Errorf("expected 'not installed' after remove, got %q", status)
+	}
+}
+
+func TestRemoveScheduler_NoCrontab(t *testing.T) {
+	// RemoveScheduler should not fail when there's nothing to remove
+	if _, err := exec.LookPath("crontab"); err != nil {
+		t.Skip("crontab not in PATH")
+	}
+
+	// If crontab doesn't have our entry, RemoveScheduler should not error
+	err := RemoveScheduler()
+	if err != nil {
+		t.Logf("RemoveScheduler returned error (may be expected): %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// resolveDaemonExe
+// ---------------------------------------------------------------------------
+
+func TestResolveDaemonExe_Default(t *testing.T) {
+	// Clear the env var to test fallback path
+	origLauncher := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
+	_ = os.Unsetenv(brand.EnvVar("LAUNCHER_PATH"))
+	defer func() {
+		if origLauncher != "" {
+			_ = os.Setenv(brand.EnvVar("LAUNCHER_PATH"), origLauncher)
+		}
+	}()
+
+	exe := resolveDaemonExe()
+	if exe == "" {
+		t.Error("expected non-empty exe path")
+	}
+}
+
+func TestResolveDaemonExe_WithLauncherPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	launcherPath := tmpDir + "/launcher-bin"
+	if err := os.WriteFile(launcherPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origLauncher := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
+	_ = os.Setenv(brand.EnvVar("LAUNCHER_PATH"), launcherPath)
+	defer func() {
+		if origLauncher != "" {
+			_ = os.Setenv(brand.EnvVar("LAUNCHER_PATH"), origLauncher)
+		} else {
+			_ = os.Unsetenv(brand.EnvVar("LAUNCHER_PATH"))
+		}
+	}()
+
+	exe := resolveDaemonExe()
+	if exe != launcherPath {
+		t.Errorf("expected %q, got %q", launcherPath, exe)
+	}
+}
+
+func TestResolveDaemonExe_WithInvalidLauncherPath(t *testing.T) {
+	origLauncher := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
+	_ = os.Setenv(brand.EnvVar("LAUNCHER_PATH"), "/nonexistent/launcher")
+	defer func() {
+		if origLauncher != "" {
+			_ = os.Setenv(brand.EnvVar("LAUNCHER_PATH"), origLauncher)
+		} else {
+			_ = os.Unsetenv(brand.EnvVar("LAUNCHER_PATH"))
+		}
+	}()
+
+	// Should fall back to os.Executable
+	exe := resolveDaemonExe()
+	if exe == "/nonexistent/launcher" {
+		t.Error("should not return invalid launcher path")
+	}
+	if exe == "" {
+		t.Error("expected non-empty exe path (fallback)")
+	}
+}
+
