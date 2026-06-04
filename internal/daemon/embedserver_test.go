@@ -1,12 +1,11 @@
 package daemon
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,20 +48,7 @@ func (m *mockEmbeddingClient) ModelName() string {
 	return "mock-model"
 }
 
-// mockQueryEmbedder implements both EmbeddingClient and QueryEmbedder
-type mockQueryEmbedder struct {
-	mockEmbeddingClient
-	embedQueryFn func(ctx context.Context, query string) ([]float32, error)
-}
-
-func (m *mockQueryEmbedder) EmbedQuery(ctx context.Context, query string) ([]float32, error) {
-	if m.embedQueryFn != nil {
-		return m.embedQueryFn(ctx, query)
-	}
-	return []float32{0.5, 0.6}, nil
-}
-
-func TestNewEmbedServer_PortFilePath(t *testing.T) {
+func TestNewEmbedServer_SockFilePath(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")
 	_ = os.Setenv("HOME", tempHome)
@@ -70,9 +56,9 @@ func TestNewEmbedServer_PortFilePath(t *testing.T) {
 
 	// Use a nil client since we're only testing the path configuration
 	srv := NewEmbedServer(nil)
-	expected := filepath.Join(GlobalDaemonDir(), portFileName)
-	if srv.portFile != expected {
-		t.Errorf("expected portFile %q, got %q", expected, srv.portFile)
+	expected := filepath.Join(GlobalDaemonDir(), sockFileName)
+	if srv.sockFile != expected {
+		t.Errorf("expected sockFile %q, got %q", expected, srv.sockFile)
 	}
 }
 
@@ -99,72 +85,56 @@ func TestEmbedServer_StartAndShutdown(t *testing.T) {
 	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
 
-	// Verify port file was written
-	portData, err := os.ReadFile(srv.portFile)
-	if err != nil {
-		t.Fatalf("port file not written: %v", err)
-	}
-	portStr := strings.TrimSpace(string(portData))
-	if portStr == "" {
-		t.Fatal("port file is empty")
+	// Verify sock file was created
+	if _, err := os.Stat(srv.sockFile); os.IsNotExist(err) {
+		t.Fatalf("sock file not created")
 	}
 
-	baseURL := "http://127.0.0.1:" + portStr
-
-	// Test /health endpoint
-	resp, err := http.Get(baseURL + "/health")
+	// Test embed batch request via socket
+	conn, err := net.Dial("unix", srv.sockFile)
 	if err != nil {
-		t.Fatalf("health request failed: %v", err)
+		t.Fatalf("dial failed: %v", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("health status: expected 200, got %d", resp.StatusCode)
-	}
-	var healthResp healthResponse
-	if err := json.NewDecoder(resp.Body).Decode(&healthResp); err != nil {
-		t.Fatalf("decode health response: %v", err)
-	}
-	if healthResp.Status != "ok" {
-		t.Errorf("health status: expected 'ok', got %q", healthResp.Status)
-	}
-	if healthResp.Model != "test-model" {
-		t.Errorf("health model: expected 'test-model', got %q", healthResp.Model)
+	defer conn.Close()
+
+	embedBody := `{"texts":["hello","world"]}` + "\n"
+	_, err = conn.Write([]byte(embedBody))
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
 	}
 
-	// Test /embed endpoint with POST
-	embedBody := `{"texts":["hello","world"]}`
-	resp2, err := http.Post(baseURL+"/embed", "application/json", strings.NewReader(embedBody))
+	reader := bufio.NewReader(conn)
+	respBytes, err := reader.ReadBytes('\n')
 	if err != nil {
-		t.Fatalf("embed request failed: %v", err)
+		t.Fatalf("read failed: %v", err)
 	}
-	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusOK {
-		t.Errorf("embed status: expected 200, got %d", resp2.StatusCode)
-	}
+
 	var embedResp embedResponse
-	if err := json.NewDecoder(resp2.Body).Decode(&embedResp); err != nil {
-		t.Fatalf("decode embed response: %v", err)
+	if err := json.Unmarshal(respBytes, &embedResp); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
 	if len(embedResp.Vectors) != 2 {
 		t.Errorf("expected 2 vectors, got %d", len(embedResp.Vectors))
 	}
 
-	// Test /embed/query endpoint
-	queryBody := `{"query":"test query"}`
-	resp3, err := http.Post(baseURL+"/embed/query", "application/json", strings.NewReader(queryBody))
+	// Test embed query request
+	queryBody := `{"query":"test query"}` + "\n"
+	_, err = conn.Write([]byte(queryBody))
 	if err != nil {
-		t.Fatalf("query request failed: %v", err)
+		t.Fatalf("write failed: %v", err)
 	}
-	defer resp3.Body.Close()
-	if resp3.StatusCode != http.StatusOK {
-		t.Errorf("query status: expected 200, got %d", resp3.StatusCode)
+
+	respBytes2, err := reader.ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
 	}
-	var queryResp queryResponse
-	if err := json.NewDecoder(resp3.Body).Decode(&queryResp); err != nil {
-		t.Fatalf("decode query response: %v", err)
+
+	var queryResp embedResponse
+	if err := json.Unmarshal(respBytes2, &queryResp); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-	if len(queryResp.Vector) == 0 {
-		t.Error("expected non-empty vector")
+	if len(queryResp.Vectors) != 1 {
+		t.Errorf("expected 1 vector, got %d", len(queryResp.Vectors))
 	}
 
 	// Shutdown
@@ -175,226 +145,77 @@ func TestEmbedServer_StartAndShutdown(t *testing.T) {
 		t.Errorf("Start error: %v", startErr)
 	}
 
-	// Port file should be removed after shutdown
+	// sock file should be removed after shutdown
 	time.Sleep(50 * time.Millisecond)
-	if _, err := os.Stat(srv.portFile); !os.IsNotExist(err) {
-		t.Log("port file may still exist briefly after shutdown")
+	if _, err := os.Stat(srv.sockFile); !os.IsNotExist(err) {
+		t.Log("sock file may still exist briefly after shutdown")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// handleEmbed — edge cases
-// ---------------------------------------------------------------------------
-
-func TestHandleEmbed_MethodNotAllowed(t *testing.T) {
+func TestHandleConnection_InvalidJSON(t *testing.T) {
 	client := &mockEmbeddingClient{}
 	srv := &EmbedServer{client: client}
 
-	req := httptest.NewRequest(http.MethodGet, "/embed", nil)
-	w := httptest.NewRecorder()
-	srv.handleEmbed(w, req)
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected 405, got %d", w.Code)
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go srv.handleConnection(ctx, serverConn)
+
+	_, err := clientConn.Write([]byte("{bad\n"))
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
 	}
-}
 
-func TestHandleEmbed_InvalidJSON(t *testing.T) {
-	client := &mockEmbeddingClient{}
-	srv := &EmbedServer{client: client}
-
-	req := httptest.NewRequest(http.MethodPost, "/embed", strings.NewReader("{bad json"))
-	w := httptest.NewRecorder()
-	srv.handleEmbed(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
+	reader := bufio.NewReader(clientConn)
+	respBytes, err := reader.ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
 	}
-}
 
-func TestHandleEmbed_EmptyTexts(t *testing.T) {
-	client := &mockEmbeddingClient{}
-	srv := &EmbedServer{client: client}
-
-	body := `{"texts":[]}`
-	req := httptest.NewRequest(http.MethodPost, "/embed", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	srv.handleEmbed(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
 	var resp embedResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+	if err := json.Unmarshal(respBytes, &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(resp.Vectors) != 0 {
-		t.Errorf("expected 0 vectors, got %d", len(resp.Vectors))
+	if !strings.Contains(resp.Error, "invalid json") {
+		t.Errorf("expected invalid json error, got %q", resp.Error)
 	}
 }
 
-func TestHandleEmbed_EmbedBatchError(t *testing.T) {
+func TestHandleConnection_EmbedError(t *testing.T) {
 	client := &mockEmbeddingClient{
 		embedBatchFn: func(ctx context.Context, texts []string) ([][]float32, error) {
-			return nil, fmt.Errorf("batch error")
-		},
-	}
-	srv := &EmbedServer{client: client}
-
-	body := `{"texts":["hello"]}`
-	req := httptest.NewRequest(http.MethodPost, "/embed", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	srv.handleEmbed(w, req)
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", w.Code)
-	}
-}
-
-func TestHandleEmbed_Success(t *testing.T) {
-	client := &mockEmbeddingClient{}
-	srv := &EmbedServer{client: client}
-
-	body, _ := json.Marshal(embedRequest{Texts: []string{"hello", "world"}})
-	req := httptest.NewRequest(http.MethodPost, "/embed", bytes.NewReader(body))
-	w := httptest.NewRecorder()
-	srv.handleEmbed(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-		t.Errorf("expected Content-Type application/json, got %q", ct)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// handleEmbedQuery — edge cases
-// ---------------------------------------------------------------------------
-
-func TestHandleEmbedQuery_MethodNotAllowed(t *testing.T) {
-	client := &mockEmbeddingClient{}
-	srv := &EmbedServer{client: client}
-
-	req := httptest.NewRequest(http.MethodGet, "/embed/query", nil)
-	w := httptest.NewRecorder()
-	srv.handleEmbedQuery(w, req)
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected 405, got %d", w.Code)
-	}
-}
-
-func TestHandleEmbedQuery_InvalidJSON(t *testing.T) {
-	client := &mockEmbeddingClient{}
-	srv := &EmbedServer{client: client}
-
-	req := httptest.NewRequest(http.MethodPost, "/embed/query", strings.NewReader("{bad"))
-	w := httptest.NewRecorder()
-	srv.handleEmbedQuery(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestHandleEmbedQuery_WithQueryEmbedder(t *testing.T) {
-	client := &mockQueryEmbedder{
-		embedQueryFn: func(ctx context.Context, query string) ([]float32, error) {
-			return []float32{0.9, 0.8}, nil
-		},
-	}
-	srv := &EmbedServer{client: client}
-
-	body := `{"query":"test"}`
-	req := httptest.NewRequest(http.MethodPost, "/embed/query", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	srv.handleEmbedQuery(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-		t.Errorf("expected Content-Type application/json, got %q", ct)
-	}
-}
-
-func TestHandleEmbedQuery_WithoutQueryEmbedder(t *testing.T) {
-	// Plain EmbeddingClient without QueryEmbedder interface — falls back to Embed
-	client := &mockEmbeddingClient{
-		embedFn: func(ctx context.Context, text string) ([]float32, error) {
-			return []float32{0.3, 0.4}, nil
-		},
-	}
-	srv := &EmbedServer{client: client}
-
-	body := `{"query":"test fallback"}`
-	req := httptest.NewRequest(http.MethodPost, "/embed/query", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	srv.handleEmbedQuery(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	var resp queryResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(resp.Vector) != 2 || resp.Vector[0] != 0.3 {
-		t.Errorf("expected fallback vector [0.3, 0.4], got %v", resp.Vector)
-	}
-}
-
-func TestHandleEmbedQuery_QueryEmbedError(t *testing.T) {
-	client := &mockQueryEmbedder{
-		embedQueryFn: func(ctx context.Context, query string) ([]float32, error) {
-			return nil, fmt.Errorf("query embed error")
-		},
-	}
-	srv := &EmbedServer{client: client}
-
-	body := `{"query":"test"}`
-	req := httptest.NewRequest(http.MethodPost, "/embed/query", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	srv.handleEmbedQuery(w, req)
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", w.Code)
-	}
-}
-
-func TestHandleEmbedQuery_EmbedFallbackError(t *testing.T) {
-	client := &mockEmbeddingClient{
-		embedFn: func(ctx context.Context, text string) ([]float32, error) {
 			return nil, fmt.Errorf("embed error")
 		},
 	}
 	srv := &EmbedServer{client: client}
 
-	body := `{"query":"test"}`
-	req := httptest.NewRequest(http.MethodPost, "/embed/query", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	srv.handleEmbedQuery(w, req)
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", w.Code)
+	serverConn, clientConn := net.Pipe()
+	defer clientConn.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go srv.handleConnection(ctx, serverConn)
+
+	_, err := clientConn.Write([]byte(`{"texts":["hello"]}` + "\n"))
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
 	}
-}
 
-// ---------------------------------------------------------------------------
-// handleHealth
-// ---------------------------------------------------------------------------
-
-func TestHandleHealth(t *testing.T) {
-	client := &mockEmbeddingClient{modelName: "my-model"}
-	srv := &EmbedServer{client: client}
-
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	w := httptest.NewRecorder()
-	srv.handleHealth(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+	reader := bufio.NewReader(clientConn)
+	respBytes, err := reader.ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
 	}
-	var resp healthResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+
+	var resp embedResponse
+	if err := json.Unmarshal(respBytes, &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if resp.Status != "ok" {
-		t.Errorf("expected status 'ok', got %q", resp.Status)
-	}
-	if resp.Model != "my-model" {
-		t.Errorf("expected model 'my-model', got %q", resp.Model)
-	}
-	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-		t.Errorf("expected Content-Type application/json, got %q", ct)
+	if resp.Error != "embed error" {
+		t.Errorf("expected 'embed error', got %q", resp.Error)
 	}
 }

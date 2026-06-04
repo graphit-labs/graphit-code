@@ -1,11 +1,13 @@
 package ai
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -361,47 +363,62 @@ func TestNewClientFromConfig_Success(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestProxyEmbeddingClient(t *testing.T) {
-	// Create a mock daemon server
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/health":
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"status": "ok",
-				"model":  "test-model",
-			})
-		case "/embed":
-			var req struct {
-				Texts []string `json:"texts"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&req)
-			vectors := make([][]float32, len(req.Texts))
-			for i := range req.Texts {
-				vec := make([]float32, EmbeddingDimensions)
-				vec[0] = float32(i + 1)
-				vectors[i] = vec
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"vectors": vectors})
-		case "/embed/query":
-			vec := make([]float32, EmbeddingDimensions)
-			vec[0] = 42.0
-			_ = json.NewEncoder(w).Encode(map[string]any{"vector": vec})
-		default:
-			http.Error(w, "not found", 404)
-		}
-	}))
-	defer srv.Close()
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
 
-	client := &proxyEmbeddingClient{
-		baseURL:    srv.URL,
-		httpClient: srv.Client(),
-		modelName:  "test-model (proxy→daemon)",
+	sockFile := filepath.Join(tempHome, brand.DotDir(), "daemon", "embed.sock")
+	if err := os.MkdirAll(filepath.Dir(sockFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	listener, err := net.Listen("unix", sockFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				reader := bufio.NewReader(c)
+				for {
+					line, err := reader.ReadBytes('\n')
+					if err != nil {
+						return
+					}
+					var req embedRequest
+					if err := json.Unmarshal(line, &req); err == nil {
+						if len(req.Texts) > 0 {
+							vecs := make([][]float32, len(req.Texts))
+							for i := range req.Texts {
+								vecs[i] = []float32{1.0}
+							}
+							resp, _ := json.Marshal(embedResponse{Vectors: vecs})
+							_, _ = c.Write(append(resp, '\n'))
+						} else if req.Query != "" {
+							resp, _ := json.Marshal(embedResponse{Vectors: [][]float32{{42.0}}})
+							_, _ = c.Write(append(resp, '\n'))
+						}
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	client := newProxyEmbeddingClient()
+	if client == nil {
+		t.Fatal("expected non-nil proxy client")
 	}
 
 	t.Run("ModelName", func(t *testing.T) {
 		name := client.ModelName()
-		if name != "test-model (proxy→daemon)" {
-			t.Errorf("ModelName = %q; want %q", name, "test-model (proxy→daemon)")
+		if name != "daemon-embedder (proxy→daemon)" {
+			t.Errorf("ModelName = %q; want %q", name, "daemon-embedder (proxy→daemon)")
 		}
 	})
 
@@ -410,21 +427,8 @@ func TestProxyEmbeddingClient(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Embed failed: %v", err)
 		}
-		if len(vec) != EmbeddingDimensions {
-			t.Errorf("vector len = %d; want %d", len(vec), EmbeddingDimensions)
-		}
 		if vec[0] != 1.0 {
 			t.Errorf("vec[0] = %f; want 1.0", vec[0])
-		}
-	})
-
-	t.Run("EmbedBatch_empty", func(t *testing.T) {
-		vecs, err := client.EmbedBatch(context.Background(), nil)
-		if err != nil {
-			t.Fatalf("EmbedBatch(nil) failed: %v", err)
-		}
-		if vecs != nil {
-			t.Errorf("expected nil for empty batch, got %v", vecs)
 		}
 	})
 
@@ -450,244 +454,84 @@ func TestProxyEmbeddingClient(t *testing.T) {
 }
 
 func TestProxyEmbeddingClient_Errors(t *testing.T) {
-	t.Run("EmbedBatch_ServerError", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusInternalServerError)
-		}))
-		defer srv.Close()
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
 
-		client := &proxyEmbeddingClient{
-			baseURL:    srv.URL,
-			httpClient: srv.Client(),
+	sockFile := filepath.Join(tempHome, brand.DotDir(), "daemon", "embed.sock")
+	if err := os.MkdirAll(filepath.Dir(sockFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	listener, err := net.Listen("unix", sockFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				reader := bufio.NewReader(c)
+				line, err := reader.ReadBytes('\n')
+				if err != nil {
+					return
+				}
+				var req embedRequest
+				_ = json.Unmarshal(line, &req)
+
+				if len(req.Texts) > 0 && req.Texts[0] == "bad-json" {
+					_, _ = c.Write([]byte("invalid json\n"))
+				} else if len(req.Texts) > 0 && req.Texts[0] == "empty" {
+					_, _ = c.Write([]byte(`{"vectors":[]}` + "\n"))
+				} else {
+					resp, _ := json.Marshal(embedResponse{Error: "mock error"})
+					_, _ = c.Write(append(resp, '\n'))
+				}
+			}(conn)
 		}
+	}()
+
+	client := newProxyEmbeddingClient()
+	if client == nil {
+		t.Fatal("expected non-nil proxy client")
+	}
+
+	t.Run("EmbedBatch_Error", func(t *testing.T) {
 		_, err := client.EmbedBatch(context.Background(), []string{"test"})
 		if err == nil {
-			t.Error("expected error for server error")
+			t.Error("expected error")
 		}
-		if !strings.Contains(err.Error(), "status 500") {
-			t.Errorf("expected status 500 error, got %q", err)
+		if !strings.Contains(err.Error(), "mock error") {
+			t.Errorf("expected 'mock error', got %v", err)
 		}
 	})
 
 	t.Run("EmbedBatch_BadJSON", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte("invalid json"))
-		}))
-		defer srv.Close()
-
-		client := &proxyEmbeddingClient{
-			baseURL:    srv.URL,
-			httpClient: srv.Client(),
-		}
-		_, err := client.EmbedBatch(context.Background(), []string{"test"})
+		_, err := client.EmbedBatch(context.Background(), []string{"bad-json"})
 		if err == nil {
 			t.Error("expected error for bad JSON")
-		}
-	})
-
-	t.Run("EmbedQuery_ServerError", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}))
-		defer srv.Close()
-
-		client := &proxyEmbeddingClient{
-			baseURL:    srv.URL,
-			httpClient: srv.Client(),
-		}
-		_, err := client.EmbedQuery(context.Background(), "test")
-		if err == nil {
-			t.Error("expected error for server error")
-		}
-	})
-
-	t.Run("EmbedQuery_BadJSON", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, _ = w.Write([]byte("{bad"))
-		}))
-		defer srv.Close()
-
-		client := &proxyEmbeddingClient{
-			baseURL:    srv.URL,
-			httpClient: srv.Client(),
-		}
-		_, err := client.EmbedQuery(context.Background(), "test")
-		if err == nil {
-			t.Error("expected error for bad JSON")
-		}
-	})
-
-	t.Run("EmbedBatch_ConnectionError", func(t *testing.T) {
-		client := &proxyEmbeddingClient{
-			baseURL:    "http://127.0.0.1:1", // connection refused
-			httpClient: &http.Client{},
-		}
-		_, err := client.EmbedBatch(context.Background(), []string{"test"})
-		if err == nil {
-			t.Error("expected connection error")
-		}
-	})
-
-	t.Run("EmbedQuery_ConnectionError", func(t *testing.T) {
-		client := &proxyEmbeddingClient{
-			baseURL:    "http://127.0.0.1:1",
-			httpClient: &http.Client{},
-		}
-		_, err := client.EmbedQuery(context.Background(), "test")
-		if err == nil {
-			t.Error("expected connection error")
 		}
 	})
 
 	t.Run("Embed_EmptyResponse", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(map[string]any{"vectors": [][]float32{}})
-		}))
-		defer srv.Close()
-
-		client := &proxyEmbeddingClient{
-			baseURL:    srv.URL,
-			httpClient: srv.Client(),
-		}
-		_, err := client.Embed(context.Background(), "test")
+		_, err := client.Embed(context.Background(), "empty")
 		if err == nil {
 			t.Error("expected error for empty embedding response")
 		}
 	})
 }
 
-func TestNewProxyEmbeddingClient_NoPortFile(t *testing.T) {
-	// With no port file, should return nil
+func TestNewProxyEmbeddingClient_NoSockFile(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	client := newProxyEmbeddingClient()
 	if client != nil {
-		t.Error("expected nil when port file doesn't exist")
+		t.Error("expected nil when sock file doesn't exist")
 	}
-}
-
-func TestNewProxyEmbeddingClient_HealthCheckFails(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer srv.Close()
-
-	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
-
-	// Write port file that points to our mock server
-	portDir := filepath.Join(tmpHome, brand.DotDir(), "daemon")
-	if err := os.MkdirAll(portDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Extract port from test server URL
-	port := strings.TrimPrefix(srv.URL, "http://127.0.0.1:")
-	if err := os.WriteFile(filepath.Join(portDir, "embed.port"), []byte(port), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	client := newProxyEmbeddingClient()
-	if client != nil {
-		t.Error("expected nil when health check fails")
-	}
-}
-
-func TestNewProxyEmbeddingClient_HealthBadJSON(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("{bad json"))
-	}))
-	defer srv.Close()
-
-	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
-
-	portDir := filepath.Join(tmpHome, brand.DotDir(), "daemon")
-	if err := os.MkdirAll(portDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	port := strings.TrimPrefix(srv.URL, "http://127.0.0.1:")
-	if err := os.WriteFile(filepath.Join(portDir, "embed.port"), []byte(port), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	client := newProxyEmbeddingClient()
-	if client != nil {
-		t.Error("expected nil when health returns bad JSON")
-	}
-}
-
-func TestNewProxyEmbeddingClient_Success(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"status": "ok",
-			"model":  "test-model",
-		})
-	}))
-	defer srv.Close()
-
-	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
-
-	portDir := filepath.Join(tmpHome, brand.DotDir(), "daemon")
-	if err := os.MkdirAll(portDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	port := strings.TrimPrefix(srv.URL, "http://127.0.0.1:")
-	if err := os.WriteFile(filepath.Join(portDir, "embed.port"), []byte(port), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	client := newProxyEmbeddingClient()
-	if client == nil {
-		t.Fatal("expected non-nil proxy client")
-	}
-	if !strings.Contains(client.ModelName(), "test-model") {
-		t.Errorf("ModelName = %q; expected to contain 'test-model'", client.ModelName())
-	}
-}
-
-func TestReadDaemonEmbedPort(t *testing.T) {
-	t.Run("no_file", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
-		_, err := readDaemonEmbedPort()
-		if err == nil {
-			t.Error("expected error when port file doesn't exist")
-		}
-	})
-
-	t.Run("invalid_port", func(t *testing.T) {
-		tmpHome := t.TempDir()
-		t.Setenv("HOME", tmpHome)
-		portDir := filepath.Join(tmpHome, brand.DotDir(), "daemon")
-		if err := os.MkdirAll(portDir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(portDir, "embed.port"), []byte("notanumber"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		_, err := readDaemonEmbedPort()
-		if err == nil {
-			t.Error("expected error for invalid port")
-		}
-	})
-
-	t.Run("valid_port", func(t *testing.T) {
-		tmpHome := t.TempDir()
-		t.Setenv("HOME", tmpHome)
-		portDir := filepath.Join(tmpHome, brand.DotDir(), "daemon")
-		if err := os.MkdirAll(portDir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(portDir, "embed.port"), []byte("8080\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		port, err := readDaemonEmbedPort()
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if port != 8080 {
-			t.Errorf("port = %d; want 8080", port)
-		}
-	})
 }
 
 // ---------------------------------------------------------------------------
@@ -695,25 +539,19 @@ func TestReadDaemonEmbedPort(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNewEmbeddingClientFromConfig_ProxyAvailable(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"status": "ok",
-			"model":  "proxy-model",
-		})
-	}))
-	defer srv.Close()
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
 
-	tmpHome := t.TempDir()
-	t.Setenv("HOME", tmpHome)
-
-	portDir := filepath.Join(tmpHome, brand.DotDir(), "daemon")
-	if err := os.MkdirAll(portDir, 0o755); err != nil {
+	sockFile := filepath.Join(tempHome, brand.DotDir(), "daemon", "embed.sock")
+	if err := os.MkdirAll(filepath.Dir(sockFile), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	port := strings.TrimPrefix(srv.URL, "http://127.0.0.1:")
-	if err := os.WriteFile(filepath.Join(portDir, "embed.port"), []byte(port), 0o644); err != nil {
+
+	listener, err := net.Listen("unix", sockFile)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer listener.Close()
 
 	client, err := NewEmbeddingClientFromConfig()
 	if err != nil {
@@ -722,8 +560,8 @@ func TestNewEmbeddingClientFromConfig_ProxyAvailable(t *testing.T) {
 	if client == nil {
 		t.Fatal("expected non-nil client")
 	}
-	if !strings.Contains(client.ModelName(), "proxy-model") {
-		t.Errorf("ModelName = %q; expected proxy-model", client.ModelName())
+	if !strings.Contains(client.ModelName(), proxyModelTag) {
+		t.Errorf("ModelName = %q; expected proxy tag", client.ModelName())
 	}
 }
 

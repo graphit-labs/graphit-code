@@ -37,7 +37,7 @@ func TestEmbedServer_Start_ListenError(t *testing.T) {
 	client := &mockEmbeddingClient{modelName: "test"}
 	srv := &EmbedServer{
 		client:   client,
-		portFile: filepath.Join(blockFile, "sub", "embed.port"),
+		sockFile: filepath.Join(blockFile, "sub", "embed.sock"),
 	}
 
 	ctx := context.Background()
@@ -51,36 +51,34 @@ func TestEmbedServer_Start_ListenError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// EmbedServer.Start — port file write error
+// EmbedServer.Start — sock file write error
 // ---------------------------------------------------------------------------
 
-func TestEmbedServer_Start_PortFileWriteError(t *testing.T) {
+func TestEmbedServer_Start_SockFileWriteError(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")
 	_ = os.Setenv("HOME", tempHome)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Create the port file directory but make the file path a directory.
+	// Create the sock file directory but make the file path a directory.
 	portDir := filepath.Join(tempHome, "portdir")
 	_ = os.MkdirAll(portDir, 0o755)
 
-	// Make the port file path a directory so WriteFile fails.
-	portFilePath := filepath.Join(portDir, "embed.port")
+	// Make the sock file path a directory and put a file in it so os.Remove fails and Listen fails.
+	portFilePath := filepath.Join(portDir, "embed.sock")
 	_ = os.MkdirAll(portFilePath, 0o755)
+	_ = os.WriteFile(filepath.Join(portFilePath, "dummy"), []byte("data"), 0o644)
 
 	client := &mockEmbeddingClient{modelName: "test"}
 	srv := &EmbedServer{
 		client:   client,
-		portFile: portFilePath,
+		sockFile: portFilePath,
 	}
 
 	ctx := context.Background()
 	startErr := srv.Start(ctx)
 	if startErr == nil {
-		t.Error("expected error when port file write fails")
-	}
-	if !strings.Contains(startErr.Error(), "writing port file") {
-		t.Errorf("expected 'writing port file' in error, got %v", startErr)
+		t.Error("expected error when sock file write fails")
 	}
 }
 
@@ -99,7 +97,7 @@ func TestNewEmbedServer_Fields(t *testing.T) {
 	if srv.client != client {
 		t.Error("client field mismatch")
 	}
-	if srv.portFile == "" {
-		t.Error("portFile should not be empty")
+	if srv.sockFile == "" {
+		t.Error("sockFile should not be empty")
 	}
 }

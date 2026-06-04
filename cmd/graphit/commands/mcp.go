@@ -2,8 +2,14 @@ package commands
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
 
-	"github.com/graphit-labs/graphit-code/internal/mcpstdio"
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/mcpserver"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/spf13/cobra"
@@ -36,7 +42,7 @@ Examples:
 
 			if stdio {
 				output.Mute()
-				return mcpstdio.Serve(ctx)
+				return runMCPStdioProxy(ctx)
 			}
 
 			p.Info("Starting MCP server (HTTP transport)...")
@@ -52,4 +58,29 @@ Examples:
 	cmd.Flags().BoolVar(&stdio, "stdio", false, "Use stdio transport instead of HTTP")
 
 	return cmd
+}
+
+func runMCPStdioProxy(ctx context.Context) error {
+	mcpSockFile := filepath.Join(brand.GlobalDir(), "daemon", "mcp.sock")
+
+	_, _ = daemon.EnsureRunning()
+
+	conn, err := net.Dial("unix", mcpSockFile)
+	if err != nil {
+		return fmt.Errorf("failed to connect to daemon mcp.sock: %w", err)
+	}
+	defer conn.Close()
+
+	errc := make(chan error, 2)
+	go func() {
+		_, err := io.Copy(conn, os.Stdin)
+		errc <- err
+	}()
+	go func() {
+		_, err := io.Copy(os.Stdout, conn)
+		errc <- err
+	}()
+
+	<-errc
+	return nil
 }

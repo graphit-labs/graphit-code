@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -53,6 +54,18 @@ func Serve(ctx context.Context) error {
 
 	if err := server.Run(ctx, transport); err != nil {
 		return fmt.Errorf("MCP stdio error: %w", err)
+	}
+	return nil
+}
+
+func ServeConn(ctx context.Context, conn net.Conn) error {
+	server := NewServer()
+	transport := &mcp.IOTransport{
+		Reader: conn,
+		Writer: conn,
+	}
+	if err := server.Run(ctx, transport); err != nil {
+		return fmt.Errorf("MCP conn error: %w", err)
 	}
 	return nil
 }

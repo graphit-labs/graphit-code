@@ -1,157 +1,117 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
-const portFileName = "embed.port"
+const sockFileName = "embed.sock"
 
 type EmbedServer struct {
 	client   ai.EmbeddingClient
 	listener net.Listener
-	server   *http.Server
-	portFile string
+	sockFile string
 }
 
 func NewEmbedServer(client ai.EmbeddingClient) *EmbedServer {
 	return &EmbedServer{
 		client:   client,
-		portFile: filepath.Join(GlobalDaemonDir(), portFileName),
+		sockFile: filepath.Join(GlobalDaemonDir(), sockFileName),
 	}
-}
-
-
-
-func (s *EmbedServer) Start(ctx context.Context) error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/embed", s.handleEmbed)
-	mux.HandleFunc("/embed/query", s.handleEmbedQuery)
-	mux.HandleFunc("/health", s.handleHealth)
-
-	var err error
-	s.listener, err = net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return fmt.Errorf("embed server listen: %w", err)
-	}
-
-	port := s.listener.Addr().(*net.TCPAddr).Port
-
-	if err := os.MkdirAll(filepath.Dir(s.portFile), 0o755); err != nil {
-		_ = s.listener.Close()
-		return fmt.Errorf("embed server: creating dir: %w", err)
-	}
-	if err := os.WriteFile(s.portFile, []byte(fmt.Sprintf("%d\n", port)), 0o600); err != nil {
-		_ = s.listener.Close()
-		return fmt.Errorf("embed server: writing port file: %w", err)
-	}
-
-	s.server = &http.Server{
-		Handler: mux,
-	}
-
-	go func() {
-		<-ctx.Done()
-		_ = s.server.Shutdown(context.Background())
-		_ = os.Remove(s.portFile)
-	}()
-
-	err = s.server.Serve(s.listener)
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
-	return err
 }
 
 type embedRequest struct {
 	Texts []string `json:"texts"`
+	Query string   `json:"query"`
 }
 
 type embedResponse struct {
 	Vectors [][]float32 `json:"vectors"`
+	Error   string      `json:"error,omitempty"`
 }
 
-type queryRequest struct {
-	Query string `json:"query"`
-}
-
-type queryResponse struct {
-	Vector []float32 `json:"vector"`
-}
-
-type healthResponse struct {
-	Status string `json:"status"`
-	Model  string `json:"model"`
-}
-
-func (s *EmbedServer) handleEmbed(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
+func (s *EmbedServer) Start(ctx context.Context) error {
+	if err := os.MkdirAll(filepath.Dir(s.sockFile), 0o755); err != nil {
+		return fmt.Errorf("embed server: creating dir: %w", err)
 	}
 
-	var req embedRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
+	_ = os.Remove(s.sockFile)
 
-	if len(req.Texts) == 0 {
-		_ = json.NewEncoder(w).Encode(embedResponse{Vectors: [][]float32{}})
-		return
-	}
-
-	vectors, err := s.client.EmbedBatch(r.Context(), req.Texts)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(embedResponse{Vectors: vectors})
-}
-
-func (s *EmbedServer) handleEmbedQuery(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req queryRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	var vec []float32
 	var err error
-	if qe, ok := s.client.(ai.QueryEmbedder); ok {
-		vec, err = qe.EmbedQuery(r.Context(), req.Query)
-	} else {
-		vec, err = s.client.Embed(r.Context(), req.Query)
-	}
+	s.listener, err = net.Listen("unix", s.sockFile)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("embed server listen: %w", err)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(queryResponse{Vector: vec})
+	go func() {
+		<-ctx.Done()
+		_ = s.listener.Close()
+		_ = os.Remove(s.sockFile)
+	}()
+
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+				return fmt.Errorf("embed server accept: %w", err)
+			}
+		}
+
+		go s.handleConnection(ctx, conn)
+	}
 }
 
-func (s *EmbedServer) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(healthResponse{
-		Status: "ok",
-		Model:  s.client.ModelName(),
-	})
+func (s *EmbedServer) handleConnection(ctx context.Context, conn net.Conn) {
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			return // Connection closed
+		}
+
+		var req embedRequest
+		if err := json.Unmarshal(line, &req); err != nil {
+			s.sendError(conn, fmt.Sprintf("invalid json: %v", err))
+			continue
+		}
+
+		var vectors [][]float32
+		if len(req.Texts) > 0 {
+			vectors, err = s.client.EmbedBatch(ctx, req.Texts)
+		} else if req.Query != "" {
+			var vec []float32
+			if qe, ok := s.client.(ai.QueryEmbedder); ok {
+				vec, err = qe.EmbedQuery(ctx, req.Query)
+			} else {
+				vec, err = s.client.Embed(ctx, req.Query)
+			}
+			vectors = [][]float32{vec}
+		}
+
+		if err != nil {
+			s.sendError(conn, err.Error())
+			continue
+		}
+
+		respBytes, _ := json.Marshal(embedResponse{Vectors: vectors})
+		_, _ = conn.Write(append(respBytes, '\n'))
+	}
+}
+
+func (s *EmbedServer) sendError(conn net.Conn, errMsg string) {
+	respBytes, _ := json.Marshal(embedResponse{Error: errMsg})
+	_, _ = conn.Write(append(respBytes, '\n'))
 }
 

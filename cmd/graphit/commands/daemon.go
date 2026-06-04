@@ -9,12 +9,14 @@ import (
 	"runtime"
 	"syscall"
 	"time"
+	"net"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/mcpstdio"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -153,6 +155,39 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 	go func() {
 		memSync := daemon.NewMemorySyncModule()
 		_ = memSync.Start(ctx)
+	}()
+
+	go func() {
+		mcpSockFile := filepath.Join(daemon.GlobalDaemonDir(), "mcp.sock")
+		_ = os.MkdirAll(filepath.Dir(mcpSockFile), 0o755)
+		_ = os.Remove(mcpSockFile)
+
+		listener, err := net.Listen("unix", mcpSockFile)
+		if err != nil {
+			return
+		}
+
+		go func() {
+			<-ctx.Done()
+			_ = listener.Close()
+			_ = os.Remove(mcpSockFile)
+		}()
+
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					continue
+				}
+			}
+			go func() {
+				defer conn.Close()
+				_ = mcpstdio.ServeConn(ctx, conn)
+			}()
+		}
 	}()
 
 	p := output.NewPrinter("daemon")
