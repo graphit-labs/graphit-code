@@ -45,11 +45,36 @@ The AST Explorer features an interactive **3D force-directed node canvas** that 
   The canvas renders the matching subset of nodes, while the results panel lists data in a tabular format.
 
 ### 2. Wiki and Knowledge Explorer
-The Wiki Explorer indexes the markdown files in your codebase:
+The Wiki Explorer indexes documentation and structured files in your codebase:
 - **Default Indexing Path**: By default, it scans the entire project root directory (respecting ignore rules). You can customize this by setting `knowledge.docs_dir` in your configuration to point to a specific directory (like `docs/`).
+- **Configurable Extensions**: The set of file extensions to index is configurable via `knowledge.extensions`. By default, it indexes 16 extensions: `.md`, `.markdown`, `.mdx`, `.txt`, `.adoc`, `.rst`, `.puml`, `.plantuml`, `.yaml`, `.yml`, `.json`, `.proto`, `.graphql`, `.gql`, `.wsdl`, `.xml`.
+- **Multi-Format Rendering**: Markdown files (`.md`, `.markdown`, `.mdx`) are split by H2 headers into parent/child pages and rendered as native markdown. Structured data files (`.yaml`, `.json`, `.graphql`, `.xml`) are rendered as syntax-highlighted code blocks. Other formats (`.proto`, `.rst`, `.txt`, etc.) are rendered as plain monospaced text.
+- **Collapsed Tree**: The sidebar tree starts collapsed. Nodes expand automatically when their children are selected, keeping the navigation clean.
 - **Index & Logs**: Read a compiled list of all registered documents, categorized into community graphs.
+- **Staleness Tracking**: Pages whose source files have changed since the last sync are flagged as stale, with transitive propagation to dependent pages.
+- **Community Clusters**: Documents are grouped into thematic communities using Louvain graph clustering on cross-reference edges.
 - **Search**: Perform unified searches combining Full-Text Search (FTS) and semantic keyword matching.
 - **Wikilinks**: Click on highlighted links to explore adjacent topics and track inbound back-references.
+
+#### Customizing Extensions
+
+Set the extensions globally (all projects) or per project:
+
+```bash
+# Global — applies to all projects
+graphit config set knowledge.extensions "md,yaml,json,proto,graphql"
+
+# Per project — in .graphit/config.json or graphit.lock.json config section
+{
+  "knowledge": {
+    "extensions": "md,txt,yaml,yml,json,rst"
+  }
+}
+```
+
+The `.` prefix is optional — `md` and `.md` are equivalent. If not configured, all 16 default extensions are used.
+
+Environment variable override: `GRAPHIT_KNOWLEDGE_EXTENSIONS="md,yaml,json"`
 
 ### 3. Collaboration Hub Manager
 The Hub Manager allows you to review rules and agent configurations shared across the team:

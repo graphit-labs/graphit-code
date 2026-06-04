@@ -94,6 +94,7 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `hub.repo` | Git repository URL for the Hub registry | (compiled default) |
 | `memory.repo` | Git repository URL for memory storage | (compiled default) |
 | `knowledge.docs_dir` | Relative path to the project documentation directory | `.` |
+| `knowledge.extensions` | Comma-separated list of file extensions to index (e.g., `md,yaml,json,proto`). The `.` prefix is optional. | `md,markdown,mdx,txt,adoc,rst,puml,plantuml,yaml,yml,json,proto,graphql,gql,wsdl,xml` |
 | `ast.index_source` | Whether to store file source in the AST graph | `true` |
 | `modules.<name>` | Enable/disable a module (`true`/`false`) | Enabled for core, disabled for opt-in |
 

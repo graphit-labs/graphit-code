@@ -27,15 +27,39 @@ This format enables AI agents to explore technical manuals through deterministic
 
 ## 📂 Obsidian Wiki Compilation
 
-On synchronization (`graphit sync`), the indexer pipeline scans markdown files inside the project's root directory (by default, or a custom folder if configured under the `knowledge.docs_dir` key in `graphit.lock.json`).
+On synchronization (`graphit sync`), the indexer pipeline scans files inside the project's root directory (by default, or a custom folder via the `knowledge.docs_dir` config key).
+The set of file extensions to index is configurable via `knowledge.extensions` (comma-separated, e.g., `md,yaml,json,proto`). By default, it indexes 16 extensions covering markdown, structured data, schema, and spec formats.
+
 It compiles these files into a structured wiki path (default: `.graphit/knowledge/project/`):
 
 - **`index.md`**: The entry point.
-  It lists all indexed pages, computed community clusters, "God Nodes" (the most connected documents), and global network metrics.
+  Lists all indexed pages, computed community clusters, "God Nodes" (the most connected documents), and global network metrics.
 - **`log.md`**: An updates timeline tracking modified files.
 - **Wikilink Parsing**:
   The indexer parses Obsidian-style double brackets `[[Target_Page]]`.
   It registers references as edges in a temporary graph to analyze connections.
+
+### Multi-Format Rendering
+
+The pipeline treats file types differently based on their content nature:
+
+| File Type | Splitting | Content Rendering |
+|---|---|---|
+| Markdown (`.md`, `.markdown`, `.mdx`) | Split by `## H2` headers into parent/child pages | Rendered as native markdown |
+| Structured data (`.yaml`, `.json`, `.graphql`, `.xml`) | Kept as a single page | Wrapped in a fenced code block with syntax highlighting (e.g., ` ```yaml `) |
+| Other formats (`.proto`, `.rst`, `.txt`, etc.) | Kept as a single page | Wrapped in a plain fenced code block (` ``` `) |
+
+Only languages supported by the UI renderer (Prism) receive language tags. Unsupported languages render as plain monospaced text.
+
+### Staleness Tracking
+
+A `.manifest.json` file (local, git-ignored) persists SHA-256 content hashes of source files across syncs.
+When a source file changes, the corresponding wiki page is marked as stale in its frontmatter (`stale_since`, `stale_reason`).
+Staleness propagates transitively: if page A references page B, and B's source changes, A is also marked stale.
+
+### Breadcrumbs & ToC
+
+Each split child page includes a breadcrumb trail (e.g., `> Parent > Section`) and a link back to its parent page, enabling hierarchical navigation in the wiki explorer.
 
 ---
 
