@@ -25,10 +25,10 @@ import (
 func TestTryFallbackCLIAndComplete(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Create dummy "grok" shell script binary
+	// Create dummy "grok" shell script that consumes stdin
 	dummyGrok := filepath.Join(tempDir, "grok")
 	grokScript := `#!/bin/sh
-echo "grok completed"
+cat > /dev/null; echo "grok completed"
 `
 	if err := os.WriteFile(dummyGrok, []byte(grokScript), 0755); err != nil {
 		t.Fatalf("failed to write dummy grok: %v", err)
@@ -77,17 +77,21 @@ func TestNewClientFromConfigError(t *testing.T) {
 func TestCompleteAllCLIBranches(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Create dummy script for each CLI binary that echoes the binary name
+	// Create dummy script for each CLI binary that consumes stdin then echoes
 	binaries := []string{
 		"claude", "gemini", "agy", "grok",
 		"cursor-agent", "agent",
 		"codex",
 		"opencode",
 		"kiro-cli",
+		"copilot",
+		"cline",
+		"goose",
+		"openhands",
 		"my-custom-cli",
 	}
 	for _, bin := range binaries {
-		script := fmt.Sprintf("#!/bin/sh\necho \"%s ok\"\n", bin)
+		script := fmt.Sprintf("#!/bin/sh\ncat > /dev/null; echo \"%s ok\"\n", bin)
 		if err := os.WriteFile(filepath.Join(tempDir, bin), []byte(script), 0755); err != nil {
 			t.Fatalf("failed to write dummy %s: %v", bin, err)
 		}
@@ -109,6 +113,10 @@ func TestCompleteAllCLIBranches(t *testing.T) {
 		{"codex", "codex", "test"},
 		{"opencode", "opencode", "test"},
 		{"kiro-cli", "kiro-cli", "test"},
+		{"copilot", "copilot", "test"},
+		{"cline", "cline", "test"},
+		{"goose", "goose", "test"},
+		{"openhands", "openhands", "test"},
 		{"default-custom", "my-custom-cli", "test"},
 	}
 
@@ -132,7 +140,7 @@ func TestCompleteAllCLIBranches(t *testing.T) {
 
 func TestCompleteWithSystemPrompt(t *testing.T) {
 	tempDir := t.TempDir()
-	script := "#!/bin/sh\necho \"response\"\n"
+	script := "#!/bin/sh\ncat > /dev/null; echo \"response\"\n"
 	binPath := filepath.Join(tempDir, "gemini")
 	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
 		t.Fatal(err)
@@ -148,46 +156,109 @@ func TestCompleteWithSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestCompleteLargeStdin(t *testing.T) {
+func TestCompleteAlwaysUsesStdin(t *testing.T) {
 	tempDir := t.TempDir()
-	// Script that reads stdin and outputs a fixed message
-	script := "#!/bin/sh\ncat > /dev/null; echo \"stdin ok\"\n"
-	binPath := filepath.Join(tempDir, "claude")
-	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
-		t.Fatal(err)
+	// Script that verifies it receives stdin and outputs confirmation
+	script := "#!/bin/sh\nread -r line; echo \"stdin ok\"\n"
+
+	binaries := []string{"claude", "codex", "opencode", "kiro-cli", "unknown", "cursor-agent"}
+	for _, bin := range binaries {
+		bp := filepath.Join(tempDir, bin)
+		if err := os.WriteFile(bp, []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	largePrompt := strings.Repeat("x", argMaxSafe+1)
-
-	tests := []struct {
-		name string
-		bin  string
-	}{
-		{"claude-stdin", "claude"},
-		{"codex-stdin", "codex"},
-		{"opencode-stdin", "opencode"},
-		{"kiro-cli-stdin", "kiro-cli"},
-		{"default-stdin", "unknown"},
-		{"cursor-agent-stdin", "cursor-agent"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bp := filepath.Join(tempDir, tt.bin)
-			if _, err := os.Stat(bp); err != nil {
-				// Create the binary if not exists
-				if writeErr := os.WriteFile(bp, []byte(script), 0755); writeErr != nil {
-					t.Fatal(writeErr)
-				}
-			}
-			c := &cliClient{executablePath: bp, binaryName: tt.bin}
-			resp, err := c.Complete(context.Background(), "", largePrompt)
+	// Even a small prompt should use stdin
+	for _, bin := range binaries {
+		t.Run(bin, func(t *testing.T) {
+			c := &cliClient{executablePath: filepath.Join(tempDir, bin), binaryName: bin}
+			resp, err := c.Complete(context.Background(), "", "small prompt")
 			if err != nil {
-				t.Errorf("Complete failed for %s: %v", tt.bin, err)
+				t.Errorf("Complete failed for %s: %v", bin, err)
 			}
 			if strings.TrimSpace(resp) != "stdin ok" {
 				t.Errorf("got %q; want %q", resp, "stdin ok")
 			}
 		})
+	}
+}
+
+func TestSupportsSession(t *testing.T) {
+	tests := []struct {
+		binary   string
+		expected bool
+	}{
+		{"agy", true},
+		{"gemini", true},
+		{"claude", true},
+		{"opencode", true},
+		{"copilot", true},
+		{"grok", false},
+		{"codex", false},
+		{"cursor-agent", false},
+		{"kiro-cli", false},
+		{"cline", false},
+		{"unknown", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.binary, func(t *testing.T) {
+			c := &cliClient{binaryName: tt.binary}
+			if got := c.SupportsSession(); got != tt.expected {
+				t.Errorf("SupportsSession() = %v; want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCompleteWithSession(t *testing.T) {
+	tempDir := t.TempDir()
+	// Script that consumes stdin and echoes confirmation
+	script := "#!/bin/sh\ncat > /dev/null; echo \"session ok\"\n"
+	binPath := filepath.Join(tempDir, "agy")
+	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &cliClient{executablePath: binPath, binaryName: "agy"}
+
+	t.Run("with_session_id", func(t *testing.T) {
+		resp, sid, err := c.CompleteWithSession(context.Background(), "abc-123", "", "test")
+		if err != nil {
+			t.Fatalf("CompleteWithSession failed: %v", err)
+		}
+		if strings.TrimSpace(resp) != "session ok" {
+			t.Errorf("got %q; want %q", resp, "session ok")
+		}
+		if sid != "abc-123" {
+			t.Errorf("session ID = %q; want %q", sid, "abc-123")
+		}
+	})
+
+	t.Run("without_session_id", func(t *testing.T) {
+		resp, sid, err := c.CompleteWithSession(context.Background(), "", "", "test")
+		if err != nil {
+			t.Fatalf("CompleteWithSession failed: %v", err)
+		}
+		if strings.TrimSpace(resp) != "session ok" {
+			t.Errorf("got %q; want %q", resp, "session ok")
+		}
+		if sid != "" {
+			t.Errorf("session ID = %q; want empty", sid)
+		}
+	})
+}
+
+func TestSessionClientInterface(t *testing.T) {
+	c := &cliClient{binaryName: "agy"}
+	var client Client = c
+
+	sc, ok := client.(SessionClient)
+	if !ok {
+		t.Fatal("cliClient should implement SessionClient")
+	}
+	if !sc.SupportsSession() {
+		t.Error("agy should support sessions")
 	}
 }
 
