@@ -1098,6 +1098,7 @@ func splitDocByHeaders(doc knowledgeDoc) []knowledgeDoc {
 			parentTitle: doc.title,
 			breadcrumb:  doc.title + " > " + sectionTitle,
 			contentHash: fmt.Sprintf("%x", sha256.Sum256([]byte(trimmedContent)))[:16],
+			isMarkdown:  doc.isMarkdown,
 		}
 		result = append(result, childDoc)
 	}
