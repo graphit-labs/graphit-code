@@ -81,6 +81,25 @@ The Hub Manager allows you to review rules and agent configurations shared acros
 - **Registry View**: Inspect available plugins, skills, and MCP tools in the registry.
 - **Installs**: Click to deploy templates or commands into your local project structure.
 
+#### Hub Artifact Types
+
+The Hub supports 10 artifact types. Two are dedicated to the AST module's language and framework detection pipeline:
+
+- **Language Grammars** (`language`): Packages a Tree-sitter `.wasm` grammar file and its corresponding extraction `.yaml` query file for a programming language. This enables AST support for languages not included in the built-in defaults (e.g., Elixir, Haskell, Scala). On installation, the `.wasm` grammar is placed into `<project>/.graphit/ast/grammars/` and the `.yaml` queries into `<project>/.graphit/ast/queries/`.
+
+- **Framework Configs** (`framework`): Packages a `.yaml` framework detection file defining decorator, heritage, and import detection rules for a framework. On installation, the `.yaml` file is placed into `<project>/.graphit/ast/frameworks/`, where its rules merge with built-in defaults on the next sync.
+
+Install Hub artifacts using the CLI:
+```bash
+# Install a language grammar (e.g., Elixir support)
+graphit hub install elixir-lang@1.0
+
+# Install a framework detection config (e.g., Phoenix)
+graphit hub install phoenix-framework@1.0
+```
+
+After installation, run `graphit sync` to activate the new language or framework. No recompilation is required.
+
 ---
 
 ## Managing the Memory Lifecycle

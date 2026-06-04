@@ -5,7 +5,7 @@ import { hubApi } from '@/api/hub'
 import { CloudUpload, Plus, Trash2, Globe, FolderOpen, Wand2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const TYPES = ['rule', 'skill', 'agent', 'command', 'knowledge', 'ast', 'mcp', 'power']
+const TYPES = ['rule', 'skill', 'agent', 'command', 'knowledge', 'ast', 'mcp', 'power', 'language', 'framework']
 
 type UploadScope = 'global' | 'project'
 

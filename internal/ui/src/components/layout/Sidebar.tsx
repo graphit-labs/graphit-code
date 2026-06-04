@@ -29,6 +29,8 @@ import {
   FolderGit2,
   Search,
   Sparkles,
+  FileCode2,
+  Blocks,
 } from 'lucide-react'
 
 interface NavItemProps {
@@ -87,6 +89,8 @@ const TYPE_FILTERS = [
   { label: 'Command', value: 'command', icon: <Terminal className="w-3.5 h-3.5" /> },
   { label: 'MCP Server', value: 'mcp', icon: <Server className="w-3.5 h-3.5" /> },
   { label: 'Power', value: 'power', icon: <Layers className="w-3.5 h-3.5" /> },
+  { label: 'Language', value: 'language', icon: <FileCode2 className="w-3.5 h-3.5" /> },
+  { label: 'Framework', value: 'framework', icon: <Blocks className="w-3.5 h-3.5" /> },
 ]
 
 interface SidebarProps {

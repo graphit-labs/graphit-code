@@ -174,6 +174,58 @@ func (s *HubService) Install(
 				return nil, fmt.Errorf("creating symlink to AST: %w", err)
 			}
 
+		case TypeLanguage:
+
+			dotDir := brand.DotDir()
+			grammarsDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "grammars")
+			queriesDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "queries")
+			if err := os.MkdirAll(grammarsDir, 0o755); err != nil {
+				return nil, fmt.Errorf("creating grammars dir: %w", err)
+			}
+			if err := os.MkdirAll(queriesDir, 0o755); err != nil {
+				return nil, fmt.Errorf("creating queries dir: %w", err)
+			}
+
+			cloneEntries, _ := os.ReadDir(cloneDir)
+			for _, ce := range cloneEntries {
+				if ce.IsDir() {
+					continue
+				}
+				name := ce.Name()
+				src := filepath.Join(cloneDir, name)
+				switch {
+				case strings.HasSuffix(name, ".wasm"):
+					if err := copyFile(src, filepath.Join(grammarsDir, name)); err != nil {
+						s.log().Warn("installing grammar wasm", "file", name, "error", err)
+					}
+				case strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml"):
+					if err := copyFile(src, filepath.Join(queriesDir, name)); err != nil {
+						s.log().Warn("installing query yaml", "file", name, "error", err)
+					}
+				}
+			}
+
+		case TypeFramework:
+
+			frameworksDir := filepath.Join(pp.ActiveProjectDir, brand.DotDir(), "ast", "frameworks")
+			if err := os.MkdirAll(frameworksDir, 0o755); err != nil {
+				return nil, fmt.Errorf("creating frameworks dir: %w", err)
+			}
+
+			cloneEntries, _ := os.ReadDir(cloneDir)
+			for _, ce := range cloneEntries {
+				if ce.IsDir() {
+					continue
+				}
+				name := ce.Name()
+				if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+					src := filepath.Join(cloneDir, name)
+					if err := copyFile(src, filepath.Join(frameworksDir, name)); err != nil {
+						s.log().Warn("installing framework yaml", "file", name, "error", err)
+					}
+				}
+			}
+
 		default:
 
 			if ide != "" {
@@ -693,6 +745,49 @@ func (s *HubService) preUninstallHook(ctx context.Context, artType ArtifactType,
 			return os.RemoveAll(target)
 		}
 		return nil
+	case TypeLanguage:
+
+		dotDir := brand.DotDir()
+		grammarsDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "grammars")
+		queriesDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "queries")
+
+		cloneDir := resolveArtifactPath(meta, artType, id, pp)
+		if cloneDir == "" {
+			return nil
+		}
+		cloneEntries, _ := os.ReadDir(cloneDir)
+		for _, ce := range cloneEntries {
+			if ce.IsDir() {
+				continue
+			}
+			name := ce.Name()
+			switch {
+			case strings.HasSuffix(name, ".wasm"):
+				_ = os.Remove(filepath.Join(grammarsDir, name))
+			case strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml"):
+				_ = os.Remove(filepath.Join(queriesDir, name))
+			}
+		}
+		return nil
+	case TypeFramework:
+
+		frameworksDir := filepath.Join(pp.ActiveProjectDir, brand.DotDir(), "ast", "frameworks")
+
+		cloneDir := resolveArtifactPath(meta, artType, id, pp)
+		if cloneDir == "" {
+			return nil
+		}
+		cloneEntries, _ := os.ReadDir(cloneDir)
+		for _, ce := range cloneEntries {
+			if ce.IsDir() {
+				continue
+			}
+			name := ce.Name()
+			if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+				_ = os.Remove(filepath.Join(frameworksDir, name))
+			}
+		}
+		return nil
 	}
 	return nil
 }
@@ -788,6 +883,56 @@ func (s *HubService) Link(
 			return nil, fmt.Errorf("installing MCP config: %w", err)
 		}
 		result.Links = append(result.Links, "MCP config installed from "+mcpDir)
+
+	case TypeLanguage:
+
+		sourceGrammars := filepath.Join(absSource, dotDir, "ast", "grammars")
+		sourceQueries := filepath.Join(absSource, dotDir, "ast", "queries")
+		grammarsDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "grammars")
+		queriesDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "queries")
+		_ = os.MkdirAll(grammarsDir, 0o755)
+		_ = os.MkdirAll(queriesDir, 0o755)
+
+		if entries, err := os.ReadDir(sourceGrammars); err == nil {
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasSuffix(e.Name(), ".wasm") {
+					src := filepath.Join(sourceGrammars, e.Name())
+					dst := filepath.Join(grammarsDir, e.Name())
+					if err := copyFile(src, dst); err == nil {
+						result.Links = append(result.Links, "copied "+src+" → "+dst)
+					}
+				}
+			}
+		}
+		if entries, err := os.ReadDir(sourceQueries); err == nil {
+			for _, e := range entries {
+				if !e.IsDir() && (strings.HasSuffix(e.Name(), ".yaml") || strings.HasSuffix(e.Name(), ".yml")) {
+					src := filepath.Join(sourceQueries, e.Name())
+					dst := filepath.Join(queriesDir, e.Name())
+					if err := copyFile(src, dst); err == nil {
+						result.Links = append(result.Links, "copied "+src+" → "+dst)
+					}
+				}
+			}
+		}
+
+	case TypeFramework:
+
+		sourceFrameworks := filepath.Join(absSource, dotDir, "ast", "frameworks")
+		frameworksDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "frameworks")
+		_ = os.MkdirAll(frameworksDir, 0o755)
+
+		if entries, err := os.ReadDir(sourceFrameworks); err == nil {
+			for _, e := range entries {
+				if !e.IsDir() && (strings.HasSuffix(e.Name(), ".yaml") || strings.HasSuffix(e.Name(), ".yml")) {
+					src := filepath.Join(sourceFrameworks, e.Name())
+					dst := filepath.Join(frameworksDir, e.Name())
+					if err := copyFile(src, dst); err == nil {
+						result.Links = append(result.Links, "copied "+src+" → "+dst)
+					}
+				}
+			}
+		}
 
 	default:
 

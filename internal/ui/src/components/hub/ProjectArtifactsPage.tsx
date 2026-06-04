@@ -188,11 +188,11 @@ export default function ProjectArtifactsPage() {
             
             <div className="space-y-8">
               {}
-              {projectArtifacts.some(a => ['knowledge', 'ast'].includes(a.type)) && (
+              {projectArtifacts.some(a => ['knowledge', 'ast', 'language', 'framework'].includes(a.type)) && (
                 <div>
                   <h3 className="text-sm font-semibold text-muted-foreground mb-4 uppercase tracking-wider">Core Context</h3>
                   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {projectArtifacts.filter(a => ['knowledge', 'ast'].includes(a.type)).map((art) => (
+                    {projectArtifacts.filter(a => ['knowledge', 'ast', 'language', 'framework'].includes(a.type)).map((art) => (
                       <ArtifactCard
                         key={`project/${art.type}/${art.local_id}`}
                         variant="project"
@@ -210,7 +210,7 @@ export default function ProjectArtifactsPage() {
               {}
               <div>
                 <h3 className="text-sm font-semibold text-muted-foreground mb-4 uppercase tracking-wider">IDE Artifacts</h3>
-                {!projectArtifacts.some(a => !['knowledge', 'ast'].includes(a.type)) ? (
+                {!projectArtifacts.some(a => !['knowledge', 'ast', 'language', 'framework'].includes(a.type)) ? (
                   <div className="rounded-xl border border-dashed border-border p-6 text-center bg-muted/20">
                     <p className="text-sm text-muted-foreground">
                       No IDE-specific artifacts found. Create rules, skills, agents, or commands in your IDE directory (e.g. <code className="text-xs bg-muted px-1.5 py-0.5 rounded">.agents/</code> or <code className="text-xs bg-muted px-1.5 py-0.5 rounded">.gemini/</code>) to see them here and submit them to the Hub.
@@ -218,7 +218,7 @@ export default function ProjectArtifactsPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {projectArtifacts.filter(a => !['knowledge', 'ast'].includes(a.type)).map((art) => (
+                    {projectArtifacts.filter(a => !['knowledge', 'ast', 'language', 'framework'].includes(a.type)).map((art) => (
                       <ArtifactCard
                         key={`project/${art.type}/${art.local_id}`}
                         variant="project"

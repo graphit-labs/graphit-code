@@ -34,6 +34,8 @@ A typical Hub repository uses the following structure:
 ```
 hub-repository/
 ├── registry.json             # Registry index manifest
+├── languages/                # Tree-sitter grammar definitions (.wasm + query .yaml)
+├── frameworks/               # Framework detection definitions (.yaml)
 ├── rules/                    # System rules templates
 │   ├── golang_conventions.md
 │   └── react_styling.md
@@ -42,7 +44,12 @@ hub-repository/
 │   │   ├── SKILL.md
 │   │   └── scripts/
 │   └── pg-optimizer/
-└── commands/                 # Executable agent shortcuts
+├── agents/                   # Agent profile configurations
+├── commands/                 # Executable agent shortcuts
+├── knowledge/                # LLM Wiki documentation artifacts
+├── ast/                      # Code graph artifacts
+├── mcp-servers/              # IDE bridge MCP server configs
+└── powers/                   # Bundled multi-artifact packages
 ```
 
 ### Artifact Operations
@@ -75,6 +82,18 @@ This lockfile tracks configuration overrides and locks artifact versions:
     }
   },
   "artifacts": {
+    "language": {
+      "elixir": {
+        "version": "1.0.0",
+        "origin": "hub"
+      }
+    },
+    "framework": {
+      "phoenix": {
+        "version": "1.0.0",
+        "origin": "hub"
+      }
+    },
     "rules": {
       "golang_conventions": {
         "version": "1.4.2",
@@ -92,6 +111,41 @@ On `graphit sync`, the engine reads the lockfile and executes a reconciliation l
 2. **Re-injection**: If rule blocks have been deleted from files like `.cursorrules`, the registry re-injects them inside the sentinel blocks.
 3. **IDE Sync**: Applies rulesets across all listed IDE targets (`ides` array).
 4. **Global Lock Registration**: Registers the project ULID and directory path under the global daemon registry, enabling cluster microservices discovery.
+
+---
+
+## 📦 Language and Framework Artifacts
+
+In addition to rules, skills, and commands, the Hub supports two artifact types dedicated to the AST module's language and framework detection pipeline.
+
+### Language Artifacts
+
+A **language** artifact packages a Tree-sitter grammar (`.wasm`) and its corresponding extraction query file (`.yaml`) for a programming language not included in the built-in defaults.
+
+Content structure:
+
+```
+languages/
+└── elixir/
+    ├── tree-sitter-elixir.wasm   # Tree-sitter grammar compiled to WebAssembly
+    └── elixir.yaml               # Extraction queries, export strategy, context types
+```
+
+When installed, the grammar is placed into `<project>/.graphit/ast/grammars/` and the query YAML into `<project>/.graphit/ast/queries/`. The engine discovers them on the next `graphit sync` without recompilation.
+
+### Framework Artifacts
+
+A **framework** artifact packages a framework detection YAML file defining decorator, heritage, and import detection rules for a framework not included in the built-in defaults.
+
+Content structure:
+
+```
+frameworks/
+└── phoenix/
+    └── phoenix.yaml              # Decorator, heritage, and import detection rules
+```
+
+When installed, the YAML file is placed into `<project>/.graphit/ast/frameworks/`. Detection rules merge with built-in defaults on the next `graphit sync`.
 
 ---
 

@@ -32,6 +32,8 @@ const (
 	TypeMCP       ArtifactType = "mcp"
 	TypeCommand   ArtifactType = "command"
 	TypePower     ArtifactType = "power"
+	TypeLanguage  ArtifactType = "language"
+	TypeFramework ArtifactType = "framework"
 )
 
 var TypeFolderMap = map[ArtifactType]string{
@@ -44,11 +46,14 @@ var TypeFolderMap = map[ArtifactType]string{
 	TypeMCP:       "mcp-servers",
 	TypeCommand:   "commands",
 	TypePower:     "powers",
+	TypeLanguage:  "languages",
+	TypeFramework: "frameworks",
 }
 
 var ValidTypes = []ArtifactType{
 	TypeAgent, TypeRule, TypeWorkflow, TypeSkill,
 	TypeKnowledge, TypeAST, TypeMCP, TypeCommand, TypePower,
+	TypeLanguage, TypeFramework,
 }
 
 type Entry struct {

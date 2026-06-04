@@ -74,6 +74,8 @@ During the interactive `graphit setup`, you can point the **Hub** to any Git rep
 - **Shared Coding Rules** — Enforce company-wide standards automatically across every developer's IDE.
 - **Team Skills** — Codify complex workflows (k8s debugging, internal API patterns, deployment checklists) so every agent on the team knows the procedures.
 - **Knowledge Artifacts** — Publish documentation about frameworks, APIs, and integration specs that every developer's agent can discover and install.
+- **Language Grammars** — Share Tree-sitter `.wasm` grammars and extraction `.yaml` queries for languages not included in the defaults. Drop-in AST support without recompilation.
+- **Framework Configs** — Distribute framework detection `.yaml` rules (decorators, heritage, imports) for internal or niche frameworks across the team.
 - **MCP Servers, Commands, Agent Profiles** — Share reusable automation across the entire organization.
 
 Every artifact is versioned via Git, published directly, and distributed securely through your existing authentication infrastructure (SSH keys, SSO, access tokens).

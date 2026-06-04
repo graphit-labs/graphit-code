@@ -3,7 +3,7 @@ import { X, Plus, Trash2, Globe, Folder } from 'lucide-react'
 import { cn, bumpPatch } from '@/lib/utils'
 import type { InstalledArtifact } from '@/api/hub'
 
-const TYPES = ['agent', 'rule', 'skill', 'command', 'knowledge', 'ast', 'mcp', 'power']
+const TYPES = ['agent', 'rule', 'skill', 'command', 'knowledge', 'ast', 'mcp', 'power', 'language', 'framework']
 
 interface Dep { type: string; id: string; version: string }
 

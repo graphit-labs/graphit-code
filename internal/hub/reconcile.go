@@ -10,6 +10,8 @@ import (
 var ideIndependentTypes = map[ArtifactType]bool{
 	TypeAST:       true,
 	TypeKnowledge: true,
+	TypeLanguage:  true,
+	TypeFramework: true,
 }
 
 func ReconcileManagedArtifacts(registry *RegistryManager, lockfilePath string) error {
