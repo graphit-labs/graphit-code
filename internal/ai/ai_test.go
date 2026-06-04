@@ -77,21 +77,36 @@ func TestNewClientFromConfigError(t *testing.T) {
 func TestCompleteAllCLIBranches(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Create dummy script for each CLI binary that consumes stdin then echoes
-	binaries := []string{
+	// Stdin-based CLIs: consume stdin then echo
+	stdinBinaries := []string{
 		"claude", "gemini", "agy", "grok",
 		"cursor-agent", "agent",
 		"codex",
-		"opencode",
 		"kiro-cli",
 		"copilot",
-		"cline",
-		"goose",
-		"openhands",
 		"my-custom-cli",
 	}
-	for _, bin := range binaries {
+	for _, bin := range stdinBinaries {
 		script := fmt.Sprintf("#!/bin/sh\ncat > /dev/null; echo \"%s ok\"\n", bin)
+		if err := os.WriteFile(filepath.Join(tempDir, bin), []byte(script), 0755); err != nil {
+			t.Fatalf("failed to write dummy %s: %v", bin, err)
+		}
+	}
+
+	// File-input CLIs: read from file passed as arg, echo
+	fileBinaries := []string{"goose", "openhands"}
+	for _, bin := range fileBinaries {
+		// The file path will be the last argument; just echo ok
+		script := fmt.Sprintf("#!/bin/sh\necho \"%s ok\"\n", bin)
+		if err := os.WriteFile(filepath.Join(tempDir, bin), []byte(script), 0755); err != nil {
+			t.Fatalf("failed to write dummy %s: %v", bin, err)
+		}
+	}
+
+	// Arg-input CLIs: prompt as positional arg, just echo
+	argBinaries := []string{"opencode", "cline"}
+	for _, bin := range argBinaries {
+		script := fmt.Sprintf("#!/bin/sh\necho \"%s ok\"\n", bin)
 		if err := os.WriteFile(filepath.Join(tempDir, bin), []byte(script), 0755); err != nil {
 			t.Fatalf("failed to write dummy %s: %v", bin, err)
 		}
@@ -99,38 +114,22 @@ func TestCompleteAllCLIBranches(t *testing.T) {
 
 	t.Setenv("PATH", tempDir)
 
-	tests := []struct {
-		name       string
-		binaryName string
-		prompt     string
-	}{
-		{"claude", "claude", "test"},
-		{"gemini", "gemini", "test"},
-		{"agy", "agy", "test"},
-		{"grok", "grok", "test"},
-		{"cursor-agent", "cursor-agent", "test"},
-		{"agent", "agent", "test"},
-		{"codex", "codex", "test"},
-		{"opencode", "opencode", "test"},
-		{"kiro-cli", "kiro-cli", "test"},
-		{"copilot", "copilot", "test"},
-		{"cline", "cline", "test"},
-		{"goose", "goose", "test"},
-		{"openhands", "openhands", "test"},
-		{"default-custom", "my-custom-cli", "test"},
-	}
+	var allBinaries []string
+	allBinaries = append(allBinaries, stdinBinaries...)
+	allBinaries = append(allBinaries, fileBinaries...)
+	allBinaries = append(allBinaries, argBinaries...)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, bin := range allBinaries {
+		t.Run(bin, func(t *testing.T) {
 			c := &cliClient{
-				executablePath: filepath.Join(tempDir, tt.binaryName),
-				binaryName:     tt.binaryName,
+				executablePath: filepath.Join(tempDir, bin),
+				binaryName:     bin,
 			}
-			resp, err := c.Complete(context.Background(), "", tt.prompt)
+			resp, err := c.Complete(context.Background(), "", "test")
 			if err != nil {
-				t.Errorf("Complete failed for %s: %v", tt.binaryName, err)
+				t.Errorf("Complete failed for %s: %v", bin, err)
 			}
-			expected := tt.binaryName + " ok"
+			expected := bin + " ok"
 			if strings.TrimSpace(resp) != expected {
 				t.Errorf("got %q; want %q", resp, expected)
 			}
@@ -161,7 +160,8 @@ func TestCompleteAlwaysUsesStdin(t *testing.T) {
 	// Script that verifies it receives stdin and outputs confirmation
 	script := "#!/bin/sh\nread -r line; echo \"stdin ok\"\n"
 
-	binaries := []string{"claude", "codex", "opencode", "kiro-cli", "unknown", "cursor-agent"}
+	// Only test stdin-mode CLIs
+	binaries := []string{"claude", "codex", "kiro-cli", "cursor-agent"}
 	for _, bin := range binaries {
 		bp := filepath.Join(tempDir, bin)
 		if err := os.WriteFile(bp, []byte(script), 0755); err != nil {
@@ -181,6 +181,191 @@ func TestCompleteAlwaysUsesStdin(t *testing.T) {
 				t.Errorf("got %q; want %q", resp, "stdin ok")
 			}
 		})
+	}
+}
+
+func TestNonInteractivePreamble(t *testing.T) {
+	tempDir := t.TempDir()
+	// Script that captures full stdin and echoes it
+	script := "#!/bin/sh\ncat\n"
+
+	t.Run("stdin_mode", func(t *testing.T) {
+		bp := filepath.Join(tempDir, "gemini")
+		if err := os.WriteFile(bp, []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		c := &cliClient{executablePath: bp, binaryName: "gemini"}
+		resp, err := c.Complete(context.Background(), "", "test prompt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(resp, "non-interactive, autonomous mode") {
+			t.Error("stdin prompt missing non-interactive preamble")
+		}
+		if !strings.Contains(resp, "test prompt") {
+			t.Error("stdin prompt missing user prompt")
+		}
+	})
+
+	t.Run("file_mode", func(t *testing.T) {
+		// Script that reads the file content and outputs it
+		fileScript := "#!/bin/sh\nfor arg; do last=$arg; done; cat \"$last\"\n"
+		bp := filepath.Join(tempDir, "goose")
+		if err := os.WriteFile(bp, []byte(fileScript), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		c := &cliClient{executablePath: bp, binaryName: "goose"}
+		resp, err := c.Complete(context.Background(), "", "test prompt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(resp, "non-interactive, autonomous mode") {
+			t.Error("file prompt missing non-interactive preamble")
+		}
+	})
+
+	t.Run("arg_mode", func(t *testing.T) {
+		// Script that echoes its last argument
+		argScript := "#!/bin/sh\nfor arg; do last=\"$arg\"; done; echo \"$last\"\n"
+		bp := filepath.Join(tempDir, "opencode")
+		if err := os.WriteFile(bp, []byte(argScript), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		c := &cliClient{executablePath: bp, binaryName: "opencode"}
+		resp, err := c.Complete(context.Background(), "", "test prompt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(resp, "non-interactive, autonomous mode") {
+			t.Error("arg prompt missing non-interactive preamble")
+		}
+	})
+
+	t.Run("with_system_prompt", func(t *testing.T) {
+		bp := filepath.Join(tempDir, "gemini")
+		c := &cliClient{executablePath: bp, binaryName: "gemini"}
+		resp, err := c.Complete(context.Background(), "You are a helpful assistant.", "analyze this")
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Preamble should come first, then system prompt, then user prompt
+		preambleIdx := strings.Index(resp, "non-interactive, autonomous mode")
+		systemIdx := strings.Index(resp, "You are a helpful assistant.")
+		userIdx := strings.Index(resp, "analyze this")
+		if preambleIdx < 0 || systemIdx < 0 || userIdx < 0 {
+			t.Fatalf("missing components in prompt: preamble=%d system=%d user=%d", preambleIdx, systemIdx, userIdx)
+		}
+		if preambleIdx >= systemIdx || systemIdx >= userIdx {
+			t.Errorf("wrong order: preamble@%d should come before system@%d before user@%d", preambleIdx, systemIdx, userIdx)
+		}
+	})
+}
+
+func TestCompleteFileInput(t *testing.T) {
+	tempDir := t.TempDir()
+	// Script that reads the file argument and outputs its content
+	script := "#!/bin/sh\n" +
+		"# Find the last argument (the temp file path)\n" +
+		"for arg; do last=$arg; done\n" +
+		"if [ -f \"$last\" ]; then echo \"file ok\"; else echo \"no file\"; fi\n"
+
+	binaries := []string{"goose", "openhands"}
+	for _, bin := range binaries {
+		bp := filepath.Join(tempDir, bin)
+		if err := os.WriteFile(bp, []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, bin := range binaries {
+		t.Run(bin, func(t *testing.T) {
+			c := &cliClient{executablePath: filepath.Join(tempDir, bin), binaryName: bin}
+			resp, err := c.Complete(context.Background(), "", "test prompt")
+			if err != nil {
+				t.Errorf("Complete failed for %s: %v", bin, err)
+			}
+			if strings.TrimSpace(resp) != "file ok" {
+				t.Errorf("got %q; want %q (file-input mode)", resp, "file ok")
+			}
+		})
+	}
+}
+
+func TestCompleteArgInput(t *testing.T) {
+	tempDir := t.TempDir()
+	// Script that echoes last argument
+	script := "#!/bin/sh\nfor arg; do last=$arg; done; echo \"arg: $last\"\n"
+
+	binaries := []string{"opencode", "cline"}
+	for _, bin := range binaries {
+		bp := filepath.Join(tempDir, bin)
+		if err := os.WriteFile(bp, []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, bin := range binaries {
+		t.Run(bin, func(t *testing.T) {
+			c := &cliClient{executablePath: filepath.Join(tempDir, bin), binaryName: bin}
+			resp, err := c.Complete(context.Background(), "", "hello world")
+			if err != nil {
+				t.Errorf("Complete failed for %s: %v", bin, err)
+			}
+			if !strings.Contains(resp, "hello world") {
+				t.Errorf("got %q; expected to contain prompt text (arg-input mode)", resp)
+			}
+		})
+	}
+}
+
+func TestWriteTempPrompt(t *testing.T) {
+	path, err := writeTempPrompt("test content")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "test content" {
+		t.Errorf("got %q; want %q", data, "test content")
+	}
+
+	// Verify file permissions are restricted
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	perm := info.Mode().Perm()
+	if perm != 0o600 {
+		t.Errorf("permissions = %o; want 0600", perm)
+	}
+}
+
+func TestTempPromptCleanup(t *testing.T) {
+	tempDir := t.TempDir()
+	// Script that echoes ok — the file should be cleaned up after
+	script := "#!/bin/sh\necho \"ok\"\n"
+	binPath := filepath.Join(tempDir, "goose")
+	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &cliClient{executablePath: binPath, binaryName: "goose"}
+	_, err := c.Complete(context.Background(), "", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify temp files are cleaned up (no graphit-prompt-* files left)
+	matches, _ := filepath.Glob(filepath.Join(os.TempDir(), "graphit-prompt-*"))
+	for _, m := range matches {
+		t.Errorf("temp prompt file not cleaned up: %s", m)
 	}
 }
 
