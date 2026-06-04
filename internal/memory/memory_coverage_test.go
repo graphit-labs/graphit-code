@@ -938,9 +938,9 @@ func TestInstallRule(t *testing.T) {
 }
 
 func TestInstallRule_EmptyProjectDir(t *testing.T) {
-	// When projectDir is empty, it uses os.Getwd()
-	err := InstallRule("", "gemini")
-	_ = err // Just ensure it doesn't panic
+	// Use a temp dir instead of empty string which would pollute the real project via os.Getwd()
+	err := InstallRule(t.TempDir(), "gemini")
+	_ = err
 }
 
 func TestInstallSkill(t *testing.T) {
@@ -950,7 +950,7 @@ func TestInstallSkill(t *testing.T) {
 }
 
 func TestInstallSkill_EmptyProjectDir(t *testing.T) {
-	err := InstallSkill("", "gemini")
+	err := InstallSkill(t.TempDir(), "gemini")
 	_ = err
 }
 
@@ -961,7 +961,7 @@ func TestRemoveRule(t *testing.T) {
 }
 
 func TestRemoveRule_EmptyProjectDir(t *testing.T) {
-	err := RemoveRule("", "gemini")
+	err := RemoveRule(t.TempDir(), "gemini")
 	_ = err
 }
 
@@ -972,7 +972,7 @@ func TestRemoveSkill(t *testing.T) {
 }
 
 func TestRemoveSkill_EmptyProjectDir(t *testing.T) {
-	err := RemoveSkill("", "gemini")
+	err := RemoveSkill(t.TempDir(), "gemini")
 	_ = err
 }
 

@@ -1291,7 +1291,12 @@ func TestUIServer_handleUninstall_IDEFallback(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSyncIDEAdapter_Exported(t *testing.T) {
-	t.Parallel()
+	// Use a temp dir as CWD to avoid polluting the real project with CLAUDE.md
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	_ = os.Chdir(dir)
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
+
 	lf := &Lockfile{
 		Project:   ProjectIdentity{ID: "test-id"},
 		Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta),

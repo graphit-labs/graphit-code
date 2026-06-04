@@ -70,19 +70,19 @@ func TestRemoveSkill(t *testing.T) {
 }
 
 func TestInstallRuleEmptyProjectDir(t *testing.T) {
-	_ = InstallRule("", "claude")
+	_ = InstallRule(t.TempDir(), "claude")
 }
 
 func TestInstallSkillEmptyProjectDir(t *testing.T) {
-	_ = InstallSkill("", "claude")
+	_ = InstallSkill(t.TempDir(), "claude")
 }
 
 func TestRemoveRuleEmptyProjectDir(t *testing.T) {
-	_ = RemoveRule("", "claude")
+	_ = RemoveRule(t.TempDir(), "claude")
 }
 
 func TestRemoveSkillEmptyProjectDir(t *testing.T) {
-	_ = RemoveSkill("", "claude")
+	_ = RemoveSkill(t.TempDir(), "claude")
 }
 
 func TestInstallRuleInjectError(t *testing.T) {
