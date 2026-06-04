@@ -85,6 +85,8 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 
 		crossRefs := extractDocCrossRefs(string(data))
 
+		isMarkdown := ext == ".md" || ext == ".markdown" || ext == ".mdx"
+
 		docs = append(docs, knowledgeDoc{
 			title:       title,
 			path:        relPath,
@@ -93,6 +95,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			body:        string(data),
 			contentHash: contentHash,
 			crossRefs:   crossRefs,
+			isMarkdown:  isMarkdown,
 		})
 		return nil
 	})
@@ -100,10 +103,15 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		return nil, fmt.Errorf("walking docs: %w", err)
 	}
 
-	// Split long docs into parent/children based on H2 headers
+	// Split markdown docs into parent/children based on H2 headers.
+	// Non-markdown files are kept as a single page.
 	var splitDocs []knowledgeDoc
 	for _, doc := range docs {
-		splitDocs = append(splitDocs, splitDocByHeaders(doc)...)
+		if doc.isMarkdown {
+			splitDocs = append(splitDocs, splitDocByHeaders(doc)...)
+		} else {
+			splitDocs = append(splitDocs, doc)
+		}
 	}
 	docs = splitDocs
 
@@ -378,7 +386,12 @@ func knowledgeEntityPage(doc knowledgeDoc) string {
 	if doc.body != "" {
 		body := stripFrontmatter(doc.body)
 		b.WriteString("## Content\n\n")
-		b.WriteString(body + "\n\n")
+		if doc.isMarkdown {
+			b.WriteString(body + "\n\n")
+		} else {
+			lang := extToLang(filepath.Ext(doc.path))
+			_, _ = fmt.Fprintf(&b, "```%s\n%s\n```\n\n", lang, body)
+		}
 	}
 	b.WriteString("---\n*Navigate: [[index]] · [[log]]*\n")
 	return b.String()
@@ -629,6 +642,26 @@ type knowledgeDoc struct {
 	clusterName string // label of the community
 	staleSince  string // ISO date if page is stale, empty otherwise
 	staleReason string // why it's stale
+	isMarkdown  bool   // true for .md/.markdown/.mdx — eligible for header splitting
+}
+
+// extToLang maps file extensions to code fence language identifiers.
+// Only returns a language tag if the wiki renderer (Prism) supports it.
+// Unsupported languages return "" so the fence renders as plain text.
+func extToLang(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".yaml", ".yml":
+		return "yaml"
+	case ".json":
+		return "json"
+	case ".graphql", ".gql":
+		return "graphql"
+	case ".xml", ".wsdl":
+		return "xml"
+	default:
+		// .proto, .rst, .adoc, .puml, .plantuml, .txt — no Prism support
+		return ""
+	}
 }
 
 func safeFilename(name string) string {
