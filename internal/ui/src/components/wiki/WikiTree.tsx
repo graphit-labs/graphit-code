@@ -83,7 +83,7 @@ function NodeEntry({
 }) {
   const hasChildren = node.children.length > 0
   const isSelected = selectedPath === node.page.path
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
 
   const hasSelectedChild = useMemo(() => {
     if (!selectedPath) return false
