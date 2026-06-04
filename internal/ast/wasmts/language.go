@@ -44,18 +44,17 @@ func (m *Module) LoadLanguage(langName string) (*Language, error) {
 	}, nil
 }
 
-// Name returns the language name (e.g., "go", "python").
+
 func (l *Language) Name() string {
 	return l.name
 }
 
-// Module returns the underlying WASM module for this language.
-// Used by WorkerModules to determine the module name for re-instantiation.
+
 func (l *Language) Module() *Module {
 	return l.module
 }
 
-// Version returns the tree-sitter ABI version of the grammar.
+
 func (l *Language) Version() (uint64, error) {
 	result, err := l.module.call(_languageVersion, l.ptr)
 	if err != nil {

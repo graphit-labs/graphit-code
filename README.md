@@ -258,7 +258,7 @@ All configuration follows a **4-level cascading resolution chain**:
 
 **Extend without recompilation:** Add new frameworks, ecosystem patterns, entry point scoring rules, relation types, and customize all language behavior by simply dropping YAML files into the project or user directory. Community contributions can be YAML-only PRs — no Go knowledge required.
 
-> **Note:** The only compiled component is the **grammar registry** — the mapping of each language to its Tree-sitter grammar. Adding support for an entirely new programming language requires its grammar to be compiled into the binary. However, everything else — extraction queries, export strategies, import matching, relation types, context type mappings, scoring, and framework detection — is fully YAML-driven and customizable at any resolution level.
+> **Plug-and-Play Language Support:** Tree-sitter grammars are standalone `.wasm` files executed via wazero (pure Go, no CGO). To add support for a new language, simply drop its `.wasm` grammar file into `.graphit/ast/grammars/` (project), `~/.graphit/ast/grammars/` (global), or `~/.graphit/runtime/<version>/ast/grammars/` (runtime). No recompilation required — the engine discovers and loads new grammars automatically on the next `graphit sync`.
 
 Resolution follows a cascading priority chain: **project → user global → runtime → embedded**. See the [User Manual](docs/guides/user_manual.md#customizing-ast-tree-sitter-queries) for examples, and the [AST Module Spec](docs/specs/ast_module.md#-external-query-customization) for the full technical reference.
 

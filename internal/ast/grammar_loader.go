@@ -35,15 +35,11 @@ func initWASMEngine() (*wasmts.Engine, error) {
 	return grammarEngine, grammarEngineErr
 }
 
-// GetEngine returns the global WASM engine (initializing if needed).
-// Used by WorkerModules to create per-worker module instances.
 func GetEngine() *wasmts.Engine {
 	engine, _ := initWASMEngine()
 	return engine
 }
 
-// GetGlobalLanguage returns a globally loaded Language by name, or nil.
-// Used by WorkerModules to discover the module name for re-instantiation.
 func GetGlobalLanguage(langName string) *wasmts.Language {
 	if v, ok := loadedLanguages.Load(langName); ok {
 		return v.(*wasmts.Language)

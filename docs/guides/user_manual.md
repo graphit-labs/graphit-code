@@ -132,7 +132,7 @@ When Graphit Code parses a source file, it resolves query patterns using a **3-l
 2. **User Global** (`~/.graphit/ast/queries/`) — Your personal customizations. Applies to all projects. **Never written by the framework.**
 3. **Runtime** (`~/.graphit/runtime/<version>/ast/queries/`) — Factory defaults extracted by the launcher during binary setup. **Automatically updated on each version upgrade.**
 
-> The runtime defaults serve as the base. They are automatically extracted by the launcher during binary setup and updated on each version upgrade. Grammars (compiled Tree-sitter parsers) are the only truly hardcoded component — all extraction rules, export strategies, and scoring are YAML-driven.
+> The runtime defaults serve as the base. They are automatically extracted by the launcher during binary setup and updated on each version upgrade. Both grammars (`.wasm` files) and extraction rules (YAML) follow the same 3-level resolution chain — everything is customizable without recompilation.
 
 For each language, the **first source that provides queries wins**. If you create a `go.yaml` in your project, only Go queries use the project version — all other languages continue resolving from user → runtime.
 
@@ -567,14 +567,40 @@ $EDITOR .graphit/ast/queries/python.yaml
 
 Adding support for a new programming language requires **two things**:
 
-1. **The Tree-sitter grammar** must be compiled into the Graphit Code binary (requires recompilation)
+1. **A Tree-sitter `.wasm` grammar file** — drop it into any level of the resolution chain
 2. **A language YAML file** defining extraction rules, export strategy, self keywords, context types, etc.
 
-Once the Tree-sitter grammar is available, all extraction behavior is controlled entirely through YAML — no additional Go code is needed. Grammars (compiled Tree-sitter parsers) are the only hardcoded component.
+Grammars are standalone `.wasm` files executed via wazero (pure Go, no CGO). No recompilation is needed.
+
+### Grammar Resolution Chain
+
+The engine discovers `.wasm` grammar files using the same 3-level priority system:
+
+| Priority | Path | Scope |
+|----------|------|-------|
+| 1 | `.graphit/ast/grammars/` | Project-only |
+| 2 | `~/.graphit/ast/grammars/` | All projects (user) |
+| 3 | `~/.graphit/runtime/<version>/ast/grammars/` | Factory defaults |
 
 ### Step-by-Step Guide
 
-**1. Create a new `<language>.yaml` file:**
+**1. Obtain the Tree-sitter `.wasm` grammar:**
+
+Compile the grammar to WebAssembly or download a pre-built `.wasm` file (e.g., `tree-sitter-haskell.wasm`).
+
+**2. Drop the `.wasm` file into the grammars directory:**
+
+```bash
+# For this project only
+mkdir -p .graphit/ast/grammars/
+cp tree-sitter-haskell.wasm .graphit/ast/grammars/
+
+# Or globally for all projects
+mkdir -p ~/.graphit/ast/grammars/
+cp tree-sitter-haskell.wasm ~/.graphit/ast/grammars/
+```
+
+**3. Create a new `<language>.yaml` file:**
 
 ```bash
 mkdir -p .graphit/ast/queries/
@@ -635,9 +661,9 @@ The new language will be immediately available for AST queries.
 
 ### Important Notes
 
-- **Tree-sitter grammar requirement**: The YAML file defines *extraction rules* only. The Tree-sitter grammar itself (the parser that produces the syntax tree) must be compiled into the Graphit Code binary. Adding a new grammar requires recompilation. If the grammar isn't available, the YAML file will be silently skipped.
+- **Grammar files**: The `.wasm` grammar file must be present in any level of the grammars resolution chain (`.graphit/ast/grammars/`, `~/.graphit/ast/grammars/`, or `~/.graphit/runtime/<version>/ast/grammars/`). If no grammar is found for a language, its YAML queries are silently skipped.
 - **Pattern validation**: Invalid Tree-sitter patterns are detected at parse time and logged as warnings, while valid patterns proceed normally.
-- **Customizing existing languages**: For the 16 languages already supported, all extraction rules, export detection, scoring, context resolution, and docstring attachment are fully YAML-driven. Changing the YAML is sufficient — no rebuild needed.
+- **Customizing existing languages**: For the 16 languages included by default, all extraction rules, export detection, scoring, context resolution, and docstring attachment are fully YAML-driven. Changing the YAML is sufficient — no rebuild needed.
 
 ---
 

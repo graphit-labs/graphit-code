@@ -128,13 +128,54 @@ LadybugDB uses standard graph database constraints, but does not support all com
 
 ---
 
-## 🔍 Parser Adapters & Compilation
+## 🔍 Parser Adapters & WASM Runtime
 
-The engine supports multiple language parsers to build the tree:
+The engine uses Tree-sitter for parsing, compiled to WebAssembly and executed via [wazero](https://wazero.io) (pure Go, no CGO).
 
-### Tree-sitter Adapters (`internal/ast/treesitter_adapter.go`)
-Used to parse mainstream languages (like Go, Dart, TypeScript, JavaScript) into the AST database.
-It compiles nodes by analyzing variables, structure, and functions matching the target language rules.
+### Tree-sitter WASM Architecture (`internal/ast/wasmts/`)
+
+Each grammar is a standalone `.wasm` file (e.g., `tree-sitter-go.wasm`) containing the Tree-sitter runtime plus the language grammar. Grammars are plug-and-play: drop a `.wasm` file into any directory in the resolution chain.
+
+**Grammar Resolution Chain** (highest priority first):
+
+| Priority | Path | Managed By |
+|----------|------|------------|
+| 1 | `.graphit/ast/grammars/` | Project |
+| 2 | `~/.graphit/ast/grammars/` | User |
+| 3 | `~/.graphit/runtime/<version>/ast/grammars/` | Framework |
+
+**Key types:**
+
+| Type | Package | Role |
+|------|---------|------|
+| `Engine` | `wasmts` | Manages wazero runtime, compilation cache, and compiled modules |
+| `Module` | `wasmts` | Single WASM instance with its own linear memory. NOT thread-safe |
+| `Language` | `wasmts` | Grammar pointer within a Module — creates parsers and queries |
+| `WorkerModules` | `ast` | Per-goroutine set of Module instances, created lazily |
+
+### Concurrency Model
+
+WASM linear memory is **not thread-safe** — concurrent access from multiple goroutines corrupts memory. The engine solves this with **per-worker module instances**:
+
+```
+chan (all files) ──▶ Worker 1: { go: Module#1 }           ← lazy
+                 ──▶ Worker 2: { go: Module#2, tsx: #1 }   ← lazy
+                 ──▶ Worker 3: { go: Module#3 }            ← lazy
+                 ...each instance has isolated WASM memory
+```
+
+- Each worker goroutine creates its own `WorkerModules` with isolated WASM instances
+- Instances are created **lazily** — only when the worker encounters a file of that language
+- AOT compilation is cached on disk and shared — only instantiation (memory allocation) happens per worker
+- Zero mutexes, zero locks, full parallelism across all workers
+
+### Tree-sitter Adapter (`internal/ast/treesitter_adapter.go`)
+
+Bridges the WASM runtime with the indexing pipeline. For each file:
+1. Resolves a worker-local `Language` instance via `WorkerModules.GetLanguage()`
+2. Creates a parser, parses the source into a syntax tree
+3. Runs all YAML-defined queries to extract entities and relationships
+4. Returns a `ParsedFile` with structured data for graph insertion
 
 ---
 
@@ -299,7 +340,7 @@ exports:
 
 ### Resolution Chain (3 Levels)
 
-Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in. The resolution order is **project → user global → runtime** — all levels are YAML-only. The only hardcoded part is the **grammar registry** (`treeSitterGrammars` map), which maps language names to compiled Tree-sitter grammars. Everything else — extensions, queries, exports, context types — comes from YAML configuration.
+Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in. The resolution order is **project → user global → runtime** — all levels are YAML-only. Tree-sitter grammars (`.wasm` files) follow the same 3-level resolution chain via the `grammars/` directories. Everything — grammars, extensions, queries, exports, context types — is externalized and customizable without recompilation.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -661,7 +702,7 @@ Triggered on every subsequent `graphit sync` or by the file watcher. Only proces
    - Re-parses the file via Tree-sitter.
    - Re-writes the extracted entities and relationships.
    - Updates the FTS5, trigram, and vector indices for affected entities.
-4. **Thread-Safe Batching**: Files are queued into concurrent Go worker pools. Workers parse files in parallel, pushing results to a single-threaded SQLite writer connection to avoid database write contention.
+4. **Parallel Workers**: Files are distributed to concurrent Go worker goroutines via a shared channel. Each worker has its own isolated WASM module instances (`WorkerModules`), enabling lock-free parallel parsing. Results flow to a single-threaded SQLite writer to avoid database write contention.
 5. **Shard Cache (`internal/ast/shard_cache.go`)**: Parsed AST results are cached as JSON shards on disk, enabling fast rebuilds without re-parsing unchanged files.
 
 ### Performance Characteristics

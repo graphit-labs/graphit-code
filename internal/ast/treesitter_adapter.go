@@ -75,7 +75,7 @@ func init() {
 
 type TreeSitterParser struct {
 	projectDir    string
-	workerModules *WorkerModules // per-worker WASM instances; nil = use global (tests)
+	workerModules *WorkerModules
 }
 
 func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
@@ -96,9 +96,6 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 		return nil, err
 	}
 
-	// Resolve which Language instance to use for WASM operations.
-	// Per-worker modules give each goroutine its own WASM memory — no locks needed.
-	// Falls back to the global shared instance when workerModules is nil (tests).
 	tsLang := cfg.TSLang
 	if t.workerModules != nil {
 		funcName := grammarFuncName(cfg.Language)

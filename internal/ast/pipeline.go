@@ -216,10 +216,6 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				// Each worker gets its own TreeSitterParser with isolated
-				// WASM module instances. Modules are created lazily — only
-				// when this worker encounters a file of that language.
-				// This gives full parallelism with zero locks.
 				wp := &TreeSitterParser{
 					projectDir:    abs,
 					workerModules: NewWorkerModules(GetEngine()),
