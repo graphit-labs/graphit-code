@@ -404,7 +404,6 @@ func TestCovBoost_HubUpdate_IDError(t *testing.T) {
 // TestCovBoost_KnowledgeQuery_WikiFoundAIError exercises the path where
 // wiki dir exists but AI client fails (line 66-68 in tools_knowledge.go)
 func TestCovBoost_KnowledgeQuery_WikiFoundAIError(t *testing.T) {
-	t.Parallel()
 	tmpDir := t.TempDir()
 	wikiDir := filepath.Join(tmpDir, brand.DotDir(), "knowledge", "project")
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
@@ -429,7 +428,6 @@ func TestCovBoost_KnowledgeQuery_WikiFoundAIError(t *testing.T) {
 // TestCovBoost_KnowledgeSearch_ContextParam exercises the context parameter path
 // in knowledge search (line 79 in tools_knowledge.go)
 func TestCovBoost_KnowledgeSearch_ContextParam(t *testing.T) {
-	t.Parallel()
 	tmpDir := t.TempDir()
 	wikiDir := filepath.Join(tmpDir, brand.DotDir(), "knowledge", "myctx")
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
@@ -455,7 +453,6 @@ func TestCovBoost_KnowledgeSearch_ContextParam(t *testing.T) {
 // TestCovBoost_KnowledgeQuery_ContextNoWiki exercises the context path where
 // wiki doesn't exist (line 92-94 in tools_knowledge.go)
 func TestCovBoost_KnowledgeQuery_ContextNoWiki(t *testing.T) {
-	t.Parallel()
 	tmpDir := t.TempDir()
 	s := newMCPSession(t)
 
@@ -525,7 +522,6 @@ func TestCovBoost_WikiSessions_ListValid(t *testing.T) {
 // TestCovBoost_MemoryQuery_WikiDirNotFound exercises the "memory wiki not found"
 // path (lines 86-89 in tools_memory.go)
 func TestCovBoost_MemoryQuery_WikiDirNotFound(t *testing.T) {
-	t.Parallel()
 	tmpDir := t.TempDir()
 	s := newMCPSession(t)
 
@@ -544,7 +540,6 @@ func TestCovBoost_MemoryQuery_WikiDirNotFound(t *testing.T) {
 // TestCovBoost_MemoryQuery_WikiFoundAIFail exercises the path where
 // memory wiki dir exists but AI fails (lines 91-99 in tools_memory.go)
 func TestCovBoost_MemoryQuery_WikiFoundAIFail(t *testing.T) {
-	t.Parallel()
 	tmpDir := t.TempDir()
 	memWikiDir := filepath.Join(tmpDir, brand.DotDir(), "memory", "project")
 	if err := os.MkdirAll(memWikiDir, 0o755); err != nil {
@@ -711,7 +706,6 @@ func TestCovBoost_OpenASTDB_WithDB(t *testing.T) {
 // TestCovBoost_OpenASTDB_WithContextDB exercises openASTDB with a named context
 // (lines 42-43 in context.go)
 func TestCovBoost_OpenASTDB_WithContextDB(t *testing.T) {
-	t.Parallel()
 	tmpDir := t.TempDir()
 
 	// Create a DB at the context path

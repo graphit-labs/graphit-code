@@ -614,11 +614,10 @@ func (s *SearchIndex) semanticSearchLocked(queryVec []float32, topK int) ([]Sear
 		SELECT v.rowid, v.distance, m.name, m.docstring, m.entity_type, m.path, m.line_number
 		FROM entity_vec v
 		JOIN entity_vec_map m ON m.vec_rowid = v.rowid
-		WHERE v.embedding MATCH ?
-		ORDER BY v.distance
-		LIMIT ?`, blob, limit)
+		WHERE v.embedding MATCH ? AND k = ?
+		ORDER BY v.distance`, blob, limit)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("semantic query failed: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -673,9 +672,18 @@ func (s *SearchIndex) HybridSearch(query string, queryVec []float32, topK int) (
 			rrfScore := weight / float64(rrfK+rank+1)
 			if existing, ok := docScores[key]; ok {
 				existing.score += rrfScore
+
+				// Preserve distance from semantic search (FTS distance is 0)
+				bestDist := existing.result.Distance
+				if r.Distance != 0 {
+					bestDist = r.Distance
+				}
+
 				if r.RelevanceScore > existing.result.RelevanceScore {
 					existing.result = r
 				}
+
+				existing.result.Distance = bestDist
 			} else {
 				docScores[key] = &rankedDoc{
 					result: r,
