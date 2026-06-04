@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/config"
 )
 
 type IndexConfig struct {
@@ -12,6 +14,8 @@ type IndexConfig struct {
 	Reset      bool
 	BatchSize  int
 	UseLouvain bool
+	InlineCfg  config.ConfigMap
+	ProjectCfg config.ConfigMap
 }
 
 type IndexResult struct {
@@ -51,7 +55,9 @@ func RunIndexPipeline(ctx context.Context, rootPath, wikiDir string, cfg IndexCo
 		_ = os.RemoveAll(wikiDir)
 	}
 
-	wikiResult, err := GenerateKnowledgeWiki(ctx, rootPath, wikiDir)
+	allowedExts := config.ResolveKnowledgeExtensions(cfg.InlineCfg, cfg.ProjectCfg)
+
+	wikiResult, err := GenerateKnowledgeWiki(ctx, rootPath, wikiDir, allowedExts)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge wiki generation: %w", err)
 	}

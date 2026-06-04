@@ -29,7 +29,7 @@ type WikiResult struct {
 	LintFindings    int
 }
 
-func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string) (*WikiResult, error) {
+func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedExts map[string]bool) (*WikiResult, error) {
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating wiki dir: %w", err)
 	}
@@ -40,6 +40,11 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string) (*WikiRe
 	}
 
 	ic := NewKnowledgeIgnoreChecker(absRoot)
+
+	exts := allowedExts
+	if len(exts) == 0 {
+		exts = supportedKnowledgeExts
+	}
 
 	var docs []knowledgeDoc
 	err = filepath.Walk(absRoot, func(path string, info os.FileInfo, walkErr error) error {
@@ -55,7 +60,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string) (*WikiRe
 		}
 
 		ext := strings.ToLower(filepath.Ext(path))
-		if !supportedKnowledgeExts[ext] {
+		if !exts[ext] {
 			return nil
 		}
 

@@ -565,7 +565,7 @@ func TestGenerateKnowledgeWiki(t *testing.T) {
 	// Create an unsupported extension
 	_ = os.WriteFile(filepath.Join(docsDir, "image.png"), []byte("binary"), 0o644)
 
-	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatalf("GenerateKnowledgeWiki failed: %v", err)
 	}
@@ -589,7 +589,7 @@ func TestGenerateKnowledgeWiki(t *testing.T) {
 	}
 
 	// Run again — articles are regenerated because timestamp in frontmatter changes
-	result2, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	result2, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatalf("second run failed: %v", err)
 	}
@@ -606,7 +606,7 @@ func TestGenerateKnowledgeWikiUpdatesAndDeletes(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(docsDir, "page2.md"), []byte("# Page Two\nContent"), 0o644)
 
 	// First generation
-	_, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	_, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -616,7 +616,7 @@ func TestGenerateKnowledgeWikiUpdatesAndDeletes(t *testing.T) {
 	_ = os.Remove(filepath.Join(docsDir, "page2.md"))
 
 	// Second generation — should detect updates and deletions
-	result2, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	result2, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,7 +643,7 @@ func TestGenerateKnowledgeWikiUpdatesAndDeletes(t *testing.T) {
 
 func TestGenerateKnowledgeWikiMkdirError(t *testing.T) {
 	// Try to create wiki dir in a non-existent root with no permissions
-	_, err := GenerateKnowledgeWiki(context.Background(), "/nonexistent/path", "/nonexistent/wiki")
+	_, err := GenerateKnowledgeWiki(context.Background(), "/nonexistent/path", "/nonexistent/wiki", nil)
 	if err == nil {
 		t.Error("expected error for non-existent wiki dir")
 	}
@@ -659,7 +659,7 @@ func TestGenerateKnowledgeWikiParentLink(t *testing.T) {
 	content := "# Parent Doc\n\nIntro paragraph.\n\n## Long Section\n\n" + longContent + "\n\n## Short\n\nShort text.\n"
 	_ = os.WriteFile(filepath.Join(docsDir, "parent.md"), []byte(content), 0o644)
 
-	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -677,7 +677,7 @@ func TestGenerateKnowledgeWikiWithCrossRefs(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(docsDir, "auth.md"), []byte("# Auth\nSee [[DB Module]] for details."), 0o644)
 	_ = os.WriteFile(filepath.Join(docsDir, "db.md"), []byte("# DB Module\nDatabase stuff. See Auth for more."), 0o644)
 
-	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1185,7 +1185,7 @@ func TestGenerateKnowledgeWikiWithExistingDirAndSubdir(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(docsDir, "page.md"), []byte("# Page\nContent"), 0o644)
 
 	// First pass
-	_, _ = GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	_, _ = GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 
 	// Create a subdirectory and a non-.md file in the wiki dir
 	// to test filtering (wiki.go:115-116: entry.IsDir() || ext != ".md")
@@ -1193,7 +1193,7 @@ func TestGenerateKnowledgeWikiWithExistingDirAndSubdir(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(wikiDir, "notes.txt"), []byte("txt"), 0o644)
 
 	// Second pass with existing wiki dir
-	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1212,7 +1212,7 @@ func TestGenerateKnowledgeWikiIgnoredFile(t *testing.T) {
 	// Create a visible file
 	_ = os.WriteFile(filepath.Join(rootDir, "visible.md"), []byte("# Visible\nOK"), 0o644)
 
-	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1404,7 +1404,7 @@ func TestGenerateKnowledgeWikiWriteFileError(t *testing.T) {
 	defer func() { _ = os.Chmod(wikiDir, 0o755) }()
 
 	// This should handle error gracefully (continue on write failure)
-	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	// The index write fails, which returns an error
 	if err == nil {
 		// If we're running as root, it might still succeed
@@ -1425,7 +1425,7 @@ func TestGenerateKnowledgeWikiDeletion(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(docsDir, "remove.md"), []byte("# Remove\nGoing away"), 0o644)
 
 	// First generation
-	_, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	_, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1434,7 +1434,7 @@ func TestGenerateKnowledgeWikiDeletion(t *testing.T) {
 	_ = os.Remove(filepath.Join(docsDir, "remove.md"))
 
 	// Second generation should prune the Remove page
-	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1475,13 +1475,13 @@ func TestGenerateKnowledgeWikiContentUnchanged(t *testing.T) {
 	wikiDir := filepath.Join(rootDir, ".wiki")
 	_ = os.WriteFile(filepath.Join(rootDir, "doc.md"), []byte("# Doc\nContent"), 0o644)
 
-	_, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	_, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Run again immediately
-	result2, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	result2, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1556,7 +1556,7 @@ func TestGenerateKnowledgeWikiWithUnreadableFile(t *testing.T) {
 	defer func() { _ = os.Chmod(unreadable, 0o644) }()
 
 	// Should still succeed, skipping the unreadable file
-	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir)
+	result, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

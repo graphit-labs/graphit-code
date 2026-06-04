@@ -396,6 +396,46 @@ func ResolveDocsDir(inlineCfg, projectCfg ConfigMap) string {
 	return "."
 }
 
+var defaultKnowledgeExtensions = []string{
+	".md", ".markdown", ".mdx",
+	".txt", ".adoc", ".rst",
+	".puml", ".plantuml",
+	".yaml", ".yml", ".json",
+	".proto", ".graphql", ".gql",
+	".wsdl", ".xml",
+}
+
+// ResolveKnowledgeExtensions returns the set of file extensions the knowledge
+// wiki should index. Configurable via knowledge.extensions (comma-separated).
+// Falls back to the built-in default set.
+func ResolveKnowledgeExtensions(inlineCfg, projectCfg ConfigMap) map[string]bool {
+	val := ResolveConfig("knowledge.extensions", inlineCfg, projectCfg)
+
+	var exts []string
+	if val != "" {
+		for _, e := range strings.Split(val, ",") {
+			e = strings.TrimSpace(strings.ToLower(e))
+			if e == "" {
+				continue
+			}
+			if !strings.HasPrefix(e, ".") {
+				e = "." + e
+			}
+			exts = append(exts, e)
+		}
+	}
+
+	if len(exts) == 0 {
+		exts = defaultKnowledgeExtensions
+	}
+
+	m := make(map[string]bool, len(exts))
+	for _, e := range exts {
+		m[e] = true
+	}
+	return m
+}
+
 var AllModuleNames = []string{
 	"knowledge", "ast", "hub", "memory", "improvements",
 }
