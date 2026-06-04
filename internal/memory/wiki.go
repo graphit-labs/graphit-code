@@ -93,6 +93,22 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 		result.ArticlesWritten++
 	}
 
+	// Remove stale wiki pages that no longer correspond to any memory in the raw dir.
+	keepFiles := map[string]bool{"index.md": true, "log.md": true}
+	for slug := range usedSlugs {
+		keepFiles[slug+".md"] = true
+	}
+	if existing, readErr := os.ReadDir(wikiDir); readErr == nil {
+		for _, e := range existing {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
+				continue
+			}
+			if !keepFiles[e.Name()] {
+				_ = os.Remove(filepath.Join(wikiDir, e.Name()))
+			}
+		}
+	}
+
 	indexContent := memoryIndexPage(docs)
 	if err := os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(indexContent), 0o644); err != nil {
 		return result, err

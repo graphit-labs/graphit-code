@@ -452,8 +452,6 @@ func (m *MemoryService) syncToLocalInternal(skipNetwork bool) error {
 
 	m.wikiDir = MemoryWikiGlobalDir(string(m.scope), m.scopeID)
 
-	m.ensureProjectCopy(wtDir)
-
 	if err := os.MkdirAll(m.wikiDir, 0o755); err != nil {
 		m.log().Warn("sync: mkdir wiki failed", "dir", m.wikiDir, "error", err)
 	}
@@ -462,6 +460,9 @@ func (m *MemoryService) syncToLocalInternal(skipNetwork bool) error {
 	if err := m.IndexMemories(ctx); err != nil {
 		m.log().Warn("wiki indexing failed", "scope", m.scope, "scopeID", m.scopeID, "error", err)
 	}
+
+	// Copy wiki to project AFTER indexing so the project always has the latest wiki.
+	m.ensureProjectCopy(wtDir)
 	return nil
 }
 
