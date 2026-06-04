@@ -95,11 +95,6 @@ func (s *MemoryAppService) SearchByKeyword(term, scope string) ([]MemorySearchRe
 		scope = "project"
 	}
 
-	// NOTE: RawDir depends on CWD for "project" scope — tech debt
-	origWd, _ := os.Getwd()
-	_ = os.Chdir(s.projectDir)
-	defer func() { _ = os.Chdir(origWd) }()
-
 	dir := RawDir(scope)
 	if dir == "" {
 		return nil, nil

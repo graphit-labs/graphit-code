@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
@@ -36,13 +37,35 @@ func RawDir(scope string) string {
 	return WorktreeRawDirForScope(scope)
 }
 
+// resolveScopeID returns the real scope identifier for the given scope.
+// For "project": reads the project ID from the lockfile (CWD must be the project root).
+// For "user": computes the user hash from git config.
+// For context scopes: the scope name itself is the identifier.
+func resolveScopeID(scope string) string {
+	switch scope {
+	case "project":
+		lf, err := hub.LoadLockfile(brand.LockFileName())
+		if err != nil || lf == nil || lf.Project.ID == "" {
+			return ""
+		}
+		return lf.Project.ID
+	case "user":
+		hash, err := UserHashFromGit()
+		if err != nil {
+			return ""
+		}
+		return hash
+	default:
+		return scope
+	}
+}
+
 func WorktreeRawDirForScope(scope string) string {
-	wikiDir := GlobalScopeDir(scope)
-	if wikiDir == "" {
+	if GlobalScopeDir(scope) == "" {
 		return ""
 	}
-	scopeID := filepath.Base(wikiDir)
-	if scopeID == "" || scopeID == "." || scopeID == "/" {
+	scopeID := resolveScopeID(scope)
+	if scopeID == "" {
 		return ""
 	}
 	return WorktreeRawDir(scope, scopeID)
