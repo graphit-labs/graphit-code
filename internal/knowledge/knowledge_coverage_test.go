@@ -258,7 +258,7 @@ func TestKnowledgeIndexPage(t *testing.T) {
 		{title: "Setup Guide", path: "docs/setup.md", summary: "", docType: "guide"},
 		{title: "DB Architecture", path: "docs/db.md", summary: strings.Repeat("z", 100), docType: "architecture"},
 	}
-	page := knowledgeIndexPage(docs)
+	page := knowledgeIndexPage(docs, nil)
 	if !strings.Contains(page, "# Knowledge Wiki") {
 		t.Error("missing title")
 	}
@@ -280,9 +280,9 @@ func TestKnowledgeIndexPage(t *testing.T) {
 	if !strings.Contains(page, "Handles auth") {
 		t.Error("missing auth summary")
 	}
-	// Guide has no summary → should show path
-	if !strings.Contains(page, "docs/setup.md") {
-		t.Error("missing path fallback for guide without summary")
+	// Guide has no summary → should show badge
+	if !strings.Contains(page, "`guide`") {
+		t.Error("missing badge fallback for guide without summary")
 	}
 	// Long summary should be truncated
 	if !strings.Contains(page, "…") {
@@ -1074,9 +1074,12 @@ func TestSplitDocByHeadersAllShort(t *testing.T) {
 		body:  "---\ntitle: T\n---\nIntro\n\n## S1\nShort.\n\n## S2\nAlso short.\n",
 	}
 	result := splitDocByHeaders(doc)
-	// All sections < 150 words → no split, everything stays in parent
-	if len(result) != 1 {
-		t.Errorf("expected 1 doc (no split), got %d", len(result))
+	// All H2 sections have content → all split (no word-count threshold)
+	if len(result) != 3 {
+		t.Errorf("expected 3 docs (parent + 2 children), got %d", len(result))
+	}
+	if len(result) >= 2 && result[1].breadcrumb != "All Short > S1" {
+		t.Errorf("expected breadcrumb 'All Short > S1', got '%s'", result[1].breadcrumb)
 	}
 }
 

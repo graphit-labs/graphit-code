@@ -24,6 +24,9 @@ type WikiResult struct {
 	BacklinksAdded  int
 	OrphanPages     int
 	BrokenLinks     int
+	Communities     int
+	StalePages      int
+	LintFindings    int
 }
 
 func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string) (*WikiResult, error) {
@@ -211,7 +214,8 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string) (*WikiRe
 		}
 	}
 
-	indexContent := knowledgeIndexPage(docs)
+	// --- Phase 1: Initial index + cross-ref graph ---
+	indexContent := knowledgeIndexPage(docs, nil)
 	if err := os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(indexContent), 0o644); err != nil {
 		return result, err
 	}
@@ -223,6 +227,86 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string) (*WikiRe
 			result.BacklinksAdded = xrefResult.BacklinksAdded
 			result.OrphanPages = xrefResult.OrphanPages
 			result.BrokenLinks = xrefResult.BrokenLinks
+		}
+	}
+
+	// --- Phase 2: Community detection ---
+	var communities []KnowledgeCommunity
+	if graph != nil {
+		communities = DetectKnowledgeCommunities(graph)
+		result.Communities = len(communities)
+
+		if len(communities) > 0 {
+			slugToCluster, slugToClusterName := AssignCommunities(communities)
+
+			// Assign cluster info to docs
+			for i := range docs {
+				slug := docSlugs[i]
+				if cid, ok := slugToCluster[slug]; ok {
+					docs[i].cluster = cid
+					docs[i].clusterName = slugToClusterName[slug]
+				} else {
+					docs[i].cluster = -1
+				}
+			}
+
+			// Re-generate entity pages with cluster info
+			for i := range docs {
+				slug := docSlugs[i]
+				if docs[i].cluster < 0 {
+					continue
+				}
+				page := knowledgeEntityPage(docs[i])
+				path := filepath.Join(wikiDir, slug+".md")
+				_ = os.WriteFile(path, []byte(page), 0o644)
+			}
+
+			// Re-generate index with clusters
+			indexContent = knowledgeIndexPage(docs, communities)
+			_ = os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(indexContent), 0o644)
+		}
+	}
+
+	// --- Phase 3: Staleness tracking ---
+	oldManifest := LoadManifest(wikiDir)
+	newManifest := &Manifest{
+		SourceHashes: make(map[string]string),
+		PageSources:  make(map[string]string),
+	}
+	for i, doc := range docs {
+		newManifest.SourceHashes[doc.path] = doc.contentHash
+		newManifest.PageSources[docSlugs[i]] = doc.path
+	}
+
+	stalePages := DetectStalePages(oldManifest, newManifest, graph)
+	if len(stalePages) > 0 {
+		result.StalePages = len(stalePages)
+		// Apply stale info to docs and re-generate affected pages
+		for i := range docs {
+			slug := docSlugs[i]
+			if info, ok := stalePages[slug]; ok {
+				docs[i].staleSince = info.Since
+				docs[i].staleReason = info.Reason
+				page := knowledgeEntityPage(docs[i])
+				path := filepath.Join(wikiDir, slug+".md")
+				_ = os.WriteFile(path, []byte(page), 0o644)
+			}
+		}
+		// Re-generate index with stale info
+		indexContent = knowledgeIndexPage(docs, communities)
+		_ = os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(indexContent), 0o644)
+	}
+	SaveManifest(wikiDir, newManifest)
+
+	// --- Phase 4: Lint ---
+	var sourcePaths []string
+	for _, doc := range docs {
+		sourcePaths = append(sourcePaths, doc.path)
+	}
+	if graph != nil {
+		lintResult := LintKnowledgeWiki(wikiDir, graph, sourcePaths)
+		if lintResult != nil {
+			result.LintFindings = len(lintResult.Findings)
 		}
 	}
 
@@ -250,8 +334,25 @@ func knowledgeEntityPage(doc knowledgeDoc) string {
 	_, _ = fmt.Fprintf(&b, "confidence: %.2f\n", confidence)
 	_, _ = fmt.Fprintf(&b, "content_hash: %s\n", doc.contentHash)
 	_, _ = fmt.Fprintf(&b, "tags: [knowledge, %s]\n", doc.docType)
+	if doc.breadcrumb != "" {
+		_, _ = fmt.Fprintf(&b, "breadcrumb: %s\n", doc.breadcrumb)
+	}
+	if doc.cluster >= 0 {
+		_, _ = fmt.Fprintf(&b, "cluster: %d\n", doc.cluster)
+		_, _ = fmt.Fprintf(&b, "cluster_name: %s\n", doc.clusterName)
+	}
+	if doc.staleSince != "" {
+		_, _ = fmt.Fprintf(&b, "stale_since: %s\n", doc.staleSince)
+		_, _ = fmt.Fprintf(&b, "stale_reason: %s\n", doc.staleReason)
+	}
 	b.WriteString("---\n\n")
 	_, _ = fmt.Fprintf(&b, "# %s\n\n", doc.title)
+	if doc.staleSince != "" {
+		_, _ = fmt.Fprintf(&b, "> ⚠️ **Stale since %s** — %s. Content may be outdated.\n\n", doc.staleSince, doc.staleReason)
+	}
+	if doc.breadcrumb != "" {
+		_, _ = fmt.Fprintf(&b, "*📍 %s*\n\n", doc.breadcrumb)
+	}
 	if doc.summary != "" {
 		_, _ = fmt.Fprintf(&b, "> %s\n\n", doc.summary)
 	}
@@ -316,7 +417,7 @@ func computeDocConfidence(doc knowledgeDoc) float64 {
 	return score
 }
 
-func knowledgeIndexPage(docs []knowledgeDoc) string {
+func knowledgeIndexPage(docs []knowledgeDoc, communities []KnowledgeCommunity) string {
 	var b strings.Builder
 	now := time.Now().UTC().Format("2006-01-02")
 	b.WriteString("---\n")
@@ -327,40 +428,108 @@ func knowledgeIndexPage(docs []knowledgeDoc) string {
 	b.WriteString("# Knowledge Wiki\n\n")
 	_, _ = fmt.Fprintf(&b, "> %s knowledge wiki. **Start here.** Scan the catalog below, then follow [[wikilinks]] to drill into specific pages.\n", brand.DisplayName)
 	_, _ = fmt.Fprintf(&b, "> Check [[log]] for the timeline of updates. Last updated: %s\n\n", now)
-	_, _ = fmt.Fprintf(&b, "**%d documents**\n\n", len(docs))
-	b.WriteString("---\n\n")
-	b.WriteString("## Documents\n\n")
 
-	byType := make(map[string][]knowledgeDoc)
+	// Count stale pages
+	staleCount := 0
 	for _, doc := range docs {
-		byType[doc.docType] = append(byType[doc.docType], doc)
+		if doc.staleSince != "" {
+			staleCount++
+		}
 	}
-	var types []string
-	for t := range byType {
-		types = append(types, t)
+
+	if len(communities) > 0 {
+		_, _ = fmt.Fprintf(&b, "**%d documents** in **%d clusters**", len(docs), len(communities))
+	} else {
+		_, _ = fmt.Fprintf(&b, "**%d documents**", len(docs))
 	}
-	sort.Strings(types)
+	if staleCount > 0 {
+		_, _ = fmt.Fprintf(&b, " · ⚠️ **%d stale**", staleCount)
+	}
+	b.WriteString("\n\n---\n\n")
 
-	for _, docType := range types {
-		_, _ = fmt.Fprintf(&b, "### %s\n\n", cases.Title(language.English).String(docType))
-		for _, doc := range byType[docType] {
-			link := fmt.Sprintf("[[%s]]", safeFilename(doc.title))
-			if doc.summary != "" {
+	// Build doc lookup by slug
+	docBySlug := make(map[string]knowledgeDoc)
+	for _, doc := range docs {
+		docBySlug[safeFilename(doc.title)] = doc
+	}
 
-				summary := doc.summary
-				if len(summary) > 80 {
-					summary = summary[:80] + "…"
+	writeDocEntry := func(doc knowledgeDoc) {
+		link := fmt.Sprintf("[[%s]]", safeFilename(doc.title))
+		badge := fmt.Sprintf("`%s`", doc.docType)
+		staleMarker := ""
+		if doc.staleSince != "" {
+			staleMarker = " ⚠️"
+		}
+		if doc.summary != "" {
+			summary := doc.summary
+			if len(summary) > 80 {
+				summary = summary[:80] + "…"
+			}
+			_, _ = fmt.Fprintf(&b, "- %s — %s %s%s\n", link, summary, badge, staleMarker)
+		} else {
+			_, _ = fmt.Fprintf(&b, "- %s %s%s\n", link, badge, staleMarker)
+		}
+	}
+
+	if len(communities) > 0 {
+		// Cluster-based layout
+		b.WriteString("## Clusters\n\n")
+
+		clusteredSlugs := make(map[string]bool)
+		for _, comm := range communities {
+			_, _ = fmt.Fprintf(&b, "### 🔗 %s (%d pages, cohesion: %.0f%%)\n\n",
+				comm.Label, len(comm.Members), comm.Cohesion*100)
+			for _, slug := range comm.Members {
+				clusteredSlugs[slug] = true
+				if doc, ok := docBySlug[slug]; ok {
+					writeDocEntry(doc)
+				} else {
+					_, _ = fmt.Fprintf(&b, "- [[%s]]\n", slug)
 				}
-				_, _ = fmt.Fprintf(&b, "- %s — %s\n", link, summary)
-			} else {
-				_, _ = fmt.Fprintf(&b, "- %s (`%s`)\n", link, doc.path)
+			}
+			b.WriteString("\n")
+		}
+
+		// Unclustered docs
+		var unclustered []knowledgeDoc
+		for _, doc := range docs {
+			slug := safeFilename(doc.title)
+			if !clusteredSlugs[slug] {
+				unclustered = append(unclustered, doc)
 			}
 		}
-		b.WriteString("\n")
+		if len(unclustered) > 0 {
+			_, _ = fmt.Fprintf(&b, "### 📄 Unclustered (%d pages)\n\n", len(unclustered))
+			for _, doc := range unclustered {
+				writeDocEntry(doc)
+			}
+			b.WriteString("\n")
+		}
+	} else {
+		// Fallback: type-based layout (no communities detected)
+		b.WriteString("## Documents\n\n")
+
+		byType := make(map[string][]knowledgeDoc)
+		for _, doc := range docs {
+			byType[doc.docType] = append(byType[doc.docType], doc)
+		}
+		var types []string
+		for t := range byType {
+			types = append(types, t)
+		}
+		sort.Strings(types)
+
+		for _, docType := range types {
+			_, _ = fmt.Fprintf(&b, "### %s\n\n", cases.Title(language.English).String(docType))
+			for _, doc := range byType[docType] {
+				writeDocEntry(doc)
+			}
+			b.WriteString("\n")
+		}
 	}
 
 	b.WriteString("## How to Navigate\n\n")
-	b.WriteString("1. **Start here** — scan the Documents section above for the topic you need.\n")
+	b.WriteString("1. **Start here** — scan the catalog above for the topic you need.\n")
 	b.WriteString("2. **Follow links** — each page has [[wikilinks]] to related pages.\n")
 	b.WriteString("3. **Check backlinks** — each page lists what links *to* it (inbound references).\n")
 	b.WriteString("4. **Check the log** — [[log]] shows the timeline of wiki updates.\n\n")
@@ -450,6 +619,11 @@ type knowledgeDoc struct {
 	contentHash string
 	crossRefs   []string
 	parentTitle string
+	breadcrumb  string // "Parent > Section" hierarchy path
+	cluster     int    // community ID from Louvain (-1 = unassigned)
+	clusterName string // label of the community
+	staleSince  string // ISO date if page is stale, empty otherwise
+	staleReason string // why it's stale
 }
 
 func safeFilename(name string) string {
@@ -811,7 +985,7 @@ func splitDocByHeaders(doc knowledgeDoc) []knowledgeDoc {
 		return []knowledgeDoc{doc}
 	}
 
-	// Count how many sections will actually be split (word count >= 150)
+	// Count H2 sections with non-empty content
 	splitCount := 0
 	for idx, startLine := range h2Indices {
 		endLine := len(lines)
@@ -819,8 +993,7 @@ func splitDocByHeaders(doc knowledgeDoc) []knowledgeDoc {
 			endLine = h2Indices[idx+1]
 		}
 		sectionContent := strings.Join(lines[startLine+1:endLine], "\n")
-		trimmedContent := strings.TrimSpace(sectionContent)
-		if len(strings.Fields(trimmedContent)) >= 150 {
+		if strings.TrimSpace(sectionContent) != "" {
 			splitCount++
 		}
 	}
@@ -841,6 +1014,9 @@ func splitDocByHeaders(doc knowledgeDoc) []knowledgeDoc {
 		parentBuf.WriteString("\n")
 	}
 
+	// Build ToC and children
+	var tocEntries []string
+
 	for idx, startLine := range h2Indices {
 		headerLine := lines[startLine]
 		sectionTitle := strings.TrimSpace(strings.TrimPrefix(headerLine, "##"))
@@ -859,16 +1035,21 @@ func splitDocByHeaders(doc knowledgeDoc) []knowledgeDoc {
 			continue
 		}
 
-		// If section content has less than 150 words, keep it inline in parent
-		if len(strings.Fields(trimmedContent)) < 150 {
-			parentBuf.WriteString("\n" + headerLine + "\n" + sectionContent + "\n")
-			continue
-		}
-
 		childTitle := doc.title + " - " + sectionTitle
 
 		// In the parent, replace the section content with a link to the child page
 		_, _ = fmt.Fprintf(&parentBuf, "\n## %s\nSee: [[%s]]\n", sectionTitle, childTitle)
+
+		// Build ToC entry with H3 sub-items
+		tocEntry := fmt.Sprintf("- [[%s|%s]]", childTitle, sectionTitle)
+		sectionLines := strings.Split(trimmedContent, "\n")
+		for _, sl := range sectionLines {
+			if strings.HasPrefix(sl, "### ") {
+				subTitle := strings.TrimSpace(strings.TrimPrefix(sl, "###"))
+				tocEntry += fmt.Sprintf("\n  - %s", subTitle)
+			}
+		}
+		tocEntries = append(tocEntries, tocEntry)
 
 		childDoc := knowledgeDoc{
 			title:       childTitle,
@@ -877,9 +1058,28 @@ func splitDocByHeaders(doc knowledgeDoc) []knowledgeDoc {
 			docType:     doc.docType,
 			body:        trimmedContent,
 			parentTitle: doc.title,
+			breadcrumb:  doc.title + " > " + sectionTitle,
 			contentHash: fmt.Sprintf("%x", sha256.Sum256([]byte(trimmedContent)))[:16],
 		}
 		result = append(result, childDoc)
+	}
+
+	// Insert ToC into parent if we have children
+	if len(tocEntries) > 0 {
+		var tocBuf strings.Builder
+		tocBuf.WriteString("\n## 📋 Table of Contents\n\n")
+		for _, entry := range tocEntries {
+			tocBuf.WriteString(entry + "\n")
+		}
+		tocBuf.WriteString("\n")
+
+		// Insert ToC right after intro, before the H2 links
+		introEnd := parentBody
+		rest := parentBuf.String()[len(introEnd):]
+		parentBuf.Reset()
+		parentBuf.WriteString(introEnd)
+		parentBuf.WriteString(tocBuf.String())
+		parentBuf.WriteString(rest)
 	}
 
 	parentDoc.body = parentBuf.String()

@@ -24,6 +24,9 @@ type IndexResult struct {
 	TotalTime    time.Duration
 	ExtractTime  time.Duration
 	WriteTime    time.Duration
+	Communities  int
+	StalePages   int
+	LintFindings int
 }
 
 var supportedKnowledgeExts = map[string]bool{
@@ -56,5 +59,8 @@ func RunIndexPipeline(ctx context.Context, rootPath, wikiDir string, cfg IndexCo
 	return &IndexResult{
 		IndexedFiles: wikiResult.ArticlesWritten,
 		TotalTime:    time.Since(start),
+		Communities:  wikiResult.Communities,
+		StalePages:   wikiResult.StalePages,
+		LintFindings: wikiResult.LintFindings,
 	}, nil
 }

@@ -379,7 +379,7 @@ func DetectCommunities(ctx context.Context, db GraphAdapter, cfg IndexConfig, al
 	var assignment map[string]int
 	switch algo {
 	case AlgoLouvain:
-		assignment = louvain(adj)
+		assignment = Louvain(adj)
 	default:
 		assignment = labelPropagation(adj, 50)
 	}
@@ -412,7 +412,7 @@ func DetectCommunities(ctx context.Context, db GraphAdapter, cfg IndexConfig, al
 				}
 			}
 		}
-		cohesion := computeCohesion(adj, cn.nodes)
+		cohesion := ComputeCohesion(adj, cn.nodes)
 		result = append(result, Community{
 			ID:       newID,
 			Label:    label,
@@ -538,7 +538,7 @@ func guessLabel(uid string, labels []string) string {
 	return "Node"
 }
 
-func computeCohesion(adj map[string][]string, members []string) float64 {
+func ComputeCohesion(adj map[string][]string, members []string) float64 {
 	n := len(members)
 	if n <= 1 {
 		return 1.0
@@ -614,7 +614,7 @@ func labelPropagation(adj map[string][]string, maxIter int) map[string]int {
 	return labels
 }
 
-func louvain(adj map[string][]string) map[string]int {
+func Louvain(adj map[string][]string) map[string]int {
 	nodeIdx := make(map[string]int)
 	var nodes []string
 	for uid := range adj {

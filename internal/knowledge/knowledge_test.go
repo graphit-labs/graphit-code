@@ -121,9 +121,9 @@ Short section content.
 	}
 
 	splits := splitDocByHeaders(doc)
-	// We expect 2 documents: the parent (which keeps Section Two and Empty Section) and Section One (which is split because it is long).
-	if len(splits) != 2 {
-		t.Fatalf("expected 2 split docs, got %d", len(splits))
+	// We expect 3 documents: parent (keeps Empty Section) + Section One + Section Two (all H2 with content are split)
+	if len(splits) != 3 {
+		t.Fatalf("expected 3 split docs, got %d", len(splits))
 	}
 
 	parent := splits[0]
@@ -133,11 +133,15 @@ Short section content.
 	if !strings.Contains(parent.body, "## Section One\nSee: [[Test Document - Section One]]") {
 		t.Errorf("parent body missing link to Section One: %q", parent.body)
 	}
-	if !strings.Contains(parent.body, "## Section Two\nShort section content.") {
-		t.Errorf("parent body should retain Section Two inline: %q", parent.body)
+	if !strings.Contains(parent.body, "## Section Two\nSee: [[Test Document - Section Two]]") {
+		t.Errorf("parent body missing link to Section Two: %q", parent.body)
 	}
 	if !strings.Contains(parent.body, "## Empty Section") {
 		t.Errorf("parent body should retain Empty Section: %q", parent.body)
+	}
+	// Parent should have a ToC
+	if !strings.Contains(parent.body, "## 📋 Table of Contents") {
+		t.Errorf("parent body missing Table of Contents: %q", parent.body)
 	}
 
 	s1 := splits[1]
@@ -149,6 +153,17 @@ Short section content.
 	}
 	if s1.parentTitle != "Test Document" {
 		t.Errorf("expected parentTitle Test Document, got %q", s1.parentTitle)
+	}
+	if s1.breadcrumb != "Test Document > Section One" {
+		t.Errorf("expected breadcrumb 'Test Document > Section One', got %q", s1.breadcrumb)
+	}
+
+	s2 := splits[2]
+	if s2.title != "Test Document - Section Two" {
+		t.Errorf("unexpected title for section two: %q", s2.title)
+	}
+	if s2.breadcrumb != "Test Document > Section Two" {
+		t.Errorf("expected breadcrumb 'Test Document > Section Two', got %q", s2.breadcrumb)
 	}
 }
 

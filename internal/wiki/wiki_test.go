@@ -1077,7 +1077,7 @@ func TestGuessLabel(t *testing.T) {
 
 func TestComputeCohesion(t *testing.T) {
 	// Single member
-	c := computeCohesion(nil, []string{"a"})
+	c := ComputeCohesion(nil, []string{"a"})
 	if c != 1.0 {
 		t.Errorf("expected 1.0 for single member, got %f", c)
 	}
@@ -1088,7 +1088,7 @@ func TestComputeCohesion(t *testing.T) {
 		"b": {"a", "c"},
 		"c": {"a", "b"},
 	}
-	c = computeCohesion(adj, []string{"a", "b", "c"})
+	c = ComputeCohesion(adj, []string{"a", "b", "c"})
 	if c != 1.0 {
 		t.Errorf("expected 1.0 for fully connected, got %f", c)
 	}
@@ -1098,7 +1098,7 @@ func TestComputeCohesion(t *testing.T) {
 		"a": {},
 		"b": {},
 	}
-	c = computeCohesion(adj2, []string{"a", "b"})
+	c = ComputeCohesion(adj2, []string{"a", "b"})
 	if c != 0.0 {
 		t.Errorf("expected 0.0 for disconnected, got %f", c)
 	}
@@ -1142,13 +1142,13 @@ func TestLabelPropagation(t *testing.T) {
 
 func TestLouvain(t *testing.T) {
 	// Empty graph
-	result := louvain(map[string][]string{})
+	result := Louvain(map[string][]string{})
 	if len(result) != 0 {
 		t.Errorf("expected empty for empty graph")
 	}
 
 	// No edges
-	result = louvain(map[string][]string{
+	result = Louvain(map[string][]string{
 		"a": {},
 		"b": {},
 	})
@@ -1162,7 +1162,7 @@ func TestLouvain(t *testing.T) {
 		"b": {"a", "c"},
 		"c": {"b"},
 	}
-	result = louvain(adj)
+	result = Louvain(adj)
 	if len(result) != 3 {
 		t.Errorf("expected 3 results, got %d", len(result))
 	}
