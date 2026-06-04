@@ -212,10 +212,7 @@ func projectFrameworksDir(projectDir string) string {
 	return filepath.Join(projectASTDir(projectDir), "frameworks")
 }
 
-// ---------------------------------------------------------------------------
-// Runtime defaults — extracted by the launcher to ~/.graphit/runtime/<version>/ast/
-// No embedded extraction needed; the launcher handles this during binary setup.
-// ---------------------------------------------------------------------------
+
 
 // ---------------------------------------------------------------------------
 // Loading
@@ -274,7 +271,7 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 		return qf, false
 	}
 
-	// Validate individual queries
+
 	var valid []ExternalQueryDef
 	for i, q := range qf.Queries {
 		if q.DataKey == "" {
@@ -327,90 +324,6 @@ func LoadRuntimeQueries() ([]ExternalQueryFile, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Merging
-// ---------------------------------------------------------------------------
-
-// toTSQueryDefs converts external query definitions to internal tsQueryDef
-// format used by the tree-sitter adapter.
-func toTSQueryDefs(external []ExternalQueryDef) []tsQueryDef {
-	result := make([]tsQueryDef, 0, len(external))
-	for _, eq := range external {
-		result = append(result, tsQueryDef(eq))
-	}
-	return result
-}
-
-// MergeQueries merges external query definitions into built-in queries for a
-// given language and extension. When replace is true, built-in queries are
-// completely replaced. When false, external queries are appended.
-//
-// Invalid patterns (those that fail tree-sitter compilation) are logged and
-// skipped.
-func MergeQueries(builtIn []tsQueryDef, externals []ExternalQueryFile, lang string, ext string, tsLang *wasmts.Language) []tsQueryDef {
-	var applicable []ExternalQueryFile
-	for _, ef := range externals {
-		if ef.Language != lang {
-			continue
-		}
-		// If the external file specifies extensions, only apply if our ext matches
-		if len(ef.Extensions) > 0 {
-			found := false
-			for _, e := range ef.Extensions {
-				if strings.EqualFold(e, ext) {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
-		}
-		applicable = append(applicable, ef)
-	}
-
-	if len(applicable) == 0 {
-		return builtIn
-	}
-
-	// Check if any applicable file wants full replacement
-	replace := false
-	for _, ef := range applicable {
-		if ef.Replace {
-			replace = true
-			break
-		}
-	}
-
-	var base []tsQueryDef
-	if !replace {
-		base = make([]tsQueryDef, len(builtIn))
-		copy(base, builtIn)
-	}
-
-	// Append all external queries, validating patterns
-	for _, ef := range applicable {
-		for _, eq := range ef.Queries {
-			qd := tsQueryDef(eq)
-
-			// Validate pattern compiles
-			if tsLang != nil {
-				q, err := tsLang.NewQuery(qd.Pattern)
-				if err != nil {
-					slog.Warn("skip external query: invalid pattern",
-						"language", lang, "data_key", qd.DataKey, "error", err)
-					continue
-				}
-				q.Close()
-			}
-
-			base = append(base, qd)
-		}
-	}
-
-	return base
-}
-
-// ---------------------------------------------------------------------------
 // Caching & Resolution
 // ---------------------------------------------------------------------------
 
@@ -428,16 +341,6 @@ var userQueriesCache []ExternalQueryFile
 // runtimeQueriesOnce ensures runtime queries are loaded only once.
 var runtimeQueriesOnce sync.Once
 var runtimeQueriesCache []ExternalQueryFile
-
-// resetQueryCaches clears all cached queries. Used by tests.
-func resetQueryCaches() {
-	externalQueryCache = sync.Map{}
-	mergedQueryCache = sync.Map{}
-	userQueriesOnce = sync.Once{}
-	userQueriesCache = nil
-	runtimeQueriesOnce = sync.Once{}
-	runtimeQueriesCache = nil
-}
 
 
 
@@ -552,7 +455,7 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *wasmts.Language) []t
 		return nil
 	}
 
-	// Convert resolved external queries to tsQueryDef, validating patterns
+
 	var result []tsQueryDef
 	for _, ef := range resolved {
 		for _, eq := range ef.Queries {
@@ -610,11 +513,9 @@ func resolvedLangConfigFor(projectDir, lang, ext string) *ExternalQueryFile {
 // resolution chain. It collects unique language configs, one per language, using the
 // same precedence as queries (project > user > runtime).
 func ResolveAllLangConfigs(projectDir string) []*ExternalQueryFile {
-	// Collect all languages from all loaded query files
 	seen := make(map[string]bool)
 	var result []*ExternalQueryFile
 
-	// Walk all loaded query files to discover available languages
 	sources := [][]ExternalQueryFile{
 		loadRuntimeCached(),
 		loadUserCached(),
@@ -627,7 +528,7 @@ func ResolveAllLangConfigs(projectDir string) []*ExternalQueryFile {
 		for _, f := range files {
 			if f.Language != "" && !seen[f.Language] {
 				seen[f.Language] = true
-				// Resolve the config using the precedence chain
+
 				ext := ""
 				if len(f.Extensions) > 0 {
 					ext = f.Extensions[0]

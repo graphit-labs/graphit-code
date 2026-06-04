@@ -272,16 +272,8 @@ func (sc *ShardCache) Remove(relPath string) {
 	sc.dirty[""] = true
 }
 
-func (sc *ShardCache) Invalidate() {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
-	sc.manifest.Files = make(map[string]*shardManifestEntry)
-	sc.nodes = make(map[string]*shardNodes)
-	sc.edges = make(map[string]*shardEdges)
-	sc.dirty = make(map[string]bool)
-	_ = os.RemoveAll(filepath.Join(sc.dir, "shards"))
-	_ = os.Remove(filepath.Join(sc.dir, "manifest.json"))
-}
+
+
 
 func (sc *ShardCache) Save() error {
 	sc.mu.Lock()
@@ -345,7 +337,7 @@ func (sc *ShardCache) Save() error {
 	return firstErr
 }
 
-func (sc *ShardCache) SaveHashes() error { return sc.Save() }
+
 
 func (sc *ShardCache) Close() error { return sc.Save() }
 

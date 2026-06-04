@@ -467,15 +467,7 @@ func ResolveIndexSource(inlineCfg, projectCfg ConfigMap) bool {
 	return !strings.EqualFold(val, "false")
 }
 
-func DisabledModules(inlineCfg, projectCfg ConfigMap) []string {
-	var result []string
-	for _, m := range AllModuleNames {
-		if IsModuleDisabled(m, inlineCfg, projectCfg) {
-			result = append(result, m)
-		}
-	}
-	return result
-}
+
 
 func HubRepoDirPath() (string, error) {
 	dir, err := AppDir()
@@ -485,36 +477,7 @@ func HubRepoDirPath() (string, error) {
 	return filepath.Join(dir, "hub"), nil
 }
 
-func HubDirForRepo(repoURL string) (string, error) {
-	dir, err := AppDir()
-	if err != nil {
-		return "", err
-	}
-	name := sanitizeRepoName(repoURL)
-	return filepath.Join(dir, "hub", name), nil
-}
 
-func sanitizeRepoName(repoURL string) string {
-	name := repoURL
-
-	for _, prefix := range []string{"https://", "http://", "ssh://", "git://"} {
-		name = strings.TrimPrefix(name, prefix)
-	}
-
-	if idx := strings.Index(name, "@"); idx >= 0 {
-		name = name[idx+1:]
-	}
-
-	name = strings.TrimSuffix(name, ".git")
-
-	replacer := strings.NewReplacer(":", "_", "/", "_", "\\", "_")
-	name = replacer.Replace(name)
-
-	if name == "" {
-		name = "default"
-	}
-	return name
-}
 
 func splitKey(dotKey string) (section, key string, nested bool) {
 	parts := strings.SplitN(dotKey, ".", 2)

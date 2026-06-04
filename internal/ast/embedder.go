@@ -279,54 +279,6 @@ func (e *Embedder) buildEmbeddingText(row entityRow) string {
 	return strings.Join(parts, "\n")
 }
 
-type EmbeddingStats struct {
-	Label    string
-	Total    int
-	Embedded int
-	Missing  int
-}
-
-func (e *Embedder) Stats(ctx context.Context) ([]EmbeddingStats, error) {
-	if e.cfg.ParseCache == nil || e.cfg.EmbCache == nil {
-		return nil, nil
-	}
-
-	labelCounts := make(map[string]int)
-	labelEmbedded := make(map[string]int)
-
-	entries := e.cfg.ParseCache.AllEntries()
-	for _, entry := range entries {
-		for _, ent := range entry.Entities {
-			if ent.UID == "" || ent.Name == "" {
-				continue
-			}
-			labelCounts[ent.Label]++
-			hash := e.cfg.ParseCache.GetHash(ent.Path)
-			if hash != "" {
-				if vec := e.cfg.EmbCache.Get(ent.Path, ent.UID, hash); vec != nil {
-					labelEmbedded[ent.Label]++
-				}
-			}
-		}
-	}
-
-	var stats []EmbeddingStats
-	for _, label := range embeddableLabels {
-		total := labelCounts[label]
-		if total > 0 {
-			embedded := labelEmbedded[label]
-			stats = append(stats, EmbeddingStats{
-				Label:    label,
-				Total:    total,
-				Embedded: embedded,
-				Missing:  total - embedded,
-			})
-		}
-	}
-
-	return stats, nil
-}
-
 
 
 func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir string, logger *slog.Logger) error {

@@ -268,46 +268,6 @@ func (cf *CodeFinder) AnalyzeRelationships(ctx context.Context, name, path, repo
 	return result, nil
 }
 
-func (cf *CodeFinder) WhoCallsFunction(ctx context.Context, name, path, repoPath string) ([]FindCodeResult, error) {
-	q := `MATCH (caller)-[:CALLS]->(target {name: $name})
-		  RETURN caller.name AS name, caller.path AS path, caller.line_number AS line, labels(caller)[0] AS type LIMIT 100`
-	params := map[string]any{"name": name}
-	res, err := cf.db.Execute(ctx, q, params)
-	if err != nil {
-		return nil, err
-	}
-	return cf.recordsToResults(res.Records, "function"), nil
-}
-
-func (cf *CodeFinder) WhatDoesCall(ctx context.Context, name, path, repoPath string) ([]FindCodeResult, error) {
-	q := `MATCH (source {name: $name})-[:CALLS]->(target)
-		  RETURN target.name AS name, target.path AS path, target.line_number AS line, labels(target)[0] AS type LIMIT 100`
-	params := map[string]any{"name": name}
-	res, err := cf.db.Execute(ctx, q, params)
-	if err != nil {
-		return nil, err
-	}
-	return cf.recordsToResults(res.Records, "function"), nil
-}
-
-func (cf *CodeFinder) FindClassHierarchy(ctx context.Context, name, path, repoPath string) (map[string][]FindCodeResult, error) {
-	result := make(map[string][]FindCodeResult)
-
-	q1 := `MATCH (child {name: $name})-[:INHERITS*1..5]->(ancestor)
-		   RETURN ancestor.name AS name, ancestor.path AS path, ancestor.line_number AS line, labels(ancestor)[0] AS type`
-	params := map[string]any{"name": name}
-	if res, err := cf.db.Execute(ctx, q1, params); err == nil {
-		result["ancestors"] = cf.recordsToResults(res.Records, "class")
-	}
-
-	q2 := `MATCH (descendant)-[:INHERITS*1..5]->(parent {name: $name})
-		   RETURN descendant.name AS name, descendant.path AS path, descendant.line_number AS line, labels(descendant)[0] AS type`
-	if res, err := cf.db.Execute(ctx, q2, params); err == nil {
-		result["descendants"] = cf.recordsToResults(res.Records, "class")
-	}
-
-	return result, nil
-}
 
 type ComplexityResult struct {
 	Name       string `json:"name"`

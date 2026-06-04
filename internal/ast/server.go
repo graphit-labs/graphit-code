@@ -1,13 +1,9 @@
 package ast
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,8 +14,6 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/netutil"
-	graphitui "github.com/graphit-labs/graphit-code/internal/ui"
 )
 
 type cachedDB struct {
@@ -27,7 +21,6 @@ type cachedDB struct {
 	lastUsed time.Time
 }
 
-const dbCacheTTL = 5 * time.Minute
 
 type Server struct {
 	db       GraphDB
@@ -35,34 +28,13 @@ type Server struct {
 	aiClient ai.Client
 	repoPath string
 	port     int
-	ln       net.Listener
 	mux      *http.ServeMux
 
 	dbCacheMu sync.Mutex
 	dbCache   map[string]*cachedDB
 }
 
-func NewServer(db GraphDB, jobs *JobManager, repoPath string) (*Server, error) {
-	ln, port, err := netutil.ListenOnFreePort(8000)
-	if err != nil {
-		return nil, fmt.Errorf("no free port available: %w", err)
-	}
 
-	aiClient, _ := ai.NewClientFromConfig()
-
-	s := &Server{
-		db:       db,
-		jobs:     jobs,
-		aiClient: aiClient,
-		repoPath: repoPath,
-		port:     port,
-		ln:       ln,
-		mux:      http.NewServeMux(),
-		dbCache:  make(map[string]*cachedDB),
-	}
-	s.registerRoutes()
-	return s, nil
-}
 
 func NewServerOnPort(db GraphDB, jobs *JobManager, repoPath string, port int) (*Server, error) {
 
@@ -82,39 +54,9 @@ func NewServerOnPort(db GraphDB, jobs *JobManager, repoPath string, port int) (*
 	return s, nil
 }
 
-func (s *Server) Port() int { return s.port }
 
-func (s *Server) Start(ctx context.Context) error {
-	addr := fmt.Sprintf(":%d", s.port)
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: corsMiddleware(s.mux),
-	}
 
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- srv.Serve(s.ln)
-	}()
 
-	// Periodically evict stale cached DB connections.
-	go s.evictStaleCaches(ctx)
-
-	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = srv.Shutdown(shutdownCtx)
-
-	s.closeDBCache()
-
-	select {
-	case err := <-errCh:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-	default:
-	}
-	return nil
-}
 
 func (s *Server) RegisterAPIRoutes(mux *http.ServeMux) {
 
@@ -155,11 +97,7 @@ func (s *Server) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/context/{name}", s.handleDeleteContext)
 }
 
-func (s *Server) registerRoutes() {
-	s.RegisterAPIRoutes(s.mux)
 
-	s.mux.HandleFunc("/", s.handleUI)
-}
 
 type emptyGraphDB struct{}
 
@@ -194,37 +132,7 @@ func (s *Server) getOrCreateCachedDB(dbPath string, readOnly bool) GraphDB {
 	return db
 }
 
-func (s *Server) closeDBCache() {
-	s.dbCacheMu.Lock()
-	defer s.dbCacheMu.Unlock()
 
-	for key, cached := range s.dbCache {
-		_ = cached.db.Close()
-		delete(s.dbCache, key)
-	}
-}
-
-func (s *Server) evictStaleCaches(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.dbCacheMu.Lock()
-			now := time.Now()
-			for key, cached := range s.dbCache {
-				if now.Sub(cached.lastUsed) > dbCacheTTL {
-					_ = cached.db.Close()
-					delete(s.dbCache, key)
-				}
-			}
-			s.dbCacheMu.Unlock()
-		}
-	}
-}
 
 func (s *Server) dbForContext(r *http.Request) GraphDB {
 	ctxName := r.URL.Query().Get("context")
@@ -454,24 +362,7 @@ func (s *Server) handleObsidianExport(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
-	if graphitui.ServeStatic(w, r) {
-		return
-	}
-	data, err := fs.ReadFile(graphitui.DistFS, "dist/index.html")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "UI not found: "+err.Error())
-		return
-	}
-	apiBase := fmt.Sprintf("http://localhost:%d", s.port)
-	injection := fmt.Sprintf(`<script>
-  window.__API_BASE__ = %q;
-  window.__APP_MODE__ = "ast";
-</script>`, apiBase)
-	data = bytes.Replace(data, []byte("</head>"), []byte(injection+"</head>"), 1)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(data)
-}
+
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -1291,35 +1182,7 @@ func (s *Server) handleParsersStatus(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if isAllowedOrigin(origin) {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-		}
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
 
-func isAllowedOrigin(origin string) bool {
-	if origin == "" {
-		return true // same-origin requests have no Origin header
-	}
-	return strings.HasPrefix(origin, "http://localhost:") ||
-		strings.HasPrefix(origin, "http://127.0.0.1:") ||
-		strings.HasPrefix(origin, "http://[::1]:") ||
-		origin == "http://localhost" ||
-		origin == "http://127.0.0.1" ||
-		origin == "http://[::1]"
-}
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

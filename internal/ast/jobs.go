@@ -36,19 +36,6 @@ func NewJobManager() *JobManager {
 	return &JobManager{jobs: make(map[string]*Job)}
 }
 
-func (m *JobManager) Create(id, path string, total int) *Job {
-	job := &Job{
-		ID:        id,
-		Path:      path,
-		Status:    JobPending,
-		Total:     total,
-		StartedAt: time.Now(),
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.jobs[id] = job
-	return job
-}
 
 func (m *JobManager) Get(id string) *Job {
 	m.mu.RLock()
@@ -68,52 +55,6 @@ func (m *JobManager) List() []*Job {
 	return out
 }
 
-
-
-func (m *JobManager) Tick(id string, errs []string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	j, ok := m.jobs[id]
-	if !ok {
-		return
-	}
-	j.Processed++
-	j.Errors = append(j.Errors, errs...)
-	if j.Total > 0 {
-		j.Progress = int(float64(j.Processed) / float64(j.Total) * 100)
-	}
-	if j.Status == JobPending {
-		j.Status = JobRunning
-	}
-}
-
-func (m *JobManager) Done(id string, failed bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	j, ok := m.jobs[id]
-	if !ok {
-		return
-	}
-	j.EndedAt = time.Now()
-	j.Progress = 100
-	if failed {
-		j.Status = JobFailed
-	} else {
-		j.Status = JobDone
-	}
-}
-
-func (m *JobManager) Prune(maxAge time.Duration) {
-	cutoff := time.Now().Add(-maxAge)
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for id, j := range m.jobs {
-		done := j.Status == JobDone || j.Status == JobFailed || j.Status == JobCancelled
-		if done && j.EndedAt.Before(cutoff) {
-			delete(m.jobs, id)
-		}
-	}
-}
 
 func sortJobsDesc(jobs []*Job) {
 	for i := 1; i < len(jobs); i++ {

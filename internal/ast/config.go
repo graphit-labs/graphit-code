@@ -88,58 +88,6 @@ func SaveConfig(cfg *Config) error {
 	return os.WriteFile(configFile, data, 0o600)
 }
 
-func GetConfigValue(key string) string {
-	cfg := LoadConfig()
-	switch key {
-	case "ladybug_path":
-		return cfg.LadybugPath
-	case "active_context":
-		return cfg.ActiveContext
-	case "openai_model":
-		return cfg.OpenAIModel
-	default:
-		return ""
-	}
-}
-
-func SetConfigValue(key, value string) error {
-	cfg := LoadConfig()
-	switch key {
-	case "ladybug_path":
-		cfg.LadybugPath = value
-	case "active_context":
-		cfg.ActiveContext = value
-	case "openai_model":
-		cfg.OpenAIModel = value
-	}
-	return SaveConfig(cfg)
-}
-
-func AddContext(name, path string) error {
-	cfg := LoadConfig()
-	if cfg.Contexts == nil {
-		cfg.Contexts = make(map[string]string)
-	}
-	cfg.Contexts[name] = path
-	return SaveConfig(cfg)
-}
-
-func SwitchContext(name string) error {
-	cfg := LoadConfig()
-	if _, ok := cfg.Contexts[name]; !ok {
-		return fmt.Errorf("context %q not found", name)
-	}
-	cfg.ActiveContext = name
-	return SaveConfig(cfg)
-}
-
-func ListContexts() map[string]string {
-	cfg := LoadConfig()
-	if cfg.Contexts == nil {
-		return map[string]string{}
-	}
-	return cfg.Contexts
-}
 
 func sanitizeContextName(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
@@ -224,15 +172,7 @@ func RemoveImportedContext(name string) error {
 	return SaveConfig(cfg)
 }
 
-func GetImportedContext(name string) (*ImportedContext, error) {
-	sanitized := sanitizeContextName(name)
-	cfg := LoadConfig()
-	ictx, ok := cfg.ImportedContexts[sanitized]
-	if !ok {
-		return nil, fmt.Errorf("imported context %q not found", name)
-	}
-	return &ictx, nil
-}
+
 
 func ListImportedContexts() map[string]ImportedContext {
 	result := map[string]ImportedContext{}

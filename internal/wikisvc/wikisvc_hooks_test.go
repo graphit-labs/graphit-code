@@ -28,7 +28,6 @@ func saveAndRestoreHooks(t *testing.T) {
 	origLoadChatSession := loadChatSession
 	origNewChatEngine := newChatEngine
 	origListSessions := listChatSessions
-	origLatestSession := latestChatSession
 	origDeleteSession := deleteChatSession
 
 	t.Cleanup(func() {
@@ -41,7 +40,6 @@ func saveAndRestoreHooks(t *testing.T) {
 		loadChatSession = origLoadChatSession
 		newChatEngine = origNewChatEngine
 		listChatSessions = origListSessions
-		latestChatSession = origLatestSession
 		deleteChatSession = origDeleteSession
 	})
 }
@@ -594,39 +592,6 @@ func TestListSessions_ViaHook_Error(t *testing.T) {
 
 	svc := NewWikiService(t.TempDir())
 	_, err := svc.ListSessions()
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-// --- LatestSession via hook ---
-
-func TestLatestSession_ViaHook_Success(t *testing.T) {
-	saveAndRestoreHooks(t)
-
-	latestChatSession = func(_ string) (*chat.ChatSession, error) {
-		return &chat.ChatSession{ID: "latest-1"}, nil
-	}
-
-	svc := NewWikiService(t.TempDir())
-	session, err := svc.LatestSession()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if session.ID != "latest-1" {
-		t.Errorf("ID = %q; want %q", session.ID, "latest-1")
-	}
-}
-
-func TestLatestSession_ViaHook_Error(t *testing.T) {
-	saveAndRestoreHooks(t)
-
-	latestChatSession = func(_ string) (*chat.ChatSession, error) {
-		return nil, errors.New("no sessions")
-	}
-
-	svc := NewWikiService(t.TempDir())
-	_, err := svc.LatestSession()
 	if err == nil {
 		t.Fatal("expected error")
 	}

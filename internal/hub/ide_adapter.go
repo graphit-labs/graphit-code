@@ -35,8 +35,3 @@ func FilterSupportedIDEs(ides []string) []string {
 	return result
 }
 
-// SupportedIDEs returns the list of IDE names that have registered adapters.
-func SupportedIDEs() []string {
-	return ide.SupportedIDEs()
-}
-

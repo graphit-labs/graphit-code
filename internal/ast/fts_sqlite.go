@@ -317,40 +317,9 @@ func (s *SearchIndex) optimizeTables() {
 }
 
 // ---------------------------------------------------------------------------
-// Public Search API — kept for backward compatibility
-// ---------------------------------------------------------------------------
-
-func (s *SearchIndex) SearchFiles(query string, topK int) ([]SearchResult, error) {
-	res, err := s.Search(query, topK)
-	if err != nil {
-		return nil, err
-	}
-	var files []SearchResult
-	for _, r := range res {
-		if r.Type == "file" {
-			files = append(files, r)
-		}
-	}
-	return files, nil
-}
-
-func (s *SearchIndex) SearchEntities(query string, topK int) ([]SearchResult, error) {
-	res, err := s.Search(query, topK)
-	if err != nil {
-		return nil, err
-	}
-	var entities []SearchResult
-	for _, r := range res {
-		if r.Type != "file" {
-			entities = append(entities, r)
-		}
-	}
-	return entities, nil
-}
-
-// ---------------------------------------------------------------------------
 // Multi-pass search engine
 // ---------------------------------------------------------------------------
+
 
 type searchPass struct {
 	name   string
@@ -589,9 +558,8 @@ func (s *SearchIndex) queryTrigram(tokens []string, limit int) []SearchResult {
 	return results
 }
 
-// ---------------------------------------------------------------------------
-// Semantic search (unchanged)
-// ---------------------------------------------------------------------------
+
+
 
 func (s *SearchIndex) SemanticSearch(queryVec []float32, topK int) ([]SearchResult, error) {
 	s.mu.RLock()

@@ -69,11 +69,7 @@ func NOP() *slog.Logger {
 	return slog.New(discardHandler{})
 }
 
-func Stderr(module string) *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	})).With("module", module)
-}
+
 
 func Resolve(l *slog.Logger) *slog.Logger {
 	if l != nil {

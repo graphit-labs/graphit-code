@@ -21,7 +21,6 @@ func sanitizeContextName(name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("context name is required")
 	}
-	// Strip any directory components
 	clean := filepath.Base(name)
 	if clean == "." || clean == ".." || clean == string(os.PathSeparator) {
 		return "", fmt.Errorf("invalid context name %q", name)

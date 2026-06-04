@@ -784,16 +784,8 @@ func TreeSitterLangForExtension(ext string) string {
 	return ""
 }
 
-func GetTreeSitterParser(ext string, projectDir ...string) *TreeSitterParser {
-	if HasTreeSitterForExtension(ext) {
-		pd := ""
-		if len(projectDir) > 0 {
-			pd = projectDir[0]
-		}
-		return &TreeSitterParser{projectDir: pd}
-	}
-	return nil
-}
+
+
 
 func TreeSitterSupportedExtensions() []string {
 	var exts []string

@@ -122,7 +122,7 @@ func DetectFrameworks(ctx context.Context, db GraphDB, projectDir string) map[st
 		}
 	}
 
-	// Use YAML-loaded rules for decorator detection
+
 	matchDec := func(dec string) {
 		if dec == "" {
 			return
@@ -159,7 +159,7 @@ func DetectFrameworks(ctx context.Context, db GraphDB, projectDir string) map[st
 		}
 	}
 
-	// Heritage detection
+
 	for _, relType := range []string{"INHERITS", "IMPLEMENTS"} {
 		q := fmt.Sprintf(`MATCH (c)-[:%s]->(p) RETURN p.name AS parent LIMIT 500`, relType)
 		if res, err := db.Query(ctx, q, nil); err == nil {
@@ -172,7 +172,7 @@ func DetectFrameworks(ctx context.Context, db GraphDB, projectDir string) map[st
 		}
 	}
 
-	// Import detection
+
 	q3 := `MATCH (f:File)-[:IMPORTS]->(m:Module) RETURN m.name AS name, m.full_import_name AS full_name LIMIT 1000`
 	if res, err := db.Query(ctx, q3, nil); err == nil {
 		for _, rec := range res.Records {

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -134,70 +133,6 @@ func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string, 
 	return nil
 }
 
-func ImportBundle(ctx context.Context, db GraphDB, bundlePath string, logger *slog.Logger) error {
-	log := slogutil.Resolve(logger)
-	zr, err := zip.OpenReader(bundlePath)
-	if err != nil {
-		return fmt.Errorf("open bundle: %w", err)
-	}
-	defer func() { _ = zr.Close() }()
-
-	var nodes []BundleNode
-	var edges []BundleEdge
-
-	for _, f := range zr.File {
-		switch f.Name {
-		case "nodes.json":
-			if err := readJSONFromZip(f, &nodes); err != nil {
-				return fmt.Errorf("read nodes: %w", err)
-			}
-		case "edges.json":
-			if err := readJSONFromZip(f, &edges); err != nil {
-				return fmt.Errorf("read edges: %w", err)
-			}
-		}
-	}
-
-	for _, node := range nodes {
-		props := node.Properties
-		propsJSON, _ := json.Marshal(props)
-		var propsMap map[string]any
-		_ = json.Unmarshal(propsJSON, &propsMap)
-
-		sets := make([]string, 0, len(propsMap))
-		params := make(map[string]any)
-		i := 0
-		for k, v := range propsMap {
-			paramName := fmt.Sprintf("p%d", i)
-			sets = append(sets, fmt.Sprintf("n.%s = $%s", k, paramName))
-			params[paramName] = v
-			i++
-		}
-
-		if name, ok := propsMap["name"]; ok {
-			params["name"] = name
-			q := fmt.Sprintf(`MERGE (n:%s {name: $name}) SET %s`, node.Label, joinStrings(sets, ", "))
-			_, _ = db.Execute(ctx, q, params)
-		}
-	}
-
-	for _, edge := range edges {
-		params := map[string]any{
-			"sn": edge.SourceMatch["name"],
-			"sp": edge.SourceMatch["path"],
-			"tn": edge.TargetMatch["name"],
-			"tp": edge.TargetMatch["path"],
-		}
-		q := fmt.Sprintf(
-			`MATCH (a:%s {name: $sn}) MATCH (b:%s {name: $tn}) MERGE (a)-[:%s]->(b)`,
-			edge.SourceLabel, edge.TargetLabel, edge.Type)
-		_, _ = db.Execute(ctx, q, params)
-	}
-
-	log.Info("bundle imported", "nodes", len(nodes), "edges", len(edges), "path", bundlePath)
-	return nil
-}
-
 func writeJSONToZip(zw *zip.Writer, name string, data any) error {
 	w, err := zw.Create(name)
 	if err != nil {
@@ -206,28 +141,4 @@ func writeJSONToZip(zw *zip.Writer, name string, data any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(data)
-}
-
-func readJSONFromZip(f *zip.File, target any) error {
-	rc, err := f.Open()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rc.Close() }()
-	data, err := io.ReadAll(rc)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, target)
-}
-
-func joinStrings(strs []string, sep string) string {
-	result := ""
-	for i, s := range strs {
-		if i > 0 {
-			result += sep
-		}
-		result += s
-	}
-	return result
 }

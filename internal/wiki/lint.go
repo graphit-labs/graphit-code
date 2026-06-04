@@ -18,14 +18,6 @@ type LintConfig struct {
 	StaleDays int
 }
 
-func DefaultLintConfig() LintConfig {
-	return LintConfig{
-		Deep:      false,
-		Fix:       false,
-		StaleDays: 30,
-	}
-}
-
 type LintReport struct {
 	TotalPages    int
 	Orphans       []string
@@ -186,62 +178,4 @@ func isStale(content string, staleDays int) bool {
 	}
 
 	return time.Since(t).Hours() > float64(staleDays*24)
-}
-
-func FormatReport(r *LintReport) string {
-	var b strings.Builder
-
-	b.WriteString("# Wiki Lint Report\n\n")
-	_, _ = fmt.Fprintf(&b, "**%s**\n\n", r.Summary())
-
-	if len(r.Orphans) > 0 {
-		b.WriteString("## Orphan Pages\n\n")
-		b.WriteString("> Pages with no inbound or outbound wikilinks. Consider adding [[wikilinks]] or removing them.\n\n")
-		for _, p := range r.Orphans {
-			_, _ = fmt.Fprintf(&b, "- `%s.md`\n", p)
-		}
-		b.WriteString("\n")
-	}
-
-	if len(r.BrokenLinks) > 0 {
-		b.WriteString("## Broken Links\n\n")
-		b.WriteString("> [[wikilinks]] pointing to pages that don't exist.\n\n")
-		for _, bl := range r.BrokenLinks {
-			_, _ = fmt.Fprintf(&b, "- `[[%s]]` in `%s.md`\n", bl.Target, bl.Source)
-		}
-		b.WriteString("\n")
-	}
-
-	if len(r.StalePages) > 0 {
-		b.WriteString("## Stale Pages\n\n")
-		b.WriteString("> Pages not updated recently. Consider re-indexing.\n\n")
-		for _, p := range r.StalePages {
-			_, _ = fmt.Fprintf(&b, "- `%s.md`\n", p)
-		}
-		b.WriteString("\n")
-	}
-
-	if len(r.EmptyPages) > 0 {
-		b.WriteString("## Empty Pages\n\n")
-		b.WriteString("> Pages with ≤ 10 words of content.\n\n")
-		for _, p := range r.EmptyPages {
-			_, _ = fmt.Fprintf(&b, "- `%s.md`\n", p)
-		}
-		b.WriteString("\n")
-	}
-
-	if len(r.MissingFields) > 0 {
-		b.WriteString("## Missing Frontmatter\n\n")
-		b.WriteString("> Pages missing required YAML frontmatter fields.\n\n")
-		for _, fi := range r.MissingFields {
-			_, _ = fmt.Fprintf(&b, "- `%s.md` — missing: %s\n", fi.Page, strings.Join(fi.MissingFields, ", "))
-		}
-		b.WriteString("\n")
-	}
-
-	if r.FixesApplied > 0 {
-		_, _ = fmt.Fprintf(&b, "\n**Fixes applied:** %d backlinks injected\n", r.FixesApplied)
-	}
-
-	return b.String()
 }

@@ -40,12 +40,8 @@ func GetEngine() *wasmts.Engine {
 	return engine
 }
 
-func GetGlobalLanguage(langName string) *wasmts.Language {
-	if v, ok := loadedLanguages.Load(langName); ok {
-		return v.(*wasmts.Language)
-	}
-	return nil
-}
+
+
 
 // userCacheDir returns a cache directory for wazero compilation cache.
 func userCacheDir() string {
@@ -215,11 +211,4 @@ func initBuiltinGrammars() map[string]*wasmts.Language {
 	}
 
 	return result
-}
-
-// CloseGrammarEngine shuts down the WASM engine.
-func CloseGrammarEngine() {
-	if grammarEngine != nil {
-		grammarEngine.Close()
-	}
 }

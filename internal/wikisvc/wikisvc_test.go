@@ -174,14 +174,6 @@ func TestListSessions_Empty(t *testing.T) {
 	}
 }
 
-func TestLatestSession_NoSessions(t *testing.T) {
-	svc := NewWikiService(t.TempDir())
-	_, err := svc.LatestSession()
-	if err == nil {
-		t.Error("expected error when no sessions exist")
-	}
-}
-
 func TestDeleteSession_NotFound(t *testing.T) {
 	svc := NewWikiService(t.TempDir())
 	err := svc.DeleteSession("nonexistent-session-id")

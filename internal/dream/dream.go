@@ -83,9 +83,7 @@ func NewRunner(projectDir, ide string, projectCfgLoader func() config.ConfigMap)
 	return r
 }
 
-func (r *Runner) SetLogger(fn func(string, ...any)) {
-	r.logFn = fn
-}
+
 
 func (r *Runner) log(format string, args ...any) {
 	if r.logFn != nil {
@@ -224,13 +222,7 @@ func (r *Runner) resolveSessionULID(currentModTime time.Time) string {
 	return r.state.CurrentULID
 }
 
-func (r *Runner) Stop() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.cancelFn != nil {
-		r.cancelFn()
-	}
-}
+
 
 const exhaustedSentinel = ".exhausted"
 

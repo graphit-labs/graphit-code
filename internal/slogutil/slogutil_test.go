@@ -19,17 +19,6 @@ func TestNOP(t *testing.T) {
 	logger.With("key", "value").Warn("also discarded")
 }
 
-func TestStderr(t *testing.T) {
-	logger := Stderr("test-module")
-	if logger == nil {
-		t.Fatal("Stderr() returned nil")
-	}
-	// We can't easily capture os.Stderr in tests, but we can verify
-	// the logger is functional and carries the module attribute.
-	// Just ensure it doesn't panic.
-	logger.Info("test message from Stderr logger")
-}
-
 func TestResolve(t *testing.T) {
 	tests := []struct {
 		name     string

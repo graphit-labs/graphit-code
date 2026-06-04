@@ -79,12 +79,4 @@ func ServeHTTP(ctx context.Context, opts Options) error {
 	return nil
 }
 
-func ServeStdio(ctx context.Context) error {
-	server := NewServer()
-
-	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
-		return fmt.Errorf("MCP stdio error: %w", err)
-	}
-	return nil
-}
 

@@ -103,15 +103,3 @@ func TestNewEmbedServer_Fields(t *testing.T) {
 		t.Error("portFile should not be empty")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// NewEmbedServerModule — fields
-// ---------------------------------------------------------------------------
-
-func TestNewEmbedServerModule_Fields(t *testing.T) {
-	client := &mockEmbeddingClient{modelName: "test"}
-	mod := NewEmbedServerModule(client)
-	if mod.client != client {
-		t.Error("client field mismatch")
-	}
-}

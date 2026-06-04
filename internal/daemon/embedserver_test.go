@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
 // ---------------------------------------------------------------------------
@@ -64,23 +62,6 @@ func (m *mockQueryEmbedder) EmbedQuery(ctx context.Context, query string) ([]flo
 	return []float32{0.5, 0.6}, nil
 }
 
-// ---------------------------------------------------------------------------
-// EmbedPortFile
-// ---------------------------------------------------------------------------
-
-func TestEmbedPortFile(t *testing.T) {
-	tempHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	_ = os.Setenv("HOME", tempHome)
-	defer func() { _ = os.Setenv("HOME", origHome) }()
-
-	got := EmbedPortFile()
-	expected := filepath.Join(tempHome, "."+brand.Brand, "daemon", portFileName)
-	if got != expected {
-		t.Errorf("expected %q, got %q", expected, got)
-	}
-}
-
 func TestNewEmbedServer_PortFilePath(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -92,49 +73,6 @@ func TestNewEmbedServer_PortFilePath(t *testing.T) {
 	expected := filepath.Join(GlobalDaemonDir(), portFileName)
 	if srv.portFile != expected {
 		t.Errorf("expected portFile %q, got %q", expected, srv.portFile)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// EmbedServerModule — Name
-// ---------------------------------------------------------------------------
-
-func TestEmbedServerModule_Name(t *testing.T) {
-	mod := NewEmbedServerModule(nil)
-	if mod.Name() != "embed-server" {
-		t.Errorf("expected 'embed-server', got %q", mod.Name())
-	}
-}
-
-// ---------------------------------------------------------------------------
-// EmbedServerModule — Start (integrates with EmbedServer)
-// ---------------------------------------------------------------------------
-
-func TestEmbedServerModule_Start(t *testing.T) {
-	tempHome := t.TempDir()
-	origHome := os.Getenv("HOME")
-	_ = os.Setenv("HOME", tempHome)
-	defer func() { _ = os.Setenv("HOME", origHome) }()
-
-	client := &mockEmbeddingClient{modelName: "test-model"}
-	mod := NewEmbedServerModule(client)
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- mod.Start(ctx)
-	}()
-
-	// Wait briefly for server to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Cancel to shut down
-	cancel()
-
-	err := <-errCh
-	if err != nil {
-		t.Errorf("expected nil error, got %v", err)
 	}
 }
 

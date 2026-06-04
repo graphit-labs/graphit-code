@@ -113,11 +113,3 @@ const (
 
 	RelReferences = "REFERENCES"
 )
-
-func UID(parts ...string) string {
-	uid := ""
-	for _, p := range parts {
-		uid += p
-	}
-	return uid
-}

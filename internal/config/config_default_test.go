@@ -321,20 +321,6 @@ func TestRepoURLsAndDirs(t *testing.T) {
 	if ResolveDocsDir(nil, nil) != "." {
 		t.Errorf("expected default docs dir to be '.'")
 	}
-
-	// Test HubDirForRepo & sanitizeRepoName
-	dir, err := HubDirForRepo("https://github.com/org/repo.git")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(dir, "github.com_org_repo") {
-		t.Errorf("HubDirForRepo sanitized name incorrect, got %q", dir)
-	}
-
-	dirDefault, _ := HubDirForRepo("")
-	if !strings.Contains(dirDefault, "default") {
-		t.Errorf("expected default path, got %q", dirDefault)
-	}
 }
 
 func TestGlobalConfigOperations(t *testing.T) {
@@ -449,32 +435,6 @@ func TestResolveUrls(t *testing.T) {
 	}
 }
 
-func TestDisabledModulesHelper(t *testing.T) {
-	cfg := ConfigMap{
-		"modules": map[string]any{
-			"improvements": "true",
-			"ast":          "false",
-		},
-	}
-	disabled := DisabledModules(nil, cfg)
-	foundAst := false
-	foundImprovements := false
-	for _, m := range disabled {
-		if m == "ast" {
-			foundAst = true
-		}
-		if m == "improvements" {
-			foundImprovements = true
-		}
-	}
-	if !foundAst {
-		t.Error("expected ast module to be disabled")
-	}
-	if foundImprovements {
-		t.Error("expected improvements module to be enabled (not disabled)")
-	}
-}
-
 func TestAppDirHomeError(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	origUserProfile := os.Getenv("USERPROFILE")
@@ -531,10 +491,7 @@ func TestAppDirHomeError(t *testing.T) {
 		t.Error("expected error in HubRepoDirPath when HOME is unset")
 	}
 
-	_, err = HubDirForRepo("url")
-	if err == nil {
-		t.Error("expected error in HubDirForRepo when HOME is unset")
-	}
+
 }
 
 func TestAppDirMkdirError(t *testing.T) {
@@ -680,14 +637,6 @@ func TestUncoveredBranches(t *testing.T) {
 		t.Error("expected ResolveIndexSource to default to true")
 	}
 
-	// 7. sanitizeRepoName with @ symbol
-	dir, err := HubDirForRepo("git@github.com:org/repo.git")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(dir, "github.com_org_repo") {
-		t.Errorf("HubDirForRepo sanitized name incorrect, got %q", dir)
-	}
 }
 
 func TestIsSetupDone(t *testing.T) {

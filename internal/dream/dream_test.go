@@ -524,20 +524,6 @@ func TestNewRunnerSetsInitialSleepingSince(t *testing.T) {
 	}
 }
 
-func TestRunnerSetLogger(t *testing.T) {
-	dir := t.TempDir()
-	r := NewRunner(dir, "ide", nil)
-
-	var logged string
-	r.SetLogger(func(format string, args ...any) {
-		logged = format
-	})
-	r.log("test %s", "message")
-	if logged != "test %s" {
-		t.Errorf("expected log format 'test %%s', got %q", logged)
-	}
-}
-
 func TestRunnerLogNoLogger(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
@@ -550,29 +536,6 @@ func TestRunnerIsRunning(t *testing.T) {
 	r := NewRunner(dir, "ide", nil)
 	if r.IsRunning() {
 		t.Error("expected not running initially")
-	}
-}
-
-func TestRunnerStop(t *testing.T) {
-	dir := t.TempDir()
-	r := NewRunner(dir, "ide", nil)
-	// Stop with no cancel function should be safe
-	r.Stop()
-
-	// Set a cancel function and call Stop
-	ctx, cancel := context.WithCancel(context.Background())
-	r.mu.Lock()
-	r.cancelFn = cancel
-	r.mu.Unlock()
-
-	r.Stop()
-
-	// Context should be cancelled
-	select {
-	case <-ctx.Done():
-		// Expected
-	default:
-		t.Error("expected context to be cancelled after Stop")
 	}
 }
 
@@ -707,9 +670,9 @@ func TestRunnerCheckDeepSleep(t *testing.T) {
 	t.Run("with sentinel file", func(t *testing.T) {
 		r := NewRunner(dir, "ide", nil)
 		var logged []string
-		r.SetLogger(func(format string, args ...any) {
+		r.logFn = func(format string, args ...any) {
 			logged = append(logged, format)
-		})
+		}
 		sentinelDir := filepath.Join(dir, brand.DotDir(), "dream")
 		_ = os.MkdirAll(sentinelDir, 0o755)
 		sentinelPath := filepath.Join(sentinelDir, "test-ulid"+exhaustedSentinel)
@@ -731,9 +694,9 @@ func TestRunnerResolveSessionULID(t *testing.T) {
 	t.Run("new session - empty ULID", func(t *testing.T) {
 		r := NewRunner(dir, "ide", nil)
 		var logged []string
-		r.SetLogger(func(format string, args ...any) {
+		r.logFn = func(format string, args ...any) {
 			logged = append(logged, format)
-		})
+		}
 		ulid := r.resolveSessionULID(time.Now())
 		if ulid == "" {
 			t.Error("expected non-empty ULID")
@@ -746,9 +709,9 @@ func TestRunnerResolveSessionULID(t *testing.T) {
 	t.Run("resume session - same mod time", func(t *testing.T) {
 		r := NewRunner(dir, "ide", nil)
 		var logged []string
-		r.SetLogger(func(format string, args ...any) {
+		r.logFn = func(format string, args ...any) {
 			logged = append(logged, format)
-		})
+		}
 		modTime := time.Now()
 		ulid1 := r.resolveSessionULID(modTime)
 		// Same or earlier mod time should resume
@@ -760,7 +723,6 @@ func TestRunnerResolveSessionULID(t *testing.T) {
 
 	t.Run("new session - newer mod time", func(t *testing.T) {
 		r := NewRunner(dir, "ide", nil)
-		r.SetLogger(func(format string, args ...any) {})
 		modTime := time.Now()
 		ulid1 := r.resolveSessionULID(modTime)
 		// Newer mod time should create new session
@@ -803,7 +765,6 @@ func TestRunnerTickDisabled(t *testing.T) {
 	dir := t.TempDir()
 	// dream is opt-in, so returning nil config means it's disabled
 	r := NewRunner(dir, "ide", nil)
-	r.SetLogger(func(format string, args ...any) {})
 	ctx := context.Background()
 	r.tick(ctx)
 	// Should return early due to disabled config (dream is opt-in)
@@ -815,7 +776,6 @@ func TestRunnerTickAlreadyRunning(t *testing.T) {
 	r.mu.Lock()
 	r.running = true
 	r.mu.Unlock()
-	r.SetLogger(func(format string, args ...any) {})
 	ctx := context.Background()
 	r.tick(ctx)
 	// Should return early due to already running
@@ -830,9 +790,9 @@ func TestRunnerTickNoFiles(t *testing.T) {
 		}
 	})
 	var logged []string
-	r.SetLogger(func(format string, args ...any) {
+	r.logFn = func(format string, args ...any) {
 		logged = append(logged, format)
-	})
+	}
 	ctx := context.Background()
 	r.tick(ctx)
 	// LastModifiedTime should fail since dir is empty
@@ -858,7 +818,6 @@ func TestRunnerTickNotIdleEnough(t *testing.T) {
 			"modules": map[string]any{"dream": "true"},
 		}
 	})
-	r.SetLogger(func(format string, args ...any) {})
 	ctx := context.Background()
 	r.tick(ctx)
 	// File is fresh, idle time < defaultIdleTimeout → should return early
@@ -882,7 +841,6 @@ func TestRunnerTickExhausted(t *testing.T) {
 		}
 	}
 	r := NewRunner(dir, "ide", loader)
-	r.SetLogger(func(format string, args ...any) {})
 	// Set exhausted state
 	r.mu.Lock()
 	r.state.Exhausted = true
@@ -901,7 +859,6 @@ func TestRunnerRunContextCancel(t *testing.T) {
 	dir := t.TempDir()
 	// dream is opt-in, nil config means disabled
 	r := NewRunner(dir, "ide", nil)
-	r.SetLogger(func(format string, args ...any) {})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -932,9 +889,9 @@ func TestRunnerTickStartsDream(t *testing.T) {
 	}
 	r := NewRunner(dir, "ide", loader)
 	var logged []string
-	r.SetLogger(func(format string, args ...any) {
+	r.logFn = func(format string, args ...any) {
 		logged = append(logged, format)
-	})
+	}
 
 	// Short-lived context so any AI CLI terminates quickly
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -951,7 +908,6 @@ func TestRunnerTickStartsDream(t *testing.T) {
 	}
 
 	if r.IsRunning() {
-		r.Stop()
 		time.Sleep(200 * time.Millisecond)
 	}
 
@@ -977,7 +933,6 @@ func TestRunnerTickStartsDreamWithMaxDuration(t *testing.T) {
 		}
 	}
 	r := NewRunner(dir, "ide", loader)
-	r.SetLogger(func(format string, args ...any) {})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -993,7 +948,6 @@ func TestRunnerTickStartsDreamWithMaxDuration(t *testing.T) {
 	}
 
 	if r.IsRunning() {
-		r.Stop()
 		time.Sleep(200 * time.Millisecond)
 	}
 }
@@ -1013,7 +967,6 @@ func TestRunnerTickCallsCheckDeepSleep(t *testing.T) {
 		}
 	}
 	r := NewRunner(dir, "ide", loader)
-	r.SetLogger(func(format string, args ...any) {})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -1029,7 +982,6 @@ func TestRunnerTickCallsCheckDeepSleep(t *testing.T) {
 	}
 
 	if r.IsRunning() {
-		r.Stop()
 		time.Sleep(200 * time.Millisecond)
 	}
 
@@ -1044,7 +996,6 @@ func TestRunnerTickCallsCheckDeepSleep(t *testing.T) {
 func TestRunnerRunLoop(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
-	r.SetLogger(func(format string, args ...any) {})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -1410,7 +1361,6 @@ func TestExecuteDreamMkdirError(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dreamParent, "dream"), []byte("blocker"), 0o644)
 
 	r := NewRunner(dir, "ide", nil)
-	r.SetLogger(func(format string, args ...any) {})
 
 	err := r.executeDream(context.Background(), "test-ulid")
 	if err == nil {
@@ -1425,7 +1375,6 @@ func TestExecuteDreamExecuteLocalError(t *testing.T) {
 	// Normal dir, but we use a cancelled context so any AI CLI found terminates immediately
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
-	r.SetLogger(func(format string, args ...any) {})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -1450,9 +1399,9 @@ func TestExecuteDreamWithSubject(t *testing.T) {
 
 	r := NewRunner(dir, "ide", nil)
 	var logged []string
-	r.SetLogger(func(format string, args ...any) {
+	r.logFn = func(format string, args ...any) {
 		logged = append(logged, fmt.Sprintf(format, args...))
-	})
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately so AI CLI terminates fast
@@ -1478,7 +1427,6 @@ func TestExecuteDreamWithSubject(t *testing.T) {
 func TestExecuteLocalCancelledContext(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
-	r.SetLogger(func(format string, args ...any) {})
 
 	// Ensure dream dir exists
 	dreamDir := filepath.Join(dir, brand.DotDir(), "dream")
@@ -1504,7 +1452,6 @@ func TestExecuteLocalNoAIClientOnPath(t *testing.T) {
 
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
-	r.SetLogger(func(format string, args ...any) {})
 
 	dreamDir := filepath.Join(dir, brand.DotDir(), "dream")
 	_ = os.MkdirAll(dreamDir, 0o755)
@@ -1537,7 +1484,6 @@ func TestExecuteLocalSuccessWithFakeCLI(t *testing.T) {
 
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
-	r.SetLogger(func(format string, args ...any) {})
 
 	dreamDir := filepath.Join(dir, brand.DotDir(), "dream")
 	_ = os.MkdirAll(dreamDir, 0o755)
@@ -1563,9 +1509,9 @@ func TestExecuteDreamSuccessWithFakeCLI(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
 	var logged []string
-	r.SetLogger(func(format string, args ...any) {
+	r.logFn = func(format string, args ...any) {
 		logged = append(logged, fmt.Sprintf(format, args...))
-	})
+	}
 
 	err := r.executeDream(context.Background(), "test-ulid")
 	if err != nil {
@@ -1591,7 +1537,6 @@ func TestExecuteDreamWriteFileError(t *testing.T) {
 
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
-	r.SetLogger(func(format string, args ...any) {})
 
 	// Pre-create the dream dir and make it read-only
 	dreamDir := filepath.Join(dir, brand.DotDir(), "dream")
@@ -1632,11 +1577,11 @@ func TestTickGoroutineSuccessWithFakeCLI(t *testing.T) {
 	r := NewRunner(dir, "ide", loader)
 	var mu sync.Mutex
 	var logged []string
-	r.SetLogger(func(format string, args ...any) {
+	r.logFn = func(format string, args ...any) {
 		mu.Lock()
 		logged = append(logged, fmt.Sprintf(format, args...))
 		mu.Unlock()
-	})
+	}
 
 	ctx := context.Background()
 	r.tick(ctx)
@@ -1651,7 +1596,6 @@ func TestTickGoroutineSuccessWithFakeCLI(t *testing.T) {
 	}
 
 	if r.IsRunning() {
-		r.Stop()
 		time.Sleep(200 * time.Millisecond)
 	}
 
@@ -1689,11 +1633,11 @@ func TestTickGoroutineCompletesWithError(t *testing.T) {
 	r := NewRunner(dir, "ide", loader)
 	var mu sync.Mutex
 	var logged []string
-	r.SetLogger(func(format string, args ...any) {
+	r.logFn = func(format string, args ...any) {
 		mu.Lock()
 		logged = append(logged, fmt.Sprintf(format, args...))
 		mu.Unlock()
-	})
+	}
 
 	// Use a short-lived context so any spawned AI CLI terminates quickly
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -1710,7 +1654,6 @@ func TestTickGoroutineCompletesWithError(t *testing.T) {
 	}
 
 	if r.IsRunning() {
-		r.Stop()
 		time.Sleep(200 * time.Millisecond)
 		if r.IsRunning() {
 			t.Fatal("goroutine did not complete within timeout")
@@ -1761,7 +1704,6 @@ func TestTickGoroutineWithMaxDuration(t *testing.T) {
 		}
 	}
 	r := NewRunner(dir, "ide", loader)
-	r.SetLogger(func(format string, args ...any) {})
 
 	// Use a short-lived context
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -1778,7 +1720,6 @@ func TestTickGoroutineWithMaxDuration(t *testing.T) {
 	}
 
 	if r.IsRunning() {
-		r.Stop()
 		time.Sleep(200 * time.Millisecond)
 	}
 }
@@ -1799,11 +1740,11 @@ func TestTickGoroutineChecksDeepSleep(t *testing.T) {
 	r := NewRunner(dir, "ide", loader)
 	var mu sync.Mutex
 	var logged []string
-	r.SetLogger(func(format string, args ...any) {
+	r.logFn = func(format string, args ...any) {
 		mu.Lock()
 		logged = append(logged, fmt.Sprintf(format, args...))
 		mu.Unlock()
-	})
+	}
 
 	// Use a short-lived context
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -1820,7 +1761,6 @@ func TestTickGoroutineChecksDeepSleep(t *testing.T) {
 	}
 
 	if r.IsRunning() {
-		r.Stop()
 		time.Sleep(200 * time.Millisecond)
 	}
 
@@ -1842,11 +1782,11 @@ func TestRunnerRunTickerFires(t *testing.T) {
 	r := NewRunner(dir, "ide", nil)
 	var tickCount int
 	var mu sync.Mutex
-	r.SetLogger(func(format string, args ...any) {
+	r.logFn = func(format string, args ...any) {
 		mu.Lock()
 		tickCount++
 		mu.Unlock()
-	})
+	}
 
 	// The Run method calls tick immediately, then on each ticker.C.
 	// With checkInterval=10min, we can't wait for a real tick.
@@ -1874,7 +1814,6 @@ func TestTickAlreadyRunningWithEnabledDream(t *testing.T) {
 		}
 	}
 	r := NewRunner(dir, "ide", loader)
-	r.SetLogger(func(format string, args ...any) {})
 
 	// Set running=true before tick
 	r.mu.Lock()
@@ -1956,7 +1895,6 @@ func TestExecuteDreamWriteArtifactError(t *testing.T) {
 	// which covers the error path at line 304-306.
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
-	r.SetLogger(func(format string, args ...any) {})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately to avoid AI CLI hang
@@ -1984,7 +1922,6 @@ func TestRunWithTickerC(t *testing.T) {
 	// The ctx.Done() case at line 111-112 is what gets tested by cancellation.
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
-	r.SetLogger(func(format string, args ...any) {})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	// Cancel after a very short time — the Run method calls tick() immediately

@@ -29,9 +29,7 @@ func NewEmbedServer(client ai.EmbeddingClient) *EmbedServer {
 	}
 }
 
-func EmbedPortFile() string {
-	return filepath.Join(GlobalDaemonDir(), portFileName)
-}
+
 
 func (s *EmbedServer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
@@ -157,17 +155,3 @@ func (s *EmbedServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type EmbedServerModule struct {
-	client ai.EmbeddingClient
-}
-
-func NewEmbedServerModule(client ai.EmbeddingClient) *EmbedServerModule {
-	return &EmbedServerModule{client: client}
-}
-
-func (m *EmbedServerModule) Name() string { return "embed-server" }
-
-func (m *EmbedServerModule) Start(ctx context.Context) error {
-	server := NewEmbedServer(m.client)
-	return server.Start(ctx)
-}

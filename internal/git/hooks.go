@@ -114,26 +114,7 @@ func (h *HookManager) Remove() error {
 	return nil
 }
 
-func (h *HookManager) Status() map[HookType]string {
-	hooks := []HookType{PostCommit, PrePush, PostMerge}
-	marker := hookBlockMarker()
-	blockDelim := "# --- " + marker + " ---"
-	status := make(map[HookType]string, len(hooks))
-	for _, hookType := range hooks {
-		path := filepath.Join(h.hooksDir, string(hookType))
-		data, err := os.ReadFile(path)
-		if err != nil {
-			status[hookType] = "not installed"
-			continue
-		}
-		if strings.Contains(string(data), blockDelim) {
-			status[hookType] = "installed (" + brand.Brand + ")"
-		} else {
-			status[hookType] = "installed (third-party)"
-		}
-	}
-	return status
-}
+
 
 func hookScript(comment string) string {
 	bin := binPath()

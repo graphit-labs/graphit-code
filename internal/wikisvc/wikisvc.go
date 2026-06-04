@@ -47,8 +47,6 @@ var (
 
 	listChatSessions = chat.ListSessions
 
-	latestChatSession = chat.LatestSession
-
 	deleteChatSession = chat.DeleteSession
 )
 
@@ -243,10 +241,6 @@ func (s *WikiService) ContinueChat(ctx context.Context, sessionID, message strin
 
 func (s *WikiService) ListSessions() ([]*chat.ChatSession, error) {
 	return listChatSessions(s.projectDir)
-}
-
-func (s *WikiService) LatestSession() (*chat.ChatSession, error) {
-	return latestChatSession(s.projectDir)
 }
 
 func (s *WikiService) DeleteSession(id string) error {

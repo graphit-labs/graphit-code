@@ -46,14 +46,18 @@ func init() {
 
 func IsTTY() bool { return isTTY }
 
+func Unmute() { muted = false }
+
+func IsMuted() bool { return muted }
+
+
+
 func Mute() {
 	muted = true
 	color.NoColor = true
 }
 
-func Unmute() { muted = false }
 
-func IsMuted() bool { return muted }
 
 type Printer struct {
 	prefix string
@@ -67,6 +71,7 @@ func NewPrinter(prefix string) *Printer {
 	}
 	return &Printer{prefix: prefix, w: w}
 }
+
 
 func (p *Printer) WithWriter(w io.Writer) *Printer {
 	return &Printer{prefix: p.prefix, w: w}
@@ -166,7 +171,7 @@ func (p *Printer) Header(msg string, args ...any) {
 }
 
 func (p *Printer) Divider() {
-	_, _ = fmt.Fprintln(p.w, dim.Sprint(strings.Repeat(SymbolDivider, 48)))
+	_, _ = fmt.Fprintln(p.w, dim.Sprint(strings.Repeat(SymbolDivider, 40)))
 }
 
 func (p *Printer) Blank() {

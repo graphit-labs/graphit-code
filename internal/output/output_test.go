@@ -11,25 +11,10 @@ import (
 	"time"
 )
 
-func TestMuteUnmute(t *testing.T) {
-	mutedOrig := muted
-	defer func() { muted = mutedOrig }()
-
-	Mute()
-	if !IsMuted() {
-		t.Error("expected IsMuted() to be true")
-	}
-
-	Unmute()
-	if IsMuted() {
-		t.Error("expected IsMuted() to be false")
-	}
-}
-
 func TestPrinterBasic(t *testing.T) {
 	mutedOrig := muted
 	defer func() { muted = mutedOrig }()
-	Unmute()
+	muted = false
 
 	// New printer with prefix
 	p := NewPrinter("TEST")

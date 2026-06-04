@@ -5,8 +5,7 @@
     "description": "Graphit Code: AI Harness for Collaborative and Progressive Knowledge"
   },
   "ides": [
-    "antigravity",
-    "ide"
+    "antigravity"
   ],
   "artifacts": {}
 }

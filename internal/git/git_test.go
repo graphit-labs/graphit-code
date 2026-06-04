@@ -655,56 +655,6 @@ func TestHookManagerRemoveNoGitDir(t *testing.T) {
 	}
 }
 
-func TestHookManagerStatus(t *testing.T) {
-	dir := t.TempDir()
-	gitDir := filepath.Join(dir, ".git")
-	if err := os.MkdirAll(gitDir, 0o755); err != nil {
-		t.Fatalf("failed to create .git dir: %v", err)
-	}
-
-	hm := NewHookManager(dir)
-
-	// Status before install — all "not installed"
-	status := hm.Status()
-	for _, hookType := range []HookType{PostCommit, PrePush, PostMerge} {
-		if status[hookType] != "not installed" {
-			t.Errorf("expected 'not installed' for %s, got %q", hookType, status[hookType])
-		}
-	}
-
-	// Install hooks
-	if err := hm.Install(false); err != nil {
-		t.Fatalf("Install failed: %v", err)
-	}
-
-	// Status after install — all "installed (brand)"
-	status = hm.Status()
-	for _, hookType := range []HookType{PostCommit, PrePush, PostMerge} {
-		if !strings.HasPrefix(status[hookType], "installed (") {
-			t.Errorf("expected 'installed (...)' for %s, got %q", hookType, status[hookType])
-		}
-	}
-}
-
-func TestHookManagerStatusThirdParty(t *testing.T) {
-	dir := t.TempDir()
-	gitDir := filepath.Join(dir, ".git")
-	hooksDir := filepath.Join(gitDir, "hooks")
-	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
-		t.Fatalf("failed to create hooks dir: %v", err)
-	}
-
-	// Create a third-party hook (no block marker)
-	hookPath := filepath.Join(hooksDir, string(PostCommit))
-	_ = os.WriteFile(hookPath, []byte("#!/bin/sh\necho third-party"), 0755)
-
-	hm := NewHookManager(dir)
-	status := hm.Status()
-	if status[PostCommit] != "installed (third-party)" {
-		t.Errorf("expected 'installed (third-party)' for post-commit, got %q", status[PostCommit])
-	}
-}
-
 func TestHookScript(t *testing.T) {
 	script := hookScript("test comment")
 	if script == "" {

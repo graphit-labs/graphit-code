@@ -3,6 +3,7 @@ package ast
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -162,140 +163,6 @@ queries:
 	}
 }
 
-func TestMergeQueries_AppendMode(t *testing.T) {
-	builtIn := []tsQueryDef{
-		{DataKey: "functions", GraphLabel: "Function", Pattern: `(function_declaration name: (identifier) @name)`, NameCapture: "name"},
-	}
-	externals := []ExternalQueryFile{
-		{
-			Language: "go",
-			Replace:  false,
-			Queries: []ExternalQueryDef{
-				{DataKey: "goroutines", GraphLabel: "Function", Pattern: `(go_statement)`, NameCapture: "name"},
-			},
-		},
-	}
-
-	merged := MergeQueries(builtIn, externals, "go", ".go", nil)
-	if len(merged) != 2 {
-		t.Fatalf("expected 2 queries (1 built-in + 1 external), got %d", len(merged))
-	}
-	if merged[0].DataKey != "functions" {
-		t.Errorf("expected first query 'functions', got %q", merged[0].DataKey)
-	}
-	if merged[1].DataKey != "goroutines" {
-		t.Errorf("expected second query 'goroutines', got %q", merged[1].DataKey)
-	}
-}
-
-func TestMergeQueries_ReplaceMode(t *testing.T) {
-	builtIn := []tsQueryDef{
-		{DataKey: "functions", GraphLabel: "Function", Pattern: `(function_declaration)`, NameCapture: "name"},
-		{DataKey: "structs", GraphLabel: "Struct", Pattern: `(type_declaration)`, NameCapture: "name"},
-	}
-	externals := []ExternalQueryFile{
-		{
-			Language: "go",
-			Replace:  true,
-			Queries: []ExternalQueryDef{
-				{DataKey: "custom_func", GraphLabel: "Function", Pattern: `(function_item)`, NameCapture: "name"},
-			},
-		},
-	}
-
-	merged := MergeQueries(builtIn, externals, "go", ".go", nil)
-	if len(merged) != 1 {
-		t.Fatalf("expected 1 query (replace mode), got %d", len(merged))
-	}
-	if merged[0].DataKey != "custom_func" {
-		t.Errorf("expected 'custom_func', got %q", merged[0].DataKey)
-	}
-}
-
-func TestMergeQueries_NoMatch(t *testing.T) {
-	builtIn := []tsQueryDef{
-		{DataKey: "functions", GraphLabel: "Function", Pattern: `(function_declaration)`, NameCapture: "name"},
-	}
-	externals := []ExternalQueryFile{
-		{Language: "python", Queries: []ExternalQueryDef{{DataKey: "decorators", Pattern: `(decorator)`, NameCapture: "name"}}},
-	}
-
-	merged := MergeQueries(builtIn, externals, "go", ".go", nil)
-	if len(merged) != 1 {
-		t.Fatalf("expected 1 query (no match), got %d", len(merged))
-	}
-}
-
-func TestMergeQueries_ExtensionFiltering(t *testing.T) {
-	builtIn := []tsQueryDef{
-		{DataKey: "functions", GraphLabel: "Function", Pattern: `(function_declaration)`, NameCapture: "name"},
-	}
-	externals := []ExternalQueryFile{
-		{
-			Language:   "typescript",
-			Extensions: []string{".tsx"},
-			Queries:    []ExternalQueryDef{{DataKey: "jsx", GraphLabel: "Component", Pattern: `(jsx_element)`, NameCapture: "name"}},
-		},
-	}
-
-	merged := MergeQueries(builtIn, externals, "typescript", ".ts", nil)
-	if len(merged) != 1 {
-		t.Fatalf("expected 1 query (.ts should not match .tsx filter), got %d", len(merged))
-	}
-
-	merged = MergeQueries(builtIn, externals, "typescript", ".tsx", nil)
-	if len(merged) != 2 {
-		t.Fatalf("expected 2 queries (.tsx should match), got %d", len(merged))
-	}
-}
-
-func TestMergeQueries_MultipleFiles(t *testing.T) {
-	builtIn := []tsQueryDef{
-		{DataKey: "functions", GraphLabel: "Function", Pattern: `(function_declaration)`, NameCapture: "name"},
-	}
-	externals := []ExternalQueryFile{
-		{Language: "go", Queries: []ExternalQueryDef{{DataKey: "goroutines", Pattern: `(go_statement)`, NameCapture: "name"}}},
-		{Language: "go", Queries: []ExternalQueryDef{{DataKey: "defers", Pattern: `(defer_statement)`, NameCapture: "name"}}},
-	}
-
-	merged := MergeQueries(builtIn, externals, "go", ".go", nil)
-	if len(merged) != 3 {
-		t.Fatalf("expected 3 queries (1 built-in + 2 from 2 files), got %d", len(merged))
-	}
-}
-
-func TestToTSQueryDefs(t *testing.T) {
-	external := []ExternalQueryDef{
-		{DataKey: "functions", GraphLabel: "Function", Pattern: "(test)", NameCapture: "name"},
-		{DataKey: "classes", GraphLabel: "Class", Pattern: "(class)", NameCapture: "cls"},
-	}
-
-	result := toTSQueryDefs(external)
-	if len(result) != 2 {
-		t.Fatalf("expected 2, got %d", len(result))
-	}
-	if result[0].DataKey != "functions" || result[0].NameCapture != "name" {
-		t.Errorf("unexpected first result: %+v", result[0])
-	}
-	if result[1].DataKey != "classes" || result[1].NameCapture != "cls" {
-		t.Errorf("unexpected second result: %+v", result[1])
-	}
-}
-
-func TestResetQueryCaches(t *testing.T) {
-	externalQueryCache.Store("test", []ExternalQueryFile{{Language: "go"}})
-	mergedQueryCache.Store("test|go|.go", []tsQueryDef{{DataKey: "x"}})
-
-	resetQueryCaches()
-
-	if _, ok := externalQueryCache.Load("test"); ok {
-		t.Error("expected external cache to be cleared")
-	}
-	if _, ok := mergedQueryCache.Load("test|go|.go"); ok {
-		t.Error("expected merged cache to be cleared")
-	}
-}
-
 func TestProjectQueriesDir(t *testing.T) {
 	dir := projectQueriesDir("/home/user/project")
 	expected := filepath.Join("/home/user/project", ".graphit", "ast", "queries")
@@ -312,7 +179,9 @@ func TestProjectQueriesDir(t *testing.T) {
 // The launcher handles extracting default queries to the runtime directory.
 
 func TestResolveQueriesForLang_ProjectOverridesGlobal(t *testing.T) {
-	resetQueryCaches()
+	// Clear caches
+	externalQueryCache = sync.Map{}
+	mergedQueryCache = sync.Map{}
 
 	// Set up project with custom queries
 	dir := t.TempDir()
