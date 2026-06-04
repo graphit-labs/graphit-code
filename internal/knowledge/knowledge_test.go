@@ -66,9 +66,11 @@ func TestAutoLinking(t *testing.T) {
 		"AST Indexer":    "AST_Indexer",
 	}
 
+	compiledTargets := buildAutoLinkTargets(titlesMap)
+
 	// 1. Basic auto-linking
 	content := "This is a document about Daemon Service and how AST Indexer behaves."
-	linked, refs := autoLinkContent(content, titlesMap, "Some_Other_Page")
+	linked, refs := autoLinkContent(content, compiledTargets, "Some_Other_Page")
 	expectedLinked := "This is a document about [[Daemon_Service|Daemon Service]] and how [[AST_Indexer|AST Indexer]] behaves."
 	if linked != expectedLinked {
 		t.Errorf("expected %q, got %q", expectedLinked, linked)
@@ -79,7 +81,7 @@ func TestAutoLinking(t *testing.T) {
 
 	// 2. Do not link self
 	contentSelf := "Daemon Service talks to AST Indexer."
-	linkedSelf, refsSelf := autoLinkContent(contentSelf, titlesMap, "Daemon_Service")
+	linkedSelf, refsSelf := autoLinkContent(contentSelf, compiledTargets, "Daemon_Service")
 	expectedSelf := "Daemon Service talks to [[AST_Indexer|AST Indexer]]."
 	if linkedSelf != expectedSelf {
 		t.Errorf("expected %q, got %q", expectedSelf, linkedSelf)
@@ -90,7 +92,7 @@ func TestAutoLinking(t *testing.T) {
 
 	// 3. Ignore code blocks and inline code and existing links
 	contentIgnored := "Use `Daemon Service` and block:\n```go\nvar d = Daemon Service\n```\nAnd existing link [[Daemon_Service|Daemon Service]]."
-	linkedIgnored, _ := autoLinkContent(contentIgnored, titlesMap, "Some_Other_Page")
+	linkedIgnored, _ := autoLinkContent(contentIgnored, compiledTargets, "Some_Other_Page")
 	if linkedIgnored != contentIgnored {
 		t.Errorf("expected no auto-linking for code blocks or existing links, got %q", linkedIgnored)
 	}

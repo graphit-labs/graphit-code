@@ -137,6 +137,8 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string) (*WikiRe
 		}
 	}
 
+	compiledTargets := buildAutoLinkTargets(titlesMap)
+
 	newSlugs := make(map[string]bool)
 	var added []string
 	var updated []string
@@ -159,7 +161,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string) (*WikiRe
 		}
 
 		// Auto-link body content using the titlesMap
-		autoLinkedBody, autoRefs := autoLinkContent(docs[i].body, titlesMap, slug)
+		autoLinkedBody, autoRefs := autoLinkContent(docs[i].body, compiledTargets, slug)
 		docs[i].body = autoLinkedBody
 
 		// Add auto-linked references to doc's crossRefs
@@ -623,22 +625,34 @@ func stripFrontmatter(content string) string {
 }
 
 
+// Pre-compiled regexes for autoLinkLine — avoids re-compilation on every line.
+var (
+	reAutoLinkCode = regexp.MustCompile("`[^`]+`")
+	reAutoLinkWiki = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
+	reAutoLinkMd   = regexp.MustCompile(`\[[^\]]+\]\([^)]+\)`)
+)
 
-type linkTarget struct {
-	term string
-	slug string
+// compiledTarget holds a pre-compiled regex for auto-linking.
+type compiledTarget struct {
+	slug  string
+	re    *regexp.Regexp
+	lower string // pre-lowered term for fast strings.Contains check
 }
 
-func autoLinkContent(body string, titles map[string]string, currentSlug string) (string, []string) {
-	var targets []linkTarget
+// buildAutoLinkTargets pre-compiles all auto-link targets from the titles map.
+// Called once per wiki generation cycle instead of once per document.
+func buildAutoLinkTargets(titles map[string]string) []compiledTarget {
+	type rawTarget struct {
+		term string
+		slug string
+	}
+
+	var targets []rawTarget
 	for title, slug := range titles {
-		if slug == currentSlug {
-			continue
-		}
-		targets = append(targets, linkTarget{term: title, slug: slug})
+		targets = append(targets, rawTarget{term: title, slug: slug})
 		if title != slug {
-			targets = append(targets, linkTarget{term: slug, slug: slug})
-			targets = append(targets, linkTarget{term: strings.ReplaceAll(slug, "_", " "), slug: slug})
+			targets = append(targets, rawTarget{term: slug, slug: slug})
+			targets = append(targets, rawTarget{term: strings.ReplaceAll(slug, "_", " "), slug: slug})
 		}
 	}
 
@@ -647,7 +661,7 @@ func autoLinkContent(body string, titles map[string]string, currentSlug string) 
 	})
 
 	seenTerms := make(map[string]string)
-	var uniqueTargets []linkTarget
+	var result []compiledTarget
 	for _, t := range targets {
 		termLower := strings.ToLower(t.term)
 		if termLower == "" || len(termLower) < 3 {
@@ -655,10 +669,22 @@ func autoLinkContent(body string, titles map[string]string, currentSlug string) 
 		}
 		if _, ok := seenTerms[termLower]; !ok {
 			seenTerms[termLower] = t.slug
-			uniqueTargets = append(uniqueTargets, t)
+			pattern := `\b(?i)` + regexp.QuoteMeta(t.term) + `\b`
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				continue
+			}
+			result = append(result, compiledTarget{
+				slug:  t.slug,
+				re:    re,
+				lower: termLower,
+			})
 		}
 	}
+	return result
+}
 
+func autoLinkContent(body string, targets []compiledTarget, currentSlug string) (string, []string) {
 	lines := strings.Split(body, "\n")
 	inCodeBlock := false
 	inFrontmatter := false
@@ -687,7 +713,7 @@ func autoLinkContent(body string, titles map[string]string, currentSlug string) 
 			continue
 		}
 
-		newLine := autoLinkLine(line, uniqueTargets, autoLinkedRefs)
+		newLine := autoLinkLine(line, targets, currentSlug, autoLinkedRefs)
 		newLines = append(newLines, newLine)
 	}
 
@@ -700,38 +726,37 @@ func autoLinkContent(body string, titles map[string]string, currentSlug string) 
 	return strings.Join(newLines, "\n"), refs
 }
 
-func autoLinkLine(line string, targets []linkTarget, autoLinkedRefs map[string]bool) string {
+func autoLinkLine(line string, targets []compiledTarget, currentSlug string, autoLinkedRefs map[string]bool) string {
 	var wlPlaceholders []string
 	var mlPlaceholders []string
 	var cdPlaceholders []string
 
-	reCode := regexp.MustCompile("`[^`]+`")
-	line = reCode.ReplaceAllStringFunc(line, func(match string) string {
+	line = reAutoLinkCode.ReplaceAllStringFunc(line, func(match string) string {
 		wlPlaceholders = append(wlPlaceholders, match)
 		return fmt.Sprintf("___CD_PLACEHOLDER_%d___", len(wlPlaceholders)-1)
 	})
 
-	reWiki := regexp.MustCompile(`\[\[([^\]]+)\]\]`)
-	line = reWiki.ReplaceAllStringFunc(line, func(match string) string {
+	line = reAutoLinkWiki.ReplaceAllStringFunc(line, func(match string) string {
 		mlPlaceholders = append(mlPlaceholders, match)
 		return fmt.Sprintf("___WL_PLACEHOLDER_%d___", len(mlPlaceholders)-1)
 	})
 
-	reMd := regexp.MustCompile(`\[[^\]]+\]\([^)]+\)`)
-	line = reMd.ReplaceAllStringFunc(line, func(match string) string {
+	line = reAutoLinkMd.ReplaceAllStringFunc(line, func(match string) string {
 		cdPlaceholders = append(cdPlaceholders, match)
 		return fmt.Sprintf("___ML_PLACEHOLDER_%d___", len(cdPlaceholders)-1)
 	})
 
+	lineLower := strings.ToLower(line)
 	var autoWlPlaceholders []string
 	for _, target := range targets {
-		pattern := `\b(?i)` + regexp.QuoteMeta(target.term) + `\b`
-		re, err := regexp.Compile(pattern)
-		if err != nil {
+		if target.slug == currentSlug {
 			continue
 		}
-
-		line = re.ReplaceAllStringFunc(line, func(match string) string {
+		// Fast pre-filter: skip regex if term not present (case-insensitive)
+		if !strings.Contains(lineLower, target.lower) {
+			continue
+		}
+		line = target.re.ReplaceAllStringFunc(line, func(match string) string {
 			autoLinkedRefs[target.slug] = true
 			replacement := fmt.Sprintf("[[%s|%s]]", target.slug, match)
 			autoWlPlaceholders = append(autoWlPlaceholders, replacement)

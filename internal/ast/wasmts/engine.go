@@ -6,34 +6,42 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
+// compiledEntry holds a compiled (but not yet instantiated) WASM module.
+// The compiled form is reusable: each call to InstantiateModule creates
+// a fresh instance with its own isolated linear memory.
+type compiledEntry struct {
+	compiled wazero.CompiledModule
+}
+
 // Engine manages the wazero runtime and loaded WASM modules.
 // A single Engine instance is shared across all goroutines.
 // Each loaded .wasm grammar gets its own compiled+instantiated module.
 type Engine struct {
-	ctx     context.Context
-	rt      wazero.Runtime
-	cache   wazero.CompilationCache
-	mu      sync.Mutex
-	modules map[string]*Module // language name -> module
-	closed  bool
+	ctx      context.Context
+	rt       wazero.Runtime
+	cache    wazero.CompilationCache
+	mu       sync.Mutex
+	compiled map[string]*compiledEntry // module name → compiled (for re-instantiation)
+	modules  map[string]*Module        // module name → singleton instance (backward compat)
+	nextID   atomic.Int64              // unique suffix for worker module instance names
+	closed   bool
 }
 
 // Module represents a loaded and instantiated WASM module.
 // It holds cached references to all exported functions.
 //
-// IMPORTANT: A single Module instance wraps one WASM linear memory region.
-// WASM memory is NOT thread-safe — concurrent calls to malloc/free/parse
-// corrupt the shared memory, causing fatal "split stack overflow" panics
-// in wazero's AOT compiler engine. All calls to a Module must be serialized
-// via the embedded mutex.
+// Each Module wraps one WASM linear memory region. WASM memory is NOT
+// thread-safe — a Module must only be used by a single goroutine at a time.
+// The per-worker architecture (WorkerModules) guarantees this by giving
+// each worker goroutine its own Module instances.
 type Module struct {
-	mu   sync.Mutex
 	mod  api.Module
 	fns  map[string]api.Function
 	ctx  context.Context
@@ -73,16 +81,20 @@ func NewEngine(cacheDir string) (*Engine, error) {
 	}
 
 	return &Engine{
-		ctx:     ctx,
-		rt:      rt,
-		cache:   compilationCache,
-		modules: make(map[string]*Module),
+		ctx:      ctx,
+		rt:       rt,
+		cache:    compilationCache,
+		compiled: make(map[string]*compiledEntry),
+		modules:  make(map[string]*Module),
 	}, nil
 }
 
 // LoadModule compiles and instantiates a WASM binary, returning a Module.
 // The module name is used for caching — loading the same name twice returns
 // the cached module. Thread-safe.
+//
+// The compiled form is retained so that InstantiateModule can create
+// additional isolated instances for per-worker use.
 func (e *Engine) LoadModule(name string, wasmBytes []byte) (*Module, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -96,15 +108,57 @@ func (e *Engine) LoadModule(name string, wasmBytes []byte) (*Module, error) {
 		return mod, nil
 	}
 
-	// Compile
+	// Compile (AOT compilation result is cached on disk)
 	compiled, err := e.rt.CompileModule(e.ctx, wasmBytes)
 	if err != nil {
 		return nil, fmt.Errorf("wasmts: compile module %q: %w", name, err)
 	}
 
-	// Instantiate with unique name to allow multiple grammars
+	// Store compiled form for future InstantiateModule calls
+	e.compiled[name] = &compiledEntry{compiled: compiled}
+
+	// Instantiate the singleton (global) instance
+	mod, err := e.instantiate(name, compiled)
+	if err != nil {
+		return nil, err
+	}
+
+	e.modules[name] = mod
+	return mod, nil
+}
+
+// InstantiateModule creates a new isolated instance of a previously compiled
+// WASM module. Each instance has its own linear memory, so it can be used
+// concurrently with other instances of the same module without any locking.
+//
+// This is the key method for per-worker parallelism: each worker goroutine
+// calls InstantiateModule to get its own Module, avoiding all contention.
+// Thread-safe (uses atomic counter for unique names).
+func (e *Engine) InstantiateModule(name string) (*Module, error) {
+	e.mu.Lock()
+	entry, ok := e.compiled[name]
+	closed := e.closed
+	e.mu.Unlock()
+
+	if closed {
+		return nil, fmt.Errorf("wasmts: engine closed")
+	}
+	if !ok {
+		return nil, fmt.Errorf("wasmts: module %q not compiled (call LoadModule first)", name)
+	}
+
+	return e.instantiate(name, entry.compiled)
+}
+
+// instantiate creates a new module instance from a compiled module.
+// Each call produces a unique instance name to avoid wazero conflicts.
+func (e *Engine) instantiate(name string, compiled wazero.CompiledModule) (*Module, error) {
+	// Generate unique instance name (wazero requires unique names per runtime)
+	id := e.nextID.Add(1)
+	instanceName := fmt.Sprintf("%s-i%d", name, id)
+
 	modCfg := wazero.NewModuleConfig().
-		WithName(name).
+		WithName(instanceName).
 		WithSysNanosleep().
 		WithSysNanotime().
 		WithSysWalltime().
@@ -124,14 +178,19 @@ func (e *Engine) LoadModule(name string, wasmBytes []byte) (*Module, error) {
 		}
 	}
 
-	mod := &Module{
+	return &Module{
 		mod: inst,
 		fns: fns,
 		ctx: e.ctx,
-	}
+	}, nil
+}
 
-	e.modules[name] = mod
-	return mod, nil
+// HasCompiledModule returns true if the named module has been compiled.
+func (e *Engine) HasCompiledModule(name string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	_, ok := e.compiled[name]
+	return ok
 }
 
 // GetModule returns a previously loaded module by name, or nil.
@@ -156,7 +215,6 @@ func (e *Engine) Close() error {
 // --- Module helpers ---
 
 // call invokes an exported function by name with the given arguments.
-// Callers must hold m.mu when calling this to prevent concurrent WASM memory access.
 func (m *Module) call(name string, args ...uint64) ([]uint64, error) {
 	fn, ok := m.fns[name]
 	if !ok {
@@ -165,12 +223,11 @@ func (m *Module) call(name string, args ...uint64) ([]uint64, error) {
 	return fn.Call(m.ctx, args...)
 }
 
-// Lock acquires the module mutex. Must be called before any compound operation
-// that involves multiple WASM calls (e.g., allocate + write + parse + free).
-func (m *Module) Lock() { m.mu.Lock() }
-
-// Unlock releases the module mutex.
-func (m *Module) Unlock() { m.mu.Unlock() }
+// CloseModule closes a single module instance, releasing its WASM memory.
+// Used by WorkerModules to clean up per-worker instances.
+func (m *Module) CloseModule() error {
+	return m.mod.Close(m.ctx)
+}
 
 // allocateString writes a Go string into WASM linear memory.
 // Returns (pointer, size, free_func, error). Caller must call free_func().

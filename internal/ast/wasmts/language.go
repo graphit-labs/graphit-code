@@ -49,12 +49,11 @@ func (l *Language) Name() string {
 	return l.name
 }
 
-// LockModule acquires the underlying WASM module's mutex.
-// Must be called before any compound operation on this language's module.
-func (l *Language) LockModule() { l.module.Lock() }
-
-// UnlockModule releases the underlying WASM module's mutex.
-func (l *Language) UnlockModule() { l.module.Unlock() }
+// Module returns the underlying WASM module for this language.
+// Used by WorkerModules to determine the module name for re-instantiation.
+func (l *Language) Module() *Module {
+	return l.module
+}
 
 // Version returns the tree-sitter ABI version of the grammar.
 func (l *Language) Version() (uint64, error) {

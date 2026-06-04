@@ -74,7 +74,8 @@ func init() {
 }
 
 type TreeSitterParser struct {
-	projectDir string
+	projectDir    string
+	workerModules *WorkerModules // per-worker WASM instances; nil = use global (tests)
 }
 
 func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
@@ -95,17 +96,20 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 		return nil, err
 	}
 
-	// Lock the WASM module for the entire parse operation. All tree-sitter
-	// operations (parser, tree, query, node) go through the same Module.call()
-	// which operates on shared WASM linear memory. Concurrent access from
-	// multiple goroutines corrupts memory and causes fatal "split stack
-	// overflow" panics in wazero's AOT compiler engine.
-	// Different language grammars use separate modules, so they still run
-	// in parallel — only same-language files are serialized.
-	cfg.TSLang.LockModule()
-	defer cfg.TSLang.UnlockModule()
+	// Resolve which Language instance to use for WASM operations.
+	// Per-worker modules give each goroutine its own WASM memory — no locks needed.
+	// Falls back to the global shared instance when workerModules is nil (tests).
+	tsLang := cfg.TSLang
+	if t.workerModules != nil {
+		funcName := grammarFuncName(cfg.Language)
+		workerLang, wErr := t.workerModules.GetLanguage(funcName)
+		if wErr != nil {
+			return nil, fmt.Errorf("worker module for %s: %w", cfg.Language, wErr)
+		}
+		tsLang = workerLang
+	}
 
-	parser, err := cfg.TSLang.NewParser()
+	parser, err := tsLang.NewParser()
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter create parser %s: %w", path, err)
 	}
@@ -134,7 +138,7 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 	var langConfig *ExternalQueryFile
 	var queries []tsQueryDef
 	if t.projectDir != "" {
-		queries = mergedQueriesFor(t.projectDir, cfg.Language, ext, cfg.TSLang)
+		queries = mergedQueriesFor(t.projectDir, cfg.Language, ext, tsLang)
 		langConfig = resolvedLangConfigFor(t.projectDir, cfg.Language, ext)
 	}
 
@@ -144,12 +148,12 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 	seenNames := map[string]bool{}
 
 	for _, qdef := range queries {
-		q, qErr := cfg.TSLang.NewQuery(qdef.Pattern)
+		q, qErr := tsLang.NewQuery(qdef.Pattern)
 		if qErr != nil {
 			continue
 		}
 
-		qc, qcErr := cfg.TSLang.NewQueryCursor()
+		qc, qcErr := tsLang.NewQueryCursor()
 		if qcErr != nil {
 			q.Close()
 			continue

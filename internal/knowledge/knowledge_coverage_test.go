@@ -504,7 +504,7 @@ func TestAutoLinkContentFrontmatter(t *testing.T) {
 		"Daemon Service": "Daemon_Service",
 	}
 	body := "---\ntitle: Daemon Service\n---\nDaemon Service is great."
-	linked, refs := autoLinkContent(body, titlesMap, "Other")
+	linked, refs := autoLinkContent(body, buildAutoLinkTargets(titlesMap), "Other")
 	// Frontmatter should not be linked
 	if strings.Contains(linked, "[[Daemon_Service|Daemon Service]]") && strings.Contains(linked, "---\ntitle: [[") {
 		t.Error("should not auto-link inside frontmatter")
@@ -519,7 +519,7 @@ func TestAutoLinkContentShortTermFiltered(t *testing.T) {
 		"AB": "AB_Page",
 	}
 	body := "The AB module is here."
-	linked, refs := autoLinkContent(body, titlesMap, "Other")
+	linked, refs := autoLinkContent(body, buildAutoLinkTargets(titlesMap), "Other")
 	// "AB" is less than 3 chars, should be skipped
 	if linked != body {
 		t.Errorf("short terms should not be linked, got %q", linked)
@@ -530,10 +530,10 @@ func TestAutoLinkContentShortTermFiltered(t *testing.T) {
 }
 
 func TestAutoLinkLineMdLinks(t *testing.T) {
-	targets := []linkTarget{{term: "My Page", slug: "My_Page"}}
+	targets := buildAutoLinkTargets(map[string]string{"My Page": "My_Page"})
 	refs := make(map[string]bool)
 	line := "Check [My Page](https://example.com) for details."
-	result := autoLinkLine(line, targets, refs)
+	result := autoLinkLine(line, targets, "Other", refs)
 	// Should not auto-link inside markdown links
 	if strings.Contains(result, "[[My_Page") {
 		t.Errorf("should not auto-link inside markdown links, got %q", result)
@@ -1329,10 +1329,10 @@ func TestAppendKnowledgeLogAddedNoSummary(t *testing.T) {
 func TestAutoLinkLineRegexCompileError(t *testing.T) {
 	// Test with a target term that would create an invalid regex (shouldn't happen
 	// with QuoteMeta, but the error path at line 730-731 exists)
-	targets := []linkTarget{{term: "Normal Term", slug: "Normal_Term"}}
+	targets := buildAutoLinkTargets(map[string]string{"Normal Term": "Normal_Term"})
 	refs := make(map[string]bool)
 	line := "This mentions Normal Term here."
-	result := autoLinkLine(line, targets, refs)
+	result := autoLinkLine(line, targets, "Other", refs)
 	if !strings.Contains(result, "[[Normal_Term|Normal Term]]") {
 		t.Errorf("expected auto-link, got %q", result)
 	}
