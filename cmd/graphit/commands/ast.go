@@ -409,6 +409,16 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 				return nil
 			}
 
+			task.Update("Rebuilding search index...")
+			idxPath := ladybugCfg.DBPath + ".search.sqlite"
+			if searchIdx, idxErr := ast.OpenSearchIndex(idxPath); idxErr == nil {
+				embLookup := ast.BuildEmbLookup(parseCache, cfg.EmbCache)
+				if rbErr := searchIdx.RebuildFromCache(parseCache, embLookup); rbErr != nil {
+					p.StepWarn("Search index rebuild: %v", rbErr)
+				}
+				_ = searchIdx.Close()
+			}
+
 			task.Done("%d entities embedded", n)
 			return nil
 		},

@@ -99,7 +99,7 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 
 	var searchWg sync.WaitGroup
 	if searchIdx != nil {
-		embLookup := buildEmbLookup(cache, embCache)
+		embLookup := BuildEmbLookup(cache, embCache)
 		searchWg.Add(1)
 		go func() {
 			defer searchWg.Done()
@@ -154,13 +154,13 @@ func fullRebuildWithSearch(ctx context.Context, lb *LadybugBackend, cache *Shard
 		return err
 	}
 	if searchIdx != nil {
-		embLookup := buildEmbLookup(cache, embCache)
+		embLookup := BuildEmbLookup(cache, embCache)
 		_ = searchIdx.RebuildFromCache(cache, embLookup)
 	}
 	return nil
 }
 
-func buildEmbLookup(cache *ShardCache, embCache *ShardEmbCache) func(relPath, uid string) []float32 {
+func BuildEmbLookup(cache *ShardCache, embCache *ShardEmbCache) func(relPath, uid string) []float32 {
 	if embCache == nil {
 		return nil
 	}

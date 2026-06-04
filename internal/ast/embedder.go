@@ -406,5 +406,17 @@ func triggerEmbeddingRebuild(ctx context.Context, dbPath string, parseCache *Sha
 		return
 	}
 
+	idxPath := dbPath + ".search.sqlite"
+	searchIdx, err := OpenSearchIndex(idxPath)
+	if err != nil {
+		log.Error("open search index for embedding rebuild", "error", err)
+	} else {
+		embLookup := BuildEmbLookup(parseCache, embCache)
+		if err := searchIdx.RebuildFromCache(parseCache, embLookup); err != nil {
+			log.Error("search index rebuild after embeddings", "error", err)
+		}
+		_ = searchIdx.Close()
+	}
+
 	log.Info("rebuild complete", "duration_s", time.Since(t0).Seconds())
 }

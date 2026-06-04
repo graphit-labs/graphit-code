@@ -348,7 +348,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			logger.Info("strategy selected", "type", "full-rebuild", "files", jsonCache.Count())
 			err = RebuildFromJSON(ctx, db, jsonCache, embCache, opts.Cluster, abs, opts.Logger)
 			if err == nil && searchIdx != nil {
-				embLookup := buildEmbLookup(jsonCache, embCache)
+				embLookup := BuildEmbLookup(jsonCache, embCache)
 				_ = searchIdx.RebuildFromCache(jsonCache, embLookup)
 			}
 		}
