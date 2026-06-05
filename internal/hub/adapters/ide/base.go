@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -572,30 +571,5 @@ func copyDirAll(src, dst string) error {
 }
 
 func getMCPProxyConfig() (exe string, args []string, env map[string]string) {
-	mcpBinName := brand.BinName() + "-mcp"
-	launcherEnvKey := brand.EnvVar("LAUNCHER_PATH")
-	if runtime.GOOS == "windows" {
-		mcpBinName += ".exe"
-	}
-
-	if launcher := os.Getenv(launcherEnvKey); launcher != "" {
-		mcpBin := filepath.Join(filepath.Dir(launcher), mcpBinName)
-		if _, err := os.Stat(mcpBin); err == nil {
-			return mcpBin, []string{}, map[string]string{launcherEnvKey: launcher}
-		}
-	}
-
-	if self, err := os.Executable(); err == nil {
-		mcpBin := filepath.Join(filepath.Dir(self), mcpBinName)
-		if _, err := os.Stat(mcpBin); err == nil {
-			launcherPath := self
-			if eval, err := filepath.EvalSymlinks(self); err == nil {
-				launcherPath = eval
-			}
-			return mcpBin, []string{}, map[string]string{launcherEnvKey: launcherPath}
-		}
-	}
-
 	return getGraphitExecutable(), []string{"mcp", "--stdio"}, map[string]string{}
 }
-
