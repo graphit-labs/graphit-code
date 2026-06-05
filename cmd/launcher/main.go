@@ -105,6 +105,24 @@ func main() {
 
 	sanitizeInheritedFDs()
 
+	if isMCPStdio() {
+		var mcpBinName string
+		if runtime.GOOS == "windows" {
+			mcpBinName = fmt.Sprintf("%s-mcp.exe", brand.BinName())
+		} else {
+			mcpBinName = fmt.Sprintf("%s-mcp", brand.BinName())
+		}
+		mcpBinPath := filepath.Join(runtimeDir, mcpBinName)
+		if _, statErr := os.Stat(mcpBinPath); statErr == nil {
+			coreBinPath = mcpBinPath
+			cmd = exec.Command(mcpBinPath)
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			cmd.Env = env
+		}
+	}
+
 	if err := execCore(coreBinPath, env); err != nil {
 
 		if err := cmd.Run(); err != nil {
@@ -209,3 +227,12 @@ func writeLauncherStamp(appDir, coreBinPath string) {
 	stampPath := filepath.Join(stampDir, "launcher.stamp")
 	_ = os.WriteFile(stampPath, []byte(stamp+"\n"), 0o644)
 }
+
+func isMCPStdio() bool {
+	args := os.Args[1:]
+	if len(args) < 2 {
+		return false
+	}
+	return args[0] == "mcp" && args[1] == "--stdio"
+}
+
