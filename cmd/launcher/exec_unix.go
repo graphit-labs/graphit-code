@@ -29,7 +29,7 @@ func sanitizeInheritedFDs() {
 	}
 }
 
-func execCore(coreBinPath string, env []string) error {
-	argv := append([]string{coreBinPath}, os.Args[1:]...)
+func execCore(coreBinPath string, args []string, env []string) error {
+	argv := append([]string{coreBinPath}, args...)
 	return syscall.Exec(coreBinPath, argv, env)
 }

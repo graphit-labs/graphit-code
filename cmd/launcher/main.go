@@ -107,6 +107,7 @@ func main() {
 
 	sanitizeInheritedFDs()
 
+	var coreArgs []string
 	if isMCPStdio() {
 		var mcpBinName string
 		if runtime.GOOS == "windows" {
@@ -123,9 +124,11 @@ func main() {
 			cmd.Stderr = os.Stderr
 			cmd.Env = env
 		}
+	} else {
+		coreArgs = os.Args[1:]
 	}
 
-	if err := execCore(coreBinPath, env); err != nil {
+	if err := execCore(coreBinPath, coreArgs, env); err != nil {
 
 		if err := cmd.Run(); err != nil {
 			var exitError *exec.ExitError
