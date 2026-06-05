@@ -931,10 +931,16 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 }
 
 func spawnBackgroundSync(wd, ide string) {
-	exe, err := os.Executable()
-	if err != nil {
-		syncLogError("spawn", "executable path: %v", err)
-		return
+	// Prefer the launcher — after an upgrade the old graphit-core may be gone.
+	exe := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
+	if exe == "" {
+		var err error
+		exe, err = os.Executable()
+		if err != nil {
+			syncLogError("spawn", "executable path: %v", err)
+			return
+		}
+		exe, _ = filepath.EvalSymlinks(exe)
 	}
 
 	args := []string{"sync", "--heavy"}

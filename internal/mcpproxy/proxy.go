@@ -2,9 +2,7 @@
 // an MCP stdio client (IDE) and the daemon's MCP unix socket.
 //
 // When the daemon restarts or crashes, the proxy automatically reconnects
-// instead of dying, keeping the IDE-side MCP process alive. The MCP stdio
-// transport uses newline-delimited JSON-RPC, so messages are buffered at
-// line boundaries to prevent data loss during reconnection.
+// instead of dying, keeping the IDE-side MCP process alive.
 package mcpproxy
 
 import (
@@ -17,22 +15,11 @@ import (
 
 // Config configures the reconnectable MCP proxy.
 type Config struct {
-	// SockFile is the path to the daemon's MCP unix socket.
-	SockFile string
-
-	// EnsureDaemon is called before each connection attempt to guarantee
-	// the daemon process is running. May be nil.
-	EnsureDaemon func()
-
-	// MaxDialRetries is the maximum number of dial attempts per connection
-	// cycle. Each retry waits RetryInterval. Default: 30.
-	MaxDialRetries int
-
-	// RetryInterval is the pause between dial retries. Default: 500ms.
-	RetryInterval time.Duration
-
-	// Stderr receives diagnostic log lines. May be nil to suppress logging.
-	Stderr io.Writer
+	SockFile       string
+	EnsureDaemon   func() // called before each connection attempt; may be nil
+	MaxDialRetries int    // default 30
+	RetryInterval  time.Duration // default 500ms
+	Stderr         io.Writer // diagnostic log output; nil to suppress
 }
 
 func (c *Config) applyDefaults() {
@@ -51,29 +38,18 @@ func (c *Config) logf(format string, args ...any) {
 }
 
 // RunProxy starts a reconnectable bidirectional proxy between stdin/stdout
-// and the daemon's MCP unix socket.
-//
-// It reads stdin line-by-line into a buffered channel that survives daemon
-// reconnections. When the daemon connection breaks (EOF, write error), the
-// proxy closes the old connection, re-ensures the daemon is running, and
-// dials a new connection — all transparently to the IDE.
-//
-// The function returns when stdin is closed (IDE disconnected) or when all
-// dial retries are exhausted.
+// and the daemon's MCP unix socket. It returns when stdin closes or when
+// all dial retries are exhausted.
 func RunProxy(cfg Config, stdin io.Reader, stdout io.Writer) error {
 	cfg.applyDefaults()
 
-	// Read stdin lines into a buffered channel.
-	// This goroutine lives for the entire proxy lifetime, surviving reconnections.
-	// MCP stdio uses newline-delimited JSON-RPC, so each line is one message.
 	lines := make(chan []byte, 32)
 	stdinDone := make(chan struct{})
 	go func() {
 		defer close(stdinDone)
 		defer close(lines)
-
 		scanner := bufio.NewScanner(stdin)
-		scanner.Buffer(make([]byte, 0, 10<<20), 10<<20) // 10 MiB per message
+		scanner.Buffer(make([]byte, 0, 10<<20), 10<<20)
 		for scanner.Scan() {
 			raw := scanner.Bytes()
 			line := make([]byte, len(raw))
@@ -82,10 +58,9 @@ func RunProxy(cfg Config, stdin io.Reader, stdout io.Writer) error {
 		}
 	}()
 
-	var pending []byte // message read from stdin but not yet sent to daemon
+	var pending []byte
 
 	for {
-		// Ensure daemon is running before dialing.
 		if cfg.EnsureDaemon != nil {
 			cfg.EnsureDaemon()
 		}
@@ -97,21 +72,16 @@ func RunProxy(cfg Config, stdin io.Reader, stdout io.Writer) error {
 		}
 		cfg.logf("connected to daemon")
 
-		// Start reader goroutine: daemon → stdout.
 		connDead := make(chan struct{})
 		go func() {
 			defer close(connDead)
 			_, _ = io.Copy(stdout, conn)
 		}()
 
-		// If we have a pending message from a previously broken connection,
-		// try to deliver it on the fresh connection.
 		if pending != nil {
 			if _, werr := conn.Write(pending); werr != nil {
 				conn.Close()
 				<-connDead
-				// Drop the pending message to avoid infinite retry loops.
-				// The IDE client will timeout and resend.
 				cfg.logf("dropped pending message after reconnect write failure")
 				pending = nil
 				time.Sleep(cfg.RetryInterval)
@@ -120,31 +90,27 @@ func RunProxy(cfg Config, stdin io.Reader, stdout io.Writer) error {
 			pending = nil
 		}
 
-		// Main loop: forward stdin messages to daemon.
 		reconnect := false
 		for !reconnect {
 			select {
 			case line, ok := <-lines:
 				if !ok {
-					// stdin closed — IDE disconnected. Clean exit.
 					conn.Close()
 					<-connDead
 					return nil
 				}
-				msg := append(line, '\n')
+				msg := make([]byte, len(line)+1)
+				copy(msg, line)
+				msg[len(line)] = '\n'
 				if _, werr := conn.Write(msg); werr != nil {
-					// Write failed — daemon died mid-request.
-					// Preserve the message for the next connection.
 					pending = msg
 					reconnect = true
 				}
 
 			case <-connDead:
-				// Daemon closed the connection (restart, crash, etc).
 				reconnect = true
 
 			case <-stdinDone:
-				// stdin goroutine exited (e.g. broken pipe).
 				conn.Close()
 				<-connDead
 				return nil
@@ -152,9 +118,8 @@ func RunProxy(cfg Config, stdin io.Reader, stdout io.Writer) error {
 		}
 
 		conn.Close()
-		<-connDead // wait for reader goroutine to finish
+		<-connDead
 
-		// If stdin is already closed, exit instead of reconnecting.
 		select {
 		case <-stdinDone:
 			return nil
@@ -166,7 +131,6 @@ func RunProxy(cfg Config, stdin io.Reader, stdout io.Writer) error {
 	}
 }
 
-// dialRetry dials the unix socket with exponential-ish retry.
 func dialRetry(sockFile string, maxRetries int, interval time.Duration) (net.Conn, error) {
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
