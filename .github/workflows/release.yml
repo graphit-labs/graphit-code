@@ -93,8 +93,7 @@ jobs:
             libicu-dev \
             pkg-config \
             curl \
-            unzip \
-            zig
+            unzip
 
       - name: Cache ONNX Runtime
         uses: actions/cache@v4
@@ -115,6 +114,12 @@ jobs:
         with:
           path: /tmp/lbug-cache
           key: liblbug-linux-amd64-v0.13.1
+
+      - name: Set up Zig
+        run: |
+          ZIG_VERSION=0.16.0
+          curl -sSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" | tar -xJ -C /tmp
+          echo "/tmp/zig-x86_64-linux-${ZIG_VERSION}" >> $GITHUB_PATH
 
       - name: Build WASM grammars
         run: make build-grammars
@@ -166,7 +171,13 @@ jobs:
 
       - name: Install system dependencies (Homebrew)
         run: |
-          brew install icu4c pkg-config zig
+          brew install icu4c pkg-config
+
+      - name: Set up Zig
+        run: |
+          ZIG_VERSION=0.16.0
+          curl -sSL "https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-macos-${ZIG_VERSION}.tar.xz" | tar -xJ -C /tmp
+          echo "/tmp/zig-aarch64-macos-${ZIG_VERSION}" >> $GITHUB_PATH
 
       - name: Cache ONNX Runtime (macOS)
         uses: actions/cache@v4
@@ -190,6 +201,8 @@ jobs:
 
       - name: Build WASM grammars
         run: make build-grammars
+        env:
+          ZIG_GLOBAL_CACHE_DIR: /tmp/zig-cache
 
       - name: Build (macOS)
         run: |
@@ -235,12 +248,19 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-icu
             mingw-w64-x86_64-sqlite3
-            mingw-w64-x86_64-zig
             make
             unzip
             curl
             tar
             gzip
+
+      - name: Set up Zig
+        shell: pwsh
+        run: |
+          $ZIG_VERSION = "0.16.0"
+          Invoke-WebRequest -Uri "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-windows-$ZIG_VERSION.zip" -OutFile "$env:TEMP\zig.zip"
+          Expand-Archive -Path "$env:TEMP\zig.zip" -DestinationPath "$env:TEMP"
+          "$env:TEMP\zig-x86_64-windows-$ZIG_VERSION" | Out-File -Append $env:GITHUB_PATH
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -274,7 +294,7 @@ jobs:
           key: liblbug-windows-v0.13.1
 
       - name: Build WASM grammars
-        run: make build-grammars
+        run: make build-grammars ZIG="$(which zig)"
 
       - name: Build (Windows native)
         run: |
