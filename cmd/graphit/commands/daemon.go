@@ -157,38 +157,41 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 		_ = memSync.Start(ctx)
 	}()
 
-	go func() {
-		mcpSockFile := filepath.Join(daemon.GlobalDaemonDir(), "mcp.sock")
-		_ = os.MkdirAll(filepath.Dir(mcpSockFile), 0o755)
-		_ = os.Remove(mcpSockFile)
-
-		listener, err := net.Listen("unix", mcpSockFile)
-		if err != nil {
-			return
-		}
-
+	mcpSockFile := filepath.Join(daemon.GlobalDaemonDir(), "mcp.sock")
+	pidCheck := daemon.NewPIDFile()
+	if pidCheck.IsAlive() == nil {
 		go func() {
-			<-ctx.Done()
-			_ = listener.Close()
+			_ = os.MkdirAll(filepath.Dir(mcpSockFile), 0o755)
 			_ = os.Remove(mcpSockFile)
-		}()
 
-		for {
-			conn, err := listener.Accept()
+			listener, err := net.Listen("unix", mcpSockFile)
 			if err != nil {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					continue
-				}
+				return
 			}
+
 			go func() {
-				defer conn.Close()
-				_ = mcpstdio.ServeConn(ctx, conn)
+				<-ctx.Done()
+				_ = listener.Close()
+				_ = os.Remove(mcpSockFile)
 			}()
-		}
-	}()
+
+			for {
+				conn, err := listener.Accept()
+				if err != nil {
+					select {
+					case <-ctx.Done():
+						return
+					default:
+						continue
+					}
+				}
+				go func() {
+					defer conn.Close()
+					_ = mcpstdio.ServeConn(ctx, conn)
+				}()
+			}
+		}()
+	}
 
 	p := output.NewPrinter("daemon")
 	cfg.OnEvent = func(level string, msg string) {
