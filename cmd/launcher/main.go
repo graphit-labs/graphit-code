@@ -60,6 +60,8 @@ func main() {
 
 		writeLauncherStamp(appDir, coreBinPath)
 
+		deduplicateModels(runtimeDir)
+
 	}
 
 	cmd := exec.Command(coreBinPath, os.Args[1:]...)
