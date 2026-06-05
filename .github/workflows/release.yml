@@ -93,7 +93,8 @@ jobs:
             libicu-dev \
             pkg-config \
             curl \
-            unzip
+            unzip \
+            zig
 
       - name: Cache ONNX Runtime
         uses: actions/cache@v4
@@ -114,6 +115,9 @@ jobs:
         with:
           path: /tmp/lbug-cache
           key: liblbug-linux-amd64-v0.13.1
+
+      - name: Build WASM grammars
+        run: make build-grammars
 
       - name: Build (Linux)
         run: |
@@ -162,7 +166,7 @@ jobs:
 
       - name: Install system dependencies (Homebrew)
         run: |
-          brew install icu4c pkg-config
+          brew install icu4c pkg-config zig
 
       - name: Cache ONNX Runtime (macOS)
         uses: actions/cache@v4
@@ -183,6 +187,9 @@ jobs:
         with:
           path: /tmp/lbug-cache
           key: liblbug-darwin-v0.13.1
+
+      - name: Build WASM grammars
+        run: make build-grammars
 
       - name: Build (macOS)
         run: |
@@ -228,6 +235,7 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-icu
             mingw-w64-x86_64-sqlite3
+            mingw-w64-x86_64-zig
             make
             unzip
             curl
@@ -264,6 +272,9 @@ jobs:
         with:
           path: C:\cache\lbug
           key: liblbug-windows-v0.13.1
+
+      - name: Build WASM grammars
+        run: make build-grammars
 
       - name: Build (Windows native)
         run: |
