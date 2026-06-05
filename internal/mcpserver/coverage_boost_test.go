@@ -1007,6 +1007,7 @@ func TestCovBoost_ResolveWikiDir_UnknownModule(t *testing.T) {
 func TestCovBoost_ResolveWikiDir_KnowledgeDefault(t *testing.T) {
 	t.Parallel()
 	tmpDir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(tmpDir, brand.DotDir(), "knowledge", "project"), 0o755)
 
 	result := resolveWikiDir("knowledge", tmpDir, "")
 	if result == "" {

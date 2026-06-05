@@ -86,20 +86,30 @@ func resolveWikiDir(module, projectDir, contextName string) string {
 	_ = os.Chdir(projectDir)
 	defer func() { _ = os.Chdir(origWd) }()
 
+	var dir string
 	switch module {
 	case "knowledge":
 		if contextName != "" {
-			return knowledge.WikiDirForContext(contextName)
+			dir = knowledge.WikiDirForContext(contextName)
+		} else {
+			dir = knowledge.WikiDir()
 		}
-		return knowledge.WikiDir()
 	case "memory":
 		if contextName != "" {
-			return memory.WikiDir(contextName)
+			dir = memory.WikiDir(contextName)
+		} else {
+			dir = memory.WikiDir("project")
 		}
-
-		return memory.WikiDir("project")
 	default:
 		return ""
 	}
+
+	if dir == "" {
+		return ""
+	}
+	if _, err := os.Stat(dir); err != nil {
+		return ""
+	}
+	return dir
 }
 

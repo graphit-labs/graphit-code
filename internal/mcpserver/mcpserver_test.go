@@ -290,11 +290,11 @@ func TestResolveWikiDir(t *testing.T) {
 			wantEmpty:  false,
 		},
 		{
-			name:       "knowledge module with context",
+			name:       "knowledge module with context (global dir absent)",
 			module:     "knowledge",
 			projectDir: tmpDir,
 			context:    "testctx",
-			wantEmpty:  false,
+			wantEmpty:  true,
 		},
 		{
 			name:       "empty module returns empty",

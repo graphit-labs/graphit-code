@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -69,6 +70,13 @@ func TestServeStatic(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
+			if tc.wantServed {
+				fp := "dist" + tc.path
+				if _, err := fs.Stat(DistFS, fp); err != nil {
+					t.Skipf("dist not built (file %s not embedded); run 'make ui' first", fp)
+				}
+			}
 
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 			rec := httptest.NewRecorder()

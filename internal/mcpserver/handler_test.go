@@ -488,12 +488,11 @@ func TestKnowledgeSearch_EmptyWikiDir(t *testing.T) {
 	origWd, _ := os.Getwd()
 	t.Cleanup(func() { _ = os.Chdir(origWd) })
 
-	// knowledge search with no wiki still produces a results text
-	// (BM25Search returns empty on missing dir → "No results found")
-	s.callToolExpectText(brand.MCPToolName("knowledge", "search"), map[string]any{
+	// No wiki directory → resolveWikiDir returns "" → "wiki not found" error
+	s.callToolExpectError(brand.MCPToolName("knowledge", "search"), map[string]any{
 		"query":       "test",
 		"project_dir": tmpDir,
-	}, "No results found")
+	}, "wiki not found")
 }
 
 func TestKnowledgeQuery_WithContext(t *testing.T) {

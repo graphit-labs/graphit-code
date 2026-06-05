@@ -57,10 +57,19 @@ func resolveMemoryWikiDir(scope, projectDir, contextName string) string {
 	_ = os.Chdir(projectDir)
 	defer func() { _ = os.Chdir(origWd) }()
 
+	var dir string
 	if scope == "user" {
-		return memory.WikiDir("user")
+		dir = memory.WikiDir("user")
+	} else {
+		dir = memory.WikiDir("project")
 	}
-	return memory.WikiDir("project")
+	if dir == "" {
+		return ""
+	}
+	if _, err := os.Stat(dir); err != nil {
+		return ""
+	}
+	return dir
 }
 
 func registerMemoryTools(server *mcp.Server) {
