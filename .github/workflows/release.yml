@@ -175,7 +175,7 @@ jobs:
             unzip
 
       - name: Cache ONNX Runtime
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/onnxruntime-cache
           key: onnxruntime-linux-x64-${{ env.ORT_VERSION }}
@@ -183,13 +183,13 @@ jobs:
           ORT_VERSION: "1.25.0"
 
       - name: Cache CodeRankEmbed model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/coderankembed-cache
           key: coderankembed-int8-model-v1
 
       - name: Cache LadybugDB native library
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/lbug-cache
           key: liblbug-linux-amd64-v0.13.1
@@ -258,7 +258,7 @@ jobs:
           brew install icu4c pkg-config
 
       - name: Cache ONNX Runtime (macOS)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/onnxruntime-cache
           key: onnxruntime-osx-arm64-${{ env.ORT_VERSION }}
@@ -266,13 +266,13 @@ jobs:
           ORT_VERSION: "1.25.0"
 
       - name: Cache CodeRankEmbed model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/coderankembed-cache
           key: coderankembed-int8-model-v1
 
       - name: Cache LadybugDB native library (macOS)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/lbug-cache
           key: liblbug-darwin-v0.13.1
@@ -355,19 +355,19 @@ jobs:
           cache-dependency-path: internal/ui/package-lock.json
 
       - name: Cache ONNX Runtime (Windows)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: C:\cache\ort
           key: onnxruntime-win-x64-1.25.0
 
       - name: Cache CodeRankEmbed model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: C:\cache\model
           key: coderankembed-int8-model-v1
 
       - name: Cache LadybugDB native library (Windows)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: C:\cache\lbug
           key: liblbug-windows-v0.13.1
