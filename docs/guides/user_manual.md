@@ -807,7 +807,7 @@ In MCP tool calls, use the `force_antlr` parameter with the same comma-separated
 
 - **Grammar files**: The `.wasm` grammar file must be present in any level of the grammars resolution chain (`.graphit/ast/grammars/`, `~/.graphit/ast/grammars/`, or `~/.graphit/runtime/<version>/ast/grammars/`). If no grammar is found for a language, its YAML queries are silently skipped.
 - **Pattern validation**: Invalid Tree-sitter patterns are detected at parse time and logged as warnings, while valid patterns proceed normally. Invalid XPath expressions in ANTLR queries are similarly logged.
-- **Customizing existing languages**: For the 16 languages included by default, all extraction rules, export detection, scoring, context resolution, and docstring attachment are fully YAML-driven. Changing the YAML is sufficient — no rebuild needed.
+- **Customizing existing languages**: For the 18 languages included by default, all extraction rules, export detection, scoring, context resolution, and docstring attachment are fully YAML-driven. Changing the YAML is sufficient — no rebuild needed.
 - **Parser field**: If the `parser` field is omitted from a YAML file, Tree-sitter is assumed. Existing YAML files do not need modification.
 
 ---

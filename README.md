@@ -212,7 +212,7 @@ graphit ui  # Opens http://localhost:8080
 ### 2. AST Graph Explorer — Instant & Deterministic
 Query the AST across the ecosystem instantly. Auto-incremental indexing ensures your agent always knows exactly where a function is defined or called. **Eliminates hallucinations** by grounding answers in exact structural truths, and drastically **reduces LLM token usage** by passing only precise nodes instead of massive files.
 
-#### Supported Languages (17)
+#### Supported Languages (18)
 
 Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and **ANTLR v4** (full grammar, enterprise SQL). Both are WASM-based, portable, and loaded at runtime — no CGO, no native dependencies.
 
@@ -234,13 +234,14 @@ Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and *
 | **PHP** | Tree-sitter | `.php` | Functions, Methods, Classes, Interfaces, Traits, Enums, Constants, Namespaces, Fields, Parameters |
 | **Ruby** | Tree-sitter | `.rb` | Functions, Classes, Modules, Variables, Fields, Parameters |
 | **SQL** | Tree-sitter | `.sql` | Functions, Tables, Views |
+| **XML** | Tree-sitter | `.xml`, `.xsl`, `.xslt`, `.xsd`, `.svg`, `.wsdl`, `.plist`, `.xhtml` | Elements |
 | **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Functions, Procedures, Packages, Types, Triggers, Tables, Views, Materialized Views, Indexes, Sequences, Synonyms, DB Links, Columns, Parameters, Variables, Constants, Cursors, Exceptions, Constraints + DML tracking (SELECTS, INSERTS, UPDATES, DELETES) |
 
 #### What the AST Maps
 
 Every source file is parsed via **Tree-sitter** or **ANTLR v4** into a graph stored in **LadybugDB** (embedded graph database). The YAML language configuration determines which parser to use. The graph captures:
 
-- **Nodes:** `File`, `Directory`, `Function`, `Method`, `Class`, `Struct`, `Interface`, `Trait`, `Enum`, `Type`, `Module`, `Variable`, `Constant`, `Parameter`, `Field`, `Namespace`, `Package`, `Table`, `View`, `Export`
+- **Nodes:** `File`, `Directory`, `Function`, `Method`, `Class`, `Struct`, `Interface`, `Trait`, `Enum`, `Type`, `Module`, `Variable`, `Constant`, `Parameter`, `Field`, `Namespace`, `Package`, `Table`, `View`, `Export`, `Element`
 - **Relationships:** `CONTAINS` (ownership), `IMPORTS` (dependencies), `CALLS` (invocations), `HAS_PARAMETER`, `HAS_FIELD`, `READS_FIELD` / `WRITES_FIELD` (data access tracing), `INHERITS`, `IMPLEMENTS`, `SELECTS` / `INSERTS` / `UPDATES` / `DELETES` / `REFERENCES` (DML tracking — PL/SQL)
 - **Properties:** `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported`, `entry_point_score`, `docstring`, `source`, `lang`, `cluster`
 
@@ -248,7 +249,7 @@ Every source file is parsed via **Tree-sitter** or **ANTLR v4** into a graph sto
 
 The entire AST pipeline is driven by **external YAML files** — not hardcoded. Every aspect of language understanding, framework detection, and scoring is runtime-customizable without recompilation:
 
-- **Language Query Patterns** — 17 language YAML files define all extraction patterns (functions, classes, imports, calls, etc.) for both Tree-sitter and ANTLR grammars.
+- **Language Query Patterns** — 18 language YAML files define all extraction patterns (functions, classes, imports, calls, etc.) for both Tree-sitter and ANTLR grammars.
 - **Framework Detection** — 51+ framework definitions across 59 YAML files. Decorators, heritage classes, and import patterns for frameworks like React, Django, Spring Boot, Flutter, Express, FastAPI, and many more.
 - **Ecosystem Detection** — `ecosystems.yaml` with 120+ entries classifying projects by technology stack (web, mobile, API, database, CLI, etc.)
 - **Entry Point Scoring** — Scoring rules embedded in each language YAML determine how functions are ranked as potential entry points.

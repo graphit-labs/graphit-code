@@ -25,7 +25,7 @@ It parses source files into an in-memory graph database, enabling AI agents to t
 
 ## 🌐 Supported Languages
 
-Graphit Code supports **17 programming languages** via Tree-sitter and ANTLR v4 parsers. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires compiling its grammar (Tree-sitter or ANTLR) into WASM; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
+Graphit Code supports **18 programming languages** via Tree-sitter and ANTLR v4 parsers. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires compiling its grammar (Tree-sitter or ANTLR) into WASM; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
 
 | # | Language | Parser | Extensions | Key Extracted Entities |
 |---|---|---|---|---|
@@ -45,7 +45,8 @@ Graphit Code supports **17 programming languages** via Tree-sitter and ANTLR v4 
 | 14 | **PHP** | Tree-sitter | `.php` | Function, Method, Class, Interface, Trait, Enum, Constant, Namespace (Package), Field, Parameter, Attribute |
 | 15 | **Ruby** | Tree-sitter | `.rb` | Function, Class, Module, Variable, Field, Parameter |
 | 16 | **SQL** | Tree-sitter | `.sql` | Function, Table, View |
-| 17 | **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Function, Procedure, Package, Table, View, Trigger, Type |
+| 17 | **XML** | Tree-sitter | `.xml`, `.xsl`, `.xslt`, `.xsd`, `.svg`, `.wsdl`, `.plist`, `.xhtml` | Element |
+| 18 | **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Function, Procedure, Package, Table, View, Trigger, Type |
 
 ### Cross-Language Extraction Capabilities
 
@@ -53,15 +54,15 @@ For every supported language, the parser extracts the following relationship dat
 
 | Capability | Description | Languages |
 |---|---|---|
-| **Function Calls** | Traces which functions/methods call which others | All 17 |
+| **Function Calls** | Traces which functions/methods call which others | All 18 |
 | **Import Resolution** | Maps module dependencies and import chains | All except SQL |
 | **Class Inheritance** | `extends` / superclass relationships | JS, TS, Python, Java, C#, C++, Kotlin, Swift, Dart, PHP, Ruby |
 | **Interface Implementation** | `implements` / protocol conformance | TS, Java, C#, Kotlin, PHP, Rust |
 | **Field Access Tracking** | Reads and writes to class/struct fields | Go, JS, TS, Java, C#, C, C++, Kotlin, Swift, Python, Rust, PHP, Ruby |
 | **Decorator / Annotation** | Attribute / annotation extraction | TS, Python, Java, C#, Kotlin, Swift, Rust, PHP |
 | **Object Instantiation** | `new` expression tracking | JS, TS, Java, C#, C++, PHP |
-| **Cyclomatic Complexity** | Computed for every function/method | All 17 |
-| **Export Visibility** | `is_exported` flag per entity — detection strategy is configurable via the `exports` field in language YAML (see [Export Strategies](#export-strategies)) | All 17 (strategy varies by language) |
+| **Cyclomatic Complexity** | Computed for every function/method | All 18 |
+| **Export Visibility** | `is_exported` flag per entity — detection strategy is configurable via the `exports` field in language YAML (see [Export Strategies](#export-strategies)) | All 18 (strategy varies by language) |
 | **DML Tracking** | `SELECTS`, `INSERTS`, `UPDATES`, `DELETES`, `ALTERS`, `DROPS`, `REFERENCES` edges for SQL/PL/SQL statements | SQL, PL/SQL |
 
 ---
@@ -430,7 +431,7 @@ Query files are resolved using a cascading priority system. For each language, t
 ```
 
 **Key behaviors:**
-- The launcher automatically extracts all 17 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
+- The launcher automatically extracts all 18 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
 - The **runtime directory is version-scoped** — each binary version gets its own clean set of defaults, so upgrades never conflict with previous versions.
 - The **user global directory** (`~/.graphit/ast/queries/`) is never touched by the framework. Only the user creates/edits files there.
 - If a **project** has a `go.yaml`, only Go queries come from the project level; other languages still resolve normally through user → runtime.
@@ -465,7 +466,8 @@ Query files are resolved using a cascading priority system. For each language, t
             │   ├── sql.yaml
             │   ├── swift.yaml
             │   ├── tsx.yaml
-            │   └── typescript.yaml
+            │   ├── typescript.yaml
+            │   └── xml.yaml
             ├── frameworks/         ← Runtime Default frameworks
             │   ├── _go_lang.yaml
             │   ├── _python_lang.yaml
@@ -688,7 +690,7 @@ Like frameworks, ecosystem files use **additive merging** — entries from all 3
 
 | Level | Path | Behavior |
 |---|---|---|
-| Runtime | `~/.graphit/runtime/<version>/ast/ecosystems.yaml` | Base — factory defaults (120+ entries covering 17 languages) |
+| Runtime | `~/.graphit/runtime/<version>/ast/ecosystems.yaml` | Base — factory defaults (120+ entries covering 18 languages) |
 | User Global | `~/.graphit/ast/ecosystems.yaml` | Extends runtime — user-editable, never modified by framework |
 | Project | `.graphit/ast/ecosystems.yaml` | Extends all — project-specific overrides |
 

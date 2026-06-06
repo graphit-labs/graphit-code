@@ -186,6 +186,7 @@ else
 	$(call build_grammar,swift,swift)
 	$(call build_grammar,typescript,typescript)
 	$(call build_grammar,tsx,tsx)
+	$(call build_grammar,xml,xml)
 	@echo "✓ Built $$(ls -1 $(GRAMMAR_OUT)/*.wasm | wc -l) grammars"
 endif
 

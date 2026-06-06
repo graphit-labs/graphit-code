@@ -1,0 +1,30 @@
+language: xml
+grammar: tree-sitter-xml
+extensions: [".xml", ".xsl", ".xslt", ".xsd", ".svg", ".wsdl", ".plist", ".xhtml"]
+queries:
+  - data_key: elements
+    graph_label: Element
+    pattern: '(STag (Name) @name)'
+  - data_key: elements
+    graph_label: Element
+    pattern: '(EmptyElemTag (Name) @name)'
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types: {}
+
+anon_func_types: []
+
+declaration_types: []
+
+comment_types:
+  - Comment
+
+entry_points:
+  names: []
+  exported_bonus: 0
+  max_score: 0
+  decorators: []
