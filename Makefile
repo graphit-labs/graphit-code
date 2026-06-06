@@ -190,18 +190,50 @@ else
 	@echo "✓ Built $$(ls -1 $(GRAMMAR_OUT)/*.wasm | wc -l) grammars"
 endif
 
-# ANTLR v4 grammar compilation — C++ WASM via wasi-sdk.
-# Each grammar has a grammar.yaml with per-language memory config.
-# Requires: wasi-sdk >= 33, CMake.
-ANTLR_TOOL_DIR  := tools/antlr-wasm-compiler
+# ANTLR v4 grammar compilation — direct clang++ via wasi-sdk (no CMake).
+# Downloads ANTLR4 C++ runtime once, compiles to static .a, then links per-grammar.
+# Each grammar has a grammar.conf with per-language memory config.
+# Requires: wasi-sdk >= 33 only.
+ANTLR_TOOL_DIR   := tools/antlr-wasm-compiler
+ANTLR4_VERSION   := 4.13.2
+ANTLR4_CACHE     := /tmp/antlr4-wasm-cache
+ANTLR4_SRC       := $(ANTLR4_CACHE)/antlr4-$(ANTLR4_VERSION)/runtime/Cpp/runtime/src
+ANTLR4_LIB       := $(ANTLR4_CACHE)/libantlr4-runtime-wasi.a
 WASI_SDK_VERSION := 33
-WASI_SDK_PREFIX ?= $(shell \
+WASI_SDK_PREFIX  ?= $(shell \
 	if [ -d "/tmp/wasi-sdk-$(WASI_SDK_VERSION).0-x86_64-linux" ]; then echo "/tmp/wasi-sdk-$(WASI_SDK_VERSION).0-x86_64-linux"; \
 	elif [ -d "/opt/wasi-sdk" ]; then echo "/opt/wasi-sdk"; fi)
+WASI_CXX          = $(WASI_SDK_PREFIX)/bin/clang++ --target=wasm32-wasip1 --sysroot=$(WASI_SDK_PREFIX)/share/wasi-sysroot
+WASI_AR           = $(WASI_SDK_PREFIX)/bin/llvm-ar
+# NOTE: no -fno-exceptions — ANTLR4 headers use throw in inline functions.
+# Exceptions are handled at link-time via wasi_stubs/exception_stubs.cpp (abort on throw).
+# Real WASM EH (-fwasm-exceptions + exnref) causes wazero JIT to hang on large binaries.
+ANTLR4_CXXFLAGS  := -std=c++17 -Os -flto -DANTLR4CPP_STATIC
 
-# build_antlr_wasm(grammar_name) — reads grammar.conf, compiles to WASM.
-# grammar.conf is a simple key=value file (INITIAL_MEMORY_MB, MAX_MEMORY_MB, STACK_SIZE_MB).
-# Defaults (for simple grammars): 4MB / 64MB / 2MB.
+# Fetch + compile ANTLR4 C++ runtime to a cached WASM static library.
+# Compiles directly with clang++ — no CMake, no patches needed.
+fetch-antlr4-runtime: $(ANTLR4_LIB)
+
+$(ANTLR4_LIB):
+	@if [ ! -d "$(ANTLR4_SRC)" ]; then \
+		echo "  → Downloading ANTLR4 $(ANTLR4_VERSION) C++ runtime..."; \
+		mkdir -p $(ANTLR4_CACHE); \
+		curl -sSL "https://github.com/antlr/antlr4/archive/refs/tags/$(ANTLR4_VERSION).tar.gz" | tar xz -C $(ANTLR4_CACHE); \
+	fi
+	@echo "  → Compiling ANTLR4 runtime to WASM (one-time, cached)..."
+	@mkdir -p $(ANTLR4_CACHE)/obj
+	@cd $(ANTLR4_SRC) && find . -name "*.cpp" | while read f; do \
+		odir="$(ANTLR4_CACHE)/obj/$$(dirname $$f)"; \
+		mkdir -p "$$odir"; \
+		$(WASI_CXX) $(ANTLR4_CXXFLAGS) -I$(ANTLR4_SRC) \
+			-c "$$f" -o "$$odir/$$(basename $$f .cpp).o"; \
+	done
+	@$(WASI_AR) rcs $@ $$(find $(ANTLR4_CACHE)/obj -name "*.o")
+	@echo "  ✓ ANTLR4 runtime cached: $@"
+
+# build_antlr_wasm(grammar_name) — reads grammar.conf, compiles grammar, links against runtime.
+# grammar.conf: key=value (INITIAL_MEMORY_MB, MAX_MEMORY_MB, STACK_SIZE_MB).
+# Defaults: 4MB / 64MB / 2MB.
 define build_antlr_wasm
 	$(eval _GDIR := $(abspath $(ANTLR_TOOL_DIR)/grammars/$(1)))
 	$(eval _BDIR := $(ANTLR_TOOL_DIR)/build/$(1))
@@ -211,19 +243,17 @@ define build_antlr_wasm
 	$(eval _STK_MB  := $(shell . $(_GCFG) 2>/dev/null; echo $${STACK_SIZE_MB:-2}))
 	@echo "  → antlr-$(1).wasm  (memory: init=$(_INIT_MB)MB max=$(_MAX_MB)MB stack=$(_STK_MB)MB)"
 	@mkdir -p $(_BDIR)
-	@cd $(_BDIR) && cmake $(abspath $(ANTLR_TOOL_DIR)) \
-		-DCMAKE_TOOLCHAIN_FILE="$(WASI_SDK_PREFIX)/share/cmake/wasi-sdk-p1.cmake" \
-		-DCMAKE_BUILD_TYPE=MinSizeRel \
-		-DWASI_SDK_PREFIX="$(WASI_SDK_PREFIX)" \
-		-DGRAMMAR_NAME="$(1)" \
-		-DGRAMMAR_DIR="$(_GDIR)" \
-		-DDRIVER_SOURCE="$(_GDIR)/driver.cpp" \
-		-DWASM_INITIAL_MEMORY="$$(($(_INIT_MB) * 1048576))" \
-		-DWASM_MAX_MEMORY="$$(($(_MAX_MB) * 1048576))" \
-		-DWASM_STACK_SIZE="$$(($(_STK_MB) * 1048576))" \
-		-Wno-dev > /dev/null 2>&1
-	@$(MAKE) -C $(_BDIR) -j$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4) \
-		antlr-$(1) > /dev/null 2>&1
+	@for f in $(_GDIR)/*.cpp $(ANTLR_TOOL_DIR)/wasi_stubs/exception_stubs.cpp; do \
+		$(WASI_CXX) $(ANTLR4_CXXFLAGS) -I$(ANTLR4_SRC) -I$(_GDIR) -I$(ANTLR_TOOL_DIR)/runtime \
+			-c "$$f" -o "$(_BDIR)/$$(basename $$f .cpp).o"; \
+	done
+	@$(WASI_CXX) -flto \
+		-Wl,--gc-sections \
+		-Wl,--initial-memory=$$(($(_INIT_MB) * 1048576)) \
+		-Wl,--max-memory=$$(($(_MAX_MB) * 1048576)) \
+		-Wl,-z,stack-size=$$(($(_STK_MB) * 1048576)) \
+		$(_BDIR)/*.o $(ANTLR4_LIB) \
+		-o $(_BDIR)/antlr-$(1)
 	@cp $(_BDIR)/antlr-$(1) $(GRAMMAR_OUT)/antlr-$(1).wasm
 endef
 
@@ -232,8 +262,9 @@ build-antlr-grammars:
 ifeq ($(SKIP_ANTLR_GRAMMARS),1)
 	@echo "→ Skipping ANTLR grammar build (SKIP_ANTLR_GRAMMARS=1)"
 else ifneq ($(WASI_SDK_PREFIX),)
-	@echo "Building ANTLR v4 grammars (C++ WASM via wasi-sdk)..."
+	@echo "Building ANTLR v4 grammars (wasi-sdk, no CMake)..."
 	@mkdir -p $(GRAMMAR_OUT)
+	@$(MAKE) --no-print-directory $(ANTLR4_LIB)
 	$(call build_antlr_wasm,plsql)
 	@echo "✓ ANTLR grammar build complete"
 else

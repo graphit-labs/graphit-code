@@ -118,7 +118,7 @@ jobs:
       - name: Install CGO and build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config cmake
+          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
 
       - name: Set up Zig
         run: |

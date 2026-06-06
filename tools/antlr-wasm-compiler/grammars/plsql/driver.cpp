@@ -10,7 +10,10 @@
 // Parsing strategy: two-stage SLL→LL. SLL is a fast O(n) prediction mode that
 // handles most inputs. When SLL reports errors (ambiguities or syntax issues),
 // the parser resets and retries with full LL mode for better recovery.
-// NoThrowErrorStrategy prevents C++ exceptions (required for WASI).
+// NoThrowErrorStrategy prevents C++ exceptions from reaching __cxa_throw (which
+// aborts under WASI stubs). Error recovery consumes tokens instead of throwing.
+// NOTE: BailErrorStrategy would be ideal for SLL but requires real WASM EH,
+// which causes wazero JIT to hang on large binaries (exnref not yet efficient).
 #include <cstdint>
 #include <iostream>
 #include <sstream>

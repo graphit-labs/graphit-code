@@ -112,7 +112,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends cmake make curl xz-utils
+          sudo apt-get install -y --no-install-recommends make curl xz-utils
 
       - name: Set up wasi-sdk
         run: |
