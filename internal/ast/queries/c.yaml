@@ -1,4 +1,5 @@
 language: c
+grammar: tree-sitter-c
 extensions: [".c", ".h"]
 queries:
   - data_key: functions

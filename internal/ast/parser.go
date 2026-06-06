@@ -4,6 +4,7 @@ type ParsedFile struct {
 	Path     string
 	RepoPath string
 	Language string
+	Parser   string // "tree-sitter" or "antlr4"
 	IsDepend bool
 	HasError bool
 

@@ -14,11 +14,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ExternalQueryFile represents a YAML file with custom tree-sitter queries
-// and language configuration. Files are loaded from .graphit/ast/queries/.
+// ExternalQueryFile represents a YAML file with extraction queries and
+// language configuration. Supports both tree-sitter and ANTLR v4 parsers.
+// Files are loaded from .graphit/ast/queries/.
 type ExternalQueryFile struct {
 	Language   string             `yaml:"language"`
 	Extensions []string           `yaml:"extensions,omitempty"`
+	Parser     string             `yaml:"parser,omitempty"`     // "tree-sitter" (default) or "antlr4"
+	Grammar    string             `yaml:"grammar,omitempty"`    // Binary name for ANTLR (e.g. "antlr-plsql")
+	StartRule  string             `yaml:"start_rule,omitempty"` // ANTLR start rule (required when parser=antlr4)
 	Replace    bool               `yaml:"replace"`
 	Queries    []ExternalQueryDef `yaml:"queries"`
 

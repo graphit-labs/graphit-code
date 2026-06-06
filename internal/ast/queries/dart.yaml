@@ -1,4 +1,5 @@
 language: dart
+grammar: tree-sitter-dart
 extensions: [".dart"]
 queries:
   - data_key: functions

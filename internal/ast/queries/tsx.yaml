@@ -1,4 +1,5 @@
 language: tsx
+grammar: tree-sitter-tsx
 extensions: [".tsx"]
 queries:
   - data_key: functions

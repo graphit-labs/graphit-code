@@ -1,4 +1,5 @@
 language: swift
+grammar: tree-sitter-swift
 extensions: [".swift"]
 queries:
   - data_key: functions

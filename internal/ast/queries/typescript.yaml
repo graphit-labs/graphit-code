@@ -1,4 +1,5 @@
 language: typescript
+grammar: tree-sitter-typescript
 extensions: [".ts"]
 queries:
   - data_key: functions

@@ -1,4 +1,5 @@
 language: cpp
+grammar: tree-sitter-cpp
 extensions: [".cpp", ".hpp", ".cc", ".cxx", ".hxx", ".hh"]
 queries:
   - data_key: functions

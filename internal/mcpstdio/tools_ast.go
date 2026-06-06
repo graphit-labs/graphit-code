@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -23,6 +24,7 @@ type astIndexInput struct {
 	Reindex    bool   `json:"reindex,omitempty" jsonschema:"Force reindexing of unchanged files"`
 	Cluster    string `json:"cluster,omitempty" jsonschema:"Optional cluster label for grouping"`
 	NoSource   bool   `json:"no_source,omitempty" jsonschema:"Do not index file source contents"`
+	ForceAntlr string `json:"force_antlr,omitempty" jsonschema:"Force ANTLR parser for these extensions (comma-separated, e.g. .sql,.plsql)"`
 }
 
 type astQueryInput struct {
@@ -148,13 +150,29 @@ func registerASTTools(server *mcp.Server) {
 			indexSource = false
 		}
 
+		var forceAntlrExts map[string]bool
+		if input.ForceAntlr != "" {
+			forceAntlrExts = make(map[string]bool)
+			for _, ext := range strings.Split(input.ForceAntlr, ",") {
+				ext = strings.TrimSpace(ext)
+				if ext == "" {
+					continue
+				}
+				if !strings.HasPrefix(ext, ".") {
+					ext = "." + ext
+				}
+				forceAntlrExts[strings.ToLower(ext)] = true
+			}
+		}
+
 		ladybugCfg := ast.DefaultLadybugConfig()
 		pipeOpts := ast.PipelineOptions{
-			Workers:      workers,
-			IndexSource:  indexSource,
-			CacheDir:     filepath.Dir(ladybugCfg.DBPath),
-			Cluster:      input.Cluster,
-			ForceRebuild: input.Reindex,
+			Workers:        workers,
+			IndexSource:    indexSource,
+			CacheDir:       filepath.Dir(ladybugCfg.DBPath),
+			Cluster:        input.Cluster,
+			ForceRebuild:   input.Reindex,
+			ForceAntlrExts: forceAntlrExts,
 		}
 
 		result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)

@@ -1,4 +1,5 @@
 language: php
+grammar: tree-sitter-php
 extensions: [".php"]
 queries:
   - data_key: functions

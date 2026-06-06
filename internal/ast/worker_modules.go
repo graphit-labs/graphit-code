@@ -22,32 +22,34 @@ func NewWorkerModules(engine *wasmts.Engine) *WorkerModules {
 	}
 }
 
-func (wm *WorkerModules) GetLanguage(funcName string) (*wasmts.Language, error) {
+func (wm *WorkerModules) GetLanguage(grammarName string) (*wasmts.Language, error) {
 	if wm == nil || wm.engine == nil {
 		return nil, fmt.Errorf("worker modules not initialized")
 	}
 
-
-	if lang, ok := wm.languages[funcName]; ok {
+	if lang, ok := wm.languages[grammarName]; ok {
 		return lang, nil
 	}
 
-
-	moduleName := "tree-sitter-" + funcName
-	mod, err := wm.engine.InstantiateModule(moduleName)
+	mod, err := wm.engine.InstantiateModule(grammarName)
 	if err != nil {
-		return nil, fmt.Errorf("worker instantiate %q: %w", moduleName, err)
+		return nil, fmt.Errorf("worker instantiate %q: %w", grammarName, err)
 	}
 
+	langs := mod.ListAvailableLanguages()
+	if len(langs) == 0 {
+		mod.CloseModule() //nolint:errcheck
+		return nil, fmt.Errorf("no language export found in worker module %q", grammarName)
+	}
 
-	lang, err := mod.LoadLanguage(funcName)
+	lang, err := mod.LoadLanguage(langs[0])
 	if err != nil {
 		mod.CloseModule() //nolint:errcheck
-		return nil, fmt.Errorf("worker load language %q: %w", funcName, err)
+		return nil, fmt.Errorf("worker load language from %q: %w", grammarName, err)
 	}
 
-	wm.modules[moduleName] = mod
-	wm.languages[funcName] = lang
+	wm.modules[grammarName] = mod
+	wm.languages[grammarName] = lang
 	return lang, nil
 }
 

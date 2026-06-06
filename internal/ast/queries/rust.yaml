@@ -1,4 +1,5 @@
 language: rust
+grammar: tree-sitter-rust
 extensions: [".rs"]
 queries:
   - data_key: functions

@@ -45,7 +45,7 @@ Stop being an engineer who works *with* an AI assistant. Start working inside a 
 ## The Core Pillars
 
 **1. Deterministic Precision (AST) & Go Performance**  
-No more "grep and guess". Built in Go for blazing-fast performance, Graphit Code features a full AST graph database (LadybugDB + Tree-sitter). Your agent queries code structure deterministically with Cypher. The indexing is instant and auto-incremental.
+No more "grep and guess". Built in Go for blazing-fast performance, Graphit Code features a full AST graph database (LadybugDB + Tree-sitter + ANTLR v4). Your agent queries code structure deterministically with Cypher. The indexing is instant and auto-incremental.
 
 **2. Ecosystem Over Individual**  
 The agent doesn't just see the current folder. It automatically discovers all managed projects within the ecosystem. It can query sibling codebases, read their shared knowledge, and generate cross-service integrations using real routes and DTOs. Zero hallucinations.
@@ -74,7 +74,7 @@ During the interactive `graphit setup`, you can point the **Hub** to any Git rep
 - **Shared Coding Rules** — Enforce company-wide standards automatically across every developer's IDE.
 - **Team Skills** — Codify complex workflows (k8s debugging, internal API patterns, deployment checklists) so every agent on the team knows the procedures.
 - **Knowledge Artifacts** — Publish documentation about frameworks, APIs, and integration specs that every developer's agent can discover and install.
-- **Language Grammars** — Share Tree-sitter `.wasm` grammars and extraction `.yaml` queries for languages not included in the defaults. Drop-in AST support without recompilation.
+- **Language Grammars** — Share Tree-sitter or ANTLR `.wasm` grammars and extraction `.yaml` queries for languages not included in the defaults. Drop-in AST support without recompilation.
 - **Framework Configs** — Distribute framework detection `.yaml` rules (decorators, heritage, imports) for internal or niche frameworks across the team.
 - **MCP Servers, Commands, Agent Profiles** — Share reusable automation across the entire organization.
 
@@ -212,39 +212,43 @@ graphit ui  # Opens http://localhost:8080
 ### 2. AST Graph Explorer — Instant & Deterministic
 Query the AST across the ecosystem instantly. Auto-incremental indexing ensures your agent always knows exactly where a function is defined or called. **Eliminates hallucinations** by grounding answers in exact structural truths, and drastically **reduces LLM token usage** by passing only precise nodes instead of massive files.
 
-#### Supported Languages (16)
+#### Supported Languages (17)
 
-| Language | Extensions | Extracted Entities |
-|---|---|---|
-| **Go** | `.go` | Functions, Methods, Structs, Interfaces, Types, Constants, Variables, Fields, Parameters |
-| **TypeScript** | `.ts`, `.tsx` | Functions, Classes, Interfaces, Types, Enums, Variables, Fields, Parameters, Decorators |
-| **JavaScript** | `.js`, `.jsx`, `.mjs` | Functions, Classes, Variables, Fields, Parameters, Exports |
-| **Python** | `.py` | Functions, Classes, Variables, Parameters, Decorators |
-| **Java** | `.java` | Functions, Classes, Interfaces, Enums, Variables, Fields, Parameters, Packages, Annotations |
-| **Rust** | `.rs` | Functions, Structs, Enums, Traits, Types, Constants, Variables, Fields, Parameters |
-| **C** | `.c`, `.h` | Functions, Structs, Enums, Types, Variables, Fields, Parameters |
-| **C++** | `.cpp`, `.hpp`, `.cc`, `.cxx` | Functions, Classes, Structs, Enums, Namespaces, Types, Fields, Parameters |
-| **C#** | `.cs` | Functions, Classes, Interfaces, Enums, Structs, Properties, Namespaces, Fields, Parameters |
-| **Kotlin** | `.kt`, `.kts` | Functions, Classes, Interfaces, Enums, Variables, Fields, Parameters, Packages |
-| **Swift** | `.swift` | Functions, Classes, Structs, Enums, Protocols, Variables, Fields, Parameters |
-| **Dart** | `.dart` | Functions, Methods, Classes, Enums, Mixins, Variables, Fields, Parameters |
-| **PHP** | `.php` | Functions, Methods, Classes, Interfaces, Traits, Enums, Constants, Namespaces, Fields, Parameters |
-| **Ruby** | `.rb` | Functions, Classes, Modules, Variables, Fields, Parameters |
-| **SQL** | `.sql` | Functions, Tables, Views |
+Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and **ANTLR v4** (full grammar, enterprise SQL). Both are WASM-based, portable, and loaded at runtime — no CGO, no native dependencies.
+
+| Language | Parser | Extensions | Extracted Entities |
+|---|---|---|---|
+| **Go** | Tree-sitter | `.go` | Functions, Methods, Structs, Interfaces, Types, Constants, Variables, Fields, Parameters |
+| **TypeScript** | Tree-sitter | `.ts` | Functions, Classes, Interfaces, Types, Enums, Variables, Fields, Parameters, Decorators |
+| **TSX** | Tree-sitter | `.tsx` | Functions, Classes, Interfaces, Types, Enums, Variables, Fields, Parameters, Decorators |
+| **JavaScript** | Tree-sitter | `.js`, `.jsx`, `.mjs` | Functions, Classes, Variables, Fields, Parameters, Exports |
+| **Python** | Tree-sitter | `.py` | Functions, Classes, Variables, Parameters, Decorators |
+| **Java** | Tree-sitter | `.java` | Functions, Classes, Interfaces, Enums, Variables, Fields, Parameters, Packages, Annotations |
+| **Rust** | Tree-sitter | `.rs` | Functions, Structs, Enums, Traits, Types, Constants, Variables, Fields, Parameters |
+| **C** | Tree-sitter | `.c`, `.h` | Functions, Structs, Enums, Types, Variables, Fields, Parameters |
+| **C++** | Tree-sitter | `.cpp`, `.hpp`, `.cc`, `.cxx`, `.hxx`, `.hh` | Functions, Classes, Structs, Enums, Namespaces, Types, Fields, Parameters |
+| **C#** | Tree-sitter | `.cs` | Functions, Classes, Interfaces, Enums, Structs, Properties, Namespaces, Fields, Parameters |
+| **Kotlin** | Tree-sitter | `.kt`, `.kts` | Functions, Classes, Interfaces, Enums, Variables, Fields, Parameters, Packages |
+| **Swift** | Tree-sitter | `.swift` | Functions, Classes, Structs, Enums, Protocols, Variables, Fields, Parameters |
+| **Dart** | Tree-sitter | `.dart` | Functions, Methods, Classes, Enums, Mixins, Variables, Fields, Parameters |
+| **PHP** | Tree-sitter | `.php` | Functions, Methods, Classes, Interfaces, Traits, Enums, Constants, Namespaces, Fields, Parameters |
+| **Ruby** | Tree-sitter | `.rb` | Functions, Classes, Modules, Variables, Fields, Parameters |
+| **SQL** | Tree-sitter | `.sql` | Functions, Tables, Views |
+| **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Functions, Procedures, Packages, Types, Triggers, Tables, Views, Materialized Views, Indexes, Sequences, Synonyms, DB Links, Columns, Parameters, Variables, Constants, Cursors, Exceptions, Constraints + DML tracking (SELECTS, INSERTS, UPDATES, DELETES) |
 
 #### What the AST Maps
 
-Every source file is parsed via **Tree-sitter** into a graph stored in **LadybugDB** (embedded graph database). The graph captures:
+Every source file is parsed via **Tree-sitter** or **ANTLR v4** into a graph stored in **LadybugDB** (embedded graph database). The YAML language configuration determines which parser to use. The graph captures:
 
 - **Nodes:** `File`, `Directory`, `Function`, `Method`, `Class`, `Struct`, `Interface`, `Trait`, `Enum`, `Type`, `Module`, `Variable`, `Constant`, `Parameter`, `Field`, `Namespace`, `Package`, `Table`, `View`, `Export`
-- **Relationships:** `CONTAINS` (ownership), `IMPORTS` (dependencies), `CALLS` (invocations), `HAS_PARAMETER`, `HAS_FIELD`, `READS_FIELD` / `WRITES_FIELD` (data access tracing), `INHERITS`, `IMPLEMENTS`
+- **Relationships:** `CONTAINS` (ownership), `IMPORTS` (dependencies), `CALLS` (invocations), `HAS_PARAMETER`, `HAS_FIELD`, `READS_FIELD` / `WRITES_FIELD` (data access tracing), `INHERITS`, `IMPLEMENTS`, `SELECTS` / `INSERTS` / `UPDATES` / `DELETES` / `REFERENCES` (DML tracking — PL/SQL)
 - **Properties:** `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported`, `entry_point_score`, `docstring`, `source`, `lang`, `cluster`
 
 #### Fully Customizable — Pure YAML-Driven Engine
 
 The entire AST pipeline is driven by **external YAML files** — not hardcoded. Every aspect of language understanding, framework detection, and scoring is runtime-customizable without recompilation:
 
-- **Tree-sitter Query Patterns** — 16 language YAML files define all extraction patterns (functions, classes, imports, calls, etc.)
+- **Language Query Patterns** — 17 language YAML files define all extraction patterns (functions, classes, imports, calls, etc.) for both Tree-sitter and ANTLR grammars.
 - **Framework Detection** — 51+ framework definitions across 59 YAML files. Decorators, heritage classes, and import patterns for frameworks like React, Django, Spring Boot, Flutter, Express, FastAPI, and many more.
 - **Ecosystem Detection** — `ecosystems.yaml` with 120+ entries classifying projects by technology stack (web, mobile, API, database, CLI, etc.)
 - **Entry Point Scoring** — Scoring rules embedded in each language YAML determine how functions are ranked as potential entry points.
@@ -260,13 +264,19 @@ All configuration follows a **4-level cascading resolution chain**:
 
 **Extend without recompilation:** Add new frameworks, ecosystem patterns, entry point scoring rules, relation types, and customize all language behavior by simply dropping YAML files into the project or user directory. Community contributions can be YAML-only PRs — no Go knowledge required.
 
-> **Plug-and-Play Language Support:** Tree-sitter grammars are standalone `.wasm` files executed via wazero (pure Go, no CGO). To add support for a new language, simply drop its `.wasm` grammar file into `.graphit/ast/grammars/` (project), `~/.graphit/ast/grammars/` (global), or `~/.graphit/runtime/<version>/ast/grammars/` (runtime). No recompilation required — the engine discovers and loads new grammars automatically on the next `graphit sync`.
+> **Plug-and-Play Language Support:** Grammars are standalone `.wasm` files executed via wazero (pure Go, no CGO). Both **Tree-sitter** and **ANTLR v4** parsers are supported. To add a new language:
+>
+> 1. Drop the `.wasm` grammar file into `.graphit/ast/grammars/` (project), `~/.graphit/ast/grammars/` (global), or `~/.graphit/runtime/<version>/ast/grammars/` (runtime).
+> 2. Create a `<language>.yaml` file in the corresponding `ast/queries/` directory defining the extraction patterns, extensions, and `grammar:` name matching the `.wasm` filename.
+> 3. For ANTLR grammars, set `parser: antlr4` and `start_rule:` in the YAML. For Tree-sitter grammars, omit the `parser` field (tree-sitter is the default).
+>
+> No recompilation required — the engine discovers and loads new grammars lazily on first use. ANTLR grammars also support native binary executables as a high-performance alternative to WASM.
 
 Resolution follows a cascading priority chain: **project → user global → runtime → embedded**. See the [User Manual](docs/guides/user_manual.md#customizing-ast-tree-sitter-queries) for examples, and the [AST Module Spec](docs/specs/ast_module.md#-external-query-customization) for the full technical reference.
 
 #### Indexing: Full & Incremental
 
-- **Full Index:** Scans every file via Tree-sitter, extracts entities, writes the graph, builds FTS5 + trigram + vector indices.
+- **Full Index:** Scans every file via Tree-sitter or ANTLR v4 (depending on language YAML), extracts entities, writes the graph, builds FTS5 + trigram + vector indices.
 - **Incremental Index:** Uses SHA-256 hash cache per file — only changed files are re-parsed and re-written. Concurrent worker pool with single-threaded graph writer prevents contention.
 - **File Watcher:** Git-based polling (every 2s) with 500ms debounce. Detects both uncommitted edits and committed changes. Zero file descriptors used.
 
@@ -348,7 +358,7 @@ graphit ui
 
 Graphit Code is a single self-contained binary written in Go. All data persists locally via standard Git repositories, meaning you retain 100% control over your knowledge and interactions.
 
-- **AST Module:** LadybugDB + Tree-sitter.
+- **AST Module:** LadybugDB + Tree-sitter + ANTLR v4.
 - **Knowledge Module:** LLM Wiki & explicit back-referencing.
 - **Hub & Memory:** Git-backed transparent artifact storage.
 - **Dream Module:** Background skill generation, conversation mining, and knowledge extraction.
@@ -358,7 +368,7 @@ Graphit Code is a single self-contained binary written in Go. All data persists 
 ## Enterprise & Brand Customization (White-Labeling)
 
 Graphit Code is built to be customized for private, self-hosted enterprise environments:
-- **100% Private Data:** Local syntactic parsing (Tree-sitter), local embedded graph database (LadybugDB), local embedding computations (ONNX runtime), and Git-backed repositories that stay inside your private network.
+- **100% Private Data:** Local syntactic parsing (Tree-sitter + ANTLR v4), local embedded graph database (LadybugDB), local embedding computations (ONNX runtime), and Git-backed repositories that stay inside your private network.
 - **Custom Branding (White-Labeling):** Compile the binary using Go `-ldflags` overrides to customize the binary name (`Brand`), the display name (`DisplayName`), environment variables, and default Git-backed registry repositories.
 - **Private Team Ecosystems (Git-Backed):** Set up team-wide coding standards, shared agent memories, and custom developer skills without relying on cloud-hosted SaaS databases. During the interactive `graphit setup` command, developers configure private Git repositories (e.g., self-hosted GitLab, Bitbucket, or GitHub Enterprise) as backend sync stores. The harness pushes/pulls memories, rules, and skills through standard SSH/HTTPS Git authentication, establishing a secure collaborative environment for your entire IT team.
 - **Keyless AI Harness:** Run agentic tasks without configuring separate LLM API keys. The framework leverages the active sessions, credentials, and quotas of developers' existing IDE and CLI agents natively.

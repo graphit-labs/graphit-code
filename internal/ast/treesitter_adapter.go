@@ -2,7 +2,6 @@ package ast
 
 import (
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/ast/wasmts"
@@ -10,6 +9,7 @@ import (
 
 type tsLangConfig struct {
 	Language   string
+	Grammar    string // WASM file name (e.g. "tree-sitter-c_sharp")
 	Extensions []string
 	TSLang     *wasmts.Language
 }
@@ -24,53 +24,33 @@ type tsQueryDef struct {
 	RelationType string
 }
 
-
 var tsExtMap map[string]*tsLangConfig
 
-// grammarNameMap maps the language name from YAML configs to the tree-sitter
-// grammar function name convention. Most are identical, but some differ:
-//   "go" -> "go" (tree_sitter_go)
-//   "csharp" -> "c_sharp" (tree_sitter_c_sharp)
-var grammarNameMap = map[string]string{
-	"csharp": "c_sharp",
-}
-
-func grammarFuncName(lang string) string {
-	if mapped, ok := grammarNameMap[lang]; ok {
-		return mapped
-	}
-	return lang
-}
-
-func init() {
+func initTsExtMap() {
 	tsExtMap = make(map[string]*tsLangConfig)
 
-	// Load all individual .wasm grammar files from the resolution chain
-	builtinGrammars := initBuiltinGrammars()
-	if builtinGrammars == nil {
-		slog.Debug("no WASM grammars loaded, tree-sitter unavailable")
-		return
-	}
-
-	// Load YAML query files and match them with available grammars.
-	// YAML uses language names like "csharp", but the grammar function
-	// is "c_sharp" — grammarFuncName() handles the mapping.
 	runtimeQ := loadRuntimeCached()
 	for _, qf := range runtimeQ {
-		funcName := grammarFuncName(qf.Language)
-		grammar, ok := builtinGrammars[funcName]
-		if !ok {
+		if qf.Parser == "antlr4" {
 			continue
+		}
+		grammar := qf.Grammar
+		if grammar == "" {
+			grammar = "tree-sitter-" + qf.Language
 		}
 		cfg := &tsLangConfig{
 			Language:   qf.Language,
+			Grammar:    grammar,
 			Extensions: qf.Extensions,
-			TSLang:     grammar,
 		}
 		for _, ext := range qf.Extensions {
 			tsExtMap[ext] = cfg
 		}
 	}
+}
+
+func init() {
+	initTsExtMap()
 }
 
 type TreeSitterParser struct {
@@ -82,13 +62,7 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
 	cfg, ok := tsExtMap[ext]
 	if !ok {
-		// Try loading a plug-and-play grammar from the project directory
-		langName := strings.TrimPrefix(ext, ".")
-		lang, err := getLanguage(langName, t.projectDir)
-		if err != nil {
-			return nil, fmt.Errorf("no tree-sitter grammar for %s", ext)
-		}
-		cfg = &tsLangConfig{Language: langName, Extensions: []string{ext}, TSLang: lang}
+		return nil, fmt.Errorf("no grammar for %s", ext)
 	}
 
 	src, err := ReadFileBytes(path)
@@ -96,14 +70,23 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 		return nil, err
 	}
 
-	tsLang := cfg.TSLang
+	var tsLang *wasmts.Language
 	if t.workerModules != nil {
-		funcName := grammarFuncName(cfg.Language)
-		workerLang, wErr := t.workerModules.GetLanguage(funcName)
-		if wErr != nil {
-			return nil, fmt.Errorf("worker module for %s: %w", cfg.Language, wErr)
+		if _, err = getLanguage(cfg.Grammar, t.projectDir); err != nil {
+			return nil, fmt.Errorf("load grammar %s: %w", cfg.Grammar, err)
 		}
-		tsLang = workerLang
+		tsLang, err = t.workerModules.GetLanguage(cfg.Grammar)
+		if err != nil {
+			return nil, fmt.Errorf("worker module for %s: %w", cfg.Language, err)
+		}
+	} else if cfg.TSLang != nil {
+		tsLang = cfg.TSLang
+	} else {
+		tsLang, err = getLanguage(cfg.Grammar, t.projectDir)
+		if err != nil {
+			return nil, fmt.Errorf("load grammar %s: %w", cfg.Grammar, err)
+		}
+		cfg.TSLang = tsLang
 	}
 
 	parser, err := tsLang.NewParser()

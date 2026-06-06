@@ -202,7 +202,7 @@ func getModuleResolvedRule(module string) string {
 	}
 }
 
-func runASTIndex(targetPath string, workers int, reset bool, reindex bool, cluster string, noSource bool) error {
+func runASTIndex(targetPath string, workers int, reset bool, reindex bool, cluster string, noSource bool, forceAntlr string) error {
 	p := output.NewPrinter("")
 
 	absPath, err := filepath.Abs(targetPath)
@@ -258,12 +258,29 @@ func runASTIndex(targetPath string, workers int, reset bool, reindex bool, clust
 		indexSource = false
 	}
 
+	var forceAntlrExts map[string]bool
+	if forceAntlr != "" {
+		forceAntlrExts = make(map[string]bool)
+		for _, ext := range strings.Split(forceAntlr, ",") {
+			ext = strings.TrimSpace(ext)
+			if ext == "" {
+				continue
+			}
+			if !strings.HasPrefix(ext, ".") {
+				ext = "." + ext
+			}
+			forceAntlrExts[strings.ToLower(ext)] = true
+		}
+		p.Step("Forcing ANTLR parser for: %s", forceAntlr)
+	}
+
 	pipeOpts := ast.PipelineOptions{
-		Workers:      workers,
-		IndexSource:  indexSource,
-		CacheDir:     filepath.Dir(ladybugCfg.DBPath),
-		Cluster:      cluster,
-		ForceRebuild: reindex,
+		Workers:        workers,
+		IndexSource:    indexSource,
+		CacheDir:       filepath.Dir(ladybugCfg.DBPath),
+		Cluster:        cluster,
+		ForceRebuild:   reindex,
+		ForceAntlrExts: forceAntlrExts,
 	}
 
 	result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)

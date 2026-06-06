@@ -1,4 +1,5 @@
 language: sql
+grammar: tree-sitter-sql
 extensions: [".sql"]
 queries:
   - data_key: functions

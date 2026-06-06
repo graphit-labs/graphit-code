@@ -15,16 +15,17 @@ import (
 )
 
 type PipelineOptions struct {
-	Workers      int
-	IsDepend     bool
-	IndexSource  bool
-	SkipExternal bool
-	CacheDir     string
-	ExcludeExts  map[string]bool
-	Cluster      string
-	ForceRebuild bool
-	Logger       *slog.Logger
-	OnProgress   func(phase string, current, total, errors int)
+	Workers       int
+	IsDepend      bool
+	IndexSource   bool
+	SkipExternal  bool
+	CacheDir      string
+	ExcludeExts   map[string]bool
+	ForceAntlrExts map[string]bool
+	Cluster       string
+	ForceRebuild  bool
+	Logger        *slog.Logger
+	OnProgress    func(phase string, current, total, errors int)
 }
 
 type PipelineResult struct {
@@ -57,8 +58,8 @@ func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts Pipeline
 	writer := NewGraphWriter(db, abs, opts.IndexSource)
 	writer.cluster = opts.Cluster
 
-	tsParser := &TreeSitterParser{projectDir: abs}
-	return runFileWorkerPool(ctx, db, writer, abs, tsParser, t0, opts)
+	parser := NewCompositeParser(abs, nil, nil, opts.ForceAntlrExts)
+	return runFileWorkerPool(ctx, db, writer, abs, parser, t0, opts)
 }
 
 func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs string, parser LanguageParser, t0 time.Time, opts PipelineOptions) (*PipelineResult, error) {
@@ -216,11 +217,11 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				wp := &TreeSitterParser{
-					projectDir:    abs,
-					workerModules: NewWorkerModules(GetEngine()),
-				}
-				defer wp.workerModules.Close()
+				wm := NewWorkerModules(GetEngine())
+				awm := NewAntlrWorkerModules(GetAntlrEngine())
+				wp := NewCompositeParser(abs, wm, awm, opts.ForceAntlrExts)
+				defer wm.Close()
+				defer awm.Close()
 				for path := range paths {
 					pf, err := wp.Parse(path, opts.IsDepend, parseOpts)
 					results <- result{path, pf, err}
@@ -246,7 +247,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	)
 	engineStats := make(map[string]int)
 
-	engineLabel := "tree-sitter"
+	// Determine engine label per file based on extension
 
 	for r := range results {
 		if r.err != nil {
@@ -264,9 +265,13 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			emptyFiles = append(emptyFiles, r.pf.Path)
 		}
 
-		langKey := engineLabel + ":" + r.pf.Language
+		label := r.pf.Parser
+		if label == "" {
+			label = "unknown"
+		}
+		langKey := label + ":" + r.pf.Language
 		if r.pf.Language == "" {
-			langKey = engineLabel + ":unknown"
+			langKey = label + ":unknown"
 		}
 		engineStats[langKey]++
 

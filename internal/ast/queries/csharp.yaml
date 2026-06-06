@@ -1,4 +1,5 @@
 language: csharp
+grammar: tree-sitter-c_sharp
 extensions: [".cs"]
 queries:
   - data_key: functions

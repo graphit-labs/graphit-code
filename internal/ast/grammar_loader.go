@@ -5,9 +5,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
+
 	"sync"
 
+	"github.com/graphit-labs/graphit-code/internal/ast/wasmantlr"
 	"github.com/graphit-labs/graphit-code/internal/ast/wasmts"
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
@@ -40,9 +41,6 @@ func GetEngine() *wasmts.Engine {
 	return engine
 }
 
-
-
-
 // userCacheDir returns a cache directory for wazero compilation cache.
 func userCacheDir() string {
 	dir, err := os.UserCacheDir()
@@ -52,17 +50,17 @@ func userCacheDir() string {
 	return dir
 }
 
-// getLanguage returns a loaded Language for the given name.
-// Each grammar is an individual .wasm file containing the tree-sitter runtime
-// plus one grammar. This makes every grammar plug-and-play: just drop a
-// tree-sitter-<lang>.wasm file into any directory in the resolution chain.
+// getLanguage returns a loaded Language for the given grammar.
+// grammarName is the YAML-declared name (e.g. "tree-sitter-c_sharp").
+// Each grammar is an individual .wasm file: just drop a
+// <grammar>.wasm file into any directory in the resolution chain.
 //
 // Resolution chain (highest priority first):
 //  1. Project: <projectDir>/.graphit/ast/grammars/
 //  2. User global: ~/.graphit/ast/grammars/
 //  3. Runtime: ~/.graphit/runtime/<version>/ast/grammars/
-func getLanguage(langName string, projectDir string) (*wasmts.Language, error) {
-	if v, ok := loadedLanguages.Load(langName); ok {
+func getLanguage(grammarName string, projectDir string) (*wasmts.Language, error) {
+	if v, ok := loadedLanguages.Load(grammarName); ok {
 		return v.(*wasmts.Language), nil
 	}
 
@@ -71,13 +69,9 @@ func getLanguage(langName string, projectDir string) (*wasmts.Language, error) {
 		return nil, fmt.Errorf("init WASM engine: %w", err)
 	}
 
-	// The grammar function name inside the .wasm may differ from the
-	// language name used in YAML configs (e.g. "csharp" → "c_sharp")
-	funcName := grammarFuncName(langName)
-
-	wasmPath := findGrammarWASM(funcName, projectDir)
+	wasmPath := findGrammarWASM(grammarName, projectDir)
 	if wasmPath == "" {
-		return nil, fmt.Errorf("no .wasm grammar found for %q (searched as tree-sitter-%s.wasm)", langName, funcName)
+		return nil, fmt.Errorf("no .wasm grammar found for %q (searched as %s.wasm)", grammarName, grammarName)
 	}
 
 	wasmBytes, err := os.ReadFile(wasmPath)
@@ -86,33 +80,34 @@ func getLanguage(langName string, projectDir string) (*wasmts.Language, error) {
 	}
 
 	slog.Debug("loading grammar WASM",
-		"language", langName,
-		"function", funcName,
+		"grammar", grammarName,
 		"path", wasmPath,
 		"size", len(wasmBytes))
 
-	moduleName := "tree-sitter-" + funcName
-	mod, err := engine.LoadModule(moduleName, wasmBytes)
+	mod, err := engine.LoadModule(grammarName, wasmBytes)
 	if err != nil {
-		return nil, fmt.Errorf("load WASM module for %q: %w", langName, err)
+		return nil, fmt.Errorf("load WASM module for %q: %w", grammarName, err)
 	}
 
-	lang, err := mod.LoadLanguage(funcName)
-	if err != nil {
-		return nil, fmt.Errorf("load language %q from module: %w", langName, err)
+	langs := mod.ListAvailableLanguages()
+	if len(langs) == 0 {
+		return nil, fmt.Errorf("no language export found in module %q", grammarName)
 	}
 
-	loadedLanguages.Store(langName, lang)
+	lang, err := mod.LoadLanguage(langs[0])
+	if err != nil {
+		return nil, fmt.Errorf("load language from module %q: %w", grammarName, err)
+	}
+
+	loadedLanguages.Store(grammarName, lang)
 	return lang, nil
 }
 
 // findGrammarWASM searches the resolution chain for a WASM grammar file.
 // Returns the full path or empty string if not found.
-//
-// File name convention: tree-sitter-<funcName>.wasm
-// Example: tree-sitter-go.wasm, tree-sitter-c_sharp.wasm
-func findGrammarWASM(funcName string, projectDir string) string {
-	fileName := "tree-sitter-" + funcName + ".wasm"
+// Works for any grammar type (tree-sitter, ANTLR, etc.).
+func findGrammarWASM(grammarName string, projectDir string) string {
+	fileName := grammarName + ".wasm"
 	searchDirs := grammarSearchDirs(projectDir)
 
 	for _, dir := range searchDirs {
@@ -145,70 +140,99 @@ func grammarSearchDirs(projectDir string) []string {
 	return dirs
 }
 
-// initBuiltinGrammars loads all .wasm grammar files found in the resolution chain.
-func initBuiltinGrammars() map[string]*wasmts.Language {
-	engine, err := initWASMEngine()
-	if err != nil {
-		slog.Warn("WASM engine init failed, tree-sitter parsing unavailable", "error", err)
-		return nil
-	}
+// ---------------------------------------------------------------------------
+// ANTLR v4 Grammar Loading
+// ---------------------------------------------------------------------------
 
-	searchDirs := grammarSearchDirs("")
-	result := make(map[string]*wasmts.Language)
+var (
+	antlrEngine     *wasmantlr.Engine
+	antlrEngineOnce sync.Once
+	antlrEngineErr  error
 
-	seen := make(map[string]bool)
-	for _, dir := range searchDirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
+	loadedAntlrGrammars sync.Map // map[string]bool — name → compiled flag
+)
+
+func initAntlrEngine() (*wasmantlr.Engine, error) {
+	antlrEngineOnce.Do(func() {
+		cacheDir := filepath.Join(userCacheDir(), "graphit", "wasmantlr")
+		antlrEngine, antlrEngineErr = wasmantlr.NewEngine(cacheDir)
+		if antlrEngineErr != nil {
+			slog.Error("failed to initialize ANTLR WASM engine", "error", antlrEngineErr)
 		}
-		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".wasm") {
-				continue
-			}
-			name := strings.TrimSuffix(entry.Name(), ".wasm")
-			name = strings.TrimPrefix(name, "tree-sitter-")
-			if name == "" || seen[name] {
-				continue
-			}
-			seen[name] = true
-
-			wasmPath := filepath.Join(dir, entry.Name())
-			wasmBytes, err := os.ReadFile(wasmPath)
-			if err != nil {
-				slog.Warn("failed to read grammar", "path", wasmPath, "error", err)
-				continue
-			}
-
-			moduleName := "tree-sitter-" + name
-			mod, err := engine.LoadModule(moduleName, wasmBytes)
-			if err != nil {
-				slog.Warn("failed to load grammar module", "name", name, "error", err)
-				continue
-			}
-
-			lang, err := mod.LoadLanguage(name)
-			if err != nil {
-				slog.Warn("failed to load language", "name", name, "error", err)
-				continue
-			}
-
-			result[name] = lang
-			loadedLanguages.Store(name, lang)
-		}
-	}
-
-	if len(result) > 0 {
-		names := make([]string, 0, len(result))
-		for k := range result {
-			names = append(names, k)
-		}
-		slog.Debug("loaded tree-sitter WASM grammars",
-			"count", len(result),
-			"languages", strings.Join(names, ", "))
-	} else {
-		slog.Debug("no .wasm grammars found in search paths")
-	}
-
-	return result
+	})
+	return antlrEngine, antlrEngineErr
 }
+
+// GetAntlrEngine returns the global ANTLR WASM engine singleton.
+func GetAntlrEngine() *wasmantlr.Engine {
+	engine, _ := initAntlrEngine()
+	return engine
+}
+
+// getAntlrModule ensures an ANTLR grammar is loaded and returns the engine.
+// grammarName is the YAML-declared name (e.g. "antlr-plsql").
+// Prefers a native binary (fast subprocess) over WASM (portable fallback).
+func getAntlrModule(grammarName string, projectDir string) (*wasmantlr.Engine, error) {
+	if _, ok := loadedAntlrGrammars.Load(grammarName); ok {
+		return antlrEngine, nil
+	}
+
+	engine, err := initAntlrEngine()
+	if err != nil {
+		return nil, fmt.Errorf("init ANTLR engine: %w", err)
+	}
+
+	// Prefer native binary: persistent subprocess with batch protocol.
+	nativePath := findNativeBinary(grammarName, projectDir)
+	if nativePath != "" {
+		slog.Debug("loading ANTLR grammar (native binary)",
+			"grammar", grammarName,
+			"path", nativePath)
+
+		if err := engine.RegisterNativeBinary(grammarName, nativePath); err != nil {
+			slog.Warn("failed to start native parser, falling back to WASM",
+				"grammar", grammarName, "error", err)
+		} else {
+			loadedAntlrGrammars.Store(grammarName, true)
+			return engine, nil
+		}
+	}
+
+	// Fallback: WASM interpreter (portable but slow).
+	wasmPath := findGrammarWASM(grammarName, projectDir)
+	if wasmPath == "" {
+		return nil, fmt.Errorf("no grammar found for %q (searched as %s and %s.wasm)", grammarName, grammarName, grammarName)
+	}
+
+	wasmBytes, err := os.ReadFile(wasmPath)
+	if err != nil {
+		return nil, fmt.Errorf("read ANTLR grammar %q: %w", wasmPath, err)
+	}
+
+	slog.Debug("loading ANTLR grammar (WASM fallback)",
+		"grammar", grammarName,
+		"path", wasmPath,
+		"size", len(wasmBytes))
+
+	if err := engine.Compile(grammarName, wasmBytes); err != nil {
+		return nil, fmt.Errorf("compile ANTLR module for %q: %w", grammarName, err)
+	}
+
+	loadedAntlrGrammars.Store(grammarName, true)
+	return engine, nil
+}
+
+// findNativeBinary searches for an executable binary in the grammar directories.
+func findNativeBinary(grammarName string, projectDir string) string {
+	searchDirs := grammarSearchDirs(projectDir)
+
+	for _, dir := range searchDirs {
+		path := filepath.Join(dir, grammarName)
+		info, err := os.Stat(path)
+		if err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+			return path
+		}
+	}
+	return ""
+}
+

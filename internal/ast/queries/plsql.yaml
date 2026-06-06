@@ -1,0 +1,374 @@
+# PL/SQL — ANTLR v4 grammar for Oracle PL/SQL
+# Full extraction: functions, procedures, packages, types, triggers, tables,
+# views, sequences, indexes, synonyms, constraints, columns, parameters,
+# cursors, exceptions, database links, DML references, and function calls.
+language: plsql
+parser: antlr4
+grammar: antlr-plsql
+start_rule: sql_script
+extensions: [".sql", ".pks", ".pkb", ".pls", ".plb", ".prc", ".fnc", ".trg", ".typ", ".bdy", ".spc", ".vw"]
+
+queries:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FUNCTIONS & PROCEDURES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # CREATE [OR REPLACE] FUNCTION ...
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_function_body/function_name"
+    name_capture: name
+    type: entity
+
+  # Package-level function bodies (inside CREATE PACKAGE BODY)
+  - data_key: functions
+    graph_label: Function
+    pattern: "//function_body/identifier"
+    name_capture: name
+    type: entity
+
+  # Package-level function specs (declarations in CREATE PACKAGE)
+  - data_key: functions
+    graph_label: Function
+    pattern: "//function_spec/identifier"
+    name_capture: name
+    type: entity
+
+  # CREATE [OR REPLACE] PROCEDURE ...
+  - data_key: procedures
+    graph_label: Function
+    pattern: "//create_procedure_body/procedure_name"
+    name_capture: name
+    type: entity
+
+  # Package-level procedure bodies
+  - data_key: procedures
+    graph_label: Function
+    pattern: "//procedure_body/identifier"
+    name_capture: name
+    type: entity
+
+  # Package-level procedure specs (declarations)
+  - data_key: procedures
+    graph_label: Function
+    pattern: "//procedure_spec/identifier"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PACKAGES & TYPES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: packages
+    graph_label: Class
+    pattern: "//create_package/package_name"
+    name_capture: name
+    type: entity
+
+  - data_key: packages
+    graph_label: Class
+    pattern: "//create_package_body/package_name"
+    name_capture: name
+    type: entity
+
+  - data_key: types
+    graph_label: Class
+    pattern: "//create_type/type_definition/type_name"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DATABASE OBJECTS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # Tables
+  - data_key: tables
+    graph_label: Class
+    pattern: "//create_table/tableview_name"
+    name_capture: name
+    type: entity
+
+  - data_key: tables
+    graph_label: Class
+    pattern: "//alter_table/tableview_name"
+    name_capture: name
+    type: entity
+
+  # Views
+  - data_key: views
+    graph_label: Class
+    pattern: "//create_view/tableview_name"
+    name_capture: name
+    type: entity
+
+  # Materialized Views
+  - data_key: mviews
+    graph_label: Class
+    pattern: "//create_materialized_view/tableview_name"
+    name_capture: name
+    type: entity
+
+  # Indexes
+  - data_key: indexes
+    graph_label: Variable
+    pattern: "//create_index/index_name"
+    name_capture: name
+    type: entity
+
+  # Sequences
+  - data_key: sequences
+    graph_label: Variable
+    pattern: "//create_sequence/sequence_name"
+    name_capture: name
+    type: entity
+
+  # Triggers
+  - data_key: triggers
+    graph_label: Function
+    pattern: "//create_trigger/trigger_name"
+    name_capture: name
+    type: entity
+
+  # Synonyms
+  - data_key: synonyms
+    graph_label: Variable
+    pattern: "//create_synonym/synonym_name"
+    name_capture: name
+    type: entity
+
+  # Database Links
+  - data_key: dblinks
+    graph_label: Variable
+    pattern: "//create_database_link/link_name"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # COLUMNS, PARAMETERS & DECLARATIONS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # Column definitions (inside CREATE TABLE)
+  - data_key: columns
+    graph_label: Variable
+    pattern: "//column_definition/column_name"
+    name_capture: name
+    type: entity
+
+  # Function/procedure parameters
+  - data_key: parameters
+    graph_label: Variable
+    pattern: "//parameter/parameter_name"
+    name_capture: name
+    type: entity
+
+  # Variable declarations
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//variable_declaration/identifier"
+    name_capture: name
+    type: entity
+
+  # Constant declarations
+  - data_key: constants
+    graph_label: Variable
+    pattern: "//constant_declaration/identifier"
+    name_capture: name
+    type: entity
+
+  # Cursor declarations
+  - data_key: cursors
+    graph_label: Variable
+    pattern: "//cursor_declaration/identifier"
+    name_capture: name
+    type: entity
+
+  # Exception declarations
+  - data_key: exceptions
+    graph_label: Variable
+    pattern: "//exception_declaration/identifier"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CONSTRAINTS & COMMENTS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # Inline/out-of-line constraints
+  - data_key: constraints
+    graph_label: Variable
+    pattern: "//out_of_line_constraint/constraint_name"
+    name_capture: name
+    type: entity
+
+  - data_key: constraints
+    graph_label: Variable
+    pattern: "//inline_constraint/constraint_name"
+    name_capture: name
+    type: entity
+
+  # Comments on columns
+  - data_key: comments
+    graph_label: Variable
+    pattern: "//comment_on_column/column_name"
+    name_capture: name
+    type: entity
+
+  # Comments on tables
+  - data_key: comments
+    graph_label: Variable
+    pattern: "//comment_on_table/tableview_name"
+    name_capture: name
+    type: entity
+
+  # Comments on materialized views
+  - data_key: comments
+    graph_label: Variable
+    pattern: "//comment_on_materialized/tableview_name"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FUNCTION/PROCEDURE CALLS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//call_statement/routine_name"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//function_call/routine_name"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DML TABLE REFERENCES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # SELECT ... FROM table
+  - data_key: selects
+    graph_label: ""
+    pattern: "//from_clause/table_ref_list//tableview_name"
+    name_capture: name
+    type: relation
+    relation_type: SELECTS
+
+  # INSERT INTO table
+  - data_key: inserts
+    graph_label: ""
+    pattern: "//insert_into_clause/general_table_ref//tableview_name"
+    name_capture: name
+    type: relation
+    relation_type: INSERTS
+
+  # UPDATE table
+  - data_key: updates
+    graph_label: ""
+    pattern: "//update_statement/general_table_ref//tableview_name"
+    name_capture: name
+    type: relation
+    relation_type: UPDATES
+
+  # DELETE FROM table
+  - data_key: deletes
+    graph_label: ""
+    pattern: "//delete_statement/general_table_ref//tableview_name"
+    name_capture: name
+    type: relation
+    relation_type: DELETES
+
+  # MERGE INTO table
+  - data_key: merges
+    graph_label: ""
+    pattern: "//merge_statement//tableview_name"
+    name_capture: name
+    type: relation
+    relation_type: UPDATES
+
+  # ALTER TABLE
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alter_table/tableview_name"
+    name_capture: name
+    type: relation
+    relation_type: ALTERS
+
+  # DROP TABLE
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_table/tableview_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # TRUNCATE TABLE
+  - data_key: truncates
+    graph_label: ""
+    pattern: "//truncate_table/tableview_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  # LOCK TABLE
+  - data_key: locks
+    graph_label: ""
+    pattern: "//lock_table_statement/tableview_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  # GRANT on table
+  - data_key: grants
+    graph_label: ""
+    pattern: "//grant_statement//tableview_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  # EXECUTE IMMEDIATE (dynamic SQL)
+  - data_key: executes
+    graph_label: ""
+    pattern: "//execute_immediate//expression"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+exports:
+  strategy: none
+
+context_types:
+  create_package: Class
+  create_package_body: Class
+  create_function_body: Function
+  create_procedure_body: Function
+  function_body: Function
+  procedure_body: Function
+  create_type: Class
+  create_trigger: Function
+
+comment_types:
+  - SINGLE_LINE_COMMENT
+  - MULTI_LINE_COMMENT
+
+declaration_types:
+  - create_function_body
+  - create_procedure_body
+  - function_body
+  - procedure_body
+  - function_spec
+  - procedure_spec
+  - create_package
+  - create_package_body
+  - create_type
+  - create_trigger
+  - create_table
+  - create_view
+  - create_materialized_view
+  - create_index
+  - create_sequence
+  - create_synonym
+  - create_database_link

@@ -1,4 +1,5 @@
 language: ruby
+grammar: tree-sitter-ruby
 extensions: [".rb"]
 queries:
   - data_key: functions

@@ -1,4 +1,5 @@
 language: java
+grammar: tree-sitter-java
 extensions: [".java"]
 queries:
   - data_key: functions

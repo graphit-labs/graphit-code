@@ -1,4 +1,5 @@
 language: python
+grammar: tree-sitter-python
 extensions: [".py"]
 queries:
   - data_key: functions

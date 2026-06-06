@@ -9,6 +9,7 @@ keywords:
   - Cypher
   - parser
   - Tree-sitter
+  - ANTLR
 prerequisites:
   - "docs/architecture/architecture_overview.md"
 related:
@@ -24,26 +25,27 @@ It parses source files into an in-memory graph database, enabling AI agents to t
 
 ## 🌐 Supported Languages
 
-Graphit Code supports **16 programming languages** via Tree-sitter parsers. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires compiling its Tree-sitter grammar into the binary; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
+Graphit Code supports **17 programming languages** via Tree-sitter and ANTLR v4 parsers. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires compiling its grammar (Tree-sitter or ANTLR) into WASM; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
 
-| # | Language | Extensions | Key Extracted Entities |
-|---|---|---|---|
-| 1 | **Go** | `.go` | Function, Method, Struct, Interface, Type, Constant, Variable, Field, Parameter |
-| 2 | **TypeScript** | `.ts` | Function, Class, Interface, Type, Enum, Variable, Field, Parameter, Decorator |
-| 3 | **TypeScript (TSX)** | `.tsx` | Function, Class, Interface, Type, Enum, Variable, Field, Parameter, Decorator |
-| 4 | **JavaScript** | `.js`, `.jsx`, `.mjs` | Function, Class, Variable, Field, Parameter, Export |
-| 5 | **Python** | `.py` | Function, Class, Variable, Parameter, Decorator |
-| 6 | **Java** | `.java` | Function (Method + Constructor), Class, Interface, Enum, Variable, Field, Parameter, Package, Annotation |
-| 7 | **Rust** | `.rs` | Function, Struct, Enum, Trait, Type, Constant, Variable, Field, Parameter, Attribute |
-| 8 | **C** | `.c`, `.h` | Function, Struct, Enum, Type, Variable, Field, Parameter |
-| 9 | **C++** | `.cpp`, `.hpp`, `.cc`, `.cxx` | Function, Class, Struct, Enum, Namespace, Type, Field, Parameter |
-| 10 | **C#** | `.cs` | Function (Method), Class, Interface, Enum, Struct, Property, Namespace, Field, Parameter, Attribute |
-| 11 | **Kotlin** | `.kt`, `.kts` | Function, Class, Interface, Enum, Variable, Field, Parameter, Package, Annotation |
-| 12 | **Swift** | `.swift` | Function, Class, Struct, Enum, Protocol (Interface), Variable, Field, Parameter |
-| 13 | **Dart** | `.dart` | Function, Method, Class, Enum, Mixin (Interface), Variable, Field, Parameter |
-| 14 | **PHP** | `.php` | Function, Method, Class, Interface, Trait, Enum, Constant, Namespace (Package), Field, Parameter, Attribute |
-| 15 | **Ruby** | `.rb` | Function, Class, Module, Variable, Field, Parameter |
-| 16 | **SQL** | `.sql` | Function, Table, View |
+| # | Language | Parser | Extensions | Key Extracted Entities |
+|---|---|---|---|---|
+| 1 | **Go** | Tree-sitter | `.go` | Function, Method, Struct, Interface, Type, Constant, Variable, Field, Parameter |
+| 2 | **TypeScript** | Tree-sitter | `.ts` | Function, Class, Interface, Type, Enum, Variable, Field, Parameter, Decorator |
+| 3 | **TypeScript (TSX)** | Tree-sitter | `.tsx` | Function, Class, Interface, Type, Enum, Variable, Field, Parameter, Decorator |
+| 4 | **JavaScript** | Tree-sitter | `.js`, `.jsx`, `.mjs` | Function, Class, Variable, Field, Parameter, Export |
+| 5 | **Python** | Tree-sitter | `.py` | Function, Class, Variable, Parameter, Decorator |
+| 6 | **Java** | Tree-sitter | `.java` | Function (Method + Constructor), Class, Interface, Enum, Variable, Field, Parameter, Package, Annotation |
+| 7 | **Rust** | Tree-sitter | `.rs` | Function, Struct, Enum, Trait, Type, Constant, Variable, Field, Parameter, Attribute |
+| 8 | **C** | Tree-sitter | `.c`, `.h` | Function, Struct, Enum, Type, Variable, Field, Parameter |
+| 9 | **C++** | Tree-sitter | `.cpp`, `.hpp`, `.cc`, `.cxx` | Function, Class, Struct, Enum, Namespace, Type, Field, Parameter |
+| 10 | **C#** | Tree-sitter | `.cs` | Function (Method), Class, Interface, Enum, Struct, Property, Namespace, Field, Parameter, Attribute |
+| 11 | **Kotlin** | Tree-sitter | `.kt`, `.kts` | Function, Class, Interface, Enum, Variable, Field, Parameter, Package, Annotation |
+| 12 | **Swift** | Tree-sitter | `.swift` | Function, Class, Struct, Enum, Protocol (Interface), Variable, Field, Parameter |
+| 13 | **Dart** | Tree-sitter | `.dart` | Function, Method, Class, Enum, Mixin (Interface), Variable, Field, Parameter |
+| 14 | **PHP** | Tree-sitter | `.php` | Function, Method, Class, Interface, Trait, Enum, Constant, Namespace (Package), Field, Parameter, Attribute |
+| 15 | **Ruby** | Tree-sitter | `.rb` | Function, Class, Module, Variable, Field, Parameter |
+| 16 | **SQL** | Tree-sitter | `.sql` | Function, Table, View |
+| 17 | **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Function, Procedure, Package, Table, View, Trigger, Type |
 
 ### Cross-Language Extraction Capabilities
 
@@ -51,15 +53,16 @@ For every supported language, the parser extracts the following relationship dat
 
 | Capability | Description | Languages |
 |---|---|---|
-| **Function Calls** | Traces which functions/methods call which others | All 16 |
+| **Function Calls** | Traces which functions/methods call which others | All 17 |
 | **Import Resolution** | Maps module dependencies and import chains | All except SQL |
 | **Class Inheritance** | `extends` / superclass relationships | JS, TS, Python, Java, C#, C++, Kotlin, Swift, Dart, PHP, Ruby |
 | **Interface Implementation** | `implements` / protocol conformance | TS, Java, C#, Kotlin, PHP, Rust |
 | **Field Access Tracking** | Reads and writes to class/struct fields | Go, JS, TS, Java, C#, C, C++, Kotlin, Swift, Python, Rust, PHP, Ruby |
 | **Decorator / Annotation** | Attribute / annotation extraction | TS, Python, Java, C#, Kotlin, Swift, Rust, PHP |
 | **Object Instantiation** | `new` expression tracking | JS, TS, Java, C#, C++, PHP |
-| **Cyclomatic Complexity** | Computed for every function/method | All 16 |
-| **Export Visibility** | `is_exported` flag per entity — detection strategy is configurable via the `exports` field in language YAML (see [Export Strategies](#export-strategies)) | All 16 (strategy varies by language) |
+| **Cyclomatic Complexity** | Computed for every function/method | All 17 |
+| **Export Visibility** | `is_exported` flag per entity — detection strategy is configurable via the `exports` field in language YAML (see [Export Strategies](#export-strategies)) | All 17 (strategy varies by language) |
+| **DML Tracking** | `SELECTS`, `INSERTS`, `UPDATES`, `DELETES`, `ALTERS`, `DROPS`, `REFERENCES` edges for SQL/PL/SQL statements | SQL, PL/SQL |
 
 ---
 
@@ -103,6 +106,9 @@ graph LR
 - **`HAS_FIELD`**: Class/Struct fields. Connects definitions to `Field` nodes.
 - **`READS_FIELD` / `WRITES_FIELD`**: Data access tracing. Tells which methods read or write to which fields.
 - **`INHERITS` / `IMPLEMENTS`**: Class inheritance and interface implementations.
+- **`SELECTS` / `INSERTS` / `UPDATES` / `DELETES`**: DML statement tracking for SQL and PL/SQL. Connects functions/procedures to the tables they operate on.
+- **`ALTERS` / `DROPS`**: DDL statement tracking. Connects entities to the database objects they modify or remove.
+- **`REFERENCES`**: Generic dependency reference (e.g., foreign key constraints, type references in PL/SQL).
 
 ---
 
@@ -130,13 +136,26 @@ LadybugDB uses standard graph database constraints, but does not support all com
 
 ## 🔍 Parser Adapters & WASM Runtime
 
-The engine uses Tree-sitter for parsing, compiled to WebAssembly and executed via [wazero](https://wazero.io) (pure Go, no CGO).
+The engine uses a **dual-parser architecture** — Tree-sitter and ANTLR v4 — both compiled to WebAssembly and executed via [wazero](https://wazero.io) (pure Go, no CGO). The YAML `parser:` field in each language configuration determines which backend is used; Tree-sitter is the default when the field is omitted.
+
+- **Tree-sitter**: Incremental, fast, and the default parser for most languages. Ideal for general-purpose parsing where speed and incremental re-parsing are priorities.
+- **ANTLR v4**: Full grammar parsing for complex languages like PL/SQL that require richer parse trees. Uses two-stage **SLL→LL parsing**: the fast O(n) SLL mode is tried first, falling back to full LL parsing only on ambiguity or error. ANTLR also supports **native binary executables** as a performance alternative to WASM — when a native binary is found in the grammar resolution chain, it is used instead of the `.wasm` module.
+
+Both parsers are loaded **lazily** on first use — no eager loading at startup. This means startup time is constant regardless of the number of supported languages or installed grammars.
 
 ### Tree-sitter WASM Architecture (`internal/ast/wasmts/`)
 
-Each grammar is a standalone `.wasm` file (e.g., `tree-sitter-go.wasm`) containing the Tree-sitter runtime plus the language grammar. Grammars are plug-and-play: drop a `.wasm` file into any directory in the resolution chain.
+Each grammar is a standalone `.wasm` file (e.g., `tree-sitter-go.wasm`) containing the Tree-sitter runtime plus the language grammar.
 
-**Grammar Resolution Chain** (highest priority first):
+### ANTLR v4 WASM Architecture
+
+ANTLR grammars are compiled from the C++ ANTLR runtime into WASI WASM modules via wasi-sdk (≥ 33). Each grammar is a `.wasm` file (e.g., `antlr-plsql.wasm`) that exposes a standard parse interface. The `grammar` field in the language YAML maps to this filename. Patterns in ANTLR YAML files use **XPath syntax** (e.g., `//create_function_body/function_name`) instead of Tree-sitter S-expressions.
+
+### Grammar Resolution Chain
+
+Grammars are plug-and-play: drop a `.wasm` file (Tree-sitter or ANTLR) into any directory in the resolution chain. The unified grammar loader discovers both parser types from the same directories.
+
+**Resolution order** (highest priority first):
 
 | Priority | Path | Managed By |
 |----------|------|------------|
@@ -148,47 +167,68 @@ Each grammar is a standalone `.wasm` file (e.g., `tree-sitter-go.wasm`) containi
 
 | Type | Package | Role |
 |------|---------|------|
-| `Engine` | `wasmts` | Manages wazero runtime, compilation cache, and compiled modules |
+| `Engine` | `wasmts` | Manages wazero runtime, compilation cache, and compiled modules (Tree-sitter) |
 | `Module` | `wasmts` | Single WASM instance with its own linear memory. NOT thread-safe |
 | `Language` | `wasmts` | Grammar pointer within a Module — creates parsers and queries |
-| `WorkerModules` | `ast` | Per-goroutine set of Module instances, created lazily |
+| `WorkerModules` | `ast` | Per-goroutine set of Tree-sitter Module instances, created lazily |
+| `AntlrWorkerModules` | `ast` | Per-goroutine set of ANTLR WASM instances, created lazily (same isolation model as `WorkerModules`) |
 
 ### Concurrency Model
 
-WASM linear memory is **not thread-safe** — concurrent access from multiple goroutines corrupts memory. The engine solves this with **per-worker module instances**:
+WASM linear memory is **not thread-safe** — concurrent access from multiple goroutines corrupts memory. The engine solves this with **per-worker module instances** for both parser backends:
 
 ```
-chan (all files) ──▶ Worker 1: { go: Module#1 }           ← lazy
-                 ──▶ Worker 2: { go: Module#2, tsx: #1 }   ← lazy
-                 ──▶ Worker 3: { go: Module#3 }            ← lazy
+chan (all files) ──▶ Worker 1: { go: TS-Module#1, plsql: ANTLR-Module#1 }   ← lazy
+                 ──▶ Worker 2: { go: TS-Module#2, tsx: TS-Module#1 }         ← lazy
+                 ──▶ Worker 3: { go: TS-Module#3, plsql: ANTLR-Module#2 }   ← lazy
                  ...each instance has isolated WASM memory
 ```
 
-- Each worker goroutine creates its own `WorkerModules` with isolated WASM instances
+- Each worker goroutine creates its own `WorkerModules` (Tree-sitter) and `AntlrWorkerModules` (ANTLR) with isolated WASM instances
 - Instances are created **lazily** — only when the worker encounters a file of that language
 - AOT compilation is cached on disk and shared — only instantiation (memory allocation) happens per worker
 - Zero mutexes, zero locks, full parallelism across all workers
 
 ### Tree-sitter Adapter (`internal/ast/treesitter_adapter.go`)
 
-Bridges the WASM runtime with the indexing pipeline. For each file:
+Bridges the Tree-sitter WASM runtime with the indexing pipeline. For each file:
 1. Resolves a worker-local `Language` instance via `WorkerModules.GetLanguage()`
 2. Creates a parser, parses the source into a syntax tree
 3. Runs all YAML-defined queries to extract entities and relationships
 4. Returns a `ParsedFile` with structured data for graph insertion
 
+### ANTLR Adapter
+
+Bridges the ANTLR WASM runtime with the indexing pipeline. For each file:
+1. Resolves a worker-local ANTLR instance via `AntlrWorkerModules`
+2. Parses the source using two-stage SLL→LL parsing
+3. Walks the parse tree using XPath-based patterns from the language YAML
+4. Returns a `ParsedFile` with structured data for graph insertion
+
+### `--force-antlr` CLI Flag
+
+When both Tree-sitter and ANTLR grammars exist for the same file extension (e.g., `.sql`), Tree-sitter is used by default. The `--force-antlr` flag overrides this for specific extensions, forcing the ANTLR backend:
+
+```bash
+graphit sync --force-antlr .sql
+graphit init --force-antlr .sql,.plsql
+```
+
+The MCP equivalent is the `force_antlr` parameter on sync/init tools. This is useful when deeper parse trees or DML tracking is needed for SQL files.
+
 ---
 
 ## 🎯 External YAML Configuration
 
-All Tree-sitter query patterns and language behavior settings are defined as **external YAML files** rather than hardcoded in the binary. This allows users to customize which AST entities are extracted from each language — adding new patterns, removing defaults, or completely replacing the query set — without recompiling. The language YAML also controls export detection, self-reference keywords, context type mapping, anonymous function resolution, docstring attachment, and comment recognition.
+All query patterns and language behavior settings are defined as **external YAML files** rather than hardcoded in the binary. This allows users to customize which AST entities are extracted from each language — adding new patterns, removing defaults, or completely replacing the query set — without recompiling. The language YAML also controls parser selection, export detection, self-reference keywords, context type mapping, anonymous function resolution, docstring attachment, and comment recognition.
 
 ### YAML Query Schema
 
-Each language has a dedicated YAML file defining the Tree-sitter S-expression patterns used during parsing:
+Each language has a dedicated YAML file defining the query patterns used during parsing. Tree-sitter languages use S-expression patterns; ANTLR languages use XPath expressions:
 
 ```yaml
-language: go                    # Tree-sitter language name (required)
+# --- Tree-sitter example (default parser) ---
+language: go                    # Language name (required)
 extensions: [".go"]             # File extensions to match (optional — if omitted, applies to all extensions of the language)
 replace: false                  # false = append to lower-priority queries; true = completely replace them
 queries:
@@ -209,19 +249,42 @@ queries:
     name_capture: fn
 ```
 
+```yaml
+# --- ANTLR v4 example ---
+language: plsql
+parser: antlr4                  # Selects ANTLR backend (default: tree-sitter when omitted)
+grammar: antlr-plsql            # Maps to the .wasm or native binary filename
+start_rule: sql_script           # ANTLR start rule
+extensions: [".sql", ".pks", ".pkb", ".pls", ".plb", ".prc", ".fnc", ".trg", ".typ", ".bdy", ".spc", ".vw"]
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: '//create_function_body'             # XPath syntax instead of S-expressions
+    name_capture: '//create_function_body/function_name'  # XPath expression for entity name
+
+  - data_key: dml_selects
+    type: relation
+    relation_type: SELECTS
+    graph_label: ""
+    pattern: '//select_statement//table_ref_aux'
+```
+
 **Query Fields:**
 
 | Field | Required | Description |
 |---|---|---|
-| `language` | ✅ | Tree-sitter language identifier (e.g., `go`, `python`, `typescript`) |
+| `language` | ✅ | Language identifier (e.g., `go`, `python`, `plsql`) |
+| `parser` | ❌ | Parser backend: `"tree-sitter"` (default) or `"antlr4"`. Determines pattern syntax and runtime |
+| `grammar` | ⚠️ | Required for ANTLR. Maps to the `.wasm` or native binary filename (e.g., `antlr-plsql`) |
+| `start_rule` | ⚠️ | Required for ANTLR. The grammar's start rule (e.g., `sql_script`) |
 | `extensions` | ❌ | File extensions filter. If omitted, applies to all extensions registered for the language |
 | `replace` | ❌ | When `true`, replaces all lower-priority queries for this language. Default: `false` (append) |
-| `queries[].data_key` | ✅ | Internal entity category. Standard keys: `functions`, `methods`, `classes`, `structs`, `interfaces`, `enums`, `types`, `traits`, `imports`, `exports`, `variables`, `constants`, `calls`, `instantiations`, `parameters`, `fields`, `field_reads`, `field_writes`, `heritage`, `implements`, `decorators`, `namespaces`, `packages`, `modules`, `tables`, `views` |
+| `queries[].data_key` | ✅ | Internal entity category. Standard keys: `functions`, `methods`, `classes`, `structs`, `interfaces`, `enums`, `types`, `traits`, `imports`, `exports`, `variables`, `constants`, `calls`, `instantiations`, `parameters`, `fields`, `field_reads`, `field_writes`, `heritage`, `implements`, `decorators`, `namespaces`, `packages`, `modules`, `tables`, `views`, `dml_selects`, `dml_inserts`, `dml_updates`, `dml_deletes` |
 | `queries[].type` | ❌ | `"entity"` (default) or `"relation"`. Determines how the engine processes the extracted data. Entities become graph nodes; relations become edges (CallSites or References) |
-| `queries[].relation_type` | ⚠️ | Required when `type: "relation"`. Defines how the relation is routed: `CALLS` and `INSTANTIATES` → CallSites, `DECORATOR` and `EXPORT` → special internal processing, all others (e.g. `INHERITS`, `IMPLEMENTS`, `READS_FIELD`, `WRITES_FIELD`) → References. See [Relation Routing](#relation-routing) |
+| `queries[].relation_type` | ⚠️ | Required when `type: "relation"`. Defines how the relation is routed: `CALLS` and `INSTANTIATES` → CallSites, `DECORATOR` and `EXPORT` → special internal processing, `SELECTS` / `INSERTS` / `UPDATES` / `DELETES` / `ALTERS` / `DROPS` / `REFERENCES` → DML/DDL edges, all others (e.g. `INHERITS`, `IMPLEMENTS`, `READS_FIELD`, `WRITES_FIELD`) → References. See [Relation Routing](#relation-routing) |
 | `queries[].graph_label` | ❌ | LadybugDB node label. If empty, the data is used for relationship extraction only (e.g., calls, heritage) |
-| `queries[].pattern` | ✅ | Tree-sitter S-expression query pattern |
-| `queries[].name_capture` | ❌ | Name of the capture group for the entity name. Defaults to `name` |
+| `queries[].pattern` | ✅ | Tree-sitter S-expression pattern or ANTLR XPath expression, depending on the `parser` field |
+| `queries[].name_capture` | ❌ | For Tree-sitter: name of the capture group (defaults to `name`). For ANTLR: XPath expression to extract the entity name from the parse tree |
 
 ### Relation Routing
 
@@ -233,9 +296,16 @@ When a query has `type: relation`, the `relation_type` field determines how the 
 | `INSTANTIATES` | `result.CallSites` | Constructor invocations — stored with a `new:` prefix on the call name |
 | `DECORATOR` | Internal: `attachDecorators` | Consumed by the decorator attachment pipeline |
 | `EXPORT` | Internal: `detectExports` | Consumed by the export detection pipeline |
+| `SELECTS` | `result.DMLEdges` | SELECT statement → table edges (SQL/PL/SQL) |
+| `INSERTS` | `result.DMLEdges` | INSERT statement → table edges |
+| `UPDATES` | `result.DMLEdges` | UPDATE statement → table edges |
+| `DELETES` | `result.DMLEdges` | DELETE statement → table edges |
+| `ALTERS` | `result.DMLEdges` | ALTER statement → database object edges |
+| `DROPS` | `result.DMLEdges` | DROP statement → database object edges |
+| `REFERENCES` | `result.DMLEdges` | Generic dependency references (e.g., foreign keys, type references) |
 | Any other string | `result.References` | Generic references — used for `INHERITS`, `IMPLEMENTS`, `READS_FIELD`, `WRITES_FIELD`, and any custom relation type |
 
-> **Extensibility:** New relation types can be added via YAML without recompilation. Any `relation_type` string that doesn't match one of the special cases above is automatically routed to `result.References`. For field-access relations (e.g., `READS_FIELD`, `WRITES_FIELD`), the engine uses the entity's context to resolve the target field.
+> **Extensibility:** New relation types can be added via YAML without recompilation. Any `relation_type` string that doesn't match one of the special cases above is automatically routed to `result.References`. For field-access relations (e.g., `READS_FIELD`, `WRITES_FIELD`), the engine uses the entity's context to resolve the target field. DML relation types (`SELECTS` through `REFERENCES`) are available for both Tree-sitter and ANTLR-based languages, enabling full data-flow tracking in SQL-centric codebases.
 
 ### Language Configuration Fields
 
@@ -340,7 +410,7 @@ exports:
 
 ### Resolution Chain (3 Levels)
 
-Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in. The resolution order is **project → user global → runtime** — all levels are YAML-only. Tree-sitter grammars (`.wasm` files) follow the same 3-level resolution chain via the `grammars/` directories. Everything — grammars, extensions, queries, exports, context types — is externalized and customizable without recompilation.
+Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in. The resolution order is **project → user global → runtime** — all levels are YAML-only. Both Tree-sitter and ANTLR grammars (`.wasm` files) follow the same 3-level resolution chain via the `grammars/` directories. Everything — grammars, parser selection, extensions, queries, exports, context types — is externalized and customizable without recompilation.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -360,7 +430,7 @@ Query files are resolved using a cascading priority system. For each language, t
 ```
 
 **Key behaviors:**
-- The launcher automatically extracts all 16 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
+- The launcher automatically extracts all 17 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
 - The **runtime directory is version-scoped** — each binary version gets its own clean set of defaults, so upgrades never conflict with previous versions.
 - The **user global directory** (`~/.graphit/ast/queries/`) is never touched by the framework. Only the user creates/edits files there.
 - If a **project** has a `go.yaml`, only Go queries come from the project level; other languages still resolve normally through user → runtime.
@@ -390,6 +460,7 @@ Query files are resolved using a cascading priority system. For each language, t
             │   ├── php.yaml
             │   ├── python.yaml
             │   ├── ruby.yaml
+            │   ├── plsql.yaml
             │   ├── rust.yaml
             │   ├── sql.yaml
             │   ├── swift.yaml
@@ -617,7 +688,7 @@ Like frameworks, ecosystem files use **additive merging** — entries from all 3
 
 | Level | Path | Behavior |
 |---|---|---|
-| Runtime | `~/.graphit/runtime/<version>/ast/ecosystems.yaml` | Base — factory defaults (120+ entries covering 16 languages) |
+| Runtime | `~/.graphit/runtime/<version>/ast/ecosystems.yaml` | Base — factory defaults (120+ entries covering 17 languages) |
 | User Global | `~/.graphit/ast/ecosystems.yaml` | Extends runtime — user-editable, never modified by framework |
 | Project | `.graphit/ast/ecosystems.yaml` | Extends all — project-specific overrides |
 
@@ -680,12 +751,12 @@ The AST module supports two indexing modes to balance completeness with performa
 Triggered on first `graphit init` or when the database is missing/corrupted. The complete pipeline:
 
 ```
-Source Files → File Discovery → Tree-sitter Parse → Entity Extraction → Graph Write → FTS5 Index → Trigram Index → Vector Embedding
+Source Files → File Discovery → Parse (Tree-sitter / ANTLR) → Entity Extraction → Graph Write → FTS5 Index → Trigram Index → Vector Embedding
 ```
 
 1. **File Discovery**: Walks the project directory, respecting `.gitignore` and `.astignore` rules. Detects language via file extension.
-2. **Tree-sitter Parse**: Each file is parsed into a concrete syntax tree using the appropriate language grammar.
-3. **Entity Extraction**: Tree-sitter queries extract structured entities (functions, classes, imports, calls, fields, etc.) from the syntax tree.
+2. **Parse**: Each file is parsed into a concrete syntax tree using the appropriate language grammar — Tree-sitter for most languages, ANTLR v4 for languages configured with `parser: antlr4`. The parser backend is determined by the language YAML; see [`--force-antlr`](#--force-antlr-cli-flag) for per-extension override.
+3. **Entity Extraction**: YAML-defined queries (S-expressions for Tree-sitter, XPath for ANTLR) extract structured entities (functions, classes, imports, calls, fields, DML statements, etc.) from the syntax tree.
 4. **Graph Write**: Extracted entities are written as nodes and relationships into LadybugDB. Each entity gets a unique `uid` and is linked to its parent file via `CONTAINS` edges.
 5. **FTS5 Index**: Entity names are split (camelCase, snake_case) and indexed in SQLite FTS5 for multi-pass full-text search.
 6. **Trigram Index**: Entity names are decomposed into 3-character trigrams for fuzzy matching and typo tolerance.

@@ -609,16 +609,16 @@ $EDITOR .graphit/ast/queries/python.yaml
 
 ## Adding New Language Support
 
-Adding support for a new programming language requires **two things**:
+Graphit Code supports two parser backends for language analysis: **Tree-sitter** (default) and **ANTLR v4**. Adding support for a new programming language requires **two things**:
 
-1. **A Tree-sitter `.wasm` grammar file** — drop it into any level of the resolution chain
-2. **A language YAML file** defining extraction rules, export strategy, self keywords, context types, etc.
+1. **A grammar file** — a Tree-sitter `.wasm` or an ANTLR `.wasm` binary, dropped into any level of the resolution chain
+2. **A language YAML file** — defining extraction rules, export strategy, self keywords, context types, etc.
 
 Grammars are standalone `.wasm` files executed via wazero (pure Go, no CGO). No recompilation is needed.
 
 ### Grammar Resolution Chain
 
-The engine discovers `.wasm` grammar files using the same 3-level priority system:
+The engine discovers grammar files (both Tree-sitter and ANTLR `.wasm` binaries) using the same 3-level priority system:
 
 | Priority | Path | Scope |
 |----------|------|-------|
@@ -626,7 +626,7 @@ The engine discovers `.wasm` grammar files using the same 3-level priority syste
 | 2 | `~/.graphit/ast/grammars/` | All projects (user) |
 | 3 | `~/.graphit/runtime/<version>/ast/grammars/` | Factory defaults |
 
-### Step-by-Step Guide
+### Adding a Tree-sitter Language
 
 **1. Obtain the Tree-sitter `.wasm` grammar:**
 
@@ -703,11 +703,112 @@ graphit sync
 
 The new language will be immediately available for AST queries.
 
+### Adding an ANTLR Language
+
+For languages with complex grammars (e.g., PL/SQL, COBOL, ABAP), ANTLR v4 may provide better parsing results than Tree-sitter. ANTLR-based languages use XPath expressions for pattern matching instead of Tree-sitter S-expressions.
+
+**1. Obtain the ANTLR `.wasm` grammar:**
+
+Compile the ANTLR C++ runtime with the grammar to a WASI `.wasm` binary using wasi-sdk, or download a pre-built binary (e.g., `antlr-plsql.wasm`).
+
+**2. Drop the `.wasm` file into the grammars directory:**
+
+```bash
+# For this project only
+mkdir -p .graphit/ast/grammars/
+cp antlr-plsql.wasm .graphit/ast/grammars/
+
+# Or globally for all projects
+mkdir -p ~/.graphit/ast/grammars/
+cp antlr-plsql.wasm ~/.graphit/ast/grammars/
+```
+
+**3. Create a new `<language>.yaml` with ANTLR-specific fields:**
+
+```bash
+mkdir -p .graphit/ast/queries/
+$EDITOR .graphit/ast/queries/plsql.yaml
+```
+
+**4. Define queries using XPath patterns:**
+
+ANTLR language files require `parser: antlr4`, `start_rule:`, and `grammar:` fields. Patterns use XPath syntax to navigate the ANTLR parse tree instead of S-expressions:
+
+```yaml
+language: plsql
+parser: antlr4
+start_rule: sql_script
+grammar: antlr-plsql
+extensions:
+  - .sql
+  - .pks
+  - .pkb
+queries:
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_function_body"
+    name_capture: "function_name"
+  - data_key: procedures
+    graph_label: Function
+    pattern: "//create_procedure_body"
+    name_capture: "procedure_name"
+  - data_key: packages
+    graph_label: Class
+    pattern: "//create_package_body"
+    name_capture: "package_name"
+  - data_key: types
+    graph_label: Type
+    pattern: "//type_definition"
+    name_capture: "type_name"
+
+exports:
+  strategy: none
+
+self_keywords: []
+```
+
+**5. Run `graphit sync` to index:**
+
+```bash
+graphit sync
+```
+
+### ANTLR-Specific YAML Fields
+
+| Field | Required | Description |
+|---|---|---|
+| `parser` | ✅ | Set to `antlr4` to use the ANTLR backend. Omit or set to `tree-sitter` for the default |
+| `start_rule` | ✅* | ANTLR start rule name (e.g., `sql_script`, `compilationUnit`). Required when `parser: antlr4` |
+| `grammar` | ✅* | Name of the ANTLR `.wasm` grammar file (without `.wasm` extension). Required when `parser: antlr4` |
+| `queries[].pattern` | ✅ | XPath expression navigating the ANTLR parse tree (e.g., `"//create_function_body"`) |
+
+All other YAML fields (`extensions`, `exports`, `self_keywords`, `context_types`, etc.) work identically for both parser backends.
+
+### Parser Selection and `--force-antlr`
+
+When both a Tree-sitter and an ANTLR grammar exist for the same file extension (e.g., `.sql`), the engine tries **Tree-sitter first**. If Tree-sitter returns an error or extracts zero entities, it automatically falls back to ANTLR.
+
+To skip this fallback logic and force ANTLR parsing for specific extensions, use the `--force-antlr` flag:
+
+```bash
+# Force ANTLR for .sql files
+graphit sync --force-antlr .sql
+
+# Force ANTLR for multiple extensions
+graphit sync --force-antlr .sql,.pks,.pkb
+
+# Force ANTLR during AST indexing
+graphit ast index --force-antlr .sql
+```
+
+In MCP tool calls, use the `force_antlr` parameter with the same comma-separated extension list.
+
 ### Important Notes
 
 - **Grammar files**: The `.wasm` grammar file must be present in any level of the grammars resolution chain (`.graphit/ast/grammars/`, `~/.graphit/ast/grammars/`, or `~/.graphit/runtime/<version>/ast/grammars/`). If no grammar is found for a language, its YAML queries are silently skipped.
-- **Pattern validation**: Invalid Tree-sitter patterns are detected at parse time and logged as warnings, while valid patterns proceed normally.
+- **Pattern validation**: Invalid Tree-sitter patterns are detected at parse time and logged as warnings, while valid patterns proceed normally. Invalid XPath expressions in ANTLR queries are similarly logged.
 - **Customizing existing languages**: For the 16 languages included by default, all extraction rules, export detection, scoring, context resolution, and docstring attachment are fully YAML-driven. Changing the YAML is sufficient — no rebuild needed.
+- **Parser field**: If the `parser` field is omitted from a YAML file, Tree-sitter is assumed. Existing YAML files do not need modification.
 
 ---
 

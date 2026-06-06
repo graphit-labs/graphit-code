@@ -1,4 +1,5 @@
 language: go
+grammar: tree-sitter-go
 extensions: [".go"]
 queries:
   - data_key: functions

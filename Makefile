@@ -1,6 +1,6 @@
 .PHONY: build build-all install clean fmt vet run ui ui-dev setup-lbug \
        fetch-ort-linux fetch-ort-darwin fetch-ort-windows fetch-model lint \
-       ui-lint ci check test build-windows-native build-grammars
+       ui-lint ci check test build-windows-native build-grammars build-antlr-grammars
 
 MODULE   := github.com/graphit-labs/graphit-code
 CMD      := ./cmd/graphit
@@ -189,6 +189,62 @@ else
 	@echo "✓ Built $$(ls -1 $(GRAMMAR_OUT)/*.wasm | wc -l) grammars"
 endif
 
+# ANTLR v4 grammar compilation — C++ WASM via wasi-sdk.
+# Each grammar has a grammar.yaml with per-language memory config.
+# Requires: wasi-sdk >= 33, CMake.
+ANTLR_TOOL_DIR  := tools/antlr-wasm-compiler
+WASI_SDK_VERSION := 33
+WASI_SDK_PREFIX ?= $(shell \
+	if [ -d "/tmp/wasi-sdk-$(WASI_SDK_VERSION).0-x86_64-linux" ]; then echo "/tmp/wasi-sdk-$(WASI_SDK_VERSION).0-x86_64-linux"; \
+	elif [ -d "/opt/wasi-sdk" ]; then echo "/opt/wasi-sdk"; fi)
+
+# build_antlr_wasm(grammar_name) — reads grammar.conf, compiles to WASM.
+# grammar.conf is a simple key=value file (INITIAL_MEMORY_MB, MAX_MEMORY_MB, STACK_SIZE_MB).
+# Defaults (for simple grammars): 4MB / 64MB / 2MB.
+define build_antlr_wasm
+	$(eval _GDIR := $(abspath $(ANTLR_TOOL_DIR)/grammars/$(1)))
+	$(eval _BDIR := $(ANTLR_TOOL_DIR)/build/$(1))
+	$(eval _GCFG := $(_GDIR)/grammar.conf)
+	$(eval _INIT_MB := $(shell . $(_GCFG) 2>/dev/null; echo $${INITIAL_MEMORY_MB:-4}))
+	$(eval _MAX_MB  := $(shell . $(_GCFG) 2>/dev/null; echo $${MAX_MEMORY_MB:-64}))
+	$(eval _STK_MB  := $(shell . $(_GCFG) 2>/dev/null; echo $${STACK_SIZE_MB:-2}))
+	@echo "  → antlr-$(1).wasm  (memory: init=$(_INIT_MB)MB max=$(_MAX_MB)MB stack=$(_STK_MB)MB)"
+	@mkdir -p $(_BDIR)
+	@cd $(_BDIR) && cmake $(abspath $(ANTLR_TOOL_DIR)) \
+		-DCMAKE_TOOLCHAIN_FILE="$(WASI_SDK_PREFIX)/share/cmake/wasi-sdk-p1.cmake" \
+		-DCMAKE_BUILD_TYPE=MinSizeRel \
+		-DWASI_SDK_PREFIX="$(WASI_SDK_PREFIX)" \
+		-DGRAMMAR_NAME="$(1)" \
+		-DGRAMMAR_DIR="$(_GDIR)" \
+		-DDRIVER_SOURCE="$(_GDIR)/driver.cpp" \
+		-DWASM_INITIAL_MEMORY="$$(($(_INIT_MB) * 1048576))" \
+		-DWASM_MAX_MEMORY="$$(($(_MAX_MB) * 1048576))" \
+		-DWASM_STACK_SIZE="$$(($(_STK_MB) * 1048576))" \
+		-Wno-dev > /dev/null 2>&1
+	@$(MAKE) -C $(_BDIR) -j$$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4) \
+		antlr-$(1) > /dev/null 2>&1
+	@cp $(_BDIR)/antlr-$(1) $(GRAMMAR_OUT)/antlr-$(1).wasm
+endef
+
+# Set SKIP_ANTLR_GRAMMARS=1 to skip (used in CI where grammars are pre-built artifacts).
+build-antlr-grammars:
+ifeq ($(SKIP_ANTLR_GRAMMARS),1)
+	@echo "→ Skipping ANTLR grammar build (SKIP_ANTLR_GRAMMARS=1)"
+else ifneq ($(WASI_SDK_PREFIX),)
+	@echo "Building ANTLR v4 grammars (C++ WASM via wasi-sdk)..."
+	@mkdir -p $(GRAMMAR_OUT)
+	$(call build_antlr_wasm,plsql)
+	@echo "✓ ANTLR grammar build complete"
+else
+	@if [ -f "$(GRAMMAR_OUT)/antlr-plsql.wasm" ]; then \
+		echo "→ wasi-sdk not found — using pre-built ANTLR WASM grammars"; \
+	else \
+		echo "✗ ERROR: wasi-sdk not found and no pre-built antlr-plsql.wasm in $(GRAMMAR_OUT)"; \
+		echo "  Install wasi-sdk >= $(WASI_SDK_VERSION) or set WASI_SDK_PREFIX, then retry."; \
+		exit 1; \
+	fi
+endif
+
 fetch-ort-linux:
 	@mkdir -p $(ORT_CACHE)
 	@if [ ! -f $(ORT_CACHE)/onnxruntime-linux-x64-$(ORT_VERSION)/lib/libonnxruntime.so ]; then \
@@ -218,7 +274,7 @@ build: build-linux
 install: build
 	sudo cp $(BIN_DIR)/$(BRAND)-linux-amd64 /usr/local/bin/$(BRAND)
 
-build-linux: ui setup-lbug fetch-ort-linux fetch-model build-grammars
+build-linux: ui setup-lbug fetch-ort-linux fetch-model build-grammars build-antlr-grammars
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
@@ -234,7 +290,7 @@ build-linux: ui setup-lbug fetch-ort-linux fetch-model build-grammars
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-linux-amd64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-darwin: ui setup-lbug fetch-ort-darwin fetch-model build-grammars
+build-darwin: ui setup-lbug fetch-ort-darwin fetch-model build-grammars build-antlr-grammars
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
@@ -250,7 +306,7 @@ build-darwin: ui setup-lbug fetch-ort-darwin fetch-model build-grammars
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-darwin-arm64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows: ui setup-lbug fetch-ort-windows fetch-model build-grammars
+build-windows: ui setup-lbug fetch-ort-windows fetch-model build-grammars build-antlr-grammars
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_CFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_CXXFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_LDFLAGS="-L/usr/x86_64-w64-mingw32/icu/lib -licuuc -licuin -licudt -lstdc++ -static-libgcc -static-libstdc++" GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
@@ -264,7 +320,7 @@ build-windows: ui setup-lbug fetch-ort-windows fetch-model build-grammars
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows-native: ui setup-lbug fetch-ort-windows fetch-model build-grammars
+build-windows-native: ui setup-lbug fetch-ort-windows fetch-model build-grammars build-antlr-grammars
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-L/mingw64/lib -licuuc -licuin -licudt -lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)

@@ -1,4 +1,5 @@
 language: kotlin
+grammar: tree-sitter-kotlin
 extensions: [".kt", ".kts"]
 queries:
   - data_key: functions
