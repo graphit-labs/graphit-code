@@ -163,7 +163,11 @@ define build_grammar
 		$(WASM_EXPORTS) -Wl,--export=tree_sitter_$(2)
 endef
 
+# Set SKIP_GRAMMARS=1 to skip (used in CI where grammars are pre-built artifacts).
 build-grammars:
+ifeq ($(SKIP_GRAMMARS),1)
+	@echo "→ Skipping grammar build (SKIP_GRAMMARS=1)"
+else
 	@echo "Building tree-sitter WASM grammars (requires zig)..."
 	@mkdir -p $(GRAMMAR_OUT)
 	$(call build_grammar,c,c)
@@ -183,6 +187,7 @@ build-grammars:
 	$(call build_grammar,typescript,typescript)
 	$(call build_grammar,tsx,tsx)
 	@echo "✓ Built $$(ls -1 $(GRAMMAR_OUT)/*.wasm | wc -l) grammars"
+endif
 
 fetch-ort-linux:
 	@mkdir -p $(ORT_CACHE)
@@ -213,7 +218,7 @@ build: build-linux
 install: build
 	sudo cp $(BIN_DIR)/$(BRAND)-linux-amd64 /usr/local/bin/$(BRAND)
 
-build-linux: ui setup-lbug fetch-ort-linux fetch-model
+build-linux: ui setup-lbug fetch-ort-linux fetch-model build-grammars
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
@@ -229,7 +234,7 @@ build-linux: ui setup-lbug fetch-ort-linux fetch-model
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-linux-amd64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-darwin: ui setup-lbug fetch-ort-darwin fetch-model
+build-darwin: ui setup-lbug fetch-ort-darwin fetch-model build-grammars
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
@@ -245,7 +250,7 @@ build-darwin: ui setup-lbug fetch-ort-darwin fetch-model
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-darwin-arm64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows: ui setup-lbug fetch-ort-windows fetch-model
+build-windows: ui setup-lbug fetch-ort-windows fetch-model build-grammars
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_CFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_CXXFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_LDFLAGS="-L/usr/x86_64-w64-mingw32/icu/lib -licuuc -licuin -licudt -lstdc++ -static-libgcc -static-libstdc++" GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
@@ -259,7 +264,7 @@ build-windows: ui setup-lbug fetch-ort-windows fetch-model
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows-native: ui setup-lbug fetch-ort-windows fetch-model
+build-windows-native: ui setup-lbug fetch-ort-windows fetch-model build-grammars
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-L/mingw64/lib -licuuc -licuin -licudt -lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)

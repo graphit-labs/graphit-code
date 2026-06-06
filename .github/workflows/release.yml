@@ -63,15 +63,55 @@ jobs:
       - name: UI Lint
         run: make ui-lint
 
+  # ── WASM Grammars (platform-independent) ────────────────────────────────────
+  # Tree-sitter grammars compile to WASM which is platform-independent.
+  # Build once in a clean container to avoid zig cache issues on GH runners.
+  build-grammars:
+    name: Build WASM Grammars
+    needs: [ci]
+    runs-on: ubuntu-22.04
+    container: ubuntu:22.04
+
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends curl xz-utils make ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Zig
+        run: |
+          ZIG_VERSION=0.16.0
+          curl -sSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" | tar -xJ -C /tmp
+          echo "/tmp/zig-x86_64-linux-${ZIG_VERSION}" >> $GITHUB_PATH
+
+      - name: Build grammars
+        run: make build-grammars
+
+      - name: Upload grammars
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-grammars
+          path: internal/ast/grammars/*.wasm
+          retention-days: 1
+
   # ── Linux amd64 ────────────────────────────────────────────────────────────
   build-linux:
     name: Build (linux-amd64)
-    needs: [ci]
+    needs: [ci, build-grammars]
     runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download WASM grammars
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-grammars
+          path: internal/ast/grammars
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -115,18 +155,10 @@ jobs:
           path: /tmp/lbug-cache
           key: liblbug-linux-amd64-v0.13.1
 
-      - name: Set up Zig
-        run: |
-          ZIG_VERSION=0.16.0
-          curl -sSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" | tar -xJ -C /tmp
-          echo "/tmp/zig-x86_64-linux-${ZIG_VERSION}" >> $GITHUB_PATH
-
-      - name: Build WASM grammars
-        run: make build-grammars
-
       - name: Build (Linux)
         run: |
           make build-linux \
+            SKIP_GRAMMARS=1 \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
             DISPLAY_NAME="Graphit Code: AI Harness for Collaborative and Progressive Knowledge" \
@@ -149,12 +181,18 @@ jobs:
   # ── macOS arm64 (Apple Silicon) ────────────────────────────────────────────
   build-darwin:
     name: Build (darwin-arm64)
-    needs: [ci]
+    needs: [ci, build-grammars]
     runs-on: macos-14
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download WASM grammars
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-grammars
+          path: internal/ast/grammars
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -172,12 +210,6 @@ jobs:
       - name: Install system dependencies (Homebrew)
         run: |
           brew install icu4c pkg-config
-
-      - name: Set up Zig
-        run: |
-          ZIG_VERSION=0.16.0
-          curl -sSL "https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-macos-${ZIG_VERSION}.tar.xz" | tar -xJ -C /tmp
-          echo "/tmp/zig-aarch64-macos-${ZIG_VERSION}" >> $GITHUB_PATH
 
       - name: Cache ONNX Runtime (macOS)
         uses: actions/cache@v4
@@ -199,14 +231,10 @@ jobs:
           path: /tmp/lbug-cache
           key: liblbug-darwin-v0.13.1
 
-      - name: Build WASM grammars
-        run: make build-grammars
-        env:
-          ZIG_GLOBAL_CACHE_DIR: /tmp/zig-cache
-
       - name: Build (macOS)
         run: |
           make build-darwin \
+            SKIP_GRAMMARS=1 \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
             DISPLAY_NAME="Graphit Code: AI Harness for Collaborative and Progressive Knowledge" \
@@ -229,7 +257,7 @@ jobs:
   # ── Windows amd64 (native) ──────────────────────────────────────────────────
   build-windows:
     name: Build (windows-amd64)
-    needs: [ci]
+    needs: [ci, build-grammars]
     runs-on: windows-2022
     defaults:
       run:
@@ -238,6 +266,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download WASM grammars
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-grammars
+          path: internal/ast/grammars
 
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
@@ -253,14 +287,6 @@ jobs:
             curl
             tar
             gzip
-
-      - name: Set up Zig
-        shell: pwsh
-        run: |
-          $ZIG_VERSION = "0.16.0"
-          Invoke-WebRequest -Uri "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-windows-$ZIG_VERSION.zip" -OutFile "$env:TEMP\zig.zip"
-          Expand-Archive -Path "$env:TEMP\zig.zip" -DestinationPath "$env:TEMP"
-          "$env:TEMP\zig-x86_64-windows-$ZIG_VERSION" | Out-File -Append $env:GITHUB_PATH
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -293,12 +319,10 @@ jobs:
           path: C:\cache\lbug
           key: liblbug-windows-v0.13.1
 
-      - name: Build WASM grammars
-        run: make build-grammars ZIG="$(which zig)"
-
       - name: Build (Windows native)
         run: |
           make build-windows-native \
+            SKIP_GRAMMARS=1 \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
             DISPLAY_NAME="Graphit Code: AI Harness for Collaborative and Progressive Knowledge" \
@@ -343,7 +367,7 @@ jobs:
       - name: Flatten artifact directories
         run: |
           mkdir -p release-assets
-          find dist/ -type f -exec cp {} release-assets/ \;
+          find dist/ -type f -not -name '*.wasm' -exec cp {} release-assets/ \;
           ls -la release-assets/
 
       - name: Generate combined checksums file
