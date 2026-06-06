@@ -222,8 +222,6 @@ func projectFrameworksDir(projectDir string) string {
 // Loading
 // ---------------------------------------------------------------------------
 
-// loadQueriesFromDir scans *.yaml / *.yml files in a directory and returns
-// all valid external query files. Invalid entries are logged and skipped.
 func loadQueriesFromDir(dir string) ([]ExternalQueryFile, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -262,7 +260,6 @@ func loadQueriesFromDir(dir string) ([]ExternalQueryFile, error) {
 
 
 
-// parseQueryFile parses and validates a single YAML query file.
 func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 	var qf ExternalQueryFile
 	if err := yaml.Unmarshal(data, &qf); err != nil {
@@ -348,8 +345,6 @@ var runtimeQueriesCache []ExternalQueryFile
 
 
 
-// loadRuntimeCached loads runtime queries from
-// ~/.graphit/runtime/<version>/ast/queries/ (once).
 func loadRuntimeCached() []ExternalQueryFile {
 	runtimeQueriesOnce.Do(func() {
 		rq, err := LoadRuntimeQueries()
@@ -361,7 +356,6 @@ func loadRuntimeCached() []ExternalQueryFile {
 	return runtimeQueriesCache
 }
 
-// loadUserCached loads user global queries from ~/.graphit/ast/queries/ (once).
 func loadUserCached() []ExternalQueryFile {
 	userQueriesOnce.Do(func() {
 		uq, err := LoadUserQueries()
@@ -373,7 +367,6 @@ func loadUserCached() []ExternalQueryFile {
 	return userQueriesCache
 }
 
-// loadProjectCached loads project-level queries, using cached results.
 func loadProjectCached(projectDir string) []ExternalQueryFile {
 	if cached, ok := externalQueryCache.Load(projectDir); ok {
 		return cached.([]ExternalQueryFile)
@@ -397,26 +390,22 @@ func loadProjectCached(projectDir string) []ExternalQueryFile {
 // For each language+extension pair, the highest-priority source that provides
 // queries wins. This is per-language override, not merge.
 func resolveQueriesForLang(projectDir, lang, ext string) []ExternalQueryFile {
-	// 1. Check project-level (.graphit/ast/queries/)
 	projectQ := loadProjectCached(projectDir)
 	projectMatch := filterByLangExt(projectQ, lang, ext)
 	if len(projectMatch) > 0 {
 		return projectMatch
 	}
 
-	// 2. Check user global (~/.graphit/ast/queries/) — user customizations
 	userQ := loadUserCached()
 	userMatch := filterByLangExt(userQ, lang, ext)
 	if len(userMatch) > 0 {
 		return userMatch
 	}
 
-	// 3. Check runtime (~/.graphit/runtime/<version>/ast/queries/) — launcher-extracted defaults
 	runtimeQ := loadRuntimeCached()
 	return filterByLangExt(runtimeQ, lang, ext)
 }
 
-// filterByLangExt filters query files that match a language and extension.
 func filterByLangExt(files []ExternalQueryFile, lang, ext string) []ExternalQueryFile {
 	var result []ExternalQueryFile
 	for _, f := range files {
@@ -483,8 +472,6 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *wasmts.Language) []t
 	return result
 }
 
-// hasLangConfig returns true if the file has any language configuration
-// sections beyond queries (exports, self_keywords, context_types, etc).
 func hasLangConfig(qf *ExternalQueryFile) bool {
 	return qf.Exports != nil ||
 		len(qf.SelfKeywords) > 0 ||
@@ -500,9 +487,6 @@ func hasLangConfig(qf *ExternalQueryFile) bool {
 // Language Config Resolution
 // ---------------------------------------------------------------------------
 
-// resolvedLangConfigFor returns the language configuration for a given language
-// and extension. It walks the resolution chain and returns the first file that
-// provides the requested language config.
 func resolvedLangConfigFor(projectDir, lang, ext string) *ExternalQueryFile {
 	resolved := resolveQueriesForLang(projectDir, lang, ext)
 	for i := range resolved {
@@ -552,8 +536,6 @@ func ResolveAllLangConfigs(projectDir string) []*ExternalQueryFile {
 // Framework Loading
 // ---------------------------------------------------------------------------
 
-// loadFrameworksFromDir scans *.yaml files in a directory and returns
-// all valid framework files.
 func loadFrameworksFromDir(dir string) ([]FrameworkFile, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -596,7 +578,6 @@ func loadFrameworksFromDir(dir string) ([]FrameworkFile, error) {
 	return result, nil
 }
 
-// Framework caches
 var frameworkCache sync.Map // map[string][]FrameworkFile (projectDir -> frameworks)
 var userFrameworksOnce sync.Once
 var userFrameworksCache []FrameworkFile
@@ -652,13 +633,10 @@ func loadProjectFrameworksCached(projectDir string) []FrameworkFile {
 func ResolveFrameworks(projectDir string) []FrameworkFile {
 	var all []FrameworkFile
 
-	// Runtime (base — launcher-extracted defaults)
 	all = append(all, loadRuntimeFrameworksCached()...)
 
-	// User global (extends/overrides)
 	all = append(all, loadUserFrameworksCached()...)
 
-	// Project (highest priority — extends)
 	if projectDir != "" {
 		all = append(all, loadProjectFrameworksCached(projectDir)...)
 	}
@@ -670,7 +648,6 @@ func ResolveFrameworks(projectDir string) []FrameworkFile {
 // Ecosystem Loading
 // ---------------------------------------------------------------------------
 
-// loadEcosystemFile loads an ecosystems.yaml file from a path.
 func loadEcosystemFile(path string) (*EcosystemFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -693,21 +670,18 @@ func loadEcosystemFile(path string) (*EcosystemFile, error) {
 func ResolveEcosystems(projectDir string) []EcosystemEntry {
 	var all []EcosystemEntry
 
-	// Runtime (base — launcher-extracted defaults)
 	if dir := runtimeASTDir(); dir != "" {
 		if ef, err := loadEcosystemFile(filepath.Join(dir, "ecosystems.yaml")); err == nil && ef != nil {
 			all = append(all, ef.ConfigFiles...)
 		}
 	}
 
-	// User global
 	if dir := userASTDir(); dir != "" {
 		if ef, err := loadEcosystemFile(filepath.Join(dir, "ecosystems.yaml")); err == nil && ef != nil {
 			all = append(all, ef.ConfigFiles...)
 		}
 	}
 
-	// Project
 	if projectDir != "" {
 		if ef, err := loadEcosystemFile(filepath.Join(projectASTDir(projectDir), "ecosystems.yaml")); err == nil && ef != nil {
 			all = append(all, ef.ConfigFiles...)

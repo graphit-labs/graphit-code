@@ -20,11 +20,9 @@ var (
 	grammarEngineOnce sync.Once
 	grammarEngineErr  error
 
-	// loadedLanguages caches *wasmts.Language by language name.
 	loadedLanguages sync.Map // map[string]*wasmts.Language
 )
 
-// initWASMEngine initializes the global wazero engine (once).
 func initWASMEngine() (*wasmts.Engine, error) {
 	grammarEngineOnce.Do(func() {
 		cacheDir := filepath.Join(userCacheDir(), "graphit", "wasmts")
@@ -41,7 +39,6 @@ func GetEngine() *wasmts.Engine {
 	return engine
 }
 
-// userCacheDir returns a cache directory for wazero compilation cache.
 func userCacheDir() string {
 	dir, err := os.UserCacheDir()
 	if err != nil {
@@ -103,9 +100,6 @@ func getLanguage(grammarName string, projectDir string) (*wasmts.Language, error
 	return lang, nil
 }
 
-// findGrammarWASM searches the resolution chain for a WASM grammar file.
-// Returns the full path or empty string if not found.
-// Works for any grammar type (tree-sitter, ANTLR, etc.).
 func findGrammarWASM(grammarName string, projectDir string) string {
 	fileName := grammarName + ".wasm"
 	searchDirs := grammarSearchDirs(projectDir)
@@ -163,7 +157,6 @@ func initAntlrEngine() (*wasmantlr.Engine, error) {
 	return antlrEngine, antlrEngineErr
 }
 
-// GetAntlrEngine returns the global ANTLR WASM engine singleton.
 func GetAntlrEngine() *wasmantlr.Engine {
 	engine, _ := initAntlrEngine()
 	return engine
@@ -222,7 +215,6 @@ func getAntlrModule(grammarName string, projectDir string) (*wasmantlr.Engine, e
 	return engine, nil
 }
 
-// findNativeBinary searches for an executable binary in the grammar directories.
 func findNativeBinary(grammarName string, projectDir string) string {
 	searchDirs := grammarSearchDirs(projectDir)
 

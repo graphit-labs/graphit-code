@@ -844,7 +844,6 @@ var (
 	reAutoLinkMd   = regexp.MustCompile(`\[[^\]]+\]\([^)]+\)`)
 )
 
-// compiledTarget holds a pre-compiled regex for auto-linking.
 type compiledTarget struct {
 	slug  string
 	re    *regexp.Regexp

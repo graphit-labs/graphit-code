@@ -9,7 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// LintSeverity represents the severity level of a lint finding.
 type LintSeverity string
 
 const (
@@ -18,14 +17,12 @@ const (
 	LintInfo    LintSeverity = "info"
 )
 
-// LintFinding represents a single lint issue found in the wiki.
 type LintFinding struct {
 	Severity LintSeverity
 	Page     string
 	Message  string
 }
 
-// LintResult contains the complete results of a wiki lint check.
 type LintResult struct {
 	Findings     []LintFinding
 	TotalPages   int

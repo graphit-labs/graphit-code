@@ -34,7 +34,6 @@ func InitFileLogger(globalDir string) {
 
 	logPath := filepath.Join(logDir, "graphit.log")
 
-	// Truncate if the log file is too large (>5 MB) to prevent unbounded growth.
 	if info, err := os.Stat(logPath); err == nil && info.Size() > 5*1024*1024 {
 		_ = os.Truncate(logPath, 0)
 	}

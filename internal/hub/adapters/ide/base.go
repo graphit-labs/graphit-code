@@ -311,7 +311,6 @@ func getGraphitExecutable() string {
 func (a *FolderBasedAdapter) syncAllMCP(mcpTarget, projectID string, installed map[string]map[string]string) error {
 	desiredServers := map[string]any{}
 
-	// Auto-install/update core MCP stdio server
 	coreServerKey := brand.MCPServerName("code-stdio")
 	mcpExe, mcpArgs, mcpEnv := getMCPProxyConfig()
 	desiredServers[coreServerKey] = map[string]any{

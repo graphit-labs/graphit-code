@@ -44,7 +44,6 @@ func LoadManifest(wikiDir string) *Manifest {
 	return m
 }
 
-// SaveManifest writes the manifest to the wiki directory.
 func SaveManifest(wikiDir string, m *Manifest) {
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {

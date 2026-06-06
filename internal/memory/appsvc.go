@@ -129,7 +129,6 @@ func (s *MemoryAppService) SearchByKeyword(term, scope string) ([]MemorySearchRe
 	return results, nil
 }
 
-// ParseTags splits a comma-separated string into trimmed, non-empty tags.
 func ParseTags(tagsCSV string) []string {
 	if tagsCSV == "" {
 		return nil

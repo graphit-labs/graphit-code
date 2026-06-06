@@ -43,7 +43,6 @@ func EnsureRunning() (started bool, err error) {
 // deleted. The launcher extracts the new runtime and delegates to the correct
 // graphit-core. Falls back to os.Executable() for non-launcher installations.
 func resolveDaemonExe() string {
-	// Prefer the launcher — it handles runtime extraction and version switching.
 	if launcher := os.Getenv(brand.EnvVar("LAUNCHER_PATH")); launcher != "" {
 		if _, err := os.Stat(launcher); err == nil {
 			return launcher

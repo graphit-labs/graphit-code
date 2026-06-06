@@ -50,7 +50,6 @@ var (
 	deleteChatSession = chat.DeleteSession
 )
 
-// WikiSearchOpts is a view-agnostic DTO for multi-wiki search orchestration.
 type WikiSearchOpts struct {
 	Query   string
 	Wikis   []string
@@ -58,7 +57,6 @@ type WikiSearchOpts struct {
 	TopK    int
 }
 
-// WikiSearchResult is a view-agnostic DTO for search output.
 type WikiSearchResult struct {
 	Answer    string
 	SessionID string

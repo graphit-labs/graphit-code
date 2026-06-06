@@ -22,8 +22,7 @@ type proxyEmbeddingClient struct {
 
 func newProxyEmbeddingClient() *proxyEmbeddingClient {
 	sockFile := filepath.Join(brand.GlobalDir(), "daemon", "embed.sock")
-	
-	// Quick check if socket is responsive
+
 	conn, err := net.Dial("unix", sockFile)
 	if err != nil {
 		return nil

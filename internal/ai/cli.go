@@ -152,9 +152,6 @@ func (c *cliClient) SupportsSession() bool {
 }
 
 func (c *cliClient) completeInternal(ctx context.Context, sessionID, systemPrompt, userPrompt string) (string, string, error) {
-	// Build the full prompt with non-interactive preamble.
-	// The preamble instructs the agent to act autonomously without
-	// attempting interactive actions or requesting user approval.
 	var promptBuilder strings.Builder
 	promptBuilder.WriteString(nonInteractivePreamble)
 	if systemPrompt != "" {
@@ -168,7 +165,6 @@ func (c *cliClient) completeInternal(ctx context.Context, sessionID, systemPromp
 
 	var args []string
 
-	// Prepend session flag if session ID is provided and CLI supports it
 	if sessionID != "" && spec.sessionFlag != "" {
 		args = append(args, spec.sessionFlag, sessionID)
 	}
@@ -180,7 +176,6 @@ func (c *cliClient) completeInternal(ctx context.Context, sessionID, systemPromp
 		args = append(args, spec.stdinArgs...)
 
 	case inputFile:
-		// Write prompt to temp file, pass file path via flag
 		tmpFile, err := writeTempPrompt(prompt)
 		if err != nil {
 			return "", "", fmt.Errorf("writing temp prompt for %q: %w", c.binaryName, err)
@@ -200,7 +195,6 @@ func (c *cliClient) completeInternal(ctx context.Context, sessionID, systemPromp
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 
-	// Set environment for non-interactive execution (suppress TUI/colors only).
 	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb")
 
 	switch spec.mode {
@@ -221,11 +215,7 @@ func (c *cliClient) completeInternal(ctx context.Context, sessionID, systemPromp
 
 	response := strings.TrimSpace(outBuf.String())
 
-	// For session-capable CLIs, return the same sessionID back.
 	returnedSessionID := sessionID
-	if returnedSessionID == "" && spec.sessionFlag != "" {
-		returnedSessionID = ""
-	}
 
 	return response, returnedSessionID, nil
 }
@@ -250,7 +240,6 @@ func writeTempPrompt(prompt string) (string, error) {
 		return "", err
 	}
 
-	// Restrict permissions to owner-only
 	if chmodErr := os.Chmod(path, 0o600); chmodErr != nil {
 		// Best effort — non-fatal on systems that don't support chmod
 		_ = chmodErr

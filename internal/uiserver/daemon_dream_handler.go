@@ -98,7 +98,6 @@ func (h *DaemonDreamHandler) handleDaemonStop(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// Fallback to SIGKILL
 	if err := pid.Signal(syscall.SIGKILL); err != nil {
 		http.Error(w, fmt.Sprintf("sending SIGKILL: %v", err), http.StatusInternalServerError)
 		return

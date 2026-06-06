@@ -44,7 +44,6 @@ func (c *CompositeParser) Parse(path string, isDepend bool, opts ParseOptions) (
 		return pf, err
 	}
 
-	// ANTLR-only extension
 	if hasAntlr && !hasTS {
 		pf, err := c.antlr.Parse(path, isDepend, opts)
 		if pf != nil {
@@ -68,7 +67,6 @@ func (c *CompositeParser) Parse(path string, isDepend bool, opts ParseOptions) (
 		return pf, err
 	}
 
-	// Tree-sitter only
 	if hasTS {
 		pf, err := c.treeSitter.Parse(path, isDepend, opts)
 		if pf != nil {

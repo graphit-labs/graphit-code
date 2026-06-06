@@ -90,7 +90,6 @@ func DetectKnowledgeCommunities(graph *wiki.CrossRefGraph) []KnowledgeCommunity 
 	return result
 }
 
-// AssignCommunities maps each slug to its community info.
 func AssignCommunities(communities []KnowledgeCommunity) (slugToCluster map[string]int, slugToClusterName map[string]string) {
 	slugToCluster = make(map[string]int)
 	slugToClusterName = make(map[string]string)
