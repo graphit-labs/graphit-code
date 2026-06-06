@@ -205,9 +205,12 @@ WASI_SDK_PREFIX  ?= $(shell \
 	elif [ -d "/opt/wasi-sdk" ]; then echo "/opt/wasi-sdk"; fi)
 WASI_CXX          = $(WASI_SDK_PREFIX)/bin/clang++ --target=wasm32-wasip1 --sysroot=$(WASI_SDK_PREFIX)/share/wasi-sysroot
 WASI_AR           = $(WASI_SDK_PREFIX)/bin/llvm-ar
-# NOTE: no -fno-exceptions — ANTLR4 headers use throw in inline functions.
-# Exceptions are handled at link-time via wasi_stubs/exception_stubs.cpp (abort on throw).
-# Real WASM EH (-fwasm-exceptions + exnref) causes wazero JIT to hang on large binaries.
+# Stubs-based EH: ANTLR4 compiles normally (no -fno-exceptions), but at link
+# time exception_stubs.cpp provides __cxa_throw that aborts. NoThrowErrorStrategy
+# in the driver intercepts most error recovery paths. Files using Oracle syntax
+# outside the grammar (~8%) hit internal ANTLR throws → abort → engine restart.
+# NOTE: wazero v1.12 exnref support has "invalid table access" with C++ vtables,
+# and legacy EH is rejected. Revisit when wazero fixes indirect call + exnref.
 ANTLR4_CXXFLAGS  := -std=c++17 -Os -flto -DANTLR4CPP_STATIC
 
 # Fetch + compile ANTLR4 C++ runtime to a cached WASM static library.
