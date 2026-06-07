@@ -202,7 +202,7 @@ func getModuleResolvedRule(module string) string {
 	}
 }
 
-func runASTIndex(targetPath string, workers int, reset bool, reindex bool, cluster string, noSource bool, forceAntlr string) error {
+func runASTIndex(targetPath string, workers int, reset bool, reindex bool, cluster string, noSource bool, grammar string) error {
 	p := output.NewPrinter("")
 
 	absPath, err := filepath.Abs(targetPath)
@@ -258,29 +258,34 @@ func runASTIndex(targetPath string, workers int, reset bool, reindex bool, clust
 		indexSource = false
 	}
 
-	var forceAntlrExts map[string]bool
-	if forceAntlr != "" {
-		forceAntlrExts = make(map[string]bool)
-		for _, ext := range strings.Split(forceAntlr, ",") {
-			ext = strings.TrimSpace(ext)
-			if ext == "" {
+	var grammarOverrides map[string]string
+	if grammar != "" {
+		grammarOverrides = make(map[string]string)
+		for _, pair := range strings.Split(grammar, ",") {
+			parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			ext := strings.TrimSpace(parts[0])
+			name := strings.TrimSpace(parts[1])
+			if ext == "" || name == "" {
 				continue
 			}
 			if !strings.HasPrefix(ext, ".") {
 				ext = "." + ext
 			}
-			forceAntlrExts[strings.ToLower(ext)] = true
+			grammarOverrides[strings.ToLower(ext)] = name
 		}
-		p.Step("Forcing ANTLR parser for: %s", forceAntlr)
+		p.Step("Grammar overrides: %s", grammar)
 	}
 
 	pipeOpts := ast.PipelineOptions{
-		Workers:        workers,
-		IndexSource:    indexSource,
-		CacheDir:       filepath.Dir(ladybugCfg.DBPath),
-		Cluster:        cluster,
-		ForceRebuild:   reindex,
-		ForceAntlrExts: forceAntlrExts,
+		Workers:          workers,
+		IndexSource:      indexSource,
+		CacheDir:         filepath.Dir(ladybugCfg.DBPath),
+		Cluster:          cluster,
+		ForceRebuild:     reindex,
+		GrammarOverrides: grammarOverrides,
 	}
 
 	result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)

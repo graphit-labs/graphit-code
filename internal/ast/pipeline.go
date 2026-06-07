@@ -21,7 +21,7 @@ type PipelineOptions struct {
 	SkipExternal  bool
 	CacheDir      string
 	ExcludeExts   map[string]bool
-	ForceAntlrExts map[string]bool
+	GrammarOverrides map[string]string
 	Cluster       string
 	ForceRebuild  bool
 	Logger        *slog.Logger
@@ -58,7 +58,7 @@ func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts Pipeline
 	writer := NewGraphWriter(db, abs, opts.IndexSource)
 	writer.cluster = opts.Cluster
 
-	parser := NewCompositeParser(abs, nil, nil, opts.ForceAntlrExts)
+	parser := NewCompositeParser(abs, nil, nil, opts.GrammarOverrides)
 	return runFileWorkerPool(ctx, db, writer, abs, parser, t0, opts)
 }
 
@@ -219,7 +219,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				defer wg.Done()
 				wm := NewWorkerModules(GetEngine())
 				awm := NewAntlrWorkerModules(GetAntlrEngine())
-				wp := NewCompositeParser(abs, wm, awm, opts.ForceAntlrExts)
+				wp := NewCompositeParser(abs, wm, awm, opts.GrammarOverrides)
 				defer wm.Close()
 				defer awm.Close()
 				for path := range paths {

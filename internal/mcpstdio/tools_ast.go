@@ -24,7 +24,7 @@ type astIndexInput struct {
 	Reindex    bool   `json:"reindex,omitempty" jsonschema:"Force reindexing of unchanged files"`
 	Cluster    string `json:"cluster,omitempty" jsonschema:"Optional cluster label for grouping"`
 	NoSource   bool   `json:"no_source,omitempty" jsonschema:"Do not index file source contents"`
-	ForceAntlr string `json:"force_antlr,omitempty" jsonschema:"Force ANTLR parser for these extensions (comma-separated, e.g. .sql,.plsql)"`
+	Grammar    string `json:"grammar,omitempty" jsonschema:"Override grammar per extension (comma-separated: .ext=grammar-name, e.g. .sql=antlr-plsql,.pks=antlr-plsql)"`
 }
 
 type astQueryInput struct {
@@ -150,29 +150,34 @@ func registerASTTools(server *mcp.Server) {
 			indexSource = false
 		}
 
-		var forceAntlrExts map[string]bool
-		if input.ForceAntlr != "" {
-			forceAntlrExts = make(map[string]bool)
-			for _, ext := range strings.Split(input.ForceAntlr, ",") {
-				ext = strings.TrimSpace(ext)
-				if ext == "" {
+		var grammarOverrides map[string]string
+		if input.Grammar != "" {
+			grammarOverrides = make(map[string]string)
+			for _, pair := range strings.Split(input.Grammar, ",") {
+				parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+				if len(parts) != 2 {
+					continue
+				}
+				ext := strings.TrimSpace(parts[0])
+				name := strings.TrimSpace(parts[1])
+				if ext == "" || name == "" {
 					continue
 				}
 				if !strings.HasPrefix(ext, ".") {
 					ext = "." + ext
 				}
-				forceAntlrExts[strings.ToLower(ext)] = true
+				grammarOverrides[strings.ToLower(ext)] = name
 			}
 		}
 
 		ladybugCfg := ast.DefaultLadybugConfig()
 		pipeOpts := ast.PipelineOptions{
-			Workers:        workers,
-			IndexSource:    indexSource,
-			CacheDir:       filepath.Dir(ladybugCfg.DBPath),
-			Cluster:        input.Cluster,
-			ForceRebuild:   input.Reindex,
-			ForceAntlrExts: forceAntlrExts,
+			Workers:          workers,
+			IndexSource:      indexSource,
+			CacheDir:         filepath.Dir(ladybugCfg.DBPath),
+			Cluster:          input.Cluster,
+			ForceRebuild:     input.Reindex,
+			GrammarOverrides: grammarOverrides,
 		}
 
 		result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)

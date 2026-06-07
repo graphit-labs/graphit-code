@@ -206,16 +206,16 @@ Bridges the ANTLR WASM runtime with the indexing pipeline. For each file:
 3. Walks the parse tree using XPath-based patterns from the language YAML
 4. Returns a `ParsedFile` with structured data for graph insertion
 
-### `--force-antlr` CLI Flag
+### `--grammar` CLI Flag
 
-When both Tree-sitter and ANTLR grammars exist for the same file extension (e.g., `.sql`), Tree-sitter is used by default. The `--force-antlr` flag overrides this for specific extensions, forcing the ANTLR backend:
+When both Tree-sitter and ANTLR grammars exist for the same file extension (e.g., `.sql`), Tree-sitter is used by default. The `--grammar` flag overrides this, selecting a specific grammar per extension:
 
 ```bash
-graphit sync --force-antlr .sql
-graphit init --force-antlr .sql,.plsql
+graphit sync --grammar .sql=antlr-plsql
+graphit init --grammar .sql=antlr-plsql,.pks=antlr-plsql
 ```
 
-The MCP equivalent is the `force_antlr` parameter on sync/init tools. This is useful when deeper parse trees or DML tracking is needed for SQL files.
+The grammar name determines the backend automatically: `antlr-*` uses ANTLR v4, all others use tree-sitter. This is propagated as `GrammarOverrides map[string]string` through `PipelineOptions` → `CompositeParser`.
 
 ---
 
@@ -757,7 +757,7 @@ Source Files → File Discovery → Parse (Tree-sitter / ANTLR) → Entity Extra
 ```
 
 1. **File Discovery**: Walks the project directory, respecting `.gitignore` and `.astignore` rules. Detects language via file extension.
-2. **Parse**: Each file is parsed into a concrete syntax tree using the appropriate language grammar — Tree-sitter for most languages, ANTLR v4 for languages configured with `parser: antlr4`. The parser backend is determined by the language YAML; see [`--force-antlr`](#--force-antlr-cli-flag) for per-extension override.
+2. **Parse**: Each file is parsed into a concrete syntax tree using the appropriate language grammar — Tree-sitter for most languages, ANTLR v4 for languages configured with `parser: antlr4`. The parser backend is determined by the language YAML; see [`--grammar`](#--grammar-cli-flag) for per-extension override.
 3. **Entity Extraction**: YAML-defined queries (S-expressions for Tree-sitter, XPath for ANTLR) extract structured entities (functions, classes, imports, calls, fields, DML statements, etc.) from the syntax tree.
 4. **Graph Write**: Extracted entities are written as nodes and relationships into LadybugDB. Each entity gets a unique `uid` and is linked to its parent file via `CONTAINS` edges.
 5. **FTS5 Index**: Entity names are split (camelCase, snake_case) and indexed in SQLite FTS5 for multi-pass full-text search.

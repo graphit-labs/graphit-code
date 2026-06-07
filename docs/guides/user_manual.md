@@ -784,24 +784,24 @@ graphit sync
 
 All other YAML fields (`extensions`, `exports`, `self_keywords`, `context_types`, etc.) work identically for both parser backends.
 
-### Parser Selection and `--force-antlr`
+### Grammar Selection (`--grammar`)
 
-When both a Tree-sitter and an ANTLR grammar exist for the same file extension (e.g., `.sql`), the engine tries **Tree-sitter first**. If Tree-sitter returns an error or extracts zero entities, it automatically falls back to ANTLR.
+By default, Tree-sitter is used when a grammar exists for the file extension; ANTLR is used as fallback. When both engines support the same extension (e.g., `.sql`), Tree-sitter is tried first and ANTLR is used only if Tree-sitter fails or extracts nothing.
 
-To skip this fallback logic and force ANTLR parsing for specific extensions, use the `--force-antlr` flag:
+To override this and select a specific grammar per extension, use the `--grammar` flag:
 
 ```bash
-# Force ANTLR for .sql files
-graphit sync --force-antlr .sql
+# Force ANTLR PL/SQL grammar for .sql files
+graphit sync --grammar .sql=antlr-plsql
 
-# Force ANTLR for multiple extensions
-graphit sync --force-antlr .sql,.pks,.pkb
+# Multiple overrides
+graphit sync --grammar .sql=antlr-plsql,.pks=antlr-plsql,.pkb=antlr-plsql
 
-# Force ANTLR during AST indexing
-graphit ast index --force-antlr .sql
+# Force tree-sitter SQL grammar explicitly
+graphit ast index --grammar .sql=tree-sitter-sql
 ```
 
-In MCP tool calls, use the `force_antlr` parameter with the same comma-separated extension list.
+The grammar name determines the backend automatically: names starting with `antlr-` use ANTLR, others use tree-sitter.
 
 ### Important Notes
 

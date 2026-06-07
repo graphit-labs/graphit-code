@@ -44,7 +44,7 @@ func newASTIndexCmd() *cobra.Command {
 	var reindex bool
 	var cluster string
 	var noSource bool
-	var forceAntlr string
+	var grammar string
 
 	cmd := &cobra.Command{
 		Use:   "index [path]",
@@ -77,7 +77,7 @@ Flags:
 				targetPath = args[0]
 			}
 
-			return runASTIndex(targetPath, workers, reset, reindex, cluster, noSource, forceAntlr)
+			return runASTIndex(targetPath, workers, reset, reindex, cluster, noSource, grammar)
 		},
 	}
 	cmd.Flags().IntVar(&workers, "workers", 0, "Parallel worker count (default: all CPUs)")
@@ -85,7 +85,7 @@ Flags:
 	cmd.Flags().BoolVar(&reindex, "reindex", false, "Remove only this repository before re-indexing")
 	cmd.Flags().StringVar(&cluster, "cluster", "", "Tag all indexed nodes with a logical cluster name for filtered queries")
 	cmd.Flags().BoolVar(&noSource, "no-source", false, "Skip storing source code in graph nodes (lighter index, no FTS/source retrieval)")
-	cmd.Flags().StringVar(&forceAntlr, "force-antlr", "", "Force ANTLR parser for these extensions (comma-separated, e.g. .sql,.plsql)")
+	cmd.Flags().StringVar(&grammar, "grammar", "", "Override grammar per extension (comma-separated: .ext=grammar-name, e.g. .sql=antlr-plsql,.pks=antlr-plsql)")
 	return cmd
 }
 
