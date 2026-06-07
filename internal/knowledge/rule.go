@@ -11,7 +11,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
-const knowledgeBlockName = "KNOWLEDGE"
+
 
 func KnowledgeRuleContent(contexts []string, docsDir string) string {
 	if docsDir == "" {
@@ -918,69 +918,15 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 
 var knowledgeSkillName = brand.SkillDirName("knowledge")
 
-func KnowledgeRouterContent(docsDir, globalRulesFile string) string {
-	if docsDir == "" {
-		docsDir = "."
-	}
-	dotBrand := brand.DotDir()
-
+func MandateTrigger() string {
 	syncRef := brand.MCPToolRef("sync")
-	hubListRef := brand.MCPToolRef("hub", "list")
-
-	lines := []string{
-		"# 📚 Knowledge & Documentation",
-		"",
-		"> This module manages project documentation, knowledge wiki, and integration specs.",
-		"> **Detailed instructions are in the `" + knowledgeSkillName + "` skill. Read it when triggered.**",
-		"",
-		"## Activation Triggers — You MUST read the `" + knowledgeSkillName + "` skill when:",
-		"",
-		"- Understanding project features, architecture, decisions, or specifications",
-		"- Creating, updating, or searching documentation in `docs/`",
-		"- Working with external system integrations or API specifications",
-		"- Searching for project knowledge (wiki, backlinks, provenance)",
-		"- Discovering or documenting undocumented integrations",
-		"",
-		"## 🔒 MANDATORY: Read Skill Before Acting",
-		"",
-		"**When ANY activation trigger above matches your current task, you MUST read the",
-		"`" + knowledgeSkillName + "` skill BEFORE searching the wiki, creating documentation,",
-		"or working with integrations.** The Quick Reference below is a cheat sheet for agents",
-		"who already read the skill — it is NOT a substitute. The skill contains the full",
-		"wiki-first retrieval methodology, documentation templates, task log format, and",
-		"integration protocols you must follow.",
-		"",
-		"## 🚨 MANDATORY POST-CHANGE PROTOCOL — After ANY Code Change",
-		"",
-		"**After you modify, create, or delete ANY source file, you MUST:**",
-		"",
-		"1. Read the `" + knowledgeSkillName + "` skill and follow its documentation workflow",
-		"2. Create/update task log at `docs/tasks/<task-name>.md`",
-		"3. Call the " + syncRef + " tool (passing absolute `project_dir` parameter)",
-		"",
-		"**Documentation is implicit in every task. A task without docs + sync is NOT complete.**",
-		"",
-		"## Quick Reference (always active)",
-		"",
-		"- **Wiki index**: `" + dotBrand + "/knowledge/project/index.md`",
-		"- **Task logs**: `docs/tasks/<task-name>.md` — log every task with full detail",
-		"- **Sync after docs changes**: call the " + syncRef + " tool (passing absolute `project_dir` parameter)",
-		"- **Hub search before integration**: call the " + hubListRef + " tool (passing absolute `project_dir` parameter and `type: \"knowledge\"`)",
-		"",
-		"## 🔗 Subagent Propagation",
-		"",
-		"When spawning subagents that modify code, include in their prompt:",
-		"\"After code changes, create docs/tasks/<task-name>.md and call " + syncRef + " tool (passing absolute `project_dir` parameter). Read the project's `" + globalRulesFile + "` before starting work.\"",
-	}
-	result := strings.Join(lines, "\n") + "\n"
-	if docsDir != "docs" {
-		result = strings.ReplaceAll(result, "`docs/", "`"+docsDir+"/")
-		result = strings.ReplaceAll(result, "\"docs/", "\""+docsDir+"/")
-		result = strings.ReplaceAll(result, " docs/", " "+docsDir+"/")
-		result = strings.ReplaceAll(result, "in `docs/`", "in `"+docsDir+"/`")
-	}
-	return result
+	dotBrand := brand.DotDir()
+	return "POST_CHANGE: After ANY code change → create/update `./tasks/<task-name>.md`, then call " + syncRef + ". " +
+		"SEARCH: Read `" + dotBrand + "/knowledge/project/index.md` BEFORE grepping docs/. " +
+		"INTEGRATION: Never guess APIs → check Hub first, then read wiki."
 }
+
+
 
 func resolveDocsDirFromProject(projectDir string) string {
 	lp := filepath.Join(projectDir, brand.LockFileName())
@@ -1000,10 +946,7 @@ func InstallRule(projectDir, ideName string) error {
 		}
 	}
 
-	docsDir := resolveDocsDirFromProject(projectDir)
-
-	routerContent := brand.ResolveModuleRule("knowledge", KnowledgeRouterContent(docsDir, ide.GlobalRulesFile(ideName)))
-	if err := ide.InjectManagedBlock(projectDir, ideName, knowledgeBlockName, routerContent); err != nil {
+	if err := ide.UpsertMandateTrigger(projectDir, ideName, "doc_rule", MandateTrigger()); err != nil {
 		return err
 	}
 
@@ -1035,7 +978,7 @@ func RemoveRule(projectDir, ideName string) error {
 		}
 	}
 
-	return ide.RemoveManagedBlock(projectDir, ideName, knowledgeBlockName)
+	return ide.RemoveMandateTrigger(projectDir, ideName, "doc_rule")
 }
 
 func RemoveSkill(projectDir, ideName string) error {

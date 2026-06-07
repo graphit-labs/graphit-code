@@ -8,7 +8,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
-const hubBlockName = "HUB_DISCOVERY"
+
 
 func HubRuleContent(installed []InstalledArtifactInfo) string {
 	dotBrand := brand.DotDir()
@@ -179,56 +179,16 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 
 var hubSkillName = brand.SkillDirName("hub")
 
-func HubRouterContent(installed []InstalledArtifactInfo, globalRulesFile string) string {
+func MandateTrigger() string {
 	hubListRef := brand.MCPToolRef("hub", "list")
-	hubShowRef := brand.MCPToolRef("hub", "show")
 	hubInstallRef := brand.MCPToolRef("hub", "install")
-	hubUpdateRef := brand.MCPToolRef("hub", "update")
-	clusterProjectsRef := brand.MCPToolRef("cluster", "projects")
-	astQueryRef := brand.MCPToolRef("ast", "query")
-
-	lines := []string{
-		"# 🔗 Hub Discovery",
-		"",
-		"> Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, and powers.",
-		"> **Detailed instructions are in the `" + hubSkillName + "` skill.**",
-		"",
-		"## Activation Triggers — You MUST read the `" + hubSkillName + "` skill when:",
-		"",
-		"- Working with a third-party library, framework, or API you haven't used in this session",
-		"- Needing documentation or code examples for an external dependency",
-		"- Looking for reusable rules, skills, commands, agents, or MCP servers",
-		"- Setting up a new project or adding new dependencies",
-		"- When " + astQueryRef + " returns no results for an external library (it might have a hub artifact)",
-		"",
-		"## 🔒 MANDATORY: Read Skill Before Acting",
-		"",
-		"**When ANY activation trigger above matches your current task, you MUST read the",
-		"`" + hubSkillName + "` skill BEFORE executing your first Hub operation.**",
-		"The skill contains artifact types, usage patterns, installation workflows,",
-		"ecosystem project discovery, and post-install protocols.",
-		"",
-		"## Quick Reference (always active)",
-		"",
-		"- **Search**: call " + hubListRef + " tool",
-		"- **Filter**: call " + hubListRef + " tool with `type` parameter",
-		"- **Inspect**: call " + hubShowRef + " tool with `id` parameter",
-		"- **Install**: call " + hubInstallRef + " tool (passing absolute `project_dir` parameter)",
-		"- **Update**: call " + hubUpdateRef + " tool (passing absolute `project_dir` parameter)",
-		"- **Ecosystem**: call " + clusterProjectsRef + " tool to find sibling projects",
-		"",
-		"## ⛔ Critical Rule",
-		"",
-		"**NEVER guess APIs or structures.** If uncertain about a framework or library,",
-		"check the Hub first: call " + hubListRef + " → " + hubShowRef + " → " + hubInstallRef + ".",
-		"",
-		"## 🔗 Subagent Propagation",
-		"",
-		"When spawning subagents that work with external libraries, include in their prompt:",
-		`"Before implementing integrations, check Hub for knowledge artifacts: call ` + hubListRef + ` → ` + hubInstallRef + ` (passing absolute ` + "`project_dir`" + `). Read the project's ` + "`" + globalRulesFile + "`" + ` before starting work."`,
-	}
-	return strings.Join(lines, "\n") + "\n"
+	clusterRef := brand.MCPToolRef("cluster", "projects")
+	return "EXTERNAL_DEPS: NEVER guess APIs/structures. Check Hub first: " + hubListRef + " → " + hubInstallRef + ". " +
+		"ECOSYSTEM: Find sibling projects via " + clusterRef + ". " +
+		"INSTALL: After installing knowledge artifact, read its wiki BEFORE coding."
 }
+
+
 
 func InstallRule(projectDir, ideName string) error {
 	if projectDir == "" {
@@ -239,10 +199,7 @@ func InstallRule(projectDir, ideName string) error {
 		}
 	}
 
-	installed := LoadInstalledArtifacts()
-
-	routerContent := brand.ResolveModuleRule("hub", HubRouterContent(installed, ide.GlobalRulesFile(ideName)))
-	if err := ide.InjectManagedBlock(projectDir, ideName, hubBlockName, routerContent); err != nil {
+	if err := ide.UpsertMandateTrigger(projectDir, ideName, "hub_rule", MandateTrigger()); err != nil {
 		return err
 	}
 
@@ -272,7 +229,7 @@ func RemoveRule(projectDir, ideName string) error {
 		}
 	}
 
-	return ide.RemoveManagedBlock(projectDir, ideName, hubBlockName)
+	return ide.RemoveMandateTrigger(projectDir, ideName, "hub_rule")
 }
 
 func RemoveSkill(projectDir, ideName string) error {

@@ -29,14 +29,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func installAllRules(p *output.Printer, wd, ide string) {
+func installAllRules(p *output.Printer, wd, ideName string) {
 	projectCfg := loadProjectConfigFromDir(wd)
 
 	for _, r := range []struct {
-		name         string
-		install      func(string, string) error
-		remove       func(string, string) error
-		installSkill func(string, string) error
+		name    string
+		install func(string, string) error
+		remove  func(string, string) error
+		skill   func(string, string) error
 	}{
 		{"Knowledge", knowledge.InstallRule, knowledge.RemoveRule, knowledge.InstallSkill},
 		{"AST", ast.InstallRule, ast.RemoveRule, ast.InstallSkill},
@@ -46,19 +46,16 @@ func installAllRules(p *output.Printer, wd, ide string) {
 	} {
 		moduleLower := strings.ToLower(r.name)
 		if config.IsModuleDisabled(moduleLower, nil, projectCfg) {
-
-			if err := r.remove(wd, ide); err != nil {
+			if err := r.remove(wd, ideName); err != nil {
 				p.StepWarn("%s rule removal: %v", r.name, err)
 			}
 		} else {
-
-			if err := r.install(wd, ide); err != nil {
+			if err := r.install(wd, ideName); err != nil {
 				p.StepWarn("%s rule: %v", r.name, err)
 			}
-			continue
 		}
 
-		if err := r.installSkill(wd, ide); err != nil {
+		if err := r.skill(wd, ideName); err != nil {
 			p.StepWarn("%s skill: %v", r.name, err)
 		}
 	}

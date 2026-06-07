@@ -30,6 +30,14 @@ var HTMLBlockStyle = BlockStyle{
 	EndSuffix: " -->",
 }
 
+
+var XMLBlockStyle = BlockStyle{
+	Start:     "<",
+	End:       ">",
+	EndPrefix: "</",
+	EndSuffix: ">",
+}
+
 var nlNormRe = regexp.MustCompile(`\n{3,}`)
 
 func buildBlockRegex(marker string, style BlockStyle) *regexp.Regexp {

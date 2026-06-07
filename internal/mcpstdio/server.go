@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/version"
@@ -95,7 +96,7 @@ func safeTool[T any](
 
 func textResult(text string) (*mcp.CallToolResult, any, error) {
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: text}},
+		Content: []mcp.Content{&mcp.TextContent{Text: text + ide.SysReminder}},
 	}, nil, nil
 }
 
@@ -108,5 +109,10 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return errResult(fmt.Errorf("marshal result: %w", err))
 	}
-	return textResult(string(data))
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(data)},
+			&mcp.TextContent{Text: ide.SysReminder},
+		},
+	}, nil, nil
 }

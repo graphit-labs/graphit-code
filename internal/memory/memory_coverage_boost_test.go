@@ -1902,19 +1902,6 @@ func TestDetectStaleMemories_RecentDate(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// rule.go — MemoryRouterContent with contexts
-// ===========================================================================
-
-func TestMemoryRouterContent_WithContexts(t *testing.T) {
-	content := MemoryRouterContent([]string{"ctx1", "ctx2"}, "AGENTS.md")
-	if !strings.Contains(content, "Memory Management") {
-		t.Error("should contain header")
-	}
-	if !strings.Contains(content, "AGENTS.md") {
-		t.Error("should contain global rules file")
-	}
-}
 
 // ===========================================================================
 // memory.go — MemoryService creation edge cases

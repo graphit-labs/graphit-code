@@ -12,6 +12,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/improvements"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/version"
@@ -193,13 +194,14 @@ func registerLifecycleTools(server *mcp.Server) {
 			_ = gs.Sync()
 		}
 
-		// 5. Install IDE rules for all IDEs
+		// 5. Install unified mandate + skills for all IDEs
 		for _, targetIDE := range idesToSync {
 			for _, r := range []func(string, string) error{
 				knowledge.InstallRule,
 				ast.InstallRule,
 				hub.InstallRule,
 				memory.InstallRule,
+				improvements.InstallRule,
 			} {
 				_ = r(projectDir, targetIDE)
 			}
@@ -241,6 +243,7 @@ func registerLifecycleTools(server *mcp.Server) {
 			ast.InstallRule,
 			hub.InstallRule,
 			memory.InstallRule,
+			improvements.InstallRule,
 		} {
 			_ = r(projectDir, resolvedIDE)
 		}

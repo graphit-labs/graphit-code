@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -30,8 +32,9 @@ func TestTextResult(t *testing.T) {
 	if !ok {
 		t.Fatalf("content[0] type = %T; want *mcp.TextContent", result.Content[0])
 	}
-	if tc.Text != "hello world" {
-		t.Errorf("text = %q; want %q", tc.Text, "hello world")
+	want := "hello world" + ide.SysReminder
+	if tc.Text != want {
+		t.Errorf("text = %q; want %q", tc.Text, want)
 	}
 }
 
@@ -44,8 +47,9 @@ func TestTextResult_Empty(t *testing.T) {
 		t.Fatal("expected 1 content item")
 	}
 	tc := result.Content[0].(*mcp.TextContent)
-	if tc.Text != "" {
-		t.Errorf("text = %q; want empty", tc.Text)
+	want := ide.SysReminder
+	if tc.Text != want {
+		t.Errorf("text = %q; want %q", tc.Text, want)
 	}
 }
 
@@ -77,8 +81,8 @@ func TestJsonResult(t *testing.T) {
 	if session != nil {
 		t.Errorf("session = %v; want nil", session)
 	}
-	if result == nil || len(result.Content) != 1 {
-		t.Fatal("expected 1 content item")
+	if result == nil || len(result.Content) < 1 {
+		t.Fatal("expected at least 1 content item")
 	}
 	tc := result.Content[0].(*mcp.TextContent)
 
@@ -88,6 +92,14 @@ func TestJsonResult(t *testing.T) {
 	}
 	if parsed.Name != "test" || parsed.Count != 42 {
 		t.Errorf("parsed = %+v; want {Name:test Count:42}", parsed)
+	}
+	// Verify reminder is present (as separate content block)
+	if len(result.Content) < 2 {
+		t.Fatal("expected reminder content block")
+	}
+	reminder := result.Content[1].(*mcp.TextContent)
+	if !strings.Contains(reminder.Text, "_SYS_REMINDER") {
+		t.Error("expected _SYS_REMINDER in second content block")
 	}
 }
 
@@ -149,8 +161,9 @@ func TestSafeTool_NormalExecution(t *testing.T) {
 		t.Fatal("expected non-nil result")
 	}
 	tc := result.Content[0].(*mcp.TextContent)
-	if tc.Text != "ok" {
-		t.Errorf("text = %q; want %q", tc.Text, "ok")
+	want := "ok" + ide.SysReminder
+	if tc.Text != want {
+		t.Errorf("text = %q; want %q", tc.Text, want)
 	}
 }
 

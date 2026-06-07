@@ -8,7 +8,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
-const astBlockName = "AST_EXPLORER"
+
 
 func ASTRuleContent() string {
 	lines := []string{
@@ -547,73 +547,15 @@ func ASTRuleContent() string {
 
 var astSkillName = brand.SkillDirName("ast")
 
-func ASTRouterContent(globalRulesFile string) string {
-	lines := []string{
-		"# 🔍 AST Code Exploration",
-		"",
-		"> The AST graph database is your **PRIMARY and FIRST** code analysis tool.",
-		"> It is pre-indexed, faster, and more accurate than any text-based search.",
-		"> **Detailed instructions, query cookbook, and Cypher patterns are in the `" + astSkillName + "` skill.**",
-		"",
-		"## Activation Triggers — You MUST read the `" + astSkillName + "` skill when:",
-		"",
-		"- Finding where a function/class/method is defined",
-		"- Finding who calls a function or uses a class",
-		"- Understanding call hierarchy, inheritance chains, or import graphs",
-		"- Assessing impact of a code change (refactoring analysis)",
-		"- Finding unused code, high-complexity functions, or entry points",
-		"- Understanding file structure or module relationships",
-		"- Querying DML/database dependencies",
-		"",
-		"## 🔒 MANDATORY: Read Skill Before Acting",
-		"",
-		"**When ANY activation trigger above matches your current task, you MUST read the",
-		"`" + astSkillName + "` skill BEFORE executing your first AST query or code analysis action.**",
-		"The Quick Reference below is a cheat sheet for agents who already read the skill —",
-		"it is NOT a substitute. The skill contains the full phased exploration methodology,",
-		"Cypher guidelines, cookbook patterns, and fallback protocols you must follow.",
-		"",
-		"## ⚡ grep → AST Translation (ALWAYS use AST instead of grep)",
-		"",
-		"| Instead of this grep | Use this AST tool call (passing absolute `project_dir` parameter) |",
-		"|---|---|",
-		"| `grep_search: func myFunction` | " + brand.MCPToolRef("ast", "query") + " with `query: \"MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'myfunction' RETURN f.name, f.path, f.line_number, label(f) AS type\"`, `ai_optimized: true` |",
-		"| `grep_search: type MyStruct` | " + brand.MCPToolRef("ast", "query") + " with `query: \"MATCH (n) WHERE toLower(n.name) CONTAINS 'mystruct' RETURN n.name, label(n) AS type, n.path\"`, `ai_optimized: true` |",
-		"| `grep_search: import \"package\"` | " + brand.MCPToolRef("ast", "query") + " with `query: \"MATCH (f:File)-[:IMPORTS]->(m:Module) WHERE toLower(m.name) CONTAINS 'package' RETURN f.path\"`, `ai_optimized: true` |",
-		"| `grep -l \"keyword\" *.go` | " + brand.MCPToolRef("ast", "search") + " with `query: \"keyword\"` |",
-		"| `find ... -name \"*.go\" \\| xargs grep -l \"daemon\"` | " + brand.MCPToolRef("ast", "search") + " with `query: \"daemon\"` |",
-		"",
-		"## Quick Reference (always active)",
-		"",
-		"- **Always use**: call " + brand.MCPToolRef("ast", "query") + " tool (passing absolute `project_dir` and setting `ai_optimized: true`)",
-		"- **Discover node labels**: call " + brand.MCPToolRef("ast", "schema") + " tool (passing absolute `project_dir`)",
-		"- **Never guess names**: Ground with `toLower(n.name) CONTAINS toLower('keyword')`",
-		"- **Hybrid search (RECOMMENDED)**: call " + brand.MCPToolRef("ast", "search") + " (passing absolute `project_dir` and `query`). Combines BM25 FTS + semantic vector search via Reciprocal Rank Fusion (RRF). Supports `mode: \"hybrid\"` (default), `\"fts\"`, or `\"semantic\"`.",
-		"- **Get source code (discovery)**: call " + brand.MCPToolRef("ast", "source") + " (passing absolute `project_dir` and relative `path`). Retrieves source from the graph when you discovered a file through AST. Supports `head`/`tail` (first/last N lines), `start_line`/`end_line` (line range), `entity`/`entity_type` (extract entity source by name), `pattern`/`regex`/`before`/`after` (grep-like search with context), and `line_numbers`. If you already know the path, use your IDE's file-reading tools instead.",
-		"- **One-shot: get metadata + full file source**: call " + brand.MCPToolRef("ast", "query") + " with `query: \"MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source\"`, `ai_optimized: true`",
-		"- **Reindex after changes**: call " + brand.MCPToolRef("sync") + " tool (passing absolute `project_dir`)",
-		"",
-		"## Property Quick Reference (always active — NEVER guess property names)",
-		"",
-		"- **File**: `path`, `name`, `relative_path`, `is_dependency`, `lang`, `cluster`, `source`",
-		"- **Entities** (Function, Class, Method, etc.): `uid`, `name`, `path`, `line_number`, `end_line`, `docstring`, `lang`, `cyclomatic_complexity`, `context`, `context_type`, `class_context`, `is_dependency`, `is_exported`, `value`, `is_stub`, `entry_point_score`, `cluster`",
-		"- **Module**: same as entities + `full_import_name` (no `class_context`, `value`, `entry_point_score`)",
-		"- **CALLS edge**: `source_file`, `line_number`, `full_call_name`, `receiver_type`",
-		"- **IMPORTS edge**: `alias`, `full_import_name`, `imported_name`, `line_number`, `source_file`",
-		"",
-		"## ⛔ Key Rules (read skill for complete list)",
-		"",
-		"- **AST BEFORE grep** — NEVER use grep/ripgrep for structural queries.",
-		"- **Always `ai_optimized: true`** on every " + brand.MCPToolRef("ast", "query") + " call.",
-		"- **Multi-label by default** — use `label(f) = 'Function' OR label(f) = 'Method'`, never assume a single label.",
-		"",
-		"## 🔗 Subagent Propagation",
-		"",
-		"When spawning subagents, include in their prompt:",
-		"\"For code exploration, use " + brand.MCPToolRef("ast", "query") + " and " + brand.MCPToolRef("ast", "search") + " MCP tools instead of grep_search (always pass absolute `project_dir`). Use multi-label queries. Read the project's `" + globalRulesFile + "` before starting work.\"",
-	}
-	return strings.Join(lines, "\n") + "\n"
+func MandateTrigger() string {
+	astQueryRef := brand.MCPToolRef("ast", "query")
+	astSearchRef := brand.MCPToolRef("ast", "search")
+	return "STRUCTURAL_QUERIES: ALWAYS use " + astQueryRef + " (ai_optimized:true) for finding definitions, callers, imports, inheritance. " +
+		"DISCOVERY: Use " + astSearchRef + " for keyword/semantic code search. " +
+		"GREP_ONLY: When you know the exact literal string AND file path. Never grep for structural queries."
 }
+
+
 
 func InstallRule(projectDir, ideName string) error {
 	if projectDir == "" {
@@ -624,8 +566,7 @@ func InstallRule(projectDir, ideName string) error {
 		}
 	}
 
-	routerContent := brand.ResolveModuleRule("ast", ASTRouterContent(ide.GlobalRulesFile(ideName)))
-	if err := ide.InjectManagedBlock(projectDir, ideName, astBlockName, routerContent); err != nil {
+	if err := ide.UpsertMandateTrigger(projectDir, ideName, "ast_rule", MandateTrigger()); err != nil {
 		return err
 	}
 
@@ -654,7 +595,7 @@ func RemoveRule(projectDir, ideName string) error {
 		}
 	}
 
-	return ide.RemoveManagedBlock(projectDir, ideName, astBlockName)
+	return ide.RemoveMandateTrigger(projectDir, ideName, "ast_rule")
 }
 
 func RemoveSkill(projectDir, ideName string) error {

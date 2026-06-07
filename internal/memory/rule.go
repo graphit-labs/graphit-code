@@ -8,7 +8,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
-const memoryBlockName = "MEMORY"
+
 
 func RuleContent(contexts []string) string {
 	dotBrand := brand.DotDir()
@@ -257,76 +257,16 @@ func RuleContent(contexts []string) string {
 
 var memorySkillName = brand.SkillDirName("memory")
 
-func MemoryRouterContent(contexts []string, globalRulesFile string) string {
+func MandateTrigger() string {
 	dotBrand := brand.DotDir()
 	memInsertRef := brand.MCPToolRef("memory", "insert")
-	memDeleteRef := brand.MCPToolRef("memory", "delete")
 	memSearchRef := brand.MCPToolRef("memory", "search")
-
-	lines := []string{
-		"# 🧠 Memory Management",
-		"",
-		"> Persistent memory across sessions. This framework IS your memory — no other exists.",
-		"> **Full MCP tools reference, trigger table, and protocols are in the `" + memorySkillName + "` skill.**",
-		"",
-		"## 🚨 FIRST ACTION — Execute BEFORE Any Response",
-		"",
-		"**Execute IMMEDIATELY on every conversation start. Do NOT respond to the user first.**",
-		"",
-		"1. Use `view_file` to read `" + dotBrand + "/memory/project/index.md`",
-		"2. Use `view_file` to read `" + dotBrand + "/memory/user/index.md`",
-		"3. If any memory title relates to the user's request → read that page and follow its guidance",
-		"",
-		"> If a file does not exist (new project), skip it. Use `view_file` — NOT `cat` via run_command.",
-		"",
-		"## Activation Triggers — You MUST read the `"+memorySkillName+"` skill when:",
-		"",
-		"### 💾 Save triggers (memorize immediately):",
-		"",
-		"- Task completed, modified, or bug fixed → store what/why/how/impact",
-		"- User corrects, guides, instructs, or repeats → memorize as correction/convention",
-		"- User explains a procedure or gives a tip → store as skill",
-		"- You discover something unexpected or make a design decision → store as skill/decision",
-		"- New instruction contradicts existing memory → replace it",
-		"",
-		"### 📖 Read triggers (consult memory before acting):",
-		"- **Before implementing** any significant change → check for constraints and decisions",
-		"- **When stuck**, failing repeatedly, or facing a non-obvious problem → search for past solutions",
-		"- **Before proposing** architecture or a technical approach → check for prior decisions",
-		"- When trying to **understand project context** → search for institutional knowledge",
-		"- Memory management or maintenance tasks",
-		"",
-		"## 🔒 MANDATORY: Read Skill Before Acting",
-		"",
-		"**When ANY activation trigger above matches your current task, you MUST read the",
-		"`"+memorySkillName+"` skill BEFORE executing your first memory operation.**",
-		"The Quick Reference below is a cheat sheet for agents who already read the skill —",
-		"it is NOT a substitute. The skill contains the full trigger→action table, memory types,",
-		"contradiction protocols, and transparency rules you must follow.",
-		"> **Exception:** The SESSION START PROTOCOL above is always active and does not require",
-		"> reading the skill — execute it immediately on every conversation.",
-		"",
-		"## Quick Reference (always active)",
-		"",
-		"- **Insert**: call " + memInsertRef + " tool (passing absolute `project_dir` parameter)",
-		"- **Delete**: call " + memDeleteRef + " tool (passing absolute `project_dir` parameter)",
-		"- **Search**: call " + memSearchRef + " tool (passing absolute `project_dir` parameter)",
-		"",
-		"## ⛔ Key Rules (read skill for complete list)",
-		"",
-		"- **Read memory at session start.** Skipping = repeating past mistakes.",
-		"- **Never leave a correction un-memorized.** Save immediately.",
-		"- **NEVER just say \"understood\".** Evaluate if the user's instruction should be memorized.",
-		"- **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.",
-		"",
-		"## 🔗 Subagent Propagation",
-		"",
-		"When spawning subagents, include in their prompt:",
-		"\"Before starting work, read the project's `" + globalRulesFile + "` and `" + dotBrand + "/memory/project/index.md` via view_file. After work, if you discovered something non-obvious, save it via " + memInsertRef + " (passing absolute `project_dir`).\"",
-	}
-
-	return strings.Join(lines, "\n") + "\n"
+	return "SESSION_START: Read `" + dotBrand + "/memory/project/index.md` and `" + dotBrand + "/memory/user/index.md` BEFORE first response. " +
+		"SAVE: User corrects/guides/instructs → " + memInsertRef + ". Task done → " + memInsertRef + ". Design decision → " + memInsertRef + ". " +
+		"READ: Before significant changes or when stuck → " + memSearchRef + "."
 }
+
+
 
 func InstallRule(projectDir, ideName string) error {
 	if projectDir == "" {
@@ -337,10 +277,7 @@ func InstallRule(projectDir, ideName string) error {
 		}
 	}
 
-	contexts := AllContextDirs()
-
-	routerContent := brand.ResolveModuleRule("memory", MemoryRouterContent(contexts, ide.GlobalRulesFile(ideName)))
-	if err := ide.InjectManagedBlock(projectDir, ideName, memoryBlockName, routerContent); err != nil {
+	if err := ide.UpsertMandateTrigger(projectDir, ideName, "mem_rule", MandateTrigger()); err != nil {
 		return err
 	}
 
@@ -370,7 +307,7 @@ func RemoveRule(projectDir, ideName string) error {
 		}
 	}
 
-	return ide.RemoveManagedBlock(projectDir, ideName, memoryBlockName)
+	return ide.RemoveMandateTrigger(projectDir, ideName, "mem_rule")
 }
 
 func RemoveSkill(projectDir, ideName string) error {

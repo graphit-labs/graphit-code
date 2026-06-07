@@ -45,6 +45,7 @@ func MCPToolRef(parts ...string) string { return "`" + MCPToolName(parts...) + "
 
 
 
+
 func TempDirPrefix(module string) string { return Brand + "-" + module + "-" }
 
 func ManagedMCPKey() string { return "_" + Brand + "ManagedMcpKeys" }

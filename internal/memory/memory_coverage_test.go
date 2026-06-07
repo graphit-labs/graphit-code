@@ -911,18 +911,6 @@ func TestRuleContent_WithContexts(t *testing.T) {
 	}
 }
 
-func TestMemoryRouterContent(t *testing.T) {
-	content := MemoryRouterContent(nil, "AGENTS.md")
-	if content == "" {
-		t.Error("MemoryRouterContent returned empty")
-	}
-	if !strings.Contains(content, "Memory Management") {
-		t.Error("expected header")
-	}
-	if !strings.Contains(content, "AGENTS.md") {
-		t.Error("expected global rules file reference")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // InstallRule, InstallSkill, RemoveRule, RemoveSkill

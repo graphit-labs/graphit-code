@@ -31,22 +31,6 @@ func TestHubRuleContent(t *testing.T) {
 	}
 }
 
-func TestHubRouterContent(t *testing.T) {
-	t.Parallel()
-	content := HubRouterContent(nil, "AGENTS.md")
-	if content == "" {
-		t.Error("expected non-empty content")
-	}
-	if !strings.Contains(content, "Hub Discovery") {
-		t.Error("expected content to contain 'Hub Discovery'")
-	}
-	if !strings.Contains(content, "AGENTS.md") {
-		t.Error("expected content to contain 'AGENTS.md'")
-	}
-	if !strings.Contains(content, "Quick Reference") {
-		t.Error("expected content to contain 'Quick Reference'")
-	}
-}
 
 func TestInstallRule(t *testing.T) {
 	t.Parallel()

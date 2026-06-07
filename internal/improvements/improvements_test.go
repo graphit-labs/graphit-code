@@ -12,11 +12,6 @@ func TestImprovementsRuleBasic(t *testing.T) {
 	if !strings.Contains(ruleContent, "# Code Improvement Methodology Rule") {
 		t.Errorf("unexpected rule content: %q", ruleContent)
 	}
-
-	routerContent := ImprovementsRouterContent("AGENTS.md")
-	if !strings.Contains(routerContent, "# 🔧 Code Improvement Methodology") {
-		t.Errorf("unexpected router content: %q", routerContent)
-	}
 }
 
 func TestInstallRule(t *testing.T) {
@@ -89,15 +84,11 @@ func TestInstallRuleInjectError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	// Create AGENTS.md as a directory to force injectBlock to fail
-	agentsDir := filepath.Join(dir, "AGENTS.md")
-	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
-		t.Fatalf("failed to create dir conflict: %v", err)
-	}
-
-	err := InstallRule(dir, "claude")
+	// InstallRule now only delegates to InstallSkill.
+	// An unknown IDE name should cause InstallSkill to fail.
+	err := InstallRule(dir, "nonexistent_ide")
 	if err == nil {
-		t.Error("expected InstallRule to fail when AGENTS.md is a directory")
+		t.Error("expected InstallRule to fail with unknown IDE")
 	}
 }
 

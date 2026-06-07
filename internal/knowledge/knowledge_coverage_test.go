@@ -885,32 +885,6 @@ func TestKnowledgeRuleContentDefaultDocsDir(t *testing.T) {
 	}
 }
 
-func TestKnowledgeRouterContent(t *testing.T) {
-	content := KnowledgeRouterContent("docs", "AGENTS.md")
-	if !strings.Contains(content, "Knowledge & Documentation") {
-		t.Error("missing router header")
-	}
-	if !strings.Contains(content, "AGENTS.md") {
-		t.Error("missing global rules file reference")
-	}
-}
-
-func TestKnowledgeRouterContentCustomDocsDir(t *testing.T) {
-	content := KnowledgeRouterContent("my-docs", "AGENTS.md")
-	if strings.Contains(content, "`docs/") {
-		t.Error("should have replaced docs/")
-	}
-	if !strings.Contains(content, "`my-docs/") {
-		t.Error("should contain my-docs/ references")
-	}
-}
-
-func TestKnowledgeRouterContentDefaultDocsDir(t *testing.T) {
-	content := KnowledgeRouterContent("", "AGENTS.md")
-	if !strings.Contains(content, "Knowledge & Documentation") {
-		t.Error("should still generate content")
-	}
-}
 
 func TestResolveDocsDirFromProject(t *testing.T) {
 	dir := t.TempDir()

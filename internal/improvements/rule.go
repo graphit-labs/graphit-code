@@ -8,7 +8,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
-const improvementsBlockName = "IMPROVEMENTS"
+
 
 func ImprovementsRuleContent() string {
 	var b strings.Builder
@@ -27,60 +27,14 @@ func ImprovementsRuleContent() string {
 
 var improvementsSkillName = brand.SkillDirName("improvements")
 
-func ImprovementsRouterContent(globalRulesFile string) string {
+func MandateTrigger() string {
 	dreamAddRef := brand.MCPToolRef("dream", "subject_add")
-
-	dreamListRef := brand.MCPToolRef("dream", "subject_list")
-	dreamRemoveRef := brand.MCPToolRef("dream", "subject_remove")
-
-	lines := []string{
-		"# 🔧 Code Improvement Methodology",
-		"",
-		"> Autonomous code improvement, audit, review, refactoring methodology, and dream subjects.",
-		"> Includes a **mandatory post-task reflection phase** for knowledge generation.",
-		"> **Full analysis methodology is in the `" + improvementsSkillName + "` skill.**",
-		"",
-		"## Activation Triggers — You MUST read the `" + improvementsSkillName + "` skill when:",
-		"",
-		"- User asks to **improve**, **audit**, **review**, or **refactor** the codebase",
-		"- User requests autonomous quality assessment",
-		"- User asks for code smell detection or best-practice enforcement",
-		"- After completing any significant task — for the **reflection & knowledge generation** phase",
-		"- When you notice code patterns that could be improved but are out of scope for the current task",
-		"- When you want to schedule work for later autonomous processing",
-		"- When you need to create, update, or codify recurring patterns as Hub artifacts (skills, commands, rules)",
-		"",
-		"## 🔒 MANDATORY: Read Skill Before Acting",
-		"",
-		"**When ANY activation trigger above matches your current task, you MUST read the",
-		"`" + improvementsSkillName + "` skill BEFORE starting any analysis, review, or improvement work.**",
-		"The skill contains the full engineering analysis methodology, phase-by-phase workflow,",
-		"and post-task reflection protocol. Do NOT improvise your own review process.",
-		"",
-		"## 💤 Dream Subjects — Queue Work for Autonomous Dreams",
-		"",
-		"When the user asks you to **schedule**, **queue**, or **leave something for the next dream**,",
-		"create a dream subject. The Dream module picks up pending subjects during idle periods.",
-		"",
-		"- **Add via MCP**: call " + dreamAddRef + " with `title: \"Title\"`, `body: \"Detailed instructions\"` (always passing absolute `project_dir` parameter)",
-		"- **List subjects**: call " + dreamListRef + " (always passing absolute `project_dir` parameter)",
-		"- **Remove**: call " + dreamRemoveRef + " with `slug: \"<slug>\"` (always passing absolute `project_dir` parameter)",
-		"- **Completion**: The dream agent creates `<slug>.done.md` when finished",
-		"",
-		"## ⛔ Critical Rules",
-		"",
-		"- When triggered, you MUST read and follow the full engineering analysis methodology",
-		"  documented in the skill. Do NOT improvise your own review process.",
-		"- After any improvement session, you MUST execute the **Post-Task Reflection**",
-		"  phase: reflect, update memories, and stage new artifacts for the Hub.",
-		"",
-		"## 🔗 Subagent Propagation",
-		"",
-		"When spawning subagents, include in their prompt:",
-		"\"If you notice improvable code patterns outside your scope, create a dream subject via " + dreamAddRef + " (passing absolute `project_dir`). Read the project's `" + globalRulesFile + "` before starting work.\"",
-	}
-	return strings.Join(lines, "\n") + "\n"
+	return "TRIGGER: User asks to improve/audit/review/refactor → read `" + improvementsSkillName + "` skill FIRST. " +
+		"REFLECTION: After any significant task → evaluate and memorize learnings. " +
+		"DREAM: Queue deferred work via " + dreamAddRef + "."
 }
+
+
 
 func InstallRule(projectDir, ideName string) error {
 	if projectDir == "" {
@@ -91,8 +45,7 @@ func InstallRule(projectDir, ideName string) error {
 		}
 	}
 
-	routerContent := brand.ResolveModuleRule("improvements_rule", ImprovementsRouterContent(ide.GlobalRulesFile(ideName)))
-	if err := ide.InjectManagedBlock(projectDir, ideName, improvementsBlockName, routerContent); err != nil {
+	if err := ide.UpsertMandateTrigger(projectDir, ideName, "imp_rule", MandateTrigger()); err != nil {
 		return err
 	}
 
@@ -121,7 +74,7 @@ func RemoveRule(projectDir, ideName string) error {
 		}
 	}
 
-	return ide.RemoveManagedBlock(projectDir, ideName, improvementsBlockName)
+	return ide.RemoveMandateTrigger(projectDir, ideName, "imp_rule")
 }
 
 func RemoveSkill(projectDir, ideName string) error {
