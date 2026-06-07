@@ -31,9 +31,9 @@ options {
 // Insert here @header for C++ parser.
 
 sql_script
-    : (sql_plus_command  SEMICOLON?)* (
-        (sql_plus_command | unit_statement) (SEMICOLON '/'? (sql_plus_command | unit_statement))* SEMICOLON? '/'?
-    ) EOF
+    : (sql_plus_command SEMICOLON?)* (
+        (sql_plus_command | unit_statement) ((SEMICOLON '/'? | '/') (sql_plus_command | unit_statement))* SEMICOLON? '/'?
+    )? EOF
     ;
 
 unit_statement
@@ -759,7 +759,7 @@ procedure_body
     ;
 
 create_procedure_body
-    : CREATE (OR REPLACE)? PROCEDURE procedure_name ('(' parameter (',' parameter)* ')')? invoker_rights_clause? (PARALLEL_ENABLE | DETERMINISTIC)* (
+    : CREATE (OR REPLACE)? (EDITIONABLE | NONEDITIONABLE)? PROCEDURE procedure_name ('(' parameter (',' parameter)* ')')? invoker_rights_clause? (PARALLEL_ENABLE | DETERMINISTIC)* (
         IS
         | AS
     ) (DECLARE? seq_of_declare_specs? body | call_spec | EXTERNAL)
@@ -840,7 +840,7 @@ alter_trigger
     ;
 
 create_trigger
-    : CREATE (OR REPLACE)? TRIGGER trigger_name (
+    : CREATE (OR REPLACE)? (EDITIONABLE | NONEDITIONABLE)? TRIGGER trigger_name (
         simple_dml_trigger
         | compound_dml_trigger
         | non_dml_trigger
@@ -957,7 +957,7 @@ alter_type
 // Alter Type Specific Clauses
 
 compile_type_clause
-    : COMPILE DEBUG? (SPECIFICATION | BODY)? compiler_parameters_clause* (REUSE SETTINGS)?
+    : COMPILE DEBUG? (SPECIFICATION | BODY)? compiler_parameters_clause* (REUSE SETTINGS)? (TIMESTAMP quoted_string)?
     ;
 
 replace_type_clause
@@ -1666,14 +1666,20 @@ local_partitioned_index
         | on_hash_partitioned_table
         | on_comp_partitioned_table
     )?
+    | (
+        on_range_partitioned_table
+        | on_list_partitioned_table
+        | on_hash_partitioned_table
+        | on_comp_partitioned_table
+    )
     ;
 
 on_range_partitioned_table
-    : '(' partitioned_table (',' partitioned_table)* ')'
+    : '(' partitioned_table (','? partitioned_table)* ')'
     ;
 
 on_list_partitioned_table
-    : '(' partitioned_table (',' partitioned_table)* ')'
+    : '(' partitioned_table (','? partitioned_table)* ')'
     ;
 
 partitioned_table
@@ -1682,7 +1688,7 @@ partitioned_table
 
 on_hash_partitioned_table
     : STORE IN '(' tablespace (',' tablespace)* ')'
-    | '(' on_hash_partitioned_clause (',' on_hash_partitioned_clause)* ')'
+    | '(' on_hash_partitioned_clause (','? on_hash_partitioned_clause)* ')'
     ;
 
 on_hash_partitioned_clause
@@ -1691,7 +1697,7 @@ on_hash_partitioned_clause
 
 on_comp_partitioned_table
     : (STORE IN '(' tablespace (',' tablespace)* ')')? '(' on_comp_partitioned_clause (
-        ',' on_comp_partitioned_clause
+        ','? on_comp_partitioned_clause
     )* ')'
     ;
 
@@ -2289,7 +2295,7 @@ storage_table_clause
 
 // https://docs.oracle.com/database/121/SQLRF/statements_4008.htm#SQLRF56110
 unified_auditing
-    : {this.isVersion12()}? AUDIT (
+    : {p.isVersion12()}? AUDIT (
         POLICY policy_name ((BY | EXCEPT) audit_user (',' audit_user)*)? (WHENEVER NOT? SUCCESSFUL)?
         | CONTEXT NAMESPACE oracle_namespace ATTRIBUTES attribute_name (',' attribute_name)* (
             BY audit_user (',' audit_user)*
@@ -2314,11 +2320,11 @@ audit_traditional
     ;
 
 audit_direct_path
-    : {this.isVersion12()}? DIRECT_PATH auditing_by_clause
+    : {p.isVersion12()}? DIRECT_PATH auditing_by_clause
     ;
 
 audit_container_clause
-    : {this.isVersion12()}? (CONTAINER EQUALS_OP (CURRENT | ALL))
+    : {p.isVersion12()}? (CONTAINER EQUALS_OP (CURRENT | ALL))
     ;
 
 audit_operation_clause
@@ -2362,7 +2368,7 @@ auditing_on_clause
         object_name
         | DIRECTORY regular_id
         | MINING MODEL model_name
-        | {this.isVersion12()}? SQL TRANSLATION PROFILE profile_name
+        | {p.isVersion12()}? SQL TRANSLATION PROFILE profile_name
         | DEFAULT
     )
     ;
@@ -2390,7 +2396,7 @@ sql_statement_shortcut
     | MATERIALIZED VIEW
     | NOT EXISTS
     | OUTLINE
-    | {this.isVersion12()}? PLUGGABLE DATABASE
+    | {p.isVersion12()}? PLUGGABLE DATABASE
     | PROCEDURE
     | PROFILE
     | PUBLIC DATABASE LINK
@@ -2563,7 +2569,7 @@ create_directory
     ;
 
 directory_name
-    : regular_id
+    : id_expression
     ;
 
 directory_path
@@ -2632,11 +2638,11 @@ credential_name
     ;
 
 library_editionable
-    : {this.isVersion12()}? (EDITIONABLE | NONEDITIONABLE)
+    : {p.isVersion12()}? (EDITIONABLE | NONEDITIONABLE)
     ;
 
 library_debug
-    : {this.isVersion12()}? DEBUG
+    : {p.isVersion12()}? DEBUG
     ;
 
 compiler_parameters_clause
@@ -2646,6 +2652,7 @@ compiler_parameters_clause
 parameter_value
     : regular_id
     | CHAR_STRING
+    | numeric
     ;
 
 library_name
@@ -2714,7 +2721,7 @@ alter_view
     ;
 
 alter_view_editionable
-    : {this.isVersion12()}? (EDITIONABLE | NONEDITIONABLE)
+    : {p.isVersion12()}? (EDITIONABLE | NONEDITIONABLE)
     ;
 
 // https://docs.oracle.com/en/database/oracle/oracle-database/21/sqlrf/CREATE-VIEW.html
@@ -3462,7 +3469,6 @@ relational_table_property
     | blockchain_table_clauses
     | DEFAULT COLLATION collation_name
     | ON COMMIT ((DROP | PRESERVE) DEFINITION | (DELETE | PRESERVE) ROWS)
-    | physical_properties
     | table_properties
     ;
 
@@ -3605,18 +3611,18 @@ table_partitioning_clauses
 
 range_partitions
     : PARTITION BY RANGE '(' column_name (',' column_name)* ')' (
-        INTERVAL '(' expression ')' (STORE IN '(' tablespace (',' tablespace)* ')')?
+        INTERVAL '(' expression ')' (STORE IN '(' tablespace (',' tablespace)* ')')? (TRANSITION '(' expression ')')?
     )? '(' PARTITION partition_name? range_values_clause table_partition_description (
-        ',' PARTITION partition_name? range_values_clause table_partition_description
+        ','? PARTITION partition_name? range_values_clause table_partition_description
     )* ')'
     ;
 
 list_partitions
-    : PARTITION BY LIST '(' column_name ')' (
+    : PARTITION BY LIST '(' column_name (',' column_name)* ')' (
         AUTOMATIC (STORE IN '(' tablespace (',' tablespace)* ')')?
     )? (
         '(' PARTITION partition_name? list_values_clause table_partition_description (
-            ',' PARTITION partition_name? list_values_clause table_partition_description
+            ','? PARTITION partition_name? list_values_clause table_partition_description
         )* ')'
     )?
     ;
@@ -3630,7 +3636,7 @@ hash_partitions
 
 individual_hash_partitions
     : '(' PARTITION partition_name? partitioning_storage_clause? (
-        ',' PARTITION partition_name? partitioning_storage_clause?
+        ','? PARTITION partition_name? partitioning_storage_clause?
     )* ')'
     ;
 
@@ -3647,7 +3653,7 @@ hash_partition_quantity
 
 composite_range_partitions
     : PARTITION BY RANGE '(' column_name (',' column_name)* ')' (
-        INTERVAL '(' expression ')' (STORE IN '(' tablespace (',' tablespace)* ')')?
+        INTERVAL '(' expression ')' (STORE IN '(' tablespace (',' tablespace)* ')')? (TRANSITION '(' expression ')')?
     )? (subpartition_by_range | subpartition_by_list | subpartition_by_hash) '(' range_partition_desc (
         ',' range_partition_desc
     )* ')'
@@ -4058,8 +4064,8 @@ external_table_datatype_clause
     ;
 
 external_table_delimit_clause
-    : ENCLOSED BY quoted_string (AND quoted_string)?
-    | TERMINATED BY (quoted_string | WHITESPACE) (OPTIONALLY? ENCLOSED BY quoted_string (AND quoted_string)?)?
+    : ENCLOSED BY (quoted_string | id_expression) (AND (quoted_string | id_expression))?
+    | TERMINATED BY (quoted_string | id_expression | WHITESPACE) (OPTIONALLY? ENCLOSED BY (quoted_string | id_expression) (AND (quoted_string | id_expression))?)?
     ;
 
 external_table_trim_clause
@@ -4312,10 +4318,10 @@ alter_synonym
 
 create_synonym
     // Synonym's schema cannot be specified for public synonyms
-    : CREATE (OR REPLACE)? PUBLIC SYNONYM synonym_name FOR (schema_name PERIOD)? schema_object_name (
+    : CREATE (OR REPLACE)? (EDITIONABLE | NONEDITIONABLE)? PUBLIC SYNONYM synonym_name FOR (schema_name PERIOD)? schema_object_name (
         AT_SIGN link_name
     )?
-    | CREATE (OR REPLACE)? SYNONYM (schema_name PERIOD)? synonym_name FOR (schema_name PERIOD)? schema_object_name (
+    | CREATE (OR REPLACE)? (EDITIONABLE | NONEDITIONABLE)? SYNONYM (schema_name PERIOD)? synonym_name FOR (schema_name PERIOD)? schema_object_name (
         AT_SIGN (schema_name PERIOD)? link_name
     )?
     ;
@@ -4538,7 +4544,7 @@ partial_database_recovery
     ;
 
 partial_database_recovery_10g
-    : {this.isVersion10()}? STANDBY (
+    : {p.isVersion10()}? STANDBY (
         TABLESPACE tablespace (',' tablespace)*
         | DATAFILE CHAR_STRING
         | filenumber (',' CHAR_STRING | filenumber)*
@@ -5343,7 +5349,6 @@ varray_storage_clause
 
 lob_segname
     : regular_id
-    | DELIMITED_ID
     ;
 
 lob_item
@@ -5461,7 +5466,7 @@ lob_partition_storage
     ;
 
 period_definition
-    : {this.isVersion12()}? PERIOD FOR column_name ('(' start_time_column ',' end_time_column ')')?
+    : {p.isVersion12()}? PERIOD FOR column_name ('(' start_time_column ',' end_time_column ')')?
     ;
 
 start_time_column
@@ -6194,7 +6199,7 @@ table_ref
     ;
 
 table_ref_aux
-    : table_ref_aux_internal flashback_query_clause* ({this.isNotStartOfJoin()}? table_alias)?
+    : table_ref_aux_internal flashback_query_clause* ({p.isNotStartOfJoin()}? table_alias)?
     ;
 
 table_ref_aux_internal
@@ -6459,10 +6464,10 @@ values_clause
     ;
 
 merge_statement
-    : MERGE INTO selected_tableview USING selected_tableview ON '(' condition ')' (
+    : MERGE INTO selected_tableview table_alias? USING selected_tableview ON '(' condition ')' (
         merge_update_clause merge_insert_clause?
         | merge_insert_clause merge_update_clause?
-    ) error_logging_clause?
+    )? error_logging_clause?
     ;
 
 // Merge Specific Clauses
@@ -6539,7 +6544,7 @@ dml_table_expression_clause
     | json_table_clause (AS identifier)?
     | LATERAL '(' subquery subquery_restriction_clause? ')'
     // Deprecated Oracle 10/11 RELATIONAL alias for casting object-types to relational tables
-    | {this.isVersion11()}? (RELATIONAL '(' tableview_name NOT XMLTYPE ')')
+    | {p.isVersion11()}? (RELATIONAL '(' tableview_name NOT XMLTYPE ')')
     ;
 
 table_collection_expression
@@ -6614,9 +6619,7 @@ multiset_expression
     ;
 
 relational_expression
-    : relational_expression relational_operator relational_expression
-    | relational_expression NOT? IN in_elements
-    | compound_expression
+    : compound_expression (relational_operator compound_expression)?
     ;
 
 compound_expression
@@ -6695,13 +6698,13 @@ unary_expression
     | DISTINCT unary_expression
     | ALL unary_expression
     | /*TODO{(input.LA(1) == CASE || input.LA(2) == CASE)}?*/ case_expression
-    | unary_expression '.' (
-        (COUNT | FIRST | LAST | LIMIT)
-        | (EXISTS | NEXT | PRIOR) '(' index += expression ')'
-    )
+
     | quantified_expression
-    | standard_function
-    | {this.IsNotNumericFunction()}? atom
+    | string_function
+    | numeric_function_wrapper
+    | json_function
+    | other_function
+    | atom
     | implicit_cursor_expression
     ;
 
@@ -6772,31 +6775,15 @@ atom
     ;
 
 quantified_expression
-    : (SOME | EXISTS | ALL | ANY) (
-        '(' select_only_statement ')'
-        | '(' expression (',' expression)* ')'
-    )
+    : (SOME | EXISTS | ALL | ANY) '(' select_only_statement ')'
     ;
 
 string_function
-    : SUBSTR '(' expression ',' expression (',' expression)? ')'
-    | TO_CHAR '(' (table_element | standard_function | expression) (',' quoted_string)? (
-        ',' quoted_string
-    )? ')'
-    | DECODE '(' expressions_ ')'
-    | CHR '(' concatenation USING NCHAR_CS ')'
-    | NVL '(' expression ',' expression ')'
-    | TRIM '(' ((LEADING | TRAILING | BOTH)? expression? FROM)? concatenation ')'
-    | TO_DATE '(' (table_element | standard_function | expression) (
-        DEFAULT concatenation ON CONVERSION ERROR
-    )? (',' quoted_string (',' quoted_string)?)? ')'
-    ;
-
-standard_function
-    : string_function
-    | numeric_function_wrapper
-    | json_function
-    | {this.IsNotNumericFunction()}? other_function
+    : CHR '(' concatenation USING NCHAR_CS ')'
+    | TRIM '(' (LEADING | TRAILING | BOTH)? expression? FROM concatenation ')'
+    | TO_DATE '(' expression 
+        (DEFAULT concatenation ON CONVERSION ERROR)?
+        (',' quoted_string (',' quoted_string)?)? ')'
     ;
 
 //see as https://docs.oracle.com/en/database/oracle/oracle-database/21/sqlrf/JSON_ARRAY.html#GUID-46CDB3AF-5795-455B-85A8-764528CEC43B
@@ -6933,14 +6920,17 @@ numeric_function_wrapper
     ;
 
 numeric_function
-    : SUM '(' (DISTINCT | ALL)? expression ')' (over_clause | keep_clause)?
-    | COUNT '(' (ASTERISK | ((DISTINCT | UNIQUE | ALL)? concatenation)?) ')' (over_clause | keep_clause)?
-    | ROUND '(' expression (',' (UNSIGNED_INTEGER | expression))? ')'
-    | AVG '(' (DISTINCT | ALL)? expression ')' (over_clause | keep_clause)?
-    | MIN '(' (DISTINCT | ALL)? expression ')' (over_clause | keep_clause)?
-    | MAX '(' (DISTINCT | ALL)? expression ')' (over_clause | keep_clause)?
-    | LEAST '(' expressions_ ')'
-    | GREATEST '(' expressions_ ')'
+    : SUM '(' (DISTINCT | ALL) expression ')' (over_clause | keep_clause)?
+    | SUM '(' expression ')' (over_clause | keep_clause)
+    | COUNT '(' ASTERISK ')' (over_clause | keep_clause)?
+    | COUNT '(' (DISTINCT | UNIQUE | ALL) concatenation ')' (over_clause | keep_clause)?
+    | COUNT '(' concatenation ')' (over_clause | keep_clause)
+    | AVG '(' (DISTINCT | ALL) expression ')' (over_clause | keep_clause)?
+    | AVG '(' expression ')' (over_clause | keep_clause)
+    | MIN '(' (DISTINCT | ALL) expression ')' (over_clause | keep_clause)?
+    | MIN '(' expression ')' (over_clause | keep_clause)
+    | MAX '(' (DISTINCT | ALL) expression ')' (over_clause | keep_clause)?
+    | MAX '(' expression ')' (over_clause | keep_clause)
     ;
 
 listagg_overflow_clause
@@ -6949,8 +6939,7 @@ listagg_overflow_clause
 
 other_function
     : over_clause_keyword function_argument_analytic over_clause?
-    | /*TODO stantard_function_enabling_using*/ regular_id function_argument_modeling using_clause?
-    | COUNT '(' (ASTERISK | (DISTINCT | UNIQUE | ALL)? concatenation) ')' over_clause?
+
     | (CAST | XMLCAST) '(' (MULTISET '(' subquery ')' | concatenation) AS type_spec (
         DEFAULT concatenation ON CONVERSION ERROR
     )? (',' quoted_string (',' quoted_string)?)? ')'
@@ -6962,20 +6951,19 @@ other_function
         WITHIN GROUP '(' order_by_clause ')'
     )? over_clause?
     | cursor_name (PERCENT_ISOPEN | PERCENT_FOUND | PERCENT_NOTFOUND | PERCENT_ROWCOUNT)
-    | DECOMPOSE '(' concatenation (CANONICAL | COMPATIBILITY)? ')'
+    | DECOMPOSE '(' concatenation (CANONICAL | COMPATIBILITY) ')'
     | EXTRACT '(' regular_id FROM concatenation ')'
     | (FIRST_VALUE | LAST_VALUE) function_argument_analytic respect_or_ignore_nulls? over_clause
     | (LEAD | LAG) function_argument_analytic respect_or_ignore_nulls? over_clause
     | standard_prediction_function_keyword '(' expressions_ cost_matrix_clause? using_clause? ')'
-    | (TO_BINARY_DOUBLE | TO_BINARY_FLOAT | TO_NUMBER | TO_TIMESTAMP | TO_TIMESTAMP_TZ) '(' concatenation (
+    | (TO_BINARY_DOUBLE | TO_BINARY_FLOAT | TO_NUMBER | TO_TIMESTAMP | TO_TIMESTAMP_TZ) '(' concatenation 
         DEFAULT concatenation ON CONVERSION ERROR
-    )? (',' quoted_string (',' quoted_string)?)? ')'
-    | (TO_DSINTERVAL | TO_YMINTERVAL) '(' concatenation (DEFAULT concatenation ON CONVERSION ERROR)? ')'
-    | TRANSLATE '(' expression (USING (CHAR_CS | NCHAR_CS))? (',' expression)* ')'
+        (',' quoted_string (',' quoted_string)?)? ')'
+    | (TO_DSINTERVAL | TO_YMINTERVAL) '(' concatenation DEFAULT concatenation ON CONVERSION ERROR ')'
+    | TRANSLATE '(' expression USING (CHAR_CS | NCHAR_CS) (',' expression)* ')'
     | TREAT '(' expression AS REF? type_spec ')' ('.' general_element_part)*
-    | TRIM '(' ((LEADING | TRAILING | BOTH)? quoted_string? FROM)? concatenation ')'
     | VALIDATE_CONVERSION '(' concatenation AS type_spec (',' quoted_string (',' quoted_string)?)? ')'
-    | XMLAGG '(' expression order_by_clause? ')' ('.' general_element_part)*
+    | XMLAGG '(' expression order_by_clause ')' ('.' general_element_part)*
     | (XMLCOLATTVAL | XMLFOREST) '(' xml_multiuse_expression_element (
         ',' xml_multiuse_expression_element
     )* ')' ('.' general_element_part)*
@@ -7316,7 +7304,7 @@ label_name
     ;
 
 type_name
-    : id_expression ('.' id_expression)*
+    : id_expression ('.' id_expression)* ('@' link_name)?
     ;
 
 sequence_name
@@ -7340,7 +7328,7 @@ trigger_name
     ;
 
 variable_name
-    : (INTRODUCER char_set_name)? id_expression ('.' id_expression)?
+    : (INTRODUCER char_set_name)? id_expression ('.' id_expression)*
     | bind_variable
     ;
 
@@ -7541,8 +7529,15 @@ bind_variable
 
 general_element
     : general_element_part
-    | general_element ('.' general_element_part)+
+    | general_element ('.' (general_element_part | keyword_as_method function_argument*))+
     | '(' general_element ')'
+    ;
+
+keyword_as_method
+    : EXISTS
+    | CASE
+    | WHEN
+    | THEN
     ;
 
 general_element_part
@@ -7782,7 +7777,6 @@ regular_id
     | EXCEPTION
     | EXCEPTION_INIT
     | EXCEPTIONS
-    | EXISTS
     | EXIT
     | EXTEND
     | FILESTORE
@@ -7856,12 +7850,13 @@ regular_id
     | VAR_
     | VALUE
     | COVAR_
-    | DATE_FORMAT
     ;
 
 non_reserved_keywords_in_18c
     : PERSISTABLE
     | POLYMORPHIC
+    | ORC
+    | PARQUET
     ;
 
 non_reserved_keywords_in_12c
@@ -8368,7 +8363,6 @@ non_reserved_keywords_pre12c
     | CANCEL
     | CARDINALITY
     | CASCADE
-    | CASE
     | CAST
     | CATEGORY
     | CEIL
@@ -8511,6 +8505,7 @@ non_reserved_keywords_pre12c
     | DECOMPOSE
     | DECREMENT
     | DECR
+    | DECODE
     | DECRYPT
     | DEDUPLICATE
     | DEFAULTS
@@ -9815,7 +9810,6 @@ non_reserved_keywords_pre12c
     | TEST
     | THAN
     | THE
-    | THEN
     | THREAD
     | THROUGH
     | TIME
@@ -9961,7 +9955,6 @@ non_reserved_keywords_pre12c
     | WALLET
     | WELLFORMED
     | WHENEVER
-    | WHEN
     | WHITESPACE
     | WIDTH_BUCKET
     | WITHIN

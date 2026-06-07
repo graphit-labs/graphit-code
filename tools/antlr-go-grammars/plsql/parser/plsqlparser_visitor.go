@@ -3226,9 +3226,6 @@ type PlSqlParserVisitor interface {
 	// Visit a parse tree produced by PlSqlParser#string_function.
 	VisitString_function(ctx *String_functionContext) interface{}
 
-	// Visit a parse tree produced by PlSqlParser#standard_function.
-	VisitStandard_function(ctx *Standard_functionContext) interface{}
-
 	// Visit a parse tree produced by PlSqlParser#json_function.
 	VisitJson_function(ctx *Json_functionContext) interface{}
 
@@ -3579,6 +3576,9 @@ type PlSqlParserVisitor interface {
 
 	// Visit a parse tree produced by PlSqlParser#general_element.
 	VisitGeneral_element(ctx *General_elementContext) interface{}
+
+	// Visit a parse tree produced by PlSqlParser#keyword_as_method.
+	VisitKeyword_as_method(ctx *Keyword_as_methodContext) interface{}
 
 	// Visit a parse tree produced by PlSqlParser#general_element_part.
 	VisitGeneral_element_part(ctx *General_element_partContext) interface{}

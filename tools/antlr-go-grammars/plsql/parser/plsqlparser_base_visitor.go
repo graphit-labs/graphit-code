@@ -4299,10 +4299,6 @@ func (v *BasePlSqlParserVisitor) VisitString_function(ctx *String_functionContex
 	return v.VisitChildren(ctx)
 }
 
-func (v *BasePlSqlParserVisitor) VisitStandard_function(ctx *Standard_functionContext) interface{} {
-	return v.VisitChildren(ctx)
-}
-
 func (v *BasePlSqlParserVisitor) VisitJson_function(ctx *Json_functionContext) interface{} {
 	return v.VisitChildren(ctx)
 }
@@ -4768,6 +4764,10 @@ func (v *BasePlSqlParserVisitor) VisitBind_variable(ctx *Bind_variableContext) i
 }
 
 func (v *BasePlSqlParserVisitor) VisitGeneral_element(ctx *General_elementContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BasePlSqlParserVisitor) VisitKeyword_as_method(ctx *Keyword_as_methodContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
