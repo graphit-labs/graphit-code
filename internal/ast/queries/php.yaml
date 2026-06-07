@@ -2,6 +2,7 @@ language: php
 grammar: tree-sitter-php
 extensions: [".php"]
 queries:
+  # === Entity queries ===
   - data_key: functions
     graph_label: Function
     pattern: '(function_definition name: (name) @name)'
@@ -26,6 +27,20 @@ queries:
   - data_key: namespaces
     graph_label: Package
     pattern: '(namespace_definition name: (namespace_name) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(namespace_use_declaration (namespace_use_clause (name) @name))'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(namespace_use_declaration (namespace_use_clause (qualified_name) @name))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(simple_parameter name: (variable_name (name) @name))'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(property_declaration (property_element (variable_name (name) @name)))'
+
+  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -42,9 +57,6 @@ queries:
     type: relation
     relation_type: INSTANTIATES
     pattern: '(object_creation_expression (name) @name)'
-  - data_key: parameters
-    graph_label: Parameter
-    pattern: '(simple_parameter name: (variable_name (name) @name))'
   - data_key: heritage
     type: relation
     relation_type: INHERITS
@@ -53,9 +65,6 @@ queries:
     type: relation
     relation_type: IMPLEMENTS
     pattern: '(class_interface_clause (name) @name)'
-  - data_key: fields
-    graph_label: Field
-    pattern: '(property_declaration name: (variable_name (name) @name))'
   - data_key: field_reads
     type: relation
     relation_type: READS_FIELD
@@ -69,68 +78,62 @@ queries:
     relation_type: DECORATOR
     pattern: '(attribute (name) @name)'
 
-# Export detection strategy — extracted from detectExports()
+# Export detection strategy — PHP uses visibility modifiers
 exports:
   strategy: modifier
   config:
     keyword: "public"
 
-# Self/this keywords for receiver type resolution — extracted from selfKeywordsForLang()
+# Self/this keywords for receiver type resolution
 self_keywords: ["$this->"]
 
-# Parent context type mapping — extracted from resolveParentContext()
+# Parent context type mapping — PHP tree-sitter node types only
+# Used by resolveParentContextWASM() to walk up the AST and find enclosing scope.
 context_types:
   class_declaration: Class
-  class_definition: Class
   interface_declaration: Interface
-  struct_declaration: Struct
   trait_declaration: Trait
-  namespace_declaration: Namespace
+  namespace_definition: Namespace
   enum_declaration: Enum
-  function_declaration: Function
   function_definition: Function
   method_declaration: Method
-  method_definition: Method
 
-# Anonymous function types for variable_declarator resolution — extracted from resolveParentContext()
-anon_func_types: []
+# PHP has anonymous_function (closure) and arrow_function (fn() =>) as anon types
+anon_func_types:
+  - anonymous_function
+  - arrow_function
 
-# Declaration types for docstring attachment — extracted from declarationTypes map
+# Declaration node types that can have docstrings (comments immediately above).
+# PHP tree-sitter uses these exact node types.
 declaration_types:
-  - function_declaration
-  - method_declaration
-  - method_definition
   - function_definition
-  - function_item
+  - method_declaration
   - class_declaration
-  - class_definition
-  - struct_item
   - interface_declaration
-  - trait_item
-  - enum_item
+  - trait_declaration
   - enum_declaration
-  - struct_declaration
-  - type_item
-  - protocol_declaration
   - namespace_definition
-  - variable_declarator
-  - lexical_declaration
+  - const_declaration
   - property_declaration
 
-# Comment node types for docstring extraction — extracted from isCommentNode()
+# PHP tree-sitter uses a single "comment" node type for //, /* */, and /** */ comments
 comment_types:
   - comment
-  - block_comment
-  - line_comment
 
-# Entry point scoring rules (base language rules)
+# Entry point scoring rules for PHP
 entry_points:
   names:
     - pattern: main
       score: 80
+    - pattern: __construct
+      score: 40
+    - pattern: __invoke
+      score: 40
     - pattern: "Test*"
       score: 60
     - pattern: "test_*"
+      score: 60
+    - pattern: "test*"
       score: 60
     - pattern: init
       score: 40
@@ -150,60 +153,9 @@ entry_points:
   exported_bonus: 10
   max_score: 100
 
-  decorators:
-    # HTTP route decorators
-    - name: GetMapping
-      score: 70
-    - name: PostMapping
-      score: 70
-    - name: PutMapping
-      score: 70
-    - name: DeleteMapping
-      score: 70
-    - name: RequestMapping
-      score: 70
-    - name: HttpGet
-      score: 70
-    - name: HttpPost
-      score: 70
-    - name: HttpPut
-      score: 70
-    - name: HttpDelete
-      score: 70
-    - name: Get
-      score: 70
-    - name: Post
-      score: 70
-    - name: Put
-      score: 70
-    - name: Delete
-      score: 70
-    - name: Route
-      score: 70
-    - name: route
-      score: 70
-    - name: "app.get"
-      score: 70
-    - name: "app.post"
-      score: 70
-    - name: "app.put"
-      score: 70
-    - name: "app.delete"
-      score: 70
-    # Test decorators
-    - name: Test
-      score: 60
-    - name: test
-      score: 60
-    - name: pytest.fixture
-      score: 60
-    # Controller decorators
-    - name: Controller
-      score: 50
-    - name: RestController
-      score: 50
-    - name: ApiController
-      score: 50
+  # PHP has no decorator-style annotations — attributes are handled in queries
+  # This section is intentionally empty
+  decorators: []
 
 # Import detection (language-level framework detection)
 import_detection:

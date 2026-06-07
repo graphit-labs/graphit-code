@@ -2,6 +2,7 @@ language: ruby
 grammar: tree-sitter-ruby
 extensions: [".rb"]
 queries:
+  # === Entity queries ===
   - data_key: functions
     graph_label: Function
     pattern: '(method name: (identifier) @name)'
@@ -14,16 +15,27 @@ queries:
   - data_key: modules
     graph_label: Module
     pattern: '(module name: (constant) @name)'
-  - data_key: calls
-    type: relation
-    relation_type: CALLS
-    pattern: '(call method: (identifier) @name)'
   - data_key: imports
     graph_label: Module
     pattern: '(call method: (identifier) @_method arguments: (argument_list (string (string_content) @name)) (#eq? @_method "require"))'
   - data_key: imports
     graph_label: Module
     pattern: '(call method: (identifier) @_method arguments: (argument_list (string (string_content) @name)) (#eq? @_method "require_relative"))'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment left: (constant) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(method_parameters (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(instance_variable) @name'
+
+  # === Relation queries ===
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call method: (identifier) @name)'
   - data_key: heritage
     type: relation
     relation_type: INHERITS
@@ -36,71 +48,45 @@ queries:
     type: relation
     relation_type: INHERITS
     pattern: '(call method: (identifier) @_method arguments: (argument_list (constant) @name) (#eq? @_method "extend"))'
-  - data_key: parameters
-    graph_label: Parameter
-    pattern: '(method_parameters (identifier) @name)'
-  - data_key: variables
-    graph_label: Variable
-    pattern: '(assignment left: (constant) @name)'
-  - data_key: fields
-    graph_label: Field
-    pattern: '(instance_variable) @name'
 
-# Export detection strategy — extracted from detectExports()
+# Export detection strategy — Ruby treats _prefix names as private by convention
 exports:
   strategy: no_prefix
   config:
     prefix: "_"
 
-# Self/this keywords for receiver type resolution — extracted from selfKeywordsForLang()
+# Self/this keywords for receiver type resolution
 self_keywords: ["self."]
 
-# Parent context type mapping — extracted from resolveParentContext()
+# Parent context type mapping — Ruby tree-sitter node types only
+# Used by resolveParentContextWASM() to walk up the AST and find enclosing scope.
 context_types:
-  class_declaration: Class
-  class_definition: Class
-  interface_declaration: Interface
-  struct_declaration: Struct
-  trait_declaration: Trait
-  namespace_declaration: Namespace
-  enum_declaration: Enum
-  function_declaration: Function
-  function_definition: Function
-  method_declaration: Method
-  method_definition: Method
+  class: Class
+  module: Module
+  method: Method
+  singleton_method: Method
+  singleton_class: Class
 
-# Anonymous function types for variable_declarator resolution — extracted from resolveParentContext()
-anon_func_types: []
+# Ruby has lambda, block, and do_block as anonymous function types
+anon_func_types:
+  - lambda
+  - block
+  - do_block
 
-# Declaration types for docstring attachment — extracted from declarationTypes map
+# Declaration node types that can have docstrings (comments immediately above).
+# Ruby tree-sitter uses these exact node types.
 declaration_types:
-  - function_declaration
-  - method_declaration
-  - method_definition
-  - function_definition
-  - function_item
-  - class_declaration
-  - class_definition
-  - struct_item
-  - interface_declaration
-  - trait_item
-  - enum_item
-  - enum_declaration
-  - struct_declaration
-  - type_item
-  - protocol_declaration
-  - namespace_definition
-  - variable_declarator
-  - lexical_declaration
-  - property_declaration
+  - method
+  - singleton_method
+  - class
+  - module
+  - singleton_class
 
-# Comment node types for docstring extraction — extracted from isCommentNode()
+# Ruby tree-sitter uses a single "comment" node type for # comments
 comment_types:
   - comment
-  - block_comment
-  - line_comment
 
-# Entry point scoring rules (base language rules)
+# Entry point scoring rules for Ruby
 entry_points:
   names:
     - pattern: main
@@ -109,7 +95,7 @@ entry_points:
       score: 60
     - pattern: "test_*"
       score: 60
-    - pattern: init
+    - pattern: initialize
       score: 40
     - pattern: setup
       score: 40
@@ -127,60 +113,8 @@ entry_points:
   exported_bonus: 10
   max_score: 100
 
-  decorators:
-    # HTTP route decorators
-    - name: GetMapping
-      score: 70
-    - name: PostMapping
-      score: 70
-    - name: PutMapping
-      score: 70
-    - name: DeleteMapping
-      score: 70
-    - name: RequestMapping
-      score: 70
-    - name: HttpGet
-      score: 70
-    - name: HttpPost
-      score: 70
-    - name: HttpPut
-      score: 70
-    - name: HttpDelete
-      score: 70
-    - name: Get
-      score: 70
-    - name: Post
-      score: 70
-    - name: Put
-      score: 70
-    - name: Delete
-      score: 70
-    - name: Route
-      score: 70
-    - name: route
-      score: 70
-    - name: "app.get"
-      score: 70
-    - name: "app.post"
-      score: 70
-    - name: "app.put"
-      score: 70
-    - name: "app.delete"
-      score: 70
-    # Test decorators
-    - name: Test
-      score: 60
-    - name: test
-      score: 60
-    - name: pytest.fixture
-      score: 60
-    # Controller decorators
-    - name: Controller
-      score: 50
-    - name: RestController
-      score: 50
-    - name: ApiController
-      score: 50
+  # Ruby has no decorators/annotations — this section is intentionally empty
+  decorators: []
 
 # Import detection (language-level framework detection)
 import_detection:

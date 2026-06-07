@@ -2,12 +2,22 @@ language: dart
 grammar: tree-sitter-dart
 extensions: [".dart"]
 queries:
+  # === Entity queries ===
   - data_key: functions
     graph_label: Function
     pattern: '(function_signature name: (identifier) @name)'
   - data_key: methods
     graph_label: Method
     pattern: '(method_signature (function_signature name: (identifier) @name))'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_signature (constructor_signature name: (identifier) @name))'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_signature (getter_signature name: (identifier) @name))'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_signature (setter_signature name: (identifier) @name))'
   - data_key: classes
     graph_label: Class
     pattern: '(class_definition name: (identifier) @name)'
@@ -17,16 +27,24 @@ queries:
   - data_key: interfaces
     graph_label: Interface
     pattern: '(mixin_declaration name: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(extension_declaration name: (identifier) @name)'
   - data_key: imports
     graph_label: Module
     pattern: '(import_specification (configurable_uri (uri (string_literal) @name)))'
-  - data_key: calls
-    type: relation
-    relation_type: CALLS
-    pattern: '(identifier) @name'
   - data_key: parameters
     graph_label: Parameter
     pattern: '(formal_parameter name: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(declaration (initialized_identifier (identifier) @name))'
+
+  # === Relation queries ===
+  - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
+    pattern: '(annotation name: (identifier) @name)'
   - data_key: heritage
     type: relation
     relation_type: INHERITS
@@ -39,79 +57,55 @@ queries:
     type: relation
     relation_type: INHERITS
     pattern: '(mixins (type_identifier) @name)'
-  - data_key: fields
-    graph_label: Field
-    pattern: '(declaration (initialized_identifier (identifier) @name))'
-  - data_key: decorators
-    type: relation
-    relation_type: DECORATOR
-    pattern: '(annotation name: (identifier) @name)'
 
-# Export detection strategy — extracted from detectExports()
+# Export detection strategy — Dart uses underscore prefix for private
 exports:
   strategy: no_prefix
   config:
     prefix: "_"
 
-# Self/this keywords for receiver type resolution — extracted from selfKeywordsForLang()
+# Self/this keywords for receiver type resolution
 self_keywords: ["this."]
 
-# Parent context type mapping — extracted from resolveParentContext()
+# Parent context type mapping — Dart tree-sitter node types only
 context_types:
-  class_declaration: Class
   class_definition: Class
-  interface_declaration: Interface
-  struct_declaration: Struct
-  trait_declaration: Trait
-  namespace_declaration: Namespace
   enum_declaration: Enum
-  function_declaration: Function
-  function_definition: Function
-  method_declaration: Method
-  method_definition: Method
+  mixin_declaration: Class
+  extension_declaration: Class
 
-# Anonymous function types for variable_declarator resolution — extracted from resolveParentContext()
-anon_func_types: []
+# Anonymous function types for variable_declarator resolution
+anon_func_types:
+  - function_expression
 
-# Declaration types for docstring attachment — extracted from declarationTypes map
+# Declaration types for docstring attachment — Dart node types only
 declaration_types:
-  - function_declaration
-  - method_declaration
-  - method_definition
-  - function_definition
-  - function_item
-  - class_declaration
   - class_definition
-  - struct_item
-  - interface_declaration
-  - trait_item
-  - enum_item
   - enum_declaration
-  - struct_declaration
-  - type_item
-  - protocol_declaration
-  - namespace_definition
-  - variable_declarator
-  - lexical_declaration
-  - property_declaration
+  - mixin_declaration
+  - extension_declaration
+  - type_alias
+  - function_signature
+  - method_signature
 
-# Comment node types for docstring extraction — extracted from isCommentNode()
+# Comment node types for docstring extraction — Dart has comment and documentation_comment
 comment_types:
   - comment
-  - block_comment
-  - line_comment
+  - documentation_comment
 
-# Entry point scoring rules (base language rules)
+# Entry point scoring rules for Dart
 entry_points:
   names:
     - pattern: main
       score: 80
-    - pattern: "Test*"
-      score: 60
-    - pattern: "test_*"
+    - pattern: "test*"
       score: 60
     - pattern: init
       score: 40
+    - pattern: initState
+      score: 50
+    - pattern: build
+      score: 50
     - pattern: setup
       score: 40
     - pattern: configure
@@ -120,8 +114,6 @@ entry_points:
       score: 30
     - pattern: "*Controller"
       score: 30
-    - pattern: "cmd*"
-      score: 20
     - pattern: "run*"
       score: 20
 
@@ -129,56 +121,108 @@ entry_points:
   max_score: 100
 
   decorators:
-    # HTTP route decorators
-    - name: GetMapping
-      score: 70
-    - name: PostMapping
-      score: 70
-    - name: PutMapping
-      score: 70
-    - name: DeleteMapping
-      score: 70
-    - name: RequestMapping
-      score: 70
-    - name: HttpGet
-      score: 70
-    - name: HttpPost
-      score: 70
-    - name: HttpPut
-      score: 70
-    - name: HttpDelete
-      score: 70
-    - name: Get
-      score: 70
-    - name: Post
-      score: 70
-    - name: Put
-      score: 70
-    - name: Delete
-      score: 70
+    # Flutter widget/state annotations
+    - name: override
+      score: 30
+    - name: immutable
+      score: 20
+    - name: protected
+      score: 20
+    - name: required
+      score: 20
+    - name: visibleForTesting
+      score: 40
+    # Testing annotations
+    - name: isTest
+      score: 60
+    - name: isTestGroup
+      score: 60
+    # Code generation annotations
+    - name: JsonSerializable
+      score: 30
+    - name: freezed
+      score: 30
+    - name: riverpod
+      score: 40
+    # Server-side annotations (shelf/dart_frog)
     - name: Route
       score: 70
-    - name: route
-      score: 70
-    - name: "app.get"
-      score: 70
-    - name: "app.post"
-      score: 70
-    - name: "app.put"
-      score: 70
-    - name: "app.delete"
-      score: 70
-    # Test decorators
-    - name: Test
-      score: 60
-    - name: test
-      score: 60
-    - name: pytest.fixture
-      score: 60
-    # Controller decorators
-    - name: Controller
-      score: 50
-    - name: RestController
-      score: 50
-    - name: ApiController
-      score: 50
+
+# Import detection (Dart/Flutter framework detection)
+import_detection:
+  - pattern: "package:flutter/"
+    match: prefix
+    framework: flutter
+    category: ui
+  - pattern: "package:flutter_test/"
+    match: prefix
+    framework: flutter-test
+    category: test
+  - pattern: "package:test/"
+    match: prefix
+    framework: dart-test
+    category: test
+  - pattern: "package:http/"
+    match: prefix
+    framework: http
+    category: web
+  - pattern: "package:dio/"
+    match: prefix
+    framework: dio
+    category: web
+  - pattern: "package:provider/"
+    match: prefix
+    framework: provider
+    category: state
+  - pattern: "package:riverpod/"
+    match: prefix
+    framework: riverpod
+    category: state
+  - pattern: "package:flutter_riverpod/"
+    match: prefix
+    framework: riverpod
+    category: state
+  - pattern: "package:bloc/"
+    match: prefix
+    framework: bloc
+    category: state
+  - pattern: "package:flutter_bloc/"
+    match: prefix
+    framework: bloc
+    category: state
+  - pattern: "package:get/"
+    match: prefix
+    framework: getx
+    category: state
+  - pattern: "package:shelf/"
+    match: prefix
+    framework: shelf
+    category: web
+  - pattern: "package:dart_frog/"
+    match: prefix
+    framework: dart-frog
+    category: web
+  - pattern: "package:json_annotation/"
+    match: prefix
+    framework: json-serializable
+    category: serialization
+  - pattern: "package:freezed_annotation/"
+    match: prefix
+    framework: freezed
+    category: codegen
+  - pattern: "package:drift/"
+    match: prefix
+    framework: drift
+    category: orm
+  - pattern: "package:sqflite/"
+    match: prefix
+    framework: sqflite
+    category: database
+  - pattern: "package:firebase_core/"
+    match: prefix
+    framework: firebase
+    category: cloud
+  - pattern: "package:grpc/"
+    match: prefix
+    framework: grpc
+    category: rpc

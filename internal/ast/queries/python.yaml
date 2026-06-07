@@ -2,6 +2,7 @@ language: python
 grammar: tree-sitter-python
 extensions: [".py"]
 queries:
+  # === Entity queries ===
   - data_key: functions
     graph_label: Function
     pattern: '(function_definition name: (identifier) @name)'
@@ -17,6 +18,20 @@ queries:
   - data_key: variables
     graph_label: Variable
     pattern: '(assignment left: (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameters (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameters (default_parameter name: (identifier) @name))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameters (typed_parameter (identifier) @name))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameters (typed_default_parameter name: (identifier) @name))'
+
+  # === Relation queries ===
   - data_key: decorators
     type: relation
     relation_type: DECORATOR
@@ -29,15 +44,6 @@ queries:
     type: relation
     relation_type: CALLS
     pattern: '(call function: (attribute attribute: (identifier) @name))'
-  - data_key: parameters
-    graph_label: Parameter
-    pattern: '(parameters (identifier) @name)'
-  - data_key: parameters
-    graph_label: Parameter
-    pattern: '(parameters (default_parameter name: (identifier) @name))'
-  - data_key: parameters
-    graph_label: Parameter
-    pattern: '(parameters (typed_parameter (identifier) @name))'
   - data_key: heritage
     type: relation
     relation_type: INHERITS
@@ -51,61 +57,38 @@ queries:
     relation_type: WRITES_FIELD
     pattern: '(assignment left: (attribute attribute: (identifier) @name))'
 
-# Export detection strategy — extracted from detectExports()
+# Export detection strategy — Python treats _prefix names as private
 exports:
   strategy: no_prefix
   config:
     prefix: "_"
 
-# Self/this keywords for receiver type resolution — extracted from selfKeywordsForLang()
+# Self/this keywords for receiver type resolution
 self_keywords: ["self."]
 
-# Parent context type mapping — extracted from resolveParentContext()
+# Parent context type mapping — Python tree-sitter node types only
+# Used by resolveParentContextWASM() to walk up the AST and find enclosing scope.
 context_types:
-  class_declaration: Class
   class_definition: Class
-  interface_declaration: Interface
-  struct_declaration: Struct
-  trait_declaration: Trait
-  namespace_declaration: Namespace
-  enum_declaration: Enum
-  function_declaration: Function
   function_definition: Function
-  method_declaration: Method
-  method_definition: Method
 
-# Anonymous function types for variable_declarator resolution — extracted from resolveParentContext()
-anon_func_types: []
+# Python has lambda as an anonymous function expression
+anon_func_types:
+  - lambda
 
-# Declaration types for docstring attachment — extracted from declarationTypes map
+# Declaration node types that can have docstrings (comments immediately above).
+# Python tree-sitter uses these exact node types as top-level declaration wrappers.
 declaration_types:
-  - function_declaration
-  - method_declaration
-  - method_definition
   - function_definition
-  - function_item
-  - class_declaration
   - class_definition
-  - struct_item
-  - interface_declaration
-  - trait_item
-  - enum_item
-  - enum_declaration
-  - struct_declaration
-  - type_item
-  - protocol_declaration
-  - namespace_definition
-  - variable_declarator
-  - lexical_declaration
-  - property_declaration
+  - decorated_definition
 
-# Comment node types for docstring extraction — extracted from isCommentNode()
+# Python tree-sitter uses a single "comment" node type for # comments
+# Python docstrings are expression_statement > string, not comment nodes
 comment_types:
   - comment
-  - block_comment
-  - line_comment
 
-# Entry point scoring rules (base language rules)
+# Entry point scoring rules for Python
 entry_points:
   names:
     - pattern: main
@@ -117,6 +100,8 @@ entry_points:
     - pattern: "test_*"
       score: 60
     - pattern: init
+      score: 40
+    - pattern: __init__
       score: 40
     - pattern: setup
       score: 40
@@ -134,37 +119,10 @@ entry_points:
   exported_bonus: 10
   max_score: 100
 
+  # Python-specific decorators only (Flask, FastAPI, Django, pytest)
   decorators:
-    # HTTP route decorators
-    - name: GetMapping
-      score: 70
-    - name: PostMapping
-      score: 70
-    - name: PutMapping
-      score: 70
-    - name: DeleteMapping
-      score: 70
-    - name: RequestMapping
-      score: 70
-    - name: HttpGet
-      score: 70
-    - name: HttpPost
-      score: 70
-    - name: HttpPut
-      score: 70
-    - name: HttpDelete
-      score: 70
-    - name: Get
-      score: 70
-    - name: Post
-      score: 70
-    - name: Put
-      score: 70
-    - name: Delete
-      score: 70
-    - name: Route
-      score: 70
-    - name: route
+    # Flask/FastAPI HTTP route decorators
+    - name: "app.route"
       score: 70
     - name: "app.get"
       score: 70
@@ -174,19 +132,19 @@ entry_points:
       score: 70
     - name: "app.delete"
       score: 70
+    - name: route
+      score: 70
+    - name: Route
+      score: 70
     # Test decorators
-    - name: Test
+    - name: "pytest.fixture"
       score: 60
-    - name: test
+    - name: "pytest.mark.parametrize"
       score: 60
-    - name: pytest.fixture
-      score: 60
-    # Controller decorators
-    - name: Controller
+    # Django decorators
+    - name: "login_required"
       score: 50
-    - name: RestController
-      score: 50
-    - name: ApiController
+    - name: "api_view"
       score: 50
 
 # Import detection (language-level framework detection)

@@ -184,14 +184,19 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 				}
 
 				startPt, spErr := capture.Node.StartPoint()
-				endPt, epErr := capture.Node.EndPoint()
-				if spErr != nil || epErr != nil {
+				if spErr != nil {
 					continue
 				}
 				startLine := int(startPt.Row) + 1
-				endLine := int(endPt.Row) + 1
 
 				parent, _ := capture.Node.Parent()
+
+				endLine := startLine
+				if parent != nil {
+					if parentEndPt, peErr := parent.EndPoint(); peErr == nil {
+						endLine = int(parentEndPt.Row) + 1
+					}
+				}
 				entitySource := ""
 				complexity := 1
 				if parent != nil {

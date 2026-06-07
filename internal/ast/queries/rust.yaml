@@ -2,6 +2,7 @@ language: rust
 grammar: tree-sitter-rust
 extensions: [".rs"]
 queries:
+  # === Entity queries ===
   - data_key: functions
     graph_label: Function
     pattern: '(function_item name: (identifier) @name)'
@@ -29,6 +30,14 @@ queries:
   - data_key: imports
     graph_label: Module
     pattern: '(use_declaration argument: (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter pattern: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration name: (field_identifier) @name)'
+
+  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -41,12 +50,6 @@ queries:
     type: relation
     relation_type: CALLS
     pattern: '(call_expression function: (field_expression field: (field_identifier) @name))'
-  - data_key: parameters
-    graph_label: Parameter
-    pattern: '(parameter pattern: (identifier) @name)'
-  - data_key: fields
-    graph_label: Field
-    pattern: '(field_declaration name: (field_identifier) @name)'
   - data_key: field_reads
     type: relation
     relation_type: READS_FIELD
@@ -60,67 +63,52 @@ queries:
     relation_type: IMPLEMENTS
     pattern: '(impl_item trait: (type_identifier) @name)'
 
-# Export detection strategy — extracted from detectExports()
+# Rust export detection: pub modifier
 exports:
   strategy: modifier
   config:
     keyword: "pub"
 
-# Self/this keywords for receiver type resolution — extracted from selfKeywordsForLang()
-self_keywords: ["self."]
+# Rust uses 'self' for receiver type resolution
+self_keywords: ["self.", "Self."]
 
-# Parent context type mapping — extracted from resolveParentContext()
+# Parent context type mapping — Rust tree-sitter node types only
+# Rust has no classes, interfaces, or methods as separate node types.
+# Methods in Rust are function_item nodes inside impl_item blocks.
 context_types:
-  class_declaration: Class
-  class_definition: Class
-  interface_declaration: Interface
-  struct_declaration: Struct
-  trait_declaration: Trait
-  namespace_declaration: Namespace
-  enum_declaration: Enum
-  function_declaration: Function
-  function_definition: Function
-  method_declaration: Method
-  method_definition: Method
+  impl_item: Struct
+  struct_item: Struct
+  trait_item: Trait
+  enum_item: Enum
+  mod_item: Namespace
+  function_item: Function
 
-# Anonymous function types for variable_declarator resolution — extracted from resolveParentContext()
+# Rust has no anonymous function expressions via variable_declarator
+# Rust uses closures but they are not assigned via variable_declarator pattern
 anon_func_types: []
 
-# Declaration types for docstring attachment — extracted from declarationTypes map
+# Declaration node types for docstring attachment — Rust tree-sitter only
 declaration_types:
-  - function_declaration
-  - method_declaration
-  - method_definition
-  - function_definition
   - function_item
-  - class_declaration
-  - class_definition
   - struct_item
-  - interface_declaration
-  - trait_item
   - enum_item
-  - enum_declaration
-  - struct_declaration
+  - trait_item
+  - impl_item
   - type_item
-  - protocol_declaration
-  - namespace_definition
-  - variable_declarator
-  - lexical_declaration
-  - property_declaration
+  - const_item
+  - static_item
+  - mod_item
 
-# Comment node types for docstring extraction — extracted from isCommentNode()
+# Rust tree-sitter uses line_comment and block_comment node types
 comment_types:
-  - comment
-  - block_comment
   - line_comment
+  - block_comment
 
-# Entry point scoring rules (base language rules)
+# Entry point scoring rules for Rust
 entry_points:
   names:
     - pattern: main
       score: 80
-    - pattern: "Test*"
-      score: 60
     - pattern: "test_*"
       score: 60
     - pattern: init
@@ -129,69 +117,31 @@ entry_points:
       score: 40
     - pattern: configure
       score: 40
-    - pattern: "*Handler"
+    - pattern: "*handler"
       score: 30
-    - pattern: "*Controller"
-      score: 30
-    - pattern: "cmd*"
-      score: 20
     - pattern: "run*"
+      score: 20
+    - pattern: "cmd*"
       score: 20
 
   exported_bonus: 10
   max_score: 100
 
+  # Rust attribute-based decorators
   decorators:
-    # HTTP route decorators
-    - name: GetMapping
+    # Test attributes
+    - name: test
+      score: 60
+    - name: bench
+      score: 50
+    # Web framework route attributes (actix-web, axum, rocket)
+    - name: get
       score: 70
-    - name: PostMapping
+    - name: post
       score: 70
-    - name: PutMapping
+    - name: put
       score: 70
-    - name: DeleteMapping
-      score: 70
-    - name: RequestMapping
-      score: 70
-    - name: HttpGet
-      score: 70
-    - name: HttpPost
-      score: 70
-    - name: HttpPut
-      score: 70
-    - name: HttpDelete
-      score: 70
-    - name: Get
-      score: 70
-    - name: Post
-      score: 70
-    - name: Put
-      score: 70
-    - name: Delete
-      score: 70
-    - name: Route
+    - name: delete
       score: 70
     - name: route
       score: 70
-    - name: "app.get"
-      score: 70
-    - name: "app.post"
-      score: 70
-    - name: "app.put"
-      score: 70
-    - name: "app.delete"
-      score: 70
-    # Test decorators
-    - name: Test
-      score: 60
-    - name: test
-      score: 60
-    - name: pytest.fixture
-      score: 60
-    # Controller decorators
-    - name: Controller
-      score: 50
-    - name: RestController
-      score: 50
-    - name: ApiController
-      score: 50

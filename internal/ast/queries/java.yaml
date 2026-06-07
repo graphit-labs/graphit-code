@@ -2,6 +2,7 @@ language: java
 grammar: tree-sitter-java
 extensions: [".java"]
 queries:
+  # === Entity queries ===
   - data_key: functions
     graph_label: Function
     pattern: '(method_declaration name: (identifier) @name)'
@@ -17,6 +18,12 @@ queries:
   - data_key: enums
     graph_label: Enum
     pattern: '(enum_declaration name: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(record_declaration name: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(annotation_type_declaration name: (identifier) @name)'
   - data_key: imports
     graph_label: Module
     pattern: '(import_declaration (scoped_identifier) @name)'
@@ -26,6 +33,14 @@ queries:
   - data_key: variables
     graph_label: Variable
     pattern: '(local_variable_declaration declarator: (variable_declarator name: (identifier) @name))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(formal_parameter name: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration declarator: (variable_declarator name: (identifier) @name))'
+
+  # === Relation queries ===
   - data_key: decorators
     type: relation
     relation_type: DECORATOR
@@ -42,9 +57,6 @@ queries:
     type: relation
     relation_type: INSTANTIATES
     pattern: '(object_creation_expression type: (type_identifier) @name)'
-  - data_key: parameters
-    graph_label: Parameter
-    pattern: '(formal_parameter name: (identifier) @name)'
   - data_key: heritage
     type: relation
     relation_type: INHERITS
@@ -53,9 +65,6 @@ queries:
     type: relation
     relation_type: IMPLEMENTS
     pattern: '(super_interfaces (type_list (type_identifier) @name))'
-  - data_key: fields
-    graph_label: Field
-    pattern: '(field_declaration declarator: (variable_declarator name: (identifier) @name))'
   - data_key: field_reads
     type: relation
     relation_type: READS_FIELD
@@ -65,68 +74,51 @@ queries:
     relation_type: WRITES_FIELD
     pattern: '(assignment_expression left: (field_access field: (identifier) @name))'
 
-# Export detection strategy — extracted from detectExports()
+# Export detection strategy — Java uses public modifier
 exports:
   strategy: modifier
   config:
     keyword: "public"
 
-# Self/this keywords for receiver type resolution — extracted from selfKeywordsForLang()
+# Self/this keywords for receiver type resolution
 self_keywords: ["this."]
 
-# Parent context type mapping — extracted from resolveParentContext()
+# Parent context type mapping — Java tree-sitter node types only
 context_types:
   class_declaration: Class
-  class_definition: Class
   interface_declaration: Interface
-  struct_declaration: Struct
-  trait_declaration: Trait
-  namespace_declaration: Namespace
   enum_declaration: Enum
-  function_declaration: Function
-  function_definition: Function
+  record_declaration: Class
   method_declaration: Method
-  method_definition: Method
 
-# Anonymous function types for variable_declarator resolution — extracted from resolveParentContext()
-anon_func_types: []
+# Anonymous function types for variable_declarator resolution
+anon_func_types:
+  - lambda_expression
 
-# Declaration types for docstring attachment — extracted from declarationTypes map
+# Declaration types for docstring attachment — Java node types only
 declaration_types:
-  - function_declaration
   - method_declaration
-  - method_definition
-  - function_definition
-  - function_item
   - class_declaration
-  - class_definition
-  - struct_item
   - interface_declaration
-  - trait_item
-  - enum_item
   - enum_declaration
-  - struct_declaration
-  - type_item
-  - protocol_declaration
-  - namespace_definition
-  - variable_declarator
-  - lexical_declaration
-  - property_declaration
+  - constructor_declaration
+  - record_declaration
+  - annotation_type_declaration
+  - field_declaration
 
-# Comment node types for docstring extraction — extracted from isCommentNode()
+# Comment node types for docstring extraction — Java has line_comment and block_comment
 comment_types:
-  - comment
-  - block_comment
   - line_comment
+  - block_comment
 
-# Entry point scoring rules (base language rules)
+# Entry point scoring rules for Java
 entry_points:
   names:
     - pattern: main
       score: 80
     - pattern: "Test*"
       score: 60
-    - pattern: "test_*"
+    - pattern: "test*"
       score: 60
     - pattern: init
       score: 40
@@ -138,8 +130,8 @@ entry_points:
       score: 30
     - pattern: "*Controller"
       score: 30
-    - pattern: "cmd*"
-      score: 20
+    - pattern: "*Servlet"
+      score: 30
     - pattern: "run*"
       score: 20
 
@@ -147,7 +139,7 @@ entry_points:
   max_score: 100
 
   decorators:
-    # HTTP route decorators
+    # Spring HTTP route annotations
     - name: GetMapping
       score: 70
     - name: PostMapping
@@ -156,47 +148,132 @@ entry_points:
       score: 70
     - name: DeleteMapping
       score: 70
+    - name: PatchMapping
+      score: 70
     - name: RequestMapping
       score: 70
-    - name: HttpGet
+    # Jakarta/JAX-RS annotations
+    - name: GET
       score: 70
-    - name: HttpPost
+    - name: POST
       score: 70
-    - name: HttpPut
+    - name: PUT
       score: 70
-    - name: HttpDelete
+    - name: DELETE
       score: 70
-    - name: Get
+    - name: PATCH
       score: 70
-    - name: Post
-      score: 70
-    - name: Put
-      score: 70
-    - name: Delete
-      score: 70
-    - name: Route
-      score: 70
-    - name: route
-      score: 70
-    - name: "app.get"
-      score: 70
-    - name: "app.post"
-      score: 70
-    - name: "app.put"
-      score: 70
-    - name: "app.delete"
-      score: 70
-    # Test decorators
+    - name: Path
+      score: 60
+    # Test annotations
     - name: Test
       score: 60
-    - name: test
+    - name: ParameterizedTest
       score: 60
-    - name: pytest.fixture
+    - name: RepeatedTest
       score: 60
-    # Controller decorators
+    - name: BeforeEach
+      score: 40
+    - name: AfterEach
+      score: 40
+    - name: BeforeAll
+      score: 40
+    - name: AfterAll
+      score: 40
+    # Controller/Service annotations
     - name: Controller
       score: 50
     - name: RestController
       score: 50
-    - name: ApiController
+    - name: Service
+      score: 40
+    - name: Component
+      score: 30
+    - name: Bean
+      score: 40
+    - name: Configuration
+      score: 40
+    # Scheduling
+    - name: Scheduled
       score: 50
+    - name: EventListener
+      score: 50
+
+# Import detection (Java framework detection)
+import_detection:
+  - pattern: "org.springframework"
+    match: prefix
+    framework: spring
+    category: web
+  - pattern: "jakarta.ws.rs"
+    match: prefix
+    framework: jaxrs
+    category: web
+  - pattern: "javax.ws.rs"
+    match: prefix
+    framework: jaxrs
+    category: web
+  - pattern: "jakarta.servlet"
+    match: prefix
+    framework: servlet
+    category: web
+  - pattern: "org.junit"
+    match: prefix
+    framework: junit
+    category: test
+  - pattern: "org.mockito"
+    match: prefix
+    framework: mockito
+    category: test
+  - pattern: "org.hibernate"
+    match: prefix
+    framework: hibernate
+    category: orm
+  - pattern: "jakarta.persistence"
+    match: prefix
+    framework: jpa
+    category: orm
+  - pattern: "javax.persistence"
+    match: prefix
+    framework: jpa
+    category: orm
+  - pattern: "org.mybatis"
+    match: prefix
+    framework: mybatis
+    category: orm
+  - pattern: "org.apache.kafka"
+    match: prefix
+    framework: kafka
+    category: messaging
+  - pattern: "com.google.gson"
+    match: prefix
+    framework: gson
+    category: serialization
+  - pattern: "com.fasterxml.jackson"
+    match: prefix
+    framework: jackson
+    category: serialization
+  - pattern: "io.grpc"
+    match: prefix
+    framework: grpc
+    category: rpc
+  - pattern: "org.slf4j"
+    match: prefix
+    framework: slf4j
+    category: logging
+  - pattern: "org.apache.logging.log4j"
+    match: prefix
+    framework: log4j
+    category: logging
+  - pattern: "lombok"
+    match: prefix
+    framework: lombok
+    category: codegen
+  - pattern: "io.micronaut"
+    match: prefix
+    framework: micronaut
+    category: web
+  - pattern: "io.quarkus"
+    match: prefix
+    framework: quarkus
+    category: web

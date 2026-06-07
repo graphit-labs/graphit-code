@@ -2,6 +2,7 @@ language: csharp
 grammar: tree-sitter-c_sharp
 extensions: [".cs"]
 queries:
+  # === Entity queries ===
   - data_key: functions
     graph_label: Function
     pattern: '(method_declaration name: (identifier) @name)'
@@ -23,6 +24,14 @@ queries:
   - data_key: namespaces
     graph_label: Namespace
     pattern: '(namespace_declaration name: (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter name: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration (variable_declaration (variable_declarator (identifier) @name)))'
+
+  # === Relation queries ===
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -35,16 +44,10 @@ queries:
     type: relation
     relation_type: INSTANTIATES
     pattern: '(object_creation_expression type: (identifier) @name)'
-  - data_key: parameters
-    graph_label: Parameter
-    pattern: '(parameter name: (identifier) @name)'
   - data_key: heritage
     type: relation
     relation_type: INHERITS
     pattern: '(base_list (identifier) @name)'
-  - data_key: fields
-    graph_label: Field
-    pattern: '(field_declaration (variable_declaration (variable_declarator (identifier) @name)))'
   - data_key: field_reads
     type: relation
     relation_type: READS_FIELD
@@ -58,64 +61,49 @@ queries:
     relation_type: DECORATOR
     pattern: '(attribute (identifier) @name)'
 
-# Export detection strategy — extracted from detectExports()
+# C# export detection: public modifier
 exports:
   strategy: modifier
   config:
     keyword: "public"
 
-# Self/this keywords for receiver type resolution — extracted from selfKeywordsForLang()
+# C# uses 'this' for receiver type resolution
 self_keywords: ["this."]
 
-# Parent context type mapping — extracted from resolveParentContext()
+# Parent context type mapping — C# tree-sitter node types only
 context_types:
   class_declaration: Class
-  class_definition: Class
   interface_declaration: Interface
   struct_declaration: Struct
-  trait_declaration: Trait
   namespace_declaration: Namespace
   enum_declaration: Enum
-  function_declaration: Function
-  function_definition: Function
   method_declaration: Method
-  method_definition: Method
+  constructor_declaration: Method
 
-# Anonymous function types for variable_declarator resolution — extracted from resolveParentContext()
+# C# has no anonymous function expressions via variable_declarator
 anon_func_types: []
 
-# Declaration types for docstring attachment — extracted from declarationTypes map
+# Declaration node types for docstring attachment — C# tree-sitter only
 declaration_types:
-  - function_declaration
   - method_declaration
-  - method_definition
-  - function_definition
-  - function_item
   - class_declaration
-  - class_definition
-  - struct_item
   - interface_declaration
-  - trait_item
-  - enum_item
   - enum_declaration
   - struct_declaration
-  - type_item
-  - protocol_declaration
-  - namespace_definition
-  - variable_declarator
-  - lexical_declaration
+  - namespace_declaration
   - property_declaration
+  - constructor_declaration
 
-# Comment node types for docstring extraction — extracted from isCommentNode()
+# C# tree-sitter uses a single "comment" node type for //, /* */, and /// comments
 comment_types:
   - comment
-  - block_comment
-  - line_comment
 
-# Entry point scoring rules (base language rules)
+# Entry point scoring rules for C#
 entry_points:
   names:
     - pattern: main
+      score: 80
+    - pattern: Main
       score: 80
     - pattern: "Test*"
       score: 60
@@ -139,18 +127,9 @@ entry_points:
   exported_bonus: 10
   max_score: 100
 
+  # C# attribute-based decorators (ASP.NET)
   decorators:
-    # HTTP route decorators
-    - name: GetMapping
-      score: 70
-    - name: PostMapping
-      score: 70
-    - name: PutMapping
-      score: 70
-    - name: DeleteMapping
-      score: 70
-    - name: RequestMapping
-      score: 70
+    # HTTP route attributes (ASP.NET)
     - name: HttpGet
       score: 70
     - name: HttpPost
@@ -159,37 +138,19 @@ entry_points:
       score: 70
     - name: HttpDelete
       score: 70
-    - name: Get
-      score: 70
-    - name: Post
-      score: 70
-    - name: Put
-      score: 70
-    - name: Delete
-      score: 70
     - name: Route
       score: 70
-    - name: route
-      score: 70
-    - name: "app.get"
-      score: 70
-    - name: "app.post"
-      score: 70
-    - name: "app.put"
-      score: 70
-    - name: "app.delete"
-      score: 70
-    # Test decorators
+    # Test attributes (NUnit, xUnit, MSTest)
     - name: Test
       score: 60
-    - name: test
+    - name: TestMethod
       score: 60
-    - name: pytest.fixture
+    - name: Fact
       score: 60
-    # Controller decorators
-    - name: Controller
-      score: 50
-    - name: RestController
-      score: 50
+    - name: Theory
+      score: 60
+    # Controller attributes
     - name: ApiController
+      score: 50
+    - name: Controller
       score: 50

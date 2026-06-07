@@ -40,6 +40,19 @@ func ConvertToCache(pf *ParsedFile, rootPath string, indexSource bool, cluster s
 
 	nameToUID := make(map[string]string)
 
+	// Pre-populate nameToUID in a first pass so that context lookups
+	// (e.g., fields looking up their parent struct) are order-independent.
+	// Go map iteration is non-deterministic, and without this pass, fields
+	// processed before their parent struct would get a fallback UID that
+	// doesn't match the actual struct node.
+	for _, entities := range pf.Entities {
+		for _, e := range entities {
+			if e.Name != "" {
+				nameToUID[e.Name] = entityUID(relPath, e.Name, e.Context)
+			}
+		}
+	}
+
 	dirSet := make(map[string]bool)
 	dir := filepath.Dir(relPath)
 	for dir != "." && dir != "" {

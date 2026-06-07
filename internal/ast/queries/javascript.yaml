@@ -2,11 +2,17 @@ language: javascript
 grammar: tree-sitter-javascript
 extensions: [".js", ".jsx", ".mjs"]
 queries:
+  # ═══════════════════════════════════════════════════════════════
+  # FUNCTIONS & METHODS
+  # ═══════════════════════════════════════════════════════════════
   - data_key: functions
     graph_label: Function
     pattern: '(function_declaration name: (identifier) @name)'
   - data_key: functions
     graph_label: Function
+    pattern: '(generator_function_declaration name: (identifier) @name)'
+  - data_key: methods
+    graph_label: Method
     pattern: '(method_definition name: (property_identifier) @name)'
   - data_key: functions
     graph_label: Function
@@ -14,23 +20,49 @@ queries:
   - data_key: functions
     graph_label: Function
     pattern: '(variable_declarator name: (identifier) @name value: (function_expression))'
+
+  # ═══════════════════════════════════════════════════════════════
+  # CLASSES
+  # ═══════════════════════════════════════════════════════════════
   - data_key: classes
     graph_label: Class
     pattern: '(class_declaration name: (identifier) @name)'
+
+  # ═══════════════════════════════════════════════════════════════
+  # VARIABLES
+  # ═══════════════════════════════════════════════════════════════
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(lexical_declaration (variable_declarator name: (identifier) @name))'
+
+  # ═══════════════════════════════════════════════════════════════
+  # IMPORTS & EXPORTS
+  # ═══════════════════════════════════════════════════════════════
   - data_key: imports
     graph_label: Module
     pattern: '(import_statement source: (string) @name)'
+  - data_key: imports
+    graph_label: Module
+    pattern: '(export_statement source: (string) @name)'
   - data_key: exports
     type: relation
     relation_type: EXPORT
     graph_label: Export
     pattern: '(export_statement declaration: (function_declaration name: (identifier) @name))'
-  - data_key: variables
-    graph_label: Variable
-    pattern: '(lexical_declaration (variable_declarator name: (identifier) @name))'
-  - data_key: imports
-    graph_label: Module
-    pattern: '(export_statement source: (string) @name)'
+
+  # ═══════════════════════════════════════════════════════════════
+  # PARAMETERS & FIELDS
+  # ═══════════════════════════════════════════════════════════════
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(formal_parameters (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_definition property: (property_identifier) @name)'
+
+  # ═══════════════════════════════════════════════════════════════
+  # RELATIONS
+  # ═══════════════════════════════════════════════════════════════
   - data_key: calls
     type: relation
     relation_type: CALLS
@@ -43,16 +75,10 @@ queries:
     type: relation
     relation_type: INSTANTIATES
     pattern: '(new_expression constructor: (identifier) @name)'
-  - data_key: parameters
-    graph_label: Parameter
-    pattern: '(formal_parameters (identifier) @name)'
   - data_key: heritage
     type: relation
     relation_type: INHERITS
     pattern: '(class_heritage (identifier) @name)'
-  - data_key: fields
-    graph_label: Field
-    pattern: '(field_definition property: (property_identifier) @name)'
   - data_key: field_reads
     type: relation
     relation_type: READS_FIELD
@@ -62,69 +88,49 @@ queries:
     relation_type: WRITES_FIELD
     pattern: '(assignment_expression left: (member_expression property: (property_identifier) @name))'
 
-# Export detection strategy — extracted from detectExports()
+# Export detection strategy
 exports:
   strategy: export_statement
 
-# Self/this keywords for receiver type resolution — extracted from selfKeywordsForLang()
+# JavaScript uses 'this', not 'self'
 self_keywords: ["this."]
 
-# Parent context type mapping — extracted from resolveParentContext()
+# tree-sitter-javascript context types (only valid JS node types)
 context_types:
   class_declaration: Class
-  class_definition: Class
-  interface_declaration: Interface
-  struct_declaration: Struct
-  trait_declaration: Trait
-  namespace_declaration: Namespace
-  enum_declaration: Enum
   function_declaration: Function
-  function_definition: Function
-  method_declaration: Method
   method_definition: Method
 
-# Anonymous function types for variable_declarator resolution — extracted from resolveParentContext()
+# Anonymous function types for variable_declarator resolution
 anon_func_types:
   - arrow_function
   - function_expression
   - function
+  - generator_function
 
-# Declaration types for docstring attachment — extracted from declarationTypes map
+# tree-sitter-javascript declaration types for docstring attachment
 declaration_types:
   - function_declaration
-  - method_declaration
+  - generator_function_declaration
   - method_definition
-  - function_definition
-  - function_item
   - class_declaration
-  - class_definition
-  - struct_item
-  - interface_declaration
-  - trait_item
-  - enum_item
-  - enum_declaration
-  - struct_declaration
-  - type_item
-  - protocol_declaration
-  - namespace_definition
   - variable_declarator
   - lexical_declaration
-  - property_declaration
 
-# Comment node types for docstring extraction — extracted from isCommentNode()
+# tree-sitter-javascript has a single 'comment' type for both // and /* */
 comment_types:
   - comment
-  - block_comment
-  - line_comment
 
-# Entry point scoring rules (base language rules)
+# Entry point scoring rules
 entry_points:
   names:
     - pattern: main
       score: 80
-    - pattern: "Test*"
-      score: 60
     - pattern: "test_*"
+      score: 60
+    - pattern: "*.test"
+      score: 60
+    - pattern: "*.spec"
       score: 60
     - pattern: init
       score: 40
@@ -136,70 +142,21 @@ entry_points:
       score: 30
     - pattern: "*Controller"
       score: 30
-    - pattern: "cmd*"
-      score: 20
+    - pattern: "*Middleware"
+      score: 30
     - pattern: "run*"
+      score: 20
+    - pattern: "start*"
       score: 20
 
   exported_bonus: 10
   max_score: 100
 
-  decorators:
-    # HTTP route decorators
-    - name: GetMapping
-      score: 70
-    - name: PostMapping
-      score: 70
-    - name: PutMapping
-      score: 70
-    - name: DeleteMapping
-      score: 70
-    - name: RequestMapping
-      score: 70
-    - name: HttpGet
-      score: 70
-    - name: HttpPost
-      score: 70
-    - name: HttpPut
-      score: 70
-    - name: HttpDelete
-      score: 70
-    - name: Get
-      score: 70
-    - name: Post
-      score: 70
-    - name: Put
-      score: 70
-    - name: Delete
-      score: 70
-    - name: Route
-      score: 70
-    - name: route
-      score: 70
-    - name: "app.get"
-      score: 70
-    - name: "app.post"
-      score: 70
-    - name: "app.put"
-      score: 70
-    - name: "app.delete"
-      score: 70
-    # Test decorators
-    - name: Test
-      score: 60
-    - name: test
-      score: 60
-    - name: pytest.fixture
-      score: 60
-    # Controller decorators
-    - name: Controller
-      score: 50
-    - name: RestController
-      score: 50
-    - name: ApiController
-      score: 50
+  # JS has no native decorators in tree-sitter-javascript.
+  # Express app.get/app.post are function calls, not decorators.
+  decorators: []
 
-# Import detection (language-level framework detection)
+# Import detection (framework detection — keep as-is)
 import_detection:
   # Web frameworks
   - pattern: express
