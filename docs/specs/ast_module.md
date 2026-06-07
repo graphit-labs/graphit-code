@@ -150,7 +150,7 @@ Each grammar is a standalone `.wasm` file (e.g., `tree-sitter-go.wasm`) containi
 
 ### ANTLR v4 WASM Architecture
 
-ANTLR grammars are compiled from the C++ ANTLR runtime into WASI WASM modules via wasi-sdk (≥ 33). Each grammar is a `.wasm` file (e.g., `antlr-plsql.wasm`) that exposes a standard parse interface. The `grammar` field in the language YAML maps to this filename. Patterns in ANTLR YAML files use **XPath syntax** (e.g., `//create_function_body/function_name`) instead of Tree-sitter S-expressions.
+ANTLR grammars are compiled from the Go ANTLR runtime into WASI WASM modules via `GOOS=wasip1 GOARCH=wasm`. Each grammar is a `.wasm` file (e.g., `antlr-plsql.wasm`) containing the full parser, preprocessor, and IPC driver. The `grammar` field in the language YAML maps to this filename. Patterns in ANTLR YAML files use **XPath syntax** (e.g., `//create_function_body/function_name`) instead of Tree-sitter S-expressions. Go's native `panic`/`recover` handles all ANTLR error recovery — no external toolchain is required beyond Go ≥ 1.21.
 
 ### Grammar Resolution Chain
 

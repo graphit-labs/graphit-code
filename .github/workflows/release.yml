@@ -97,9 +97,9 @@ jobs:
           path: internal/ast/grammars/*.wasm
           retention-days: 1
 
-  # ── ANTLR v4 Grammars (C++ WASM via wasi-sdk) ──────────────────────────────
-  # ANTLR grammars are compiled to platform-independent WASM binaries.
-  # Requires wasi-sdk >= 33 and CMake.
+  # ── ANTLR v4 Grammars (Go wasip1 WASM) ───────────────────────────────────────
+  # ANTLR grammars are Go modules compiled to platform-independent WASM via
+  # GOOS=wasip1 GOARCH=wasm. Only Go >= 1.21 is required.
   build-antlr-grammars:
     name: Build Grammars (ANTLR v4)
     needs: [ci]
@@ -109,16 +109,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install build tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends make curl xz-utils
-
-      - name: Set up wasi-sdk
-        run: |
-          WASI_SDK_VERSION=33
-          curl -sSL "https://github.com/aspect-build/aspect-wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz" | tar xz -C /tmp
-          echo "WASI_SDK_PREFIX=/tmp/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux" >> $GITHUB_ENV
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Build ANTLR grammars
         run: make build-antlr-grammars

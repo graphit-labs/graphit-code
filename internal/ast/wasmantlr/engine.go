@@ -12,7 +12,6 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/experimental"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 )
 
@@ -50,14 +49,9 @@ type ParserProc struct {
 func NewEngine(cacheDir string) (*Engine, error) {
 	ctx := context.Background()
 
-	// Compiler mode for near-native execution speed. C++ ANTLR modules are ~7MB,
-	// small enough for wazero's compiler (unlike the 42MB Go WASM binaries that
-	// caused stack overflows). Compilation cost is amortized via disk cache.
 	cfg := wazero.NewRuntimeConfigCompiler()
-	cfg = cfg.WithMemoryLimitPages(8192) // 512MB
-	// wasi-sdk 33 libc++ emits WASM exception handling instructions; stubs
-	// ensure they never fire, but the runtime must be able to decode them.
-	cfg = cfg.WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling)
+	cfg = cfg.WithMemoryLimitPages(16384) // 1GB — Go WASM runtime needs generous memory
+	cfg = cfg.WithCoreFeatures(api.CoreFeaturesV2)
 
 	var compilationCache wazero.CompilationCache
 	if cacheDir != "" {
@@ -85,8 +79,7 @@ func NewEngine(cacheDir string) (*Engine, error) {
 	}, nil
 }
 
-// Compile compiles a WASM binary and starts a persistent WASM instance.
-// The instance loops reading length-prefixed requests from a pipe.
+// Compile compiles a WASM binary and starts a persistent instance.
 func (e *Engine) Compile(name string, wasmBytes []byte) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -115,7 +108,6 @@ func (e *Engine) Compile(name string, wasmBytes []byte) error {
 }
 
 // RegisterNativeBinary registers a native parser binary for a grammar.
-// The binary must implement the same length-prefixed protocol as the WASM driver.
 func (e *Engine) RegisterNativeBinary(name, binaryPath string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -132,7 +124,7 @@ func (e *Engine) RegisterNativeBinary(name, binaryPath string) error {
 	return nil
 }
 
-// HasCompiled returns true if a parser is registered (WASM or native).
+// HasCompiled reports whether a parser is registered.
 func (e *Engine) HasCompiled(name string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -143,9 +135,8 @@ func (e *Engine) HasCompiled(name string) bool {
 	return ok
 }
 
-// NewWorkerProc creates a per-worker WASM instance for the given grammar.
-// The compiled module is shared; only the instance is new.
-// NOT thread-safe across goroutines — one proc per goroutine.
+// NewWorkerProc creates a per-worker WASM instance from the shared compiled module.
+// NOT thread-safe — one proc per goroutine.
 func (e *Engine) NewWorkerProc(name string) (*ParserProc, error) {
 	e.mu.Lock()
 	compiled, ok := e.compiled[name]
@@ -162,7 +153,7 @@ func (e *Engine) NewWorkerProc(name string) (*ParserProc, error) {
 	return e.startWASMProc(fmt.Sprintf("%s-w%d", name, workerCounter.Add(1)), compiled)
 }
 
-// Parse runs the ANTLR parser for the given grammar on the source.
+// Parse sends source to the named parser and returns the parsed tree.
 func (e *Engine) Parse(name string, source []byte) (*TreeNode, error) {
 	e.mu.Lock()
 	proc := e.procs[name]
@@ -180,7 +171,7 @@ func (e *Engine) Parse(name string, source []byte) (*TreeNode, error) {
 	proc.Mu.Lock()
 	defer proc.Mu.Unlock()
 
-	// Write length-prefixed source
+
 	var lenBuf [4]byte
 	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(source)))
 	if _, err := proc.Stdin.Write(lenBuf[:]); err != nil {
@@ -190,7 +181,7 @@ func (e *Engine) Parse(name string, source []byte) (*TreeNode, error) {
 		return nil, fmt.Errorf("wasmantlr: write source to parser %q: %w", name, err)
 	}
 
-	// Read length-prefixed response
+
 	if _, err := io.ReadFull(proc.Stdout, lenBuf[:]); err != nil {
 		return nil, fmt.Errorf("wasmantlr: read response length from %q: %w", name, err)
 	}
@@ -207,7 +198,7 @@ func (e *Engine) Parse(name string, source []byte) (*TreeNode, error) {
 	return ParseTreeFromJSON(respBuf)
 }
 
-// Close releases all engine resources.
+// Close shuts down all parser processes and the wazero runtime.
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -219,8 +210,7 @@ func (e *Engine) Close() error {
 		}
 	}
 
-	// Wait for all background goroutines (WASM instances, native subprocesses)
-	// to finish before closing the wazero runtime to avoid data races.
+	// Wait for background goroutines before closing the runtime to avoid data races.
 	for _, proc := range e.procs {
 		if proc.Wait != nil {
 			proc.Wait()

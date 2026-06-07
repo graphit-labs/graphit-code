@@ -1,5 +1,8 @@
 # ANTLR WASM Compiler — C++/WASI Migration
 
+> ⚠️ **Superseded** — This C++ approach was replaced by a Go-based architecture
+> using `GOOS=wasip1 GOARCH=wasm`. See `tasks/antlr-go-grammars.md`.
+
 ## Summary
 
 Replaced the non-functional Java/TeaVM approach in `tools/antlr-wasm-compiler/` with

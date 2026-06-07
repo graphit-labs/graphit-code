@@ -709,7 +709,7 @@ For languages with complex grammars (e.g., PL/SQL, COBOL, ABAP), ANTLR v4 may pr
 
 **1. Obtain the ANTLR `.wasm` grammar:**
 
-Compile the ANTLR C++ runtime with the grammar to a WASI `.wasm` binary using wasi-sdk, or download a pre-built binary (e.g., `antlr-plsql.wasm`).
+Compile an ANTLR Go grammar to WASI WASM via `GOOS=wasip1 GOARCH=wasm go build`, or use a pre-built binary (e.g., `antlr-plsql.wasm`).
 
 **2. Drop the `.wasm` file into the grammars directory:**
 
