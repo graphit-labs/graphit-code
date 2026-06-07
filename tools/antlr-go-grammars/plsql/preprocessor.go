@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"strings"
-	"unicode"
 )
 
 // matchKeywordAt checks case-insensitively if keyword kw starts at src[pos]
