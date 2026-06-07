@@ -38,6 +38,10 @@
 #include "json_serializer.h"
 #include "no_throw_error_strategy.h"
 
+// Defined in exception_stubs.cpp — set by soft-throw __cxa_throw.
+extern "C" int g_antlr_error_flag;
+
+
 namespace graphit {
 
 enum class ParseMode {
@@ -99,6 +103,10 @@ static antlr4::atn::PredictionMode toPredictionMode(ParseMode m) {
 
 } // namespace detail
 
+// Source preprocessor function type.
+// Takes the raw source string and returns a normalized version.
+using SourcePreprocessor = std::string (*)(const std::string &);
+
 // wasmDriverMain — entry point for WASM grammar drivers.
 //
 // Template parameters:
@@ -106,16 +114,18 @@ static antlr4::atn::PredictionMode toPredictionMode(ParseMode m) {
 //   Parser — ANTLR4 generated parser class
 //
 // Parameters:
-//   entryRule — pointer to the parser's entry rule method (e.g., &Parser::sql_script)
-//   mode      — prediction mode (SLL_LL, LL, SLL)
-//   strategy  — error strategy for LL/SLL-only modes
+//   entryRule    — pointer to the parser's entry rule method (e.g., &Parser::sql_script)
+//   mode         — prediction mode (SLL_LL, LL, SLL)
+//   strategy     — error strategy for LL/SLL-only modes
+//   preprocessor — optional function to normalize source before parsing
 //
 // Returns 0 on clean exit (stdin closed).
 template <typename Lexer, typename Parser, typename EntryRule>
 int wasmDriverMain(
     EntryRule entryRule,
     ParseMode mode = ParseMode::LL,
-    ErrorStrategy strategy = ErrorStrategy::NoThrow
+    ErrorStrategy strategy = ErrorStrategy::NoThrow,
+    SourcePreprocessor preprocessor = nullptr
 ) {
     std::ios_base::sync_with_stdio(false);
     std::cin.tie(nullptr);
@@ -137,6 +147,13 @@ int wasmDriverMain(
         if (!detail::readExact(std::cin, &source[0], srcLen)) {
             return 1;
         }
+
+        if (preprocessor) {
+            source = preprocessor(source);
+        }
+
+        // Reset the soft-throw error flag before each parse.
+        g_antlr_error_flag = 0;
 
         antlr4::ANTLRInputStream input(source);
         Lexer lexer(&input);
@@ -174,6 +191,13 @@ int wasmDriverMain(
             tree = (parser.*entryRule)();
         }
 
+        // Check if a soft-throw occurred during parsing.
+        // If so, the tree may be corrupt — send a minimal error response.
+        if (g_antlr_error_flag) {
+            detail::writeResponse("{\"type\":\"error\",\"message\":\"parse_error\"}");
+            continue;
+        }
+
         std::ostringstream jsonOut;
         graphit::treeToJSON(jsonOut, tree, parser.getRuleNames(), parser.getVocabulary());
         detail::writeResponse(jsonOut.str());
@@ -183,3 +207,4 @@ int wasmDriverMain(
 }
 
 } // namespace graphit
+

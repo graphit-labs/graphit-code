@@ -32,7 +32,7 @@ options {
 
 sql_script
     : (sql_plus_command SEMICOLON?)* (
-        (sql_plus_command | unit_statement) ((SEMICOLON '/'? | '/') (sql_plus_command | unit_statement))* SEMICOLON? '/'?
+        (sql_plus_command | unit_statement) ((SEMICOLON '/'? | '/')? (sql_plus_command | unit_statement))* SEMICOLON? '/'?
     )? EOF
     ;
 

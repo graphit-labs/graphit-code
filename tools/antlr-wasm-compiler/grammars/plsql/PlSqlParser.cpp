@@ -11393,7 +11393,7 @@ PlSqlParser::Sql_scriptContext* PlSqlParser::sql_script() {
             }
 
           default:
-            throw NoViableAltException(this);
+            break; // graphit: separator optional for DBMS_METADATA dumps
           }
           setState(2432);
           _errHandler->sync(this);
@@ -11446,7 +11446,7 @@ PlSqlParser::Sql_scriptContext* PlSqlParser::sql_script() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -13038,7 +13038,7 @@ PlSqlParser::Unit_statementContext* PlSqlParser::unit_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -13250,7 +13250,7 @@ PlSqlParser::Alter_diskgroupContext* PlSqlParser::alter_diskgroup() {
                 }
 
               default:
-                throw NoViableAltException(this);
+                { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
               }
               setState(2599); 
               _errHandler->sync(this);
@@ -13266,7 +13266,7 @@ PlSqlParser::Alter_diskgroupContext* PlSqlParser::alter_diskgroup() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(2605);
         _errHandler->sync(this);
@@ -15693,7 +15693,7 @@ PlSqlParser::Alter_diskgroupContext* PlSqlParser::alter_diskgroup() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(2645);
       _errHandler->sync(this);
@@ -15719,7 +15719,7 @@ PlSqlParser::Alter_diskgroupContext* PlSqlParser::alter_diskgroup() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -15731,7 +15731,7 @@ PlSqlParser::Alter_diskgroupContext* PlSqlParser::alter_diskgroup() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -15886,7 +15886,7 @@ PlSqlParser::Add_disk_clauseContext* PlSqlParser::add_disk_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -16071,13 +16071,13 @@ PlSqlParser::Drop_disk_clauseContext* PlSqlParser::drop_disk_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -16144,7 +16144,7 @@ PlSqlParser::Resize_disk_clauseContext* PlSqlParser::resize_disk_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -16301,7 +16301,7 @@ PlSqlParser::Replace_disk_clauseContext* PlSqlParser::replace_disk_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -16355,7 +16355,7 @@ PlSqlParser::Wait_nowaitContext* PlSqlParser::wait_nowait() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -16470,13 +16470,13 @@ PlSqlParser::Rename_disk_clauseContext* PlSqlParser::rename_disk_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -16668,7 +16668,7 @@ PlSqlParser::Disk_online_clauseContext* PlSqlParser::disk_online_clause() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(2798); 
           _errHandler->sync(this);
@@ -16688,7 +16688,7 @@ PlSqlParser::Disk_online_clauseContext* PlSqlParser::disk_online_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(2805);
     _errHandler->sync(this);
@@ -16712,7 +16712,7 @@ PlSqlParser::Disk_online_clauseContext* PlSqlParser::disk_online_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -16861,7 +16861,7 @@ PlSqlParser::Disk_offline_clauseContext* PlSqlParser::disk_offline_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(2840);
     _errHandler->sync(this);
@@ -16875,7 +16875,7 @@ PlSqlParser::Disk_offline_clauseContext* PlSqlParser::disk_offline_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -16947,7 +16947,7 @@ PlSqlParser::Timeout_clauseContext* PlSqlParser::timeout_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -17059,7 +17059,7 @@ PlSqlParser::Rebalance_diskgroup_clauseContext* PlSqlParser::rebalance_diskgroup
                   }
 
             default:
-              throw NoViableAltException(this);
+              { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
             }
             setState(2852); 
             _errHandler->sync(this);
@@ -17108,13 +17108,13 @@ PlSqlParser::Rebalance_diskgroup_clauseContext* PlSqlParser::rebalance_diskgroup
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -17156,7 +17156,7 @@ PlSqlParser::PhaseContext* PlSqlParser::phase() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -17234,7 +17234,7 @@ PlSqlParser::Check_diskgroup_clauseContext* PlSqlParser::check_diskgroup_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -17368,13 +17368,13 @@ PlSqlParser::Diskgroup_template_clausesContext* PlSqlParser::diskgroup_template_
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -17453,7 +17453,7 @@ PlSqlParser::Qualified_template_clauseContext* PlSqlParser::qualified_template_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -17519,7 +17519,7 @@ PlSqlParser::Redundancy_clauseContext* PlSqlParser::redundancy_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -17573,7 +17573,7 @@ PlSqlParser::Striping_clauseContext* PlSqlParser::striping_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -17627,7 +17627,7 @@ PlSqlParser::Force_noforceContext* PlSqlParser::force_noforce() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -17812,13 +17812,13 @@ PlSqlParser::Diskgroup_directory_clausesContext* PlSqlParser::diskgroup_director
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -17860,7 +17860,7 @@ PlSqlParser::Dir_nameContext* PlSqlParser::dir_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -18029,13 +18029,13 @@ PlSqlParser::Diskgroup_alias_clausesContext* PlSqlParser::diskgroup_alias_clause
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -18142,13 +18142,13 @@ PlSqlParser::Diskgroup_volume_clausesContext* PlSqlParser::diskgroup_volume_clau
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -18280,7 +18280,7 @@ PlSqlParser::Add_volume_clauseContext* PlSqlParser::add_volume_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -18371,7 +18371,7 @@ PlSqlParser::Modify_volume_clauseContext* PlSqlParser::modify_volume_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -18437,7 +18437,7 @@ PlSqlParser::Diskgroup_attributesContext* PlSqlParser::diskgroup_attributes() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -18516,7 +18516,7 @@ PlSqlParser::Drop_diskgroup_file_clauseContext* PlSqlParser::drop_diskgroup_file
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -18576,7 +18576,7 @@ PlSqlParser::Convert_redundancy_clauseContext* PlSqlParser::convert_redundancy_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -18728,13 +18728,13 @@ PlSqlParser::Usergroup_clausesContext* PlSqlParser::usergroup_clauses() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -18899,13 +18899,13 @@ PlSqlParser::User_clausesContext* PlSqlParser::user_clauses() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -19076,7 +19076,7 @@ PlSqlParser::File_permissions_clauseContext* PlSqlParser::file_permissions_claus
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(3156);
     _errHandler->sync(this);
@@ -19122,7 +19122,7 @@ PlSqlParser::File_permissions_clauseContext* PlSqlParser::file_permissions_claus
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(3158);
       _errHandler->sync(this);
@@ -19150,7 +19150,7 @@ PlSqlParser::File_permissions_clauseContext* PlSqlParser::file_permissions_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -19301,7 +19301,7 @@ PlSqlParser::File_owner_clauseContext* PlSqlParser::file_owner_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -19492,7 +19492,7 @@ PlSqlParser::Scrub_clauseContext* PlSqlParser::scrub_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -19646,13 +19646,13 @@ PlSqlParser::Quotagroup_clausesContext* PlSqlParser::quotagroup_clauses() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -19694,7 +19694,7 @@ PlSqlParser::Property_nameContext* PlSqlParser::property_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -19736,7 +19736,7 @@ PlSqlParser::Property_valueContext* PlSqlParser::property_value() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -19815,13 +19815,13 @@ PlSqlParser::Filegroup_clausesContext* PlSqlParser::filegroup_clauses() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -19943,7 +19943,7 @@ PlSqlParser::Add_filegroup_clauseContext* PlSqlParser::add_filegroup_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(3266);
     _errHandler->sync(this);
@@ -19975,7 +19975,7 @@ PlSqlParser::Add_filegroup_clauseContext* PlSqlParser::add_filegroup_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -20053,7 +20053,7 @@ PlSqlParser::Modify_filegroup_clauseContext* PlSqlParser::modify_filegroup_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -20125,7 +20125,7 @@ PlSqlParser::Move_to_filegroup_clauseContext* PlSqlParser::move_to_filegroup_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -20192,7 +20192,7 @@ PlSqlParser::Drop_filegroup_clauseContext* PlSqlParser::drop_filegroup_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -20248,7 +20248,7 @@ PlSqlParser::Quorum_regularContext* PlSqlParser::quorum_regular() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -20296,7 +20296,7 @@ PlSqlParser::Undrop_disk_clauseContext* PlSqlParser::undrop_disk_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -20415,13 +20415,13 @@ PlSqlParser::Diskgroup_availabilityContext* PlSqlParser::diskgroup_availability(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -22774,13 +22774,13 @@ PlSqlParser::Enable_disable_volumeContext* PlSqlParser::enable_disable_volume() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -22834,7 +22834,7 @@ PlSqlParser::Drop_functionContext* PlSqlParser::drop_function() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -23052,13 +23052,13 @@ PlSqlParser::Alter_flashback_archiveContext* PlSqlParser::alter_flashback_archiv
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           break;
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -23086,7 +23086,7 @@ PlSqlParser::Alter_flashback_archiveContext* PlSqlParser::alter_flashback_archiv
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -23195,13 +23195,13 @@ PlSqlParser::Alter_hierarchyContext* PlSqlParser::alter_hierarchy() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -23342,13 +23342,13 @@ PlSqlParser::Alter_functionContext* PlSqlParser::alter_function() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -25790,7 +25790,7 @@ PlSqlParser::Alter_javaContext* PlSqlParser::alter_java() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(3420);
         match(PlSqlParser::RIGHT_PAREN);
@@ -25823,13 +25823,13 @@ PlSqlParser::Alter_javaContext* PlSqlParser::alter_java() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -25885,7 +25885,7 @@ PlSqlParser::Match_stringContext* PlSqlParser::match_string() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -26216,7 +26216,7 @@ PlSqlParser::Create_function_bodyContext* PlSqlParser::create_function_body() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         } 
       }
       setState(3478);
@@ -26303,13 +26303,13 @@ PlSqlParser::Create_function_bodyContext* PlSqlParser::create_function_body() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -26387,7 +26387,7 @@ PlSqlParser::Sql_macro_bodyContext* PlSqlParser::sql_macro_body() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -26442,7 +26442,7 @@ PlSqlParser::Parallel_enable_clauseContext* PlSqlParser::parallel_enable_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -26554,7 +26554,7 @@ PlSqlParser::Partition_by_clauseContext* PlSqlParser::partition_by_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(3517);
     _errHandler->sync(this);
@@ -26570,7 +26570,7 @@ PlSqlParser::Partition_by_clauseContext* PlSqlParser::partition_by_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -26666,7 +26666,7 @@ PlSqlParser::Result_cache_clauseContext* PlSqlParser::result_cache_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -26757,7 +26757,7 @@ PlSqlParser::Accessible_by_clauseContext* PlSqlParser::accessible_by_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -26811,7 +26811,7 @@ PlSqlParser::Default_collation_clauseContext* PlSqlParser::default_collation_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -26865,7 +26865,7 @@ PlSqlParser::Aggregate_clauseContext* PlSqlParser::aggregate_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -26949,7 +26949,7 @@ PlSqlParser::Pipelined_using_clauseContext* PlSqlParser::pipelined_using_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -27024,7 +27024,7 @@ PlSqlParser::AccessorContext* PlSqlParser::accessor() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -27109,7 +27109,7 @@ PlSqlParser::Relies_on_partContext* PlSqlParser::relies_on_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -27181,7 +27181,7 @@ PlSqlParser::Streaming_clauseContext* PlSqlParser::streaming_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -27286,7 +27286,7 @@ PlSqlParser::Alter_outlineContext* PlSqlParser::alter_outline() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -27398,13 +27398,13 @@ PlSqlParser::Outline_optionsContext* PlSqlParser::outline_options() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -27540,7 +27540,7 @@ PlSqlParser::Alter_lockdown_profileContext* PlSqlParser::alter_lockdown_profile(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -27647,13 +27647,13 @@ PlSqlParser::Lockdown_featureContext* PlSqlParser::lockdown_feature() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -27760,13 +27760,13 @@ PlSqlParser::Lockdown_optionsContext* PlSqlParser::lockdown_options() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -27901,7 +27901,7 @@ PlSqlParser::Lockdown_statementsContext* PlSqlParser::lockdown_statements() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -28030,7 +28030,7 @@ PlSqlParser::Statement_clausesContext* PlSqlParser::statement_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -28173,7 +28173,7 @@ PlSqlParser::Clause_optionsContext* PlSqlParser::clause_options() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -28277,13 +28277,13 @@ PlSqlParser::Option_valuesContext* PlSqlParser::option_values() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -28350,7 +28350,7 @@ PlSqlParser::String_listContext* PlSqlParser::string_list() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -28404,7 +28404,7 @@ PlSqlParser::Disable_enableContext* PlSqlParser::disable_enable() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -28464,7 +28464,7 @@ PlSqlParser::Drop_lockdown_profileContext* PlSqlParser::drop_lockdown_profile() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -28558,7 +28558,7 @@ PlSqlParser::Drop_packageContext* PlSqlParser::drop_package() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -28707,7 +28707,7 @@ PlSqlParser::Alter_packageContext* PlSqlParser::alter_package() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -28969,7 +28969,7 @@ PlSqlParser::Create_packageContext* PlSqlParser::create_package() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -29237,7 +29237,7 @@ PlSqlParser::Create_package_bodyContext* PlSqlParser::create_package_body() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -29366,7 +29366,7 @@ PlSqlParser::Package_obj_specContext* PlSqlParser::package_obj_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -29521,7 +29521,7 @@ PlSqlParser::Procedure_specContext* PlSqlParser::procedure_spec() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(3882);
       _errHandler->sync(this);
@@ -29543,7 +29543,7 @@ PlSqlParser::Procedure_specContext* PlSqlParser::procedure_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -29741,7 +29741,7 @@ PlSqlParser::Function_specContext* PlSqlParser::function_spec() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(3915);
       _errHandler->sync(this);
@@ -29763,7 +29763,7 @@ PlSqlParser::Function_specContext* PlSqlParser::function_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -29925,7 +29925,7 @@ PlSqlParser::Package_obj_bodyContext* PlSqlParser::package_obj_body() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -30080,13 +30080,13 @@ PlSqlParser::Alter_pmem_filestoreContext* PlSqlParser::alter_pmem_filestore() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -30189,7 +30189,7 @@ PlSqlParser::Drop_pmem_filestoreContext* PlSqlParser::drop_pmem_filestore() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(3968);
       match(PlSqlParser::CONTENTS);
@@ -30198,7 +30198,7 @@ PlSqlParser::Drop_pmem_filestoreContext* PlSqlParser::drop_pmem_filestore() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -30252,7 +30252,7 @@ PlSqlParser::Drop_procedureContext* PlSqlParser::drop_procedure() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -30369,7 +30369,7 @@ PlSqlParser::Alter_procedureContext* PlSqlParser::alter_procedure() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -30609,7 +30609,7 @@ PlSqlParser::Function_bodyContext* PlSqlParser::function_body() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         } 
       }
       setState(4019);
@@ -30696,7 +30696,7 @@ PlSqlParser::Function_bodyContext* PlSqlParser::function_body() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(4036);
     match(PlSqlParser::SEMICOLON);
@@ -30704,7 +30704,7 @@ PlSqlParser::Function_bodyContext* PlSqlParser::function_body() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -30879,7 +30879,7 @@ PlSqlParser::Procedure_bodyContext* PlSqlParser::procedure_body() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(4060);
       _errHandler->sync(this);
@@ -30950,7 +30950,7 @@ PlSqlParser::Procedure_bodyContext* PlSqlParser::procedure_body() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -31226,7 +31226,7 @@ PlSqlParser::Create_procedure_bodyContext* PlSqlParser::create_procedure_body() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -31344,7 +31344,7 @@ PlSqlParser::Alter_resource_costContext* PlSqlParser::alter_resource_cost() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -31398,7 +31398,7 @@ PlSqlParser::Drop_outlineContext* PlSqlParser::drop_outline() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -31517,13 +31517,13 @@ PlSqlParser::Alter_rollback_segmentContext* PlSqlParser::alter_rollback_segment(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -31614,7 +31614,7 @@ PlSqlParser::Drop_restore_pointContext* PlSqlParser::drop_restore_point() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -31674,7 +31674,7 @@ PlSqlParser::Drop_rollback_segmentContext* PlSqlParser::drop_rollback_segment() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -31728,7 +31728,7 @@ PlSqlParser::Drop_roleContext* PlSqlParser::drop_role() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -31808,7 +31808,7 @@ PlSqlParser::Create_pmem_filestoreContext* PlSqlParser::create_pmem_filestore() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -31930,13 +31930,13 @@ PlSqlParser::Pmem_filestore_optionsContext* PlSqlParser::pmem_filestore_options(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -31978,7 +31978,7 @@ PlSqlParser::File_pathContext* PlSqlParser::file_path() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -32093,7 +32093,7 @@ PlSqlParser::Create_rollback_segmentContext* PlSqlParser::create_rollback_segmen
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(4202);
       _errHandler->sync(this);
@@ -32103,7 +32103,7 @@ PlSqlParser::Create_rollback_segmentContext* PlSqlParser::create_rollback_segmen
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -32157,7 +32157,7 @@ PlSqlParser::Drop_triggerContext* PlSqlParser::drop_trigger() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -32322,13 +32322,13 @@ PlSqlParser::Alter_triggerContext* PlSqlParser::alter_trigger() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -32513,7 +32513,7 @@ PlSqlParser::Create_triggerContext* PlSqlParser::create_trigger() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -32586,7 +32586,7 @@ PlSqlParser::Trigger_follows_clauseContext* PlSqlParser::trigger_follows_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -32646,7 +32646,7 @@ PlSqlParser::Trigger_when_clauseContext* PlSqlParser::trigger_when_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -32731,7 +32731,7 @@ PlSqlParser::Simple_dml_triggerContext* PlSqlParser::simple_dml_trigger() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(4276);
     dml_event_clause();
@@ -32757,7 +32757,7 @@ PlSqlParser::Simple_dml_triggerContext* PlSqlParser::simple_dml_trigger() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -32811,7 +32811,7 @@ PlSqlParser::For_each_rowContext* PlSqlParser::for_each_row() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -32874,7 +32874,7 @@ PlSqlParser::Compound_dml_triggerContext* PlSqlParser::compound_dml_trigger() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -33013,7 +33013,7 @@ PlSqlParser::Non_dml_triggerContext* PlSqlParser::non_dml_trigger() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -33088,13 +33088,13 @@ PlSqlParser::Trigger_bodyContext* PlSqlParser::trigger_body() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -33235,7 +33235,7 @@ PlSqlParser::Compound_trigger_blockContext* PlSqlParser::compound_trigger_block(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -33412,7 +33412,7 @@ PlSqlParser::Timing_point_sectionContext* PlSqlParser::timing_point_section() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -33719,13 +33719,13 @@ PlSqlParser::Non_dml_eventContext* PlSqlParser::non_dml_event() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -33821,7 +33821,7 @@ PlSqlParser::Dml_event_clauseContext* PlSqlParser::dml_event_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -33897,7 +33897,7 @@ PlSqlParser::Dml_event_elementContext* PlSqlParser::dml_event_element() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -33957,7 +33957,7 @@ PlSqlParser::Dml_event_nested_clauseContext* PlSqlParser::dml_event_nested_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -34024,7 +34024,7 @@ PlSqlParser::Referencing_clauseContext* PlSqlParser::referencing_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(4429);
     _errHandler->sync(this);
@@ -34040,7 +34040,7 @@ PlSqlParser::Referencing_clauseContext* PlSqlParser::referencing_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -34104,7 +34104,7 @@ PlSqlParser::Referencing_elementContext* PlSqlParser::referencing_element() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -34199,7 +34199,7 @@ PlSqlParser::Drop_typeContext* PlSqlParser::drop_type() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -34332,7 +34332,7 @@ PlSqlParser::Alter_typeContext* PlSqlParser::alter_type() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -34477,7 +34477,7 @@ PlSqlParser::Compile_type_clauseContext* PlSqlParser::compile_type_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -34586,7 +34586,7 @@ PlSqlParser::Replace_type_clauseContext* PlSqlParser::replace_type_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -34653,7 +34653,7 @@ PlSqlParser::Alter_method_specContext* PlSqlParser::alter_method_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -34729,13 +34729,13 @@ PlSqlParser::Alter_method_elementContext* PlSqlParser::alter_method_element() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -34815,13 +34815,13 @@ PlSqlParser::Alter_collection_clausesContext* PlSqlParser::alter_collection_clau
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -34962,13 +34962,13 @@ PlSqlParser::Dependent_handling_clauseContext* PlSqlParser::dependent_handling_c
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -35035,7 +35035,7 @@ PlSqlParser::Dependent_exceptions_partContext* PlSqlParser::dependent_exceptions
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -35151,7 +35151,7 @@ PlSqlParser::Create_typeContext* PlSqlParser::create_type() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -35238,7 +35238,7 @@ PlSqlParser::Type_definitionContext* PlSqlParser::type_definition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -35344,7 +35344,7 @@ PlSqlParser::Object_type_defContext* PlSqlParser::object_type_def() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(4574);
     _errHandler->sync(this);
@@ -35392,7 +35392,7 @@ PlSqlParser::Object_type_defContext* PlSqlParser::object_type_def() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -35478,13 +35478,13 @@ PlSqlParser::Object_as_partContext* PlSqlParser::object_as_part() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -35532,7 +35532,7 @@ PlSqlParser::Object_under_partContext* PlSqlParser::object_under_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -35609,7 +35609,7 @@ PlSqlParser::Nested_table_type_defContext* PlSqlParser::nested_table_type_def() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -35703,7 +35703,7 @@ PlSqlParser::Sqlj_object_typeContext* PlSqlParser::sqlj_object_type() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -35799,7 +35799,7 @@ PlSqlParser::Type_bodyContext* PlSqlParser::type_body() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -35874,13 +35874,13 @@ PlSqlParser::Type_body_elementsContext* PlSqlParser::type_body_elements() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -35946,7 +35946,7 @@ PlSqlParser::Map_order_func_declarationContext* PlSqlParser::map_order_func_decl
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -36038,13 +36038,13 @@ PlSqlParser::Subprog_decl_in_typeContext* PlSqlParser::subprog_decl_in_type() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -36224,7 +36224,7 @@ PlSqlParser::Proc_decl_in_typeContext* PlSqlParser::proc_decl_in_type() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -36416,7 +36416,7 @@ PlSqlParser::Func_decl_in_typeContext* PlSqlParser::func_decl_in_type() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -36732,7 +36732,7 @@ PlSqlParser::Constructor_declarationContext* PlSqlParser::constructor_declaratio
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -36802,7 +36802,7 @@ PlSqlParser::Modifier_clauseContext* PlSqlParser::modifier_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -36884,7 +36884,7 @@ PlSqlParser::Object_member_specContext* PlSqlParser::object_member_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -36938,7 +36938,7 @@ PlSqlParser::Sqlj_object_type_attrContext* PlSqlParser::sqlj_object_type_attr() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -37035,7 +37035,7 @@ PlSqlParser::Element_specContext* PlSqlParser::element_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -37107,13 +37107,13 @@ PlSqlParser::Element_spec_optionsContext* PlSqlParser::element_spec_options() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -37187,13 +37187,13 @@ PlSqlParser::Subprogram_specContext* PlSqlParser::subprogram_spec() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -37272,7 +37272,7 @@ PlSqlParser::Overriding_subprogram_specContext* PlSqlParser::overriding_subprogr
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -37506,7 +37506,7 @@ PlSqlParser::Overriding_function_specContext* PlSqlParser::overriding_function_s
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -37686,7 +37686,7 @@ PlSqlParser::Overriding_procedure_specContext* PlSqlParser::overriding_procedure
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -37812,7 +37812,7 @@ PlSqlParser::Type_procedure_specContext* PlSqlParser::type_procedure_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -38038,7 +38038,7 @@ PlSqlParser::Type_function_specContext* PlSqlParser::type_function_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -38300,7 +38300,7 @@ PlSqlParser::Constructor_specContext* PlSqlParser::constructor_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -38366,7 +38366,7 @@ PlSqlParser::Map_order_function_specContext* PlSqlParser::map_order_function_spe
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -38457,7 +38457,7 @@ PlSqlParser::Pragma_clauseContext* PlSqlParser::pragma_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -40764,13 +40764,13 @@ PlSqlParser::Pragma_elementsContext* PlSqlParser::pragma_elements() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -40894,7 +40894,7 @@ PlSqlParser::Type_elements_parameterContext* PlSqlParser::type_elements_paramete
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -40948,7 +40948,7 @@ PlSqlParser::Drop_sequenceContext* PlSqlParser::drop_sequence() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -41026,7 +41026,7 @@ PlSqlParser::Alter_sequenceContext* PlSqlParser::alter_sequence() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -41223,7 +41223,7 @@ PlSqlParser::Alter_sessionContext* PlSqlParser::alter_session() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(5025);
       match(PlSqlParser::PARALLEL);
@@ -41280,7 +41280,7 @@ PlSqlParser::Alter_sessionContext* PlSqlParser::alter_session() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -41537,7 +41537,7 @@ PlSqlParser::Alter_session_set_clauseContext* PlSqlParser::alter_session_set_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -41683,7 +41683,7 @@ PlSqlParser::Create_sequenceContext* PlSqlParser::create_sequence() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -41995,13 +41995,13 @@ PlSqlParser::Sequence_specContext* PlSqlParser::sequence_spec() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -42055,7 +42055,7 @@ PlSqlParser::Sequence_start_clauseContext* PlSqlParser::sequence_start_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -42313,7 +42313,7 @@ PlSqlParser::Create_analytic_viewContext* PlSqlParser::create_analytic_view() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -42451,7 +42451,7 @@ PlSqlParser::Classification_clauseContext* PlSqlParser::classification_clause() 
               }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(5197); 
         _errHandler->sync(this);
@@ -42467,7 +42467,7 @@ PlSqlParser::Classification_clauseContext* PlSqlParser::classification_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -42515,7 +42515,7 @@ PlSqlParser::Caption_clauseContext* PlSqlParser::caption_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -42563,7 +42563,7 @@ PlSqlParser::Description_clauseContext* PlSqlParser::description_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -42648,7 +42648,7 @@ PlSqlParser::Classification_itemContext* PlSqlParser::classification_item() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -44954,13 +44954,13 @@ PlSqlParser::LanguageContext* PlSqlParser::language() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -45078,7 +45078,7 @@ PlSqlParser::Cav_using_clauseContext* PlSqlParser::cav_using_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -45169,7 +45169,7 @@ PlSqlParser::Dim_by_clauseContext* PlSqlParser::dim_by_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -47637,7 +47637,7 @@ PlSqlParser::Dim_keyContext* PlSqlParser::dim_key() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(5287);
     match(PlSqlParser::REFERENCES);
@@ -49924,7 +49924,7 @@ PlSqlParser::Dim_keyContext* PlSqlParser::dim_key() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(5301);
     match(PlSqlParser::HIERARCHIES);
@@ -49950,7 +49950,7 @@ PlSqlParser::Dim_keyContext* PlSqlParser::dim_key() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50045,7 +50045,7 @@ PlSqlParser::Dim_refContext* PlSqlParser::dim_ref() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50186,7 +50186,7 @@ PlSqlParser::Hier_refContext* PlSqlParser::hier_ref() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50271,7 +50271,7 @@ PlSqlParser::Measures_clauseContext* PlSqlParser::measures_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50344,7 +50344,7 @@ PlSqlParser::Av_measureContext* PlSqlParser::av_measure() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50405,7 +50405,7 @@ PlSqlParser::Base_meas_clauseContext* PlSqlParser::base_meas_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50459,7 +50459,7 @@ PlSqlParser::Meas_aggregate_clauseContext* PlSqlParser::meas_aggregate_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50519,7 +50519,7 @@ PlSqlParser::Calc_meas_clauseContext* PlSqlParser::calc_meas_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50573,7 +50573,7 @@ PlSqlParser::Default_measure_clauseContext* PlSqlParser::default_measure_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50633,7 +50633,7 @@ PlSqlParser::Default_aggregate_clauseContext* PlSqlParser::default_aggregate_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50706,7 +50706,7 @@ PlSqlParser::Cache_clauseContext* PlSqlParser::cache_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50836,13 +50836,13 @@ PlSqlParser::Cache_specificationContext* PlSqlParser::cache_specification() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -50933,7 +50933,7 @@ PlSqlParser::Levels_clauseContext* PlSqlParser::levels_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -51029,7 +51029,7 @@ PlSqlParser::Level_specificationContext* PlSqlParser::level_specification() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -51128,13 +51128,13 @@ PlSqlParser::Level_group_typeContext* PlSqlParser::level_group_type() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -51254,7 +51254,7 @@ PlSqlParser::Fact_columns_clauseContext* PlSqlParser::fact_columns_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -51332,7 +51332,7 @@ PlSqlParser::Qry_transform_clauseContext* PlSqlParser::qry_transform_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -51589,7 +51589,7 @@ PlSqlParser::Create_attribute_dimensionContext* PlSqlParser::create_attribute_di
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -51680,7 +51680,7 @@ PlSqlParser::Ad_using_clauseContext* PlSqlParser::ad_using_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -51792,7 +51792,7 @@ PlSqlParser::Source_clauseContext* PlSqlParser::source_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -51858,7 +51858,7 @@ PlSqlParser::Join_path_clauseContext* PlSqlParser::join_path_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -51925,7 +51925,7 @@ PlSqlParser::Join_conditionContext* PlSqlParser::join_condition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -52025,7 +52025,7 @@ PlSqlParser::Join_condition_itemContext* PlSqlParser::join_condition_item() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -52110,7 +52110,7 @@ PlSqlParser::Attributes_clauseContext* PlSqlParser::attributes_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -52225,7 +52225,7 @@ PlSqlParser::Ad_attributes_clauseContext* PlSqlParser::ad_attributes_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -52657,7 +52657,7 @@ PlSqlParser::Ad_level_clauseContext* PlSqlParser::ad_level_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -55001,13 +55001,13 @@ PlSqlParser::Key_clauseContext* PlSqlParser::key_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -55055,7 +55055,7 @@ PlSqlParser::Alternate_key_clauseContext* PlSqlParser::alternate_key_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -55150,7 +55150,7 @@ PlSqlParser::Dim_order_clauseContext* PlSqlParser::dim_order_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -55271,13 +55271,13 @@ PlSqlParser::All_clauseContext* PlSqlParser::all_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -55455,7 +55455,7 @@ PlSqlParser::Create_audit_policyContext* PlSqlParser::create_audit_policy() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -55528,7 +55528,7 @@ PlSqlParser::Privilege_audit_clauseContext* PlSqlParser::privilege_audit_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -55619,7 +55619,7 @@ PlSqlParser::Action_audit_clauseContext* PlSqlParser::action_audit_clause() {
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(5766); 
       _errHandler->sync(this);
@@ -55629,7 +55629,7 @@ PlSqlParser::Action_audit_clauseContext* PlSqlParser::action_audit_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -55702,7 +55702,7 @@ PlSqlParser::System_actionsContext* PlSqlParser::system_actions() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -55775,7 +55775,7 @@ PlSqlParser::Standard_actionsContext* PlSqlParser::standard_actions() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -55884,7 +55884,7 @@ PlSqlParser::Actions_clauseContext* PlSqlParser::actions_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(5790);
       match(PlSqlParser::ON);
@@ -58212,7 +58212,7 @@ PlSqlParser::Actions_clauseContext* PlSqlParser::actions_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -58224,7 +58224,7 @@ PlSqlParser::Actions_clauseContext* PlSqlParser::actions_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -58334,7 +58334,7 @@ PlSqlParser::Object_actionContext* PlSqlParser::object_action() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -58468,7 +58468,7 @@ PlSqlParser::System_actionContext* PlSqlParser::system_action() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -58666,13 +58666,13 @@ PlSqlParser::Component_actionsContext* PlSqlParser::component_actions() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -58714,7 +58714,7 @@ PlSqlParser::Component_actionContext* PlSqlParser::component_action() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -58787,7 +58787,7 @@ PlSqlParser::Role_audit_clauseContext* PlSqlParser::role_audit_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -58974,7 +58974,7 @@ PlSqlParser::Create_controlfileContext* PlSqlParser::create_controlfile() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -59178,19 +59178,19 @@ PlSqlParser::Controlfile_optionsContext* PlSqlParser::controlfile_options() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -59315,7 +59315,7 @@ PlSqlParser::Logfile_clauseContext* PlSqlParser::logfile_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -59369,7 +59369,7 @@ PlSqlParser::Character_set_clauseContext* PlSqlParser::character_set_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -59432,7 +59432,7 @@ PlSqlParser::File_specificationContext* PlSqlParser::file_specification() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -59626,7 +59626,7 @@ PlSqlParser::Create_diskgroupContext* PlSqlParser::create_diskgroup() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(5966);
       match(PlSqlParser::REDUNDANCY);
@@ -59711,7 +59711,7 @@ PlSqlParser::Create_diskgroupContext* PlSqlParser::create_diskgroup() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -59802,7 +59802,7 @@ PlSqlParser::Qualified_disk_clauseContext* PlSqlParser::qualified_disk_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -59887,7 +59887,7 @@ PlSqlParser::Create_editionContext* PlSqlParser::create_edition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -60020,7 +60020,7 @@ PlSqlParser::Create_flashback_archiveContext* PlSqlParser::create_flashback_arch
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -60098,7 +60098,7 @@ PlSqlParser::Flashback_archive_quotaContext* PlSqlParser::flashback_archive_quot
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -60168,7 +60168,7 @@ PlSqlParser::Flashback_archive_retentionContext* PlSqlParser::flashback_archive_
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -60367,7 +60367,7 @@ PlSqlParser::Create_hierarchyContext* PlSqlParser::create_hierarchy() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -60438,7 +60438,7 @@ PlSqlParser::Hier_using_clauseContext* PlSqlParser::hier_using_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -60575,7 +60575,7 @@ PlSqlParser::Level_hier_clauseContext* PlSqlParser::level_hier_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -60641,7 +60641,7 @@ PlSqlParser::Hier_attrs_clauseContext* PlSqlParser::hier_attrs_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -60704,7 +60704,7 @@ PlSqlParser::Hier_attr_clauseContext* PlSqlParser::hier_attr_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -60795,7 +60795,7 @@ PlSqlParser::Hier_attr_nameContext* PlSqlParser::hier_attr_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -60995,7 +60995,7 @@ PlSqlParser::Create_indexContext* PlSqlParser::create_index() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -61069,7 +61069,7 @@ PlSqlParser::Cluster_index_clauseContext* PlSqlParser::cluster_index_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -61134,7 +61134,7 @@ PlSqlParser::Cluster_nameContext* PlSqlParser::cluster_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -61340,7 +61340,7 @@ PlSqlParser::Table_index_clauseContext* PlSqlParser::table_index_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -61588,7 +61588,7 @@ PlSqlParser::Bitmap_join_index_clauseContext* PlSqlParser::bitmap_join_index_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -61651,7 +61651,7 @@ PlSqlParser::Index_exprContext* PlSqlParser::index_expr() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -61798,13 +61798,13 @@ PlSqlParser::Index_propertiesContext* PlSqlParser::index_properties() {
                     }
 
                   default:
-                    throw NoViableAltException(this);
+                    { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
                   }
                   break;
                 }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(6235); 
           _errHandler->sync(this);
@@ -64085,19 +64085,19 @@ PlSqlParser::Index_propertiesContext* PlSqlParser::index_properties() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -64208,7 +64208,7 @@ PlSqlParser::Domain_index_clauseContext* PlSqlParser::domain_index_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -64363,7 +64363,7 @@ PlSqlParser::Local_domain_index_clauseContext* PlSqlParser::local_domain_index_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -64458,7 +64458,7 @@ PlSqlParser::Xmlindex_clauseContext* PlSqlParser::xmlindex_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -64561,7 +64561,7 @@ PlSqlParser::Local_xmlindex_clauseContext* PlSqlParser::local_xmlindex_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -64750,19 +64750,19 @@ PlSqlParser::Global_partitioned_indexContext* PlSqlParser::global_partitioned_in
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -64911,7 +64911,7 @@ PlSqlParser::Index_partitioning_clauseContext* PlSqlParser::index_partitioning_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -65020,13 +65020,13 @@ PlSqlParser::Index_partitioning_values_listContext* PlSqlParser::index_partition
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -65155,13 +65155,13 @@ PlSqlParser::Local_partitioned_indexContext* PlSqlParser::local_partitioned_inde
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -65246,7 +65246,7 @@ PlSqlParser::On_range_partitioned_tableContext* PlSqlParser::on_range_partitione
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -65331,7 +65331,7 @@ PlSqlParser::On_list_partitioned_tableContext* PlSqlParser::on_list_partitioned_
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -65452,7 +65452,7 @@ PlSqlParser::Partitioned_tableContext* PlSqlParser::partitioned_table() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -65584,13 +65584,13 @@ PlSqlParser::On_hash_partitioned_tableContext* PlSqlParser::on_hash_partitioned_
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -65692,7 +65692,7 @@ PlSqlParser::On_hash_partitioned_clauseContext* PlSqlParser::on_hash_partitioned
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -65829,7 +65829,7 @@ PlSqlParser::On_comp_partitioned_tableContext* PlSqlParser::on_comp_partitioned_
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -65962,7 +65962,7 @@ PlSqlParser::On_comp_partitioned_clauseContext* PlSqlParser::on_comp_partitioned
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -66088,13 +66088,13 @@ PlSqlParser::Index_subpartition_clauseContext* PlSqlParser::index_subpartition_c
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -66196,7 +66196,7 @@ PlSqlParser::Index_subpartition_subclauseContext* PlSqlParser::index_subpartitio
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -66238,7 +66238,7 @@ PlSqlParser::Odci_parametersContext* PlSqlParser::odci_parameters() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -66303,7 +66303,7 @@ PlSqlParser::IndextypeContext* PlSqlParser::indextype() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -66406,13 +66406,13 @@ PlSqlParser::Alter_indexContext* PlSqlParser::alter_index() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -66545,7 +66545,7 @@ PlSqlParser::Alter_index_ops_set1Context* PlSqlParser::alter_index_ops_set1() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(6597); 
       _errHandler->sync(this);
@@ -66560,7 +66560,7 @@ PlSqlParser::Alter_index_ops_set1Context* PlSqlParser::alter_index_ops_set1() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -66770,7 +66770,7 @@ PlSqlParser::Alter_index_ops_set2Context* PlSqlParser::alter_index_ops_set2() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -66824,7 +66824,7 @@ PlSqlParser::Visible_or_invisibleContext* PlSqlParser::visible_or_invisible() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -66878,7 +66878,7 @@ PlSqlParser::Monitoring_nomonitoringContext* PlSqlParser::monitoring_nomonitorin
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -67159,7 +67159,7 @@ PlSqlParser::Rebuild_clauseContext* PlSqlParser::rebuild_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(6651);
       _errHandler->sync(this);
@@ -67169,7 +67169,7 @@ PlSqlParser::Rebuild_clauseContext* PlSqlParser::rebuild_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -67298,7 +67298,7 @@ PlSqlParser::Alter_index_partitioningContext* PlSqlParser::alter_index_partition
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -69675,7 +69675,7 @@ PlSqlParser::Modify_index_default_attrsContext* PlSqlParser::modify_index_defaul
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -69689,13 +69689,13 @@ PlSqlParser::Modify_index_default_attrsContext* PlSqlParser::modify_index_defaul
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -69803,7 +69803,7 @@ PlSqlParser::Add_hash_index_partitionContext* PlSqlParser::add_hash_index_partit
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -69864,7 +69864,7 @@ PlSqlParser::Coalesce_index_partitionContext* PlSqlParser::coalesce_index_partit
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -70032,13 +70032,13 @@ PlSqlParser::Modify_index_partitionContext* PlSqlParser::modify_index_partition(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -70147,13 +70147,13 @@ PlSqlParser::Modify_index_partitions_opsContext* PlSqlParser::modify_index_parti
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -70235,7 +70235,7 @@ PlSqlParser::Rename_index_partitionContext* PlSqlParser::rename_index_partition(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(6734);
     match(PlSqlParser::TO);
@@ -70245,7 +70245,7 @@ PlSqlParser::Rename_index_partitionContext* PlSqlParser::rename_index_partition(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -70299,7 +70299,7 @@ PlSqlParser::Drop_index_partitionContext* PlSqlParser::drop_index_partition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -70452,7 +70452,7 @@ PlSqlParser::Split_index_partitionContext* PlSqlParser::split_index_partition() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -70604,7 +70604,7 @@ PlSqlParser::Index_partition_descriptionContext* PlSqlParser::index_partition_de
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(6783);
       _errHandler->sync(this);
@@ -70624,7 +70624,7 @@ PlSqlParser::Index_partition_descriptionContext* PlSqlParser::index_partition_de
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -70711,13 +70711,13 @@ PlSqlParser::Modify_index_subpartitionContext* PlSqlParser::modify_index_subpart
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -70759,7 +70759,7 @@ PlSqlParser::Partition_name_oldContext* PlSqlParser::partition_name_old() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -70801,7 +70801,7 @@ PlSqlParser::New_partition_nameContext* PlSqlParser::new_partition_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -70843,7 +70843,7 @@ PlSqlParser::New_index_nameContext* PlSqlParser::new_index_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -71005,7 +71005,7 @@ PlSqlParser::Alter_inmemory_join_groupContext* PlSqlParser::alter_inmemory_join_
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -71226,7 +71226,7 @@ PlSqlParser::Create_userContext* PlSqlParser::create_user() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -73743,13 +73743,13 @@ PlSqlParser::Alter_userContext* PlSqlParser::alter_user() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -73834,7 +73834,7 @@ PlSqlParser::Drop_userContext* PlSqlParser::drop_user() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -73895,7 +73895,7 @@ PlSqlParser::Alter_identified_byContext* PlSqlParser::alter_identified_by() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -73949,7 +73949,7 @@ PlSqlParser::Identified_byContext* PlSqlParser::identified_by() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -74027,7 +74027,7 @@ PlSqlParser::Identified_other_clauseContext* PlSqlParser::identified_other_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -74093,7 +74093,7 @@ PlSqlParser::User_tablespace_clauseContext* PlSqlParser::user_tablespace_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -74163,7 +74163,7 @@ PlSqlParser::Quota_clauseContext* PlSqlParser::quota_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(6908);
     match(PlSqlParser::ON);
@@ -74173,7 +74173,7 @@ PlSqlParser::Quota_clauseContext* PlSqlParser::quota_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -74221,7 +74221,7 @@ PlSqlParser::Profile_clauseContext* PlSqlParser::profile_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -76585,13 +76585,13 @@ PlSqlParser::Role_clauseContext* PlSqlParser::role_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -76665,7 +76665,7 @@ PlSqlParser::User_default_role_clauseContext* PlSqlParser::user_default_role_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -76713,7 +76713,7 @@ PlSqlParser::Password_expire_clauseContext* PlSqlParser::password_expire_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -76773,7 +76773,7 @@ PlSqlParser::User_lock_clauseContext* PlSqlParser::user_lock_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -76821,7 +76821,7 @@ PlSqlParser::User_editions_clauseContext* PlSqlParser::user_editions_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -76918,7 +76918,7 @@ PlSqlParser::Alter_user_editions_clauseContext* PlSqlParser::alter_user_editions
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -77113,7 +77113,7 @@ PlSqlParser::Proxy_clauseContext* PlSqlParser::proxy_clause() {
               }
 
             default:
-              throw NoViableAltException(this);
+              { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
             }
           }
           setState(6994);
@@ -77159,7 +77159,7 @@ PlSqlParser::Proxy_clauseContext* PlSqlParser::proxy_clause() {
               }
 
             default:
-              throw NoViableAltException(this);
+              { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
             }
           }
           break;
@@ -77172,13 +77172,13 @@ PlSqlParser::Proxy_clauseContext* PlSqlParser::proxy_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -77257,7 +77257,7 @@ PlSqlParser::Container_namesContext* PlSqlParser::container_names() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -77341,13 +77341,13 @@ PlSqlParser::Set_container_dataContext* PlSqlParser::set_container_data() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -77419,7 +77419,7 @@ PlSqlParser::Add_rem_container_dataContext* PlSqlParser::add_rem_container_data(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -77496,13 +77496,13 @@ PlSqlParser::Container_data_clauseContext* PlSqlParser::container_data_clause() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -77602,7 +77602,7 @@ PlSqlParser::Administer_key_managementContext* PlSqlParser::administer_key_manag
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -77742,7 +77742,7 @@ PlSqlParser::Keystore_management_clausesContext* PlSqlParser::keystore_managemen
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -77852,7 +77852,7 @@ PlSqlParser::Create_keystoreContext* PlSqlParser::create_keystore() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(7075);
     match(PlSqlParser::IDENTIFIED);
@@ -77864,7 +77864,7 @@ PlSqlParser::Create_keystoreContext* PlSqlParser::create_keystore() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -77949,7 +77949,7 @@ PlSqlParser::Open_keystoreContext* PlSqlParser::open_keystore() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -77997,7 +77997,7 @@ PlSqlParser::Force_keystoreContext* PlSqlParser::force_keystore() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -78076,7 +78076,7 @@ PlSqlParser::Close_keystoreContext* PlSqlParser::close_keystore() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -78179,7 +78179,7 @@ PlSqlParser::Backup_keystoreContext* PlSqlParser::backup_keystore() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -78288,7 +78288,7 @@ PlSqlParser::Alter_keystore_passwordContext* PlSqlParser::alter_keystore_passwor
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -78403,7 +78403,7 @@ PlSqlParser::Merge_into_new_keystoreContext* PlSqlParser::merge_into_new_keystor
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -78512,7 +78512,7 @@ PlSqlParser::Merge_into_existing_keystoreContext* PlSqlParser::merge_into_existi
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -78639,7 +78639,7 @@ PlSqlParser::Isolate_keystoreContext* PlSqlParser::isolate_keystore() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -78754,7 +78754,7 @@ PlSqlParser::Unite_keystoreContext* PlSqlParser::unite_keystore() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -78894,7 +78894,7 @@ PlSqlParser::Key_management_clausesContext* PlSqlParser::key_management_clauses(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -79061,7 +79061,7 @@ PlSqlParser::Set_keyContext* PlSqlParser::set_key() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -79228,7 +79228,7 @@ PlSqlParser::Create_keyContext* PlSqlParser::create_key() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -79270,7 +79270,7 @@ PlSqlParser::MkidContext* PlSqlParser::mkid() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -79312,7 +79312,7 @@ PlSqlParser::MkContext* PlSqlParser::mk() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -79421,7 +79421,7 @@ PlSqlParser::Use_keyContext* PlSqlParser::use_key() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -79518,7 +79518,7 @@ PlSqlParser::Set_key_tagContext* PlSqlParser::set_key_tag() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -79706,14 +79706,14 @@ PlSqlParser::Export_keysContext* PlSqlParser::export_keys() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -79834,7 +79834,7 @@ PlSqlParser::Import_keysContext* PlSqlParser::import_keys() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -79955,7 +79955,7 @@ PlSqlParser::Migrate_keysContext* PlSqlParser::migrate_keys() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -80070,7 +80070,7 @@ PlSqlParser::Reverse_migrate_keysContext* PlSqlParser::reverse_migrate_keys() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -80283,7 +80283,7 @@ PlSqlParser::Move_keysContext* PlSqlParser::move_keys() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -80303,7 +80303,7 @@ PlSqlParser::Move_keysContext* PlSqlParser::move_keys() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -80377,13 +80377,13 @@ PlSqlParser::Identified_by_storeContext* PlSqlParser::identified_by_store() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -80437,7 +80437,7 @@ PlSqlParser::Using_algorithm_clauseContext* PlSqlParser::using_algorithm_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -80491,7 +80491,7 @@ PlSqlParser::Using_tag_clauseContext* PlSqlParser::using_tag_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -80576,7 +80576,7 @@ PlSqlParser::Secret_management_clausesContext* PlSqlParser::secret_management_cl
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -80708,7 +80708,7 @@ PlSqlParser::Add_update_secretContext* PlSqlParser::add_update_secret() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -80805,7 +80805,7 @@ PlSqlParser::Delete_secretContext* PlSqlParser::delete_secret() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -80937,7 +80937,7 @@ PlSqlParser::Add_update_secret_sepsContext* PlSqlParser::add_update_secret_seps(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -81052,7 +81052,7 @@ PlSqlParser::Delete_secret_sepsContext* PlSqlParser::delete_secret_seps() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -81137,7 +81137,7 @@ PlSqlParser::Zero_downtime_software_patching_clausesContext* PlSqlParser::zero_d
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -81204,7 +81204,7 @@ PlSqlParser::With_backup_clauseContext* PlSqlParser::with_backup_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -81258,7 +81258,7 @@ PlSqlParser::Identified_by_password_clauseContext* PlSqlParser::identified_by_pa
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -81300,7 +81300,7 @@ PlSqlParser::Keystore_passwordContext* PlSqlParser::keystore_password() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -81342,7 +81342,7 @@ PlSqlParser::PathContext* PlSqlParser::path() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -81384,7 +81384,7 @@ PlSqlParser::SecretContext* PlSqlParser::secret() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -81531,7 +81531,7 @@ PlSqlParser::AnalyzeContext* PlSqlParser::analyze() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(7534);
       _errHandler->sync(this);
@@ -81650,13 +81650,13 @@ PlSqlParser::AnalyzeContext* PlSqlParser::analyze() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -81785,7 +81785,7 @@ PlSqlParser::Partition_extention_clauseContext* PlSqlParser::partition_extention
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -81832,19 +81832,19 @@ PlSqlParser::Partition_extention_clauseContext* PlSqlParser::partition_extention
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -82047,7 +82047,7 @@ PlSqlParser::Validation_clausesContext* PlSqlParser::validation_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -82125,7 +82125,7 @@ PlSqlParser::Compute_clausesContext* PlSqlParser::compute_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -82306,7 +82306,7 @@ PlSqlParser::For_clauseContext* PlSqlParser::for_clause() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -82340,7 +82340,7 @@ PlSqlParser::For_clauseContext* PlSqlParser::for_clause() {
                 }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(7688); 
           _errHandler->sync(this);
@@ -82362,13 +82362,13 @@ PlSqlParser::For_clauseContext* PlSqlParser::for_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -82424,7 +82424,7 @@ PlSqlParser::Online_or_offlineContext* PlSqlParser::online_or_offline() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -82518,7 +82518,7 @@ PlSqlParser::Into_clause1Context* PlSqlParser::into_clause1() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -82588,13 +82588,13 @@ PlSqlParser::Partition_key_valueContext* PlSqlParser::partition_key_value() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -82664,13 +82664,13 @@ PlSqlParser::Subpartition_key_valueContext* PlSqlParser::subpartition_key_value(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -82753,7 +82753,7 @@ PlSqlParser::Associate_statisticsContext* PlSqlParser::associate_statistics() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(7722);
     _errHandler->sync(this);
@@ -82767,7 +82767,7 @@ PlSqlParser::Associate_statisticsContext* PlSqlParser::associate_statistics() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -82870,7 +82870,7 @@ PlSqlParser::Column_associationContext* PlSqlParser::column_association() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -83087,7 +83087,7 @@ PlSqlParser::Function_associationContext* PlSqlParser::function_association() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(7798);
     _errHandler->sync(this);
@@ -83137,7 +83137,7 @@ PlSqlParser::Function_associationContext* PlSqlParser::function_association() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -83179,7 +83179,7 @@ PlSqlParser::Indextype_nameContext* PlSqlParser::indextype_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -85489,13 +85489,13 @@ PlSqlParser::Using_statistics_typeContext* PlSqlParser::using_statistics_type() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -85537,7 +85537,7 @@ PlSqlParser::Statistics_type_nameContext* PlSqlParser::statistics_type_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -85627,7 +85627,7 @@ PlSqlParser::Default_cost_clauseContext* PlSqlParser::default_cost_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -85669,7 +85669,7 @@ PlSqlParser::Cpu_costContext* PlSqlParser::cpu_cost() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -85711,7 +85711,7 @@ PlSqlParser::Io_costContext* PlSqlParser::io_cost() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -85753,7 +85753,7 @@ PlSqlParser::Network_costContext* PlSqlParser::network_cost() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -85807,7 +85807,7 @@ PlSqlParser::Default_selectivity_clauseContext* PlSqlParser::default_selectivity
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -85849,7 +85849,7 @@ PlSqlParser::Default_selectivityContext* PlSqlParser::default_selectivity() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -85927,7 +85927,7 @@ PlSqlParser::Storage_table_clauseContext* PlSqlParser::storage_table_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -86034,7 +86034,7 @@ PlSqlParser::Unified_auditingContext* PlSqlParser::unified_auditing() {
     enterOuterAlt(_localctx, 1);
     setState(7837);
 
-    if (!(this->isVersion12())) throw FailedPredicateException(this, "this->isVersion12()");
+    if (!(this->isVersion12())) { FailedPredicateException _fpe(this, "this->isVersion12()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
     setState(7838);
     match(PlSqlParser::AUDIT);
     setState(7882);
@@ -86144,13 +86144,13 @@ PlSqlParser::Unified_auditingContext* PlSqlParser::unified_auditing() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -86192,7 +86192,7 @@ PlSqlParser::Policy_nameContext* PlSqlParser::policy_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -86406,7 +86406,7 @@ PlSqlParser::Audit_traditionalContext* PlSqlParser::audit_traditional() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -86448,7 +86448,7 @@ PlSqlParser::Audit_direct_pathContext* PlSqlParser::audit_direct_path() {
     enterOuterAlt(_localctx, 1);
     setState(7913);
 
-    if (!(this->isVersion12())) throw FailedPredicateException(this, "this->isVersion12()");
+    if (!(this->isVersion12())) { FailedPredicateException _fpe(this, "this->isVersion12()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
     setState(7914);
     match(PlSqlParser::DIRECT_PATH);
     setState(7915);
@@ -86457,7 +86457,7 @@ PlSqlParser::Audit_direct_pathContext* PlSqlParser::audit_direct_path() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -86508,7 +86508,7 @@ PlSqlParser::Audit_container_clauseContext* PlSqlParser::audit_container_clause(
     enterOuterAlt(_localctx, 1);
     setState(7917);
 
-    if (!(this->isVersion12())) throw FailedPredicateException(this, "this->isVersion12()");
+    if (!(this->isVersion12())) { FailedPredicateException _fpe(this, "this->isVersion12()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
 
     setState(7918);
     match(PlSqlParser::CONTAINER);
@@ -86527,7 +86527,7 @@ PlSqlParser::Audit_container_clauseContext* PlSqlParser::audit_container_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -86752,7 +86752,7 @@ PlSqlParser::Audit_operation_clauseContext* PlSqlParser::audit_operation_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -86827,7 +86827,7 @@ PlSqlParser::Auditing_by_clauseContext* PlSqlParser::auditing_by_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -86869,7 +86869,7 @@ PlSqlParser::Audit_userContext* PlSqlParser::audit_user() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -86967,7 +86967,7 @@ PlSqlParser::Audit_schema_object_clauseContext* PlSqlParser::audit_schema_object
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(7982);
     auditing_on_clause();
@@ -86975,7 +86975,7 @@ PlSqlParser::Audit_schema_object_clauseContext* PlSqlParser::audit_schema_object
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -87085,7 +87085,7 @@ PlSqlParser::Sql_operationContext* PlSqlParser::sql_operation() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -87197,7 +87197,7 @@ PlSqlParser::Auditing_on_clauseContext* PlSqlParser::auditing_on_clause() {
     case 4: {
       setState(7993);
 
-      if (!(this->isVersion12())) throw FailedPredicateException(this, "this->isVersion12()");
+      if (!(this->isVersion12())) { FailedPredicateException _fpe(this, "this->isVersion12()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
       setState(7994);
       match(PlSqlParser::SQL);
       setState(7995);
@@ -87222,7 +87222,7 @@ PlSqlParser::Auditing_on_clauseContext* PlSqlParser::auditing_on_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -87287,7 +87287,7 @@ PlSqlParser::Model_nameContext* PlSqlParser::model_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -87352,7 +87352,7 @@ PlSqlParser::Object_nameContext* PlSqlParser::object_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -87417,7 +87417,7 @@ PlSqlParser::Profile_nameContext* PlSqlParser::profile_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -87685,7 +87685,7 @@ PlSqlParser::Sql_statement_shortcutContext* PlSqlParser::sql_statement_shortcut(
       enterOuterAlt(_localctx, 11);
       setState(8036);
 
-      if (!(this->isVersion12())) throw FailedPredicateException(this, "this->isVersion12()");
+      if (!(this->isVersion12())) { FailedPredicateException _fpe(this, "this->isVersion12()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
       setState(8037);
       match(PlSqlParser::PLUGGABLE);
       setState(8038);
@@ -87966,7 +87966,7 @@ PlSqlParser::Sql_statement_shortcutContext* PlSqlParser::sql_statement_shortcut(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -88039,7 +88039,7 @@ PlSqlParser::Drop_indexContext* PlSqlParser::drop_index() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -88462,7 +88462,7 @@ PlSqlParser::Disassociate_statisticsContext* PlSqlParser::disassociate_statistic
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(8226);
     _errHandler->sync(this);
@@ -88476,7 +88476,7 @@ PlSqlParser::Disassociate_statisticsContext* PlSqlParser::disassociate_statistic
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -88566,7 +88566,7 @@ PlSqlParser::Drop_indextypeContext* PlSqlParser::drop_indextype() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -88655,7 +88655,7 @@ PlSqlParser::Drop_inmemory_join_groupContext* PlSqlParser::drop_inmemory_join_gr
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -88824,7 +88824,7 @@ PlSqlParser::Flashback_tableContext* PlSqlParser::flashback_table() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(8270);
         _errHandler->sync(this);
@@ -88867,13 +88867,13 @@ PlSqlParser::Flashback_tableContext* PlSqlParser::flashback_table() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -88944,7 +88944,7 @@ PlSqlParser::Restore_pointContext* PlSqlParser::restore_point() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -89082,13 +89082,13 @@ PlSqlParser::Purge_statementContext* PlSqlParser::purge_statement() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -89245,7 +89245,7 @@ PlSqlParser::Noaudit_statementContext* PlSqlParser::noaudit_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -89305,7 +89305,7 @@ PlSqlParser::Rename_objectContext* PlSqlParser::rename_object() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -89499,7 +89499,7 @@ PlSqlParser::Grant_statementContext* PlSqlParser::grant_statement() {
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(8348); 
       _errHandler->sync(this);
@@ -89628,7 +89628,7 @@ PlSqlParser::Grant_statementContext* PlSqlParser::grant_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -89694,7 +89694,7 @@ PlSqlParser::Container_clauseContext* PlSqlParser::container_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -89795,7 +89795,7 @@ PlSqlParser::Revoke_statementContext* PlSqlParser::revoke_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -89885,7 +89885,7 @@ PlSqlParser::Revoke_system_privilegeContext* PlSqlParser::revoke_system_privileg
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -89992,7 +89992,7 @@ PlSqlParser::Revokee_clauseContext* PlSqlParser::revokee_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -90180,7 +90180,7 @@ PlSqlParser::Revoke_object_privilegesContext* PlSqlParser::revoke_object_privile
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -90446,7 +90446,7 @@ PlSqlParser::On_object_clauseContext* PlSqlParser::on_object_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -92789,7 +92789,7 @@ PlSqlParser::Revoke_roles_from_programsContext* PlSqlParser::revoke_roles_from_p
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(8511);
     match(PlSqlParser::FROM);
@@ -92811,7 +92811,7 @@ PlSqlParser::Revoke_roles_from_programsContext* PlSqlParser::revoke_roles_from_p
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -92898,7 +92898,7 @@ PlSqlParser::Program_unitContext* PlSqlParser::program_unit() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -93027,7 +93027,7 @@ PlSqlParser::Create_dimensionContext* PlSqlParser::create_dimension() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -93147,7 +93147,7 @@ PlSqlParser::Create_directoryContext* PlSqlParser::create_directory() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -93189,7 +93189,7 @@ PlSqlParser::Directory_nameContext* PlSqlParser::directory_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -93231,7 +93231,7 @@ PlSqlParser::Directory_pathContext* PlSqlParser::directory_path() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -93417,7 +93417,7 @@ PlSqlParser::Create_inmemory_join_groupContext* PlSqlParser::create_inmemory_joi
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -93494,7 +93494,7 @@ PlSqlParser::Drop_hierarchyContext* PlSqlParser::drop_hierarchy() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -93631,7 +93631,7 @@ PlSqlParser::Alter_libraryContext* PlSqlParser::alter_library() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -93730,7 +93730,7 @@ PlSqlParser::Drop_javaContext* PlSqlParser::drop_java() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -93784,7 +93784,7 @@ PlSqlParser::Drop_libraryContext* PlSqlParser::drop_library() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -94069,7 +94069,7 @@ PlSqlParser::Create_javaContext* PlSqlParser::create_java() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(8673);
     _errHandler->sync(this);
@@ -96388,7 +96388,7 @@ PlSqlParser::Create_javaContext* PlSqlParser::create_java() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(8689);
         match(PlSqlParser::RIGHT_PAREN);
@@ -96462,13 +96462,13 @@ PlSqlParser::Create_javaContext* PlSqlParser::create_java() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -96564,7 +96564,7 @@ PlSqlParser::Create_libraryContext* PlSqlParser::create_library() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -96684,7 +96684,7 @@ PlSqlParser::Plsql_library_sourceContext* PlSqlParser::plsql_library_source() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -96749,7 +96749,7 @@ PlSqlParser::Credential_nameContext* PlSqlParser::credential_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -96792,7 +96792,7 @@ PlSqlParser::Library_editionableContext* PlSqlParser::library_editionable() {
     enterOuterAlt(_localctx, 1);
     setState(8747);
 
-    if (!(this->isVersion12())) throw FailedPredicateException(this, "this->isVersion12()");
+    if (!(this->isVersion12())) { FailedPredicateException _fpe(this, "this->isVersion12()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
     setState(8748);
     _la = _input->LA(1);
     if (!(_la == PlSqlParser::EDITIONABLE || _la == PlSqlParser::NONEDITIONABLE)) {
@@ -96806,7 +96806,7 @@ PlSqlParser::Library_editionableContext* PlSqlParser::library_editionable() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -96844,14 +96844,14 @@ PlSqlParser::Library_debugContext* PlSqlParser::library_debug() {
     enterOuterAlt(_localctx, 1);
     setState(8750);
 
-    if (!(this->isVersion12())) throw FailedPredicateException(this, "this->isVersion12()");
+    if (!(this->isVersion12())) { FailedPredicateException _fpe(this, "this->isVersion12()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
     setState(8751);
     match(PlSqlParser::DEBUG);
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -96905,7 +96905,7 @@ PlSqlParser::Compiler_parameters_clauseContext* PlSqlParser::compiler_parameters
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -99222,13 +99222,13 @@ PlSqlParser::Parameter_valueContext* PlSqlParser::parameter_value() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -99293,7 +99293,7 @@ PlSqlParser::Library_nameContext* PlSqlParser::library_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -99595,7 +99595,7 @@ PlSqlParser::Alter_dimensionContext* PlSqlParser::alter_dimension() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(8813); 
           _errHandler->sync(this);
@@ -99611,13 +99611,13 @@ PlSqlParser::Alter_dimensionContext* PlSqlParser::alter_dimension() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -102014,7 +102014,7 @@ PlSqlParser::Level_clauseContext* PlSqlParser::level_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(8846);
     _errHandler->sync(this);
@@ -102032,7 +102032,7 @@ PlSqlParser::Level_clauseContext* PlSqlParser::level_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -102141,7 +102141,7 @@ PlSqlParser::Hierarchy_clauseContext* PlSqlParser::hierarchy_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -102236,7 +102236,7 @@ PlSqlParser::Dimension_join_clauseContext* PlSqlParser::dimension_join_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -102319,7 +102319,7 @@ PlSqlParser::Attribute_clauseContext* PlSqlParser::attribute_clause() {
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(8881); 
       _errHandler->sync(this);
@@ -102329,7 +102329,7 @@ PlSqlParser::Attribute_clauseContext* PlSqlParser::attribute_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -102422,7 +102422,7 @@ PlSqlParser::Extended_attribute_clauseContext* PlSqlParser::extended_attribute_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -104762,13 +104762,13 @@ PlSqlParser::Column_one_or_more_sub_clauseContext* PlSqlParser::column_one_or_mo
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -104984,7 +104984,7 @@ PlSqlParser::Alter_viewContext* PlSqlParser::alter_view() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -105034,7 +105034,7 @@ PlSqlParser::Alter_viewContext* PlSqlParser::alter_view() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -105077,7 +105077,7 @@ PlSqlParser::Alter_view_editionableContext* PlSqlParser::alter_view_editionable(
     enterOuterAlt(_localctx, 1);
     setState(8945);
 
-    if (!(this->isVersion12())) throw FailedPredicateException(this, "this->isVersion12()");
+    if (!(this->isVersion12())) { FailedPredicateException _fpe(this, "this->isVersion12()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
     setState(8946);
     _la = _input->LA(1);
     if (!(_la == PlSqlParser::EDITIONABLE || _la == PlSqlParser::NONEDITIONABLE)) {
@@ -105091,7 +105091,7 @@ PlSqlParser::Alter_view_editionableContext* PlSqlParser::alter_view_editionable(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -105357,7 +105357,7 @@ PlSqlParser::Create_viewContext* PlSqlParser::create_view() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
     }
     setState(8987);
@@ -105434,7 +105434,7 @@ PlSqlParser::Create_viewContext* PlSqlParser::create_view() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -105511,13 +105511,13 @@ PlSqlParser::Editioning_clauseContext* PlSqlParser::editioning_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -105591,7 +105591,7 @@ PlSqlParser::View_optionsContext* PlSqlParser::view_options() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -105758,7 +105758,7 @@ PlSqlParser::View_alias_constraintContext* PlSqlParser::view_alias_constraint() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -105961,7 +105961,7 @@ PlSqlParser::Object_view_clauseContext* PlSqlParser::object_view_clause() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -105990,7 +105990,7 @@ PlSqlParser::Object_view_clauseContext* PlSqlParser::object_view_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(9088);
     _errHandler->sync(this);
@@ -106033,7 +106033,7 @@ PlSqlParser::Object_view_clauseContext* PlSqlParser::object_view_clause() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(9082); 
         _errHandler->sync(this);
@@ -106053,7 +106053,7 @@ PlSqlParser::Object_view_clauseContext* PlSqlParser::object_view_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -106181,7 +106181,7 @@ PlSqlParser::Inline_constraintContext* PlSqlParser::inline_constraint() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(9107);
     _errHandler->sync(this);
@@ -106200,7 +106200,7 @@ PlSqlParser::Inline_constraintContext* PlSqlParser::inline_constraint() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -106323,13 +106323,13 @@ PlSqlParser::Inline_ref_constraintContext* PlSqlParser::inline_ref_constraint() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -106573,13 +106573,13 @@ PlSqlParser::Out_of_line_ref_constraintContext* PlSqlParser::out_of_line_ref_con
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -106773,7 +106773,7 @@ PlSqlParser::Out_of_line_constraintContext* PlSqlParser::out_of_line_constraint(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(9199);
     _errHandler->sync(this);
@@ -106805,7 +106805,7 @@ PlSqlParser::Out_of_line_constraintContext* PlSqlParser::out_of_line_constraint(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -107023,13 +107023,13 @@ PlSqlParser::Constraint_stateContext* PlSqlParser::constraint_state() {
                 }
 
               default:
-                throw NoViableAltException(this);
+                { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
               }
               break;
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(9216); 
       _errHandler->sync(this);
@@ -107039,7 +107039,7 @@ PlSqlParser::Constraint_stateContext* PlSqlParser::constraint_state() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -107187,13 +107187,13 @@ PlSqlParser::Xmltype_view_clauseContext* PlSqlParser::xmltype_view_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -107376,7 +107376,7 @@ PlSqlParser::Xml_schema_specContext* PlSqlParser::xml_schema_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -107418,7 +107418,7 @@ PlSqlParser::Xml_schema_urlContext* PlSqlParser::xml_schema_url() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -107460,7 +107460,7 @@ PlSqlParser::ElementContext* PlSqlParser::element() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -107739,7 +107739,7 @@ PlSqlParser::Alter_tablespaceContext* PlSqlParser::alter_tablespace() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -107862,7 +107862,7 @@ PlSqlParser::Datafile_tempfile_clausesContext* PlSqlParser::datafile_tempfile_cl
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -107896,7 +107896,7 @@ PlSqlParser::Datafile_tempfile_clausesContext* PlSqlParser::datafile_tempfile_cl
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(9323);
         _errHandler->sync(this);
@@ -107933,7 +107933,7 @@ PlSqlParser::Datafile_tempfile_clausesContext* PlSqlParser::datafile_tempfile_cl
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(9333);
         _errHandler->sync(this);
@@ -108006,13 +108006,13 @@ PlSqlParser::Datafile_tempfile_clausesContext* PlSqlParser::datafile_tempfile_cl
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -108091,13 +108091,13 @@ PlSqlParser::Tablespace_logging_clausesContext* PlSqlParser::tablespace_logging_
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -110413,13 +110413,13 @@ PlSqlParser::Tablespace_group_clauseContext* PlSqlParser::tablespace_group_claus
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -110461,7 +110461,7 @@ PlSqlParser::Tablespace_group_nameContext* PlSqlParser::tablespace_group_name() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -110592,13 +110592,13 @@ PlSqlParser::Tablespace_state_clausesContext* PlSqlParser::tablespace_state_clau
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -110660,7 +110660,7 @@ PlSqlParser::Flashback_mode_clauseContext* PlSqlParser::flashback_mode_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -110702,7 +110702,7 @@ PlSqlParser::New_tablespace_nameContext* PlSqlParser::new_tablespace_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -110798,13 +110798,13 @@ PlSqlParser::Create_tablespaceContext* PlSqlParser::create_tablespace() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -111100,7 +111100,7 @@ PlSqlParser::Permanent_tablespace_clauseContext* PlSqlParser::permanent_tablespa
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(9428);
       _errHandler->sync(this);
@@ -111110,7 +111110,7 @@ PlSqlParser::Permanent_tablespace_clauseContext* PlSqlParser::permanent_tablespa
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -111158,7 +111158,7 @@ PlSqlParser::Tablespace_encryption_specContext* PlSqlParser::tablespace_encrypti
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -111216,7 +111216,7 @@ PlSqlParser::Logging_clauseContext* PlSqlParser::logging_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -111359,7 +111359,7 @@ PlSqlParser::Extent_management_clauseContext* PlSqlParser::extent_management_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -111431,7 +111431,7 @@ PlSqlParser::Segment_management_clauseContext* PlSqlParser::segment_management_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -111546,7 +111546,7 @@ PlSqlParser::Temporary_tablespace_clauseContext* PlSqlParser::temporary_tablespa
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -111661,7 +111661,7 @@ PlSqlParser::Undo_tablespace_clauseContext* PlSqlParser::undo_tablespace_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -111721,7 +111721,7 @@ PlSqlParser::Tablespace_retention_clauseContext* PlSqlParser::tablespace_retenti
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -111902,7 +111902,7 @@ PlSqlParser::Create_tablespace_setContext* PlSqlParser::create_tablespace_set() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -112111,13 +112111,13 @@ PlSqlParser::Permanent_tablespace_attrsContext* PlSqlParser::permanent_tablespac
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -112193,13 +112193,13 @@ PlSqlParser::Tablespace_encryption_clauseContext* PlSqlParser::tablespace_encryp
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -112302,7 +112302,7 @@ PlSqlParser::Default_tablespace_paramsContext* PlSqlParser::default_tablespace_p
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -112402,7 +112402,7 @@ PlSqlParser::Default_table_compressionContext* PlSqlParser::default_table_compre
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -112414,13 +112414,13 @@ PlSqlParser::Default_table_compressionContext* PlSqlParser::default_table_compre
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -112474,7 +112474,7 @@ PlSqlParser::Low_highContext* PlSqlParser::low_high() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -112548,13 +112548,13 @@ PlSqlParser::Default_index_compressionContext* PlSqlParser::default_index_compre
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -112722,13 +112722,13 @@ PlSqlParser::Inmmemory_clauseContext* PlSqlParser::inmmemory_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -112790,7 +112790,7 @@ PlSqlParser::Datafile_specificationContext* PlSqlParser::datafile_specification(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -112852,7 +112852,7 @@ PlSqlParser::Tempfile_specificationContext* PlSqlParser::tempfile_specification(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -112943,7 +112943,7 @@ PlSqlParser::Datafile_tempfile_specContext* PlSqlParser::datafile_tempfile_spec(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -113052,7 +113052,7 @@ PlSqlParser::Redo_log_file_specContext* PlSqlParser::redo_log_file_spec() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(9661);
     _errHandler->sync(this);
@@ -113091,7 +113091,7 @@ PlSqlParser::Redo_log_file_specContext* PlSqlParser::redo_log_file_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -113184,13 +113184,13 @@ PlSqlParser::Autoextend_clauseContext* PlSqlParser::autoextend_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -113252,13 +113252,13 @@ PlSqlParser::Maxsize_clauseContext* PlSqlParser::maxsize_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -113318,7 +113318,7 @@ PlSqlParser::Build_clauseContext* PlSqlParser::build_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -113442,13 +113442,13 @@ PlSqlParser::Parallel_clauseContext* PlSqlParser::parallel_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -113508,7 +113508,7 @@ PlSqlParser::Parallel_instances_clauseContext* PlSqlParser::parallel_instances_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -113841,7 +113841,7 @@ PlSqlParser::Alter_materialized_viewContext* PlSqlParser::alter_materialized_vie
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -113883,7 +113883,7 @@ PlSqlParser::Alter_mv_option1Context* PlSqlParser::alter_mv_option1() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -114223,7 +114223,7 @@ PlSqlParser::Alter_mv_refreshContext* PlSqlParser::alter_mv_refresh() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -114265,7 +114265,7 @@ PlSqlParser::Rollback_segmentContext* PlSqlParser::rollback_segment() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -114361,7 +114361,7 @@ PlSqlParser::Modify_mv_column_clauseContext* PlSqlParser::modify_mv_column_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -114557,7 +114557,7 @@ PlSqlParser::Alter_materialized_view_logContext* PlSqlParser::alter_materialized
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -114617,7 +114617,7 @@ PlSqlParser::Add_mv_log_column_clauseContext* PlSqlParser::add_mv_log_column_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -114678,7 +114678,7 @@ PlSqlParser::Move_mv_log_clauseContext* PlSqlParser::move_mv_log_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -114808,7 +114808,7 @@ PlSqlParser::Mv_log_augmentationContext* PlSqlParser::mv_log_augmentation() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(9861);
         _errHandler->sync(this);
@@ -114860,7 +114860,7 @@ PlSqlParser::Mv_log_augmentationContext* PlSqlParser::mv_log_augmentation() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(9877);
     _errHandler->sync(this);
@@ -114874,7 +114874,7 @@ PlSqlParser::Mv_log_augmentationContext* PlSqlParser::mv_log_augmentation() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -115175,7 +115175,7 @@ PlSqlParser::Create_materialized_view_logContext* PlSqlParser::create_materializ
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(9892); 
         _errHandler->sync(this);
@@ -115256,7 +115256,7 @@ PlSqlParser::Create_materialized_view_logContext* PlSqlParser::create_materializ
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(9917);
         _errHandler->sync(this);
@@ -115353,7 +115353,7 @@ PlSqlParser::Create_materialized_view_logContext* PlSqlParser::create_materializ
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -115419,7 +115419,7 @@ PlSqlParser::New_values_clauseContext* PlSqlParser::new_values_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -115492,7 +115492,7 @@ PlSqlParser::Mv_log_purge_clauseContext* PlSqlParser::mv_log_purge_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -115652,13 +115652,13 @@ PlSqlParser::Create_materialized_zonemapContext* PlSqlParser::create_materialize
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -115802,13 +115802,13 @@ PlSqlParser::Alter_materialized_zonemapContext* PlSqlParser::alter_materialized_
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -115868,7 +115868,7 @@ PlSqlParser::Drop_materialized_zonemapContext* PlSqlParser::drop_materialized_zo
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116021,7 +116021,7 @@ PlSqlParser::Zonemap_refresh_clauseContext* PlSqlParser::zonemap_refresh_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116172,7 +116172,7 @@ PlSqlParser::Zonemap_attributesContext* PlSqlParser::zonemap_attributes() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(10020); 
       _errHandler->sync(this);
@@ -116184,7 +116184,7 @@ PlSqlParser::Zonemap_attributesContext* PlSqlParser::zonemap_attributes() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116245,7 +116245,7 @@ PlSqlParser::Zonemap_nameContext* PlSqlParser::zonemap_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116306,7 +116306,7 @@ PlSqlParser::Operator_nameContext* PlSqlParser::operator_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116377,7 +116377,7 @@ PlSqlParser::Operator_function_nameContext* PlSqlParser::operator_function_name(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116443,7 +116443,7 @@ PlSqlParser::Create_zonemap_on_tableContext* PlSqlParser::create_zonemap_on_tabl
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116491,7 +116491,7 @@ PlSqlParser::Create_zonemap_as_subqueryContext* PlSqlParser::create_zonemap_as_s
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116575,13 +116575,13 @@ PlSqlParser::Alter_operatorContext* PlSqlParser::alter_operator() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116648,7 +116648,7 @@ PlSqlParser::Drop_operatorContext* PlSqlParser::drop_operator() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116792,7 +116792,7 @@ PlSqlParser::Create_operatorContext* PlSqlParser::create_operator() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116921,7 +116921,7 @@ PlSqlParser::Binding_clauseContext* PlSqlParser::binding_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -116975,7 +116975,7 @@ PlSqlParser::Add_binding_clauseContext* PlSqlParser::add_binding_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -117044,13 +117044,13 @@ PlSqlParser::Implementation_clauseContext* PlSqlParser::implementation_clause() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -117117,7 +117117,7 @@ PlSqlParser::Primary_operator_listContext* PlSqlParser::primary_operator_list() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -117202,7 +117202,7 @@ PlSqlParser::Primary_operator_itemContext* PlSqlParser::primary_operator_item() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -117325,7 +117325,7 @@ PlSqlParser::Operator_context_clauseContext* PlSqlParser::operator_context_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -117373,7 +117373,7 @@ PlSqlParser::Using_function_clauseContext* PlSqlParser::using_function_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -117476,7 +117476,7 @@ PlSqlParser::Drop_binding_clauseContext* PlSqlParser::drop_binding_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -117883,7 +117883,7 @@ PlSqlParser::Create_materialized_viewContext* PlSqlParser::create_materialized_v
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(10238);
     _errHandler->sync(this);
@@ -117929,13 +117929,13 @@ PlSqlParser::Create_materialized_viewContext* PlSqlParser::create_materialized_v
                     }
 
                   default:
-                    throw NoViableAltException(this);
+                    { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
                   }
                   break;
                 }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(10228); 
           _errHandler->sync(this);
@@ -118006,7 +118006,7 @@ PlSqlParser::Create_materialized_viewContext* PlSqlParser::create_materialized_v
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -118107,7 +118107,7 @@ PlSqlParser::Scoped_table_ref_constraintContext* PlSqlParser::scoped_table_ref_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -120423,7 +120423,7 @@ PlSqlParser::Mv_column_aliasContext* PlSqlParser::mv_column_alias() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(10274);
     _errHandler->sync(this);
@@ -120439,7 +120439,7 @@ PlSqlParser::Mv_column_aliasContext* PlSqlParser::mv_column_alias() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -120726,7 +120726,7 @@ PlSqlParser::Create_mv_refreshContext* PlSqlParser::create_mv_refresh() {
               }
 
             default:
-              throw NoViableAltException(this);
+              { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
             }
             break;
           }
@@ -120752,7 +120752,7 @@ PlSqlParser::Create_mv_refreshContext* PlSqlParser::create_mv_refresh() {
               }
 
             default:
-              throw NoViableAltException(this);
+              { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
             }
             break;
           }
@@ -120824,7 +120824,7 @@ PlSqlParser::Create_mv_refreshContext* PlSqlParser::create_mv_refresh() {
               }
 
             default:
-              throw NoViableAltException(this);
+              { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
             }
             break;
           }
@@ -120861,13 +120861,13 @@ PlSqlParser::Create_mv_refreshContext* PlSqlParser::create_mv_refresh() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -120946,7 +120946,7 @@ PlSqlParser::Drop_materialized_viewContext* PlSqlParser::drop_materialized_view(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -121037,7 +121037,7 @@ PlSqlParser::Drop_materialized_view_logContext* PlSqlParser::drop_materialized_v
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -121196,7 +121196,7 @@ PlSqlParser::Create_contextContext* PlSqlParser::create_context() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -121238,7 +121238,7 @@ PlSqlParser::Oracle_namespaceContext* PlSqlParser::oracle_namespace() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -121569,7 +121569,7 @@ PlSqlParser::Create_clusterContext* PlSqlParser::create_cluster() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(10400);
       _errHandler->sync(this);
@@ -121617,7 +121617,7 @@ PlSqlParser::Create_clusterContext* PlSqlParser::create_cluster() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -121742,7 +121742,7 @@ PlSqlParser::Create_profileContext* PlSqlParser::create_profile() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(10421); 
       _errHandler->sync(this);
@@ -121766,7 +121766,7 @@ PlSqlParser::Create_profileContext* PlSqlParser::create_profile() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -121912,19 +121912,19 @@ PlSqlParser::Resource_parametersContext* PlSqlParser::resource_parameters() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -124336,7 +124336,7 @@ PlSqlParser::Password_parametersContext* PlSqlParser::password_parameters() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -124367,13 +124367,13 @@ PlSqlParser::Password_parametersContext* PlSqlParser::password_parameters() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -124465,7 +124465,7 @@ PlSqlParser::Create_lockdown_profileContext* PlSqlParser::create_lockdown_profil
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -124513,7 +124513,7 @@ PlSqlParser::Static_base_profileContext* PlSqlParser::static_base_profile() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -124561,7 +124561,7 @@ PlSqlParser::Dynamic_base_profileContext* PlSqlParser::dynamic_base_profile() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -124792,7 +124792,7 @@ PlSqlParser::Create_outlineContext* PlSqlParser::create_outline() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -124980,7 +124980,7 @@ PlSqlParser::Create_restore_pointContext* PlSqlParser::create_restore_point() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -125059,7 +125059,7 @@ PlSqlParser::Create_roleContext* PlSqlParser::create_role() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -125335,7 +125335,7 @@ PlSqlParser::Create_tableContext* PlSqlParser::create_table() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
     }
     setState(10570);
@@ -125394,7 +125394,7 @@ PlSqlParser::Create_tableContext* PlSqlParser::create_table() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -125613,7 +125613,7 @@ PlSqlParser::Xmltype_tableContext* PlSqlParser::xmltype_table() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -125744,7 +125744,7 @@ PlSqlParser::Xmltype_virtual_columnsContext* PlSqlParser::xmltype_virtual_column
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -125834,7 +125834,7 @@ PlSqlParser::Xmltype_column_propertiesContext* PlSqlParser::xmltype_column_prope
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -125987,7 +125987,7 @@ PlSqlParser::Xmltype_storageContext* PlSqlParser::xmltype_storage() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(10675);
           _errHandler->sync(this);
@@ -126033,7 +126033,7 @@ PlSqlParser::Xmltype_storageContext* PlSqlParser::xmltype_storage() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -126065,7 +126065,7 @@ PlSqlParser::Xmltype_storageContext* PlSqlParser::xmltype_storage() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -126173,7 +126173,7 @@ PlSqlParser::Xmlschema_specContext* PlSqlParser::xmlschema_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -126404,7 +126404,7 @@ PlSqlParser::Object_tableContext* PlSqlParser::object_table() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -126446,7 +126446,7 @@ PlSqlParser::Object_typeContext* PlSqlParser::object_type() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -126597,7 +126597,7 @@ PlSqlParser::Oid_index_clauseContext* PlSqlParser::oid_index_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(10754); 
       _errHandler->sync(this);
@@ -126611,7 +126611,7 @@ PlSqlParser::Oid_index_clauseContext* PlSqlParser::oid_index_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -126697,13 +126697,13 @@ PlSqlParser::Oid_clauseContext* PlSqlParser::oid_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -126881,7 +126881,7 @@ PlSqlParser::Object_propertiesContext* PlSqlParser::object_properties() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -126954,7 +126954,7 @@ PlSqlParser::Object_table_substitutionContext* PlSqlParser::object_table_substit
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -127056,7 +127056,7 @@ PlSqlParser::Relational_tableContext* PlSqlParser::relational_table() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -127109,7 +127109,7 @@ PlSqlParser::Relational_table_propertiesContext* PlSqlParser::relational_table_p
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(10818); 
       _errHandler->sync(this);
@@ -127119,7 +127119,7 @@ PlSqlParser::Relational_table_propertiesContext* PlSqlParser::relational_table_p
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -127290,7 +127290,7 @@ PlSqlParser::Relational_table_propertyContext* PlSqlParser::relational_table_pro
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -127353,7 +127353,7 @@ PlSqlParser::Immutable_table_clausesContext* PlSqlParser::immutable_table_clause
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -127432,7 +127432,7 @@ PlSqlParser::Immutable_table_no_drop_clauseContext* PlSqlParser::immutable_table
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -127593,13 +127593,13 @@ PlSqlParser::Immutable_table_no_delete_clauseContext* PlSqlParser::immutable_tab
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -127653,7 +127653,7 @@ PlSqlParser::Blockchain_table_clausesContext* PlSqlParser::blockchain_table_clau
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -127732,7 +127732,7 @@ PlSqlParser::Blockchain_drop_table_clauseContext* PlSqlParser::blockchain_drop_t
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -127840,13 +127840,13 @@ PlSqlParser::Blockchain_row_retention_clauseContext* PlSqlParser::blockchain_row
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -127912,7 +127912,7 @@ PlSqlParser::Blockchain_hash_and_data_format_clauseContext* PlSqlParser::blockch
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -127954,7 +127954,7 @@ PlSqlParser::Collation_nameContext* PlSqlParser::collation_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -128286,7 +128286,7 @@ PlSqlParser::Table_propertiesContext* PlSqlParser::table_properties() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -128346,7 +128346,7 @@ PlSqlParser::Read_only_clauseContext* PlSqlParser::read_only_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -128408,7 +128408,7 @@ PlSqlParser::Indexing_clauseContext* PlSqlParser::indexing_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -128598,7 +128598,7 @@ PlSqlParser::Attribute_clustering_clauseContext* PlSqlParser::attribute_clusteri
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -128694,7 +128694,7 @@ PlSqlParser::Clustering_joinContext* PlSqlParser::clustering_join() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -128789,7 +128789,7 @@ PlSqlParser::Clustering_join_itemContext* PlSqlParser::clustering_join_item() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -128831,7 +128831,7 @@ PlSqlParser::Equijoin_conditionContext* PlSqlParser::equijoin_condition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -128909,7 +128909,7 @@ PlSqlParser::Cluster_clauseContext* PlSqlParser::cluster_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -129005,7 +129005,7 @@ PlSqlParser::Clustering_columnsContext* PlSqlParser::clustering_columns() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -129084,7 +129084,7 @@ PlSqlParser::Clustering_column_groupContext* PlSqlParser::clustering_column_grou
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -129138,7 +129138,7 @@ PlSqlParser::Yes_noContext* PlSqlParser::yes_no() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -129236,13 +129236,13 @@ PlSqlParser::Zonemap_clauseContext* PlSqlParser::zonemap_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -129363,7 +129363,7 @@ PlSqlParser::Logical_replication_clauseContext* PlSqlParser::logical_replication
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(11048);
           match(PlSqlParser::KEYS);
@@ -129393,13 +129393,13 @@ PlSqlParser::Logical_replication_clauseContext* PlSqlParser::logical_replication
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -129441,7 +129441,7 @@ PlSqlParser::Table_nameContext* PlSqlParser::table_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -129548,7 +129548,7 @@ PlSqlParser::Relational_propertyContext* PlSqlParser::relational_property() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -129677,7 +129677,7 @@ PlSqlParser::Table_partitioning_clausesContext* PlSqlParser::table_partitioning_
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -130024,7 +130024,7 @@ PlSqlParser::Range_partitionsContext* PlSqlParser::range_partitions() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -130345,7 +130345,7 @@ PlSqlParser::List_partitionsContext* PlSqlParser::list_partitions() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -130462,13 +130462,13 @@ PlSqlParser::Hash_partitionsContext* PlSqlParser::hash_partitions() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -130619,7 +130619,7 @@ PlSqlParser::Individual_hash_partitionsContext* PlSqlParser::individual_hash_par
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -130815,7 +130815,7 @@ PlSqlParser::Hash_partitions_by_quantityContext* PlSqlParser::hash_partitions_by
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -130857,7 +130857,7 @@ PlSqlParser::Hash_partition_quantityContext* PlSqlParser::hash_partition_quantit
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -131112,7 +131112,7 @@ PlSqlParser::Composite_range_partitionsContext* PlSqlParser::composite_range_par
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -131263,7 +131263,7 @@ PlSqlParser::Composite_list_partitionsContext* PlSqlParser::composite_list_parti
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -131414,13 +131414,13 @@ PlSqlParser::Composite_hash_partitionsContext* PlSqlParser::composite_hash_parti
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -131541,7 +131541,7 @@ PlSqlParser::Reference_partitioningContext* PlSqlParser::reference_partitioning(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -131606,7 +131606,7 @@ PlSqlParser::Reference_partition_descContext* PlSqlParser::reference_partition_d
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -131718,7 +131718,7 @@ PlSqlParser::System_partitioningContext* PlSqlParser::system_partitioning() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -131919,14 +131919,14 @@ PlSqlParser::Range_partition_descContext* PlSqlParser::range_partition_desc() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -132127,14 +132127,14 @@ PlSqlParser::List_partition_descContext* PlSqlParser::list_partition_desc() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -132302,13 +132302,13 @@ PlSqlParser::Subpartition_templateContext* PlSqlParser::subpartition_template() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -132350,7 +132350,7 @@ PlSqlParser::Hash_subpartition_quantityContext* PlSqlParser::hash_subpartition_q
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -132459,7 +132459,7 @@ PlSqlParser::Subpartition_by_rangeContext* PlSqlParser::subpartition_by_range() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -132544,7 +132544,7 @@ PlSqlParser::Subpartition_by_listContext* PlSqlParser::subpartition_by_list() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -132730,7 +132730,7 @@ PlSqlParser::Subpartition_by_hashContext* PlSqlParser::subpartition_by_hash() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -132772,7 +132772,7 @@ PlSqlParser::Subpartition_nameContext* PlSqlParser::subpartition_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -132888,7 +132888,7 @@ PlSqlParser::Range_subpartition_descContext* PlSqlParser::range_subpartition_des
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -133004,7 +133004,7 @@ PlSqlParser::List_subpartition_descContext* PlSqlParser::list_subpartition_desc(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -133080,7 +133080,7 @@ PlSqlParser::Individual_hash_subpartsContext* PlSqlParser::individual_hash_subpa
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -133189,7 +133189,7 @@ PlSqlParser::Hash_subparts_by_quantityContext* PlSqlParser::hash_subparts_by_qua
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -133261,7 +133261,7 @@ PlSqlParser::Range_values_clauseContext* PlSqlParser::range_values_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -133370,13 +133370,13 @@ PlSqlParser::Range_values_listContext* PlSqlParser::range_values_list() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -133510,7 +133510,7 @@ PlSqlParser::List_values_clauseContext* PlSqlParser::list_values_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(11690);
     match(PlSqlParser::RIGHT_PAREN);
@@ -133518,7 +133518,7 @@ PlSqlParser::List_values_clauseContext* PlSqlParser::list_values_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -133789,7 +133789,7 @@ PlSqlParser::Table_partition_descriptionContext* PlSqlParser::table_partition_de
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         } 
       }
       setState(11730);
@@ -133800,7 +133800,7 @@ PlSqlParser::Table_partition_descriptionContext* PlSqlParser::table_partition_de
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -134059,7 +134059,7 @@ PlSqlParser::Partitioning_storage_clauseContext* PlSqlParser::partitioning_stora
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -136460,13 +136460,13 @@ PlSqlParser::Lob_partitioning_storageContext* PlSqlParser::lob_partitioning_stor
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -136548,7 +136548,7 @@ PlSqlParser::Size_clauseContext* PlSqlParser::size_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -136736,7 +136736,7 @@ PlSqlParser::Table_compressionContext* PlSqlParser::table_compression() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           break;
         }
@@ -136864,13 +136864,13 @@ PlSqlParser::Table_compressionContext* PlSqlParser::table_compression() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -136939,7 +136939,7 @@ PlSqlParser::Inmemory_table_clauseContext* PlSqlParser::inmemory_table_clause() 
               }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(11830); 
         _errHandler->sync(this);
@@ -136981,7 +136981,7 @@ PlSqlParser::Inmemory_table_clauseContext* PlSqlParser::inmemory_table_clause() 
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(11843);
       _errHandler->sync(this);
@@ -137005,7 +137005,7 @@ PlSqlParser::Inmemory_table_clauseContext* PlSqlParser::inmemory_table_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -137110,7 +137110,7 @@ PlSqlParser::Inmemory_attributesContext* PlSqlParser::inmemory_attributes() {
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(11854); 
       _errHandler->sync(this);
@@ -137120,7 +137120,7 @@ PlSqlParser::Inmemory_attributesContext* PlSqlParser::inmemory_attributes() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -137232,7 +137232,7 @@ PlSqlParser::Inmemory_memcompressContext* PlSqlParser::inmemory_memcompress() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -137247,13 +137247,13 @@ PlSqlParser::Inmemory_memcompressContext* PlSqlParser::inmemory_memcompress() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -137327,7 +137327,7 @@ PlSqlParser::Inmemory_priorityContext* PlSqlParser::inmemory_priority() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -137449,7 +137449,7 @@ PlSqlParser::Inmemory_distributeContext* PlSqlParser::inmemory_distribute() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -137608,7 +137608,7 @@ PlSqlParser::Inmemory_distributeContext* PlSqlParser::inmemory_distribute() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -137680,13 +137680,13 @@ PlSqlParser::Inmemory_duplicateContext* PlSqlParser::inmemory_duplicate() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -137769,7 +137769,7 @@ PlSqlParser::Inmemory_column_clauseContext* PlSqlParser::inmemory_column_clause(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(11909);
     match(PlSqlParser::LEFT_PAREN);
@@ -137781,7 +137781,7 @@ PlSqlParser::Inmemory_column_clauseContext* PlSqlParser::inmemory_column_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -137924,13 +137924,13 @@ PlSqlParser::Physical_attributes_clauseContext* PlSqlParser::physical_attributes
                 }
 
               default:
-                throw NoViableAltException(this);
+                { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
               }
               break;
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(11925); 
       _errHandler->sync(this);
@@ -137940,7 +137940,7 @@ PlSqlParser::Physical_attributes_clauseContext* PlSqlParser::physical_attributes
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -138257,7 +138257,7 @@ PlSqlParser::Storage_clauseContext* PlSqlParser::storage_clause() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           break;
         }
@@ -138314,7 +138314,7 @@ PlSqlParser::Storage_clauseContext* PlSqlParser::storage_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(11958); 
       _errHandler->sync(this);
@@ -138331,7 +138331,7 @@ PlSqlParser::Storage_clauseContext* PlSqlParser::storage_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -138397,7 +138397,7 @@ PlSqlParser::Deferred_segment_creationContext* PlSqlParser::deferred_segment_cre
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -138561,13 +138561,13 @@ PlSqlParser::Segment_attributes_clauseContext* PlSqlParser::segment_attributes_c
                 }
 
               default:
-                throw NoViableAltException(this);
+                { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
               }
               break;
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(11979); 
       _errHandler->sync(this);
@@ -138577,7 +138577,7 @@ PlSqlParser::Segment_attributes_clauseContext* PlSqlParser::segment_attributes_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -138812,7 +138812,7 @@ PlSqlParser::Physical_propertiesContext* PlSqlParser::physical_properties() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -138874,7 +138874,7 @@ PlSqlParser::Physical_propertiesContext* PlSqlParser::physical_properties() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -139002,13 +139002,13 @@ PlSqlParser::Ilm_clauseContext* PlSqlParser::ilm_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -139081,13 +139081,13 @@ PlSqlParser::Ilm_policy_clauseContext* PlSqlParser::ilm_policy_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -139230,7 +139230,7 @@ PlSqlParser::Ilm_compression_policyContext* PlSqlParser::ilm_compression_policy(
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(12055);
       match(PlSqlParser::ROW);
@@ -139254,7 +139254,7 @@ PlSqlParser::Ilm_compression_policyContext* PlSqlParser::ilm_compression_policy(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -139389,7 +139389,7 @@ PlSqlParser::Ilm_tiering_policyContext* PlSqlParser::ilm_tiering_policy() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -139493,7 +139493,7 @@ PlSqlParser::Ilm_after_onContext* PlSqlParser::ilm_after_on() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -139508,13 +139508,13 @@ PlSqlParser::Ilm_after_onContext* PlSqlParser::ilm_after_on() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -139568,7 +139568,7 @@ PlSqlParser::Segment_groupContext* PlSqlParser::segment_group() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -139673,7 +139673,7 @@ PlSqlParser::Ilm_inmemory_policyContext* PlSqlParser::ilm_inmemory_policy() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(12109);
     _errHandler->sync(this);
@@ -139689,7 +139689,7 @@ PlSqlParser::Ilm_inmemory_policyContext* PlSqlParser::ilm_inmemory_policy() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -139771,7 +139771,7 @@ PlSqlParser::Ilm_time_periodContext* PlSqlParser::ilm_time_period() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -139858,7 +139858,7 @@ PlSqlParser::Heap_org_table_clauseContext* PlSqlParser::heap_org_table_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -139990,7 +139990,7 @@ PlSqlParser::External_table_clauseContext* PlSqlParser::external_table_clause() 
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -140015,7 +140015,7 @@ PlSqlParser::External_table_clauseContext* PlSqlParser::external_table_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -140078,7 +140078,7 @@ PlSqlParser::Access_driver_typeContext* PlSqlParser::access_driver_type() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -140322,7 +140322,7 @@ PlSqlParser::External_table_data_propsContext* PlSqlParser::external_table_data_
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -140496,7 +140496,7 @@ PlSqlParser::External_table_data_formatContext* PlSqlParser::external_table_data
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -140730,7 +140730,7 @@ PlSqlParser::External_table_transformContext* PlSqlParser::external_table_transf
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -140750,13 +140750,13 @@ PlSqlParser::External_table_transformContext* PlSqlParser::external_table_transf
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -140846,7 +140846,7 @@ PlSqlParser::External_table_fieldContext* PlSqlParser::external_table_field() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -140913,7 +140913,7 @@ PlSqlParser::External_table_field_listContext* PlSqlParser::external_table_field
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -141034,7 +141034,7 @@ PlSqlParser::External_table_fields_clauseContext* PlSqlParser::external_table_fi
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         } 
       }
       setState(12276);
@@ -141045,7 +141045,7 @@ PlSqlParser::External_table_fields_clauseContext* PlSqlParser::external_table_fi
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -141209,7 +141209,7 @@ PlSqlParser::External_table_position_clauseContext* PlSqlParser::external_table_
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(12298);
     match(PlSqlParser::RIGHT_PAREN);
@@ -141217,7 +141217,7 @@ PlSqlParser::External_table_position_clauseContext* PlSqlParser::external_table_
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -141468,7 +141468,7 @@ PlSqlParser::External_table_datatype_clauseContext* PlSqlParser::external_table_
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -141707,13 +141707,13 @@ PlSqlParser::External_table_datatype_clauseContext* PlSqlParser::external_table_
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -144064,7 +144064,7 @@ PlSqlParser::External_table_delimit_clauseContext* PlSqlParser::external_table_d
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(12402);
         _errHandler->sync(this);
@@ -146339,7 +146339,7 @@ PlSqlParser::External_table_delimit_clauseContext* PlSqlParser::external_table_d
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
         }
         break;
@@ -148658,7 +148658,7 @@ PlSqlParser::External_table_delimit_clauseContext* PlSqlParser::external_table_d
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(12425);
           _errHandler->sync(this);
@@ -150933,7 +150933,7 @@ PlSqlParser::External_table_delimit_clauseContext* PlSqlParser::external_table_d
               }
 
             default:
-              throw NoViableAltException(this);
+              { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
             }
           }
         }
@@ -150941,13 +150941,13 @@ PlSqlParser::External_table_delimit_clauseContext* PlSqlParser::external_table_d
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -151015,7 +151015,7 @@ PlSqlParser::External_table_trim_clauseContext* PlSqlParser::external_table_trim
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -151159,13 +151159,13 @@ PlSqlParser::External_table_date_format_clauseContext* PlSqlParser::external_tab
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -151225,7 +151225,7 @@ PlSqlParser::External_table_init_clauseContext* PlSqlParser::external_table_init
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -153594,7 +153594,7 @@ PlSqlParser::External_table_condition_clauseContext* PlSqlParser::external_table
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(12463);
     relational_operator();
@@ -153621,7 +153621,7 @@ PlSqlParser::External_table_condition_clauseContext* PlSqlParser::external_table
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     _ctx->stop = _input->LT(-1);
     setState(12474);
@@ -153636,7 +153636,7 @@ PlSqlParser::External_table_condition_clauseContext* PlSqlParser::external_table
         pushNewRecursionContext(_localctx, startState, RuleExternal_table_condition_clause);
         setState(12469);
 
-        if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
+        if (!(precpred(_ctx, 1))) { FailedPredicateException _fpe(this, "precpred(_ctx, 1)"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
         setState(12470);
         _la = _input->LA(1);
         if (!(_la == PlSqlParser::AND || _la == PlSqlParser::OR)) {
@@ -153656,7 +153656,7 @@ PlSqlParser::External_table_condition_clauseContext* PlSqlParser::external_table
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
   return _localctx;
@@ -153703,7 +153703,7 @@ PlSqlParser::External_table_lls_clauseContext* PlSqlParser::external_table_lls_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -153865,7 +153865,7 @@ PlSqlParser::External_table_recordsContext* PlSqlParser::external_table_records(
               }
 
             default:
-              throw NoViableAltException(this);
+              { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
             }
             break;
           }
@@ -153912,7 +153912,7 @@ PlSqlParser::External_table_recordsContext* PlSqlParser::external_table_records(
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(12514);
         _errHandler->sync(this);
@@ -153963,7 +153963,7 @@ PlSqlParser::External_table_recordsContext* PlSqlParser::external_table_records(
                 }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(12520); 
           _errHandler->sync(this);
@@ -153973,13 +153973,13 @@ PlSqlParser::External_table_recordsContext* PlSqlParser::external_table_records(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -154355,13 +154355,13 @@ PlSqlParser::External_table_record_options_clauseContext* PlSqlParser::external_
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -154476,13 +154476,13 @@ PlSqlParser::External_table_output_filesContext* PlSqlParser::external_table_out
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -154837,7 +154837,7 @@ PlSqlParser::External_table_fieldsContext* PlSqlParser::external_table_fields() 
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -154889,7 +154889,7 @@ PlSqlParser::External_table_fieldsContext* PlSqlParser::external_table_fields() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -155207,7 +155207,7 @@ PlSqlParser::External_table_datapumpContext* PlSqlParser::external_table_datapum
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -155325,13 +155325,13 @@ PlSqlParser::External_table_datapumpContext* PlSqlParser::external_table_datapum
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -155763,7 +155763,7 @@ PlSqlParser::External_table_hiveContext* PlSqlParser::external_table_hive() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(12755);
           match(PlSqlParser::TERMINATED);
@@ -155787,7 +155787,7 @@ PlSqlParser::External_table_hiveContext* PlSqlParser::external_table_hive() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -155853,7 +155853,7 @@ PlSqlParser::External_table_hiveContext* PlSqlParser::external_table_hive() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -155933,7 +155933,7 @@ PlSqlParser::External_table_hive_parameter_mapContext* PlSqlParser::external_tab
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -156066,7 +156066,7 @@ PlSqlParser::External_table_hive_parameter_map_entryContext* PlSqlParser::extern
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -156260,7 +156260,7 @@ PlSqlParser::External_table_directoryContext* PlSqlParser::external_table_direct
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -156332,7 +156332,7 @@ PlSqlParser::Row_movement_clauseContext* PlSqlParser::row_movement_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -156416,13 +156416,13 @@ PlSqlParser::Flashback_archive_clauseContext* PlSqlParser::flashback_archive_cla
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -158729,13 +158729,13 @@ PlSqlParser::Log_grpContext* PlSqlParser::log_grp() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -158858,7 +158858,7 @@ PlSqlParser::Supplemental_table_loggingContext* PlSqlParser::supplemental_table_
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(12881);
         _errHandler->sync(this);
@@ -158886,7 +158886,7 @@ PlSqlParser::Supplemental_table_loggingContext* PlSqlParser::supplemental_table_
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(12883);
           _errHandler->sync(this);
@@ -158921,7 +158921,7 @@ PlSqlParser::Supplemental_table_loggingContext* PlSqlParser::supplemental_table_
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(12902);
         _errHandler->sync(this);
@@ -158951,7 +158951,7 @@ PlSqlParser::Supplemental_table_loggingContext* PlSqlParser::supplemental_table_
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(12904);
           _errHandler->sync(this);
@@ -158961,13 +158961,13 @@ PlSqlParser::Supplemental_table_loggingContext* PlSqlParser::supplemental_table_
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -159106,7 +159106,7 @@ PlSqlParser::Supplemental_log_grp_clauseContext* PlSqlParser::supplemental_log_g
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -159267,7 +159267,7 @@ PlSqlParser::Supplemental_id_key_clauseContext* PlSqlParser::supplemental_id_key
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(12948); 
       _errHandler->sync(this);
@@ -159281,7 +159281,7 @@ PlSqlParser::Supplemental_id_key_clauseContext* PlSqlParser::supplemental_id_key
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -159421,7 +159421,7 @@ PlSqlParser::Allocate_extent_clauseContext* PlSqlParser::allocate_extent_clause(
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(12964); 
         _errHandler->sync(this);
@@ -159434,7 +159434,7 @@ PlSqlParser::Allocate_extent_clauseContext* PlSqlParser::allocate_extent_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -159501,7 +159501,7 @@ PlSqlParser::Deallocate_unused_clauseContext* PlSqlParser::deallocate_unused_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -159586,7 +159586,7 @@ PlSqlParser::Shrink_clauseContext* PlSqlParser::shrink_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -159652,7 +159652,7 @@ PlSqlParser::Records_per_block_clauseContext* PlSqlParser::records_per_block_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -159726,7 +159726,7 @@ PlSqlParser::Upgrade_table_clauseContext* PlSqlParser::upgrade_table_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -159877,7 +159877,7 @@ PlSqlParser::Truncate_tableContext* PlSqlParser::truncate_table() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(13018);
       match(PlSqlParser::STORAGE);
@@ -159894,7 +159894,7 @@ PlSqlParser::Truncate_tableContext* PlSqlParser::truncate_table() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -160063,7 +160063,7 @@ PlSqlParser::Drop_tableContext* PlSqlParser::drop_table() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -160183,7 +160183,7 @@ PlSqlParser::Drop_tablespaceContext* PlSqlParser::drop_tablespace() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -160256,7 +160256,7 @@ PlSqlParser::Drop_tablespace_setContext* PlSqlParser::drop_tablespace_set() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -160352,7 +160352,7 @@ PlSqlParser::Including_contents_clauseContext* PlSqlParser::including_contents_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -160443,7 +160443,7 @@ PlSqlParser::Drop_viewContext* PlSqlParser::drop_view() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -160515,7 +160515,7 @@ PlSqlParser::Comment_on_columnContext* PlSqlParser::comment_on_column() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -160569,7 +160569,7 @@ PlSqlParser::Enable_or_disableContext* PlSqlParser::enable_or_disable() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -160623,7 +160623,7 @@ PlSqlParser::Allow_or_disallowContext* PlSqlParser::allow_or_disallow() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -160734,7 +160734,7 @@ PlSqlParser::Alter_synonymContext* PlSqlParser::alter_synonym() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -161002,7 +161002,7 @@ PlSqlParser::Create_synonymContext* PlSqlParser::create_synonym() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -161104,7 +161104,7 @@ PlSqlParser::Drop_synonymContext* PlSqlParser::drop_synonym() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -161233,13 +161233,13 @@ PlSqlParser::Create_spfileContext* PlSqlParser::create_spfile() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -161281,7 +161281,7 @@ PlSqlParser::Spfile_nameContext* PlSqlParser::spfile_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -161323,7 +161323,7 @@ PlSqlParser::Pfile_nameContext* PlSqlParser::pfile_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -161395,7 +161395,7 @@ PlSqlParser::Comment_on_tableContext* PlSqlParser::comment_on_table() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -161473,7 +161473,7 @@ PlSqlParser::Comment_on_materializedContext* PlSqlParser::comment_on_materialize
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -161608,13 +161608,13 @@ PlSqlParser::Alter_analytic_viewContext* PlSqlParser::alter_analytic_view() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -164014,7 +164014,7 @@ PlSqlParser::Alter_add_cache_clauseContext* PlSqlParser::alter_add_cache_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -164098,7 +164098,7 @@ PlSqlParser::Levels_itemContext* PlSqlParser::levels_item() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -164165,7 +164165,7 @@ PlSqlParser::Measure_listContext* PlSqlParser::measure_list() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -166565,7 +166565,7 @@ PlSqlParser::Alter_drop_cache_clauseContext* PlSqlParser::alter_drop_cache_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -166680,13 +166680,13 @@ PlSqlParser::Alter_attribute_dimensionContext* PlSqlParser::alter_attribute_dime
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -166991,14 +166991,14 @@ PlSqlParser::Alter_audit_policyContext* PlSqlParser::alter_audit_policy() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167147,7 +167147,7 @@ PlSqlParser::Alter_clusterContext* PlSqlParser::alter_cluster() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(13381); 
       _errHandler->sync(this);
@@ -167169,7 +167169,7 @@ PlSqlParser::Alter_clusterContext* PlSqlParser::alter_cluster() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167252,7 +167252,7 @@ PlSqlParser::Drop_analytic_viewContext* PlSqlParser::drop_analytic_view() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167335,7 +167335,7 @@ PlSqlParser::Drop_attribute_dimensionContext* PlSqlParser::drop_attribute_dimens
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167395,7 +167395,7 @@ PlSqlParser::Drop_audit_policyContext* PlSqlParser::drop_audit_policy() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167455,7 +167455,7 @@ PlSqlParser::Drop_flashback_archiveContext* PlSqlParser::drop_flashback_archive(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167546,7 +167546,7 @@ PlSqlParser::Drop_clusterContext* PlSqlParser::drop_cluster() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167600,7 +167600,7 @@ PlSqlParser::Drop_contextContext* PlSqlParser::drop_context() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167654,7 +167654,7 @@ PlSqlParser::Drop_directoryContext* PlSqlParser::drop_directory() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167751,7 +167751,7 @@ PlSqlParser::Drop_diskgroupContext* PlSqlParser::drop_diskgroup() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(13445);
       match(PlSqlParser::CONTENTS);
@@ -167760,7 +167760,7 @@ PlSqlParser::Drop_diskgroupContext* PlSqlParser::drop_diskgroup() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167827,7 +167827,7 @@ PlSqlParser::Drop_editionContext* PlSqlParser::drop_edition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167911,7 +167911,7 @@ PlSqlParser::Truncate_clusterContext* PlSqlParser::truncate_cluster() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -167965,7 +167965,7 @@ PlSqlParser::Cache_or_nocacheContext* PlSqlParser::cache_or_nocache() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -168007,7 +168007,7 @@ PlSqlParser::Database_nameContext* PlSqlParser::database_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -168211,7 +168211,7 @@ PlSqlParser::Alter_databaseContext* PlSqlParser::alter_database() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -168283,7 +168283,7 @@ PlSqlParser::Database_clauseContext* PlSqlParser::database_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -168433,7 +168433,7 @@ PlSqlParser::Startup_clausesContext* PlSqlParser::startup_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -168487,7 +168487,7 @@ PlSqlParser::Resetlogs_or_noresetlogsContext* PlSqlParser::resetlogs_or_noresetl
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -168541,7 +168541,7 @@ PlSqlParser::Upgrade_or_downgradeContext* PlSqlParser::upgrade_or_downgrade() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -168621,7 +168621,7 @@ PlSqlParser::Recovery_clausesContext* PlSqlParser::recovery_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -168675,7 +168675,7 @@ PlSqlParser::Begin_or_endContext* PlSqlParser::begin_or_end() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -168889,7 +168889,7 @@ PlSqlParser::General_recoveryContext* PlSqlParser::general_recovery() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(13546); 
           _errHandler->sync(this);
@@ -168926,7 +168926,7 @@ PlSqlParser::General_recoveryContext* PlSqlParser::general_recovery() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -169114,7 +169114,7 @@ PlSqlParser::Full_database_recoveryContext* PlSqlParser::full_database_recovery(
               }
 
             default:
-              throw NoViableAltException(this);
+              { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
             }
             break;
           }
@@ -169140,7 +169140,7 @@ PlSqlParser::Full_database_recoveryContext* PlSqlParser::full_database_recovery(
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(13578); 
         _errHandler->sync(this);
@@ -169153,7 +169153,7 @@ PlSqlParser::Full_database_recoveryContext* PlSqlParser::full_database_recovery(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -169290,7 +169290,7 @@ PlSqlParser::Partial_database_recoveryContext* PlSqlParser::partial_database_rec
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(13601);
         _errHandler->sync(this);
@@ -169313,7 +169313,7 @@ PlSqlParser::Partial_database_recoveryContext* PlSqlParser::partial_database_rec
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -169408,7 +169408,7 @@ PlSqlParser::Partial_database_recovery_10gContext* PlSqlParser::partial_database
     enterOuterAlt(_localctx, 1);
     setState(13605);
 
-    if (!(this->isVersion10())) throw FailedPredicateException(this, "this->isVersion10()");
+    if (!(this->isVersion10())) { FailedPredicateException _fpe(this, "this->isVersion10()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
     setState(13606);
     match(PlSqlParser::STANDBY);
     setState(13627);
@@ -169469,7 +169469,7 @@ PlSqlParser::Partial_database_recovery_10gContext* PlSqlParser::partial_database
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(13626);
           _errHandler->sync(this);
@@ -169479,7 +169479,7 @@ PlSqlParser::Partial_database_recovery_10gContext* PlSqlParser::partial_database
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(13629);
     match(PlSqlParser::UNTIL);
@@ -169499,7 +169499,7 @@ PlSqlParser::Partial_database_recovery_10gContext* PlSqlParser::partial_database
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -169825,13 +169825,13 @@ PlSqlParser::Managed_standby_recoveryContext* PlSqlParser::managed_standby_recov
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -169873,7 +169873,7 @@ PlSqlParser::Db_nameContext* PlSqlParser::db_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -170008,13 +170008,13 @@ PlSqlParser::Database_file_clausesContext* PlSqlParser::database_file_clauses() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -170107,7 +170107,7 @@ PlSqlParser::Create_datafile_clauseContext* PlSqlParser::create_datafile_clause(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(13707);
     _errHandler->sync(this);
@@ -170131,7 +170131,7 @@ PlSqlParser::Create_datafile_clauseContext* PlSqlParser::create_datafile_clause(
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(13709);
       _errHandler->sync(this);
@@ -170152,7 +170152,7 @@ PlSqlParser::Create_datafile_clauseContext* PlSqlParser::create_datafile_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -170267,7 +170267,7 @@ PlSqlParser::Alter_datafile_clauseContext* PlSqlParser::alter_datafile_clause() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(13726);
     _errHandler->sync(this);
@@ -170291,7 +170291,7 @@ PlSqlParser::Alter_datafile_clauseContext* PlSqlParser::alter_datafile_clause() 
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(13728);
       _errHandler->sync(this);
@@ -170345,13 +170345,13 @@ PlSqlParser::Alter_datafile_clauseContext* PlSqlParser::alter_datafile_clause() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -170462,7 +170462,7 @@ PlSqlParser::Alter_tempfile_clauseContext* PlSqlParser::alter_tempfile_clause() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(13754);
     _errHandler->sync(this);
@@ -170486,7 +170486,7 @@ PlSqlParser::Alter_tempfile_clauseContext* PlSqlParser::alter_tempfile_clause() 
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(13756);
       _errHandler->sync(this);
@@ -170533,13 +170533,13 @@ PlSqlParser::Alter_tempfile_clauseContext* PlSqlParser::alter_tempfile_clause() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -170636,7 +170636,7 @@ PlSqlParser::Move_datafile_clauseContext* PlSqlParser::move_datafile_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(13780);
     _errHandler->sync(this);
@@ -170660,7 +170660,7 @@ PlSqlParser::Move_datafile_clauseContext* PlSqlParser::move_datafile_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(13782);
       _errHandler->sync(this);
@@ -170696,7 +170696,7 @@ PlSqlParser::Move_datafile_clauseContext* PlSqlParser::move_datafile_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -170885,7 +170885,7 @@ PlSqlParser::Logfile_clausesContext* PlSqlParser::logfile_clauses() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -170937,7 +170937,7 @@ PlSqlParser::Logfile_clausesContext* PlSqlParser::logfile_clauses() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -171045,7 +171045,7 @@ PlSqlParser::Logfile_clausesContext* PlSqlParser::logfile_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -171270,13 +171270,13 @@ PlSqlParser::Add_logfile_clausesContext* PlSqlParser::add_logfile_clauses() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -171337,7 +171337,7 @@ PlSqlParser::Group_redo_logfileContext* PlSqlParser::group_redo_logfile() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -171466,13 +171466,13 @@ PlSqlParser::Drop_logfile_clausesContext* PlSqlParser::drop_logfile_clauses() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -171544,7 +171544,7 @@ PlSqlParser::Switch_logfile_clauseContext* PlSqlParser::switch_logfile_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -171634,7 +171634,7 @@ PlSqlParser::Supplemental_db_loggingContext* PlSqlParser::supplemental_db_loggin
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -171688,7 +171688,7 @@ PlSqlParser::Add_or_dropContext* PlSqlParser::add_or_drop() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -171748,7 +171748,7 @@ PlSqlParser::Supplemental_plsql_clauseContext* PlSqlParser::supplemental_plsql_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -171855,13 +171855,13 @@ PlSqlParser::Logfile_descriptorContext* PlSqlParser::logfile_descriptor() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -172010,19 +172010,19 @@ PlSqlParser::Controlfile_clausesContext* PlSqlParser::controlfile_clauses() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -172118,7 +172118,7 @@ PlSqlParser::Trace_file_clauseContext* PlSqlParser::trace_file_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -172231,7 +172231,7 @@ PlSqlParser::Standby_database_clausesContext* PlSqlParser::standby_database_clau
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(14005);
     _errHandler->sync(this);
@@ -172245,7 +172245,7 @@ PlSqlParser::Standby_database_clausesContext* PlSqlParser::standby_database_clau
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -172341,7 +172341,7 @@ PlSqlParser::Activate_standby_db_clauseContext* PlSqlParser::activate_standby_db
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -172429,7 +172429,7 @@ PlSqlParser::Maximize_standby_db_clauseContext* PlSqlParser::maximize_standby_db
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -172513,7 +172513,7 @@ PlSqlParser::Register_logfile_clauseContext* PlSqlParser::register_logfile_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -172745,7 +172745,7 @@ PlSqlParser::Commit_switchover_clauseContext* PlSqlParser::commit_switchover_cla
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -172771,7 +172771,7 @@ PlSqlParser::Commit_switchover_clauseContext* PlSqlParser::commit_switchover_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -172946,7 +172946,7 @@ PlSqlParser::Start_standby_clauseContext* PlSqlParser::start_standby_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173018,7 +173018,7 @@ PlSqlParser::Stop_standby_clauseContext* PlSqlParser::stop_standby_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173090,7 +173090,7 @@ PlSqlParser::Convert_database_clauseContext* PlSqlParser::convert_database_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173410,7 +173410,7 @@ PlSqlParser::Default_settings_clauseContext* PlSqlParser::default_settings_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173470,7 +173470,7 @@ PlSqlParser::Set_time_zone_clauseContext* PlSqlParser::set_time_zone_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173524,7 +173524,7 @@ PlSqlParser::Instance_clausesContext* PlSqlParser::instance_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173588,7 +173588,7 @@ PlSqlParser::Security_clauseContext* PlSqlParser::security_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173630,7 +173630,7 @@ PlSqlParser::DomainContext* PlSqlParser::domain() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173672,7 +173672,7 @@ PlSqlParser::DatabaseContext* PlSqlParser::database() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173714,7 +173714,7 @@ PlSqlParser::Edition_nameContext* PlSqlParser::edition_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173756,7 +173756,7 @@ PlSqlParser::FilenumberContext* PlSqlParser::filenumber() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173798,7 +173798,7 @@ PlSqlParser::FilenameContext* PlSqlParser::filename() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173922,7 +173922,7 @@ PlSqlParser::Prepare_clauseContext* PlSqlParser::prepare_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -173982,7 +173982,7 @@ PlSqlParser::Drop_mirror_clauseContext* PlSqlParser::drop_mirror_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -174062,7 +174062,7 @@ PlSqlParser::Lost_write_protectionContext* PlSqlParser::lost_write_protection() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -174125,7 +174125,7 @@ PlSqlParser::Cdb_fleet_clausesContext* PlSqlParser::cdb_fleet_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -174197,7 +174197,7 @@ PlSqlParser::Lead_cdb_clauseContext* PlSqlParser::lead_cdb_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -174257,7 +174257,7 @@ PlSqlParser::Lead_cdb_uri_clauseContext* PlSqlParser::lead_cdb_uri_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -174335,7 +174335,7 @@ PlSqlParser::Property_clausesContext* PlSqlParser::property_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -174403,7 +174403,7 @@ PlSqlParser::Replay_upgrade_clausesContext* PlSqlParser::replay_upgrade_clauses(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -174546,13 +174546,13 @@ PlSqlParser::Alter_database_linkContext* PlSqlParser::alter_database_link() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -176876,13 +176876,13 @@ PlSqlParser::Password_valueContext* PlSqlParser::password_value() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -176954,7 +176954,7 @@ PlSqlParser::Link_authenticationContext* PlSqlParser::link_authentication() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -177071,7 +177071,7 @@ PlSqlParser::Create_schemaContext* PlSqlParser::create_schema() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -177524,7 +177524,7 @@ PlSqlParser::Create_databaseContext* PlSqlParser::create_database() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -177675,13 +177675,13 @@ PlSqlParser::Database_logging_clausesContext* PlSqlParser::database_logging_clau
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -177742,7 +177742,7 @@ PlSqlParser::Database_logging_sub_clauseContext* PlSqlParser::database_logging_s
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -177893,7 +177893,7 @@ PlSqlParser::Tablespace_clausesContext* PlSqlParser::tablespace_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -178025,7 +178025,7 @@ PlSqlParser::Enable_pluggable_databaseContext* PlSqlParser::enable_pluggable_dat
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -178130,13 +178130,13 @@ PlSqlParser::File_name_convertContext* PlSqlParser::file_name_convert() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -178201,7 +178201,7 @@ PlSqlParser::Filename_convert_sub_clauseContext* PlSqlParser::filename_convert_s
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -178286,7 +178286,7 @@ PlSqlParser::Tablespace_datafile_clausesContext* PlSqlParser::tablespace_datafil
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(14398); 
       _errHandler->sync(this);
@@ -178296,7 +178296,7 @@ PlSqlParser::Tablespace_datafile_clausesContext* PlSqlParser::tablespace_datafil
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -178364,7 +178364,7 @@ PlSqlParser::Undo_mode_clauseContext* PlSqlParser::undo_mode_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -178458,7 +178458,7 @@ PlSqlParser::Default_tablespaceContext* PlSqlParser::default_tablespace() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -178605,7 +178605,7 @@ PlSqlParser::Default_temp_tablespaceContext* PlSqlParser::default_temp_tablespac
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(14427);
     tablespace();
@@ -178648,7 +178648,7 @@ PlSqlParser::Default_temp_tablespaceContext* PlSqlParser::default_temp_tablespac
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -178773,7 +178773,7 @@ PlSqlParser::Undo_tablespaceContext* PlSqlParser::undo_tablespace() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -178852,7 +178852,7 @@ PlSqlParser::Drop_databaseContext* PlSqlParser::drop_database() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -179064,7 +179064,7 @@ PlSqlParser::Create_database_linkContext* PlSqlParser::create_database_link() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(14495);
       _errHandler->sync(this);
@@ -179084,7 +179084,7 @@ PlSqlParser::Create_database_linkContext* PlSqlParser::create_database_link() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -179157,7 +179157,7 @@ PlSqlParser::Drop_database_linkContext* PlSqlParser::drop_database_link() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -179223,7 +179223,7 @@ PlSqlParser::Alter_tablespace_setContext* PlSqlParser::alter_tablespace_set() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -179504,7 +179504,7 @@ PlSqlParser::Alter_tablespace_attrsContext* PlSqlParser::alter_tablespace_attrs(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -179606,7 +179606,7 @@ PlSqlParser::Alter_tablespace_encryptionContext* PlSqlParser::alter_tablespace_e
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -179647,7 +179647,7 @@ PlSqlParser::Alter_tablespace_encryptionContext* PlSqlParser::alter_tablespace_e
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(14561);
         _errHandler->sync(this);
@@ -179684,13 +179684,13 @@ PlSqlParser::Alter_tablespace_encryptionContext* PlSqlParser::alter_tablespace_e
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -179801,7 +179801,7 @@ PlSqlParser::Ts_file_name_convertContext* PlSqlParser::ts_file_name_convert() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -179874,7 +179874,7 @@ PlSqlParser::Alter_roleContext* PlSqlParser::alter_role() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -180018,19 +180018,19 @@ PlSqlParser::Role_identified_clauseContext* PlSqlParser::role_identified_clause(
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -180247,7 +180247,7 @@ PlSqlParser::Alter_tableContext* PlSqlParser::alter_table() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           break;
         }
@@ -180264,7 +180264,7 @@ PlSqlParser::Alter_tableContext* PlSqlParser::alter_table() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -180342,7 +180342,7 @@ PlSqlParser::Memoptimize_read_write_clauseContext* PlSqlParser::memoptimize_read
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -180516,7 +180516,7 @@ PlSqlParser::Alter_table_propertiesContext* PlSqlParser::alter_table_properties(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -180672,13 +180672,13 @@ PlSqlParser::Alter_table_partitioningContext* PlSqlParser::alter_table_partition
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -180816,7 +180816,7 @@ PlSqlParser::Add_table_partitionContext* PlSqlParser::add_table_partition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -180889,7 +180889,7 @@ PlSqlParser::Drop_table_partitionContext* PlSqlParser::drop_table_partition() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(14715);
     _errHandler->sync(this);
@@ -180911,7 +180911,7 @@ PlSqlParser::Drop_table_partitionContext* PlSqlParser::drop_table_partition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -180991,7 +180991,7 @@ PlSqlParser::Merge_table_partitionContext* PlSqlParser::merge_table_partition() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -181177,7 +181177,7 @@ PlSqlParser::Modify_table_partitionContext* PlSqlParser::modify_table_partition(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -181390,7 +181390,7 @@ PlSqlParser::Split_table_partitionContext* PlSqlParser::split_table_partition() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(14803);
     _errHandler->sync(this);
@@ -181421,7 +181421,7 @@ PlSqlParser::Split_table_partitionContext* PlSqlParser::split_table_partition() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -181514,7 +181514,7 @@ PlSqlParser::Truncate_table_partitionContext* PlSqlParser::truncate_table_partit
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(14818);
     _errHandler->sync(this);
@@ -181582,7 +181582,7 @@ PlSqlParser::Truncate_table_partitionContext* PlSqlParser::truncate_table_partit
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -181717,7 +181717,7 @@ PlSqlParser::Exchange_table_partitionContext* PlSqlParser::exchange_table_partit
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -181796,7 +181796,7 @@ PlSqlParser::Coalesce_table_partitionContext* PlSqlParser::coalesce_table_partit
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -181883,7 +181883,7 @@ PlSqlParser::Alter_interval_partitionContext* PlSqlParser::alter_interval_partit
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -182048,7 +182048,7 @@ PlSqlParser::Move_table_partitionContext* PlSqlParser::move_table_partition() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(14888);
     _errHandler->sync(this);
@@ -182093,7 +182093,7 @@ PlSqlParser::Move_table_partitionContext* PlSqlParser::move_table_partition() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(14890);
       _errHandler->sync(this);
@@ -182103,7 +182103,7 @@ PlSqlParser::Move_table_partitionContext* PlSqlParser::move_table_partition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -182157,7 +182157,7 @@ PlSqlParser::Filter_conditionContext* PlSqlParser::filter_condition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -182229,7 +182229,7 @@ PlSqlParser::Rename_table_partitionContext* PlSqlParser::rename_table_partition(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(14900);
     match(PlSqlParser::TO);
@@ -182239,7 +182239,7 @@ PlSqlParser::Rename_table_partitionContext* PlSqlParser::rename_table_partition(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -184656,13 +184656,13 @@ PlSqlParser::Partition_extended_namesContext* PlSqlParser::partition_extended_na
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -187090,13 +187090,13 @@ PlSqlParser::Subpartition_extended_namesContext* PlSqlParser::subpartition_exten
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -187430,7 +187430,7 @@ PlSqlParser::Alter_table_properties_1Context* PlSqlParser::alter_table_propertie
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(14995); 
       _errHandler->sync(this);
@@ -187454,7 +187454,7 @@ PlSqlParser::Alter_table_properties_1Context* PlSqlParser::alter_table_propertie
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -187539,7 +187539,7 @@ PlSqlParser::Alter_iot_clausesContext* PlSqlParser::alter_iot_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -187607,13 +187607,13 @@ PlSqlParser::Alter_mapping_table_clauseContext* PlSqlParser::alter_mapping_table
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -187744,7 +187744,7 @@ PlSqlParser::Alter_overflow_clauseContext* PlSqlParser::alter_overflow_clause() 
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(15020); 
           _errHandler->sync(this);
@@ -187761,13 +187761,13 @@ PlSqlParser::Alter_overflow_clauseContext* PlSqlParser::alter_overflow_clause() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -187917,7 +187917,7 @@ PlSqlParser::Add_overflow_clauseContext* PlSqlParser::add_overflow_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -187980,7 +187980,7 @@ PlSqlParser::Update_index_clausesContext* PlSqlParser::update_index_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -188046,7 +188046,7 @@ PlSqlParser::Update_global_index_clauseContext* PlSqlParser::update_global_index
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -188119,7 +188119,7 @@ PlSqlParser::Update_all_indexes_clauseContext* PlSqlParser::update_all_indexes_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -188208,7 +188208,7 @@ PlSqlParser::Update_all_indexes_index_clauseContext* PlSqlParser::update_all_ind
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(15069);
     match(PlSqlParser::RIGHT_PAREN);
@@ -188228,7 +188228,7 @@ PlSqlParser::Update_all_indexes_index_clauseContext* PlSqlParser::update_all_ind
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -188314,7 +188314,7 @@ PlSqlParser::Update_index_partitionContext* PlSqlParser::update_index_partition(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -188423,7 +188423,7 @@ PlSqlParser::Update_index_subpartitionContext* PlSqlParser::update_index_subpart
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -188608,7 +188608,7 @@ PlSqlParser::Enable_disable_clauseContext* PlSqlParser::enable_disable_clause() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(15126);
     _errHandler->sync(this);
@@ -188655,7 +188655,7 @@ PlSqlParser::Enable_disable_clauseContext* PlSqlParser::enable_disable_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -188751,7 +188751,7 @@ PlSqlParser::Using_index_clauseContext* PlSqlParser::using_index_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -191160,7 +191160,7 @@ PlSqlParser::Index_attributesContext* PlSqlParser::index_attributes() {
                     }
 
                   default:
-                    throw NoViableAltException(this);
+                    { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
                   }
                   break;
                 }
@@ -191200,13 +191200,13 @@ PlSqlParser::Index_attributesContext* PlSqlParser::index_attributes() {
                 }
 
               default:
-                throw NoViableAltException(this);
+                { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
               }
               break;
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(15162); 
       _errHandler->sync(this);
@@ -191216,7 +191216,7 @@ PlSqlParser::Index_attributesContext* PlSqlParser::index_attributes() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -191270,7 +191270,7 @@ PlSqlParser::Sort_or_nosortContext* PlSqlParser::sort_or_nosort() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -191324,7 +191324,7 @@ PlSqlParser::Exceptions_clauseContext* PlSqlParser::exceptions_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -191465,7 +191465,7 @@ PlSqlParser::Move_table_clauseContext* PlSqlParser::move_table_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(15189);
       _errHandler->sync(this);
@@ -191483,7 +191483,7 @@ PlSqlParser::Move_table_clauseContext* PlSqlParser::move_table_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -191593,13 +191593,13 @@ PlSqlParser::Index_org_table_clauseContext* PlSqlParser::index_org_table_clause(
                     }
 
                   default:
-                    throw NoViableAltException(this);
+                    { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
                   }
                   break;
                 }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(15199); 
           _errHandler->sync(this);
@@ -191625,13 +191625,13 @@ PlSqlParser::Index_org_table_clauseContext* PlSqlParser::index_org_table_clause(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -191694,13 +191694,13 @@ PlSqlParser::Mapping_table_clauseContext* PlSqlParser::mapping_table_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -191763,13 +191763,13 @@ PlSqlParser::Key_compressionContext* PlSqlParser::key_compression() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -191847,7 +191847,7 @@ PlSqlParser::Index_org_overflow_clauseContext* PlSqlParser::index_org_overflow_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -191932,7 +191932,7 @@ PlSqlParser::Column_clausesContext* PlSqlParser::column_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -192022,7 +192022,7 @@ PlSqlParser::Modify_collection_retrievalContext* PlSqlParser::modify_collection_
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -192064,7 +192064,7 @@ PlSqlParser::Collection_itemContext* PlSqlParser::collection_item() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -192130,7 +192130,7 @@ PlSqlParser::Rename_column_clauseContext* PlSqlParser::rename_column_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -192172,7 +192172,7 @@ PlSqlParser::Old_column_nameContext* PlSqlParser::old_column_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -192214,7 +192214,7 @@ PlSqlParser::New_column_nameContext* PlSqlParser::new_column_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -192321,7 +192321,7 @@ PlSqlParser::Add_modify_drop_column_clausesContext* PlSqlParser::add_modify_drop
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -192476,7 +192476,7 @@ PlSqlParser::Drop_column_clauseContext* PlSqlParser::drop_column_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(15281);
       _errHandler->sync(this);
@@ -192500,7 +192500,7 @@ PlSqlParser::Drop_column_clauseContext* PlSqlParser::drop_column_clause() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(15283);
         _errHandler->sync(this);
@@ -192547,7 +192547,7 @@ PlSqlParser::Drop_column_clauseContext* PlSqlParser::drop_column_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(15305);
       _errHandler->sync(this);
@@ -192571,7 +192571,7 @@ PlSqlParser::Drop_column_clauseContext* PlSqlParser::drop_column_clause() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(15307);
         _errHandler->sync(this);
@@ -192614,7 +192614,7 @@ PlSqlParser::Drop_column_clauseContext* PlSqlParser::drop_column_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
 
       setState(15319);
@@ -192631,7 +192631,7 @@ PlSqlParser::Drop_column_clauseContext* PlSqlParser::drop_column_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -192778,7 +192778,7 @@ PlSqlParser::Modify_column_clausesContext* PlSqlParser::modify_column_clauses() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -192985,7 +192985,7 @@ PlSqlParser::Modify_col_propertiesContext* PlSqlParser::modify_col_properties() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -193045,7 +193045,7 @@ PlSqlParser::Modify_col_visibilityContext* PlSqlParser::modify_col_visibility() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -193142,7 +193142,7 @@ PlSqlParser::Modify_col_substitutableContext* PlSqlParser::modify_col_substituta
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -195547,7 +195547,7 @@ PlSqlParser::Add_column_clauseContext* PlSqlParser::add_column_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(15420);
     _errHandler->sync(this);
@@ -195561,7 +195561,7 @@ PlSqlParser::Add_column_clauseContext* PlSqlParser::add_column_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -195644,7 +195644,7 @@ PlSqlParser::Varray_col_propertiesContext* PlSqlParser::varray_col_properties() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -195809,7 +195809,7 @@ PlSqlParser::Varray_storage_clauseContext* PlSqlParser::varray_storage_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -195851,7 +195851,7 @@ PlSqlParser::Lob_segnameContext* PlSqlParser::lob_segname() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -198168,13 +198168,13 @@ PlSqlParser::Lob_itemContext* PlSqlParser::lob_item() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -198274,13 +198274,13 @@ PlSqlParser::Lob_storage_parametersContext* PlSqlParser::lob_storage_parameters(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -198467,13 +198467,13 @@ PlSqlParser::Lob_storage_clauseContext* PlSqlParser::lob_storage_clause() {
                   }
 
                 default:
-                  throw NoViableAltException(this);
+                  { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
                 }
                 break;
               }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(15487); 
         _errHandler->sync(this);
@@ -198553,7 +198553,7 @@ PlSqlParser::Lob_storage_clauseContext* PlSqlParser::lob_storage_clause() {
               }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(15506); 
         _errHandler->sync(this);
@@ -198569,7 +198569,7 @@ PlSqlParser::Lob_storage_clauseContext* PlSqlParser::lob_storage_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -198653,7 +198653,7 @@ PlSqlParser::Modify_lob_storage_clauseContext* PlSqlParser::modify_lob_storage_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -198974,7 +198974,7 @@ PlSqlParser::Modify_lob_parametersContext* PlSqlParser::modify_lob_parameters() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -199287,13 +199287,13 @@ PlSqlParser::Lob_parametersContext* PlSqlParser::lob_parameters() {
                 }
 
               default:
-                throw NoViableAltException(this);
+                { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
               }
               break;
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(15574); 
       _errHandler->sync(this);
@@ -199303,7 +199303,7 @@ PlSqlParser::Lob_parametersContext* PlSqlParser::lob_parameters() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -199357,7 +199357,7 @@ PlSqlParser::Lob_deduplicate_clauseContext* PlSqlParser::lob_deduplicate_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -199446,13 +199446,13 @@ PlSqlParser::Lob_compression_clauseContext* PlSqlParser::lob_compression_clause(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -199570,7 +199570,7 @@ PlSqlParser::Lob_retention_clauseContext* PlSqlParser::lob_retention_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -199685,7 +199685,7 @@ PlSqlParser::Encryption_specContext* PlSqlParser::encryption_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -199727,7 +199727,7 @@ PlSqlParser::TablespaceContext* PlSqlParser::tablespace() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -199811,7 +199811,7 @@ PlSqlParser::Varray_itemContext* PlSqlParser::varray_item() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -199956,7 +199956,7 @@ PlSqlParser::Column_propertiesContext* PlSqlParser::column_properties() {
                     }
 
                   default:
-                    throw NoViableAltException(this);
+                    { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
                   }
                   setState(15642);
                   _errHandler->sync(this);
@@ -199997,13 +199997,13 @@ PlSqlParser::Column_propertiesContext* PlSqlParser::column_properties() {
                 }
 
               default:
-                throw NoViableAltException(this);
+                { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
               }
               break;
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(15647); 
       _errHandler->sync(this);
@@ -200013,7 +200013,7 @@ PlSqlParser::Column_propertiesContext* PlSqlParser::column_properties() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -200171,7 +200171,7 @@ PlSqlParser::Lob_partition_storageContext* PlSqlParser::lob_partition_storage() 
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(15665); 
         _errHandler->sync(this);
@@ -200283,7 +200283,7 @@ PlSqlParser::Lob_partition_storageContext* PlSqlParser::lob_partition_storage() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -200350,7 +200350,7 @@ PlSqlParser::Period_definitionContext* PlSqlParser::period_definition() {
     enterOuterAlt(_localctx, 1);
     setState(15684);
 
-    if (!(this->isVersion12())) throw FailedPredicateException(this, "this->isVersion12()");
+    if (!(this->isVersion12())) { FailedPredicateException _fpe(this, "this->isVersion12()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
     setState(15685);
     match(PlSqlParser::PERIOD);
     setState(15686);
@@ -200377,7 +200377,7 @@ PlSqlParser::Period_definitionContext* PlSqlParser::period_definition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -200419,7 +200419,7 @@ PlSqlParser::Start_time_columnContext* PlSqlParser::start_time_column() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -200461,7 +200461,7 @@ PlSqlParser::End_time_columnContext* PlSqlParser::end_time_column() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -200746,7 +200746,7 @@ PlSqlParser::Column_definitionContext* PlSqlParser::column_definition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -200788,7 +200788,7 @@ PlSqlParser::Column_collation_nameContext* PlSqlParser::column_collation_name() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -200914,7 +200914,7 @@ PlSqlParser::Identity_clauseContext* PlSqlParser::identity_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -201025,13 +201025,13 @@ PlSqlParser::Identity_options_parenthesesContext* PlSqlParser::identity_options_
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -201183,7 +201183,7 @@ PlSqlParser::Identity_optionsContext* PlSqlParser::identity_options() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -201313,13 +201313,13 @@ PlSqlParser::Identity_optionsContext* PlSqlParser::identity_options() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -201541,7 +201541,7 @@ PlSqlParser::Virtual_column_definitionContext* PlSqlParser::virtual_column_defin
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -201588,7 +201588,7 @@ PlSqlParser::Virtual_column_definitionContext* PlSqlParser::virtual_column_defin
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
     }
     setState(15847);
@@ -201615,7 +201615,7 @@ PlSqlParser::Virtual_column_definitionContext* PlSqlParser::virtual_column_defin
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -201721,7 +201721,7 @@ PlSqlParser::Virtual_column_expressionContext* PlSqlParser::virtual_column_expre
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -201895,7 +201895,7 @@ PlSqlParser::Autogenerated_sequence_definitionContext* PlSqlParser::autogenerate
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -201955,7 +201955,7 @@ PlSqlParser::By_user_for_statistics_clauseContext* PlSqlParser::by_user_for_stat
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -202044,13 +202044,13 @@ PlSqlParser::Evaluation_edition_clauseContext* PlSqlParser::evaluation_edition_c
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -202323,7 +202323,7 @@ PlSqlParser::Nested_table_col_propertiesContext* PlSqlParser::nested_table_col_p
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -202365,7 +202365,7 @@ PlSqlParser::Nested_itemContext* PlSqlParser::nested_item() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -202503,13 +202503,13 @@ PlSqlParser::Substitutable_column_clauseContext* PlSqlParser::substitutable_colu
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -204814,13 +204814,13 @@ PlSqlParser::Partition_nameContext* PlSqlParser::partition_name() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -204888,13 +204888,13 @@ PlSqlParser::Supplemental_logging_propsContext* PlSqlParser::supplemental_loggin
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -204948,7 +204948,7 @@ PlSqlParser::Object_type_col_propertiesContext* PlSqlParser::object_type_col_pro
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -205194,7 +205194,7 @@ PlSqlParser::Constraint_clausesContext* PlSqlParser::constraint_clauses() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(16016);
       constraint_state();
@@ -205238,7 +205238,7 @@ PlSqlParser::Constraint_clausesContext* PlSqlParser::constraint_clauses() {
               }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(16029); 
         _errHandler->sync(this);
@@ -205254,7 +205254,7 @@ PlSqlParser::Constraint_clausesContext* PlSqlParser::constraint_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -205296,7 +205296,7 @@ PlSqlParser::Old_constraint_nameContext* PlSqlParser::old_constraint_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -205338,7 +205338,7 @@ PlSqlParser::New_constraint_nameContext* PlSqlParser::new_constraint_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -205485,7 +205485,7 @@ PlSqlParser::Drop_constraint_clauseContext* PlSqlParser::drop_constraint_clause(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(16057);
     _errHandler->sync(this);
@@ -205529,7 +205529,7 @@ PlSqlParser::Drop_constraint_clauseContext* PlSqlParser::drop_constraint_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -205606,7 +205606,7 @@ PlSqlParser::Check_constraintContext* PlSqlParser::check_constraint() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -205679,7 +205679,7 @@ PlSqlParser::Foreign_key_clauseContext* PlSqlParser::foreign_key_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -205783,7 +205783,7 @@ PlSqlParser::References_clauseContext* PlSqlParser::references_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -205795,7 +205795,7 @@ PlSqlParser::References_clauseContext* PlSqlParser::references_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -205869,13 +205869,13 @@ PlSqlParser::On_delete_clauseContext* PlSqlParser::on_delete_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -205989,7 +205989,7 @@ PlSqlParser::Anonymous_blockContext* PlSqlParser::anonymous_block() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -206051,7 +206051,7 @@ PlSqlParser::Invoker_rights_clauseContext* PlSqlParser::invoker_rights_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -206114,7 +206114,7 @@ PlSqlParser::Call_specContext* PlSqlParser::call_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -206174,7 +206174,7 @@ PlSqlParser::Java_specContext* PlSqlParser::java_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -206269,7 +206269,7 @@ PlSqlParser::C_specContext* PlSqlParser::c_spec() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(16147);
     _errHandler->sync(this);
@@ -206305,7 +206305,7 @@ PlSqlParser::C_specContext* PlSqlParser::c_spec() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(16150);
     _errHandler->sync(this);
@@ -206337,7 +206337,7 @@ PlSqlParser::C_specContext* PlSqlParser::c_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -206403,7 +206403,7 @@ PlSqlParser::C_agent_in_clauseContext* PlSqlParser::c_agent_in_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -206488,7 +206488,7 @@ PlSqlParser::C_parameters_clauseContext* PlSqlParser::c_parameters_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -206702,7 +206702,7 @@ PlSqlParser::C_external_parameterContext* PlSqlParser::c_external_parameter() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -206834,13 +206834,13 @@ PlSqlParser::C_propertyContext* PlSqlParser::c_property() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -207000,7 +207000,7 @@ PlSqlParser::ParameterContext* PlSqlParser::parameter() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -207060,7 +207060,7 @@ PlSqlParser::Default_value_partContext* PlSqlParser::default_value_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -207113,7 +207113,7 @@ PlSqlParser::Seq_of_declare_specsContext* PlSqlParser::seq_of_declare_specs() {
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(16229); 
       _errHandler->sync(this);
@@ -207123,7 +207123,7 @@ PlSqlParser::Seq_of_declare_specsContext* PlSqlParser::seq_of_declare_specs() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -207285,7 +207285,7 @@ PlSqlParser::Declare_specContext* PlSqlParser::declare_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -207395,7 +207395,7 @@ PlSqlParser::Variable_declarationContext* PlSqlParser::variable_declaration() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -207510,7 +207510,7 @@ PlSqlParser::Subtype_declarationContext* PlSqlParser::subtype_declaration() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -207649,7 +207649,7 @@ PlSqlParser::Cursor_declarationContext* PlSqlParser::cursor_declaration() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -207767,7 +207767,7 @@ PlSqlParser::Parameter_specContext* PlSqlParser::parameter_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -207821,7 +207821,7 @@ PlSqlParser::Exception_declarationContext* PlSqlParser::exception_declaration() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -210254,7 +210254,7 @@ PlSqlParser::Pragma_declarationContext* PlSqlParser::pragma_declaration() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(16341); 
         _errHandler->sync(this);
@@ -210302,7 +210302,7 @@ PlSqlParser::Pragma_declarationContext* PlSqlParser::pragma_declaration() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(16359);
     match(PlSqlParser::SEMICOLON);
@@ -210310,7 +210310,7 @@ PlSqlParser::Pragma_declarationContext* PlSqlParser::pragma_declaration() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -210395,7 +210395,7 @@ PlSqlParser::Record_type_defContext* PlSqlParser::record_type_def() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -210519,7 +210519,7 @@ PlSqlParser::Field_specContext* PlSqlParser::field_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -210586,7 +210586,7 @@ PlSqlParser::Ref_cursor_type_defContext* PlSqlParser::ref_cursor_type_def() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -210686,7 +210686,7 @@ PlSqlParser::Type_declarationContext* PlSqlParser::type_declaration() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(16399);
     match(PlSqlParser::SEMICOLON);
@@ -210694,7 +210694,7 @@ PlSqlParser::Type_declarationContext* PlSqlParser::type_declaration() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -210781,7 +210781,7 @@ PlSqlParser::Table_type_defContext* PlSqlParser::table_type_def() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -210845,7 +210845,7 @@ PlSqlParser::Table_indexed_by_partContext* PlSqlParser::table_indexed_by_part() 
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(16415);
     match(PlSqlParser::BY);
@@ -210855,7 +210855,7 @@ PlSqlParser::Table_indexed_by_partContext* PlSqlParser::table_indexed_by_part() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -210953,7 +210953,7 @@ PlSqlParser::Varray_type_defContext* PlSqlParser::varray_type_def() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(16425);
     match(PlSqlParser::LEFT_PAREN);
@@ -210984,7 +210984,7 @@ PlSqlParser::Varray_type_defContext* PlSqlParser::varray_type_def() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -211121,7 +211121,7 @@ PlSqlParser::Seq_of_statementsContext* PlSqlParser::seq_of_statements() {
             }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(16447); 
       _errHandler->sync(this);
@@ -211131,7 +211131,7 @@ PlSqlParser::Seq_of_statementsContext* PlSqlParser::seq_of_statements() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -211197,7 +211197,7 @@ PlSqlParser::Label_declarationContext* PlSqlParser::label_declaration() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -211425,7 +211425,7 @@ PlSqlParser::StatementContext* PlSqlParser::statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -213741,7 +213741,7 @@ PlSqlParser::Assignment_statementContext* PlSqlParser::assignment_statement() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(16478);
     match(PlSqlParser::ASSIGN_OP);
@@ -213751,7 +213751,7 @@ PlSqlParser::Assignment_statementContext* PlSqlParser::assignment_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -213863,7 +213863,7 @@ PlSqlParser::Continue_statementContext* PlSqlParser::continue_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -213975,7 +213975,7 @@ PlSqlParser::Exit_statementContext* PlSqlParser::exit_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -214023,7 +214023,7 @@ PlSqlParser::Goto_statementContext* PlSqlParser::goto_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -214126,7 +214126,7 @@ PlSqlParser::If_statementContext* PlSqlParser::if_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -214186,7 +214186,7 @@ PlSqlParser::Elsif_partContext* PlSqlParser::elsif_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -214234,7 +214234,7 @@ PlSqlParser::Else_partContext* PlSqlParser::else_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -214400,7 +214400,7 @@ PlSqlParser::Loop_statementContext* PlSqlParser::loop_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -214606,7 +214606,7 @@ PlSqlParser::Cursor_loop_paramContext* PlSqlParser::cursor_loop_param() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -214713,13 +214713,13 @@ PlSqlParser::Forall_statementContext* PlSqlParser::forall_statement() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -214838,7 +214838,7 @@ PlSqlParser::Bounds_clauseContext* PlSqlParser::bounds_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -214898,7 +214898,7 @@ PlSqlParser::Between_boundContext* PlSqlParser::between_bound() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -214940,7 +214940,7 @@ PlSqlParser::Lower_boundContext* PlSqlParser::lower_bound() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -214982,7 +214982,7 @@ PlSqlParser::Upper_boundContext* PlSqlParser::upper_bound() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -215024,7 +215024,7 @@ PlSqlParser::Null_statementContext* PlSqlParser::null_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -215118,7 +215118,7 @@ PlSqlParser::Raise_statementContext* PlSqlParser::raise_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -215212,7 +215212,7 @@ PlSqlParser::Return_statementContext* PlSqlParser::return_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -215338,7 +215338,7 @@ PlSqlParser::Call_statementContext* PlSqlParser::call_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -215404,7 +215404,7 @@ PlSqlParser::Pipe_row_statementContext* PlSqlParser::pipe_row_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -215509,7 +215509,7 @@ PlSqlParser::Selection_directiveContext* PlSqlParser::selection_directive() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -215563,7 +215563,7 @@ PlSqlParser::Error_directiveContext* PlSqlParser::error_directive() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -215754,7 +215754,7 @@ PlSqlParser::Selection_directive_bodyContext* PlSqlParser::selection_directive_b
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -215856,7 +215856,7 @@ PlSqlParser::BodyContext* PlSqlParser::body() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -215941,7 +215941,7 @@ PlSqlParser::Exception_handlerContext* PlSqlParser::exception_handler() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -216017,7 +216017,7 @@ PlSqlParser::Trigger_blockContext* PlSqlParser::trigger_block() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -216080,7 +216080,7 @@ PlSqlParser::Tps_blockContext* PlSqlParser::tps_block() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -216156,7 +216156,7 @@ PlSqlParser::BlockContext* PlSqlParser::block() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -216252,7 +216252,7 @@ PlSqlParser::Sql_statementContext* PlSqlParser::sql_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -216369,7 +216369,7 @@ PlSqlParser::Execute_immediateContext* PlSqlParser::execute_immediate() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -216431,7 +216431,7 @@ PlSqlParser::Dynamic_returning_clauseContext* PlSqlParser::dynamic_returning_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -216545,13 +216545,13 @@ PlSqlParser::Data_manipulation_language_statementsContext* PlSqlParser::data_man
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -216636,7 +216636,7 @@ PlSqlParser::Cursor_manipulation_statementsContext* PlSqlParser::cursor_manipula
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -216684,7 +216684,7 @@ PlSqlParser::Close_statementContext* PlSqlParser::close_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -216802,7 +216802,7 @@ PlSqlParser::Open_statementContext* PlSqlParser::open_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -219203,20 +219203,20 @@ PlSqlParser::Fetch_statementContext* PlSqlParser::fetch_statement() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
         }
         break;
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -219279,7 +219279,7 @@ PlSqlParser::Variable_or_collectionContext* PlSqlParser::variable_or_collection(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -219372,7 +219372,7 @@ PlSqlParser::Open_for_statementContext* PlSqlParser::open_for_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -219468,7 +219468,7 @@ PlSqlParser::Transaction_control_statementsContext* PlSqlParser::transaction_con
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -219606,7 +219606,7 @@ PlSqlParser::Set_transaction_commandContext* PlSqlParser::set_transaction_comman
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -219647,7 +219647,7 @@ PlSqlParser::Set_transaction_commandContext* PlSqlParser::set_transaction_comman
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -222011,7 +222011,7 @@ PlSqlParser::Set_constraint_commandContext* PlSqlParser::set_constraint_command(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(16868);
     _la = _input->LA(1);
@@ -222026,7 +222026,7 @@ PlSqlParser::Set_constraint_commandContext* PlSqlParser::set_constraint_command(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -222177,7 +222177,7 @@ PlSqlParser::Commit_statementContext* PlSqlParser::commit_statement() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
@@ -222195,7 +222195,7 @@ PlSqlParser::Commit_statementContext* PlSqlParser::commit_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -222302,7 +222302,7 @@ PlSqlParser::Write_clauseContext* PlSqlParser::write_clause() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(16902);
       _errHandler->sync(this);
@@ -222312,7 +222312,7 @@ PlSqlParser::Write_clauseContext* PlSqlParser::write_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -222428,7 +222428,7 @@ PlSqlParser::Rollback_statementContext* PlSqlParser::rollback_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -222476,7 +222476,7 @@ PlSqlParser::Savepoint_statementContext* PlSqlParser::savepoint_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -222616,13 +222616,13 @@ PlSqlParser::Collection_method_callContext* PlSqlParser::collection_method_call(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -222777,13 +222777,13 @@ PlSqlParser::Explain_statementContext* PlSqlParser::explain_statement() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -222838,7 +222838,7 @@ PlSqlParser::Select_only_statementContext* PlSqlParser::select_only_statement() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -222945,7 +222945,7 @@ PlSqlParser::Select_statementContext* PlSqlParser::select_statement() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(16978);
       _errHandler->sync(this);
@@ -222955,7 +222955,7 @@ PlSqlParser::Select_statementContext* PlSqlParser::select_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -223052,7 +223052,7 @@ PlSqlParser::With_clauseContext* PlSqlParser::with_clause() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           } 
         }
         setState(16986);
@@ -223102,13 +223102,13 @@ PlSqlParser::With_clauseContext* PlSqlParser::with_clause() {
                   }
 
                 default:
-                  throw NoViableAltException(this);
+                  { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
                 }
                 break;
               }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(17000); 
         _errHandler->sync(this);
@@ -223183,7 +223183,7 @@ PlSqlParser::With_clauseContext* PlSqlParser::with_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -223246,7 +223246,7 @@ PlSqlParser::With_factoring_clauseContext* PlSqlParser::with_factoring_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -223361,7 +223361,7 @@ PlSqlParser::Subquery_factoring_clauseContext* PlSqlParser::subquery_factoring_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -223589,7 +223589,7 @@ PlSqlParser::Search_clauseContext* PlSqlParser::search_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -223673,7 +223673,7 @@ PlSqlParser::Cycle_clauseContext* PlSqlParser::cycle_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -223751,7 +223751,7 @@ PlSqlParser::Subav_factoring_clauseContext* PlSqlParser::subav_factoring_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -223836,7 +223836,7 @@ PlSqlParser::Subav_clauseContext* PlSqlParser::subav_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -223923,7 +223923,7 @@ PlSqlParser::Hierarchies_clauseContext* PlSqlParser::hierarchies_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -224014,7 +224014,7 @@ PlSqlParser::Filter_clausesContext* PlSqlParser::filter_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -224088,7 +224088,7 @@ PlSqlParser::Filter_clauseContext* PlSqlParser::filter_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -224179,7 +224179,7 @@ PlSqlParser::Add_calcs_clauseContext* PlSqlParser::add_calcs_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -224245,7 +224245,7 @@ PlSqlParser::Add_calc_meas_clauseContext* PlSqlParser::add_calc_meas_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -224306,7 +224306,7 @@ PlSqlParser::SubqueryContext* PlSqlParser::subquery() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -224375,13 +224375,13 @@ PlSqlParser::Subquery_basic_elementsContext* PlSqlParser::subquery_basic_element
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -224464,7 +224464,7 @@ PlSqlParser::Subquery_operation_partContext* PlSqlParser::subquery_operation_par
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(17179);
     subquery_basic_elements();
@@ -224472,7 +224472,7 @@ PlSqlParser::Subquery_operation_partContext* PlSqlParser::subquery_operation_par
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -224656,7 +224656,7 @@ PlSqlParser::Query_blockContext* PlSqlParser::query_block() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         } 
       }
       setState(17201);
@@ -224719,7 +224719,7 @@ PlSqlParser::Query_blockContext* PlSqlParser::query_block() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -227075,13 +227075,13 @@ PlSqlParser::Selected_listContext* PlSqlParser::selected_list() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -227129,7 +227129,7 @@ PlSqlParser::From_clauseContext* PlSqlParser::from_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -227221,7 +227221,7 @@ PlSqlParser::Select_list_elementsContext* PlSqlParser::select_list_elements() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -227290,7 +227290,7 @@ PlSqlParser::Table_ref_listContext* PlSqlParser::table_ref_list() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -227380,7 +227380,7 @@ PlSqlParser::Table_refContext* PlSqlParser::table_ref() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -227450,7 +227450,7 @@ PlSqlParser::Table_ref_auxContext* PlSqlParser::table_ref_aux() {
     case 1: {
       setState(17264);
 
-      if (!(this->isNotStartOfJoin())) throw FailedPredicateException(this, "this->isNotStartOfJoin()");
+      if (!(this->isNotStartOfJoin())) { FailedPredicateException _fpe(this, "this->isNotStartOfJoin()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
       setState(17265);
       table_alias();
       break;
@@ -227463,7 +227463,7 @@ PlSqlParser::Table_ref_auxContext* PlSqlParser::table_ref_aux() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -227661,7 +227661,7 @@ PlSqlParser::Table_ref_aux_internalContext* PlSqlParser::table_ref_aux_internal(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -227840,7 +227840,7 @@ PlSqlParser::Join_clauseContext* PlSqlParser::join_clause() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           } 
         }
         setState(17314);
@@ -227875,7 +227875,7 @@ PlSqlParser::Join_clauseContext* PlSqlParser::join_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -227923,7 +227923,7 @@ PlSqlParser::Join_on_partContext* PlSqlParser::join_on_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -227971,7 +227971,7 @@ PlSqlParser::Join_using_partContext* PlSqlParser::join_using_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -228041,7 +228041,7 @@ PlSqlParser::Outer_join_typeContext* PlSqlParser::outer_join_type() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -228144,7 +228144,7 @@ PlSqlParser::Query_partition_clauseContext* PlSqlParser::query_partition_clause(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -228266,7 +228266,7 @@ PlSqlParser::Flashback_query_clauseContext* PlSqlParser::flashback_query_clause(
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(17351);
         expression();
@@ -228316,19 +228316,19 @@ PlSqlParser::Flashback_query_clauseContext* PlSqlParser::flashback_query_clause(
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -228454,7 +228454,7 @@ PlSqlParser::Pivot_clauseContext* PlSqlParser::pivot_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -228586,7 +228586,7 @@ PlSqlParser::Pivot_elementContext* PlSqlParser::pivot_element() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -230898,13 +230898,13 @@ PlSqlParser::Pivot_for_clauseContext* PlSqlParser::pivot_for_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -231035,7 +231035,7 @@ PlSqlParser::Pivot_in_clauseContext* PlSqlParser::pivot_in_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -231129,7 +231129,7 @@ PlSqlParser::Pivot_in_clause_elementContext* PlSqlParser::pivot_in_clause_elemen
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -231250,7 +231250,7 @@ PlSqlParser::Pivot_in_clause_elementsContext* PlSqlParser::pivot_in_clause_eleme
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -233614,7 +233614,7 @@ PlSqlParser::Unpivot_clauseContext* PlSqlParser::unpivot_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(17448);
     pivot_for_clause();
@@ -233639,7 +233639,7 @@ PlSqlParser::Unpivot_clauseContext* PlSqlParser::unpivot_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -233724,7 +233724,7 @@ PlSqlParser::Unpivot_in_clauseContext* PlSqlParser::unpivot_in_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -236059,7 +236059,7 @@ PlSqlParser::Unpivot_in_elementsContext* PlSqlParser::unpivot_in_elements() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(17485);
     _errHandler->sync(this);
@@ -236114,14 +236114,14 @@ PlSqlParser::Unpivot_in_elementsContext* PlSqlParser::unpivot_in_elements() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -236239,13 +236239,13 @@ PlSqlParser::Hierarchical_query_clauseContext* PlSqlParser::hierarchical_query_c
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -236299,7 +236299,7 @@ PlSqlParser::Start_partContext* PlSqlParser::start_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -236439,13 +236439,13 @@ PlSqlParser::Group_by_clauseContext* PlSqlParser::group_by_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -236519,7 +236519,7 @@ PlSqlParser::Group_by_elementsContext* PlSqlParser::group_by_elements() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -236615,7 +236615,7 @@ PlSqlParser::Rollup_cube_clauseContext* PlSqlParser::rollup_cube_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -236706,7 +236706,7 @@ PlSqlParser::Grouping_sets_clauseContext* PlSqlParser::grouping_sets_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -236838,7 +236838,7 @@ PlSqlParser::Grouping_sets_elementsContext* PlSqlParser::grouping_sets_elements(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -236886,7 +236886,7 @@ PlSqlParser::Having_clauseContext* PlSqlParser::having_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -236983,7 +236983,7 @@ PlSqlParser::Model_clauseContext* PlSqlParser::model_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -237085,19 +237085,19 @@ PlSqlParser::Cell_reference_optionsContext* PlSqlParser::cell_reference_options(
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -237163,7 +237163,7 @@ PlSqlParser::Return_rows_clauseContext* PlSqlParser::return_rows_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -237260,7 +237260,7 @@ PlSqlParser::Reference_modelContext* PlSqlParser::reference_model() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -237345,7 +237345,7 @@ PlSqlParser::Main_modelContext* PlSqlParser::main_model() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -237424,7 +237424,7 @@ PlSqlParser::Model_column_clausesContext* PlSqlParser::model_column_clauses() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -237478,7 +237478,7 @@ PlSqlParser::Model_column_partition_partContext* PlSqlParser::model_column_parti
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -237557,7 +237557,7 @@ PlSqlParser::Model_column_listContext* PlSqlParser::model_column_list() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -239890,7 +239890,7 @@ PlSqlParser::Model_columnContext* PlSqlParser::model_column() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(17667);
     _errHandler->sync(this);
@@ -239943,7 +239943,7 @@ PlSqlParser::Model_columnContext* PlSqlParser::model_column() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -240079,7 +240079,7 @@ PlSqlParser::Model_rules_clauseContext* PlSqlParser::model_rules_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -240208,7 +240208,7 @@ PlSqlParser::Model_rules_partContext* PlSqlParser::model_rules_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -240319,7 +240319,7 @@ PlSqlParser::Model_rules_elementContext* PlSqlParser::model_rules_element() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -240361,7 +240361,7 @@ PlSqlParser::Cell_assignmentContext* PlSqlParser::cell_assignment() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -240434,7 +240434,7 @@ PlSqlParser::Model_iterate_clauseContext* PlSqlParser::model_iterate_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -240494,7 +240494,7 @@ PlSqlParser::Until_partContext* PlSqlParser::until_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -240588,7 +240588,7 @@ PlSqlParser::Order_by_clauseContext* PlSqlParser::order_by_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -240693,7 +240693,7 @@ PlSqlParser::Order_by_elementsContext* PlSqlParser::order_by_elements() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -240761,7 +240761,7 @@ PlSqlParser::Offset_clauseContext* PlSqlParser::offset_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -240895,13 +240895,13 @@ PlSqlParser::Fetch_clauseContext* PlSqlParser::fetch_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -240974,7 +240974,7 @@ PlSqlParser::For_update_clauseContext* PlSqlParser::for_update_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -241022,7 +241022,7 @@ PlSqlParser::For_update_of_partContext* PlSqlParser::for_update_of_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -241102,13 +241102,13 @@ PlSqlParser::For_update_optionsContext* PlSqlParser::for_update_options() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -241201,7 +241201,7 @@ PlSqlParser::Update_statementContext* PlSqlParser::update_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -241324,7 +241324,7 @@ PlSqlParser::Update_set_clauseContext* PlSqlParser::update_set_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -243651,13 +243651,13 @@ PlSqlParser::Column_based_update_set_clauseContext* PlSqlParser::column_based_up
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -243761,7 +243761,7 @@ PlSqlParser::Delete_statementContext* PlSqlParser::delete_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -243825,13 +243825,13 @@ PlSqlParser::Insert_statementContext* PlSqlParser::insert_statement() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -243914,7 +243914,7 @@ PlSqlParser::Single_table_insertContext* PlSqlParser::single_table_insert() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(17853);
     _errHandler->sync(this);
@@ -243928,7 +243928,7 @@ PlSqlParser::Single_table_insertContext* PlSqlParser::single_table_insert() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244015,7 +244015,7 @@ PlSqlParser::Multi_table_insertContext* PlSqlParser::multi_table_insert() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244082,7 +244082,7 @@ PlSqlParser::Multi_table_elementContext* PlSqlParser::multi_table_element() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244172,7 +244172,7 @@ PlSqlParser::Conditional_insert_clauseContext* PlSqlParser::conditional_insert_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244245,7 +244245,7 @@ PlSqlParser::Conditional_insert_when_partContext* PlSqlParser::conditional_inser
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244306,7 +244306,7 @@ PlSqlParser::Conditional_insert_else_partContext* PlSqlParser::conditional_inser
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244384,7 +244384,7 @@ PlSqlParser::Insert_into_clauseContext* PlSqlParser::insert_into_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244474,7 +244474,7 @@ PlSqlParser::Values_clauseContext* PlSqlParser::values_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244637,7 +244637,7 @@ PlSqlParser::Merge_statementContext* PlSqlParser::merge_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244758,7 +244758,7 @@ PlSqlParser::Merge_update_clauseContext* PlSqlParser::merge_update_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244812,7 +244812,7 @@ PlSqlParser::Merge_elementContext* PlSqlParser::merge_element() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244860,7 +244860,7 @@ PlSqlParser::Merge_update_delete_partContext* PlSqlParser::merge_update_delete_p
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -244957,7 +244957,7 @@ PlSqlParser::Merge_insert_clauseContext* PlSqlParser::merge_insert_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -245068,7 +245068,7 @@ PlSqlParser::Selected_tableviewContext* PlSqlParser::selected_tableview() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -245177,7 +245177,7 @@ PlSqlParser::Lock_table_statementContext* PlSqlParser::lock_table_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -245240,13 +245240,13 @@ PlSqlParser::Wait_nowait_partContext* PlSqlParser::wait_nowait_part() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -245301,7 +245301,7 @@ PlSqlParser::Lock_table_elementContext* PlSqlParser::lock_table_element() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -245410,7 +245410,7 @@ PlSqlParser::Lock_modeContext* PlSqlParser::lock_mode() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -245503,7 +245503,7 @@ PlSqlParser::General_table_refContext* PlSqlParser::general_table_ref() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -245571,7 +245571,7 @@ PlSqlParser::Static_returning_clauseContext* PlSqlParser::static_returning_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -245666,7 +245666,7 @@ PlSqlParser::Error_logging_clauseContext* PlSqlParser::error_logging_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -245714,7 +245714,7 @@ PlSqlParser::Error_logging_into_partContext* PlSqlParser::error_logging_into_par
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -245788,7 +245788,7 @@ PlSqlParser::Error_logging_reject_partContext* PlSqlParser::error_logging_reject
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -245993,7 +245993,7 @@ PlSqlParser::Dml_table_expression_clauseContext* PlSqlParser::dml_table_expressi
       enterOuterAlt(_localctx, 6);
       setState(18095);
 
-      if (!(this->isVersion11())) throw FailedPredicateException(this, "this->isVersion11()");
+      if (!(this->isVersion11())) { FailedPredicateException _fpe(this, "this->isVersion11()"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
 
       setState(18096);
       match(PlSqlParser::RELATIONAL);
@@ -246017,7 +246017,7 @@ PlSqlParser::Dml_table_expression_clauseContext* PlSqlParser::dml_table_expressi
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -246132,7 +246132,7 @@ PlSqlParser::Table_collection_expressionContext* PlSqlParser::table_collection_e
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -246225,13 +246225,13 @@ PlSqlParser::Subquery_restriction_clauseContext* PlSqlParser::subquery_restricti
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -246339,7 +246339,7 @@ PlSqlParser::Sample_clauseContext* PlSqlParser::sample_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -246399,7 +246399,7 @@ PlSqlParser::Seed_partContext* PlSqlParser::seed_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -246480,7 +246480,7 @@ PlSqlParser::ConditionContext* PlSqlParser::condition() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -246549,7 +246549,7 @@ PlSqlParser::Expressions_Context* PlSqlParser::expressions_() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -246612,7 +246612,7 @@ PlSqlParser::ExpressionContext* PlSqlParser::expression() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -246672,7 +246672,7 @@ PlSqlParser::Cursor_expressionContext* PlSqlParser::cursor_expression() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -246756,7 +246756,7 @@ PlSqlParser::Logical_expressionContext* PlSqlParser::logical_expression(int prec
           pushNewRecursionContext(_localctx, startState, RuleLogical_expression);
           setState(18176);
 
-          if (!(precpred(_ctx, 2))) throw FailedPredicateException(this, "precpred(_ctx, 2)");
+          if (!(precpred(_ctx, 2))) { FailedPredicateException _fpe(this, "precpred(_ctx, 2)"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
           setState(18177);
           match(PlSqlParser::AND);
           setState(18178);
@@ -246769,7 +246769,7 @@ PlSqlParser::Logical_expressionContext* PlSqlParser::logical_expression(int prec
           pushNewRecursionContext(_localctx, startState, RuleLogical_expression);
           setState(18179);
 
-          if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
+          if (!(precpred(_ctx, 1))) { FailedPredicateException _fpe(this, "precpred(_ctx, 1)"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
           setState(18180);
           match(PlSqlParser::OR);
           setState(18181);
@@ -246788,7 +246788,7 @@ PlSqlParser::Logical_expressionContext* PlSqlParser::logical_expression(int prec
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
   return _localctx;
@@ -246859,7 +246859,7 @@ PlSqlParser::Unary_logical_expressionContext* PlSqlParser::unary_logical_express
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -246920,7 +246920,7 @@ PlSqlParser::Unary_logical_operationContext* PlSqlParser::unary_logical_operatio
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -247207,13 +247207,13 @@ PlSqlParser::Logical_operationContext* PlSqlParser::logical_operation() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -247363,7 +247363,7 @@ PlSqlParser::Multiset_expressionContext* PlSqlParser::multiset_expression(int pr
         pushNewRecursionContext(_localctx, startState, RuleMultiset_expression);
         setState(18252);
 
-        if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
+        if (!(precpred(_ctx, 1))) { FailedPredicateException _fpe(this, "precpred(_ctx, 1)"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
         setState(18253);
         match(PlSqlParser::MULTISET);
         setState(18254);
@@ -247406,7 +247406,7 @@ PlSqlParser::Multiset_expressionContext* PlSqlParser::multiset_expression(int pr
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
   return _localctx;
@@ -247470,7 +247470,7 @@ PlSqlParser::Relational_expressionContext* PlSqlParser::relational_expression() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -247621,7 +247621,7 @@ PlSqlParser::Compound_expressionContext* PlSqlParser::compound_expression() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -247633,7 +247633,7 @@ PlSqlParser::Compound_expressionContext* PlSqlParser::compound_expression() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -247735,7 +247735,7 @@ PlSqlParser::Relational_operatorContext* PlSqlParser::relational_operator() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -247771,7 +247771,7 @@ PlSqlParser::Relational_operatorContext* PlSqlParser::relational_operator() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -247908,7 +247908,7 @@ PlSqlParser::In_elementsContext* PlSqlParser::in_elements() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -247962,7 +247962,7 @@ PlSqlParser::Between_elementsContext* PlSqlParser::between_elements() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -248124,7 +248124,7 @@ PlSqlParser::ConcatenationContext* PlSqlParser::concatenation(int precedence) {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -248179,7 +248179,7 @@ PlSqlParser::ConcatenationContext* PlSqlParser::concatenation(int precedence) {
           pushNewRecursionContext(_localctx, startState, RuleConcatenation);
           setState(18345);
 
-          if (!(precpred(_ctx, 5))) throw FailedPredicateException(this, "precpred(_ctx, 5)");
+          if (!(precpred(_ctx, 5))) { FailedPredicateException _fpe(this, "precpred(_ctx, 5)"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
           setState(18346);
           antlrcpp::downCast<ConcatenationContext *>(_localctx)->op = match(PlSqlParser::DOUBLE_ASTERISK);
           setState(18347);
@@ -248192,7 +248192,7 @@ PlSqlParser::ConcatenationContext* PlSqlParser::concatenation(int precedence) {
           pushNewRecursionContext(_localctx, startState, RuleConcatenation);
           setState(18348);
 
-          if (!(precpred(_ctx, 4))) throw FailedPredicateException(this, "precpred(_ctx, 4)");
+          if (!(precpred(_ctx, 4))) { FailedPredicateException _fpe(this, "precpred(_ctx, 4)"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
           setState(18349);
           antlrcpp::downCast<ConcatenationContext *>(_localctx)->op = _input->LT(1);
           _la = _input->LA(1);
@@ -248215,7 +248215,7 @@ PlSqlParser::ConcatenationContext* PlSqlParser::concatenation(int precedence) {
           pushNewRecursionContext(_localctx, startState, RuleConcatenation);
           setState(18351);
 
-          if (!(precpred(_ctx, 3))) throw FailedPredicateException(this, "precpred(_ctx, 3)");
+          if (!(precpred(_ctx, 3))) { FailedPredicateException _fpe(this, "precpred(_ctx, 3)"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
           setState(18352);
           antlrcpp::downCast<ConcatenationContext *>(_localctx)->op = _input->LT(1);
           _la = _input->LA(1);
@@ -248238,7 +248238,7 @@ PlSqlParser::ConcatenationContext* PlSqlParser::concatenation(int precedence) {
           pushNewRecursionContext(_localctx, startState, RuleConcatenation);
           setState(18354);
 
-          if (!(precpred(_ctx, 2))) throw FailedPredicateException(this, "precpred(_ctx, 2)");
+          if (!(precpred(_ctx, 2))) { FailedPredicateException _fpe(this, "precpred(_ctx, 2)"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
           setState(18355);
           match(PlSqlParser::BAR);
           setState(18356);
@@ -248253,7 +248253,7 @@ PlSqlParser::ConcatenationContext* PlSqlParser::concatenation(int precedence) {
           pushNewRecursionContext(_localctx, startState, RuleConcatenation);
           setState(18358);
 
-          if (!(precpred(_ctx, 1))) throw FailedPredicateException(this, "precpred(_ctx, 1)");
+          if (!(precpred(_ctx, 1))) { FailedPredicateException _fpe(this, "precpred(_ctx, 1)"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
           setState(18359);
           match(PlSqlParser::COLLATE);
           setState(18360);
@@ -248272,7 +248272,7 @@ PlSqlParser::ConcatenationContext* PlSqlParser::concatenation(int precedence) {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
   return _localctx;
@@ -248414,13 +248414,13 @@ PlSqlParser::Interval_expressionContext* PlSqlParser::interval_expression() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -248491,7 +248491,7 @@ PlSqlParser::Model_expressionContext* PlSqlParser::model_expression() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -248646,7 +248646,7 @@ PlSqlParser::Model_expression_elementContext* PlSqlParser::model_expression_elem
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -248831,13 +248831,13 @@ PlSqlParser::Single_column_for_loopContext* PlSqlParser::single_column_for_loop(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -248987,7 +248987,7 @@ PlSqlParser::Multi_column_for_loopContext* PlSqlParser::multi_column_for_loop() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -249212,7 +249212,7 @@ PlSqlParser::Unary_expressionContext* PlSqlParser::unary_expression() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -249340,19 +249340,19 @@ PlSqlParser::Implicit_cursor_expressionContext* PlSqlParser::implicit_cursor_exp
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         break;
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -249441,7 +249441,7 @@ PlSqlParser::Collection_expressionContext* PlSqlParser::collection_expression() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -249504,7 +249504,7 @@ PlSqlParser::Case_statementContext* PlSqlParser::case_statement() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -249664,7 +249664,7 @@ PlSqlParser::Simple_case_statementContext* PlSqlParser::simple_case_statement() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -249818,7 +249818,7 @@ PlSqlParser::Searched_case_statementContext* PlSqlParser::searched_case_statemen
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -249878,7 +249878,7 @@ PlSqlParser::Case_when_part_statementContext* PlSqlParser::case_when_part_statem
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -249926,7 +249926,7 @@ PlSqlParser::Case_else_part_statementContext* PlSqlParser::case_else_part_statem
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -249989,7 +249989,7 @@ PlSqlParser::Case_expressionContext* PlSqlParser::case_expression() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -250091,7 +250091,7 @@ PlSqlParser::Simple_case_expressionContext* PlSqlParser::simple_case_expression(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -250187,7 +250187,7 @@ PlSqlParser::Searched_case_expressionContext* PlSqlParser::searched_case_express
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -250247,7 +250247,7 @@ PlSqlParser::Case_when_part_expressionContext* PlSqlParser::case_when_part_expre
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -250295,7 +250295,7 @@ PlSqlParser::Case_else_part_expressionContext* PlSqlParser::case_else_part_expre
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -250456,7 +250456,7 @@ PlSqlParser::AtomContext* PlSqlParser::atom() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -250538,7 +250538,7 @@ PlSqlParser::Quantified_expressionContext* PlSqlParser::quantified_expression() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -250806,13 +250806,13 @@ PlSqlParser::String_functionContext* PlSqlParser::string_function() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -251324,7 +251324,7 @@ PlSqlParser::Json_functionContext* PlSqlParser::json_function() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
         }
         setState(18747);
@@ -251496,7 +251496,7 @@ PlSqlParser::Json_functionContext* PlSqlParser::json_function() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(18799);
           match(PlSqlParser::ON);
@@ -251693,13 +251693,13 @@ PlSqlParser::Json_functionContext* PlSqlParser::json_function() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -254076,7 +254076,7 @@ PlSqlParser::Json_object_contentContext* PlSqlParser::json_object_content() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(18872);
     _errHandler->sync(this);
@@ -254118,7 +254118,7 @@ PlSqlParser::Json_object_contentContext* PlSqlParser::json_object_content() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -254264,7 +254264,7 @@ PlSqlParser::Json_object_entryContext* PlSqlParser::json_object_entry() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -254448,7 +254448,7 @@ PlSqlParser::Json_table_clauseContext* PlSqlParser::json_table_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -254559,7 +254559,7 @@ PlSqlParser::Json_array_elementContext* PlSqlParser::json_array_element() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -254625,7 +254625,7 @@ PlSqlParser::Json_on_null_clauseContext* PlSqlParser::json_on_null_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -254749,13 +254749,13 @@ PlSqlParser::Json_return_clauseContext* PlSqlParser::json_return_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -255226,7 +255226,7 @@ PlSqlParser::Json_transform_opContext* PlSqlParser::json_transform_op() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -255311,7 +255311,7 @@ PlSqlParser::Json_column_clauseContext* PlSqlParser::json_column_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -255610,7 +255610,7 @@ PlSqlParser::Json_column_definitionContext* PlSqlParser::json_column_definition(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -255689,7 +255689,7 @@ PlSqlParser::Json_query_returning_clauseContext* PlSqlParser::json_query_returni
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -255809,13 +255809,13 @@ PlSqlParser::Json_query_return_typeContext* PlSqlParser::json_query_return_type(
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -255924,13 +255924,13 @@ PlSqlParser::Json_query_wrapper_clauseContext* PlSqlParser::json_query_wrapper_c
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -256039,7 +256039,7 @@ PlSqlParser::Json_query_on_error_clauseContext* PlSqlParser::json_query_on_error
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -256148,7 +256148,7 @@ PlSqlParser::Json_query_on_empty_clauseContext* PlSqlParser::json_query_on_empty
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -256220,7 +256220,7 @@ PlSqlParser::Json_value_return_clauseContext* PlSqlParser::json_value_return_cla
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -256483,7 +256483,7 @@ PlSqlParser::Json_value_return_typeContext* PlSqlParser::json_value_return_type(
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -256619,7 +256619,7 @@ PlSqlParser::Json_value_on_mismatch_clauseContext* PlSqlParser::json_value_on_mi
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -256712,13 +256712,13 @@ PlSqlParser::LiteralContext* PlSqlParser::literal() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -256787,7 +256787,7 @@ PlSqlParser::Numeric_function_wrapperContext* PlSqlParser::numeric_function_wrap
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -256949,7 +256949,7 @@ PlSqlParser::Numeric_functionContext* PlSqlParser::numeric_function() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -257053,7 +257053,7 @@ PlSqlParser::Numeric_functionContext* PlSqlParser::numeric_function() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -257125,7 +257125,7 @@ PlSqlParser::Numeric_functionContext* PlSqlParser::numeric_function() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -257197,7 +257197,7 @@ PlSqlParser::Numeric_functionContext* PlSqlParser::numeric_function() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -257269,7 +257269,7 @@ PlSqlParser::Numeric_functionContext* PlSqlParser::numeric_function() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -257281,7 +257281,7 @@ PlSqlParser::Numeric_functionContext* PlSqlParser::numeric_function() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -257392,7 +257392,7 @@ PlSqlParser::Listagg_overflow_clauseContext* PlSqlParser::listagg_overflow_claus
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -258041,7 +258041,7 @@ PlSqlParser::Other_functionContext* PlSqlParser::other_function() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
       }
       setState(19398);
@@ -258108,7 +258108,7 @@ PlSqlParser::Other_functionContext* PlSqlParser::other_function() {
               }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(19416); 
         _errHandler->sync(this);
@@ -258850,7 +258850,7 @@ PlSqlParser::Other_functionContext* PlSqlParser::other_function() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(19651);
       _errHandler->sync(this);
@@ -259095,7 +259095,7 @@ PlSqlParser::Other_functionContext* PlSqlParser::other_function() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -259218,7 +259218,7 @@ PlSqlParser::Over_clause_keywordContext* PlSqlParser::over_clause_keyword() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -259289,7 +259289,7 @@ PlSqlParser::Within_or_over_clause_keywordContext* PlSqlParser::within_or_over_c
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -259360,7 +259360,7 @@ PlSqlParser::Standard_prediction_function_keywordContext* PlSqlParser::standard_
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -259519,7 +259519,7 @@ PlSqlParser::Over_clauseContext* PlSqlParser::over_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(19762);
     match(PlSqlParser::RIGHT_PAREN);
@@ -259527,7 +259527,7 @@ PlSqlParser::Over_clauseContext* PlSqlParser::over_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -261874,13 +261874,13 @@ PlSqlParser::Windowing_clauseContext* PlSqlParser::windowing_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -261934,7 +261934,7 @@ PlSqlParser::Windowing_typeContext* PlSqlParser::windowing_type() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -262034,7 +262034,7 @@ PlSqlParser::Windowing_elementsContext* PlSqlParser::windowing_elements() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -264394,13 +264394,13 @@ PlSqlParser::Using_clauseContext* PlSqlParser::using_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -264493,7 +264493,7 @@ PlSqlParser::Using_elementContext* PlSqlParser::using_element() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -266802,13 +266802,13 @@ PlSqlParser::Assignable_elementContext* PlSqlParser::assignable_element() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -266887,7 +266887,7 @@ PlSqlParser::Collect_order_by_partContext* PlSqlParser::collect_order_by_part() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -266968,13 +266968,13 @@ PlSqlParser::Within_or_over_partContext* PlSqlParser::within_or_over_part() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -267102,7 +267102,7 @@ PlSqlParser::String_delimiterContext* PlSqlParser::string_delimiter(int preceden
         pushNewRecursionContext(_localctx, startState, RuleString_delimiter);
         setState(19839);
 
-        if (!(precpred(_ctx, 3))) throw FailedPredicateException(this, "precpred(_ctx, 3)");
+        if (!(precpred(_ctx, 3))) { FailedPredicateException _fpe(this, "precpred(_ctx, 3)"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
         setState(19840);
         match(PlSqlParser::BAR);
         setState(19841);
@@ -267117,7 +267117,7 @@ PlSqlParser::String_delimiterContext* PlSqlParser::string_delimiter(int preceden
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
   return _localctx;
@@ -267296,13 +267296,13 @@ PlSqlParser::Cost_matrix_clauseContext* PlSqlParser::cost_matrix_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -267427,7 +267427,7 @@ PlSqlParser::Xml_passing_clauseContext* PlSqlParser::xml_passing_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -267568,7 +267568,7 @@ PlSqlParser::Xml_attributes_clauseContext* PlSqlParser::xml_attributes_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -267688,7 +267688,7 @@ PlSqlParser::Xml_namespaces_clauseContext* PlSqlParser::xml_namespaces_clause() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270038,13 +270038,13 @@ PlSqlParser::Xml_table_columnContext* PlSqlParser::xml_table_column() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270092,7 +270092,7 @@ PlSqlParser::Xml_general_default_partContext* PlSqlParser::xml_general_default_p
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270182,7 +270182,7 @@ PlSqlParser::Xml_multiuse_expression_elementContext* PlSqlParser::xml_multiuse_e
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270256,7 +270256,7 @@ PlSqlParser::Xmlroot_param_version_partContext* PlSqlParser::xmlroot_param_versi
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270331,13 +270331,13 @@ PlSqlParser::Xmlroot_param_standalone_partContext* PlSqlParser::xmlroot_param_st
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270385,7 +270385,7 @@ PlSqlParser::Xmlserialize_param_enconding_partContext* PlSqlParser::xmlserialize
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270433,7 +270433,7 @@ PlSqlParser::Xmlserialize_param_version_partContext* PlSqlParser::xmlserialize_p
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270517,13 +270517,13 @@ PlSqlParser::Xmlserialize_param_ident_partContext* PlSqlParser::xmlserialize_par
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270583,7 +270583,7 @@ PlSqlParser::Annotations_clauseContext* PlSqlParser::annotations_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270749,7 +270749,7 @@ PlSqlParser::Annotations_listContext* PlSqlParser::annotations_list() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270804,7 +270804,7 @@ PlSqlParser::AnnotationContext* PlSqlParser::annotation() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -270948,13 +270948,13 @@ PlSqlParser::Sql_plus_commandContext* PlSqlParser::sql_plus_command() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -271028,7 +271028,7 @@ PlSqlParser::Start_commandContext* PlSqlParser::start_command() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -271216,13 +271216,13 @@ PlSqlParser::Whenever_commandContext* PlSqlParser::whenever_command() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -271321,7 +271321,7 @@ PlSqlParser::Set_commandContext* PlSqlParser::set_command() {
               }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(20060); 
         _errHandler->sync(this);
@@ -271379,7 +271379,7 @@ PlSqlParser::Set_commandContext* PlSqlParser::set_command() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -271479,7 +271479,7 @@ PlSqlParser::Timing_commandContext* PlSqlParser::timing_command() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -271560,13 +271560,13 @@ PlSqlParser::Clear_commandContext* PlSqlParser::clear_command() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -271695,7 +271695,7 @@ PlSqlParser::Partition_extension_clauseContext* PlSqlParser::partition_extension
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -274019,7 +274019,7 @@ PlSqlParser::Column_aliasContext* PlSqlParser::column_alias() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -274038,7 +274038,7 @@ PlSqlParser::Column_aliasContext* PlSqlParser::column_alias() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -276346,13 +276346,13 @@ PlSqlParser::Table_aliasContext* PlSqlParser::table_alias() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -276432,7 +276432,7 @@ PlSqlParser::Where_clauseContext* PlSqlParser::where_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -278782,7 +278782,7 @@ PlSqlParser::Into_clauseContext* PlSqlParser::into_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(20139);
     _errHandler->sync(this);
@@ -281059,7 +281059,7 @@ PlSqlParser::Into_clauseContext* PlSqlParser::into_clause() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         } 
       }
       setState(20141);
@@ -281070,7 +281070,7 @@ PlSqlParser::Into_clauseContext* PlSqlParser::into_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283378,13 +283378,13 @@ PlSqlParser::Xml_column_nameContext* PlSqlParser::xml_column_name() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283426,7 +283426,7 @@ PlSqlParser::Cost_class_nameContext* PlSqlParser::cost_class_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283468,7 +283468,7 @@ PlSqlParser::Attribute_nameContext* PlSqlParser::attribute_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283510,7 +283510,7 @@ PlSqlParser::Savepoint_nameContext* PlSqlParser::savepoint_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283552,7 +283552,7 @@ PlSqlParser::Rollback_segment_nameContext* PlSqlParser::rollback_segment_name() 
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283594,7 +283594,7 @@ PlSqlParser::Schema_nameContext* PlSqlParser::schema_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283686,7 +283686,7 @@ PlSqlParser::Routine_nameContext* PlSqlParser::routine_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283728,7 +283728,7 @@ PlSqlParser::Package_nameContext* PlSqlParser::package_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283789,7 +283789,7 @@ PlSqlParser::Implementation_type_nameContext* PlSqlParser::implementation_type_n
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283831,7 +283831,7 @@ PlSqlParser::Parameter_nameContext* PlSqlParser::parameter_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283873,7 +283873,7 @@ PlSqlParser::Reference_model_nameContext* PlSqlParser::reference_model_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283915,7 +283915,7 @@ PlSqlParser::Main_model_nameContext* PlSqlParser::main_model_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -283976,7 +283976,7 @@ PlSqlParser::Container_tableview_nameContext* PlSqlParser::container_tableview_n
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -284047,7 +284047,7 @@ PlSqlParser::Aggregate_function_nameContext* PlSqlParser::aggregate_function_nam
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -284089,7 +284089,7 @@ PlSqlParser::Query_nameContext* PlSqlParser::query_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -284144,7 +284144,7 @@ PlSqlParser::Grantee_nameContext* PlSqlParser::grantee_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -286450,13 +286450,13 @@ PlSqlParser::Role_nameContext* PlSqlParser::role_name() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -286545,7 +286545,7 @@ PlSqlParser::Constraint_nameContext* PlSqlParser::constraint_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -286587,7 +286587,7 @@ PlSqlParser::Label_nameContext* PlSqlParser::label_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -286675,7 +286675,7 @@ PlSqlParser::Type_nameContext* PlSqlParser::type_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -286742,7 +286742,7 @@ PlSqlParser::Sequence_nameContext* PlSqlParser::sequence_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -286813,7 +286813,7 @@ PlSqlParser::Exception_nameContext* PlSqlParser::exception_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -286874,7 +286874,7 @@ PlSqlParser::Function_nameContext* PlSqlParser::function_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -286935,7 +286935,7 @@ PlSqlParser::Procedure_nameContext* PlSqlParser::procedure_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -286996,7 +286996,7 @@ PlSqlParser::Trigger_nameContext* PlSqlParser::trigger_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -289350,13 +289350,13 @@ PlSqlParser::Variable_nameContext* PlSqlParser::variable_name() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -289421,7 +289421,7 @@ PlSqlParser::Index_nameContext* PlSqlParser::index_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -291730,13 +291730,13 @@ PlSqlParser::Cursor_nameContext* PlSqlParser::cursor_name() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294044,13 +294044,13 @@ PlSqlParser::Record_nameContext* PlSqlParser::record_name() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294146,7 +294146,7 @@ PlSqlParser::Link_nameContext* PlSqlParser::link_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294188,7 +294188,7 @@ PlSqlParser::Local_link_nameContext* PlSqlParser::local_link_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294230,7 +294230,7 @@ PlSqlParser::Connection_qualifierContext* PlSqlParser::connection_qualifier() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294303,7 +294303,7 @@ PlSqlParser::Column_nameContext* PlSqlParser::column_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294439,7 +294439,7 @@ PlSqlParser::Tableview_nameContext* PlSqlParser::tableview_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294596,7 +294596,7 @@ PlSqlParser::XmltableContext* PlSqlParser::xmltable() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294665,7 +294665,7 @@ PlSqlParser::Char_set_nameContext* PlSqlParser::char_set_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294707,7 +294707,7 @@ PlSqlParser::Synonym_nameContext* PlSqlParser::synonym_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294749,7 +294749,7 @@ PlSqlParser::Schema_object_nameContext* PlSqlParser::schema_object_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294791,7 +294791,7 @@ PlSqlParser::Dir_object_nameContext* PlSqlParser::dir_object_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -294833,7 +294833,7 @@ PlSqlParser::User_object_nameContext* PlSqlParser::user_object_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -295035,7 +295035,7 @@ PlSqlParser::Grant_object_nameContext* PlSqlParser::grant_object_name() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -295102,7 +295102,7 @@ PlSqlParser::Column_listContext* PlSqlParser::column_list() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -295156,7 +295156,7 @@ PlSqlParser::Paren_column_listContext* PlSqlParser::paren_column_list() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -295256,7 +295256,7 @@ PlSqlParser::Keep_clauseContext* PlSqlParser::keep_clause() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(20418);
     match(PlSqlParser::RIGHT_PAREN);
@@ -295277,7 +295277,7 @@ PlSqlParser::Keep_clauseContext* PlSqlParser::keep_clause() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -295418,7 +295418,7 @@ PlSqlParser::Function_argumentContext* PlSqlParser::function_argument() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -295583,7 +295583,7 @@ PlSqlParser::Function_argument_analyticContext* PlSqlParser::function_argument_a
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -295716,7 +295716,7 @@ PlSqlParser::Function_argument_modelingContext* PlSqlParser::function_argument_m
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       setState(20470);
       _errHandler->sync(this);
@@ -295742,7 +295742,7 @@ PlSqlParser::Function_argument_modelingContext* PlSqlParser::function_argument_m
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
       }
     }
@@ -295896,7 +295896,7 @@ PlSqlParser::Function_argument_modelingContext* PlSqlParser::function_argument_m
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -295956,7 +295956,7 @@ PlSqlParser::Respect_or_ignore_nullsContext* PlSqlParser::respect_or_ignore_null
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -296027,7 +296027,7 @@ PlSqlParser::ArgumentContext* PlSqlParser::argument() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -296135,7 +296135,7 @@ PlSqlParser::Type_specContext* PlSqlParser::type_spec() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -296421,13 +296421,13 @@ PlSqlParser::DatatypeContext* PlSqlParser::datatype() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -296515,7 +296515,7 @@ PlSqlParser::Precision_partContext* PlSqlParser::precision_part() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(20564);
     _errHandler->sync(this);
@@ -296541,7 +296541,7 @@ PlSqlParser::Precision_partContext* PlSqlParser::precision_part() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
     }
     setState(20567);
@@ -296569,7 +296569,7 @@ PlSqlParser::Precision_partContext* PlSqlParser::precision_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -297267,13 +297267,13 @@ PlSqlParser::Native_datatype_elementContext* PlSqlParser::native_datatype_elemen
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -297369,7 +297369,7 @@ PlSqlParser::Bind_variableContext* PlSqlParser::bind_variable() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     setState(20651);
     _errHandler->sync(this);
@@ -297402,7 +297402,7 @@ PlSqlParser::Bind_variableContext* PlSqlParser::bind_variable() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -297428,7 +297428,7 @@ PlSqlParser::Bind_variableContext* PlSqlParser::bind_variable() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -299787,7 +299787,7 @@ PlSqlParser::General_elementContext* PlSqlParser::general_element(int precedence
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
     _ctx->stop = _input->LT(-1);
     setState(20686);
@@ -299802,7 +299802,7 @@ PlSqlParser::General_elementContext* PlSqlParser::general_element(int precedence
         pushNewRecursionContext(_localctx, startState, RuleGeneral_element);
         setState(20668);
 
-        if (!(precpred(_ctx, 2))) throw FailedPredicateException(this, "precpred(_ctx, 2)");
+        if (!(precpred(_ctx, 2))) { FailedPredicateException _fpe(this, "precpred(_ctx, 2)"); _errHandler->reportError(this, _fpe); _errHandler->recover(this, nullptr); return _localctx; }
         setState(20680); 
         _errHandler->sync(this);
         alt = 1;
@@ -302092,13 +302092,13 @@ PlSqlParser::General_elementContext* PlSqlParser::general_element(int precedence
                     }
 
                   default:
-                    throw NoViableAltException(this);
+                    { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
                   }
                   break;
                 }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(20682); 
           _errHandler->sync(this);
@@ -302112,7 +302112,7 @@ PlSqlParser::General_elementContext* PlSqlParser::general_element(int precedence
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
   return _localctx;
@@ -302173,7 +302173,7 @@ PlSqlParser::Keyword_as_methodContext* PlSqlParser::keyword_as_method() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -302278,7 +302278,7 @@ PlSqlParser::General_element_partContext* PlSqlParser::general_element_part() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -302363,7 +302363,7 @@ PlSqlParser::Table_elementContext* PlSqlParser::table_element() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -302718,7 +302718,7 @@ PlSqlParser::Object_privilegeContext* PlSqlParser::object_privilege() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -303515,7 +303515,7 @@ PlSqlParser::System_privilegeContext* PlSqlParser::system_privilege() {
         }
 
       default:
-        throw NoViableAltException(this);
+        { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
       }
       break;
     }
@@ -304645,7 +304645,7 @@ PlSqlParser::System_privilegeContext* PlSqlParser::system_privilege() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -304858,7 +304858,7 @@ PlSqlParser::ConstantContext* PlSqlParser::constant() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(21093);
         _errHandler->sync(this);
@@ -307160,7 +307160,7 @@ PlSqlParser::ConstantContext* PlSqlParser::constant() {
           }
 
         default:
-          throw NoViableAltException(this);
+          { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
         }
         setState(21101);
         _la = _input->LA(1);
@@ -307197,7 +307197,7 @@ PlSqlParser::ConstantContext* PlSqlParser::constant() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           setState(21112);
           _errHandler->sync(this);
@@ -307223,7 +307223,7 @@ PlSqlParser::ConstantContext* PlSqlParser::constant() {
               }
 
             default:
-              throw NoViableAltException(this);
+              { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
             }
           }
           setState(21114);
@@ -307295,7 +307295,7 @@ PlSqlParser::ConstantContext* PlSqlParser::constant() {
                   }
 
                 default:
-                  throw NoViableAltException(this);
+                  { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
                 }
                 setState(21128);
                 match(PlSqlParser::RIGHT_PAREN);
@@ -307309,7 +307309,7 @@ PlSqlParser::ConstantContext* PlSqlParser::constant() {
             }
 
           default:
-            throw NoViableAltException(this);
+            { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
           }
           break;
         }
@@ -307402,13 +307402,13 @@ PlSqlParser::ConstantContext* PlSqlParser::constant() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -307482,13 +307482,13 @@ PlSqlParser::NumericContext* PlSqlParser::numeric() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -307536,7 +307536,7 @@ PlSqlParser::Numeric_negativeContext* PlSqlParser::numeric_negative() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -307592,7 +307592,7 @@ PlSqlParser::Quoted_stringContext* PlSqlParser::quoted_string() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -307653,7 +307653,7 @@ PlSqlParser::IdentifierContext* PlSqlParser::identifier() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -309958,13 +309958,13 @@ PlSqlParser::Id_expressionContext* PlSqlParser::id_expression() {
       }
 
     default:
-      throw NoViableAltException(this);
+      { NoViableAltException _nve(this); _errHandler->reportError(this, _nve); _errHandler->recover(this, nullptr); return _localctx; }
     }
    
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -310006,7 +310006,7 @@ PlSqlParser::Inquiry_directiveContext* PlSqlParser::inquiry_directive() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -310060,7 +310060,7 @@ PlSqlParser::Outer_join_signContext* PlSqlParser::outer_join_sign() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -311388,7 +311388,7 @@ PlSqlParser::Regular_idContext* PlSqlParser::regular_id() {
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -311454,7 +311454,7 @@ PlSqlParser::Non_reserved_keywords_in_18cContext* PlSqlParser::non_reserved_keyw
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -313077,7 +313077,7 @@ PlSqlParser::Non_reserved_keywords_in_12cContext* PlSqlParser::non_reserved_keyw
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
@@ -320173,7 +320173,7 @@ PlSqlParser::Non_reserved_keywords_pre12cContext* PlSqlParser::non_reserved_keyw
   }
   catch (RecognitionException &e) {
     _errHandler->reportError(this, e);
-    _localctx->exception = std::current_exception();
+    _localctx->exception = nullptr;
     _errHandler->recover(this, _localctx->exception);
   }
 
