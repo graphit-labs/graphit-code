@@ -99,12 +99,3 @@ type BatchResult struct {
 	File *ParsedFile
 	Err  error
 }
-
-const maxEntitySourceBytes = 4096
-
-func capEntitySource(s string) string {
-	if len(s) <= maxEntitySourceBytes {
-		return s
-	}
-	return s[:maxEntitySourceBytes]
-}

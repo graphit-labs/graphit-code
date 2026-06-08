@@ -33,13 +33,10 @@ func (awm *AntlrWorkerModules) Parse(name string, source []byte) (*wasmantlr.Tre
 
 	proc, ok := awm.procs[name]
 	if !ok {
-		// Try creating a per-worker WASM instance (for compiled modules)
 		var err error
 		proc, err = awm.engine.NewWorkerProc(name)
 		if err != nil {
-			// No compiled WASM — fall back to singleton proc (native binary).
-			// engine.Parse() handles mutex locking internally.
-			return awm.engine.Parse(name, source)
+			return nil, fmt.Errorf("antlr worker create proc %q: %w", name, err)
 		}
 		awm.procs[name] = proc
 	}

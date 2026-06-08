@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"os/exec"
 	"sync"
 	"sync/atomic"
 
@@ -19,7 +18,7 @@ var workerCounter atomic.Int64
 
 // Engine manages ANTLR parser backends using length-prefixed IPC protocol.
 //
-// Both native subprocesses and WASM instances use the same protocol:
+// WASM instances use the following protocol:
 // request  = [4 bytes BE length][source bytes]
 // response = [4 bytes BE length][JSON parse tree]
 //
@@ -30,12 +29,12 @@ type Engine struct {
 	rt       wazero.Runtime
 	cache    wazero.CompilationCache
 	mu       sync.Mutex
-	procs    map[string]*ParserProc // native or WASM — same protocol
+	procs    map[string]*ParserProc
 	compiled map[string]wazero.CompiledModule
 	closed   bool
 }
 
-// ParserProc is a persistent parser process (native binary or WASM instance).
+// ParserProc is a persistent WASM parser instance.
 // Communication uses length-prefixed messages (4-byte big-endian length + payload).
 type ParserProc struct {
 	Stdin  io.Writer
@@ -107,22 +106,6 @@ func (e *Engine) Compile(name string, wasmBytes []byte) error {
 	return nil
 }
 
-// RegisterNativeBinary registers a native parser binary for a grammar.
-func (e *Engine) RegisterNativeBinary(name, binaryPath string) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if e.closed {
-		return fmt.Errorf("wasmantlr: engine closed")
-	}
-
-	proc, err := startNativeProc(binaryPath)
-	if err != nil {
-		return fmt.Errorf("wasmantlr: start native parser %q: %w", name, err)
-	}
-	e.procs[name] = proc
-	return nil
-}
 
 // HasCompiled reports whether a parser is registered.
 func (e *Engine) HasCompiled(name string) bool {
@@ -165,7 +148,7 @@ func (e *Engine) Parse(name string, source []byte) (*TreeNode, error) {
 	}
 
 	if proc == nil {
-		return nil, fmt.Errorf("wasmantlr: module %q not compiled (call Compile or RegisterNativeBinary first)", name)
+		return nil, fmt.Errorf("wasmantlr: module %q not compiled (call Compile first)", name)
 	}
 
 	proc.Mu.Lock()
@@ -260,36 +243,3 @@ func (e *Engine) startWASMProc(name string, compiled wazero.CompiledModule) (*Pa
 	}, nil
 }
 
-// --- Native subprocess backend ---
-
-func startNativeProc(binaryPath string) (*ParserProc, error) {
-	cmd := exec.Command(binaryPath)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		stdin.Close()
-		return nil, err
-	}
-
-	if err := cmd.Start(); err != nil {
-		stdin.Close()
-		return nil, err
-	}
-
-	return &ParserProc{
-		Stdin:  stdin,
-		Stdout: stdout,
-		Close: func() {
-			stdin.Close()
-			if cmd.Process != nil {
-				_ = cmd.Process.Kill()
-			}
-		},
-		Wait: func() {
-			_ = cmd.Wait()
-		},
-	}, nil
-}

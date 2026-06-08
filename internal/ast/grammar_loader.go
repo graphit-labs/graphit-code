@@ -163,8 +163,6 @@ func GetAntlrEngine() *wasmantlr.Engine {
 }
 
 // getAntlrModule ensures an ANTLR grammar is loaded and returns the engine.
-// grammarName is the YAML-declared name (e.g. "antlr-plsql").
-// Prefers a native binary (fast subprocess) over WASM (portable fallback).
 func getAntlrModule(grammarName string, projectDir string) (*wasmantlr.Engine, error) {
 	if _, ok := loadedAntlrGrammars.Load(grammarName); ok {
 		return antlrEngine, nil
@@ -175,26 +173,9 @@ func getAntlrModule(grammarName string, projectDir string) (*wasmantlr.Engine, e
 		return nil, fmt.Errorf("init ANTLR engine: %w", err)
 	}
 
-	// Prefer native binary: persistent subprocess with batch protocol.
-	nativePath := findNativeBinary(grammarName, projectDir)
-	if nativePath != "" {
-		slog.Debug("loading ANTLR grammar (native binary)",
-			"grammar", grammarName,
-			"path", nativePath)
-
-		if err := engine.RegisterNativeBinary(grammarName, nativePath); err != nil {
-			slog.Warn("failed to start native parser, falling back to WASM",
-				"grammar", grammarName, "error", err)
-		} else {
-			loadedAntlrGrammars.Store(grammarName, true)
-			return engine, nil
-		}
-	}
-
-	// Fallback: WASM interpreter (portable but slow).
 	wasmPath := findGrammarWASM(grammarName, projectDir)
 	if wasmPath == "" {
-		return nil, fmt.Errorf("no grammar found for %q (searched as %s and %s.wasm)", grammarName, grammarName, grammarName)
+		return nil, fmt.Errorf("no grammar found for %q (searched as %s.wasm)", grammarName, grammarName)
 	}
 
 	wasmBytes, err := os.ReadFile(wasmPath)
@@ -202,7 +183,7 @@ func getAntlrModule(grammarName string, projectDir string) (*wasmantlr.Engine, e
 		return nil, fmt.Errorf("read ANTLR grammar %q: %w", wasmPath, err)
 	}
 
-	slog.Debug("loading ANTLR grammar (WASM fallback)",
+	slog.Debug("loading ANTLR grammar (WASM)",
 		"grammar", grammarName,
 		"path", wasmPath,
 		"size", len(wasmBytes))
@@ -213,18 +194,5 @@ func getAntlrModule(grammarName string, projectDir string) (*wasmantlr.Engine, e
 
 	loadedAntlrGrammars.Store(grammarName, true)
 	return engine, nil
-}
-
-func findNativeBinary(grammarName string, projectDir string) string {
-	searchDirs := grammarSearchDirs(projectDir)
-
-	for _, dir := range searchDirs {
-		path := filepath.Join(dir, grammarName)
-		info, err := os.Stat(path)
-		if err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
-			return path
-		}
-	}
-	return ""
 }
 
