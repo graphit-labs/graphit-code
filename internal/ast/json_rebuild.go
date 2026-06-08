@@ -31,7 +31,12 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 		return fmt.Errorf("rebuild requires LadybugBackend")
 	}
 
-	entries := cache.AllEntries()
+	entries := make(map[string]*parseCacheEntry, cache.Count())
+	cache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
+		entries[relPath] = entry
+		return true
+	})
+
 	if len(entries) == 0 {
 		return nil
 	}

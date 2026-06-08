@@ -290,8 +290,13 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				}
 			}
 		}
+		r.pf = nil
 
 		parsedFilesCount++
+
+		if jsonCache != nil && parsedFilesCount%100 == 0 {
+			_ = jsonCache.FlushDirty()
+		}
 
 		if opts.OnProgress != nil {
 			opts.OnProgress("parsing", parsedFilesCount, len(changedFiles), parseErrors+writeErrors)

@@ -193,7 +193,7 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, is
 				Name:        name,
 				Line:        startLine,
 				EndLine:     endLine,
-				Source:      entitySource,
+				Source:      capEntitySource(entitySource),
 				GraphLabel:  qdef.GraphLabel,
 				Complexity:  complexity,
 				Context:     contextName,

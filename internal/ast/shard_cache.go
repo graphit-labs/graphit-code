@@ -272,13 +272,50 @@ func (sc *ShardCache) Remove(relPath string) {
 	sc.dirty[""] = true
 }
 
+// StreamEntries iterates over all cached entries one at a time, loading each
+// from disk and evicting it after the callback returns. This bounds memory to
+// O(1) loaded shards instead of O(N). Return false from fn to stop early.
+func (sc *ShardCache) StreamEntries(fn func(relPath string, entry *parseCacheEntry) bool) {
+	sc.mu.Lock()
+	paths := make([]string, 0, len(sc.manifest.Files))
+	for p := range sc.manifest.Files {
+		paths = append(paths, p)
+	}
+	sc.mu.Unlock()
 
+	for _, p := range paths {
+		entry := sc.GetEntry(p)
+		if entry == nil {
+			continue
+		}
+		keepGoing := fn(p, entry)
 
+		sc.mu.Lock()
+		delete(sc.nodes, p)
+		delete(sc.edges, p)
+		sc.mu.Unlock()
+
+		if !keepGoing {
+			break
+		}
+	}
+}
+
+// FlushDirty writes all dirty shards to disk and evicts them from the
+// in-memory maps to bound memory usage during long indexing runs.
+func (sc *ShardCache) FlushDirty() error {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	return sc.flushLocked(true)
+}
 
 func (sc *ShardCache) Save() error {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
+	return sc.flushLocked(true)
+}
 
+func (sc *ShardCache) flushLocked(evict bool) error {
 	if len(sc.dirty) == 0 {
 		return nil
 	}
@@ -286,6 +323,8 @@ func (sc *ShardCache) Save() error {
 	var wg sync.WaitGroup
 	errCh := make(chan error, len(sc.dirty)*2)
 	sem := make(chan struct{}, SafeWorkers(0))
+
+	var flushedPaths []string
 
 	for relPath := range sc.dirty {
 		if relPath == "" {
@@ -296,6 +335,8 @@ func (sc *ShardCache) Save() error {
 		if n == nil || e == nil {
 			continue
 		}
+
+		flushedPaths = append(flushedPaths, relPath)
 
 		wg.Add(2)
 		go func(rp string, nd *shardNodes) {
@@ -330,6 +371,13 @@ func (sc *ShardCache) Save() error {
 	if err := writeShard(filepath.Join(sc.dir, "manifest.json"), sc.manifest); err != nil {
 		if firstErr == nil {
 			firstErr = fmt.Errorf("write manifest: %w", err)
+		}
+	}
+
+	if evict {
+		for _, rp := range flushedPaths {
+			delete(sc.nodes, rp)
+			delete(sc.edges, rp)
 		}
 	}
 
