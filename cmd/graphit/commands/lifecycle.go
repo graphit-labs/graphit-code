@@ -957,7 +957,7 @@ func spawnBackgroundSync(wd, ide string) {
 		return
 	}
 
-	_ = cmd.Process.Release()
+	go func() { _ = cmd.Wait() }() // reap child to avoid zombie
 }
 
 func syncLogError(module, format string, args ...any) {

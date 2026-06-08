@@ -32,7 +32,7 @@ func EnsureRunning() (started bool, err error) {
 		return false, fmt.Errorf("spawning daemon: %w", err)
 	}
 
-	_ = cmd.Process.Release()
+	go func() { _ = cmd.Wait() }() // reap child to avoid zombie
 
 	return true, nil
 }

@@ -31,7 +31,7 @@ func ensureDaemonRunning() {
 	if err := cmd.Start(); err != nil {
 		return
 	}
-	_ = cmd.Process.Release()
+	go func() { _ = cmd.Wait() }() // reap child to avoid zombie
 }
 
 func isDaemonAlive() bool {
