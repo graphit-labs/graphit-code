@@ -467,6 +467,66 @@ func ResolveIndexSource(inlineCfg, projectCfg ConfigMap) bool {
 	return !strings.EqualFold(val, "false")
 }
 
+// ParseGrammarOverrides parses a comma-separated grammar override string
+// into a map[string]string. Format: ".ext=grammar-name,.ext2=grammar-name2".
+// Returns nil if s is empty or contains no valid pairs.
+func ParseGrammarOverrides(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	m := make(map[string]string)
+	for _, pair := range strings.Split(s, ",") {
+		parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		ext := strings.TrimSpace(parts[0])
+		name := strings.TrimSpace(parts[1])
+		if ext == "" || name == "" {
+			continue
+		}
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		m[strings.ToLower(ext)] = name
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
+// ResolveGrammarOverrides returns the grammar override map from config.
+// Configurable via ast.grammar (comma-separated .ext=grammar-name pairs).
+// Uses the standard resolution chain: inline → env → project → global → defaults.
+// Returns nil if no overrides are configured.
+func ResolveGrammarOverrides(inlineCfg, projectCfg ConfigMap) map[string]string {
+	val := ResolveConfig("ast.grammar", inlineCfg, projectCfg)
+	return ParseGrammarOverrides(val)
+}
+
+// MergeGrammarOverrides merges base overrides with higher-priority overrides.
+// Priority entries overwrite base entries for the same extension.
+// Returns nil if both inputs are nil.
+func MergeGrammarOverrides(base, priority map[string]string) map[string]string {
+	if base == nil && priority == nil {
+		return nil
+	}
+	if base == nil {
+		return priority
+	}
+	if priority == nil {
+		return base
+	}
+	merged := make(map[string]string, len(base)+len(priority))
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range priority {
+		merged[k] = v
+	}
+	return merged
+}
 
 
 func HubRepoDirPath() (string, error) {

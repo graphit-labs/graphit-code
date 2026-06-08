@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -150,24 +149,11 @@ func registerASTTools(server *mcp.Server) {
 			indexSource = false
 		}
 
-		var grammarOverrides map[string]string
+		// Resolve grammar overrides: config (base) + flag (higher priority)
+		grammarOverrides := config.ResolveGrammarOverrides(nil, projectCfg)
 		if input.Grammar != "" {
-			grammarOverrides = make(map[string]string)
-			for _, pair := range strings.Split(input.Grammar, ",") {
-				parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
-				if len(parts) != 2 {
-					continue
-				}
-				ext := strings.TrimSpace(parts[0])
-				name := strings.TrimSpace(parts[1])
-				if ext == "" || name == "" {
-					continue
-				}
-				if !strings.HasPrefix(ext, ".") {
-					ext = "." + ext
-				}
-				grammarOverrides[strings.ToLower(ext)] = name
-			}
+			flagOverrides := config.ParseGrammarOverrides(input.Grammar)
+			grammarOverrides = config.MergeGrammarOverrides(grammarOverrides, flagOverrides)
 		}
 
 		ladybugCfg := ast.DefaultLadybugConfig()
@@ -305,10 +291,12 @@ func registerASTTools(server *mcp.Server) {
 			workers = 4
 		}
 
+		projectCfg := loadProjectConfig(projectDir)
 		pipeOpts := ast.PipelineOptions{
-			Workers:     workers,
-			IndexSource: true,
-			CacheDir:    filepath.Dir(ictx.DBPath),
+			Workers:          workers,
+			IndexSource:      true,
+			CacheDir:         filepath.Dir(ictx.DBPath),
+			GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
 		}
 
 		result, err := ast.RunPipeline(ctx, db, absSource, pipeOpts)

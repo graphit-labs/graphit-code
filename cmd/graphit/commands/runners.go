@@ -258,26 +258,17 @@ func runASTIndex(targetPath string, workers int, reset bool, reindex bool, clust
 		indexSource = false
 	}
 
-	var grammarOverrides map[string]string
+	// Resolve grammar overrides: config (base) + flag (higher priority)
+	projectCfg := loadProjectConfig()
+	grammarOverrides := config.ResolveGrammarOverrides(nil, projectCfg)
 	if grammar != "" {
-		grammarOverrides = make(map[string]string)
-		for _, pair := range strings.Split(grammar, ",") {
-			parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
-			if len(parts) != 2 {
-				continue
-			}
-			ext := strings.TrimSpace(parts[0])
-			name := strings.TrimSpace(parts[1])
-			if ext == "" || name == "" {
-				continue
-			}
-			if !strings.HasPrefix(ext, ".") {
-				ext = "." + ext
-			}
-			grammarOverrides[strings.ToLower(ext)] = name
-		}
-		p.Step("Grammar overrides: %s", grammar)
+		flagOverrides := config.ParseGrammarOverrides(grammar)
+		grammarOverrides = config.MergeGrammarOverrides(grammarOverrides, flagOverrides)
 	}
+	if len(grammarOverrides) > 0 {
+		p.Step("Grammar overrides: %v", grammarOverrides)
+	}
+
 
 	pipeOpts := ast.PipelineOptions{
 		Workers:          workers,
@@ -360,11 +351,14 @@ func runASTWatch(targetPath string, workers int, cluster string) error {
 
 	_ = ast.CreateGraphSchema(context.Background(), db)
 
+	projectCfg := loadProjectConfig()
+
 	cfg := ast.DefaultWatcherConfig()
 	if workers > 0 {
 		cfg.Workers = workers
 	}
 	cfg.Cluster = cluster
+	cfg.GrammarOverrides = config.ResolveGrammarOverrides(nil, projectCfg)
 
 	watcher, err := ast.NewWatcher(db, absPath, cfg)
 	if err != nil {
@@ -663,9 +657,10 @@ func runASTImport(sourcePath, name string, reset bool, workers int) error {
 
 	task.Update("Indexing files...")
 	pipeOpts := ast.PipelineOptions{
-		Workers:     workers,
-		IndexSource: true,
-		CacheDir:    filepath.Dir(ictx.DBPath),
+		Workers:          workers,
+		IndexSource:      true,
+		CacheDir:         filepath.Dir(ictx.DBPath),
+		GrammarOverrides: config.ResolveGrammarOverrides(nil, loadProjectConfig()),
 	}
 
 	result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)
@@ -1810,8 +1805,9 @@ func runASTSync(contextName string) error {
 	defer cancel()
 
 	pipeOpts := ast.PipelineOptions{
-		IndexSource: true,
-		CacheDir:    filepath.Dir(ictx.DBPath),
+		IndexSource:      true,
+		CacheDir:         filepath.Dir(ictx.DBPath),
+		GrammarOverrides: config.ResolveGrammarOverrides(nil, loadProjectConfig()),
 	}
 
 	result, err := ast.RunPipeline(ctx, db, ictx.SourcePath, pipeOpts)

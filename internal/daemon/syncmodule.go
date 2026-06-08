@@ -114,9 +114,10 @@ func (m *SyncModule) reindexAST(ctx context.Context, projectCfg config.ConfigMap
 	}
 
 	pipeOpts := ast.PipelineOptions{
-		Workers:     ast.SafeWorkers(0),
-		IndexSource: config.ResolveIndexSource(nil, projectCfg),
-		CacheDir:    filepath.Dir(cfg.DBPath),
+		Workers:          ast.SafeWorkers(0),
+		IndexSource:      config.ResolveIndexSource(nil, projectCfg),
+		CacheDir:         filepath.Dir(cfg.DBPath),
+		GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
 	}
 	if _, err := ast.RunPipeline(ctx, db, m.projectDir, pipeOpts); err != nil {
 		slog.Error("daemon: AST pipeline failed", "path", cfg.DBPath, "error", err)

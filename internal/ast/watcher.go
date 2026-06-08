@@ -23,6 +23,8 @@ type WatcherConfig struct {
 	Cluster string
 
 	PollInterval time.Duration
+
+	GrammarOverrides map[string]string
 }
 
 func DefaultWatcherConfig() WatcherConfig {
@@ -83,9 +85,10 @@ func (w *Watcher) Start(ctx context.Context) error {
 			lastHash = w.statusHash()
 
 			pipeOpts := PipelineOptions{
-				Workers:     SafeWorkers(w.cfg.Workers),
-				IndexSource: w.cfg.IndexSource,
-				Cluster:     w.cfg.Cluster,
+				Workers:          SafeWorkers(w.cfg.Workers),
+				IndexSource:      w.cfg.IndexSource,
+				Cluster:          w.cfg.Cluster,
+				GrammarOverrides: w.cfg.GrammarOverrides,
 			}
 			_, _ = RunPipeline(ctx, w.db, w.rootPath, pipeOpts)
 		}

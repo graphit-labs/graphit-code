@@ -82,9 +82,6 @@ func (s *Server) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/repositories", s.handleListRepositories)
 	mux.HandleFunc("GET /api/stats", s.handleRepoStats)
 
-	mux.HandleFunc("POST /api/watch", s.handleWatch)
-	mux.HandleFunc("DELETE /api/watch", s.handleUnwatch)
-	mux.HandleFunc("GET /api/watched", s.handleListWatched)
 
 	mux.HandleFunc("GET /api/status", s.handleStatus)
 	mux.HandleFunc("GET /api/ping", s.handlePing)
@@ -1078,77 +1075,7 @@ func (s *Server) handleRepoStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, stats)
 }
 
-type watcherEntry struct {
-	watcher *Watcher
-	cancel  context.CancelFunc
-}
 
-var (
-	watcherRegistry   = make(map[string]*watcherEntry)
-	watcherRegistryMu sync.Mutex
-)
-
-func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Path string `json:"path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Path == "" {
-		writeError(w, 400, "path parameter required")
-		return
-	}
-
-	watcherRegistryMu.Lock()
-	defer watcherRegistryMu.Unlock()
-
-	if _, exists := watcherRegistry[body.Path]; exists {
-		writeJSON(w, map[string]string{"status": "already_watching", "path": body.Path})
-		return
-	}
-
-	watcher, err := NewWatcher(s.db, body.Path, DefaultWatcherConfig())
-	if err != nil {
-		writeError(w, 500, err.Error())
-		return
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() { _ = watcher.Start(ctx) }()
-
-	watcherRegistry[body.Path] = &watcherEntry{watcher: watcher, cancel: cancel}
-	writeJSON(w, map[string]string{"status": "watching", "path": body.Path})
-}
-
-func (s *Server) handleUnwatch(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
-	if path == "" {
-		writeError(w, 400, "path parameter required")
-		return
-	}
-
-	watcherRegistryMu.Lock()
-	defer watcherRegistryMu.Unlock()
-
-	entry, exists := watcherRegistry[path]
-	if !exists {
-		writeError(w, 404, "path not being watched")
-		return
-	}
-
-	entry.cancel()
-	delete(watcherRegistry, path)
-	writeJSON(w, map[string]string{"status": "unwatched", "path": path})
-}
-
-func (s *Server) handleListWatched(w http.ResponseWriter, _ *http.Request) {
-	watcherRegistryMu.Lock()
-	defer watcherRegistryMu.Unlock()
-
-	var paths []string
-	for p := range watcherRegistry {
-		paths = append(paths, p)
-	}
-	writeJSON(w, map[string]any{"watched_paths": paths, "count": len(paths)})
-}
 
 func (s *Server) handleExportBundle(w http.ResponseWriter, r *http.Request) {
 	var body struct {

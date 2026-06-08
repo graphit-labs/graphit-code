@@ -806,9 +806,10 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 			_ = ast.CreateGraphSchema(ctx, db)
 			ladybugCfg := ast.DefaultLadybugConfig()
 			pipeOpts := ast.PipelineOptions{
-				Workers:     ast.SafeWorkers(0),
-				IndexSource: config.ResolveIndexSource(nil, nil),
-				CacheDir:    filepath.Dir(ladybugCfg.DBPath),
+				Workers:          ast.SafeWorkers(0),
+				IndexSource:      config.ResolveIndexSource(nil, projectCfg),
+				CacheDir:         filepath.Dir(ladybugCfg.DBPath),
+				GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
 			}
 			result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)
 			if err != nil {

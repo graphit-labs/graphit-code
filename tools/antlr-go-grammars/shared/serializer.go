@@ -1,4 +1,4 @@
-package main
+package shared
 
 import (
 	"fmt"
@@ -7,14 +7,26 @@ import (
 	"github.com/antlr4-go/antlr/v4"
 )
 
-// treeToJSON serializes an ANTLR parse tree to JSON matching the format
+// ParserMeta holds the parser metadata needed for serialization.
+// Extract from the concrete parser type (e.g. parser.NewPlSqlParser).
+type ParserMeta struct {
+	RuleNames     []string
+	SymbolicNames []string
+	LiteralNames  []string
+}
+
+// TreeToJSON serializes an ANTLR parse tree to JSON matching the format
 // expected by the host (wasmantlr/tree.go TreeNode):
 //
 //	Rule node:  {"rule":"sql_script","start":[1,0],"end":[10,20],"children":[...]}
 //	Token node: {"token":"CREATE","text":"CREATE","start":[1,0],"end":[1,5]}
 //
 // EOF tokens are excluded.
-func treeToJSON(out *strings.Builder, node antlr.Tree, ruleNames, symbolicNames, literalNames []string) {
+func TreeToJSON(out *strings.Builder, node antlr.Tree, meta ParserMeta) {
+	treeToJSONImpl(out, node, meta.RuleNames, meta.SymbolicNames, meta.LiteralNames)
+}
+
+func treeToJSONImpl(out *strings.Builder, node antlr.Tree, ruleNames, symbolicNames, literalNames []string) {
 	switch n := node.(type) {
 	case antlr.TerminalNode:
 		tok := n.GetSymbol()
@@ -65,7 +77,7 @@ func treeToJSON(out *strings.Builder, node antlr.Tree, ruleNames, symbolicNames,
 				}
 
 				var tmp strings.Builder
-				treeToJSON(&tmp, child, ruleNames, symbolicNames, literalNames)
+				treeToJSONImpl(&tmp, child, ruleNames, symbolicNames, literalNames)
 				if tmp.Len() == 0 {
 					continue
 				}
