@@ -201,7 +201,7 @@ ANTLR_GO_DIR := tools/antlr-go-grammars
 define build_antlr_go_wasm
 	@echo "  → antlr-$(1).wasm  (Go wasip1)"
 	@cd $(ANTLR_GO_DIR)/$(1) && \
-		GOOS=wasip1 GOARCH=wasm go build -ldflags="-s -w" -o antlr-$(1).wasm .
+		GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -ldflags="-s -w" -o antlr-$(1).wasm .
 	@cp $(ANTLR_GO_DIR)/$(1)/antlr-$(1).wasm $(GRAMMAR_OUT)/antlr-$(1).wasm
 endef
 

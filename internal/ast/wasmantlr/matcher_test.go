@@ -1,6 +1,7 @@
 package wasmantlr
 
 import (
+	"os"
 	"testing"
 )
 
@@ -222,5 +223,49 @@ func TestParseTreeFromJSON(t *testing.T) {
 	}
 	if root.StartLine() != 1 {
 		t.Fatalf("start line: got %d, want 1", root.StartLine())
+	}
+}
+
+func TestWasmantlrEngine(t *testing.T) {
+	wasmPath := "../grammars/antlr-plsql.wasm"
+	if _, err := os.Stat(wasmPath); err != nil {
+		t.Skip("skipping test; antlr-plsql.wasm not found")
+	}
+
+	wasmBytes, err := os.ReadFile(wasmPath)
+	if err != nil {
+		t.Fatalf("failed to read WASM: %v", err)
+	}
+
+	engine, err := NewEngine("")
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer engine.Close()
+
+	err = engine.LoadModule("antlr-plsql", wasmBytes)
+	if err != nil {
+		t.Fatalf("LoadModule: %v", err)
+	}
+
+	mod, err := engine.InstantiateModule("antlr-plsql")
+	if err != nil {
+		t.Fatalf("InstantiateModule: %v", err)
+	}
+
+	// Simple PL/SQL snippet
+	sql := []byte("CREATE PROCEDURE hello AS BEGIN NULL; END;")
+	jsonBytes, err := mod.Parse(sql)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	tree, err := ParseTreeFromJSON(jsonBytes)
+	if err != nil {
+		t.Fatalf("ParseTreeFromJSON: %v", err)
+	}
+
+	if tree.Rule == "" && tree.Token == "" {
+		t.Fatalf("empty tree parsed")
 	}
 }

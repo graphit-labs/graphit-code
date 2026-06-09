@@ -4,22 +4,18 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/antlr4-go/antlr/v4"
 	"github.com/graphit-labs/graphit-code/internal/ast/wasmantlr"
-	"github.com/graphit-labs/graphit-code/tools/antlr-go-grammars/plsql/parser"
-	"github.com/graphit-labs/graphit-code/tools/antlr-go-grammars/shared"
 )
 
 // antlrExtMap maps file extensions to ANTLR language configs.
 // antlrGrammarMap maps grammar names (e.g. "antlr-plsql") to configs.
 // Both populated during init from YAML query files with parser=antlr4.
-// The YAML is the single source of truth — grammar binaries are loaded lazily.
 var antlrExtMap map[string]*antlrLangConfig
 var antlrGrammarMap map[string]*antlrLangConfig
 
 type antlrLangConfig struct {
 	Language   string
-	Grammar    string // Binary name (e.g. "antlr-plsql")
+	Grammar    string // Grammar name (e.g. "antlr-plsql")
 	Extensions []string
 	StartRule  string
 }
@@ -63,7 +59,7 @@ func (a *AntlrParser) Parse(path string, isDepend bool, opts ParseOptions) (*Par
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
 	cfg, ok := antlrExtMap[ext]
 	if !ok {
-		// Try plug-and-play: check for ANTLR grammar configs in the project
+		// Check for local YAML query configurations matching the extension
 		langName := strings.TrimPrefix(ext, ".")
 		qfs := resolveQueriesForLang(a.projectDir, langName, ext)
 		for _, qf := range qfs {
@@ -129,29 +125,23 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, is
 		rpcQueries = append(rpcQueries, ExternalQueryDef(q))
 	}
 
-	preprocessed := antlrPreprocess(string(src))
+	// 1. Get a pooled WASM module instance for this ANTLR grammar
+	mod, cleanup, err := getAntlrLanguage(cfg.Grammar, a.projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("get antlr language %q: %w", cfg.Grammar, err)
+	}
+	defer cleanup()
 
-	input := antlr.NewInputStream(preprocessed)
-	lexer := parser.NewPlSqlLexer(input)
-	lexer.RemoveErrorListeners()
-	tokens := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
-
-	p := parser.NewPlSqlParser(tokens)
-	p.RemoveErrorListeners()
-
-	tree := shared.ParseSLLThenLL(
-		lexer,
-		func() antlr.ParseTree { return p.Sql_script() },
-		func(mode int) { shared.ConfigureParser(p, tokens, &p.BuildParseTrees, mode) },
-	)
-
-	if tree == nil {
-		return nil, fmt.Errorf("antlr parse error")
+	// 2. Parse via WASM and retrieve JSON tree
+	jsonBytes, err := mod.Parse(src)
+	if err != nil {
+		return nil, fmt.Errorf("wasm parse %q: %w", cfg.Grammar, err)
 	}
 
-	antlrTree := convertParseTree(tree, p.RuleNames, p.SymbolicNames, p.LiteralNames)
-	if antlrTree == nil {
-		return nil, fmt.Errorf("failed to convert antlr parse tree")
+	// 3. Deserialize JSON to Tree
+	antlrTree, err := wasmantlr.ParseTreeFromJSON(jsonBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse antlr JSON tree: %w", err)
 	}
 
 	result := &ParsedFile{
@@ -299,102 +289,7 @@ func detectExportsAntlr(result *ParsedFile, lang string, langConfig *ExternalQue
 	}
 }
 
-func antlrPreprocess(raw string) string {
-	if len(raw) == 0 {
-		return raw
-	}
-	return stripMviewUsing(raw)
-}
 
-func stripMviewUsing(src string) string {
-	var out strings.Builder
-	out.Grow(len(src))
-	i := 0
-	length := len(src)
-
-	for i < length {
-		if src[i] == ')' {
-			j := i + 1
-			for j < length && (src[j] == ' ' || src[j] == '\t' || src[j] == '\n' || src[j] == '\r') {
-				j++
-			}
-			if j < length && matchKeywordAt(src, j, "USING") {
-				usingEnd := j + 5
-				for usingEnd < length && (src[usingEnd] == ' ' || src[usingEnd] == '\t' || src[usingEnd] == '\n' || src[usingEnd] == '\r') {
-					usingEnd++
-				}
-				if usingEnd < length && src[usingEnd] == '(' {
-					depth := 1
-					k := usingEnd + 1
-					inSq := false
-					inDq := false
-					for k < length && depth > 0 {
-						c := src[k]
-						if inSq {
-							if c == '\'' && k+1 < length && src[k+1] == '\'' {
-								k++
-							} else if c == '\'' {
-								inSq = false
-							}
-						} else if inDq {
-							if c == '"' {
-								inDq = false
-							}
-						} else {
-							switch c {
-							case '\'':
-								inSq = true
-							case '"':
-								inDq = true
-							case '(':
-								depth++
-							case ')':
-								depth--
-							}
-						}
-						k++
-					}
-					afterUsing := k
-					for afterUsing < length && (src[afterUsing] == ' ' || src[afterUsing] == '\t' || src[afterUsing] == '\n' || src[afterUsing] == '\r') {
-						afterUsing++
-					}
-					if afterUsing < length && (matchKeywordAt(src, afterUsing, "REFRESH") ||
-						matchKeywordAt(src, afterUsing, "AS") ||
-						matchKeywordAt(src, afterUsing, "BUILD")) {
-						out.WriteString(") ")
-						i = k
-						continue
-					}
-				}
-			}
-		}
-		out.WriteByte(src[i])
-		i++
-	}
-	return out.String()
-}
-
-func matchKeywordAt(src string, pos int, kw string) bool {
-	if pos+len(kw) > len(src) {
-		return false
-	}
-	for i := 0; i < len(kw); i++ {
-		c := src[pos+i]
-		if c >= 'a' && c <= 'z' {
-			c -= 32
-		}
-		if c != kw[i] {
-			return false
-		}
-	}
-	if pos+len(kw) < len(src) {
-		next := src[pos+len(kw)]
-		if (next >= 'A' && next <= 'Z') || (next >= 'a' && next <= 'z') || (next >= '0' && next <= '9') || next == '_' {
-			return false
-		}
-	}
-	return true
-}
 
 // HasAntlrForExtension returns true if there's an ANTLR grammar for the extension.
 func HasAntlrForExtension(ext string) bool {
@@ -446,68 +341,4 @@ func AllSupportedExtensions() []string {
 		}
 	}
 	return exts
-}
-
-func convertParseTree(node antlr.Tree, ruleNames, symbolicNames, literalNames []string) *wasmantlr.TreeNode {
-	switch n := node.(type) {
-	case antlr.TerminalNode:
-		tok := n.GetSymbol()
-		if tok.GetTokenType() == antlr.TokenEOF {
-			return nil
-		}
-		tokenName := tokenDisplayName(tok.GetTokenType(), symbolicNames, literalNames)
-		text := tok.GetText()
-		endCol := tok.GetColumn() + len(text) - 1
-
-		return &wasmantlr.TreeNode{
-			Token: tokenName,
-			Text:  text,
-			Start: [2]int{tok.GetLine(), tok.GetColumn()},
-			End:   [2]int{tok.GetLine(), endCol},
-		}
-
-	case antlr.ParserRuleContext:
-		ruleName := ""
-		ruleIdx := n.GetRuleIndex()
-		if ruleIdx >= 0 && ruleIdx < len(ruleNames) {
-			ruleName = ruleNames[ruleIdx]
-		}
-
-		res := &wasmantlr.TreeNode{
-			Rule: ruleName,
-		}
-
-		start := n.GetStart()
-		if start != nil {
-			res.Start = [2]int{start.GetLine(), start.GetColumn()}
-		}
-		stop := n.GetStop()
-		if stop != nil {
-			endCol := stop.GetColumn() + len(stop.GetText()) - 1
-			res.End = [2]int{stop.GetLine(), endCol}
-		}
-
-		children := n.GetChildren()
-		if len(children) > 0 {
-			res.Children = make([]*wasmantlr.TreeNode, 0, len(children))
-			for _, child := range children {
-				converted := convertParseTree(child, ruleNames, symbolicNames, literalNames)
-				if converted != nil {
-					res.Children = append(res.Children, converted)
-				}
-			}
-		}
-		return res
-	}
-	return nil
-}
-
-func tokenDisplayName(tokenType int, symbolicNames, literalNames []string) string {
-	if tokenType >= 0 && tokenType < len(literalNames) && literalNames[tokenType] != "" {
-		return literalNames[tokenType]
-	}
-	if tokenType >= 0 && tokenType < len(symbolicNames) && symbolicNames[tokenType] != "" {
-		return symbolicNames[tokenType]
-	}
-	return fmt.Sprintf("%d", tokenType)
 }
