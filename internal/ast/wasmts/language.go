@@ -22,17 +22,30 @@ type Language struct {
 func (m *Module) LoadLanguage(langName string) (*Language, error) {
 	fnName := "tree_sitter_" + langName
 
-	fn := m.mod.ExportedFunction(fnName)
+	fn := m.instance.GetFunc(m.store, fnName)
 	if fn == nil {
 		return nil, fmt.Errorf("wasmts: grammar function %q not found in module", fnName)
 	}
 
-	result, err := fn.Call(m.ctx)
+	result, err := fn.Call(m.store)
 	if err != nil {
 		return nil, fmt.Errorf("wasmts: call %s: %w", fnName, err)
 	}
 
-	langPtr := result[0]
+	var langPtr uint64
+	switch v := result.(type) {
+	case int32:
+		langPtr = uint64(v)
+	case int64:
+		langPtr = uint64(v)
+	case uint32:
+		langPtr = uint64(v)
+	case uint64:
+		langPtr = v
+	default:
+		return nil, fmt.Errorf("wasmts: unexpected return type %T from %s", result, fnName)
+	}
+
 	if langPtr == 0 {
 		return nil, fmt.Errorf("wasmts: %s returned null pointer", fnName)
 	}
@@ -44,16 +57,13 @@ func (m *Module) LoadLanguage(langName string) (*Language, error) {
 	}, nil
 }
 
-
 func (l *Language) Name() string {
 	return l.name
 }
 
-
 func (l *Language) Module() *Module {
 	return l.module
 }
-
 
 func (l *Language) Version() (uint64, error) {
 	result, err := l.module.call(_languageVersion, l.ptr)
@@ -67,8 +77,8 @@ func (l *Language) Version() (uint64, error) {
 // Useful for discovering languages in a monolithic WASM build.
 func (m *Module) ListAvailableLanguages() []string {
 	var langs []string
-	defs := m.mod.ExportedFunctionDefinitions()
-	for name := range defs {
+	for _, exp := range m.wasmMod.Exports() {
+		name := exp.Name()
 		if len(name) > 12 && name[:12] == "tree_sitter_" {
 			langs = append(langs, name[12:])
 		}

@@ -2,84 +2,141 @@ package wasmts
 
 import (
 	"context"
-	"crypto/rand"
+	"encoding/binary"
 	"fmt"
-	"runtime"
+	"os"
+	"path/filepath"
 	"sync"
-	"sync/atomic"
 
-	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
-	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+	"github.com/bytecodealliance/wasmtime-go/v21"
 )
 
-type compiledEntry struct {
-	compiled wazero.CompiledModule
+// WasmMemory is a compatibility wrapper implementing the wazero memory API
+// on top of Wasmtime's raw linear memory slice.
+type WasmMemory struct {
+	mem   *wasmtime.Memory
+	store wasmtime.Storelike
 }
 
-// Engine manages the wazero runtime and loaded WASM modules.
+func (m *WasmMemory) ReadUint32Le(offset uint32) (uint32, bool) {
+	data := m.mem.UnsafeData(m.store)
+	if int(offset)+4 > len(data) {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint32(data[offset : offset+4]), true
+}
+
+func (m *WasmMemory) ReadUint16Le(offset uint32) (uint16, bool) {
+	data := m.mem.UnsafeData(m.store)
+	if int(offset)+2 > len(data) {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint16(data[offset : offset+2]), true
+}
+
+func (m *WasmMemory) Read(offset uint32, byteCount uint32) ([]byte, bool) {
+	data := m.mem.UnsafeData(m.store)
+	if int(offset)+int(byteCount) > len(data) {
+		return nil, false
+	}
+	res := make([]byte, byteCount)
+	copy(res, data[offset:offset+byteCount])
+	return res, true
+}
+
+func (m *WasmMemory) Write(offset uint32, b []byte) bool {
+	data := m.mem.UnsafeData(m.store)
+	if int(offset)+len(b) > len(data) {
+		return false
+	}
+	copy(data[offset:offset+uint32(len(b))], b)
+	return true
+}
+
+func (m *WasmMemory) WriteByteAt(offset uint32, v byte) bool {
+	data := m.mem.UnsafeData(m.store)
+	if int(offset)+1 > len(data) {
+		return false
+	}
+	data[offset] = v
+	return true
+}
+
+// ModuleMemoryWrapper exposes the Memory() method matching the old API
+// to avoid breaking changes in parser.go, query.go, tree.go, and node.go.
+type ModuleMemoryWrapper struct {
+	mem *WasmMemory
+}
+
+func (w *ModuleMemoryWrapper) Memory() *WasmMemory {
+	return w.mem
+}
+
+// Engine manages the Wasmtime runtime and loaded WASM modules.
 type Engine struct {
 	ctx      context.Context
-	rt       wazero.Runtime
-	cache    wazero.CompilationCache
+	engine   *wasmtime.Engine
+	linker   *wasmtime.Linker
 	mu       sync.Mutex
-	compiled map[string]*compiledEntry
+	compiled map[string]*wasmtime.Module
 	modules  map[string]*Module
-	nextID   atomic.Int64
 	closed   bool
+	cacheDir string
 }
 
 // Module represents a loaded WASM module instance.
 // NOT thread-safe — each goroutine must use its own Module.
 type Module struct {
-	mod  api.Module
-	fns  map[string]api.Function
-	ctx  context.Context
+	store    *wasmtime.Store
+	instance *wasmtime.Instance
+	mod      *ModuleMemoryWrapper
+	fns      map[string]*wasmtime.Func
+	ctx      context.Context
+	wasmMod  *wasmtime.Module
 }
 
-// NewEngine creates a wazero runtime with compilation cache and WASI.
+// NewEngine creates a Wasmtime engine with JIT compilation caching and WASI.
 func NewEngine(cacheDir string) (*Engine, error) {
 	ctx := context.Background()
 
-	var cfg wazero.RuntimeConfig
-	if compilerSupported() {
-		cfg = wazero.NewRuntimeConfigCompiler()
-	} else {
-		cfg = wazero.NewRuntimeConfigInterpreter()
-	}
-	cfg = cfg.WithMemoryLimitPages(1024) // 64MB max
-	cfg = cfg.WithCoreFeatures(api.CoreFeaturesV2)
+	config := wasmtime.NewConfig()
 
-
-	var compilationCache wazero.CompilationCache
 	if cacheDir != "" {
-		var err error
-		compilationCache, err = wazero.NewCompilationCacheWithDir(cacheDir)
-		if err == nil {
-			cfg = cfg.WithCompilationCache(compilationCache)
+		cachePath := filepath.Join(cacheDir, "wasmtime_cache_config.toml")
+		cacheDataPath := filepath.Join(cacheDir, "wasmtime_cache")
+		_ = os.MkdirAll(cacheDataPath, 0755)
+
+		tomlContent := fmt.Sprintf(`[cache]
+enabled = true
+directory = %q
+`, cacheDataPath)
+		if err := os.WriteFile(cachePath, []byte(tomlContent), 0644); err == nil {
+			_ = config.CacheConfigLoad(cachePath)
 		}
+	} else {
+		_ = config.CacheConfigLoadDefault()
 	}
 
-	rt := wazero.NewRuntimeWithConfig(ctx, cfg)
+	engine := wasmtime.NewEngineWithConfig(config)
+	linker := wasmtime.NewLinker(engine)
 
-
-	_, err := wasi_snapshot_preview1.Instantiate(ctx, rt)
+	err := linker.DefineWasi()
 	if err != nil {
-		rt.Close(ctx)
-		return nil, fmt.Errorf("wasmts: instantiate WASI: %w", err)
+		engine.Close()
+		return nil, fmt.Errorf("wasmts: define WASI: %w", err)
 	}
 
 	return &Engine{
 		ctx:      ctx,
-		rt:       rt,
-		cache:    compilationCache,
-		compiled: make(map[string]*compiledEntry),
+		engine:   engine,
+		linker:   linker,
+		compiled: make(map[string]*wasmtime.Module),
 		modules:  make(map[string]*Module),
+		cacheDir: cacheDir,
 	}, nil
 }
 
 // LoadModule compiles and instantiates a WASM binary. Thread-safe.
-// Retains the compiled form for InstantiateModule.
 func (e *Engine) LoadModule(name string, wasmBytes []byte) (*Module, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -88,22 +145,18 @@ func (e *Engine) LoadModule(name string, wasmBytes []byte) (*Module, error) {
 		return nil, fmt.Errorf("wasmts: engine closed")
 	}
 
-
 	if mod, ok := e.modules[name]; ok {
 		return mod, nil
 	}
 
-
-	compiled, err := e.rt.CompileModule(e.ctx, wasmBytes)
+	module, err := wasmtime.NewModule(e.engine, wasmBytes)
 	if err != nil {
 		return nil, fmt.Errorf("wasmts: compile module %q: %w", name, err)
 	}
 
+	e.compiled[name] = module
 
-	e.compiled[name] = &compiledEntry{compiled: compiled}
-
-
-	mod, err := e.instantiate(name, compiled)
+	mod, err := e.instantiate(name, module)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +169,7 @@ func (e *Engine) LoadModule(name string, wasmBytes []byte) (*Module, error) {
 // Each instance has its own linear memory. Thread-safe.
 func (e *Engine) InstantiateModule(name string) (*Module, error) {
 	e.mu.Lock()
-	entry, ok := e.compiled[name]
+	module, ok := e.compiled[name]
 	closed := e.closed
 	e.mu.Unlock()
 
@@ -127,41 +180,44 @@ func (e *Engine) InstantiateModule(name string) (*Module, error) {
 		return nil, fmt.Errorf("wasmts: module %q not compiled (call LoadModule first)", name)
 	}
 
-	return e.instantiate(name, entry.compiled)
+	return e.instantiate(name, module)
 }
 
-func (e *Engine) instantiate(name string, compiled wazero.CompiledModule) (*Module, error) {
-	id := e.nextID.Add(1)
-	instanceName := fmt.Sprintf("%s-i%d", name, id)
+func (e *Engine) instantiate(name string, module *wasmtime.Module) (*Module, error) {
+	store := wasmtime.NewStore(e.engine)
+	wasiConfig := wasmtime.NewWasiConfig()
+	store.SetWasi(wasiConfig)
 
-	modCfg := wazero.NewModuleConfig().
-		WithName(instanceName).
-		WithSysNanosleep().
-		WithSysNanotime().
-		WithSysWalltime().
-		WithRandSource(rand.Reader)
-
-	inst, err := e.rt.InstantiateModule(e.ctx, compiled, modCfg)
+	instance, err := e.linker.Instantiate(store, module)
 	if err != nil {
 		return nil, fmt.Errorf("wasmts: instantiate module %q: %w", name, err)
 	}
 
+	memExport := instance.GetExport(store, "memory")
+	if memExport == nil {
+		return nil, fmt.Errorf("wasmts: memory export not found in %q", name)
+	}
+	mem := memExport.Memory()
+	wasmMem := &WasmMemory{mem: mem, store: store}
+	memWrapper := &ModuleMemoryWrapper{mem: wasmMem}
 
-	fns := make(map[string]api.Function, len(_coreFunctions))
+	fns := make(map[string]*wasmtime.Func, len(_coreFunctions))
 	for _, fnName := range _coreFunctions {
-		fn := inst.ExportedFunction(fnName)
+		fn := instance.GetFunc(store, fnName)
 		if fn != nil {
 			fns[fnName] = fn
 		}
 	}
 
 	return &Module{
-		mod: inst,
-		fns: fns,
-		ctx: e.ctx,
+		store:    store,
+		instance: instance,
+		mod:      memWrapper,
+		fns:      fns,
+		ctx:      e.ctx,
+		wasmMod:  module,
 	}, nil
 }
-
 
 func (e *Engine) HasCompiledModule(name string) bool {
 	e.mu.Lock()
@@ -170,39 +226,96 @@ func (e *Engine) HasCompiledModule(name string) bool {
 	return ok
 }
 
-
 func (e *Engine) GetModule(name string) *Module {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.modules[name]
 }
 
-
 func (e *Engine) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.closed = true
-	err := e.rt.Close(e.ctx)
-	if e.cache != nil {
-		_ = e.cache.Close(e.ctx)
-	}
-	return err
+	e.engine.Close()
+	return nil
 }
-
 
 func (m *Module) call(name string, args ...uint64) ([]uint64, error) {
 	fn, ok := m.fns[name]
 	if !ok {
 		return nil, fmt.Errorf("wasmts: function %q not exported", name)
 	}
-	return fn.Call(m.ctx, args...)
-}
 
+	ft := fn.Type(m.store)
+	params := ft.Params()
+	if len(args) != len(params) {
+		return nil, fmt.Errorf("wasmts: function %q called with %d args, expected %d", name, len(args), len(params))
+	}
+
+	converted := make([]interface{}, len(args))
+	for i, arg := range args {
+		switch params[i].Kind() {
+		case wasmtime.KindI32:
+			converted[i] = int32(arg)
+		case wasmtime.KindI64:
+			converted[i] = int64(arg)
+		default:
+			converted[i] = arg
+		}
+	}
+
+	res, err := fn.Call(m.store, converted...)
+	if err != nil {
+		return nil, fmt.Errorf("wasmts: call %s: %w", name, err)
+	}
+
+	results := ft.Results()
+	if len(results) == 0 {
+		return nil, nil
+	}
+
+	if len(results) == 1 {
+		var val uint64
+		switch v := res.(type) {
+		case int32:
+			val = uint64(v)
+		case uint32:
+			val = uint64(v)
+		case int64:
+			val = uint64(v)
+		case uint64:
+			val = v
+		default:
+			return nil, fmt.Errorf("wasmts: unexpected return type %T from %s", res, name)
+		}
+		return []uint64{val}, nil
+	}
+
+	if slice, ok := res.([]interface{}); ok {
+		ret := make([]uint64, len(slice))
+		for i, item := range slice {
+			switch v := item.(type) {
+			case int32:
+				ret[i] = uint64(v)
+			case uint32:
+				ret[i] = uint64(v)
+			case int64:
+				ret[i] = uint64(v)
+			case uint64:
+				ret[i] = uint64(v)
+			default:
+				return nil, fmt.Errorf("wasmts: unexpected return type %T from %s", item, name)
+			}
+		}
+		return ret, nil
+	}
+
+	return nil, fmt.Errorf("wasmts: unexpected return type %T from %s", res, name)
+}
 
 func (m *Module) CloseModule() error {
-	return m.mod.Close(m.ctx)
+	return nil
 }
-
 
 func (m *Module) allocateString(s string) (ptr, size uint64, free func(), err error) {
 	b := []byte(s)
@@ -218,13 +331,12 @@ func (m *Module) allocateString(s string) (ptr, size uint64, free func(), err er
 		return 0, 0, nil, fmt.Errorf("wasmts: write string to memory")
 	}
 
-	m.mod.Memory().WriteByte(uint32(p)+uint32(sz), 0)
+	m.mod.Memory().WriteByteAt(uint32(p)+uint32(sz), 0)
 
 	return p, sz, func() {
 		m.call(_free, p) //nolint:errcheck
 	}, nil
 }
-
 
 func (m *Module) readString(ptr uint64) (string, error) {
 	result, err := m.call(_strlen, ptr)
@@ -239,7 +351,6 @@ func (m *Module) readString(ptr uint64) (string, error) {
 	return string(bytes), nil
 }
 
-
 func (m *Module) allocateBytes(n uint64) (uint64, error) {
 	result, err := m.call(_malloc, n)
 	if err != nil {
@@ -248,23 +359,6 @@ func (m *Module) allocateBytes(n uint64) (uint64, error) {
 	return result[0], nil
 }
 
-
 func (m *Module) freePtr(ptr uint64) {
 	m.call(_free, ptr) //nolint:errcheck
-}
-
-
-func compilerSupported() bool {
-	switch runtime.GOOS {
-	case "linux", "android", "windows", "darwin",
-		"freebsd", "netbsd", "dragonfly", "solaris", "illumos":
-	default:
-		return false
-	}
-	switch runtime.GOARCH {
-	case "amd64", "arm64":
-		return true
-	default:
-		return false
-	}
 }
