@@ -3,6 +3,7 @@ package wasmantlr
 import (
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // Pattern represents a compiled rule-path pattern for matching ANTLR parse tree nodes.
@@ -33,6 +34,8 @@ type segment struct {
 	mode matchMode
 }
 
+var patternCache sync.Map // map[string]*Pattern
+
 // CompilePattern parses a rule-path pattern string into a Pattern.
 func CompilePattern(pattern string) (*Pattern, error) {
 	pattern = strings.TrimSpace(pattern)
@@ -40,6 +43,20 @@ func CompilePattern(pattern string) (*Pattern, error) {
 		return nil, fmt.Errorf("empty pattern")
 	}
 
+	if val, ok := patternCache.Load(pattern); ok {
+		return val.(*Pattern), nil
+	}
+
+	compiled, err := compilePatternImpl(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	patternCache.Store(pattern, compiled)
+	return compiled, nil
+}
+
+func compilePatternImpl(pattern string) (*Pattern, error) {
 	var segments []segment
 	rest := pattern
 
@@ -111,6 +128,30 @@ func (p *Pattern) Match(root *TreeNode) []MatchResult {
 		}
 	}
 	return results
+}
+
+// MatchAt checks if the pattern matches starting at the given node.
+// Returns matched descendants and true if there are matches.
+func (p *Pattern) MatchAt(node, parent *TreeNode) ([]MatchResult, bool) {
+	if len(p.segments) == 0 {
+		return nil, false
+	}
+	first := p.segments[0]
+	if first.mode == matchDirect && parent != nil {
+		return nil, false
+	}
+	if node.Rule != first.rule {
+		return nil, false
+	}
+
+	var results []MatchResult
+	isLast := len(p.segments) == 1
+	if isLast {
+		results = []MatchResult{{Node: node, Parent: parent}}
+	} else {
+		p.matchSegment(node, parent, 1, &results)
+	}
+	return results, len(results) > 0
 }
 
 func (p *Pattern) matchSegment(node, parent *TreeNode, segIdx int, results *[]MatchResult) {

@@ -45,7 +45,25 @@ const (
 
 // NewQuery compiles a tree-sitter query pattern.
 // Equivalent to smacker's sitter.NewQuery([]byte(pattern), lang).
+// NewQuery compiles and caches a tree-sitter query pattern.
+// Equivalent to smacker's sitter.NewQuery([]byte(pattern), lang).
 func (l *Language) NewQuery(pattern string) (*Query, error) {
+	if l.queries == nil {
+		l.queries = make(map[string]*Query)
+	}
+	if q, ok := l.queries[pattern]; ok {
+		return q, nil
+	}
+
+	q, err := l.compileQueryImpl(pattern)
+	if err != nil {
+		return nil, err
+	}
+	l.queries[pattern] = q
+	return q, nil
+}
+
+func (l *Language) compileQueryImpl(pattern string) (*Query, error) {
 	// Allocate error output pointers (2x uint32)
 	errOffPtr, err := l.module.allocateBytes(4)
 	if err != nil {
@@ -120,11 +138,10 @@ func (q *Query) CaptureNameForID(id uint32) (string, error) {
 }
 
 // Close releases the query from WASM memory.
+// Since we now cache queries inside Language, we make Close a no-op
+// so they persist for the lifetime of the Language instance.
 func (q *Query) Close() {
-	if q.ptr != 0 {
-		q.lang.module.call(_queryDelete, q.ptr) //nolint:errcheck
-		q.ptr = 0
-	}
+	// No-op to allow caching
 }
 
 // --- QueryCursor ---

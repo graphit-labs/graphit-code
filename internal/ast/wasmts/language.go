@@ -8,9 +8,10 @@ import (
 // It wraps a WASM module and a pointer to the language obtained
 // by calling tree_sitter_<name>().
 type Language struct {
-	name   string
-	module *Module
-	ptr    uint64 // pointer returned by tree_sitter_<name>()
+	name    string
+	module  *Module
+	ptr     uint64 // pointer returned by tree_sitter_<name>()
+	queries map[string]*Query
 }
 
 // LoadLanguage loads a grammar from a WASM module.
@@ -51,9 +52,10 @@ func (m *Module) LoadLanguage(langName string) (*Language, error) {
 	}
 
 	return &Language{
-		name:   langName,
-		module: m,
-		ptr:    langPtr,
+		name:    langName,
+		module:  m,
+		ptr:     langPtr,
+		queries: make(map[string]*Query),
 	}, nil
 }
 

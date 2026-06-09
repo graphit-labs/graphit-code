@@ -167,24 +167,33 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, is
 	}
 	seenNames := map[string]bool{}
 
+	type queryDefAndPattern struct {
+		qdef    ExternalQueryDef
+		pattern *wasmantlr.Pattern
+	}
+
+	var activeQueries []queryDefAndPattern
 	for _, qdef := range rpcQueries {
 		pattern, pErr := wasmantlr.CompilePattern(qdef.Pattern)
 		if pErr != nil {
 			continue
 		}
+		activeQueries = append(activeQueries, queryDefAndPattern{qdef, pattern})
+	}
 
-		matches := pattern.Match(antlrTree)
+	for _, aq := range activeQueries {
+		matches := aq.pattern.Match(antlrTree)
 		for _, match := range matches {
-			name := extractNameFromMatch(match.Node, qdef.NameCapture)
+			name := extractNameFromMatch(match.Node, aq.qdef.NameCapture)
 			if name == "" {
 				continue
 			}
 
-			if qdef.DataKey == "imports" {
+			if aq.qdef.DataKey == "imports" {
 				name = strings.Trim(name, "'\"")
 			}
 
-			if !specificLabels[qdef.GraphLabel] && seenNames[name] {
+			if !specificLabels[aq.qdef.GraphLabel] && seenNames[name] {
 				continue
 			}
 
@@ -199,18 +208,18 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, is
 
 			contextName, contextType := resolveParentContextAntlr(match, langConfig)
 
-			result.AddEntity(qdef.DataKey, Entity{
+			result.AddEntity(aq.qdef.DataKey, Entity{
 				Name:        name,
 				Line:        startLine,
 				EndLine:     endLine,
 				Source:      entitySource,
-				GraphLabel:  qdef.GraphLabel,
+				GraphLabel:  aq.qdef.GraphLabel,
 				Complexity:  complexity,
 				Context:     contextName,
 				ContextType: contextType,
 			})
 
-			if specificLabels[qdef.GraphLabel] {
+			if specificLabels[aq.qdef.GraphLabel] {
 				seenNames[name] = true
 			}
 		}
