@@ -190,6 +190,10 @@ else
 	@echo "✓ Built $$(ls -1 $(GRAMMAR_OUT)/*.wasm | wc -l) grammars"
 endif
 
+build-parser-plugin:
+	@mkdir -p $(BIN_DIR)
+	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/graphit-parser-plugin ./cmd/graphit-parser-plugin
+
 # ANTLR v4 grammar compilation — Go target compiled to WASM via wasip1.
 #
 # Each grammar lives in tools/antlr-go-grammars/<name>/ as a standalone Go module.
@@ -245,11 +249,12 @@ build: build-linux
 install: build
 	sudo cp $(BIN_DIR)/$(BRAND)-linux-amd64 /usr/local/bin/$(BRAND)
 
-build-linux: ui setup-lbug fetch-ort-linux fetch-model build-grammars build-antlr-grammars
+build-linux: ui setup-lbug fetch-ort-linux fetch-model
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcpproxy
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/graphit-parser-plugin ./cmd/graphit-parser-plugin
 	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug*/lib/dynamic/linux-amd64 -name "liblbug.so" -exec cp -L {} cmd/launcher/runtime/ \;
 	cd cmd/launcher/runtime && cp liblbug.so liblbug.so.0
 	find /usr/lib /lib -name "libicu*.so.[0-9]*" -exec cp -L {} cmd/launcher/runtime/ \; 2>/dev/null || true
@@ -261,11 +266,12 @@ build-linux: ui setup-lbug fetch-ort-linux fetch-model build-grammars build-antl
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-linux-amd64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-darwin: ui setup-lbug fetch-ort-darwin fetch-model build-grammars build-antlr-grammars
+build-darwin: ui setup-lbug fetch-ort-darwin fetch-model
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcpproxy
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/graphit-parser-plugin ./cmd/graphit-parser-plugin
 	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug*/lib/dynamic/darwin -name "liblbug.dylib" -exec cp -L {} cmd/launcher/runtime/ \;
 	cd cmd/launcher/runtime && cp liblbug.dylib liblbug.0.dylib
 	find /opt/homebrew/opt/icu4c/lib /usr/local/opt/icu4c/lib -name "libicu*.[0-9]*.dylib" -exec cp -L {} cmd/launcher/runtime/ \; 2>/dev/null || true
@@ -277,11 +283,12 @@ build-darwin: ui setup-lbug fetch-ort-darwin fetch-model build-grammars build-an
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-darwin-arm64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows: ui setup-lbug fetch-ort-windows fetch-model build-grammars build-antlr-grammars
+build-windows: ui setup-lbug fetch-ort-windows fetch-model
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_CFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_CXXFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_LDFLAGS="-L/usr/x86_64-w64-mingw32/icu/lib -licuuc -licuin -licudt -lstdc++ -static-libgcc -static-libstdc++" GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcpproxy
+	CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/graphit-parser-plugin.exe ./cmd/graphit-parser-plugin
 	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug*/lib/dynamic/windows -name "lbug_shared.dll" -exec cp -L {} cmd/launcher/runtime/ \;
 	find /usr/x86_64-w64-mingw32 -name "*.dll" -exec cp -L {} cmd/launcher/runtime/ \; 2>/dev/null || true
 	cp -L $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll cmd/launcher/runtime/
@@ -291,11 +298,12 @@ build-windows: ui setup-lbug fetch-ort-windows fetch-model build-grammars build-
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows-native: ui setup-lbug fetch-ort-windows fetch-model build-grammars build-antlr-grammars
+build-windows-native: ui setup-lbug fetch-ort-windows fetch-model
 	@mkdir -p cmd/launcher/runtime
 	rm -rf cmd/launcher/runtime/*
 	CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-L/mingw64/lib -licuuc -licuin -licudt -lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcpproxy
+	CGO_ENABLED=1 go build -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/graphit-parser-plugin.exe ./cmd/graphit-parser-plugin
 	GOPATH_UNIX=$$(cygpath -u "$$(go env GOPATH)") && find $$GOPATH_UNIX/pkg/mod/github.com/!ladybug!d!b/go-ladybug*/lib/dynamic/windows -name "lbug_shared.dll" -exec cp -L {} cmd/launcher/runtime/ \;
 	cp /mingw64/bin/libicuuc*.dll cmd/launcher/runtime/ 2>/dev/null || true
 	cp /mingw64/bin/libicuin*.dll cmd/launcher/runtime/ 2>/dev/null || true
@@ -312,7 +320,7 @@ build-windows-native: ui setup-lbug fetch-ort-windows fetch-model build-grammars
 
 build-all: build-linux build-darwin build-windows
 
-test: setup-lbug
+test: setup-lbug build-parser-plugin
 	@LBUG_LIB="$(LBUG_MOD)/lib/dynamic/linux-amd64"; \
 	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
 		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \

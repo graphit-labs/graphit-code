@@ -19,15 +19,13 @@ type CompositeParser struct {
 	grammarOverrides map[string]string // ext → grammar name (e.g. ".sql" → "antlr-plsql")
 }
 
-func NewCompositeParser(projectDir string, wm *WorkerModules, awm *AntlrWorkerModules, grammarOverrides map[string]string) *CompositeParser {
+func NewCompositeParser(projectDir string, grammarOverrides map[string]string) *CompositeParser {
 	return &CompositeParser{
 		treeSitter: &TreeSitterParser{
 			projectDir:    projectDir,
-			workerModules: wm,
 		},
 		antlr: &AntlrParser{
 			projectDir:    projectDir,
-			workerModules: awm,
 		},
 		grammarOverrides: grammarOverrides,
 	}

@@ -58,7 +58,7 @@ func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts Pipeline
 	writer := NewGraphWriter(db, abs, opts.IndexSource)
 	writer.cluster = opts.Cluster
 
-	parser := NewCompositeParser(abs, nil, nil, opts.GrammarOverrides)
+	parser := NewCompositeParser(abs, opts.GrammarOverrides)
 	return runFileWorkerPool(ctx, db, writer, abs, parser, t0, opts)
 }
 
@@ -162,8 +162,6 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	t1 := time.Now()
 	parseOpts := ParseOptions{}
 
-
-
 	dryRun := os.Getenv("AST_DRY_RUN") == "1"
 
 	type result struct {
@@ -217,11 +215,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				wm := NewWorkerModules(GetEngine())
-				awm := NewAntlrWorkerModules(GetAntlrEngine())
-				wp := NewCompositeParser(abs, wm, awm, opts.GrammarOverrides)
-				defer wm.Close()
-				defer awm.Close()
+				wp := NewCompositeParser(abs, opts.GrammarOverrides)
 				for path := range paths {
 					pf, err := wp.Parse(path, opts.IsDepend, parseOpts)
 					results <- result{path, pf, err}
