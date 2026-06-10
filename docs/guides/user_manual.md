@@ -85,7 +85,7 @@ The Hub Manager allows you to review rules and agent configurations shared acros
 
 The Hub supports 10 artifact types. Two are dedicated to the AST module's language and framework detection pipeline:
 
-- **Language Grammars** (`language`): Packages a Tree-sitter `.wasm` grammar file and its corresponding extraction `.yaml` query file for a programming language. This enables AST support for languages not included in the built-in defaults (e.g., Elixir, Haskell, Scala). On installation, the `.wasm` grammar is placed into `<project>/.graphit/ast/grammars/` and the `.yaml` queries into `<project>/.graphit/ast/queries/`.
+- **Language Queries** (`language`): Packages extraction `.yaml` query files that customize how entities are extracted from the built-in languages. These can override default extraction patterns, export strategies, and language configuration. On installation, the `.yaml` queries are placed into `<project>/.graphit/ast/queries/`.
 
 - **Framework Configs** (`framework`): Packages a `.yaml` framework detection file defining decorator, heritage, and import detection rules for a framework. On installation, the `.yaml` file is placed into `<project>/.graphit/ast/frameworks/`, where its rules merge with built-in defaults on the next sync.
 
@@ -176,7 +176,7 @@ When Graphit Code parses a source file, it resolves query patterns using a **3-l
 2. **User Global** (`~/.graphit/ast/queries/`) — Your personal customizations. Applies to all projects. **Never written by the framework.**
 3. **Runtime** (`~/.graphit/runtime/<version>/ast/queries/`) — Factory defaults extracted by the launcher during binary setup. **Automatically updated on each version upgrade.**
 
-> The runtime defaults serve as the base. They are automatically extracted by the launcher during binary setup and updated on each version upgrade. Both grammars (`.wasm` files) and extraction rules (YAML) follow the same 3-level resolution chain — everything is customizable without recompilation.
+> The runtime defaults serve as the base. They are automatically extracted by the launcher during binary setup and updated on each version upgrade. YAML extraction rules and language configuration follow the 3-level resolution chain — query customization requires no recompilation.
 
 For each language, the **first source that provides queries wins**. If you create a `go.yaml` in your project, only Go queries use the project version — all other languages continue resolving from user → runtime.
 
@@ -609,121 +609,51 @@ $EDITOR .graphit/ast/queries/python.yaml
 
 ## Adding New Language Support
 
-Graphit Code supports two parser backends for language analysis: **Tree-sitter** (default) and **ANTLR v4**. Adding support for a new programming language requires **two things**:
+Graphit Code ships with 18 built-in languages. Tree-sitter grammars (17 languages) are compiled natively into the binary via CGO, and the ANTLR PL/SQL grammar uses a native Go binary. **Adding an entirely new language grammar requires modifying the Go source code and recompiling.**
 
-1. **A grammar file** — a Tree-sitter `.wasm` or an ANTLR `.wasm` binary, dropped into any level of the resolution chain
-2. **A language YAML file** — defining extraction rules, export strategy, self keywords, context types, etc.
+However, the YAML query files that control what gets extracted from the AST are fully customizable. You can:
 
-Grammars are standalone `.wasm` files executed via wazero (pure Go, no CGO). No recompilation is needed.
+- **Customize extraction queries** for any of the 18 built-in languages
+- **Override export strategies, self keywords, context types**, and other language configuration
+- **Add or remove entity extraction patterns** per project or globally
 
-### Grammar Resolution Chain
+### What You CAN Customize Without Recompilation
 
-The engine discovers grammar files (both Tree-sitter and ANTLR `.wasm` binaries) using the same 3-level priority system:
+All extraction behavior is driven by YAML files that follow the 3-level resolution chain:
 
 | Priority | Path | Scope |
 |----------|------|-------|
-| 1 | `.graphit/ast/grammars/` | Project-only |
-| 2 | `~/.graphit/ast/grammars/` | All projects (user) |
-| 3 | `~/.graphit/runtime/<version>/ast/grammars/` | Factory defaults |
+| 1 | `.graphit/ast/queries/` | Project-only |
+| 2 | `~/.graphit/ast/queries/` | All projects (user) |
+| 3 | `~/.graphit/runtime/<version>/ast/queries/` | Factory defaults |
 
-### Adding a Tree-sitter Language
-
-**1. Obtain the Tree-sitter `.wasm` grammar:**
-
-Compile the grammar to WebAssembly or download a pre-built `.wasm` file (e.g., `tree-sitter-haskell.wasm`).
-
-**2. Drop the `.wasm` file into the grammars directory:**
+To customize a built-in language, copy the runtime default and edit it:
 
 ```bash
-# For this project only
-mkdir -p .graphit/ast/grammars/
-cp tree-sitter-haskell.wasm .graphit/ast/grammars/
-
-# Or globally for all projects
-mkdir -p ~/.graphit/ast/grammars/
-cp tree-sitter-haskell.wasm ~/.graphit/ast/grammars/
-```
-
-**3. Create a new `<language>.yaml` file:**
-
-```bash
+# Copy the default as a starting point
 mkdir -p .graphit/ast/queries/
-$EDITOR .graphit/ast/queries/haskell.yaml
+cp ~/.graphit/runtime/*/ast/queries/python.yaml .graphit/ast/queries/python.yaml
+
+# Edit extraction patterns, exports, context types, etc.
+$EDITOR .graphit/ast/queries/python.yaml
 ```
 
-**2. Define queries, exports, and language configuration:**
+### What Requires Recompilation
 
-```yaml
-language: haskell
-extensions: [".hs"]
+To add support for an entirely new language (e.g., Haskell, Elixir, Scala):
 
-queries:
-  - data_key: functions
-    graph_label: Function
-    pattern: '(function name: (variable) @name)'
-  - data_key: types
-    graph_label: Type
-    pattern: '(type_alias name: (type_constructor) @name)'
-  - data_key: classes
-    graph_label: Class
-    pattern: '(class_definition name: (type_constructor) @name)'
-  - data_key: imports
-    graph_label: Module
-    pattern: '(import_declaration module: (module_identifier) @name)'
-  - data_key: calls
-    type: relation
-    relation_type: CALLS
-    graph_label: ""
-    pattern: '(function_application function: (variable) @name)'
+1. **Tree-sitter languages** — Add CGO bindings for the new grammar in the Go source under `internal/ast/treesitter/`
+2. **ANTLR languages** — Add a native Go parser under `internal/ast/antlr/`
+3. **Recompile** — Run `make install` to build the updated binary
+4. **Create a YAML query file** — Define extraction patterns in a `<language>.yaml` file
 
-exports:
-  strategy: none
+The YAML query file for the new language follows the same format as existing languages and can be customized via the resolution chain after compilation.
 
-self_keywords: []
+### ANTLR Language Configuration
 
-context_types:
-  class_definition: Class
-  instance_definition: Class
+For languages parsed by ANTLR v4 (currently PL/SQL), the YAML configuration uses XPath expressions instead of Tree-sitter S-expressions. ANTLR grammars are compiled as native Go binaries — not loaded at runtime.
 
-declaration_types:
-  - function
-  - type_alias
-  - class_definition
-
-comment_types:
-  - comment
-  - block_comment
-```
-
-**3. Run `graphit sync` to index:**
-
-```bash
-graphit sync
-```
-
-The new language will be immediately available for AST queries.
-
-### Adding an ANTLR Language
-
-For languages with complex grammars (e.g., PL/SQL, COBOL, ABAP), ANTLR v4 may provide better parsing results than Tree-sitter. ANTLR-based languages use XPath expressions for pattern matching instead of Tree-sitter S-expressions.
-
-**1. Obtain the ANTLR `.wasm` grammar:**
-
-Compile an ANTLR Go grammar to WASI WASM via `GOOS=wasip1 GOARCH=wasm go build`, or use a pre-built binary (e.g., `antlr-plsql.wasm`).
-
-**2. Drop the `.wasm` file into the grammars directory:**
-
-```bash
-# For this project only
-mkdir -p .graphit/ast/grammars/
-cp antlr-plsql.wasm .graphit/ast/grammars/
-
-# Or globally for all projects
-mkdir -p ~/.graphit/ast/grammars/
-cp antlr-plsql.wasm ~/.graphit/ast/grammars/
-```
-
-**3. Create a new `<language>.yaml` with ANTLR-specific fields:**
+ANTLR language files require `parser: antlr4`, `start_rule:`, and `grammar:` fields. Patterns use XPath syntax to navigate the ANTLR parse tree:
 
 ```bash
 mkdir -p .graphit/ast/queries/
@@ -779,7 +709,7 @@ graphit sync
 |---|---|---|
 | `parser` | ✅ | Set to `antlr4` to use the ANTLR backend. Omit or set to `tree-sitter` for the default |
 | `start_rule` | ✅* | ANTLR start rule name (e.g., `sql_script`, `compilationUnit`). Required when `parser: antlr4` |
-| `grammar` | ✅* | Name of the ANTLR `.wasm` grammar file (without `.wasm` extension). Required when `parser: antlr4` |
+| `grammar` | ✅* | Name of the ANTLR grammar (e.g., `antlr-plsql`). Required when `parser: antlr4` |
 | `queries[].pattern` | ✅ | XPath expression navigating the ANTLR parse tree (e.g., `"//create_function_body"`) |
 
 All other YAML fields (`extensions`, `exports`, `self_keywords`, `context_types`, etc.) work identically for both parser backends.
@@ -805,7 +735,7 @@ The grammar name determines the backend automatically: names starting with `antl
 
 ### Important Notes
 
-- **Grammar files**: The `.wasm` grammar file must be present in any level of the grammars resolution chain (`.graphit/ast/grammars/`, `~/.graphit/ast/grammars/`, or `~/.graphit/runtime/<version>/ast/grammars/`). If no grammar is found for a language, its YAML queries are silently skipped.
+- **Built-in grammars**: All 17 Tree-sitter grammars and the ANTLR PL/SQL grammar are compiled natively into the binary. Only YAML query files (extraction patterns, export strategies, language configuration) are customizable at runtime via the resolution chain.
 - **Pattern validation**: Invalid Tree-sitter patterns are detected at parse time and logged as warnings, while valid patterns proceed normally. Invalid XPath expressions in ANTLR queries are similarly logged.
 - **Customizing existing languages**: For the 18 languages included by default, all extraction rules, export detection, scoring, context resolution, and docstring attachment are fully YAML-driven. Changing the YAML is sufficient — no rebuild needed.
 - **Parser field**: If the `parser` field is omitted from a YAML file, Tree-sitter is assumed. Existing YAML files do not need modification.

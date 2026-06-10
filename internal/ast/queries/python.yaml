@@ -67,7 +67,7 @@ exports:
 self_keywords: ["self."]
 
 # Parent context type mapping — Python tree-sitter node types only
-# Used by resolveParentContextWASM() to walk up the AST and find enclosing scope.
+# Used by resolveParentContext() to walk up the AST and find enclosing scope.
 context_types:
   class_definition: Class
   function_definition: Function

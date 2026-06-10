@@ -88,7 +88,7 @@ exports:
 self_keywords: ["$this->"]
 
 # Parent context type mapping — PHP tree-sitter node types only
-# Used by resolveParentContextWASM() to walk up the AST and find enclosing scope.
+# Used by resolveParentContext() to walk up the AST and find enclosing scope.
 context_types:
   class_declaration: Class
   interface_declaration: Interface

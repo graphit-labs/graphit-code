@@ -34,7 +34,7 @@ A typical Hub repository uses the following structure:
 ```
 hub-repository/
 ├── registry.json             # Registry index manifest
-├── languages/                # Tree-sitter grammar definitions (.wasm + query .yaml)
+├── languages/                # Language extraction query definitions (.yaml)
 ├── frameworks/               # Framework detection definitions (.yaml)
 ├── rules/                    # System rules templates
 │   ├── golang_conventions.md
@@ -120,18 +120,17 @@ In addition to rules, skills, and commands, the Hub supports two artifact types 
 
 ### Language Artifacts
 
-A **language** artifact packages a Tree-sitter grammar (`.wasm`) and its corresponding extraction query file (`.yaml`) for a programming language not included in the built-in defaults.
+A **language** artifact packages extraction query YAML files (`.yaml`) that customize how entities are extracted from the built-in languages. These can override default extraction patterns, export strategies, context types, and other language configuration. Tree-sitter and ANTLR grammars are compiled natively into the binary and cannot be installed at runtime.
 
 Content structure:
 
 ```
 languages/
-└── elixir/
-    ├── tree-sitter-elixir.wasm   # Tree-sitter grammar compiled to WebAssembly
-    └── elixir.yaml               # Extraction queries, export strategy, context types
+└── go-custom/
+    └── go.yaml                   # Custom extraction queries, export strategy, context types
 ```
 
-When installed, the grammar is placed into `<project>/.graphit/ast/grammars/` and the query YAML into `<project>/.graphit/ast/queries/`. The engine discovers them on the next `graphit sync` without recompilation.
+When installed, the query YAML is placed into `<project>/.graphit/ast/queries/`. The engine discovers it on the next `graphit sync` without recompilation.
 
 ### Framework Artifacts
 

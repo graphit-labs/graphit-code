@@ -74,7 +74,7 @@ During the interactive `graphit setup`, you can point the **Hub** to any Git rep
 - **Shared Coding Rules** — Enforce company-wide standards automatically across every developer's IDE.
 - **Team Skills** — Codify complex workflows (k8s debugging, internal API patterns, deployment checklists) so every agent on the team knows the procedures.
 - **Knowledge Artifacts** — Publish documentation about frameworks, APIs, and integration specs that every developer's agent can discover and install.
-- **Language Grammars** — Share Tree-sitter or ANTLR `.wasm` grammars and extraction `.yaml` queries for languages not included in the defaults. Drop-in AST support without recompilation.
+- **Language Queries** — Share Tree-sitter and ANTLR extraction `.yaml` query files for customizing how entities are extracted from the built-in languages. Drop-in AST query customization without recompilation.
 - **Framework Configs** — Distribute framework detection `.yaml` rules (decorators, heritage, imports) for internal or niche frameworks across the team.
 - **MCP Servers, Commands, Agent Profiles** — Share reusable automation across the entire organization.
 
@@ -214,7 +214,7 @@ Query the AST across the ecosystem instantly. Auto-incremental indexing ensures 
 
 #### Supported Languages (18)
 
-Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and **ANTLR v4** (full grammar, enterprise SQL). Both are WASM-based, portable, and loaded at runtime — no CGO, no native dependencies.
+Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and **ANTLR v4** (full grammar, enterprise SQL). Tree-sitter grammars are compiled natively via CGO for maximum performance. ANTLR grammars use native Go binaries. All 17 Tree-sitter languages and the ANTLR PL/SQL grammar are built into the binary.
 
 | Language | Parser | Extensions | Extracted Entities |
 |---|---|---|---|
@@ -265,13 +265,13 @@ All configuration follows a **4-level cascading resolution chain**:
 
 **Extend without recompilation:** Add new frameworks, ecosystem patterns, entry point scoring rules, relation types, and customize all language behavior by simply dropping YAML files into the project or user directory. Community contributions can be YAML-only PRs — no Go knowledge required.
 
-> **Plug-and-Play Language Support:** Grammars are standalone `.wasm` files executed via wazero (pure Go, no CGO). Both **Tree-sitter** and **ANTLR v4** parsers are supported. To add a new language:
+> **Fully Customizable AST Extraction:** While grammars are compiled natively into the binary (Tree-sitter via CGO, ANTLR via native Go), the entire extraction pipeline is driven by **external YAML files** that are fully customizable without recompilation:
 >
-> 1. Drop the `.wasm` grammar file into `.graphit/ast/grammars/` (project), `~/.graphit/ast/grammars/` (global), or `~/.graphit/runtime/<version>/ast/grammars/` (runtime).
-> 2. Create a `<language>.yaml` file in the corresponding `ast/queries/` directory defining the extraction patterns, extensions, and `grammar:` name matching the `.wasm` filename.
-> 3. For ANTLR grammars, set `parser: antlr4` and `start_rule:` in the YAML. For Tree-sitter grammars, omit the `parser` field (tree-sitter is the default).
+> 1. **Customize extraction queries** — Modify which entities (functions, classes, imports, etc.) are extracted from any of the 18 built-in languages by editing the YAML query files.
+> 2. **Override per project or globally** — Drop YAML files into `.graphit/ast/queries/` (project) or `~/.graphit/ast/queries/` (global) to override the runtime defaults.
+> 3. **Add framework detection** — Create framework YAML files to detect custom frameworks via decorators, inheritance, and import patterns.
 >
-> No recompilation required — the engine discovers and loads new grammars lazily on first use. ANTLR grammars also support native binary executables as a high-performance alternative to WASM.
+> To add support for an entirely new language grammar, you must add CGO bindings (Tree-sitter) or a native Go parser (ANTLR) to the source and recompile.
 
 Resolution follows a cascading priority chain: **project → user global → runtime → embedded**. See the [User Manual](docs/guides/user_manual.md#customizing-ast-tree-sitter-queries) for examples, and the [AST Module Spec](docs/specs/ast_module.md#-external-query-customization) for the full technical reference.
 

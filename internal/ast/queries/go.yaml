@@ -60,7 +60,7 @@ exports:
 self_keywords: []
 
 # Parent context type mapping — Go tree-sitter node types only
-# Used by resolveParentContextWASM() to walk up the AST and find enclosing scope.
+# Used by resolveParentContext() to walk up the AST and find enclosing scope.
 # Go structs: field_identifier → field_declaration → field_declaration_list → struct_type → type_spec
 # Go functions: identifier → parameter_declaration → parameter_list → function_declaration
 # Go methods: field_identifier → parameter_declaration → parameter_list → method_declaration
