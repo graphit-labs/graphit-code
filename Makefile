@@ -1,6 +1,6 @@
 .PHONY: build build-all install clean fmt vet run ui ui-dev setup-lbug \
        fetch-ort-linux fetch-ort-darwin fetch-ort-windows fetch-model lint \
-       ui-lint ci check test build-windows-native build-grammars build-antlr-grammars
+       ui-lint ci check test build-windows-native
 
 MODULE   := github.com/graphit-labs/graphit-code
 CMD      := ./cmd/graphit
@@ -139,82 +139,10 @@ endef
 define bundle_ast
 	@mkdir -p cmd/launcher/runtime/ast/queries
 	@mkdir -p cmd/launcher/runtime/ast/frameworks
-	@mkdir -p cmd/launcher/runtime/ast/grammars
 	cp internal/ast/queries/*.yaml cmd/launcher/runtime/ast/queries/
 	cp internal/ast/frameworks/*.yaml cmd/launcher/runtime/ast/frameworks/
 	cp internal/ast/ecosystems.yaml cmd/launcher/runtime/ast/
-	@if ls internal/ast/grammars/*.wasm 1>/dev/null 2>&1; then \
-		cp internal/ast/grammars/*.wasm cmd/launcher/runtime/ast/grammars/; \
-	fi
 endef
-
-# build_grammar(dir, funcname) — compiles one grammar to WASM.
-# Each .wasm is self-contained: tree-sitter runtime + grammar.
-# Output is platform-independent (runs on Windows/macOS/Linux via wazero).
-define build_grammar
-	@echo "  → tree-sitter-$(2).wasm"
-	@SCANNER=""; \
-	if [ -f $(GRAMMAR_CSRC)/$(1)/scanner.c ]; then SCANNER="$(GRAMMAR_CSRC)/$(1)/scanner.c"; fi; \
-	$(ZIG) cc --target=wasm32-wasi-musl -mexec-model=reactor \
-		-I $(GRAMMAR_CSRC)/ \
-		$(GRAMMAR_CSRC)/lib.c $(GRAMMAR_CSRC)/$(1)/parser.c $$SCANNER \
-		-o $(GRAMMAR_OUT)/tree-sitter-$(2).wasm \
-		-Oz -fPIC -Wl,--no-entry -Wl,-z -Wl,stack-size=65536 -Wl,--strip-debug \
-		$(WASM_EXPORTS) -Wl,--export=tree_sitter_$(2)
-endef
-
-# Set SKIP_GRAMMARS=1 to skip (used in CI where grammars are pre-built artifacts).
-build-grammars:
-ifeq ($(SKIP_GRAMMARS),1)
-	@echo "→ Skipping grammar build (SKIP_GRAMMARS=1)"
-else
-	@echo "Building tree-sitter WASM grammars (requires zig)..."
-	@mkdir -p $(GRAMMAR_OUT)
-	$(call build_grammar,c,c)
-	$(call build_grammar,cpp,cpp)
-	$(call build_grammar,csharp,c_sharp)
-	$(call build_grammar,dart,dart)
-	$(call build_grammar,golang,go)
-	$(call build_grammar,java,java)
-	$(call build_grammar,javascript,javascript)
-	$(call build_grammar,kotlin,kotlin)
-	$(call build_grammar,php,php)
-	$(call build_grammar,python,python)
-	$(call build_grammar,ruby,ruby)
-	$(call build_grammar,rust,rust)
-	$(call build_grammar,sql,sql)
-	$(call build_grammar,swift,swift)
-	$(call build_grammar,typescript,typescript)
-	$(call build_grammar,tsx,tsx)
-	$(call build_grammar,xml,xml)
-	@echo "✓ Built $$(ls -1 $(GRAMMAR_OUT)/*.wasm | wc -l) grammars"
-endif
-
-# ANTLR v4 grammar compilation — Go target compiled to WASM via wasip1.
-#
-# Each grammar lives in tools/antlr-go-grammars/<name>/ as a standalone Go module.
-# Build: GOOS=wasip1 GOARCH=wasm go build → antlr-<name>.wasm
-# Requires: Go >= 1.21 only.
-ANTLR_GO_DIR := tools/antlr-go-grammars
-
-# build_antlr_go_wasm(grammar_name) — compiles a Go ANTLR grammar to wasip1 WASM.
-define build_antlr_go_wasm
-	@echo "  → antlr-$(1).wasm  (Go wasip1)"
-	@cd $(ANTLR_GO_DIR)/$(1) && \
-		GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -ldflags="-s -w" -o antlr-$(1).wasm .
-	@cp $(ANTLR_GO_DIR)/$(1)/antlr-$(1).wasm $(GRAMMAR_OUT)/antlr-$(1).wasm
-endef
-
-# Set SKIP_ANTLR_GRAMMARS=1 to skip (used in CI where grammars are pre-built artifacts).
-build-antlr-grammars:
-ifeq ($(SKIP_ANTLR_GRAMMARS),1)
-	@echo "→ Skipping ANTLR grammar build (SKIP_ANTLR_GRAMMARS=1)"
-else
-	@echo "Building ANTLR v4 grammars (Go wasip1)..."
-	@mkdir -p $(GRAMMAR_OUT)
-	$(call build_antlr_go_wasm,plsql)
-	@echo "✓ ANTLR grammar build complete"
-endif
 
 fetch-ort-linux:
 	@mkdir -p $(ORT_CACHE)
@@ -328,7 +256,7 @@ fmt:
 	gofmt -w .
 
 vet:
-	go vet ./...
+	go vet $$(go list ./... | grep -v "/antlr/plsql")
 
 # ── CI reproduce (matches .github/workflows/ci.yml) ──────────────────────────
 # Run all checks that GitHub Actions runs, in the same order.

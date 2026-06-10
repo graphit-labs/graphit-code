@@ -38,7 +38,7 @@ queries:
     pattern: '(formal_parameter name: (identifier) @name)'
   - data_key: fields
     graph_label: Field
-    pattern: '(declaration (initialized_identifier (identifier) @name))'
+    pattern: '(initialized_identifier (identifier) @name)'
 
   # === Relation queries ===
   - data_key: decorators

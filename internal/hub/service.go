@@ -177,11 +177,7 @@ func (s *HubService) Install(
 		case TypeLanguage:
 
 			dotDir := brand.DotDir()
-			grammarsDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "grammars")
 			queriesDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "queries")
-			if err := os.MkdirAll(grammarsDir, 0o755); err != nil {
-				return nil, fmt.Errorf("creating grammars dir: %w", err)
-			}
 			if err := os.MkdirAll(queriesDir, 0o755); err != nil {
 				return nil, fmt.Errorf("creating queries dir: %w", err)
 			}
@@ -193,12 +189,7 @@ func (s *HubService) Install(
 				}
 				name := ce.Name()
 				src := filepath.Join(cloneDir, name)
-				switch {
-				case strings.HasSuffix(name, ".wasm"):
-					if err := copyFile(src, filepath.Join(grammarsDir, name)); err != nil {
-						s.log().Warn("installing grammar wasm", "file", name, "error", err)
-					}
-				case strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml"):
+				if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
 					if err := copyFile(src, filepath.Join(queriesDir, name)); err != nil {
 						s.log().Warn("installing query yaml", "file", name, "error", err)
 					}
@@ -748,7 +739,6 @@ func (s *HubService) preUninstallHook(ctx context.Context, artType ArtifactType,
 	case TypeLanguage:
 
 		dotDir := brand.DotDir()
-		grammarsDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "grammars")
 		queriesDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "queries")
 
 		cloneDir := resolveArtifactPath(meta, artType, id, pp)
@@ -761,10 +751,7 @@ func (s *HubService) preUninstallHook(ctx context.Context, artType ArtifactType,
 				continue
 			}
 			name := ce.Name()
-			switch {
-			case strings.HasSuffix(name, ".wasm"):
-				_ = os.Remove(filepath.Join(grammarsDir, name))
-			case strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml"):
+			if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
 				_ = os.Remove(filepath.Join(queriesDir, name))
 			}
 		}
@@ -886,24 +873,10 @@ func (s *HubService) Link(
 
 	case TypeLanguage:
 
-		sourceGrammars := filepath.Join(absSource, dotDir, "ast", "grammars")
 		sourceQueries := filepath.Join(absSource, dotDir, "ast", "queries")
-		grammarsDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "grammars")
 		queriesDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "queries")
-		_ = os.MkdirAll(grammarsDir, 0o755)
 		_ = os.MkdirAll(queriesDir, 0o755)
 
-		if entries, err := os.ReadDir(sourceGrammars); err == nil {
-			for _, e := range entries {
-				if !e.IsDir() && strings.HasSuffix(e.Name(), ".wasm") {
-					src := filepath.Join(sourceGrammars, e.Name())
-					dst := filepath.Join(grammarsDir, e.Name())
-					if err := copyFile(src, dst); err == nil {
-						result.Links = append(result.Links, "copied "+src+" → "+dst)
-					}
-				}
-			}
-		}
 		if entries, err := os.ReadDir(sourceQueries); err == nil {
 			for _, e := range entries {
 				if !e.IsDir() && (strings.HasSuffix(e.Name(), ".yaml") || strings.HasSuffix(e.Name(), ".yml")) {

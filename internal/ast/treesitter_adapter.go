@@ -1,10 +1,28 @@
 package ast
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
-	"github.com/graphit-labs/graphit-code/internal/ast/wasmts"
+	sitter "github.com/smacker/go-tree-sitter"
+	"github.com/smacker/go-tree-sitter/c"
+	"github.com/smacker/go-tree-sitter/cpp"
+	"github.com/smacker/go-tree-sitter/csharp"
+	"github.com/smacker/go-tree-sitter/golang"
+	"github.com/smacker/go-tree-sitter/java"
+	"github.com/smacker/go-tree-sitter/javascript"
+	"github.com/smacker/go-tree-sitter/kotlin"
+	"github.com/smacker/go-tree-sitter/php"
+	"github.com/smacker/go-tree-sitter/python"
+	"github.com/smacker/go-tree-sitter/ruby"
+	"github.com/smacker/go-tree-sitter/rust"
+	"github.com/smacker/go-tree-sitter/sql"
+	"github.com/smacker/go-tree-sitter/swift"
+	"github.com/smacker/go-tree-sitter/typescript/tsx"
+	"github.com/smacker/go-tree-sitter/typescript/typescript"
+	dart "github.com/graphit-labs/graphit-code/internal/ast/treesitter/dart"
+	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
 )
 
 type tsLangConfig struct {
@@ -25,6 +43,27 @@ type tsQueryDef struct {
 
 var tsExtMap map[string]*tsLangConfig
 var tsGrammarMap map[string]*tsLangConfig
+
+var tsLangs = map[string]*sitter.Language{
+	"tree-sitter-c":          c.GetLanguage(),
+	"tree-sitter-cpp":        cpp.GetLanguage(),
+	"tree-sitter-csharp":     csharp.GetLanguage(),
+	"tree-sitter-c_sharp":    csharp.GetLanguage(),
+	"tree-sitter-dart":       dart.GetLanguage(),
+	"tree-sitter-go":         golang.GetLanguage(),
+	"tree-sitter-java":       java.GetLanguage(),
+	"tree-sitter-javascript": javascript.GetLanguage(),
+	"tree-sitter-kotlin":     kotlin.GetLanguage(),
+	"tree-sitter-php":        php.GetLanguage(),
+	"tree-sitter-python":     python.GetLanguage(),
+	"tree-sitter-ruby":       ruby.GetLanguage(),
+	"tree-sitter-rust":       rust.GetLanguage(),
+	"tree-sitter-sql":        sql.GetLanguage(),
+	"tree-sitter-swift":      swift.GetLanguage(),
+	"tree-sitter-typescript": typescript.GetLanguage(),
+	"tree-sitter-tsx":        tsx.GetLanguage(),
+	"tree-sitter-xml":        sitter.NewLanguage(tree_sitter_xml.LanguageXML()),
+}
 
 func initTsExtMap() {
 	tsExtMap = make(map[string]*tsLangConfig)
@@ -68,8 +107,6 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 	return t.parseWithConfig(path, ext, cfg, isDepend, opts)
 }
 
-// ParseWithGrammar parses using a specific tree-sitter grammar name (e.g. "tree-sitter-sql"),
-// bypassing the extension-based lookup. Used by CompositeParser for --grammar overrides.
 func (t *TreeSitterParser) ParseWithGrammar(path, grammarName string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
 	cfg, ok := tsGrammarMap[grammarName]
 	if !ok {
@@ -85,27 +122,26 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 		return nil, err
 	}
 
-	lang, cleanup, err := getTSLanguage(cfg.Grammar, t.projectDir)
-	if err != nil {
-		return nil, err
+	lang, ok := tsLangs[cfg.Grammar]
+	if !ok {
+		return nil, fmt.Errorf("unsupported native tree-sitter grammar: %s", cfg.Grammar)
 	}
-	defer cleanup()
 
-	p, err := lang.NewParser()
+	p := sitter.NewParser()
+	p.SetLanguage(lang)
+
+	tree, err := p.ParseCtx(context.Background(), nil, src)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tree-sitter parse failed: %w", err)
 	}
-	defer p.Close()
-
-	tree, err := p.Parse(src)
-	if err != nil {
-		return nil, err
+	if tree == nil {
+		return nil, fmt.Errorf("tree-sitter parse returned nil tree")
 	}
 	defer tree.Close()
 
-	root, err := tree.RootNode()
-	if err != nil {
-		return nil, err
+	root := tree.RootNode()
+	if root == nil {
+		return nil, fmt.Errorf("tree-sitter root node is nil")
 	}
 
 	result := &ParsedFile{
@@ -124,7 +160,7 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 	var langConfig *ExternalQueryFile
 	var queries []tsQueryDef
 	if t.projectDir != "" {
-		queries = mergedQueriesFor(t.projectDir, cfg.Language, ext, nil)
+		queries = mergedQueriesFor(t.projectDir, cfg.Language, ext, lang)
 		langConfig = resolvedLangConfigFor(t.projectDir, cfg.Language, ext)
 	}
 
@@ -134,31 +170,23 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 	}
 
 	for _, qdef := range rpcQueries {
-		q, qErr := lang.NewQuery(qdef.Pattern)
+		q, qErr := sitter.NewQuery([]byte(qdef.Pattern), lang)
 		if qErr != nil {
 			continue
 		}
 
-		qc, qcErr := lang.NewQueryCursor()
-		if qcErr != nil {
-			q.Close()
-			continue
-		}
-
-		if err := qc.Exec(q, root); err != nil {
-			qc.Close()
-			q.Close()
-			continue
-		}
+		qc := sitter.NewQueryCursor()
+		qc.Exec(q, root)
 
 		for {
-			match, ok, matchErr := qc.NextMatch(src)
-			if matchErr != nil || !ok {
+			match, ok := qc.NextMatch()
+			if !ok {
 				break
 			}
+			match = qc.FilterPredicates(match, src)
 
 			for _, capture := range match.Captures {
-				name := capture.Node.Content()
+				name := capture.Node.Content(src)
 				if name == "" {
 					continue
 				}
@@ -171,32 +199,23 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 					continue
 				}
 
-				startPt, startPtErr := capture.Node.StartPoint()
-				if startPtErr != nil {
-					continue
-				}
+				startPt := capture.Node.StartPoint()
 				startLine := int(startPt.Row) + 1
 
-				parent, parentErr := capture.Node.Parent()
-				if parentErr != nil {
-					continue
-				}
-
+				parent := capture.Node.Parent()
 				endLine := startLine
-				if !SafeIsNull(parent) {
-					parentEndPt, parentEndPtErr := parent.EndPoint()
-					if parentEndPtErr == nil {
-						endLine = int(parentEndPt.Row) + 1
-					}
+				if parent != nil {
+					parentEndPt := parent.EndPoint()
+					endLine = int(parentEndPt.Row) + 1
 				}
 				entitySource := ""
 				complexity := 1
-				if !SafeIsNull(parent) {
-					entitySource = parent.Content()
+				if parent != nil {
+					entitySource = parent.Content(src)
 					complexity = ComputeCyclomaticComplexity(entitySource)
 				}
 
-				contextName, contextType := resolveParentContextTS(capture.Node, langConfig)
+				contextName, contextType := resolveParentContextTS(capture.Node, src, langConfig)
 
 				result.AddEntity(qdef.DataKey, Entity{
 					Name:        name,
@@ -218,12 +237,12 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 		qc.Close()
 	}
 
-	extractDocstringsTS(root, result, langConfig)
+	extractDocstringsTS(root, src, result, langConfig)
 
 	relationTypes := buildRelationTypeMap(rpcQueries)
 	attachDecorators(result, relationTypes)
 
-	detectExportsTS(root, result, cfg.Language, langConfig, relationTypes)
+	detectExportsTS(root, src, result, cfg.Language, langConfig, relationTypes)
 
 	processRelations(result, relationTypes)
 	resolveReceiverTypes(result, src, cfg.Language, langConfig)
@@ -258,73 +277,46 @@ var defaultCommentTypes = map[string]bool{
 	"multiline_comment": true,
 }
 
-func SafeIsNull(n *wasmts.Node) bool {
-	if n == nil {
-		return true
-	}
-	isNull, err := n.IsNull()
-	if err != nil {
-		return true
-	}
-	return isNull
+func SafeIsNull(n *sitter.Node) bool {
+	return n == nil
 }
 
-func SafeChild(n *wasmts.Node, idx int) *wasmts.Node {
+func SafeChild(n *sitter.Node, idx int) *sitter.Node {
 	if n == nil {
 		return nil
 	}
-	child, err := n.Child(idx)
-	if err != nil {
-		return nil
-	}
-	return child
+	return n.Child(idx)
 }
 
-func SafeParent(n *wasmts.Node) *wasmts.Node {
+func SafeParent(n *sitter.Node) *sitter.Node {
 	if n == nil {
 		return nil
 	}
-	parent, err := n.Parent()
-	if err != nil {
-		return nil
-	}
-	return parent
+	return n.Parent()
 }
 
-func SafeType(n *wasmts.Node) string {
+func SafeType(n *sitter.Node) string {
 	if n == nil {
 		return ""
 	}
-	t, err := n.Type()
-	if err != nil {
-		return ""
-	}
-	return t
+	return n.Type()
 }
 
-func SafeChildByFieldName(n *wasmts.Node, name string) *wasmts.Node {
+func SafeChildByFieldName(n *sitter.Node, name string) *sitter.Node {
 	if n == nil {
 		return nil
 	}
-	child, err := n.ChildByFieldName(name)
-	if err != nil {
-		return nil
-	}
-	return child
+	return n.ChildByFieldName(name)
 }
 
-func SafeChildCount(n *wasmts.Node) int {
+func SafeChildCount(n *sitter.Node) int {
 	if n == nil {
 		return 0
 	}
-	cnt, err := n.ChildCount()
-	if err != nil {
-		return 0
-	}
-	return int(cnt)
+	return int(n.ChildCount())
 }
 
-func resolveParentContextTS(node *wasmts.Node, langConfig *ExternalQueryFile) (string, string) {
+func resolveParentContextTS(node *sitter.Node, src []byte, langConfig *ExternalQueryFile) (string, string) {
 	parentTypes := defaultContextTypes
 	anonTypes := defaultAnonFuncTypes
 
@@ -346,7 +338,7 @@ func resolveParentContextTS(node *wasmts.Node, langConfig *ExternalQueryFile) (s
 		if label, ok := parentTypes[nodeType]; ok {
 			nameNode := SafeChildByFieldName(current, "name")
 			if !SafeIsNull(nameNode) {
-				return nameNode.Content(), label
+				return nameNode.Content(src), label
 			}
 		}
 
@@ -356,7 +348,7 @@ func resolveParentContextTS(node *wasmts.Node, langConfig *ExternalQueryFile) (s
 				if SafeType(grandparent) == "variable_declarator" {
 					nameNode := SafeChildByFieldName(grandparent, "name")
 					if !SafeIsNull(nameNode) {
-						return nameNode.Content(), "Function"
+						return nameNode.Content(src), "Function"
 					}
 				}
 			}
@@ -366,7 +358,7 @@ func resolveParentContextTS(node *wasmts.Node, langConfig *ExternalQueryFile) (s
 	return "", ""
 }
 
-func extractDocstringsTS(root *wasmts.Node, result *ParsedFile, langConfig *ExternalQueryFile) {
+func extractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, langConfig *ExternalQueryFile) {
 	if SafeIsNull(root) {
 		return
 	}
@@ -406,8 +398,8 @@ func extractDocstringsTS(root *wasmts.Node, result *ParsedFile, langConfig *Exte
 		}
 	}
 
-	var walk func(node *wasmts.Node)
-	walk = func(node *wasmts.Node) {
+	var walk func(node *sitter.Node)
+	walk = func(node *sitter.Node) {
 		childCount := SafeChildCount(node)
 		for i := 0; i < childCount; i++ {
 			child := SafeChild(node, i)
@@ -421,17 +413,15 @@ func extractDocstringsTS(root *wasmts.Node, result *ParsedFile, langConfig *Exte
 					prev := SafeChild(node, i-1)
 					if !SafeIsNull(prev) {
 						if comTypes[SafeType(prev)] {
-							commentText := cleanDocstring(prev.Content())
+							commentText := cleanDocstring(prev.Content(src))
 							if commentText != "" {
-								sp, errSp := child.StartPoint()
-								if errSp == nil {
-									declLine := int(sp.Row) + 1
-									nameNode := SafeChildByFieldName(child, "name")
-									if !SafeIsNull(nameNode) {
-										name := nameNode.Content()
-										if e, ok := entityIdx[entityKey{declLine, name}]; ok {
-											e.Docstring = commentText
-										}
+								sp := child.StartPoint()
+								declLine := int(sp.Row) + 1
+								nameNode := SafeChildByFieldName(child, "name")
+								if !SafeIsNull(nameNode) {
+									name := nameNode.Content(src)
+									if e, ok := entityIdx[entityKey{declLine, name}]; ok {
+										e.Docstring = commentText
 									}
 								}
 							}
@@ -450,15 +440,13 @@ func extractDocstringsTS(root *wasmts.Node, result *ParsedFile, langConfig *Exte
 										expr := SafeChild(firstStmt, 0)
 										if !SafeIsNull(expr) {
 											if SafeType(expr) == "string" {
-												sp, errSp := child.StartPoint()
-												if errSp == nil {
-													declLine := int(sp.Row) + 1
-													nameNode := SafeChildByFieldName(child, "name")
-													if !SafeIsNull(nameNode) {
-														name := nameNode.Content()
-														if e, ok := entityIdx[entityKey{declLine, name}]; ok && e.Docstring == "" {
-															e.Docstring = cleanDocstring(expr.Content())
-														}
+												sp := child.StartPoint()
+												declLine := int(sp.Row) + 1
+												nameNode := SafeChildByFieldName(child, "name")
+												if !SafeIsNull(nameNode) {
+													name := nameNode.Content(src)
+													if e, ok := entityIdx[entityKey{declLine, name}]; ok && e.Docstring == "" {
+														e.Docstring = cleanDocstring(expr.Content(src))
 													}
 												}
 											}
@@ -476,7 +464,7 @@ func extractDocstringsTS(root *wasmts.Node, result *ParsedFile, langConfig *Exte
 	walk(root)
 }
 
-func detectExportsTS(root *wasmts.Node, result *ParsedFile, lang string, langConfig *ExternalQueryFile, relationTypes map[string]string) {
+func detectExportsTS(root *sitter.Node, src []byte, result *ParsedFile, lang string, langConfig *ExternalQueryFile, relationTypes map[string]string) {
 	exportedNames := make(map[string]bool)
 
 	var strategy string
@@ -503,7 +491,7 @@ func detectExportsTS(root *wasmts.Node, result *ParsedFile, lang string, langCon
 				if !SafeIsNull(decl) {
 					nameNode := SafeChildByFieldName(decl, "name")
 					if !SafeIsNull(nameNode) {
-						exportedNames[nameNode.Content()] = true
+						exportedNames[nameNode.Content(src)] = true
 					}
 				}
 
@@ -523,7 +511,7 @@ func detectExportsTS(root *wasmts.Node, result *ParsedFile, lang string, langCon
 							if SafeType(es) == "export_specifier" {
 								nameNode := SafeChildByFieldName(es, "name")
 								if !SafeIsNull(nameNode) {
-									exportedNames[nameNode.Content()] = true
+									exportedNames[nameNode.Content(src)] = true
 								}
 							}
 						}
@@ -560,7 +548,6 @@ func HasTreeSitterForExtension(ext string) bool {
 	return ok
 }
 
-// TSConfigForGrammar returns the config for a named tree-sitter grammar, or nil.
 func TSConfigForGrammar(name string) *tsLangConfig {
 	return tsGrammarMap[name]
 }
@@ -571,9 +558,6 @@ func TreeSitterLangForExtension(ext string) string {
 	}
 	return ""
 }
-
-
-
 
 func TreeSitterSupportedExtensions() []string {
 	var exts []string

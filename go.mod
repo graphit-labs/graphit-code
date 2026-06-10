@@ -7,16 +7,16 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/bytecodealliance/wasmtime-go/v21 v21.0.0
-	github.com/fatih/color v1.18.0
-	github.com/go-git/go-git/v5 v5.19.0
-	github.com/graphit-labs/graphit-code/tools/antlr-go-grammars/plsql v0.0.0-00010101000000-000000000000
-	github.com/graphit-labs/graphit-code/tools/antlr-go-grammars/shared v0.0.0
+	github.com/fatih/color v1.19.0
+	github.com/go-git/go-git/v5 v5.19.1
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/pelletier/go-toml/v2 v2.3.1
+	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.8.0
 	github.com/sugarme/tokenizer v0.3.0
+	github.com/tree-sitter-grammars/tree-sitter-xml v0.7.0
 	github.com/yalue/onnxruntime_go v1.30.1
 	golang.org/x/term v0.42.0
 	golang.org/x/text v0.36.0
@@ -50,9 +50,4 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-)
-
-replace (
-	github.com/graphit-labs/graphit-code/tools/antlr-go-grammars/plsql => ./tools/antlr-go-grammars/plsql
-	github.com/graphit-labs/graphit-code/tools/antlr-go-grammars/shared => ./tools/antlr-go-grammars/shared
 )

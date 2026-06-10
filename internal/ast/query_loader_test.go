@@ -3,8 +3,12 @@ package ast
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+
+	sitter "github.com/smacker/go-tree-sitter"
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoadQueriesFromDir_MissingDir(t *testing.T) {
@@ -236,5 +240,60 @@ func TestFilterByLangExt(t *testing.T) {
 	result = filterByLangExt(files, "go", ".go")
 	if len(result) != 2 {
 		t.Fatalf("expected 2 (one with ext, one without), got %d", len(result))
+	}
+}
+
+func TestVerifyAllDefaultQueries(t *testing.T) {
+	files, err := os.ReadDir("queries")
+	if err != nil {
+		t.Fatalf("failed to read queries dir: %v", err)
+	}
+
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".yaml") {
+			continue
+		}
+
+		t.Run(file.Name(), func(t *testing.T) {
+			path := filepath.Join("queries", file.Name())
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("failed to read file: %v", err)
+			}
+
+			var qf ExternalQueryFile
+			if err := yaml.Unmarshal(data, &qf); err != nil {
+				t.Fatalf("failed to unmarshal yaml: %v", err)
+			}
+
+			if qf.Parser == "antlr4" {
+				// ANTLR uses XPath and does not require compiling queries with tree-sitter.
+				return
+			}
+
+			// Resolve tree-sitter language
+			grammar := qf.Grammar
+			if grammar == "" {
+				grammar = "tree-sitter-" + qf.Language
+			}
+
+			lang, ok := tsLangs[grammar]
+			if !ok {
+				t.Fatalf("no native tree-sitter language registered for grammar %s (language %s)", grammar, qf.Language)
+			}
+
+			for _, q := range qf.Queries {
+				if q.Type == "relation" && q.GraphLabel != "" {
+					t.Errorf("query %s has type=relation but non-empty graph_label %q", q.DataKey, q.GraphLabel)
+				}
+
+				sQuery, err := sitter.NewQuery([]byte(q.Pattern), lang)
+				if err != nil {
+					t.Errorf("invalid pattern for %s: %v\nPattern: %s", q.DataKey, err, q.Pattern)
+				} else {
+					sQuery.Close()
+				}
+			}
+		})
 	}
 }

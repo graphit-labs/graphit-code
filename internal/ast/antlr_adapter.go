@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/antlr4-go/antlr/v4"
+	"github.com/graphit-labs/graphit-code/internal/ast/grammars/antlr/plsql"
 	"github.com/graphit-labs/graphit-code/internal/ast/wasmantlr"
 )
 
@@ -125,23 +127,31 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, is
 		rpcQueries = append(rpcQueries, ExternalQueryDef(q))
 	}
 
-	// 1. Get a pooled WASM module instance for this ANTLR grammar
-	mod, cleanup, err := getAntlrLanguage(cfg.Grammar, a.projectDir)
-	if err != nil {
-		return nil, fmt.Errorf("get antlr language %q: %w", cfg.Grammar, err)
-	}
-	defer cleanup()
+	// 1. Parse using native ANTLR PL/SQL parser
+	var antlrTree *wasmantlr.TreeNode
+	if cfg.Grammar == "antlr-plsql" {
+		preprocessed := plsql.Preprocess(string(src))
+		input := antlr.NewInputStream(preprocessed)
+		lexer := plsql.NewPlSqlLexer(input)
+		lexer.RemoveErrorListeners()
+		tokens := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
 
-	// 2. Parse via WASM and retrieve JSON tree
-	jsonBytes, err := mod.Parse(src)
-	if err != nil {
-		return nil, fmt.Errorf("wasm parse %q: %w", cfg.Grammar, err)
-	}
+		p := plsql.NewPlSqlParser(tokens)
+		p.RemoveErrorListeners()
 
-	// 3. Deserialize JSON to Tree
-	antlrTree, err := wasmantlr.ParseTreeFromJSON(jsonBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse antlr JSON tree: %w", err)
+		nativeTree := plsql.ParseSLLThenLL(
+			lexer,
+			func() antlr.ParseTree { return p.Sql_script() },
+			func(mode int) { plsql.ConfigureParser(p, tokens, &p.BuildParseTrees, mode) },
+		)
+
+		if nativeTree == nil {
+			return nil, fmt.Errorf("native antlr parse plsql failed")
+		}
+
+		antlrTree = convertParseTree(nativeTree, p.RuleNames, p.SymbolicNames, p.LiteralNames)
+	} else {
+		return nil, fmt.Errorf("unsupported native ANTLR grammar: %s", cfg.Grammar)
 	}
 
 	result := &ParsedFile{
@@ -341,4 +351,76 @@ func AllSupportedExtensions() []string {
 		}
 	}
 	return exts
+}
+
+func convertParseTree(node antlr.Tree, ruleNames, symbolicNames, literalNames []string) *wasmantlr.TreeNode {
+	switch n := node.(type) {
+	case antlr.TerminalNode:
+		tok := n.GetSymbol()
+		if tok.GetTokenType() == antlr.TokenEOF {
+			return nil
+		}
+
+		name := tokenDisplayName(tok.GetTokenType(), symbolicNames, literalNames)
+		text := tok.GetText()
+		endCol := tok.GetColumn() + len(text) - 1
+		return &wasmantlr.TreeNode{
+			Token: name,
+			Text:  text,
+			Start: [2]int{tok.GetLine(), tok.GetColumn()},
+			End:   [2]int{tok.GetLine(), endCol},
+		}
+
+	case antlr.ParserRuleContext:
+		var ruleName string
+		ruleIdx := n.GetRuleIndex()
+		if ruleIdx >= 0 && ruleIdx < len(ruleNames) {
+			ruleName = ruleNames[ruleIdx]
+		}
+
+		startLine, startCol := 0, 0
+		start := n.GetStart()
+		if start != nil {
+			startLine, startCol = start.GetLine(), start.GetColumn()
+		}
+
+		endLine, endCol := 0, 0
+		stop := n.GetStop()
+		if stop != nil {
+			endLine = stop.GetLine()
+			endCol = stop.GetColumn() + len(stop.GetText()) - 1
+		}
+
+		var children []*wasmantlr.TreeNode
+		antlrChildren := n.GetChildren()
+		for _, child := range antlrChildren {
+			if t, ok := child.(antlr.TerminalNode); ok {
+				if t.GetSymbol().GetTokenType() == antlr.TokenEOF {
+					continue
+				}
+			}
+			converted := convertParseTree(child, ruleNames, symbolicNames, literalNames)
+			if converted != nil {
+				children = append(children, converted)
+			}
+		}
+
+		return &wasmantlr.TreeNode{
+			Rule:     ruleName,
+			Start:    [2]int{startLine, startCol},
+			End:      [2]int{endLine, endCol},
+			Children: children,
+		}
+	}
+	return nil
+}
+
+func tokenDisplayName(tokenType int, symbolicNames, literalNames []string) string {
+	if tokenType >= 0 && tokenType < len(literalNames) && literalNames[tokenType] != "" {
+		return literalNames[tokenType]
+	}
+	if tokenType >= 0 && tokenType < len(symbolicNames) && symbolicNames[tokenType] != "" {
+		return symbolicNames[tokenType]
+	}
+	return fmt.Sprintf("%d", tokenType)
 }

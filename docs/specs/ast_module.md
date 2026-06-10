@@ -25,7 +25,7 @@ It parses source files into an in-memory graph database, enabling AI agents to t
 
 ## 🌐 Supported Languages
 
-Graphit Code supports **18 programming languages** via Tree-sitter and ANTLR v4 parsers. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires compiling its grammar (Tree-sitter or ANTLR) into WASM; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
+Graphit Code supports **18 programming languages** via Tree-sitter and ANTLR v4 parsers. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires registering its CGO bindings in the native Go runner; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
 
 | # | Language | Parser | Extensions | Key Extracted Entities |
 |---|---|---|---|---|
@@ -135,76 +135,67 @@ LadybugDB uses standard graph database constraints, but does not support all com
 
 ---
 
-## 🔍 Parser Adapters & WASM Runtime
+## 🔍 Parser Adapters & Native CGO Runtime
 
-The engine uses a **dual-parser architecture** — Tree-sitter and ANTLR v4 — both compiled to WebAssembly and executed via [wazero](https://wazero.io) (pure Go, no CGO). The YAML `parser:` field in each language configuration determines which backend is used; Tree-sitter is the default when the field is omitted.
+The engine uses a **dual-parser architecture** — Tree-sitter and ANTLR v4 — both compiled and executed natively via CGO/Go (fully native, no WASM runtimes). The YAML `parser:` field in each language configuration determines which backend is used; Tree-sitter is the default when the field is omitted.
 
-- **Tree-sitter**: Incremental, fast, and the default parser for most languages. Ideal for general-purpose parsing where speed and incremental re-parsing are priorities.
-- **ANTLR v4**: Full grammar parsing for complex languages like PL/SQL that require richer parse trees. Uses two-stage **SLL→LL parsing**: the fast O(n) SLL mode is tried first, falling back to full LL parsing only on ambiguity or error. ANTLR also supports **native binary executables** as a performance alternative to WASM — when a native binary is found in the grammar resolution chain, it is used instead of the `.wasm` module.
+- **Tree-sitter**: Incremental, fast, and the default parser for most languages. Integrates natively via CGO with the standard Go bindings (`github.com/smacker/go-tree-sitter` and official grammar bindings), providing maximum parsing performance.
+- **ANTLR v4**: Full grammar parsing for complex languages like PL/SQL that require richer parse trees. Uses two-stage **SLL→LL parsing**: the fast O(n) SLL mode is tried first, falling back to full LL parsing only on ambiguity or error. This parser is compiled as native Go code in the module.
 
 Both parsers are loaded **lazily** on first use — no eager loading at startup. This means startup time is constant regardless of the number of supported languages or installed grammars.
 
-### Tree-sitter WASM Architecture (`internal/ast/wasmts/`)
+### Tree-sitter CGO Architecture
 
-Each grammar is a standalone `.wasm` file (e.g., `tree-sitter-go.wasm`) containing the Tree-sitter runtime plus the language grammar.
+Tree-sitter grammars are compiled and integrated directly as Go libraries using CGO:
+- **15 Standard Languages** (e.g., Go, Python, Java) are imported directly from subpackages of `github.com/smacker/go-tree-sitter`.
+- **Dart** is imported from the Go bindings package `github.com/UserNobody14/tree-sitter-dart/bindings/go` and instantiated dynamically via `sitter.NewLanguage(tree_sitter_dart.Language())`.
+- **XML** is imported from the official Go bindings package `github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go` and instantiated dynamically via `sitter.NewLanguage(tree_sitter_xml.LanguageXML())`.
 
-### ANTLR v4 WASM Architecture
+### ANTLR v4 Go Native Architecture
 
-ANTLR grammars are compiled from the Go ANTLR runtime into WASI WASM modules via `GOOS=wasip1 GOARCH=wasm`. Each grammar is a `.wasm` file (e.g., `antlr-plsql.wasm`) containing the full parser, preprocessor, and IPC driver. The `grammar` field in the language YAML maps to this filename. Patterns in ANTLR YAML files use **XPath syntax** (e.g., `//create_function_body/function_name`) instead of Tree-sitter S-expressions. Go's native `panic`/`recover` handles all ANTLR error recovery — no external toolchain is required beyond Go ≥ 1.21.
+ANTLR PL/SQL grammar is compiled into native Go code. SLL/LL parsing strategy helpers handle fast-path prediction under `internal/ast/grammars/antlr/plsql/parser_sll_ll.go`. Patterns in ANTLR YAML files use **XPath syntax** (e.g., `//create_function_body/function_name`) instead of Tree-sitter S-expressions.
 
 ### Grammar Resolution Chain
 
-Grammars are plug-and-play: drop a `.wasm` file (Tree-sitter or ANTLR) into any directory in the resolution chain. The unified grammar loader discovers both parser types from the same directories.
+The AST module resolves language configurations (extensions, parser type, XPath/S-expression query definitions) using a cascading chain. Both Tree-sitter and ANTLR queries are defined in standard language YAML files; WASM binaries are no longer used or resolved.
 
 **Resolution order** (highest priority first):
 
 | Priority | Path | Managed By |
 |----------|------|------------|
-| 1 | `.graphit/ast/grammars/` | Project |
-| 2 | `~/.graphit/ast/grammars/` | User |
-| 3 | `~/.graphit/runtime/<version>/ast/grammars/` | Framework |
+| 1 | `.graphit/ast/queries/` | Project |
+| 2 | `~/.graphit/ast/queries/` | User |
+| 3 | `~/.graphit/runtime/<version>/ast/queries/` | Framework |
 
 **Key types:**
 
 | Type | Package | Role |
 |------|---------|------|
-| `Engine` | `wasmts` | Manages wazero runtime, compilation cache, and compiled modules (Tree-sitter) |
-| `Module` | `wasmts` | Single WASM instance with its own linear memory. NOT thread-safe |
-| `Language` | `wasmts` | Grammar pointer within a Module — creates parsers and queries |
-| `WorkerModules` | `ast` | Per-goroutine set of Tree-sitter Module instances, created lazily |
-| `AntlrWorkerModules` | `ast` | Per-goroutine set of ANTLR WASM instances, created lazily (same isolation model as `WorkerModules`) |
+| `sitter.Language` | `sitter` | Native grammar compiled via CGO used to instantiate parsers and queries |
+| `TreeSitterParser` | `ast` | Adapter that handles Tree-sitter AST queries, extraction, and context resolution |
 
 ### Concurrency Model
 
-WASM linear memory is **not thread-safe** — concurrent access from multiple goroutines corrupts memory. The engine solves this with **per-worker module instances** for both parser backends:
-
-```
-chan (all files) ──▶ Worker 1: { go: TS-Module#1, plsql: ANTLR-Module#1 }   ← lazy
-                 ──▶ Worker 2: { go: TS-Module#2, tsx: TS-Module#1 }         ← lazy
-                 ──▶ Worker 3: { go: TS-Module#3, plsql: ANTLR-Module#2 }   ← lazy
-                 ...each instance has isolated WASM memory
-```
-
-- Each worker goroutine creates its own `WorkerModules` (Tree-sitter) and `AntlrWorkerModules` (ANTLR) with isolated WASM instances
-- Instances are created **lazily** — only when the worker encounters a file of that language
-- AOT compilation is cached on disk and shared — only instantiation (memory allocation) happens per worker
-- Zero mutexes, zero locks, full parallelism across all workers
+Under CGO, individual `sitter.Parser` instances are not thread-safe and must not be used concurrently. The engine resolves this by allocating isolated parser instances inside each concurrent worker goroutine:
+- Parser instances are created dynamically when a worker processes a file.
+- The underlying `sitter.Language` structures are read-only and thread-safe, so they are safely shared across all workers.
+- Zero mutexes or locks are used during parsing, resulting in full parallel performance across all CPU cores.
 
 ### Tree-sitter Adapter (`internal/ast/treesitter_adapter.go`)
 
-Bridges the Tree-sitter WASM runtime with the indexing pipeline. For each file:
-1. Resolves a worker-local `Language` instance via `WorkerModules.GetLanguage()`
-2. Creates a parser, parses the source into a syntax tree
-3. Runs all YAML-defined queries to extract entities and relationships
-4. Returns a `ParsedFile` with structured data for graph insertion
+Bridges the Tree-sitter native CGO runtime with the indexing pipeline. For each file:
+1. Resolves the static `sitter.Language` instance from the global map.
+2. Creates a thread-local parser and parses the source into a syntax tree.
+3. Runs all YAML-defined queries to extract entities and relationships.
+4. Returns a `ParsedFile` with structured data for graph insertion.
 
-### ANTLR Adapter
+### ANTLR Adapter (`internal/ast/antlr_adapter.go`)
 
-Bridges the ANTLR WASM runtime with the indexing pipeline. For each file:
-1. Resolves a worker-local ANTLR instance via `AntlrWorkerModules`
-2. Parses the source using two-stage SLL→LL parsing
-3. Walks the parse tree using XPath-based patterns from the language YAML
-4. Returns a `ParsedFile` with structured data for graph insertion
+Bridges the native Go ANTLR runtime with the indexing pipeline. For each file:
+1. Invokes the native Go PL/SQL parser.
+2. Parses the source using two-stage SLL→LL prediction strategy.
+3. Walks the parser tree and extracts entities directly (bypassing JSON serialization).
+4. Returns a `ParsedFile` with structured data for graph insertion.
 
 ### `--grammar` CLI Flag
 
@@ -254,7 +245,7 @@ queries:
 # --- ANTLR v4 example ---
 language: plsql
 parser: antlr4                  # Selects ANTLR backend (default: tree-sitter when omitted)
-grammar: antlr-plsql            # Maps to the .wasm or native binary filename
+grammar: antlr-plsql            # Maps to the native grammar identifier
 start_rule: sql_script           # ANTLR start rule
 extensions: [".sql", ".pks", ".pkb", ".pls", ".plb", ".prc", ".fnc", ".trg", ".typ", ".bdy", ".spc", ".vw"]
 queries:
@@ -276,7 +267,7 @@ queries:
 |---|---|---|
 | `language` | ✅ | Language identifier (e.g., `go`, `python`, `plsql`) |
 | `parser` | ❌ | Parser backend: `"tree-sitter"` (default) or `"antlr4"`. Determines pattern syntax and runtime |
-| `grammar` | ⚠️ | Required for ANTLR. Maps to the `.wasm` or native binary filename (e.g., `antlr-plsql`) |
+| `grammar` | ⚠️ | Required for ANTLR. Maps to the native grammar identifier (e.g., `antlr-plsql`) |
 | `start_rule` | ⚠️ | Required for ANTLR. The grammar's start rule (e.g., `sql_script`) |
 | `extensions` | ❌ | File extensions filter. If omitted, applies to all extensions registered for the language |
 | `replace` | ❌ | When `true`, replaces all lower-priority queries for this language. Default: `false` (append) |
@@ -411,7 +402,7 @@ exports:
 
 ### Resolution Chain (3 Levels)
 
-Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in. The resolution order is **project → user global → runtime** — all levels are YAML-only. Both Tree-sitter and ANTLR grammars (`.wasm` files) follow the same 3-level resolution chain via the `grammars/` directories. Everything — grammars, parser selection, extensions, queries, exports, context types — is externalized and customizable without recompilation.
+Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in. The resolution order is **project → user global → runtime** — all levels are YAML-only. Everything — parser selection, extensions, queries, exports, context types — is externalized and customizable without recompilation.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -775,7 +766,7 @@ Triggered on every subsequent `graphit sync` or by the file watcher. Only proces
    - Re-parses the file via Tree-sitter.
    - Re-writes the extracted entities and relationships.
    - Updates the FTS5, trigram, and vector indices for affected entities.
-4. **Parallel Workers**: Files are distributed to concurrent Go worker goroutines via a shared channel. Each worker has its own isolated WASM module instances (`WorkerModules`), enabling lock-free parallel parsing. Results flow to a single-threaded SQLite writer to avoid database write contention.
+4. **Parallel Workers**: Files are distributed to concurrent Go worker goroutines via a shared channel. Each worker allocates its own thread-local parser instances, enabling lock-free parallel parsing. Results flow to a single-threaded SQLite writer to avoid database write contention.
 5. **Shard Cache (`internal/ast/shard_cache.go`)**: Parsed AST results are cached as JSON shards on disk, enabling fast rebuilds without re-parsing unchanged files.
 
 ### Performance Characteristics

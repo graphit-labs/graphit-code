@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/graphit-labs/graphit-code/internal/ast/wasmts"
+	sitter "github.com/smacker/go-tree-sitter"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/version"
 	"gopkg.in/yaml.v3"
@@ -437,7 +437,7 @@ func filterByLangExt(files []ExternalQueryFile, lang, ext string) []ExternalQuer
 //	project > user global > runtime
 //
 // YAML is the only source of queries — there is no hardcoded Go fallback.
-func mergedQueriesFor(projectDir, lang, ext string, tsLang *wasmts.Language) []tsQueryDef {
+func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []tsQueryDef {
 	cacheKey := projectDir + "|" + lang + "|" + ext
 	if cached, ok := mergedQueryCache.Load(cacheKey); ok {
 		return cached.([]tsQueryDef)
@@ -454,7 +454,7 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *wasmts.Language) []t
 		for _, eq := range ef.Queries {
 			qd := tsQueryDef(eq)
 			if tsLang != nil {
-				q, err := tsLang.NewQuery(qd.Pattern)
+				q, err := sitter.NewQuery([]byte(qd.Pattern), tsLang)
 				if err != nil {
 					slog.Warn("skip resolved query: invalid pattern",
 						"language", lang, "data_key", qd.DataKey, "error", err)

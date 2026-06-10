@@ -20,7 +20,7 @@ queries:
     pattern: '(enum_specifier name: (type_identifier) @name)'
   - data_key: namespaces
     graph_label: Namespace
-    pattern: '(namespace_definition name: (identifier) @name)'
+    pattern: '(namespace_definition name: [ (namespace_identifier) (nested_namespace_specifier) ] @name)'
   - data_key: types
     graph_label: Type
     pattern: '(type_definition declarator: (type_identifier) @name)'

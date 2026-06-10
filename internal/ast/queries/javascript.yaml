@@ -47,7 +47,6 @@ queries:
   - data_key: exports
     type: relation
     relation_type: EXPORT
-    graph_label: Export
     pattern: '(export_statement declaration: (function_declaration name: (identifier) @name))'
 
   # ═══════════════════════════════════════════════════════════════

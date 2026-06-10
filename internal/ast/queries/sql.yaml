@@ -4,13 +4,13 @@ extensions: [".sql"]
 queries:
   - data_key: functions
     graph_label: Function
-    pattern: '(create_function_statement name: (identifier) @name)'
+    pattern: '(create_function (object_reference name: (identifier) @name))'
   - data_key: tables
     graph_label: Table
-    pattern: '(create_table_statement name: (identifier) @name)'
+    pattern: '(create_table name: (object_reference name: (identifier) @name))'
   - data_key: views
     graph_label: View
-    pattern: '(create_view_statement name: (identifier) @name)'
+    pattern: '(create_view (object_reference name: (identifier) @name))'
 
 # SQL has no export concept
 exports:
@@ -25,9 +25,9 @@ anon_func_types: []
 
 # SQL tree-sitter declaration types for docstring attachment
 declaration_types:
-  - create_function_statement
-  - create_table_statement
-  - create_view_statement
+  - create_function
+  - create_table
+  - create_view
 
 # SQL tree-sitter comment types
 comment_types:
