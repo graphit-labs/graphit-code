@@ -7,7 +7,7 @@ queries:
     graph_label: Function
     pattern: '(method_declaration name: (identifier) @name)'
   - data_key: functions
-    graph_label: Function
+    graph_label: Constructor
     pattern: '(constructor_declaration name: (identifier) @name)'
   - data_key: classes
     graph_label: Class
@@ -19,10 +19,10 @@ queries:
     graph_label: Enum
     pattern: '(enum_declaration name: (identifier) @name)'
   - data_key: classes
-    graph_label: Class
+    graph_label: Record
     pattern: '(record_declaration name: (identifier) @name)'
   - data_key: classes
-    graph_label: Class
+    graph_label: Annotation
     pattern: '(annotation_type_declaration name: (identifier) @name)'
   - data_key: imports
     graph_label: Module
@@ -88,7 +88,7 @@ context_types:
   class_declaration: Class
   interface_declaration: Interface
   enum_declaration: Enum
-  record_declaration: Class
+  record_declaration: Record
   method_declaration: Method
 
 # Anonymous function types for variable_declarator resolution

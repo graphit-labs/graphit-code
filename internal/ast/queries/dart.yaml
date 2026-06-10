@@ -25,10 +25,10 @@ queries:
     graph_label: Enum
     pattern: '(enum_declaration name: (identifier) @name)'
   - data_key: interfaces
-    graph_label: Interface
+    graph_label: Mixin
     pattern: '(mixin_declaration name: (identifier) @name)'
   - data_key: classes
-    graph_label: Class
+    graph_label: Extension
     pattern: '(extension_declaration name: (identifier) @name)'
   - data_key: imports
     graph_label: Module
@@ -71,8 +71,8 @@ self_keywords: ["this."]
 context_types:
   class_definition: Class
   enum_declaration: Enum
-  mixin_declaration: Class
-  extension_declaration: Class
+  mixin_declaration: Mixin
+  extension_declaration: Extension
 
 # Anonymous function types for variable_declarator resolution
 anon_func_types:

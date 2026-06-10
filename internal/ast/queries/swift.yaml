@@ -16,7 +16,7 @@ queries:
     graph_label: Enum
     pattern: '(class_declaration "enum" name: (type_identifier) @name)'
   - data_key: protocols
-    graph_label: Interface
+    graph_label: Protocol
     pattern: '(protocol_declaration name: (type_identifier) @name)'
   - data_key: variables
     graph_label: Variable
@@ -62,7 +62,7 @@ self_keywords: ["self.", "Self."]
 # Parent context type mapping — Swift tree-sitter node types only
 context_types:
   class_declaration: Class
-  protocol_declaration: Interface
+  protocol_declaration: Protocol
   function_declaration: Function
 
 # Swift has no anonymous function expressions via variable_declarator

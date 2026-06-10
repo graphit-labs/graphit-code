@@ -30,25 +30,25 @@ Graphit Code supports **21 programming languages** via Tree-sitter and ANTLR v4 
 | # | Language | Parser | Extensions | Key Extracted Entities |
 |---|---|---|---|---|
 | 1 | **Go** | Tree-sitter | `.go` | Function, Method, Struct, Interface, Type, Constant, Variable, Field, Parameter |
-| 2 | **TypeScript** | Tree-sitter | `.ts` | Function, Class, Interface, Type, Enum, Variable, Field, Parameter, Decorator |
-| 3 | **TypeScript (TSX)** | Tree-sitter | `.tsx` | Function, Class, Interface, Type, Enum, Variable, Field, Parameter, Decorator |
-| 4 | **JavaScript** | Tree-sitter | `.js`, `.jsx`, `.mjs` | Function, Class, Variable, Field, Parameter, Export |
+| 2 | **TypeScript** | Tree-sitter | `.ts` | Function, Method, Class, Interface, Type, Enum, Variable, Field, Parameter, Decorator |
+| 3 | **TypeScript (TSX)** | Tree-sitter | `.tsx` | Function, Method, Class, Interface, Type, Enum, Variable, Field, Parameter, Decorator |
+| 4 | **JavaScript** | Tree-sitter | `.js`, `.jsx`, `.mjs` | Function, Method, Class, Variable, Field, Parameter, Export |
 | 5 | **Python** | Tree-sitter | `.py` | Function, Class, Variable, Parameter, Decorator |
-| 6 | **Java** | Tree-sitter | `.java` | Function (Method + Constructor), Class, Interface, Enum, Variable, Field, Parameter, Package, Annotation |
-| 7 | **Rust** | Tree-sitter | `.rs` | Function, Struct, Enum, Trait, Type, Constant, Variable, Field, Parameter, Attribute |
+| 6 | **Java** | Tree-sitter | `.java` | Function, Constructor, Class, Record, Annotation, Interface, Enum, Variable, Field, Parameter, Package |
+| 7 | **Rust** | Tree-sitter | `.rs` | Function, Struct, Enum, Trait, Type, Constant, Variable, Field, Parameter |
 | 8 | **C** | Tree-sitter | `.c`, `.h` | Function, Struct, Enum, Type, Variable, Field, Parameter |
 | 9 | **C++** | Tree-sitter | `.cpp`, `.hpp`, `.cc`, `.cxx` | Function, Class, Struct, Enum, Namespace, Type, Field, Parameter |
-| 10 | **C#** | Tree-sitter | `.cs` | Function (Method), Class, Interface, Enum, Struct, Property, Namespace, Field, Parameter, Attribute |
-| 11 | **Kotlin** | Tree-sitter | `.kt`, `.kts` | Function, Class, Interface, Enum, Variable, Field, Parameter, Package, Annotation |
-| 12 | **Swift** | Tree-sitter | `.swift` | Function, Class, Struct, Enum, Protocol (Interface), Variable, Field, Parameter |
-| 13 | **Dart** | Tree-sitter | `.dart` | Function, Method, Class, Enum, Mixin (Interface), Variable, Field, Parameter |
-| 14 | **PHP** | Tree-sitter | `.php` | Function, Method, Class, Interface, Trait, Enum, Constant, Namespace (Package), Field, Parameter, Attribute |
+| 10 | **C#** | Tree-sitter | `.cs` | Function, Class, Interface, Enum, Struct, Property, Namespace, Field, Parameter |
+| 11 | **Kotlin** | Tree-sitter | `.kt`, `.kts` | Function, Class, Object, Variable, Field, Parameter, Package |
+| 12 | **Swift** | Tree-sitter | `.swift` | Function, Class, Struct, Enum, Protocol, Variable, Field, Parameter |
+| 13 | **Dart** | Tree-sitter | `.dart` | Function, Method, Class, Enum, Mixin, Extension, Field, Parameter |
+| 14 | **PHP** | Tree-sitter | `.php` | Function, Method, Class, Interface, Trait, Enum, Constant, Package, Field, Parameter |
 | 15 | **Ruby** | Tree-sitter | `.rb` | Function, Class, Module, Variable, Field, Parameter |
 | 16 | **SQL** | Tree-sitter | `.sql` | Function, Table, View |
 | 17 | **XML** | Tree-sitter | `.xml`, `.xsl`, `.xslt`, `.xsd`, `.svg`, `.wsdl`, `.plist`, `.xhtml` | Element |
-| 18 | **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Function, Procedure, Package, Table, View, Trigger, Type |
-| 19 | **PostgreSQL** | ANTLR v4 | `.sql`, `.pgsql`, `.plpgsql` | Function, Table, View, MaterializedView, Schema, Trigger, Sequence, Index, Extension, Type, Column, Parameter, Constraint, Variable |
-| 20 | **DB2** | ANTLR v4 | `.sql`, `.db2` | Function, StoredProcedure, Table, View, Trigger, Index, Sequence, Type, Schema, Column |
+| 18 | **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Function, Procedure, Package, Table, View, MaterializedView, Trigger, Type, Index, Sequence, Synonym, DBLink, Column, Parameter, Variable, Constant, Cursor, Exception, Constraint, Savepoint |
+| 19 | **PostgreSQL** | ANTLR v4 | `.sql`, `.pgsql`, `.plpgsql`, `.pg` | Function, Procedure, Table, View, MaterializedView, Schema, Trigger, Sequence, Index, Extension, Type (domain/composite/enum/range), Column, Parameter, Constraint, Variable |
+| 20 | **DB2** | ANTLR v4 | `.sql`, `.db2` | Function, StoredProcedure, Table, View, Trigger, Index, Sequence, Type, Schema, Alias, Tablespace, Column, Parameter, Variable |
 | 21 | **T-SQL** | ANTLR v4 | `.sql`, `.tsql` | StoredProcedure, Function, Table, View, Trigger, Index, Sequence, Type, Schema, Column, Parameter, Variable |
 
 ### Cross-Language Extraction Capabilities
@@ -84,17 +84,20 @@ The database initializes node tables with the following attributes:
 | `File` | `path` (PK), `name`, `relative_path`, `is_dependency`, `lang`, `cluster`, `source` | Source file metadata and full raw source. |
 | `Directory` | `path` (PK), `name`, `cluster` | File system directories. |
 | `Module` | `uid` (PK), `name`, `lang`, `full_import_name`, `path`, `line_number`, `end_line` | Importable library modules. |
-| `Class` / `Struct` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported` | Complex data structures and object types. |
-| `Function` / `Method` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported`, `entry_point_score` | Executable code blocks and member functions. |
+| `Class` / `Struct` / `Record` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported` | Complex data structures and object types. `Record` = Java records. |
+| `Function` / `Method` / `Constructor` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported`, `entry_point_score` | Executable code blocks, member functions, and constructors. |
 | `Procedure` / `StoredProcedure` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `is_exported` | SQL stored procedures (PL/SQL, PostgreSQL, T-SQL, DB2). |
-| `Interface` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `is_exported` | Abstract contracts. |
-| `Field` / `Parameter` / `Variable` | `uid` (PK), `name`, `lang`, `is_stub` | Variables, parameters, and struct/class fields. |
-| `Package` | `uid` (PK), `name`, `path`, `line_number`, `end_line` | PL/SQL packages (spec + body). |
+| `Interface` / `Protocol` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `is_exported` | Abstract contracts. `Protocol` = Swift protocols. |
+| `Trait` / `Mixin` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `is_exported` | Behavioral mixins. `Trait` = Rust/PHP. `Mixin` = Dart. |
+| `Object` / `Annotation` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `is_exported` | `Object` = Kotlin singletons. `Annotation` = Java annotation types. |
+| `Extension` | `uid` (PK), `name`, `path`, `line_number`, `end_line` | Dart extensions, PostgreSQL extensions. |
+| `Field` / `Parameter` / `Variable` / `Property` | `uid` (PK), `name`, `lang`, `is_stub` | Variables, parameters, struct/class fields, and C# properties. |
+| `Package` | `uid` (PK), `name`, `path`, `line_number`, `end_line` | PL/SQL packages, Java/Kotlin package declarations. |
 | `Table` / `View` / `MaterializedView` | `uid` (PK), `name`, `path`, `line_number`, `end_line` | SQL database objects. |
 | `Trigger` | `uid` (PK), `name`, `path`, `line_number`, `end_line` | SQL triggers. |
 | `Index` / `Sequence` / `Constraint` | `uid` (PK), `name`, `path`, `line_number`, `end_line` | SQL schema objects. |
 | `Column` | `uid` (PK), `name`, `path`, `line_number`, `end_line` | Table column definitions. |
-| `Schema` / `Extension` / `Tablespace` | `uid` (PK), `name`, `path`, `line_number`, `end_line` | Database-level objects (PostgreSQL, DB2). |
+| `Schema` / `Tablespace` | `uid` (PK), `name`, `path`, `line_number`, `end_line` | Database-level objects (PostgreSQL, DB2). |
 | `Synonym` / `DBLink` / `Alias` | `uid` (PK), `name`, `path`, `line_number`, `end_line` | Object references and aliases (PL/SQL, DB2). |
 | `Cursor` / `Exception` / `Constant` / `Savepoint` | `uid` (PK), `name`, `path`, `line_number`, `end_line` | PL/SQL declaration entities. |
 

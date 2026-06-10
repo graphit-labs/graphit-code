@@ -10,7 +10,7 @@ queries:
     graph_label: Class
     pattern: '(class_declaration (type_identifier) @name)'
   - data_key: objects
-    graph_label: Class
+    graph_label: Object
     pattern: '(object_declaration (type_identifier) @name)'
   - data_key: imports
     graph_label: Module
@@ -63,8 +63,8 @@ self_keywords: ["this."]
 # Note: Kotlin uses class_declaration for classes, interfaces, and enums alike
 context_types:
   class_declaration: Class
-  object_declaration: Class
-  companion_object: Class
+  object_declaration: Object
+  companion_object: Object
   function_declaration: Function
 
 # Anonymous function types for variable_declarator resolution

@@ -235,16 +235,16 @@ Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and *
 | **Ruby** | Tree-sitter | `.rb` | Functions, Classes, Modules, Variables, Fields, Parameters |
 | **SQL** | Tree-sitter | `.sql` | Functions, Tables, Views |
 | **XML** | Tree-sitter | `.xml`, `.xsl`, `.xslt`, `.xsd`, `.svg`, `.wsdl`, `.plist`, `.xhtml` | Elements |
-| **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Functions, Procedures, Packages, Types, Triggers, Tables, Views, Materialized Views, Indexes, Sequences, Synonyms, DB Links, Columns, Parameters, Variables, Constants, Cursors, Exceptions, Constraints + DML tracking (SELECTS, INSERTS, UPDATES, DELETES) |
-| **PostgreSQL** | ANTLR v4 | `.sql`, `.pgsql`, `.plpgsql` | Functions, Tables, Views, Materialized Views, Schemas, Triggers, Sequences, Indexes, Extensions, Types, Columns, Parameters, Constraints, Variables + DML tracking |
-| **DB2** | ANTLR v4 | `.sql`, `.db2` | Functions, Stored Procedures, Tables, Views, Triggers, Indexes, Sequences, Types, Schemas, Columns + DML tracking |
+| **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Functions, Procedures, Packages, Types, Triggers, Tables, Views, Materialized Views, Indexes, Sequences, Synonyms, DB Links, Columns, Parameters, Variables, Constants, Cursors, Exceptions, Constraints, Savepoints + DML tracking (SELECTS, INSERTS, UPDATES, DELETES) |
+| **PostgreSQL** | ANTLR v4 | `.sql`, `.pgsql`, `.plpgsql`, `.pg` | Functions, Procedures, Tables, Views, Materialized Views, Schemas, Triggers, Sequences, Indexes, Extensions, Types (domain, composite, enum, range), Columns, Parameters, Constraints, Variables + DML tracking |
+| **DB2** | ANTLR v4 | `.sql`, `.db2` | Functions, Stored Procedures, Tables, Views, Triggers, Indexes, Sequences, Types, Schemas, Aliases, Tablespaces, Columns, Parameters, Variables + DML tracking |
 | **T-SQL** | ANTLR v4 | `.sql`, `.tsql` | Stored Procedures, Functions, Tables, Views, Triggers, Indexes, Sequences, Types, Schemas, Columns, Parameters, Variables + DML tracking |
 
 #### What the AST Maps
 
 Every source file is parsed via **Tree-sitter** or **ANTLR v4** into a graph stored in **LadybugDB** (embedded graph database). The YAML language configuration determines which parser to use. The graph captures:
 
-- **Nodes:** `File`, `Directory`, `Function`, `Procedure`, `Method`, `Class`, `Struct`, `Interface`, `Trait`, `Enum`, `Type`, `Module`, `Variable`, `Constant`, `Parameter`, `Field`, `Column`, `Namespace`, `Package`, `Table`, `View`, `MaterializedView`, `Export`, `Element`, `Schema`, `Trigger`, `Index`, `Sequence`, `StoredProcedure`, `Extension`, `Constraint`, `Synonym`, `DBLink`, `Tablespace`, `Alias`, `Cursor`, `Exception`, `Savepoint`
+- **Nodes:** `File`, `Directory`, `Function`, `Procedure`, `Method`, `Constructor`, `Class`, `Record`, `Annotation`, `Object`, `Struct`, `Interface`, `Protocol`, `Trait`, `Mixin`, `Extension`, `Enum`, `Type`, `Module`, `Variable`, `Constant`, `Parameter`, `Field`, `Column`, `Namespace`, `Package`, `Table`, `View`, `MaterializedView`, `Export`, `Element`, `Schema`, `Trigger`, `Index`, `Sequence`, `StoredProcedure`, `Constraint`, `Synonym`, `DBLink`, `Tablespace`, `Alias`, `Cursor`, `Exception`, `Savepoint`, `Property`
 - **Relationships:** `CONTAINS` (ownership), `IMPORTS` (dependencies), `CALLS` (invocations), `HAS_PARAMETER`, `HAS_FIELD`, `READS_FIELD` / `WRITES_FIELD` (data access tracing), `INHERITS`, `IMPLEMENTS`, `SELECTS` / `INSERTS` / `UPDATES` / `DELETES` / `ALTERS` / `DROPS` / `REFERENCES` (DML/DDL tracking — PL/SQL, PostgreSQL, T-SQL, DB2)
 - **Properties:** `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported`, `entry_point_score`, `docstring`, `source`, `lang`, `cluster`
 
