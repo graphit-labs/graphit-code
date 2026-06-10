@@ -158,25 +158,22 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 	seenNames := map[string]bool{}
 
 	var langConfig *ExternalQueryFile
-	var queries []tsQueryDef
+	var compiledEntries []compiledQueryEntry
 	if t.projectDir != "" {
-		queries = mergedQueriesFor(t.projectDir, cfg.Language, ext, lang)
+		compiledEntries = compiledQueriesFor(t.projectDir, cfg.Language, ext, lang)
 		langConfig = resolvedLangConfigFor(t.projectDir, cfg.Language, ext)
 	}
 
 	var rpcQueries []ExternalQueryDef
-	for _, q := range queries {
-		rpcQueries = append(rpcQueries, ExternalQueryDef(q))
+	for _, ce := range compiledEntries {
+		rpcQueries = append(rpcQueries, ExternalQueryDef(ce.Def))
 	}
 
-	for _, qdef := range rpcQueries {
-		q, qErr := sitter.NewQuery([]byte(qdef.Pattern), lang)
-		if qErr != nil {
-			continue
-		}
+	for i, ce := range compiledEntries {
+		qdef := rpcQueries[i]
 
 		qc := sitter.NewQueryCursor()
-		qc.Exec(q, root)
+		qc.Exec(ce.Query, root)
 
 		for {
 			match, ok := qc.NextMatch()
@@ -233,7 +230,6 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 				}
 			}
 		}
-		q.Close()
 		qc.Close()
 	}
 

@@ -31,9 +31,11 @@ type PipelineOptions struct {
 type PipelineResult struct {
 	TotalFiles  int
 	ParsedFiles int
-	ParseTime   time.Duration
-	WriteTime   time.Duration
-	TotalTime   time.Duration
+	DiscoverTime time.Duration
+	HashTime     time.Duration
+	ParseTime    time.Duration
+	WriteTime    time.Duration
+	TotalTime    time.Duration
 
 	ErrorCount      int
 	TimeoutCount    int
@@ -63,6 +65,7 @@ func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts Pipeline
 }
 
 func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs string, parser LanguageParser, t0 time.Time, opts PipelineOptions) (*PipelineResult, error) {
+	tDiscover := time.Now()
 	files, err := collectFiles(abs)
 	if err != nil {
 		return nil, fmt.Errorf("discover files: %w", err)
@@ -78,6 +81,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		}
 		files = filtered
 	}
+	discoverTime := time.Since(tDiscover)
 
 	logger := slogutil.Resolve(opts.Logger)
 
@@ -90,10 +94,12 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		}
 	}
 
+	tHash := time.Now()
 	var changedFiles []string
 	var deletedFiles []string
 	fileHashes := make(map[string]string, len(files))
-	if jsonCache != nil {
+	if jsonCache != nil && !opts.ForceRebuild {
+		// Incremental mode: hash files to detect changes.
 		type hashResult struct {
 			path string
 			hash string
@@ -143,8 +149,10 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			}
 		}
 	} else {
+		// Full rebuild or no cache: skip hashing, treat all files as changed.
 		changedFiles = files
 	}
+	hashTime := time.Since(tHash)
 
 	if len(changedFiles) == 0 && len(deletedFiles) == 0 && jsonCache != nil && jsonCache.Count() > 0 && !opts.ForceRebuild {
 
@@ -152,10 +160,12 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		_ = jsonCache.Close()
 		totalTime := time.Since(t0)
 		return &PipelineResult{
-			TotalFiles:  len(files),
-			ParsedFiles: 0,
-			TotalTime:   totalTime,
-			EngineStats: make(map[string]int),
+			TotalFiles:   len(files),
+			ParsedFiles:  0,
+			DiscoverTime: discoverTime,
+			HashTime:     hashTime,
+			TotalTime:    totalTime,
+			EngineStats:  make(map[string]int),
 		}, nil
 	}
 
@@ -372,6 +382,8 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	return &PipelineResult{
 		TotalFiles:      len(files),
 		ParsedFiles:     parsedFilesCount,
+		DiscoverTime:    discoverTime,
+		HashTime:        hashTime,
 		ParseTime:       parseTime,
 		WriteTime:       writeDuration,
 		TotalTime:       totalTime,

@@ -186,6 +186,7 @@ func TestResolveQueriesForLang_ProjectOverridesGlobal(t *testing.T) {
 	// Clear caches
 	externalQueryCache = sync.Map{}
 	mergedQueryCache = sync.Map{}
+	compiledQueryCache = sync.Map{}
 
 	// Set up project with custom queries
 	dir := t.TempDir()

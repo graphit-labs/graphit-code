@@ -1,17 +1,10 @@
 package dart
 
-/*
-#include "tree_sitter/parser.h"
-const TSLanguage *tree_sitter_dart(void);
-*/
-import "C"
 import (
-	"unsafe"
-
+	tree_sitter_dart "github.com/UserNobody14/tree-sitter-dart/bindings/go"
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
 func GetLanguage() *sitter.Language {
-	ptr := unsafe.Pointer(C.tree_sitter_dart())
-	return sitter.NewLanguage(ptr)
+	return sitter.NewLanguage(tree_sitter_dart.Language())
 }

@@ -83,20 +83,6 @@ func NewShardCache(cacheDir string) (*ShardCache, error) {
 
 	}
 
-	for _, legacy := range []string{
-		filepath.Join(cacheDir, "cache.json"),
-		filepath.Join(cacheDir, "cache.json.tmp"),
-		filepath.Join(cacheDir, "embeddings.json"),
-		filepath.Join(cacheDir, "embeddings.json.tmp"),
-		filepath.Join(cacheDir, "parse.db"),
-		filepath.Join(cacheDir, "parse.db-wal"),
-		filepath.Join(cacheDir, "parse.db-shm"),
-		filepath.Join(cacheDir, "hashes.json"),
-	} {
-		_ = os.Remove(legacy)
-	}
-	_ = os.RemoveAll(filepath.Join(cacheDir, "parsed"))
-
 	return sc, nil
 }
 

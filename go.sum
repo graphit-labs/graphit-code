@@ -1,11 +1,11 @@
 github.com/LadybugDB/go-ladybug v0.13.1 h1:X11ch5sIsHHY2wqKx5phmvXi5aES9zMjRj3qkpUWTgU=
 github.com/LadybugDB/go-ladybug v0.13.1/go.mod h1:f5RET9iUFgH+gLI6l/uJxAE4tXdYRdsDP9dN0Gr3M1M=
+github.com/UserNobody14/tree-sitter-dart v0.0.0-20251004142220-83c0ffa9dcc0 h1:JrBxPS8fbvcGbo/PEcAxk3lw1Vvorp/mAroQ9rVHFKQ=
+github.com/UserNobody14/tree-sitter-dart v0.0.0-20251004142220-83c0ffa9dcc0/go.mod h1:6zSIbyfHyxL/+XWRHElGLw+EUPYbDOyhDqIiAX6svrE=
 github.com/antlr4-go/antlr/v4 v4.13.1 h1:SqQKkuVZ+zWkMMNkjy5FZe5mr5WURWnlpmOuzYWrPrQ=
 github.com/antlr4-go/antlr/v4 v4.13.1/go.mod h1:GKmUxMtwp6ZgGwZSva4eWPC5mS6vUAmOABFgjdkM7Nw=
 github.com/asg017/sqlite-vec-go-bindings v0.1.6 h1:Nx0jAzyS38XpkKznJ9xQjFXz2X9tI7KqjwVxV8RNoww=
 github.com/asg017/sqlite-vec-go-bindings v0.1.6/go.mod h1:A8+cTt/nKFsYCQF6OgzSNpKZrzNo5gQsXBTfsXHXY0Q=
-github.com/bytecodealliance/wasmtime-go/v21 v21.0.0 h1:d2m3R7TpNpOGuIi2PTC9w2nUY/A2IJinHOZTL76jyhg=
-github.com/bytecodealliance/wasmtime-go/v21 v21.0.0/go.mod h1:o/HNPe7TdXkqbrkmU9YgHBFXU9OIF1FVPlqhZwC1tyk=
 github.com/cpuguy83/go-md2man/v2 v2.0.3/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

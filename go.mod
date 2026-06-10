@@ -4,9 +4,9 @@ go 1.25.11
 
 require (
 	github.com/LadybugDB/go-ladybug v0.13.1
+	github.com/UserNobody14/tree-sitter-dart v0.0.0-20251004142220-83c0ffa9dcc0
 	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
-	github.com/bytecodealliance/wasmtime-go/v21 v21.0.0
 	github.com/fatih/color v1.19.0
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/mattn/go-sqlite3 v1.14.44

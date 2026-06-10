@@ -297,6 +297,12 @@ func runASTIndex(targetPath string, workers int, reset bool, reindex bool, clust
 			result.ParsedFiles, result.ParseTime.Seconds(), result.WriteTime.Seconds(), result.TotalTime.Seconds())
 	}
 
+	if result.DiscoverTime > 0 || result.HashTime > 0 {
+		p.Step("Timing: discover %.2fs, hash %.2fs, parse %.2fs, write %.2fs",
+			result.DiscoverTime.Seconds(), result.HashTime.Seconds(),
+			result.ParseTime.Seconds(), result.WriteTime.Seconds())
+	}
+
 	if result.TimeoutCount > 0 {
 		p.StepWarn("Timeouts: %d file(s)", result.TimeoutCount)
 	}

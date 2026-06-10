@@ -335,6 +335,15 @@ var externalQueryCache sync.Map // map[string][]ExternalQueryFile
 // mergedQueryCache caches the merged queries per (projectDir, lang, ext) key.
 var mergedQueryCache sync.Map // map[string][]tsQueryDef
 
+// compiledQueryCache caches compiled *sitter.Query objects per (projectDir, lang, ext) key.
+// This avoids the expensive CGO sitter.NewQuery() call on every file parse.
+var compiledQueryCache sync.Map // map[string][]compiledQueryEntry
+
+type compiledQueryEntry struct {
+	Def   tsQueryDef
+	Query *sitter.Query
+}
+
 // userQueriesOnce ensures user global queries are loaded only once.
 var userQueriesOnce sync.Once
 var userQueriesCache []ExternalQueryFile
@@ -448,8 +457,8 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []t
 		return nil
 	}
 
-
 	var result []tsQueryDef
+	var compiled []compiledQueryEntry
 	for _, ef := range resolved {
 		for _, eq := range ef.Queries {
 			qd := tsQueryDef(eq)
@@ -460,7 +469,7 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []t
 						"language", lang, "data_key", qd.DataKey, "error", err)
 					continue
 				}
-				q.Close()
+				compiled = append(compiled, compiledQueryEntry{Def: qd, Query: q})
 			}
 			result = append(result, qd)
 		}
@@ -469,7 +478,25 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []t
 	if len(result) > 0 {
 		mergedQueryCache.Store(cacheKey, result)
 	}
+	if len(compiled) > 0 {
+		compiledQueryCache.Store(cacheKey, compiled)
+	}
 	return result
+}
+
+// compiledQueriesFor returns pre-compiled *sitter.Query objects for the given
+// language/ext combination. Falls back to mergedQueriesFor to populate the cache.
+func compiledQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []compiledQueryEntry {
+	cacheKey := projectDir + "|" + lang + "|" + ext
+	if cached, ok := compiledQueryCache.Load(cacheKey); ok {
+		return cached.([]compiledQueryEntry)
+	}
+	// Populate both caches by calling mergedQueriesFor.
+	mergedQueriesFor(projectDir, lang, ext, tsLang)
+	if cached, ok := compiledQueryCache.Load(cacheKey); ok {
+		return cached.([]compiledQueryEntry)
+	}
+	return nil
 }
 
 func hasLangConfig(qf *ExternalQueryFile) bool {
