@@ -4,15 +4,26 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/antlr4-go/antlr/v4"
-	"github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
+	antlrcommon "github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
+	"github.com/graphit-labs/graphit-code/internal/ast/antlr/db2"
 	"github.com/graphit-labs/graphit-code/internal/ast/antlr/plsql"
+	"github.com/graphit-labs/graphit-code/internal/ast/antlr/postgresql"
+	"github.com/graphit-labs/graphit-code/internal/ast/antlr/tsql"
 )
 
+// antlrDrivers maps grammar names to their GrammarDriver implementations.
+var antlrDrivers = map[string]antlrcommon.GrammarDriver{
+	"antlr-plsql":      &plsql.Driver{},
+	"antlr-postgresql": &postgresql.Driver{},
+	"antlr-tsql":       &tsql.Driver{},
+	"antlr-db2":        &db2.Driver{},
+}
+
 // antlrExtMap maps file extensions to ANTLR language configs.
+// Multiple grammars may share the same extension (e.g. ".sql"); the first
+// grammar that successfully extracts entities wins.
 // antlrGrammarMap maps grammar names (e.g. "antlr-plsql") to configs.
-// Both populated during init from YAML query files with parser=antlr4.
-var antlrExtMap map[string]*antlrLangConfig
+var antlrExtMap map[string][]*antlrLangConfig
 var antlrGrammarMap map[string]*antlrLangConfig
 
 type antlrLangConfig struct {
@@ -23,7 +34,7 @@ type antlrLangConfig struct {
 }
 
 func initAntlrExtMap() {
-	antlrExtMap = make(map[string]*antlrLangConfig)
+	antlrExtMap = make(map[string][]*antlrLangConfig)
 	antlrGrammarMap = make(map[string]*antlrLangConfig)
 
 	runtimeQ := loadRuntimeCached()
@@ -42,7 +53,7 @@ func initAntlrExtMap() {
 			StartRule:  qf.StartRule,
 		}
 		for _, ext := range qf.Extensions {
-			antlrExtMap[ext] = cfg
+			antlrExtMap[ext] = append(antlrExtMap[ext], cfg)
 		}
 		antlrGrammarMap[grammar] = cfg
 	}
@@ -59,8 +70,9 @@ type AntlrParser struct {
 
 func (a *AntlrParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
-	cfg, ok := antlrExtMap[ext]
-	if !ok {
+	cfgs := antlrExtMap[ext]
+
+	if len(cfgs) == 0 {
 		// Check for local YAML query configurations matching the extension
 		langName := strings.TrimPrefix(ext, ".")
 		qfs := resolveQueriesForLang(a.projectDir, langName, ext)
@@ -70,21 +82,41 @@ func (a *AntlrParser) Parse(path string, isDepend bool, opts ParseOptions) (*Par
 				if grammar == "" {
 					grammar = "antlr-" + qf.Language
 				}
-				cfg = &antlrLangConfig{
+				cfgs = append(cfgs, &antlrLangConfig{
 					Language:   qf.Language,
 					Grammar:    grammar,
 					Extensions: qf.Extensions,
 					StartRule:  qf.StartRule,
-				}
-				break
+				})
 			}
 		}
-		if cfg == nil {
+		if len(cfgs) == 0 {
 			return nil, fmt.Errorf("no ANTLR grammar for %s", ext)
 		}
 	}
 
-	return a.parseWithConfig(path, ext, cfg, isDepend, opts)
+	// Try each grammar; return the first that successfully extracts entities.
+	var lastErr error
+	for _, cfg := range cfgs {
+		pf, err := a.parseWithConfig(path, ext, cfg, isDepend, opts)
+		if err == nil && pf != nil && pf.EntityCount() > 0 {
+			return pf, nil
+		}
+		if err != nil {
+			lastErr = err
+		}
+	}
+	// If none extracted entities but parsing succeeded, return the last successful parse.
+	for _, cfg := range cfgs {
+		pf, err := a.parseWithConfig(path, ext, cfg, isDepend, opts)
+		if err == nil {
+			return pf, nil
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("no ANTLR grammar matched for %s", ext)
 }
 
 // ParseWithGrammar parses using a specific ANTLR grammar name (e.g. "antlr-plsql"),
@@ -127,31 +159,14 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, is
 		rpcQueries = append(rpcQueries, ExternalQueryDef(q))
 	}
 
-	// 1. Parse using native ANTLR PL/SQL parser
-	var antlrTree *antlrcommon.TreeNode
-	if cfg.Grammar == "antlr-plsql" {
-		preprocessed := plsql.Preprocess(string(src))
-		input := antlr.NewInputStream(preprocessed)
-		lexer := plsql.NewPlSqlLexer(input)
-		lexer.RemoveErrorListeners()
-		tokens := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
-
-		p := plsql.NewPlSqlParser(tokens)
-		p.RemoveErrorListeners()
-
-		nativeTree := plsql.ParseSLLThenLL(
-			lexer,
-			func() antlr.ParseTree { return p.Sql_script() },
-			func(mode int) { plsql.ConfigureParser(p, tokens, &p.BuildParseTrees, mode) },
-		)
-
-		if nativeTree == nil {
-			return nil, fmt.Errorf("native antlr parse plsql failed")
-		}
-
-		antlrTree = convertParseTree(nativeTree, p.RuleNames, p.SymbolicNames, p.LiteralNames)
-	} else {
+	// 1. Parse using registered ANTLR grammar driver
+	driver, ok := antlrDrivers[cfg.Grammar]
+	if !ok {
 		return nil, fmt.Errorf("unsupported native ANTLR grammar: %s", cfg.Grammar)
+	}
+	antlrTree, err := driver.Parse(src)
+	if err != nil {
+		return nil, err
 	}
 
 	result := &ParsedFile{
@@ -303,8 +318,8 @@ func detectExportsAntlr(result *ParsedFile, lang string, langConfig *ExternalQue
 
 // HasAntlrForExtension returns true if there's an ANTLR grammar for the extension.
 func HasAntlrForExtension(ext string) bool {
-	_, ok := antlrExtMap[strings.ToLower(ext)]
-	return ok
+	cfgs := antlrExtMap[strings.ToLower(ext)]
+	return len(cfgs) > 0
 }
 
 // HasParserForExtension returns true if any parser (tree-sitter or ANTLR) handles the extension.
@@ -312,74 +327,3 @@ func HasParserForExtension(ext string) bool {
 	return HasTreeSitterForExtension(ext) || HasAntlrForExtension(ext)
 }
 
-func convertParseTree(node antlr.Tree, ruleNames, symbolicNames, literalNames []string) *antlrcommon.TreeNode {
-	switch n := node.(type) {
-	case antlr.TerminalNode:
-		tok := n.GetSymbol()
-		if tok.GetTokenType() == antlr.TokenEOF {
-			return nil
-		}
-
-		name := tokenDisplayName(tok.GetTokenType(), symbolicNames, literalNames)
-		text := tok.GetText()
-		endCol := tok.GetColumn() + len(text) - 1
-		return &antlrcommon.TreeNode{
-			Token: name,
-			Text:  text,
-			Start: [2]int{tok.GetLine(), tok.GetColumn()},
-			End:   [2]int{tok.GetLine(), endCol},
-		}
-
-	case antlr.ParserRuleContext:
-		var ruleName string
-		ruleIdx := n.GetRuleIndex()
-		if ruleIdx >= 0 && ruleIdx < len(ruleNames) {
-			ruleName = ruleNames[ruleIdx]
-		}
-
-		startLine, startCol := 0, 0
-		start := n.GetStart()
-		if start != nil {
-			startLine, startCol = start.GetLine(), start.GetColumn()
-		}
-
-		endLine, endCol := 0, 0
-		stop := n.GetStop()
-		if stop != nil {
-			endLine = stop.GetLine()
-			endCol = stop.GetColumn() + len(stop.GetText()) - 1
-		}
-
-		var children []*antlrcommon.TreeNode
-		antlrChildren := n.GetChildren()
-		for _, child := range antlrChildren {
-			if t, ok := child.(antlr.TerminalNode); ok {
-				if t.GetSymbol().GetTokenType() == antlr.TokenEOF {
-					continue
-				}
-			}
-			converted := convertParseTree(child, ruleNames, symbolicNames, literalNames)
-			if converted != nil {
-				children = append(children, converted)
-			}
-		}
-
-		return &antlrcommon.TreeNode{
-			Rule:     ruleName,
-			Start:    [2]int{startLine, startCol},
-			End:      [2]int{endLine, endCol},
-			Children: children,
-		}
-	}
-	return nil
-}
-
-func tokenDisplayName(tokenType int, symbolicNames, literalNames []string) string {
-	if tokenType >= 0 && tokenType < len(literalNames) && literalNames[tokenType] != "" {
-		return literalNames[tokenType]
-	}
-	if tokenType >= 0 && tokenType < len(symbolicNames) && symbolicNames[tokenType] != "" {
-		return symbolicNames[tokenType]
-	}
-	return fmt.Sprintf("%d", tokenType)
-}

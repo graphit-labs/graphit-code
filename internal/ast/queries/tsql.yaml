@@ -1,0 +1,387 @@
+# T-SQL — ANTLR v4 grammar for Microsoft SQL Server / Azure SQL
+# Comprehensive extraction: DDL, DML, stored procedures, functions, triggers,
+# types, indexes, sequences, parameters, columns, constraints, and relations.
+language: tsql
+parser: antlr4
+grammar: antlr-tsql
+start_rule: tsql_file
+extensions: [".sql", ".tsql"]
+
+queries:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # STORED PROCEDURES & FUNCTIONS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # CREATE [OR ALTER] PROCEDURE proc_name
+  - data_key: procedures
+    graph_label: StoredProcedure
+    pattern: "//create_or_alter_procedure/func_proc_name_schema"
+    name_capture: name
+    type: entity
+
+  # CREATE [OR ALTER] FUNCTION func_name
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_or_alter_function/func_proc_name_schema"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TRIGGERS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # DML trigger (CREATE TRIGGER name ON table_name)
+  - data_key: triggers
+    graph_label: Trigger
+    pattern: "//create_or_alter_dml_trigger/simple_name"
+    name_capture: name
+    type: entity
+
+  # DDL trigger
+  - data_key: triggers
+    graph_label: Trigger
+    pattern: "//create_or_alter_ddl_trigger/simple_name"
+    name_capture: name
+    type: entity
+
+  # DML trigger → table reference
+  - data_key: trigger_tables
+    graph_label: ""
+    pattern: "//create_or_alter_dml_trigger/table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DATABASE OBJECTS — DDL
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # Tables
+  - data_key: tables
+    graph_label: Table
+    pattern: "//create_table/table_name"
+    name_capture: name
+    type: entity
+
+  # Views
+  - data_key: views
+    graph_label: View
+    pattern: "//create_view/simple_name"
+    name_capture: name
+    type: entity
+
+  # Indexes
+  - data_key: indexes
+    graph_label: Index
+    pattern: "//create_index/id_"
+    name_capture: name
+    type: entity
+
+  # Sequences
+  - data_key: sequences
+    graph_label: Sequence
+    pattern: "//create_sequence/full_table_name"
+    name_capture: name
+    type: entity
+
+  # Types
+  - data_key: types
+    graph_label: Type
+    pattern: "//create_type/simple_name"
+    name_capture: name
+    type: entity
+
+  # Schemas
+  - data_key: schemas
+    graph_label: Schema
+    pattern: "//create_schema/id_"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # COLUMNS & PARAMETERS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # Column definitions (inside CREATE TABLE)
+  - data_key: columns
+    graph_label: Column
+    pattern: "//column_definition/id_"
+    name_capture: name
+    type: entity
+
+  # Procedure/function parameters
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//procedure_param/id_"
+    name_capture: name
+    type: entity
+
+  # Variable declarations (DECLARE @var)
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//declare_local/LOCAL_ID"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FUNCTION/PROCEDURE CALLS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # EXECUTE procedure_name
+  - data_key: calls
+    graph_label: ""
+    pattern: "//execute_body/func_proc_name_server_database_schema"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  # Function calls in expressions
+  - data_key: calls
+    graph_label: ""
+    pattern: "//function_call//func_proc_name_server_database_schema"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  # Scalar function calls
+  - data_key: calls
+    graph_label: ""
+    pattern: "//function_call/scalar_function_name"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DML TABLE REFERENCES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # SELECT ... FROM table
+  - data_key: selects
+    graph_label: ""
+    pattern: "//table_source_item/full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: SELECTS
+
+  # INSERT INTO table
+  - data_key: inserts
+    graph_label: ""
+    pattern: "//insert_statement/full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: INSERTS
+
+  # UPDATE table
+  - data_key: updates
+    graph_label: ""
+    pattern: "//update_statement//full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: UPDATES
+
+  # DELETE FROM table
+  - data_key: deletes
+    graph_label: ""
+    pattern: "//delete_statement_from//full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: DELETES
+
+  # MERGE INTO table
+  - data_key: merges
+    graph_label: ""
+    pattern: "//merge_statement//full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: UPDATES
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DDL OPERATIONS (ALTER, DROP, TRUNCATE)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ALTER TABLE
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alter_table/table_name"
+    name_capture: name
+    type: relation
+    relation_type: ALTERS
+
+  # DROP TABLE
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_table/table_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # DROP INDEX
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_index//id_"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # DROP VIEW
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_view/simple_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # DROP FUNCTION
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_function/func_proc_name_schema"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # DROP PROCEDURE
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_procedure/func_proc_name_schema"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # DROP TRIGGER
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_trigger/simple_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # DROP SCHEMA
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_schema/id_"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # DROP SEQUENCE
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_sequence/full_table_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # DROP TYPE
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_type/simple_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # DROP DATABASE
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_database/id_"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # TRUNCATE TABLE
+  - data_key: truncates
+    graph_label: ""
+    pattern: "//truncate_table/table_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DCL — GRANT & REVOKE
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: grants
+    graph_label: ""
+    pattern: "//grant_permission//table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: revokes
+    graph_label: ""
+    pattern: "//revoke_permission//table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+# No export detection for T-SQL
+exports:
+  strategy: none
+
+# T-SQL parent context types
+context_types:
+  create_or_alter_procedure: StoredProcedure
+  create_or_alter_function: Function
+  create_or_alter_dml_trigger: Trigger
+  create_or_alter_ddl_trigger: Trigger
+  create_table: Table
+  create_view: View
+  create_type: Type
+  create_schema: Schema
+
+# ANTLR comment token types
+comment_types:
+  - SINGLE_LINE_COMMENT
+  - BLOCK_COMMENT
+
+# T-SQL declaration types for docstring attachment
+declaration_types:
+  - create_or_alter_procedure
+  - create_or_alter_function
+  - create_or_alter_dml_trigger
+  - create_or_alter_ddl_trigger
+  - create_table
+  - create_view
+  - create_index
+  - create_sequence
+  - create_type
+  - create_schema
+
+# Entry point scoring
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "run*"
+      score: 60
+    - pattern: "process*"
+      score: 60
+    - pattern: "execute*"
+      score: 50
+    - pattern: "sp_*"
+      score: 50
+    - pattern: "usp_*"
+      score: 50
+    - pattern: "load*"
+      score: 40
+    - pattern: "init*"
+      score: 40
+    - pattern: "setup*"
+      score: 40
+    - pattern: "migrate*"
+      score: 40
+    - pattern: "sync*"
+      score: 30
+    - pattern: "refresh*"
+      score: 30
+    - pattern: "purge*"
+      score: 30
+    - pattern: "cleanup*"
+      score: 30
+    - pattern: "batch*"
+      score: 30
+    - pattern: "job_*"
+      score: 30
+
+  exported_bonus: 0
+  max_score: 100
+  decorators: []

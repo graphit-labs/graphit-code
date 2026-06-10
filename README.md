@@ -212,9 +212,9 @@ graphit ui  # Opens http://localhost:8080
 ### 2. AST Graph Explorer — Instant & Deterministic
 Query the AST across the ecosystem instantly. Auto-incremental indexing ensures your agent always knows exactly where a function is defined or called. **Eliminates hallucinations** by grounding answers in exact structural truths, and drastically **reduces LLM token usage** by passing only precise nodes instead of massive files.
 
-#### Supported Languages (18)
+#### Supported Languages (21)
 
-Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and **ANTLR v4** (full grammar, enterprise SQL). Tree-sitter grammars are compiled natively via CGO for maximum performance. ANTLR grammars use native Go binaries. All 17 Tree-sitter languages and the ANTLR PL/SQL grammar are built into the binary.
+Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and **ANTLR v4** (full grammar, enterprise SQL). Tree-sitter grammars are compiled natively via CGO for maximum performance. ANTLR grammars use native Go binaries. All 17 Tree-sitter languages and 4 ANTLR SQL grammars are built into the binary.
 
 | Language | Parser | Extensions | Extracted Entities |
 |---|---|---|---|
@@ -236,20 +236,23 @@ Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and *
 | **SQL** | Tree-sitter | `.sql` | Functions, Tables, Views |
 | **XML** | Tree-sitter | `.xml`, `.xsl`, `.xslt`, `.xsd`, `.svg`, `.wsdl`, `.plist`, `.xhtml` | Elements |
 | **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Functions, Procedures, Packages, Types, Triggers, Tables, Views, Materialized Views, Indexes, Sequences, Synonyms, DB Links, Columns, Parameters, Variables, Constants, Cursors, Exceptions, Constraints + DML tracking (SELECTS, INSERTS, UPDATES, DELETES) |
+| **PostgreSQL** | ANTLR v4 | `.sql`, `.pgsql`, `.plpgsql` | Functions, Tables, Views, Materialized Views, Schemas, Triggers, Sequences, Indexes, Extensions, Types, Columns, Parameters, Constraints, Variables + DML tracking |
+| **DB2** | ANTLR v4 | `.sql`, `.db2` | Functions, Stored Procedures, Tables, Views, Triggers, Indexes, Sequences, Types, Schemas, Columns + DML tracking |
+| **T-SQL** | ANTLR v4 | `.sql`, `.tsql` | Stored Procedures, Functions, Tables, Views, Triggers, Indexes, Sequences, Types, Schemas, Columns, Parameters, Variables + DML tracking |
 
 #### What the AST Maps
 
 Every source file is parsed via **Tree-sitter** or **ANTLR v4** into a graph stored in **LadybugDB** (embedded graph database). The YAML language configuration determines which parser to use. The graph captures:
 
-- **Nodes:** `File`, `Directory`, `Function`, `Method`, `Class`, `Struct`, `Interface`, `Trait`, `Enum`, `Type`, `Module`, `Variable`, `Constant`, `Parameter`, `Field`, `Namespace`, `Package`, `Table`, `View`, `Export`, `Element`
-- **Relationships:** `CONTAINS` (ownership), `IMPORTS` (dependencies), `CALLS` (invocations), `HAS_PARAMETER`, `HAS_FIELD`, `READS_FIELD` / `WRITES_FIELD` (data access tracing), `INHERITS`, `IMPLEMENTS`, `SELECTS` / `INSERTS` / `UPDATES` / `DELETES` / `REFERENCES` (DML tracking — PL/SQL)
+- **Nodes:** `File`, `Directory`, `Function`, `Procedure`, `Method`, `Class`, `Struct`, `Interface`, `Trait`, `Enum`, `Type`, `Module`, `Variable`, `Constant`, `Parameter`, `Field`, `Column`, `Namespace`, `Package`, `Table`, `View`, `MaterializedView`, `Export`, `Element`, `Schema`, `Trigger`, `Index`, `Sequence`, `StoredProcedure`, `Extension`, `Constraint`, `Synonym`, `DBLink`, `Tablespace`, `Alias`, `Cursor`, `Exception`, `Savepoint`
+- **Relationships:** `CONTAINS` (ownership), `IMPORTS` (dependencies), `CALLS` (invocations), `HAS_PARAMETER`, `HAS_FIELD`, `READS_FIELD` / `WRITES_FIELD` (data access tracing), `INHERITS`, `IMPLEMENTS`, `SELECTS` / `INSERTS` / `UPDATES` / `DELETES` / `ALTERS` / `DROPS` / `REFERENCES` (DML/DDL tracking — PL/SQL, PostgreSQL, T-SQL, DB2)
 - **Properties:** `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported`, `entry_point_score`, `docstring`, `source`, `lang`, `cluster`
 
 #### Fully Customizable — Pure YAML-Driven Engine
 
 The entire AST pipeline is driven by **external YAML files** — not hardcoded. Every aspect of language understanding, framework detection, and scoring is runtime-customizable without recompilation:
 
-- **Language Query Patterns** — 18 language YAML files define all extraction patterns (functions, classes, imports, calls, etc.) for both Tree-sitter and ANTLR grammars.
+- **Language Query Patterns** — 21 language YAML files define all extraction patterns (functions, classes, imports, calls, etc.) for both Tree-sitter and ANTLR grammars.
 - **Framework Detection** — 51+ framework definitions across 59 YAML files. Decorators, heritage classes, and import patterns for frameworks like React, Django, Spring Boot, Flutter, Express, FastAPI, and many more.
 - **Ecosystem Detection** — `ecosystems.yaml` with 120+ entries classifying projects by technology stack (web, mobile, API, database, CLI, etc.)
 - **Entry Point Scoring** — Scoring rules embedded in each language YAML determine how functions are ranked as potential entry points.
@@ -267,7 +270,7 @@ All configuration follows a **4-level cascading resolution chain**:
 
 > **Fully Customizable AST Extraction:** While grammars are compiled natively into the binary (Tree-sitter via CGO, ANTLR via native Go), the entire extraction pipeline is driven by **external YAML files** that are fully customizable without recompilation:
 >
-> 1. **Customize extraction queries** — Modify which entities (functions, classes, imports, etc.) are extracted from any of the 18 built-in languages by editing the YAML query files.
+> 1. **Customize extraction queries** — Modify which entities (functions, classes, imports, etc.) are extracted from any of the 21 built-in languages by editing the YAML query files.
 > 2. **Override per project or globally** — Drop YAML files into `.graphit/ast/queries/` (project) or `~/.graphit/ast/queries/` (global) to override the runtime defaults.
 > 3. **Add framework detection** — Create framework YAML files to detect custom frameworks via decorators, inheritance, and import patterns.
 >

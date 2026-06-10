@@ -36,21 +36,21 @@ queries:
 
   # CREATE [OR REPLACE] PROCEDURE ...
   - data_key: procedures
-    graph_label: Function
+    graph_label: Procedure
     pattern: "//create_procedure_body/procedure_name"
     name_capture: name
     type: entity
 
   # Package-level procedure bodies
   - data_key: procedures
-    graph_label: Function
+    graph_label: Procedure
     pattern: "//procedure_body/identifier"
     name_capture: name
     type: entity
 
   # Package-level procedure specs (declarations)
   - data_key: procedures
-    graph_label: Function
+    graph_label: Procedure
     pattern: "//procedure_spec/identifier"
     name_capture: name
     type: entity
@@ -60,27 +60,27 @@ queries:
   # ═══════════════════════════════════════════════════════════════════════════
 
   - data_key: packages
-    graph_label: Class
+    graph_label: Package
     pattern: "//create_package/package_name"
     name_capture: name
     type: entity
 
   - data_key: packages
-    graph_label: Class
+    graph_label: Package
     pattern: "//create_package_body/package_name"
     name_capture: name
     type: entity
 
   # TYPE specifications (CREATE TYPE ... AS OBJECT / AS TABLE / AS VARRAY)
   - data_key: types
-    graph_label: Class
+    graph_label: Type
     pattern: "//create_type/type_definition/type_name"
     name_capture: name
     type: entity
 
   # TYPE BODY (implementation of TYPE methods)
   - data_key: types
-    graph_label: Class
+    graph_label: Type
     pattern: "//create_type_body/type_name"
     name_capture: name
     type: entity
@@ -97,7 +97,7 @@ queries:
   # ═══════════════════════════════════════════════════════════════════════════
 
   - data_key: triggers
-    graph_label: Function
+    graph_label: Trigger
     pattern: "//create_trigger/trigger_name"
     name_capture: name
     type: entity
@@ -116,63 +116,63 @@ queries:
 
   # Tables
   - data_key: tables
-    graph_label: Class
+    graph_label: Table
     pattern: "//create_table/tableview_name"
     name_capture: name
     type: entity
 
   # Views
   - data_key: views
-    graph_label: Class
+    graph_label: View
     pattern: "//create_view/tableview_name"
     name_capture: name
     type: entity
 
   # Materialized Views
   - data_key: mviews
-    graph_label: Class
+    graph_label: MaterializedView
     pattern: "//create_materialized_view/tableview_name"
     name_capture: name
     type: entity
 
   # Indexes
   - data_key: indexes
-    graph_label: Variable
+    graph_label: Index
     pattern: "//create_index/index_name"
     name_capture: name
     type: entity
 
   # Sequences
   - data_key: sequences
-    graph_label: Variable
+    graph_label: Sequence
     pattern: "//create_sequence/sequence_name"
     name_capture: name
     type: entity
 
   # Synonyms
   - data_key: synonyms
-    graph_label: Variable
+    graph_label: Synonym
     pattern: "//create_synonym/synonym_name"
     name_capture: name
     type: entity
 
   # Database Links
   - data_key: dblinks
-    graph_label: Variable
+    graph_label: DBLink
     pattern: "//create_database_link/link_name"
     name_capture: name
     type: entity
 
   # Tablespace
   - data_key: tablespaces
-    graph_label: Variable
+    graph_label: Tablespace
     pattern: "//create_tablespace/tablespace_name"
     name_capture: name
     type: entity
 
   # Directory objects
   - data_key: directories
-    graph_label: Variable
+    graph_label: Directory
     pattern: "//create_directory/directory_name"
     name_capture: name
     type: entity
@@ -183,7 +183,7 @@ queries:
 
   # Column definitions (inside CREATE TABLE)
   - data_key: columns
-    graph_label: Field
+    graph_label: Column
     pattern: "//column_definition/column_name"
     name_capture: name
     type: entity
@@ -204,21 +204,21 @@ queries:
 
   # Constant declarations
   - data_key: constants
-    graph_label: Variable
+    graph_label: Constant
     pattern: "//constant_declaration/identifier"
     name_capture: name
     type: entity
 
   # Cursor declarations
   - data_key: cursors
-    graph_label: Variable
+    graph_label: Cursor
     pattern: "//cursor_declaration/identifier"
     name_capture: name
     type: entity
 
   # Exception declarations (user-defined exceptions)
   - data_key: exceptions
-    graph_label: Variable
+    graph_label: Exception
     pattern: "//exception_declaration/identifier"
     name_capture: name
     type: entity
@@ -257,14 +257,14 @@ queries:
 
   # Inline constraints
   - data_key: constraints
-    graph_label: Variable
+    graph_label: Constraint
     pattern: "//inline_constraint/constraint_name"
     name_capture: name
     type: entity
 
   # Out-of-line constraints
   - data_key: constraints
-    graph_label: Variable
+    graph_label: Constraint
     pattern: "//out_of_line_constraint/constraint_name"
     name_capture: name
     type: entity
@@ -277,26 +277,29 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # Comment on column
-  - data_key: comments
-    graph_label: Variable
+  # Comment on column (references the column being commented)
+  - data_key: comment_refs
+    graph_label: ""
     pattern: "//comment_on_column/column_name"
     name_capture: name
-    type: entity
+    type: relation
+    relation_type: REFERENCES
 
-  # Comment on table
-  - data_key: comments
-    graph_label: Variable
+  # Comment on table (references the table being commented)
+  - data_key: comment_refs
+    graph_label: ""
     pattern: "//comment_on_table/tableview_name"
     name_capture: name
-    type: entity
+    type: relation
+    relation_type: REFERENCES
 
-  # Comment on materialized view
-  - data_key: comments
-    graph_label: Variable
+  # Comment on materialized view (references the mview being commented)
+  - data_key: comment_refs
+    graph_label: ""
     pattern: "//comment_on_materialized/tableview_name"
     name_capture: name
-    type: entity
+    type: relation
+    relation_type: REFERENCES
 
   # ═══════════════════════════════════════════════════════════════════════════
   # FUNCTION/PROCEDURE CALLS
@@ -560,7 +563,7 @@ queries:
 
   # SAVEPOINT declarations (SAVEPOINT sp_name)
   - data_key: savepoints
-    graph_label: Variable
+    graph_label: Savepoint
     pattern: "//savepoint_statement/savepoint_name"
     name_capture: name
     type: entity
@@ -656,17 +659,17 @@ exports:
 
 # PL/SQL parent context types (for resolving entity nesting)
 context_types:
-  create_package: Class
-  create_package_body: Class
+  create_package: Package
+  create_package_body: Package
   create_function_body: Function
-  create_procedure_body: Function
+  create_procedure_body: Procedure
   function_body: Function
-  procedure_body: Function
-  create_type: Class
-  create_type_body: Class
-  create_trigger: Function
-  create_table: Class
-  create_view: Class
+  procedure_body: Procedure
+  create_type: Type
+  create_type_body: Type
+  create_trigger: Trigger
+  create_table: Table
+  create_view: View
 
 # ANTLR comment token types
 comment_types:

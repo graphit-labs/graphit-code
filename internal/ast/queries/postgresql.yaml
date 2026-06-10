@@ -1,0 +1,382 @@
+# PostgreSQL — ANTLR v4 grammar for PostgreSQL SQL
+# Comprehensive extraction: DDL, DML, functions, triggers, types, sequences,
+# parameters, variables, constraints, grants, and all relation types.
+language: postgresql
+parser: antlr4
+grammar: antlr-postgresql
+start_rule: root
+extensions: [".sql", ".pgsql", ".plpgsql", ".pg"]
+
+queries:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FUNCTIONS & PROCEDURES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # CREATE [OR REPLACE] FUNCTION func_name(...)
+  - data_key: functions
+    graph_label: Function
+    pattern: "//createfunctionstmt/func_name"
+    name_capture: name
+    type: entity
+
+  # CREATE [OR REPLACE] PROCEDURE proc_name(...)
+  - data_key: procedures
+    graph_label: Procedure
+    pattern: "//createprocedurestmt/func_name"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SCHEMAS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: schemas
+    graph_label: Schema
+    pattern: "//createschemastmt/colid"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TABLES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: tables
+    graph_label: Table
+    pattern: "//createstmt/qualified_name"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # VIEWS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: views
+    graph_label: View
+    pattern: "//viewstmt/qualified_name"
+    name_capture: name
+    type: entity
+
+  # Materialized Views
+  - data_key: mviews
+    graph_label: MaterializedView
+    pattern: "//creatematviewstmt/qualified_name"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # INDEXES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: indexes
+    graph_label: Index
+    pattern: "//indexstmt/index_name_"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SEQUENCES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: sequences
+    graph_label: Sequence
+    pattern: "//createseqstmt/qualified_name"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TRIGGERS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: triggers
+    graph_label: Trigger
+    pattern: "//createtrigstmt/name"
+    name_capture: name
+    type: entity
+
+  # Trigger → table reference (ON qualified_name)
+  - data_key: trigger_tables
+    graph_label: ""
+    pattern: "//createtrigstmt/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TYPES & DOMAINS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # CREATE DOMAIN
+  - data_key: types
+    graph_label: Type
+    pattern: "//createdomainstmt/any_name"
+    name_capture: name
+    type: entity
+
+  # CREATE TYPE (composite type)
+  - data_key: types
+    graph_label: Type
+    pattern: "//compositetypestmt/any_name"
+    name_capture: name
+    type: entity
+
+  # CREATE TYPE (enum type)
+  - data_key: types
+    graph_label: Type
+    pattern: "//createenumstmt/any_name"
+    name_capture: name
+    type: entity
+
+  # CREATE TYPE (range type)
+  - data_key: types
+    graph_label: Type
+    pattern: "//createrangestmt/any_name"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # EXTENSIONS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: extensions
+    graph_label: Extension
+    pattern: "//createextensionstmt/name"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # COLUMNS & PARAMETERS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # Column definitions (inside CREATE TABLE)
+  - data_key: columns
+    graph_label: Column
+    pattern: "//columnDef/colid"
+    name_capture: name
+    type: entity
+
+  # Function/procedure parameters
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//func_arg/param_name"
+    name_capture: name
+    type: entity
+
+  # Variable declarations (PL/pgSQL DECLARE block)
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//decl_stmt/decl_varname"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CONSTRAINTS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: constraints
+    graph_label: Constraint
+    pattern: "//colconstraint/name"
+    name_capture: name
+    type: entity
+
+  - data_key: constraints
+    graph_label: Constraint
+    pattern: "//tableconstraint/name"
+    name_capture: name
+    type: entity
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FUNCTION CALLS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # CALL procedure
+  - data_key: calls
+    graph_label: ""
+    pattern: "//callstmt//func_name"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  # Function calls in expressions
+  - data_key: calls
+    graph_label: ""
+    pattern: "//func_application/func_name"
+    name_capture: name
+    type: relation
+    relation_type: CALLS
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DML TABLE REFERENCES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # SELECT ... FROM table
+  - data_key: selects
+    graph_label: ""
+    pattern: "//from_clause//relation_expr/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: SELECTS
+
+  # SELECT ... FROM function/table
+  - data_key: selects
+    graph_label: ""
+    pattern: "//from_list//table_ref//qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: SELECTS
+
+  # INSERT INTO table
+  - data_key: inserts
+    graph_label: ""
+    pattern: "//insertstmt/insert_target/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: INSERTS
+
+  # UPDATE table
+  - data_key: updates
+    graph_label: ""
+    pattern: "//updatestmt/relation_expr_opt_alias//qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: UPDATES
+
+  # DELETE FROM table
+  - data_key: deletes
+    graph_label: ""
+    pattern: "//deletestmt/relation_expr_opt_alias//qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: DELETES
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DDL OPERATIONS (ALTER, DROP, TRUNCATE)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ALTER TABLE
+  - data_key: alters
+    graph_label: ""
+    pattern: "//altertablestmt/relation_expr/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: ALTERS
+
+  # ALTER SEQUENCE
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alterseqstmt/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: ALTERS
+
+  # DROP TABLE / SEQUENCE / VIEW / INDEX / etc.
+  - data_key: drops
+    graph_label: ""
+    pattern: "//dropstmt//any_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # DROP FUNCTION
+  - data_key: drops
+    graph_label: ""
+    pattern: "//dropstmt//function_with_argtypes//func_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # TRUNCATE TABLE
+  - data_key: truncates
+    graph_label: ""
+    pattern: "//truncatestmt//relation_expr/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: DROPS
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DCL — GRANT & REVOKE
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - data_key: grants
+    graph_label: ""
+    pattern: "//grantstmt//qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: revokes
+    graph_label: ""
+    pattern: "//revokestmt//qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+# No export detection for PostgreSQL (schema-level objects)
+exports:
+  strategy: none
+
+# PostgreSQL parent context types
+context_types:
+  createfunctionstmt: Function
+  createprocedurestmt: Procedure
+  createstmt: Table
+  viewstmt: View
+  creatematviewstmt: MaterializedView
+  createschemastmt: Schema
+  createtrigstmt: Trigger
+  createdomainstmt: Type
+  compositetypestmt: Type
+  createenumstmt: Type
+  createrangestmt: Type
+
+# ANTLR comment token types
+comment_types:
+  - LineComment
+  - BlockComment
+
+# PostgreSQL declaration types for docstring attachment
+declaration_types:
+  - createfunctionstmt
+  - createstmt
+  - viewstmt
+  - creatematviewstmt
+  - indexstmt
+  - createseqstmt
+  - createtrigstmt
+  - createschemastmt
+  - createdomainstmt
+
+# Entry point scoring
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "run*"
+      score: 60
+    - pattern: "process*"
+      score: 60
+    - pattern: "execute*"
+      score: 50
+    - pattern: "load*"
+      score: 40
+    - pattern: "init*"
+      score: 40
+    - pattern: "setup*"
+      score: 40
+    - pattern: "migrate*"
+      score: 40
+    - pattern: "sync*"
+      score: 30
+    - pattern: "refresh*"
+      score: 30
+    - pattern: "purge*"
+      score: 30
+    - pattern: "cleanup*"
+      score: 30
+    - pattern: "batch*"
+      score: 30
+    - pattern: "schedule*"
+      score: 30
+
+  exported_bonus: 0
+  max_score: 100
+  decorators: []
