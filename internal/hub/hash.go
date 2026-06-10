@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 )
 
 func HashPath(path string) (string, error) {
@@ -98,20 +97,4 @@ func HashFile(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func TruncateHash(hash string, n int) string {
-	if len(hash) <= n {
-		return hash
-	}
-	return hash[:n]
-}
 
-func VerifyHash(path, expectedHash string) (bool, error) {
-	if expectedHash == "" {
-		return true, nil
-	}
-	actual, err := HashPath(path)
-	if err != nil {
-		return false, err
-	}
-	return strings.EqualFold(actual, expectedHash), nil
-}

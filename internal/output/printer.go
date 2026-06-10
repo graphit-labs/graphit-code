@@ -44,12 +44,6 @@ func init() {
 	}
 }
 
-func IsTTY() bool { return isTTY }
-
-func Unmute() { muted = false }
-
-func IsMuted() bool { return muted }
-
 
 
 func Mute() {
@@ -72,10 +66,6 @@ func NewPrinter(prefix string) *Printer {
 	return &Printer{prefix: prefix, w: w}
 }
 
-
-func (p *Printer) WithWriter(w io.Writer) *Printer {
-	return &Printer{prefix: p.prefix, w: w}
-}
 
 func (p *Printer) tag() string {
 	if p.prefix == "" {
@@ -126,11 +116,6 @@ func (p *Printer) StepOK(msg string, args ...any) {
 	_, _ = fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+green.Sprint(SymbolOK+" "+line))
 }
 
-func (p *Printer) StepError(msg string, args ...any) {
-	line := fmt.Sprintf(msg, args...)
-	_, _ = fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+red.Sprint(SymbolError+" "+line))
-}
-
 func (p *Printer) StepWarn(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
 	_, _ = fmt.Fprintln(p.w, "  "+dim.Sprint(SymbolStep)+" "+yellow.Sprint(SymbolWarn+" "+line))
@@ -168,10 +153,6 @@ func (p *Printer) Header(msg string, args ...any) {
 	line := fmt.Sprintf(msg, args...)
 	_, _ = fmt.Fprintln(p.w, "")
 	_, _ = fmt.Fprintln(p.w, bold.Sprint(line))
-}
-
-func (p *Printer) Divider() {
-	_, _ = fmt.Fprintln(p.w, dim.Sprint(strings.Repeat(SymbolDivider, 40)))
 }
 
 func (p *Printer) Blank() {

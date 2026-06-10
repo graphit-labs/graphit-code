@@ -152,3 +152,7 @@ func cleanupLegacy(targetPath string) {
 		_, _ = gitblk.RemoveBlockStyled(targetPath, marker, false, gitblk.HTMLBlockStyle)
 	}
 }
+
+func blockMarkerForName(name string) string {
+	return strings.ToUpper(brand.Brand) + " " + strings.ToUpper(name) + " BLOCK"
+}

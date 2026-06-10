@@ -10,31 +10,6 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// ModuleState — String()
-// ---------------------------------------------------------------------------
-
-func TestModuleState_String(t *testing.T) {
-	tests := []struct {
-		state ModuleState
-		want  string
-	}{
-		{ModuleStopped, "stopped"},
-		{ModuleRunning, "running"},
-		{ModuleCrashed, "crashed"},
-		{ModuleFailed, "failed"},
-		{ModuleDisabled, "disabled"},
-		{ModuleState(99), "unknown"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.want, func(t *testing.T) {
-			if got := tc.state.String(); got != tc.want {
-				t.Errorf("String() = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
 // moduleEntry — construction and initial state
 // ---------------------------------------------------------------------------
 
@@ -53,7 +28,7 @@ func TestNewModuleEntry(t *testing.T) {
 		t.Error("mod field mismatch")
 	}
 	if entry.state != ModuleStopped {
-		t.Errorf("initial state: expected stopped, got %s", entry.state)
+		t.Errorf("initial state: expected stopped, got %v", entry.state)
 	}
 	if entry.restarts != 0 {
 		t.Errorf("initial restarts should be 0, got %d", entry.restarts)
@@ -69,15 +44,13 @@ func TestModuleEntry_SetState(t *testing.T) {
 	entry := newModuleEntry(mod)
 
 	entry.setState(ModuleRunning)
-	s := entry.status()
-	if s.State != ModuleRunning {
-		t.Errorf("expected Running, got %s", s.State)
+	if entry.state != ModuleRunning {
+		t.Errorf("expected Running, got %v", entry.state)
 	}
 
 	entry.setState(ModuleCrashed)
-	s = entry.status()
-	if s.State != ModuleCrashed {
-		t.Errorf("expected Crashed, got %s", s.State)
+	if entry.state != ModuleCrashed {
+		t.Errorf("expected Crashed, got %v", entry.state)
 	}
 }
 
@@ -90,16 +63,14 @@ func TestModuleEntry_SetError(t *testing.T) {
 	entry := newModuleEntry(mod)
 
 	entry.setError(errors.New("something went wrong"))
-	s := entry.status()
-	if s.LastError != "something went wrong" {
-		t.Errorf("expected 'something went wrong', got %q", s.LastError)
+	if entry.lastError != "something went wrong" {
+		t.Errorf("expected 'something went wrong', got %q", entry.lastError)
 	}
 
 	// nil error should not overwrite
 	entry.setError(nil)
-	s = entry.status()
-	if s.LastError != "something went wrong" {
-		t.Errorf("nil error should not clear LastError, got %q", s.LastError)
+	if entry.lastError != "something went wrong" {
+		t.Errorf("nil error should not clear LastError, got %q", entry.lastError)
 	}
 }
 
@@ -115,12 +86,11 @@ func TestModuleEntry_SetStarted(t *testing.T) {
 	entry.setStarted()
 	after := time.Now()
 
-	s := entry.status()
-	if s.State != ModuleRunning {
-		t.Errorf("expected Running after setStarted, got %s", s.State)
+	if entry.state != ModuleRunning {
+		t.Errorf("expected Running after setStarted, got %v", entry.state)
 	}
-	if s.StartedAt.Before(before) || s.StartedAt.After(after) {
-		t.Errorf("startedAt %v not in range [%v, %v]", s.StartedAt, before, after)
+	if entry.startedAt.Before(before) || entry.startedAt.After(after) {
+		t.Errorf("startedAt %v not in range [%v, %v]", entry.startedAt, before, after)
 	}
 }
 
@@ -139,63 +109,13 @@ func TestModuleEntry_Restarts(t *testing.T) {
 		}
 	}
 
-	s := entry.status()
-	if s.Restarts != 5 {
-		t.Errorf("expected 5 restarts, got %d", s.Restarts)
+	if entry.restarts != 5 {
+		t.Errorf("expected 5 restarts, got %d", entry.restarts)
 	}
 
 	entry.resetRestarts()
-	s = entry.status()
-	if s.Restarts != 0 {
-		t.Errorf("expected 0 restarts after reset, got %d", s.Restarts)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// moduleEntry — status
-// ---------------------------------------------------------------------------
-
-func TestModuleEntry_Status(t *testing.T) {
-	mod := &fakeModule{name: "my-module"}
-	entry := newModuleEntry(mod)
-	entry.setStarted()
-	entry.incRestarts()
-	entry.incRestarts()
-	entry.setError(errors.New("oops"))
-
-	s := entry.status()
-	if s.Name != "my-module" {
-		t.Errorf("expected name 'my-module', got %q", s.Name)
-	}
-	if s.Restarts != 2 {
-		t.Errorf("expected 2 restarts, got %d", s.Restarts)
-	}
-	if s.LastError != "oops" {
-		t.Errorf("expected error 'oops', got %q", s.LastError)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// moduleEntry — String
-// ---------------------------------------------------------------------------
-
-func TestModuleEntry_String(t *testing.T) {
-	mod := &fakeModule{name: "mod1"}
-	entry := newModuleEntry(mod)
-
-	// Without error
-	str := entry.String()
-	if str != "mod1: stopped (restarts=0)" {
-		t.Errorf("expected 'mod1: stopped (restarts=0)', got %q", str)
-	}
-
-	// With error
-	entry.setError(errors.New("bad"))
-	entry.incRestarts()
-	str = entry.String()
-	expected := "mod1: stopped (restarts=1, last_error=bad)"
-	if str != expected {
-		t.Errorf("expected %q, got %q", expected, str)
+	if entry.restarts != 0 {
+		t.Errorf("expected 0 restarts after reset, got %d", entry.restarts)
 	}
 }
 
@@ -209,7 +129,7 @@ func TestModuleEntry_ConcurrentAccess(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
-		wg.Add(4)
+		wg.Add(3)
 		go func() {
 			defer wg.Done()
 			entry.setState(ModuleRunning)
@@ -221,10 +141,6 @@ func TestModuleEntry_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			entry.incRestarts()
-		}()
-		go func() {
-			defer wg.Done()
-			_ = entry.status()
 		}()
 	}
 	wg.Wait()

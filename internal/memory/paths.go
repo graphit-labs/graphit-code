@@ -13,14 +13,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
-func GlobalBaseDir() string {
-	g := brand.GlobalDir()
-	if g == "" {
-		return filepath.Join(brand.DotDir(), "memory")
-	}
-	return filepath.Join(g, "memory")
-}
-
 func GlobalScopeDir(scope string) string {
 	localPath := ProjectLinkDir(scope)
 	if _, err := os.Stat(localPath); err == nil {

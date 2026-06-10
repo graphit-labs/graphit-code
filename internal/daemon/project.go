@@ -102,16 +102,6 @@ func (ps *ProjectSupervisor) Stop() {
 	ps.stopped = true
 }
 
-func (ps *ProjectSupervisor) Status() []ModuleStatus {
-	ps.mu.RLock()
-	defer ps.mu.RUnlock()
-	statuses := make([]ModuleStatus, 0, len(ps.modules))
-	for _, e := range ps.modules {
-		statuses = append(statuses, e.status())
-	}
-	return statuses
-}
-
 func (ps *ProjectSupervisor) projectLog(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	line := fmt.Sprintf("[%s] %s\n", time.Now().Format("2006-01-02 15:04:05"), msg)

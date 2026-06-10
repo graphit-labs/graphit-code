@@ -24,8 +24,6 @@ func NewMemorySyncModule() *MemorySyncModule {
 	return &MemorySyncModule{}
 }
 
-func (m *MemorySyncModule) Name() string { return "memory-sync" }
-
 func (m *MemorySyncModule) Start(ctx context.Context) error {
 	g, err := git.DefaultErr()
 	if err != nil {

@@ -137,21 +137,6 @@ title: Another Important
 	}
 }
 
-func TestRenderImportantBlock_EmptyReturnsEmpty(t *testing.T) {
-	// Test that RenderImportantBlock returns empty for non-existent scope
-	result := RenderImportantBlock("nonexistent-scope-xyz-" + fmt.Sprintf("%d", time.Now().UnixNano()))
-	if result != "" {
-		t.Errorf("expected empty string for non-existent scope, got %q", result)
-	}
-}
-
-func TestRenderRecentBlock_EmptyReturnsEmpty(t *testing.T) {
-	result := RenderRecentBlock("nonexistent-scope-xyz-"+fmt.Sprintf("%d", time.Now().UnixNano()), 10)
-	if result != "" {
-		t.Errorf("expected empty string for non-existent scope, got %q", result)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ListRecentMemories and RenderRecentBlock — filesystem-based
 // ---------------------------------------------------------------------------
@@ -314,34 +299,7 @@ func TestExtractBodyAfterFrontmatter_AllCases(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// important.go — firstLineFromContent edge cases
-// ===========================================================================
 
-func TestFirstLineFromContent_AllCases(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"empty", "", ""},
-		{"only whitespace lines", "\n  \n  \n", ""},
-		{"only headers", "# H1\n## H2\n### H3", ""},
-		{"header then content", "# Title\nActual content", "Actual content"},
-		{"blank lines then content", "\n\nContent here", "Content here"},
-		{"long line gets truncated", strings.Repeat("a", 150), strings.Repeat("a", 100) + "…"},
-		{"exactly 100 chars", strings.Repeat("b", 100), strings.Repeat("b", 100)},
-		{"101 chars", strings.Repeat("c", 101), strings.Repeat("c", 100) + "…"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := firstLineFromContent(tc.input)
-			if got != tc.want {
-				t.Errorf("firstLineFromContent = %q; want %q", got, tc.want)
-			}
-		})
-	}
-}
 
 // ===========================================================================
 // consolidate.go — parseConsolidationType

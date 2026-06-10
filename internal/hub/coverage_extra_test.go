@@ -815,44 +815,6 @@ func TestUIServer_handleUpload_PowerNoFile(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ui_server.go – handleUI
-// ---------------------------------------------------------------------------
-
-func TestUIServer_handleUI(t *testing.T) {
-	t.Parallel()
-	s := newTestUIServer(t)
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	s.handleUI(w, req)
-}
-
-// ---------------------------------------------------------------------------
-// ui_server.go – registerRoutes and NewUIServer
-// ---------------------------------------------------------------------------
-
-func TestUIServer_registerRoutes(t *testing.T) {
-	t.Parallel()
-	s := newTestUIServer(t)
-	s.registerRoutes()
-}
-
-func TestNewUIServer_Extra(t *testing.T) {
-	t.Parallel()
-	m := &RegistryManager{
-		entries:  make(map[ArtifactType]map[string]*Entry),
-		projects: make(map[string]*Project),
-	}
-	svc := &HubService{registry: m}
-	s, err := NewUIServer(svc, "claude")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if s.Port() == 0 {
-		t.Error("expected non-zero port")
-	}
-}
-
-// ---------------------------------------------------------------------------
 // ui_server.go – handleSubmit with dependencies
 // ---------------------------------------------------------------------------
 

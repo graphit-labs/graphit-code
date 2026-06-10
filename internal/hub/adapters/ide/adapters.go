@@ -466,25 +466,6 @@ func GlobalRulesFile(ide string) string {
 	}
 }
 
-func InjectManagedBlock(projectDir, ide, markerName, content string) error {
-	globalFile := GlobalRulesFile(ide)
-	targetPath := filepath.Join(projectDir, globalFile)
-
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		return fmt.Errorf("creating rules dir: %w", err)
-	}
-
-	marker := blockMarkerForName(markerName)
-	return injectBlock(targetPath, marker, content)
-}
-
-func RemoveManagedBlock(projectDir, ide, markerName string) error {
-	globalFile := GlobalRulesFile(ide)
-	targetPath := filepath.Join(projectDir, globalFile)
-	marker := blockMarkerForName(markerName)
-	return removeBlock(targetPath, marker)
-}
-
 func InstallManagedSkill(projectDir, ideName, skillName, content string) error {
 	adapter := GetAdapter(ideName)
 	if adapter == nil {
@@ -566,19 +547,6 @@ func removeSkillForAdapter(adapter Adapter, projectDir, skillName string) error 
 
 	skillDir := filepath.Join(projectDir, rootDir, skillsDir, skillName)
 	return os.RemoveAll(skillDir)
-}
-
-func blockMarkerForName(name string) string {
-	return strings.ToUpper(brand.Brand) + " " + strings.ToUpper(name) + " BLOCK"
-}
-
-func injectBlock(filePath, marker, content string) error {
-	return gitblk.InjectBlockStyled(filePath, content, marker, "", gitblk.HTMLBlockStyle)
-}
-
-func removeBlock(filePath, marker string) error {
-	_, err := gitblk.RemoveBlockStyled(filePath, marker, false, gitblk.HTMLBlockStyle)
-	return err
 }
 
 func ArtifactTypePath(projectDir, ideName, artifactType, artifactName string) (string, error) {

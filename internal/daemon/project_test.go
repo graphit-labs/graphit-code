@@ -35,7 +35,7 @@ func TestNewProjectSupervisor(t *testing.T) {
 			t.Errorf("module[%d]: expected %q, got %q", i, mods[i].Name(), entry.mod.Name())
 		}
 		if entry.state != ModuleStopped {
-			t.Errorf("module[%d]: expected initial state Stopped, got %s", i, entry.state)
+			t.Errorf("module[%d]: expected initial state Stopped, got %d", i, entry.state)
 		}
 	}
 }
@@ -66,47 +66,6 @@ func TestProjectSupervisor_AddCloser(t *testing.T) {
 		t.Error("closer was not called")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ProjectSupervisor — Status
-// ---------------------------------------------------------------------------
-
-func TestProjectSupervisor_Status(t *testing.T) {
-	mods := []WatchModule{
-		&fakeModule{name: "a"},
-		&fakeModule{name: "b"},
-	}
-	ps := newProjectSupervisor("test", "/tmp", mods)
-
-	// Set different states
-	ps.modules[0].setStarted()
-	ps.modules[1].setState(ModuleFailed)
-	ps.modules[1].setError(errForTest("test error"))
-
-	statuses := ps.Status()
-	if len(statuses) != 2 {
-		t.Fatalf("expected 2 statuses, got %d", len(statuses))
-	}
-	if statuses[0].Name != "a" || statuses[0].State != ModuleRunning {
-		t.Errorf("status[0]: expected a/running, got %s/%s", statuses[0].Name, statuses[0].State)
-	}
-	if statuses[1].Name != "b" || statuses[1].State != ModuleFailed {
-		t.Errorf("status[1]: expected b/failed, got %s/%s", statuses[1].Name, statuses[1].State)
-	}
-	if statuses[1].LastError != "test error" {
-		t.Errorf("status[1].LastError: expected 'test error', got %q", statuses[1].LastError)
-	}
-}
-
-func errForTest(msg string) error {
-	return &testError{msg}
-}
-
-type testError struct {
-	msg string
-}
-
-func (e *testError) Error() string { return e.msg }
 
 // ---------------------------------------------------------------------------
 // ProjectSupervisor — Stop
@@ -337,12 +296,11 @@ func TestSupervise_ModuleFailsAfterMaxRestarts(t *testing.T) {
 	}
 
 	// Verify the module state changed to crashed or failed
-	status := ps.Status()
-	if len(status) != 1 {
-		t.Fatalf("expected 1 status, got %d", len(status))
+	if len(ps.modules) != 1 {
+		t.Fatalf("expected 1 module, got %d", len(ps.modules))
 	}
 	// Could be crashed, failed, or stopped depending on timing
-	if status[0].Restarts == 0 {
+	if ps.modules[0].restarts == 0 {
 		t.Error("expected some restarts")
 	}
 }

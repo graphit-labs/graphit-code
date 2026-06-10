@@ -548,10 +548,6 @@ func HasTreeSitterForExtension(ext string) bool {
 	return ok
 }
 
-func TSConfigForGrammar(name string) *tsLangConfig {
-	return tsGrammarMap[name]
-}
-
 func TreeSitterLangForExtension(ext string) string {
 	if cfg, ok := tsExtMap[strings.ToLower(ext)]; ok {
 		return cfg.Language

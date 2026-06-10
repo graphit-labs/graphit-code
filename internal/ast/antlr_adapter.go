@@ -307,50 +307,9 @@ func HasAntlrForExtension(ext string) bool {
 	return ok
 }
 
-// AntlrConfigForGrammar returns the config for a named ANTLR grammar, or nil.
-func AntlrConfigForGrammar(name string) *antlrLangConfig {
-	return antlrGrammarMap[name]
-}
-
-// AntlrLangForExtension returns the language name for an ANTLR-supported extension.
-func AntlrLangForExtension(ext string) string {
-	if cfg, ok := antlrExtMap[strings.ToLower(ext)]; ok {
-		return cfg.Language
-	}
-	return ""
-}
-
 // HasParserForExtension returns true if any parser (tree-sitter or ANTLR) handles the extension.
 func HasParserForExtension(ext string) bool {
 	return HasTreeSitterForExtension(ext) || HasAntlrForExtension(ext)
-}
-
-// AntlrSupportedExtensions returns all file extensions handled by ANTLR grammars.
-func AntlrSupportedExtensions() []string {
-	var exts []string
-	for ext := range antlrExtMap {
-		exts = append(exts, ext)
-	}
-	return exts
-}
-
-// AllSupportedExtensions returns all extensions supported by any parser.
-func AllSupportedExtensions() []string {
-	seen := make(map[string]bool)
-	var exts []string
-	for ext := range tsExtMap {
-		if !seen[ext] {
-			seen[ext] = true
-			exts = append(exts, ext)
-		}
-	}
-	for ext := range antlrExtMap {
-		if !seen[ext] {
-			seen[ext] = true
-			exts = append(exts, ext)
-		}
-	}
-	return exts
 }
 
 func convertParseTree(node antlr.Tree, ruleNames, symbolicNames, literalNames []string) *antlrcommon.TreeNode {

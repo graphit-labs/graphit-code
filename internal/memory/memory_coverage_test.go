@@ -816,45 +816,12 @@ func TestApplyGC(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// SyncAndCycle
-// ---------------------------------------------------------------------------
-
 type mockStoreProvider struct {
 	extractErr error
 }
 
 func (m *mockStoreProvider) ExtractBranchDir(_, _, _ string) error {
 	return m.extractErr
-}
-
-func TestSyncAndCycle_NilStore(t *testing.T) {
-	ctx := context.Background()
-	result := SyncAndCycle(ctx, "project", "test-id", nil, nil)
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-	if result.Scope != "project" {
-		t.Errorf("Scope = %q", result.Scope)
-	}
-}
-
-func TestSyncAndCycle_WithStore(t *testing.T) {
-	ctx := context.Background()
-	store := &mockStoreProvider{}
-	result := SyncAndCycle(ctx, "project", "test-id", store, nil)
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-}
-
-func TestSyncAndCycle_WithStoreError(t *testing.T) {
-	ctx := context.Background()
-	store := &mockStoreProvider{extractErr: fmt.Errorf("extract error")}
-	result := SyncAndCycle(ctx, "project", "test-id", store, nil)
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1105,74 +1072,7 @@ func listRecentInDir(dir string, limit int) ([]ImportantEntry, error) {
 	return all, nil
 }
 
-// ---------------------------------------------------------------------------
-// RenderImportantBlock / RenderRecentBlock (pure rendering tests)
-// ---------------------------------------------------------------------------
 
-func TestRenderRecentBlock_InDir(t *testing.T) {
-	dir := t.TempDir()
-
-	writeMemFile(t, dir, "MEM1.md", `---
-title: Recent Fact
-created_at: 2026-05-20T00:00:00Z
----
-
-# Recent Fact
-
-Some recent content here.`)
-
-	entries, err := listRecentInDir(dir, 5)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 entry, got %d", len(entries))
-	}
-
-	// Build block similar to RenderRecentBlock
-	var b strings.Builder
-	b.WriteString("## 🕐 Recent Memories\n\n")
-	for _, e := range entries {
-		summary := firstLineFromContent(e.Content)
-		if summary != "" {
-			_, _ = fmt.Fprintf(&b, "- **%s** — %s *(ID: `%s`)*\n", e.Title, summary, e.ID)
-		} else {
-			_, _ = fmt.Fprintf(&b, "- **%s** *(ID: `%s`)*\n", e.Title, e.ID)
-		}
-	}
-	block := b.String()
-	if !strings.Contains(block, "Recent Fact") {
-		t.Error("block should contain title")
-	}
-}
-
-func TestRenderRecentBlock_EmptySummary(t *testing.T) {
-	dir := t.TempDir()
-	writeMemFile(t, dir, "MEM1.md", `---
-title: No Body Memory
----
-
-# No Body Memory`)
-
-	entries, err := listRecentInDir(dir, 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var b strings.Builder
-	for _, e := range entries {
-		summary := firstLineFromContent(e.Content)
-		if summary != "" {
-			_, _ = fmt.Fprintf(&b, "- **%s** — %s\n", e.Title, summary)
-		} else {
-			_, _ = fmt.Fprintf(&b, "- **%s**\n", e.Title)
-		}
-	}
-	block := b.String()
-	if !strings.Contains(block, "No Body Memory") {
-		t.Error("should contain title")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // memoryEntityPage: stale warning and unknown type emoji
@@ -1367,18 +1267,6 @@ func TestRunUserCycle(t *testing.T) {
 	}
 }
 
-func TestRunContextCycle(t *testing.T) {
-	result := RunContextCycle(context.Background(), "test-context")
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-}
-
-func TestRunAllContextCycles(t *testing.T) {
-	results := RunAllContextCycles(context.Background())
-	// May be empty, just verify no panic
-	_ = results
-}
 
 // ---------------------------------------------------------------------------
 // OnHubImport

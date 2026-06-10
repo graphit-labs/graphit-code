@@ -943,61 +943,6 @@ func TestReconcileMCPFile(t *testing.T) {
 // InjectManagedBlock / RemoveManagedBlock
 // ---------------------------------------------------------------------------
 
-func TestInjectManagedBlock(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	t.Run("inject into new file", func(t *testing.T) {
-		err := InjectManagedBlock(dir, "gemini", "TEST_MODULE", "test content")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		data, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
-		content := string(data)
-		if !strings.Contains(content, "test content") {
-			t.Error("expected injected content")
-		}
-		marker := blockMarkerForName("TEST_MODULE")
-		if !strings.Contains(content, marker) {
-			t.Errorf("expected marker %q in content", marker)
-		}
-	})
-
-	t.Run("update existing block", func(t *testing.T) {
-		err := InjectManagedBlock(dir, "gemini", "TEST_MODULE", "updated content")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		data, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
-		content := string(data)
-		if !strings.Contains(content, "updated content") {
-			t.Error("expected updated content")
-		}
-		if strings.Contains(content, "test content") {
-			t.Error("old content should have been replaced")
-		}
-	})
-}
-
-func TestRemoveManagedBlock(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	_ = InjectManagedBlock(dir, "gemini", "REMOVE_ME", "to be removed")
-
-	err := RemoveManagedBlock(dir, "gemini", "REMOVE_ME")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	data, _ := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
-	if strings.Contains(string(data), "to be removed") {
-		t.Error("expected block content to be removed")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // InstallManagedSkill / RemoveManagedSkill
 // ---------------------------------------------------------------------------

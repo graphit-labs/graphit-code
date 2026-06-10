@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
@@ -43,38 +42,6 @@ func RunUserCycle(ctx context.Context) *CycleResult {
 	return RunCycle(ctx, "user", rawDir, WikiDir("user"))
 }
 
-func RunContextCycle(ctx context.Context, contextName string) *CycleResult {
-	rawDir := RawDir(contextName)
-	return RunCycle(ctx, contextName,
-		rawDir,
-		WikiDir(contextName),
-	)
-}
-
-func RunAllContextCycles(ctx context.Context) []*CycleResult {
-	var results []*CycleResult
-	for _, name := range AllContextDirs() {
-		results = append(results, RunContextCycle(ctx, name))
-	}
-	return results
-}
-
-func SyncAndCycle(ctx context.Context, scope, scopeID string, store MemoryStoreProvider, logger *slog.Logger) *CycleResult {
-	log := slogutil.Resolve(logger)
-	rawDir := WorktreeRawDir(scope, scopeID)
-	branch := memoryBranch(scope, scopeID)
-
-	if store != nil {
-
-		if err := store.ExtractBranchDir(branch, ".", rawDir); err != nil {
-
-			log.Warn("sync: extract branch failed", "scope", scope, "branch", branch, "error", err)
-		}
-	}
-
-	return RunCycle(ctx, scope, rawDir, WikiDir(scope))
-}
-
 type MemoryStoreProvider interface {
 	ExtractBranchDir(branch, relDir, targetDir string) error
 }
@@ -104,25 +71,4 @@ func OnHubImport(ctx context.Context, contextName, projectDir string, store Memo
 	}()
 }
 
-func memoryBranch(scope, scopeID string) string {
-	if scope == "project" || scope == "user" {
-		return fmt.Sprintf("memory/%s/%s", scope, scopeID)
-	}
-	return fmt.Sprintf("memory/project/%s", scope)
-}
 
-func EnsureWikiIndexExists(scope string, logger *slog.Logger) {
-	log := slogutil.Resolve(logger)
-	wikiDir := WikiDir(scope)
-	indexPath := filepath.Join(wikiDir, "index.md")
-	if _, err := os.Stat(indexPath); err == nil {
-		return
-	}
-	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
-		log.Warn("ensure wiki index: mkdir failed", "dir", wikiDir, "error", err)
-	}
-	content := fmt.Sprintf("---\ntitle: Memory Wiki (%s)\ntags: [memory, %s]\n---\n\n# Memory Wiki\n\n*(No memories indexed yet. Run `memory index` to populate.)*\n", scope, scope)
-	if err := os.WriteFile(indexPath, []byte(content), 0o644); err != nil {
-		log.Warn("ensure wiki index: write failed", "path", indexPath, "error", err)
-	}
-}

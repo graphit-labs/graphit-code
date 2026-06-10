@@ -4,17 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
-	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
-	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
 
@@ -41,24 +38,6 @@ func NewServer() *mcp.Server {
 	return server
 }
 
-func Serve(ctx context.Context) error {
-	output.Mute()
-
-	server := NewServer()
-
-	// IOTransport instead of StdioTransport: decouples from os.Stdout
-	// so output.Mute() reassignments don't break the JSON-RPC channel.
-	transport := &mcp.IOTransport{
-		Reader: io.NopCloser(os.Stdin),
-		Writer: nopWriteCloser{os.Stdout},
-	}
-
-	if err := server.Run(ctx, transport); err != nil {
-		return fmt.Errorf("MCP stdio error: %w", err)
-	}
-	return nil
-}
-
 func ServeConn(ctx context.Context, conn net.Conn) error {
 	server := NewServer()
 	transport := &mcp.IOTransport{
@@ -70,10 +49,6 @@ func ServeConn(ctx context.Context, conn net.Conn) error {
 	}
 	return nil
 }
-
-type nopWriteCloser struct{ io.Writer }
-
-func (nopWriteCloser) Close() error { return nil }
 
 // safeTool wraps a tool handler with panic recovery and background daemon autostart validation.
 func safeTool[T any](

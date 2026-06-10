@@ -165,19 +165,6 @@ func TestSupervise_BackoffIsCapped(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ProjectSupervisor — Status returns empty for no modules
-// ---------------------------------------------------------------------------
-
-func TestProjectSupervisor_Status_Empty(t *testing.T) {
-	t.Parallel()
-	ps := newProjectSupervisor("test", "/tmp", nil)
-	statuses := ps.Status()
-	if len(statuses) != 0 {
-		t.Errorf("expected 0 statuses, got %d", len(statuses))
-	}
-}
-
-// ---------------------------------------------------------------------------
 // ProjectSupervisor — Stop idempotency
 // ---------------------------------------------------------------------------
 

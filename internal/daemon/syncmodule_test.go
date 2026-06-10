@@ -445,17 +445,6 @@ func TestParseBranch(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// MemorySyncModule — Name
-// ---------------------------------------------------------------------------
-
-func TestMemorySyncModule_Name(t *testing.T) {
-	m := NewMemorySyncModule()
-	if m.Name() != "memory-sync" {
-		t.Errorf("expected 'memory-sync', got %q", m.Name())
-	}
-}
-
-// ---------------------------------------------------------------------------
 // memoryWorktreeHash
 // ---------------------------------------------------------------------------
 
