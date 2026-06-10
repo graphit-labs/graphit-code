@@ -1,4 +1,4 @@
-package wasmantlr
+package antlrcommon
 
 import (
 	"fmt"

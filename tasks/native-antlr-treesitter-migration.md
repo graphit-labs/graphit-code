@@ -45,3 +45,13 @@ Migrated both ANTLR (PL/SQL) and Tree-sitter parsers from WASM/Wasmtime to 100% 
 7. **Cleanup and Obvious Comments Removal**:
    - Removed redundant doc comment from the `GetLanguage` function in `internal/ast/treesitter/dart/binding.go` according to comment guidelines.
    - Deleted the temporary bare clone directory `/tmp/temp_dart_git`.
+   - Deleted the obsolete `scratch/` directory from the workspace root containing legacy Wasmtime tests and cache configurations.
+
+8. **AST Package Reorganization and Obsolete WASM Cleanup**:
+   - Created a new directory structure `internal/ast/antlr/` to organize ANTLR components, aligning with `internal/ast/treesitter/`.
+   - Moved AST matcher and tree definitions from `antlrcommon` (originally `wasmantlr`) to `internal/ast/antlr/common/` (package `antlrcommon`).
+   - Moved the PL/SQL native parser package from `internal/ast/grammars/antlr/plsql/` to `internal/ast/antlr/plsql/` (package `plsql`).
+   - Deleted the obsolete intermediate directories `internal/ast/antlrcommon/` and `internal/ast/grammars/`.
+   - Updated `internal/ast/antlr_adapter.go` imports and package references from `wasmantlr` to `antlrcommon` and path changes.
+   - Cleaned up obsolete WASM-related build variables and configurations from `Makefile`, `.gitignore`, and `.github/workflows/release.yml`.
+   - Updated `Makefile` test target to run tests sequentially (`-p 1 -parallel 1`) to eliminate process-wide directory cleanup races during parallel execution in CI.

@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
-	"github.com/graphit-labs/graphit-code/internal/ast/grammars/antlr/plsql"
-	"github.com/graphit-labs/graphit-code/internal/ast/wasmantlr"
+	"github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
+	"github.com/graphit-labs/graphit-code/internal/ast/antlr/plsql"
 )
 
 // antlrExtMap maps file extensions to ANTLR language configs.
@@ -128,7 +128,7 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, is
 	}
 
 	// 1. Parse using native ANTLR PL/SQL parser
-	var antlrTree *wasmantlr.TreeNode
+	var antlrTree *antlrcommon.TreeNode
 	if cfg.Grammar == "antlr-plsql" {
 		preprocessed := plsql.Preprocess(string(src))
 		input := antlr.NewInputStream(preprocessed)
@@ -169,12 +169,12 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, is
 
 	type queryDefAndPattern struct {
 		qdef    ExternalQueryDef
-		pattern *wasmantlr.Pattern
+		pattern *antlrcommon.Pattern
 	}
 
 	var activeQueries []queryDefAndPattern
 	for _, qdef := range rpcQueries {
-		pattern, pErr := wasmantlr.CompilePattern(qdef.Pattern)
+		pattern, pErr := antlrcommon.CompilePattern(qdef.Pattern)
 		if pErr != nil {
 			continue
 		}
@@ -238,7 +238,7 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, is
 	return result, nil
 }
 
-func extractNameFromMatch(node *wasmantlr.TreeNode, nameCapture string) string {
+func extractNameFromMatch(node *antlrcommon.TreeNode, nameCapture string) string {
 	if nameCapture == "" || nameCapture == "name" {
 		return node.FirstTerminalText()
 	}
@@ -251,7 +251,7 @@ func extractNameFromMatch(node *wasmantlr.TreeNode, nameCapture string) string {
 	return node.FirstTerminalText()
 }
 
-func resolveParentContextAntlr(match wasmantlr.MatchResult, langConfig *ExternalQueryFile) (string, string) {
+func resolveParentContextAntlr(match antlrcommon.MatchResult, langConfig *ExternalQueryFile) (string, string) {
 	if langConfig == nil || len(langConfig.ContextTypes) == 0 {
 		return "", ""
 	}
@@ -353,7 +353,7 @@ func AllSupportedExtensions() []string {
 	return exts
 }
 
-func convertParseTree(node antlr.Tree, ruleNames, symbolicNames, literalNames []string) *wasmantlr.TreeNode {
+func convertParseTree(node antlr.Tree, ruleNames, symbolicNames, literalNames []string) *antlrcommon.TreeNode {
 	switch n := node.(type) {
 	case antlr.TerminalNode:
 		tok := n.GetSymbol()
@@ -364,7 +364,7 @@ func convertParseTree(node antlr.Tree, ruleNames, symbolicNames, literalNames []
 		name := tokenDisplayName(tok.GetTokenType(), symbolicNames, literalNames)
 		text := tok.GetText()
 		endCol := tok.GetColumn() + len(text) - 1
-		return &wasmantlr.TreeNode{
+		return &antlrcommon.TreeNode{
 			Token: name,
 			Text:  text,
 			Start: [2]int{tok.GetLine(), tok.GetColumn()},
@@ -391,7 +391,7 @@ func convertParseTree(node antlr.Tree, ruleNames, symbolicNames, literalNames []
 			endCol = stop.GetColumn() + len(stop.GetText()) - 1
 		}
 
-		var children []*wasmantlr.TreeNode
+		var children []*antlrcommon.TreeNode
 		antlrChildren := n.GetChildren()
 		for _, child := range antlrChildren {
 			if t, ok := child.(antlr.TerminalNode); ok {
@@ -405,7 +405,7 @@ func convertParseTree(node antlr.Tree, ruleNames, symbolicNames, literalNames []
 			}
 		}
 
-		return &wasmantlr.TreeNode{
+		return &antlrcommon.TreeNode{
 			Rule:     ruleName,
 			Start:    [2]int{startLine, startCol},
 			End:      [2]int{endLine, endCol},

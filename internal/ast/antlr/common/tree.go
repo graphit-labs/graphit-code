@@ -1,6 +1,4 @@
-package wasmantlr
-
-import "encoding/json"
+package antlrcommon
 
 // TreeNode represents a node in the ANTLR parse tree serialized as JSON.
 // Internal (rule) nodes have Rule set; leaf (terminal) nodes have Token+Text.
@@ -75,13 +73,4 @@ func (n *TreeNode) collectText(buf *[]byte) {
 	for _, child := range n.Children {
 		child.collectText(buf)
 	}
-}
-
-// ParseTreeFromJSON deserializes a JSON parse tree from ANTLR WASM output.
-func ParseTreeFromJSON(data []byte) (*TreeNode, error) {
-	var root TreeNode
-	if err := json.Unmarshal(data, &root); err != nil {
-		return nil, err
-	}
-	return &root, nil
 }

@@ -722,3 +722,41 @@ func translateLadybug(cypher string, params map[string]any) (string, map[string]
 
 	return q, cleanParams
 }
+
+func (k *LadybugBackend) AtomicSwapDB(newDBPath string) error {
+	currentPath := k.cfg.DBPath
+	oldPath := currentPath + ".old"
+
+	_ = os.RemoveAll(oldPath)
+
+	if err := os.Rename(currentPath, oldPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("atomic swap: rename current→old: %w", err)
+	}
+
+	if err := os.Rename(newDBPath, currentPath); err != nil {
+		if restoreErr := os.Rename(oldPath, currentPath); restoreErr != nil {
+			return fmt.Errorf("atomic swap CRITICAL: new→current failed (%w) AND restore failed (%w)", err, restoreErr)
+		}
+		return fmt.Errorf("atomic swap: rename new→current: %w", err)
+	}
+
+	_ = os.RemoveAll(oldPath)
+	_ = os.Remove(currentPath + ".wal")
+
+	return nil
+}
+
+func CleanupInterruptedSwap(dbPath string) {
+	_ = os.RemoveAll(dbPath + ".old")
+
+	matches, _ := filepath.Glob(dbPath + ".*")
+	for _, m := range matches {
+		if m == dbPath+".wal" || strings.HasPrefix(m, dbPath+".search.sqlite") {
+			continue
+		}
+		_ = os.RemoveAll(m)
+	}
+
+	_ = os.RemoveAll(dbPath + ".staging")
+}
+

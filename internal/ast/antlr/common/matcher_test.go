@@ -1,4 +1,4 @@
-package wasmantlr
+package antlrcommon
 
 import (
 	"testing"
@@ -187,41 +187,6 @@ func TestTreeNodeFirstTerminalText(t *testing.T) {
 	empty := &TreeNode{Rule: "empty"}
 	if got := empty.FirstTerminalText(); got != "" {
 		t.Fatalf("got %q, want empty", got)
-	}
-}
-
-func TestParseTreeFromJSON(t *testing.T) {
-	jsonData := []byte(`{
-		"rule": "compilationUnit",
-		"start": [1, 0],
-		"end": [10, 0],
-		"children": [
-			{
-				"rule": "statement",
-				"start": [1, 0],
-				"end": [5, 0],
-				"children": [
-					{"token": "IDENTIFIER", "text": "hello", "start": [1, 0], "end": [1, 5]}
-				]
-			}
-		]
-	}`)
-
-	root, err := ParseTreeFromJSON(jsonData)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if root.Rule != "compilationUnit" {
-		t.Fatalf("root rule: got %q, want %q", root.Rule, "compilationUnit")
-	}
-	if len(root.Children) != 1 {
-		t.Fatalf("children: got %d, want 1", len(root.Children))
-	}
-	if root.Children[0].Children[0].Text != "hello" {
-		t.Fatalf("leaf text: got %q, want %q", root.Children[0].Children[0].Text, "hello")
-	}
-	if root.StartLine() != 1 {
-		t.Fatalf("start line: got %d, want 1", root.StartLine())
 	}
 }
 

@@ -38,28 +38,7 @@ LBUG_CACHE   := /tmp/lbug-cache
 
 LBUG_PLATFORMS ?= $(shell uname -s | sed 's/Darwin/darwin/;s/Linux/linux-amd64/;s/MINGW.*/windows/')
 
-# Tree-sitter WASM grammar compilation
-GRAMMAR_CSRC := internal/ast/wasmts/csrc
-GRAMMAR_OUT  := internal/ast/grammars
-ZIG          ?= zig
 
-# All exported WASM functions (ts runtime + node API)
-WASM_EXPORTS := \
-	-Wl,--export=malloc -Wl,--export=free -Wl,--export=strlen \
-	-Wl,--export=ts_parser_new -Wl,--export=ts_parser_parse_string \
-	-Wl,--export=ts_parser_set_language -Wl,--export=ts_parser_delete \
-	-Wl,--export=ts_query_new -Wl,--export=ts_query_delete \
-	-Wl,--export=ts_query_cursor_new -Wl,--export=ts_query_cursor_delete \
-	-Wl,--export=ts_query_cursor_exec -Wl,--export=ts_query_cursor_next_match \
-	-Wl,--export=ts_query_capture_name_for_id -Wl,--export=ts_language_version \
-	-Wl,--export=ts_tree_root_node -Wl,--export=ts_tree_delete \
-	-Wl,--export=ts_node_string -Wl,--export=ts_node_child_count \
-	-Wl,--export=ts_node_named_child_count -Wl,--export=ts_node_child \
-	-Wl,--export=ts_node_named_child -Wl,--export=ts_node_type \
-	-Wl,--export=ts_node_start_byte -Wl,--export=ts_node_end_byte \
-	-Wl,--export=ts_node_start_point -Wl,--export=ts_node_end_point \
-	-Wl,--export=ts_node_parent -Wl,--export=ts_node_child_by_field_name \
-	-Wl,--export=ts_node_is_error -Wl,--export=ts_node_is_null
 
 ui:
 	cd internal/ui && npm ci --prefer-offline
@@ -241,7 +220,7 @@ test: setup-lbug
 	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
 		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \
 	fi; \
-	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -cover ./...
+	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -cover -p 1 -parallel 1 ./...
 
 lint:
 	golangci-lint run ./...
