@@ -1,0 +1,172 @@
+language: groovy
+grammar: tree-sitter-groovy
+extensions: [".groovy", ".gvy", ".gy", ".gsh", ".gradle"]
+queries:
+  # === Entity queries ===
+  - data_key: functions
+    graph_label: Method
+    pattern: '(function_definition function: (identifier) @name)'
+  - data_key: functions
+    graph_label: Method
+    pattern: '(function_declaration function: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_definition name: (identifier) @name)'
+  - data_key: closures
+    graph_label: Closure
+    pattern: '(closure (identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(declaration (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter (identifier) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(groovy_import import: (qualified_name) @name)'
+
+  # === Relation queries ===
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(function_call (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(function_call (dotted_identifier) @name)'
+  - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
+    pattern: '(annotation (identifier) @name)'
+  - data_key: import_refs
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(groovy_import import: (qualified_name) @name)'
+
+# Groovy defaults to public — uses Java-style modifiers
+exports:
+  strategy: modifier
+  config:
+    keyword: "public"
+
+# Self/this keywords for receiver type resolution
+self_keywords: ["this."]
+
+# Parent context type mapping — Groovy tree-sitter node types
+context_types:
+  class_definition: Class
+  function_definition: Method
+  function_declaration: Method
+
+# Groovy has closures as anonymous function types
+anon_func_types:
+  - closure
+
+# Declaration node types for docstring attachment
+declaration_types:
+  - class_definition
+  - function_definition
+  - function_declaration
+
+# Groovy tree-sitter comment node types
+comment_types:
+  - comment
+  - groovy_doc
+
+# Entry point scoring rules for Groovy
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "run*"
+      score: 60
+    - pattern: pipeline
+      score: 70
+    - pattern: stage
+      score: 60
+    - pattern: node
+      score: 50
+    - pattern: "build*"
+      score: 50
+    - pattern: "test*"
+      score: 50
+    - pattern: "Test*"
+      score: 50
+    - pattern: setup
+      score: 40
+    - pattern: configure
+      score: 40
+    - pattern: "deploy*"
+      score: 40
+    - pattern: "*Handler"
+      score: 30
+    - pattern: "*Controller"
+      score: 30
+
+  exported_bonus: 10
+  max_score: 100
+
+  decorators:
+    # Testing annotations
+    - name: Test
+      score: 60
+    - name: Before
+      score: 40
+    - name: After
+      score: 40
+    - name: BeforeClass
+      score: 40
+    - name: AfterClass
+      score: 40
+    # Spring annotations
+    - name: Controller
+      score: 50
+    - name: RestController
+      score: 50
+    - name: Service
+      score: 40
+    - name: Component
+      score: 30
+    - name: RequestMapping
+      score: 70
+    - name: GetMapping
+      score: 70
+    - name: PostMapping
+      score: 70
+    # Gradle task annotations
+    - name: TaskAction
+      score: 60
+    # Spock test annotations
+    - name: Unroll
+      score: 50
+
+# Import detection (Groovy framework detection)
+import_detection:
+  - pattern: "org.springframework"
+    match: prefix
+    framework: spring
+    category: web
+  - pattern: "org.junit"
+    match: prefix
+    framework: junit
+    category: test
+  - pattern: spock
+    match: prefix
+    framework: spock
+    category: test
+  - pattern: groovy.transform
+    match: prefix
+    framework: groovy-transform
+    category: codegen
+  - pattern: "org.gradle"
+    match: prefix
+    framework: gradle
+    category: build
+  - pattern: grails
+    match: prefix
+    framework: grails
+    category: web
+  - pattern: "com.fasterxml.jackson"
+    match: prefix
+    framework: jackson
+    category: serialization

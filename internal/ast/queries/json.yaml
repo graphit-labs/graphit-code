@@ -1,0 +1,33 @@
+language: json
+grammar: tree-sitter-json
+extensions: [".json", ".jsonc", ".json5"]
+queries:
+  # === Entity queries ===
+  # JSON is a data format — minimal extraction of key-value pairs
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair key: (string) @name)'
+
+# JSON is a data format — no export concept
+exports:
+  strategy: none
+
+self_keywords: []
+
+# JSON has no scoping context
+context_types: {}
+
+anon_func_types: []
+
+declaration_types: []
+
+# JSONC supports comments; standard JSON does not have comments
+comment_types:
+  - comment
+
+# JSON has no entry points — it's a data format
+entry_points:
+  names: []
+  exported_bonus: 0
+  max_score: 0
+  decorators: []

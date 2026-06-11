@@ -1,0 +1,51 @@
+language: toml
+grammar: tree-sitter-toml
+extensions: [".toml"]
+queries:
+  # === Entity queries ===
+  - data_key: tables
+    graph_label: Table
+    pattern: '(table (bare_key) @name)'
+  - data_key: tables
+    graph_label: Table
+    pattern: '(table (dotted_key) @name)'
+  - data_key: array_tables
+    graph_label: ArrayTable
+    pattern: '(table_array_element (bare_key) @name)'
+  - data_key: array_tables
+    graph_label: ArrayTable
+    pattern: '(table_array_element (dotted_key) @name)'
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair (bare_key) @name)'
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair (dotted_key) @name)'
+
+# TOML is a config format — no export concept
+exports:
+  strategy: none
+
+self_keywords: []
+
+# Parent context: pairs belong to tables
+context_types:
+  table: Table
+  table_array_element: ArrayTable
+
+anon_func_types: []
+
+declaration_types:
+  - table
+  - table_array_element
+
+# TOML tree-sitter uses "comment" for # comments
+comment_types:
+  - comment
+
+# TOML has no entry points — it's a data format
+entry_points:
+  names: []
+  exported_bonus: 0
+  max_score: 0
+  decorators: []

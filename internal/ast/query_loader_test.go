@@ -272,6 +272,12 @@ func TestVerifyAllDefaultQueries(t *testing.T) {
 				return
 			}
 
+			// tree-sitter-julia v0.25 uses ABI v14 which is incompatible with
+			// smacker/go-tree-sitter (ABI v13). Skip until binding is updated.
+			if qf.Language == "julia" {
+				t.Skip("skipping julia: tree-sitter ABI v14 incompatible with smacker binding")
+			}
+
 			// Resolve tree-sitter language
 			grammar := qf.Grammar
 			if grammar == "" {

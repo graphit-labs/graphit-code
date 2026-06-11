@@ -1,0 +1,38 @@
+language: markdown
+grammar: tree-sitter-markdown
+extensions: [".md", ".markdown", ".mdx"]
+queries:
+  # === Entity queries ===
+  - data_key: headings
+    graph_label: Heading
+    pattern: '(atx_heading) @name'
+  - data_key: code_blocks
+    graph_label: CodeBlock
+    pattern: '(fenced_code_block (info_string) @name)'
+
+# Markdown is a document format — no export concept
+exports:
+  strategy: none
+
+self_keywords: []
+
+# Headings create document sections
+context_types:
+  section: Heading
+
+anon_func_types: []
+
+declaration_types:
+  - atx_heading
+  - setext_heading
+
+# Markdown tree-sitter uses html_comment for <!-- --> comments
+comment_types:
+  - html_comment
+
+# Markdown has no entry points — it's a document format
+entry_points:
+  names: []
+  exported_bonus: 0
+  max_score: 0
+  decorators: []

@@ -1,0 +1,79 @@
+language: bash
+grammar: tree-sitter-bash
+extensions: [".sh", ".bash", ".zsh", ".ksh"]
+queries:
+  # === Entity queries ===
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition name: (word) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(variable_assignment name: (variable_name) @name)'
+
+  # === Relation queries ===
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(command name: (command_name (word) @name))'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(command_substitution (command name: (command_name (word) @name)))'
+
+# Bash has no native export/visibility system for functions
+exports:
+  strategy: none
+
+# Bash does not use self/this
+self_keywords: []
+
+# Parent context type mapping — Bash tree-sitter node types only
+context_types:
+  function_definition: Function
+
+# Bash has no anonymous function types
+anon_func_types: []
+
+# Declaration node types for docstring attachment
+declaration_types:
+  - function_definition
+  - variable_assignment
+
+# Bash tree-sitter uses a single "comment" node type for # comments
+comment_types:
+  - comment
+
+# Entry point scoring rules for Bash
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "run*"
+      score: 60
+    - pattern: "setup*"
+      score: 40
+    - pattern: "init*"
+      score: 40
+    - pattern: "install*"
+      score: 40
+    - pattern: "cleanup*"
+      score: 30
+    - pattern: "start*"
+      score: 30
+    - pattern: "stop*"
+      score: 30
+    - pattern: "deploy*"
+      score: 30
+    - pattern: "build*"
+      score: 30
+    - pattern: "test*"
+      score: 50
+    - pattern: "usage*"
+      score: 20
+    - pattern: "help*"
+      score: 20
+
+  exported_bonus: 0
+  max_score: 100
+
+  decorators: []

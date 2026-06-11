@@ -90,8 +90,16 @@ github.com/sugarme/tokenizer v0.3.0 h1:FE8DYbNSz/kSbgEo9l/RjgYHkIJYEdskumitFQBE9
 github.com/sugarme/tokenizer v0.3.0/go.mod h1:VJ+DLK5ZEZwzvODOWwY0cw+B1dabTd3nCB5HuFCItCc=
 github.com/tree-sitter-grammars/tree-sitter-xml v0.7.0 h1:UwM6+GtRWjNEsSsgVAhZA/39HS+F9LQb1j6jkXwYdds=
 github.com/tree-sitter-grammars/tree-sitter-xml v0.7.0/go.mod h1:shxC3S8mp1r2gihmQGEGQDfnBIkM4GZ6hXYEcWCw3xE=
+github.com/tree-sitter-grammars/tree-sitter-zig v1.1.2 h1:j8JARutysdxMwBEfVLGx9us7cdSzD1TTui/pPLGCFDk=
+github.com/tree-sitter-grammars/tree-sitter-zig v1.1.2/go.mod h1:ekWQEqj2e/gQal396f5rKJ6L14/a4bMPMqSRzmf8OZE=
 github.com/tree-sitter/go-tree-sitter v0.24.0 h1:kRZb6aBNfcI/u0Qh8XEt3zjNVnmxTisDBN+kXK0xRYQ=
 github.com/tree-sitter/go-tree-sitter v0.24.0/go.mod h1:x681iFVoLMEwOSIHA1chaLkXlroXEN7WY+VHGFaoDbk=
+github.com/tree-sitter/tree-sitter-haskell v0.23.1 h1:Soj44CHJTvIX/m4ekYJPFqH+sDRK4CuF6MwdRJN9tKU=
+github.com/tree-sitter/tree-sitter-haskell v0.23.1/go.mod h1:NWY55NC9F0agDcuCKOkPqAQWZQETS3cUjO+T+a21IIc=
+github.com/tree-sitter/tree-sitter-json v0.24.8 h1:tV5rMkihgtiOe14a9LHfDY5kzTl5GNUYe6carZBn0fQ=
+github.com/tree-sitter/tree-sitter-json v0.24.8/go.mod h1:F351KK0KGvCaYbZ5zxwx/gWWvZhIDl0eMtn+1r+gQbo=
+github.com/tree-sitter/tree-sitter-julia v0.25.0 h1:C4GW8g5JwDh99S4r5g5LjVzqm8/JQitoHgRFjahBZ20=
+github.com/tree-sitter/tree-sitter-julia v0.25.0/go.mod h1:1dJf7OAwZ1h+Q0QN1m8BfmqzoUbJ/TjQNKGFYrzCt3M=
 github.com/yalue/onnxruntime_go v1.30.1 h1:NaEng5lWbsHZ/8X1dtaw1mIj7eV1ozyjbFo//g0ktl4=
 github.com/yalue/onnxruntime_go v1.30.1/go.mod h1:b4X26A8pekNb1ACJ58wAXgNKeUCGEAQ9dmACut9Sm/4=
 github.com/yosida95/uritemplate/v3 v3.0.2 h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=

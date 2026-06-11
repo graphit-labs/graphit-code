@@ -1,0 +1,118 @@
+language: r
+grammar: tree-sitter-r
+extensions: [".r", ".R", ".Rmd"]
+queries:
+  # === Entity queries ===
+  # R functions are defined by assigning function_definition to a variable via <- or =
+  - data_key: functions
+    graph_label: Function
+    pattern: '(binary_operator (identifier) @name (function_definition))'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(binary_operator (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameters (parameter (identifier) @name))'
+
+  # === Relation queries ===
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call (namespace_operator (identifier) @name))'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(extract_operator (identifier) @name)'
+  - data_key: import_refs
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(call function: (identifier) @_fn arguments: (arguments (argument value: (string) @name)))'
+
+# R has no native export system
+exports:
+  strategy: none
+
+# R does not use self/this
+self_keywords: []
+
+# Parent context type mapping — R tree-sitter node types only
+context_types:
+  function_definition: Function
+
+# R has anonymous functions
+anon_func_types:
+  - function_definition
+
+# Declaration node types for docstring attachment
+declaration_types:
+  - binary_operator
+
+# R uses a single "comment" node type for # comments
+comment_types:
+  - comment
+
+# Entry point scoring rules for R
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "run*"
+      score: 60
+    - pattern: "process*"
+      score: 60
+    - pattern: "analyze*"
+      score: 50
+    - pattern: "plot*"
+      score: 40
+    - pattern: "fit*"
+      score: 40
+    - pattern: "test*"
+      score: 50
+    - pattern: "load*"
+      score: 30
+    - pattern: "clean*"
+      score: 30
+    - pattern: "train*"
+      score: 40
+    - pattern: "predict*"
+      score: 40
+
+  exported_bonus: 0
+  max_score: 100
+
+  decorators: []
+
+# Import detection (R framework detection)
+import_detection:
+  - pattern: ggplot2
+    match: prefix
+    framework: ggplot2
+    category: visualization
+  - pattern: dplyr
+    match: prefix
+    framework: tidyverse
+    category: data
+  - pattern: tidyr
+    match: prefix
+    framework: tidyverse
+    category: data
+  - pattern: shiny
+    match: prefix
+    framework: shiny
+    category: web
+  - pattern: testthat
+    match: prefix
+    framework: testthat
+    category: test
+  - pattern: caret
+    match: prefix
+    framework: caret
+    category: ml
+  - pattern: tidyverse
+    match: prefix
+    framework: tidyverse
+    category: data

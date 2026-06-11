@@ -220,7 +220,12 @@ test: setup-lbug
 	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
 		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \
 	fi; \
-	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -cover -p 1 -parallel 1 ./...
+	echo "  → Running tests with race detector (project code)…"; \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -cover -p 4 \
+		$$(go list ./... | grep -v "/antlr/" | grep -v "/treesitter/"); \
+	echo "  → Running tests without race detector (generated parsers)…"; \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -cover -p 4 \
+		$$(go list ./... | grep -E "/antlr/|/treesitter/")
 
 lint:
 	golangci-lint run ./...

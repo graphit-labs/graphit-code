@@ -1,0 +1,153 @@
+language: elixir
+grammar: tree-sitter-elixir
+extensions: [".ex", ".exs"]
+queries:
+  # === Entity queries ===
+  # Elixir uses call nodes for definitions: def, defp, defmodule, defprotocol, etc.
+  # tree-sitter-elixir represents `def foo(args)` as (call target: (identifier) arguments: ...)
+  # Note: tree-sitter predicates (#eq?, #match?) may not be supported in all Go bindings.
+  # The parser engine handles filtering via data_key grouping at runtime.
+
+  # Public functions (def)
+  - data_key: functions
+    graph_label: Function
+    pattern: '(call target: (identifier) @_fn (arguments (call target: (identifier) @name)))'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(call target: (identifier) @_fn (arguments (identifier) @name))'
+
+  # Modules (defmodule)
+  - data_key: modules
+    graph_label: Module
+    pattern: '(call target: (identifier) @_fn (arguments (alias) @name))'
+
+  # Variables
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(binary_operator left: (identifier) @name operator: "=")'
+
+  # Parameters — function argument identifiers
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(call target: (identifier) @_fn (arguments (call target: (identifier) @_name (arguments (identifier) @name))))'
+
+  # Fields — keyword list entries in defstruct, schema, etc.
+  - data_key: fields
+    graph_label: Field
+    pattern: '(call target: (identifier) @_fn (arguments (list (atom) @name)))'
+
+  # Module attributes (@moduledoc, @doc, @type, @spec, @callback, @behaviour)
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(unary_operator operator: "@" operand: (call target: (identifier) @name))'
+
+  # === Relation queries ===
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call target: (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call target: (dot (alias) @_mod (identifier) @name))'
+  - data_key: import_refs
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(call target: (identifier) @_fn (arguments (alias) @name))'
+
+# Elixir has no native export modifier — all public functions are defined with `def`
+# Private functions use `defp`. Since there's no simple modifier keyword, use none.
+exports:
+  strategy: none
+
+# Elixir does not use self/this (it uses pattern matching and function heads)
+self_keywords: []
+
+# Parent context type mapping — Elixir tree-sitter node types
+# defmodule creates a call node, so the parent context is call
+context_types:
+  call: Module
+
+# Elixir has anonymous functions (fn -> end)
+anon_func_types:
+  - anonymous_function
+
+# Declaration node types for docstring attachment
+# Elixir uses @doc and @moduledoc attributes, but structurally uses call nodes
+declaration_types:
+  - call
+  - unary_operator
+
+# Elixir tree-sitter uses a single "comment" node type for # comments
+comment_types:
+  - comment
+
+# Entry point scoring rules for Elixir
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "run*"
+      score: 60
+    - pattern: "start*"
+      score: 60
+    - pattern: "start_link*"
+      score: 70
+    - pattern: "init*"
+      score: 40
+    - pattern: "handle_*"
+      score: 40
+    - pattern: mount
+      score: 50
+    - pattern: "test*"
+      score: 50
+    - pattern: setup
+      score: 40
+    - pattern: "render*"
+      score: 30
+    - pattern: "call*"
+      score: 30
+
+  exported_bonus: 10
+  max_score: 100
+
+  decorators: []
+
+# Import detection (Elixir framework detection)
+import_detection:
+  - pattern: Phoenix
+    match: prefix
+    framework: phoenix
+    category: web
+  - pattern: Ecto
+    match: prefix
+    framework: ecto
+    category: orm
+  - pattern: ExUnit
+    match: prefix
+    framework: exunit
+    category: test
+  - pattern: Plug
+    match: prefix
+    framework: plug
+    category: web
+  - pattern: Absinthe
+    match: prefix
+    framework: absinthe
+    category: graphql
+  - pattern: GenServer
+    match: prefix
+    framework: otp
+    category: concurrency
+  - pattern: LiveView
+    match: prefix
+    framework: phoenix-liveview
+    category: web
+  - pattern: Tesla
+    match: prefix
+    framework: tesla
+    category: http
+  - pattern: Nx
+    match: prefix
+    framework: nx
+    category: ml

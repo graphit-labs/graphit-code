@@ -1,0 +1,137 @@
+language: julia
+grammar: tree-sitter-julia
+extensions: [".jl"]
+queries:
+  # === Entity queries ===
+  # Julia tree-sitter uses positional children, not named fields
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition (identifier) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(short_function_definition (identifier) @name)'
+  - data_key: macros
+    graph_label: Macro
+    pattern: '(macro_definition (identifier) @name)'
+  - data_key: structs
+    graph_label: Struct
+    pattern: '(struct_definition (identifier) @name)'
+  - data_key: abstract_types
+    graph_label: AbstractType
+    pattern: '(abstract_definition (identifier) @name)'
+  - data_key: modules
+    graph_label: Module
+    pattern: '(module_definition (identifier) @name)'
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_statement (assignment (identifier) @name))'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter_list (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter_list (typed_expression (identifier) @name))'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(struct_definition (typed_expression (identifier) @name))'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(struct_definition (named_field (identifier) @name))'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_statement (identifier) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(using_statement (identifier) @name)'
+  - data_key: exports
+    graph_label: Export
+    pattern: '(export_statement (identifier) @name)'
+
+  # === Relation queries ===
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression (identifier) @name)'
+  - data_key: imports
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(import_statement (identifier) @name)'
+  - data_key: imports
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(using_statement (identifier) @name)'
+
+# Julia export detection: explicit 'export' keyword in module blocks
+exports:
+  strategy: modifier
+  config:
+    keyword: "export"
+
+# Julia has no self/this keyword — methods dispatch on types
+self_keywords: []
+
+# Parent context type mapping — Julia tree-sitter node types
+context_types:
+  function_definition: Function
+  struct_definition: Struct
+  module_definition: Module
+
+anon_func_types:
+  - lambda_expression
+
+# Declaration node types for docstring attachment
+declaration_types:
+  - function_definition
+  - short_function_definition
+  - macro_definition
+  - struct_definition
+  - abstract_definition
+  - module_definition
+  - const_statement
+
+# Julia tree-sitter uses comment
+comment_types:
+  - comment
+
+# Entry point scoring rules for Julia
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "run*"
+      score: 60
+    - pattern: "process*"
+      score: 60
+    - pattern: "solve*"
+      score: 50
+    - pattern: "test_*"
+      score: 60
+    - pattern: "__init__"
+      score: 40
+    - pattern: "start*"
+      score: 40
+    - pattern: "setup*"
+      score: 40
+    - pattern: "compute*"
+      score: 30
+    - pattern: "simulate*"
+      score: 30
+
+  exported_bonus: 10
+  max_score: 100
+
+  # Julia macros used as decorators
+  decorators:
+    - name: testset
+      score: 60
+    - name: test
+      score: 60
+    - name: benchmark
+      score: 50
+    - name: inline
+      score: 20
+    - name: generated
+      score: 20

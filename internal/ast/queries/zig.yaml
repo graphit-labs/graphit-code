@@ -1,0 +1,95 @@
+language: zig
+grammar: tree-sitter-zig
+extensions: [".zig"]
+queries:
+  # === Entity queries ===
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration name: (identifier) @name)'
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(variable_declaration (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(container_field (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter (identifier) @name)'
+  - data_key: tests
+    graph_label: Test
+    pattern: '(test_declaration (string) @name)'
+
+  # === Relation queries ===
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (field_expression (identifier) @name))'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(field_expression (identifier) @name)'
+  - data_key: import_refs
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(builtin_function (builtin_identifier) @_fn (arguments (string) @name))'
+
+# Zig export detection: pub modifier
+exports:
+  strategy: modifier
+  config:
+    keyword: "pub"
+
+# Zig does not use self/this
+self_keywords: []
+
+# Parent context type mapping — Zig tree-sitter node types
+context_types:
+  function_declaration: Function
+  struct_declaration: Struct
+  enum_declaration: Enum
+  union_declaration: Union
+
+# Zig has no anonymous function types in the traditional sense
+anon_func_types: []
+
+# Declaration node types for docstring attachment
+declaration_types:
+  - function_declaration
+  - variable_declaration
+  - struct_declaration
+  - enum_declaration
+  - union_declaration
+  - test_declaration
+
+# Zig tree-sitter uses line_comment and doc_comment node types
+comment_types:
+  - comment
+
+# Entry point scoring rules for Zig
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "init*"
+      score: 40
+    - pattern: "deinit*"
+      score: 30
+    - pattern: "test*"
+      score: 60
+    - pattern: "setup*"
+      score: 40
+    - pattern: "run*"
+      score: 50
+    - pattern: "start*"
+      score: 30
+    - pattern: "panic*"
+      score: 20
+
+  exported_bonus: 10
+  max_score: 100
+
+  decorators: []

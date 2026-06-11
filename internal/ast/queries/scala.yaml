@@ -1,0 +1,168 @@
+language: scala
+grammar: tree-sitter-scala
+extensions: [".scala", ".sc"]
+queries:
+  # === Entity queries ===
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition name: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_definition name: (identifier) @name)'
+  - data_key: objects
+    graph_label: Object
+    pattern: '(object_definition name: (identifier) @name)'
+  - data_key: traits
+    graph_label: Trait
+    pattern: '(trait_definition name: (identifier) @name)'
+  - data_key: types
+    graph_label: Type
+    pattern: '(type_definition name: (type_identifier) @name)'
+  - data_key: packages
+    graph_label: Package
+    pattern: '(package_clause name: (package_identifier) @name)'
+  - data_key: vals
+    graph_label: Val
+    pattern: '(val_definition pattern: (identifier) @name)'
+  - data_key: vars
+    graph_label: Var
+    pattern: '(var_definition pattern: (identifier) @name)'
+  - data_key: val_declarations
+    graph_label: Val
+    pattern: '(val_declaration name: (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter name: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(class_parameter name: (identifier) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_declaration path: (identifier) @name)'
+
+  # === Relation queries ===
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (field_expression field: (identifier) @name))'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(extends_clause type: (type_identifier) @name)'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(field_expression field: (identifier) @name)'
+  - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
+    pattern: '(annotation name: (type_identifier) @name)'
+  - data_key: import_refs
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(import_declaration path: (identifier) @name)'
+
+# Scala defaults to public — private/protected restrict visibility
+exports:
+  strategy: no_modifier
+  config_list:
+    keywords: ["private", "protected"]
+
+# Self/this keywords for receiver type resolution
+self_keywords: ["this."]
+
+# Parent context type mapping — Scala tree-sitter node types only
+context_types:
+  class_definition: Class
+  object_definition: Object
+  trait_definition: Trait
+  function_definition: Function
+
+# Scala lambda expressions
+anon_func_types:
+  - lambda_expression
+
+# Declaration node types for docstring attachment
+declaration_types:
+  - function_definition
+  - class_definition
+  - object_definition
+  - trait_definition
+  - val_definition
+  - var_definition
+  - type_definition
+
+# Scala uses comment and block_comment node types
+comment_types:
+  - comment
+  - block_comment
+
+# Entry point scoring rules for Scala
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "run*"
+      score: 60
+    - pattern: "process*"
+      score: 60
+    - pattern: "execute*"
+      score: 50
+    - pattern: App
+      score: 50
+    - pattern: "test*"
+      score: 60
+    - pattern: "Test*"
+      score: 60
+    - pattern: setup
+      score: 40
+    - pattern: configure
+      score: 40
+    - pattern: "*Handler"
+      score: 30
+    - pattern: "*Controller"
+      score: 30
+
+  exported_bonus: 10
+  max_score: 100
+
+  decorators: []
+
+# Import detection (Scala framework detection)
+import_detection:
+  - pattern: akka
+    match: prefix
+    framework: akka
+    category: actor
+  - pattern: "org.apache.spark"
+    match: prefix
+    framework: spark
+    category: data
+  - pattern: "play.api"
+    match: prefix
+    framework: play
+    category: web
+  - pattern: "cats.effect"
+    match: prefix
+    framework: cats-effect
+    category: fp
+  - pattern: "zio"
+    match: prefix
+    framework: zio
+    category: fp
+  - pattern: "org.scalatest"
+    match: prefix
+    framework: scalatest
+    category: test
+  - pattern: "org.http4s"
+    match: prefix
+    framework: http4s
+    category: web
+  - pattern: "slick"
+    match: prefix
+    framework: slick
+    category: orm

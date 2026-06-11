@@ -1,0 +1,75 @@
+language: protobuf
+grammar: tree-sitter-protobuf
+extensions: [".proto"]
+queries:
+  # === Entity queries ===
+  - data_key: services
+    graph_label: Service
+    pattern: '(service (service_name) @name)'
+  - data_key: messages
+    graph_label: Message
+    pattern: '(message (message_name) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(enum (enum_name) @name)'
+  - data_key: rpcs
+    graph_label: RPC
+    pattern: '(rpc (rpc_name) @name)'
+  - data_key: fields
+    graph_label: MessageField
+    pattern: '(field (identifier) @name)'
+  - data_key: map_fields
+    graph_label: MessageField
+    pattern: '(map_field (identifier) @name)'
+  - data_key: oneofs
+    graph_label: Oneof
+    pattern: '(oneof (identifier) @name)'
+  - data_key: packages
+    graph_label: Package
+    pattern: '(package (full_ident) @name)'
+  - data_key: enum_values
+    graph_label: EnumValue
+    pattern: '(enum_field (identifier) @name)'
+  - data_key: options
+    graph_label: Option
+    pattern: '(option (identifier) @name)'
+
+  # === Relation queries ===
+  - data_key: import_refs
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(import (string) @name)'
+
+# Protobuf is a schema language — no export system
+exports:
+  strategy: none
+
+# Protobuf does not use self/this
+self_keywords: []
+
+# Parent context type mapping — Protobuf tree-sitter node types
+context_types:
+  service: Service
+  message: Message
+  enum: Enum
+
+# Protobuf has no anonymous function types
+anon_func_types: []
+
+# Declaration node types for docstring attachment
+declaration_types:
+  - service
+  - message
+  - enum
+  - rpc
+
+# Protobuf tree-sitter uses a single "comment" node type for // and /* */ comments
+comment_types:
+  - comment
+
+# Entry points not applicable for Protobuf schema files
+entry_points:
+  names: []
+  exported_bonus: 0
+  max_score: 0
+  decorators: []

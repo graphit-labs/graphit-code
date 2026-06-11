@@ -1,0 +1,152 @@
+language: objc
+grammar: tree-sitter-objc
+extensions: [".m", ".mm"]
+queries:
+  # === Entity queries ===
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition (function_declarator (identifier) @name))'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_declaration (identifier) @name)'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_definition (identifier) @name)'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_declaration (keyword_declarator (identifier) @name))'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_interface (identifier) @name)'
+  - data_key: protocols
+    graph_label: Protocol
+    pattern: '(protocol_declaration (identifier) @name)'
+  - data_key: properties
+    graph_label: Property
+    pattern: '(property_declaration (struct_declaration (struct_declarator (pointer_declarator declarator: (identifier) @name))))'
+  - data_key: implementations
+    graph_label: Implementation
+    pattern: '(class_implementation (identifier) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(preproc_include (string_literal) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(preproc_include (system_lib_string) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(module_import (identifier) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter_declaration (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration (field_identifier) @name)'
+
+  # === Relation queries ===
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(message_expression method: (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(message_expression (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression (identifier) @name)'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(class_interface (identifier) @name)'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(class_implementation (identifier) @name)'
+  - data_key: implements
+    type: relation
+    relation_type: IMPLEMENTS
+    pattern: '(protocol_reference_list (identifier) @name)'
+  - data_key: imports
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(preproc_include (string_literal) @name)'
+  - data_key: imports
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(preproc_include (system_lib_string) @name)'
+  - data_key: imports
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(module_import (identifier) @name)'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(field_expression (field_identifier) @name)'
+  - data_key: field_writes
+    type: relation
+    relation_type: WRITES_FIELD
+    pattern: '(assignment_expression (field_expression (field_identifier) @name))'
+
+# Objective-C uses header files for visibility — no simple keyword-based detection
+exports:
+  strategy: none
+
+# Objective-C uses 'self' for receiver type resolution
+self_keywords: ["self."]
+
+# Parent context type mapping — Objective-C tree-sitter node types
+context_types:
+  class_interface: Class
+  class_implementation: Implementation
+  protocol_declaration: Protocol
+
+anon_func_types:
+  - block_expression
+
+# Declaration node types for docstring attachment
+declaration_types:
+  - function_definition
+  - method_declaration
+  - method_definition
+  - class_interface
+  - class_implementation
+  - protocol_declaration
+  - property_declaration
+
+# Objective-C tree-sitter uses "comment" for both // and /* */
+comment_types:
+  - comment
+
+# Entry point scoring rules for Objective-C
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "init*"
+      score: 50
+    - pattern: viewDidLoad
+      score: 60
+    - pattern: "applicationDidFinishLaunching*"
+      score: 60
+    - pattern: "awakeFromNib"
+      score: 50
+    - pattern: "viewWillAppear*"
+      score: 40
+    - pattern: "didReceiveMemoryWarning"
+      score: 30
+    - pattern: "dealloc"
+      score: 30
+    - pattern: "test*"
+      score: 60
+    - pattern: "setUp"
+      score: 40
+    - pattern: "tearDown"
+      score: 40
+
+  exported_bonus: 10
+  max_score: 100
+
+  # Objective-C has no decorator system — this section is intentionally empty
+  decorators: []

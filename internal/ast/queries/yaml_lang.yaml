@@ -1,0 +1,42 @@
+language: yaml_lang
+grammar: tree-sitter-yaml
+extensions: [".yaml", ".yml"]
+queries:
+  # === Entity queries ===
+  # YAML is a data format — extract minimal structural entities
+  - data_key: mappings
+    graph_label: Mapping
+    pattern: '(block_mapping_pair key: (flow_node) @name)'
+  - data_key: anchors
+    graph_label: Anchor
+    pattern: '(anchor (anchor_name) @name)'
+  - data_key: tags
+    graph_label: Tag
+    pattern: '(tag) @name'
+
+# YAML is a data format — no export system
+exports:
+  strategy: none
+
+# YAML does not use self/this
+self_keywords: []
+
+# YAML has no meaningful parent context types for code analysis
+context_types: {}
+
+# YAML has no anonymous function types
+anon_func_types: []
+
+# Declaration node types — minimal for YAML
+declaration_types: []
+
+# YAML tree-sitter uses a single "comment" node type for # comments
+comment_types:
+  - comment
+
+# Entry points not applicable for YAML data files
+entry_points:
+  names: []
+  exported_bonus: 0
+  max_score: 0
+  decorators: []

@@ -1,0 +1,88 @@
+language: clojure
+grammar: tree-sitter-clojure
+extensions: [".clj", ".cljs", ".cljc", ".edn"]
+queries:
+  # === Entity queries ===
+  # Clojure is homoiconic — all code is nested list literals.
+  # Definitions like (defn name ...) are list_lit where the first sym_lit
+  # is the defining form and the second sym_lit is the name.
+  - data_key: functions
+    graph_label: Function
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#match? @_def "^defn-?$"))'
+  - data_key: macros
+    graph_label: Macro
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "defmacro"))'
+  - data_key: variables
+    graph_label: Var
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "def"))'
+  - data_key: multimethods
+    graph_label: MultiMethod
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "defmulti"))'
+  - data_key: protocols
+    graph_label: Protocol
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "defprotocol"))'
+  - data_key: records
+    graph_label: Record
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "defrecord"))'
+  - data_key: namespaces
+    graph_label: Namespace
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "ns"))'
+
+  # === Relation queries ===
+  # Function calls: first element of a list_lit is the function being called
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(list_lit (sym_lit) @name)'
+  # Require/use/import forms for dependency tracking
+  - data_key: imports
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(list_lit (sym_lit) @_req (sym_lit) @name (#match? @_req "^(require|use|import)$"))'
+
+# Clojure uses metadata ^:private — no simple keyword-based detection
+exports:
+  strategy: none
+
+# Clojure has no self/this keyword — functions are values
+self_keywords: []
+
+# Clojure doesn't have traditional scoping via tree-sitter context
+context_types: {}
+
+anon_func_types:
+  - anon_fn_lit
+
+# Declaration types for docstring attachment
+declaration_types:
+  - list_lit
+
+# Clojure tree-sitter uses "comment" for ; comments
+comment_types:
+  - comment
+
+# Entry point scoring rules for Clojure
+entry_points:
+  names:
+    - pattern: "-main"
+      score: 80
+    - pattern: "test-*"
+      score: 60
+    - pattern: "run*"
+      score: 40
+    - pattern: "start*"
+      score: 40
+    - pattern: "init*"
+      score: 40
+    - pattern: "*handler"
+      score: 30
+    - pattern: "handler"
+      score: 30
+    - pattern: "app"
+      score: 30
+
+  exported_bonus: 10
+  max_score: 100
+
+  # Clojure has no decorators/annotations — metadata is used instead
+  decorators: []

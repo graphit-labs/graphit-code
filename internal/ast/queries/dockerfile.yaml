@@ -1,0 +1,68 @@
+language: dockerfile
+grammar: tree-sitter-dockerfile
+extensions: ["Dockerfile", ".dockerfile", ".containerfile"]
+queries:
+  # === Entity queries ===
+  - data_key: stages
+    graph_label: Stage
+    pattern: '(from_instruction (image_spec (image_name) @name))'
+  - data_key: stages
+    graph_label: Stage
+    name_capture: alias
+    pattern: '(from_instruction (image_spec) as: (image_alias) @alias)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(run_instruction (shell_command) @name)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(copy_instruction (path) @name)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(expose_instruction (expose_port) @name)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(workdir_instruction (path) @name)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(entrypoint_instruction (json_string_array) @name)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(cmd_instruction (json_string_array) @name)'
+  - data_key: labels
+    graph_label: Label
+    pattern: '(label_instruction (label_pair (unquoted_string) @name))'
+  - data_key: args
+    graph_label: Arg
+    pattern: '(arg_instruction (unquoted_string) @name)'
+  - data_key: variables
+    graph_label: EnvVar
+    pattern: '(env_instruction (env_pair (unquoted_string) @name))'
+
+# Dockerfile is a config format — no export concept
+exports:
+  strategy: none
+
+self_keywords: []
+
+# Stages provide build context for instructions
+context_types:
+  from_instruction: Stage
+
+anon_func_types: []
+
+declaration_types:
+  - from_instruction
+  - arg_instruction
+  - label_instruction
+  - env_instruction
+
+# Dockerfile tree-sitter uses "comment" for # comments
+comment_types:
+  - comment
+
+# Dockerfile has no entry points — it's a build configuration format
+entry_points:
+  names: []
+  exported_bonus: 0
+  max_score: 0
+  decorators: []

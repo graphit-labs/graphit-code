@@ -17,6 +17,10 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/sugarme/tokenizer v0.3.0
 	github.com/tree-sitter-grammars/tree-sitter-xml v0.7.0
+	github.com/tree-sitter-grammars/tree-sitter-zig v1.1.2
+	github.com/tree-sitter/tree-sitter-haskell v0.23.1
+	github.com/tree-sitter/tree-sitter-json v0.24.8
+	github.com/tree-sitter/tree-sitter-julia v0.25.0
 	github.com/yalue/onnxruntime_go v1.30.1
 	golang.org/x/term v0.42.0
 	golang.org/x/text v0.36.0

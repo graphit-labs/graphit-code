@@ -1,0 +1,59 @@
+language: hcl
+grammar: tree-sitter-hcl
+extensions: [".tf", ".hcl", ".tfvars"]
+queries:
+  # === Entity queries ===
+  # HCL uses blocks with type labels: resource "type" "name" { ... }
+  - data_key: resources
+    graph_label: Resource
+    pattern: '(block (identifier) @_type (string_lit) @_rtype (string_lit) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(block (identifier) @_type (string_lit) @name)'
+  - data_key: outputs
+    graph_label: Output
+    pattern: '(block (identifier) @_type (string_lit) @name)'
+  - data_key: modules
+    graph_label: Module
+    pattern: '(block (identifier) @_type (string_lit) @name)'
+  - data_key: data_sources
+    graph_label: Data
+    pattern: '(block (identifier) @_type (string_lit) @_dtype (string_lit) @name)'
+  - data_key: locals
+    graph_label: Local
+    pattern: '(block (identifier) @name)'
+  - data_key: providers
+    graph_label: Provider
+    pattern: '(block (identifier) @_type (string_lit) @name)'
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(attribute (identifier) @name)'
+
+# HCL/Terraform has no export system
+exports:
+  strategy: none
+
+# HCL does not use self/this
+self_keywords: []
+
+# Parent context type mapping — HCL tree-sitter node types only
+context_types:
+  block: Resource
+
+# HCL has no anonymous function types
+anon_func_types: []
+
+# Declaration node types for docstring attachment
+declaration_types:
+  - block
+
+# HCL tree-sitter uses a single "comment" node type for # and // comments
+comment_types:
+  - comment
+
+# Entry point scoring — not applicable for Terraform/HCL config files
+entry_points:
+  names: []
+  exported_bonus: 0
+  max_score: 0
+  decorators: []

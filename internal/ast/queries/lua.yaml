@@ -1,0 +1,77 @@
+language: lua
+grammar: tree-sitter-lua
+extensions: [".lua"]
+queries:
+  # === Entity queries ===
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_statement (function_name) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_statement name: (function_name) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(variable_declaration (variable_declarator (identifier) @name))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter_list (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field (identifier) @name)'
+
+  # === Relation queries ===
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(function_call (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(function_call (identifier) @name)'
+
+# Lua has no native export system
+exports:
+  strategy: none
+
+# Lua uses self for OOP-style method calls
+self_keywords: ["self."]
+
+# Parent context type mapping — Lua tree-sitter node types only
+context_types:
+  function_statement: Function
+
+# Lua has anonymous functions that can be assigned to variables
+anon_func_types:
+  - function_body
+
+# Declaration node types for docstring attachment
+declaration_types:
+  - function_statement
+  - variable_declaration
+
+# Lua tree-sitter uses a single "comment" node type for -- and --[[ ]] comments
+comment_types:
+  - comment
+
+# Entry point scoring rules for Lua
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "run*"
+      score: 60
+    - pattern: "init*"
+      score: 40
+    - pattern: "setup*"
+      score: 40
+    - pattern: "new*"
+      score: 30
+    - pattern: "on_*"
+      score: 30
+    - pattern: "update*"
+      score: 20
+
+  exported_bonus: 0
+  max_score: 100
+
+  decorators: []

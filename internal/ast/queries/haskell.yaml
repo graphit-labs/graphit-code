@@ -1,0 +1,94 @@
+language: haskell
+grammar: tree-sitter-haskell
+extensions: [".hs", ".lhs"]
+queries:
+  # === Entity queries ===
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function (variable) @name)'
+  - data_key: signatures
+    graph_label: TypeSignature
+    pattern: '(signature (variable) @name)'
+  - data_key: data_types
+    graph_label: DataType
+    pattern: '(data_type name: (name) @name)'
+  - data_key: type_classes
+    graph_label: TypeClass
+    pattern: '(class name: (name) @name)'
+  - data_key: instances
+    graph_label: Instance
+    pattern: '(instance name: (name) @name)'
+  - data_key: modules
+    graph_label: Module
+    pattern: '(module) @name'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import module: (module) @name)'
+  - data_key: constructors
+    graph_label: Constructor
+    pattern: '(data_constructor constructor: (prefix name: (constructor) @name))'
+
+  # === Relation queries ===
+  - data_key: imports
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(import module: (module) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(apply (variable) @name)'
+
+# Haskell uses module export lists — no simple keyword-based detection
+exports:
+  strategy: none
+
+# Haskell has no self/this keyword — functions are pure
+self_keywords: []
+
+# Parent context type mapping — Haskell tree-sitter node types
+context_types:
+  function: Function
+  data_type: DataType
+  class: TypeClass
+
+anon_func_types:
+  - lambda
+
+# Declaration node types for docstring attachment
+declaration_types:
+  - function
+  - signature
+  - data_type
+  - class
+  - instance
+
+# Haskell tree-sitter uses "comment" for -- comments and "haddock" for documentation
+comment_types:
+  - comment
+  - haddock
+
+# Entry point scoring rules for Haskell
+entry_points:
+  names:
+    - pattern: main
+      score: 80
+    - pattern: "run*"
+      score: 40
+    - pattern: "spec*"
+      score: 60
+    - pattern: "test*"
+      score: 60
+    - pattern: "prop_*"
+      score: 50
+    - pattern: "bench*"
+      score: 50
+    - pattern: defaultMain
+      score: 70
+    - pattern: hspec
+      score: 60
+
+  exported_bonus: 10
+  max_score: 100
+
+  # Haskell has no decorators/annotations
+  decorators: []
