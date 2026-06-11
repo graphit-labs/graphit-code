@@ -25,7 +25,7 @@ It parses source files into an in-memory graph database, enabling AI agents to t
 
 ## 🌐 Supported Languages
 
-Graphit Code supports **21 programming languages** via Tree-sitter and ANTLR v4 parsers. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires registering its CGO bindings in the native Go runner; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
+Graphit Code supports **22 programming languages** via Tree-sitter and ANTLR v4 parsers. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires registering its CGO bindings in the native Go runner; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
 
 | # | Language | Parser | Extensions | Key Extracted Entities |
 |---|---|---|---|---|
@@ -50,6 +50,7 @@ Graphit Code supports **21 programming languages** via Tree-sitter and ANTLR v4 
 | 19 | **PostgreSQL** | ANTLR v4 | `.sql`, `.pgsql`, `.plpgsql`, `.pg` | Function, Procedure, Table, View, MaterializedView, Schema, Trigger, Sequence, Index, Extension, Type (domain/composite/enum/range), Column, Parameter, Constraint, Variable |
 | 20 | **DB2** | ANTLR v4 | `.sql`, `.db2` | Function, StoredProcedure, Table, View, Trigger, Index, Sequence, Type, Schema, Alias, Tablespace, Column, Parameter, Variable |
 | 21 | **T-SQL** | ANTLR v4 | `.sql`, `.tsql` | StoredProcedure, Function, Table, View, Trigger, Index, Sequence, Type, Schema, Column, Parameter, Variable |
+| 22 | **COBOL 85** | ANTLR v4 | `.cob`, `.cbl`, `.cpy`, `.cobol` | Program, Section, Paragraph, DataItem, FileDescription, ConditionName |
 
 ### Cross-Language Extraction Capabilities
 
@@ -57,16 +58,16 @@ For every supported language, the parser extracts the following relationship dat
 
 | Capability | Description | Languages |
 |---|---|---|
-| **Function Calls** | Traces which functions/methods call which others | All 21 |
+| **Function Calls** | Traces which functions/methods call which others | All 22 |
 | **Import Resolution** | Maps module dependencies and import chains | All except SQL dialects |
 | **Class Inheritance** | `extends` / superclass relationships | JS, TS, Python, Java, C#, C++, Kotlin, Swift, Dart, PHP, Ruby |
 | **Interface Implementation** | `implements` / protocol conformance | TS, Java, C#, Kotlin, PHP, Rust |
 | **Field Access Tracking** | Reads and writes to class/struct fields | Go, JS, TS, Java, C#, C, C++, Kotlin, Swift, Python, Rust, PHP, Ruby |
 | **Decorator / Annotation** | Attribute / annotation extraction | TS, Python, Java, C#, Kotlin, Swift, Rust, PHP |
 | **Object Instantiation** | `new` expression tracking | JS, TS, Java, C#, C++, PHP |
-| **Cyclomatic Complexity** | Computed for every function/method | All 21 |
-| **Export Visibility** | `is_exported` flag per entity — detection strategy is configurable via the `exports` field in language YAML (see [Export Strategies](#export-strategies)) | All 21 (strategy varies by language) |
-| **DML Tracking** | `SELECTS`, `INSERTS`, `UPDATES`, `DELETES`, `ALTERS`, `DROPS`, `REFERENCES` edges for SQL statements | SQL, PL/SQL, PostgreSQL, T-SQL, DB2 |
+| **Cyclomatic Complexity** | Computed for every function/method | All 22 |
+| **Export Visibility** | `is_exported` flag per entity — detection strategy is configurable via the `exports` field in language YAML (see [Export Strategies](#export-strategies)) | All 22 (strategy varies by language) |
+| **DML Tracking** | `SELECTS`, `INSERTS`, `UPDATES`, `DELETES`, `ALTERS`, `DROPS`, `REFERENCES` edges for SQL statements | SQL, PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85 |
 
 ---
 
@@ -168,7 +169,7 @@ Tree-sitter grammars are compiled and integrated directly as Go libraries using 
 
 ### ANTLR v4 Go Native Architecture
 
-ANTLR SQL grammars (PL/SQL, PostgreSQL, T-SQL, DB2) are compiled into native Go code. Each grammar implements the `GrammarDriver` interface and is registered in a driver registry. The adapter uses a multi-grammar fallback mechanism — when multiple grammars support the same extension (e.g., `.sql`), they are tried in sequence until one successfully extracts entities. SLL/LL parsing strategy helpers handle fast-path prediction under each grammar's `parser_sll_ll.go`. Patterns in ANTLR YAML files use **XPath syntax** (e.g., `//create_function_body/function_name`) instead of Tree-sitter S-expressions.
+ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) are compiled into native Go code. Each grammar implements the `GrammarDriver` interface and is registered in a driver registry. The adapter uses a multi-grammar fallback mechanism — when multiple grammars support the same extension (e.g., `.sql`), they are tried in sequence until one successfully extracts entities. SLL/LL parsing strategy helpers handle fast-path prediction under each grammar's `parser_sll_ll.go`. Patterns in ANTLR YAML files use **XPath syntax** (e.g., `//create_function_body/function_name`) instead of Tree-sitter S-expressions.
 
 ### Grammar Resolution Chain
 
@@ -213,7 +214,7 @@ Bridges the native Go ANTLR runtime with the indexing pipeline. Uses a `GrammarD
 4. Runs XPath pattern matching and extracts entities.
 5. Returns a `ParsedFile` with structured data for graph insertion.
 
-When multiple ANTLR grammars support the same extension (e.g., `.sql`), the adapter tries each in sequence (PL/SQL → PostgreSQL → DB2 → T-SQL) and returns the first result that successfully extracts entities.
+When multiple ANTLR grammars support the same extension (e.g., `.sql`), the adapter tries each in sequence (PL/SQL → PostgreSQL → DB2 → T-SQL → COBOL 85) and returns the first result that successfully extracts entities.
 
 ### `--grammar` CLI Flag
 
@@ -440,7 +441,7 @@ Query files are resolved using a cascading priority system. For each language, t
 ```
 
 **Key behaviors:**
-- The launcher automatically extracts all 21 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
+- The launcher automatically extracts all 22 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
 - The **runtime directory is version-scoped** — each binary version gets its own clean set of defaults, so upgrades never conflict with previous versions.
 - The **user global directory** (`~/.graphit/ast/queries/`) is never touched by the framework. Only the user creates/edits files there.
 - If a **project** has a `go.yaml`, only Go queries come from the project level; other languages still resolve normally through user → runtime.
@@ -474,6 +475,7 @@ Query files are resolved using a cascading priority system. For each language, t
             │   ├── postgresql.yaml
             │   ├── tsql.yaml
             │   ├── db2.yaml
+            │   ├── cobol85.yaml
             │   ├── rust.yaml
             │   ├── sql.yaml
             │   ├── swift.yaml

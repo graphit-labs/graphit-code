@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	antlrcommon "github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
+	"github.com/graphit-labs/graphit-code/internal/ast/antlr/cobol85"
 	"github.com/graphit-labs/graphit-code/internal/ast/antlr/db2"
 	"github.com/graphit-labs/graphit-code/internal/ast/antlr/plsql"
 	"github.com/graphit-labs/graphit-code/internal/ast/antlr/postgresql"
@@ -17,6 +18,7 @@ var antlrDrivers = map[string]antlrcommon.GrammarDriver{
 	"antlr-postgresql": &postgresql.Driver{},
 	"antlr-tsql":       &tsql.Driver{},
 	"antlr-db2":        &db2.Driver{},
+	"antlr-cobol85":    &cobol85.Driver{},
 }
 
 // antlrExtMap maps file extensions to ANTLR language configs.

@@ -240,7 +240,7 @@ fmt:
 	gofmt -w .
 
 vet:
-	go vet $$(go list ./... | grep -v "/antlr/plsql" | grep -v "/antlr/postgresql" | grep -v "/antlr/tsql" | grep -v "/antlr/db2")
+	go vet $$(go list ./... | grep -v "/antlr/plsql" | grep -v "/antlr/postgresql" | grep -v "/antlr/tsql" | grep -v "/antlr/db2" | grep -v "/antlr/cobol85")
 
 # ── CI reproduce (matches .github/workflows/ci.yml) ──────────────────────────
 # Run all checks that GitHub Actions runs, in the same order.

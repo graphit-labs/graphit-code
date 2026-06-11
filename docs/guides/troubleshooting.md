@@ -324,7 +324,7 @@ graphit daemon status
 
 **Cause:** The AST parser uses Tree-sitter and ANTLR v4 grammars. Languages without a compiled grammar will be skipped during indexing.
 
-**Currently supported languages (21):** Go, Python, JavaScript, TypeScript, TSX, Java, Rust, C, C++, C#, Kotlin, Swift, Dart, PHP, Ruby, SQL, XML (via Tree-sitter), and PL/SQL, PostgreSQL, T-SQL, DB2 (via ANTLR v4).
+**Currently supported languages (22):** Go, Python, JavaScript, TypeScript, TSX, Java, Rust, C, C++, C#, Kotlin, Swift, Dart, PHP, Ruby, SQL, XML (via Tree-sitter), and PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85 (via ANTLR v4).
 
 **Diagnosis:** Check the indexing output for skipped files or run with verbose logging.
 

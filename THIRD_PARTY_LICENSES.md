@@ -196,6 +196,22 @@ THE SOFTWARE.
 
 ---
 
+### ANTLR COBOL 85 Grammar
+
+- **License:** BSD-3-Clause
+- **Source:** https://github.com/antlr/grammars-v4/tree/master/cobol85
+
+```
+COBOL 85 Grammar.
+BSD-3-Clause License.
+Copyright (c) 2017, Ulrich Wolffgang <u.wol@wwu.de>
+
+This software may be modified and distributed under the terms
+of the BSD 3-clause license. See the LICENSE file for details.
+```
+
+---
+
 ### tree-sitter-clojure (Vendored Parser)
 
 - **License:** MIT
