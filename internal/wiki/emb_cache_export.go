@@ -20,8 +20,9 @@ type PortableEmbCache struct {
 const portableEmbCacheVersion = 1
 
 // ExportEmbeddingCache exports all embeddings to a portable JSON cache file.
-// DEPRECATED: New code should use WikiProcessCache.ExportAllEmbeddingsFromDB
-// which stores per-file .emb.json shards. This is kept for backward compatibility.
+// It stores per-file .emb.json shards. This is kept for backward compatibility.
+//
+// Deprecated: New code should use WikiProcessCache.ExportAllEmbeddingsFromDB.
 func (w *WikiDB) ExportEmbeddingCache(destDir string) (int, error) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()

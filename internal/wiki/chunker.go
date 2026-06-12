@@ -195,7 +195,9 @@ func emitSections(
 	chunks *[]SemanticChunk,
 ) {
 	for _, sec := range sections {
-		stack := append(headingStack, sec.title)
+		stack := make([]string, len(headingStack), len(headingStack)+1)
+		copy(stack, headingStack)
+		stack = append(stack, sec.title)
 		breadcrumb := strings.Join(stack, " > ")
 
 		// Collect body content: all non-heading children in this section's range,
@@ -633,14 +635,7 @@ func extractChunkSummary(body string) string {
 	return ""
 }
 
-// isAtomicNode returns true for nodes that should never be split.
-func isAtomicNode(nodeType string) bool {
-	switch nodeType {
-	case "fenced_code_block", "html_block", "table", "block_quote":
-		return true
-	}
-	return false
-}
+
 
 // skipFrontmatter removes YAML frontmatter (--- delimited) from the beginning
 // of the content. This reuses the same logic as stripYAMLFrontmatter but is

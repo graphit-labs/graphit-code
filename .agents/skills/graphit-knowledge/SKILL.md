@@ -5,7 +5,7 @@ description: Manages project documentation, knowledge wiki, and integration spec
 
 # Knowledge Maintenance Rule
 
-> This rule is auto-managed by Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems. Do not edit this block manually.
+> This rule is auto-managed by Graphit Code: AI Harness for Collaborative and Progressive Knowledge. Do not edit this block manually.
 
 > ⚠️ **UNIVERSAL APPLICABILITY** — This documentation workflow applies to the
 > project you are currently working in, regardless of its nature: end-user application,

@@ -5,7 +5,7 @@ description: Persistent memory across sessions. MANDATORY: Read memory indexes a
 
 # Memory Management Rule
 
-> This rule is auto-managed by Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems. Do not edit this block manually.
+> This rule is auto-managed by Graphit Code: AI Harness for Collaborative and Progressive Knowledge. Do not edit this block manually.
 
 ## 🚨 SESSION START PROTOCOL — Execute BEFORE Any Response
 
