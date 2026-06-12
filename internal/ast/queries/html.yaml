@@ -1,0 +1,159 @@
+# HTML — Tree-sitter grammar for HTML5
+# Comprehensive entity extraction: elements, attributes, forms, links,
+# scripts, styles, meta tags, semantic sections, tables, lists, media,
+# and embedded content references.
+language: html
+grammar: tree-sitter-html
+extensions: [".html", ".htm"]
+
+queries:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ELEMENTS (all named tags)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # Standard elements with open/close tags
+  - data_key: elements
+    graph_label: Element
+    pattern: '(start_tag (tag_name) @name)'
+
+  # Self-closing elements (e.g., <br/>, <img/>, <input/>)
+  - data_key: elements
+    graph_label: Element
+    pattern: '(self_closing_tag (tag_name) @name)'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ATTRIBUTES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ID attributes (unique identifiers — high-value for AST)
+  - data_key: ids
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "id"))'
+    type: relation
+    relation_type: REFERENCES
+
+  # Class attributes
+  - data_key: classes
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "class"))'
+    type: relation
+    relation_type: REFERENCES
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # LINKS & NAVIGATION
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # href attributes (links, stylesheets, anchors)
+  - data_key: hrefs
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "href"))'
+    type: relation
+    relation_type: REFERENCES
+
+  # src attributes (scripts, images, iframes, video, audio)
+  - data_key: srcs
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "src"))'
+    type: relation
+    relation_type: REFERENCES
+
+  # action attributes (form targets)
+  - data_key: actions
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "action"))'
+    type: relation
+    relation_type: REFERENCES
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # EMBEDDED CONTENT
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # Script elements
+  - data_key: scripts
+    graph_label: Element
+    pattern: '(script_element (start_tag (tag_name) @name))'
+
+  # Style elements
+  - data_key: styles
+    graph_label: Element
+    pattern: '(style_element (start_tag (tag_name) @name))'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DATA ATTRIBUTES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # name attributes (form fields, meta, anchors)
+  - data_key: names
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "name"))'
+    type: relation
+    relation_type: REFERENCES
+
+  # data-* attributes (custom data binding)
+  - data_key: data_attrs
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @name (#match? @name "^data-"))'
+    type: relation
+    relation_type: REFERENCES
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FRAMEWORK INTEGRATION
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # for attributes (label-input binding)
+  - data_key: label_fors
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "for"))'
+    type: relation
+    relation_type: REFERENCES
+
+  # aria-* attributes (accessibility)
+  - data_key: aria_attrs
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @name (#match? @name "^aria-"))'
+    type: relation
+    relation_type: REFERENCES
+
+  # role attributes (WAI-ARIA roles)
+  - data_key: roles
+    graph_label: ""
+    pattern: '(attribute (attribute_name) @_attr (quoted_attribute_value (attribute_value) @name) (#eq? @_attr "role"))'
+    type: relation
+    relation_type: REFERENCES
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  element: Element
+  script_element: Element
+  style_element: Element
+
+anon_func_types: []
+
+declaration_types: []
+
+comment_types:
+  - comment
+
+entry_points:
+  names:
+    - pattern: "index"
+      score: 80
+    - pattern: "main"
+      score: 60
+    - pattern: "home"
+      score: 50
+    - pattern: "app"
+      score: 50
+    - pattern: "layout"
+      score: 40
+    - pattern: "base"
+      score: 40
+    - pattern: "template"
+      score: 30
+  exported_bonus: 0
+  max_score: 100
+  decorators: []

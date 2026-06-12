@@ -15,6 +15,7 @@ import (
 	"github.com/smacker/go-tree-sitter/golang"
 	"github.com/smacker/go-tree-sitter/groovy"
 	"github.com/smacker/go-tree-sitter/hcl"
+	"github.com/smacker/go-tree-sitter/html"
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/javascript"
 	"github.com/smacker/go-tree-sitter/kotlin"
@@ -89,6 +90,7 @@ var tsLangs = map[string]*sitter.Language{
 	"tree-sitter-scala":      scala.GetLanguage(),
 	"tree-sitter-lua":        lua.GetLanguage(),
 	"tree-sitter-hcl":        hcl.GetLanguage(),
+	"tree-sitter-html":       html.GetLanguage(),
 	"tree-sitter-yaml":       yaml.GetLanguage(),
 	"tree-sitter-elixir":     elixir.GetLanguage(),
 	"tree-sitter-groovy":     groovy.GetLanguage(),
