@@ -372,7 +372,8 @@ func markCommentEntries(lines []*CobolLine, format CobolSourceFormat) []*CobolLi
 				result[i] = escapeCommentEntry(line)
 			} else if foundTriggerInPrevious || isInCommentEntry {
 				isContentAreaAEmpty := strings.TrimSpace(line.ContentAreaA) == ""
-				isInCommentEntry = line.Type == LineComment || isContentAreaAEmpty
+				isInCommentEntry = (line.Type == LineComment || isContentAreaAEmpty) &&
+					!startsWithTrigger(line, commentEntryTriggersEnd)
 
 				if isInCommentEntry {
 					result[i] = &CobolLine{
