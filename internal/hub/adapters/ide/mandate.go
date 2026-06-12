@@ -18,7 +18,7 @@ var legacyHTMLBlocks = []string{
 
 var MandateBlockName = strings.ToUpper(brand.Brand) + "_SYSTEM_MANDATE"
 
-var SysReminder = "\n\n_SYS_REMINDER: Mandate active: <" + brand.Brand + "> required. No grep for structure. If external, use Hub. If code changed, update ./tasks/ & " + brand.Brand + "_sync."
+var SysReminder = "\n\n_SYS_REMINDER: Mandate active: <" + brand.Brand + "> required. MCP-first: never read index.md directly. No grep for structure — use AST. If external, use Hub. If code changed, update docs/tasks/ & " + brand.Brand + "_sync."
 
 func mandatePreamble() string {
 	tag := brand.Brand

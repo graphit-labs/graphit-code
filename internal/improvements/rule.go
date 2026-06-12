@@ -29,9 +29,11 @@ var improvementsSkillName = brand.SkillDirName("improvements")
 
 func MandateTrigger() string {
 	dreamAddRef := brand.MCPToolRef("dream", "subject_add")
-	return "TRIGGER: User asks to improve/audit/review/refactor → read `" + improvementsSkillName + "` skill FIRST. " +
-		"REFLECTION: After any significant task → evaluate and memorize learnings. " +
-		"DREAM: Queue deferred work via " + dreamAddRef + "."
+	memInsertRef := brand.MCPToolRef("memory", "insert")
+	return "TRIGGER: User asks to improve/audit/review/refactor → read `" + improvementsSkillName + "` skill FIRST, then follow its methodology. " +
+		"REFLECTION: After any significant task → evaluate learnings, save via " + memInsertRef + ", stage Hub artifacts. " +
+		"DREAM: Queue deferred/out-of-scope improvements via " + dreamAddRef + " — never ignore improvement opportunities. " +
+		"RULE: Never improvise your own review process — the skill contains the full engineering analysis methodology."
 }
 
 

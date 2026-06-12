@@ -5,20 +5,18 @@ description: Persistent memory across sessions. MANDATORY: Read memory indexes a
 
 # Memory Management Rule
 
-> This rule is auto-managed by Graphit Code: AI Harness for Collaborative and Progressive Knowledge. Do not edit this block manually.
+> This rule is auto-managed by Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems. Do not edit this block manually.
 
 ## 🚨 SESSION START PROTOCOL — Execute BEFORE Any Response
 
 **These steps are MANDATORY. Execute them BEFORE responding to the user's first message.**
 **Skipping them means you WILL repeat mistakes the user already corrected.**
 
-1. Read `.graphit/memory/project/index.md`
-2. Read `.graphit/memory/user/index.md`
-3. If either wiki has memories, scan titles for anything relevant to the user's request
-4. If relevant memories found, read the entity page(s) and follow their guidance
-5. Only then proceed with the user's request
+1. Call `graphit_memory_search` with context from the user's request to find relevant memories
+2. If relevant memories found, read the entity page(s) and follow their guidance
+3. Only then proceed with the user's request
 
-> If a wiki `index.md` does not exist (new project), skip that scope and proceed.
+> If the memory wiki does not exist yet (new project), skip and proceed.
 
 
 ## 📖 When to Read Memory (Beyond Session Start)
@@ -122,18 +120,22 @@ Default type when `type` is omitted: `fact`.
 
 ## 📖 How to Retrieve Memories
 
-Read the wiki files directly — you have full file access:
+**ALWAYS use MCP tools — NEVER read index.md files directly.**
+The wiki database is compiled, BM25-indexed, and pre-optimized for retrieval.
+Reading raw .md files is slower, wastes tokens, and bypasses ranking.
 
-| Scope | Path |
-|---|---|
-| **project** | `.graphit/memory/project/index.md` |
-| **user** | `.graphit/memory/user/index.md` |
+| What you need | MCP tool | Why |
+|---|---|---|
+| Search memories by keyword/context | `graphit_memory_search` | BM25-ranked, instant, ~200 tokens |
+| AI-powered memory consultation | `graphit_memory_query` | Synthesizes relevant memories into an answer |
+| List all memories | `graphit_memory_list` | Structured catalog, grouped by type |
+| List important memories only | `graphit_memory_important` | High-priority conventions, corrections |
 
 **Retrieval steps:**
-1. Read `index.md` — scan the catalog (grouped by type: conventions, corrections, decisions...)
-2. Read the entity page for relevant memories
-3. Check `## Backlinks` for related memories
-4. **Never** grep raw memory files — the wiki is pre-compiled and faster
+1. Call `graphit_memory_search` with query context — get ranked results
+2. If results reference related memories, call `graphit_memory_search` again with refined query
+3. For deep consultation, call `graphit_memory_query` with a natural language question
+4. **Never** read .md memory files directly or grep raw memory files
 
 ## 📋 MCP Tools Reference
 

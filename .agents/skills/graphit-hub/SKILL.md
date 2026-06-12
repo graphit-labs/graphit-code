@@ -20,7 +20,7 @@ The Hub provides these artifact types — each serves a different purpose:
 
 | Type | What it provides | After installation |
 |---|---|---|
-| `knowledge` | Pre-indexed documentation wiki for a framework/library | Read the wiki at `.graphit/knowledge/<id>/index.md` |
+| `knowledge` | Pre-indexed documentation wiki for a framework/library | Search via `graphit_knowledge_search` or `graphit_wiki_search` |
 | `ast` | Pre-indexed code graph of a framework's source code | Query via `graphit_ast_query` tool (passing absolute `project_dir` and setting `context` parameter to the artifact ID) |
 | `rule` | Coding conventions, style guides, governance rules | Auto-injected into IDE rules file |
 | `skill` | Detailed methodology for specific tasks (e.g. testing, migration) | Available as an on-demand skill |
@@ -69,7 +69,7 @@ graphit_hub_unlink(project_dir: "/path/to/project", name: "<name>", type: "<type
 
 Once installed, artifacts enhance your capabilities automatically:
 
-- **Knowledge**: Read the wiki `.graphit/knowledge/<id>/index.md` to understand
+- **Knowledge**: Search the wiki via `graphit_knowledge_search` or `graphit_wiki_search` to understand
   a framework's API, architecture, and patterns — never guess.
 - **AST**: Query the code graph of the installed context using the `graphit_ast_query` tool (passing absolute `project_dir` and setting `context` parameter to the installed artifact ID).
 - **Rules**: Automatically injected — follow the conventions they define.
@@ -117,10 +117,7 @@ Each sibling project entry includes:
   ```
   graphit_ast_query(project_dir: "/path/to/other-project", query: "MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path", ai_optimized: true)
   ```
-- **Read another project's knowledge wiki** — understand its architecture without grepping by using the `view_file` (or read file) tool on:
-  ```
-  /path/to/other-project/.graphit/knowledge/project/index.md
-  ```
+- **Read another project's knowledge wiki** — understand its architecture without grepping by calling `graphit_wiki_search` with the other project's `project_dir`
 - **Make cross-project changes** — if the user asks to modify code in another project,
   use the path from the tool output to locate, read, and edit files there directly
 

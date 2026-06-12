@@ -924,9 +924,14 @@ var knowledgeSkillName = brand.SkillDirName("knowledge")
 func MandateTrigger() string {
 	syncRef := brand.MCPToolRef("sync")
 	searchRef := brand.MCPToolRef("knowledge", "search")
-	return "POST_CHANGE: After ANY code change → create/update `./tasks/<task-name>.md`, then call " + syncRef + ". " +
-		"SEARCH: Call " + searchRef + " BEFORE grepping docs/. " +
-		"INTEGRATION: Never guess APIs → check Hub first, then search wiki."
+	browseRef := brand.MCPToolRef("wiki", "browse")
+	xrefsRef := brand.MCPToolRef("wiki", "xrefs")
+	return "POST_CHANGE: After ANY code change → create/update `docs/tasks/<task-name>.md`, then call " + syncRef + ". " +
+		"SEARCH: Call " + searchRef + " or " + browseRef + " to find project knowledge. " +
+		"NEVER read .graphit/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized. " +
+		"NEVER grep docs/ for project understanding — wiki search costs ~500 tokens vs grep scanning all files. " +
+		"XREFS: Call " + xrefsRef + " to find cross-references — pre-computed, zero-cost. " +
+		"INTEGRATION: Never guess APIs → check Hub first, then search wiki via MCP."
 }
 
 

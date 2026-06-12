@@ -11,7 +11,7 @@ import (
 
 
 func RuleContent(contexts []string) string {
-	dotBrand := brand.DotDir()
+	_ = contexts // contexts are managed by the wiki DB; callers may pass them but they're not used in the rule text
 	displayName := brand.DisplayName
 
 	memInsertRef := brand.MCPToolRef("memory", "insert")
@@ -152,27 +152,25 @@ func RuleContent(contexts []string) string {
 		"",
 		"## 📖 How to Retrieve Memories",
 		"",
-		"Read the wiki files directly — you have full file access:",
+		"**ALWAYS use MCP tools — NEVER read index.md files directly.**",
+		"The wiki database is compiled, BM25-indexed, and pre-optimized for retrieval.",
+		"Reading raw .md files is slower, wastes tokens, and bypasses ranking.",
 		"",
-		"| Scope | Path |",
-		"|---|---|",
-		"| **project** | `"+dotBrand+"/memory/project/index.md` |",
-		"| **user** | `"+dotBrand+"/memory/user/index.md` |",
+		"| What you need | MCP tool | Why |",
+		"|---|---|---|",
+		"| Search memories by keyword/context | " + memSearchRef + " | BM25-ranked, instant, ~200 tokens |",
+		"| AI-powered memory consultation | `" + memQuery + "` | Synthesizes relevant memories into an answer |",
+		"| List all memories | `" + memList + "` | Structured catalog, grouped by type |",
+		"| List important memories only | `" + memImportant + "` | High-priority conventions, corrections |",
 	)
-
-	for _, ctx := range contexts {
-		lines = append(lines,
-			"| **"+ctx+"** | `"+dotBrand+"/memory/"+ctx+"/index.md` |",
-		)
-	}
 
 	lines = append(lines,
 		"",
 		"**Retrieval steps:**",
-		"1. Read `index.md` — scan the catalog (grouped by type: conventions, corrections, decisions...)",
-		"2. Read the entity page for relevant memories",
-		"3. Check `## Backlinks` for related memories",
-		"4. **Never** grep raw memory files — the wiki is pre-compiled and faster",
+		"1. Call " + memSearchRef + " with query context — get ranked results",
+		"2. If results reference related memories, call " + memSearchRef + " again with refined query",
+		"3. For deep consultation, call `" + memQuery + "` with a natural language question",
+		"4. **Never** read .md memory files directly or grep raw memory files",
 		"",
 		"## 📋 MCP Tools Reference",
 		"",
@@ -258,9 +256,12 @@ var memorySkillName = brand.SkillDirName("memory")
 func MandateTrigger() string {
 	memInsertRef := brand.MCPToolRef("memory", "insert")
 	memSearchRef := brand.MCPToolRef("memory", "search")
-	return "SESSION_START: Call " + memSearchRef + " with context from the user's request BEFORE first response. " +
-		"SAVE: User corrects/guides/instructs → " + memInsertRef + ". Task done → " + memInsertRef + ". Design decision → " + memInsertRef + ". " +
-		"READ: Before significant changes or when stuck → " + memSearchRef + "."
+	memQueryRef := brand.MCPToolRef("memory", "query")
+	return "SESSION_START: Call " + memSearchRef + " BEFORE first response to recall relevant context. " +
+		"NEVER read .graphit/memory/*/index.md directly — use " + memSearchRef + " or " + memQueryRef + " (MCP is indexed, faster, token-efficient). " +
+		"SAVE: User corrects/guides/instructs → " + memInsertRef + " immediately. Task done → " + memInsertRef + ". Design decision → " + memInsertRef + ". " +
+		"READ: Before significant changes or when stuck (2+ failures) → " + memSearchRef + ". " +
+		"RULE: This framework IS your memory. Never use IDE/model memory. Never say 'understood' without evaluating if the instruction should be memorized."
 }
 
 

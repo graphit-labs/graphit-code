@@ -550,9 +550,13 @@ var astSkillName = brand.SkillDirName("ast")
 func MandateTrigger() string {
 	astQueryRef := brand.MCPToolRef("ast", "query")
 	astSearchRef := brand.MCPToolRef("ast", "search")
-	return "STRUCTURAL_QUERIES: ALWAYS use " + astQueryRef + " (ai_optimized:true) for finding definitions, callers, imports, inheritance. " +
-		"DISCOVERY: Use " + astSearchRef + " for keyword/semantic code search. " +
-		"GREP_ONLY: When you know the exact literal string AND file path. Never grep for structural queries."
+	astSourceRef := brand.MCPToolRef("ast", "source")
+	syncRef := brand.MCPToolRef("sync")
+	return "STRUCTURAL_QUERIES: ALWAYS use " + astQueryRef + " (ai_optimized:true) for definitions, callers, imports, inheritance, impact analysis. " +
+		"DISCOVERY: Use " + astSearchRef + " for keyword/semantic code search (hybrid BM25+vector). " +
+		"NEVER grep for structural queries — AST is O(1) indexed, grep is O(n) with false positives. " +
+		"SOURCE: Use " + astSourceRef + " for file content discovered via AST; use native file tools only when path is already known. " +
+		"SYNC: After ANY source file modification → call " + syncRef + "."
 }
 
 

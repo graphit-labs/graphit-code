@@ -1,11 +1,11 @@
 ---
 name: graphit-knowledge
-description: Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, you MUST create/update documentation in ./ and run sync. Read the knowledge wiki (index.md) BEFORE searching ./ with grep. Use this skill whenever understanding project features, creating documentation, or working with integrations.
+description: Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, you MUST create/update documentation in ./ and run sync. Search the knowledge wiki BEFORE searching ./ with grep. Use this skill whenever understanding project features, creating documentation, or working with integrations.
 ---
 
 # Knowledge Maintenance Rule
 
-> This rule is auto-managed by Graphit Code: AI Harness for Collaborative and Progressive Knowledge. Do not edit this block manually.
+> This rule is auto-managed by Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems. Do not edit this block manually.
 
 > ⚠️ **UNIVERSAL APPLICABILITY** — This documentation workflow applies to the
 > project you are currently working in, regardless of its nature: end-user application,
@@ -114,21 +114,21 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 
 | Your tool | Wiki equivalent | Why wiki wins |
 |---|---|---|
-| `grep -r "auth" ./` | Read `index.md` → find auth entity → follow link | Wiki: 1 page read. Grep: reads ALL files |
-| Semantic search across ./ | Read `index.md` → scan catalog | Wiki: structured scan. Semantic: noisy, expensive |
-| Reading every .md in ./ | Read `index.md` (~2000 tokens for 80 pages) | Wiki: 40% fewer tokens, pre-summarized |
+| `grep -r "auth" ./` | Call `graphit_knowledge_search` → find auth entity → read page | Wiki: 1 search. Grep: reads ALL files |
+| Semantic search across ./ | Call `graphit_knowledge_search` → scan results | Wiki: structured search. Semantic: noisy, expensive |
+| Reading every .md in ./ | Call `graphit_wiki_browse` (~2000 tokens for 80 pages) | Wiki: 40% fewer tokens, pre-summarized |
 | `grep` for reverse references | Check `## Backlinks` section on entity page | Wiki: instant, pre-computed. Grep: O(n) scan |
 
 ### 🔒 When you MUST use the wiki (MANDATORY — no exceptions)
 
 | Scenario | What to do | What NOT to do |
 |---|---|---|
-| **Understanding a feature** | Read `index.md` → find the spec → read it | ❌ Don't grep ./ for keywords |
-| **Finding an ADR / decision** | Read `index.md` → check "Decision" section → follow link | ❌ Don't scan ./decisions/ file by file |
-| **Checking if something is documented** | Read `index.md` → scan the catalog | ❌ Don't use `find` or `ls` on ./ |
+| **Understanding a feature** | Call `graphit_knowledge_search` → find the spec → read it | ❌ Don't grep ./ for keywords |
+| **Finding an ADR / decision** | Call `graphit_knowledge_search` → find decision → read page | ❌ Don't scan ./decisions/ file by file |
+| **Checking if something is documented** | Call `graphit_wiki_browse` → scan the catalog | ❌ Don't use `find` or `ls` on ./ |
 | **Understanding module relationships** | Read community pages and god nodes | ❌ Don't grep for import statements |
-| **Finding all mentions of a concept** | Read the entity page → check `## Backlinks` | ❌ Don't grep across all wiki files |
-| **Checking conventions or patterns** | Read `index.md` → find the guide/spec | ❌ Don't rely on memory or guessing |
+| **Finding all mentions of a concept** | Call `graphit_wiki_xrefs` → get cross-references | ❌ Don't grep across all wiki files |
+| **Checking conventions or patterns** | Call `graphit_knowledge_search` → find the guide/spec | ❌ Don't rely on memory or guessing |
 | **Verifying a fact before coding** | Read the entity page → check `confidence` score | ❌ Don't assume you know the answer |
 | **Tracing a decision's rationale** | Read the ADR page → follow provenance link to raw source | ❌ Don't read raw ./ without wiki context first |
 
@@ -143,10 +143,10 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 
 ### How to search (step-by-step)
 
-**Step 1 — Read `index.md` (ALWAYS start here)**
-  The index is a token-efficient catalog (~2000 tokens for 80 pages).
-  Each entity has a one-line summary, grouped by type.
-  Example entry: `- [[Auth_Module]] — Handles JWT validation and session management`
+**Step 1 — Search the wiki (ALWAYS start here)**
+  Call `graphit_knowledge_search` with your query. This uses FTS5 + BM25 ranking to find the most relevant pages.
+  Alternatively, call `graphit_wiki_browse` for a structured catalog of all entities.
+  The search returns entity summaries, cross-references, and confidence scores.
 
 **Step 2 — Read the frontmatter FIRST (before the body)**
   Every entity page starts with YAML frontmatter. Read it before the body content:
@@ -168,9 +168,9 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 **Step 3 — Follow [[wikilinks]] to expand context**
   Each page links to related pages. Follow them — they are semantically curated.
 
-**Step 4 — Check `## Backlinks` for reverse lookups**
-  Every page has a Backlinks section. This replaces grep for finding
-  "what else mentions X" — pre-computed, zero-cost.
+**Step 4 — Expand with cross-references**
+  Call `graphit_wiki_xrefs` for any entity slug to find all inbound and outbound references.
+  This replaces grep for finding "what else mentions X" — pre-computed, zero-cost.
 
 **Step 5 — Verify via provenance**
   Each page has: `*Provenance: ^[source-file.md]*`.
@@ -184,11 +184,11 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 | Anti-pattern | Why it is a violation |
 |---|---|
 | `grep -r "keyword" .graphit/knowledge/` | Brute-force scan on a compiled database; ignores all structure |
-| Reading ./ files directly without checking wiki first | Skips the pre-compiled summary, wastes tokens on raw content |
-| Using semantic search to find project docs | Wiki index.md is faster and more precise than embedding search |
-| Reading all .md files in wiki/ sequentially | Token bomb; index.md catalogs everything in ~2000 tokens |
+| Reading ./ files directly without searching wiki first | Skips the pre-compiled summary, wastes tokens on raw content |
+| Using semantic search to find project docs | Wiki search is faster and more precise than embedding search |
+| Reading all .md files in wiki/ sequentially | Token bomb; wiki search returns only relevant results |
 | Skipping frontmatter and reading body only | Misses confidence, provenance, type, and freshness metadata |
-| Ignoring `## Backlinks` and grepping for reverse refs | Backlinks are pre-computed; grep is O(n) and noisy |
+| Ignoring cross-references and grepping for reverse refs | Cross-refs are pre-computed; grep is O(n) and noisy |
 | Answering project questions from model memory | Model memory is stale; wiki is incrementally compiled from truth |
 
 ### 🔄 Fallback to Built-In Tools — ONLY for Topics the Wiki Does Not Cover
@@ -200,9 +200,9 @@ the definitive source. Your tools exist only for domains outside the wiki's scop
 
 Your tools are allowed ONLY when ALL of these conditions are true:
 
-1. You **already read `index.md`** and scanned the full catalog
+1. You **already searched the wiki** using `graphit_knowledge_search` or `graphit_wiki_browse`
 2. You **followed relevant [[wikilinks]]** and checked entity pages
-3. You **checked `## Backlinks`** on the most relevant page
+3. You **checked cross-references** using `graphit_wiki_xrefs` on the most relevant page
 4. The wiki **genuinely has no coverage** of the topic (not indexed, not documented)
 5. You **state explicitly** to the user: "The wiki has no coverage of X, falling back to source search"
 
@@ -215,14 +215,14 @@ Examples of valid fallback:
 
 Examples of INVALID fallback (protocol violations):
 - Skipping the wiki because "grep is faster" → ❌ wiki is pre-compiled and always faster
-- Using semantic search without reading index.md first → ❌ index.md costs ~2000 tokens
+- Using semantic search without searching wiki first → ❌ wiki search costs ~500 tokens
 - Grepping ./ because you "didn't find it quickly" in the wiki → ❌ you must complete all 6 steps first
 
 ### Wiki Paths
 
 | Scope | Index path |
 |---|---|
-| **project** (this project) | `.graphit/knowledge/project/index.md` |
+| **project** (this project) | Call `graphit_knowledge_search` or `graphit_wiki_browse` |
 
 ### ⚡ MANDATORY: Sync After Every File Modification
 
@@ -627,19 +627,19 @@ a compiled, cross-referenced wiki.
 
 | Your tool | Wiki equivalent | Why wiki wins |
 |---|---|---|
-| `grep -r "endpoint" ./` | Read `index.md` → find endpoint → follow link | Wiki: 1 page read. Grep: scans all spec files |
+| `grep -r "endpoint" ./` | Call `graphit_knowledge_search` → find endpoint → read page | Wiki: 1 search. Grep: scans all spec files |
 | Reading raw OpenAPI YAML directly | Read wiki entity page (pre-summarized) | Wiki: structured summary with confidence. YAML: verbose, noisy |
-| `grep` for "which APIs use this schema" | Check `## Backlinks` on schema entity page | Wiki: instant reverse lookup. Grep: O(n) scan |
-| Listing ./ to find specs | Read `index.md` → scan by paradigm type | Wiki: grouped catalog. ls: flat listing with no context |
+| `grep` for "which APIs use this schema" | Call `graphit_wiki_xrefs` on schema entity | Wiki: instant reverse lookup. Grep: O(n) scan |
+| Listing ./ to find specs | Call `graphit_wiki_browse` → scan by paradigm type | Wiki: grouped catalog. ls: flat listing with no context |
 
 ### 🔒 When you MUST use the wiki (MANDATORY — no exceptions)
 
 | Scenario | What to do | What NOT to do |
 |---|---|---|
-| **Finding an API endpoint** | Read `index.md` → find the spec page → read it | ❌ Don't grep YAML files for path strings |
-| **Understanding a schema** | Read `index.md` → find schema entity → read it | ❌ Don't open raw .yaml and search for `schemas:` |
-| **Finding which APIs use a model** | Read entity page → check `## Backlinks` | ❌ Don't grep for `$ref` across all YAML files |
-| **Checking if a integration exists** | Read `index.md` → scan the catalog | ❌ Don't use `find` or `ls` on ./ |
+| **Finding an API endpoint** | Call `graphit_knowledge_search` → find the spec page → read it | ❌ Don't grep YAML files for path strings |
+| **Understanding a schema** | Call `graphit_knowledge_search` → find schema entity → read it | ❌ Don't open raw .yaml and search for `schemas:` |
+| **Finding which APIs use a model** | Call `graphit_wiki_xrefs` on entity → get cross-references | ❌ Don't grep for `$ref` across all YAML files |
+| **Checking if a integration exists** | Call `graphit_wiki_browse` → scan the catalog | ❌ Don't use `find` or `ls` on ./ |
 | **Understanding auth for an API** | Read the spec entity page → check security section | ❌ Don't grep for "security" across all specs |
 | **Checking API versioning** | Read entity frontmatter → check `updated` and `source` | ❌ Don't read raw spec version fields |
 | **Verifying field names and types** | Read entity page → follow provenance to raw spec | ❌ Don't guess from model memory |
@@ -655,9 +655,9 @@ a compiled, cross-referenced wiki.
 
 ### How to search (step-by-step)
 
-**Step 1 — Read `index.md` (ALWAYS start here)**
-  Token-efficient catalog grouped by paradigm (REST, gRPC, messaging, etc.).
-  Example: `- [[Payment_API]] — Processes transactions, refunds, disputes`
+**Step 1 — Search the wiki (ALWAYS start here)**
+  Call `graphit_knowledge_search` with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).
+  Alternatively, call `graphit_wiki_browse` for a structured catalog.
 
 **Step 2 — Read frontmatter FIRST**
   Check `confidence`, `type`, `source`, `updated` before reading body content.
@@ -667,8 +667,8 @@ a compiled, cross-referenced wiki.
 **Step 3 — Follow [[wikilinks]]**
   Navigate from endpoint → schema → related services via curated links.
 
-**Step 4 — Check `## Backlinks` for reverse lookups**
-  Find every spec that references a given schema or service — pre-computed, zero-cost.
+**Step 4 — Expand with cross-references**
+  Call `graphit_wiki_xrefs` to find every spec that references a given schema or service — pre-computed, zero-cost.
 
 **Step 5 — Verify via provenance**
   Each page has: `*Provenance: ^[docs/rest/payment.yaml]*`.
@@ -680,9 +680,9 @@ a compiled, cross-referenced wiki.
 |---|---|
 | `grep -r "keyword" ./` | Brute-force on raw specs; ignores compiled wiki |
 | Reading .yaml/.proto files directly without checking wiki first | Skips pre-compiled summary; wastes tokens on raw verbose content |
-| Using semantic search to find integration docs | Wiki index.md is faster and more precise |
-| Reading all .md files in wiki/ sequentially | Token bomb; index.md catalogs everything |
-| Ignoring `## Backlinks` and grepping for `$ref` | Backlinks are pre-computed; grep is O(n) and misses non-$ref references |
+| Using semantic search to find integration docs | Wiki search is faster and more precise |
+| Reading all .md files in wiki/ sequentially | Token bomb; wiki search returns only relevant results |
+| Ignoring cross-references and grepping for `$ref` | Cross-refs are pre-computed; grep is O(n) and misses non-$ref references |
 | Guessing API field names from model memory | Model memory is stale; wiki compiles from spec truth |
 
 ### 🔄 Fallback to Built-In Tools — ONLY for Topics the Wiki Does Not Cover
@@ -694,9 +694,9 @@ the definitive source. Your tools exist only for domains outside the wiki's scop
 
 Your tools are allowed ONLY when ALL of these conditions are true:
 
-1. You **already read `index.md`** and scanned the full catalog
+1. You **already searched the wiki** using `graphit_knowledge_search` or `graphit_wiki_browse`
 2. You **followed relevant [[wikilinks]]** and checked entity pages
-3. You **checked `## Backlinks`** on the most relevant page
+3. You **checked cross-references** using `graphit_wiki_xrefs` on the most relevant page
 4. The wiki **genuinely has no coverage** of the integration (not indexed, not documented)
 5. You **state explicitly** to the user: "The wiki has no coverage of X, falling back to spec search"
 
@@ -710,7 +710,7 @@ Examples of valid fallback:
 Examples of INVALID fallback (protocol violations):
 - Grepping .yaml files because "the wiki was slow" → ❌ wiki is pre-compiled and always faster
 - Reading raw proto/graphql without checking wiki first → ❌ wiki has structured summaries
-- Using semantic search on ./ → ❌ index.md gives grouped catalog in ~2000 tokens
+- Using semantic search on ./ → ❌ wiki search gives structured results
 
 ## Documentation Requirements
 

@@ -11,7 +11,7 @@ import (
 
 
 func HubRuleContent(installed []InstalledArtifactInfo) string {
-	dotBrand := brand.DotDir()
+
 
 	astQueryRef := brand.MCPToolRef("ast", "query")
 	astQuery := brand.MCPToolName("ast", "query")
@@ -51,7 +51,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"",
 		"| Type | What it provides | After installation |",
 		"|---|---|---|",
-		"| `knowledge` | Pre-indexed documentation wiki for a framework/library | Read the wiki at `" + dotBrand + "/knowledge/<id>/index.md` |",
+		"| `knowledge` | Pre-indexed documentation wiki for a framework/library | Search via " + brand.MCPToolRef("knowledge", "search") + " or " + brand.MCPToolRef("wiki", "search") + " |",
 		"| `ast` | Pre-indexed code graph of a framework's source code | Query via " + astQueryRef + " tool (passing absolute `project_dir` and setting `context` parameter to the artifact ID) |",
 		"| `rule` | Coding conventions, style guides, governance rules | Auto-injected into IDE rules file |",
 		"| `skill` | Detailed methodology for specific tasks (e.g. testing, migration) | Available as an on-demand skill |",
@@ -100,7 +100,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"",
 		"Once installed, artifacts enhance your capabilities automatically:",
 		"",
-		"- **Knowledge**: Read the wiki `" + dotBrand + "/knowledge/<id>/index.md` to understand",
+		"- **Knowledge**: Search the wiki via " + brand.MCPToolRef("knowledge", "search") + " or " + brand.MCPToolRef("wiki", "search") + " to understand",
 		"  a framework's API, architecture, and patterns — never guess.",
 		"- **AST**: Query the code graph of the installed context using the " + astQueryRef + " tool (passing absolute `project_dir` and setting `context` parameter to the installed artifact ID).",
 		"- **Rules**: Automatically injected — follow the conventions they define.",
@@ -154,10 +154,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"  ```",
 		"  " + astQuery + "(project_dir: \"/path/to/other-project\", query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path\", ai_optimized: true)",
 		"  ```",
-		"- **Read another project's knowledge wiki** — understand its architecture without grepping by using the `view_file` (or read file) tool on:",
-		"  ```",
-		"  /path/to/other-project/"+dotBrand+"/knowledge/project/index.md",
-		"  ```",
+		"- **Read another project's knowledge wiki** — understand its architecture without grepping by calling " + brand.MCPToolRef("wiki", "search") + " with the other project's `project_dir`",
 		"- **Make cross-project changes** — if the user asks to modify code in another project,",
 		"  use the path from the tool output to locate, read, and edit files there directly",
 		"",
@@ -181,11 +178,15 @@ var hubSkillName = brand.SkillDirName("hub")
 
 func MandateTrigger() string {
 	hubListRef := brand.MCPToolRef("hub", "list")
+	hubShowRef := brand.MCPToolRef("hub", "show")
 	hubInstallRef := brand.MCPToolRef("hub", "install")
 	clusterRef := brand.MCPToolRef("cluster", "projects")
-	return "EXTERNAL_DEPS: NEVER guess APIs/structures. Check Hub first: " + hubListRef + " → " + hubInstallRef + ". " +
-		"ECOSYSTEM: Find sibling projects via " + clusterRef + ". " +
-		"INSTALL: After installing knowledge artifact, read its wiki BEFORE coding."
+	astQueryRef := brand.MCPToolRef("ast", "query")
+	return "EXTERNAL_DEPS: NEVER guess APIs/structures of any framework, library, or external system. " +
+		"Check Hub first: " + hubListRef + " → " + hubShowRef + " → " + hubInstallRef + ". " +
+		"ECOSYSTEM: Find sibling projects via " + clusterRef + " — query their AST/wiki using their project_dir. " +
+		"POST_INSTALL: After installing knowledge artifact, search its wiki via MCP BEFORE coding. " +
+		"RULE: If " + astQueryRef + " returns nothing for an external lib → it may have a Hub artifact. Check Hub."
 }
 
 
