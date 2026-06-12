@@ -35,10 +35,27 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 		cfg.MaxTurns = 6
 	}
 
-	indexPath := filepath.Join(cfg.WikiDir, "index.md")
-	indexContent, err := os.ReadFile(indexPath)
-	if err != nil {
-		return nil, fmt.Errorf("wiki not found at %s — run '%s index' first", cfg.WikiDir, cfg.ModuleTag)
+	// Try WikiDB catalog first, fall back to index.md.
+	var indexContent []byte
+	if db, dbErr := OpenWikiDB(cfg.WikiDir); dbErr == nil {
+		entries, browseErr := db.Browse(BrowseFilter{Limit: 100})
+		db.Close()
+		if browseErr == nil && len(entries) > 0 {
+			var b strings.Builder
+			b.WriteString("# Wiki Catalog\n\n")
+			for _, e := range entries {
+				fmt.Fprintf(&b, "- [[%s]] — %s\n", e.Slug, e.Summary)
+			}
+			indexContent = []byte(b.String())
+		}
+	}
+	if len(indexContent) == 0 {
+		indexPath := filepath.Join(cfg.WikiDir, "index.md")
+		var err error
+		indexContent, err = os.ReadFile(indexPath)
+		if err != nil {
+			return nil, fmt.Errorf("wiki not found at %s — run '%s index' first", cfg.WikiDir, cfg.ModuleTag)
+		}
 	}
 
 	systemPrompt := buildSearchSystemPrompt(cfg.ModuleTag)
@@ -177,6 +194,26 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 }
 
 func bm25PreFilter(wikiDir, query string, topN int) string {
+	// Try SQLite FTS5 first.
+	if db, err := OpenWikiDB(wikiDir); err == nil {
+		defer db.Close()
+		results, err := db.Search(query, topN)
+		if err == nil && len(results) > 0 {
+			var b strings.Builder
+			b.WriteString("=== FTS5 Relevant Pages (pre-filtered) ===\n")
+			fmt.Fprintf(&b, "Query: %q — top %d by BM25+FTS5 relevance:\n\n", query, len(results))
+			for i, r := range results {
+				fmt.Fprintf(&b, "%d. [[%s]]", i+1, r.Slug)
+				if r.Title != "" {
+					fmt.Fprintf(&b, " — %s", r.Title)
+				}
+				fmt.Fprintf(&b, " (score: %.3f)\n", r.Score)
+			}
+			return b.String()
+		}
+	}
+
+	// Fallback to in-memory BM25.
 	idx, err := NewBM25Index(wikiDir, DefaultBM25Config())
 	if err != nil || idx.totalDocs == 0 {
 		return ""
@@ -203,6 +240,16 @@ func bm25PreFilter(wikiDir, query string, topN int) string {
 }
 
 func BM25Search(wikiDir, query string, topN int) []BM25Result {
+	// Try SQLite FTS5 first (faster, richer results).
+	if db, err := OpenWikiDB(wikiDir); err == nil {
+		defer db.Close()
+		results, err := db.Search(query, topN)
+		if err == nil && len(results) > 0 {
+			return wikiFTSToB25Results(results)
+		}
+	}
+
+	// Fallback to in-memory BM25.
 	idx, err := NewBM25Index(wikiDir, DefaultBM25Config())
 	if err != nil {
 		return nil
@@ -216,6 +263,19 @@ func BM25Search(wikiDir, query string, topN int) []BM25Result {
 		}
 	}
 
+	return results
+}
+
+func wikiFTSToB25Results(ftsResults []WikiSearchResult) []BM25Result {
+	results := make([]BM25Result, 0, len(ftsResults))
+	for _, r := range ftsResults {
+		results = append(results, BM25Result{
+			Path:    r.Slug + ".md",
+			Title:   r.Title,
+			Score:   r.Score,
+			Snippet: r.Snippet,
+		})
+	}
 	return results
 }
 

@@ -227,9 +227,6 @@ func TestKnowledgeEntityPage(t *testing.T) {
 	if !strings.Contains(page, "Body content here") {
 		t.Error("missing body content")
 	}
-	if !strings.Contains(page, "[[index]]") {
-		t.Error("missing navigation")
-	}
 }
 
 func TestKnowledgeEntityPageNoSummaryNoCrossRefs(t *testing.T) {

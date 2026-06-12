@@ -1220,9 +1220,6 @@ func TestMemoryEntityPage_FullRendering(t *testing.T) {
 	if !strings.Contains(page, "Body content.") {
 		t.Error("should contain body")
 	}
-	if !strings.Contains(page, "[[index]]") {
-		t.Error("should contain index navigation link")
-	}
 	if strings.Contains(page, "Stale memory") {
 		t.Error("recent memory should not have stale warning")
 	}
@@ -1308,32 +1305,13 @@ No type field.`)
 		t.Errorf("ArticlesWritten = %d; want 3", result.ArticlesWritten)
 	}
 
-	// Check index.md was generated
-	indexData, err := os.ReadFile(filepath.Join(wikiDir, "index.md"))
-	if err != nil {
-		t.Fatal("index.md should exist in wiki dir")
+	// Check entity pages were written to wiki dir
+	entries, readErr := os.ReadDir(wikiDir)
+	if readErr != nil {
+		t.Fatalf("reading wiki dir: %v", readErr)
 	}
-	indexContent := string(indexData)
-
-	if !strings.Contains(indexContent, "3 memories") {
-		t.Error("index should show total memories count")
-	}
-	if !strings.Contains(indexContent, "1 important") {
-		t.Error("index should show important count")
-	}
-	if !strings.Contains(indexContent, "Conventions") {
-		t.Error("index should have Conventions section")
-	}
-	if !strings.Contains(indexContent, "Decisions") {
-		t.Error("index should have Decisions section")
-	}
-	if !strings.Contains(indexContent, "Other Memories") {
-		t.Error("index should have Other Memories section for untyped")
-	}
-
-	// Check log.md was generated
-	if _, err := os.Stat(filepath.Join(wikiDir, "log.md")); err != nil {
-		t.Error("log.md should exist in wiki dir")
+	if len(entries) < 3 {
+		t.Errorf("expected at least 3 files in wiki dir, got %d", len(entries))
 	}
 }
 

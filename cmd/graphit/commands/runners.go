@@ -1933,7 +1933,7 @@ func copyDirRecursive(src, dst string) error {
 	})
 }
 
-func runWikiSearch(query string, wikiRefs, hubRefs []string, sessionName string, continueSession bool, topK int) error {
+func runWikiSearch(query string, wikiRefs, hubRefs []string, sessionName string, continueSession bool, topK int, mode string) error {
 	p := output.NewPrinter("")
 	ctx := context.Background()
 
@@ -1993,9 +1993,11 @@ func runWikiSearch(query string, wikiRefs, hubRefs []string, sessionName string,
 		p.Step("[%s] %s", ws.ID, ws.Label)
 	}
 
+	useBM25 := mode != "semantic"
+
 	result, err := wiki.SearchMultiWiki(ctx, aiClient, query, wiki.MultiWikiSearchConfig{
 		Sources:           wikiSources,
-		UseBM25:           true,
+		UseBM25:           useBM25,
 		BM25TopNPerSource: topK,
 	})
 	if err != nil {
@@ -2135,3 +2137,234 @@ func runWikiSessions(deleteID string) error {
 	}
 	return nil
 }
+
+// openWikiDBForScope resolves the wiki scope to a directory and opens the WikiDB.
+func openWikiDBForScope(wikiScope, projectDir string) (*wiki.WikiDB, error) {
+	var wikiDir string
+	switch wikiScope {
+	case "project", "":
+		wikiDir = filepath.Join(projectDir, brand.DotDir(), "knowledge", "project")
+	case "memory":
+		wikiDir = filepath.Join(projectDir, brand.DotDir(), "memory", "project")
+	default:
+		return nil, fmt.Errorf("unknown wiki scope %q — use 'project' or 'memory'", wikiScope)
+	}
+
+	// Check for wiki.db in the directory or a wiki/ subdirectory.
+	dbPath := filepath.Join(wikiDir, "wiki.db")
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		subDir := filepath.Join(wikiDir, "wiki")
+		subDB := filepath.Join(subDir, "wiki.db")
+		if _, err := os.Stat(subDB); err == nil {
+			wikiDir = subDir
+		}
+	}
+
+	return wiki.OpenWikiDB(wikiDir)
+}
+
+func runWikiBrowse(wikiScope, docType string, limit int) error {
+	p := output.NewPrinter("")
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+
+	db, err := openWikiDBForScope(wikiScope, wd)
+	if err != nil {
+		return fmt.Errorf("opening wiki db: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	filter := wiki.BrowseFilter{
+		DocType:   docType,
+		ClusterID: -1,
+		Limit:     limit,
+	}
+
+	entries, err := db.Browse(filter)
+	if err != nil {
+		return fmt.Errorf("browsing wiki: %w", err)
+	}
+
+	if len(entries) == 0 {
+		p.Info("No wiki documents found.")
+		return nil
+	}
+
+	p.Header("Wiki Documents (%d)", len(entries))
+	for i, e := range entries {
+		typeLabel := e.DocType
+		if typeLabel == "" {
+			typeLabel = "doc"
+		}
+		if e.Important {
+			p.Step("%d. ⭐ %s [%s] (confidence: %.1f)", i+1, e.Title, typeLabel, e.Confidence)
+		} else {
+			p.Step("%d. %s [%s] (confidence: %.1f)", i+1, e.Title, typeLabel, e.Confidence)
+		}
+		if e.Breadcrumb != "" {
+			p.Detail("Path", e.Breadcrumb)
+		}
+		if e.ClusterName != "" {
+			p.Detail("Cluster", e.ClusterName)
+		}
+		if e.Summary != "" {
+			summary := e.Summary
+			if len(summary) > 120 {
+				summary = summary[:120] + "…"
+			}
+			p.Detail("Summary", summary)
+		}
+		p.Detail("Words", fmt.Sprintf("%d", e.WordCount))
+	}
+	return nil
+}
+
+func runWikiLog(wikiScope string, limit int) error {
+	p := output.NewPrinter("")
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+
+	db, err := openWikiDBForScope(wikiScope, wd)
+	if err != nil {
+		return fmt.Errorf("opening wiki db: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	entries, err := db.QuerySyncLog(limit)
+	if err != nil {
+		return fmt.Errorf("querying sync log: %w", err)
+	}
+
+	if len(entries) == 0 {
+		p.Info("No sync history found.")
+		return nil
+	}
+
+	p.Header("Wiki Sync Log (%d entries)", len(entries))
+	for _, e := range entries {
+		p.Step("#%d — %s", e.ID, e.Timestamp)
+		p.Detail("Total docs", fmt.Sprintf("%d", e.TotalDocs))
+		p.Detail("Articles written", fmt.Sprintf("%d", e.ArticlesWritten))
+		if e.BacklinksAdded > 0 {
+			p.Detail("Backlinks added", fmt.Sprintf("%d", e.BacklinksAdded))
+		}
+		if len(e.Added) > 0 {
+			p.Detail("Added", strings.Join(e.Added, ", "))
+		}
+		if len(e.Updated) > 0 {
+			p.Detail("Updated", strings.Join(e.Updated, ", "))
+		}
+		if len(e.Deleted) > 0 {
+			p.Detail("Deleted", strings.Join(e.Deleted, ", "))
+		}
+	}
+	return nil
+}
+
+func runWikiXRefs(query, wikiScope string, depth int) error {
+	p := output.NewPrinter("")
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+
+	db, err := openWikiDBForScope(wikiScope, wd)
+	if err != nil {
+		return fmt.Errorf("opening wiki db: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	if depth < 1 {
+		depth = 1
+	}
+	if depth > 3 {
+		depth = 3
+	}
+
+	refs, err := db.FindXRefs(query, depth)
+	if err != nil {
+		return fmt.Errorf("finding xrefs: %w", err)
+	}
+
+	if len(refs) == 0 {
+		p.Info("No cross-references found for %q.", query)
+		return nil
+	}
+
+	// Split into outbound and inbound.
+	var outbound, inbound []wiki.XRefResult
+	for _, r := range refs {
+		if r.Direction == "outbound" {
+			outbound = append(outbound, r)
+		} else {
+			inbound = append(inbound, r)
+		}
+	}
+
+	p.Header("Cross-References for %q (depth %d)", query, depth)
+
+	if len(outbound) > 0 {
+		p.Step("Outbound (%d):", len(outbound))
+		for _, r := range outbound {
+			p.ListItem("→ %s (%s) [%s]", r.Title, r.Slug, r.RefType)
+		}
+	}
+
+	if len(inbound) > 0 {
+		p.Step("Inbound (%d):", len(inbound))
+		for _, r := range inbound {
+			p.ListItem("← %s (%s) [%s]", r.Title, r.Slug, r.RefType)
+		}
+	}
+
+	return nil
+}
+
+func runWikiEmbed(wikiScope string) error {
+	p := output.NewPrinter("")
+	ctx := context.Background()
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+
+	var wikiDir string
+	switch wikiScope {
+	case "project", "":
+		wikiDir = filepath.Join(wd, brand.DotDir(), "knowledge", "project", "wiki")
+	case "memory":
+		wikiDir = filepath.Join(wd, brand.DotDir(), "memory", "project", "wiki")
+	default:
+		return fmt.Errorf("unknown wiki scope %q — use 'project' or 'memory'", wikiScope)
+	}
+
+	p.Running("Generating embeddings for %s wiki…", wikiScope)
+
+	client, err := ai.NewEmbeddingClientFromConfig()
+	if err != nil {
+		return fmt.Errorf("embedding client: %w", err)
+	}
+
+	embedder := wiki.NewWikiEmbedder(client, wiki.DefaultWikiEmbedConfig())
+	count, err := embedder.RunCycle(ctx, wikiDir)
+	if err != nil {
+		return fmt.Errorf("embedding cycle: %w", err)
+	}
+
+	if count == 0 {
+		p.Success("All wiki chunks already have embeddings")
+	} else {
+		p.Success("Embedded %d wiki chunk(s)", count)
+	}
+
+	return nil
+}
+

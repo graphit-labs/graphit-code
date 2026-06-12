@@ -1059,10 +1059,13 @@ func TestMemoryService_IndexMemories_Coverage(t *testing.T) {
 		t.Fatalf("IndexMemories: %v", err)
 	}
 
-	// Check that index.md was created
-	indexPath := filepath.Join(wikiDir, "index.md")
-	if _, err := os.Stat(indexPath); err != nil {
-		t.Errorf("expected index.md to be created")
+	// Check that wiki files were created
+	entries, readErr := os.ReadDir(wikiDir)
+	if readErr != nil {
+		t.Fatalf("reading wiki dir: %v", readErr)
+	}
+	if len(entries) < 1 {
+		t.Error("expected at least 1 file in wiki dir")
 	}
 }
 
@@ -1166,11 +1169,13 @@ func TestGenerateMemoryWiki_WithImportantMemories(t *testing.T) {
 		t.Errorf("ArticlesWritten = %d; want 2", result.ArticlesWritten)
 	}
 
-	// Check index.md has both
-	data, _ := os.ReadFile(filepath.Join(wikiDir, "index.md"))
-	content := string(data)
-	if !strings.Contains(content, "1 important") {
-		t.Error("expected 1 important in index")
+	// Check entity pages were written to wiki dir
+	entries, readErr := os.ReadDir(wikiDir)
+	if readErr != nil {
+		t.Fatalf("reading wiki dir: %v", readErr)
+	}
+	if len(entries) < 2 {
+		t.Errorf("expected at least 2 files in wiki dir, got %d", len(entries))
 	}
 }
 

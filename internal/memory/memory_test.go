@@ -1237,35 +1237,13 @@ Beta is the second letter.`
 		t.Errorf("ArticlesWritten = %d; want 2", result.ArticlesWritten)
 	}
 
-	// Check index.md was generated
-	indexPath := filepath.Join(wikiDir, "index.md")
-	indexData, err := os.ReadFile(indexPath)
-	if err != nil {
-		t.Fatalf("reading index.md: %v", err)
+	// Verify entity pages were written to wikiDir
+	entries, readErr := os.ReadDir(wikiDir)
+	if readErr != nil {
+		t.Fatalf("reading wiki dir: %v", readErr)
 	}
-	indexContent := string(indexData)
-
-	// Verify index contains expected elements
-	if !strings.Contains(indexContent, "Memory Wiki") {
-		t.Error("index should contain 'Memory Wiki'")
-	}
-	if !strings.Contains(indexContent, "2 memories") {
-		t.Error("index should show '2 memories'")
-	}
-	if !strings.Contains(indexContent, "1 important") {
-		t.Error("index should show '1 important'")
-	}
-	if !strings.Contains(indexContent, "Conventions") {
-		t.Error("index should contain 'Conventions' section")
-	}
-	if !strings.Contains(indexContent, "Facts") {
-		t.Error("index should contain 'Facts' section")
-	}
-
-	// Check log.md was generated
-	logPath := filepath.Join(wikiDir, "log.md")
-	if _, err := os.Stat(logPath); err != nil {
-		t.Errorf("log.md should exist: %v", err)
+	if len(entries) < 2 {
+		t.Errorf("expected at least 2 files in wiki dir, got %d", len(entries))
 	}
 }
 
@@ -1425,7 +1403,6 @@ func TestMemoryEntityPage(t *testing.T) {
 		{"body", "Content here."},
 		{"important note", "⭐ **Important memory**"},
 		{"type badge", "**Type:** convention"},
-		{"nav links", "[[index]] · [[log]]"},
 		{"tags", "memory, important, convention"},
 	}
 	for _, c := range checks {

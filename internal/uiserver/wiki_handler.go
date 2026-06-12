@@ -166,6 +166,25 @@ func (h *WikiHandler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Try SQLite FTS5 first (faster, richer results)
+	if db, err := wiki.OpenWikiDB(wikiDir); err == nil {
+		defer db.Close()
+		ftsResults, err := db.Search(query, 30)
+		if err == nil && len(ftsResults) > 0 {
+			var results []SearchResult
+			for _, r := range ftsResults {
+				results = append(results, SearchResult{
+					Path:    r.Slug + ".md",
+					Title:   r.Title,
+					Snippet: r.Snippet,
+					Score:   int(r.Score * 100),
+				})
+			}
+			writeJSON(w, results)
+			return
+		}
+	}
+
 	bm25Results := wiki.BM25Search(wikiDir, query, 30)
 	if len(bm25Results) > 0 {
 		var results []SearchResult
@@ -380,7 +399,14 @@ var reFMSource = regexp.MustCompile(`(?m)^source:\s*(.+)$`)
 func listWikiPages(wikiDir string) ([]WikiPageMeta, error) {
 	var pages []WikiPageMeta
 	err := filepath.WalkDir(wikiDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			// Skip cache shard directories — not wiki content.
+			if d.Name() == "shards" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if filepath.Ext(path) != ".md" {
@@ -399,14 +425,10 @@ func listWikiPages(wikiDir string) ([]WikiPageMeta, error) {
 
 		rank := func(p WikiPageMeta) int {
 			switch p.Type {
-			case "index":
-				return 0
-			case "log":
-				return 1
 			case "community":
-				return 2
+				return 0
 			default:
-				return 3
+				return 1
 			}
 		}
 		ri, rj := rank(pages[i]), rank(pages[j])

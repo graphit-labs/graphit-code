@@ -41,13 +41,11 @@ func RuleContent(contexts []string) string {
 		"**These steps are MANDATORY. Execute them BEFORE responding to the user's first message.**",
 		"**Skipping them means you WILL repeat mistakes the user already corrected.**",
 		"",
-		"1. Read `" + dotBrand + "/memory/project/index.md`",
-		"2. Read `" + dotBrand + "/memory/user/index.md`",
-		"3. If either wiki has memories, scan titles for anything relevant to the user's request",
-		"4. If relevant memories found, read the entity page(s) and follow their guidance",
-		"5. Only then proceed with the user's request",
+		"1. Call " + memSearchRef + " with context from the user's request to find relevant memories",
+		"2. If relevant memories found, read the entity page(s) and follow their guidance",
+		"3. Only then proceed with the user's request",
 		"",
-		"> If a wiki `index.md` does not exist (new project), skip that scope and proceed.",
+		"> If the memory wiki does not exist yet (new project), skip and proceed.",
 		"",
 	}
 
@@ -258,10 +256,9 @@ func RuleContent(contexts []string) string {
 var memorySkillName = brand.SkillDirName("memory")
 
 func MandateTrigger() string {
-	dotBrand := brand.DotDir()
 	memInsertRef := brand.MCPToolRef("memory", "insert")
 	memSearchRef := brand.MCPToolRef("memory", "search")
-	return "SESSION_START: Read `" + dotBrand + "/memory/project/index.md` and `" + dotBrand + "/memory/user/index.md` BEFORE first response. " +
+	return "SESSION_START: Call " + memSearchRef + " with context from the user's request BEFORE first response. " +
 		"SAVE: User corrects/guides/instructs → " + memInsertRef + ". Task done → " + memInsertRef + ". Design decision → " + memInsertRef + ". " +
 		"READ: Before significant changes or when stuck → " + memSearchRef + "."
 }

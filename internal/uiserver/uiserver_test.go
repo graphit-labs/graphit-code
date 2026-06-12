@@ -192,13 +192,17 @@ func TestListWikiPages(t *testing.T) {
 		t.Errorf("page count = %d; want 3", len(result))
 	}
 
-	// Verify sorting: index should come first, then log
-	if len(result) >= 2 {
-		if result[0].Type != "index" {
-			t.Errorf("first page type = %q; want %q", result[0].Type, "index")
+	// Verify sorting: all types have rank 1, so sorted alphabetically by path
+	// Paths: index.md, log.md, some-entity.md
+	if len(result) >= 3 {
+		if result[0].Path != "index.md" {
+			t.Errorf("first page path = %q; want %q", result[0].Path, "index.md")
 		}
-		if result[1].Type != "log" {
-			t.Errorf("second page type = %q; want %q", result[1].Type, "log")
+		if result[1].Path != "log.md" {
+			t.Errorf("second page path = %q; want %q", result[1].Path, "log.md")
+		}
+		if result[2].Path != "some-entity.md" {
+			t.Errorf("third page path = %q; want %q", result[2].Path, "some-entity.md")
 		}
 	}
 }
@@ -229,8 +233,8 @@ func TestListWikiPages_SortOrder(t *testing.T) {
 		t.Fatalf("page count = %d; want 5", len(result))
 	}
 
-	// Expected order: index(0), log(1), community(2), entity-a(3), entity-z(3)
-	expectedTypes := []string{"index", "log", "community", "entity", "entity"}
+	// Expected order: community(0), then rank 1 sorted by path: entity-a.md, entity-z.md, index.md, log.md
+	expectedTypes := []string{"community", "entity", "entity", "index", "log"}
 	for i, et := range expectedTypes {
 		if result[i].Type != et {
 			t.Errorf("result[%d].Type = %q; want %q", i, result[i].Type, et)
@@ -238,8 +242,8 @@ func TestListWikiPages_SortOrder(t *testing.T) {
 	}
 
 	// Same-rank entities should be sorted by path
-	if result[3].Path >= result[4].Path {
-		t.Errorf("entities not sorted by path: %q >= %q", result[3].Path, result[4].Path)
+	if result[1].Path >= result[2].Path {
+		t.Errorf("entities not sorted by path: %q >= %q", result[1].Path, result[2].Path)
 	}
 }
 

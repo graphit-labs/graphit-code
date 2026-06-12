@@ -19,19 +19,29 @@ Commands:
   search     Search across one or more wikis with AI
   chat       Interactive chat over wiki context (continues a session)
   sessions   List or delete wiki search sessions
+  browse     Browse wiki documents in a structured format
+  log        Show wiki sync history
+  xrefs      Show cross-references for an entity
 
 Examples:
   ` + brand.BinName() + ` wiki search "how does auth work?"
   ` + brand.BinName() + ` wiki search "auth flow" --wiki project,memory
   ` + brand.BinName() + ` wiki search "deployment" --hub team-platform@latest
   ` + brand.BinName() + ` wiki chat --continue
-  ` + brand.BinName() + ` wiki sessions`,
+  ` + brand.BinName() + ` wiki sessions
+  ` + brand.BinName() + ` wiki browse --wiki project
+  ` + brand.BinName() + ` wiki log --limit 5
+  ` + brand.BinName() + ` wiki xrefs "auth-flow"`,
 	}
 
 	cmd.AddCommand(
 		newWikiSearchCmd(),
 		newWikiChatCmd(),
 		newWikiSessionsCmd(),
+		newWikiBrowseCmd(),
+		newWikiLogCmd(),
+		newWikiXRefsCmd(),
+		newWikiEmbedCmd(),
 	)
 
 	return cmd
@@ -44,6 +54,7 @@ func newWikiSearchCmd() *cobra.Command {
 		sessionName     string
 		continueSession bool
 		topK            int
+		searchMode      string
 	)
 	cmd := &cobra.Command{
 		Use:   "search <query>",
@@ -71,7 +82,7 @@ Examples:
   ` + brand.BinName() + ` wiki search "patterns" --top-k 10 --continue`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWikiSearch(args[0], wikiRefs, hubRefs, sessionName, continueSession, topK)
+			return runWikiSearch(args[0], wikiRefs, hubRefs, sessionName, continueSession, topK, searchMode)
 		},
 	}
 	cmd.Flags().StringSliceVar(&wikiRefs, "wiki", []string{"project"}, "Wiki sources: project, memory, or ecosystem project ID (comma-separated)")
@@ -79,6 +90,7 @@ Examples:
 	cmd.Flags().StringVar(&sessionName, "session", "", "Name for the search session")
 	cmd.Flags().BoolVar(&continueSession, "continue", false, "Continue the most recent session")
 	cmd.Flags().IntVar(&topK, "top-k", 0, "BM25 results per wiki source (0 = no limit)")
+	cmd.Flags().StringVar(&searchMode, "mode", "hybrid", "Search mode: hybrid (default, FTS + semantic), fts (keyword only), semantic (vector only)")
 	return cmd
 }
 
@@ -130,5 +142,96 @@ Examples:
 		},
 	}
 	cmd.Flags().StringVar(&deleteID, "delete", "", "Delete a specific session by ID")
+	return cmd
+}
+
+func newWikiBrowseCmd() *cobra.Command {
+	var (
+		wikiScope string
+		docType   string
+		limit     int
+	)
+	cmd := &cobra.Command{
+		Use:   "browse",
+		Short: "Browse wiki documents in a structured format",
+		Long: `Browse wiki chunks/documents stored in the WikiDB. Lists entries in a
+structured format, replacing the need to read index.md directly.
+
+Examples:
+  ` + brand.BinName() + ` wiki browse
+  ` + brand.BinName() + ` wiki browse --wiki memory
+  ` + brand.BinName() + ` wiki browse --type specification --limit 20`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiBrowse(wikiScope, docType, limit)
+		},
+	}
+	cmd.Flags().StringVar(&wikiScope, "wiki", "project", "Wiki scope: project or memory")
+	cmd.Flags().StringVar(&docType, "type", "", "Filter by document type (e.g., specification, architecture)")
+	cmd.Flags().IntVar(&limit, "limit", 100, "Max results to return")
+	return cmd
+}
+
+func newWikiLogCmd() *cobra.Command {
+	var (
+		wikiScope string
+		limit     int
+	)
+	cmd := &cobra.Command{
+		Use:   "log",
+		Short: "Show wiki sync history",
+		Long: `Show the sync history for a wiki database. Displays a timeline of sync
+operations, including what was added, updated, and deleted.
+
+Examples:
+  ` + brand.BinName() + ` wiki log
+  ` + brand.BinName() + ` wiki log --wiki memory
+  ` + brand.BinName() + ` wiki log --limit 5`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiLog(wikiScope, limit)
+		},
+	}
+	cmd.Flags().StringVar(&wikiScope, "wiki", "project", "Wiki scope: project or memory")
+	cmd.Flags().IntVar(&limit, "limit", 10, "Max log entries to show")
+	return cmd
+}
+
+func newWikiXRefsCmd() *cobra.Command {
+	var (
+		wikiScope string
+		depth     int
+	)
+	cmd := &cobra.Command{
+		Use:   "xrefs <query>",
+		Short: "Show cross-references for an entity",
+		Long: `Show inbound and outbound cross-references for a wiki entity slug.
+Uses the WikiDB xrefs table to find related documents.
+
+Examples:
+  ` + brand.BinName() + ` wiki xrefs auth-flow
+  ` + brand.BinName() + ` wiki xrefs "database-schema" --depth 2
+  ` + brand.BinName() + ` wiki xrefs config --wiki memory`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiXRefs(args[0], wikiScope, depth)
+		},
+	}
+	cmd.Flags().StringVar(&wikiScope, "wiki", "project", "Wiki scope: project or memory")
+	cmd.Flags().IntVar(&depth, "depth", 1, "Depth of graph traversal (1-3)")
+	return cmd
+}
+
+func newWikiEmbedCmd() *cobra.Command {
+	var embedWikiScope string
+
+	cmd := &cobra.Command{
+		Use:   "embed",
+		Short: "Generate vector embeddings for wiki semantic search",
+		Long: `Generate or update vector embeddings for wiki document chunks.
+Embeddings enable semantic search (` + brand.BinName() + ` wiki search --mode semantic).`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiEmbed(embedWikiScope)
+		},
+	}
+	cmd.Flags().StringVar(&embedWikiScope, "wiki", "project", "Wiki scope: project or memory")
 	return cmd
 }

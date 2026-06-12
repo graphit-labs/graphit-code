@@ -46,7 +46,20 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		exts = supportedKnowledgeExts
 	}
 
-	var docs []knowledgeDoc
+	// Load process cache (JSON shards) for incremental rebuilds.
+	processCache, _ := wiki.NewWikiProcessCache(wikiDir)
+
+	// Track which source files exist for pruning stale cache entries.
+	validPaths := make(map[string]bool)
+
+	type sourceFile struct {
+		relPath     string
+		data        []byte
+		contentHash string
+		ext         string
+	}
+	var sources []sourceFile
+
 	err = filepath.Walk(absRoot, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return nil
@@ -78,24 +91,13 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			return nil
 		}
 
-		title := extractDocTitle(string(data), relPath)
-		summary := extractDocSummary(string(data))
-		docType := classifyDocType(relPath, string(data))
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(data))[:16]
-
-		crossRefs := extractDocCrossRefs(string(data))
-
-		isMarkdown := ext == ".md" || ext == ".markdown" || ext == ".mdx"
-
-		docs = append(docs, knowledgeDoc{
-			title:       title,
-			path:        relPath,
-			summary:     summary,
-			docType:     docType,
-			body:        string(data),
+		validPaths[relPath] = true
+		sources = append(sources, sourceFile{
+			relPath:     relPath,
+			data:        data,
 			contentHash: contentHash,
-			crossRefs:   crossRefs,
-			isMarkdown:  isMarkdown,
+			ext:         ext,
 		})
 		return nil
 	})
@@ -103,17 +105,115 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		return nil, fmt.Errorf("walking docs: %w", err)
 	}
 
-	// Split markdown docs into parent/children based on H2 headers.
-	// Non-markdown files are kept as a single page.
-	var splitDocs []knowledgeDoc
-	for _, doc := range docs {
-		if doc.isMarkdown {
-			splitDocs = append(splitDocs, splitDocByHeaders(doc)...)
-		} else {
-			splitDocs = append(splitDocs, doc)
-		}
+	// Prune stale cache entries for deleted files.
+	if processCache != nil {
+		processCache.Prune(validPaths)
 	}
-	docs = splitDocs
+
+	// Process sources: use cache for unchanged files, re-parse changed ones.
+	var docs []knowledgeDoc
+	for _, src := range sources {
+		isMarkdown := src.ext == ".md" || src.ext == ".markdown" || src.ext == ".mdx"
+		content := string(src.data)
+
+		// Try cache first.
+		if processCache != nil && !processCache.HasChanged(src.relPath, src.contentHash) {
+			cached := processCache.Get(src.relPath, src.contentHash)
+			if cached != nil {
+				for _, cc := range cached {
+					docs = append(docs, knowledgeDoc{
+						title:       cc.Title,
+						path:        src.relPath,
+						summary:     cc.Summary,
+						docType:     cc.DocType,
+						body:        cc.Body,
+						breadcrumb:  cc.Breadcrumb,
+						parentTitle: cc.ParentTitle,
+						contentHash: cc.ContentHash,
+						crossRefs:   cc.CrossRefs,
+						isMarkdown:  cc.IsMarkdown,
+					})
+				}
+				continue
+			}
+		}
+
+		// Cache miss or changed — process from source.
+		title := extractDocTitle(content, src.relPath)
+		summary := extractDocSummary(content)
+		docType := classifyDocType(src.relPath, content)
+		crossRefs := extractDocCrossRefs(content)
+
+		var processedDocs []knowledgeDoc
+		if isMarkdown {
+			chunks, chunkErr := wiki.ChunkMarkdown(content, wiki.ChunkOpts{
+				MaxTokens: 512,
+				MinTokens: 32,
+				DocTitle:  title,
+				DocSlug:   safeFilename(title),
+			})
+			if chunkErr != nil || len(chunks) == 0 {
+				processedDocs = append(processedDocs, knowledgeDoc{
+					title: title, path: src.relPath, summary: summary,
+					docType: docType, body: content, contentHash: src.contentHash,
+					crossRefs: crossRefs, isMarkdown: isMarkdown,
+				})
+			} else {
+				for i, chunk := range chunks {
+					chunkDoc := knowledgeDoc{
+						title:       chunk.Title,
+						path:        src.relPath,
+						summary:     chunk.Summary,
+						docType:     docType,
+						body:        chunk.Body,
+						breadcrumb:  chunk.Breadcrumb,
+						contentHash: fmt.Sprintf("%x", sha256.Sum256([]byte(chunk.Body)))[:16],
+						crossRefs:   chunk.CrossRefs,
+						isMarkdown:  true,
+					}
+					if chunk.ParentIdx >= 0 && chunk.ParentIdx < len(chunks) {
+						chunkDoc.parentTitle = chunks[chunk.ParentIdx].Title
+					}
+					if i == 0 && chunk.NodeType == "intro" {
+						chunkDoc.title = title
+					}
+					processedDocs = append(processedDocs, chunkDoc)
+				}
+			}
+		} else {
+			processedDocs = append(processedDocs, knowledgeDoc{
+				title: title, path: src.relPath, summary: summary,
+				docType: docType, body: content, contentHash: src.contentHash,
+				crossRefs: crossRefs, isMarkdown: isMarkdown,
+			})
+		}
+
+		// Store in cache.
+		if processCache != nil {
+			cachedChunks := make([]wiki.CachedChunk, len(processedDocs))
+			for i, d := range processedDocs {
+				cachedChunks[i] = wiki.CachedChunk{
+					Title:       d.title,
+					Body:        d.body,
+					Summary:     d.summary,
+					DocType:     d.docType,
+					Breadcrumb:  d.breadcrumb,
+					ParentTitle: d.parentTitle,
+					ContentHash: d.contentHash,
+					CrossRefs:   d.crossRefs,
+					IsMarkdown:  d.isMarkdown,
+				}
+			}
+			processCache.Store(src.relPath, src.contentHash, cachedChunks)
+		}
+
+		docs = append(docs, processedDocs...)
+	}
+
+	// Save process cache to disk.
+	if processCache != nil {
+		_ = processCache.Save()
+	}
 
 	sort.Slice(docs, func(i, j int) bool {
 		if docs[i].docType != docs[j].docType {
@@ -132,9 +232,6 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 				continue
 			}
 			slug := strings.TrimSuffix(entry.Name(), ".md")
-			if slug == "index" || slug == "log" {
-				continue
-			}
 			existingSlugs[slug] = true
 		}
 	}
@@ -327,6 +424,84 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	sort.Strings(updated)
 	sort.Strings(deleted)
 
+	// --- Phase 5: Build WikiDB for FTS5 search ---
+	wikiChunks := make([]wiki.WikiChunk, 0, len(docs))
+	xrefs := make(map[string][]string)
+	for i, doc := range docs {
+		slug := docSlugs[i]
+		confidence := computeDocConfidence(doc)
+		important := confidence >= 0.8
+		wc := len(strings.Fields(doc.body))
+		now := time.Now().UTC().Format("2006-01-02")
+
+		wikiChunks = append(wikiChunks, wiki.WikiChunk{
+			Slug:        slug,
+			Title:       doc.title,
+			Body:        doc.body,
+			Summary:     doc.summary,
+			DocType:     doc.docType,
+			Source:      doc.path,
+			Breadcrumb:  doc.breadcrumb,
+			ParentSlug:  safeFilename(doc.parentTitle),
+			ClusterID:   doc.cluster,
+			ClusterName: doc.clusterName,
+			Confidence:  confidence,
+			ContentHash: doc.contentHash,
+			WordCount:   wc,
+			Updated:     now,
+			Important:   important,
+		})
+
+		if len(doc.crossRefs) > 0 {
+			var slugRefs []string
+			for _, ref := range doc.crossRefs {
+				slugRefs = append(slugRefs, safeFilename(ref))
+			}
+			xrefs[slug] = slugRefs
+		}
+	}
+
+	var syncLogEntry *wiki.SyncLogEntry
+	if len(added) > 0 || len(updated) > 0 || len(deleted) > 0 {
+		details := make(map[string]wiki.LogDocDetails)
+		for slug, dd := range docDetails {
+			details[slug] = wiki.LogDocDetails{
+				Title:   dd.Title,
+				Summary: dd.Summary,
+			}
+		}
+		syncLogEntry = &wiki.SyncLogEntry{
+			Timestamp:       time.Now().UTC().Format(time.RFC3339),
+			TotalDocs:       len(docs),
+			ArticlesWritten: result.ArticlesWritten,
+			BacklinksAdded:  result.BacklinksAdded,
+			Added:           added,
+			Updated:         updated,
+			Deleted:         deleted,
+			Details:         details,
+		}
+	}
+
+	if db, err := wiki.OpenWikiDB(wikiDir); err == nil {
+		// Load embeddings from per-file shards (primary), fallback to legacy monolithic cache.
+		var embCache wiki.EmbeddingCache
+		if processCache != nil {
+			embCache = processCache.LoadAllEmbeddings()
+		}
+		if embCache == nil {
+			embCache = wiki.LoadEmbeddingCache(wikiDir)
+		}
+		_ = db.Rebuild(wikiChunks, xrefs, syncLogEntry, embCache)
+
+		// Export embeddings back to per-file shards for next rebuild.
+		if processCache != nil {
+			processCache.ExportAllEmbeddingsFromDB(db)
+			_ = processCache.Save()
+		}
+		db.Close()
+	}
+
+	// Also write legacy log.md for backward compatibility
 	if len(added) > 0 || len(updated) > 0 || len(deleted) > 0 {
 		appendKnowledgeLog(filepath.Join(wikiDir, "log.md"), len(docs), result.ArticlesWritten, result.BacklinksAdded, added, updated, deleted, docDetails)
 	}
@@ -393,7 +568,7 @@ func knowledgeEntityPage(doc knowledgeDoc) string {
 			_, _ = fmt.Fprintf(&b, "```%s\n%s\n```\n\n", lang, body)
 		}
 	}
-	b.WriteString("---\n*Navigate: [[index]] · [[log]]*\n")
+	b.WriteString("---\n")
 	return b.String()
 }
 

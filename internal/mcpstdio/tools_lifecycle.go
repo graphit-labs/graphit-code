@@ -7,6 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
@@ -16,6 +17,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/version"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -180,6 +182,16 @@ func registerLifecycleTools(server *mcp.Server) {
 			})
 		}
 
+		// 2.5 Wiki Embeddings (knowledge)
+		if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
+			if embClient, err := ai.NewEmbeddingClientFromConfig(); err == nil {
+				cfg := wiki.DefaultWikiEmbedConfig()
+				embedder := wiki.NewWikiEmbedder(embClient, cfg)
+				wikiDir := resolveWikiDir("knowledge", projectDir, "")
+				_, _ = embedder.RunCycle(ctx, wikiDir)
+			}
+		}
+
 		// 3. Memory Cycle
 		if !config.IsModuleDisabled("memory", nil, projectCfg) {
 			_ = withProjectDir(projectDir, func() error {
@@ -187,6 +199,18 @@ func registerLifecycleTools(server *mcp.Server) {
 				memory.RunUserCycle(ctx)
 				return nil
 			})
+		}
+
+		// 3.5 Wiki Embeddings (memory)
+		if !config.IsModuleDisabled("memory", nil, projectCfg) {
+			if embClient, err := ai.NewEmbeddingClientFromConfig(); err == nil {
+				cfg := wiki.DefaultWikiEmbedConfig()
+				embedder := wiki.NewWikiEmbedder(embClient, cfg)
+				for _, scope := range []string{"project", "user"} {
+					wikiDir := resolveWikiDir("memory", projectDir, scope)
+					_, _ = embedder.RunCycle(ctx, wikiDir)
+				}
+			}
 		}
 
 		// 4. Hub Sync

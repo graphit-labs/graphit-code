@@ -131,11 +131,10 @@ func TestInjectBacklinks(t *testing.T) {
 	}
 }
 
-func TestInjectBacklinks_SkipsIndexAndLog(t *testing.T) {
+func TestInjectBacklinks_AllPagesGetBacklinks(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeFile(t, dir, "index.md", "# Index\n[[page]]")
-	writeFile(t, dir, "log.md", "# Log\n[[page]]")
+	writeFile(t, dir, "source.md", "# Source\n[[page]]")
 	writeFile(t, dir, "page.md", "# Page\nContent.")
 
 	graph, err := BuildCrossRefGraph(dir)
@@ -148,7 +147,7 @@ func TestInjectBacklinks_SkipsIndexAndLog(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// page should have backlinks, but index and log should not be modified
+	// page should have backlinks from source
 	data, _ := os.ReadFile(filepath.Join(dir, "page.md"))
 	if !strings.Contains(string(data), "## Backlinks") {
 		t.Error("expected backlinks in page.md")
@@ -176,7 +175,7 @@ func TestInjectBacklinks_Idempotent(t *testing.T) {
 func TestOrphanPages(t *testing.T) {
 	t.Parallel()
 	graph := &CrossRefGraph{
-		AllPages: map[string]bool{"orphan": true, "connected": true, "index": true, "log": true},
+		AllPages: map[string]bool{"orphan": true, "connected": true},
 		Outbound: map[string][]string{"connected": {"somewhere"}},
 		Inbound:  map[string][]string{},
 	}

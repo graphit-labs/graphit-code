@@ -101,9 +101,6 @@ func InjectBacklinks(wikiDir string, graph *CrossRefGraph) (*CrossRefResult, err
 	}
 
 	for page := range graph.AllPages {
-		if page == "index" || page == "log" {
-			continue
-		}
 		hasInbound := len(graph.Inbound[page]) > 0
 		hasOutbound := len(graph.Outbound[page]) > 0
 		if !hasInbound && !hasOutbound {
@@ -120,10 +117,6 @@ func InjectBacklinks(wikiDir string, graph *CrossRefGraph) (*CrossRefResult, err
 	}
 
 	for page := range graph.AllPages {
-		if page == "index" || page == "log" {
-			continue
-		}
-
 		inbound := graph.Inbound[page]
 		if len(inbound) == 0 {
 			continue
@@ -152,9 +145,6 @@ func InjectBacklinks(wikiDir string, graph *CrossRefGraph) (*CrossRefResult, err
 func OrphanPages(graph *CrossRefGraph) []string {
 	var orphans []string
 	for page := range graph.AllPages {
-		if page == "index" || page == "log" {
-			continue
-		}
 		if len(graph.Inbound[page]) == 0 && len(graph.Outbound[page]) == 0 {
 			orphans = append(orphans, page)
 		}

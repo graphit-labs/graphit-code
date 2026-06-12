@@ -408,8 +408,12 @@ Body.`)
 		t.Fatalf("IndexMemories: %v", err)
 	}
 	// Check wiki was generated
-	if _, err := os.Stat(filepath.Join(wikiDir, "index.md")); err != nil {
-		t.Error("expected index.md in wiki dir")
+	entries, readErr := os.ReadDir(wikiDir)
+	if readErr != nil {
+		t.Fatalf("reading wiki dir: %v", readErr)
+	}
+	if len(entries) < 1 {
+		t.Error("expected at least 1 file in wiki dir")
 	}
 }
 

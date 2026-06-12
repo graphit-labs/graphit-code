@@ -10,6 +10,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/dream"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
 type EmbeddingModule struct {
@@ -47,6 +48,25 @@ func (m *DreamModule) Start(ctx context.Context) error {
 		return loadProjectConfigFromDir(m.projectDir)
 	})
 	return runner.Run(ctx)
+}
+
+// WikiEmbeddingModule generates vector embeddings for wiki chunks in the background.
+type WikiEmbeddingModule struct {
+	projectDir string
+	interval   time.Duration
+}
+
+func NewWikiEmbeddingModule(projectDir string, interval time.Duration) *WikiEmbeddingModule {
+	if interval <= 0 {
+		interval = 2 * time.Minute
+	}
+	return &WikiEmbeddingModule{projectDir: projectDir, interval: interval}
+}
+
+func (m *WikiEmbeddingModule) Name() string { return "wiki_embedding" }
+
+func (m *WikiEmbeddingModule) Start(ctx context.Context) error {
+	return wiki.RunWikiEmbeddingLoop(ctx, m.interval, m.projectDir, nil)
 }
 
 func loadProjectConfigFromDir(projectDir string) config.ConfigMap {
