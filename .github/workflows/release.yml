@@ -63,7 +63,6 @@ jobs:
       - name: UI Lint
         run: make ui-lint
 
-
   # ── Linux amd64 ────────────────────────────────────────────────────────────
   build-linux:
     name: Build (linux-amd64)
@@ -123,7 +122,7 @@ jobs:
             SKIP_ANTLR_GRAMMARS=1 \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
-            DISPLAY_NAME="Graphit Code: AI Harness for Collaborative and Progressive Knowledge" \
+            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
             LBUG_PLATFORMS="linux-amd64"
 
       - name: Generate SHA-256 checksum
@@ -194,7 +193,7 @@ jobs:
             SKIP_ANTLR_GRAMMARS=1 \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
-            DISPLAY_NAME="Graphit Code: AI Harness for Collaborative and Progressive Knowledge" \
+            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
             LBUG_PLATFORMS="darwin"
 
       - name: Generate SHA-256 checksum
@@ -277,7 +276,7 @@ jobs:
             SKIP_ANTLR_GRAMMARS=1 \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
-            DISPLAY_NAME="Graphit Code: AI Harness for Collaborative and Progressive Knowledge" \
+            DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
             GITHUB_REPO="graphit-labs/graphit-code" \
             DEFAULT_HUB_REPO="git@github.com:graphit-labs/graphit-code.git" \
             LBUG_PLATFORMS="windows" \

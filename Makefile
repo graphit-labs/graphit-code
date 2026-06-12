@@ -7,7 +7,7 @@ CMD      := ./cmd/graphit
 BIN_DIR  := .build
 
 BRAND        ?= graphit
-DISPLAY_NAME ?= Graphit Code: AI Harness for Collaborative and Progressive Knowledge
+DISPLAY_NAME ?= Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems
 VERSION      ?= dev
 GITHUB_REPO  ?= graphit-labs/graphit-code
 DEFAULT_HUB_REPO    ?=
