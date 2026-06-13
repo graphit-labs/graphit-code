@@ -8,7 +8,7 @@ BIN_DIR  := .build
 
 BRAND        ?= graphit
 DISPLAY_NAME ?= Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems
-VERSION      ?= dev
+VERSION      ?= v0.1.13
 GITHUB_REPO  ?= graphit-labs/graphit-code
 DEFAULT_HUB_REPO    ?=
 DEFAULT_MEMORY_REPO ?=
