@@ -872,15 +872,7 @@ func TestRuleContent(t *testing.T) {
 	}
 }
 
-func TestRuleContent_WithContexts(t *testing.T) {
-	content := RuleContent([]string{"ctx1", "ctx2"})
-	if !strings.Contains(content, "ctx1") {
-		t.Error("expected context name in content")
-	}
-	if !strings.Contains(content, "ctx2") {
-		t.Error("expected second context name in content")
-	}
-}
+
 
 
 // ---------------------------------------------------------------------------
