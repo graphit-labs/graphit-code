@@ -609,28 +609,53 @@ func extractWikiLinks(text string) []string {
 	return result
 }
 
-// extractChunkSummary returns the first meaningful line of text — skipping
-// empty lines and heading markers.
+// extractChunkSummary returns the first meaningful prose line — skipping
+// empty lines, heading markers, fenced code blocks (including their content),
+// and structural markdown syntax that would break blockquote rendering.
 func extractChunkSummary(body string) string {
+	inFenced := false
 	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		trimmed := strings.TrimSpace(line)
+
+		// Track fenced code block boundaries.
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			inFenced = !inFenced
 			continue
 		}
-		// Skip heading lines.
-		if strings.HasPrefix(line, "#") {
+		// Skip everything inside fenced code blocks.
+		if inFenced {
 			continue
 		}
-		// Skip setext underlines.
-		trimmed := strings.TrimLeft(line, "=-")
+
 		if trimmed == "" {
 			continue
 		}
-		// Truncate long summary lines.
-		if len(line) > 200 {
-			return line[:200] + "…"
+		// Skip heading lines.
+		if strings.HasPrefix(trimmed, "#") {
+			continue
 		}
-		return line
+		// Skip setext underlines.
+		stripped := strings.TrimLeft(trimmed, "=-")
+		if stripped == "" {
+			continue
+		}
+		// Skip thematic breaks (---, ***, ___).
+		trimmedHR := strings.TrimLeft(trimmed, "-*_")
+		if trimmedHR == "" && len(trimmed) >= 3 {
+			continue
+		}
+		// Skip table separator lines (e.g., |---|---|).
+		if strings.HasPrefix(trimmed, "|") && strings.Count(trimmed, "|") >= 2 && strings.Contains(trimmed, "---") {
+			withoutStructural := strings.NewReplacer("-", "", "|", "", " ", "").Replace(trimmed)
+			if withoutStructural == "" || withoutStructural == ":" || strings.Trim(withoutStructural, ":") == "" {
+				continue
+			}
+		}
+		// Truncate long summary lines.
+		if len(trimmed) > 200 {
+			return trimmed[:200] + "…"
+		}
+		return trimmed
 	}
 	return ""
 }

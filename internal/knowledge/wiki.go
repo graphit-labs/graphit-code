@@ -910,9 +910,25 @@ func extractDocSummary(content string) string {
 	}
 
 	stripped := stripFrontmatter(content)
+	inFenced := false
 	for _, line := range strings.Split(stripped, "\n") {
 		trimmed := strings.TrimSpace(line)
+
+		// Track fenced code block boundaries.
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			inFenced = !inFenced
+			continue
+		}
+		if inFenced {
+			continue
+		}
+
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		// Skip thematic breaks (---, ***, ___).
+		trimmedHR := strings.TrimLeft(trimmed, "-*_")
+		if trimmedHR == "" && len(trimmed) >= 3 {
 			continue
 		}
 		if len(trimmed) > 200 {
