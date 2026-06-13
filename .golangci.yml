@@ -34,7 +34,7 @@ linters:
         - ifElseChain      # Too noisy for command routing patterns
         - singleCaseSwitch # Intentional in some places for future extensibility
   exclusions:
-    generated: lax
+    generated: strict
     presets:
       - comments
       - common-false-positives
@@ -55,6 +55,7 @@ linters:
       - third_party$
       - builtin$
       - examples$
+      - internal/ast/antlr
 formatters:
   exclusions:
     generated: lax
