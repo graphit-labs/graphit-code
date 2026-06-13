@@ -30,7 +30,7 @@ type astQueryInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Query       string `json:"query" jsonschema:"Cypher query to execute against the AST graph database"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to query instead of the default project"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"Optimize the Cypher query execution for AI context"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 
@@ -92,11 +92,12 @@ type astEmbedInput struct {
 }
 
 type astSearchInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Query      string `json:"query" jsonschema:"Search query (keywords, natural language, or code identifiers)"`
-	TopK       int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 15)"`
-	Mode       string `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
-	Context    string `json:"context,omitempty" jsonschema:"Named imported context to search"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Query       string `json:"query" jsonschema:"Search query (keywords, natural language, or code identifiers)"`
+	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 15)"`
+	Mode        string `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
+	Context     string `json:"context,omitempty" jsonschema:"Named imported context to search"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 func registerASTTools(server *mcp.Server) {
@@ -525,6 +526,9 @@ func registerASTTools(server *mcp.Server) {
 			if err != nil {
 				return errResult(err)
 			}
+			if input.AiOptimized {
+				return textResult(ast.FormatSearchResultsTOON(results))
+			}
 			return jsonResult(results)
 
 		case "semantic":
@@ -537,6 +541,9 @@ func registerASTTools(server *mcp.Server) {
 			if err != nil {
 				return errResult(err)
 			}
+			if input.AiOptimized {
+				return textResult(ast.FormatSearchResultsTOON(results))
+			}
 			return jsonResult(results)
 
 		default:
@@ -547,6 +554,9 @@ func registerASTTools(server *mcp.Server) {
 			results, err := qs.HybridSearch(ctx, input.Query, topK)
 			if err != nil {
 				return errResult(err)
+			}
+			if input.AiOptimized {
+				return textResult(ast.FormatSearchResultsTOON(results))
 			}
 			return jsonResult(results)
 		}

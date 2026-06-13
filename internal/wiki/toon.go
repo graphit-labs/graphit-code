@@ -5,12 +5,6 @@ import (
 	"strings"
 )
 
-// FormatSearchResultsTOON formats WikiSearchResult slices in compact TOON format.
-// Example output:
-//
-//	results[3]{slug|title|type|score|summary}:
-//	  auth-flow|Authentication Flow|specification|12.5|How auth works...
-//	  db-schema|Database Schema|architecture|9.8|Schema design...
 func FormatSearchResultsTOON(results []WikiSearchResult) string {
 	if len(results) == 0 {
 		return "results[0]{}:"

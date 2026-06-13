@@ -6,15 +6,6 @@ import (
 	"strings"
 )
 
-// FormatRecordsTOON formats query records in a compact, token-efficient
-// tabular format (TOON). This reduces token consumption by 30-60% compared
-// to JSON for typical query results.
-//
-// Output format:
-//
-//	results[<count>]{<col1>|<col2>|<col3>}:
-//	  <val1>|<val2>|<val3>
-//	  <val1>|<val2>|<val3>
 func FormatRecordsTOON(records []QueryRecord) string {
 	if len(records) == 0 {
 		return "results[0]{}:"
@@ -91,4 +82,16 @@ func formatTOONValue(v any) string {
 	default:
 		return fmt.Sprintf("%v", val)
 	}
+}
+
+func FormatSearchResultsTOON(results []SearchResult) string {
+	if len(results) == 0 {
+		return "results[0]{}:"
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "results[%d]{type|name|path|line|score|search_type}:\n", len(results))
+	for _, r := range results {
+		fmt.Fprintf(&sb, "  %s|%s|%s|%d|%.2f|%s\n", r.Type, r.Name, r.Path, r.Line, r.RelevanceScore, r.SearchType)
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }

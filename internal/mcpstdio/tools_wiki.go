@@ -25,7 +25,7 @@ type wikiSearchInput struct {
 	TopK        int      `json:"top_k,omitempty" jsonschema:"BM25 results per wiki source (0 = no limit)"`
 	ProjectDir  string   `json:"project_dir" jsonschema:"Project directory (required)"`
 	Mode        string   `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
-	AiOptimized bool     `json:"ai_optimized,omitempty" jsonschema:"Output in compact, token-efficient format for AI agents"`
+	AiOptimized bool     `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type wikiChatInput struct {
@@ -44,14 +44,14 @@ type wikiBrowseInput struct {
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
 	DocType     string `json:"doc_type,omitempty" jsonschema:"Filter by document type (e.g., specification, architecture, decision)"`
 	Limit       int    `json:"limit,omitempty" jsonschema:"Max results (default: 100)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"Output in compact, token-efficient format for AI agents"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type wikiLogInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
 	Limit       int    `json:"limit,omitempty" jsonschema:"Max log entries (default: 10)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"Output in compact, token-efficient format for AI agents"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type wikiXRefsInput struct {
@@ -59,7 +59,7 @@ type wikiXRefsInput struct {
 	Query       string `json:"query" jsonschema:"Entity slug or name to find cross-references for"`
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
 	Depth       int    `json:"depth,omitempty" jsonschema:"Depth of graph traversal (default: 1, max: 3)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"Output in compact, token-efficient format for AI agents"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type wikiEmbedInput struct {
