@@ -172,8 +172,8 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"### How to search (step-by-step)",
 		"",
 		"**Step 1 — Search the wiki (ALWAYS start here)**",
-		"  Call " + searchRef + " with your query. This uses FTS5 + BM25 ranking to find the most relevant pages.",
-		"  Alternatively, call " + browseRef + " for a structured catalog of all entities.",
+		"  Call " + searchRef + " (ai_optimized:true) with your query. This uses FTS5 + BM25 ranking to find the most relevant pages.",
+		"  Alternatively, call " + browseRef + " (ai_optimized:true) for a structured catalog of all entities.",
 		"  The search returns entity summaries, cross-references, and confidence scores.",
 		"",
 		"**Step 2 — Read the frontmatter FIRST (before the body)**",
@@ -197,7 +197,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"  Each page links to related pages. Follow them — they are semantically curated.",
 		"",
 		"**Step 4 — Expand with cross-references**",
-		"  Call " + xrefsRef + " for any entity slug to find all inbound and outbound references.",
+		"  Call " + xrefsRef + " (ai_optimized:true) for any entity slug to find all inbound and outbound references.",
 		"  This replaces grep for finding \"what else mentions X\" — pre-computed, zero-cost.",
 		"",
 		"**Step 5 — Verify via provenance**",
@@ -250,7 +250,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"| Scope | Index path |",
 		"|---|---|",
-		"| **project** (this project) | Call " + searchRef + " or " + browseRef + " |",
+		"| **project** (this project) | Call " + searchRef + " (ai_optimized:true) or " + browseRef + " (ai_optimized:true) |",
 	}
 
 
@@ -692,8 +692,8 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"### How to search (step-by-step)",
 		"",
 		"**Step 1 — Search the wiki (ALWAYS start here)**",
-		"  Call " + searchRef + " with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).",
-		"  Alternatively, call " + browseRef + " for a structured catalog.",
+		"  Call " + searchRef + " (ai_optimized:true) with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).",
+		"  Alternatively, call " + browseRef + " (ai_optimized:true) for a structured catalog.",
 		"",
 		"**Step 2 — Read frontmatter FIRST**",
 		"  Check `confidence`, `type`, `source`, `updated` before reading body content.",
@@ -704,7 +704,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"  Navigate from endpoint → schema → related services via curated links.",
 		"",
 		"**Step 4 — Expand with cross-references**",
-		"  Call " + xrefsRef + " to find every spec that references a given schema or service — pre-computed, zero-cost.",
+		"  Call " + xrefsRef + " (ai_optimized:true) to find every spec that references a given schema or service — pre-computed, zero-cost.",
 		"",
 		"**Step 5 — Verify via provenance**",
 		"  Each page has: `*Provenance: ^[docs/rest/payment.yaml]*`.",
@@ -927,10 +927,10 @@ func MandateTrigger() string {
 	browseRef := brand.MCPToolRef("wiki", "browse")
 	xrefsRef := brand.MCPToolRef("wiki", "xrefs")
 	return "POST_CHANGE: After ANY code change → create/update `docs/tasks/<task-name>.md`, then call " + syncRef + ". " +
-		"SEARCH: Call " + searchRef + " or " + browseRef + " to find project knowledge. " +
+		"SEARCH: Call " + searchRef + " (ai_optimized:true) or " + browseRef + " (ai_optimized:true) to find project knowledge. " +
 		"NEVER read .graphit/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized. " +
 		"NEVER grep docs/ for project understanding — wiki search costs ~500 tokens vs grep scanning all files. " +
-		"XREFS: Call " + xrefsRef + " to find cross-references — pre-computed, zero-cost. " +
+		"XREFS: Call " + xrefsRef + " (ai_optimized:true) to find cross-references — pre-computed, zero-cost. " +
 		"INTEGRATION: Never guess APIs → check Hub first, then search wiki via MCP."
 }
 

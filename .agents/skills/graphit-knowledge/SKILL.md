@@ -144,8 +144,8 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 ### How to search (step-by-step)
 
 **Step 1 — Search the wiki (ALWAYS start here)**
-  Call `graphit_knowledge_search` with your query. This uses FTS5 + BM25 ranking to find the most relevant pages.
-  Alternatively, call `graphit_wiki_browse` for a structured catalog of all entities.
+  Call `graphit_knowledge_search` (ai_optimized:true) with your query. This uses FTS5 + BM25 ranking to find the most relevant pages.
+  Alternatively, call `graphit_wiki_browse` (ai_optimized:true) for a structured catalog of all entities.
   The search returns entity summaries, cross-references, and confidence scores.
 
 **Step 2 — Read the frontmatter FIRST (before the body)**
@@ -169,7 +169,7 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
   Each page links to related pages. Follow them — they are semantically curated.
 
 **Step 4 — Expand with cross-references**
-  Call `graphit_wiki_xrefs` for any entity slug to find all inbound and outbound references.
+  Call `graphit_wiki_xrefs` (ai_optimized:true) for any entity slug to find all inbound and outbound references.
   This replaces grep for finding "what else mentions X" — pre-computed, zero-cost.
 
 **Step 5 — Verify via provenance**
@@ -222,7 +222,7 @@ Examples of INVALID fallback (protocol violations):
 
 | Scope | Index path |
 |---|---|
-| **project** (this project) | Call `graphit_knowledge_search` or `graphit_wiki_browse` |
+| **project** (this project) | Call `graphit_knowledge_search` (ai_optimized:true) or `graphit_wiki_browse` (ai_optimized:true) |
 
 ### ⚡ MANDATORY: Sync After Every File Modification
 
@@ -656,8 +656,8 @@ a compiled, cross-referenced wiki.
 ### How to search (step-by-step)
 
 **Step 1 — Search the wiki (ALWAYS start here)**
-  Call `graphit_knowledge_search` with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).
-  Alternatively, call `graphit_wiki_browse` for a structured catalog.
+  Call `graphit_knowledge_search` (ai_optimized:true) with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).
+  Alternatively, call `graphit_wiki_browse` (ai_optimized:true) for a structured catalog.
 
 **Step 2 — Read frontmatter FIRST**
   Check `confidence`, `type`, `source`, `updated` before reading body content.
@@ -668,7 +668,7 @@ a compiled, cross-referenced wiki.
   Navigate from endpoint → schema → related services via curated links.
 
 **Step 4 — Expand with cross-references**
-  Call `graphit_wiki_xrefs` to find every spec that references a given schema or service — pre-computed, zero-cost.
+  Call `graphit_wiki_xrefs` (ai_optimized:true) to find every spec that references a given schema or service — pre-computed, zero-cost.
 
 **Step 5 — Verify via provenance**
   Each page has: `*Provenance: ^[docs/rest/payment.yaml]*`.

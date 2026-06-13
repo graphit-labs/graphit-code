@@ -1933,7 +1933,7 @@ func copyDirRecursive(src, dst string) error {
 	})
 }
 
-func runWikiSearch(query string, wikiRefs, hubRefs []string, sessionName string, continueSession bool, topK int, mode string) error {
+func runWikiSearch(query string, wikiRefs, hubRefs []string, sessionName string, continueSession bool, topK int, mode string, aiOptimized bool) error {
 	p := output.NewPrinter("")
 	ctx := context.Background()
 
@@ -2163,7 +2163,7 @@ func openWikiDBForScope(wikiScope, projectDir string) (*wiki.WikiDB, error) {
 	return wiki.OpenWikiDB(wikiDir)
 }
 
-func runWikiBrowse(wikiScope, docType string, limit int) error {
+func runWikiBrowse(wikiScope, docType string, limit int, aiOptimized bool) error {
 	p := output.NewPrinter("")
 
 	wd, err := os.Getwd()
@@ -2190,6 +2190,11 @@ func runWikiBrowse(wikiScope, docType string, limit int) error {
 
 	if len(entries) == 0 {
 		p.Info("No wiki documents found.")
+		return nil
+	}
+
+	if aiOptimized {
+		p.Data(wiki.FormatBrowseResultsTOON(entries))
 		return nil
 	}
 
@@ -2222,7 +2227,7 @@ func runWikiBrowse(wikiScope, docType string, limit int) error {
 	return nil
 }
 
-func runWikiLog(wikiScope string, limit int) error {
+func runWikiLog(wikiScope string, limit int, aiOptimized bool) error {
 	p := output.NewPrinter("")
 
 	wd, err := os.Getwd()
@@ -2243,6 +2248,11 @@ func runWikiLog(wikiScope string, limit int) error {
 
 	if len(entries) == 0 {
 		p.Info("No sync history found.")
+		return nil
+	}
+
+	if aiOptimized {
+		p.Data(wiki.FormatSyncLogTOON(entries))
 		return nil
 	}
 
@@ -2267,7 +2277,7 @@ func runWikiLog(wikiScope string, limit int) error {
 	return nil
 }
 
-func runWikiXRefs(query, wikiScope string, depth int) error {
+func runWikiXRefs(query, wikiScope string, depth int, aiOptimized bool) error {
 	p := output.NewPrinter("")
 
 	wd, err := os.Getwd()
@@ -2295,6 +2305,11 @@ func runWikiXRefs(query, wikiScope string, depth int) error {
 
 	if len(refs) == 0 {
 		p.Info("No cross-references found for %q.", query)
+		return nil
+	}
+
+	if aiOptimized {
+		p.Data(wiki.FormatXRefResultsTOON(query, depth, refs))
 		return nil
 	}
 

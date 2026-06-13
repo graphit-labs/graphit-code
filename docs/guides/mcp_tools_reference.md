@@ -773,8 +773,67 @@ Tools for multi-source wiki search with AI-powered retrieval and chat sessions.
 | `session_id` | string | | Session ID to continue an existing conversation |
 | `top_k` | integer | | BM25 results per wiki source (0 = no limit) |
 | `project_dir` | string | ✅ | Project directory |
+| `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
+
+> **Tip:** Always set `ai_optimized: true` for AI agent usage. This returns results in a compact, token-efficient format (TOON) rather than raw JSON.
 
 **Returns:** AI-synthesized answer with a session ID for follow-up chat.
+
+---
+
+### `graphit_wiki_browse`
+
+**Description:** Browse wiki documents in a structured format. Lists chunks/documents from the WikiDB with optional filtering by type.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory |
+| `wiki` | string | | Wiki scope: `project`, `memory` (default: `project`) |
+| `doc_type` | string | | Filter by document type (e.g., `specification`, `architecture`, `decision`) |
+| `limit` | integer | | Max results (default: 100) |
+| `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
+
+> **Tip:** Always set `ai_optimized: true` for AI agent usage.
+
+---
+
+### `graphit_wiki_xrefs`
+
+**Description:** Show cross-references for a wiki entity. Returns inbound and outbound references with configurable graph traversal depth.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory |
+| `query` | string | ✅ | Entity slug or name to find cross-references for |
+| `wiki` | string | | Wiki scope: `project`, `memory` (default: `project`) |
+| `depth` | integer | | Depth of graph traversal (default: 1, max: 3) |
+| `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
+
+> **Tip:** Always set `ai_optimized: true` for AI agent usage.
+
+---
+
+### `graphit_wiki_log`
+
+**Description:** Show wiki sync history. Returns a timeline of sync operations showing what was added, updated, and deleted.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory |
+| `wiki` | string | | Wiki scope: `project`, `memory` (default: `project`) |
+| `limit` | integer | | Max log entries (default: 10) |
+| `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
+
+---
+
+### `graphit_wiki_embed`
+
+**Description:** Run embedding cycle to precompute or update semantic embeddings for wiki documents.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory |
+| `wiki` | string | | Wiki scope: `project`, `memory` (default: `project`) |
 
 ---
 

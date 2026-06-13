@@ -55,6 +55,7 @@ func newWikiSearchCmd() *cobra.Command {
 		continueSession bool
 		topK            int
 		searchMode      string
+		aiOptimized     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "search <query>",
@@ -82,7 +83,7 @@ Examples:
   ` + brand.BinName() + ` wiki search "patterns" --top-k 10 --continue`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWikiSearch(args[0], wikiRefs, hubRefs, sessionName, continueSession, topK, searchMode)
+			return runWikiSearch(args[0], wikiRefs, hubRefs, sessionName, continueSession, topK, searchMode, aiOptimized)
 		},
 	}
 	cmd.Flags().StringSliceVar(&wikiRefs, "wiki", []string{"project"}, "Wiki sources: project, memory, or ecosystem project ID (comma-separated)")
@@ -91,6 +92,7 @@ Examples:
 	cmd.Flags().BoolVar(&continueSession, "continue", false, "Continue the most recent session")
 	cmd.Flags().IntVar(&topK, "top-k", 0, "BM25 results per wiki source (0 = no limit)")
 	cmd.Flags().StringVar(&searchMode, "mode", "hybrid", "Search mode: hybrid (default, FTS + semantic), fts (keyword only), semantic (vector only)")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format for AI agents")
 	return cmd
 }
 
@@ -147,9 +149,10 @@ Examples:
 
 func newWikiBrowseCmd() *cobra.Command {
 	var (
-		wikiScope string
-		docType   string
-		limit     int
+		wikiScope   string
+		docType     string
+		limit       int
+		aiOptimized bool
 	)
 	cmd := &cobra.Command{
 		Use:   "browse",
@@ -162,19 +165,21 @@ Examples:
   ` + brand.BinName() + ` wiki browse --wiki memory
   ` + brand.BinName() + ` wiki browse --type specification --limit 20`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWikiBrowse(wikiScope, docType, limit)
+			return runWikiBrowse(wikiScope, docType, limit, aiOptimized)
 		},
 	}
 	cmd.Flags().StringVar(&wikiScope, "wiki", "project", "Wiki scope: project or memory")
 	cmd.Flags().StringVar(&docType, "type", "", "Filter by document type (e.g., specification, architecture)")
 	cmd.Flags().IntVar(&limit, "limit", 100, "Max results to return")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format for AI agents")
 	return cmd
 }
 
 func newWikiLogCmd() *cobra.Command {
 	var (
-		wikiScope string
-		limit     int
+		wikiScope   string
+		limit       int
+		aiOptimized bool
 	)
 	cmd := &cobra.Command{
 		Use:   "log",
@@ -187,18 +192,20 @@ Examples:
   ` + brand.BinName() + ` wiki log --wiki memory
   ` + brand.BinName() + ` wiki log --limit 5`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWikiLog(wikiScope, limit)
+			return runWikiLog(wikiScope, limit, aiOptimized)
 		},
 	}
 	cmd.Flags().StringVar(&wikiScope, "wiki", "project", "Wiki scope: project or memory")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max log entries to show")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format for AI agents")
 	return cmd
 }
 
 func newWikiXRefsCmd() *cobra.Command {
 	var (
-		wikiScope string
-		depth     int
+		wikiScope   string
+		depth       int
+		aiOptimized bool
 	)
 	cmd := &cobra.Command{
 		Use:   "xrefs <query>",
@@ -212,11 +219,12 @@ Examples:
   ` + brand.BinName() + ` wiki xrefs config --wiki memory`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runWikiXRefs(args[0], wikiScope, depth)
+			return runWikiXRefs(args[0], wikiScope, depth, aiOptimized)
 		},
 	}
 	cmd.Flags().StringVar(&wikiScope, "wiki", "project", "Wiki scope: project or memory")
 	cmd.Flags().IntVar(&depth, "depth", 1, "Depth of graph traversal (1-3)")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format for AI agents")
 	return cmd
 }
 

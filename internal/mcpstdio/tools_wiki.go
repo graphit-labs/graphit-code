@@ -18,13 +18,14 @@ import (
 )
 
 type wikiSearchInput struct {
-	Query      string   `json:"query" jsonschema:"Natural language question to search across multiple wikis"`
-	Wikis      []string `json:"wikis,omitempty" jsonschema:"Wiki sources to search (project, memory, or project IDs from ecosystem)"`
-	HubRefs    []string `json:"hub_refs,omitempty" jsonschema:"Hub knowledge artifact references to include (format: artifact-id@version)"`
-	SessionID  string   `json:"session_id,omitempty" jsonschema:"Session ID to continue an existing conversation"`
-	TopK       int      `json:"top_k,omitempty" jsonschema:"BM25 results per wiki source (0 = no limit)"`
-	ProjectDir string   `json:"project_dir" jsonschema:"Project directory (required)"`
-	Mode       string   `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
+	Query       string   `json:"query" jsonschema:"Natural language question to search across multiple wikis"`
+	Wikis       []string `json:"wikis,omitempty" jsonschema:"Wiki sources to search (project, memory, or project IDs from ecosystem)"`
+	HubRefs     []string `json:"hub_refs,omitempty" jsonschema:"Hub knowledge artifact references to include (format: artifact-id@version)"`
+	SessionID   string   `json:"session_id,omitempty" jsonschema:"Session ID to continue an existing conversation"`
+	TopK        int      `json:"top_k,omitempty" jsonschema:"BM25 results per wiki source (0 = no limit)"`
+	ProjectDir  string   `json:"project_dir" jsonschema:"Project directory (required)"`
+	Mode        string   `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
+	AiOptimized bool     `json:"ai_optimized,omitempty" jsonschema:"Output in compact, token-efficient format for AI agents"`
 }
 
 type wikiChatInput struct {
@@ -39,23 +40,26 @@ type wikiSessionsInput struct {
 }
 
 type wikiBrowseInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Wiki       string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
-	DocType    string `json:"doc_type,omitempty" jsonschema:"Filter by document type (e.g., specification, architecture, decision)"`
-	Limit      int    `json:"limit,omitempty" jsonschema:"Max results (default: 100)"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
+	DocType     string `json:"doc_type,omitempty" jsonschema:"Filter by document type (e.g., specification, architecture, decision)"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"Max results (default: 100)"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"Output in compact, token-efficient format for AI agents"`
 }
 
 type wikiLogInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Wiki       string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
-	Limit      int    `json:"limit,omitempty" jsonschema:"Max log entries (default: 10)"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"Max log entries (default: 10)"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"Output in compact, token-efficient format for AI agents"`
 }
 
 type wikiXRefsInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Query      string `json:"query" jsonschema:"Entity slug or name to find cross-references for"`
-	Wiki       string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
-	Depth      int    `json:"depth,omitempty" jsonschema:"Depth of graph traversal (default: 1, max: 3)"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Query       string `json:"query" jsonschema:"Entity slug or name to find cross-references for"`
+	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
+	Depth       int    `json:"depth,omitempty" jsonschema:"Depth of graph traversal (default: 1, max: 3)"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"Output in compact, token-efficient format for AI agents"`
 }
 
 type wikiEmbedInput struct {
@@ -154,6 +158,9 @@ func registerWikiTools(server *mcp.Server) {
 			if len(allResults) > topK {
 				allResults = allResults[:topK]
 			}
+			if input.AiOptimized {
+				return textResult(wiki.FormatSearchResultsTOON(allResults))
+			}
 			return jsonResult(allResults)
 
 		case "semantic":
@@ -186,6 +193,9 @@ func registerWikiTools(server *mcp.Server) {
 			})
 			if len(allResults) > topK {
 				allResults = allResults[:topK]
+			}
+			if input.AiOptimized {
+				return textResult(wiki.FormatSearchResultsTOON(allResults))
 			}
 			return jsonResult(allResults)
 
@@ -226,6 +236,9 @@ func registerWikiTools(server *mcp.Server) {
 			})
 			if len(allResults) > topK {
 				allResults = allResults[:topK]
+			}
+			if input.AiOptimized {
+				return textResult(wiki.FormatSearchResultsTOON(allResults))
 			}
 			return jsonResult(allResults)
 		}
@@ -351,6 +364,10 @@ func registerWikiTools(server *mcp.Server) {
 			return textResult("No wiki documents found.")
 		}
 
+		if input.AiOptimized {
+			return textResult(wiki.FormatBrowseResultsTOON(entries))
+		}
+
 		var b strings.Builder
 		_, _ = fmt.Fprintf(&b, "Found %d document(s):\n\n", len(entries))
 		for i, e := range entries {
@@ -405,6 +422,10 @@ func registerWikiTools(server *mcp.Server) {
 
 		if len(entries) == 0 {
 			return textResult("No sync history found.")
+		}
+
+		if input.AiOptimized {
+			return textResult(wiki.FormatSyncLogTOON(entries))
 		}
 
 		var b strings.Builder
@@ -469,6 +490,10 @@ func registerWikiTools(server *mcp.Server) {
 
 		if len(refs) == 0 {
 			return textResult(fmt.Sprintf("No cross-references found for %q.", input.Query))
+		}
+
+		if input.AiOptimized {
+			return textResult(wiki.FormatXRefResultsTOON(input.Query, depth, refs))
 		}
 
 		var outbound, inbound []wiki.XRefResult
