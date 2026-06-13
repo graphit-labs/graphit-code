@@ -2,9 +2,9 @@ package dream
 
 import (
 	"context"
+	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
-	crand "crypto/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,6 +15,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
+	"github.com/graphit-labs/graphit-code/internal/memory"
 )
 
 const (
@@ -82,8 +83,6 @@ func NewRunner(projectDir, ide string, projectCfgLoader func() config.ConfigMap)
 
 	return r
 }
-
-
 
 func (r *Runner) log(format string, args ...any) {
 	if r.logFn != nil {
@@ -222,8 +221,6 @@ func (r *Runner) resolveSessionULID(currentModTime time.Time) string {
 	return r.state.CurrentULID
 }
 
-
-
 const exhaustedSentinel = ".exhausted"
 
 func (r *Runner) checkDeepSleep(ulid string) {
@@ -275,6 +272,84 @@ func (r *Runner) resolveConfig() DreamConfig {
 	return ResolveDreamConfig(projectCfg)
 }
 
+func (r *Runner) runMemoryConsolidation(ctx context.Context) {
+	var projectCfg config.ConfigMap
+	if r.projectCfg != nil {
+		projectCfg = r.projectCfg()
+	}
+	if config.IsModuleDisabled("memory", nil, projectCfg) {
+		return
+	}
+
+	aiClient, err := ai.NewClientFromConfig()
+	if err != nil || aiClient == nil {
+		r.log("dream: memory consolidation skipped — no AI client available")
+		return
+	}
+
+	for _, scope := range []string{"project", "user"} {
+		dir := memory.RawDir(scope)
+		if dir == "" {
+			continue
+		}
+
+		r.log("dream: running memory consolidation for %s scope", scope)
+
+		report, err := memory.RunConsolidation(ctx, scope, aiClient)
+		if err != nil {
+			r.log("dream: memory consolidation (%s) error: %v", scope, err)
+			continue
+		}
+		if report == nil || !report.HasActions() {
+			r.log("dream: memory consolidation (%s) — no actions needed", scope)
+			continue
+		}
+
+		// Merge duplicates: keep first ID with merged content, remove the rest.
+		for _, action := range report.Duplicates {
+			if len(action.MemoryIDs) < 2 {
+				continue
+			}
+			mergedTitle := action.NewTitle
+			if mergedTitle == "" {
+				mergedTitle = action.Title
+			}
+			if mergedTitle == "" {
+				mergedTitle = "Merged memory"
+			}
+			mergedContent := action.NewContent
+			if mergedContent == "" {
+				mergedContent = action.Reason
+			}
+			mergedFile := filepath.Join(dir, action.MemoryIDs[0]+".md")
+			content := fmt.Sprintf("---\ntitle: %s\ncreated: %s\ntype: consolidated\n---\n\n%s\n",
+				mergedTitle, time.Now().UTC().Format(time.RFC3339), mergedContent)
+			_ = os.WriteFile(mergedFile, []byte(content), 0o644)
+
+			for _, id := range action.MemoryIDs[1:] {
+				_ = os.Remove(filepath.Join(dir, id+".md"))
+				_ = os.Remove(filepath.Join(dir, id+memory.ImportantMemorySuffix+".md"))
+			}
+		}
+
+		allActions := make([]memory.ConsolidationAction, 0, len(report.Contradictions)+len(report.Stale)+len(report.Suggestions))
+		allActions = append(allActions, report.Contradictions...)
+		allActions = append(allActions, report.Stale...)
+		allActions = append(allActions, report.Suggestions...)
+		for _, action := range allActions {
+			if action.Type == "delete" {
+				for _, id := range action.MemoryIDs {
+					_ = os.Remove(filepath.Join(dir, id+".md"))
+					_ = os.Remove(filepath.Join(dir, id+memory.ImportantMemorySuffix+".md"))
+				}
+			}
+		}
+
+		r.log("dream: memory consolidation (%s) applied — %d total actions",
+			scope, report.TotalActions())
+	}
+}
+
 func (r *Runner) executeDream(ctx context.Context, ulid string) error {
 	dreamArtifactDir := filepath.Join(r.projectDir, brand.DotDir(), "dream")
 
@@ -283,6 +358,10 @@ func (r *Runner) executeDream(ctx context.Context, ulid string) error {
 	if err := os.MkdirAll(dreamArtifactDir, 0o755); err != nil {
 		return fmt.Errorf("creating dream artifact dir: %w", err)
 	}
+
+	// Run memory consolidation as a pre-dream maintenance step.
+	// This uses the LLM to find duplicates, contradictions, and stale memories.
+	r.runMemoryConsolidation(ctx)
 
 	var subject *Subject
 	if s, err := PickSubject(r.projectDir); err == nil && s != nil {

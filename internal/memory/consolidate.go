@@ -382,16 +382,6 @@ func RunGC(scope string, staleDays int) (*GCReport, error) {
 						Reason: fmt.Sprintf("Unclassified memory, %d days old (threshold: %d days)", days, staleDays),
 						Age:    days,
 					})
-					continue
-				}
-
-				if age > 2*threshold {
-					report.Candidates = append(report.Candidates, GCCandidate{
-						ID:     id,
-						Title:  title,
-						Reason: fmt.Sprintf("Very old memory, %d days old (2× threshold: %d days)", days, 2*staleDays),
-						Age:    days,
-					})
 				}
 			}
 		}

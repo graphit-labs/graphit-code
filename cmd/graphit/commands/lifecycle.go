@@ -659,7 +659,7 @@ Phase 1 (synchronous):
 
 Phase 2 (background by default):
   • Generate vector embeddings for semantic search
-  • Run memory GC and consolidation
+  • Run memory GC
 
 Flags:
   --no-background   Run both phases in the same process with terminal output
@@ -990,55 +990,7 @@ func runMemoryMaintenance(ctx context.Context, projectDir string) {
 			}
 		}
 
-		func() {
-			aiClient, err := ai.NewClientFromConfig()
-			if err != nil || aiClient == nil {
-				return
-			}
-			report, err := memory.RunConsolidation(ctx, scope, aiClient)
-			if err != nil || report == nil || !report.HasActions() {
-				return
-			}
 
-			for _, action := range report.Duplicates {
-				if len(action.MemoryIDs) < 2 {
-					continue
-				}
-				mergedTitle := action.NewTitle
-				if mergedTitle == "" {
-					mergedTitle = action.Title
-				}
-				if mergedTitle == "" {
-					mergedTitle = "Merged memory"
-				}
-				mergedContent := action.NewContent
-				if mergedContent == "" {
-					mergedContent = action.Reason
-				}
-				mergedFile := filepath.Join(dir, action.MemoryIDs[0]+".md")
-				content := fmt.Sprintf("---\ntitle: %s\ncreated: %s\ntype: consolidated\n---\n\n%s\n",
-					mergedTitle, time.Now().UTC().Format(time.RFC3339), mergedContent)
-				_ = os.WriteFile(mergedFile, []byte(content), 0o644)
-
-				for _, id := range action.MemoryIDs[1:] {
-					_ = os.Remove(filepath.Join(dir, id+".md"))
-					_ = os.Remove(filepath.Join(dir, id+memory.ImportantMemorySuffix+".md"))
-				}
-			}
-
-			allActions := make([]memory.ConsolidationAction, 0, len(report.Contradictions)+len(report.Stale)+len(report.Suggestions))
-			allActions = append(allActions, report.Contradictions...)
-			allActions = append(allActions, report.Stale...)
-			allActions = append(allActions, report.Suggestions...)
-			for _, action := range allActions {
-				if action.Type == "delete" {
-					for _, id := range action.MemoryIDs {
-						_ = os.Remove(filepath.Join(dir, id+".md"))
-						_ = os.Remove(filepath.Join(dir, id+memory.ImportantMemorySuffix+".md"))
-					}
-				}
-			}
-		}()
 
 		memory.RunCycle(ctx, scope, dir, memory.WikiDir(scope))
 	}
