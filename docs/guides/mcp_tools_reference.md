@@ -24,6 +24,29 @@ The tools are organized by module. Every tool name follows the pattern `graphit_
 
 ---
 
+## Retrieval Tools Overview
+
+The platform provides multiple retrieval tools across three tiers. Use this matrix to choose the right tool:
+
+| Tool | Backend | AI? | Scope Params | Best for |
+|------|---------|-----|-------------|----------|
+| `graphit_memory_search` | Text match on raw `.md` files | No | `scope` (project/user) | Quick keyword match in memories — instant, lightweight |
+| `graphit_knowledge_search` | BM25 on wiki `.md` pages | No | `context` (empty=project, named=hub import) | Keyword search in project docs |
+| `graphit_wiki_search` | FTS5 + semantic on `wiki.db` | Semantic mode | `wikis[]` (project, memory), `hub_refs[]` | Multi-source search, semantic search |
+| `graphit_wiki_browse` | SQLite `wiki.db` catalog | No | `wiki` (project/memory) | Listing all documents with filters |
+| `graphit_knowledge_query` | AI + BM25 multi-turn | Yes | `context` | Deep AI-synthesized answer from project docs |
+| `graphit_memory_query` | AI + compiled wiki | Yes | `scope`, `context` | AI-synthesized answer from memories |
+
+**Key parameter differences:**
+- **`scope`** (Memory tools): `"project"` (default) = project-specific memories, `"user"` = personal cross-project memories
+- **`context`** (Knowledge/Memory tools): empty = local project, `"<name>"` = hub-imported context at `.graphit/knowledge/<name>/`
+- **`wikis`** (Wiki search): `["project"]` = knowledge wiki, `["memory"]` = memory wiki, both for multi-source
+- **`hub_refs`** (Wiki search): `["artifact-id@version"]` to include hub knowledge artifacts
+
+> For the full retrieval architecture guide with filesystem paths and decision trees, see [Retrieval Architecture](retrieval_architecture.md).
+
+---
+
 ## Table of Contents
 
 - [Lifecycle Tools](#lifecycle-tools)

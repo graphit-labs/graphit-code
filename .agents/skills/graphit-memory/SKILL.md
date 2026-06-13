@@ -124,10 +124,14 @@ Default type when `type` is omitted: `fact`.
 The wiki database is compiled, BM25-indexed, and pre-optimized for retrieval.
 Reading raw .md files is slower, wastes tokens, and bypasses ranking.
 
+**Scope parameter:** `scope: "project"` (default) = project-specific memories. `scope: "user"` = personal cross-project memories.
+- `graphit_memory_search` searches raw `.md` memory files via text matching (Tier 1 — lightweight, no AI)
+- `graphit_memory_query` queries the compiled memory wiki via AI synthesis (Tier 3 — deep, multi-turn)
+
 | What you need | MCP tool | Why |
 |---|---|---|
-| Search memories by keyword/context | `graphit_memory_search` | BM25-ranked, instant, ~200 tokens |
-| AI-powered memory consultation | `graphit_memory_query` | Synthesizes relevant memories into an answer |
+| Search memories by keyword/context | `graphit_memory_search` | Text matching on raw files, instant, ~200 tokens |
+| AI-powered memory consultation | `graphit_memory_query` | Synthesizes relevant memories from wiki using AI |
 | List all memories | `graphit_memory_list` | Structured catalog, grouped by type |
 | List important memories only | `graphit_memory_important` | High-priority conventions, corrections |
 

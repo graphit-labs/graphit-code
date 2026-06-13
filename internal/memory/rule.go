@@ -156,10 +156,14 @@ func RuleContent(contexts []string) string {
 		"The wiki database is compiled, BM25-indexed, and pre-optimized for retrieval.",
 		"Reading raw .md files is slower, wastes tokens, and bypasses ranking.",
 		"",
+		"**Scope parameter:** `scope: \"project\"` (default) = project-specific memories. `scope: \"user\"` = personal cross-project memories.",
+		"- `" + memSearch + "` searches raw `.md` memory files via text matching (Tier 1 — lightweight, no AI)",
+		"- `" + memQuery + "` queries the compiled memory wiki via AI synthesis (Tier 3 — deep, multi-turn)",
+		"",
 		"| What you need | MCP tool | Why |",
 		"|---|---|---|",
-		"| Search memories by keyword/context | " + memSearchRef + " | BM25-ranked, instant, ~200 tokens |",
-		"| AI-powered memory consultation | `" + memQuery + "` | Synthesizes relevant memories into an answer |",
+		"| Search memories by keyword/context | " + memSearchRef + " | Text matching on raw files, instant, ~200 tokens |",
+		"| AI-powered memory consultation | `" + memQuery + "` | Synthesizes relevant memories from wiki using AI |",
 		"| List all memories | `" + memList + "` | Structured catalog, grouped by type |",
 		"| List important memories only | `" + memImportant + "` | High-priority conventions, corrections |",
 	)
@@ -258,7 +262,9 @@ func MandateTrigger() string {
 	memSearchRef := brand.MCPToolRef("memory", "search")
 	memQueryRef := brand.MCPToolRef("memory", "query")
 	return "SESSION_START: Call " + memSearchRef + " BEFORE first response to recall relevant context. " +
-		"NEVER read .graphit/memory/*/index.md directly — use " + memSearchRef + " or " + memQueryRef + " (MCP is indexed, faster, token-efficient). " +
+		"SCOPE: scope:\"project\" (default) for project memories, scope:\"user\" for personal cross-project memories. " +
+		"SEARCH: " + memSearchRef + " = lightweight text match on raw files. " + memQueryRef + " = AI synthesis from compiled wiki. " +
+		"NEVER read .graphit/memory/*/index.md directly. " +
 		"SAVE: User corrects/guides/instructs → " + memInsertRef + " immediately. Task done → " + memInsertRef + ". Design decision → " + memInsertRef + ". " +
 		"READ: Before significant changes or when stuck (2+ failures) → " + memSearchRef + ". " +
 		"RULE: This framework IS your memory. Never use IDE/model memory. Never say 'understood' without evaluating if the instruction should be memorized."

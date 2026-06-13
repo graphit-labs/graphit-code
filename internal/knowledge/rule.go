@@ -29,6 +29,8 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 	searchRef := brand.MCPToolRef("knowledge", "search")
 	browseRef := brand.MCPToolRef("wiki", "browse")
 	xrefsRef := brand.MCPToolRef("wiki", "xrefs")
+	queryRef := brand.MCPToolRef("knowledge", "query")
+	wikiSearchRef := brand.MCPToolRef("wiki", "search")
 
 	lines := []string{
 		"# Knowledge Maintenance Rule",
@@ -175,6 +177,8 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"  Call " + searchRef + " (ai_optimized:true) with your query. This uses FTS5 + BM25 ranking to find the most relevant pages.",
 		"  Alternatively, call " + browseRef + " (ai_optimized:true) for a structured catalog of all entities.",
 		"  The search returns entity summaries, cross-references, and confidence scores.",
+		"  For AI-powered deep search, call " + queryRef + " which synthesizes a comprehensive answer using multi-turn consultation.",
+		"  For multi-source search (knowledge + memory), call " + wikiSearchRef + " (ai_optimized:true) with `wikis: [\"project\", \"memory\"]`.",
 		"",
 		"**Step 2 — Read the frontmatter FIRST (before the body)**",
 		"  Every entity page starts with YAML frontmatter. Read it before the body content:",
@@ -228,7 +232,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"Your tools are allowed ONLY when ALL of these conditions are true:",
 		"",
-		"1. You **already searched the wiki** using " + searchRef + " or " + browseRef + "",
+		"1. You **already searched the wiki** using " + searchRef + ", " + queryRef + ", or " + browseRef + "",
 		"2. You **followed relevant [[wikilinks]]** and checked entity pages",
 		"3. You **checked cross-references** using " + xrefsRef + " on the most relevant page",
 		"4. The wiki **genuinely has no coverage** of the topic (not indexed, not documented)",
@@ -248,9 +252,11 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"### Wiki Paths",
 		"",
-		"| Scope | Index path |",
+		"| Scope | How to search |",
 		"|---|---|",
 		"| **project** (this project) | Call " + searchRef + " (ai_optimized:true) or " + browseRef + " (ai_optimized:true) |",
+		"| **imported context** (hub artifact) | Call " + searchRef + " (ai_optimized:true, context: \"<name>\") or " + queryRef + " (context: \"<name>\") |",
+		"| **multi-source** (project + memory) | Call " + wikiSearchRef + " (ai_optimized:true, wikis: [\"project\", \"memory\"]) |",
 	}
 
 
@@ -694,6 +700,8 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"**Step 1 — Search the wiki (ALWAYS start here)**",
 		"  Call " + searchRef + " (ai_optimized:true) with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).",
 		"  Alternatively, call " + browseRef + " (ai_optimized:true) for a structured catalog.",
+		"  For AI-powered deep search, call " + queryRef + " which synthesizes a comprehensive answer using multi-turn consultation.",
+		"  For multi-source search (knowledge + memory), call " + wikiSearchRef + " (ai_optimized:true) with `wikis: [\"project\", \"memory\"]`.",
 		"",
 		"**Step 2 — Read frontmatter FIRST**",
 		"  Check `confidence`, `type`, `source`, `updated` before reading body content.",
@@ -730,7 +738,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"Your tools are allowed ONLY when ALL of these conditions are true:",
 		"",
-		"1. You **already searched the wiki** using " + searchRef + " or " + browseRef + "",
+		"1. You **already searched the wiki** using " + searchRef + ", " + queryRef + ", or " + browseRef + "",
 		"2. You **followed relevant [[wikilinks]]** and checked entity pages",
 		"3. You **checked cross-references** using " + xrefsRef + " on the most relevant page",
 		"4. The wiki **genuinely has no coverage** of the integration (not indexed, not documented)",
