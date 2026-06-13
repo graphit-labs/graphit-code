@@ -189,9 +189,19 @@ func (s *HubService) Install(
 				}
 				name := ce.Name()
 				src := filepath.Join(cloneDir, name)
+
+				// YAML query definitions.
 				if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
 					if err := copyFile(src, filepath.Join(queriesDir, name)); err != nil {
 						s.log().Warn("installing query yaml", "file", name, "error", err)
+					}
+					continue
+				}
+
+				// Grammar archives: extract platform binary to grammars dir.
+				if strings.HasSuffix(name, ".grammar") {
+					if err := installGrammarArchive(src, pp.ActiveProjectDir, dotDir); err != nil {
+						s.log().Warn("installing grammar archive", "file", name, "error", err)
 					}
 				}
 			}
@@ -755,6 +765,8 @@ func (s *HubService) preUninstallHook(ctx context.Context, artType ArtifactType,
 				_ = os.Remove(filepath.Join(queriesDir, name))
 			}
 		}
+		// Also remove grammar binaries.
+		uninstallGrammarFiles(cloneDir, pp.ActiveProjectDir, dotDir)
 		return nil
 	case TypeFramework:
 

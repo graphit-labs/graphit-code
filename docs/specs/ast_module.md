@@ -25,7 +25,7 @@ It parses source files into an in-memory graph database, enabling AI agents to t
 
 ## 🌐 Supported Languages
 
-Graphit Code supports **23 programming languages** via Tree-sitter and ANTLR v4 parsers. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires registering its CGO bindings in the native Go runner; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
+Graphit Code supports **42 programming languages via 37 Tree-sitter grammars and 5 ANTLR v4 parsers**. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires installing its grammar shared library via Hub; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
 
 | # | Language | Parser | Extensions | Key Extracted Entities |
 |---|---|---|---|---|
@@ -52,6 +52,25 @@ Graphit Code supports **23 programming languages** via Tree-sitter and ANTLR v4 
 | 21 | **T-SQL** | ANTLR v4 | `.sql`, `.tsql` | StoredProcedure, Function, Table, View, Trigger, Index, Sequence, Type, Schema, Column, Parameter, Variable |
 | 22 | **COBOL 85** | ANTLR v4 | `.cob`, `.cbl`, `.cpy`, `.cobol` | Program, Section, Paragraph, DataItem, FileDescription, ConditionName |
 | 23 | **HTML** | Tree-sitter | `.html`, `.htm` | Element |
+| 24 | **Bash** | Tree-sitter | `.sh`, `.bash` | Function, Variable |
+| 25 | **Clojure** | Tree-sitter | `.clj`, `.cljs`, `.cljc`, `.edn` | Function, Variable, Namespace |
+| 26 | **Dockerfile** | Tree-sitter | `Dockerfile`, `.dockerfile` | Stage, Instruction |
+| 27 | **Elixir** | Tree-sitter | `.ex`, `.exs` | Function, Module, Variable |
+| 28 | **GraphQL** | Tree-sitter | `.graphql`, `.gql` | Type, Field, Query, Mutation, Subscription |
+| 29 | **Groovy** | Tree-sitter | `.groovy`, `.gradle` | Function, Class, Variable |
+| 30 | **Haskell** | Tree-sitter | `.hs` | Function, Type, Class, Module |
+| 31 | **HCL** | Tree-sitter | `.tf`, `.hcl` | Block, Variable |
+| 32 | **JSON** | Tree-sitter | `.json`, `.jsonc` | Object, Array |
+| 33 | **Julia** | Tree-sitter | `.jl` | Function, Struct, Module, Variable |
+| 34 | **Lua** | Tree-sitter | `.lua` | Function, Variable |
+| 35 | **Markdown** | Tree-sitter | `.md`, `.markdown` | Heading, Link |
+| 36 | **Objective-C** | Tree-sitter | `.m`, `.mm` | Function, Class, Method, Protocol, Property |
+| 37 | **Protocol Buffers** | Tree-sitter | `.proto` | Message, Enum, Service, RPC |
+| 38 | **R** | Tree-sitter | `.r`, `.R` | Function, Variable |
+| 39 | **Scala** | Tree-sitter | `.scala`, `.sc` | Function, Class, Object, Trait, Variable |
+| 40 | **TOML** | Tree-sitter | `.toml` | Table, Key |
+| 41 | **YAML** | Tree-sitter | `.yaml`, `.yml` | Mapping, Sequence |
+| 42 | **Zig** | Tree-sitter | `.zig` | Function, Struct, Enum, Variable |
 
 ### Cross-Language Extraction Capabilities
 
@@ -59,15 +78,15 @@ For every supported language, the parser extracts the following relationship dat
 
 | Capability | Description | Languages |
 |---|---|---|
-| **Function Calls** | Traces which functions/methods call which others | All 23 |
+| **Function Calls** | Traces which functions/methods call which others | All 42 |
 | **Import Resolution** | Maps module dependencies and import chains | All except SQL dialects |
 | **Class Inheritance** | `extends` / superclass relationships | JS, TS, Python, Java, C#, C++, Kotlin, Swift, Dart, PHP, Ruby |
 | **Interface Implementation** | `implements` / protocol conformance | TS, Java, C#, Kotlin, PHP, Rust |
 | **Field Access Tracking** | Reads and writes to class/struct fields | Go, JS, TS, Java, C#, C, C++, Kotlin, Swift, Python, Rust, PHP, Ruby |
 | **Decorator / Annotation** | Attribute / annotation extraction | TS, Python, Java, C#, Kotlin, Swift, Rust, PHP |
 | **Object Instantiation** | `new` expression tracking | JS, TS, Java, C#, C++, PHP |
-| **Cyclomatic Complexity** | Computed for every function/method | All 23 |
-| **Export Visibility** | `is_exported` flag per entity — detection strategy is configurable via the `exports` field in language YAML (see [Export Strategies](#export-strategies)) | All 23 (strategy varies by language) |
+| **Cyclomatic Complexity** | Computed for every function/method | All 42 |
+| **Export Visibility** | `is_exported` flag per entity — detection strategy is configurable via the `exports` field in language YAML (see [Export Strategies](#export-strategies)) | All 42 (strategy varies by language) |
 | **DML Tracking** | `SELECTS`, `INSERTS`, `UPDATES`, `DELETES`, `ALTERS`, `DROPS`, `REFERENCES` edges for SQL statements | SQL, PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85 |
 
 ---
@@ -154,35 +173,51 @@ LadybugDB uses standard graph database constraints, but does not support all com
 
 ## 🔍 Parser Adapters & Native CGO Runtime
 
-The engine uses a **dual-parser architecture** — Tree-sitter and ANTLR v4 — both compiled and executed natively via CGO/Go (fully native, no WASM runtimes). The YAML `parser:` field in each language configuration determines which backend is used; Tree-sitter is the default when the field is omitted.
+The engine uses a **dual-parser architecture** — Tree-sitter and ANTLR v4. The YAML `parser:` field in each language configuration determines which backend is used; Tree-sitter is the default when the field is omitted.
 
-- **Tree-sitter**: Incremental, fast, and the default parser for most languages. Integrates natively via CGO with the standard Go bindings (`github.com/smacker/go-tree-sitter` and official grammar bindings), providing maximum parsing performance.
-- **ANTLR v4**: Full grammar parsing for complex languages like PL/SQL that require richer parse trees. Uses two-stage **SLL→LL parsing**: the fast O(n) SLL mode is tried first, falling back to full LL parsing only on ambiguity or error. This parser is compiled as native Go code in the module.
+- **Tree-sitter**: Incremental, fast, and the default parser. Grammars are dynamically loaded as platform-native shared libraries (`.so`/`.dylib`/`.dll`) via CGO `dlopen`/`dlsym`. The `DynGrammarLoader` resolves grammar binaries using a cascading search path: **project → user global → runtime**. No static compilation required — new grammars can be installed via `graphit hub install`.
+- **ANTLR v4**: Full grammar parsing for complex languages. Uses per-grammar **sidecar binaries** with IPC (stdin/stdout, length-prefixed protocol buffers). Each sidecar includes exactly one grammar, selected by Go build tags. Sidecar processes are pooled and reused across parse calls for maximum performance.
 
 Both parsers are loaded **lazily** on first use — no eager loading at startup. This means startup time is constant regardless of the number of supported languages or installed grammars.
 
-### Tree-sitter CGO Architecture
+### Tree-sitter Dynamic Loading Architecture
 
-Tree-sitter grammars are compiled and integrated directly as Go libraries using CGO:
-- **15 Standard Languages** (e.g., Go, Python, Java) are imported directly from subpackages of `github.com/smacker/go-tree-sitter`.
-- **Dart** is imported from the Go bindings package `github.com/UserNobody14/tree-sitter-dart/bindings/go` and instantiated dynamically via `sitter.NewLanguage(tree_sitter_dart.Language())`.
-- **XML** is imported from the official Go bindings package `github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go` and instantiated dynamically via `sitter.NewLanguage(tree_sitter_xml.LanguageXML())`.
+Tree-sitter grammars are loaded dynamically at runtime:
+- **`DynGrammarLoader`** (`internal/ast/treesitter_dynload.go`) resolves and loads shared libraries via CGO `dlopen`/`dlsym`.
+- **Search path hierarchy**: project (`.graphit/grammars/treesitter/`) → user global (`~/.graphit/grammars/treesitter/`) → runtime (`~/.graphit/runtime/<version>/grammars/treesitter/`).
+- **16 default grammars** (Go, Python, JS, TS, TSX, Java, Kotlin, Rust, C#, C++, C, Ruby, PHP, Swift, Dart, SQL) are embedded in the launcher and extracted to the runtime directory on first run.
+- **Additional grammars** are installed via `graphit hub install <language>`, which extracts the platform-specific binary from a `.grammar` fat archive.
+- **Cache**: Loaded `sitter.Language` handles are cached in a `sync.Map` — zero allocations after first load.
+- **Thread safety**: `sitter.Language` instances are read-only and shared across all worker goroutines.
 
-### ANTLR v4 Go Native Architecture
+### ANTLR v4 Sidecar Architecture
 
-ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) are compiled into native Go code. Each grammar implements the `GrammarDriver` interface and is registered in a driver registry. The adapter uses a multi-grammar fallback mechanism — when multiple grammars support the same extension (e.g., `.sql`), they are tried in sequence until one successfully extracts entities. SLL/LL parsing strategy helpers handle fast-path prediction under each grammar's `parser_sll_ll.go`. Patterns in ANTLR YAML files use **XPath syntax** (e.g., `//create_function_body/function_name`) instead of Tree-sitter S-expressions.
+ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) are compiled as standalone **sidecar binaries** — one per grammar. The adapter (`internal/ast/antlr_adapter.go`) communicates with sidecars via stdin/stdout IPC using length-prefixed protocol buffers:
+- **`SidecarDriver`** (`internal/ast/antlr_sidecar.go`) manages a pool of reusable sidecar processes.
+- **Search path hierarchy**: project (`.graphit/grammars/antlr/`) → user global (`~/.graphit/grammars/antlr/`) → runtime (`~/.graphit/runtime/<version>/grammars/antlr/`).
+- **Installation**: ANTLR grammars are NOT default — they are installed via `graphit hub install <language>`, which extracts the sidecar binary for the current platform.
+- **Build tags**: Each grammar is isolated behind a Go build tag (`grammar_plsql`, `grammar_postgresql`, etc.), compiled via `make grammars-antlr`.
+- **Performance**: Pooled sidecar IPC is ~6x faster than in-process parsing with 89% fewer allocations on the client side.
 
 ### Grammar Resolution Chain
 
-The AST module resolves language configurations (extensions, parser type, XPath/S-expression query definitions) using a cascading chain. Both Tree-sitter and ANTLR queries are defined in standard language YAML files; WASM binaries are no longer used or resolved.
+The AST module resolves grammar binaries and language configurations using a cascading chain:
 
-**Resolution order** (highest priority first):
+**YAML query files** (extensions, parser type, query definitions):
 
 | Priority | Path | Managed By |
 |----------|------|------------|
 | 1 | `.graphit/ast/queries/` | Project |
 | 2 | `~/.graphit/ast/queries/` | User |
 | 3 | `~/.graphit/runtime/<version>/ast/queries/` | Framework |
+
+**Grammar binaries** (shared libraries and sidecar binaries):
+
+| Priority | Path | Managed By |
+|----------|------|------------|
+| 1 | `.graphit/grammars/treesitter/` or `.graphit/grammars/antlr/` | Project (Hub install) |
+| 2 | `~/.graphit/grammars/treesitter/` or `~/.graphit/grammars/antlr/` | User |
+| 3 | `~/.graphit/runtime/<version>/grammars/treesitter/` or `grammars/antlr/` | Framework (Launcher defaults) |
 
 **Key types:**
 
@@ -442,7 +477,7 @@ Query files are resolved using a cascading priority system. For each language, t
 ```
 
 **Key behaviors:**
-- The launcher automatically extracts all 23 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
+- The launcher automatically extracts all 42 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
 - The **runtime directory is version-scoped** — each binary version gets its own clean set of defaults, so upgrades never conflict with previous versions.
 - The **user global directory** (`~/.graphit/ast/queries/`) is never touched by the framework. Only the user creates/edits files there.
 - If a **project** has a `go.yaml`, only Go queries come from the project level; other languages still resolve normally through user → runtime.

@@ -1,5 +1,5 @@
 language: protobuf
-grammar: tree-sitter-protobuf
+grammar: tree-sitter-proto
 extensions: [".proto"]
 queries:
   # === Entity queries ===

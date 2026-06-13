@@ -3,46 +3,11 @@ package ast
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 
 	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/bash"
-	"github.com/smacker/go-tree-sitter/c"
-	"github.com/smacker/go-tree-sitter/cpp"
-	"github.com/smacker/go-tree-sitter/csharp"
-	"github.com/smacker/go-tree-sitter/dockerfile"
-	"github.com/smacker/go-tree-sitter/elixir"
-	"github.com/smacker/go-tree-sitter/golang"
-	"github.com/smacker/go-tree-sitter/groovy"
-	"github.com/smacker/go-tree-sitter/hcl"
-	"github.com/smacker/go-tree-sitter/html"
-	"github.com/smacker/go-tree-sitter/java"
-	"github.com/smacker/go-tree-sitter/javascript"
-	"github.com/smacker/go-tree-sitter/kotlin"
-	"github.com/smacker/go-tree-sitter/lua"
-	markdown "github.com/smacker/go-tree-sitter/markdown/tree-sitter-markdown"
-	"github.com/smacker/go-tree-sitter/php"
-	"github.com/smacker/go-tree-sitter/protobuf"
-	"github.com/smacker/go-tree-sitter/python"
-	"github.com/smacker/go-tree-sitter/ruby"
-	"github.com/smacker/go-tree-sitter/rust"
-	"github.com/smacker/go-tree-sitter/scala"
-	"github.com/smacker/go-tree-sitter/sql"
-	"github.com/smacker/go-tree-sitter/swift"
-	"github.com/smacker/go-tree-sitter/toml"
-	"github.com/smacker/go-tree-sitter/typescript/tsx"
-	"github.com/smacker/go-tree-sitter/typescript/typescript"
-	"github.com/smacker/go-tree-sitter/yaml"
-	dart "github.com/graphit-labs/graphit-code/internal/ast/treesitter/dart"
-	ts_clojure "github.com/graphit-labs/graphit-code/internal/ast/treesitter/clojure"
-	ts_graphql "github.com/graphit-labs/graphit-code/internal/ast/treesitter/graphql"
-	ts_objc "github.com/graphit-labs/graphit-code/internal/ast/treesitter/objc"
-	tree_sitter_haskell "github.com/tree-sitter/tree-sitter-haskell/bindings/go"
-	tree_sitter_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
-	tree_sitter_julia "github.com/tree-sitter/tree-sitter-julia/bindings/go"
-	ts_r "github.com/graphit-labs/graphit-code/internal/ast/treesitter/r"
-	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
-	tree_sitter_zig "github.com/tree-sitter-grammars/tree-sitter-zig/bindings/go"
 )
 
 type tsLangConfig struct {
@@ -64,52 +29,36 @@ type tsQueryDef struct {
 var tsExtMap map[string]*tsLangConfig
 var tsGrammarMap map[string]*tsLangConfig
 
-var tsLangs = map[string]*sitter.Language{
-	// --- Existing languages ---
-	"tree-sitter-c":          c.GetLanguage(),
-	"tree-sitter-cpp":        cpp.GetLanguage(),
-	"tree-sitter-csharp":     csharp.GetLanguage(),
-	"tree-sitter-c_sharp":    csharp.GetLanguage(),
-	"tree-sitter-dart":       dart.GetLanguage(),
-	"tree-sitter-go":         golang.GetLanguage(),
-	"tree-sitter-java":       java.GetLanguage(),
-	"tree-sitter-javascript": javascript.GetLanguage(),
-	"tree-sitter-kotlin":     kotlin.GetLanguage(),
-	"tree-sitter-php":        php.GetLanguage(),
-	"tree-sitter-python":     python.GetLanguage(),
-	"tree-sitter-ruby":       ruby.GetLanguage(),
-	"tree-sitter-rust":       rust.GetLanguage(),
-	"tree-sitter-sql":        sql.GetLanguage(),
-	"tree-sitter-swift":      swift.GetLanguage(),
-	"tree-sitter-typescript": typescript.GetLanguage(),
-	"tree-sitter-tsx":        tsx.GetLanguage(),
-	"tree-sitter-xml":        sitter.NewLanguage(tree_sitter_xml.LanguageXML()),
+// grammarLoader is the global dynamic grammar loader.
+// Initialized once via initGrammarLoader().
+var grammarLoader *DynGrammarLoader
+var grammarLoaderOnce sync.Once
 
-	// --- New: smacker-bundled grammars ---
-	"tree-sitter-bash":       bash.GetLanguage(),
-	"tree-sitter-scala":      scala.GetLanguage(),
-	"tree-sitter-lua":        lua.GetLanguage(),
-	"tree-sitter-hcl":        hcl.GetLanguage(),
-	"tree-sitter-html":       html.GetLanguage(),
-	"tree-sitter-yaml":       yaml.GetLanguage(),
-	"tree-sitter-elixir":     elixir.GetLanguage(),
-	"tree-sitter-groovy":     groovy.GetLanguage(),
-	"tree-sitter-protobuf":   protobuf.GetLanguage(),
-	"tree-sitter-toml":       toml.GetLanguage(),
-	"tree-sitter-markdown":   markdown.GetLanguage(),
-	"tree-sitter-dockerfile": dockerfile.GetLanguage(),
+func initGrammarLoader() {
+	var opts []DynGrammarLoaderOption
+	// GRAPHIT_GRAMMAR_DIR allows dev/CI to point to the build output directory.
+	if dir := os.Getenv("GRAPHIT_GRAMMAR_DIR"); dir != "" {
+		opts = append(opts, WithExtraPaths(dir))
+	}
+	grammarLoader = NewDynGrammarLoader(opts...)
+}
 
-	// --- New: external Go bindings ---
-	"tree-sitter-json":    sitter.NewLanguage(tree_sitter_json.Language()),
-	"tree-sitter-zig":     sitter.NewLanguage(tree_sitter_zig.Language()),
-	"tree-sitter-r":       ts_r.GetLanguage(),
-	"tree-sitter-haskell": sitter.NewLanguage(tree_sitter_haskell.Language()),
-	"tree-sitter-julia":   sitter.NewLanguage(tree_sitter_julia.Language()),
+// parserPool reuses sitter.Parser instances across parse calls.
+// ts_parser_new() allocates ~50KB of C state; pooling amortizes this
+// across thousands of files parsed per indexing run.
+var parserPool = sync.Pool{
+	New: func() any {
+		return sitter.NewParser()
+	},
+}
 
-	// --- New: local CGo bindings ---
-	"tree-sitter-clojure": ts_clojure.GetLanguage(),
-	"tree-sitter-graphql": ts_graphql.GetLanguage(),
-	"tree-sitter-objc":    ts_objc.GetLanguage(),
+// queryCursorPool reuses sitter.QueryCursor instances across query executions.
+// Each cursor is a lightweight C allocation, but at scale (N files × M queries)
+// the cumulative allocation cost is significant.
+var queryCursorPool = sync.Pool{
+	New: func() any {
+		return sitter.NewQueryCursor()
+	},
 }
 
 
@@ -170,15 +119,19 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 		return nil, err
 	}
 
-	lang, ok := tsLangs[cfg.Grammar]
-	if !ok {
-		return nil, fmt.Errorf("unsupported native tree-sitter grammar: %s", cfg.Grammar)
+	grammarLoaderOnce.Do(initGrammarLoader)
+	// Strip "tree-sitter-" prefix to get the language name for dynamic loading.
+	langName := strings.TrimPrefix(cfg.Grammar, "tree-sitter-")
+	lang, err := grammarLoader.Load(langName)
+	if err != nil {
+		return nil, fmt.Errorf("grammar load failed for %s: %w", cfg.Grammar, err)
 	}
 
-	p := sitter.NewParser()
+	p := parserPool.Get().(*sitter.Parser)
 	p.SetLanguage(lang)
 
 	tree, err := p.ParseCtx(context.Background(), nil, src)
+	parserPool.Put(p) // return parser to pool immediately after parse
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse failed: %w", err)
 	}
@@ -220,7 +173,7 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 	for i, ce := range compiledEntries {
 		qdef := rpcQueries[i]
 
-		qc := sitter.NewQueryCursor()
+		qc := queryCursorPool.Get().(*sitter.QueryCursor)
 		qc.Exec(ce.Query, root)
 
 		for {
@@ -278,7 +231,7 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 				}
 			}
 		}
-		qc.Close()
+		queryCursorPool.Put(qc)
 	}
 
 	extractDocstringsTS(root, src, result, langConfig)

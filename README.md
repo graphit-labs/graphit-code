@@ -212,9 +212,9 @@ graphit ui  # Opens http://localhost:8080
 ### 2. AST Graph Explorer — Instant & Deterministic
 Query the AST across the ecosystem instantly. Auto-incremental indexing ensures your agent always knows exactly where a function is defined or called. **Eliminates hallucinations** by grounding answers in exact structural truths, and drastically **reduces LLM token usage** by passing only precise nodes instead of massive files.
 
-#### Supported Languages (23)
+#### Supported Languages (42)
 
-Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and **ANTLR v4** (full grammar, enterprise SQL). Tree-sitter grammars are compiled natively via CGO for maximum performance. ANTLR grammars use native Go binaries. All 23 programming languages — 18 Tree-sitter languages and 5 ANTLR grammars — are built into the binary.
+Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and **ANTLR v4** (full grammar, enterprise SQL). Tree-sitter grammars are dynamically loaded as shared libraries (`.so`/`.dylib`/`.dll`) via CGO `dlopen` — no static compilation required. ANTLR grammars use per-grammar standalone sidecar binaries with IPC (stdin/stdout). The launcher ships with 16 default Tree-sitter grammars; additional grammars are installed via `graphit hub install`.
 
 | Language | Parser | Extensions | Extracted Entities |
 |---|---|---|---|
@@ -236,6 +236,25 @@ Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and *
 | **SQL** | Tree-sitter | `.sql` | Functions, Tables, Views |
 | **XML** | Tree-sitter | `.xml`, `.xsl`, `.xslt`, `.xsd`, `.svg`, `.wsdl`, `.plist`, `.xhtml` | Elements |
 | **HTML** | Tree-sitter | `.html`, `.htm` | Elements, Script/Style blocks + ID/Class/href/src/action/name attributes, data-*/aria-* attributes, ARIA roles, label-for binding |
+| **Bash** | Tree-sitter | `.sh`, `.bash` | Functions, Variables |
+| **Clojure** | Tree-sitter | `.clj`, `.cljs`, `.cljc`, `.edn` | Functions, Namespaces, Variables |
+| **Dockerfile** | Tree-sitter | `.dockerfile`, `Dockerfile` | Instructions |
+| **Elixir** | Tree-sitter | `.ex`, `.exs` | Functions, Modules, Variables |
+| **GraphQL** | Tree-sitter | `.graphql`, `.gql` | Types, Fields, Queries, Mutations |
+| **Groovy** | Tree-sitter | `.groovy`, `.gradle` | Functions, Classes, Variables |
+| **Haskell** | Tree-sitter | `.hs` | Functions, Types, Classes, Modules |
+| **HCL** | Tree-sitter | `.hcl`, `.tf` | Blocks, Variables |
+| **JSON** | Tree-sitter | `.json` | Objects, Arrays |
+| **Julia** | Tree-sitter | `.jl` | Functions, Types, Modules, Variables |
+| **Lua** | Tree-sitter | `.lua` | Functions, Variables |
+| **Markdown** | Tree-sitter | `.md`, `.markdown` | Headings, Links |
+| **Objective-C** | Tree-sitter | `.m`, `.mm` | Functions, Classes, Interfaces, Methods |
+| **Protocol Buffers** | Tree-sitter | `.proto` | Messages, Services, RPCs |
+| **R** | Tree-sitter | `.r`, `.R` | Functions, Variables |
+| **Scala** | Tree-sitter | `.scala`, `.sc` | Functions, Classes, Traits, Objects |
+| **TOML** | Tree-sitter | `.toml` | Tables, Key-Value Pairs |
+| **YAML** | Tree-sitter | `.yaml`, `.yml` | Mappings, Sequences |
+| **Zig** | Tree-sitter | `.zig` | Functions, Structs, Variables |
 | **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Functions, Procedures, Packages, Types, Triggers, Tables, Views, Materialized Views, Indexes, Sequences, Synonyms, DB Links, Columns, Parameters, Variables, Constants, Cursors, Exceptions, Constraints, Savepoints + DML tracking (SELECTS, INSERTS, UPDATES, DELETES) |
 | **PostgreSQL** | ANTLR v4 | `.sql`, `.pgsql`, `.plpgsql`, `.pg` | Functions, Procedures, Tables, Views, Materialized Views, Schemas, Triggers, Sequences, Indexes, Extensions, Types (domain, composite, enum, range), Columns, Parameters, Constraints, Variables + DML tracking |
 | **DB2** | ANTLR v4 | `.sql`, `.db2` | Functions, Stored Procedures, Tables, Views, Triggers, Indexes, Sequences, Types, Schemas, Aliases, Tablespaces, Columns, Parameters, Variables + DML tracking |
@@ -254,7 +273,7 @@ Every source file is parsed via **Tree-sitter** or **ANTLR v4** into a graph sto
 
 The entire AST pipeline is driven by **external YAML files** — not hardcoded. Every aspect of language understanding, framework detection, and scoring is runtime-customizable without recompilation:
 
-- **Language Query Patterns** — 23 language YAML files define all extraction patterns (functions, classes, imports, calls, etc.) for both Tree-sitter and ANTLR grammars.
+- **Language Query Patterns** — 42 language YAML files define all extraction patterns (functions, classes, imports, calls, etc.) for both Tree-sitter and ANTLR grammars.
 - **Framework Detection** — 51+ framework definitions across 59 YAML files. Decorators, heritage classes, and import patterns for frameworks like React, Django, Spring Boot, Flutter, Express, FastAPI, and many more.
 - **Ecosystem Detection** — `ecosystems.yaml` with 120+ entries classifying projects by technology stack (web, mobile, API, database, CLI, etc.)
 - **Entry Point Scoring** — Scoring rules embedded in each language YAML determine how functions are ranked as potential entry points.
@@ -270,13 +289,13 @@ All configuration follows a **4-level cascading resolution chain**:
 
 **Extend without recompilation:** Add new frameworks, ecosystem patterns, entry point scoring rules, relation types, and customize all language behavior by simply dropping YAML files into the project or user directory. Community contributions can be YAML-only PRs — no Go knowledge required.
 
-> **Fully Customizable AST Extraction:** While grammars are compiled natively into the binary (Tree-sitter via CGO, ANTLR via native Go), the entire extraction pipeline is driven by **external YAML files** that are fully customizable without recompilation:
+> **Plug-and-Play Grammar Distribution:** Tree-sitter grammars are distributed as shared libraries (`.so`/`.dylib`/`.dll`) and loaded dynamically at runtime via CGO `dlopen`. ANTLR grammars are distributed as standalone sidecar binaries. Both can be installed via `graphit hub install` without recompilation:
 >
-> 1. **Customize extraction queries** — Modify which entities (functions, classes, imports, etc.) are extracted from any of the 23 built-in languages by editing the YAML query files.
-> 2. **Override per project or globally** — Drop YAML files into `.graphit/ast/queries/` (project) or `~/.graphit/ast/queries/` (global) to override the runtime defaults.
-> 3. **Add framework detection** — Create framework YAML files to detect custom frameworks via decorators, inheritance, and import patterns.
+> 1. **Install new grammars** — `graphit hub install <language>` downloads and installs the grammar binary for your platform.
+> 2. **Customize extraction queries** — Modify which entities are extracted from any language by editing the YAML query files.
+> 3. **Override per project or globally** — Drop YAML files into `.graphit/ast/queries/` (project) or `~/.graphit/ast/queries/` (global).
 >
-> To add support for an entirely new language grammar, you must add CGO bindings (Tree-sitter) or a native Go parser (ANTLR) to the source and recompile.
+> The launcher ships with 16 default Tree-sitter grammars. Additional grammars — including all ANTLR grammars — are installed on-demand via the Hub.
 
 Resolution follows a cascading priority chain: **project → user global → runtime → embedded**. See the [User Manual](docs/guides/user_manual.md#customizing-ast-tree-sitter-queries) for examples, and the [AST Module Spec](docs/specs/ast_module.md#-external-query-customization) for the full technical reference.
 

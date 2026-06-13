@@ -610,11 +610,11 @@ $EDITOR .graphit/ast/queries/python.yaml
 
 ## Adding New Language Support
 
-Graphit Code ships with 23 built-in languages. Tree-sitter grammars (18 languages) are compiled natively into the binary via CGO, and 5 ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) use native Go binaries. **Adding an entirely new language grammar requires modifying the Go source code and recompiling.**
+Graphit Code supports 42 supported languages. Tree-sitter grammars (37 languages) are loaded dynamically via CGO dlopen, and 5 ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) run as sidecar binaries with IPC. **Adding an entirely new language grammar does not require recompilation — grammars are installed as plug-and-play binaries via the Hub.**
 
 However, the YAML query files that control what gets extracted from the AST are fully customizable. You can:
 
-- **Customize extraction queries** for any of the 23 built-in languages
+- **Customize extraction queries** for any of the 42 supported languages
 - **Override export strategies, self keywords, context types**, and other language configuration
 - **Add or remove entity extraction patterns** per project or globally
 
@@ -639,20 +639,19 @@ cp ~/.graphit/runtime/*/ast/queries/python.yaml .graphit/ast/queries/python.yaml
 $EDITOR .graphit/ast/queries/python.yaml
 ```
 
-### What Requires Recompilation
+### Adding a New Grammar (No Recompilation Required)
 
-To add support for an entirely new language (e.g., Haskell, Elixir, Scala):
+New grammars are installed as plug-and-play binaries via the Hub:
 
-1. **Tree-sitter languages** — Add CGO bindings for the new grammar in the Go source under `internal/ast/treesitter/`
-2. **ANTLR languages** — Add a native Go parser under `internal/ast/antlr/`
-3. **Recompile** — Run `make install` to build the updated binary
-4. **Create a YAML query file** — Define extraction patterns in a `<language>.yaml` file
+1. **Tree-sitter**: Install a shared library (`.so`/`.dylib`/`.dll`) via `graphit hub install <language>`. The grammar is extracted to `.graphit/grammars/treesitter/` and loaded dynamically via CGO `dlopen`.
+2. **ANTLR**: Install a sidecar binary via `graphit hub install <language>`. The binary is extracted to `.graphit/grammars/antlr/` and launched as a subprocess with IPC.
+3. **YAML queries**: Create or install the language YAML file defining extraction patterns. Drop into `.graphit/ast/queries/` or install via Hub.
 
-The YAML query file for the new language follows the same format as existing languages and can be customized via the resolution chain after compilation.
+No Go source changes or recompilation needed. The Makefile targets `make grammars-treesitter` and `make grammars-antlr` are used only for building new grammars from source.
 
 ### ANTLR Language Configuration
 
-For languages parsed by ANTLR v4 (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85), the YAML configuration uses XPath expressions instead of Tree-sitter S-expressions. ANTLR grammars are compiled as native Go binaries — not loaded at runtime.
+For languages parsed by ANTLR v4 (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85), the YAML configuration uses XPath expressions instead of Tree-sitter S-expressions. ANTLR grammars run as sidecar binaries with IPC — installed via the Hub as `.grammar` archives.
 
 ANTLR language files require `parser: antlr4`, `start_rule:`, and `grammar:` fields. Patterns use XPath syntax to navigate the ANTLR parse tree:
 
@@ -736,9 +735,9 @@ The grammar name determines the backend automatically: names starting with `antl
 
 ### Important Notes
 
-- **Built-in grammars**: All 18 Tree-sitter grammars and 5 ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) are compiled natively into the binary. Only YAML query files (extraction patterns, export strategies, language configuration) are customizable at runtime via the resolution chain.
+- **Built-in grammars**: All 37 Tree-sitter grammars and 5 ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) are loaded dynamically at runtime. YAML query files (extraction patterns, export strategies, language configuration) are customizable via the resolution chain. New grammars can be added via Hub without recompilation.
 - **Pattern validation**: Invalid Tree-sitter patterns are detected at parse time and logged as warnings, while valid patterns proceed normally. Invalid XPath expressions in ANTLR queries are similarly logged.
-- **Customizing existing languages**: For the 23 languages included by default, all extraction rules, export detection, scoring, context resolution, and docstring attachment are fully YAML-driven. Changing the YAML is sufficient — no rebuild needed.
+- **Customizing existing languages**: For the 42 languages included by default, all extraction rules, export detection, scoring, context resolution, and docstring attachment are fully YAML-driven. Changing the YAML is sufficient — no rebuild needed.
 - **Parser field**: If the `parser` field is omitted from a YAML file, Tree-sitter is assumed. Existing YAML files do not need modification.
 
 ---

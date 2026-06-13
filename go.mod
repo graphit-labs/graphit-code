@@ -9,6 +9,7 @@ require (
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/fatih/color v1.19.0
 	github.com/go-git/go-git/v5 v5.19.1
+	github.com/klauspost/compress v1.18.6
 	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/modelcontextprotocol/go-sdk v1.6.0
 	github.com/oklog/ulid/v2 v2.1.1
@@ -16,11 +17,6 @@ require (
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.8.0
 	github.com/sugarme/tokenizer v0.3.0
-	github.com/tree-sitter-grammars/tree-sitter-xml v0.7.0
-	github.com/tree-sitter-grammars/tree-sitter-zig v1.1.2
-	github.com/tree-sitter/tree-sitter-haskell v0.23.1
-	github.com/tree-sitter/tree-sitter-json v0.24.8
-	github.com/tree-sitter/tree-sitter-julia v0.25.0
 	github.com/yalue/onnxruntime_go v1.30.1
 	golang.org/x/term v0.42.0
 	golang.org/x/text v0.36.0
