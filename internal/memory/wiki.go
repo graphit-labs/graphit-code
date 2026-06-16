@@ -26,6 +26,10 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 		return nil, fmt.Errorf("creating wiki dir: %w", err)
 	}
 
+	// Load process cache for incremental builds.
+	processCache, _ := wiki.NewWikiProcessCache(wikiDir)
+	validPaths := make(map[string]bool)
+
 	entries, err := os.ReadDir(rawDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -59,19 +63,60 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 			continue
 		}
 
+		contentHash := wiki.ContentHash(data)
+		validPaths[name] = true
+
+		// Always parse metadata (cheap).
 		title, createdAt := parseMemoryMeta(absPath)
+
+		// Try cache first — skip re-processing unchanged files.
+		if processCache != nil && !processCache.HasChanged(name, contentHash) {
+			if cached := processCache.Get(name, contentHash); len(cached) > 0 {
+				cc := cached[0]
+				docs = append(docs, memDoc{
+					id:          id,
+					title:       cc.Title,
+					createdAt:   createdAt,
+					important:   important,
+					body:        cc.Body,
+					filename:    name,
+					memType:     cc.DocType,
+					contentHash: cc.ContentHash,
+				})
+				continue
+			}
+		}
+
+		// Cache miss — process from source.
 		body := extractBodyAfterFrontmatter(string(data))
 		memType := parseMemoryType(string(data))
 
-		docs = append(docs, memDoc{
-			id:        id,
-			title:     title,
-			createdAt: createdAt,
-			important: important,
-			body:      body,
-			filename:  name,
-			memType:   memType,
-		})
+		doc := memDoc{
+			id:          id,
+			title:       title,
+			createdAt:   createdAt,
+			important:   important,
+			body:        body,
+			filename:    name,
+			memType:     memType,
+			contentHash: contentHash,
+		}
+		docs = append(docs, doc)
+
+		// Store in cache.
+		if processCache != nil {
+			processCache.Store(name, contentHash, []wiki.CachedChunk{{
+				Title:       title,
+				Body:        body,
+				DocType:     memType,
+				ContentHash: contentHash,
+			}})
+		}
+	}
+
+	// Prune deleted files from cache.
+	if processCache != nil {
+		processCache.Prune(validPaths)
 	}
 
 	sort.Slice(docs, func(i, j int) bool {
@@ -118,41 +163,24 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 		wc := len(strings.Fields(doc.body))
 
 		wikiChunks = append(wikiChunks, wiki.WikiChunk{
-			Slug:      slug,
-			Title:     doc.title,
-			Body:      doc.body,
-			Summary:   extractMemSummary(doc.body),
-			DocType:   doc.memType,
-			Source:    doc.filename,
-			WordCount: wc,
-			Updated:   now,
-			Important: doc.important,
+			Slug:        slug,
+			Title:       doc.title,
+			Body:        doc.body,
+			Summary:     extractMemSummary(doc.body),
+			DocType:     doc.memType,
+			Source:      doc.filename,
+			WordCount:   wc,
+			Updated:     now,
+			Important:   doc.important,
+			ContentHash: doc.contentHash,
 		})
 	}
 
-	if db, err := wiki.OpenWikiDB(wikiDir); err == nil {
-		// Load embeddings from per-file shards if available, fallback to legacy.
-		processCache, _ := wiki.NewWikiProcessCache(wikiDir)
-		var embCache wiki.EmbeddingCache
-		if processCache != nil {
-			embCache = processCache.LoadAllEmbeddings()
-		}
-		if embCache == nil {
-			embCache = wiki.LoadEmbeddingCache(wikiDir)
-		}
-		_ = db.Rebuild(wikiChunks, nil, &wiki.SyncLogEntry{
-			Timestamp:       time.Now().UTC().Format(time.RFC3339),
-			TotalDocs:       len(docs),
-			ArticlesWritten: result.ArticlesWritten,
-		}, embCache)
-
-		// Export embeddings to per-file shards for next rebuild.
-		if processCache != nil {
-			processCache.ExportAllEmbeddingsFromDB(db)
-			_ = processCache.Save()
-		}
-		db.Close()
-	}
+	_ = wiki.RebuildDB(wikiDir, wikiChunks, nil, &wiki.SyncLogEntry{
+		Timestamp:       time.Now().UTC().Format(time.RFC3339),
+		TotalDocs:       len(docs),
+		ArticlesWritten: result.ArticlesWritten,
+	}, processCache)
 
 	return result, nil
 }
@@ -415,13 +443,14 @@ func firstLine(body string) string {
 }
 
 type memDoc struct {
-	id        string
-	title     string
-	createdAt string
-	important bool
-	body      string
-	filename  string
-	memType   string
+	id          string
+	title       string
+	createdAt   string
+	important   bool
+	body        string
+	filename    string
+	memType     string
+	contentHash string
 }
 
 var reMemoryType = regexp.MustCompile(`(?m)^type:\s*(.+)$`)

@@ -49,8 +49,9 @@ type memoryListInput struct {
 
 type memorySearchInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Query       string `json:"query" jsonschema:"Text query to search (required)"`
+	Query       string `json:"query" jsonschema:"Keywords to search for in the memory wiki using BM25"`
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
 	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
@@ -253,7 +254,7 @@ func registerMemoryTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "search"),
-		Description: "Search for text matching in raw memory files.",
+		Description: "Search the memory wiki using BM25 keyword ranking.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySearchInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -265,62 +266,23 @@ func registerMemoryTools(server *mcp.Server) {
 			scope = "user"
 		}
 
-		type match struct {
-			ID        string `json:"id"`
-			Title     string `json:"title"`
-			Important bool   `json:"important"`
+		wikiDir := resolveWikiDir("memory", projectDir, scope)
+		if wikiDir == "" {
+			return errResult(fmt.Errorf("memory wiki not found for %s scope", scope))
 		}
-		var matches []match
 
+		var results []wiki.BM25Result
 		err = withProjectDir(projectDir, func() error {
-			dir := memory.RawDir(scope)
-			if dir == "" {
-				return nil
-			}
-			entries, err := os.ReadDir(dir)
-			if err != nil {
-				if os.IsNotExist(err) {
-					return nil
-				}
-				return err
-			}
-
-			termLower := strings.ToLower(input.Query)
-			for _, e := range entries {
-				if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-					continue
-				}
-				absPath := filepath.Join(dir, e.Name())
-				data, readErr := os.ReadFile(absPath)
-				if readErr != nil {
-					continue
-				}
-				content := strings.ToLower(string(data))
-				if strings.Contains(content, termLower) {
-					title, _ := memory.ParseMemoryMetaPublic(absPath)
-					name := e.Name()
-					var id string
-					if memory.IsImportantMemory(name) {
-						id = strings.TrimSuffix(name, memory.ImportantMemorySuffix+".md")
-					} else {
-						id = strings.TrimSuffix(name, ".md")
-					}
-					matches = append(matches, match{
-						ID:        id,
-						Title:     title,
-						Important: memory.IsImportantMemory(name),
-					})
-				}
-			}
+			results = wiki.BM25Search(wikiDir, input.Query, input.TopK)
 			return nil
 		})
 		if err != nil {
 			return errResult(err)
 		}
 		if input.AiOptimized {
-			return toonResult(matches)
+			return toonResult(results)
 		}
-		return jsonResult(matches)
+		return jsonResult(results)
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{

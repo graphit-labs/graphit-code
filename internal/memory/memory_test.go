@@ -1782,7 +1782,7 @@ func TestCopyFileData_NonExistentSource(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// MemoryInsertOpts, MemorySearchResult, MemoryAppService (DTOs)
+// MemoryInsertOpts, MemoryAppService (DTOs)
 // ---------------------------------------------------------------------------
 
 func TestMemoryInsertOpts_DTO(t *testing.T) {
@@ -1799,12 +1799,6 @@ func TestMemoryInsertOpts_DTO(t *testing.T) {
 	}
 }
 
-func TestMemorySearchResult_DTO(t *testing.T) {
-	r := MemorySearchResult{ID: "id", Title: "title"}
-	if r.ID != "id" || r.Title != "title" {
-		t.Errorf("unexpected DTO values")
-	}
-}
 
 func TestNewMemoryAppService(t *testing.T) {
 	svc := NewMemoryAppService("/some/project")

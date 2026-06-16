@@ -1378,20 +1378,6 @@ func TestMemoryWorktree_WriteFileSubdir_Coverage(t *testing.T) {
 // appsvc.go — MemoryAppService integration
 // ===========================================================================
 
-func TestMemoryAppService_SearchByKeyword_Coverage(t *testing.T) {
-	svc := NewMemoryAppService("/some/project")
-	if svc == nil {
-		t.Fatal("expected non-nil service")
-	}
-
-	// SearchByKeyword with "project" scope on non-existent dir
-	results, err := svc.SearchByKeyword("test", "project")
-	if err != nil {
-		t.Logf("SearchByKeyword error (expected for non-existent dir): %v", err)
-	}
-	_ = results
-}
-
 func TestMemoryAppService_InsertValidated_EmptyTitle(t *testing.T) {
 	svc := NewMemoryAppService("/some/project")
 	_, err := svc.InsertValidated(MemoryInsertOpts{

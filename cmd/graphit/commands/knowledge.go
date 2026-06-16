@@ -38,6 +38,7 @@ Examples:
 		newKnowledgeIndexCmd(),
 		newKnowledgeWatchCmd(),
 		newKnowledgeQueryCmd(),
+		newKnowledgeSearchCmd(),
 		newKnowledgeLintCmd(),
 		newKnowledgeSchemaCmd(),
 		newKnowledgeInstallCmd(),
@@ -108,6 +109,30 @@ Examples:
 		},
 	}
 	cmd.Flags().StringVar(&context, "context", "", "Query an imported context by name")
+	return cmd
+}
+
+func newKnowledgeSearchCmd() *cobra.Command {
+	var context string
+	cmd := &cobra.Command{
+		Use:   "search <query>",
+		Short: "Search the knowledge wiki using BM25 keyword ranking",
+		Long: `Search the knowledge wiki using FTS5 + BM25 keyword ranking.
+
+Returns ranked results without AI — fast, local, and deterministic.
+Use 'query' for AI-powered deep consultation.
+
+With --context: searches an imported context instead of the project wiki.
+
+Examples:
+  ` + brand.BinName() + ` knowledge search "authentication"
+  ` + brand.BinName() + ` knowledge search "auth" --context team-platform`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runKnowledgeSearch(args[0], context)
+		},
+	}
+	cmd.Flags().StringVar(&context, "context", "", "Search an imported context by name")
 	return cmd
 }
 

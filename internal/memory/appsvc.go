@@ -2,7 +2,6 @@ package memory
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -18,12 +17,6 @@ type MemoryInsertOpts struct {
 	Tags      string
 	Scope     string
 	Important bool
-}
-
-// MemorySearchResult is a view-agnostic DTO for keyword search output.
-type MemorySearchResult struct {
-	ID    string
-	Title string
 }
 
 // MemoryAppService centralises memory operations shared across views (CLI, MCP, UI).
@@ -90,44 +83,6 @@ func (s *MemoryAppService) InsertValidated(opts MemoryInsertOpts) (string, error
 	return slug, nil
 }
 
-func (s *MemoryAppService) SearchByKeyword(term, scope string) ([]MemorySearchResult, error) {
-	if scope == "" {
-		scope = "project"
-	}
-
-	dir := RawDir(scope)
-	if dir == "" {
-		return nil, nil
-	}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	termLower := strings.ToLower(term)
-	var results []MemorySearchResult
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-		absPath := filepath.Join(dir, e.Name())
-		data, readErr := os.ReadFile(absPath)
-		if readErr != nil {
-			continue
-		}
-		if strings.Contains(strings.ToLower(string(data)), termLower) {
-			title, _ := ParseMemoryMetaPublic(absPath)
-			id := strings.TrimSuffix(e.Name(), ".md")
-			results = append(results, MemorySearchResult{ID: id, Title: title})
-		}
-	}
-
-	return results, nil
-}
 
 func ParseTags(tagsCSV string) []string {
 	if tagsCSV == "" {

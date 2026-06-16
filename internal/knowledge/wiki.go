@@ -482,24 +482,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		}
 	}
 
-	if db, err := wiki.OpenWikiDB(wikiDir); err == nil {
-		// Load embeddings from per-file shards (primary), fallback to legacy monolithic cache.
-		var embCache wiki.EmbeddingCache
-		if processCache != nil {
-			embCache = processCache.LoadAllEmbeddings()
-		}
-		if embCache == nil {
-			embCache = wiki.LoadEmbeddingCache(wikiDir)
-		}
-		_ = db.Rebuild(wikiChunks, xrefs, syncLogEntry, embCache)
-
-		// Export embeddings back to per-file shards for next rebuild.
-		if processCache != nil {
-			processCache.ExportAllEmbeddingsFromDB(db)
-			_ = processCache.Save()
-		}
-		db.Close()
-	}
+	_ = wiki.RebuildDB(wikiDir, wikiChunks, xrefs, syncLogEntry, processCache)
 
 	// Also write legacy log.md for backward compatibility
 	if len(added) > 0 || len(updated) > 0 || len(deleted) > 0 {

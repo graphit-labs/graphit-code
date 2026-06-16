@@ -1550,17 +1550,6 @@ func TestMemoryAppService_InsertValidated_InvalidType(t *testing.T) {
 	}
 }
 
-func TestMemoryAppService_SearchByKeyword_EmptyScope(t *testing.T) {
-	dir := t.TempDir()
-	svc := NewMemoryAppService(dir)
-	// With no memories setup, should return nil
-	results, err := svc.SearchByKeyword("test", "")
-	if err != nil {
-		// May error if dir doesn't exist, that's OK
-		_ = err
-	}
-	_ = results
-}
 
 // ===========================================================================
 // memory_git_store.go — copyDirRecursive with files
@@ -1854,7 +1843,7 @@ func TestNewMemorySvcInternal_NilStore(t *testing.T) {
 }
 
 // ===========================================================================
-// appsvc.go — MemoryInsertOpts and MemorySearchResult types
+// appsvc.go — MemoryInsertOpts type
 // ===========================================================================
 
 func TestMemoryInsertOpts_Fields(t *testing.T) {
@@ -1877,12 +1866,6 @@ func TestMemoryInsertOpts_Fields(t *testing.T) {
 	}
 }
 
-func TestMemorySearchResult_Fields(t *testing.T) {
-	r := MemorySearchResult{ID: "id1", Title: "title1"}
-	if r.ID != "id1" || r.Title != "title1" {
-		t.Error("unexpected field values")
-	}
-}
 
 // ===========================================================================
 // memory.go — MemoryOpts

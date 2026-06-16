@@ -871,6 +871,27 @@ func runKnowledgeList() error {
 	return nil
 }
 
+func runKnowledgeSearch(term string, contextName string) error {
+	p := output.NewPrinter("")
+
+	wikiDir := knowledge.WikiDir()
+	if contextName != "" {
+		wikiDir = knowledge.WikiDirForContext(contextName)
+	}
+
+	results := wiki.BM25Search(wikiDir, term, 0)
+	if len(results) == 0 {
+		p.Info("No knowledge matching %q.", term)
+		return nil
+	}
+
+	for _, r := range results {
+		p.ListItem("[%.3f] %s — %s", r.Score, strings.TrimSuffix(r.Path, ".md"), r.Title)
+	}
+	p.Count("match", len(results))
+	return nil
+}
+
 func runKnowledgeQuery(query string, contextName string) error {
 	p := output.NewPrinter("")
 	ctx := context.Background()
@@ -1217,55 +1238,22 @@ func runMemorySearch(term string, userScope bool) error {
 		scope = "user"
 	}
 
-	dir := memory.RawDir(scope)
-	if dir == "" {
+	wikiDir := memory.WikiDir(scope)
+	if wikiDir == "" {
 		p.Info("No memories found in %s scope.", scope)
 		return nil
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			p.Info("No memories found in %s scope.", scope)
-			return nil
-		}
-		return err
-	}
 
-	termLower := strings.ToLower(term)
-	var matches int
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-		absPath := filepath.Join(dir, e.Name())
-		data, readErr := os.ReadFile(absPath)
-		if readErr != nil {
-			continue
-		}
-		content := strings.ToLower(string(data))
-		if strings.Contains(content, termLower) {
-			title, _ := memory.ParseMemoryMetaPublic(absPath)
-			name := e.Name()
-			var id string
-			if memory.IsImportantMemory(name) {
-				id = strings.TrimSuffix(name, memory.ImportantMemorySuffix+".md")
-			} else {
-				id = strings.TrimSuffix(name, ".md")
-			}
-			importantTag := ""
-			if memory.IsImportantMemory(name) {
-				importantTag = " ★"
-			}
-			p.ListItem("[%s] %s%s", id, title, importantTag)
-			matches++
-		}
-	}
-
-	if matches == 0 {
+	results := wiki.BM25Search(wikiDir, term, 0)
+	if len(results) == 0 {
 		p.Info("No memories matching %q in %s scope.", term, scope)
-	} else {
-		p.Count("match", matches)
+		return nil
 	}
+
+	for _, r := range results {
+		p.ListItem("[%.3f] %s — %s", r.Score, strings.TrimSuffix(r.Path, ".md"), r.Title)
+	}
+	p.Count("match", len(results))
 	return nil
 }
 
