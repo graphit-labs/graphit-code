@@ -312,6 +312,7 @@ endef
 
 define bundle_grammars
 	@mkdir -p cmd/launcher/runtime/grammars/treesitter
+	@touch cmd/launcher/runtime/grammars/treesitter/KEEP
 	@for lang in $(DEFAULT_TS_GRAMMARS); do \
 		for candidate in \
 			$(TS_OUTDIR)/tree-sitter-$${lang}.so \
