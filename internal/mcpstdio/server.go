@@ -11,6 +11,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
+	"github.com/graphit-labs/graphit-code/internal/toon"
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
 
@@ -78,3 +79,8 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 		},
 	}, nil, nil
 }
+
+func toonResult(v any) (*mcp.CallToolResult, any, error) {
+	return textResult(toon.FormatAny(v))
+}
+

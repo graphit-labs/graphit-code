@@ -42,14 +42,16 @@ type memoryDeleteInput struct {
 }
 
 type memoryListInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type memorySearchInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Query      string `json:"query" jsonschema:"Text query to search (required)"`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Query       string `json:"query" jsonschema:"Text query to search (required)"`
+	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type memoryQueryInput struct {
@@ -60,8 +62,9 @@ type memoryQueryInput struct {
 }
 
 type memoryImportantInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type memoryPromoteInput struct {
@@ -77,16 +80,18 @@ type memoryDemoteInput struct {
 }
 
 type memoryConsolidateInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	Apply      bool   `json:"apply,omitempty" jsonschema:"Apply proposed changes"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	Apply       bool   `json:"apply,omitempty" jsonschema:"Apply proposed changes"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type memoryGCInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	DryRun     bool   `json:"dry_run,omitempty" jsonschema:"Only scan, do not delete"`
-	StaleDays  int    `json:"stale_days,omitempty" jsonschema:"Days of inactivity before memory is stale"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	DryRun      bool   `json:"dry_run,omitempty" jsonschema:"Only scan, do not delete"`
+	StaleDays   int    `json:"stale_days,omitempty" jsonschema:"Days of inactivity before memory is stale"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type memoryIndexInput struct {
@@ -240,6 +245,9 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
+		if input.AiOptimized {
+			return toonResult(memories)
+		}
 		return jsonResult(memories)
 	}))
 
@@ -309,6 +317,9 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
+		if input.AiOptimized {
+			return toonResult(matches)
+		}
 		return jsonResult(matches)
 	}))
 
@@ -372,6 +383,9 @@ func registerMemoryTools(server *mcp.Server) {
 		})
 		if err != nil {
 			return errResult(err)
+		}
+		if input.AiOptimized {
+			return toonResult(entries)
 		}
 		return jsonResult(entries)
 	}))
@@ -478,6 +492,9 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
+		if input.AiOptimized {
+			return toonResult(report)
+		}
 		return jsonResult(report)
 	}))
 
@@ -524,6 +541,9 @@ func registerMemoryTools(server *mcp.Server) {
 		})
 		if err != nil {
 			return errResult(err)
+		}
+		if input.AiOptimized {
+			return toonResult(report)
 		}
 		return jsonResult(report)
 	}))

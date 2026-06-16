@@ -15,7 +15,9 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 )
 
-type daemonStatusInput struct{}
+type daemonStatusInput struct {
+	AiOptimized bool `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+}
 type daemonStopInput struct{}
 
 type DaemonStatusResult struct {
@@ -42,6 +44,9 @@ func registerDaemonTools(server *mcp.Server) {
 
 		if alive == nil {
 			res.Running = false
+			if input.AiOptimized {
+				return toonResult(res)
+			}
 			return jsonResult(res)
 		}
 
@@ -55,6 +60,9 @@ func registerDaemonTools(server *mcp.Server) {
 			res.RecentLogs = splitLastNLocal(string(data), 10)
 		}
 
+		if input.AiOptimized {
+			return toonResult(res)
+		}
 		return jsonResult(res)
 	}))
 

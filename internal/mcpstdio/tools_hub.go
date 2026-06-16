@@ -15,25 +15,29 @@ import (
 )
 
 type hubListInput struct {
-	Type string `json:"type,omitempty" jsonschema:"Filter by artifact type: knowledge, ast, rule, skill, command, agent, mcp, power"`
+	Type        string `json:"type,omitempty" jsonschema:"Filter by artifact type: knowledge, ast, rule, skill, command, agent, mcp, power"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type hubSearchInput struct {
-	Query string `json:"query" jsonschema:"Search term to find artifacts (required)"`
-	Type  string `json:"type,omitempty" jsonschema:"Filter by artifact type"`
+	Query       string `json:"query" jsonschema:"Search term to find artifacts (required)"`
+	Type        string `json:"type,omitempty" jsonschema:"Filter by artifact type"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type hubShowInput struct {
-	ID   string `json:"id" jsonschema:"Artifact ID to show details for (required)"`
-	Type string `json:"type,omitempty" jsonschema:"Artifact type (helps disambiguate)"`
+	ID          string `json:"id" jsonschema:"Artifact ID to show details for (required)"`
+	Type        string `json:"type,omitempty" jsonschema:"Artifact type (helps disambiguate)"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type hubInstallInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	ID         string `json:"id" jsonschema:"Artifact ID to install. Supports @version suffix for version pinning (required)"`
-	Type       string `json:"type,omitempty" jsonschema:"Artifact type"`
-	IDE        string `json:"ide,omitempty" jsonschema:"Target IDE (claude, cursor, gemini, etc.)"`
-	Alias      string `json:"alias,omitempty" jsonschema:"Alias to assign to installed artifact"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ID          string `json:"id" jsonschema:"Artifact ID to install. Supports @version suffix for version pinning (required)"`
+	Type        string `json:"type,omitempty" jsonschema:"Artifact type"`
+	IDE         string `json:"ide,omitempty" jsonschema:"Target IDE (claude, cursor, gemini, etc.)"`
+	Alias       string `json:"alias,omitempty" jsonschema:"Alias to assign to installed artifact"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type hubUninstallInput struct {
@@ -62,11 +66,12 @@ type hubSubmitInput struct {
 }
 
 type hubLinkInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Name       string `json:"name" jsonschema:"Name of the linked artifact (required)"`
-	SourcePath string `json:"source_path" jsonschema:"Path to local source project to link (required)"`
-	Type       string `json:"type" jsonschema:"Artifact type: ast, knowledge, rule, skill, command, agent, mcp (required)"`
-	IDE        string `json:"ide,omitempty" jsonschema:"Target IDE"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Name        string `json:"name" jsonschema:"Name of the linked artifact (required)"`
+	SourcePath  string `json:"source_path" jsonschema:"Path to local source project to link (required)"`
+	Type        string `json:"type" jsonschema:"Artifact type: ast, knowledge, rule, skill, command, agent, mcp (required)"`
+	IDE         string `json:"ide,omitempty" jsonschema:"Target IDE"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type hubUnlinkInput struct {
@@ -76,7 +81,9 @@ type hubUnlinkInput struct {
 	IDE        string `json:"ide,omitempty" jsonschema:"Target IDE"`
 }
 
-type hubProjectsInput struct{}
+type hubProjectsInput struct {
+	AiOptimized bool `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+}
 
 func registerHubTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
@@ -89,6 +96,9 @@ func registerHubTools(server *mcp.Server) {
 		}
 
 		entries := reg.ListEntries(hub.ArtifactType(input.Type))
+		if input.AiOptimized {
+			return toonResult(entries)
+		}
 		return jsonResult(entries)
 	}))
 
@@ -102,6 +112,9 @@ func registerHubTools(server *mcp.Server) {
 		}
 
 		entries := reg.SearchEntries(input.Query, hub.ArtifactType(input.Type))
+		if input.AiOptimized {
+			return toonResult(entries)
+		}
 		return jsonResult(entries)
 	}))
 
@@ -117,6 +130,9 @@ func registerHubTools(server *mcp.Server) {
 		entry := reg.GetEntry(input.ID, hub.ArtifactType(input.Type))
 		if entry == nil {
 			return errResult(fmt.Errorf("artifact %q not found", input.ID))
+		}
+		if input.AiOptimized {
+			return toonResult(entry)
 		}
 		return jsonResult(entry)
 	}))
@@ -144,6 +160,9 @@ func registerHubTools(server *mcp.Server) {
 		})
 		if err != nil {
 			return errResult(err)
+		}
+		if input.AiOptimized {
+			return toonResult(result)
 		}
 		return jsonResult(result)
 	}))
@@ -308,6 +327,9 @@ func registerHubTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
+		if input.AiOptimized {
+			return toonResult(result)
+		}
 		return jsonResult(result)
 	}))
 
@@ -350,6 +372,9 @@ func registerHubTools(server *mcp.Server) {
 		}
 
 		projects := reg.ListProjects()
+		if input.AiOptimized {
+			return toonResult(projects)
+		}
 		return jsonResult(projects)
 	}))
 }

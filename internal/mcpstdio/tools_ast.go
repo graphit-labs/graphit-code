@@ -16,14 +16,15 @@ import (
 )
 
 type astIndexInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory to index (required)"`
-	Path       string `json:"path,omitempty" jsonschema:"Target path to index (defaults to project_dir)"`
-	Workers    int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
-	Reset      bool   `json:"reset,omitempty" jsonschema:"Reset database before indexing"`
-	Reindex    bool   `json:"reindex,omitempty" jsonschema:"Force reindexing of unchanged files"`
-	Cluster    string `json:"cluster,omitempty" jsonschema:"Optional cluster label for grouping"`
-	NoSource   bool   `json:"no_source,omitempty" jsonschema:"Do not index file source contents"`
-	Grammar    string `json:"grammar,omitempty" jsonschema:"Override grammar per extension (comma-separated: .ext=grammar-name, e.g. .sql=antlr-plsql,.pks=antlr-plsql)"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory to index (required)"`
+	Path        string `json:"path,omitempty" jsonschema:"Target path to index (defaults to project_dir)"`
+	Workers     int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
+	Reset       bool   `json:"reset,omitempty" jsonschema:"Reset database before indexing"`
+	Reindex     bool   `json:"reindex,omitempty" jsonschema:"Force reindexing of unchanged files"`
+	Cluster     string `json:"cluster,omitempty" jsonschema:"Optional cluster label for grouping"`
+	NoSource    bool   `json:"no_source,omitempty" jsonschema:"Do not index file source contents"`
+	Grammar     string `json:"grammar,omitempty" jsonschema:"Override grammar per extension (comma-separated: .ext=grammar-name, e.g. .sql=antlr-plsql,.pks=antlr-plsql)"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type astQueryInput struct {
@@ -35,9 +36,10 @@ type astQueryInput struct {
 
 
 type astAIQueryInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Query      string `json:"query" jsonschema:"Natural language question about the codebase to convert to Cypher"`
-	Context    string `json:"context,omitempty" jsonschema:"Named imported context to query"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Query       string `json:"query" jsonschema:"Natural language question about the codebase to convert to Cypher"`
+	Context     string `json:"context,omitempty" jsonschema:"Named imported context to query"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type astSchemaInput struct {
@@ -46,11 +48,12 @@ type astSchemaInput struct {
 }
 
 type astInstallInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Path       string `json:"path" jsonschema:"Absolute path to the source project to import (required)"`
-	Context    string `json:"context" jsonschema:"Name of the context to assign to the imported project (required)"`
-	Reset      bool   `json:"reset,omitempty" jsonschema:"Reset the context database before importing"`
-	Workers    int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Path        string `json:"path" jsonschema:"Absolute path to the source project to import (required)"`
+	Context     string `json:"context" jsonschema:"Name of the context to assign to the imported project (required)"`
+	Reset       bool   `json:"reset,omitempty" jsonschema:"Reset the context database before importing"`
+	Workers     int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type astRemoveInput struct {
@@ -59,7 +62,8 @@ type astRemoveInput struct {
 }
 
 type astListInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type astSourceInput struct {
@@ -172,6 +176,9 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
+		if input.AiOptimized {
+			return toonResult(result)
+		}
 		return jsonResult(result)
 	}))
 
@@ -232,6 +239,9 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
+		if input.AiOptimized {
+			return toonResult(resp)
+		}
 		return jsonResult(resp)
 	}))
 
@@ -313,6 +323,9 @@ func registerASTTools(server *mcp.Server) {
 			_ = memsvc.Close()
 		}
 
+		if input.AiOptimized {
+			return toonResult(result)
+		}
 		return jsonResult(result)
 	}))
 
@@ -363,6 +376,9 @@ func registerASTTools(server *mcp.Server) {
 		}
 
 		contexts := ast.ListImportedContexts()
+		if input.AiOptimized {
+			return toonResult(contexts)
+		}
 		return jsonResult(contexts)
 	}))
 

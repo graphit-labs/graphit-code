@@ -20,22 +20,26 @@ import (
 )
 
 type dreamStatusInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type dreamReportsInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	All        bool   `json:"all,omitempty" jsonschema:"Show all reports (not just new ones)"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	All         bool   `json:"all,omitempty" jsonschema:"Show all reports (not just new ones)"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type dreamSubjectListInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type dreamSubjectAddInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Title      string `json:"title" jsonschema:"Subject title/description (required)"`
-	Body       string `json:"body,omitempty" jsonschema:"Detailed instructions for the dream agent"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Title       string `json:"title" jsonschema:"Subject title/description (required)"`
+	Body        string `json:"body,omitempty" jsonschema:"Detailed instructions for the dream agent"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type dreamSubjectRemoveInput struct {
@@ -135,6 +139,9 @@ func registerDreamTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
+		if input.AiOptimized {
+			return toonResult(res)
+		}
 		return jsonResult(res)
 	}))
 
@@ -181,6 +188,9 @@ func registerDreamTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
+		if input.AiOptimized {
+			return toonResult(display)
+		}
 		return jsonResult(display)
 	}))
 
@@ -202,6 +212,9 @@ func registerDreamTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
+		if input.AiOptimized {
+			return toonResult(subjects)
+		}
 		return jsonResult(subjects)
 	}))
 
@@ -222,6 +235,9 @@ func registerDreamTools(server *mcp.Server) {
 		})
 		if err != nil {
 			return errResult(err)
+		}
+		if input.AiOptimized {
+			return toonResult(subj)
 		}
 		return jsonResult(subj)
 	}))

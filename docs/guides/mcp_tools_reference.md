@@ -166,6 +166,7 @@ This tool performs a full sync cycle:
 |-----------|------|----------|-------------|
 | `project_dir` | string | | Project directory |
 | `global` | boolean | | List global configuration |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -194,6 +195,7 @@ Tools for building, querying, and managing the AST code graph database.
 | `reindex` | boolean | | Force reindexing of unchanged files |
 | `cluster` | string | | Optional cluster label for grouping |
 | `no_source` | boolean | | Do not index file source contents |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 **Returns:** JSON with indexing statistics (files processed, entities found, etc.).
 
@@ -223,6 +225,7 @@ Tools for building, querying, and managing the AST code graph database.
 | `project_dir` | string | ✅ | Project directory |
 | `query` | string | ✅ | Natural language question about the codebase to convert to Cypher |
 | `context` | string | | Named imported context to query |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -248,6 +251,7 @@ Tools for building, querying, and managing the AST code graph database.
 | `context` | string | ✅ | Name of the context to assign to the imported project |
 | `reset` | boolean | | Reset the context database before importing |
 | `workers` | integer | | Number of parallel worker threads |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -269,6 +273,7 @@ Tools for building, querying, and managing the AST code graph database.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -330,6 +335,7 @@ Tools for building, querying, and managing the AST code graph database.
 | `top_k` | integer | | Maximum number of results (default: 15) |
 | `mode` | string | | Search mode: `hybrid` (default), `fts` (BM25 only), `semantic` (vector only) |
 | `context` | string | | Named imported context to search |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -348,6 +354,7 @@ Tools for indexing, querying, and managing the project documentation knowledge g
 | `workers` | integer | | Number of parallel worker threads |
 | `reset` | boolean | | Clear graph and re-index from scratch |
 | `louvain` | boolean | | Use Louvain community detection |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -373,6 +380,7 @@ Tools for indexing, querying, and managing the project documentation knowledge g
 | `query` | string | ✅ | Keywords to search for in the knowledge wiki using BM25 |
 | `top_k` | integer | | Maximum number of results (0 = no limit) |
 | `context` | string | | Named imported context to search |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -398,6 +406,7 @@ Tools for indexing, querying, and managing the project documentation knowledge g
 | `fix` | boolean | | Auto-repair fixable issues (backlinks) |
 | `stale_days` | integer | | Mark pages older than N days as stale |
 | `context` | string | | Lint an imported context by name |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -451,6 +460,7 @@ Tools for indexing, querying, and managing the project documentation knowledge g
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -509,6 +519,7 @@ Tools for managing the project and user persistent memory store.
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `scope` | string | | Scope: `project` (default) or `user` |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -521,6 +532,7 @@ Tools for managing the project and user persistent memory store.
 | `project_dir` | string | ✅ | Project directory |
 | `query` | string | ✅ | Text query to search |
 | `scope` | string | | Scope: `project` (default) or `user` |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -545,6 +557,7 @@ Tools for managing the project and user persistent memory store.
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `scope` | string | | Scope: `project` (default) or `user` |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -581,6 +594,7 @@ Tools for managing the project and user persistent memory store.
 | `project_dir` | string | ✅ | Project directory |
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `apply` | boolean | | Apply proposed changes |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -594,6 +608,7 @@ Tools for managing the project and user persistent memory store.
 | `scope` | string | | Scope: `project` (default) or `user` |
 | `dry_run` | boolean | | Only scan, do not delete |
 | `stale_days` | integer | | Days of inactivity before memory is stale |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -663,6 +678,7 @@ Tools for interacting with the Graphit Hub artifact registry.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `type` | string | | Filter by artifact type: `knowledge`, `ast`, `rule`, `skill`, `command`, `agent`, `mcp`, `power` |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -674,6 +690,7 @@ Tools for interacting with the Graphit Hub artifact registry.
 |-----------|------|----------|-------------|
 | `query` | string | ✅ | Search term to find artifacts |
 | `type` | string | | Filter by artifact type |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -685,6 +702,7 @@ Tools for interacting with the Graphit Hub artifact registry.
 |-----------|------|----------|-------------|
 | `id` | string | ✅ | Artifact ID to show details for |
 | `type` | string | | Artifact type (helps disambiguate) |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -699,6 +717,7 @@ Tools for interacting with the Graphit Hub artifact registry.
 | `type` | string | | Artifact type |
 | `ide` | string | | Target IDE (claude, cursor, gemini, etc.) |
 | `alias` | string | | Alias to assign to installed artifact |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -769,6 +788,7 @@ Tools for interacting with the Graphit Hub artifact registry.
 | `name` | string | ✅ | Name of linked artifact to remove |
 | `type` | string | ✅ | Artifact type |
 | `ide` | string | | Target IDE |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -776,7 +796,9 @@ Tools for interacting with the Graphit Hub artifact registry.
 
 **Description:** List registered projects in the global lock.
 
-_No parameters._
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -894,6 +916,7 @@ Tools for managing the autonomous dream module — skill generation and knowledg
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 **Returns:** JSON with fields:
 - `enabled` — whether dreaming is active
@@ -913,6 +936,7 @@ Tools for managing the autonomous dream module — skill generation and knowledg
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `all` | boolean | | Show all reports (not just new ones) |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -923,6 +947,7 @@ Tools for managing the autonomous dream module — skill generation and knowledg
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -935,6 +960,7 @@ Tools for managing the autonomous dream module — skill generation and knowledg
 | `project_dir` | string | ✅ | Project directory |
 | `title` | string | ✅ | Subject title/description |
 | `body` | string | | Detailed instructions for the dream agent |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -957,7 +983,9 @@ Tools for managing the global background daemon process.
 
 **Description:** Check status of the global background daemon process.
 
-_No parameters._
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 **Returns:** JSON with fields:
 - `pid` — process ID
@@ -1003,6 +1031,7 @@ Tools for managing project cluster labels in the Graphit ecosystem.
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `key` | string | | Cluster label key to retrieve. If empty, retrieves all labels. |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -1025,6 +1054,7 @@ Tools for managing project cluster labels in the Graphit ecosystem.
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `label` | string | | Optional cluster label key to filter by |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
 ---
 
@@ -1052,6 +1082,7 @@ Most tools accept the following common parameters:
 | `scope` | Used by Memory tools. Either `project` (default) or `user`. Controls which memory store is targeted. |
 | `context` | Used by AST, Knowledge, and Memory tools. Names an imported context (external project) to operate on instead of the default project. |
 | `ide` | Target IDE adapter (e.g., `claude`, `cursor`, `gemini`, `windsurf`). Affects rule installation format. |
+| `ai_optimized` | Available on all tools that return structured JSON data. Set to `true` to receive output in compact TOON (Token-Optimized Object Notation) format instead of verbose JSON. Reduces token consumption by ~60-80%. |
 
 ## Error Handling
 

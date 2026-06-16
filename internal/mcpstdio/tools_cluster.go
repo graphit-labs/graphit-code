@@ -18,8 +18,9 @@ type clusterSetInput struct {
 }
 
 type clusterGetInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Key        string `json:"key,omitempty" jsonschema:"Cluster label key to retrieve. If empty, retrieves all labels."`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Key         string `json:"key,omitempty" jsonschema:"Cluster label key to retrieve. If empty, retrieves all labels."`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 type clusterUnsetInput struct {
@@ -28,8 +29,9 @@ type clusterUnsetInput struct {
 }
 
 type clusterProjectsInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Label      string `json:"label,omitempty" jsonschema:"Optional cluster label key to filter by"`
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Label       string `json:"label,omitempty" jsonschema:"Optional cluster label key to filter by"`
+	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 
 func registerClusterTools(server *mcp.Server) {
@@ -116,6 +118,9 @@ func registerClusterTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
+		if input.AiOptimized {
+			return toonResult(result)
+		}
 		return jsonResult(result)
 	}))
 
@@ -177,6 +182,9 @@ func registerClusterTools(server *mcp.Server) {
 		})
 		if err != nil {
 			return errResult(err)
+		}
+		if input.AiOptimized {
+			return toonResult(result)
 		}
 		return jsonResult(result)
 	}))

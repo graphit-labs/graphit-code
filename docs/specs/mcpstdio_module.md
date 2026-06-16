@@ -63,6 +63,7 @@ The server deliberately avoids the SDK's `StdioTransport` helper, which hardcode
 | `textResult(text string)` | Returns a `CallToolResult` with a single `TextContent` payload. |
 | `errResult(err error)` | Returns the error directly to the MCP framework for standard error rendering. |
 | `jsonResult(v any)` | Marshals `v` as indented JSON and returns it as `TextContent`. |
+| `toonResult(v any)` | Formats `v` using `toon.FormatAny()` (reflection-based TOON) and returns it as `TextContent`. Used when `ai_optimized` is `true`. |
 | `nopWriteCloser` | Wraps an `io.Writer` with a no-op `Close()` for the transport. |
 
 ### Input Structs
@@ -72,10 +73,13 @@ Every tool defines a typed input struct with `json` and `jsonschema` tags. The `
 Example pattern:
 ```go
 type syncInput struct {
-    ProjectDir string `json:"project_dir" jsonschema:"Project directory to sync (required)"`
-    IDE        string `json:"ide,omitempty" jsonschema:"Target IDE"`
+    ProjectDir  string `json:"project_dir" jsonschema:"Project directory to sync (required)"`
+    IDE         string `json:"ide,omitempty" jsonschema:"Target IDE"`
+    AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
 }
 ```
+
+> All tools returning structured JSON data include an `AiOptimized bool` field. When set to `true`, the handler returns `toonResult(v)` instead of `jsonResult(v)`, producing compact TOON (Token-Optimized Object Notation) output that reduces token consumption by ~60-80%.
 
 ---
 
@@ -155,7 +159,7 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 |---|---|
 | `graphit_ast_index` | Index project files into the AST code graph database. Supports workers, reset, reindex, cluster labels, and no-source mode. |
 | `graphit_ast_query` | Execute a Cypher query against the AST graph. Supports `ai_optimized` output formatting and named contexts. |
-| `graphit_ast_query_ai` | Convert a natural language question to Cypher via AI, execute, and return results. |
+| `graphit_ast_query_ai` | Convert a natural language question to Cypher via AI, execute, and return results. Supports `ai_optimized`. |
 | `graphit_ast_schema` | Return graph schema: node labels, properties, and relationship types. |
 | `graphit_ast_install` | Import another local repository as a named AST context. |
 | `graphit_ast_remove` | Remove an imported context or clear the main project graph. |
@@ -290,6 +294,7 @@ Git operations use `BatchMode=yes` via `GIT_SSH_COMMAND` to prevent SSH from han
 | `internal/output` | Output muting for MCP mode. |
 | `internal/version` | Version string for server identity. |
 | `internal/wiki` | Wiki search, BM25, lint operations. |
+| `internal/toon` | Generic TOON (Token-Optimized Object Notation) formatter using reflection for `ai_optimized` output. |
 | `internal/wikisvc` | Multi-wiki search service. |
 | `internal/chat` | Chat session management for wiki sessions. |
 | `internal/ai` | AI client for query generation and embeddings. |
