@@ -180,13 +180,51 @@ func MandateTrigger() string {
 	hubListRef := brand.MCPToolRef("hub", "list")
 	hubShowRef := brand.MCPToolRef("hub", "show")
 	hubInstallRef := brand.MCPToolRef("hub", "install")
+	hubUpdateRef := brand.MCPToolRef("hub", "update")
 	clusterRef := brand.MCPToolRef("cluster", "projects")
 	astQueryRef := brand.MCPToolRef("ast", "query")
-	return "EXTERNAL_DEPS: NEVER guess APIs/structures of any framework, library, or external system. " +
-		"Check Hub first: " + hubListRef + " → " + hubShowRef + " → " + hubInstallRef + ". " +
-		"ECOSYSTEM: Find sibling projects via " + clusterRef + " — query their AST/wiki using their project_dir. " +
-		"POST_INSTALL: After installing knowledge artifact, search its wiki via MCP BEFORE coding. " +
-		"RULE: If " + astQueryRef + " returns nothing for an external lib → it may have a Hub artifact. Check Hub."
+
+	return `
+# 🔗 Hub Discovery
+
+> Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, and powers.
+> **Detailed instructions are in the ` + "`" + brand.SkillDirName("hub") + "`" + ` skill.**
+
+## Activation Triggers — You MUST read the ` + "`" + brand.SkillDirName("hub") + "`" + ` skill when:
+
+- Working with a third-party library, framework, or API you haven't used in this session
+- Needing documentation or code examples for an external dependency
+- Looking for reusable rules, skills, commands, agents, or MCP servers
+- Setting up a new project or adding new dependencies
+- When ` + astQueryRef + ` returns no results for an external library (it might have a hub artifact)
+
+## 🔒 MANDATORY: Read Skill Before Acting
+
+**When ANY activation trigger above matches your current task, you MUST read the
+` + "`" + brand.SkillDirName("hub") + "`" + ` skill BEFORE executing your first Hub operation.**
+The skill contains artifact types, usage patterns, installation workflows,
+ecosystem project discovery, and post-install protocols.
+
+## Quick Reference (always active)
+
+- **Search**: call ` + hubListRef + ` tool
+- **Filter**: call ` + hubListRef + ` tool with ` + "`type`" + ` parameter
+- **Inspect**: call ` + hubShowRef + ` tool with ` + "`id`" + ` parameter
+- **Install**: call ` + hubInstallRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
+- **Update**: call ` + hubUpdateRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
+- **Ecosystem**: call ` + clusterRef + ` tool to find sibling projects — query their AST/wiki using their project_dir
+
+## ⛔ Critical Rule
+
+**NEVER guess APIs or structures.** If uncertain about a framework or library,
+check the Hub first: call ` + hubListRef + ` → ` + hubShowRef + ` → ` + hubInstallRef + `.
+After installing a knowledge artifact, search its wiki via MCP BEFORE coding.
+
+## 🔗 Subagent Propagation
+
+When spawning subagents that work with external libraries, include in their prompt:
+"Before implementing integrations, check Hub for knowledge artifacts: call ` + hubListRef + ` → ` + hubInstallRef + ` (passing absolute ` + "`project_dir`" + `). Read the project's ` + "`AGENTS.md`" + ` before starting work."
+`
 }
 
 

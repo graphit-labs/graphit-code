@@ -259,15 +259,78 @@ var memorySkillName = brand.SkillDirName("memory")
 
 func MandateTrigger() string {
 	memInsertRef := brand.MCPToolRef("memory", "insert")
+	memDeleteRef := brand.MCPToolRef("memory", "delete")
 	memSearchRef := brand.MCPToolRef("memory", "search")
 	memQueryRef := brand.MCPToolRef("memory", "query")
-	return "SESSION_START: Call " + memSearchRef + " BEFORE first response to recall relevant context. " +
-		"SCOPE: scope:\"project\" (default) for project memories, scope:\"user\" for personal cross-project memories. " +
-		"SEARCH: " + memSearchRef + " = lightweight text match on raw files. " + memQueryRef + " = AI synthesis from compiled wiki. " +
-		"NEVER read .graphit/memory/*/index.md directly. " +
-		"SAVE: User corrects/guides/instructs → " + memInsertRef + " immediately. Task done → " + memInsertRef + ". Design decision → " + memInsertRef + ". " +
-		"READ: Before significant changes or when stuck (2+ failures) → " + memSearchRef + ". " +
-		"RULE: This framework IS your memory. Never use IDE/model memory. Never say 'understood' without evaluating if the instruction should be memorized."
+	memIndexRef := brand.MCPToolRef("memory", "index")
+	dotBrand := "." + brand.Brand
+
+	return `
+# 🧠 Memory Management
+
+> Persistent memory across sessions. This framework IS your memory — no other exists.
+> **Full MCP tools reference, trigger table, and protocols are in the ` + "`" + brand.SkillDirName("memory") + "`" + ` skill.**
+
+## 🚨 FIRST ACTION — Execute BEFORE Any Response
+
+**Execute IMMEDIATELY on every conversation start. Do NOT respond to the user first.**
+
+1. Call ` + memSearchRef + ` with context from the user's request to find relevant memories
+2. If relevant memories found, read the entity page(s) and follow their guidance
+3. Only then proceed with the user's request
+
+> If the memory wiki does not exist yet (new project), skip and proceed.
+
+## Activation Triggers — You MUST read the ` + "`" + brand.SkillDirName("memory") + "`" + ` skill when:
+
+### 💾 Save triggers (memorize immediately):
+
+- Task completed, modified, or bug fixed → store what/why/how/impact
+- User corrects, guides, instructs, or repeats → memorize as correction/convention
+- User explains a procedure or gives a tip → store as skill
+- You discover something unexpected or make a design decision → store as skill/decision
+- New instruction contradicts existing memory → replace it
+
+### 📖 Read triggers (consult memory before acting):
+- **Before implementing** any significant change → check for constraints and decisions
+- **When stuck**, failing repeatedly, or facing a non-obvious problem → search for past solutions
+- **Before proposing** architecture or a technical approach → check for prior decisions
+- When trying to **understand project context** → search for institutional knowledge
+- Memory management or maintenance tasks
+
+## 🔒 MANDATORY: Read Skill Before Acting
+
+**When ANY activation trigger above matches your current task, you MUST read the
+` + "`" + brand.SkillDirName("memory") + "`" + ` skill BEFORE executing your first memory operation.**
+The Quick Reference below is a cheat sheet for agents who already read the skill —
+it is NOT a substitute. The skill contains the full trigger→action table, memory types,
+contradiction protocols, and transparency rules you must follow.
+> **Exception:** The SESSION START PROTOCOL above is always active and does not require
+> reading the skill — execute it immediately on every conversation.
+
+## Quick Reference (always active)
+
+- **Insert**: call ` + memInsertRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
+- **Delete**: call ` + memDeleteRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
+- **Search**: call ` + memSearchRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
+- **Scope**: scope:"project" (default) for project memories, scope:"user" for personal cross-project memories
+- **Search vs Query**: ` + memSearchRef + ` = lightweight text match on raw files. ` + memQueryRef + ` = AI synthesis from compiled wiki
+- **NEVER** read ` + dotBrand + `/memory/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
+- **Reindex**: After any write, auto-cycle runs. If it fails, call ` + memIndexRef + ` (passing absolute ` + "`project_dir`" + `)
+
+## ⛔ Key Rules (read skill for complete list)
+
+- **Read memory at session start.** Skipping = repeating past mistakes.
+- **Never leave a correction un-memorized.** Save immediately.
+- **NEVER just say "understood".** Evaluate if the user's instruction should be memorized.
+- **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.
+- **This framework IS your memory.** Never use IDE/model memory.
+
+## 🔗 Subagent Propagation
+
+When spawning subagents, include in their prompt:
+"Before starting work, read the project's ` + "`AGENTS.md`" + ` and search memory via ` + memSearchRef + ` (passing absolute ` + "`project_dir`" + `). After work, if you discovered something non-obvious, save it via ` + memInsertRef + `."
+`
 }
 
 

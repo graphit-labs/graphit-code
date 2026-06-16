@@ -934,12 +934,58 @@ func MandateTrigger() string {
 	searchRef := brand.MCPToolRef("knowledge", "search")
 	browseRef := brand.MCPToolRef("wiki", "browse")
 	xrefsRef := brand.MCPToolRef("wiki", "xrefs")
-	return "POST_CHANGE: After ANY code change → create/update `docs/tasks/<task-name>.md`, then call " + syncRef + ". " +
-		"SEARCH: Call " + searchRef + " (ai_optimized:true) or " + browseRef + " (ai_optimized:true) to find project knowledge. " +
-		"NEVER read .graphit/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized. " +
-		"NEVER grep docs/ for project understanding — wiki search costs ~500 tokens vs grep scanning all files. " +
-		"XREFS: Call " + xrefsRef + " (ai_optimized:true) to find cross-references — pre-computed, zero-cost. " +
-		"INTEGRATION: Never guess APIs → check Hub first, then search wiki via MCP."
+	queryRef := brand.MCPToolRef("knowledge", "query")
+	dotBrand := "." + brand.Brand
+
+	return `
+# 📚 Knowledge & Documentation
+
+> This module manages project documentation, knowledge wiki, and integration specs.
+> **Detailed instructions are in the ` + "`" + brand.SkillDirName("knowledge") + "`" + ` skill. Read it when triggered.**
+
+## Activation Triggers — You MUST read the ` + "`" + brand.SkillDirName("knowledge") + "`" + ` skill when:
+
+- Understanding project features, architecture, decisions, or specifications
+- Creating, updating, or searching documentation in ` + "`docs/`" + `
+- Working with external system integrations or API specifications
+- Searching for project knowledge (wiki, backlinks, provenance)
+- Discovering or documenting undocumented integrations
+
+## 🔒 MANDATORY: Read Skill Before Acting
+
+**When ANY activation trigger above matches your current task, you MUST read the
+` + "`" + brand.SkillDirName("knowledge") + "`" + ` skill BEFORE searching the wiki, creating documentation,
+or working with integrations.** The Quick Reference below is a cheat sheet for agents
+who already read the skill — it is NOT a substitute. The skill contains the full
+wiki-first retrieval methodology, documentation templates, task log format, and
+integration protocols you must follow.
+
+## 🚨 MANDATORY POST-CHANGE PROTOCOL — After ANY Code Change
+
+**After you modify, create, or delete ANY source file, you MUST:**
+
+1. Read the ` + "`" + brand.SkillDirName("knowledge") + "`" + ` skill and follow its documentation workflow
+2. Create/update task log at ` + "`docs/tasks/<task-name>.md`" + `
+3. Call the ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
+
+**Documentation is implicit in every task. A task without docs + sync is NOT complete.**
+
+## Quick Reference (always active)
+
+- **Wiki search**: call ` + searchRef + ` (ai_optimized:true) or ` + browseRef + ` (ai_optimized:true) to find project knowledge
+- **AI-powered query**: call ` + queryRef + ` for deep multi-turn consultation
+- **Cross-references**: call ` + xrefsRef + ` (ai_optimized:true) to find backlinks — pre-computed, zero-cost
+- **Task logs**: ` + "`docs/tasks/<task-name>.md`" + ` — log every task with full detail
+- **Sync after docs changes**: call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
+- **NEVER** read ` + dotBrand + `/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
+- **NEVER** grep docs/ for project understanding — wiki search costs ~500 tokens vs grep scanning all files
+- **Hub search before integration**: call ` + brand.MCPToolRef("hub", "list") + ` tool (passing absolute ` + "`project_dir`" + ` parameter and ` + "`type: \"knowledge\"`" + `)
+
+## 🔗 Subagent Propagation
+
+When spawning subagents that modify code, include in their prompt:
+"After code changes, create docs/tasks/<task-name>.md and call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter). Read the project's ` + "`AGENTS.md`" + ` before starting work."
+`
 }
 
 
