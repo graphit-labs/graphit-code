@@ -214,6 +214,24 @@ export default function DaemonDashboard() {
                 <span className="text-muted-foreground">Config Type</span>
                 <span className="font-medium">Global</span>
               </div>
+              {status?.mcp_port && (
+                <>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-muted-foreground">MCP Port</span>
+                    <span className="font-medium font-mono text-primary">{status.mcp_port}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-border/30">
+                    <span className="text-muted-foreground">MCP Endpoint</span>
+                    <span className="font-medium font-mono text-[10px] truncate max-w-[140px]" title={status.mcp_endpoint}>
+                      {status.mcp_endpoint}
+                    </span>
+                  </div>
+                  <div className="flex justify-between py-1">
+                    <span className="text-muted-foreground">MCP Auth</span>
+                    <span className="font-medium text-success">Bearer Key</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

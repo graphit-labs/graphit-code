@@ -1,0 +1,60 @@
+// Package daemonctl provides lightweight daemon lifecycle helpers that
+// do not import heavy packages (ast, sqlite). Safe for CGO_ENABLED=0 binaries.
+package daemonctl
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+
+	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
+)
+
+func DaemonDir() string {
+	return filepath.Join(brand.GlobalDir(), "daemon")
+}
+
+func PIDFilePath() string  { return filepath.Join(DaemonDir(), "daemon.pid") }
+func PortFilePath() string { return filepath.Join(DaemonDir(), "mcp.port") }
+func KeyFilePath() string  { return filepath.Join(DaemonDir(), "mcp.key") }
+
+func EnsureRunning() (bool, error) {
+	if _, err := os.Stat(PIDFilePath()); err == nil {
+		return false, nil
+	}
+
+	exe := ResolveExe()
+	if exe == "" {
+		return false, nil
+	}
+
+	cmd := exec.Command(exe, "daemon")
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	sysutil.DetachProcess(cmd)
+
+	if err := cmd.Start(); err != nil {
+		return false, err
+	}
+	go func() { _ = cmd.Wait() }()
+	return true, nil
+}
+
+func ResolveExe() string {
+	if launcher := os.Getenv(brand.EnvVar("LAUNCHER_PATH")); launcher != "" {
+		if _, err := os.Stat(launcher); err == nil {
+			return launcher
+		}
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return ""
+	}
+	return exe
+}

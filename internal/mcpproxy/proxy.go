@@ -1,30 +1,39 @@
-// Package mcpproxy implements a reconnectable bidirectional proxy between
-// an MCP stdio client (IDE) and the daemon's MCP unix socket.
-//
-// When the daemon restarts or crashes, the proxy automatically reconnects
-// instead of dying, keeping the IDE-side MCP process alive.
+// Package mcpproxy relays MCP JSON-RPC messages between stdio and the
+// daemon's HTTP endpoint using the official MCP go-sdk transports.
 package mcpproxy
 
 import (
-	"bufio"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Config configures the reconnectable MCP proxy.
 type Config struct {
-	SockFile       string
-	EnsureDaemon   func() // called before each connection attempt; may be nil
-	MaxDialRetries int    // default 30
-	RetryInterval  time.Duration // default 500ms
-	Stderr         io.Writer // diagnostic log output; nil to suppress
+	PortFile      string
+	KeyFile       string
+	MCPPath       string // default "/mcp"
+	EnsureDaemon  func()
+	MaxRetries    int           // default 30
+	RetryInterval time.Duration // default 500ms
+	Stderr        io.Writer
 }
 
 func (c *Config) applyDefaults() {
-	if c.MaxDialRetries <= 0 {
-		c.MaxDialRetries = 30
+	if c.MCPPath == "" {
+		c.MCPPath = "/mcp"
+	}
+	if c.MaxRetries <= 0 {
+		c.MaxRetries = 30
 	}
 	if c.RetryInterval <= 0 {
 		c.RetryInterval = 500 * time.Millisecond
@@ -37,109 +46,177 @@ func (c *Config) logf(format string, args ...any) {
 	}
 }
 
-// RunProxy starts a reconnectable bidirectional proxy between stdin/stdout
-// and the daemon's MCP unix socket. It returns when stdin closes or when
-// all dial retries are exhausted.
-func RunProxy(cfg Config, stdin io.Reader, stdout io.Writer) error {
+func GenerateAPIKey() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate API key: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func ReadPort(portFile string) (int, error) {
+	data, err := os.ReadFile(portFile)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(data)))
+}
+
+func ReadKey(keyFile string) (string, error) {
+	data, err := os.ReadFile(keyFile)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 	cfg.applyDefaults()
+	ctx := context.Background()
 
-	lines := make(chan []byte, 32)
-	stdinDone := make(chan struct{})
-	go func() {
-		defer close(stdinDone)
-		defer close(lines)
-		scanner := bufio.NewScanner(stdin)
-		scanner.Buffer(make([]byte, 0, 10<<20), 10<<20)
-		for scanner.Scan() {
-			raw := scanner.Bytes()
-			line := make([]byte, len(raw))
-			copy(line, raw)
-			lines <- line
-		}
-	}()
-
-	var pending []byte
-
+	if cfg.EnsureDaemon != nil {
+		cfg.EnsureDaemon()
+	}
+	stdioTransport := &mcp.IOTransport{Reader: stdin, Writer: stdout}
+	stdioConn, err := stdioTransport.Connect(ctx)
+	if err != nil {
+		return fmt.Errorf("stdio transport connect: %w", err)
+	}
+	defer stdioConn.Close()
 	for {
+		port, key, err := waitForDaemon(cfg)
+		if err != nil {
+			return err
+		}
+
+		endpoint := fmt.Sprintf("http://127.0.0.1:%d%s", port, cfg.MCPPath)
+		cfg.logf("connecting to daemon at %s", endpoint)
+
+		httpConn, err := connectHTTP(ctx, endpoint, key)
+		if err != nil {
+			cfg.logf("HTTP connect failed: %v — cleaning stale files and restarting daemon", err)
+			// Port/key files are stale (daemon died without cleanup).
+			// Remove them so waitForDaemon triggers EnsureDaemon on next iteration.
+			_ = os.Remove(cfg.PortFile)
+			_ = os.Remove(cfg.KeyFile)
+			if cfg.EnsureDaemon != nil {
+				cfg.EnsureDaemon()
+			}
+			time.Sleep(cfg.RetryInterval)
+			continue
+		}
+		cfg.logf("connected")
+
+		err = relay(ctx, stdioConn, httpConn)
+		httpConn.Close()
+
+		if isStdioClosed(err) {
+			return nil
+		}
+
+		cfg.logf("connection lost: %v, reconnecting...", err)
+		time.Sleep(cfg.RetryInterval)
+
 		if cfg.EnsureDaemon != nil {
 			cfg.EnsureDaemon()
 		}
-
-		conn, err := dialRetry(cfg.SockFile, cfg.MaxDialRetries, cfg.RetryInterval)
-		if err != nil {
-			return fmt.Errorf("connect to daemon mcp.sock after %d retries: %w",
-				cfg.MaxDialRetries, err)
-		}
-		cfg.logf("connected to daemon")
-
-		connDead := make(chan struct{})
-		go func() {
-			defer close(connDead)
-			_, _ = io.Copy(stdout, conn)
-		}()
-
-		if pending != nil {
-			if _, werr := conn.Write(pending); werr != nil {
-				conn.Close()
-				<-connDead
-				cfg.logf("dropped pending message after reconnect write failure")
-				pending = nil
-				time.Sleep(cfg.RetryInterval)
-				continue
-			}
-			pending = nil
-		}
-
-		reconnect := false
-		for !reconnect {
-			select {
-			case line, ok := <-lines:
-				if !ok {
-					conn.Close()
-					<-connDead
-					return nil
-				}
-				msg := make([]byte, len(line)+1)
-				copy(msg, line)
-				msg[len(line)] = '\n'
-				if _, werr := conn.Write(msg); werr != nil {
-					pending = msg
-					reconnect = true
-				}
-
-			case <-connDead:
-				reconnect = true
-
-			case <-stdinDone:
-				conn.Close()
-				<-connDead
-				return nil
-			}
-		}
-
-		conn.Close()
-		<-connDead
-
-		select {
-		case <-stdinDone:
-			return nil
-		default:
-		}
-
-		cfg.logf("daemon connection lost, reconnecting...")
-		time.Sleep(cfg.RetryInterval)
 	}
 }
 
-func dialRetry(sockFile string, maxRetries int, interval time.Duration) (net.Conn, error) {
-	var lastErr error
-	for i := 0; i < maxRetries; i++ {
-		conn, err := net.Dial("unix", sockFile)
-		if err == nil {
-			return conn, nil
-		}
-		lastErr = err
-		time.Sleep(interval)
+func connectHTTP(ctx context.Context, endpoint, apiKey string) (mcp.Connection, error) {
+	httpTransport := &mcp.StreamableClientTransport{
+		Endpoint: endpoint,
+		HTTPClient: &http.Client{
+			Timeout:   5 * time.Minute,
+			Transport: &authRoundTripper{key: apiKey, base: http.DefaultTransport},
+		},
 	}
-	return nil, lastErr
+	return httpTransport.Connect(ctx)
+}
+
+func waitForDaemon(cfg Config) (int, string, error) {
+	for i := 0; i < cfg.MaxRetries; i++ {
+		port, perr := ReadPort(cfg.PortFile)
+		key, kerr := ReadKey(cfg.KeyFile)
+		if perr == nil && kerr == nil && port > 0 && key != "" {
+			// Validate the port is actually reachable before returning.
+			// Stale files from a crashed daemon would pass the file checks
+			// but fail the TCP dial, avoiding an infinite reconnect loop.
+			if isPortAlive(port) {
+				return port, key, nil
+			}
+			// Port is stale — remove files so EnsureDaemon can start fresh.
+			cfg.logf("port %d not reachable — removing stale files", port)
+			_ = os.Remove(cfg.PortFile)
+			_ = os.Remove(cfg.KeyFile)
+		}
+		if cfg.EnsureDaemon != nil {
+			cfg.EnsureDaemon()
+		}
+		time.Sleep(cfg.RetryInterval)
+	}
+	return 0, "", fmt.Errorf("daemon MCP not available after %d retries", cfg.MaxRetries)
+}
+
+// isPortAlive checks if the daemon's MCP port is accepting TCP connections.
+func isPortAlive(port int) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+func relay(ctx context.Context, stdioConn, httpConn mcp.Connection) error {
+	errc := make(chan error, 2)
+
+	go func() {
+		for {
+			msg, err := stdioConn.Read(ctx)
+			if err != nil {
+				errc <- fmt.Errorf("stdio read: %w", err)
+				return
+			}
+			if err := httpConn.Write(ctx, msg); err != nil {
+				errc <- fmt.Errorf("http write: %w", err)
+				return
+			}
+		}
+	}()
+	go func() {
+		for {
+			msg, err := httpConn.Read(ctx)
+			if err != nil {
+				errc <- fmt.Errorf("http read: %w", err)
+				return
+			}
+			if err := stdioConn.Write(ctx, msg); err != nil {
+				errc <- fmt.Errorf("stdio write: %w", err)
+				return
+			}
+		}
+	}()
+
+	return <-errc
+}
+
+func isStdioClosed(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "stdio read") &&
+		(strings.Contains(s, "EOF") || strings.Contains(s, "closed"))
+}
+
+type authRoundTripper struct {
+	key  string
+	base http.RoundTripper
+}
+
+func (t *authRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.Header.Set("Authorization", "Bearer "+t.key)
+	return t.base.RoundTrip(req)
 }

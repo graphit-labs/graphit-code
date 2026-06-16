@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -36,18 +35,6 @@ func NewServer() *mcp.Server {
 	registerImprovementsTools(server)
 
 	return server
-}
-
-func ServeConn(ctx context.Context, conn net.Conn) error {
-	server := NewServer()
-	transport := &mcp.IOTransport{
-		Reader: conn,
-		Writer: conn,
-	}
-	if err := server.Run(ctx, transport); err != nil {
-		return fmt.Errorf("MCP conn error: %w", err)
-	}
-	return nil
 }
 
 // safeTool wraps a tool handler with panic recovery and background daemon autostart validation.

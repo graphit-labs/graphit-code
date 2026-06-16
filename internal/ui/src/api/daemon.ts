@@ -8,6 +8,9 @@ export interface DaemonStatus {
   pid_file_path: string
   scheduler_status: string
   recent_logs?: string[]
+  mcp_port?: number
+  mcp_endpoint?: string
+  mcp_key_file?: string
 }
 
 export const daemonApi = {

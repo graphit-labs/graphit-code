@@ -3,20 +3,18 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
-	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/daemonctl"
 	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
 )
 
 func main() {
-	ensureDaemonRunning()
-
-	sockFile := filepath.Join(brand.GlobalDir(), "daemon", "mcp.sock")
+	_, _ = daemonctl.EnsureRunning()
 
 	err := mcpproxy.RunProxy(mcpproxy.Config{
-		SockFile:     sockFile,
-		EnsureDaemon: ensureDaemonRunning,
+		PortFile:     daemonctl.PortFilePath(),
+		KeyFile:      daemonctl.KeyFilePath(),
+		EnsureDaemon: func() { _, _ = daemonctl.EnsureRunning() },
 		Stderr:       os.Stderr,
 	}, os.Stdin, os.Stdout)
 	if err != nil {

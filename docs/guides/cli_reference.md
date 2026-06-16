@@ -134,12 +134,23 @@ graphit ui [flags]
 ### `mcp`
 Starts an MCP (Model Context Protocol) server.
 Allows AI tools to consume AST querying, memory search, and wiki indexes via standardized MCP actions.
+
+The MCP server runs inside the daemon process, exposed via HTTP on a dynamic port with Bearer token authentication.
+The `--stdio` flag starts a lightweight proxy that relays JSON-RPC messages between stdin/stdout and the daemon's HTTP endpoint.
+
 ```bash
 graphit mcp [flags]
 ```
 **Flags:**
-- `--stdio`: Starts the MCP server over standard input/output (used by Claude Code).
-- `--port <int>`: Starts the MCP server over HTTP/SSE.
+- `--stdio`: Starts the MCP stdio proxy for IDE integration (used by Claude Code, Cursor, Gemini, etc.).
+
+**Without flags:** Displays the MCP HTTP endpoint URL and auth information.
+
+**Architecture:**
+- The daemon listens on `127.0.0.1:<dynamic-port>/mcp` (Streamable HTTP transport)
+- Authentication: Bearer token stored in `~/.graphit/daemon/mcp.key`
+- Port: Written to `~/.graphit/daemon/mcp.port`
+- The stdio proxy auto-recovers if the daemon restarts (re-reads port/key files)
 
 ---
 

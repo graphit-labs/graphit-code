@@ -14,8 +14,10 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
+	"github.com/graphit-labs/graphit-code/internal/daemonctl"
 	"github.com/graphit-labs/graphit-code/internal/dream"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
 )
 
 type DaemonDreamHandler struct {
@@ -48,6 +50,9 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 		PIDFilePath     string    `json:"pid_file_path"`
 		SchedulerStatus string    `json:"scheduler_status"`
 		RecentLogs      []string  `json:"recent_logs,omitempty"`
+		MCPPort         int       `json:"mcp_port,omitempty"`
+		MCPEndpoint     string    `json:"mcp_endpoint,omitempty"`
+		MCPKeyFile      string    `json:"mcp_key_file,omitempty"`
 	}
 	res.PIDFilePath = pid.Path()
 	res.SchedulerStatus = daemon.SchedulerStatus()
@@ -67,6 +72,12 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 	if data, err := os.ReadFile(logPath); err == nil {
 		res.RecentLogs = splitLastNLocal(string(data), 50)
 	}
+
+	if port, err := mcpproxy.ReadPort(daemonctl.PortFilePath()); err == nil {
+		res.MCPPort = port
+		res.MCPEndpoint = fmt.Sprintf("http://127.0.0.1:%d/mcp", port)
+	}
+	res.MCPKeyFile = daemonctl.KeyFilePath()
 
 	writeJSON(w, res)
 }
@@ -120,7 +131,7 @@ func (h *DaemonDreamHandler) handleDreamStatus(w http.ResponseWriter, r *http.Re
 	}
 
 	cfg := dream.ResolveDreamConfig(projectCfg)
-	
+
 	type DreamStatusResult struct {
 		Enabled         bool      `json:"enabled"`
 		DaemonRunning   bool      `json:"daemon_running"`

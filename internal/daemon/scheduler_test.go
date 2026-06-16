@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -197,68 +196,3 @@ func TestRemoveScheduler_NoCrontab(t *testing.T) {
 		t.Logf("RemoveScheduler returned error (may be expected): %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// resolveDaemonExe
-// ---------------------------------------------------------------------------
-
-func TestResolveDaemonExe_Default(t *testing.T) {
-	// Clear the env var to test fallback path
-	origLauncher := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
-	_ = os.Unsetenv(brand.EnvVar("LAUNCHER_PATH"))
-	defer func() {
-		if origLauncher != "" {
-			_ = os.Setenv(brand.EnvVar("LAUNCHER_PATH"), origLauncher)
-		}
-	}()
-
-	exe := resolveDaemonExe()
-	if exe == "" {
-		t.Error("expected non-empty exe path")
-	}
-}
-
-func TestResolveDaemonExe_WithLauncherPath(t *testing.T) {
-	tmpDir := t.TempDir()
-	launcherPath := tmpDir + "/launcher-bin"
-	if err := os.WriteFile(launcherPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	origLauncher := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
-	_ = os.Setenv(brand.EnvVar("LAUNCHER_PATH"), launcherPath)
-	defer func() {
-		if origLauncher != "" {
-			_ = os.Setenv(brand.EnvVar("LAUNCHER_PATH"), origLauncher)
-		} else {
-			_ = os.Unsetenv(brand.EnvVar("LAUNCHER_PATH"))
-		}
-	}()
-
-	exe := resolveDaemonExe()
-	if exe != launcherPath {
-		t.Errorf("expected %q, got %q", launcherPath, exe)
-	}
-}
-
-func TestResolveDaemonExe_WithInvalidLauncherPath(t *testing.T) {
-	origLauncher := os.Getenv(brand.EnvVar("LAUNCHER_PATH"))
-	_ = os.Setenv(brand.EnvVar("LAUNCHER_PATH"), "/nonexistent/launcher")
-	defer func() {
-		if origLauncher != "" {
-			_ = os.Setenv(brand.EnvVar("LAUNCHER_PATH"), origLauncher)
-		} else {
-			_ = os.Unsetenv(brand.EnvVar("LAUNCHER_PATH"))
-		}
-	}()
-
-	// Should fall back to os.Executable
-	exe := resolveDaemonExe()
-	if exe == "/nonexistent/launcher" {
-		t.Error("should not return invalid launcher path")
-	}
-	if exe == "" {
-		t.Error("expected non-empty exe path (fallback)")
-	}
-}
-

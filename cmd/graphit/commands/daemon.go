@@ -3,19 +3,25 @@ package commands
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
-	"net"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
+	"github.com/graphit-labs/graphit-code/internal/daemonctl"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
 	"github.com/graphit-labs/graphit-code/internal/mcpstdio"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/spf13/cobra"
@@ -157,39 +163,49 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 		_ = memSync.Start(ctx)
 	}()
 
-	mcpSockFile := filepath.Join(daemon.GlobalDaemonDir(), "mcp.sock")
+	mcpPortFile := daemonctl.PortFilePath()
+	mcpKeyFile := daemonctl.KeyFilePath()
 	pidCheck := daemon.NewPIDFile()
 	if pidCheck.IsAlive() == nil {
 		go func() {
-			_ = os.MkdirAll(filepath.Dir(mcpSockFile), 0o755)
-			_ = os.Remove(mcpSockFile)
-
-			listener, err := net.Listen("unix", mcpSockFile)
+			apiKey, err := mcpproxy.GenerateAPIKey()
 			if err != nil {
 				return
 			}
 
+			mcpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+				return mcpstdio.NewServer()
+			}, nil)
+
+			authHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer "+apiKey {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+				mcpHandler.ServeHTTP(w, r)
+			})
+
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				return
+			}
+
+			port := listener.Addr().(*net.TCPAddr).Port
+			_ = os.MkdirAll(filepath.Dir(mcpPortFile), 0o755)
+			_ = os.WriteFile(mcpPortFile, []byte(strconv.Itoa(port)), 0o644)
+			_ = os.WriteFile(mcpKeyFile, []byte(apiKey), 0o600)
+
 			go func() {
 				<-ctx.Done()
 				_ = listener.Close()
-				_ = os.Remove(mcpSockFile)
+				_ = os.Remove(mcpPortFile)
+				_ = os.Remove(mcpKeyFile)
 			}()
 
-			for {
-				conn, err := listener.Accept()
-				if err != nil {
-					select {
-					case <-ctx.Done():
-						return
-					default:
-						continue
-					}
-				}
-				go func() {
-					defer conn.Close()
-					_ = mcpstdio.ServeConn(ctx, conn)
-				}()
-			}
+			mux := http.NewServeMux()
+			mux.Handle("/mcp", authHandler)
+			httpServer := &http.Server{Handler: mux}
+			_ = httpServer.Serve(listener)
 		}()
 	}
 
@@ -266,6 +282,9 @@ func newDaemonStopCmd() *cobra.Command {
 				return fmt.Errorf("sending SIGKILL: %w", err)
 			}
 			pid.Remove()
+			// Clean up MCP files that the daemon's ctx.Done handler couldn't reach.
+			_ = os.Remove(daemonctl.PortFilePath())
+			_ = os.Remove(daemonctl.KeyFilePath())
 			p.Success("Daemon killed")
 			return nil
 		},
@@ -360,6 +379,9 @@ func newDaemonRestartCmd() *cobra.Command {
 				if pid.IsAlive() != nil {
 					_ = pid.Signal(syscall.SIGKILL)
 					pid.Remove()
+					// Clean up MCP files that the daemon's ctx.Done handler couldn't reach.
+					_ = os.Remove(daemonctl.PortFilePath())
+					_ = os.Remove(daemonctl.KeyFilePath())
 				}
 				p.StepOK("Previous daemon stopped")
 			}
