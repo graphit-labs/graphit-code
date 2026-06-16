@@ -176,8 +176,11 @@ func (s *HubService) Install(
 
 		case TypeLanguage:
 
-			dotDir := brand.DotDir()
-			queriesDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "queries")
+			globalDir := brand.GlobalDir()
+			if globalDir == "" {
+				return nil, fmt.Errorf("cannot determine global dir for language artifact")
+			}
+			queriesDir := filepath.Join(globalDir, "ast", "queries")
 			if err := os.MkdirAll(queriesDir, 0o755); err != nil {
 				return nil, fmt.Errorf("creating queries dir: %w", err)
 			}
@@ -198,9 +201,9 @@ func (s *HubService) Install(
 					continue
 				}
 
-				// Grammar archives: extract platform binary to grammars dir.
+				// Grammar archives: extract platform binary to global grammars dir.
 				if strings.HasSuffix(name, ".grammar") {
-					if err := installGrammarArchive(src, pp.ActiveProjectDir, dotDir); err != nil {
+					if err := installGrammarArchive(src, globalDir, ""); err != nil {
 						s.log().Warn("installing grammar archive", "file", name, "error", err)
 					}
 				}
@@ -527,7 +530,10 @@ func (s *HubService) Uninstall(
 			s.log().Warn("deregister", "id", entryID, "version", meta.Version, "error", gcErr)
 		}
 		if orphaned {
-
+			// For language artifacts, clean up global files only when orphaned.
+			if artType == TypeLanguage {
+				s.cleanupGlobalLanguageFiles(meta, entryID, pp)
+			}
 			if _, gcErr := s.lockMgr.GCOrphans(); gcErr != nil {
 				s.log().Warn("GC orphans", "after", entryID, "error", gcErr)
 			}
@@ -747,26 +753,9 @@ func (s *HubService) preUninstallHook(ctx context.Context, artType ArtifactType,
 		}
 		return nil
 	case TypeLanguage:
-
-		dotDir := brand.DotDir()
-		queriesDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "queries")
-
-		cloneDir := resolveArtifactPath(meta, artType, id, pp)
-		if cloneDir == "" {
-			return nil
-		}
-		cloneEntries, _ := os.ReadDir(cloneDir)
-		for _, ce := range cloneEntries {
-			if ce.IsDir() {
-				continue
-			}
-			name := ce.Name()
-			if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
-				_ = os.Remove(filepath.Join(queriesDir, name))
-			}
-		}
-		// Also remove grammar binaries.
-		uninstallGrammarFiles(cloneDir, pp.ActiveProjectDir, dotDir)
+		// Language artifacts live in global dirs and are shared across projects.
+		// File cleanup happens only when orphaned (no project references remain),
+		// handled in Uninstall after RegisterUninstall confirms orphaned status.
 		return nil
 	case TypeFramework:
 
@@ -885,8 +874,12 @@ func (s *HubService) Link(
 
 	case TypeLanguage:
 
+		globalDir := brand.GlobalDir()
+		if globalDir == "" {
+			break
+		}
 		sourceQueries := filepath.Join(absSource, dotDir, "ast", "queries")
-		queriesDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "queries")
+		queriesDir := filepath.Join(globalDir, "ast", "queries")
 		_ = os.MkdirAll(queriesDir, 0o755)
 
 		if entries, err := os.ReadDir(sourceQueries); err == nil {
@@ -1120,3 +1113,33 @@ func resolveArtifactPath(meta *LockfileArtifactMeta, artType ArtifactType, artID
 	folder := TypeFolderMap[artType]
 	return filepath.Join(pp.ResourcesDir, folder, artID, meta.Version)
 }
+
+// cleanupGlobalLanguageFiles removes language artifact files (YAMLs and grammar
+// binaries) from the global directories. Called only when the artifact is orphaned
+// — i.e., no other project references it in the global lock.
+func (s *HubService) cleanupGlobalLanguageFiles(meta *LockfileArtifactMeta, id string, pp *paths.ProjectPaths) {
+	globalDir := brand.GlobalDir()
+	if globalDir == "" {
+		return
+	}
+
+	cloneDir := resolveArtifactPath(meta, TypeLanguage, id, pp)
+	if cloneDir == "" {
+		return
+	}
+
+	queriesDir := filepath.Join(globalDir, "ast", "queries")
+	cloneEntries, _ := os.ReadDir(cloneDir)
+	for _, ce := range cloneEntries {
+		if ce.IsDir() {
+			continue
+		}
+		name := ce.Name()
+		if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
+			_ = os.Remove(filepath.Join(queriesDir, name))
+		}
+	}
+	// Remove grammar binaries from global dir.
+	uninstallGrammarFiles(cloneDir, globalDir, "")
+}
+

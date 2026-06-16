@@ -34,12 +34,20 @@ func installGrammarArchive(archivePath, projectDir, dotDir string) error {
 
 	if strings.HasPrefix(nameStem, "tree-sitter-") {
 		// Tree-sitter: extract shared library.
-		grammarDir = filepath.Join(projectDir, dotDir, "grammars", "treesitter")
+		if dotDir == "" {
+			grammarDir = filepath.Join(projectDir, "grammars", "treesitter")
+		} else {
+			grammarDir = filepath.Join(projectDir, dotDir, "grammars", "treesitter")
+		}
 		ext := sharedLibExt()
 		targetName = nameStem + ext
 	} else if strings.HasPrefix(nameStem, "antlr-") {
 		// ANTLR: extract sidecar binary.
-		grammarDir = filepath.Join(projectDir, dotDir, "grammars", "antlr")
+		if dotDir == "" {
+			grammarDir = filepath.Join(projectDir, "grammars", "antlr")
+		} else {
+			grammarDir = filepath.Join(projectDir, dotDir, "grammars", "antlr")
+		}
 		// e.g. antlr-plsql → antlr-sidecar-plsql
 		langName := strings.TrimPrefix(nameStem, "antlr-")
 		targetName = "antlr-sidecar-" + langName
@@ -165,7 +173,12 @@ func uninstallGrammarFiles(cloneDir, projectDir, dotDir string) {
 
 		if strings.HasPrefix(nameStem, "tree-sitter-") {
 			ext := sharedLibExt()
-			target := filepath.Join(projectDir, dotDir, "grammars", "treesitter", nameStem+ext)
+			var target string
+			if dotDir == "" {
+				target = filepath.Join(projectDir, "grammars", "treesitter", nameStem+ext)
+			} else {
+				target = filepath.Join(projectDir, dotDir, "grammars", "treesitter", nameStem+ext)
+			}
 			_ = os.Remove(target)
 		} else if strings.HasPrefix(nameStem, "antlr-") {
 			langName := strings.TrimPrefix(nameStem, "antlr-")
@@ -173,7 +186,12 @@ func uninstallGrammarFiles(cloneDir, projectDir, dotDir string) {
 			if runtime.GOOS == "windows" {
 				targetName += ".exe"
 			}
-			target := filepath.Join(projectDir, dotDir, "grammars", "antlr", targetName)
+			var target string
+			if dotDir == "" {
+				target = filepath.Join(projectDir, "grammars", "antlr", targetName)
+			} else {
+				target = filepath.Join(projectDir, dotDir, "grammars", "antlr", targetName)
+			}
 			_ = os.Remove(target)
 		}
 	}

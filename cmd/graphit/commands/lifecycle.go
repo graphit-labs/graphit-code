@@ -776,6 +776,12 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 				reconTask.Fail("Registry: %v", regErr)
 			}
 		}
+
+		// Ensure language artifacts are materialized in global dirs.
+		lockPath := filepath.Join(wd, brand.LockFileName())
+		if err := hub.EnsureGlobalLanguageArtifacts(lockPath); err != nil {
+			syncLogError("hub-lang-global", "ensure global language: %v", err)
+		}
 	}
 
 	if !config.IsModuleDisabled("memory", nil, projectCfg) {
