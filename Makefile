@@ -124,6 +124,19 @@ DEFAULT_TS_GRAMMARS := go python javascript typescript tsx java kotlin \
 # All ANTLR sidecar binaries.
 DEFAULT_ANTLR_GRAMMARS := plsql postgresql tsql db2 cobol85
 
+# ── Conditional grammar dependencies ──────────────────────────────────────────
+# Pass SKIP_GRAMMARS=1 and/or SKIP_ANTLR_GRAMMARS=1 to skip compilation+bundling.
+ifndef SKIP_GRAMMARS
+  GRAMMAR_DEPS := grammars-treesitter
+else
+  GRAMMAR_DEPS :=
+endif
+
+ifndef SKIP_ANTLR_GRAMMARS
+  ANTLR_DEPS := grammars-antlr
+else
+  ANTLR_DEPS :=
+endif
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Grammar Build Targets
@@ -481,7 +494,7 @@ build: build-linux
 install: build
 	sudo cp $(BIN_DIR)/$(BRAND)-linux-amd64 /usr/local/bin/$(BRAND)
 
-build-linux: ui setup-lbug fetch-ort-linux fetch-model grammars-treesitter grammars-antlr
+build-linux: ui setup-lbug fetch-ort-linux fetch-model $(GRAMMAR_DEPS) $(ANTLR_DEPS)
 	@mkdir -p cmd/launcher/runtime
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
@@ -492,13 +505,13 @@ build-linux: ui setup-lbug fetch-ort-linux fetch-model grammars-treesitter gramm
 	cp -L $(ORT_CACHE)/onnxruntime-linux-x64-$(ORT_VERSION)/lib/libonnxruntime.so cmd/launcher/runtime/
 	$(call bundle_model)
 	$(call bundle_ast)
-	$(call bundle_grammars)
-	$(call bundle_antlr)
+	$(if $(SKIP_GRAMMARS),,$(call bundle_grammars))
+	$(if $(SKIP_ANTLR_GRAMMARS),,$(call bundle_antlr))
 	@mkdir -p $(BIN_DIR)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-linux-amd64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-darwin: ui setup-lbug fetch-ort-darwin fetch-model grammars-treesitter grammars-antlr
+build-darwin: ui setup-lbug fetch-ort-darwin fetch-model $(GRAMMAR_DEPS) $(ANTLR_DEPS)
 	@mkdir -p cmd/launcher/runtime
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
@@ -509,13 +522,13 @@ build-darwin: ui setup-lbug fetch-ort-darwin fetch-model grammars-treesitter gra
 	cp -L $(ORT_CACHE)/onnxruntime-osx-arm64-$(ORT_VERSION)/lib/libonnxruntime.dylib cmd/launcher/runtime/
 	$(call bundle_model)
 	$(call bundle_ast)
-	$(call bundle_grammars)
-	$(call bundle_antlr)
+	$(if $(SKIP_GRAMMARS),,$(call bundle_grammars))
+	$(if $(SKIP_ANTLR_GRAMMARS),,$(call bundle_antlr))
 	@mkdir -p $(BIN_DIR)
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-darwin-arm64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows: ui setup-lbug fetch-ort-windows fetch-model grammars-treesitter grammars-antlr
+build-windows: ui setup-lbug fetch-ort-windows fetch-model $(GRAMMAR_DEPS) $(ANTLR_DEPS)
 	@mkdir -p cmd/launcher/runtime
 	CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_CFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_CXXFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_LDFLAGS="-L/usr/x86_64-w64-mingw32/icu/lib -licuuc -licuin -licudt -lstdc++ -static-libgcc -static-libstdc++" GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcp
@@ -524,13 +537,13 @@ build-windows: ui setup-lbug fetch-ort-windows fetch-model grammars-treesitter g
 	cp -L $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll cmd/launcher/runtime/
 	$(call bundle_model)
 	$(call bundle_ast)
-	$(call bundle_grammars)
-	$(call bundle_antlr)
+	$(if $(SKIP_GRAMMARS),,$(call bundle_grammars))
+	$(if $(SKIP_ANTLR_GRAMMARS),,$(call bundle_antlr))
 	@mkdir -p $(BIN_DIR)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows-native: ui setup-lbug fetch-ort-windows fetch-model grammars-treesitter grammars-antlr
+build-windows-native: ui setup-lbug fetch-ort-windows fetch-model $(GRAMMAR_DEPS) $(ANTLR_DEPS)
 	@mkdir -p cmd/launcher/runtime
 	CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-L/mingw64/lib -licuuc -licuin -licudt -lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcp
@@ -544,8 +557,8 @@ build-windows-native: ui setup-lbug fetch-ort-windows fetch-model grammars-trees
 	cp -L $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll cmd/launcher/runtime/
 	$(call bundle_model)
 	$(call bundle_ast)
-	$(call bundle_grammars)
-	$(call bundle_antlr)
+	$(if $(SKIP_GRAMMARS),,$(call bundle_grammars))
+	$(if $(SKIP_ANTLR_GRAMMARS),,$(call bundle_antlr))
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
