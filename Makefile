@@ -229,6 +229,10 @@ grammars-treesitter:
 		escaped=$$(echo "$$modpath$$version" | sed 's|/|/|g'); \
 		moddir="$(GOMODCACHE)/$${escaped}"; \
 		if [ ! -d "$$moddir" ]; then \
+			go mod download "$$modpath$$version" 2>/dev/null || true; \
+			moddir="$(GOMODCACHE)/$${escaped}"; \
+		fi; \
+		if [ ! -d "$$moddir" ]; then \
 			moddir=$$(find "$(GOMODCACHE)/$$(dirname $$modpath)" -maxdepth 1 -name "$$(basename $$modpath)*" 2>/dev/null | head -1); \
 		fi; \
 		if [ -n "$$subdir" ]; then srcdir="$$moddir/$$subdir/src"; \
