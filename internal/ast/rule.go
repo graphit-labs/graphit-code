@@ -547,7 +547,6 @@ var astSkillName = brand.SkillDirName("ast")
 
 func MandateTrigger() string {
 	astQueryRef := brand.MCPToolRef("ast", "query")
-	astQuery := brand.MCPToolName("ast", "query")
 	astSearchRef := brand.MCPToolRef("ast", "search")
 	astSourceRef := brand.MCPToolRef("ast", "source")
 	astSchemaRef := brand.MCPToolRef("ast", "schema")

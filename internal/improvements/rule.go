@@ -26,9 +26,6 @@ func ImprovementsRuleContent() string {
 var improvementsSkillName = brand.SkillDirName("improvements")
 
 func MandateTrigger() string {
-	dreamAddRef := brand.MCPToolRef("dream", "subject_add")
-	dreamListRef := brand.MCPToolRef("dream", "subject_list")
-	dreamRemoveRef := brand.MCPToolRef("dream", "subject_remove")
 	memInsertRef := brand.MCPToolRef("memory", "insert")
 
 	return `
