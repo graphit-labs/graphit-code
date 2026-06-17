@@ -37,19 +37,19 @@ about, DO NOT guess its API or structure. Check if it is available in the Hub.
 ### 1. Discovery
 To see all available artifacts or filter by type, call the `graphit_hub_list` tool:
 ```
-graphit_hub_list(type: "<knowledge|ast|rule|skill|command|agent|mcp|power>")
+graphit_hub_list(type: "<knowledge|ast|rule|skill|command|agent|mcp|power>", ai_optimized: true)
 ```
 
 ### 2. Inspection
 To see the details, tags, and description of a specific artifact, call the `graphit_hub_show` tool:
 ```
-graphit_hub_show(id: "<artifact-id>")
+graphit_hub_show(id: "<artifact-id>", ai_optimized: true)
 ```
 
 ### 3. Installation
 To download and install the artifact into the current project, call the `graphit_hub_install` tool (passing absolute `project_dir`):
 ```
-graphit_hub_install(project_dir: "/path/to/project", id: "<artifact-id>", ide: "<ide>", alias: "<alias>")
+graphit_hub_install(project_dir: "/path/to/project", id: "<artifact-id>", ide: "<ide>", alias: "<alias>", ai_optimized: true)
 ```
 
 ### 4. Updates
@@ -61,7 +61,7 @@ graphit_hub_update(project_dir: "/path/to/project")
 ### 5. Link & Unlink (Local Development)
 To link or unlink local development artifacts into the current project, call `graphit_hub_link` or `graphit_hub_unlink` (passing absolute `project_dir`):
 ```
-graphit_hub_link(project_dir: "/path/to/project", name: "<name>", source_path: "/path/to/source", type: "<type>")
+graphit_hub_link(project_dir: "/path/to/project", name: "<name>", source_path: "/path/to/source", type: "<type>", ai_optimized: true)
 graphit_hub_unlink(project_dir: "/path/to/project", name: "<name>", type: "<type>")
 ```
 
@@ -82,17 +82,17 @@ Once installed, artifacts enhance your capabilities automatically:
 
 ## Installed Artifacts
 
-To check installed artifacts, call the `graphit_hub_list` tool (passing absolute `project_dir` parameter).
-Use `graphit_hub_show` to inspect details of any artifact.
+To check installed artifacts, call the `graphit_hub_list` tool (passing absolute `project_dir` parameter and `ai_optimized: true`).
+Use `graphit_hub_show` (ai_optimized:true) to inspect details of any artifact.
 
 ## 🌐 Ecosystem Project Discovery
 
 **When you need to find other projects in the work ecosystem** (e.g., to understand
 cross-project dependencies, shared libraries, related services, or sibling projects),
-**call the `graphit_cluster_projects` tool (passing absolute `project_dir` parameter):**
+**call the `graphit_cluster_projects` tool (passing absolute `project_dir` parameter and `ai_optimized: true`):**
 
 ```
-graphit_cluster_projects(project_dir: "/path/to/project")
+graphit_cluster_projects(project_dir: "/path/to/project", ai_optimized: true)
 ```
 
 This tool returns a JSON map containing all sibling projects that belong to the **same cluster**

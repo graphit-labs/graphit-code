@@ -66,6 +66,15 @@ ANTLR_OUTDIR  := .build/grammars/antlr
 GOMODCACHE    := $(shell go env GOMODCACHE)
 SMACKER_DIR    = $(shell find $(GOMODCACHE)/github.com/smacker/go-tree-sitter* -maxdepth 0 2>/dev/null | head -1)
 
+# Platform-specific shared library extension.
+ifeq ($(OS),Windows_NT)
+  SHLIB_EXT := .dll
+else ifeq ($(shell uname -s),Darwin)
+  SHLIB_EXT := .dylib
+else
+  SHLIB_EXT := .so
+endif
+
 # Compiler flags.
 TS_CC         := $(CC)
 TS_CXX        := $(CXX)
@@ -150,7 +159,7 @@ define compile_ts_grammar
 	inc="$(3)"; \
 	alloc="$(4)"; \
 	cxx="$(5)"; \
-	output="$(TS_OUTDIR)/tree-sitter-$${name}.so"; \
+	output="$(TS_OUTDIR)/tree-sitter-$${name}$(SHLIB_EXT)"; \
 	parser_c=""; \
 	if [ -f "$${src}/parser.c" ]; then parser_c="$${src}/parser.c"; \
 	elif [ -f "$${src}/parser.c.inc" ]; then parser_c="$${src}/parser.c.inc"; \
@@ -281,7 +290,7 @@ grammars-treesitter: ensure-go-modules
 		fi; \
 	done
 	@echo ""
-	@total=$$(ls -1 $(TS_OUTDIR)/*.so 2>/dev/null | wc -l); \
+	@total=$$(ls -1 $(TS_OUTDIR)/*$(SHLIB_EXT) 2>/dev/null | wc -l); \
 	totalsize=$$(du -sh $(TS_OUTDIR) | cut -f1); \
 	echo "  Summary: $${total}/$(words $(TS_ALL)) grammars built ($${totalsize})"
 	@echo ""

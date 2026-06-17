@@ -143,9 +143,9 @@ This prevents wasted queries on misspelled or assumed names.
 
 **This is the RECOMMENDED default for text-based discovery.** It combines BM25 full-text
 search with semantic vector search using Reciprocal Rank Fusion (RRF, k=60) to produce
-a unified ranking — call the `graphit_ast_search` tool (passing absolute `project_dir` and `query`):
+a unified ranking — call the `graphit_ast_search` tool (passing absolute `project_dir`, `query`, and `ai_optimized: true`):
 ```
-graphit_ast_search(project_dir: "/path/to/project", query: "authentication and session management")
+graphit_ast_search(project_dir: "/path/to/project", query: "authentication and session management", ai_optimized: true)
 ```
 
 Hybrid search automatically:

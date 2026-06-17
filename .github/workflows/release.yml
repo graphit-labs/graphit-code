@@ -118,8 +118,6 @@ jobs:
       - name: Build (Linux)
         run: |
           make build-linux \
-            SKIP_GRAMMARS=1 \
-            SKIP_ANTLR_GRAMMARS=1 \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
             DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
@@ -189,8 +187,6 @@ jobs:
       - name: Build (macOS)
         run: |
           make build-darwin \
-            SKIP_GRAMMARS=1 \
-            SKIP_ANTLR_GRAMMARS=1 \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
             DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
@@ -272,8 +268,6 @@ jobs:
       - name: Build (Windows native)
         run: |
           make build-windows-native \
-            SKIP_GRAMMARS=1 \
-            SKIP_ANTLR_GRAMMARS=1 \
             VERSION="${{ github.ref_name }}" \
             BRAND="graphit" \
             DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \

@@ -4,6 +4,16 @@ Before ANY action, tool use, or code generation, you MUST produce <graphit> eval
 Format: <graphit>MEM:0|AST:0|HUB:0|DOC:0|IMP:0 — [action]</graphit>
 Set a module flag to 1 when that module's rule applies to the current action.
 
+## 🔒 UNIVERSAL: Always set `ai_optimized: true` on EVERY MCP tool call
+
+**When calling ANY Graphit MCP tool that accepts the `ai_optimized` parameter,
+you MUST ALWAYS set `ai_optimized: true`.** No exceptions. This applies to every
+tool across all modules (AST, Knowledge, Memory, Hub, Wiki, Dream, Cluster, Config, Daemon).
+This flag outputs compact TOON format instead of verbose JSON, reducing token consumption by 30-60%.
+
+**Violating this rule wastes tokens and degrades performance. Never omit it.**
+
+
 <doc_rule>
 # Knowledge & Documentation
 
@@ -61,16 +71,16 @@ Set a module flag to 1 when that module's rule applies to the current action.
 |---|---|
 | `grep_search: func myFunction` | `graphit_ast_query` with `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'myfunction' RETURN f.name, f.path, f.line_number, label(f) AS type"`, `ai_optimized: true` |
 | `grep_search: type MyStruct` | `graphit_ast_query` with `query: "MATCH (n) WHERE toLower(n.name) CONTAINS 'mystruct' RETURN n.name, label(n) AS type, n.path"`, `ai_optimized: true` |
-| `grep_search: import "package"` | `graphit_ast_query` with `query: "MATCH (f:File)-[:IMPORTS]->(m:Module) WHERE toLower(m.name) CONTAINS 'package' RETURN f.path"` |
-| `grep -l "keyword" *.go` | `graphit_ast_search` with `query: "keyword"` |
-| `find ... -name "*.go" \| xargs grep -l "daemon"` | `graphit_ast_search` with `query: "daemon"` |
+| `grep_search: import "package"` | `graphit_ast_query` with `query: "MATCH (f:File)-[:IMPORTS]->(m:Module) WHERE toLower(m.name) CONTAINS 'package' RETURN f.path"`, `ai_optimized: true` |
+| `grep -l "keyword" *.go` | `graphit_ast_search` with `query: "keyword"`, `ai_optimized: true` |
+| `find ... -name "*.go" \| xargs grep -l "daemon"` | `graphit_ast_search` with `query: "daemon"`, `ai_optimized: true` |
 
 ## Quick Reference (always active)
 
 - **Always use**: call `graphit_ast_query` tool (passing absolute `project_dir` and setting `ai_optimized: true`)
 - **Discover node labels**: call `graphit_ast_schema` tool (passing absolute `project_dir`)
 - **Never guess names**: Ground with `toLower(n.name) CONTAINS toLower('keyword')`
-- **Hybrid search (RECOMMENDED)**: call `graphit_ast_search` (passing absolute `project_dir` and `query`). Combines BM25 FTS + semantic vector search via Reciprocal Rank Fusion (RRF). Supports `mode: "hybrid"` (default), `"fts"`, or `"semantic"`.
+- **Hybrid search (RECOMMENDED)**: call `graphit_ast_search` (passing absolute `project_dir`, `query`, and `ai_optimized: true`). Combines BM25 FTS + semantic vector search via Reciprocal Rank Fusion (RRF). Supports `mode: "hybrid"` (default), `"fts"`, or `"semantic"`.
 - **Get source code (discovery)**: call `graphit_ast_source` (passing absolute `project_dir` and relative `path`). Retrieves source from the graph when you discovered a file through AST. Supports `head`/`tail` (first/last N lines), `start_line`/`end_line` (line range), `entity`/`entity_type` (extract entity source by name), `pattern`/`regex`/`before`/`after` (grep-like search with context), and `line_numbers`. If you already know the path, use your IDE's file-reading tools instead.
 - **One-shot: get metadata + full file source**: call `graphit_ast_query` with `query: "MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source"`, `ai_optimized: true`
 - **Reindex after changes**: call `graphit_sync` tool (passing absolute `project_dir`)
@@ -105,12 +115,12 @@ Set a module flag to 1 when that module's rule applies to the current action.
 
 ## Quick Reference (always active)
 
-- **Search**: call `graphit_hub_list` tool
-- **Filter**: call `graphit_hub_list` tool with `type` parameter
-- **Inspect**: call `graphit_hub_show` tool with `id` parameter
-- **Install**: call `graphit_hub_install` tool (passing absolute `project_dir` parameter)
+- **Search**: call `graphit_hub_list` tool (ai_optimized:true)
+- **Filter**: call `graphit_hub_list` tool with `type` parameter (ai_optimized:true)
+- **Inspect**: call `graphit_hub_show` tool with `id` parameter (ai_optimized:true)
+- **Install**: call `graphit_hub_install` tool (passing absolute `project_dir` parameter, `id`, and `ai_optimized: true`)
 - **Update**: call `graphit_hub_update` tool (passing absolute `project_dir` parameter)
-- **Ecosystem**: call `graphit_cluster_projects` tool to find sibling projects — query their AST/wiki using their project_dir
+- **Ecosystem**: call `graphit_cluster_projects` tool (ai_optimized:true) to find sibling projects — query their AST/wiki using their project_dir
 
 ## Critical Rule
 
@@ -128,7 +138,7 @@ After installing a knowledge artifact, search its wiki via MCP BEFORE coding.
 
 **Execute IMMEDIATELY on every conversation start. Do NOT respond to the user first.**
 
-1. Call `graphit_memory_search` with context from the user's request to find relevant memories
+1. Call `graphit_memory_search` (ai_optimized:true) with context from the user's request to find relevant memories
 2. If relevant memories found, read the entity page(s) and follow their guidance
 3. Only then proceed with the user's request
 
@@ -155,7 +165,7 @@ After installing a knowledge artifact, search its wiki via MCP BEFORE coding.
 
 - **Insert**: call `graphit_memory_insert` tool (passing absolute `project_dir` parameter)
 - **Delete**: call `graphit_memory_delete` tool (passing absolute `project_dir` parameter)
-- **Search**: call `graphit_memory_search` tool (passing absolute `project_dir` parameter)
+- **Search**: call `graphit_memory_search` tool (passing absolute `project_dir` parameter and `ai_optimized: true`)
 - **Scope**: scope:"project" (default) for project memories, scope:"user" for personal cross-project memories
 - **Search vs Query**: `graphit_memory_search` = lightweight text match on raw files. `graphit_memory_query` = AI synthesis from compiled wiki
 - **NEVER** read .graphit/memory/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized

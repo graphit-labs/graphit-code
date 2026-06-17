@@ -547,7 +547,7 @@ This enables a new agent to understand the full trajectory.>
 **Step 1 — Search the hub for an existing knowledge artifact using the `graphit_hub_list` tool:**
 
 ```
-graphit_hub_list(project_dir: "/path/to/project", type: "knowledge")
+graphit_hub_list(project_dir: "/path/to/project", type: "knowledge", ai_optimized: true)
 ```
 
 **Step 2 — If found, install it immediately using the `graphit_knowledge_install` tool (passing absolute `project_dir` and the context `name`):**

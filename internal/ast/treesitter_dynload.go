@@ -181,7 +181,7 @@ func (l *DynGrammarLoader) libraryCandidates(lang string) []string {
 	// Normalize language name: replace hyphens with underscores for the base name.
 	baseName := "tree-sitter-" + strings.ReplaceAll(lang, "_", "-")
 
-	return []string{
+	candidates := []string{
 		// Most specific: tree-sitter-go-linux-amd64.so
 		fmt.Sprintf("%s-%s-%s%s", baseName, osName, archName, ext),
 		// Platform only: tree-sitter-go-linux.so
@@ -189,6 +189,15 @@ func (l *DynGrammarLoader) libraryCandidates(lang string) []string {
 		// Generic: tree-sitter-go.so
 		fmt.Sprintf("%s%s", baseName, ext),
 	}
+
+	// Fallback: always try .so regardless of platform.
+	// Some build systems produce .so universally, and both macOS dlopen
+	// and Windows LoadLibrary can load shared libraries regardless of extension.
+	if ext != ".so" {
+		candidates = append(candidates, fmt.Sprintf("%s.so", baseName))
+	}
+
+	return candidates
 }
 
 // sharedLibExt returns the platform-appropriate shared library file extension.
