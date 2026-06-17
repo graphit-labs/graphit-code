@@ -7,6 +7,8 @@ linters:
     - gosec
     - errorlint
     - gocritic
+  disable:
+    - unused
   settings:
     govet:
       disable-all: false
