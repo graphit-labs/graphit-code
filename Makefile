@@ -188,8 +188,11 @@ grammars: grammars-treesitter grammars-antlr
 	@echo "  ANTLR:       $(ANTLR_OUTDIR)/"
 	@echo ""
 
-grammars-treesitter:
+.PHONY: ensure-go-modules
+ensure-go-modules:
 	@go mod download
+
+grammars-treesitter: ensure-go-modules
 	@mkdir -p $(TS_OUTDIR)
 	@echo ""
 	@echo "═══════════════════════════════════════════════════════════════════════"
