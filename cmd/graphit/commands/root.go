@@ -27,7 +27,7 @@ var rootCmd = &cobra.Command{
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 
 		name := cmd.Name()
-		if name == "daemon" || name == "setup" || name == "uninstall" || name == "_internal" {
+		if name == "daemon" || name == "setup" || name == "uninstall" || name == "self-update" || name == "_internal" {
 			return
 		}
 
