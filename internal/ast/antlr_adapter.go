@@ -2,7 +2,6 @@ package ast
 
 import (
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,19 +9,31 @@ import (
 	"sync"
 
 	antlrcommon "github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
-	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/version"
+
+
+	antlrCobol85 "github.com/graphit-labs/graphit-code/internal/ast/antlr/cobol85"
+	antlrDB2 "github.com/graphit-labs/graphit-code/internal/ast/antlr/db2"
+	antlrPLSQL "github.com/graphit-labs/graphit-code/internal/ast/antlr/plsql"
+	antlrPostgreSQL "github.com/graphit-labs/graphit-code/internal/ast/antlr/postgresql"
+	antlrTSQL "github.com/graphit-labs/graphit-code/internal/ast/antlr/tsql"
 )
 
-// antlrDrivers maps grammar names to their GrammarDriver implementations.
-// With plug-and-play architecture, these are SidecarDrivers that communicate
-// with external sidecar processes.
+
+var nativeAntlrDrivers = map[string]antlrcommon.GrammarDriver{
+	"antlr-plsql":     &antlrPLSQL.Driver{},
+	"antlr-postgresql": &antlrPostgreSQL.Driver{},
+	"antlr-tsql":      &antlrTSQL.Driver{},
+	"antlr-db2":       &antlrDB2.Driver{},
+	"antlr-cobol85":   &antlrCobol85.Driver{},
+}
+
+// antlrDrivers maps grammar names to their GrammarDriver.
+// Project/user sidecar overrides take priority over native drivers.
 var antlrDrivers map[string]antlrcommon.GrammarDriver
 var antlrDriversOnce sync.Once
 var antlrGrammarProjectDir string
 
-// SetAntlrGrammarProjectDir sets the project directory used for ANTLR grammar search.
-// Must be called before the first ANTLR parse.
+
 func SetAntlrGrammarProjectDir(dir string) {
 	antlrGrammarProjectDir = dir
 }
@@ -30,33 +41,21 @@ func SetAntlrGrammarProjectDir(dir string) {
 func initAntlrDrivers() {
 	antlrDrivers = make(map[string]antlrcommon.GrammarDriver)
 
-	// Search for per-grammar ANTLR sidecar binaries.
-	searchDirs := antlrGrammarSearchDirs(antlrGrammarProjectDir)
-	grammars := []string{"plsql", "postgresql", "tsql", "db2", "cobol85"}
+	for name, drv := range nativeAntlrDrivers {
+		antlrDrivers[name] = drv
+	}
 
-	for _, grammar := range grammars {
+	searchDirs := antlrGrammarSearchDirs(antlrGrammarProjectDir)
+	allGrammars := []string{"plsql", "postgresql", "tsql", "db2", "cobol85"}
+
+	for _, grammar := range allGrammars {
 		bin := findAntlrGrammarBin(grammar, searchDirs)
 		if bin != "" {
 			antlrDrivers["antlr-"+grammar] = NewSidecarDriver(bin, grammar, 2)
 		}
 	}
-
-	// Fallback: check for monolithic sidecar binary (backward compatibility).
-	if len(antlrDrivers) == 0 {
-		sidecarBin := findAntlrSidecarBin()
-		if sidecarBin != "" {
-			for _, grammar := range grammars {
-				antlrDrivers["antlr-"+grammar] = NewSidecarDriver(sidecarBin, grammar, 2)
-			}
-		}
-	}
-
-	if len(antlrDrivers) == 0 {
-		slog.Warn("no ANTLR grammar binaries found, ANTLR parsing disabled")
-	}
 }
 
-// findAntlrGrammarBin searches for a per-grammar ANTLR sidecar binary.
 func findAntlrGrammarBin(grammar string, searchDirs []string) string {
 	candidates := []string{
 		fmt.Sprintf("antlr-sidecar-%s", grammar),
@@ -76,77 +75,20 @@ func findAntlrGrammarBin(grammar string, searchDirs []string) string {
 	return ""
 }
 
-// antlrGrammarSearchDirs returns the ordered list of directories to search
-// for per-grammar ANTLR sidecar binaries.
 func antlrGrammarSearchDirs(projectDir string) []string {
 	var dirs []string
 
-	// 1. Project-level grammars.
 	if projectDir != "" {
-		dirs = append(dirs, filepath.Join(projectDir, brand.DotDir(), "grammars", "antlr"))
+		dirs = append(dirs, filepath.Join(projectDir, ".graphit", "grammars", "antlr"))
 	}
 
-	// 2. User-level grammars.
 	if home, err := os.UserHomeDir(); err == nil {
-		dirs = append(dirs, filepath.Join(home, brand.DotDir(), "grammars", "antlr"))
-	}
-
-	// 3. Runtime-versioned grammars.
-	runtimeDir := brand.RuntimeDir(version.Version)
-	if runtimeDir != "" {
-		dirs = append(dirs, filepath.Join(runtimeDir, "grammars", "antlr"))
-	}
-
-	// 4. Alongside current binary.
-	exe, err := os.Executable()
-	if err == nil {
-		dirs = append(dirs, filepath.Dir(exe))
+		dirs = append(dirs, filepath.Join(home, ".graphit", "grammars", "antlr"))
 	}
 
 	return dirs
 }
 
-// findAntlrSidecarBin searches for the monolithic ANTLR sidecar binary
-// in standard locations. Used as a fallback when per-grammar binaries
-// are not found.
-// Search order:
-// 1. ANTLR_SIDECAR_BIN environment variable
-// 2. ~/.graphit/runtime/<version>/graphit-antlr-sidecar
-// 3. Same directory as the running binary
-func findAntlrSidecarBin() string {
-	// Check env var first.
-	if bin := os.Getenv("ANTLR_SIDECAR_BIN"); bin != "" {
-		if _, err := os.Stat(bin); err == nil {
-			return bin
-		}
-	}
-
-	// Check runtime dir.
-	runtimeDir := brand.RuntimeDir(version.Version)
-	if runtimeDir != "" {
-		bin := filepath.Join(runtimeDir, "graphit-antlr-sidecar")
-		if runtime.GOOS == "windows" {
-			bin += ".exe"
-		}
-		if _, err := os.Stat(bin); err == nil {
-			return bin
-		}
-	}
-
-	// Check alongside current binary.
-	exe, err := os.Executable()
-	if err == nil {
-		bin := filepath.Join(filepath.Dir(exe), "graphit-antlr-sidecar")
-		if runtime.GOOS == "windows" {
-			bin += ".exe"
-		}
-		if _, err := os.Stat(bin); err == nil {
-			return bin
-		}
-	}
-
-	return ""
-}
 
 
 // antlrExtMap maps file extensions to ANTLR language configs.
@@ -289,7 +231,6 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, is
 		rpcQueries = append(rpcQueries, ExternalQueryDef(q))
 	}
 
-	// 1. Parse using registered ANTLR grammar driver
 	if a.projectDir != "" && antlrGrammarProjectDir == "" {
 		antlrGrammarProjectDir = a.projectDir
 	}

@@ -40,33 +40,22 @@ LBUG_CACHE   := /tmp/lbug-cache
 LBUG_PLATFORMS ?= $(shell uname -s | sed 's/Darwin/darwin/;s/Linux/linux-amd64/;s/MINGW.*/windows/')
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Grammar Configuration
+# Grammar Build (for Hub distribution only — defaults are compiled natively)
 # ═══════════════════════════════════════════════════════════════════════════════
-#
-# To add a new tree-sitter grammar:
-#   1. Add to the appropriate category below (SMACKER, EXTERNAL, or LOCAL)
-#   2. If EXTERNAL, add the Go module version to GRAMMAR_EXTERNAL_<LANG>_MOD
-#   3. If it needs alloc.c, add to TS_GRAMMARS_ALLOC
-#   4. If the source dir is non-standard, add to TS_GRAMMAR_SRCDIR_<LANG>
-#   5. Run: make grammars-treesitter
-#
-# To add a new ANTLR grammar:
-#   1. Add the grammar name to ANTLR_GRAMMARS
-#   2. Implement the grammar under internal/ast/antlr/<grammar>/
-#   3. Create the build-tag driver in cmd/graphit-antlr-sidecar/
-#   4. Run: make grammars-antlr
 
-# ── Tree-sitter ───────────────────────────────────────────────────────────────
 
-# Output directories.
 TS_OUTDIR     := .build/grammars/treesitter
 ANTLR_OUTDIR  := .build/grammars/antlr
 
-# Go module cache.
-GOMODCACHE    := $(shell go env GOMODCACHE)
+
+ifeq ($(OS),Windows_NT)
+  GOMODCACHE    := $(shell cygpath -u "$$(go env GOMODCACHE)")
+else
+  GOMODCACHE    := $(shell go env GOMODCACHE)
+endif
 SMACKER_DIR    = $(shell find $(GOMODCACHE)/github.com/smacker/go-tree-sitter* -maxdepth 0 2>/dev/null | head -1)
 
-# Platform-specific shared library extension.
+
 ifeq ($(OS),Windows_NT)
   SHLIB_EXT := .dll
 else ifeq ($(shell uname -s),Darwin)
@@ -75,32 +64,34 @@ else
   SHLIB_EXT := .so
 endif
 
-# Compiler flags.
+
 TS_CC         := $(CC)
 TS_CXX        := $(CXX)
-TS_CFLAGS     := -shared -fPIC -O2 -std=c11
-TS_CXXFLAGS   := -shared -fPIC -O2 -std=c++14
+TS_CFLAGS     := -shared -fPIC -O2 -std=c11 \
+    -Dts_current_malloc=malloc -Dts_current_free=free \
+    -Dts_current_realloc=realloc -Dts_current_calloc=calloc
+TS_CXXFLAGS   := -shared -fPIC -O2 -std=c++14 \
+    -Dts_current_malloc=malloc -Dts_current_free=free \
+    -Dts_current_realloc=realloc -Dts_current_calloc=calloc
 
-# Category A: smacker/go-tree-sitter grammars (source under SMACKER_DIR/<lang>/).
-# Simple: no scanner or scanner.c that doesn't need alloc.c.
+
 TS_GRAMMARS_SMACKER_SIMPLE := c golang java protobuf \
     dockerfile elixir groovy hcl javascript lua python swift toml \
     kotlin php sql
 
-# Smacker grammars that need alloc.c linked in.
+
 TS_GRAMMARS_SMACKER_ALLOC := bash cpp csharp html ruby rust scala
 
-# Smacker grammars with non-standard source subdirectories.
+
 TS_GRAMMAR_SRCDIR_markdown   := markdown/tree-sitter-markdown
 TS_GRAMMAR_SRCDIR_tsx        := typescript/tsx
 TS_GRAMMAR_SRCDIR_typescript := typescript/typescript
 TS_GRAMMARS_SMACKER_SUBDIR := markdown tsx typescript
 
-# Smacker grammars with C++ scanner (scanner.cc).
+
 TS_GRAMMARS_SMACKER_CXX := yaml
 
-# Category B: External Go module grammars (separate packages).
-# Format: <lang>:<go-module-path>@<version>[/<subdir>]
+
 TS_GRAMMARS_EXTERNAL := \
     json:github.com/tree-sitter/tree-sitter-json@v0.24.8 \
     xml:github.com/tree-sitter-grammars/tree-sitter-xml@v0.7.0/xml \
@@ -109,50 +100,21 @@ TS_GRAMMARS_EXTERNAL := \
     julia:github.com/tree-sitter/tree-sitter-julia@v0.25.0 \
     dart:github.com/!user!nobody14/tree-sitter-dart@v0.0.0-20260508020638-507c5546dc73
 
-# Category C: Local vendored grammars (under internal/ast/treesitter/<lang>/).
+
 TS_GRAMMARS_LOCAL := clojure graphql objc r
 
-# All tree-sitter grammars (computed).
+
 TS_ALL_SMACKER := $(TS_GRAMMARS_SMACKER_SIMPLE) $(TS_GRAMMARS_SMACKER_ALLOC) \
     $(TS_GRAMMARS_SMACKER_SUBDIR) $(TS_GRAMMARS_SMACKER_CXX)
 TS_ALL_EXTERNAL := $(foreach spec,$(TS_GRAMMARS_EXTERNAL),$(firstword $(subst :, ,$(spec))))
 TS_ALL := $(TS_ALL_SMACKER) $(TS_ALL_EXTERNAL) $(TS_GRAMMARS_LOCAL)
 
-# ── ANTLR ─────────────────────────────────────────────────────────────────────
 
-# All ANTLR grammars. Each must have a build tag `grammar_<name>`.
 ANTLR_GRAMMARS := plsql postgresql tsql db2 cobol85
 
-# ── Default grammars to embed in the launcher ─────────────────────────────────
-# All tree-sitter grammars (use post-rename names: go, c-sharp, proto).
-DEFAULT_TS_GRAMMARS := go python javascript typescript tsx java kotlin \
-    rust c-sharp cpp c ruby php swift dart sql markdown yaml \
-    json html xml proto dockerfile elixir groovy hcl lua toml \
-    bash scala zig haskell julia clojure graphql objc r
 
-# All ANTLR sidecar binaries.
-DEFAULT_ANTLR_GRAMMARS := plsql postgresql tsql db2 cobol85
 
-# ── Conditional grammar dependencies ──────────────────────────────────────────
-# Pass SKIP_GRAMMARS=1 and/or SKIP_ANTLR_GRAMMARS=1 to skip compilation+bundling.
-ifndef SKIP_GRAMMARS
-  GRAMMAR_DEPS := grammars-treesitter
-else
-  GRAMMAR_DEPS :=
-endif
 
-ifndef SKIP_ANTLR_GRAMMARS
-  ANTLR_DEPS := grammars-antlr
-else
-  ANTLR_DEPS :=
-endif
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Grammar Build Targets
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# compile_ts_grammar <name> <src_dir> <include_dirs> [ALLOC=1] [CXX=1]
-# Compiles a tree-sitter grammar from C/C++ source into a shared library.
 define compile_ts_grammar
 	name="$(1)"; \
 	src="$(2)"; \
@@ -177,13 +139,13 @@ define compile_ts_grammar
 	if [ -n "$${scanner_cc}" ] || [ "$${cxx}" = "1" ]; then \
 		tmpdir=$$(mktemp -d); \
 		plf=""; case "$${parser_c}" in *.c.inc) plf="-x c" ;; esac; \
-		$(TS_CC) -fPIC -O2 -std=c11 $${iflags} $${plf} -c "$${parser_c}" -o "$${tmpdir}/parser.o" 2>&1 || \
+		$(TS_CC) $(filter-out -shared,$(TS_CFLAGS)) $${iflags} $${plf} -c "$${parser_c}" -o "$${tmpdir}/parser.o" 2>&1 || \
 			{ echo "  ✗ $${name}: parser.c failed"; rm -rf "$${tmpdir}"; exit 1; }; \
-		$(TS_CXX) -fPIC -O2 -std=c++14 $${iflags} -c "$${scanner_cc}" -o "$${tmpdir}/scanner.o" 2>&1 || \
+		$(TS_CXX) $(filter-out -shared,$(TS_CXXFLAGS)) $${iflags} -c "$${scanner_cc}" -o "$${tmpdir}/scanner.o" 2>&1 || \
 			{ echo "  ✗ $${name}: scanner.cc failed"; rm -rf "$${tmpdir}"; exit 1; }; \
 		obj_files="$${tmpdir}/parser.o $${tmpdir}/scanner.o"; \
 		if [ -n "$${extra_c}" ]; then \
-			$(TS_CC) -fPIC -O2 -std=c11 $${iflags} -c "$${extra_c}" -o "$${tmpdir}/alloc.o" 2>&1 || \
+			$(TS_CC) $(filter-out -shared,$(TS_CFLAGS)) $${iflags} -c "$${extra_c}" -o "$${tmpdir}/alloc.o" 2>&1 || \
 				{ echo "  ✗ $${name}: alloc.c failed"; rm -rf "$${tmpdir}"; exit 1; }; \
 			obj_files="$${obj_files} $${tmpdir}/alloc.o"; \
 		fi; \
@@ -223,15 +185,15 @@ grammars-treesitter: ensure-go-modules
 	@echo ""
 	@echo "  Category A: smacker/go-tree-sitter ($(words $(TS_ALL_SMACKER)) grammars)"
 	@echo "  ──────────────────────────────────────────────────────────────────"
-	@# Simple smacker grammars (no alloc, no subdir).
+
 	@for lang in $(TS_GRAMMARS_SMACKER_SIMPLE); do \
 		$(call compile_ts_grammar,$${lang},$(SMACKER_DIR)/$${lang},$(SMACKER_DIR)/$${lang} $(SMACKER_DIR),,); \
 	done
-	@# Smacker grammars that need alloc.c.
+
 	@for lang in $(TS_GRAMMARS_SMACKER_ALLOC); do \
 		$(call compile_ts_grammar,$${lang},$(SMACKER_DIR)/$${lang},$(SMACKER_DIR)/$${lang} $(SMACKER_DIR),1,); \
 	done
-	@# Smacker grammars with non-standard subdirectories.
+
 	@for lang in $(TS_GRAMMARS_SMACKER_SUBDIR); do \
 		case $${lang} in \
 		markdown)   subdir="markdown/tree-sitter-markdown" ;; \
@@ -240,7 +202,7 @@ grammars-treesitter: ensure-go-modules
 		esac; \
 		$(call compile_ts_grammar,$${lang},$(SMACKER_DIR)/$${subdir},$(SMACKER_DIR)/$${subdir} $(SMACKER_DIR),,); \
 	done
-	@# Smacker grammars with C++ scanner.
+
 	@for lang in $(TS_GRAMMARS_SMACKER_CXX); do \
 		$(call compile_ts_grammar,$${lang},$(SMACKER_DIR)/$${lang},$(SMACKER_DIR)/$${lang} $(SMACKER_DIR),,1); \
 	done
@@ -273,9 +235,7 @@ grammars-treesitter: ensure-go-modules
 		$(call compile_ts_grammar,$${lang},internal/ast/treesitter/$${lang},internal/ast/treesitter/$${lang},,); \
 	done
 	@echo ""
-	@# Rename .so files where module dir name ≠ tree-sitter symbol name.
-	@# DynGrammarLoader derives both filename and symbol from the YAML grammar field,
-	@# so the .so name must match the symbol (tree_sitter_<name>).
+	@# Rename: module dir name → tree-sitter symbol name.
 	@for rename in golang:go csharp:c-sharp protobuf:proto; do \
 		from=$$(echo "$$rename" | cut -d: -f1); \
 		to=$$(echo "$$rename" | cut -d: -f2); \
@@ -326,10 +286,6 @@ grammars-clean:
 	rm -rf $(TS_OUTDIR) $(ANTLR_OUTDIR)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Bundle Macros (for launcher embed)
-# ═══════════════════════════════════════════════════════════════════════════════
-
 define bundle_model
 	@mkdir -p cmd/launcher/runtime/models
 	cp $(MODEL_CACHE)/model.onnx.gz cmd/launcher/runtime/models/model.onnx.gz
@@ -344,77 +300,8 @@ define bundle_ast
 	cp internal/ast/ecosystems.yaml cmd/launcher/runtime/ast/
 endef
 
-define bundle_grammars
-	@mkdir -p cmd/launcher/runtime/grammars/treesitter
-	@touch cmd/launcher/runtime/grammars/treesitter/KEEP
-	@for lang in $(DEFAULT_TS_GRAMMARS); do \
-		for candidate in \
-			$(TS_OUTDIR)/tree-sitter-$${lang}.so \
-			$(TS_OUTDIR)/tree-sitter-$${lang}.dylib \
-			$(TS_OUTDIR)/tree-sitter-$${lang}.dll; do \
-			if [ -f "$$candidate" ]; then \
-				cp "$$candidate" cmd/launcher/runtime/grammars/treesitter/; \
-				break; \
-			fi; \
-		done; \
-	done
-	@count=$$(ls -1 cmd/launcher/runtime/grammars/treesitter/*.so cmd/launcher/runtime/grammars/treesitter/*.dylib cmd/launcher/runtime/grammars/treesitter/*.dll 2>/dev/null | wc -l); \
-	if [ "$$count" -eq 0 ]; then \
-		echo "  ✗ FATAL: No grammars were bundled! Run 'make grammars-treesitter' first."; \
-		exit 1; \
-	else \
-		echo "  ✓ Bundled $$count grammar(s)"; \
-	fi
-	@echo "  → Compressing grammar libraries (gzip -9)..."
-	@before=$$(du -sb cmd/launcher/runtime/grammars/treesitter 2>/dev/null | cut -f1); \
-	for f in cmd/launcher/runtime/grammars/treesitter/*$(SHLIB_EXT); do \
-		if [ -f "$$f" ]; then gzip -9 "$$f"; fi; \
-	done; \
-	after=$$(du -sb cmd/launcher/runtime/grammars/treesitter 2>/dev/null | cut -f1); \
-	if [ "$$before" -gt 0 ] 2>/dev/null; then \
-		ratio=$$(( (after * 100) / before )); \
-		echo "  ✓ Compressed: $$(du -sh cmd/launcher/runtime/grammars/treesitter | cut -f1) ($${ratio}% of original)"; \
-	fi
-endef
-
-define bundle_antlr
-	@if [ -n "$(DEFAULT_ANTLR_GRAMMARS)" ]; then \
-		mkdir -p cmd/launcher/runtime/grammars/antlr; \
-		for grammar in $(DEFAULT_ANTLR_GRAMMARS); do \
-			for candidate in \
-				$(ANTLR_OUTDIR)/antlr-sidecar-$${grammar} \
-				$(ANTLR_OUTDIR)/antlr-sidecar-$${grammar}.exe; do \
-				if [ -f "$$candidate" ]; then \
-					cp "$$candidate" cmd/launcher/runtime/grammars/antlr/; \
-					break; \
-				fi; \
-			done; \
-		done; \
-		count=$$(ls -1 cmd/launcher/runtime/grammars/antlr/antlr-sidecar-* 2>/dev/null | wc -l); \
-		if [ "$$count" -eq 0 ]; then \
-			echo "  ✗ FATAL: No ANTLR sidecars were bundled! Run 'make grammars-antlr' first."; \
-			exit 1; \
-		else \
-			echo "  ✓ Bundled $$count ANTLR sidecar(s)"; \
-		fi; \
-		echo "  → Compressing ANTLR sidecars (gzip -9)..."; \
-		before=$$(du -sb cmd/launcher/runtime/grammars/antlr 2>/dev/null | cut -f1); \
-		for f in cmd/launcher/runtime/grammars/antlr/antlr-sidecar-*; do \
-			case "$$f" in *.gz) continue;; esac; \
-			if [ -f "$$f" ]; then gzip -9 "$$f"; fi; \
-		done; \
-		after=$$(du -sb cmd/launcher/runtime/grammars/antlr 2>/dev/null | cut -f1); \
-		if [ "$$before" -gt 0 ] 2>/dev/null; then \
-			ratio=$$(( (after * 100) / before )); \
-			echo "  ✓ Compressed: $$(du -sh cmd/launcher/runtime/grammars/antlr | cut -f1) ($${ratio}% of original)"; \
-		fi; \
-	fi
-endef
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# UI
-# ═══════════════════════════════════════════════════════════════════════════════
 
 ui:
 	cd internal/ui && npm ci --prefer-offline
@@ -424,9 +311,7 @@ ui-dev:
 	cd internal/ui && npm run dev
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Dependencies
-# ═══════════════════════════════════════════════════════════════════════════════
+
 
 setup-lbug:
 	@go mod download github.com/LadybugDB/go-ladybug
@@ -515,16 +400,14 @@ fetch-ort-windows:
 	fi
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Build Targets
-# ═══════════════════════════════════════════════════════════════════════════════
+
 
 build: build-linux
 
 install: build
 	sudo cp $(BIN_DIR)/$(BRAND)-linux-amd64 /usr/local/bin/$(BRAND)
 
-build-linux: ui setup-lbug fetch-ort-linux fetch-model $(GRAMMAR_DEPS) $(ANTLR_DEPS)
+build-linux: ui setup-lbug fetch-ort-linux fetch-model
 	@mkdir -p cmd/launcher/runtime
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
@@ -535,13 +418,11 @@ build-linux: ui setup-lbug fetch-ort-linux fetch-model $(GRAMMAR_DEPS) $(ANTLR_D
 	cp -L $(ORT_CACHE)/onnxruntime-linux-x64-$(ORT_VERSION)/lib/libonnxruntime.so cmd/launcher/runtime/
 	$(call bundle_model)
 	$(call bundle_ast)
-	$(if $(SKIP_GRAMMARS),,$(call bundle_grammars))
-	$(if $(SKIP_ANTLR_GRAMMARS),,$(call bundle_antlr))
 	@mkdir -p $(BIN_DIR)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-linux-amd64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-darwin: ui setup-lbug fetch-ort-darwin fetch-model $(GRAMMAR_DEPS) $(ANTLR_DEPS)
+build-darwin: ui setup-lbug fetch-ort-darwin fetch-model
 	@mkdir -p cmd/launcher/runtime
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
@@ -552,13 +433,11 @@ build-darwin: ui setup-lbug fetch-ort-darwin fetch-model $(GRAMMAR_DEPS) $(ANTLR
 	cp -L $(ORT_CACHE)/onnxruntime-osx-arm64-$(ORT_VERSION)/lib/libonnxruntime.dylib cmd/launcher/runtime/
 	$(call bundle_model)
 	$(call bundle_ast)
-	$(if $(SKIP_GRAMMARS),,$(call bundle_grammars))
-	$(if $(SKIP_ANTLR_GRAMMARS),,$(call bundle_antlr))
 	@mkdir -p $(BIN_DIR)
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-darwin-arm64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows: ui setup-lbug fetch-ort-windows fetch-model $(GRAMMAR_DEPS) $(ANTLR_DEPS)
+build-windows: ui setup-lbug fetch-ort-windows fetch-model
 	@mkdir -p cmd/launcher/runtime
 	CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_CFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_CXXFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_LDFLAGS="-L/usr/x86_64-w64-mingw32/icu/lib -licuuc -licuin -licudt -lstdc++ -static-libgcc -static-libstdc++" GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcp
@@ -567,13 +446,11 @@ build-windows: ui setup-lbug fetch-ort-windows fetch-model $(GRAMMAR_DEPS) $(ANT
 	cp -L $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll cmd/launcher/runtime/
 	$(call bundle_model)
 	$(call bundle_ast)
-	$(if $(SKIP_GRAMMARS),,$(call bundle_grammars))
-	$(if $(SKIP_ANTLR_GRAMMARS),,$(call bundle_antlr))
 	@mkdir -p $(BIN_DIR)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows-native: ui setup-lbug fetch-ort-windows fetch-model $(GRAMMAR_DEPS) $(ANTLR_DEPS)
+build-windows-native: ui setup-lbug fetch-ort-windows fetch-model
 	@mkdir -p cmd/launcher/runtime
 	CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-L/mingw64/lib -licuuc -licuin -licudt -lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcp
@@ -587,8 +464,6 @@ build-windows-native: ui setup-lbug fetch-ort-windows fetch-model $(GRAMMAR_DEPS
 	cp -L $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll cmd/launcher/runtime/
 	$(call bundle_model)
 	$(call bundle_ast)
-	$(if $(SKIP_GRAMMARS),,$(call bundle_grammars))
-	$(if $(SKIP_ANTLR_GRAMMARS),,$(call bundle_antlr))
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
@@ -596,21 +471,18 @@ build-windows-native: ui setup-lbug fetch-ort-windows fetch-model $(GRAMMAR_DEPS
 build-all: build-linux build-darwin build-windows
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Quality
-# ═══════════════════════════════════════════════════════════════════════════════
+
 
 test: setup-lbug
 	@LBUG_LIB="$(LBUG_MOD)/lib/dynamic/linux-amd64"; \
 	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
 		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \
 	fi; \
-	GRAMMAR_DIR="$$(pwd)/$(TS_OUTDIR)"; \
 	echo "  → Running tests with race detector (project code)…"; \
-	GRAPHIT_GRAMMAR_DIR="$$GRAMMAR_DIR" LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -cover -p 4 \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -cover -p 4 \
 		$$(go list ./... | grep -v "/antlr/" | grep -v "/treesitter/"); \
 	echo "  → Running tests without race detector (generated parsers)…"; \
-	GRAPHIT_GRAMMAR_DIR="$$GRAMMAR_DIR" LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -cover -p 4 \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -cover -p 4 \
 		$$(go list ./... | grep -E "/antlr/|/treesitter/")
 
 lint:
@@ -628,16 +500,13 @@ fmt:
 vet:
 	go vet $$(go list ./... | grep -v "/antlr/plsql" | grep -v "/antlr/postgresql" | grep -v "/antlr/tsql" | grep -v "/antlr/db2" | grep -v "/antlr/cobol85")
 
-# ── CI reproduce (matches .github/workflows/ci.yml) ──────────────────────────
-# Run all checks that GitHub Actions runs, in the same order.
-# Usage: make ci
+
 ci: vet lint vulncheck test ui ui-lint
 	@echo ""
 	@echo "  ✅ All CI checks passed."
 	@echo ""
 
-# ── Quick pre-push check (no build, no UI) ───────────────────────────────────
-# Usage: make check
+
 check: vet lint vulncheck test
 	@echo ""
 	@echo "  ✅ Go checks passed (vet + lint + vulncheck + test)."

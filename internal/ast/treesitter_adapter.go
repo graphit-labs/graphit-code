@@ -3,7 +3,6 @@ package ast
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 
@@ -29,18 +28,11 @@ type tsQueryDef struct {
 var tsExtMap map[string]*tsLangConfig
 var tsGrammarMap map[string]*tsLangConfig
 
-// grammarLoader is the global dynamic grammar loader.
-// Initialized once via initGrammarLoader().
 var grammarLoader *DynGrammarLoader
 var grammarLoaderOnce sync.Once
 
 func initGrammarLoader() {
-	var opts []DynGrammarLoaderOption
-	// GRAPHIT_GRAMMAR_DIR allows dev/CI to point to the build output directory.
-	if dir := os.Getenv("GRAPHIT_GRAMMAR_DIR"); dir != "" {
-		opts = append(opts, WithExtraPaths(dir))
-	}
-	grammarLoader = NewDynGrammarLoader(opts...)
+	grammarLoader = NewDynGrammarLoader()
 }
 
 // parserPool reuses sitter.Parser instances across parse calls.
@@ -119,19 +111,21 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 		return nil, err
 	}
 
-	grammarLoaderOnce.Do(initGrammarLoader)
-	// Strip "tree-sitter-" prefix to get the language name for dynamic loading.
 	langName := strings.TrimPrefix(cfg.Grammar, "tree-sitter-")
-	lang, err := grammarLoader.Load(langName)
-	if err != nil {
-		return nil, fmt.Errorf("grammar load failed for %s: %w", cfg.Grammar, err)
+	grammarLoaderOnce.Do(initGrammarLoader)
+	lang, loadErr := grammarLoader.Load(langName)
+	if loadErr != nil {
+		lang = NativeLanguage(langName)
+		if lang == nil {
+			return nil, fmt.Errorf("grammar load failed for %s: %w", cfg.Grammar, loadErr)
+		}
 	}
 
 	p := parserPool.Get().(*sitter.Parser)
 	p.SetLanguage(lang)
 
 	tree, err := p.ParseCtx(context.Background(), nil, src)
-	parserPool.Put(p) // return parser to pool immediately after parse
+	parserPool.Put(p)
 	if err != nil {
 		return nil, fmt.Errorf("tree-sitter parse failed: %w", err)
 	}

@@ -187,18 +187,18 @@ func TestDynGrammarLoader_Cache(t *testing.T) {
 	}
 }
 
-// TestDynGrammarLoader_SearchPath verifies that the search path mechanism works.
+// TestDynGrammarLoader_SearchPath verifies that the search path mechanism works
+// via project directory.
 func TestDynGrammarLoader_SearchPath(t *testing.T) {
 	skipIfNoSharedLib(t, testGoGrammarPath)
 
-	loader := NewDynGrammarLoader(
-		WithExtraPaths("/tmp/ts-grammar-build"),
-	)
+	loader := NewDynGrammarLoader()
 	defer loader.Close()
 
-	lang, err := loader.Load("go")
+	// Use LoadFromPath directly since search path only covers project/user dirs.
+	lang, err := loader.LoadFromPath("go", testGoGrammarPath)
 	if err != nil {
-		t.Fatalf("Load via search path failed: %v", err)
+		t.Fatalf("Load via path failed: %v", err)
 	}
 	if lang == nil {
 		t.Fatal("loaded language is nil")

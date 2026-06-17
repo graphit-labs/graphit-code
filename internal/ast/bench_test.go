@@ -1007,7 +1007,7 @@ func BenchmarkTS_LangLookup_Native(b *testing.B) {
 // After the first load, this is a sync.Map cache hit.
 func BenchmarkTS_LangLookup_Dynamic(b *testing.B) {
 	loader := NewDynGrammarLoader(
-		WithExtraPaths("/tmp/ts-grammar-build", ".build/grammars/treesitter"),
+		WithProjectDir("."),
 	)
 	defer loader.Close()
 

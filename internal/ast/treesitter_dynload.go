@@ -11,60 +11,27 @@ import (
 	sitter "github.com/smacker/go-tree-sitter"
 )
 
-// DynGrammarLoader loads tree-sitter grammars from shared libraries at runtime
-// using CGO dlopen/dlsym. The project already requires CGO for go-tree-sitter,
-// so using the standard C dynamic linking API adds zero new dependencies and is
-// battle-tested across all platforms.
-//
-// Shared libraries are expected to export a function named tree_sitter_<lang>()
-// that returns a *TSLanguage pointer.
-//
-// Search order:
-// 1. Project: .graphit/grammars/treesitter/
-// 2. User:    ~/.graphit/grammars/treesitter/
-// 3. Runtime: ~/.graphit/runtime/<version>/grammars/treesitter/
+// DynGrammarLoader loads tree-sitter grammars from shared libraries via dlopen.
+// Libraries must export tree_sitter_<lang>() returning *TSLanguage.
 type DynGrammarLoader struct {
-	// projectDir is the root of the project for project-local grammar lookup.
 	projectDir string
 
-	// version is the runtime version string for runtime-level grammar lookup.
-	version string
-
-	// extraPaths are additional directories to search for grammar shared libraries.
-	extraPaths []string
-
-	// cache stores loaded *sitter.Language keyed by language name.
 	cache sync.Map
 
-	// loadedPaths tracks which library paths are loaded (for cleanup).
 	loadedPaths sync.Map
 }
 
-// DynGrammarLoaderOption configures the DynGrammarLoader.
+
 type DynGrammarLoaderOption func(*DynGrammarLoader)
 
-// WithProjectDir sets the project directory for project-local grammar search.
+
 func WithProjectDir(dir string) DynGrammarLoaderOption {
 	return func(l *DynGrammarLoader) {
 		l.projectDir = dir
 	}
 }
 
-// WithVersion sets the runtime version for versioned grammar search.
-func WithVersion(v string) DynGrammarLoaderOption {
-	return func(l *DynGrammarLoader) {
-		l.version = v
-	}
-}
 
-// WithExtraPaths adds additional search directories.
-func WithExtraPaths(paths ...string) DynGrammarLoaderOption {
-	return func(l *DynGrammarLoader) {
-		l.extraPaths = append(l.extraPaths, paths...)
-	}
-}
-
-// NewDynGrammarLoader creates a new dynamic grammar loader.
 func NewDynGrammarLoader(opts ...DynGrammarLoaderOption) *DynGrammarLoader {
 	l := &DynGrammarLoader{}
 	for _, opt := range opts {
@@ -73,11 +40,7 @@ func NewDynGrammarLoader(opts ...DynGrammarLoaderOption) *DynGrammarLoader {
 	return l
 }
 
-// Load loads a tree-sitter grammar for the given language name.
-// It returns a cached *sitter.Language if already loaded, otherwise
-// searches for and loads the shared library.
 func (l *DynGrammarLoader) Load(lang string) (*sitter.Language, error) {
-	// Check cache first.
 	if cached, ok := l.cache.Load(lang); ok {
 		return cached.(*sitter.Language), nil
 	}
@@ -130,55 +93,26 @@ func (l *DynGrammarLoader) findLibrary(lang string) (string, error) {
 	return "", fmt.Errorf("shared library not found for %q in search paths: %v", lang, searchDirs)
 }
 
-// searchDirs returns the ordered list of directories to search for grammar libraries.
 func (l *DynGrammarLoader) searchDirs() []string {
 	var dirs []string
 
-	// 1. Project-local grammars.
 	if l.projectDir != "" {
 		dirs = append(dirs, filepath.Join(l.projectDir, ".graphit", "grammars", "treesitter"))
 	}
 
-	// 2. User-level grammars.
 	if home, err := os.UserHomeDir(); err == nil {
 		dirs = append(dirs, filepath.Join(home, ".graphit", "grammars", "treesitter"))
-
-		// 3. Runtime-versioned grammars (explicit version).
-		if l.version != "" {
-			dirs = append(dirs, filepath.Join(home, ".graphit", "runtime", l.version, "grammars", "treesitter"))
-		}
 	}
-
-	// 4. Auto-discover from executable path.
-	// The launcher extracts the core binary and grammars to the same runtime directory:
-	//   ~/.graphit/runtime/<version>/graphit-core
-	//   ~/.graphit/runtime/<version>/grammars/treesitter/
-	// So we look for grammars/ relative to the executable's directory.
-	if exe, err := os.Executable(); err == nil {
-		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-			exe = resolved
-		}
-		exeDir := filepath.Dir(exe)
-		candidate := filepath.Join(exeDir, "grammars", "treesitter")
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			dirs = append(dirs, candidate)
-		}
-	}
-
-	// 5. Extra paths.
-	dirs = append(dirs, l.extraPaths...)
 
 	return dirs
 }
 
-// libraryCandidates returns the list of candidate filenames to look for,
-// from most specific (platform+arch) to least specific (generic name).
+
 func (l *DynGrammarLoader) libraryCandidates(lang string) []string {
 	ext := sharedLibExt()
 	osName := runtime.GOOS
 	archName := runtime.GOARCH
 
-	// Normalize language name: replace hyphens with underscores for the base name.
 	baseName := "tree-sitter-" + strings.ReplaceAll(lang, "_", "-")
 
 	candidates := []string{

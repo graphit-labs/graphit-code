@@ -23,6 +23,12 @@ The `compile_ts_grammar` Makefile macro hardcoded `.so` as the output extension 
 
 All grammar shared libraries and ANTLR sidecar binaries were embedded uncompressed, significantly inflating the launcher binary. The launcher already supported `.gz` decompression in `extractRuntime()` (used by `model.onnx.gz`), but this wasn't applied to grammars.
 
+### Platform CI Failures
+
+**macOS**: The Python grammar's `scanner.c` references `ts_current_malloc/free/realloc` — tree-sitter runtime allocation functions. On Linux, the linker allows undefined symbols in `-shared` (lazy binding). On macOS, clang/ld64 rejects undefined symbols by default, causing `Undefined symbols for architecture arm64` errors.
+
+**Windows**: `go env GOMODCACHE` returns `C:/Users/...` but MSYS2's `find` expects Unix-style `/c/Users/...` paths. The `SMACKER_DIR` variable resolved to empty, producing `parser.c not found in /c`.
+
 ## Changes
 
 ### `.github/workflows/release.yml`
@@ -35,6 +41,9 @@ All grammar shared libraries and ANTLR sidecar binaries were embedded uncompress
 - Added `gzip -9` compression in `bundle_grammars` after validation (~65-75% size reduction)
 - Added `gzip -9` compression in `bundle_antlr` after validation (~70-80% size reduction)
 - Both macros log before/after sizes and compression ratio
+- Added `ts_current_malloc/free/realloc/calloc` defines to `TS_CFLAGS` and `TS_CXXFLAGS` to fix macOS linker errors
+- Fixed C++ branch of `compile_ts_grammar` to use `$(TS_CFLAGS)`/`$(TS_CXXFLAGS)` via `$(filter-out -shared,...)` instead of hardcoded flags
+- Added `cygpath -u` conversion of `GOMODCACHE` on Windows for MSYS2 path compatibility
 
 ### `internal/ast/treesitter_dynload.go`
 - Added `.so` as a universal fallback candidate in `libraryCandidates()` for non-Linux platforms
