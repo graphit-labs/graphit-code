@@ -5,35 +5,25 @@ Format: <graphit>MEM:0|AST:0|HUB:0|DOC:0|IMP:0 — [action]</graphit>
 Set a module flag to 1 when that module's rule applies to the current action.
 
 <doc_rule>
-# 📚 Knowledge & Documentation
+# Knowledge & Documentation
 
 > This module manages project documentation, knowledge wiki, and integration specs.
-> **Detailed instructions are in the `graphit-knowledge` skill. Read it when triggered.**
+> **Detailed instructions are in the `graphit-knowledge` skill.**
 
-## Activation Triggers — You MUST read the `graphit-knowledge` skill when:
+## Activation Triggers:
 
 - Understanding project features, architecture, decisions, or specifications
-- Creating, updating, or searching documentation in `docs/`
+- Creating, updating, or searching documentation
 - Working with external system integrations or API specifications
 - Searching for project knowledge (wiki, backlinks, provenance)
 - Discovering or documenting undocumented integrations
 
-## 🔒 MANDATORY: Read Skill Before Acting
-
-**When ANY activation trigger above matches your current task, you MUST read the
-`graphit-knowledge` skill BEFORE searching the wiki, creating documentation,
-or working with integrations.** The Quick Reference below is a cheat sheet for agents
-who already read the skill — it is NOT a substitute. The skill contains the full
-wiki-first retrieval methodology, documentation templates, task log format, and
-integration protocols you must follow.
-
-## 🚨 MANDATORY POST-CHANGE PROTOCOL — After ANY Code Change
+## MANDATORY POST-CHANGE PROTOCOL — After ANY Code Change
 
 **After you modify, create, or delete ANY source file, you MUST:**
 
-1. Read the `graphit-knowledge` skill and follow its documentation workflow
-2. Create/update task log at `docs/tasks/<task-name>.md`
-3. Call the `graphit_sync` tool (passing absolute `project_dir` parameter)
+1. Create/update task log at `docs/tasks/<task-name>.md`
+2. Call the `graphit_sync` tool (passing absolute `project_dir` parameter)
 
 **Documentation is implicit in every task. A task without docs + sync is NOT complete.**
 
@@ -43,24 +33,19 @@ integration protocols you must follow.
 - **AI-powered query**: call `graphit_knowledge_query` for deep multi-turn consultation
 - **Cross-references**: call `graphit_wiki_xrefs` (ai_optimized:true) to find backlinks — pre-computed, zero-cost
 - **Task logs**: `docs/tasks/<task-name>.md` — log every task with full detail
-- **Sync after docs changes**: call `graphit_sync` tool (passing absolute `project_dir` parameter)
+- **Sync after documentation changes**: call `graphit_sync` tool (passing absolute `project_dir` parameter)
 - **NEVER** read .graphit/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
-- **NEVER** grep docs/ for project understanding — wiki search costs ~500 tokens vs grep scanning all files
+- **NEVER** grep documentation files for project understanding — wiki search costs ~500 tokens vs grep scanning all files
 - **Hub search before integration**: call `graphit_hub_list` tool (passing absolute `project_dir` parameter and `type: "knowledge"`)
-
-## 🔗 Subagent Propagation
-
-When spawning subagents that modify code, include in their prompt:
-"After code changes, create docs/tasks/<task-name>.md and call `graphit_sync` tool (passing absolute `project_dir` parameter). Read the project's `AGENTS.md` before starting work."
 </doc_rule>
 <ast_rule>
-# 🔍 AST Code Exploration
+# AST Code Exploration
 
 > The AST graph database is your **PRIMARY and FIRST** code analysis tool.
 > It is pre-indexed, faster, and more accurate than any text-based search.
 > **Detailed instructions, query cookbook, and Cypher patterns are in the `graphit-ast` skill.**
 
-## Activation Triggers — You MUST read the `graphit-ast` skill when:
+## Activation Triggers:
 
 - Finding where a function/class/method is defined
 - Finding who calls a function or uses a class
@@ -69,14 +54,6 @@ When spawning subagents that modify code, include in their prompt:
 - Finding unused code, high-complexity functions, or entry points
 - Understanding file structure or module relationships
 - Querying DML/database dependencies
-
-## 🔒 MANDATORY: Read Skill Before Acting
-
-**When ANY activation trigger above matches your current task, you MUST read the
-`graphit-ast` skill BEFORE executing your first AST query or code analysis action.**
-The Quick Reference below is a cheat sheet for agents who already read the skill —
-it is NOT a substitute. The skill contains the full phased exploration methodology,
-Cypher guidelines, cookbook patterns, and fallback protocols you must follow.
 
 ## ⚡ grep → AST Translation (ALWAYS use AST instead of grep)
 
@@ -106,37 +83,25 @@ Cypher guidelines, cookbook patterns, and fallback protocols you must follow.
 - **CALLS edge**: `source_file`, `line_number`, `full_call_name`, `receiver_type`
 - **IMPORTS edge**: `alias`, `full_import_name`, `imported_name`, `line_number`, `source_file`
 
-## ⛔ Key Rules (read skill for complete list)
+## Key Rules
 
 - **AST BEFORE grep** — NEVER use grep/ripgrep for structural queries.
 - **Always `ai_optimized: true`** on every `graphit_ast_query` call.
 - **Multi-label by default** — use `label(f) = 'Function' OR label(f) = 'Method'`, never assume a single label.
-
-## 🔗 Subagent Propagation
-
-When spawning subagents, include in their prompt:
-"For code exploration, use `graphit_ast_query` and `graphit_ast_search` MCP tools instead of grep_search (always pass absolute `project_dir`). Use multi-label queries. Read the project's `AGENTS.md` before starting work."
 </ast_rule>
 <hub_rule>
-# 🔗 Hub Discovery
+# Hub Discovery
 
-> Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, and powers.
+> Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, powers and languages.
 > **Detailed instructions are in the `graphit-hub` skill.**
 
-## Activation Triggers — You MUST read the `graphit-hub` skill when:
+## Activation Triggers:
 
 - Working with a third-party library, framework, or API you haven't used in this session
 - Needing documentation or code examples for an external dependency
 - Looking for reusable rules, skills, commands, agents, or MCP servers
 - Setting up a new project or adding new dependencies
 - When `graphit_ast_query` returns no results for an external library (it might have a hub artifact)
-
-## 🔒 MANDATORY: Read Skill Before Acting
-
-**When ANY activation trigger above matches your current task, you MUST read the
-`graphit-hub` skill BEFORE executing your first Hub operation.**
-The skill contains artifact types, usage patterns, installation workflows,
-ecosystem project discovery, and post-install protocols.
 
 ## Quick Reference (always active)
 
@@ -147,24 +112,19 @@ ecosystem project discovery, and post-install protocols.
 - **Update**: call `graphit_hub_update` tool (passing absolute `project_dir` parameter)
 - **Ecosystem**: call `graphit_cluster_projects` tool to find sibling projects — query their AST/wiki using their project_dir
 
-## ⛔ Critical Rule
+## Critical Rule
 
 **NEVER guess APIs or structures.** If uncertain about a framework or library,
 check the Hub first: call `graphit_hub_list` → `graphit_hub_show` → `graphit_hub_install`.
 After installing a knowledge artifact, search its wiki via MCP BEFORE coding.
-
-## 🔗 Subagent Propagation
-
-When spawning subagents that work with external libraries, include in their prompt:
-"Before implementing integrations, check Hub for knowledge artifacts: call `graphit_hub_list` → `graphit_hub_install` (passing absolute `project_dir`). Read the project's `AGENTS.md` before starting work."
 </hub_rule>
 <mem_rule>
-# 🧠 Memory Management
+# Memory Management
 
 > Persistent memory across sessions. This framework IS your memory — no other exists.
 > **Full MCP tools reference, trigger table, and protocols are in the `graphit-memory` skill.**
 
-## 🚨 FIRST ACTION — Execute BEFORE Any Response
+## FIRST ACTION — Execute BEFORE Any Response
 
 **Execute IMMEDIATELY on every conversation start. Do NOT respond to the user first.**
 
@@ -174,9 +134,9 @@ When spawning subagents that work with external libraries, include in their prom
 
 > If the memory wiki does not exist yet (new project), skip and proceed.
 
-## Activation Triggers — You MUST read the `graphit-memory` skill when:
+## Activation Triggers:
 
-### 💾 Save triggers (memorize immediately):
+### Save triggers (memorize immediately):
 
 - Task completed, modified, or bug fixed → store what/why/how/impact
 - User corrects, guides, instructs, or repeats → memorize as correction/convention
@@ -184,22 +144,12 @@ When spawning subagents that work with external libraries, include in their prom
 - You discover something unexpected or make a design decision → store as skill/decision
 - New instruction contradicts existing memory → replace it
 
-### 📖 Read triggers (consult memory before acting):
+### Read triggers (consult memory before acting):
 - **Before implementing** any significant change → check for constraints and decisions
 - **When stuck**, failing repeatedly, or facing a non-obvious problem → search for past solutions
 - **Before proposing** architecture or a technical approach → check for prior decisions
 - When trying to **understand project context** → search for institutional knowledge
 - Memory management or maintenance tasks
-
-## 🔒 MANDATORY: Read Skill Before Acting
-
-**When ANY activation trigger above matches your current task, you MUST read the
-`graphit-memory` skill BEFORE executing your first memory operation.**
-The Quick Reference below is a cheat sheet for agents who already read the skill —
-it is NOT a substitute. The skill contains the full trigger→action table, memory types,
-contradiction protocols, and transparency rules you must follow.
-> **Exception:** The SESSION START PROTOCOL above is always active and does not require
-> reading the skill — execute it immediately on every conversation.
 
 ## Quick Reference (always active)
 
@@ -211,23 +161,18 @@ contradiction protocols, and transparency rules you must follow.
 - **NEVER** read .graphit/memory/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
 - **Reindex**: After any write, auto-cycle runs. If it fails, call `graphit_memory_index` (passing absolute `project_dir`)
 
-## ⛔ Key Rules (read skill for complete list)
+## Key Rules
 
 - **Read memory at session start.** Skipping = repeating past mistakes.
 - **Never leave a correction un-memorized.** Save immediately.
 - **NEVER just say "understood".** Evaluate if the user's instruction should be memorized.
 - **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.
 - **This framework IS your memory.** Never use IDE/model memory.
-
-## 🔗 Subagent Propagation
-
-When spawning subagents, include in their prompt:
-"Before starting work, read the project's `AGENTS.md` and search memory via `graphit_memory_search` (passing absolute `project_dir`). After work, if you discovered something non-obvious, save it via `graphit_memory_insert`."
 </mem_rule>
 <imp_rule>
-# 🔧 Code Improvement Methodology
+# Code Improvement Methodology
 
-> Autonomous code improvement, audit, review, refactoring methodology, and dream subjects.
+> Autonomous code improvement, audit, review and refactoring methodology.
 > Includes a **mandatory post-task reflection phase** for knowledge generation.
 > **Full analysis methodology is in the `graphit-improvements` skill.**
 
@@ -241,33 +186,18 @@ When spawning subagents, include in their prompt:
 - When you want to schedule work for later autonomous processing
 - When you need to create, update, or codify recurring patterns as Hub artifacts (skills, commands, rules)
 
-## 🔒 MANDATORY: Read Skill Before Acting
+## MANDATORY: Read Skill Before Acting
 
 **When ANY activation trigger above matches your current task, you MUST read the
 `graphit-improvements` skill BEFORE starting any analysis, review, or improvement work.**
 The skill contains the full engineering analysis methodology, phase-by-phase workflow,
 and post-task reflection protocol. Do NOT improvise your own review process.
 
-## 💤 Dream Subjects — Queue Work for Autonomous Dreams
-
-When the user asks you to **schedule**, **queue**, or **leave something for the next dream**,
-create a dream subject. The Dream module picks up pending subjects during idle periods.
-
-- **Add via MCP**: call `graphit_dream_subject_add` with `title: "Title"`, `body: "Detailed instructions"` (always passing absolute `project_dir` parameter)
-- **List subjects**: call `graphit_dream_subject_list` (always passing absolute `project_dir` parameter)
-- **Remove**: call `graphit_dream_subject_remove` with `slug: "<slug>"` (always passing absolute `project_dir` parameter)
-- **Completion**: The dream agent creates `<slug>.done.md` when finished
-
-## ⛔ Critical Rules
+## Critical Rules
 
 - When triggered, you MUST read and follow the full engineering analysis methodology
   documented in the skill. Do NOT improvise your own review process.
 - After any improvement session, you MUST execute the **Post-Task Reflection**
   phase: reflect, update memories via `graphit_memory_insert`, and stage new artifacts for the Hub.
-
-## 🔗 Subagent Propagation
-
-When spawning subagents, include in their prompt:
-"If you notice improvable code patterns outside your scope, create a dream subject via `graphit_dream_subject_add` (passing absolute `project_dir`). Read the project's `AGENTS.md` before starting work."
 </imp_rule>
 </GRAPHIT_SYSTEM_MANDATE>

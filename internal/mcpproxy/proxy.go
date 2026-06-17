@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -83,6 +84,12 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		return fmt.Errorf("stdio transport connect: %w", err)
 	}
 	defer stdioConn.Close()
+
+	// Cache the MCP initialize handshake so we can replay it on reconnects.
+	// MCP protocol: client→initialize, server→response, client→notifications/initialized.
+	var initReq, initNotif jsonrpc.Message
+	firstConnect := true
+
 	for {
 		port, key, err := waitForDaemon(cfg)
 		if err != nil {
@@ -107,6 +114,61 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		}
 		cfg.logf("connected")
 
+		if firstConnect {
+			// First connection: intercept the MCP initialize handshake,
+			// forward it, and cache the messages for future reconnects.
+			initReq, err = stdioConn.Read(ctx)
+			if err != nil {
+				httpConn.Close()
+				return fmt.Errorf("reading initialize request: %w", err)
+			}
+			if err := httpConn.Write(ctx, initReq); err != nil {
+				httpConn.Close()
+				return fmt.Errorf("forwarding initialize request: %w", err)
+			}
+			resp, err := httpConn.Read(ctx)
+			if err != nil {
+				httpConn.Close()
+				return fmt.Errorf("reading initialize response: %w", err)
+			}
+			if err := stdioConn.Write(ctx, resp); err != nil {
+				httpConn.Close()
+				return fmt.Errorf("forwarding initialize response: %w", err)
+			}
+			initNotif, err = stdioConn.Read(ctx)
+			if err != nil {
+				httpConn.Close()
+				return fmt.Errorf("reading initialized notification: %w", err)
+			}
+			if err := httpConn.Write(ctx, initNotif); err != nil {
+				httpConn.Close()
+				return fmt.Errorf("forwarding initialized notification: %w", err)
+			}
+			firstConnect = false
+		} else {
+			// Reconnect: replay the cached initialize handshake so the new
+			// daemon session is properly set up before relaying IDE messages.
+			cfg.logf("replaying MCP initialize handshake for reconnected session")
+			if err := httpConn.Write(ctx, initReq); err != nil {
+				cfg.logf("replay initialize failed: %v", err)
+				httpConn.Close()
+				time.Sleep(cfg.RetryInterval)
+				continue
+			}
+			if _, err := httpConn.Read(ctx); err != nil {
+				cfg.logf("replay initialize response failed: %v", err)
+				httpConn.Close()
+				time.Sleep(cfg.RetryInterval)
+				continue
+			}
+			if err := httpConn.Write(ctx, initNotif); err != nil {
+				cfg.logf("replay initialized notification failed: %v", err)
+				httpConn.Close()
+				time.Sleep(cfg.RetryInterval)
+				continue
+			}
+		}
+
 		err = relay(ctx, stdioConn, httpConn)
 		httpConn.Close()
 
@@ -122,6 +184,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		}
 	}
 }
+
 
 func connectHTTP(ctx context.Context, endpoint, apiKey string) (mcp.Connection, error) {
 	httpTransport := &mcp.StreamableClientTransport{
