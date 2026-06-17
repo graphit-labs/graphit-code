@@ -19,6 +19,10 @@ This meant the `cmd/launcher/runtime/grammars/` directory was never populated, a
 
 The `compile_ts_grammar` Makefile macro hardcoded `.so` as the output extension regardless of platform. On macOS (which expects `.dylib`) and Windows (which expects `.dll`), the `DynGrammarLoader` would fail to find the grammar files because `libraryCandidates()` only generated platform-specific extensions.
 
+### Tertiary Issue: Uncompressed Embedding
+
+All grammar shared libraries and ANTLR sidecar binaries were embedded uncompressed, significantly inflating the launcher binary. The launcher already supported `.gz` decompression in `extractRuntime()` (used by `model.onnx.gz`), but this wasn't applied to grammars.
+
 ## Changes
 
 ### `.github/workflows/release.yml`
@@ -28,6 +32,9 @@ The `compile_ts_grammar` Makefile macro hardcoded `.so` as the output extension 
 - Added `SHLIB_EXT` platform detection: `.dll` on Windows, `.dylib` on Darwin, `.so` on Linux
 - Changed `compile_ts_grammar` output from hardcoded `.so` to `$(SHLIB_EXT)`
 - Changed summary count glob from `*.so` to `*$(SHLIB_EXT)`
+- Added `gzip -9` compression in `bundle_grammars` after validation (~65-75% size reduction)
+- Added `gzip -9` compression in `bundle_antlr` after validation (~70-80% size reduction)
+- Both macros log before/after sizes and compression ratio
 
 ### `internal/ast/treesitter_dynload.go`
 - Added `.so` as a universal fallback candidate in `libraryCandidates()` for non-Linux platforms

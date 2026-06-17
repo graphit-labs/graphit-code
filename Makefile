@@ -365,6 +365,16 @@ define bundle_grammars
 	else \
 		echo "  ✓ Bundled $$count grammar(s)"; \
 	fi
+	@echo "  → Compressing grammar libraries (gzip -9)..."
+	@before=$$(du -sb cmd/launcher/runtime/grammars/treesitter 2>/dev/null | cut -f1); \
+	for f in cmd/launcher/runtime/grammars/treesitter/*$(SHLIB_EXT); do \
+		if [ -f "$$f" ]; then gzip -9 "$$f"; fi; \
+	done; \
+	after=$$(du -sb cmd/launcher/runtime/grammars/treesitter 2>/dev/null | cut -f1); \
+	if [ "$$before" -gt 0 ] 2>/dev/null; then \
+		ratio=$$(( (after * 100) / before )); \
+		echo "  ✓ Compressed: $$(du -sh cmd/launcher/runtime/grammars/treesitter | cut -f1) ($${ratio}% of original)"; \
+	fi
 endef
 
 define bundle_antlr
@@ -386,6 +396,17 @@ define bundle_antlr
 			exit 1; \
 		else \
 			echo "  ✓ Bundled $$count ANTLR sidecar(s)"; \
+		fi; \
+		echo "  → Compressing ANTLR sidecars (gzip -9)..."; \
+		before=$$(du -sb cmd/launcher/runtime/grammars/antlr 2>/dev/null | cut -f1); \
+		for f in cmd/launcher/runtime/grammars/antlr/antlr-sidecar-*; do \
+			case "$$f" in *.gz) continue;; esac; \
+			if [ -f "$$f" ]; then gzip -9 "$$f"; fi; \
+		done; \
+		after=$$(du -sb cmd/launcher/runtime/grammars/antlr 2>/dev/null | cut -f1); \
+		if [ "$$before" -gt 0 ] 2>/dev/null; then \
+			ratio=$$(( (after * 100) / before )); \
+			echo "  ✓ Compressed: $$(du -sh cmd/launcher/runtime/grammars/antlr | cut -f1) ($${ratio}% of original)"; \
 		fi; \
 	fi
 endef
