@@ -115,13 +115,14 @@ TS_ALL := $(TS_ALL_SMACKER) $(TS_ALL_EXTERNAL) $(TS_GRAMMARS_LOCAL)
 ANTLR_GRAMMARS := plsql postgresql tsql db2 cobol85
 
 # ── Default grammars to embed in the launcher ─────────────────────────────────
+# All tree-sitter grammars (use post-rename names: go, c-sharp, proto).
 DEFAULT_TS_GRAMMARS := go python javascript typescript tsx java kotlin \
     rust c-sharp cpp c ruby php swift dart sql markdown yaml \
-    json html xml
+    json html xml proto dockerfile elixir groovy hcl lua toml \
+    bash scala zig haskell julia clojure graphql objc r
 
-# ANTLR grammars are NOT default — install via hub.
-# Set this to a non-empty list to embed ANTLR sidecars in the launcher.
-DEFAULT_ANTLR_GRAMMARS ?=
+# All ANTLR sidecar binaries.
+DEFAULT_ANTLR_GRAMMARS := plsql postgresql tsql db2 cobol85
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
