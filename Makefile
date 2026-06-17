@@ -64,7 +64,7 @@ ANTLR_OUTDIR  := .build/grammars/antlr
 
 # Go module cache.
 GOMODCACHE    := $(shell go env GOMODCACHE)
-SMACKER_DIR   := $(shell find $(GOMODCACHE)/github.com/smacker/go-tree-sitter* -maxdepth 0 2>/dev/null | head -1)
+SMACKER_DIR    = $(shell find $(GOMODCACHE)/github.com/smacker/go-tree-sitter* -maxdepth 0 2>/dev/null | head -1)
 
 # Compiler flags.
 TS_CC         := $(CC)
@@ -189,6 +189,7 @@ grammars: grammars-treesitter grammars-antlr
 	@echo ""
 
 grammars-treesitter:
+	@go mod download
 	@mkdir -p $(TS_OUTDIR)
 	@echo ""
 	@echo "═══════════════════════════════════════════════════════════════════════"
