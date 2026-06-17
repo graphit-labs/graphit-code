@@ -8,8 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
-
-
 func ImprovementsRuleContent() string {
 	var b strings.Builder
 
@@ -34,9 +32,9 @@ func MandateTrigger() string {
 	memInsertRef := brand.MCPToolRef("memory", "insert")
 
 	return `
-# 🔧 Code Improvement Methodology
+# Code Improvement Methodology
 
-> Autonomous code improvement, audit, review, refactoring methodology, and dream subjects.
+> Autonomous code improvement, audit, review and refactoring methodology.
 > Includes a **mandatory post-task reflection phase** for knowledge generation.
 > **Full analysis methodology is in the ` + "`" + brand.SkillDirName("improvements") + "`" + ` skill.**
 
@@ -50,38 +48,21 @@ func MandateTrigger() string {
 - When you want to schedule work for later autonomous processing
 - When you need to create, update, or codify recurring patterns as Hub artifacts (skills, commands, rules)
 
-## 🔒 MANDATORY: Read Skill Before Acting
+## MANDATORY: Read Skill Before Acting
 
 **When ANY activation trigger above matches your current task, you MUST read the
 ` + "`" + brand.SkillDirName("improvements") + "`" + ` skill BEFORE starting any analysis, review, or improvement work.**
 The skill contains the full engineering analysis methodology, phase-by-phase workflow,
 and post-task reflection protocol. Do NOT improvise your own review process.
 
-## 💤 Dream Subjects — Queue Work for Autonomous Dreams
-
-When the user asks you to **schedule**, **queue**, or **leave something for the next dream**,
-create a dream subject. The Dream module picks up pending subjects during idle periods.
-
-- **Add via MCP**: call ` + dreamAddRef + ` with ` + "`title: \"Title\"`" + `, ` + "`body: \"Detailed instructions\"`" + ` (always passing absolute ` + "`project_dir`" + ` parameter)
-- **List subjects**: call ` + dreamListRef + ` (always passing absolute ` + "`project_dir`" + ` parameter)
-- **Remove**: call ` + dreamRemoveRef + ` with ` + "`slug: \"<slug>\"`" + ` (always passing absolute ` + "`project_dir`" + ` parameter)
-- **Completion**: The dream agent creates ` + "`<slug>.done.md`" + ` when finished
-
-## ⛔ Critical Rules
+## Critical Rules
 
 - When triggered, you MUST read and follow the full engineering analysis methodology
   documented in the skill. Do NOT improvise your own review process.
 - After any improvement session, you MUST execute the **Post-Task Reflection**
   phase: reflect, update memories via ` + memInsertRef + `, and stage new artifacts for the Hub.
-
-## 🔗 Subagent Propagation
-
-When spawning subagents, include in their prompt:
-"If you notice improvable code patterns outside your scope, create a dream subject via ` + dreamAddRef + ` (passing absolute ` + "`project_dir`" + `). Read the project's ` + "`AGENTS.md`" + ` before starting work."
 `
 }
-
-
 
 func InstallRule(projectDir, ideName string) error {
 	if projectDir == "" {

@@ -8,8 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
-
-
 func RuleContent(contexts []string) string {
 	_ = contexts // contexts are managed by the wiki DB; callers may pass them but they're not used in the rule text
 	displayName := brand.DisplayName
@@ -66,11 +64,11 @@ func RuleContent(contexts []string) string {
 		"| **Before proposing** architecture or technical approach | Decisions, tensions, conventions that constrain options | Avoid contradicting prior decisions the user already made |",
 		"| **User seems frustrated** or repeats an instruction | Corrections about your behavior | You may be ignoring a correction already memorized |",
 		"",
-		"**How to search:** call " + memSearchRef + " tool (passing absolute `project_dir` parameter)",
+		"**How to search:** call "+memSearchRef+" tool (passing absolute `project_dir` parameter)",
 		"",
 		"## 🔒 This Framework IS Your Memory — No Other Exists",
 		"",
-		"- **ALWAYS** use the " + memInsertRef + " tool (passing absolute `project_dir` parameter) to persist facts across sessions.",
+		"- **ALWAYS** use the "+memInsertRef+" tool (passing absolute `project_dir` parameter) to persist facts across sessions.",
 		"- **NEVER** use IDE-native memory, model memory, or any built-in \"remember\" feature.",
 		"- **ALWAYS** read the memory wiki to recall — never rely on what you \"think you know\".",
 		"- This applies to ALL persistent facts: conventions, corrections, decisions, preferences.",
@@ -100,28 +98,28 @@ func RuleContent(contexts []string) string {
 		"",
 		"| You observe... | Action | Tool Call (always pass absolute `project_dir` parameter) |",
 		"|---|---|---|",
-		"| User says \"always/never/prefer/avoid/must\" about code | Store as convention | " + memInsertRef + " with `title: \"<rule>\"`, `type: \"convention\"`, `important: true` |",
-		"| User corrects your behavior or approach | Store the correction | " + memInsertRef + " with `title: \"<correction>\"`, `type: \"correction\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| User **gives any instruction or directive** (even without \"always/never\") | **Evaluate for memory** — determine if it contains a convention, preference, correction, fact, or skill worth persisting. If yes, memorize it with the appropriate type. NEVER just say \"understood\" or confirm comprehension without evaluating. | " + memInsertRef + " with appropriate `type` if the instruction is worth persisting |",
-		"| User **guides, orients, or gives direction** on how to proceed | Store the guidance | " + memInsertRef + " with `title: \"<guidance>\"`, `type: \"convention\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| User **intervenes** mid-task to change course or redirect | Store the intervention as correction | " + memInsertRef + " with `title: \"<intervention>\"`, `type: \"correction\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| User gives a **tip, hint, or suggestion** on how to do something | Store as skill | " + memInsertRef + " with `title: \"<tip>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| User **explains how something works** or why it's done a certain way | Store as fact | " + memInsertRef + " with `title: \"<knowledge>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| User **shows you a workflow** or operational procedure (e.g., \"run make install first\") | Store as skill | " + memInsertRef + " with `title: \"<procedure>\"`, `type: \"skill\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| User **repeats an instruction** they already gave (frustration signal) | Store as correction | " + memInsertRef + " with `title: \"<what you missed>\"`, `type: \"correction\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| You **complete a task** (new feature, refactor, or significant change) | Record what was done | " + memInsertRef + " with `title: \"<task summary>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| You **modify an existing feature** (behavior change, extension, or rework) | Record the modification | " + memInsertRef + " with `title: \"<feature> modified: <summary>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| You **fix a bug** | Record the bug fix | " + memInsertRef + " with `title: \"Bug fix: <summary>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| You make an architectural/design choice | Record the decision | " + memInsertRef + " with `title: \"<decision>\"`, `type: \"decision\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| You chose X over Y with explicit trade-offs | Capture the tension | " + memInsertRef + " with `title: \"<choice>\"`, `type: \"tension\"`, `content: \"Chose: X\\nOver: Y\\nBecause: ...\\nAccepting: ...\\nImpact: ...\"` |",
-		"| You **discover something unexpected** during investigation | Store the discovery | " + memInsertRef + " with `title: \"<discovery>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| You find a **workaround or creative solution** to a problem | Store the workaround | " + memInsertRef + " with `title: \"<workaround>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| You make a **non-obvious inference** that proves correct | Store the inference | " + memInsertRef + " with `title: \"<inference>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| You **solve a complicated multi-step problem** | Store the full solution | " + memInsertRef + " with `title: \"<problem → solution>\"`, `type: \"skill\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| You debug a non-obvious issue successfully | Save as a skill | " + memInsertRef + " with `title: \"<solution>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| User reveals a non-obvious project fact | Store the fact | " + memInsertRef + " with `title: \"<fact>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
-		"| New instruction contradicts existing memory | Replace the memory | " + memDeleteRef + " with `id: \"<old-id>\"` then " + memInsertRef + " with `title: \"<new>\"` |",
-		"| Memory is >30 days old and still relevant | Refresh it | `" + memUpdate + "` with `id: \"<id>\"`, `content: \"<refreshed>\"` |",
+		"| User says \"always/never/prefer/avoid/must\" about code | Store as convention | "+memInsertRef+" with `title: \"<rule>\"`, `type: \"convention\"`, `important: true` |",
+		"| User corrects your behavior or approach | Store the correction | "+memInsertRef+" with `title: \"<correction>\"`, `type: \"correction\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| User **gives any instruction or directive** (even without \"always/never\") | **Evaluate for memory** — determine if it contains a convention, preference, correction, fact, or skill worth persisting. If yes, memorize it with the appropriate type. NEVER just say \"understood\" or confirm comprehension without evaluating. | "+memInsertRef+" with appropriate `type` if the instruction is worth persisting |",
+		"| User **guides, orients, or gives direction** on how to proceed | Store the guidance | "+memInsertRef+" with `title: \"<guidance>\"`, `type: \"convention\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| User **intervenes** mid-task to change course or redirect | Store the intervention as correction | "+memInsertRef+" with `title: \"<intervention>\"`, `type: \"correction\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| User gives a **tip, hint, or suggestion** on how to do something | Store as skill | "+memInsertRef+" with `title: \"<tip>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| User **explains how something works** or why it's done a certain way | Store as fact | "+memInsertRef+" with `title: \"<knowledge>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| User **shows you a workflow** or operational procedure (e.g., \"run make install first\") | Store as skill | "+memInsertRef+" with `title: \"<procedure>\"`, `type: \"skill\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| User **repeats an instruction** they already gave (frustration signal) | Store as correction | "+memInsertRef+" with `title: \"<what you missed>\"`, `type: \"correction\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You **complete a task** (new feature, refactor, or significant change) | Record what was done | "+memInsertRef+" with `title: \"<task summary>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You **modify an existing feature** (behavior change, extension, or rework) | Record the modification | "+memInsertRef+" with `title: \"<feature> modified: <summary>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You **fix a bug** | Record the bug fix | "+memInsertRef+" with `title: \"Bug fix: <summary>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You make an architectural/design choice | Record the decision | "+memInsertRef+" with `title: \"<decision>\"`, `type: \"decision\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You chose X over Y with explicit trade-offs | Capture the tension | "+memInsertRef+" with `title: \"<choice>\"`, `type: \"tension\"`, `content: \"Chose: X\\nOver: Y\\nBecause: ...\\nAccepting: ...\\nImpact: ...\"` |",
+		"| You **discover something unexpected** during investigation | Store the discovery | "+memInsertRef+" with `title: \"<discovery>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You find a **workaround or creative solution** to a problem | Store the workaround | "+memInsertRef+" with `title: \"<workaround>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You make a **non-obvious inference** that proves correct | Store the inference | "+memInsertRef+" with `title: \"<inference>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You **solve a complicated multi-step problem** | Store the full solution | "+memInsertRef+" with `title: \"<problem → solution>\"`, `type: \"skill\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You debug a non-obvious issue successfully | Save as a skill | "+memInsertRef+" with `title: \"<solution>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| User reveals a non-obvious project fact | Store the fact | "+memInsertRef+" with `title: \"<fact>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| New instruction contradicts existing memory | Replace the memory | "+memDeleteRef+" with `id: \"<old-id>\"` then "+memInsertRef+" with `title: \"<new>\"` |",
+		"| Memory is >30 days old and still relevant | Refresh it | `"+memUpdate+"` with `id: \"<id>\"`, `content: \"<refreshed>\"` |",
 		"",
 		"### 📖 Read Triggers — Consult Memory Before Acting",
 		"",
@@ -157,23 +155,23 @@ func RuleContent(contexts []string) string {
 		"Reading raw .md files is slower, wastes tokens, and bypasses ranking.",
 		"",
 		"**Scope parameter:** `scope: \"project\"` (default) = project-specific memories. `scope: \"user\"` = personal cross-project memories.",
-		"- `" + memSearch + "` searches raw `.md` memory files via text matching (Tier 1 — lightweight, no AI)",
-		"- `" + memQuery + "` queries the compiled memory wiki via AI synthesis (Tier 3 — deep, multi-turn)",
+		"- `"+memSearch+"` searches raw `.md` memory files via text matching (Tier 1 — lightweight, no AI)",
+		"- `"+memQuery+"` queries the compiled memory wiki via AI synthesis (Tier 3 — deep, multi-turn)",
 		"",
 		"| What you need | MCP tool | Why |",
 		"|---|---|---|",
-		"| Search memories by keyword/context | " + memSearchRef + " | Text matching on raw files, instant, ~200 tokens |",
-		"| AI-powered memory consultation | `" + memQuery + "` | Synthesizes relevant memories from wiki using AI |",
-		"| List all memories | `" + memList + "` | Structured catalog, grouped by type |",
-		"| List important memories only | `" + memImportant + "` | High-priority conventions, corrections |",
+		"| Search memories by keyword/context | "+memSearchRef+" | Text matching on raw files, instant, ~200 tokens |",
+		"| AI-powered memory consultation | `"+memQuery+"` | Synthesizes relevant memories from wiki using AI |",
+		"| List all memories | `"+memList+"` | Structured catalog, grouped by type |",
+		"| List important memories only | `"+memImportant+"` | High-priority conventions, corrections |",
 	)
 
 	lines = append(lines,
 		"",
 		"**Retrieval steps:**",
-		"1. Call " + memSearchRef + " with query context — get ranked results",
-		"2. If results reference related memories, call " + memSearchRef + " again with refined query",
-		"3. For deep consultation, call `" + memQuery + "` with a natural language question",
+		"1. Call "+memSearchRef+" with query context — get ranked results",
+		"2. If results reference related memories, call "+memSearchRef+" again with refined query",
+		"3. For deep consultation, call `"+memQuery+"` with a natural language question",
 		"4. **Never** read .md memory files directly or grep raw memory files",
 		"",
 		"## 📋 MCP Tools Reference",
@@ -182,45 +180,45 @@ func RuleContent(contexts []string) string {
 		"",
 		"```",
 		"# Insert (default: project scope, type: fact)",
-		memInsert + "(project_dir: \"/path/to/project\", title: \"<title>\", content: \"<body>\", type: \"<type>\")",
+		memInsert+"(project_dir: \"/path/to/project\", title: \"<title>\", content: \"<body>\", type: \"<type>\")",
 		"",
 		"# Insert important convention",
-		memInsert + "(project_dir: \"/path/to/project\", title: \"<title>\", content: \"<body>\", type: \"convention\", important: true)",
+		memInsert+"(project_dir: \"/path/to/project\", title: \"<title>\", content: \"<body>\", type: \"convention\", important: true)",
 		"",
 		"# Insert correction",
-		memInsert + "(project_dir: \"/path/to/project\", title: \"<title>\", content: \"<body>\", type: \"correction\", important: true)",
+		memInsert+"(project_dir: \"/path/to/project\", title: \"<title>\", content: \"<body>\", type: \"correction\", important: true)",
 		"",
 		"# Insert with tags",
-		memInsert + "(project_dir: \"/path/to/project\", title: \"<title>\", content: \"<body>\", tags: \"auth,security\")",
+		memInsert+"(project_dir: \"/path/to/project\", title: \"<title>\", content: \"<body>\", tags: \"auth,security\")",
 		"",
 		"# Insert user-scoped memory",
-		memInsert + "(project_dir: \"/path/to/project\", title: \"<title>\", content: \"<body>\", scope: \"user\")",
+		memInsert+"(project_dir: \"/path/to/project\", title: \"<title>\", content: \"<body>\", scope: \"user\")",
 		"",
 		"# Update existing memory",
-		memUpdate + "(project_dir: \"/path/to/project\", id: \"<id>\", content: \"<new body>\")",
+		memUpdate+"(project_dir: \"/path/to/project\", id: \"<id>\", content: \"<new body>\")",
 		"",
 		"# Delete",
-		memDelete + "(project_dir: \"/path/to/project\", id: \"<id>\")",
+		memDelete+"(project_dir: \"/path/to/project\", id: \"<id>\")",
 		"",
 		"# Search (lightweight, no AI)",
-		memSearch + "(project_dir: \"/path/to/project\", query: \"<term>\")",
+		memSearch+"(project_dir: \"/path/to/project\", query: \"<term>\")",
 		"",
 		"# AI Consultation (Search with AI response synthesis)",
-		memQuery + "(project_dir: \"/path/to/project\", query: \"<natural language question>\")",
+		memQuery+"(project_dir: \"/path/to/project\", query: \"<natural language question>\")",
 		"",
 		"# Promote/demote importance",
-		memPromote + "(project_dir: \"/path/to/project\", id: \"<id>\")",
-		memDemote + "(project_dir: \"/path/to/project\", id: \"<id>\")",
+		memPromote+"(project_dir: \"/path/to/project\", id: \"<id>\")",
+		memDemote+"(project_dir: \"/path/to/project\", id: \"<id>\")",
 		"",
 		"# List all",
-		memList + "(project_dir: \"/path/to/project\")",
-		memImportant + "(project_dir: \"/path/to/project\")",
+		memList+"(project_dir: \"/path/to/project\")",
+		memImportant+"(project_dir: \"/path/to/project\")",
 		"",
 		"# Maintenance (run periodically or when memory feels cluttered)",
-		memConsolidate + "(project_dir: \"/path/to/project\")                # AI-driven: find duplicates, contradictions",
-		memConsolidate + "(project_dir: \"/path/to/project\", apply: true)    # auto-apply safe suggestions",
-		memGc + "(project_dir: \"/path/to/project\")                         # find stale/empty memories (dry-run)",
-		memGc + "(project_dir: \"/path/to/project\", dry_run: false)         # delete GC candidates",
+		memConsolidate+"(project_dir: \"/path/to/project\")                # AI-driven: find duplicates, contradictions",
+		memConsolidate+"(project_dir: \"/path/to/project\", apply: true)    # auto-apply safe suggestions",
+		memGc+"(project_dir: \"/path/to/project\")                         # find stale/empty memories (dry-run)",
+		memGc+"(project_dir: \"/path/to/project\", dry_run: false)         # delete GC candidates",
 		"```",
 		"",
 		"## 🔄 Contradiction Protocol",
@@ -228,8 +226,8 @@ func RuleContent(contexts []string) string {
 		"When the user's new instruction contradicts an existing memory:",
 		"",
 		"1. Read the wiki index to find the contradicted memory",
-		"2. Delete it: call " + memDeleteRef + " tool with `id: \"<id>\"` (passing absolute `project_dir`)",
-		"3. Create the replacement: call " + memInsertRef + " tool with `title: \"<new>\"` ...",
+		"2. Delete it: call "+memDeleteRef+" tool with `id: \"<id>\"` (passing absolute `project_dir`)",
+		"3. Create the replacement: call "+memInsertRef+" tool with `title: \"<new>\"` ...",
 		"4. Confirm: \"Updated memory: removed '<old title>' and saved '<new title>'\"",
 		"",
 		"## 📣 Transparency Rules",
@@ -239,13 +237,13 @@ func RuleContent(contexts []string) string {
 		"## ⚡ Reindex After Writes",
 		"",
 		"After any write (`insert`, `delete`, `update`, `promote`, `demote`), the auto-cycle",
-		"runs automatically. If it fails, trigger manually calling the " + memIndexRef + " tool (passing absolute `project_dir` parameter).",
+		"runs automatically. If it fails, trigger manually calling the "+memIndexRef+" tool (passing absolute `project_dir` parameter).",
 		"",
 		"## ⛔ Critical Rules (Never Violate)",
 		"",
 		"1. **Read memory at session start.** Your context lives there. Skipping = repeating mistakes.",
 		"2. **Never leave a correction un-memorized.** If the user corrects you, save it immediately.",
-		"3. **Never edit .md memory files directly.** Always use " + memWildcard + " MCP tools.",
+		"3. **Never edit .md memory files directly.** Always use "+memWildcard+" MCP tools.",
 		"4. **Capture trade-offs, not just facts.** \"We chose X over Y because Z\" > \"We use X\".",
 		"5. **Handle contradictions.** Remove old + create new. Don't leave conflicting memories.",
 		"6. **Promote critical memories.** Conventions, corrections, and constraints should be marked important.",
@@ -266,12 +264,12 @@ func MandateTrigger() string {
 	dotBrand := "." + brand.Brand
 
 	return `
-# 🧠 Memory Management
+# Memory Management
 
 > Persistent memory across sessions. This framework IS your memory — no other exists.
 > **Full MCP tools reference, trigger table, and protocols are in the ` + "`" + brand.SkillDirName("memory") + "`" + ` skill.**
 
-## 🚨 FIRST ACTION — Execute BEFORE Any Response
+## FIRST ACTION — Execute BEFORE Any Response
 
 **Execute IMMEDIATELY on every conversation start. Do NOT respond to the user first.**
 
@@ -281,9 +279,9 @@ func MandateTrigger() string {
 
 > If the memory wiki does not exist yet (new project), skip and proceed.
 
-## Activation Triggers — You MUST read the ` + "`" + brand.SkillDirName("memory") + "`" + ` skill when:
+## Activation Triggers:
 
-### 💾 Save triggers (memorize immediately):
+### Save triggers (memorize immediately):
 
 - Task completed, modified, or bug fixed → store what/why/how/impact
 - User corrects, guides, instructs, or repeats → memorize as correction/convention
@@ -291,22 +289,12 @@ func MandateTrigger() string {
 - You discover something unexpected or make a design decision → store as skill/decision
 - New instruction contradicts existing memory → replace it
 
-### 📖 Read triggers (consult memory before acting):
+### Read triggers (consult memory before acting):
 - **Before implementing** any significant change → check for constraints and decisions
 - **When stuck**, failing repeatedly, or facing a non-obvious problem → search for past solutions
 - **Before proposing** architecture or a technical approach → check for prior decisions
 - When trying to **understand project context** → search for institutional knowledge
 - Memory management or maintenance tasks
-
-## 🔒 MANDATORY: Read Skill Before Acting
-
-**When ANY activation trigger above matches your current task, you MUST read the
-` + "`" + brand.SkillDirName("memory") + "`" + ` skill BEFORE executing your first memory operation.**
-The Quick Reference below is a cheat sheet for agents who already read the skill —
-it is NOT a substitute. The skill contains the full trigger→action table, memory types,
-contradiction protocols, and transparency rules you must follow.
-> **Exception:** The SESSION START PROTOCOL above is always active and does not require
-> reading the skill — execute it immediately on every conversation.
 
 ## Quick Reference (always active)
 
@@ -318,22 +306,15 @@ contradiction protocols, and transparency rules you must follow.
 - **NEVER** read ` + dotBrand + `/memory/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
 - **Reindex**: After any write, auto-cycle runs. If it fails, call ` + memIndexRef + ` (passing absolute ` + "`project_dir`" + `)
 
-## ⛔ Key Rules (read skill for complete list)
+## Key Rules
 
 - **Read memory at session start.** Skipping = repeating past mistakes.
 - **Never leave a correction un-memorized.** Save immediately.
 - **NEVER just say "understood".** Evaluate if the user's instruction should be memorized.
 - **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.
 - **This framework IS your memory.** Never use IDE/model memory.
-
-## 🔗 Subagent Propagation
-
-When spawning subagents, include in their prompt:
-"Before starting work, read the project's ` + "`AGENTS.md`" + ` and search memory via ` + memSearchRef + ` (passing absolute ` + "`project_dir`" + `). After work, if you discovered something non-obvious, save it via ` + memInsertRef + `."
 `
 }
-
-
 
 func InstallRule(projectDir, ideName string) error {
 	if projectDir == "" {

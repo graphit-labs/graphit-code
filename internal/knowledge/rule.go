@@ -11,8 +11,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
-
-
 func KnowledgeRuleContent(contexts []string, docsDir string) string {
 	if docsDir == "" {
 		docsDir = "."
@@ -259,17 +257,15 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"| **multi-source** (project + memory) | Call " + wikiSearchRef + " (ai_optimized:true, wikis: [\"project\", \"memory\"]) |",
 	}
 
-
-
 	lines = append(lines,
 		"",
 		"### ⚡ MANDATORY: Sync After Every File Modification",
 		"",
 		"**After ANY modification to ANY file in `docs/` (edit, create, rename, or delete),",
-		"you MUST trigger a project sync by calling the " + syncRef + " tool (passing absolute `project_dir` parameter):**",
+		"you MUST trigger a project sync by calling the "+syncRef+" tool (passing absolute `project_dir` parameter):**",
 		"",
 		"```",
-		syncTool + "(project_dir: \"/path/to/project\")",
+		syncTool+"(project_dir: \"/path/to/project\")",
 		"```",
 		"",
 		"**This is NON-NEGOTIABLE.** The framework depends on an up-to-date wiki to function.",
@@ -277,7 +273,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"outdated or incomplete results — breaking the knowledge pipeline.",
 		"",
 		"**Rules:**",
-		"- Call " + syncRef + " immediately after any docs modification.",
+		"- Call "+syncRef+" immediately after any docs modification.",
 		"- **Forgetting to call sync is a framework integrity violation.**",
 		"",
 		"## Documentation Requirements",
@@ -582,16 +578,16 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"### Before implementing ANY integration with an external system:",
 		"",
-		"**Step 1 — Search the hub for an existing knowledge artifact using the " + hubListRef + " tool:**",
+		"**Step 1 — Search the hub for an existing knowledge artifact using the "+hubListRef+" tool:**",
 		"",
 		"```",
-		hubList + `(project_dir: "/path/to/project", type: "knowledge")`,
+		hubList+`(project_dir: "/path/to/project", type: "knowledge")`,
 		"```",
 		"",
-		"**Step 2 — If found, install it immediately using the " + knowledgeInstallRef + " tool (passing absolute `project_dir` and the context `name`):**",
+		"**Step 2 — If found, install it immediately using the "+knowledgeInstallRef+" tool (passing absolute `project_dir` and the context `name`):**",
 		"",
 		"```",
-		knowledgeInstall + "(project_dir: \"/path/to/project\", name: \"<artifact-name>\")",
+		knowledgeInstall+"(project_dir: \"/path/to/project\", name: \"<artifact-name>\")",
 		"```",
 		"",
 		"This installs the artifact at "+dotBrand+"/knowledge/<name>/.",
@@ -669,19 +665,19 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"| Your tool | Wiki equivalent | Why wiki wins |",
 		"|---|---|---|",
-		"| `grep -r \"endpoint\" docs/` | Call " + searchRef + " → find endpoint → read page | Wiki: 1 search. Grep: scans all spec files |",
+		"| `grep -r \"endpoint\" docs/` | Call "+searchRef+" → find endpoint → read page | Wiki: 1 search. Grep: scans all spec files |",
 		"| Reading raw OpenAPI YAML directly | Read wiki entity page (pre-summarized) | Wiki: structured summary with confidence. YAML: verbose, noisy |",
-		"| `grep` for \"which APIs use this schema\" | Call " + xrefsRef + " on schema entity | Wiki: instant reverse lookup. Grep: O(n) scan |",
-		"| Listing docs/ to find specs | Call " + browseRef + " → scan by paradigm type | Wiki: grouped catalog. ls: flat listing with no context |",
+		"| `grep` for \"which APIs use this schema\" | Call "+xrefsRef+" on schema entity | Wiki: instant reverse lookup. Grep: O(n) scan |",
+		"| Listing docs/ to find specs | Call "+browseRef+" → scan by paradigm type | Wiki: grouped catalog. ls: flat listing with no context |",
 		"",
 		"### 🔒 When you MUST use the wiki (MANDATORY — no exceptions)",
 		"",
 		"| Scenario | What to do | What NOT to do |",
 		"|---|---|---|",
-		"| **Finding an API endpoint** | Call " + searchRef + " → find the spec page → read it | ❌ Don't grep YAML files for path strings |",
-		"| **Understanding a schema** | Call " + searchRef + " → find schema entity → read it | ❌ Don't open raw .yaml and search for `schemas:` |",
-		"| **Finding which APIs use a model** | Call " + xrefsRef + " on entity → get cross-references | ❌ Don't grep for `$ref` across all YAML files |",
-		"| **Checking if a integration exists** | Call " + browseRef + " → scan the catalog | ❌ Don't use `find` or `ls` on docs/ |",
+		"| **Finding an API endpoint** | Call "+searchRef+" → find the spec page → read it | ❌ Don't grep YAML files for path strings |",
+		"| **Understanding a schema** | Call "+searchRef+" → find schema entity → read it | ❌ Don't open raw .yaml and search for `schemas:` |",
+		"| **Finding which APIs use a model** | Call "+xrefsRef+" on entity → get cross-references | ❌ Don't grep for `$ref` across all YAML files |",
+		"| **Checking if a integration exists** | Call "+browseRef+" → scan the catalog | ❌ Don't use `find` or `ls` on docs/ |",
 		"| **Understanding auth for an API** | Read the spec entity page → check security section | ❌ Don't grep for \"security\" across all specs |",
 		"| **Checking API versioning** | Read entity frontmatter → check `updated` and `source` | ❌ Don't read raw spec version fields |",
 		"| **Verifying field names and types** | Read entity page → follow provenance to raw spec | ❌ Don't guess from model memory |",
@@ -698,10 +694,10 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"### How to search (step-by-step)",
 		"",
 		"**Step 1 — Search the wiki (ALWAYS start here)**",
-		"  Call " + searchRef + " (ai_optimized:true) with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).",
-		"  Alternatively, call " + browseRef + " (ai_optimized:true) for a structured catalog.",
-		"  For AI-powered deep search, call " + queryRef + " which synthesizes a comprehensive answer using multi-turn consultation.",
-		"  For multi-source search (knowledge + memory), call " + wikiSearchRef + " (ai_optimized:true) with `wikis: [\"project\", \"memory\"]`.",
+		"  Call "+searchRef+" (ai_optimized:true) with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).",
+		"  Alternatively, call "+browseRef+" (ai_optimized:true) for a structured catalog.",
+		"  For AI-powered deep search, call "+queryRef+" which synthesizes a comprehensive answer using multi-turn consultation.",
+		"  For multi-source search (knowledge + memory), call "+wikiSearchRef+" (ai_optimized:true) with `wikis: [\"project\", \"memory\"]`.",
 		"",
 		"**Step 2 — Read frontmatter FIRST**",
 		"  Check `confidence`, `type`, `source`, `updated` before reading body content.",
@@ -712,7 +708,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"  Navigate from endpoint → schema → related services via curated links.",
 		"",
 		"**Step 4 — Expand with cross-references**",
-		"  Call " + xrefsRef + " (ai_optimized:true) to find every spec that references a given schema or service — pre-computed, zero-cost.",
+		"  Call "+xrefsRef+" (ai_optimized:true) to find every spec that references a given schema or service — pre-computed, zero-cost.",
 		"",
 		"**Step 5 — Verify via provenance**",
 		"  Each page has: `*Provenance: ^[docs/rest/payment.yaml]*`.",
@@ -738,9 +734,9 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"Your tools are allowed ONLY when ALL of these conditions are true:",
 		"",
-		"1. You **already searched the wiki** using " + searchRef + ", " + queryRef + ", or " + browseRef + "",
+		"1. You **already searched the wiki** using "+searchRef+", "+queryRef+", or "+browseRef+"",
 		"2. You **followed relevant [[wikilinks]]** and checked entity pages",
-		"3. You **checked cross-references** using " + xrefsRef + " on the most relevant page",
+		"3. You **checked cross-references** using "+xrefsRef+" on the most relevant page",
 		"4. The wiki **genuinely has no coverage** of the integration (not indexed, not documented)",
 		"5. You **state explicitly** to the user: \"The wiki has no coverage of X, falling back to spec search\"",
 		"",
@@ -907,8 +903,8 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"## Workflow",
 		"",
 		"**0. (MANDATORY) Before touching any external system:**",
-		"   - Call " + hubListRef + " tool filtering by name/type — always.",
-		"   - If found: call " + knowledgeInstallRef + " with `name` and read the wiki.",
+		"   - Call "+hubListRef+" tool filtering by name/type — always.",
+		"   - If found: call "+knowledgeInstallRef+" with `name` and read the wiki.",
 		"   - If not found: document what the user provides, never assume.",
 		"",
 		"1. **Before creating an integration**: check the wiki index to avoid duplication.",
@@ -938,35 +934,25 @@ func MandateTrigger() string {
 	dotBrand := "." + brand.Brand
 
 	return `
-# 📚 Knowledge & Documentation
+# Knowledge & Documentation
 
 > This module manages project documentation, knowledge wiki, and integration specs.
-> **Detailed instructions are in the ` + "`" + brand.SkillDirName("knowledge") + "`" + ` skill. Read it when triggered.**
+> **Detailed instructions are in the ` + "`" + brand.SkillDirName("knowledge") + "`" + ` skill.**
 
-## Activation Triggers — You MUST read the ` + "`" + brand.SkillDirName("knowledge") + "`" + ` skill when:
+## Activation Triggers:
 
 - Understanding project features, architecture, decisions, or specifications
-- Creating, updating, or searching documentation in ` + "`docs/`" + `
+- Creating, updating, or searching documentation
 - Working with external system integrations or API specifications
 - Searching for project knowledge (wiki, backlinks, provenance)
 - Discovering or documenting undocumented integrations
 
-## 🔒 MANDATORY: Read Skill Before Acting
-
-**When ANY activation trigger above matches your current task, you MUST read the
-` + "`" + brand.SkillDirName("knowledge") + "`" + ` skill BEFORE searching the wiki, creating documentation,
-or working with integrations.** The Quick Reference below is a cheat sheet for agents
-who already read the skill — it is NOT a substitute. The skill contains the full
-wiki-first retrieval methodology, documentation templates, task log format, and
-integration protocols you must follow.
-
-## 🚨 MANDATORY POST-CHANGE PROTOCOL — After ANY Code Change
+## MANDATORY POST-CHANGE PROTOCOL — After ANY Code Change
 
 **After you modify, create, or delete ANY source file, you MUST:**
 
-1. Read the ` + "`" + brand.SkillDirName("knowledge") + "`" + ` skill and follow its documentation workflow
-2. Create/update task log at ` + "`docs/tasks/<task-name>.md`" + `
-3. Call the ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
+1. Create/update task log at ` + "`docs/tasks/<task-name>.md`" + `
+2. Call the ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
 
 **Documentation is implicit in every task. A task without docs + sync is NOT complete.**
 
@@ -976,19 +962,12 @@ integration protocols you must follow.
 - **AI-powered query**: call ` + queryRef + ` for deep multi-turn consultation
 - **Cross-references**: call ` + xrefsRef + ` (ai_optimized:true) to find backlinks — pre-computed, zero-cost
 - **Task logs**: ` + "`docs/tasks/<task-name>.md`" + ` — log every task with full detail
-- **Sync after docs changes**: call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
+- **Sync after documentation changes**: call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
 - **NEVER** read ` + dotBrand + `/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
-- **NEVER** grep docs/ for project understanding — wiki search costs ~500 tokens vs grep scanning all files
+- **NEVER** grep documentation files for project understanding — wiki search costs ~500 tokens vs grep scanning all files
 - **Hub search before integration**: call ` + brand.MCPToolRef("hub", "list") + ` tool (passing absolute ` + "`project_dir`" + ` parameter and ` + "`type: \"knowledge\"`" + `)
-
-## 🔗 Subagent Propagation
-
-When spawning subagents that modify code, include in their prompt:
-"After code changes, create docs/tasks/<task-name>.md and call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter). Read the project's ` + "`AGENTS.md`" + ` before starting work."
 `
 }
-
-
 
 func resolveDocsDirFromProject(projectDir string) string {
 	lp := filepath.Join(projectDir, brand.LockFileName())

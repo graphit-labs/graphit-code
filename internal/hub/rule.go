@@ -8,10 +8,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
-
-
 func HubRuleContent(installed []InstalledArtifactInfo) string {
-
 
 	astQueryRef := brand.MCPToolRef("ast", "query")
 	astQuery := brand.MCPToolName("ast", "query")
@@ -126,15 +123,15 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"",
 		"**When you need to find other projects in the work ecosystem** (e.g., to understand",
 		"cross-project dependencies, shared libraries, related services, or sibling projects),",
-		"**call the " + clusterProjectsRef + " tool (passing absolute `project_dir` parameter):**",
+		"**call the "+clusterProjectsRef+" tool (passing absolute `project_dir` parameter):**",
 		"",
 		"```",
-		clusterProjects + "(project_dir: \"/path/to/project\")",
+		clusterProjects+"(project_dir: \"/path/to/project\")",
 		"```",
 		"",
 		"This tool returns a JSON map containing all sibling projects that belong to the **same cluster**",
-		"as the current project. Clusters are managed via " + clusterSetRef + ", " + clusterGetRef + ",",
-		"and " + clusterUnsetRef + " MCP tools — projects sharing at least one identical cluster label",
+		"as the current project. Clusters are managed via "+clusterSetRef+", "+clusterGetRef+",",
+		"and "+clusterUnsetRef+" MCP tools — projects sharing at least one identical cluster label",
 		"are grouped together. Projects without any labels form their own default group.",
 		"",
 		"Each sibling project entry includes:",
@@ -152,15 +149,15 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"- **Discover and navigate** — find sibling project directories and read their source or docs",
 		"- **Query code in another project** — run AST query against a sibling (always pass its absolute path in the `project_dir` parameter):",
 		"  ```",
-		"  " + astQuery + "(project_dir: \"/path/to/other-project\", query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path\", ai_optimized: true)",
+		"  "+astQuery+"(project_dir: \"/path/to/other-project\", query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path\", ai_optimized: true)",
 		"  ```",
-		"- **Read another project's knowledge wiki** — understand its architecture without grepping by calling " + brand.MCPToolRef("wiki", "search") + " with the other project's `project_dir`",
+		"- **Read another project's knowledge wiki** — understand its architecture without grepping by calling "+brand.MCPToolRef("wiki", "search")+" with the other project's `project_dir`",
 		"- **Make cross-project changes** — if the user asks to modify code in another project,",
 		"  use the path from the tool output to locate, read, and edit files there directly",
 		"",
 		"**Example workflow:** The user asks \"how does the auth service validate tokens?\".",
-		"You call " + clusterProjectsRef + " to find the auth service project path,",
-		"then call " + astQueryRef + " with `project_dir: \"/path/to/auth-service\"`, `query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number\"`, and `ai_optimized: true` to locate the validation logic, and read the relevant source files.",
+		"You call "+clusterProjectsRef+" to find the auth service project path,",
+		"then call "+astQueryRef+" with `project_dir: \"/path/to/auth-service\"`, `query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number\"`, and `ai_optimized: true` to locate the validation logic, and read the relevant source files.",
 	)
 
 	lines = append(lines,
@@ -168,7 +165,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"## ⚠️ Rule",
 		"",
 		"Rely entirely on the official artifacts from the Hub rather than generic internet knowledge.",
-		"When in doubt: call " + hubListRef + " → " + hubShowRef + " → " + hubInstallRef + ".",
+		"When in doubt: call "+hubListRef+" → "+hubShowRef+" → "+hubInstallRef+".",
 	)
 
 	return strings.Join(lines, "\n") + "\n"
@@ -185,25 +182,18 @@ func MandateTrigger() string {
 	astQueryRef := brand.MCPToolRef("ast", "query")
 
 	return `
-# 🔗 Hub Discovery
+# Hub Discovery
 
-> Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, and powers.
+> Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, powers and languages.
 > **Detailed instructions are in the ` + "`" + brand.SkillDirName("hub") + "`" + ` skill.**
 
-## Activation Triggers — You MUST read the ` + "`" + brand.SkillDirName("hub") + "`" + ` skill when:
+## Activation Triggers:
 
 - Working with a third-party library, framework, or API you haven't used in this session
 - Needing documentation or code examples for an external dependency
 - Looking for reusable rules, skills, commands, agents, or MCP servers
 - Setting up a new project or adding new dependencies
 - When ` + astQueryRef + ` returns no results for an external library (it might have a hub artifact)
-
-## 🔒 MANDATORY: Read Skill Before Acting
-
-**When ANY activation trigger above matches your current task, you MUST read the
-` + "`" + brand.SkillDirName("hub") + "`" + ` skill BEFORE executing your first Hub operation.**
-The skill contains artifact types, usage patterns, installation workflows,
-ecosystem project discovery, and post-install protocols.
 
 ## Quick Reference (always active)
 
@@ -214,20 +204,13 @@ ecosystem project discovery, and post-install protocols.
 - **Update**: call ` + hubUpdateRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
 - **Ecosystem**: call ` + clusterRef + ` tool to find sibling projects — query their AST/wiki using their project_dir
 
-## ⛔ Critical Rule
+## Critical Rule
 
 **NEVER guess APIs or structures.** If uncertain about a framework or library,
 check the Hub first: call ` + hubListRef + ` → ` + hubShowRef + ` → ` + hubInstallRef + `.
 After installing a knowledge artifact, search its wiki via MCP BEFORE coding.
-
-## 🔗 Subagent Propagation
-
-When spawning subagents that work with external libraries, include in their prompt:
-"Before implementing integrations, check Hub for knowledge artifacts: call ` + hubListRef + ` → ` + hubInstallRef + ` (passing absolute ` + "`project_dir`" + `). Read the project's ` + "`AGENTS.md`" + ` before starting work."
 `
 }
-
-
 
 func InstallRule(projectDir, ideName string) error {
 	if projectDir == "" {

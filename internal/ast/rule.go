@@ -8,8 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
-
-
 func ASTRuleContent() string {
 	lines := []string{
 		"# Code Exploration via AST Rule",
@@ -556,13 +554,13 @@ func MandateTrigger() string {
 	syncRef := brand.MCPToolRef("sync")
 
 	return `
-# 🔍 AST Code Exploration
+# AST Code Exploration
 
 > The AST graph database is your **PRIMARY and FIRST** code analysis tool.
 > It is pre-indexed, faster, and more accurate than any text-based search.
 > **Detailed instructions, query cookbook, and Cypher patterns are in the ` + "`" + brand.SkillDirName("ast") + "`" + ` skill.**
 
-## Activation Triggers — You MUST read the ` + "`" + brand.SkillDirName("ast") + "`" + ` skill when:
+## Activation Triggers:
 
 - Finding where a function/class/method is defined
 - Finding who calls a function or uses a class
@@ -571,14 +569,6 @@ func MandateTrigger() string {
 - Finding unused code, high-complexity functions, or entry points
 - Understanding file structure or module relationships
 - Querying DML/database dependencies
-
-## 🔒 MANDATORY: Read Skill Before Acting
-
-**When ANY activation trigger above matches your current task, you MUST read the
-` + "`" + brand.SkillDirName("ast") + "`" + ` skill BEFORE executing your first AST query or code analysis action.**
-The Quick Reference below is a cheat sheet for agents who already read the skill —
-it is NOT a substitute. The skill contains the full phased exploration methodology,
-Cypher guidelines, cookbook patterns, and fallback protocols you must follow.
 
 ## ⚡ grep → AST Translation (ALWAYS use AST instead of grep)
 
@@ -608,20 +598,13 @@ Cypher guidelines, cookbook patterns, and fallback protocols you must follow.
 - **CALLS edge**: ` + "`source_file`" + `, ` + "`line_number`" + `, ` + "`full_call_name`" + `, ` + "`receiver_type`" + `
 - **IMPORTS edge**: ` + "`alias`" + `, ` + "`full_import_name`" + `, ` + "`imported_name`" + `, ` + "`line_number`" + `, ` + "`source_file`" + `
 
-## ⛔ Key Rules (read skill for complete list)
+## Key Rules
 
 - **AST BEFORE grep** — NEVER use grep/ripgrep for structural queries.
 - **Always ` + "`ai_optimized: true`" + `** on every ` + astQueryRef + ` call.
 - **Multi-label by default** — use ` + "`label(f) = 'Function' OR label(f) = 'Method'`" + `, never assume a single label.
-
-## 🔗 Subagent Propagation
-
-When spawning subagents, include in their prompt:
-"For code exploration, use ` + "`" + astQuery + "`" + ` and ` + "`" + brand.MCPToolName("ast", "search") + "`" + ` MCP tools instead of grep_search (always pass absolute ` + "`project_dir`" + `). Use multi-label queries. Read the project's ` + "`AGENTS.md`" + ` before starting work."
 `
 }
-
-
 
 func InstallRule(projectDir, ideName string) error {
 	if projectDir == "" {
