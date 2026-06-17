@@ -820,6 +820,10 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 			result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)
 			if err != nil {
 				task.Fail("AST index: %v", err)
+			} else if result.ErrorCount > 0 && result.ParsedFiles == 0 {
+				task.Fail("AST: %d files discovered, %d parse errors (grammars may be missing)", result.TotalFiles, result.ErrorCount)
+			} else if result.ErrorCount > 0 {
+				task.Done("AST: %d files indexed, %d errors (%.1fs)", result.ParsedFiles, result.ErrorCount, result.TotalTime.Seconds())
 			} else if result.ParsedFiles == 0 {
 				task.Done("AST: %d files up to date", result.TotalFiles)
 			} else {

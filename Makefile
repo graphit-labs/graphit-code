@@ -115,10 +115,13 @@ TS_ALL := $(TS_ALL_SMACKER) $(TS_ALL_EXTERNAL) $(TS_GRAMMARS_LOCAL)
 ANTLR_GRAMMARS := plsql postgresql tsql db2 cobol85
 
 # ── Default grammars to embed in the launcher ─────────────────────────────────
-# Only tree-sitter; ANTLR grammars are NOT default — install via hub.
 DEFAULT_TS_GRAMMARS := go python javascript typescript tsx java kotlin \
     rust c-sharp cpp c ruby php swift dart sql markdown yaml \
     json html xml
+
+# ANTLR grammars are NOT default — install via hub.
+# Set this to a non-empty list to embed ANTLR sidecars in the launcher.
+DEFAULT_ANTLR_GRAMMARS ?=
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -324,6 +327,36 @@ define bundle_grammars
 			fi; \
 		done; \
 	done
+	@count=$$(ls -1 cmd/launcher/runtime/grammars/treesitter/*.so cmd/launcher/runtime/grammars/treesitter/*.dylib cmd/launcher/runtime/grammars/treesitter/*.dll 2>/dev/null | wc -l); \
+	if [ "$$count" -eq 0 ]; then \
+		echo "  ✗ FATAL: No grammars were bundled! Run 'make grammars-treesitter' first."; \
+		exit 1; \
+	else \
+		echo "  ✓ Bundled $$count grammar(s)"; \
+	fi
+endef
+
+define bundle_antlr
+	@if [ -n "$(DEFAULT_ANTLR_GRAMMARS)" ]; then \
+		mkdir -p cmd/launcher/runtime/grammars/antlr; \
+		for grammar in $(DEFAULT_ANTLR_GRAMMARS); do \
+			for candidate in \
+				$(ANTLR_OUTDIR)/antlr-sidecar-$${grammar} \
+				$(ANTLR_OUTDIR)/antlr-sidecar-$${grammar}.exe; do \
+				if [ -f "$$candidate" ]; then \
+					cp "$$candidate" cmd/launcher/runtime/grammars/antlr/; \
+					break; \
+				fi; \
+			done; \
+		done; \
+		count=$$(ls -1 cmd/launcher/runtime/grammars/antlr/antlr-sidecar-* 2>/dev/null | wc -l); \
+		if [ "$$count" -eq 0 ]; then \
+			echo "  ✗ FATAL: No ANTLR sidecars were bundled! Run 'make grammars-antlr' first."; \
+			exit 1; \
+		else \
+			echo "  ✓ Bundled $$count ANTLR sidecar(s)"; \
+		fi; \
+	fi
 endef
 
 
@@ -439,7 +472,7 @@ build: build-linux
 install: build
 	sudo cp $(BIN_DIR)/$(BRAND)-linux-amd64 /usr/local/bin/$(BRAND)
 
-build-linux: ui setup-lbug fetch-ort-linux fetch-model
+build-linux: ui setup-lbug fetch-ort-linux fetch-model grammars-treesitter grammars-antlr
 	@mkdir -p cmd/launcher/runtime
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
@@ -451,11 +484,12 @@ build-linux: ui setup-lbug fetch-ort-linux fetch-model
 	$(call bundle_model)
 	$(call bundle_ast)
 	$(call bundle_grammars)
+	$(call bundle_antlr)
 	@mkdir -p $(BIN_DIR)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-linux-amd64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-darwin: ui setup-lbug fetch-ort-darwin fetch-model
+build-darwin: ui setup-lbug fetch-ort-darwin fetch-model grammars-treesitter grammars-antlr
 	@mkdir -p cmd/launcher/runtime
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
@@ -467,11 +501,12 @@ build-darwin: ui setup-lbug fetch-ort-darwin fetch-model
 	$(call bundle_model)
 	$(call bundle_ast)
 	$(call bundle_grammars)
+	$(call bundle_antlr)
 	@mkdir -p $(BIN_DIR)
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-darwin-arm64 ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows: ui setup-lbug fetch-ort-windows fetch-model
+build-windows: ui setup-lbug fetch-ort-windows fetch-model grammars-treesitter grammars-antlr
 	@mkdir -p cmd/launcher/runtime
 	CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_CFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_CXXFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_LDFLAGS="-L/usr/x86_64-w64-mingw32/icu/lib -licuuc -licuin -licudt -lstdc++ -static-libgcc -static-libstdc++" GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcp
@@ -481,11 +516,12 @@ build-windows: ui setup-lbug fetch-ort-windows fetch-model
 	$(call bundle_model)
 	$(call bundle_ast)
 	$(call bundle_grammars)
+	$(call bundle_antlr)
 	@mkdir -p $(BIN_DIR)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
 
-build-windows-native: ui setup-lbug fetch-ort-windows fetch-model
+build-windows-native: ui setup-lbug fetch-ort-windows fetch-model grammars-treesitter grammars-antlr
 	@mkdir -p cmd/launcher/runtime
 	CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-L/mingw64/lib -licuuc -licuin -licudt -lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcp
@@ -500,6 +536,7 @@ build-windows-native: ui setup-lbug fetch-ort-windows fetch-model
 	$(call bundle_model)
 	$(call bundle_ast)
 	$(call bundle_grammars)
+	$(call bundle_antlr)
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$(BRAND)-windows-amd64.exe ./cmd/launcher
 	rm -rf cmd/launcher/runtime/*
