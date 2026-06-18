@@ -3,6 +3,8 @@ package ast
 
 
 import (
+	"strings"
+
 	sitter "github.com/smacker/go-tree-sitter"
 
 
@@ -99,9 +101,18 @@ var nativeGrammars = map[string]func() *sitter.Language{
 }
 
 // NativeLanguage returns a natively compiled grammar, or nil if unavailable.
+// It normalises underscores to hyphens so that both "c_sharp" (grammar YAML)
+// and "c-sharp" (map key) resolve correctly.
 func NativeLanguage(lang string) *sitter.Language {
 	if fn, ok := nativeGrammars[lang]; ok {
 		return fn()
+	}
+	// Try underscore↔hyphen normalisation (e.g. "c_sharp" → "c-sharp").
+	normalised := strings.ReplaceAll(lang, "_", "-")
+	if normalised != lang {
+		if fn, ok := nativeGrammars[normalised]; ok {
+			return fn()
+		}
 	}
 	return nil
 }

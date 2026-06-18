@@ -290,10 +290,15 @@ func TestVerifyAllDefaultQueries(t *testing.T) {
 				grammar = "tree-sitter-" + qf.Language
 			}
 
-			grammarLoaderOnce.Do(initGrammarLoader)
-			lang, err := grammarLoader.Load(strings.TrimPrefix(grammar, "tree-sitter-"))
-			if err != nil {
-				t.Fatalf("failed to load tree-sitter grammar for %s (language %s): %v", grammar, qf.Language, err)
+			langName := strings.TrimPrefix(grammar, "tree-sitter-")
+			lang := NativeLanguage(langName)
+			if lang == nil {
+				grammarLoaderOnce.Do(initGrammarLoader)
+				var loadErr error
+				lang, loadErr = grammarLoader.Load(langName)
+				if loadErr != nil {
+					t.Fatalf("failed to load tree-sitter grammar for %s (language %s): %v", grammar, qf.Language, loadErr)
+				}
 			}
 
 			for _, q := range qf.Queries {

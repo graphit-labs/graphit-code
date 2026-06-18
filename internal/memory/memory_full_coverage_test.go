@@ -455,6 +455,7 @@ func TestMemoryGitStore_SyncRemote_NoURL(t *testing.T) {
 	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
 
 	setupGitTestEnv(t)
+	t.Setenv("HOME", t.TempDir()) // isolate from developer's global config
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -474,6 +475,7 @@ func TestMemoryGitStore_IsRemoteEmpty_NoURL(t *testing.T) {
 	store := &MemoryGitStore{repoDir: repoDir, wtBase: repoDir + "-wt"}
 
 	setupGitTestEnv(t)
+	t.Setenv("HOME", t.TempDir()) // isolate from developer's global config
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -494,6 +496,7 @@ func TestMemoryGitStore_RemoteBranchExists_NoURL(t *testing.T) {
 	store := &MemoryGitStore{repoDir: repoDir, wtBase: repoDir + "-wt"}
 
 	setupGitTestEnv(t)
+	t.Setenv("HOME", t.TempDir()) // isolate from developer's global config
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -514,6 +517,7 @@ func TestMemoryGitStore_PushBranchInBackground_NoURL(t *testing.T) {
 	store := &MemoryGitStore{repoDir: repoDir, wtBase: repoDir + "-wt"}
 
 	setupGitTestEnv(t)
+	t.Setenv("HOME", t.TempDir()) // isolate from developer's global config
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -534,6 +538,7 @@ func TestMemoryGitStore_PruneLocalBranch_Full(t *testing.T) {
 	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
 
 	setupGitTestEnv(t)
+	t.Setenv("HOME", t.TempDir()) // isolate from developer's global config
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -541,6 +546,7 @@ func TestMemoryGitStore_PruneLocalBranch_Full(t *testing.T) {
 
 	// Create a branch to prune
 	_ = store.createOrphanBranch("memory/prune/target")
+	WaitForPendingPushes() // ensure background goroutine from createOrphanBranch finishes
 	store.pruneLocalBranch("memory/prune/target")
 	// Should not panic
 }
