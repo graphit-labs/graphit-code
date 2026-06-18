@@ -50,9 +50,10 @@ func (s *UIServer) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/submit", s.handleSubmit)
 	mux.HandleFunc("POST /api/unpublish", s.handleUnpublish)
 	mux.HandleFunc("POST /api/upload", s.handleUpload)
+	mux.HandleFunc("POST /api/cluster/set", s.handleSetCluster)
+	mux.HandleFunc("POST /api/cluster/unset", s.handleUnsetCluster)
+	mux.HandleFunc("POST /api/project/unregister", s.handleUnregisterProject)
 }
-
-
 
 func (s *UIServer) resolveProjectDir(r *http.Request) (string, error) {
 	if dir := r.URL.Query().Get("project_dir"); dir != "" {
@@ -80,14 +81,35 @@ func (s *UIServer) handleGlobalProjects(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	lock, err := mgr.Load()
+	if err != nil {
+		writeJSONUI(w, map[string]any{"projects": []any{}, "error": err.Error()})
+		return
+	}
+
 	type projectInfo struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		Dir  string `json:"dir"`
+		ID           string              `json:"id"`
+		Name         string              `json:"name"`
+		Dir          string              `json:"dir"`
+		Description  string              `json:"description,omitempty"`
+		RegisteredAt string              `json:"registered_at,omitempty"`
+		Cluster      map[string][]string `json:"cluster,omitempty"`
 	}
 	var projects []projectInfo
 	for _, ap := range active {
 		name := filepath.Base(ap.Dir)
+		description := ""
+		registeredAt := ""
+		var cluster map[string][]string
+
+		if inst := mgr.findInstance(lock, ap.ID, ap.Dir); inst != nil {
+			if inst.Name != "" {
+				name = inst.Name
+			}
+			description = inst.Description
+			registeredAt = inst.RegisteredAt
+			cluster = inst.Cluster
+		}
 
 		lockPath := filepath.Join(ap.Dir, brand.LockFileName())
 		if lf := readJSONFileUI(lockPath); lf != nil {
@@ -95,9 +117,19 @@ func (s *UIServer) handleGlobalProjects(w http.ResponseWriter, r *http.Request) 
 				if n, ok := proj["name"].(string); ok && n != "" {
 					name = n
 				}
+				if d, ok := proj["description"].(string); ok && d != "" {
+					description = d
+				}
 			}
 		}
-		projects = append(projects, projectInfo{ID: ap.ID, Name: name, Dir: ap.Dir})
+		projects = append(projects, projectInfo{
+			ID:           ap.ID,
+			Name:         name,
+			Dir:          ap.Dir,
+			Description:  description,
+			RegisteredAt: registeredAt,
+			Cluster:      cluster,
+		})
 	}
 
 	p := paths.GetPaths(s.ide, false)
@@ -781,8 +813,6 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 	writeJSONUI(w, map[string]any{"success": true})
 }
 
-
-
 func CorsWrap(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
@@ -812,8 +842,6 @@ func isAllowedOrigin(origin string) bool {
 		origin == "http://127.0.0.1" ||
 		origin == "http://[::1]"
 }
-
-
 
 func writeJSONUI(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -915,4 +943,82 @@ func (s *UIServer) handleUnlink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *UIServer) handleSetCluster(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ProjectID  string `json:"project_id"`
+		ProjectDir string `json:"project_dir"`
+		Key        string `json:"key"`
+		Value      string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONUI(w, map[string]any{"success": false, "error": "invalid request body"})
+		return
+	}
+	mgr, err := NewGlobalLockManager()
+	if err != nil {
+		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	if err := mgr.SetCluster(body.ProjectID, body.ProjectDir, body.Key, body.Value); err != nil {
+		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	writeJSONUI(w, map[string]any{"success": true})
+}
+
+func (s *UIServer) handleUnsetCluster(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ProjectID  string `json:"project_id"`
+		ProjectDir string `json:"project_dir"`
+		Key        string `json:"key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONUI(w, map[string]any{"success": false, "error": "invalid request body"})
+		return
+	}
+	mgr, err := NewGlobalLockManager()
+	if err != nil {
+		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	if err := mgr.UnsetCluster(body.ProjectID, body.ProjectDir, body.Key); err != nil {
+		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	writeJSONUI(w, map[string]any{"success": true})
+}
+
+func (s *UIServer) handleUnregisterProject(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		ProjectID  string `json:"project_id"`
+		ProjectDir string `json:"project_dir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSONUI(w, map[string]any{"success": false, "error": "invalid request body"})
+		return
+	}
+	mgr, err := NewGlobalLockManager()
+	if err != nil {
+		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	if err := mgr.UnregisterProject(body.ProjectID, body.ProjectDir); err != nil {
+		writeJSONUI(w, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	writeJSONUI(w, map[string]any{"success": true})
 }

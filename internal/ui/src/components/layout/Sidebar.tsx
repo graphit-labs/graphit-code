@@ -15,6 +15,7 @@ import {
   Moon,
   Menu,
   X,
+  Globe,
   ChevronRight,
   ChevronDown,
   Code2,
@@ -245,6 +246,12 @@ export function Sidebar({ onClose }: SidebarProps) {
             to="/system/dream"
             icon={<Sparkles className="w-3.5 h-3.5" />}
             label="Dream"
+            onClick={close}
+          />
+          <NavItem
+            to="/system/ecosystem"
+            icon={<Globe className="w-3.5 h-3.5" />}
+            label="Ecosystem"
             onClick={close}
           />
         </NavSection>

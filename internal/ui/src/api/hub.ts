@@ -52,6 +52,9 @@ export interface GlobalProject {
   id: string
   name: string
   dir: string
+  description?: string
+  registered_at?: string
+  cluster?: Record<string, string[]>
 }
 
 export interface GlobalProjectsResponse {
@@ -63,6 +66,27 @@ export interface GlobalProjectsResponse {
 
 export const hubApi = {
   getGlobalProjects: () => api.get<GlobalProjectsResponse>('/api/global-projects'),
+
+  setClusterLabel: (projectId: string, projectDir: string, key: string, value: string) =>
+    api.post<{ success: boolean; error?: string }>('/api/cluster/set', {
+      project_id: projectId,
+      project_dir: projectDir,
+      key,
+      value,
+    }),
+
+  unsetClusterLabel: (projectId: string, projectDir: string, key: string) =>
+    api.post<{ success: boolean; error?: string }>('/api/cluster/unset', {
+      project_id: projectId,
+      project_dir: projectDir,
+      key,
+    }),
+
+  unregisterProject: (projectId: string, projectDir: string) =>
+    api.post<{ success: boolean; error?: string }>('/api/project/unregister', {
+      project_id: projectId,
+      project_dir: projectDir,
+    }),
   
   getRegistry: (projectDir?: string, ide?: string) => {
     const params = new URLSearchParams()
