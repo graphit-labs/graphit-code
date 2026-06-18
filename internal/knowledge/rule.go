@@ -78,7 +78,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"1. **Do the work** — implement the code change.",
 		"2. **Write the documentation** — update or create the relevant docs.",
-		"3. **Sync the wiki** — call the " + syncRef + " tool (passing absolute `project_dir` parameter).",
+		"3. **Sync the wiki** — call the " + syncRef + " tool (passing absolute `project_dir` parameter) — **fire-and-forget: do NOT wait for sync to finish, continue immediately.**",
 		"4. **Only then** report the task as complete.",
 		"",
 		"### 🔒 MANDATORY: Clean Code Documentation Policy",
@@ -273,7 +273,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"outdated or incomplete results — breaking the knowledge pipeline.",
 		"",
 		"**Rules:**",
-		"- Call "+syncRef+" immediately after any docs modification.",
+		"- Call "+syncRef+" immediately after any docs modification — **fire-and-forget: do NOT wait for sync to complete, continue working immediately.**",
 		"- **Forgetting to call sync is a framework integrity violation.**",
 		"",
 		"## Documentation Requirements",
@@ -952,7 +952,7 @@ func MandateTrigger() string {
 **After you modify, create, or delete ANY source file, you MUST:**
 
 1. Create/update task log at ` + "`docs/tasks/<task-name>.md`" + `
-2. Call the ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
+2. Call the ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter) — **fire-and-forget: do NOT wait for sync to finish, continue working immediately**
 
 **Documentation is implicit in every task. A task without docs + sync is NOT complete.**
 
@@ -962,7 +962,7 @@ func MandateTrigger() string {
 - **AI-powered query**: call ` + queryRef + ` for deep multi-turn consultation
 - **Cross-references**: call ` + xrefsRef + ` (ai_optimized:true) to find backlinks — pre-computed, zero-cost
 - **Task logs**: ` + "`docs/tasks/<task-name>.md`" + ` — log every task with full detail
-- **Sync after documentation changes**: call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
+- **Sync after documentation changes**: call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter) — fire-and-forget, do not wait
 - **NEVER** read ` + dotBrand + `/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
 - **NEVER** grep documentation files for project understanding — wiki search costs ~500 tokens vs grep scanning all files
 - **Hub search before integration**: call ` + brand.MCPToolRef("hub", "list") + ` tool (passing absolute ` + "`project_dir`" + ` parameter and ` + "`type: \"knowledge\"`" + `)

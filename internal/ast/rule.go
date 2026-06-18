@@ -173,7 +173,7 @@ func ASTRuleContent() string {
 		"> ❌ Wrong: Call " + brand.MCPToolRef("ast", "search") + " with `query: \"MATCH (f:Function) WHERE ...\"`",
 		"",
 		"**Important:** Semantic mode requires embeddings to have been computed.",
-		"If semantic results are empty, call the " + brand.MCPToolRef("sync") + " tool (passing `project_dir`) to generate embeddings.",
+		"If semantic results are empty, call the " + brand.MCPToolRef("sync") + " tool (passing `project_dir`) to generate embeddings — fire-and-forget, do not wait for it to finish.",
 		"In hybrid mode, it gracefully falls back to FTS-only when embeddings are unavailable.",
 		"",
 		"### Phase 3: Precise Graph Query",
@@ -536,7 +536,7 @@ func ASTRuleContent() string {
 		"outdated or incomplete results — breaking the analysis pipeline.",
 		"",
 		"**Rules:**",
-		"- Call " + brand.MCPToolRef("sync") + " immediately after any source code file modifications.",
+		"- Call " + brand.MCPToolRef("sync") + " immediately after any source code file modifications — **fire-and-forget: do NOT wait for sync to complete, continue working immediately.**",
 		"- **Forgetting to call sync is a framework integrity violation.**",
 		"",
 	}
@@ -587,7 +587,7 @@ func MandateTrigger() string {
 - **Hybrid search (RECOMMENDED)**: call ` + astSearchRef + ` (passing absolute ` + "`project_dir`" + ` and ` + "`query`" + `). Combines BM25 FTS + semantic vector search via Reciprocal Rank Fusion (RRF). Supports ` + "`mode: \"hybrid\"`" + ` (default), ` + "`\"fts\"`" + `, or ` + "`\"semantic\"`" + `.
 - **Get source code (discovery)**: call ` + astSourceRef + ` (passing absolute ` + "`project_dir`" + ` and relative ` + "`path`" + `). Retrieves source from the graph when you discovered a file through AST. Supports ` + "`head`" + `/` + "`tail`" + ` (first/last N lines), ` + "`start_line`" + `/` + "`end_line`" + ` (line range), ` + "`entity`" + `/` + "`entity_type`" + ` (extract entity source by name), ` + "`pattern`" + `/` + "`regex`" + `/` + "`before`" + `/` + "`after`" + ` (grep-like search with context), and ` + "`line_numbers`" + `. If you already know the path, use your IDE's file-reading tools instead.
 - **One-shot: get metadata + full file source**: call ` + astQueryRef + ` with ` + "`" + `query: "MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source"` + "`" + `, ` + "`ai_optimized: true`" + `
-- **Reindex after changes**: call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + `)
+- **Reindex after changes**: call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + `) — fire-and-forget, do not wait
 
 ## Property Quick Reference (always active — NEVER guess property names)
 
