@@ -25,7 +25,7 @@ type knowledgeIndexInput struct {
 	Workers     int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
 	Reset       bool   `json:"reset,omitempty" jsonschema:"Clear graph and re-index from scratch"`
 	UseLouvain  bool   `json:"louvain,omitempty" jsonschema:"Use Louvain community detection"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type knowledgeQueryInput struct {
@@ -39,7 +39,7 @@ type knowledgeSearchInput struct {
 	Query       string `json:"query" jsonschema:"Keywords to search for in the knowledge wiki using BM25"`
 	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to search"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type knowledgeSchemaInput struct {
@@ -53,7 +53,7 @@ type knowledgeLintInput struct {
 	Fix         bool   `json:"fix,omitempty" jsonschema:"Auto-repair fixable issues (backlinks)"`
 	StaleDays   int    `json:"stale_days,omitempty" jsonschema:"Mark pages older than N days as stale"`
 	Context     string `json:"context,omitempty" jsonschema:"Lint an imported context by name"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type knowledgeInstallInput struct {
@@ -77,7 +77,7 @@ type knowledgeExportInput struct {
 
 type knowledgeListInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 func registerKnowledgeTools(server *mcp.Server) {
@@ -115,7 +115,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(result)
 		}
 		return jsonResult(result)
@@ -178,7 +178,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(results)
 		}
 		return jsonResult(results)
@@ -230,7 +230,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(report)
 		}
 		return jsonResult(report)
@@ -451,7 +451,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(articles)
 		}
 		return jsonResult(articles)

@@ -24,14 +24,14 @@ type astIndexInput struct {
 	Cluster     string `json:"cluster,omitempty" jsonschema:"Optional cluster label for grouping"`
 	NoSource    bool   `json:"no_source,omitempty" jsonschema:"Do not index file source contents"`
 	Grammar     string `json:"grammar,omitempty" jsonschema:"Override grammar per extension (comma-separated: .ext=grammar-name, e.g. .sql=antlr-plsql,.pks=antlr-plsql)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astQueryInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Query       string `json:"query" jsonschema:"Cypher query to execute against the AST graph database"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to query instead of the default project"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 
@@ -39,7 +39,7 @@ type astAIQueryInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Query       string `json:"query" jsonschema:"Natural language question about the codebase to convert to Cypher"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to query"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astSchemaInput struct {
@@ -53,7 +53,7 @@ type astInstallInput struct {
 	Context     string `json:"context" jsonschema:"Name of the context to assign to the imported project (required)"`
 	Reset       bool   `json:"reset,omitempty" jsonschema:"Reset the context database before importing"`
 	Workers     int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astRemoveInput struct {
@@ -63,7 +63,7 @@ type astRemoveInput struct {
 
 type astListInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astSourceInput struct {
@@ -101,7 +101,7 @@ type astSearchInput struct {
 	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 15)"`
 	Mode        string `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to search"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 func registerASTTools(server *mcp.Server) {
@@ -176,7 +176,7 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(result)
 		}
 		return jsonResult(result)
@@ -202,7 +202,7 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return textResult(ast.FormatRecordsTOON(result.Records))
 		}
 		return jsonResult(result.Records)
@@ -239,7 +239,7 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(resp)
 		}
 		return jsonResult(resp)
@@ -323,7 +323,7 @@ func registerASTTools(server *mcp.Server) {
 			_ = memsvc.Close()
 		}
 
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(result)
 		}
 		return jsonResult(result)
@@ -376,7 +376,7 @@ func registerASTTools(server *mcp.Server) {
 		}
 
 		contexts := ast.ListImportedContexts()
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(contexts)
 		}
 		return jsonResult(contexts)
@@ -542,7 +542,7 @@ func registerASTTools(server *mcp.Server) {
 			if err != nil {
 				return errResult(err)
 			}
-			if input.AiOptimized {
+			if aiOpt(input.AiOptimized) {
 				return textResult(ast.FormatSearchResultsTOON(results))
 			}
 			return jsonResult(results)
@@ -557,7 +557,7 @@ func registerASTTools(server *mcp.Server) {
 			if err != nil {
 				return errResult(err)
 			}
-			if input.AiOptimized {
+			if aiOpt(input.AiOptimized) {
 				return textResult(ast.FormatSearchResultsTOON(results))
 			}
 			return jsonResult(results)
@@ -571,7 +571,7 @@ func registerASTTools(server *mcp.Server) {
 			if err != nil {
 				return errResult(err)
 			}
-			if input.AiOptimized {
+			if aiOpt(input.AiOptimized) {
 				return textResult(ast.FormatSearchResultsTOON(results))
 			}
 			return jsonResult(results)

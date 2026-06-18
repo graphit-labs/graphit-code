@@ -33,8 +33,6 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 	lines := []string{
 		"# Knowledge Maintenance Rule",
 		"",
-		brand.UniversalAIOptimizedNote(),
-		"",
 		"> This rule is auto-managed by " + displayName + ". Do not edit this block manually.",
 		"",
 		"> ⚠️ **UNIVERSAL APPLICABILITY** — This documentation workflow applies to the",

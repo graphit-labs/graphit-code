@@ -84,3 +84,9 @@ func toonResult(v any) (*mcp.CallToolResult, any, error) {
 	return textResult(toon.FormatAny(v))
 }
 
+// aiOpt returns true by default when v is nil (parameter not sent by caller).
+// MCP tools use compact TOON format unless the caller explicitly passes false.
+func aiOpt(v *bool) bool {
+	return v == nil || *v
+}
+

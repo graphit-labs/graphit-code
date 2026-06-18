@@ -25,7 +25,7 @@ type wikiSearchInput struct {
 	TopK        int      `json:"top_k,omitempty" jsonschema:"BM25 results per wiki source (0 = no limit)"`
 	ProjectDir  string   `json:"project_dir" jsonschema:"Project directory (required)"`
 	Mode        string   `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
-	AiOptimized bool     `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type wikiChatInput struct {
@@ -44,14 +44,14 @@ type wikiBrowseInput struct {
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
 	DocType     string `json:"doc_type,omitempty" jsonschema:"Filter by document type (e.g., specification, architecture, decision)"`
 	Limit       int    `json:"limit,omitempty" jsonschema:"Max results (default: 100)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type wikiLogInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
 	Limit       int    `json:"limit,omitempty" jsonschema:"Max log entries (default: 10)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type wikiXRefsInput struct {
@@ -59,7 +59,7 @@ type wikiXRefsInput struct {
 	Query       string `json:"query" jsonschema:"Entity slug or name to find cross-references for"`
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
 	Depth       int    `json:"depth,omitempty" jsonschema:"Depth of graph traversal (default: 1, max: 3)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type wikiEmbedInput struct {
@@ -158,7 +158,7 @@ func registerWikiTools(server *mcp.Server) {
 			if len(allResults) > topK {
 				allResults = allResults[:topK]
 			}
-			if input.AiOptimized {
+			if aiOpt(input.AiOptimized) {
 				return textResult(wiki.FormatSearchResultsTOON(allResults))
 			}
 			return jsonResult(allResults)
@@ -194,7 +194,7 @@ func registerWikiTools(server *mcp.Server) {
 			if len(allResults) > topK {
 				allResults = allResults[:topK]
 			}
-			if input.AiOptimized {
+			if aiOpt(input.AiOptimized) {
 				return textResult(wiki.FormatSearchResultsTOON(allResults))
 			}
 			return jsonResult(allResults)
@@ -237,7 +237,7 @@ func registerWikiTools(server *mcp.Server) {
 			if len(allResults) > topK {
 				allResults = allResults[:topK]
 			}
-			if input.AiOptimized {
+			if aiOpt(input.AiOptimized) {
 				return textResult(wiki.FormatSearchResultsTOON(allResults))
 			}
 			return jsonResult(allResults)
@@ -364,7 +364,7 @@ func registerWikiTools(server *mcp.Server) {
 			return textResult("No wiki documents found.")
 		}
 
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return textResult(wiki.FormatBrowseResultsTOON(entries))
 		}
 
@@ -424,7 +424,7 @@ func registerWikiTools(server *mcp.Server) {
 			return textResult("No sync history found.")
 		}
 
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return textResult(wiki.FormatSyncLogTOON(entries))
 		}
 
@@ -492,7 +492,7 @@ func registerWikiTools(server *mcp.Server) {
 			return textResult(fmt.Sprintf("No cross-references found for %q.", input.Query))
 		}
 
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return textResult(wiki.FormatXRefResultsTOON(input.Query, depth, refs))
 		}
 

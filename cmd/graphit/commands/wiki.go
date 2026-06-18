@@ -92,7 +92,7 @@ Examples:
 	cmd.Flags().BoolVar(&continueSession, "continue", false, "Continue the most recent session")
 	cmd.Flags().IntVar(&topK, "top-k", 0, "BM25 results per wiki source (0 = no limit)")
 	cmd.Flags().StringVar(&searchMode, "mode", "hybrid", "Search mode: hybrid (default, FTS + semantic), fts (keyword only), semantic (vector only)")
-	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format for AI agents")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format (use --ai-optimized for TOON format)")
 	return cmd
 }
 
@@ -171,7 +171,7 @@ Examples:
 	cmd.Flags().StringVar(&wikiScope, "wiki", "project", "Wiki scope: project or memory")
 	cmd.Flags().StringVar(&docType, "type", "", "Filter by document type (e.g., specification, architecture)")
 	cmd.Flags().IntVar(&limit, "limit", 100, "Max results to return")
-	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format for AI agents")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format (use --ai-optimized for TOON format)")
 	return cmd
 }
 
@@ -197,7 +197,7 @@ Examples:
 	}
 	cmd.Flags().StringVar(&wikiScope, "wiki", "project", "Wiki scope: project or memory")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Max log entries to show")
-	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format for AI agents")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format (use --ai-optimized for TOON format)")
 	return cmd
 }
 
@@ -224,7 +224,7 @@ Examples:
 	}
 	cmd.Flags().StringVar(&wikiScope, "wiki", "project", "Wiki scope: project or memory")
 	cmd.Flags().IntVar(&depth, "depth", 1, "Depth of graph traversal (1-3)")
-	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format for AI agents")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient format (use --ai-optimized for TOON format)")
 	return cmd
 }
 

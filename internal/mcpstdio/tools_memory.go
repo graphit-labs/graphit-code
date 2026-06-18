@@ -44,7 +44,7 @@ type memoryDeleteInput struct {
 type memoryListInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memorySearchInput struct {
@@ -52,7 +52,7 @@ type memorySearchInput struct {
 	Query       string `json:"query" jsonschema:"Keywords to search for in the memory wiki using BM25"`
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memoryQueryInput struct {
@@ -65,7 +65,7 @@ type memoryQueryInput struct {
 type memoryImportantInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memoryPromoteInput struct {
@@ -84,7 +84,7 @@ type memoryConsolidateInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	Apply       bool   `json:"apply,omitempty" jsonschema:"Apply proposed changes"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memoryGCInput struct {
@@ -92,7 +92,7 @@ type memoryGCInput struct {
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	DryRun      bool   `json:"dry_run,omitempty" jsonschema:"Only scan, do not delete"`
 	StaleDays   int    `json:"stale_days,omitempty" jsonschema:"Days of inactivity before memory is stale"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memoryIndexInput struct {
@@ -246,7 +246,7 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(memories)
 		}
 		return jsonResult(memories)
@@ -279,7 +279,7 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(results)
 		}
 		return jsonResult(results)
@@ -346,7 +346,7 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(entries)
 		}
 		return jsonResult(entries)
@@ -454,7 +454,7 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(report)
 		}
 		return jsonResult(report)
@@ -504,7 +504,7 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(report)
 		}
 		return jsonResult(report)

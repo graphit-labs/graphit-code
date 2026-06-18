@@ -164,7 +164,7 @@ Examples:
 	_ = cmd.RegisterFlagCompletionFunc("context", completionASTContexts())
 	cmd.Flags().BoolVar(&aiMode, "ai", false, "Generate Cypher from natural language via AI")
 	cmd.Flags().BoolVar(&cypherOnly, "cypher", false, "Print generated Cypher without executing (requires --ai)")
-	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient tabular format for AI agents")
+	cmd.Flags().BoolVar(&aiOptimized, "ai-optimized", false, "Output in compact, token-efficient tabular format (use --ai-optimized for TOON format)")
 	cmd.Flags().BoolVar(&hybridMode, "hybrid", false, "Perform combined BM25 + semantic search via Reciprocal Rank Fusion (recommended)")
 	cmd.Flags().IntVar(&topK, "top", 0, "Limit number of results for hybrid search (0 = no limit)")
 	return cmd

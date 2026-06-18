@@ -12,8 +12,6 @@ func ASTRuleContent() string {
 	lines := []string{
 		"# Code Exploration via AST Rule",
 		"",
-		brand.UniversalAIOptimizedNote(),
-		"",
 		"## 🔒 MANDATORY: AST Graph Is Your PRIMARY Code Analysis Tool",
 		"",
 		"**The AST graph database is your DEFAULT and OBLIGATORY mechanism for any",

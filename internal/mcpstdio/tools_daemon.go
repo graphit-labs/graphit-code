@@ -16,7 +16,7 @@ import (
 )
 
 type daemonStatusInput struct {
-	AiOptimized bool `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 type daemonStopInput struct{}
 
@@ -44,7 +44,7 @@ func registerDaemonTools(server *mcp.Server) {
 
 		if alive == nil {
 			res.Running = false
-			if input.AiOptimized {
+			if aiOpt(input.AiOptimized) {
 				return toonResult(res)
 			}
 			return jsonResult(res)
@@ -60,7 +60,7 @@ func registerDaemonTools(server *mcp.Server) {
 			res.RecentLogs = splitLastNLocal(string(data), 10)
 		}
 
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(res)
 		}
 		return jsonResult(res)

@@ -21,25 +21,25 @@ import (
 
 type dreamStatusInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type dreamReportsInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	All         bool   `json:"all,omitempty" jsonschema:"Show all reports (not just new ones)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type dreamSubjectListInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type dreamSubjectAddInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Title       string `json:"title" jsonschema:"Subject title/description (required)"`
 	Body        string `json:"body,omitempty" jsonschema:"Detailed instructions for the dream agent"`
-	AiOptimized bool   `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true to get compact TOON format instead of verbose JSON"`
+	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type dreamSubjectRemoveInput struct {
@@ -139,7 +139,7 @@ func registerDreamTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(res)
 		}
 		return jsonResult(res)
@@ -188,7 +188,7 @@ func registerDreamTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(display)
 		}
 		return jsonResult(display)
@@ -212,7 +212,7 @@ func registerDreamTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(subjects)
 		}
 		return jsonResult(subjects)
@@ -236,7 +236,7 @@ func registerDreamTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if input.AiOptimized {
+		if aiOpt(input.AiOptimized) {
 			return toonResult(subj)
 		}
 		return jsonResult(subj)

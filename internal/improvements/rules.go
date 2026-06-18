@@ -14,7 +14,6 @@ func DefaultRules() string {
 	var b strings.Builder
 
 	b.WriteString("# Code Improvement Analysis Methodology\n\n")
-	b.WriteString(brand.UniversalAIOptimizedNote() + "\n\n")
 	b.WriteString("This document defines the engineering principles and analysis methodology\n")
 	b.WriteString("for evaluating and improving a codebase. Follow each section systematically.\n\n")
 

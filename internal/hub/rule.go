@@ -33,8 +33,6 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 	lines := []string{
 		"# Hub Discovery Rule",
 		"",
-		brand.UniversalAIOptimizedNote(),
-		"",
 		"## Objective",
 		"",
 		"The Hub is a centralized registry of shareable artifacts that enrich your development",
