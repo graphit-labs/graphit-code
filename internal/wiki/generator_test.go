@@ -2,7 +2,7 @@ package wiki
 
 import "testing"
 
-func TestSafeFilename(t *testing.T) {
+func TestSafeSlug(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name  string
@@ -32,9 +32,9 @@ func TestSafeFilename(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := SafeFilename(tt.input)
+			got := SafeSlug(tt.input)
 			if got != tt.want {
-				t.Errorf("SafeFilename(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("SafeSlug(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

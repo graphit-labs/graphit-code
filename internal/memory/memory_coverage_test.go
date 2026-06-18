@@ -1076,28 +1076,28 @@ func listRecentInDir(dir string, limit int) ([]ImportantEntry, error) {
 
 func TestMemoryEntityPage_StaleWarning(t *testing.T) {
 	oldDate := time.Now().Add(-60 * 24 * time.Hour).Format(time.RFC3339)
-	page := memoryEntityPage("ID", "Old Memory", oldDate, false, "Body.", "fact")
+	page := memoryEntityPageWithHash("ID", "Old Memory", oldDate, false, "Body.", "fact", "")
 	if !strings.Contains(page, "Stale memory") {
 		t.Error("expected stale memory warning for 60-day-old memory")
 	}
 }
 
 func TestMemoryEntityPage_UnknownTypeEmoji(t *testing.T) {
-	page := memoryEntityPage("ID", "Custom Type", "", false, "Body.", "custom-type")
+	page := memoryEntityPageWithHash("ID", "Custom Type", "", false, "Body.", "custom-type", "")
 	if !strings.Contains(page, "📄") {
 		t.Error("expected fallback emoji for unknown type")
 	}
 }
 
 func TestMemoryEntityPage_NoBody(t *testing.T) {
-	page := memoryEntityPage("ID", "Title", "", false, "", "fact")
+	page := memoryEntityPageWithHash("ID", "Title", "", false, "", "fact", "")
 	if !strings.Contains(page, "# Title") {
 		t.Error("should contain title")
 	}
 }
 
 func TestMemoryEntityPage_NoCreatedAt(t *testing.T) {
-	page := memoryEntityPage("ID", "Title", "", false, "Body.", "")
+	page := memoryEntityPageWithHash("ID", "Title", "", false, "Body.", "", "")
 	if strings.Contains(page, "created:") {
 		t.Error("should not contain created when empty")
 	}

@@ -405,6 +405,18 @@ func (w *WikiDB) Rebuild(chunks []WikiChunk, xrefs map[string][]string, logEntry
 		_ = rows.Close()
 	}
 
+	// Copy wiki_meta entries from the live DB (preserves rebuild_count and other
+	// persistent counters across the atomic rename).
+	if rows, err := w.db.Query(`SELECT key, value FROM wiki_meta WHERE key != 'schema_version'`); err == nil {
+		for rows.Next() {
+			var key, value string
+			if rows.Scan(&key, &value) == nil {
+				_, _ = tx.Exec(`INSERT OR REPLACE INTO wiki_meta (key, value) VALUES (?, ?)`, key, value)
+			}
+		}
+		_ = rows.Close()
+	}
+
 	// 1. Insert all chunks.
 	chunkStmt, err := tx.Prepare(`INSERT INTO chunks
 		(slug, title, body, summary, doc_type, source, breadcrumb, parent_slug,
@@ -496,8 +508,8 @@ func (w *WikiDB) Rebuild(chunks []WikiChunk, xrefs map[string][]string, logEntry
 	// 5. Restore embeddings from JSON cache (source of truth).
 	restored := w.restoreEmbeddingsFromCache(embCache)
 
-	// 6. Optimize FTS tables.
-	w.optimizeTables()
+	// 6. Optimize FTS tables (conditionally — every 10 rebuilds).
+	w.optimizeTablesIfNeeded()
 
 	w.log().Info("wiki db rebuild", "chunks", len(chunks), "xrefs", len(xrefs), "embeddings_restored", restored)
 	return nil
@@ -505,6 +517,81 @@ func (w *WikiDB) Rebuild(chunks []WikiChunk, xrefs map[string][]string, logEntry
 func (w *WikiDB) optimizeTables() {
 	_, _ = w.db.Exec(`INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')`)
 	_, _ = w.db.Exec(`INSERT INTO chunks_trigram(chunks_trigram) VALUES('optimize')`)
+}
+
+// optimizeTablesIfNeeded runs FTS5 optimize only every 10 rebuilds to avoid
+// expensive FTS segment merges on every sync.
+func (w *WikiDB) optimizeTablesIfNeeded() {
+	var countStr string
+	row := w.db.QueryRow(`SELECT value FROM wiki_meta WHERE key = 'rebuild_count'`)
+	_ = row.Scan(&countStr)
+
+	count := 0
+	for _, c := range countStr {
+		if c >= '0' && c <= '9' {
+			count = count*10 + int(c-'0')
+		}
+	}
+	count++
+
+	_, _ = w.db.Exec(`INSERT OR REPLACE INTO wiki_meta (key, value) VALUES ('rebuild_count', ?)`,
+		fmt.Sprintf("%d", count))
+
+	// Run optimize every 10 rebuilds to merge FTS segments.
+	if count%10 == 0 {
+		w.optimizeTables()
+	}
+}
+
+// CheckAllHashesMatch returns true if every chunk in the given slice already
+// exists in the DB with the same content_hash AND the total count matches.
+// This is a cheap read-only check (one query) used by RebuildDB to skip
+// the full rebuild cycle when nothing has changed.
+func (w *WikiDB) CheckAllHashesMatch(chunks []WikiChunk) bool {
+	if len(chunks) == 0 {
+		return false
+	}
+
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	// Fetch all content_hash values from the current DB in one query.
+	rows, err := w.db.Query(`SELECT content_hash FROM chunks`)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = rows.Close() }()
+
+	dbHashes := make(map[string]int) // hash → count in DB
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			continue
+		}
+		if h != "" {
+			dbHashes[h]++
+		}
+	}
+
+	// Build expected hash counts from the incoming chunks.
+	wantHashes := make(map[string]int, len(chunks))
+	for _, c := range chunks {
+		if c.ContentHash == "" {
+			return false // a chunk without a hash forces rebuild
+		}
+		wantHashes[c.ContentHash]++
+	}
+
+	// Compare: same set of hashes with same multiplicity?
+	if len(dbHashes) != len(wantHashes) {
+		return false
+	}
+	for h, want := range wantHashes {
+		if dbHashes[h] != want {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------

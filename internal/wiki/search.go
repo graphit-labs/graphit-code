@@ -295,7 +295,7 @@ func extractSnippet(content, query string) string {
 
 	if bestIdx < 0 {
 
-		body := stripYAMLFrontmatter(content)
+		body := StripFrontmatter(content)
 		if len(body) > 150 {
 			return body[:150] + "…"
 		}
@@ -370,7 +370,7 @@ func parsePageList(reply string) []string {
 func loadWikiPage(wikiDir, page string) (string, string) {
 	candidates := []string{
 		filepath.Join(wikiDir, page+".md"),
-		filepath.Join(wikiDir, SafeFilename(page)+".md"),
+		filepath.Join(wikiDir, SafeSlug(page)+".md"),
 	}
 	for _, p := range candidates {
 		data, err := os.ReadFile(p)
@@ -392,48 +392,8 @@ func loadWikiPage(wikiDir, page string) (string, string) {
 	return "", ""
 }
 
-func cleanForFuzzy(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-func getTrigrams(s string) map[string]bool {
-	s = strings.ToLower(s)
-	trigrams := make(map[string]bool)
-	if len(s) < 3 {
-		trigrams[s] = true
-		return trigrams
-	}
-	for i := 0; i <= len(s)-3; i++ {
-		trigrams[s[i:i+3]] = true
-	}
-	return trigrams
-}
-
-func trigramSimilarity(s1, s2 string) float64 {
-	t1 := getTrigrams(s1)
-	t2 := getTrigrams(s2)
-
-	intersection := 0
-	for k := range t1 {
-		if t2[k] {
-			intersection++
-		}
-	}
-	union := len(t1) + len(t2) - intersection
-	if union == 0 {
-		return 0.0
-	}
-	return float64(intersection) / float64(union)
-}
-
 func findBestFuzzyMatch(wikiDir, targetPage string) string {
-	targetClean := cleanForFuzzy(targetPage)
+	targetClean := CleanForFuzzy(targetPage)
 	if targetClean == "" {
 		return ""
 	}
@@ -455,8 +415,7 @@ func findBestFuzzyMatch(wikiDir, targetPage string) string {
 			continue
 		}
 
-		slugClean := cleanForFuzzy(slug)
-		score := trigramSimilarity(targetClean, slugClean)
+		score := TrigramSimilarity(targetClean, CleanForFuzzy(slug))
 		if score > bestScore {
 			bestScore = score
 			bestMatch = slug

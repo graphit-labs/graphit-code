@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,11 +67,11 @@ func TestAutoLinking(t *testing.T) {
 		"AST Indexer":    "AST_Indexer",
 	}
 
-	compiledTargets := buildAutoLinkTargets(titlesMap)
+	compiledTargets := wiki.BuildAutoLinkTargets(titlesMap)
 
 	// 1. Basic auto-linking
 	content := "This is a document about Daemon Service and how AST Indexer behaves."
-	linked, refs := autoLinkContent(content, compiledTargets, "Some_Other_Page")
+	linked, refs := wiki.AutoLinkContent(content, compiledTargets, "Some_Other_Page")
 	expectedLinked := "This is a document about [[Daemon_Service|Daemon Service]] and how [[AST_Indexer|AST Indexer]] behaves."
 	if linked != expectedLinked {
 		t.Errorf("expected %q, got %q", expectedLinked, linked)
@@ -81,7 +82,7 @@ func TestAutoLinking(t *testing.T) {
 
 	// 2. Do not link self
 	contentSelf := "Daemon Service talks to AST Indexer."
-	linkedSelf, refsSelf := autoLinkContent(contentSelf, compiledTargets, "Daemon_Service")
+	linkedSelf, refsSelf := wiki.AutoLinkContent(contentSelf, compiledTargets, "Daemon_Service")
 	expectedSelf := "Daemon Service talks to [[AST_Indexer|AST Indexer]]."
 	if linkedSelf != expectedSelf {
 		t.Errorf("expected %q, got %q", expectedSelf, linkedSelf)
@@ -92,7 +93,7 @@ func TestAutoLinking(t *testing.T) {
 
 	// 3. Ignore code blocks and inline code and existing links
 	contentIgnored := "Use `Daemon Service` and block:\n```go\nvar d = Daemon Service\n```\nAnd existing link [[Daemon_Service|Daemon Service]]."
-	linkedIgnored, _ := autoLinkContent(contentIgnored, compiledTargets, "Some_Other_Page")
+	linkedIgnored, _ := wiki.AutoLinkContent(contentIgnored, compiledTargets, "Some_Other_Page")
 	if linkedIgnored != contentIgnored {
 		t.Errorf("expected no auto-linking for code blocks or existing links, got %q", linkedIgnored)
 	}
@@ -120,7 +121,7 @@ Short section content.
 `,
 	}
 
-	splits := splitDocByHeaders(doc)
+	splits := splitByH2HeadersTestCompat(doc)
 	// We expect 3 documents: parent (keeps Empty Section) + Section One + Section Two (all H2 with content are split)
 	if len(splits) != 3 {
 		t.Fatalf("expected 3 split docs, got %d", len(splits))
@@ -175,7 +176,7 @@ func TestResolveWikiLinksInBody(t *testing.T) {
 
 	// 1. Exact matches and labels
 	body := "Read [[Test Document - Section One]] or look at [[Test Document|Custom Label]]."
-	resolved := resolveWikiLinksInBody(body, titlesMap)
+	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	expected := "Read [[Test_Document_-_Section_One]] or look at [[Test_Document|Custom Label]]."
 	if resolved != expected {
 		t.Errorf("expected %q, got %q", expected, resolved)
@@ -183,7 +184,7 @@ func TestResolveWikiLinksInBody(t *testing.T) {
 
 	// 2. Case-insensitive matches
 	bodyCI := "Read [[test document - section one]] or [[TEST DOCUMENT]]."
-	resolvedCI := resolveWikiLinksInBody(bodyCI, titlesMap)
+	resolvedCI := wiki.ResolveWikiLinksInBody(bodyCI, titlesMap)
 	expectedCI := "Read [[Test_Document_-_Section_One]] or [[Test_Document]]."
 	if resolvedCI != expectedCI {
 		t.Errorf("expected %q, got %q", expectedCI, resolvedCI)
@@ -191,7 +192,7 @@ func TestResolveWikiLinksInBody(t *testing.T) {
 
 	// 3. Trigram fuzzy matches (typos)
 	bodyFuzzy := "Read [[Test Docment]] or [[Test Document - Sectin One]]."
-	resolvedFuzzy := resolveWikiLinksInBody(bodyFuzzy, titlesMap)
+	resolvedFuzzy := wiki.ResolveWikiLinksInBody(bodyFuzzy, titlesMap)
 	expectedFuzzy := "Read [[Test_Document]] or [[Test_Document_-_Section_One]]."
 	if resolvedFuzzy != expectedFuzzy {
 		t.Errorf("expected %q, got %q", expectedFuzzy, resolvedFuzzy)
@@ -212,9 +213,9 @@ func TestSafeFilenameEmojis(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got := safeFilename(tc.input)
+		got := wiki.SafeSlug(tc.input)
 		if got != tc.want {
-			t.Errorf("safeFilename(%q) = %q; want %q", tc.input, got, tc.want)
+			t.Errorf("wiki.SafeSlug(%q) = %q; want %q", tc.input, got, tc.want)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"context"
 	"fmt"
 	"os"
@@ -350,9 +351,9 @@ func TestSafeMemFilename(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := safeMemFilename(tc.in)
+			got := wiki.SafeSlug(tc.in)
 			if got != tc.want {
-				t.Errorf("safeMemFilename(%q) = %q; want %q", tc.in, got, tc.want)
+				t.Errorf("wiki.SafeSlug(%q) = %q; want %q", tc.in, got, tc.want)
 			}
 		})
 	}
@@ -366,7 +367,7 @@ func TestUniqueMemSlug(t *testing.T) {
 	used := make(map[string]bool)
 
 	// First use — no collision
-	slug1 := uniqueMemSlug("test", used)
+	slug1 := wiki.UniqueSlug("test", used)
 	if slug1 != "test" {
 		t.Errorf("expected 'test', got %q", slug1)
 	}
@@ -375,7 +376,7 @@ func TestUniqueMemSlug(t *testing.T) {
 	}
 
 	// Second use — collision → suffix _2
-	slug2 := uniqueMemSlug("test", used)
+	slug2 := wiki.UniqueSlug("test", used)
 	if slug2 != "test_2" {
 		t.Errorf("expected 'test_2', got %q", slug2)
 	}
@@ -384,7 +385,7 @@ func TestUniqueMemSlug(t *testing.T) {
 	}
 
 	// Third use — collision → suffix _3
-	slug3 := uniqueMemSlug("test", used)
+	slug3 := wiki.UniqueSlug("test", used)
 	if slug3 != "test_3" {
 		t.Errorf("expected 'test_3', got %q", slug3)
 	}
@@ -1392,7 +1393,7 @@ func TestHubBranch(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestMemoryEntityPage(t *testing.T) {
-	page := memoryEntityPage("ID1", "Test Memory", "2026-05-20T00:00:00Z", true, "Content here.", "convention")
+	page := memoryEntityPageWithHash("ID1", "Test Memory", "2026-05-20T00:00:00Z", true, "Content here.", "convention", "")
 	checks := []struct {
 		desc   string
 		substr string
@@ -1413,7 +1414,7 @@ func TestMemoryEntityPage(t *testing.T) {
 }
 
 func TestMemoryEntityPage_NotImportant(t *testing.T) {
-	page := memoryEntityPage("ID2", "Simple", "", false, "Body.", "")
+	page := memoryEntityPageWithHash("ID2", "Simple", "", false, "Body.", "", "")
 	if strings.Contains(page, "Important memory") {
 		t.Error("should not contain important badge")
 	}

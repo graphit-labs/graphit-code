@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"context"
 	"fmt"
 	"os"
@@ -1101,9 +1102,9 @@ func TestSafeMemFilename_Boost(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
-			got := safeMemFilename(tc.input)
+			got := wiki.SafeSlug(tc.input)
 			if got != tc.want {
-				t.Errorf("safeMemFilename(%q) = %q; want %q", tc.input, got, tc.want)
+				t.Errorf("wiki.SafeSlug(%q) = %q; want %q", tc.input, got, tc.want)
 			}
 		})
 	}
@@ -1116,23 +1117,23 @@ func TestSafeMemFilename_Boost(t *testing.T) {
 func TestUniqueMemSlug_Boost(t *testing.T) {
 	used := make(map[string]bool)
 
-	slug1 := uniqueMemSlug("test", used)
+	slug1 := wiki.UniqueSlug("test", used)
 	if slug1 != "test" {
 		t.Errorf("first slug = %q; want 'test'", slug1)
 	}
 
-	slug2 := uniqueMemSlug("test", used)
+	slug2 := wiki.UniqueSlug("test", used)
 	if slug2 != "test_2" {
 		t.Errorf("second slug = %q; want 'test_2'", slug2)
 	}
 
-	slug3 := uniqueMemSlug("test", used)
+	slug3 := wiki.UniqueSlug("test", used)
 	if slug3 != "test_3" {
 		t.Errorf("third slug = %q; want 'test_3'", slug3)
 	}
 
 	// Different base should work
-	slug4 := uniqueMemSlug("other", used)
+	slug4 := wiki.UniqueSlug("other", used)
 	if slug4 != "other" {
 		t.Errorf("different base = %q; want 'other'", slug4)
 	}
@@ -1197,7 +1198,7 @@ func TestParseMemoryType_Boost(t *testing.T) {
 func TestMemoryEntityPage_FullRendering(t *testing.T) {
 	// Recent date (no stale warning)
 	recentDate := time.Now().Add(-5 * 24 * time.Hour).Format(time.RFC3339)
-	page := memoryEntityPage("ID123", "My Title", recentDate, true, "Body content.", "convention")
+	page := memoryEntityPageWithHash("ID123", "My Title", recentDate, true, "Body content.", "convention", "")
 
 	if !strings.Contains(page, "title: My Title") {
 		t.Error("should contain title in frontmatter")
@@ -1236,7 +1237,7 @@ func TestMemoryEntityPage_AllTypeEmojis(t *testing.T) {
 		"unknown":    "📄",
 	}
 	for typ, emoji := range types {
-		page := memoryEntityPage("ID", "Title", "", false, "Body", typ)
+		page := memoryEntityPageWithHash("ID", "Title", "", false, "Body", typ, "")
 		if !strings.Contains(page, emoji) {
 			t.Errorf("type %q should produce emoji %s", typ, emoji)
 		}
@@ -1244,7 +1245,7 @@ func TestMemoryEntityPage_AllTypeEmojis(t *testing.T) {
 }
 
 func TestMemoryEntityPage_NoType(t *testing.T) {
-	page := memoryEntityPage("ID", "Title", "", false, "Body", "")
+	page := memoryEntityPageWithHash("ID", "Title", "", false, "Body", "", "")
 	if strings.Contains(page, "**Type:**") {
 		t.Error("should not have type annotation when type is empty")
 	}

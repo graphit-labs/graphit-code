@@ -22,6 +22,16 @@ func RebuildDB(wikiDir string, chunks []WikiChunk, xrefs map[string][]string, lo
 	}
 	defer db.Close()
 
+	// Fast path: if every chunk hash already exists in the DB with the same
+	// count, skip the expensive write-to-temp + FTS5 rebuild + atomic rename
+	// cycle entirely. This check is a single SELECT query — negligible cost.
+	// Note: we only skip when there's no new sync log entry (i.e., no docs
+	// actually changed at the higher level).
+	if logEntry == nil && db.CheckAllHashesMatch(chunks) {
+		// DB is already in sync — nothing to do.
+		return nil
+	}
+
 	var embCache EmbeddingCache
 	if cache != nil {
 		embCache = cache.LoadAllEmbeddings()

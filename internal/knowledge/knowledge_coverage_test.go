@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"context"
 	"os"
 	"path/filepath"
@@ -9,6 +10,24 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
+
+// splitByH2HeadersTestCompat adapts wiki.SplitByH2Headers to the old knowledgeDoc signature.
+func splitByH2HeadersTestCompat(doc knowledgeDoc) []knowledgeDoc {
+	results := wiki.SplitByH2Headers(doc.title, doc.body)
+	out := make([]knowledgeDoc, len(results))
+	for i, r := range results {
+		out[i] = knowledgeDoc{
+			title:       r.Title,
+			body:        r.Body,
+			summary:     r.Summary,
+			parentTitle: r.ParentTitle,
+			breadcrumb:  r.Breadcrumb,
+			contentHash: r.ContentHash,
+		}
+	}
+	return out
+}
+
 
 // ─── wiki.go helpers ───────────────────────────────────────────────────────────
 
@@ -28,9 +47,9 @@ func TestExtractDocTitle(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := extractDocTitle(tc.content, tc.relPath)
+			got := wiki.ExtractTitle(tc.content, tc.relPath)
 			if got != tc.want {
-				t.Errorf("extractDocTitle(%q, %q) = %q; want %q", tc.content, tc.relPath, got, tc.want)
+				t.Errorf("wiki.ExtractTitle(%q, %q) = %q; want %q", tc.content, tc.relPath, got, tc.want)
 			}
 		})
 	}
@@ -52,9 +71,9 @@ func TestExtractDocSummary(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := extractDocSummary(tc.content)
+			got := wiki.ExtractSummary(tc.content)
 			if got != tc.want {
-				t.Errorf("extractDocSummary() = %q; want %q", got, tc.want)
+				t.Errorf("wiki.ExtractSummary() = %q; want %q", got, tc.want)
 			}
 		})
 	}
@@ -62,7 +81,7 @@ func TestExtractDocSummary(t *testing.T) {
 
 func TestExtractDocCrossRefs(t *testing.T) {
 	content := "---\ntitle: T\n---\nSee [[PageA]] and [[PageB|Label B]] and [[PageA]] again."
-	refs := extractDocCrossRefs(content)
+	refs := wiki.ExtractCrossRefs(content)
 	if len(refs) != 2 {
 		t.Fatalf("expected 2 refs, got %d: %v", len(refs), refs)
 	}
@@ -122,9 +141,9 @@ func TestStripFrontmatter(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := stripFrontmatter(tc.input)
+			got := wiki.StripFrontmatter(tc.input)
 			if got != tc.want {
-				t.Errorf("stripFrontmatter() = %q; want %q", got, tc.want)
+				t.Errorf("wiki.StripFrontmatter() = %q; want %q", got, tc.want)
 			}
 		})
 	}
@@ -291,7 +310,7 @@ func TestAppendKnowledgeLog(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "log.md")
 
-	details := map[string]logDocDetails{
+	details := map[string]wiki.LogDocDetails{
 		"page_a": {Title: "Page A", Summary: "A summary"},
 		"page_b": {Title: "Page B", Summary: strings.Repeat("x", 130)},
 		"page_c": {Title: "Page C", Summary: ""},
@@ -363,7 +382,7 @@ func TestAppendKnowledgeLogNoDetails(t *testing.T) {
 		[]string{"unknown_page"},
 		[]string{"other_unknown"},
 		nil,
-		map[string]logDocDetails{},
+		map[string]wiki.LogDocDetails{},
 	)
 	data, err := os.ReadFile(logPath)
 	if err != nil {
@@ -388,7 +407,7 @@ func TestAppendKnowledgeLogNoSeparator(t *testing.T) {
 	appendKnowledgeLog(logPath, 1, 1, 0,
 		[]string{"page_x"},
 		nil, nil,
-		map[string]logDocDetails{"page_x": {Title: "Page X", Summary: "Summary X"}},
+		map[string]wiki.LogDocDetails{"page_x": {Title: "Page X", Summary: "Summary X"}},
 	)
 	data, _ := os.ReadFile(logPath)
 	content := string(data)
@@ -402,48 +421,48 @@ func TestAppendKnowledgeLogNoSeparator(t *testing.T) {
 
 func TestUniqueKSlug(t *testing.T) {
 	used := map[string]bool{}
-	s1 := uniqueKSlug("page", used)
+	s1 := wiki.UniqueSlug("page", used)
 	if s1 != "page" {
 		t.Errorf("expected 'page', got %q", s1)
 	}
-	s2 := uniqueKSlug("page", used)
+	s2 := wiki.UniqueSlug("page", used)
 	if s2 != "page_2" {
 		t.Errorf("expected 'page_2', got %q", s2)
 	}
-	s3 := uniqueKSlug("page", used)
+	s3 := wiki.UniqueSlug("page", used)
 	if s3 != "page_3" {
 		t.Errorf("expected 'page_3', got %q", s3)
 	}
 }
 
 func TestSafeFilenameDoubleChars(t *testing.T) {
-	got := safeFilename("a__b--c")
+	got := wiki.SafeSlug("a__b--c")
 	if strings.Contains(got, "__") || strings.Contains(got, "--") {
 		t.Errorf("expected no double underscores or dashes, got %q", got)
 	}
-	got2 := safeFilename("_leading-and-trailing_")
+	got2 := wiki.SafeSlug("_leading-and-trailing_")
 	if strings.HasPrefix(got2, "_") || strings.HasSuffix(got2, "_") || strings.HasPrefix(got2, "-") || strings.HasSuffix(got2, "-") {
 		t.Errorf("expected no leading/trailing _ or -, got %q", got2)
 	}
 }
 
 func TestCleanForFuzzy(t *testing.T) {
-	got := cleanForFuzzy("Hello World! 123")
+	got := wiki.CleanForFuzzy("Hello World! 123")
 	if got != "helloworld123" {
-		t.Errorf("cleanForFuzzy() = %q; want 'helloworld123'", got)
+		t.Errorf("wiki.CleanForFuzzy() = %q; want 'helloworld123'", got)
 	}
-	got2 := cleanForFuzzy("A_B-C.D")
+	got2 := wiki.CleanForFuzzy("A_B-C.D")
 	if got2 != "abcd" {
-		t.Errorf("cleanForFuzzy() = %q; want 'abcd'", got2)
+		t.Errorf("wiki.CleanForFuzzy() = %q; want 'abcd'", got2)
 	}
 }
 
 func TestGetTrigrams(t *testing.T) {
-	short := getTrigrams("ab")
+	short := wiki.GetTrigrams("ab")
 	if !short["ab"] || len(short) != 1 {
 		t.Errorf("short string trigrams: %v", short)
 	}
-	normal := getTrigrams("hello")
+	normal := wiki.GetTrigrams("hello")
 	expected := map[string]bool{"hel": true, "ell": true, "llo": true}
 	for k := range expected {
 		if !normal[k] {
@@ -453,15 +472,15 @@ func TestGetTrigrams(t *testing.T) {
 }
 
 func TestTrigramSimilarity(t *testing.T) {
-	s := trigramSimilarity("hello", "hello")
+	s := wiki.TrigramSimilarity("hello", "hello")
 	if s != 1.0 {
 		t.Errorf("identical strings should have similarity 1.0, got %.2f", s)
 	}
-	s2 := trigramSimilarity("hello", "world")
+	s2 := wiki.TrigramSimilarity("hello", "world")
 	if s2 >= 0.5 {
 		t.Errorf("dissimilar strings should have low similarity, got %.2f", s2)
 	}
-	s3 := trigramSimilarity("", "")
+	s3 := wiki.TrigramSimilarity("", "")
 	// Both empty → union = 0 → returns 0.0
 	if s3 != 0.0 {
 		// Union of two empty trigram sets where both contain "" is 1,
@@ -478,19 +497,19 @@ func TestFindBestFuzzyTitleMatch(t *testing.T) {
 	}
 
 	// Close match
-	slug, ok := findBestFuzzyTitleMatch("Authenticaton Module", titlesMap)
+	slug, ok := wiki.FindBestFuzzyTitleMatch("Authenticaton Module", titlesMap)
 	if !ok || slug != "Auth_Module" {
 		t.Errorf("expected Auth_Module match, got %q (ok=%v)", slug, ok)
 	}
 
 	// No match
-	_, ok2 := findBestFuzzyTitleMatch("zzzzzzzzz", titlesMap)
+	_, ok2 := wiki.FindBestFuzzyTitleMatch("zzzzzzzzz", titlesMap)
 	if ok2 {
 		t.Error("expected no fuzzy match for completely different string")
 	}
 
 	// Empty target
-	_, ok3 := findBestFuzzyTitleMatch("", titlesMap)
+	_, ok3 := wiki.FindBestFuzzyTitleMatch("", titlesMap)
 	if ok3 {
 		t.Error("expected no fuzzy match for empty target")
 	}
@@ -501,7 +520,7 @@ func TestAutoLinkContentFrontmatter(t *testing.T) {
 		"Daemon Service": "Daemon_Service",
 	}
 	body := "---\ntitle: Daemon Service\n---\nDaemon Service is great."
-	linked, refs := autoLinkContent(body, buildAutoLinkTargets(titlesMap), "Other")
+	linked, refs := wiki.AutoLinkContent(body, wiki.BuildAutoLinkTargets(titlesMap), "Other")
 	// Frontmatter should not be linked
 	if strings.Contains(linked, "[[Daemon_Service|Daemon Service]]") && strings.Contains(linked, "---\ntitle: [[") {
 		t.Error("should not auto-link inside frontmatter")
@@ -516,7 +535,7 @@ func TestAutoLinkContentShortTermFiltered(t *testing.T) {
 		"AB": "AB_Page",
 	}
 	body := "The AB module is here."
-	linked, refs := autoLinkContent(body, buildAutoLinkTargets(titlesMap), "Other")
+	linked, refs := wiki.AutoLinkContent(body, wiki.BuildAutoLinkTargets(titlesMap), "Other")
 	// "AB" is less than 3 chars, should be skipped
 	if linked != body {
 		t.Errorf("short terms should not be linked, got %q", linked)
@@ -527,10 +546,10 @@ func TestAutoLinkContentShortTermFiltered(t *testing.T) {
 }
 
 func TestAutoLinkLineMdLinks(t *testing.T) {
-	targets := buildAutoLinkTargets(map[string]string{"My Page": "My_Page"})
+	targets := wiki.BuildAutoLinkTargets(map[string]string{"My Page": "My_Page"})
 	refs := make(map[string]bool)
 	line := "Check [My Page](https://example.com) for details."
-	result := autoLinkLine(line, targets, "Other", refs)
+	result := wiki.AutoLinkLine(line, targets, "Other", refs)
 	// Should not auto-link inside markdown links
 	if strings.Contains(result, "[[My_Page") {
 		t.Errorf("should not auto-link inside markdown links, got %q", result)
@@ -976,7 +995,7 @@ func TestResolveWikiLinksInBodySlugged(t *testing.T) {
 	}
 	// Case-insensitive slugified lookup
 	body := "See [[auth module]] for details."
-	resolved := resolveWikiLinksInBody(body, titlesMap)
+	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	if !strings.Contains(resolved, "[[Auth_Module]]") {
 		t.Errorf("expected resolved link, got %q", resolved)
 	}
@@ -988,7 +1007,7 @@ func TestResolveWikiLinksInBodyFuzzy(t *testing.T) {
 	}
 	// Fuzzy match via trigrams
 	body := "See [[Authenticaton Service]] for details."
-	resolved := resolveWikiLinksInBody(body, titlesMap)
+	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	if !strings.Contains(resolved, "[[Auth_Service]]") {
 		t.Errorf("expected fuzzy resolved link, got %q", resolved)
 	}
@@ -999,7 +1018,7 @@ func TestResolveWikiLinksInBodyNoMatch(t *testing.T) {
 		"Auth Module": "Auth_Module",
 	}
 	body := "See [[Completely Different]] for details."
-	resolved := resolveWikiLinksInBody(body, titlesMap)
+	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	if !strings.Contains(resolved, "[[Completely Different]]") {
 		t.Errorf("should not modify unmatched link, got %q", resolved)
 	}
@@ -1009,7 +1028,7 @@ func TestResolveWikiLinksInBodySubmatchShort(t *testing.T) {
 	// Edge case: submatch < 2 should return original match (unlikely in practice)
 	titlesMap := map[string]string{}
 	body := "Plain text with no links."
-	resolved := resolveWikiLinksInBody(body, titlesMap)
+	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	if resolved != body {
 		t.Errorf("should not modify text without links, got %q", resolved)
 	}
@@ -1020,7 +1039,7 @@ func TestResolveWikiLinksInBodyWithLabel(t *testing.T) {
 		"Auth Module": "Auth_Module",
 	}
 	body := "See [[Auth Module|Custom Label]] for details."
-	resolved := resolveWikiLinksInBody(body, titlesMap)
+	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	if !strings.Contains(resolved, "[[Auth_Module|Custom Label]]") {
 		t.Errorf("expected label preservation, got %q", resolved)
 	}
@@ -1033,7 +1052,7 @@ func TestSplitDocByHeadersNoH2(t *testing.T) {
 		title: "No Headers",
 		body:  "---\ntitle: T\n---\nJust body content",
 	}
-	result := splitDocByHeaders(doc)
+	result := splitByH2HeadersTestCompat(doc)
 	if len(result) != 1 || result[0].title != "No Headers" {
 		t.Errorf("expected single doc, got %d", len(result))
 	}
@@ -1044,7 +1063,7 @@ func TestSplitDocByHeadersAllShort(t *testing.T) {
 		title: "All Short",
 		body:  "---\ntitle: T\n---\nIntro\n\n## S1\nShort.\n\n## S2\nAlso short.\n",
 	}
-	result := splitDocByHeaders(doc)
+	result := splitByH2HeadersTestCompat(doc)
 	// All H2 sections have content → all split (no word-count threshold)
 	if len(result) != 3 {
 		t.Errorf("expected 3 docs (parent + 2 children), got %d", len(result))
@@ -1060,7 +1079,7 @@ func TestSplitDocByHeadersCodeBlockH2(t *testing.T) {
 		body: "---\ntitle: T\n---\nIntro\n\n```go\n## Not a header\ncode\n```\n\n## Real Header\n" +
 			strings.Repeat("word ", 160) + "\n",
 	}
-	result := splitDocByHeaders(doc)
+	result := splitByH2HeadersTestCompat(doc)
 	// Should split on the real header only
 	if len(result) != 2 {
 		t.Errorf("expected 2 docs, got %d", len(result))
@@ -1073,7 +1092,7 @@ func TestSplitDocByHeadersEmptySection(t *testing.T) {
 		title: "EmptySection",
 		body:  "Intro\n\n## Empty\n\n## Long\n" + longContent + "\n",
 	}
-	result := splitDocByHeaders(doc)
+	result := splitByH2HeadersTestCompat(doc)
 	if len(result) < 2 {
 		t.Errorf("expected at least 2 docs, got %d", len(result))
 	}
@@ -1114,7 +1133,7 @@ func TestResolveWikiLinksInBodySluggifiedFallback(t *testing.T) {
 	// Use a link that does NOT match directly or case-insensitively,
 	// but DOES match when slugified
 	body := "See [[My: Special/Page]] for details."
-	resolved := resolveWikiLinksInBody(body, titlesMap)
+	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	if !strings.Contains(resolved, "[[My-_Special-Page]]") {
 		t.Errorf("expected slugified resolved link, got %q", resolved)
 	}
@@ -1126,7 +1145,7 @@ func TestResolveWikiLinksInBodySlugMatchOnly(t *testing.T) {
 		"Original Title": "original_title",
 	}
 	body := "See [[Original_Title]] for details."
-	resolved := resolveWikiLinksInBody(body, titlesMap)
+	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	if !strings.Contains(resolved, "[[original_title]]") {
 		t.Errorf("expected slug match, got %q", resolved)
 	}
@@ -1138,7 +1157,7 @@ func TestFindBestFuzzyTitleMatchSlugBased(t *testing.T) {
 	titlesMap := map[string]string{
 		"Very Different Title Name": "auth_modulex",
 	}
-	slug, ok := findBestFuzzyTitleMatch("auth_module", titlesMap)
+	slug, ok := wiki.FindBestFuzzyTitleMatch("auth_module", titlesMap)
 	if !ok {
 		t.Error("expected fuzzy match via slug similarity")
 	}
@@ -1222,7 +1241,7 @@ func TestAppendKnowledgeLogUpdatedWithLongSummary(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "log.md")
 
-	details := map[string]logDocDetails{
+	details := map[string]wiki.LogDocDetails{
 		"upd_page": {Title: "Updated Page", Summary: strings.Repeat("y", 130)},
 	}
 
@@ -1246,7 +1265,7 @@ func TestAppendKnowledgeLogUpdatedWithNoSummary(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "log.md")
 
-	details := map[string]logDocDetails{
+	details := map[string]wiki.LogDocDetails{
 		"upd_nosummary": {Title: "No Summary Page", Summary: ""},
 	}
 
@@ -1271,7 +1290,7 @@ func TestAppendKnowledgeLogUpdatedNoDetails(t *testing.T) {
 		nil,
 		[]string{"upd_unknown"},
 		nil,
-		map[string]logDocDetails{},
+		map[string]wiki.LogDocDetails{},
 	)
 	data, _ := os.ReadFile(logPath)
 	content := string(data)
@@ -1284,7 +1303,7 @@ func TestAppendKnowledgeLogAddedNoSummary(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "log.md")
 
-	details := map[string]logDocDetails{
+	details := map[string]wiki.LogDocDetails{
 		"added_nosummary": {Title: "Added No Summary", Summary: ""},
 	}
 
@@ -1303,10 +1322,10 @@ func TestAppendKnowledgeLogAddedNoSummary(t *testing.T) {
 func TestAutoLinkLineRegexCompileError(t *testing.T) {
 	// Test with a target term that would create an invalid regex (shouldn't happen
 	// with QuoteMeta, but the error path at line 730-731 exists)
-	targets := buildAutoLinkTargets(map[string]string{"Normal Term": "Normal_Term"})
+	targets := wiki.BuildAutoLinkTargets(map[string]string{"Normal Term": "Normal_Term"})
 	refs := make(map[string]bool)
 	line := "This mentions Normal Term here."
-	result := autoLinkLine(line, targets, "Other", refs)
+	result := wiki.AutoLinkLine(line, targets, "Other", refs)
 	if !strings.Contains(result, "[[Normal_Term|Normal Term]]") {
 		t.Errorf("expected auto-link, got %q", result)
 	}
@@ -1319,7 +1338,7 @@ func TestSplitDocByHeadersParentWithNoTrailingNewline(t *testing.T) {
 		// Intro "Intro content here" directly followed by H2 on next line
 		body: "Intro content here\n## Long Section\n" + longContent,
 	}
-	result := splitDocByHeaders(doc)
+	result := splitByH2HeadersTestCompat(doc)
 	if len(result) < 2 {
 		t.Errorf("expected at least 2, got %d", len(result))
 	}
@@ -1335,22 +1354,22 @@ func TestSplitDocByHeadersParentWithNoTrailingNewline(t *testing.T) {
 func TestResolveWikiLinksInBodyTrueSlugifiedFallback(t *testing.T) {
 	// Create a scenario where:
 	// 1. Direct map lookup fails (target != key)
-	// 2. safeFilename(target) lookup fails (safeFilename(target) != key)
+	// 2. wiki.SafeSlug(target) lookup fails (wiki.SafeSlug(target) != key)
 	// 3. Case-insensitive lookup fails (neither title nor slug matches toLower(target))
-	// 4. Slugified lookup SUCCEEDS (safeFilename(title) == safeFilename(target) case-insensitively)
+	// 4. Slugified lookup SUCCEEDS (wiki.SafeSlug(title) == wiki.SafeSlug(target) case-insensitively)
 
 	// Title: "My—Special–Page" (em-dash and en-dash) → safeFilename gives "My_Special_Page"
 	// Link target: "my_special_page" → safeFilename gives "my_special_page"
 	// Direct: titlesMap["my_special_page"] → fails
-	// safeFilename("my_special_page") = "my_special_page" → titlesMap["my_special_page"] → fails
+	// wiki.SafeSlug("my_special_page") = "my_special_page" → titlesMap["my_special_page"] → fails
 	// Case-insensitive: "my_special_page" != toLower("My—Special–Page") and "my_special_page" != toLower("Result_Slug")
-	// Slugified: toLower(safeFilename("My—Special–Page")) == toLower("my_special_page") → MATCH!
+	// Slugified: toLower(wiki.SafeSlug("My—Special–Page")) == toLower("my_special_page") → MATCH!
 
 	titlesMap := map[string]string{
 		"My\u2014Special\u2013Page": "Result_Slug",
 	}
 	body := "See [[my_special_page]] for details."
-	resolved := resolveWikiLinksInBody(body, titlesMap)
+	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
 	// The link should have been resolved through slugified or fuzzy fallback.
 	// Either [[Result_Slug]] (slugified match) or some other resolution is acceptable,
 	// as long as the original raw link is no longer present unchanged when resolution succeeds.
@@ -1485,7 +1504,7 @@ func TestSplitDocByHeadersH2AtStart(t *testing.T) {
 		title: "NoIntro",
 		body:  "## First Section\n" + longContent + "\n\n## Second Section\n" + longContent + "\n",
 	}
-	result := splitDocByHeaders(doc)
+	result := splitByH2HeadersTestCompat(doc)
 	// Should split, parent body is empty
 	if len(result) < 2 {
 		t.Errorf("expected at least 2, got %d", len(result))

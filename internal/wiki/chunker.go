@@ -666,7 +666,7 @@ func extractChunkSummary(body string) string {
 // of the content. This reuses the same logic as stripYAMLFrontmatter but is
 // named to avoid confusion within this file.
 func skipFrontmatter(content string) string {
-	return stripYAMLFrontmatter(content)
+	return StripFrontmatter(content)
 }
 
 // flattenSections recursively walks the tree-sitter AST and produces a flat

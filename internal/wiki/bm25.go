@@ -89,7 +89,7 @@ func (idx *BM25Index) indexDocument(docID, content string) {
 
 	idx.docTitles[docID] = extractBM25Title(content)
 
-	content = stripYAMLFrontmatter(content)
+	content = StripFrontmatter(content)
 
 	tokens := idx.tokenize(content)
 	idx.docLen[docID] = len(tokens)
@@ -122,7 +122,7 @@ func (idx *BM25Index) Search(query string, topN int) []BM25Result {
 		bestVocab := ""
 		bestScore := 0.0
 		for vocab := range idx.termDocCount {
-			score := trigramSimilarity(term, vocab)
+			score := TrigramSimilarity(term, vocab)
 			if score > bestScore {
 				bestScore = score
 				bestVocab = vocab
@@ -209,30 +209,6 @@ func extractBM25Title(content string) string {
 		return strings.TrimSpace(m[1])
 	}
 	return ""
-}
-
-func stripYAMLFrontmatter(content string) string {
-	if !strings.HasPrefix(strings.TrimSpace(content), "---") {
-		return content
-	}
-	lines := strings.Split(content, "\n")
-	inFM := false
-	var out []string
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if i == 0 && trimmed == "---" {
-			inFM = true
-			continue
-		}
-		if inFM {
-			if trimmed == "---" {
-				inFM = false
-			}
-			continue
-		}
-		out = append(out, line)
-	}
-	return strings.Join(out, "\n")
 }
 
 func defaultStopwords() map[string]bool {

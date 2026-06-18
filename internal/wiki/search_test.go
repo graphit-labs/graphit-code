@@ -467,9 +467,9 @@ func TestCleanForFuzzy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := cleanForFuzzy(tt.input)
+			got := CleanForFuzzy(tt.input)
 			if got != tt.want {
-				t.Errorf("cleanForFuzzy(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("CleanForFuzzy(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -480,18 +480,18 @@ func TestGetTrigrams(t *testing.T) {
 
 	t.Run("short_string", func(t *testing.T) {
 		t.Parallel()
-		tg := getTrigrams("ab")
+		tg := GetTrigrams("ab")
 		if len(tg) != 1 || !tg["ab"] {
-			t.Errorf("getTrigrams(\"ab\") = %v, want {\"ab\": true}", tg)
+			t.Errorf("GetTrigrams(\"ab\") = %v, want {\"ab\": true}", tg)
 		}
 	})
 
 	t.Run("normal_string", func(t *testing.T) {
 		t.Parallel()
-		tg := getTrigrams("hello")
+		tg := GetTrigrams("hello")
 		// "hel", "ell", "llo" → 3 trigrams
 		if len(tg) != 3 {
-			t.Errorf("getTrigrams(\"hello\") len = %d, want 3", len(tg))
+			t.Errorf("GetTrigrams(\"hello\") len = %d, want 3", len(tg))
 		}
 		for _, expected := range []string{"hel", "ell", "llo"} {
 			if !tg[expected] {
@@ -502,9 +502,9 @@ func TestGetTrigrams(t *testing.T) {
 
 	t.Run("empty_string", func(t *testing.T) {
 		t.Parallel()
-		tg := getTrigrams("")
+		tg := GetTrigrams("")
 		if len(tg) != 1 || !tg[""] {
-			t.Errorf("getTrigrams(\"\") = %v", tg)
+			t.Errorf("GetTrigrams(\"\") = %v", tg)
 		}
 	})
 }
@@ -527,9 +527,9 @@ func TestTrigramSimilarity(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := trigramSimilarity(tt.s1, tt.s2)
+			got := TrigramSimilarity(tt.s1, tt.s2)
 			if got < tt.min || got > tt.max {
-				t.Errorf("trigramSimilarity(%q, %q) = %v, want [%v, %v]",
+				t.Errorf("TrigramSimilarity(%q, %q) = %v, want [%v, %v]",
 					tt.s1, tt.s2, got, tt.min, tt.max)
 			}
 		})

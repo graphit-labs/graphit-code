@@ -217,9 +217,9 @@ func TestExtToLangCoverage(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.ext, func(t *testing.T) {
-			got := extToLang(tc.ext)
+			got := wiki.ExtToLang(tc.ext)
 			if got != tc.want {
-				t.Errorf("extToLang(%q) = %q; want %q", tc.ext, got, tc.want)
+				t.Errorf("wiki.ExtToLang(%q) = %q; want %q", tc.ext, got, tc.want)
 			}
 		})
 	}

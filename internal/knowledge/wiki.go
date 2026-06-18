@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
@@ -139,10 +137,10 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		}
 
 		// Cache miss or changed — process from source.
-		title := extractDocTitle(content, src.relPath)
-		summary := extractDocSummary(content)
+		title := wiki.ExtractTitle(content, src.relPath)
+		summary := wiki.ExtractSummary(content)
 		docType := classifyDocType(src.relPath, content)
-		crossRefs := extractDocCrossRefs(content)
+		crossRefs := wiki.ExtractCrossRefs(content)
 
 		var processedDocs []knowledgeDoc
 		if isMarkdown {
@@ -150,7 +148,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 				MaxTokens: 512,
 				MinTokens: 32,
 				DocTitle:  title,
-				DocSlug:   safeFilename(title),
+				DocSlug:   wiki.SafeSlug(title),
 			})
 			if chunkErr != nil || len(chunks) == 0 {
 				processedDocs = append(processedDocs, knowledgeDoc{
@@ -241,7 +239,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	titlesMap := make(map[string]string)
 	tempUsedSlugs := make(map[string]bool)
 	for i, doc := range docs {
-		slug := uniqueKSlug(safeFilename(doc.title), tempUsedSlugs)
+		slug := wiki.UniqueSlug(wiki.SafeSlug(doc.title), tempUsedSlugs)
 		docSlugs[i] = slug
 		titlesMap[doc.title] = slug
 		base := strings.TrimSuffix(filepath.Base(doc.path), filepath.Ext(doc.path))
@@ -250,14 +248,24 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		}
 	}
 
-	// FAST PATH: pre-scan content hashes + check for deletions BEFORE any
-	// expensive work (autoLinkContent, regex compilation, DB rebuild, etc.).
+	// FAST PATH: use wiki.FastPathCheck which checks processCache (O(1) per
+	// entry — no disk I/O) and a single ReadDir to detect deletions.
 	// Only enter the full pipeline if something actually changed.
-	dbPath := filepath.Join(wikiDir, "wiki.db")
-	_, dbStatErr := os.Stat(dbPath)
-	dbExists := dbStatErr == nil
+	fastEntries := make([]wiki.DocHashEntry, len(docs))
+	for i, doc := range docs {
+		fastEntries[i] = wiki.DocHashEntry{
+			CacheKey:    doc.path,
+			ContentHash: doc.contentHash,
+			Slug:        docSlugs[i],
+		}
+	}
+	if wiki.FastPathCheck(wikiDir, fastEntries, processCache) {
+		// Nothing changed — skip ALL expensive phases.
+		return result, nil
+	}
 
-	if dbExists {
+	// Fallback for processCache == nil: check frontmatter hashes from disk.
+	if _, dbStatErr := os.Stat(filepath.Join(wikiDir, "wiki.db")); dbStatErr == nil && processCache == nil {
 		newSlugsCheck := make(map[string]bool, len(docs))
 		allHashesMatch := true
 		for i, doc := range docs {
@@ -265,7 +273,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			newSlugsCheck[slug] = true
 			if doc.contentHash != "" {
 				path := filepath.Join(wikiDir, slug+".md")
-				if readKnowledgeFrontmatterField(path, "content_hash") != doc.contentHash {
+				if wiki.ReadFrontmatterField(path, "content_hash") != doc.contentHash {
 					allHashesMatch = false
 					break
 				}
@@ -275,7 +283,6 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			}
 		}
 		if allHashesMatch {
-			// Also check for deleted pages.
 			noDeletes := true
 			for slug := range existingSlugs {
 				if !newSlugsCheck[slug] {
@@ -284,24 +291,23 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 				}
 			}
 			if noDeletes {
-				// Nothing changed — skip ALL expensive phases.
 				return result, nil
 			}
 		}
 	}
 
 	// Full pipeline: something changed or first run.
-	compiledTargets := buildAutoLinkTargets(titlesMap)
+	compiledTargets := wiki.BuildAutoLinkTargets(titlesMap)
 
 	newSlugs := make(map[string]bool)
 	var added []string
 	var updated []string
-	docDetails := make(map[string]logDocDetails)
+	docDetails := make(map[string]wiki.LogDocDetails)
 
 	for i := range docs {
 		slug := docSlugs[i]
 		newSlugs[slug] = true
-		docDetails[slug] = logDocDetails{
+		docDetails[slug] = wiki.LogDocDetails{
 			Title:   docs[i].title,
 			Summary: docs[i].summary,
 		}
@@ -315,7 +321,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		}
 
 		// Auto-link body content using the titlesMap
-		autoLinkedBody, autoRefs := autoLinkContent(docs[i].body, compiledTargets, slug)
+		autoLinkedBody, autoRefs := wiki.AutoLinkContent(docs[i].body, compiledTargets, slug)
 		docs[i].body = autoLinkedBody
 
 		// Add auto-linked references to doc's crossRefs
@@ -331,7 +337,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		}
 
 		// Resolve manual/child wikilinks in the body to their resolved slugs
-		docs[i].body = resolveWikiLinksInBody(docs[i].body, titlesMap)
+		docs[i].body = wiki.ResolveWikiLinksInBody(docs[i].body, titlesMap)
 
 		page := knowledgeEntityPage(docs[i])
 		path := filepath.Join(wikiDir, slug+".md")
@@ -339,7 +345,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		exists := func() bool { _, err := os.Stat(path); return err == nil }()
 
 		if docs[i].contentHash != "" {
-			if existingHash := readKnowledgeFrontmatterField(path, "content_hash"); existingHash == docs[i].contentHash {
+			if existingHash := wiki.ReadFrontmatterField(path, "content_hash"); existingHash == docs[i].contentHash {
 				continue
 			}
 		} else {
@@ -371,6 +377,8 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	}
 
 	// Skip expensive phases if nothing ended up changing.
+	_, dbStatErr2 := os.Stat(filepath.Join(wikiDir, "wiki.db"))
+	dbExists := dbStatErr2 == nil
 	nothingChanged := result.ArticlesWritten == 0 && len(deleted) == 0
 	if nothingChanged && dbExists {
 		return result, nil
@@ -494,7 +502,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			DocType:     doc.docType,
 			Source:      doc.path,
 			Breadcrumb:  doc.breadcrumb,
-			ParentSlug:  safeFilename(doc.parentTitle),
+			ParentSlug:  wiki.SafeSlug(doc.parentTitle),
 			ClusterID:   doc.cluster,
 			ClusterName: doc.clusterName,
 			Confidence:  confidence,
@@ -507,7 +515,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		if len(doc.crossRefs) > 0 {
 			var slugRefs []string
 			for _, ref := range doc.crossRefs {
-				slugRefs = append(slugRefs, safeFilename(ref))
+				slugRefs = append(slugRefs, wiki.SafeSlug(ref))
 			}
 			xrefs[slug] = slugRefs
 		}
@@ -588,18 +596,18 @@ func knowledgeEntityPage(doc knowledgeDoc) string {
 	if len(doc.crossRefs) > 0 {
 		b.WriteString("## Cross-References\n\n")
 		for _, ref := range doc.crossRefs {
-			_, _ = fmt.Fprintf(&b, "- [[%s]]\n", safeFilename(ref))
+			_, _ = fmt.Fprintf(&b, "- [[%s]]\n", wiki.SafeSlug(ref))
 		}
 		b.WriteString("\n")
 	}
 
 	if doc.body != "" {
-		body := stripFrontmatter(doc.body)
+		body := wiki.StripFrontmatter(doc.body)
 		b.WriteString("## Content\n\n")
 		if doc.isMarkdown {
 			b.WriteString(body + "\n\n")
 		} else {
-			lang := extToLang(filepath.Ext(doc.path))
+			lang := wiki.ExtToLang(filepath.Ext(doc.path))
 			_, _ = fmt.Fprintf(&b, "```%s\n%s\n```\n\n", lang, body)
 		}
 	}
@@ -625,7 +633,7 @@ func computeDocConfidence(doc knowledgeDoc) float64 {
 		score += 0.15
 	}
 
-	bodyLen := len(stripFrontmatter(doc.body))
+	bodyLen := len(wiki.StripFrontmatter(doc.body))
 	switch {
 	case bodyLen > 2000:
 		score += 0.25
@@ -678,11 +686,11 @@ func knowledgeIndexPage(docs []knowledgeDoc, communities []KnowledgeCommunity) s
 	// Build doc lookup by slug
 	docBySlug := make(map[string]knowledgeDoc)
 	for _, doc := range docs {
-		docBySlug[safeFilename(doc.title)] = doc
+		docBySlug[wiki.SafeSlug(doc.title)] = doc
 	}
 
 	writeDocEntry := func(doc knowledgeDoc) {
-		link := fmt.Sprintf("[[%s]]", safeFilename(doc.title))
+		link := fmt.Sprintf("[[%s]]", wiki.SafeSlug(doc.title))
 		badge := fmt.Sprintf("`%s`", doc.docType)
 		staleMarker := ""
 		if doc.staleSince != "" {
@@ -721,7 +729,7 @@ func knowledgeIndexPage(docs []knowledgeDoc, communities []KnowledgeCommunity) s
 		// Unclustered docs
 		var unclustered []knowledgeDoc
 		for _, doc := range docs {
-			slug := safeFilename(doc.title)
+			slug := wiki.SafeSlug(doc.title)
 			if !clusteredSlugs[slug] {
 				unclustered = append(unclustered, doc)
 			}
@@ -766,7 +774,7 @@ func knowledgeIndexPage(docs []knowledgeDoc, communities []KnowledgeCommunity) s
 	return b.String()
 }
 
-func appendKnowledgeLog(logPath string, totalDocs, articlesWritten, backlinksAdded int, added, updated, deleted []string, details map[string]logDocDetails) {
+func appendKnowledgeLog(logPath string, totalDocs, articlesWritten, backlinksAdded int, added, updated, deleted []string, details map[string]wiki.LogDocDetails) {
 	timestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
 	totalChanges := len(added) + len(updated) + len(deleted)
 
@@ -855,141 +863,6 @@ type knowledgeDoc struct {
 	isMarkdown  bool   // true for .md/.markdown/.mdx — eligible for header splitting
 }
 
-// extToLang maps file extensions to code fence language identifiers.
-// Only returns a language tag if the wiki renderer (Prism) supports it.
-// Unsupported languages return "" so the fence renders as plain text.
-func extToLang(ext string) string {
-	switch strings.ToLower(ext) {
-	case ".yaml", ".yml":
-		return "yaml"
-	case ".json":
-		return "json"
-	case ".graphql", ".gql":
-		return "graphql"
-	case ".xml", ".wsdl":
-		return "xml"
-	default:
-		// .proto, .rst, .adoc, .puml, .plantuml, .txt — no Prism support
-		return ""
-	}
-}
-
-func safeFilename(name string) string {
-	r := strings.NewReplacer("/", "-", " ", "_", ":", "-", "\\", "-", "?", "", "*", "")
-	name = r.Replace(name)
-
-	var b strings.Builder
-	for _, r := range name {
-		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_' || r == '-' || r == '.' {
-			b.WriteRune(r)
-		}
-	}
-	name = b.String()
-
-	for strings.Contains(name, "__") {
-		name = strings.ReplaceAll(name, "__", "_")
-	}
-	for strings.Contains(name, "--") {
-		name = strings.ReplaceAll(name, "--", "-")
-	}
-	name = strings.Trim(name, "_-")
-	return name
-}
-
-func uniqueKSlug(base string, used map[string]bool) string {
-	slug := base
-	n := 2
-	for used[slug] {
-		slug = fmt.Sprintf("%s_%d", base, n)
-		n++
-	}
-	used[slug] = true
-	return slug
-}
-
-func extractDocTitle(content, relPath string) string {
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "---" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "# ") {
-			return strings.TrimPrefix(trimmed, "# ")
-		}
-		if strings.HasPrefix(trimmed, "title:") {
-			title := strings.TrimSpace(strings.TrimPrefix(trimmed, "title:"))
-			title = strings.Trim(title, "\"'")
-			if title != "" {
-				return title
-			}
-		}
-	}
-	base := filepath.Base(relPath)
-	return strings.TrimSuffix(base, filepath.Ext(base))
-}
-
-func extractDocSummary(content string) string {
-
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "description:") {
-			desc := strings.TrimSpace(strings.TrimPrefix(trimmed, "description:"))
-			desc = strings.Trim(desc, "\"'")
-			if desc != "" {
-				if len(desc) > 200 {
-					return desc[:200] + "…"
-				}
-				return desc
-			}
-		}
-	}
-
-	stripped := stripFrontmatter(content)
-	inFenced := false
-	for _, line := range strings.Split(stripped, "\n") {
-		trimmed := strings.TrimSpace(line)
-
-		// Track fenced code block boundaries.
-		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
-			inFenced = !inFenced
-			continue
-		}
-		if inFenced {
-			continue
-		}
-
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		// Skip thematic breaks (---, ***, ___).
-		trimmedHR := strings.TrimLeft(trimmed, "-*_")
-		if trimmedHR == "" && len(trimmed) >= 3 {
-			continue
-		}
-		if len(trimmed) > 200 {
-			return trimmed[:200] + "…"
-		}
-		return trimmed
-	}
-	return ""
-}
-
-func extractDocCrossRefs(content string) []string {
-	content = stripFrontmatter(content)
-	var refs []string
-	seen := make(map[string]bool)
-
-	matches := wiki.FindWikiLinks(content)
-	for _, m := range matches {
-		if !seen[m] {
-			seen[m] = true
-			refs = append(refs, m)
-		}
-	}
-
-	return refs
-}
-
 func classifyDocType(relPath, content string) string {
 	lower := strings.ToLower(relPath)
 
@@ -1036,478 +909,4 @@ func classifyParadigm(relPath, content string) string {
 	default:
 		return ""
 	}
-}
-
-func stripFrontmatter(content string) string {
-	if !strings.HasPrefix(strings.TrimSpace(content), "---") {
-		return content
-	}
-	lines := strings.Split(content, "\n")
-	inFM := false
-	var out []string
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if i == 0 && trimmed == "---" {
-			inFM = true
-			continue
-		}
-		if inFM {
-			if trimmed == "---" {
-				inFM = false
-			}
-			continue
-		}
-		out = append(out, line)
-	}
-	return strings.TrimSpace(strings.Join(out, "\n"))
-}
-
-
-// Pre-compiled regexes for autoLinkLine — avoids re-compilation on every line.
-var (
-	reAutoLinkCode = regexp.MustCompile("`[^`]+`")
-	reAutoLinkWiki = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
-	reAutoLinkMd   = regexp.MustCompile(`\[[^\]]+\]\([^)]+\)`)
-)
-
-type compiledTarget struct {
-	slug  string
-	re    *regexp.Regexp
-	lower string // pre-lowered term for fast strings.Contains check
-}
-
-// buildAutoLinkTargets pre-compiles all auto-link targets from the titles map.
-// Called once per wiki generation cycle instead of once per document.
-func buildAutoLinkTargets(titles map[string]string) []compiledTarget {
-	type rawTarget struct {
-		term string
-		slug string
-	}
-
-	var targets []rawTarget
-	for title, slug := range titles {
-		targets = append(targets, rawTarget{term: title, slug: slug})
-		if title != slug {
-			targets = append(targets, rawTarget{term: slug, slug: slug})
-			targets = append(targets, rawTarget{term: strings.ReplaceAll(slug, "_", " "), slug: slug})
-		}
-	}
-
-	sort.Slice(targets, func(i, j int) bool {
-		return len(targets[i].term) > len(targets[j].term)
-	})
-
-	seenTerms := make(map[string]string)
-	var result []compiledTarget
-	for _, t := range targets {
-		termLower := strings.ToLower(t.term)
-		if termLower == "" || len(termLower) < 3 {
-			continue
-		}
-		if _, ok := seenTerms[termLower]; !ok {
-			seenTerms[termLower] = t.slug
-			pattern := `\b(?i)` + regexp.QuoteMeta(t.term) + `\b`
-			re, err := regexp.Compile(pattern)
-			if err != nil {
-				continue
-			}
-			result = append(result, compiledTarget{
-				slug:  t.slug,
-				re:    re,
-				lower: termLower,
-			})
-		}
-	}
-	return result
-}
-
-func autoLinkContent(body string, targets []compiledTarget, currentSlug string) (string, []string) {
-	lines := strings.Split(body, "\n")
-	inCodeBlock := false
-	inFrontmatter := false
-
-	var newLines []string
-	autoLinkedRefs := make(map[string]bool)
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "---" {
-			inFrontmatter = !inFrontmatter
-			newLines = append(newLines, line)
-			continue
-		}
-		if inFrontmatter {
-			newLines = append(newLines, line)
-			continue
-		}
-		if strings.HasPrefix(trimmed, "```") {
-			inCodeBlock = !inCodeBlock
-			newLines = append(newLines, line)
-			continue
-		}
-		if inCodeBlock {
-			newLines = append(newLines, line)
-			continue
-		}
-
-		newLine := autoLinkLine(line, targets, currentSlug, autoLinkedRefs)
-		newLines = append(newLines, newLine)
-	}
-
-	var refs []string
-	for r := range autoLinkedRefs {
-		refs = append(refs, r)
-	}
-	sort.Strings(refs)
-
-	return strings.Join(newLines, "\n"), refs
-}
-
-func autoLinkLine(line string, targets []compiledTarget, currentSlug string, autoLinkedRefs map[string]bool) string {
-	var wlPlaceholders []string
-	var mlPlaceholders []string
-	var cdPlaceholders []string
-
-	line = reAutoLinkCode.ReplaceAllStringFunc(line, func(match string) string {
-		wlPlaceholders = append(wlPlaceholders, match)
-		return fmt.Sprintf("___CD_PLACEHOLDER_%d___", len(wlPlaceholders)-1)
-	})
-
-	line = reAutoLinkWiki.ReplaceAllStringFunc(line, func(match string) string {
-		mlPlaceholders = append(mlPlaceholders, match)
-		return fmt.Sprintf("___WL_PLACEHOLDER_%d___", len(mlPlaceholders)-1)
-	})
-
-	line = reAutoLinkMd.ReplaceAllStringFunc(line, func(match string) string {
-		cdPlaceholders = append(cdPlaceholders, match)
-		return fmt.Sprintf("___ML_PLACEHOLDER_%d___", len(cdPlaceholders)-1)
-	})
-
-	lineLower := strings.ToLower(line)
-	var autoWlPlaceholders []string
-	for _, target := range targets {
-		if target.slug == currentSlug {
-			continue
-		}
-		// Fast pre-filter: skip regex if term not present (case-insensitive)
-		if !strings.Contains(lineLower, target.lower) {
-			continue
-		}
-		line = target.re.ReplaceAllStringFunc(line, func(match string) string {
-			autoLinkedRefs[target.slug] = true
-			replacement := fmt.Sprintf("[[%s|%s]]", target.slug, match)
-			autoWlPlaceholders = append(autoWlPlaceholders, replacement)
-			return fmt.Sprintf("___AUTO_WL_PLACEHOLDER_%d___", len(autoWlPlaceholders)-1)
-		})
-	}
-
-	for i, val := range autoWlPlaceholders {
-		ph := fmt.Sprintf("___AUTO_WL_PLACEHOLDER_%d___", i)
-		line = strings.ReplaceAll(line, ph, val)
-	}
-
-	for i, val := range cdPlaceholders {
-		ph := fmt.Sprintf("___ML_PLACEHOLDER_%d___", i)
-		line = strings.ReplaceAll(line, ph, val)
-	}
-
-	for i, val := range mlPlaceholders {
-		ph := fmt.Sprintf("___WL_PLACEHOLDER_%d___", i)
-		line = strings.ReplaceAll(line, ph, val)
-	}
-
-	for i, val := range wlPlaceholders {
-		ph := fmt.Sprintf("___CD_PLACEHOLDER_%d___", i)
-		line = strings.ReplaceAll(line, ph, val)
-	}
-
-	return line
-}
-
-func splitDocByHeaders(doc knowledgeDoc) []knowledgeDoc {
-	body := stripFrontmatter(doc.body)
-	lines := strings.Split(body, "\n")
-
-	inCodeBlock := false
-	var h2Indices []int
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
-			inCodeBlock = !inCodeBlock
-			continue
-		}
-		if inCodeBlock {
-			continue
-		}
-		if strings.HasPrefix(line, "## ") {
-			h2Indices = append(h2Indices, i)
-		}
-	}
-
-	if len(h2Indices) == 0 {
-		return []knowledgeDoc{doc}
-	}
-
-	// Count H2 sections with non-empty content
-	splitCount := 0
-	for idx, startLine := range h2Indices {
-		endLine := len(lines)
-		if idx+1 < len(h2Indices) {
-			endLine = h2Indices[idx+1]
-		}
-		sectionContent := strings.Join(lines[startLine+1:endLine], "\n")
-		if strings.TrimSpace(sectionContent) != "" {
-			splitCount++
-		}
-	}
-
-	if splitCount == 0 {
-		return []knowledgeDoc{doc}
-	}
-
-	var result []knowledgeDoc
-
-	// Extract the intro (parent content before first H2)
-	parentBody := strings.Join(lines[:h2Indices[0]], "\n")
-	parentDoc := doc
-
-	var parentBuf strings.Builder
-	parentBuf.WriteString(parentBody)
-	if !strings.HasSuffix(parentBody, "\n") && parentBody != "" {
-		parentBuf.WriteString("\n")
-	}
-
-	// Build ToC and children
-	var tocEntries []string
-
-	for idx, startLine := range h2Indices {
-		headerLine := lines[startLine]
-		sectionTitle := strings.TrimSpace(strings.TrimPrefix(headerLine, "##"))
-
-		endLine := len(lines)
-		if idx+1 < len(h2Indices) {
-			endLine = h2Indices[idx+1]
-		}
-
-		sectionContent := strings.Join(lines[startLine+1:endLine], "\n")
-		trimmedContent := strings.TrimSpace(sectionContent)
-
-		// If section is empty, keep it in the parent and don't split
-		if trimmedContent == "" {
-			parentBuf.WriteString("\n" + headerLine + "\n")
-			continue
-		}
-
-		childTitle := doc.title + " - " + sectionTitle
-
-		// In the parent, replace the section content with a link to the child page
-		_, _ = fmt.Fprintf(&parentBuf, "\n## %s\nSee: [[%s]]\n", sectionTitle, childTitle)
-
-		// Build ToC entry with H3 sub-items
-		tocEntry := fmt.Sprintf("- [[%s|%s]]", childTitle, sectionTitle)
-		sectionLines := strings.Split(trimmedContent, "\n")
-		for _, sl := range sectionLines {
-			if strings.HasPrefix(sl, "### ") {
-				subTitle := strings.TrimSpace(strings.TrimPrefix(sl, "###"))
-				tocEntry += fmt.Sprintf("\n  - %s", subTitle)
-			}
-		}
-		tocEntries = append(tocEntries, tocEntry)
-
-		childDoc := knowledgeDoc{
-			title:       childTitle,
-			path:        doc.path,
-			summary:     extractDocSummary(sectionContent),
-			docType:     doc.docType,
-			body:        trimmedContent,
-			parentTitle: doc.title,
-			breadcrumb:  doc.title + " > " + sectionTitle,
-			contentHash: fmt.Sprintf("%x", sha256.Sum256([]byte(trimmedContent)))[:16],
-			isMarkdown:  doc.isMarkdown,
-		}
-		result = append(result, childDoc)
-	}
-
-	// Insert ToC into parent if we have children
-	if len(tocEntries) > 0 {
-		var tocBuf strings.Builder
-		tocBuf.WriteString("\n## 📋 Table of Contents\n\n")
-		for _, entry := range tocEntries {
-			tocBuf.WriteString(entry + "\n")
-		}
-		tocBuf.WriteString("\n")
-
-		// Insert ToC right after intro, before the H2 links
-		introEnd := parentBody
-		rest := parentBuf.String()[len(introEnd):]
-		parentBuf.Reset()
-		parentBuf.WriteString(introEnd)
-		parentBuf.WriteString(tocBuf.String())
-		parentBuf.WriteString(rest)
-	}
-
-	parentDoc.body = parentBuf.String()
-	parentDoc.summary = extractDocSummary(parentDoc.body)
-	parentDoc.contentHash = fmt.Sprintf("%x", sha256.Sum256([]byte(parentDoc.body)))[:16]
-
-	// Prepend parentDoc so it is processed first
-	result = append([]knowledgeDoc{parentDoc}, result...)
-	return result
-}
-
-var reWikiLink = regexp.MustCompile(`\[\[([^\]|]+)(?:\|([^\]]+))?\]\]`)
-
-func resolveWikiLinksInBody(body string, titlesMap map[string]string) string {
-	return reWikiLink.ReplaceAllStringFunc(body, func(match string) string {
-		submatches := reWikiLink.FindStringSubmatch(match)
-		if len(submatches) < 2 {
-			return match
-		}
-		target := strings.TrimSpace(submatches[1])
-		label := ""
-		if len(submatches) > 2 && submatches[2] != "" {
-			label = strings.TrimSpace(submatches[2])
-		}
-
-		resolvedSlug, ok := titlesMap[target]
-		if !ok {
-			resolvedSlug, ok = titlesMap[safeFilename(target)]
-		}
-		if !ok {
-			// Case-insensitive lookup fallback
-			targetLower := strings.ToLower(target)
-			for t, s := range titlesMap {
-				if strings.ToLower(t) == targetLower || strings.ToLower(s) == targetLower {
-					resolvedSlug = s
-					ok = true
-					break
-				}
-			}
-		}
-		if !ok {
-			// Case-insensitive slugified lookup fallback
-			targetSlugLower := strings.ToLower(safeFilename(target))
-			for t, s := range titlesMap {
-				if strings.ToLower(safeFilename(t)) == targetSlugLower || strings.ToLower(s) == targetSlugLower {
-					resolvedSlug = s
-					ok = true
-					break
-				}
-			}
-		}
-		if !ok {
-			// Trigram fuzzy match fallback
-			resolvedSlug, ok = findBestFuzzyTitleMatch(target, titlesMap)
-		}
-
-		if ok {
-			if label != "" {
-				return fmt.Sprintf("[[%s|%s]]", resolvedSlug, label)
-			}
-			return fmt.Sprintf("[[%s]]", resolvedSlug)
-		}
-		return match
-	})
-}
-
-type logDocDetails struct {
-	Title   string
-	Summary string
-}
-
-func cleanForFuzzy(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-func getTrigrams(s string) map[string]bool {
-	s = strings.ToLower(s)
-	trigrams := make(map[string]bool)
-	if len(s) < 3 {
-		trigrams[s] = true
-		return trigrams
-	}
-	for i := 0; i <= len(s)-3; i++ {
-		trigrams[s[i:i+3]] = true
-	}
-	return trigrams
-}
-
-func trigramSimilarity(s1, s2 string) float64 {
-	t1 := getTrigrams(s1)
-	t2 := getTrigrams(s2)
-
-	intersection := 0
-	for k := range t1 {
-		if t2[k] {
-			intersection++
-		}
-	}
-	union := len(t1) + len(t2) - intersection
-	if union == 0 {
-		return 0.0
-	}
-	return float64(intersection) / float64(union)
-}
-
-func findBestFuzzyTitleMatch(target string, titlesMap map[string]string) (string, bool) {
-	targetClean := cleanForFuzzy(target)
-	if targetClean == "" {
-		return "", false
-	}
-
-	bestSlug := ""
-	bestScore := 0.0
-
-	for title, slug := range titlesMap {
-		titleClean := cleanForFuzzy(title)
-		score := trigramSimilarity(targetClean, titleClean)
-		if score > bestScore {
-			bestScore = score
-			bestSlug = slug
-		}
-
-		slugClean := cleanForFuzzy(slug)
-		scoreSlug := trigramSimilarity(targetClean, slugClean)
-		if scoreSlug > bestScore {
-			bestScore = scoreSlug
-			bestSlug = slug
-		}
-	}
-
-	if bestScore >= 0.55 {
-		return bestSlug, true
-	}
-	return "", false
-}
-
-// readKnowledgeFrontmatterField reads a single YAML frontmatter field from a .md file
-// without full parsing. Returns "" if the file doesn't exist or the field is absent.
-func readKnowledgeFrontmatterField(path, field string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	content := string(data)
-	if !strings.HasPrefix(content, "---") {
-		return ""
-	}
-	rest := content[3:]
-	end := strings.Index(rest, "\n---")
-	if end < 0 {
-		return ""
-	}
-	fm := rest[:end]
-	prefix := field + ": "
-	for _, line := range strings.Split(fm, "\n") {
-		if strings.HasPrefix(line, prefix) {
-			return strings.TrimSpace(line[len(prefix):])
-		}
-	}
-	return ""
 }

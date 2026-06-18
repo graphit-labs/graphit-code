@@ -229,7 +229,7 @@ func ResolveSlug(rawLink string) string {
 		target = target[:idx]
 	}
 	target = strings.TrimSpace(target)
-	return SafeFilename(target)
+	return SafeSlug(target)
 }
 
 const backlinksHeader = "## Backlinks"

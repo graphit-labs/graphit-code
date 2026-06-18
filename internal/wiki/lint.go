@@ -80,7 +80,7 @@ func LintWiki(wikiDir string, cfg LintConfig) (*LintReport, error) {
 			}
 		}
 
-		body := stripYAMLFrontmatter(content)
+		body := StripFrontmatter(content)
 		body = stripBacklinksSection(body)
 		wordCount := len(strings.Fields(body))
 		if wordCount <= 10 {

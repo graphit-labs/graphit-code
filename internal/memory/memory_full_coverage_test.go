@@ -1191,7 +1191,7 @@ func TestGenerateMemoryWiki_WithImportantMemories(t *testing.T) {
 
 func TestMemoryEntityPage_RecentDate(t *testing.T) {
 	recentDate := time.Now().Add(-1 * 24 * time.Hour).Format(time.RFC3339)
-	page := memoryEntityPage("RECENT", "Recent Memory", recentDate, false, "Body.", "fact")
+	page := memoryEntityPageWithHash("RECENT", "Recent Memory", recentDate, false, "Body.", "fact", "")
 	if strings.Contains(page, "Stale memory") {
 		t.Error("should NOT contain stale warning for 1-day-old memory")
 	}
@@ -1199,7 +1199,7 @@ func TestMemoryEntityPage_RecentDate(t *testing.T) {
 
 func TestMemoryEntityPage_CreatedAtDate(t *testing.T) {
 	date := "2026-01-15T12:00:00Z"
-	page := memoryEntityPage("ID", "Title", date, false, "Body.", "fact")
+	page := memoryEntityPageWithHash("ID", "Title", date, false, "Body.", "fact", "")
 	if !strings.Contains(page, "created: ") {
 		t.Error("expected created date in page")
 	}
@@ -1352,7 +1352,7 @@ func TestMemoryEntityPage_EachType(t *testing.T) {
 	types := []string{"convention", "correction", "decision", "tension", "fact", "skill"}
 	for _, memType := range types {
 		t.Run(memType, func(t *testing.T) {
-			page := memoryEntityPage("ID", "Title", "", false, "Body.", memType)
+			page := memoryEntityPageWithHash("ID", "Title", "", false, "Body.", memType, "")
 			if !strings.Contains(page, "**Type:** "+memType) {
 				t.Errorf("expected type badge for %s", memType)
 			}
