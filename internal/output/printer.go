@@ -183,19 +183,21 @@ func (p *Printer) Table(headers [2]string, rows [][2]string) {
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 type Task struct {
-	p      *Printer
-	msg    string
-	mu     sync.Mutex
-	done   bool
-	stopCh chan struct{}
+	p         *Printer
+	msg       string
+	mu        sync.Mutex
+	done      bool
+	stopCh    chan struct{}
+	startedAt time.Time
 }
 
 func (p *Printer) StartTask(msg string, args ...any) *Task {
 	line := fmt.Sprintf(msg, args...)
 	t := &Task{
-		p:      p,
-		msg:    line,
-		stopCh: make(chan struct{}),
+		p:         p,
+		msg:       line,
+		stopCh:    make(chan struct{}),
+		startedAt: time.Now(),
 	}
 
 	if !isTTY {
@@ -248,7 +250,8 @@ func (t *Task) Done(msg string, args ...any) {
 	t.done = true
 	close(t.stopCh)
 
-	line := fmt.Sprintf(msg, args...)
+	elapsed := time.Since(t.startedAt)
+	line := fmt.Sprintf(msg, args...) + dim.Sprintf(" (%.1fs)", elapsed.Seconds())
 	if isTTY {
 		_, _ = fmt.Fprintf(t.p.w, "\r\033[K")
 	}
@@ -264,7 +267,8 @@ func (t *Task) Fail(msg string, args ...any) {
 	t.done = true
 	close(t.stopCh)
 
-	line := fmt.Sprintf(msg, args...)
+	elapsed := time.Since(t.startedAt)
+	line := fmt.Sprintf(msg, args...) + dim.Sprintf(" (%.1fs)", elapsed.Seconds())
 	if isTTY {
 		_, _ = fmt.Fprintf(t.p.w, "\r\033[K")
 	}
