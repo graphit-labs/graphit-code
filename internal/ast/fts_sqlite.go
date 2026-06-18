@@ -135,44 +135,75 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 	t0 := time.Now()
 	entries := cache.AllEntries()
 
-	tx, err := s.db.Begin()
+	// Atomic rebuild via write-to-temp + rename.
+	//
+	// sqlite-vec (vec0) allocates fixed 1024-slot chunks and never reclaims disk space
+	// when rows are deleted — slots are only marked invalid in the validity bitmap.
+	// The only way to reclaim that space is to start from a fresh file.
+	//
+	// Strategy: write all data to a sibling temp file (.new), then atomically replace
+	// the live file with os.Rename (rename(2) syscall — atomic on Linux/macOS).
+	// Concurrent readers always see either the complete old file or the complete new file,
+	// never a partial state. If the process crashes mid-write, the old file is untouched.
+	tmpPath := s.path + ".new"
+	_ = os.Remove(tmpPath)
+	_ = os.Remove(tmpPath + "-wal")
+	_ = os.Remove(tmpPath + "-shm")
+
+	tmpDB, err := sql.Open("sqlite3", tmpPath+"?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000")
 	if err != nil {
+		return fmt.Errorf("open temp search index: %w", err)
+	}
+	cleanupTmp := func() {
+		_ = tmpDB.Close()
+		_ = os.Remove(tmpPath)
+		_ = os.Remove(tmpPath + "-wal")
+		_ = os.Remove(tmpPath + "-shm")
+	}
+
+	if err := migrateSearchSchema(tmpDB); err != nil {
+		cleanupTmp()
+		return fmt.Errorf("search schema (temp): %w", err)
+	}
+
+	tx, err := tmpDB.Begin()
+	if err != nil {
+		cleanupTmp()
 		return fmt.Errorf("search begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	_, _ = tx.Exec("DELETE FROM file_fts")
-	_, _ = tx.Exec("DELETE FROM entity_fts")
-	_, _ = tx.Exec("DELETE FROM entity_trigram")
-	_, _ = tx.Exec("DELETE FROM entity_vec")
-	_, _ = tx.Exec("DELETE FROM entity_vec_map")
-
 	fileStmt, err := tx.Prepare("INSERT INTO file_fts(path, name, source) VALUES (?, ?, ?)")
 	if err != nil {
+		cleanupTmp()
 		return fmt.Errorf("prepare file_fts: %w", err)
 	}
 	defer func() { _ = fileStmt.Close() }()
 
 	entityFTSStmt, err := tx.Prepare("INSERT INTO entity_fts(uid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?)")
 	if err != nil {
+		cleanupTmp()
 		return fmt.Errorf("prepare entity_fts: %w", err)
 	}
 	defer func() { _ = entityFTSStmt.Close() }()
 
 	trigramStmt, err := tx.Prepare("INSERT INTO entity_trigram(uid, name, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?)")
 	if err != nil {
+		cleanupTmp()
 		return fmt.Errorf("prepare entity_trigram: %w", err)
 	}
 	defer func() { _ = trigramStmt.Close() }()
 
 	vecStmt, err := tx.Prepare("INSERT INTO entity_vec(rowid, embedding) VALUES (?, ?)")
 	if err != nil {
+		cleanupTmp()
 		return fmt.Errorf("prepare entity_vec: %w", err)
 	}
 	defer func() { _ = vecStmt.Close() }()
 
 	mapStmt, err := tx.Prepare("INSERT INTO entity_vec_map(uid, vec_rowid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
+		cleanupTmp()
 		return fmt.Errorf("prepare entity_vec_map: %w", err)
 	}
 	defer func() { _ = mapStmt.Close() }()
@@ -207,8 +238,35 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 	}
 
 	if err := tx.Commit(); err != nil {
+		cleanupTmp()
 		return fmt.Errorf("search commit: %w", err)
 	}
+
+	// Checkpoint the WAL so the .new file is self-contained before the rename.
+	_, _ = tmpDB.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	_ = tmpDB.Close()
+
+	// Atomically replace the live file. Concurrent readers are unaffected:
+	// they hold open file descriptors to the old inode, which stays alive
+	// until all readers close it.
+	_ = s.db.Close()
+	_ = os.Remove(s.path + "-wal")
+	_ = os.Remove(s.path + "-shm")
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		// Rename failed (e.g. cross-device) — fall back to cleaning up temp.
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("atomic rename search index: %w", err)
+	}
+	// Remove any leftover WAL/SHM from the .new file (already checkpointed).
+	_ = os.Remove(tmpPath + "-wal")
+	_ = os.Remove(tmpPath + "-shm")
+
+	// Reopen the now-live file.
+	newDB, err := sql.Open("sqlite3", s.path+"?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000")
+	if err != nil {
+		return fmt.Errorf("reopen search index after rename: %w", err)
+	}
+	s.db = newDB
 
 	s.optimizeTables()
 

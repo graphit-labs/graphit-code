@@ -1,0 +1,6 @@
+internalinternal/ast/antlr/
+!/internal/ast/antlr/common/
+!/internal/ast/antlr/*/driver.go
+!/internal/ast/antlr/*/parser_sll_ll.go
+!/internal/ast/antlr/*/preprocessor.go
+!/internal/ast/antlr/*/preprocessor/

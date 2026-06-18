@@ -353,26 +353,65 @@ func (w *WikiDB) Rebuild(chunks []WikiChunk, xrefs map[string][]string, logEntry
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	tx, err := w.db.Begin()
+	// Atomic rebuild via write-to-temp + rename.
+	//
+	// sqlite-vec (vec0) allocates fixed 1024-slot chunks and never reclaims disk space
+	// when rows are deleted — slots are only marked invalid in the validity bitmap.
+	// The only way to reclaim that space is to start from a fresh file.
+	//
+	// Strategy: write all data to a sibling temp file (.new), then atomically replace
+	// the live file with os.Rename (rename(2) syscall — atomic on Linux/macOS).
+	// Concurrent readers always see either the complete old file or the complete new file,
+	// never a partial state. If the process crashes mid-write, the old file is untouched.
+	tmpPath := w.path + ".new"
+	_ = os.Remove(tmpPath)
+	_ = os.Remove(tmpPath + "-wal")
+	_ = os.Remove(tmpPath + "-shm")
+
+	tmpDB, err := sql.Open("sqlite3", tmpPath+"?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000")
 	if err != nil {
+		return fmt.Errorf("open temp wiki db: %w", err)
+	}
+	cleanupTmp := func() {
+		_ = tmpDB.Close()
+		_ = os.Remove(tmpPath)
+		_ = os.Remove(tmpPath + "-wal")
+		_ = os.Remove(tmpPath + "-shm")
+	}
+
+	if err := migrateWikiSchema(tmpDB); err != nil {
+		cleanupTmp()
+		return fmt.Errorf("wiki schema (temp): %w", err)
+	}
+
+	tx, err := tmpDB.Begin()
+	if err != nil {
+		cleanupTmp()
 		return fmt.Errorf("wiki rebuild begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// 1. Clear data (keep sync_log).
-	_, _ = tx.Exec("DELETE FROM chunks")
-	_, _ = tx.Exec("DELETE FROM chunks_fts")
-	_, _ = tx.Exec("DELETE FROM chunks_trigram")
-	_, _ = tx.Exec("DELETE FROM chunks_vec")
-	_, _ = tx.Exec("DELETE FROM chunks_vec_map")
-	_, _ = tx.Exec("DELETE FROM xrefs")
+	// Copy sync_log from the live DB directly into the temp DB.
+	// The live DB is still open and readable — no need for an in-memory backup.
+	if rows, err := w.db.Query(`SELECT id, timestamp, total_docs, articles_written, backlinks_added, added, updated, deleted, details FROM sync_log ORDER BY id`); err == nil {
+		for rows.Next() {
+			var id, totalDocs, articlesWritten, backlinksAdded int
+			var timestamp, added, updated, deleted, details string
+			if rows.Scan(&id, &timestamp, &totalDocs, &articlesWritten, &backlinksAdded, &added, &updated, &deleted, &details) == nil {
+				_, _ = tx.Exec(`INSERT INTO sync_log(id, timestamp, total_docs, articles_written, backlinks_added, added, updated, deleted, details) VALUES (?,?,?,?,?,?,?,?,?)`,
+					id, timestamp, totalDocs, articlesWritten, backlinksAdded, added, updated, deleted, details)
+			}
+		}
+		_ = rows.Close()
+	}
 
-	// 2. Insert all chunks.
+	// 1. Insert all chunks.
 	chunkStmt, err := tx.Prepare(`INSERT INTO chunks
 		(slug, title, body, summary, doc_type, source, breadcrumb, parent_slug,
 		 cluster_id, cluster_name, confidence, content_hash, word_count, updated, important)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
+		cleanupTmp()
 		return fmt.Errorf("prepare chunks: %w", err)
 	}
 	defer func() { _ = chunkStmt.Close() }()
@@ -388,21 +427,25 @@ func (w *WikiDB) Rebuild(chunks []WikiChunk, xrefs map[string][]string, logEntry
 			c.Confidence, c.ContentHash, c.WordCount, c.Updated, imp,
 		)
 		if err != nil {
+			cleanupTmp()
 			return fmt.Errorf("insert chunk %q: %w", c.Slug, err)
 		}
 	}
 
-	// 3. Sync FTS tables from content table.
+	// 2. Sync FTS tables from content table.
 	if _, err := tx.Exec(`INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')`); err != nil {
+		cleanupTmp()
 		return fmt.Errorf("fts rebuild: %w", err)
 	}
 	if _, err := tx.Exec(`INSERT INTO chunks_trigram(chunks_trigram) VALUES('rebuild')`); err != nil {
+		cleanupTmp()
 		return fmt.Errorf("trigram rebuild: %w", err)
 	}
 
-	// 4. Insert cross-references.
+	// 3. Insert cross-references.
 	xrefStmt, err := tx.Prepare(`INSERT OR IGNORE INTO xrefs (source_slug, target_slug, ref_type) VALUES (?, ?, 'reference')`)
 	if err != nil {
+		cleanupTmp()
 		return fmt.Errorf("prepare xrefs: %w", err)
 	}
 	defer func() { _ = xrefStmt.Close() }()
@@ -413,27 +456,52 @@ func (w *WikiDB) Rebuild(chunks []WikiChunk, xrefs map[string][]string, logEntry
 		}
 	}
 
-	// 5. Append sync_log entry if provided.
+	// 4. Append new sync_log entry if provided.
 	if logEntry != nil {
 		if err := appendSyncLogTx(tx, *logEntry); err != nil {
+			cleanupTmp()
 			return fmt.Errorf("sync log: %w", err)
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
+		cleanupTmp()
 		return fmt.Errorf("wiki rebuild commit: %w", err)
 	}
 
-	// 6. Restore embeddings from JSON cache (source of truth).
+	// Checkpoint the WAL so the .new file is fully self-contained before rename.
+	_, _ = tmpDB.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	_ = tmpDB.Close()
+
+	// Atomically replace the live file. Concurrent readers are unaffected:
+	// they hold open file descriptors to the old inode, which stays alive
+	// until all readers close it.
+	_ = w.db.Close()
+	_ = os.Remove(w.path + "-wal")
+	_ = os.Remove(w.path + "-shm")
+	if err := os.Rename(tmpPath, w.path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("atomic rename wiki db: %w", err)
+	}
+	_ = os.Remove(tmpPath + "-wal")
+	_ = os.Remove(tmpPath + "-shm")
+
+	// Reopen the now-live file.
+	newDB, err := sql.Open("sqlite3", w.path+"?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000")
+	if err != nil {
+		return fmt.Errorf("reopen wiki db after rename: %w", err)
+	}
+	w.db = newDB
+
+	// 5. Restore embeddings from JSON cache (source of truth).
 	restored := w.restoreEmbeddingsFromCache(embCache)
 
-	// 7. Optimize FTS tables.
+	// 6. Optimize FTS tables.
 	w.optimizeTables()
 
 	w.log().Info("wiki db rebuild", "chunks", len(chunks), "xrefs", len(xrefs), "embeddings_restored", restored)
 	return nil
 }
-
 func (w *WikiDB) optimizeTables() {
 	_, _ = w.db.Exec(`INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')`)
 	_, _ = w.db.Exec(`INSERT INTO chunks_trigram(chunks_trigram) VALUES('optimize')`)

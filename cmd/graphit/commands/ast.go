@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -389,8 +390,23 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 
 			probe := ast.NewEmbedder(nil, cfg)
 			pending := probe.CountPending(ctx)
+			idxPath := ladybugCfg.DBPath + ".search.sqlite"
 			if pending == 0 {
-				task.Done("All entities up to date")
+				// Even if all embeddings are cached, the search index may have been
+				// deleted. Rebuild it from cache so search works without re-embedding.
+				if _, statErr := os.Stat(idxPath); os.IsNotExist(statErr) {
+					task.Update("Rebuilding search index...")
+					if searchIdx, idxErr := ast.OpenSearchIndex(idxPath); idxErr == nil {
+						embLookup := ast.BuildEmbLookup(parseCache, cfg.EmbCache)
+						if rbErr := searchIdx.RebuildFromCache(parseCache, embLookup); rbErr != nil {
+							p.StepWarn("Search index rebuild: %v", rbErr)
+						}
+						_ = searchIdx.Close()
+					}
+					task.Done("Search index rebuilt")
+				} else {
+					task.Done("All entities up to date")
+				}
 				return nil
 			}
 
@@ -412,7 +428,6 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 			}
 
 			task.Update("Rebuilding search index...")
-			idxPath := ladybugCfg.DBPath + ".search.sqlite"
 			if searchIdx, idxErr := ast.OpenSearchIndex(idxPath); idxErr == nil {
 				embLookup := ast.BuildEmbLookup(parseCache, cfg.EmbCache)
 				if rbErr := searchIdx.RebuildFromCache(parseCache, embLookup); rbErr != nil {
