@@ -425,7 +425,11 @@ func reconcileMCPFile(mcpTarget, projectID string, desiredServers map[string]any
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(mcpTarget, out, 0o644)
+	// Idempotency: skip write if MCP config is already identical.
+	if existing, readErr := os.ReadFile(mcpTarget); readErr == nil && string(existing) == string(out)+"\n" {
+		return nil
+	}
+	return os.WriteFile(mcpTarget, append(out, '\n'), 0o644)
 }
 
 func (a *FolderBasedAdapter) baseDir(projectDir string) string {
@@ -538,6 +542,18 @@ func expandHome(path string) (string, error) {
 }
 
 func copyFile(src, dst string) error {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	// Idempotency: if destination exists with same size, compare content.
+	if dstInfo, err := os.Stat(dst); err == nil && dstInfo.Size() == srcInfo.Size() {
+		srcData, serr := os.ReadFile(src)
+		dstData, derr := os.ReadFile(dst)
+		if serr == nil && derr == nil && string(srcData) == string(dstData) {
+			return nil
+		}
+	}
 	in, err := os.Open(src)
 	if err != nil {
 		return err

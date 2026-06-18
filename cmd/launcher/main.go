@@ -57,9 +57,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		if exe, err := os.Executable(); err == nil {
-			writeLauncherStamp(appDir, exe)
-		}
+		writeLauncherStamp(appDir)
 
 
 		deduplicateModels(runtimeDir)
@@ -215,24 +213,13 @@ func cleanupOldRuntimes(runtimeBaseDir, currentVersion string) {
 	}
 }
 
-func computeStamp(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return ""
-	}
-	return hex.EncodeToString(h.Sum(nil))
+func computeBuildIDStamp() string {
+	h := sha256.Sum256([]byte(version.BuildID))
+	return hex.EncodeToString(h[:])
 }
 
-func writeLauncherStamp(appDir, launcherPath string) {
-	stamp := computeStamp(launcherPath)
-	if stamp == "" {
-		return
-	}
+func writeLauncherStamp(appDir string) {
+	stamp := computeBuildIDStamp()
 	stampDir := filepath.Join(appDir, "daemon")
 	_ = os.MkdirAll(stampDir, 0o755)
 	_ = os.WriteFile(filepath.Join(stampDir, "launcher.stamp"), []byte(stamp+"\n"), 0o644)
@@ -247,18 +234,10 @@ func isMCPStdio() bool {
 }
 
 func devStampChanged(appDir string) bool {
-	exe, err := os.Executable()
-	if err != nil {
-		return true
-	}
 	stampPath := filepath.Join(appDir, "daemon", "launcher.stamp")
 	existing, err := os.ReadFile(stampPath)
 	if err != nil {
 		return true
 	}
-	stamp := strings.TrimSpace(string(existing))
-	if stamp == "" {
-		return true
-	}
-	return computeStamp(exe) != stamp
+	return strings.TrimSpace(string(existing)) != computeBuildIDStamp()
 }

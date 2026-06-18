@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/version"
 )
 
 func TestCleanupOldRuntimes(t *testing.T) {
@@ -89,17 +91,14 @@ func TestCleanupOldRuntimes(t *testing.T) {
 }
 
 func TestWriteLauncherStamp(t *testing.T) {
-	t.Run("creates stamp from binary", func(t *testing.T) {
+	const testBuildID = "test-build-id-1234"
+
+	t.Run("creates stamp from BuildID", func(t *testing.T) {
+		version.BuildID = testBuildID
+		t.Cleanup(func() { version.BuildID = "" })
+
 		appDir := t.TempDir()
-		binDir := t.TempDir()
-		binPath := filepath.Join(binDir, "test-binary")
-
-		content := []byte("fake binary content for hashing")
-		if err := os.WriteFile(binPath, content, 0o755); err != nil {
-			t.Fatal(err)
-		}
-
-		writeLauncherStamp(appDir, binPath)
+		writeLauncherStamp(appDir)
 
 		stampPath := filepath.Join(appDir, "daemon", "launcher.stamp")
 		data, err := os.ReadFile(stampPath)
@@ -107,42 +106,26 @@ func TestWriteLauncherStamp(t *testing.T) {
 			t.Fatalf("stamp file not created: %v", err)
 		}
 
-		h := sha256.Sum256(content)
-		expectedHash := hex.EncodeToString(h[:])
-
+		h := sha256.Sum256([]byte(testBuildID))
+		want := hex.EncodeToString(h[:])
 		got := strings.TrimSpace(string(data))
-		if got != expectedHash {
-			t.Errorf("stamp = %q; want %q", got, expectedHash)
+		if got != want {
+			t.Errorf("stamp = %q; want %q", got, want)
 		}
 	})
 
-	t.Run("nonexistent binary does not create stamp", func(t *testing.T) {
+	t.Run("stamp file has trailing newline", func(t *testing.T) {
+		version.BuildID = testBuildID
+		t.Cleanup(func() { version.BuildID = "" })
+
 		appDir := t.TempDir()
-		writeLauncherStamp(appDir, filepath.Join(appDir, "nonexistent-bin"))
-
-		stampPath := filepath.Join(appDir, "daemon", "launcher.stamp")
-		if _, err := os.Stat(stampPath); err == nil {
-			t.Error("stamp file should not be created for nonexistent binary")
-		}
-	})
-
-	t.Run("stamp file format has trailing newline", func(t *testing.T) {
-		appDir := t.TempDir()
-		binDir := t.TempDir()
-		binPath := filepath.Join(binDir, "bin")
-
-		if err := os.WriteFile(binPath, []byte("bin"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-
-		writeLauncherStamp(appDir, binPath)
+		writeLauncherStamp(appDir)
 
 		stampPath := filepath.Join(appDir, "daemon", "launcher.stamp")
 		data, err := os.ReadFile(stampPath)
 		if err != nil {
 			t.Fatal(err)
 		}
-
 		if !strings.HasSuffix(string(data), "\n") {
 			t.Error("stamp file should end with newline")
 		}

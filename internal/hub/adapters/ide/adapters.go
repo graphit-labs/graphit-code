@@ -515,6 +515,10 @@ func installSkillForAdapter(adapter Adapter, projectDir, skillName, content stri
 	}
 
 	skillFile := filepath.Join(skillDir, "SKILL.md")
+	// Idempotency: skip write if file content is unchanged.
+	if existing, err := os.ReadFile(skillFile); err == nil && string(existing) == content {
+		return nil
+	}
 	return os.WriteFile(skillFile, []byte(content), 0o644)
 }
 

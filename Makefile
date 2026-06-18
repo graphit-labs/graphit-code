@@ -16,9 +16,16 @@ DEFAULT_MEMORY_REPO ?=
 SELF_UPDATE_URL ?=
 COMPILE_CONFIG ?=
 
+ifeq ($(OS),Windows_NT)
+  BUILD_ID ?= $(shell powershell -Command "[System.Guid]::NewGuid().ToString()")
+else
+  BUILD_ID ?= $(shell cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
+endif
+
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.Brand=$(BRAND)'
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.DisplayName=$(DISPLAY_NAME)'
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/version.Version=$(VERSION)'
+LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/version.BuildID=$(BUILD_ID)'
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.GitHubRepo=$(GITHUB_REPO)'
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.DefaultHubRepoURL=$(DEFAULT_HUB_REPO)'
 LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/brand.DefaultMemoryRepoURL=$(DEFAULT_MEMORY_REPO)'

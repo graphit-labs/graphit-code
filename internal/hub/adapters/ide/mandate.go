@@ -64,6 +64,13 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 
 	inner := readMandateContent(targetPath)
 
+	// Idempotency: if the trigger tag already contains exactly the same content,
+	// skip all destructive operations (RemoveBlockStyled + WriteFile).
+	reCurrent := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(triggerTag) + `>(.*?)</` + regexp.QuoteMeta(triggerTag) + `>`)
+	if m := reCurrent.FindStringSubmatch(inner); m != nil && m[1] == triggerContent {
+		return nil
+	}
+
 	// Remove old trigger if present.
 	re := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(triggerTag) + `>.*?</` + regexp.QuoteMeta(triggerTag) + `>\n?`)
 	inner = re.ReplaceAllString(inner, "")

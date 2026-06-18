@@ -25,9 +25,10 @@ type shardManifest struct {
 }
 
 type shardManifestEntry struct {
-	Hash string `json:"h"`
-	Lang string `json:"lang,omitempty"`
-	Dep  bool   `json:"dep,omitempty"`
+	Hash  string `json:"h"`
+	Lang  string `json:"lang,omitempty"`
+	Dep   bool   `json:"dep,omitempty"`
+	Mtime int64  `json:"mtime,omitempty"` // UnixNano of last observed mtime
 }
 
 type shardNodes struct {
@@ -94,6 +95,34 @@ func (sc *ShardCache) HasChanged(relPath, contentHash string) bool {
 		return true
 	}
 	return e.Hash != contentHash
+}
+
+// NeedsHash returns true if the file at relPath needs SHA-256 hashing.
+// If the cached mtime matches the observed mtime, we skip hashing entirely
+// (the file is almost certainly unchanged). This is a fast pre-filter before
+// the more expensive fileContentHash call.
+func (sc *ShardCache) NeedsHash(relPath string, mtime int64) bool {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	e, ok := sc.manifest.Files[relPath]
+	if !ok {
+		return true // not in cache at all
+	}
+	if e.Mtime == 0 {
+		return true // no mtime stored yet — need to hash and record it
+	}
+	return e.Mtime != mtime
+}
+
+// StoreMtime records the last-seen mtime for relPath in the manifest.
+// Call this after a successful parse to prime the mtime cache for next sync.
+func (sc *ShardCache) StoreMtime(relPath string, mtime int64) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	if e, ok := sc.manifest.Files[relPath]; ok {
+		e.Mtime = mtime
+		sc.dirty[""] = true // manifest changed
+	}
 }
 
 func (sc *ShardCache) AllPaths() []string {

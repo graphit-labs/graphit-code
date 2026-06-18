@@ -129,10 +129,65 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 	result := &WikiResult{}
 	usedSlugs := make(map[string]bool)
 
+	// FAST PATH: pre-scan content hashes before any write or DB rebuild.
+	// Build slug map first (cheap), then check hashes in one pass.
+	dbPath := filepath.Join(wikiDir, "wiki.db")
+	_, dbStatErr := os.Stat(dbPath)
+	dbExists := dbStatErr == nil
+
+	if dbExists && processCache != nil {
+		slugMap := make(map[string]bool, len(docs))
+		allHashesMatch := true
+		for _, doc := range docs {
+			slug := uniqueMemSlug(safeMemFilename(doc.title), slugMap)
+			if doc.contentHash == "" {
+				allHashesMatch = false
+				break
+			}
+			path := filepath.Join(wikiDir, slug+".md")
+			if readFrontmatterField(path, "content_hash") != doc.contentHash {
+				allHashesMatch = false
+				break
+			}
+		}
+		if allHashesMatch {
+			// Check for stale pages (deleted memories).
+			noStale := true
+			keep := make(map[string]bool, len(docs))
+			for slug := range slugMap {
+				keep[slug+".md"] = true
+			}
+			if existing, readErr := os.ReadDir(wikiDir); readErr == nil {
+				for _, e := range existing {
+					if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
+						continue
+					}
+					if !keep[e.Name()] {
+						noStale = false
+						break
+					}
+				}
+			}
+			if noStale {
+				_ = processCache.Save()
+				return result, nil
+			}
+		}
+		// Reset usedSlugs for the real loop below.
+		usedSlugs = make(map[string]bool)
+	}
+
 	for _, doc := range docs {
 		slug := uniqueMemSlug(safeMemFilename(doc.title), usedSlugs)
-		page := memoryEntityPage(doc.id, doc.title, doc.createdAt, doc.important, doc.body, doc.memType)
 		path := filepath.Join(wikiDir, slug+".md")
+		// Only write if content hash changed — avoids I/O when wiki is up to date.
+		// We read the existing file's content_hash from frontmatter.
+		if doc.contentHash != "" {
+			if existingHash := readFrontmatterField(path, "content_hash"); existingHash == doc.contentHash {
+				continue
+			}
+		}
+		page := memoryEntityPageWithHash(doc.id, doc.title, doc.createdAt, doc.important, doc.body, doc.memType, doc.contentHash)
 		if err := os.WriteFile(path, []byte(page), 0o644); err != nil {
 			continue
 		}
@@ -176,6 +231,13 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 		})
 	}
 
+	// Fast path: if nothing changed on disk and the wiki.db already exists,
+	// skip the expensive DB rebuild (DELETE+INSERT+FTS rebuild+optimize).
+	if result.ArticlesWritten == 0 && dbExists {
+		_ = processCache.Save()
+		return result, nil
+	}
+
 	_ = wiki.RebuildDB(wikiDir, wikiChunks, nil, &wiki.SyncLogEntry{
 		Timestamp:       time.Now().UTC().Format(time.RFC3339),
 		TotalDocs:       len(docs),
@@ -186,12 +248,19 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 }
 
 func memoryEntityPage(id, title, createdAt string, important bool, body, memType string) string {
+	return memoryEntityPageWithHash(id, title, createdAt, important, body, memType, "")
+}
+
+func memoryEntityPageWithHash(id, title, createdAt string, important bool, body, memType, contentHash string) string {
 	var b strings.Builder
 	now := time.Now().UTC().Format("2006-01-02")
 	b.WriteString("---\n")
 	_, _ = fmt.Fprintf(&b, "title: %s\n", title)
 	_, _ = fmt.Fprintf(&b, "id: %s\n", id)
 	_, _ = fmt.Fprintf(&b, "updated: %s\n", now)
+	if contentHash != "" {
+		_, _ = fmt.Fprintf(&b, "content_hash: %s\n", contentHash)
+	}
 	if createdAt != "" {
 		_, _ = fmt.Fprintf(&b, "created: %s\n", createdAt)
 	}
@@ -458,6 +527,34 @@ var reMemoryType = regexp.MustCompile(`(?m)^type:\s*(.+)$`)
 func parseMemoryType(content string) string {
 	if m := reMemoryType.FindStringSubmatch(content); m != nil {
 		return strings.TrimSpace(m[1])
+	}
+	return ""
+}
+
+// readFrontmatterField reads a single YAML frontmatter field from a .md file
+// without full parsing. Returns "" if the file doesn't exist or field is missing.
+func readFrontmatterField(path, field string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	content := string(data)
+	// Frontmatter must start with ---
+	if !strings.HasPrefix(content, "---") {
+		return ""
+	}
+	// Find end of frontmatter
+	rest := content[3:]
+	end := strings.Index(rest, "\n---")
+	if end < 0 {
+		return ""
+	}
+	fm := rest[:end]
+	prefix := field + ": "
+	for _, line := range strings.Split(fm, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(line[len(prefix):])
+		}
 	}
 	return ""
 }

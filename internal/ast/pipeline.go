@@ -99,54 +99,114 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	var deletedFiles []string
 	fileHashes := make(map[string]string, len(files))
 	if jsonCache != nil && !opts.ForceRebuild {
-		// Incremental mode: hash files to detect changes.
-		type hashResult struct {
-			path string
-			hash string
-			rel  string
+		// Phase A: stat all files in parallel — much cheaper than SHA-256.
+		// Files whose mtime matches the cached mtime are skipped entirely.
+		type statResult struct {
+			path  string
+			rel   string
+			mtime int64
+			skip  bool // mtime unchanged → treat as not changed
 		}
-		hashCh := make(chan hashResult, len(files))
-		var hashWg sync.WaitGroup
-		sem := make(chan struct{}, SafeWorkers(0))
+		statCh := make(chan statResult, len(files))
+		var statWg sync.WaitGroup
+		statSem := make(chan struct{}, SafeWorkers(0))
 
 		for _, f := range files {
-			hashWg.Add(1)
+			statWg.Add(1)
 			go func(path string) {
-				defer hashWg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-				h := fileContentHash(path)
+				defer statWg.Done()
+				statSem <- struct{}{}
+				defer func() { <-statSem }()
 				fAbs, _ := filepath.Abs(path)
 				rel := writer.rel(fAbs)
-				hashCh <- hashResult{path: path, hash: h, rel: rel}
+				info, err := os.Stat(path)
+				if err != nil {
+					statCh <- statResult{path: path, rel: rel}
+					return
+				}
+				mtime := info.ModTime().UnixNano()
+				skip := rel != "" && !jsonCache.NeedsHash(rel, mtime)
+				statCh <- statResult{path: path, rel: rel, mtime: mtime, skip: skip}
 			}(f)
 		}
-
 		go func() {
-			hashWg.Wait()
-			close(hashCh)
+			statWg.Wait()
+			close(statCh)
 		}()
 
-		for hr := range hashCh {
-			fileHashes[hr.path] = hr.hash
-			if hr.rel == "" {
-				continue
+		// Collect stat results and partition into needHash vs confirmed-unchanged.
+		type fileInfo struct {
+			path  string
+			rel   string
+			mtime int64
+		}
+		var needHash []fileInfo
+		var mtimeUnchanged []fileInfo // rel != "" && mtime matched
+		liveFiles := make(map[string]bool, len(files))
+
+		for sr := range statCh {
+			if sr.rel != "" {
+				liveFiles[sr.rel] = true
 			}
-			if jsonCache.HasChanged(hr.rel, hr.hash) {
-				changedFiles = append(changedFiles, hr.path)
+			if sr.skip {
+				mtimeUnchanged = append(mtimeUnchanged, fileInfo{sr.path, sr.rel, sr.mtime})
+			} else {
+				needHash = append(needHash, fileInfo{sr.path, sr.rel, sr.mtime})
 			}
 		}
 
-		liveFiles := make(map[string]bool, len(files))
-		for _, f := range files {
-			fAbs, _ := filepath.Abs(f)
-			liveFiles[writer.rel(fAbs)] = true
+		// Phase B: SHA-256 only the files that need it (mtime changed or no mtime cached).
+		if len(needHash) > 0 {
+			type hashResult struct {
+				path  string
+				hash  string
+				rel   string
+				mtime int64
+			}
+			hashCh := make(chan hashResult, len(needHash))
+			var hashWg sync.WaitGroup
+			sem := make(chan struct{}, SafeWorkers(0))
+
+			for _, fi := range needHash {
+				hashWg.Add(1)
+				go func(fi fileInfo) {
+					defer hashWg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					h := fileContentHash(fi.path)
+					hashCh <- hashResult{path: fi.path, hash: h, rel: fi.rel, mtime: fi.mtime}
+				}(fi)
+			}
+			go func() {
+				hashWg.Wait()
+				close(hashCh)
+			}()
+
+			for hr := range hashCh {
+				fileHashes[hr.path] = hr.hash
+				if hr.rel == "" {
+					continue
+				}
+				if jsonCache.HasChanged(hr.rel, hr.hash) {
+					changedFiles = append(changedFiles, hr.path)
+				} else {
+					// Hash confirmed unchanged — update mtime so next sync is faster.
+					jsonCache.StoreMtime(hr.rel, hr.mtime)
+				}
+			}
 		}
+
+		// Detect deleted files (in cache but not on disk).
 		for _, cached := range jsonCache.AllPaths() {
 			if !liveFiles[cached] {
 				deletedFiles = append(deletedFiles, cached)
 				jsonCache.Remove(cached)
 			}
+		}
+
+		// mtimeUnchanged files: add their paths to fileHashes using cached hash.
+		for _, fi := range mtimeUnchanged {
+			fileHashes[fi.path] = jsonCache.GetHash(fi.rel)
 		}
 	} else {
 		// Full rebuild or no cache: skip hashing, treat all files as changed.
@@ -291,6 +351,11 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				if storeErr := jsonCache.Store(relPath, hash, entry); storeErr != nil {
 					writeErrors++
 					writeErrorFiles = append(writeErrorFiles, fmt.Sprintf("%s: cache store: %v", relPath, storeErr))
+				} else {
+					// Record current mtime so the next sync can skip SHA-256 for this file.
+					if info, statErr := os.Stat(r.pf.Path); statErr == nil {
+						jsonCache.StoreMtime(relPath, info.ModTime().UnixNano())
+					}
 				}
 			}
 		}

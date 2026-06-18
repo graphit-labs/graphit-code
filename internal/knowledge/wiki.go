@@ -224,7 +224,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 
 	result := &WikiResult{OutputDir: wikiDir}
 
-	// Read existing slugs on disk to identify additions vs updates
+	// Read existing slugs on disk to identify deletions.
 	existingSlugs := make(map[string]bool)
 	if entries, err := os.ReadDir(wikiDir); err == nil {
 		for _, entry := range entries {
@@ -236,7 +236,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		}
 	}
 
-	// First pass: resolve slugs and map titles
+	// First pass: resolve slugs and map titles (cheap — no I/O).
 	docSlugs := make([]string, len(docs))
 	titlesMap := make(map[string]string)
 	tempUsedSlugs := make(map[string]bool)
@@ -250,6 +250,47 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		}
 	}
 
+	// FAST PATH: pre-scan content hashes + check for deletions BEFORE any
+	// expensive work (autoLinkContent, regex compilation, DB rebuild, etc.).
+	// Only enter the full pipeline if something actually changed.
+	dbPath := filepath.Join(wikiDir, "wiki.db")
+	_, dbStatErr := os.Stat(dbPath)
+	dbExists := dbStatErr == nil
+
+	if dbExists {
+		newSlugsCheck := make(map[string]bool, len(docs))
+		allHashesMatch := true
+		for i, doc := range docs {
+			slug := docSlugs[i]
+			newSlugsCheck[slug] = true
+			if doc.contentHash != "" {
+				path := filepath.Join(wikiDir, slug+".md")
+				if readKnowledgeFrontmatterField(path, "content_hash") != doc.contentHash {
+					allHashesMatch = false
+					break
+				}
+			} else {
+				allHashesMatch = false
+				break
+			}
+		}
+		if allHashesMatch {
+			// Also check for deleted pages.
+			noDeletes := true
+			for slug := range existingSlugs {
+				if !newSlugsCheck[slug] {
+					noDeletes = false
+					break
+				}
+			}
+			if noDeletes {
+				// Nothing changed — skip ALL expensive phases.
+				return result, nil
+			}
+		}
+	}
+
+	// Full pipeline: something changed or first run.
 	compiledTargets := buildAutoLinkTargets(titlesMap)
 
 	newSlugs := make(map[string]bool)
@@ -295,12 +336,17 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		page := knowledgeEntityPage(docs[i])
 		path := filepath.Join(wikiDir, slug+".md")
 
-		existingData, readErr := os.ReadFile(path)
-		exists := readErr == nil
+		exists := func() bool { _, err := os.Stat(path); return err == nil }()
 
-		// Only write to disk and track if content changed
-		if exists && string(existingData) == page {
-			continue
+		if docs[i].contentHash != "" {
+			if existingHash := readKnowledgeFrontmatterField(path, "content_hash"); existingHash == docs[i].contentHash {
+				continue
+			}
+		} else {
+			existingData, readErr := os.ReadFile(path)
+			if readErr == nil && string(existingData) == page {
+				continue
+			}
 		}
 
 		if exists {
@@ -322,6 +368,12 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			deleted = append(deleted, slug)
 			_ = os.Remove(filepath.Join(wikiDir, slug+".md"))
 		}
+	}
+
+	// Skip expensive phases if nothing ended up changing.
+	nothingChanged := result.ArticlesWritten == 0 && len(deleted) == 0
+	if nothingChanged && dbExists {
+		return result, nil
 	}
 
 	// --- Phase 1: Initial index + cross-ref graph ---
@@ -1434,3 +1486,28 @@ func findBestFuzzyTitleMatch(target string, titlesMap map[string]string) (string
 	return "", false
 }
 
+// readKnowledgeFrontmatterField reads a single YAML frontmatter field from a .md file
+// without full parsing. Returns "" if the file doesn't exist or the field is absent.
+func readKnowledgeFrontmatterField(path, field string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	content := string(data)
+	if !strings.HasPrefix(content, "---") {
+		return ""
+	}
+	rest := content[3:]
+	end := strings.Index(rest, "\n---")
+	if end < 0 {
+		return ""
+	}
+	fm := rest[:end]
+	prefix := field + ": "
+	for _, line := range strings.Split(fm, "\n") {
+		if strings.HasPrefix(line, prefix) {
+			return strings.TrimSpace(line[len(prefix):])
+		}
+	}
+	return ""
+}
