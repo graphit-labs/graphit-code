@@ -5,6 +5,9 @@ description: Manages project documentation, knowledge wiki, and integration spec
 
 # Knowledge Maintenance Rule
 
+> **🔒 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY Graphit MCP tool call. No exceptions.
+
+
 > This rule is auto-managed by Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems. Do not edit this block manually.
 
 > ⚠️ **UNIVERSAL APPLICABILITY** — This documentation workflow applies to the
@@ -50,7 +53,7 @@ No exceptions. No shortcuts. If the documentation is missing, the task is NOT do
 
 1. **Do the work** — implement the code change.
 2. **Write the documentation** — update or create the relevant docs.
-3. **Sync the wiki** — call the `graphit_sync` tool (passing absolute `project_dir` parameter).
+3. **Sync the wiki** — call the `graphit_sync` tool (passing absolute `project_dir` parameter) — **fire-and-forget: do NOT wait for sync to finish, continue immediately.**
 4. **Only then** report the task as complete.
 
 ### 🔒 MANDATORY: Clean Code Documentation Policy
@@ -144,11 +147,11 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 ### How to search (step-by-step)
 
 **Step 1 — Search the wiki (ALWAYS start here)**
-  Call `graphit_knowledge_search` (ai_optimized:true) with your query. This uses FTS5 + BM25 ranking to find the most relevant pages.
-  Alternatively, call `graphit_wiki_browse` (ai_optimized:true) for a structured catalog of all entities.
+  Call `graphit_knowledge_search` with your query. This uses FTS5 + BM25 ranking to find the most relevant pages.
+  Alternatively, call `graphit_wiki_browse` for a structured catalog of all entities.
   The search returns entity summaries, cross-references, and confidence scores.
   For AI-powered deep search, call `graphit_knowledge_query` which synthesizes a comprehensive answer using multi-turn consultation.
-  For multi-source search (knowledge + memory), call `graphit_wiki_search` (ai_optimized:true) with `wikis: ["project", "memory"]`.
+  For multi-source search (knowledge + memory), call `graphit_wiki_search` with `wikis: ["project", "memory"]`.
 
 **Step 2 — Read the frontmatter FIRST (before the body)**
   Every entity page starts with YAML frontmatter. Read it before the body content:
@@ -171,7 +174,7 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
   Each page links to related pages. Follow them — they are semantically curated.
 
 **Step 4 — Expand with cross-references**
-  Call `graphit_wiki_xrefs` (ai_optimized:true) for any entity slug to find all inbound and outbound references.
+  Call `graphit_wiki_xrefs` for any entity slug to find all inbound and outbound references.
   This replaces grep for finding "what else mentions X" — pre-computed, zero-cost.
 
 **Step 5 — Verify via provenance**
@@ -224,9 +227,9 @@ Examples of INVALID fallback (protocol violations):
 
 | Scope | How to search |
 |---|---|
-| **project** (this project) | Call `graphit_knowledge_search` (ai_optimized:true) or `graphit_wiki_browse` (ai_optimized:true) |
-| **imported context** (hub artifact) | Call `graphit_knowledge_search` (ai_optimized:true, context: "<name>") or `graphit_knowledge_query` (context: "<name>") |
-| **multi-source** (project + memory) | Call `graphit_wiki_search` (ai_optimized:true, wikis: ["project", "memory"]) |
+| **project** (this project) | Call `graphit_knowledge_search` or `graphit_wiki_browse` |
+| **imported context** (hub artifact) | Call `graphit_knowledge_search` (context: "<name>") or `graphit_knowledge_query` (context: "<name>") |
+| **multi-source** (project + memory) | Call `graphit_wiki_search` (wikis: ["project", "memory"]) |
 
 ### ⚡ MANDATORY: Sync After Every File Modification
 
@@ -242,7 +245,7 @@ Without syncing, the knowledge wiki becomes stale and subsequent lookups return
 outdated or incomplete results — breaking the knowledge pipeline.
 
 **Rules:**
-- Call `graphit_sync` immediately after any docs modification.
+- Call `graphit_sync` immediately after any docs modification — **fire-and-forget: do NOT wait for sync to complete, continue working immediately.**
 - **Forgetting to call sync is a framework integrity violation.**
 
 ## Documentation Requirements
@@ -547,7 +550,7 @@ This enables a new agent to understand the full trajectory.>
 **Step 1 — Search the hub for an existing knowledge artifact using the `graphit_hub_list` tool:**
 
 ```
-graphit_hub_list(project_dir: "/path/to/project", type: "knowledge", ai_optimized: true)
+graphit_hub_list(project_dir: "/path/to/project", type: "knowledge")
 ```
 
 **Step 2 — If found, install it immediately using the `graphit_knowledge_install` tool (passing absolute `project_dir` and the context `name`):**
@@ -660,10 +663,10 @@ a compiled, cross-referenced wiki.
 ### How to search (step-by-step)
 
 **Step 1 — Search the wiki (ALWAYS start here)**
-  Call `graphit_knowledge_search` (ai_optimized:true) with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).
-  Alternatively, call `graphit_wiki_browse` (ai_optimized:true) for a structured catalog.
+  Call `graphit_knowledge_search` with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).
+  Alternatively, call `graphit_wiki_browse` for a structured catalog.
   For AI-powered deep search, call `graphit_knowledge_query` which synthesizes a comprehensive answer using multi-turn consultation.
-  For multi-source search (knowledge + memory), call `graphit_wiki_search` (ai_optimized:true) with `wikis: ["project", "memory"]`.
+  For multi-source search (knowledge + memory), call `graphit_wiki_search` with `wikis: ["project", "memory"]`.
 
 **Step 2 — Read frontmatter FIRST**
   Check `confidence`, `type`, `source`, `updated` before reading body content.
@@ -674,7 +677,7 @@ a compiled, cross-referenced wiki.
   Navigate from endpoint → schema → related services via curated links.
 
 **Step 4 — Expand with cross-references**
-  Call `graphit_wiki_xrefs` (ai_optimized:true) to find every spec that references a given schema or service — pre-computed, zero-cost.
+  Call `graphit_wiki_xrefs` to find every spec that references a given schema or service — pre-computed, zero-cost.
 
 **Step 5 — Verify via provenance**
   Each page has: `*Provenance: ^[docs/rest/payment.yaml]*`.

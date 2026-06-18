@@ -5,6 +5,9 @@ description: Persistent memory across sessions. MANDATORY: Read memory indexes a
 
 # Memory Management Rule
 
+> **🔒 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY Graphit MCP tool call. No exceptions.
+
+
 > This rule is auto-managed by Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems. Do not edit this block manually.
 
 ## 🚨 SESSION START PROTOCOL — Execute BEFORE Any Response
@@ -12,7 +15,7 @@ description: Persistent memory across sessions. MANDATORY: Read memory indexes a
 **These steps are MANDATORY. Execute them BEFORE responding to the user's first message.**
 **Skipping them means you WILL repeat mistakes the user already corrected.**
 
-1. Call `graphit_memory_search` (ai_optimized:true) with context from the user's request to find relevant memories
+1. Call `graphit_memory_search` with context from the user's request to find relevant memories
 2. If relevant memories found, read the entity page(s) and follow their guidance
 3. Only then proceed with the user's request
 
@@ -34,7 +37,7 @@ in these situations — proactively, without being asked:
 | **Before proposing** architecture or technical approach | Decisions, tensions, conventions that constrain options | Avoid contradicting prior decisions the user already made |
 | **User seems frustrated** or repeats an instruction | Corrections about your behavior | You may be ignoring a correction already memorized |
 
-**How to search:** call `graphit_memory_search` tool (passing absolute `project_dir` parameter and `ai_optimized: true`)
+**How to search:** call `graphit_memory_search` tool (passing absolute `project_dir` parameter)
 
 ## 🔒 This Framework IS Your Memory — No Other Exists
 
@@ -136,14 +139,14 @@ Reading raw .md files is slower, wastes tokens, and bypasses ranking.
 | List important memories only | `graphit_memory_important` | High-priority conventions, corrections |
 
 **Retrieval steps:**
-1. Call `graphit_memory_search` (ai_optimized:true) with query context — get ranked results
-2. If results reference related memories, call `graphit_memory_search` (ai_optimized:true) again with refined query
+1. Call `graphit_memory_search` with query context — get ranked results
+2. If results reference related memories, call `graphit_memory_search` again with refined query
 3. For deep consultation, call `graphit_memory_query` with a natural language question
 4. **Never** read .md memory files directly or grep raw memory files
 
 ## 📋 MCP Tools Reference
 
-All memory actions must be executed via the corresponding MCP tools. Always pass the absolute `project_dir` parameter. For tools that accept `ai_optimized`, always set it to `true`.
+All memory actions must be executed via the corresponding MCP tools. Always pass the absolute `project_dir` parameter.
 
 ```
 # Insert (default: project scope, type: fact)
@@ -167,8 +170,8 @@ graphit_memory_update(project_dir: "/path/to/project", id: "<id>", content: "<ne
 # Delete
 graphit_memory_delete(project_dir: "/path/to/project", id: "<id>")
 
-# Search (lightweight, no AI) — supports ai_optimized
-graphit_memory_search(project_dir: "/path/to/project", query: "<term>", ai_optimized: true)
+# Search (lightweight, no AI)
+graphit_memory_search(project_dir: "/path/to/project", query: "<term>")
 
 # AI Consultation (Search with AI response synthesis)
 graphit_memory_query(project_dir: "/path/to/project", query: "<natural language question>")
@@ -177,15 +180,15 @@ graphit_memory_query(project_dir: "/path/to/project", query: "<natural language 
 graphit_memory_promote(project_dir: "/path/to/project", id: "<id>")
 graphit_memory_demote(project_dir: "/path/to/project", id: "<id>")
 
-# List all — supports ai_optimized
-graphit_memory_list(project_dir: "/path/to/project", ai_optimized: true)
-graphit_memory_important(project_dir: "/path/to/project", ai_optimized: true)
+# List all
+graphit_memory_list(project_dir: "/path/to/project")
+graphit_memory_important(project_dir: "/path/to/project")
 
-# Maintenance — supports ai_optimized
-graphit_memory_consolidate(project_dir: "/path/to/project", ai_optimized: true)                # AI-driven: find duplicates, contradictions
-graphit_memory_consolidate(project_dir: "/path/to/project", apply: true, ai_optimized: true)    # auto-apply safe suggestions
-graphit_memory_gc(project_dir: "/path/to/project", ai_optimized: true)                         # find stale/empty memories (dry-run)
-graphit_memory_gc(project_dir: "/path/to/project", dry_run: false, ai_optimized: true)         # delete GC candidates
+# Maintenance (run periodically or when memory feels cluttered)
+graphit_memory_consolidate(project_dir: "/path/to/project")                # AI-driven: find duplicates, contradictions
+graphit_memory_consolidate(project_dir: "/path/to/project", apply: true)    # auto-apply safe suggestions
+graphit_memory_gc(project_dir: "/path/to/project")                         # find stale/empty memories (dry-run)
+graphit_memory_gc(project_dir: "/path/to/project", dry_run: false)         # delete GC candidates
 ```
 
 ## 🔄 Contradiction Protocol

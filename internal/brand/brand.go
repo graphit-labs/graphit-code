@@ -170,3 +170,10 @@ func Capitalize(s string) string {
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
 }
+
+// UniversalAIOptimizedNote returns a short reminder to always set ai_optimized: true.
+// Used in skill content bodies so agents see it regardless of which skill they read.
+func UniversalAIOptimizedNote() string {
+	return "> **\U0001f512 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY " +
+		Capitalize(Brand) + " MCP tool call. No exceptions.\n"
+}

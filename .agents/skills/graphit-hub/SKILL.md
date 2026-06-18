@@ -5,6 +5,9 @@ description: Centralized registry of knowledge, AST, rules, skills, commands, ag
 
 # Hub Discovery Rule
 
+> **🔒 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY Graphit MCP tool call. No exceptions.
+
+
 ## Objective
 
 The Hub is a centralized registry of shareable artifacts that enrich your development
@@ -37,19 +40,19 @@ about, DO NOT guess its API or structure. Check if it is available in the Hub.
 ### 1. Discovery
 To see all available artifacts or filter by type, call the `graphit_hub_list` tool:
 ```
-graphit_hub_list(type: "<knowledge|ast|rule|skill|command|agent|mcp|power>", ai_optimized: true)
+graphit_hub_list(type: "<knowledge|ast|rule|skill|command|agent|mcp|power>")
 ```
 
 ### 2. Inspection
 To see the details, tags, and description of a specific artifact, call the `graphit_hub_show` tool:
 ```
-graphit_hub_show(id: "<artifact-id>", ai_optimized: true)
+graphit_hub_show(id: "<artifact-id>")
 ```
 
 ### 3. Installation
 To download and install the artifact into the current project, call the `graphit_hub_install` tool (passing absolute `project_dir`):
 ```
-graphit_hub_install(project_dir: "/path/to/project", id: "<artifact-id>", ide: "<ide>", alias: "<alias>", ai_optimized: true)
+graphit_hub_install(project_dir: "/path/to/project", id: "<artifact-id>", ide: "<ide>", alias: "<alias>")
 ```
 
 ### 4. Updates
@@ -61,7 +64,7 @@ graphit_hub_update(project_dir: "/path/to/project")
 ### 5. Link & Unlink (Local Development)
 To link or unlink local development artifacts into the current project, call `graphit_hub_link` or `graphit_hub_unlink` (passing absolute `project_dir`):
 ```
-graphit_hub_link(project_dir: "/path/to/project", name: "<name>", source_path: "/path/to/source", type: "<type>", ai_optimized: true)
+graphit_hub_link(project_dir: "/path/to/project", name: "<name>", source_path: "/path/to/source", type: "<type>")
 graphit_hub_unlink(project_dir: "/path/to/project", name: "<name>", type: "<type>")
 ```
 
@@ -82,17 +85,17 @@ Once installed, artifacts enhance your capabilities automatically:
 
 ## Installed Artifacts
 
-To check installed artifacts, call the `graphit_hub_list` tool (passing absolute `project_dir` parameter and `ai_optimized: true`).
-Use `graphit_hub_show` (ai_optimized:true) to inspect details of any artifact.
+To check installed artifacts, call the `graphit_hub_list` tool (passing absolute `project_dir` parameter).
+Use `graphit_hub_show` to inspect details of any artifact.
 
 ## 🌐 Ecosystem Project Discovery
 
 **When you need to find other projects in the work ecosystem** (e.g., to understand
 cross-project dependencies, shared libraries, related services, or sibling projects),
-**call the `graphit_cluster_projects` tool (passing absolute `project_dir` parameter and `ai_optimized: true`):**
+**call the `graphit_cluster_projects` tool (passing absolute `project_dir` parameter):**
 
 ```
-graphit_cluster_projects(project_dir: "/path/to/project", ai_optimized: true)
+graphit_cluster_projects(project_dir: "/path/to/project")
 ```
 
 This tool returns a JSON map containing all sibling projects that belong to the **same cluster**
@@ -115,7 +118,7 @@ Each sibling project entry includes:
 - **Discover and navigate** — find sibling project directories and read their source or docs
 - **Query code in another project** — run AST query against a sibling (always pass its absolute path in the `project_dir` parameter):
   ```
-  graphit_ast_query(project_dir: "/path/to/other-project", query: "MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path", ai_optimized: true)
+  graphit_ast_query(project_dir: "/path/to/other-project", query: "MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path")
   ```
 - **Read another project's knowledge wiki** — understand its architecture without grepping by calling `graphit_wiki_search` with the other project's `project_dir`
 - **Make cross-project changes** — if the user asks to modify code in another project,
@@ -123,7 +126,7 @@ Each sibling project entry includes:
 
 **Example workflow:** The user asks "how does the auth service validate tokens?".
 You call `graphit_cluster_projects` to find the auth service project path,
-then call `graphit_ast_query` with `project_dir: "/path/to/auth-service"`, `query: "MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number"`, and `ai_optimized: true` to locate the validation logic, and read the relevant source files.
+then call `graphit_ast_query` with `project_dir: "/path/to/auth-service"` and `query: "MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number"` to locate the validation logic, and read the relevant source files.
 
 ## ⚠️ Rule
 

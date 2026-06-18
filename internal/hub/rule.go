@@ -33,6 +33,8 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 	lines := []string{
 		"# Hub Discovery Rule",
 		"",
+		brand.UniversalAIOptimizedNote(),
+		"",
 		"## Objective",
 		"",
 		"The Hub is a centralized registry of shareable artifacts that enrich your development",
@@ -149,7 +151,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"- **Discover and navigate** — find sibling project directories and read their source or docs",
 		"- **Query code in another project** — run AST query against a sibling (always pass its absolute path in the `project_dir` parameter):",
 		"  ```",
-		"  "+astQuery+"(project_dir: \"/path/to/other-project\", query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path\", ai_optimized: true)",
+		"  "+astQuery+"(project_dir: \"/path/to/other-project\", query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'handler' RETURN f.name, f.path\")",
 		"  ```",
 		"- **Read another project's knowledge wiki** — understand its architecture without grepping by calling "+brand.MCPToolRef("wiki", "search")+" with the other project's `project_dir`",
 		"- **Make cross-project changes** — if the user asks to modify code in another project,",
@@ -157,7 +159,7 @@ func HubRuleContent(installed []InstalledArtifactInfo) string {
 		"",
 		"**Example workflow:** The user asks \"how does the auth service validate tokens?\".",
 		"You call "+clusterProjectsRef+" to find the auth service project path,",
-		"then call "+astQueryRef+" with `project_dir: \"/path/to/auth-service\"`, `query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number\"`, and `ai_optimized: true` to locate the validation logic, and read the relevant source files.",
+		"then call "+astQueryRef+" with `project_dir: \"/path/to/auth-service\"` and `query: \"MATCH (f:Function) WHERE toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number\"` to locate the validation logic, and read the relevant source files.",
 	)
 
 	lines = append(lines,

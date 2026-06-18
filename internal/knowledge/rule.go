@@ -33,6 +33,8 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 	lines := []string{
 		"# Knowledge Maintenance Rule",
 		"",
+		brand.UniversalAIOptimizedNote(),
+		"",
 		"> This rule is auto-managed by " + displayName + ". Do not edit this block manually.",
 		"",
 		"> ⚠️ **UNIVERSAL APPLICABILITY** — This documentation workflow applies to the",
@@ -172,11 +174,11 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"### How to search (step-by-step)",
 		"",
 		"**Step 1 — Search the wiki (ALWAYS start here)**",
-		"  Call " + searchRef + " (ai_optimized:true) with your query. This uses FTS5 + BM25 ranking to find the most relevant pages.",
-		"  Alternatively, call " + browseRef + " (ai_optimized:true) for a structured catalog of all entities.",
+		"  Call " + searchRef + " with your query. This uses FTS5 + BM25 ranking to find the most relevant pages.",
+		"  Alternatively, call " + browseRef + " for a structured catalog of all entities.",
 		"  The search returns entity summaries, cross-references, and confidence scores.",
 		"  For AI-powered deep search, call " + queryRef + " which synthesizes a comprehensive answer using multi-turn consultation.",
-		"  For multi-source search (knowledge + memory), call " + wikiSearchRef + " (ai_optimized:true) with `wikis: [\"project\", \"memory\"]`.",
+		"  For multi-source search (knowledge + memory), call " + wikiSearchRef + " with `wikis: [\"project\", \"memory\"]`.",
 		"",
 		"**Step 2 — Read the frontmatter FIRST (before the body)**",
 		"  Every entity page starts with YAML frontmatter. Read it before the body content:",
@@ -199,7 +201,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"  Each page links to related pages. Follow them — they are semantically curated.",
 		"",
 		"**Step 4 — Expand with cross-references**",
-		"  Call " + xrefsRef + " (ai_optimized:true) for any entity slug to find all inbound and outbound references.",
+		"  Call " + xrefsRef + " for any entity slug to find all inbound and outbound references.",
 		"  This replaces grep for finding \"what else mentions X\" — pre-computed, zero-cost.",
 		"",
 		"**Step 5 — Verify via provenance**",
@@ -252,9 +254,9 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"",
 		"| Scope | How to search |",
 		"|---|---|",
-		"| **project** (this project) | Call " + searchRef + " (ai_optimized:true) or " + browseRef + " (ai_optimized:true) |",
-		"| **imported context** (hub artifact) | Call " + searchRef + " (ai_optimized:true, context: \"<name>\") or " + queryRef + " (context: \"<name>\") |",
-		"| **multi-source** (project + memory) | Call " + wikiSearchRef + " (ai_optimized:true, wikis: [\"project\", \"memory\"]) |",
+		"| **project** (this project) | Call " + searchRef + " or " + browseRef + " |",
+		"| **imported context** (hub artifact) | Call " + searchRef + " (context: \"<name>\") or " + queryRef + " (context: \"<name>\") |",
+		"| **multi-source** (project + memory) | Call " + wikiSearchRef + " (wikis: [\"project\", \"memory\"]) |",
 	}
 
 	lines = append(lines,
@@ -694,10 +696,10 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"### How to search (step-by-step)",
 		"",
 		"**Step 1 — Search the wiki (ALWAYS start here)**",
-		"  Call "+searchRef+" (ai_optimized:true) with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).",
-		"  Alternatively, call "+browseRef+" (ai_optimized:true) for a structured catalog.",
+		"  Call "+searchRef+" with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).",
+		"  Alternatively, call "+browseRef+" for a structured catalog.",
 		"  For AI-powered deep search, call "+queryRef+" which synthesizes a comprehensive answer using multi-turn consultation.",
-		"  For multi-source search (knowledge + memory), call "+wikiSearchRef+" (ai_optimized:true) with `wikis: [\"project\", \"memory\"]`.",
+		"  For multi-source search (knowledge + memory), call "+wikiSearchRef+" with `wikis: [\"project\", \"memory\"]`.",
 		"",
 		"**Step 2 — Read frontmatter FIRST**",
 		"  Check `confidence`, `type`, `source`, `updated` before reading body content.",
@@ -708,7 +710,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"  Navigate from endpoint → schema → related services via curated links.",
 		"",
 		"**Step 4 — Expand with cross-references**",
-		"  Call "+xrefsRef+" (ai_optimized:true) to find every spec that references a given schema or service — pre-computed, zero-cost.",
+		"  Call "+xrefsRef+" to find every spec that references a given schema or service — pre-computed, zero-cost.",
 		"",
 		"**Step 5 — Verify via provenance**",
 		"  Each page has: `*Provenance: ^[docs/rest/payment.yaml]*`.",
@@ -958,9 +960,9 @@ func MandateTrigger() string {
 
 ## Quick Reference (always active)
 
-- **Wiki search**: call ` + searchRef + ` (ai_optimized:true) or ` + browseRef + ` (ai_optimized:true) to find project knowledge
+- **Wiki search**: call ` + searchRef + ` or ` + browseRef + ` to find project knowledge
 - **AI-powered query**: call ` + queryRef + ` for deep multi-turn consultation
-- **Cross-references**: call ` + xrefsRef + ` (ai_optimized:true) to find backlinks — pre-computed, zero-cost
+- **Cross-references**: call ` + xrefsRef + ` to find backlinks — pre-computed, zero-cost
 - **Task logs**: ` + "`docs/tasks/<task-name>.md`" + ` — log every task with full detail
 - **Sync after documentation changes**: call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter) — fire-and-forget, do not wait
 - **NEVER** read ` + dotBrand + `/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized

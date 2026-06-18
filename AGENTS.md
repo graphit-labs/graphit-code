@@ -4,15 +4,7 @@ Before ANY action, tool use, or code generation, you MUST produce <graphit> eval
 Format: <graphit>MEM:0|AST:0|HUB:0|DOC:0|IMP:0 — [action]</graphit>
 Set a module flag to 1 when that module's rule applies to the current action.
 
-## 🔒 UNIVERSAL: Always set `ai_optimized: true` on EVERY MCP tool call
-
-**When calling ANY Graphit MCP tool that accepts the `ai_optimized` parameter,
-you MUST ALWAYS set `ai_optimized: true`.** No exceptions. This applies to every
-tool across all modules (AST, Knowledge, Memory, Hub, Wiki, Dream, Cluster, Config, Daemon).
-This flag outputs compact TOON format instead of verbose JSON, reducing token consumption by 30-60%.
-
-**Violating this rule wastes tokens and degrades performance. Never omit it.**
-
+> **🔒 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY Graphit MCP tool call. No exceptions.
 
 <doc_rule>
 # Knowledge & Documentation
@@ -33,17 +25,17 @@ This flag outputs compact TOON format instead of verbose JSON, reducing token co
 **After you modify, create, or delete ANY source file, you MUST:**
 
 1. Create/update task log at `docs/tasks/<task-name>.md`
-2. Call the `graphit_sync` tool (passing absolute `project_dir` parameter)
+2. Call the `graphit_sync` tool (passing absolute `project_dir` parameter) — **fire-and-forget: do NOT wait for sync to finish, continue working immediately**
 
 **Documentation is implicit in every task. A task without docs + sync is NOT complete.**
 
 ## Quick Reference (always active)
 
-- **Wiki search**: call `graphit_knowledge_search` (ai_optimized:true) or `graphit_wiki_browse` (ai_optimized:true) to find project knowledge
+- **Wiki search**: call `graphit_knowledge_search` or `graphit_wiki_browse` to find project knowledge
 - **AI-powered query**: call `graphit_knowledge_query` for deep multi-turn consultation
-- **Cross-references**: call `graphit_wiki_xrefs` (ai_optimized:true) to find backlinks — pre-computed, zero-cost
+- **Cross-references**: call `graphit_wiki_xrefs` to find backlinks — pre-computed, zero-cost
 - **Task logs**: `docs/tasks/<task-name>.md` — log every task with full detail
-- **Sync after documentation changes**: call `graphit_sync` tool (passing absolute `project_dir` parameter)
+- **Sync after documentation changes**: call `graphit_sync` tool (passing absolute `project_dir` parameter) — fire-and-forget, do not wait
 - **NEVER** read .graphit/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
 - **NEVER** grep documentation files for project understanding — wiki search costs ~500 tokens vs grep scanning all files
 - **Hub search before integration**: call `graphit_hub_list` tool (passing absolute `project_dir` parameter and `type: "knowledge"`)
@@ -69,21 +61,21 @@ This flag outputs compact TOON format instead of verbose JSON, reducing token co
 
 | Instead of this grep | Use this AST tool call (passing absolute `project_dir` parameter) |
 |---|---|
-| `grep_search: func myFunction` | `graphit_ast_query` with `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'myfunction' RETURN f.name, f.path, f.line_number, label(f) AS type"`, `ai_optimized: true` |
-| `grep_search: type MyStruct` | `graphit_ast_query` with `query: "MATCH (n) WHERE toLower(n.name) CONTAINS 'mystruct' RETURN n.name, label(n) AS type, n.path"`, `ai_optimized: true` |
-| `grep_search: import "package"` | `graphit_ast_query` with `query: "MATCH (f:File)-[:IMPORTS]->(m:Module) WHERE toLower(m.name) CONTAINS 'package' RETURN f.path"`, `ai_optimized: true` |
-| `grep -l "keyword" *.go` | `graphit_ast_search` with `query: "keyword"`, `ai_optimized: true` |
-| `find ... -name "*.go" \| xargs grep -l "daemon"` | `graphit_ast_search` with `query: "daemon"`, `ai_optimized: true` |
+| `grep_search: func myFunction` | `graphit_ast_query` with `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'myfunction' RETURN f.name, f.path, f.line_number, label(f) AS type"` |
+| `grep_search: type MyStruct` | `graphit_ast_query` with `query: "MATCH (n) WHERE toLower(n.name) CONTAINS 'mystruct' RETURN n.name, label(n) AS type, n.path"` |
+| `grep_search: import "package"` | `graphit_ast_query` with `query: "MATCH (f:File)-[:IMPORTS]->(m:Module) WHERE toLower(m.name) CONTAINS 'package' RETURN f.path"` |
+| `grep -l "keyword" *.go` | `graphit_ast_search` with `query: "keyword"` |
+| `find ... -name "*.go" \| xargs grep -l "daemon"` | `graphit_ast_search` with `query: "daemon"` |
 
 ## Quick Reference (always active)
 
-- **Always use**: call `graphit_ast_query` tool (passing absolute `project_dir` and setting `ai_optimized: true`)
+- **Always use**: call `graphit_ast_query` tool (passing absolute `project_dir`)
 - **Discover node labels**: call `graphit_ast_schema` tool (passing absolute `project_dir`)
 - **Never guess names**: Ground with `toLower(n.name) CONTAINS toLower('keyword')`
-- **Hybrid search (RECOMMENDED)**: call `graphit_ast_search` (passing absolute `project_dir`, `query`, and `ai_optimized: true`). Combines BM25 FTS + semantic vector search via Reciprocal Rank Fusion (RRF). Supports `mode: "hybrid"` (default), `"fts"`, or `"semantic"`.
+- **Hybrid search (RECOMMENDED)**: call `graphit_ast_search` (passing absolute `project_dir` and `query`). Combines BM25 FTS + semantic vector search via Reciprocal Rank Fusion (RRF). Supports `mode: "hybrid"` (default), `"fts"`, or `"semantic"`.
 - **Get source code (discovery)**: call `graphit_ast_source` (passing absolute `project_dir` and relative `path`). Retrieves source from the graph when you discovered a file through AST. Supports `head`/`tail` (first/last N lines), `start_line`/`end_line` (line range), `entity`/`entity_type` (extract entity source by name), `pattern`/`regex`/`before`/`after` (grep-like search with context), and `line_numbers`. If you already know the path, use your IDE's file-reading tools instead.
-- **One-shot: get metadata + full file source**: call `graphit_ast_query` with `query: "MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source"`, `ai_optimized: true`
-- **Reindex after changes**: call `graphit_sync` tool (passing absolute `project_dir`)
+- **One-shot: get metadata + full file source**: call `graphit_ast_query` with `query: "MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source"`
+- **Reindex after changes**: call `graphit_sync` tool (passing absolute `project_dir`) — fire-and-forget, do not wait
 
 ## Property Quick Reference (always active — NEVER guess property names)
 
@@ -96,7 +88,6 @@ This flag outputs compact TOON format instead of verbose JSON, reducing token co
 ## Key Rules
 
 - **AST BEFORE grep** — NEVER use grep/ripgrep for structural queries.
-- **Always `ai_optimized: true`** on every `graphit_ast_query` call.
 - **Multi-label by default** — use `label(f) = 'Function' OR label(f) = 'Method'`, never assume a single label.
 </ast_rule>
 <hub_rule>
@@ -115,12 +106,12 @@ This flag outputs compact TOON format instead of verbose JSON, reducing token co
 
 ## Quick Reference (always active)
 
-- **Search**: call `graphit_hub_list` tool (ai_optimized:true)
-- **Filter**: call `graphit_hub_list` tool with `type` parameter (ai_optimized:true)
-- **Inspect**: call `graphit_hub_show` tool with `id` parameter (ai_optimized:true)
-- **Install**: call `graphit_hub_install` tool (passing absolute `project_dir` parameter, `id`, and `ai_optimized: true`)
+- **Search**: call `graphit_hub_list` tool
+- **Filter**: call `graphit_hub_list` tool with `type` parameter
+- **Inspect**: call `graphit_hub_show` tool with `id` parameter
+- **Install**: call `graphit_hub_install` tool (passing absolute `project_dir` parameter)
 - **Update**: call `graphit_hub_update` tool (passing absolute `project_dir` parameter)
-- **Ecosystem**: call `graphit_cluster_projects` tool (ai_optimized:true) to find sibling projects — query their AST/wiki using their project_dir
+- **Ecosystem**: call `graphit_cluster_projects` tool to find sibling projects — query their AST/wiki using their project_dir
 
 ## Critical Rule
 
@@ -138,7 +129,7 @@ After installing a knowledge artifact, search its wiki via MCP BEFORE coding.
 
 **Execute IMMEDIATELY on every conversation start. Do NOT respond to the user first.**
 
-1. Call `graphit_memory_search` (ai_optimized:true) with context from the user's request to find relevant memories
+1. Call `graphit_memory_search` with context from the user's request to find relevant memories
 2. If relevant memories found, read the entity page(s) and follow their guidance
 3. Only then proceed with the user's request
 
@@ -165,7 +156,7 @@ After installing a knowledge artifact, search its wiki via MCP BEFORE coding.
 
 - **Insert**: call `graphit_memory_insert` tool (passing absolute `project_dir` parameter)
 - **Delete**: call `graphit_memory_delete` tool (passing absolute `project_dir` parameter)
-- **Search**: call `graphit_memory_search` tool (passing absolute `project_dir` parameter and `ai_optimized: true`)
+- **Search**: call `graphit_memory_search` tool (passing absolute `project_dir` parameter)
 - **Scope**: scope:"project" (default) for project memories, scope:"user" for personal cross-project memories
 - **Search vs Query**: `graphit_memory_search` = lightweight text match on raw files. `graphit_memory_query` = AI synthesis from compiled wiki
 - **NEVER** read .graphit/memory/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized

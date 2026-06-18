@@ -25,7 +25,8 @@ func mandatePreamble() string {
 	return "You are the " + brand.Capitalize(brand.Brand) + " autonomous agent.\n" +
 		"Before ANY action, tool use, or code generation, you MUST produce <" + tag + "> evaluating all module rules below.\n" +
 		"Format: <" + tag + ">MEM:0|AST:0|HUB:0|DOC:0|IMP:0 — [action]</" + tag + ">\n" +
-		"Set a module flag to 1 when that module's rule applies to the current action."
+		"Set a module flag to 1 when that module's rule applies to the current action.\n" +
+		"\n" + brand.UniversalAIOptimizedNote()
 }
 
 func mandateTag() string {

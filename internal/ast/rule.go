@@ -12,6 +12,8 @@ func ASTRuleContent() string {
 	lines := []string{
 		"# Code Exploration via AST Rule",
 		"",
+		brand.UniversalAIOptimizedNote(),
+		"",
 		"## 🔒 MANDATORY: AST Graph Is Your PRIMARY Code Analysis Tool",
 		"",
 		"**The AST graph database is your DEFAULT and OBLIGATORY mechanism for any",
@@ -45,7 +47,7 @@ func ASTRuleContent() string {
 		"",
 		"### 🔒 When you MUST use the AST graph (MANDATORY — no exceptions)",
 		"",
-		"To execute any Cypher queries below, call the " + brand.MCPToolRef("ast", "query") + " tool (passing absolute `project_dir` and setting `ai_optimized: true`):",
+		"To execute any Cypher queries below, call the " + brand.MCPToolRef("ast", "query") + " tool (passing absolute `project_dir`):",
 		"",
 		"| Scenario | What to do (Cypher query) | What NOT to do |",
 		"|---|---|---|",
@@ -82,30 +84,7 @@ func ASTRuleContent() string {
 		"You have access to a LadybugDB graph database with the entire project's AST.",
 		"Use the following multi-phase workflow to explore it:",
 		"",
-		"### 🔒 MANDATORY: Always set `ai_optimized: true`",
-		"",
-		"**You MUST set the `ai_optimized` parameter to `true` in EVERY " + brand.MCPToolRef("ast", "query") + " tool invocation.**",
-		"This flag outputs results in a compact, token-efficient tabular format (TOON)",
-		"instead of verbose JSON. It reduces token consumption by 30-60%.",
-		"",
-		"**TOON output format:**",
-		"```",
-		"results[<count>]{<col1>|<col2>|<col3>}:",
-		"  <val1>|<val2>|<val3>",
-		"  <val1>|<val2>|<val3>",
-		"```",
-		"Headers are declared once in the header line, then each row is pipe-separated.",
-		"Empty values are represented as empty strings between pipes.",
-		"Nested arrays use `[a,b,c]` syntax, nested maps use `{k:v,k:v}` syntax.",
-		"",
-		"**Example:** Calling " + brand.MCPToolRef("ast", "query") + " with `query: \"MATCH (f:Function) RETURN f.name, f.path\"` and `ai_optimized: true` produces:",
-		"```",
-		"results[3]{f.name|f.path}:",
-		"  main|src/main.go",
-		"  handleAuth|src/auth.go",
-		"  validate|src/validate.go",
-		"```",
-		"instead of ~30 lines of JSON with repeated keys, braces, and quotes.",
+
 		"",
 		"### Phase 1: Know the schema",
 		"",
@@ -134,7 +113,7 @@ func ASTRuleContent() string {
 		"",
 		"### Phase 2: Pre-search (Grounding)",
 		"",
-		"**Never guess entity names.** Use a loose text search first by calling " + brand.MCPToolRef("ast", "query") + " with `ai_optimized: true` and:",
+		"**Never guess entity names.** Use a loose text search first by calling " + brand.MCPToolRef("ast", "query") + ":",
 		"```",
 		"query: \"MATCH (n) WHERE toLower(n.name) CONTAINS toLower('keyword') RETURN DISTINCT n.name as name, label(n) as label\"",
 		"```",
@@ -178,7 +157,7 @@ func ASTRuleContent() string {
 		"",
 		"### Phase 3: Precise Graph Query",
 		"",
-		"Once you know the exact names and labels from Phase 2, construct the final query. Call the " + brand.MCPToolRef("ast", "query") + " tool (passing `project_dir`, `query`, and `ai_optimized: true`):",
+		"Once you know the exact names and labels from Phase 2, construct the final query. Call the " + brand.MCPToolRef("ast", "query") + " tool (passing `project_dir` and `query`):",
 		"",
 		"> ⚠️ **Multi-label search — DEFAULT BEHAVIOR when searching by name:**",
 		"> Many entities share the same name but differ only in label. Languages have subtle",
@@ -573,20 +552,20 @@ func MandateTrigger() string {
 
 | Instead of this grep | Use this AST tool call (passing absolute ` + "`project_dir`" + ` parameter) |
 |---|---|
-| ` + "`grep_search: func myFunction`" + ` | ` + astQueryRef + ` with ` + "`" + `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'myfunction' RETURN f.name, f.path, f.line_number, label(f) AS type"` + "`" + `, ` + "`ai_optimized: true`" + ` |
-| ` + "`grep_search: type MyStruct`" + ` | ` + astQueryRef + ` with ` + "`" + `query: "MATCH (n) WHERE toLower(n.name) CONTAINS 'mystruct' RETURN n.name, label(n) AS type, n.path"` + "`" + `, ` + "`ai_optimized: true`" + ` |
+| ` + "`grep_search: func myFunction`" + ` | ` + astQueryRef + ` with ` + "`" + `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'myfunction' RETURN f.name, f.path, f.line_number, label(f) AS type"` + "`" + ` |
+| ` + "`grep_search: type MyStruct`" + ` | ` + astQueryRef + ` with ` + "`" + `query: "MATCH (n) WHERE toLower(n.name) CONTAINS 'mystruct' RETURN n.name, label(n) AS type, n.path"` + "`" + ` |
 | ` + "`grep_search: import \"package\"`" + ` | ` + astQueryRef + ` with ` + "`" + `query: "MATCH (f:File)-[:IMPORTS]->(m:Module) WHERE toLower(m.name) CONTAINS 'package' RETURN f.path"` + "`" + ` |
 | ` + "`grep -l \"keyword\" *.go`" + ` | ` + astSearchRef + ` with ` + "`query: \"keyword\"`" + ` |
 | ` + "`find ... -name \"*.go\" \\| xargs grep -l \"daemon\"`" + ` | ` + astSearchRef + ` with ` + "`query: \"daemon\"`" + ` |
 
 ## Quick Reference (always active)
 
-- **Always use**: call ` + astQueryRef + ` tool (passing absolute ` + "`project_dir`" + ` and setting ` + "`ai_optimized: true`" + `)
+- **Always use**: call ` + astQueryRef + ` tool (passing absolute ` + "`project_dir`" + `)
 - **Discover node labels**: call ` + astSchemaRef + ` tool (passing absolute ` + "`project_dir`" + `)
 - **Never guess names**: Ground with ` + "`toLower(n.name) CONTAINS toLower('keyword')`" + `
 - **Hybrid search (RECOMMENDED)**: call ` + astSearchRef + ` (passing absolute ` + "`project_dir`" + ` and ` + "`query`" + `). Combines BM25 FTS + semantic vector search via Reciprocal Rank Fusion (RRF). Supports ` + "`mode: \"hybrid\"`" + ` (default), ` + "`\"fts\"`" + `, or ` + "`\"semantic\"`" + `.
 - **Get source code (discovery)**: call ` + astSourceRef + ` (passing absolute ` + "`project_dir`" + ` and relative ` + "`path`" + `). Retrieves source from the graph when you discovered a file through AST. Supports ` + "`head`" + `/` + "`tail`" + ` (first/last N lines), ` + "`start_line`" + `/` + "`end_line`" + ` (line range), ` + "`entity`" + `/` + "`entity_type`" + ` (extract entity source by name), ` + "`pattern`" + `/` + "`regex`" + `/` + "`before`" + `/` + "`after`" + ` (grep-like search with context), and ` + "`line_numbers`" + `. If you already know the path, use your IDE's file-reading tools instead.
-- **One-shot: get metadata + full file source**: call ` + astQueryRef + ` with ` + "`" + `query: "MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source"` + "`" + `, ` + "`ai_optimized: true`" + `
+- **One-shot: get metadata + full file source**: call ` + astQueryRef + ` with ` + "`" + `query: "MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source"` + "`" + `
 - **Reindex after changes**: call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + `) — fire-and-forget, do not wait
 
 ## Property Quick Reference (always active — NEVER guess property names)
@@ -600,7 +579,6 @@ func MandateTrigger() string {
 ## Key Rules
 
 - **AST BEFORE grep** — NEVER use grep/ripgrep for structural queries.
-- **Always ` + "`ai_optimized: true`" + `** on every ` + astQueryRef + ` call.
 - **Multi-label by default** — use ` + "`label(f) = 'Function' OR label(f) = 'Method'`" + `, never assume a single label.
 `
 }

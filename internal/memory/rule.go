@@ -32,6 +32,8 @@ func RuleContent(contexts []string) string {
 	lines := []string{
 		"# Memory Management Rule",
 		"",
+		brand.UniversalAIOptimizedNote(),
+		"",
 		"> This rule is auto-managed by " + displayName + ". Do not edit this block manually.",
 		"",
 		"## 🚨 SESSION START PROTOCOL — Execute BEFORE Any Response",

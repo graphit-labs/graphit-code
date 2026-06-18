@@ -5,6 +5,9 @@ description: AST Code Exploration and structural analysis graph queries. Use thi
 
 # Code Exploration via AST Rule
 
+> **🔒 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY Graphit MCP tool call. No exceptions.
+
+
 ## 🔒 MANDATORY: AST Graph Is Your PRIMARY Code Analysis Tool
 
 **The AST graph database is your DEFAULT and OBLIGATORY mechanism for any
@@ -38,7 +41,7 @@ containment hierarchy — pre-indexed and instantly queryable.
 
 ### 🔒 When you MUST use the AST graph (MANDATORY — no exceptions)
 
-To execute any Cypher queries below, call the `graphit_ast_query` tool (passing absolute `project_dir` and setting `ai_optimized: true`):
+To execute any Cypher queries below, call the `graphit_ast_query` tool (passing absolute `project_dir`):
 
 | Scenario | What to do (Cypher query) | What NOT to do |
 |---|---|---|
@@ -75,30 +78,6 @@ To execute any Cypher queries below, call the `graphit_ast_query` tool (passing 
 You have access to a LadybugDB graph database with the entire project's AST.
 Use the following multi-phase workflow to explore it:
 
-### 🔒 MANDATORY: Always set `ai_optimized: true`
-
-**You MUST set the `ai_optimized` parameter to `true` in EVERY `graphit_ast_query` tool invocation.**
-This flag outputs results in a compact, token-efficient tabular format (TOON)
-instead of verbose JSON. It reduces token consumption by 30-60%.
-
-**TOON output format:**
-```
-results[<count>]{<col1>|<col2>|<col3>}:
-  <val1>|<val2>|<val3>
-  <val1>|<val2>|<val3>
-```
-Headers are declared once in the header line, then each row is pipe-separated.
-Empty values are represented as empty strings between pipes.
-Nested arrays use `[a,b,c]` syntax, nested maps use `{k:v,k:v}` syntax.
-
-**Example:** Calling `graphit_ast_query` with `query: "MATCH (f:Function) RETURN f.name, f.path"` and `ai_optimized: true` produces:
-```
-results[3]{f.name|f.path}:
-  main|src/main.go
-  handleAuth|src/auth.go
-  validate|src/validate.go
-```
-instead of ~30 lines of JSON with repeated keys, braces, and quotes.
 
 ### Phase 1: Know the schema
 
@@ -127,7 +106,7 @@ property names listed below — inventing names will crash queries.
 
 ### Phase 2: Pre-search (Grounding)
 
-**Never guess entity names.** Use a loose text search first by calling `graphit_ast_query` with `ai_optimized: true` and:
+**Never guess entity names.** Use a loose text search first by calling `graphit_ast_query`:
 ```
 query: "MATCH (n) WHERE toLower(n.name) CONTAINS toLower('keyword') RETURN DISTINCT n.name as name, label(n) as label"
 ```
@@ -143,9 +122,9 @@ This prevents wasted queries on misspelled or assumed names.
 
 **This is the RECOMMENDED default for text-based discovery.** It combines BM25 full-text
 search with semantic vector search using Reciprocal Rank Fusion (RRF, k=60) to produce
-a unified ranking — call the `graphit_ast_search` tool (passing absolute `project_dir`, `query`, and `ai_optimized: true`):
+a unified ranking — call the `graphit_ast_search` tool (passing absolute `project_dir` and `query`):
 ```
-graphit_ast_search(project_dir: "/path/to/project", query: "authentication and session management", ai_optimized: true)
+graphit_ast_search(project_dir: "/path/to/project", query: "authentication and session management")
 ```
 
 Hybrid search automatically:
@@ -166,12 +145,12 @@ Use the optional `mode` parameter to restrict to a single search type:
 > ❌ Wrong: Call `graphit_ast_search` with `query: "MATCH (f:Function) WHERE ..."`
 
 **Important:** Semantic mode requires embeddings to have been computed.
-If semantic results are empty, call the `graphit_sync` tool (passing `project_dir`) to generate embeddings.
+If semantic results are empty, call the `graphit_sync` tool (passing `project_dir`) to generate embeddings — fire-and-forget, do not wait for it to finish.
 In hybrid mode, it gracefully falls back to FTS-only when embeddings are unavailable.
 
 ### Phase 3: Precise Graph Query
 
-Once you know the exact names and labels from Phase 2, construct the final query. Call the `graphit_ast_query` tool (passing `project_dir`, `query`, and `ai_optimized: true`):
+Once you know the exact names and labels from Phase 2, construct the final query. Call the `graphit_ast_query` tool (passing `project_dir` and `query`):
 
 > ⚠️ **Multi-label search — DEFAULT BEHAVIOR when searching by name:**
 > Many entities share the same name but differ only in label. Languages have subtle
@@ -529,6 +508,6 @@ Without syncing, the AST graph becomes stale and subsequent queries return
 outdated or incomplete results — breaking the analysis pipeline.
 
 **Rules:**
-- Call `graphit_sync` immediately after any source code file modifications.
+- Call `graphit_sync` immediately after any source code file modifications — **fire-and-forget: do NOT wait for sync to complete, continue working immediately.**
 - **Forgetting to call sync is a framework integrity violation.**
 
