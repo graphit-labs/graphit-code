@@ -5,9 +5,6 @@ description: Centralized registry of knowledge, AST, rules, skills, commands, ag
 
 # Hub Discovery Rule
 
-> **🔒 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY Graphit MCP tool call. No exceptions.
-
-
 ## Objective
 
 The Hub is a centralized registry of shareable artifacts that enrich your development

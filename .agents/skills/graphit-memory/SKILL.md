@@ -5,9 +5,6 @@ description: Persistent memory across sessions. MANDATORY: Read memory indexes a
 
 # Memory Management Rule
 
-> **🔒 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY Graphit MCP tool call. No exceptions.
-
-
 > This rule is auto-managed by Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems. Do not edit this block manually.
 
 ## 🚨 SESSION START PROTOCOL — Execute BEFORE Any Response

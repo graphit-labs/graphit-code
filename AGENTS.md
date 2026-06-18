@@ -4,8 +4,6 @@ Before ANY action, tool use, or code generation, you MUST produce <graphit> eval
 Format: <graphit>MEM:0|AST:0|HUB:0|DOC:0|IMP:0 — [action]</graphit>
 Set a module flag to 1 when that module's rule applies to the current action.
 
-> **🔒 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY Graphit MCP tool call. No exceptions.
-
 <doc_rule>
 # Knowledge & Documentation
 

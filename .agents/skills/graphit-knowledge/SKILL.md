@@ -5,9 +5,6 @@ description: Manages project documentation, knowledge wiki, and integration spec
 
 # Knowledge Maintenance Rule
 
-> **🔒 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY Graphit MCP tool call. No exceptions.
-
-
 > This rule is auto-managed by Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems. Do not edit this block manually.
 
 > ⚠️ **UNIVERSAL APPLICABILITY** — This documentation workflow applies to the

@@ -15,9 +15,6 @@ engineering analysis methodology detailed below.
 
 # Code Improvement Analysis Methodology
 
-> **🔒 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY Graphit MCP tool call. No exceptions.
-
-
 This document defines the engineering principles and analysis methodology
 for evaluating and improving a codebase. Follow each section systematically.
 

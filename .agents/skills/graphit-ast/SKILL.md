@@ -5,9 +5,6 @@ description: AST Code Exploration and structural analysis graph queries. Use thi
 
 # Code Exploration via AST Rule
 
-> **🔒 UNIVERSAL RULE:** Always set `ai_optimized: true` on EVERY Graphit MCP tool call. No exceptions.
-
-
 ## 🔒 MANDATORY: AST Graph Is Your PRIMARY Code Analysis Tool
 
 **The AST graph database is your DEFAULT and OBLIGATORY mechanism for any
