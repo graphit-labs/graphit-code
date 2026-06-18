@@ -165,49 +165,47 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 
 	mcpPortFile := daemonctl.PortFilePath()
 	mcpKeyFile := daemonctl.KeyFilePath()
-	pidCheck := daemon.NewPIDFile()
-	if pidCheck.IsAlive() == nil {
+	go func() {
+		apiKey, err := mcpproxy.GenerateAPIKey()
+		if err != nil {
+			return
+		}
+
+		mcpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
+			return mcpstdio.NewServer()
+		}, nil)
+
+		authHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "Bearer "+apiKey {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			mcpHandler.ServeHTTP(w, r)
+		})
+
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return
+		}
+
+		port := listener.Addr().(*net.TCPAddr).Port
+		_ = os.MkdirAll(filepath.Dir(mcpPortFile), 0o755)
+		_ = os.WriteFile(mcpPortFile, []byte(strconv.Itoa(port)), 0o644)
+		_ = os.WriteFile(mcpKeyFile, []byte(apiKey), 0o600)
+
 		go func() {
-			apiKey, err := mcpproxy.GenerateAPIKey()
-			if err != nil {
-				return
-			}
-
-			mcpHandler := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
-				return mcpstdio.NewServer()
-			}, nil)
-
-			authHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Header.Get("Authorization") != "Bearer "+apiKey {
-					http.Error(w, "unauthorized", http.StatusUnauthorized)
-					return
-				}
-				mcpHandler.ServeHTTP(w, r)
-			})
-
-			listener, err := net.Listen("tcp", "127.0.0.1:0")
-			if err != nil {
-				return
-			}
-
-			port := listener.Addr().(*net.TCPAddr).Port
-			_ = os.MkdirAll(filepath.Dir(mcpPortFile), 0o755)
-			_ = os.WriteFile(mcpPortFile, []byte(strconv.Itoa(port)), 0o644)
-			_ = os.WriteFile(mcpKeyFile, []byte(apiKey), 0o600)
-
-			go func() {
-				<-ctx.Done()
-				_ = listener.Close()
-				_ = os.Remove(mcpPortFile)
-				_ = os.Remove(mcpKeyFile)
-			}()
-
-			mux := http.NewServeMux()
-			mux.Handle("/mcp", authHandler)
-			httpServer := &http.Server{Handler: mux}
-			_ = httpServer.Serve(listener)
+			<-ctx.Done()
+			_ = listener.Close()
+			_ = os.Remove(mcpPortFile)
+			_ = os.Remove(mcpKeyFile)
 		}()
-	}
+
+		mux := http.NewServeMux()
+		mux.Handle("/mcp", authHandler)
+		httpServer := &http.Server{Handler: mux}
+		_ = httpServer.Serve(listener)
+	}()
+
 
 	p := output.NewPrinter("daemon")
 	cfg.OnEvent = func(level string, msg string) {
