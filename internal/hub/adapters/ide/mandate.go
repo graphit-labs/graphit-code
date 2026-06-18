@@ -37,8 +37,10 @@ func readMandateContent(targetPath string) string {
 	if err != nil {
 		return ""
 	}
-	content := string(data)
+	return readMandateContentFromString(string(data))
+}
 
+func readMandateContentFromString(content string) string {
 	startTag := "<" + mandateTag() + ">"
 	endTag := "</" + mandateTag() + ">"
 	si := strings.Index(content, startTag)
@@ -60,23 +62,37 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 		return err
 	}
 
-	cleanupLegacy(targetPath)
+	fileData, _ := os.ReadFile(targetPath)
+	fileContent := string(fileData)
 
-	inner := readMandateContent(targetPath)
-
-	// Idempotency: if the trigger tag already contains exactly the same content,
-	// skip all destructive operations (RemoveBlockStyled + WriteFile).
-	reCurrent := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(triggerTag) + `>(.*?)</` + regexp.QuoteMeta(triggerTag) + `>`)
-	if m := reCurrent.FindStringSubmatch(inner); m != nil && m[1] == triggerContent {
-		return nil
+	hasLegacy := false
+	for _, old := range legacyHTMLBlocks {
+		marker := blockMarkerForName(old)
+		if strings.Contains(fileContent, "<!-- "+marker+" -->") || strings.Contains(fileContent, "<!-- END "+marker+" -->") {
+			hasLegacy = true
+			break
+		}
 	}
 
-	// Remove old trigger if present.
+	inner := readMandateContentFromString(fileContent)
+
+	reCurrent := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(triggerTag) + `>(.*?)</` + regexp.QuoteMeta(triggerTag) + `>`)
+	if !hasLegacy {
+		if m := reCurrent.FindStringSubmatch(inner); m != nil && m[1] == triggerContent {
+			return nil
+		}
+	}
+
+	if hasLegacy {
+		cleanupLegacy(targetPath)
+	}
+
+	inner = readMandateContent(targetPath)
+
 	re := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(triggerTag) + `>.*?</` + regexp.QuoteMeta(triggerTag) + `>\n?`)
 	inner = re.ReplaceAllString(inner, "")
 	inner = strings.TrimSpace(inner)
 
-	// Append the new trigger wrapped in XML tags.
 	wrapped := "<" + triggerTag + ">" + triggerContent + "</" + triggerTag + ">"
 	if inner == "" {
 		inner = mandatePreamble() + "\n\n" + wrapped
@@ -84,7 +100,6 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 		inner = inner + "\n" + wrapped
 	}
 
-	// Remove existing mandate block, then prepend.
 	_, _ = gitblk.RemoveBlockStyled(targetPath, mandateTag(), false, gitblk.XMLBlockStyle)
 
 	block := "<" + mandateTag() + ">\n" + strings.TrimSpace(inner) + "\n</" + mandateTag() + ">"
@@ -119,14 +134,13 @@ func RemoveMandateTrigger(projectDir, ideName, triggerTag string) error {
 	cleaned := re.ReplaceAllString(inner, "")
 	cleaned = strings.TrimSpace(cleaned)
 
-	// Check if any triggers remain (look for any <*_rule> tags).
+	// Check if any triggers remain.
 	hasRules := regexp.MustCompile(`<\w+_rule>`).MatchString(cleaned)
 
 	if !hasRules {
 		return RemoveMandate(projectDir, ideName)
 	}
 
-	// Rebuild mandate with remaining triggers.
 	_, _ = gitblk.RemoveBlockStyled(targetPath, mandateTag(), false, gitblk.XMLBlockStyle)
 
 	block := "<" + mandateTag() + ">\n" + cleaned + "\n</" + mandateTag() + ">"

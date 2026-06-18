@@ -497,6 +497,9 @@ func (a *FolderBasedAdapter) copyArtifact(artType, sourcePath, targetDir, localN
 	fm := a.getFileMode(artType)
 	if fm.Mode == "folder" {
 		dest := filepath.Join(targetDir, localName)
+		if dirContentsEqual(sourcePath, dest) {
+			return nil
+		}
 		_ = os.RemoveAll(dest)
 		return copyDirAll(sourcePath, dest)
 	}
@@ -546,7 +549,6 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	// Idempotency: if destination exists with same size, compare content.
 	if dstInfo, err := os.Stat(dst); err == nil && dstInfo.Size() == srcInfo.Size() {
 		srcData, serr := os.ReadFile(src)
 		dstData, derr := os.ReadFile(dst)
@@ -569,6 +571,57 @@ func copyFile(src, dst string) error {
 	defer func() { _ = out.Close() }()
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func dirContentsEqual(src, dst string) bool {
+	srcInfo, err := os.Stat(src)
+	if err != nil || !srcInfo.IsDir() {
+		return false
+	}
+	dstInfo, err := os.Stat(dst)
+	if err != nil || !dstInfo.IsDir() {
+		return false
+	}
+
+	equal := true
+	err = filepath.Walk(src, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() {
+			return walkErr
+		}
+		rel, _ := filepath.Rel(src, path)
+		dstPath := filepath.Join(dst, rel)
+		dstFi, statErr := os.Stat(dstPath)
+		if statErr != nil || dstFi.Size() != info.Size() {
+			equal = false
+			return filepath.SkipAll
+		}
+		srcData, serr := os.ReadFile(path)
+		dstData, derr := os.ReadFile(dstPath)
+		if serr != nil || derr != nil || string(srcData) != string(dstData) {
+			equal = false
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil || !equal {
+		return false
+	}
+
+	dstCount := 0
+	srcCount := 0
+	_ = filepath.Walk(dst, func(_ string, info os.FileInfo, e error) error {
+		if e == nil && !info.IsDir() {
+			dstCount++
+		}
+		return e
+	})
+	_ = filepath.Walk(src, func(_ string, info os.FileInfo, e error) error {
+		if e == nil && !info.IsDir() {
+			srcCount++
+		}
+		return e
+	})
+	return srcCount == dstCount
 }
 
 func copyDirAll(src, dst string) error {
