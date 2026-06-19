@@ -113,7 +113,7 @@ func TestDaemon_Start_RemovesPIDOnExit(t *testing.T) {
 
 	<-errCh
 
-	// PID file should be removed since pidHandedOff is false.
+	// PID file should be removed after normal exit.
 	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
 		t.Error("PID file should be removed after normal exit")
 	}

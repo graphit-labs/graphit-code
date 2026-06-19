@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
 const pidFileName = "daemon.pid"
@@ -31,7 +33,7 @@ func (pf *PIDFile) Write() error {
 	if err := os.MkdirAll(filepath.Dir(pf.path), 0o755); err != nil {
 		return fmt.Errorf("creating pid dir: %w", err)
 	}
-	content := fmt.Sprintf("%d\n%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
+	content := fmt.Sprintf("%d\n%s\n", sysutil.EffectivePID(), time.Now().UTC().Format(time.RFC3339))
 	return os.WriteFile(pf.path, []byte(content), 0o600)
 }
 

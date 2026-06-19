@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,6 +27,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
 	"github.com/graphit-labs/graphit-code/internal/mcpstdio"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 	"github.com/spf13/cobra"
 )
 
@@ -83,6 +87,50 @@ PID file: ~/` + brand.DotDir() + `/daemon/daemon.pid (global, one daemon per mac
 }
 
 func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
+	closeMCP, err := runDaemonCore(noEmbedding, noDream, logPath)
+	if !errors.Is(err, daemon.ErrReplace) {
+		return err
+	}
+	closeMCP()
+
+	exe := daemonctl.ResolveExe()
+	if exe == "" {
+		exe, _ = os.Executable()
+	}
+	argv := []string{exe, "daemon"}
+	if noEmbedding {
+		argv = append(argv, "--no-embedding")
+	}
+	if noDream {
+		argv = append(argv, "--no-dream")
+	}
+	if logPath != "" {
+		argv = append(argv, "--log", logPath)
+	}
+	if replErr := sysutil.ReplaceProcess(exe, argv, os.Environ()); replErr != nil {
+		return fmt.Errorf("exec replacement failed: %w", replErr)
+	}
+	return nil
+}
+
+func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), err error) {
+	var (
+		mcpOnce     sync.Once
+		mcpCloserMu sync.Mutex
+		mcpCloserFn func()
+	)
+	runCloseMCP := func() {
+		mcpOnce.Do(func() {
+			mcpCloserMu.Lock()
+			defer mcpCloserMu.Unlock()
+			fn := mcpCloserFn
+			if fn != nil {
+				fn()
+			}
+		})
+	}
+	closeMCP = runCloseMCP
+
 
 	maxProcs := runtime.NumCPU() / 2
 	if maxProcs < 2 {
@@ -97,6 +145,10 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 	cfg.DisableEmbedding = noEmbedding
 	cfg.DisableDream = noDream
 
+	if runtime.GOOS == "windows" {
+		cfg.SkipPIDFile = true
+	}
+
 	if logPath != "" {
 		cfg.LogPath = logPath
 	}
@@ -106,7 +158,7 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 		sharedEmbedClient = ai.NewLazyEmbeddingClient()
 
 		go func() {
-			if mgr, err := ai.NewModelManager(); err == nil {
+			if mgr, mgErr := ai.NewModelManager(); mgErr == nil {
 				_, _, _ = mgr.EnsureModel(context.Background())
 			}
 		}()
@@ -166,8 +218,8 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 	mcpPortFile := daemonctl.PortFilePath()
 	mcpKeyFile := daemonctl.KeyFilePath()
 	go func() {
-		apiKey, err := mcpproxy.GenerateAPIKey()
-		if err != nil {
+		apiKey, genErr := mcpproxy.GenerateAPIKey()
+		if genErr != nil {
 			return
 		}
 
@@ -183,21 +235,32 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 			mcpHandler.ServeHTTP(w, r)
 		})
 
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
+		listener, listenErr := net.Listen("tcp", "127.0.0.1:0")
+		if listenErr != nil {
 			return
 		}
 
 		port := listener.Addr().(*net.TCPAddr).Port
+		portStr := strconv.Itoa(port)
 		_ = os.MkdirAll(filepath.Dir(mcpPortFile), 0o755)
-		_ = os.WriteFile(mcpPortFile, []byte(strconv.Itoa(port)), 0o644)
+		_ = os.WriteFile(mcpPortFile, []byte(portStr), 0o644)
 		_ = os.WriteFile(mcpKeyFile, []byte(apiKey), 0o600)
+
+		func() {
+			mcpCloserMu.Lock()
+			defer mcpCloserMu.Unlock()
+			mcpCloserFn = func() {
+				_ = listener.Close()
+				if data, rdErr := os.ReadFile(mcpPortFile); rdErr == nil && strings.TrimSpace(string(data)) == portStr {
+					_ = os.Remove(mcpPortFile)
+					_ = os.Remove(mcpKeyFile)
+				}
+			}
+		}()
 
 		go func() {
 			<-ctx.Done()
-			_ = listener.Close()
-			_ = os.Remove(mcpPortFile)
-			_ = os.Remove(mcpKeyFile)
+			runCloseMCP()
 		}()
 
 		mux := http.NewServeMux()
@@ -205,7 +268,6 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 		httpServer := &http.Server{Handler: mux}
 		_ = httpServer.Serve(listener)
 	}()
-
 
 	p := output.NewPrinter("daemon")
 	cfg.OnEvent = func(level string, msg string) {
@@ -230,13 +292,13 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 	d := daemon.New(cfg, builder)
 
 	discoverFn := func() ([]daemon.ProjectInfo, error) {
-		mgr, err := hub.NewGlobalLockManager()
-		if err != nil {
-			return nil, err
+		mgr, mgrErr := hub.NewGlobalLockManager()
+		if mgrErr != nil {
+			return nil, mgrErr
 		}
-		active, err := mgr.ListActiveProjects()
-		if err != nil {
-			return nil, err
+		active, actErr := mgr.ListActiveProjects()
+		if actErr != nil {
+			return nil, actErr
 		}
 		result := make([]daemon.ProjectInfo, 0, len(active))
 		for _, p := range active {
@@ -245,7 +307,7 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 		return result, nil
 	}
 
-	return d.Start(ctx, discoverFn)
+	return closeMCP, d.Start(ctx, discoverFn)
 }
 
 func newDaemonStopCmd() *cobra.Command {

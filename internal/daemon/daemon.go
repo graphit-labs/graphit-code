@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 )
+
+var ErrReplace = errors.New("daemon: replacement required")
 
 const (
 	maxRestarts = 10
@@ -34,6 +37,8 @@ type Config struct {
 	DisableDream bool
 
 	OnEvent func(level string, msg string)
+
+	SkipPIDFile bool
 }
 
 func GlobalDaemonDir() string {
@@ -56,15 +61,14 @@ type ProjectInfo struct {
 type ProjectModuleBuilder func(projectDir string) (modules []WatchModule, closers []func() error, err error)
 
 type Daemon struct {
-	cfg          Config
-	pid          *PIDFile
-	builder      ProjectModuleBuilder
-	supervisors  map[string]*ProjectSupervisor
-	logFile      *os.File
-	mu           sync.RWMutex  // protects supervisors map
-	logMu        sync.Mutex    // protects logFile writes (separate to avoid deadlock)
-	bootStamp    string
-	pidHandedOff bool
+	cfg         Config
+	pid         *PIDFile
+	builder     ProjectModuleBuilder
+	supervisors map[string]*ProjectSupervisor
+	logFile     *os.File
+	mu          sync.RWMutex // protects supervisors map
+	logMu       sync.Mutex   // protects logFile writes (separate to avoid deadlock)
+	bootStamp   string
 }
 
 func New(cfg Config, builder ProjectModuleBuilder) *Daemon {
@@ -90,9 +94,11 @@ func (d *Daemon) event(level string, format string, args ...any) {
 
 func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, error)) error {
 
-	if alive := d.pid.IsAlive(); alive != nil {
-		return fmt.Errorf("daemon already running (pid %d, started %s)",
-			alive.PID, alive.StartedAt.Format(time.RFC3339))
+	if !d.cfg.SkipPIDFile {
+		if alive := d.pid.IsAlive(); alive != nil {
+			return fmt.Errorf("daemon already running (pid %d, started %s)",
+				alive.PID, alive.StartedAt.Format(time.RFC3339))
+		}
 	}
 
 	d.bootStamp = readLauncherStamp()
@@ -107,15 +113,12 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 	d.logFile = lf
 	defer func() { _ = lf.Close() }()
 
-	if err := d.pid.Write(); err != nil {
-		return fmt.Errorf("writing pid file: %w", err)
-	}
-	defer func() {
-
-		if !d.pidHandedOff {
-			d.pid.Remove()
+	if !d.cfg.SkipPIDFile {
+		if err := d.pid.Write(); err != nil {
+			return fmt.Errorf("writing pid file: %w", err)
 		}
-	}()
+		defer d.pid.Remove()
+	}
 
 	d.log("daemon started (pid=%d, discovery_interval=%s, version_check=%s, stamp=%s)",
 		os.Getpid(), d.cfg.DiscoveryInterval, d.cfg.VersionCheckInterval, d.bootStamp)
@@ -142,21 +145,10 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 			d.reconcileProjects(ctx, discoverFn)
 		case <-versionTicker.C:
 			if d.stampChanged() {
-				d.log("launcher stamp changed — spawning new daemon before shutdown")
-				d.event("warn", "New version detected — upgrading daemon")
-
-				d.pid.Remove()
-				d.pidHandedOff = true
-
-				started, err := EnsureRunning()
-				if err != nil {
-					d.log("failed to spawn replacement daemon: %v", err)
-				} else if started {
-					d.log("replacement daemon spawned successfully")
-				}
-
+				d.log("launcher stamp changed — shutting down for replacement")
+				d.event("warn", "New version detected — replacing daemon process")
 				d.shutdown()
-				return nil
+				return ErrReplace
 			}
 		}
 	}
