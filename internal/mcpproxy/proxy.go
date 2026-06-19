@@ -19,6 +19,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const watchPollInterval = 500 * time.Millisecond
+
 type Config struct {
 	PortFile      string
 	KeyFile       string
@@ -85,8 +87,6 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 	}
 	defer stdioConn.Close()
 
-	// Cache the MCP initialize handshake so we can replay it on reconnects.
-	// MCP protocol: client→initialize, server→response, client→notifications/initialized.
 	var initReq, initNotif jsonrpc.Message
 	firstConnect := true
 
@@ -102,8 +102,6 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		httpConn, err := connectHTTP(ctx, endpoint, key)
 		if err != nil {
 			cfg.logf("HTTP connect failed: %v — cleaning stale files and restarting daemon", err)
-			// Port/key files are stale (daemon died without cleanup).
-			// Remove them so waitForDaemon triggers EnsureDaemon on next iteration.
 			_ = os.Remove(cfg.PortFile)
 			_ = os.Remove(cfg.KeyFile)
 			if cfg.EnsureDaemon != nil {
@@ -115,8 +113,6 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 		cfg.logf("connected")
 
 		if firstConnect {
-			// First connection: intercept the MCP initialize handshake,
-			// forward it, and cache the messages for future reconnects.
 			initReq, err = stdioConn.Read(ctx)
 			if err != nil {
 				httpConn.Close()
@@ -146,8 +142,6 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 			}
 			firstConnect = false
 		} else {
-			// Reconnect: replay the cached initialize handshake so the new
-			// daemon session is properly set up before relaying IDE messages.
 			cfg.logf("replaying MCP initialize handshake for reconnected session")
 			if err := httpConn.Write(ctx, initReq); err != nil {
 				cfg.logf("replay initialize failed: %v", err)
@@ -169,14 +163,22 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 			}
 		}
 
-		err = relay(ctx, stdioConn, httpConn)
+		relayCtx, cancelRelay := context.WithCancel(ctx)
+		go watchDaemonFiles(relayCtx, cfg, port, key, cancelRelay)
+
+		err = relay(relayCtx, stdioConn, httpConn)
+		cancelRelay()
 		httpConn.Close()
 
 		if isStdioClosed(err) {
 			return nil
 		}
 
-		cfg.logf("connection lost: %v, reconnecting...", err)
+		if isDaemonRestarted(err) {
+			cfg.logf("daemon restarted (port/key changed), reconnecting...")
+		} else {
+			cfg.logf("connection lost: %v, reconnecting...", err)
+		}
 		time.Sleep(cfg.RetryInterval)
 
 		if cfg.EnsureDaemon != nil {
@@ -185,6 +187,36 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 	}
 }
 
+func watchDaemonFiles(ctx context.Context, cfg Config, port int, key string, relayCancel context.CancelFunc) {
+	ticker := time.NewTicker(watchPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			newPort, perr := ReadPort(cfg.PortFile)
+			newKey, kerr := ReadKey(cfg.KeyFile)
+			if perr != nil || kerr != nil {
+				relayCancel()
+				return
+			}
+			if newPort != port || newKey != key {
+				relayCancel()
+				return
+			}
+		}
+	}
+}
+
+const errDaemonRestartedMsg = "context canceled"
+
+func isDaemonRestarted(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), errDaemonRestartedMsg)
+}
 
 func connectHTTP(ctx context.Context, endpoint, apiKey string) (mcp.Connection, error) {
 	httpTransport := &mcp.StreamableClientTransport{
@@ -219,7 +251,6 @@ func waitForDaemon(cfg Config) (int, string, error) {
 	return 0, "", fmt.Errorf("daemon MCP not available after %d retries", cfg.MaxRetries)
 }
 
-// isPortAlive checks if the daemon's MCP port is accepting TCP connections.
 func isPortAlive(port int) bool {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
 	if err != nil {
