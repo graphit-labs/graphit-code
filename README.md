@@ -8,6 +8,7 @@
   <a href="https://github.com/graphit-labs/graphit-code/releases/latest"><img src="https://img.shields.io/github/v/release/graphit-labs/graphit-code?style=flat-square&color=blue" alt="Release"></a>
   <a href="https://github.com/graphit-labs/graphit-code/actions"><img src="https://img.shields.io/github/actions/workflow/status/graphit-labs/graphit-code/release.yml?style=flat-square" alt="Build"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/graphit-labs/graphit-code?style=flat-square" alt="License"></a>
+  <a href="https://github.com/sponsors/lainosantos"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?style=flat-square&logo=github-sponsors" alt="Sponsors"></a>
   <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows-informational?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/dependencies-zero-success?style=flat-square" alt="Zero Dependencies">
 </p>
@@ -424,6 +425,16 @@ Visit the **[Documentation Hub](docs/README.md)** for a complete index of all gu
 - **[UI Dashboard Spec](docs/specs/ui_dashboard.md)**: React force-directed canvas and uiserver handlers.
 - **[AI Engine Spec](docs/specs/ai_engine.md)**: ONNX models, embedding providers, and prompt completions.
 - **[Cluster Discovery Spec](docs/specs/cluster_microservices.md)**: Projects registry and cross-project delegated queries.
+
+---
+
+## Sponsors
+
+Graphit Code is an open-source project. If you find this project useful, please consider sponsoring the maintainer to support active development:
+
+- **GitHub Sponsors:** [Sponsor @lainosantos](https://github.com/sponsors/lainosantos)
+
+Thank you for your support!
 
 ---
 
