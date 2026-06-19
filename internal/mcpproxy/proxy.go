@@ -202,16 +202,14 @@ func waitForDaemon(cfg Config) (int, string, error) {
 		port, perr := ReadPort(cfg.PortFile)
 		key, kerr := ReadKey(cfg.KeyFile)
 		if perr == nil && kerr == nil && port > 0 && key != "" {
-			// Validate the port is actually reachable before returning.
-			// Stale files from a crashed daemon would pass the file checks
-			// but fail the TCP dial, avoiding an infinite reconnect loop.
 			if isPortAlive(port) {
 				return port, key, nil
 			}
-			// Port is stale — remove files so EnsureDaemon can start fresh.
 			cfg.logf("port %d not reachable — removing stale files", port)
 			_ = os.Remove(cfg.PortFile)
 			_ = os.Remove(cfg.KeyFile)
+		} else if perr == nil && port == 0 {
+			_ = os.Remove(cfg.PortFile)
 		}
 		if cfg.EnsureDaemon != nil {
 			cfg.EnsureDaemon()

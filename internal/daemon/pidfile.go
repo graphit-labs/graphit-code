@@ -34,11 +34,32 @@ func (pf *PIDFile) Write() error {
 		return fmt.Errorf("creating pid dir: %w", err)
 	}
 	content := fmt.Sprintf("%d\n%s\n", sysutil.EffectivePID(), time.Now().UTC().Format(time.RFC3339))
-	return os.WriteFile(pf.path, []byte(content), 0o600)
+	tmp, err := os.CreateTemp(filepath.Dir(pf.path), ".pid-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	_, err = tmp.WriteString(content)
+	if closeErr := tmp.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, 0o600); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, pf.path)
 }
 
 func (pf *PIDFile) Remove() {
-	_ = os.Remove(pf.path)
+	_ = pf.remove()
+}
+
+func (pf *PIDFile) remove() error {
+	return os.Remove(pf.path)
 }
 
 func (pf *PIDFile) Read() (*pidData, error) {
@@ -50,7 +71,7 @@ func (pf *PIDFile) Read() (*pidData, error) {
 		return nil, err
 	}
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) < 1 {
+	if len(lines) < 1 || strings.TrimSpace(lines[0]) == "" {
 		return nil, fmt.Errorf("malformed pid file")
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
@@ -66,7 +87,11 @@ func (pf *PIDFile) Read() (*pidData, error) {
 
 func (pf *PIDFile) IsAlive() *pidData {
 	pd, err := pf.Read()
-	if err != nil || pd == nil {
+	if err != nil {
+		_ = pf.remove()
+		return nil
+	}
+	if pd == nil {
 		return nil
 	}
 
@@ -75,7 +100,6 @@ func (pf *PIDFile) IsAlive() *pidData {
 		return nil
 	}
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
-
 		pf.Remove()
 		return nil
 	}

@@ -243,8 +243,15 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 		port := listener.Addr().(*net.TCPAddr).Port
 		portStr := strconv.Itoa(port)
 		_ = os.MkdirAll(filepath.Dir(mcpPortFile), 0o755)
-		_ = os.WriteFile(mcpPortFile, []byte(portStr), 0o644)
-		_ = os.WriteFile(mcpKeyFile, []byte(apiKey), 0o600)
+		if err := atomicWriteFile(mcpPortFile, []byte(portStr), 0o644); err != nil {
+			_ = listener.Close()
+			return
+		}
+		if err := atomicWriteFile(mcpKeyFile, []byte(apiKey), 0o600); err != nil {
+			_ = listener.Close()
+			_ = os.Remove(mcpPortFile)
+			return
+		}
 
 		func() {
 			mcpCloserMu.Lock()
@@ -526,4 +533,25 @@ func newDaemonSchedulerStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	_, err = tmp.Write(data)
+	if closeErr := tmp.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
