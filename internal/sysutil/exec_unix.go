@@ -1,6 +1,6 @@
 //go:build !windows
 
-package main
+package sysutil
 
 import (
 	"os"
@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-func sanitizeInheritedFDs() {
+func SanitizeInheritedFDs() {
 	fdDir := "/proc/self/fd"
 	if runtime.GOOS == "darwin" {
 		fdDir = "/dev/fd"
@@ -29,7 +29,6 @@ func sanitizeInheritedFDs() {
 	}
 }
 
-func execCore(coreBinPath string, args []string, env []string) error {
-	argv := append([]string{coreBinPath}, args...)
-	return syscall.Exec(coreBinPath, argv, env)
+func ReplaceProcess(argv0 string, argv []string, envv []string) error {
+	return syscall.Exec(argv0, argv, envv)
 }

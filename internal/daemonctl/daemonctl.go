@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
@@ -57,4 +58,19 @@ func ResolveExe() string {
 		return ""
 	}
 	return exe
+}
+
+// LauncherStampPath returns the path to the launcher stamp file.
+func LauncherStampPath() string {
+	return filepath.Join(DaemonDir(), "launcher.stamp")
+}
+
+// ReadLauncherStamp reads the current launcher stamp (SHA256 of the core
+// executable). Returns an empty string if the file does not exist or is blank.
+func ReadLauncherStamp() string {
+	data, err := os.ReadFile(LauncherStampPath())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }

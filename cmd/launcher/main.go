@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -16,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
 
@@ -105,7 +105,7 @@ func main() {
 		cmd.Env = env
 	}
 
-	sanitizeInheritedFDs()
+	sysutil.SanitizeInheritedFDs()
 
 	var coreArgs []string
 	if isMCPStdio() {
@@ -118,26 +118,15 @@ func main() {
 		mcpBinPath := filepath.Join(runtimeDir, mcpBinName)
 		if _, statErr := os.Stat(mcpBinPath); statErr == nil {
 			coreBinPath = mcpBinPath
-			cmd = exec.Command(mcpBinPath)
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			cmd.Env = env
 		}
 	} else {
 		coreArgs = os.Args[1:]
 	}
 
-	if err := execCore(coreBinPath, coreArgs, env); err != nil {
-
-		if err := cmd.Run(); err != nil {
-			var exitError *exec.ExitError
-			if errors.As(err, &exitError) {
-				os.Exit(exitError.ExitCode())
-			}
-			fmt.Fprintf(os.Stderr, "Error executing core binary: %v\n", err)
-			os.Exit(1)
-		}
+	argv := append([]string{coreBinPath}, coreArgs...)
+	if err := sysutil.ReplaceProcess(coreBinPath, argv, env); err != nil {
+		fmt.Fprintf(os.Stderr, "Error replacing process with core binary: %v\n", err)
+		os.Exit(1)
 	}
 }
 
