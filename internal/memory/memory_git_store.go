@@ -8,11 +8,41 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
 	gitmod "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
+
+var (
+	memRemoteCommitCacheMu  sync.Mutex
+	memRemoteCommitCacheMap = map[string]memRemoteCommitEntry{}
+	memRemoteCommitCacheTTL = 30 * time.Second
+)
+
+type memRemoteCommitEntry struct {
+	sha string
+	at  time.Time
+}
+
+func memCachedRemoteCommit(repoDir, branch string) (string, bool) {
+	key := repoDir + "\x00" + branch
+	memRemoteCommitCacheMu.Lock()
+	defer memRemoteCommitCacheMu.Unlock()
+	e, ok := memRemoteCommitCacheMap[key]
+	if !ok || time.Since(e.at) > memRemoteCommitCacheTTL {
+		return "", false
+	}
+	return e.sha, true
+}
+
+func memSetCachedRemoteCommit(repoDir, branch, sha string) {
+	key := repoDir + "\x00" + branch
+	memRemoteCommitCacheMu.Lock()
+	memRemoteCommitCacheMap[key] = memRemoteCommitEntry{sha: sha, at: time.Now()}
+	memRemoteCommitCacheMu.Unlock()
+}
 
 type MemoryGitStore struct {
 	Logger  *slog.Logger
@@ -132,21 +162,24 @@ func (m *MemoryGitStore) remoteBranchExists(branch string) bool {
 	return m.remoteBranchCommit(branch) != ""
 }
 
-// remoteBranchCommit returns the commit SHA of branch on origin via ls-remote.
-// Returns empty string when the branch does not exist or the remote is unreachable.
 func (m *MemoryGitStore) remoteBranchCommit(branch string) string {
 	if config.MemoryRepoURL() == "" {
 		return ""
+	}
+	if sha, ok := memCachedRemoteCommit(m.repoDir, branch); ok {
+		return sha
 	}
 	out, err := m.gitOutputInRepo("ls-remote", "origin", "refs/heads/"+branch)
 	if err != nil {
 		return ""
 	}
 	fields := strings.Fields(strings.TrimSpace(out))
-	if len(fields) >= 1 {
-		return fields[0]
+	if len(fields) < 1 {
+		return ""
 	}
-	return ""
+	sha := fields[0]
+	memSetCachedRemoteCommit(m.repoDir, branch, sha)
+	return sha
 }
 
 func (m *MemoryGitStore) bootstrapInitialCommit() error {
@@ -175,7 +208,6 @@ func (m *MemoryGitStore) HasLocalWorktree(branch string) bool {
 
 func (m *MemoryGitStore) memoryWorktreeInternal(branch string, skipNetwork bool) (*MemoryWorktree, error) {
 	if skipNetwork {
-		// Use the fast init path which skips remote/ref operations when no URL is configured.
 		if err := m.EnsureInitialisedFast(); err != nil {
 			return nil, err
 		}

@@ -59,7 +59,23 @@ func (m *MemoryGitStore) SelectiveFetch(branches ...string) error {
 		return nil
 	}
 
-	if m.isRemoteEmpty() {
+	if len(branches) > 0 {
+		needFetch := false
+		for _, branch := range branches {
+			remoteCommit := m.remoteBranchCommit(branch)
+			if remoteCommit == "" {
+				continue
+			}
+			localCommit := m.gitOutputInRepoNoErr("rev-parse", "--verify", branch)
+			if localCommit != remoteCommit {
+				needFetch = true
+				break
+			}
+		}
+		if !needFetch {
+			return nil
+		}
+	} else if m.isRemoteEmpty() {
 		return nil
 	}
 

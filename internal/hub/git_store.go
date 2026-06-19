@@ -10,11 +10,46 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
 	gitmod "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
+
+// remoteCommitCache avoids repeated SSH handshakes to the same remote within a
+// short window. A single ls-remote to Bitbucket over SSH takes ~1.5 s; the hub
+// sync path calls Sync() twice per lifecycle (once explicitly, once from
+// NewRegistryManager), so the second call is always a cache hit.
+var (
+	remoteCommitCacheMu  sync.Mutex
+	remoteCommitCacheMap = map[string]remoteCommitEntry{}
+	remoteCommitCacheTTL = 30 * time.Second
+)
+
+type remoteCommitEntry struct {
+	sha string
+	at  time.Time
+}
+
+func remoteCommitCacheKey(repoDir, branch string) string { return repoDir + "\x00" + branch }
+
+func cachedRemoteCommit(repoDir, branch string) (string, bool) {
+	remoteCommitCacheMu.Lock()
+	defer remoteCommitCacheMu.Unlock()
+	e, ok := remoteCommitCacheMap[remoteCommitCacheKey(repoDir, branch)]
+	if !ok || time.Since(e.at) > remoteCommitCacheTTL {
+		return "", false
+	}
+	return e.sha, true
+}
+
+func setCachedRemoteCommit(repoDir, branch, sha string) {
+	remoteCommitCacheMu.Lock()
+	remoteCommitCacheMap[remoteCommitCacheKey(repoDir, branch)] = remoteCommitEntry{sha: sha, at: time.Now()}
+	remoteCommitCacheMu.Unlock()
+}
 
 type GitStore struct {
 	Logger    *slog.Logger
@@ -299,23 +334,25 @@ func (g *GitStore) isRemoteEmpty() bool {
 	return strings.TrimSpace(out) == ""
 }
 
-// remoteCommit returns the commit SHA of <branch> on origin via ls-remote.
-// This is a lightweight network call — only SHA strings are exchanged, no
-// git objects are transferred. Returns empty string if unreachable or empty.
 func (g *GitStore) remoteCommit(branch string) string {
+	if sha, ok := cachedRemoteCommit(g.repoDir, branch); ok {
+		return sha
+	}
+
 	out, err := g.gitOutputInRepo("ls-remote", "origin", "refs/heads/"+branch)
 	if err != nil || strings.TrimSpace(out) == "" {
-		// Fallback: try HEAD (works for repos where branch may not be named)
 		out, err = g.gitOutputInRepo("ls-remote", "origin", "HEAD")
 		if err != nil {
 			return ""
 		}
 	}
 	fields := strings.Fields(strings.TrimSpace(out))
-	if len(fields) >= 1 {
-		return fields[0]
+	if len(fields) < 1 {
+		return ""
 	}
-	return ""
+	sha := fields[0]
+	setCachedRemoteCommit(g.repoDir, branch, sha)
+	return sha
 }
 
 func (g *GitStore) bootstrapEmptyRepo() error {

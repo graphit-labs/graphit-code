@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/term"
@@ -855,20 +856,40 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 	if err != nil {
 		task.Fail("Memory store: %v", err)
 	} else {
+		type syncResult struct{ err error }
+		projResult := make(chan syncResult, 1)
+		userResult := make(chan syncResult, 1)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if projSvc, _, svcErr := newMemorySvc(false); svcErr == nil {
+				projResult <- syncResult{err: projSvc.SyncToLocal()}
+				_ = projSvc.Close()
+			} else {
+				projResult <- syncResult{}
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if userSvc, _, svcErr := newMemorySvc(true); svcErr == nil {
+				userResult <- syncResult{err: userSvc.SyncToLocal()}
+				_ = userSvc.Close()
+			} else {
+				userResult <- syncResult{}
+			}
+		}()
+		wg.Wait()
+
 		syncOK := true
-		if projSvc, _, svcErr := newMemorySvc(false); svcErr == nil {
-			if err := projSvc.SyncToLocal(); err != nil {
-				p.StepWarn("Memory project sync: %v", err)
-				syncOK = false
-			}
-			_ = projSvc.Close()
+		if r := <-projResult; r.err != nil {
+			p.StepWarn("Memory project sync: %v", r.err)
+			syncOK = false
 		}
-		if userSvc, _, svcErr := newMemorySvc(true); svcErr == nil {
-			if err := userSvc.SyncToLocal(); err != nil {
-				p.StepWarn("Memory user sync: %v", err)
-				syncOK = false
-			}
-			_ = userSvc.Close()
+		if r := <-userResult; r.err != nil {
+			p.StepWarn("Memory user sync: %v", r.err)
+			syncOK = false
 		}
 		_ = memStore
 		if syncOK {
