@@ -1,6 +1,7 @@
 package ide
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -474,12 +475,82 @@ func InstallManagedSkill(projectDir, ideName, skillName, content string) error {
 	return installSkillForAdapter(adapter, projectDir, skillName, content)
 }
 
+func ManagedSkillHashCachePath(projectDir, ideName, skillName string) string {
+	adapter := GetAdapter(ideName)
+	if adapter == nil {
+		return ""
+	}
+	rootDir := adapterRootDir(adapter)
+	if rootDir == "" {
+		return ""
+	}
+	return skillHashCachePath(projectDir, rootDir, skillName)
+}
+
+func adapterRootDir(adapter Adapter) string {
+	switch a := adapter.(type) {
+	case *GeminiAdapter:
+		return a.cfg.RootDirName
+	case *ClaudeAdapter:
+		return a.cfg.RootDirName
+	case *CodexAdapter:
+		return a.cfg.RootDirName
+	case *OpenCodeAdapter:
+		return a.cfg.RootDirName
+	case *FolderBasedAdapter:
+		return a.cfg.RootDirName
+	}
+	return ""
+}
+
 func RemoveManagedSkill(projectDir, ideName, skillName string) error {
 	adapter := GetAdapter(ideName)
 	if adapter == nil {
 		return fmt.Errorf("unknown IDE: %s", ideName)
 	}
 	return removeSkillForAdapter(adapter, projectDir, skillName)
+}
+
+// SkillHashCachePath returns the path for a skill's content hash.
+// Hashes are stored in {projectDir}/.graphit/cache/skills/{adapterRoot}/{skillName}
+// rather than inside the skill directory, keeping skill dirs free of cache files.
+func SkillHashCachePath(projectDir, rootDirName, skillName string) string {
+	return skillHashCachePath(projectDir, rootDirName, skillName)
+}
+
+func skillHashCachePath(projectDir, rootDirName, skillName string) string {
+	// Strip leading dot from rootDirName (.agents → agents, .cursor → cursor).
+	adapterKey := strings.TrimPrefix(rootDirName, ".")
+	return filepath.Join(projectDir, brand.DotDir(), "cache", "skills", adapterKey, skillName)
+}
+
+// GetSkillDir returns the directory where a skill is installed for the given
+// adapter and project. Returns empty string if the adapter type is unsupported.
+func GetSkillDir(adapter Adapter, projectDir, skillName string) string {
+	var rootDir, skillsDir string
+	switch a := adapter.(type) {
+	case *GeminiAdapter:
+		rootDir = a.cfg.RootDirName
+		skillsDir = a.cfg.SkillsDir
+	case *ClaudeAdapter:
+		rootDir = a.cfg.RootDirName
+		skillsDir = a.cfg.SkillsDir
+	case *CodexAdapter:
+		rootDir = a.cfg.RootDirName
+		skillsDir = a.cfg.SkillsDir
+	case *OpenCodeAdapter:
+		rootDir = a.cfg.RootDirName
+		skillsDir = a.cfg.SkillsDir
+	case *FolderBasedAdapter:
+		rootDir = a.cfg.RootDirName
+		skillsDir = a.cfg.SkillsDir
+	default:
+		return ""
+	}
+	if skillsDir == "" {
+		skillsDir = "skills"
+	}
+	return filepath.Join(projectDir, rootDir, skillsDir, skillName)
 }
 
 func installSkillForAdapter(adapter Adapter, projectDir, skillName, content string) error {
@@ -515,10 +586,22 @@ func installSkillForAdapter(adapter Adapter, projectDir, skillName, content stri
 	}
 
 	skillFile := filepath.Join(skillDir, "SKILL.md")
-	// Idempotency: skip write if file content is unchanged.
-	if existing, err := os.ReadFile(skillFile); err == nil && string(existing) == content {
+	hashFile := skillHashCachePath(projectDir, rootDir, skillName)
+
+	// Hash-based idempotency: compute SHA256 of new content and compare with
+	// the stored hash. This avoids reading the full (potentially 50KB+) skill
+	// file on every sync when nothing has changed.
+	newHash := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
+	if savedHash, err := os.ReadFile(hashFile); err == nil && strings.TrimSpace(string(savedHash)) == newHash {
 		return nil
 	}
+
+	if err := os.MkdirAll(filepath.Dir(hashFile), 0o755); err == nil {
+		_ = os.WriteFile(hashFile, []byte(newHash), 0o644)
+	}
+	// Migrate: remove stale .skill.hash from inside the skill dir if present.
+	_ = os.Remove(filepath.Join(skillDir, ".skill.hash"))
+
 	return os.WriteFile(skillFile, []byte(content), 0o644)
 }
 
@@ -550,6 +633,7 @@ func removeSkillForAdapter(adapter Adapter, projectDir, skillName string) error 
 	}
 
 	skillDir := filepath.Join(projectDir, rootDir, skillsDir, skillName)
+	_ = os.Remove(skillHashCachePath(projectDir, rootDir, skillName))
 	return os.RemoveAll(skillDir)
 }
 

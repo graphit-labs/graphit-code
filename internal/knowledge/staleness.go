@@ -13,8 +13,10 @@ const manifestFileName = ".manifest.json"
 
 // Manifest tracks source file hashes for staleness detection.
 type Manifest struct {
-	SourceHashes map[string]string `json:"source_hashes"` // source_path → content hash
-	PageSources  map[string]string `json:"page_sources"`  // slug → source_path
+	SourceHashes  map[string]string `json:"source_hashes"`   // source_path → content hash
+	PageSources   map[string]string `json:"page_sources"`    // slug → source_path
+	DocsModTime   int64             `json:"docs_mod_time"`   // Unix timestamp of docs dir mtime
+	DocsFileCount int               `json:"docs_file_count"` // number of source files at last index
 }
 
 // StaleInfo describes why a page is considered stale.

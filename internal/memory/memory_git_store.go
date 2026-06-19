@@ -35,6 +35,16 @@ func NewMemoryGitStore() (*MemoryGitStore, error) {
 func (m *MemoryGitStore) Dir() string { return m.repoDir }
 
 func (m *MemoryGitStore) EnsureInitialised() error {
+	return m.ensureInitialisedInternal(false)
+}
+
+// EnsureInitialisedFast skips git remote/reflog ops when there's no remote URL
+// and the repo is already initialised. Used in the no-network sync path.
+func (m *MemoryGitStore) EnsureInitialisedFast() error {
+	return m.ensureInitialisedInternal(true)
+}
+
+func (m *MemoryGitStore) ensureInitialisedInternal(fast bool) error {
 	if err := os.MkdirAll(m.repoDir, 0o755); err != nil {
 		return fmt.Errorf("creating memory repo dir: %w", err)
 	}
@@ -47,6 +57,12 @@ func (m *MemoryGitStore) EnsureInitialised() error {
 		if err := m.bootstrapInitialCommit(); err != nil {
 			return fmt.Errorf("bootstrap memory repo: %w", err)
 		}
+	}
+
+	// Fast path: when there's no remote URL and repo is already initialised,
+	// skip fetch depth config, remote sync, and ref pruning — saves ~3 git process spawns.
+	if fast && config.MemoryRepoURL() == "" {
+		return nil
 	}
 
 	if err := m.gitInRepo("config", "fetch.depth", "1"); err != nil {
@@ -113,14 +129,24 @@ func (m *MemoryGitStore) isRemoteEmpty() bool {
 }
 
 func (m *MemoryGitStore) remoteBranchExists(branch string) bool {
+	return m.remoteBranchCommit(branch) != ""
+}
+
+// remoteBranchCommit returns the commit SHA of branch on origin via ls-remote.
+// Returns empty string when the branch does not exist or the remote is unreachable.
+func (m *MemoryGitStore) remoteBranchCommit(branch string) string {
 	if config.MemoryRepoURL() == "" {
-		return false
+		return ""
 	}
 	out, err := m.gitOutputInRepo("ls-remote", "origin", "refs/heads/"+branch)
 	if err != nil {
-		return false
+		return ""
 	}
-	return strings.TrimSpace(out) != ""
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) >= 1 {
+		return fields[0]
+	}
+	return ""
 }
 
 func (m *MemoryGitStore) bootstrapInitialCommit() error {
@@ -140,9 +166,23 @@ func (m *MemoryGitStore) MemoryWorktreeLocal(branch string) (*MemoryWorktree, er
 	return m.memoryWorktreeInternal(branch, true)
 }
 
+// HasLocalWorktree returns true if a local worktree already exists for the given branch.
+func (m *MemoryGitStore) HasLocalWorktree(branch string) bool {
+	wtDir := m.worktreeDirForBranch(branch)
+	_, err := os.Stat(filepath.Join(wtDir, ".git"))
+	return err == nil
+}
+
 func (m *MemoryGitStore) memoryWorktreeInternal(branch string, skipNetwork bool) (*MemoryWorktree, error) {
-	if err := m.EnsureInitialised(); err != nil {
-		return nil, err
+	if skipNetwork {
+		// Use the fast init path which skips remote/ref operations when no URL is configured.
+		if err := m.EnsureInitialisedFast(); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := m.EnsureInitialised(); err != nil {
+			return nil, err
+		}
 	}
 
 	if !skipNetwork {
@@ -199,6 +239,11 @@ func (m *MemoryGitStore) memoryWorktreeInternal(branch string, skipNetwork bool)
 func (m *MemoryGitStore) worktreeDirForBranch(branch string) string {
 	safe := strings.NewReplacer("/", "-", " ", "_").Replace(branch)
 	return filepath.Join(m.wtBase, safe)
+}
+
+// WorktreeDirForBranch returns the local directory path for a branch's worktree.
+func (m *MemoryGitStore) WorktreeDirForBranch(branch string) string {
+	return m.worktreeDirForBranch(branch)
 }
 
 func (m *MemoryGitStore) createOrphanBranch(branch string) error {
@@ -260,11 +305,14 @@ func (w *MemoryWorktree) Pull() error {
 		return nil
 	}
 
-	if w.store.isRemoteEmpty() {
+	// Fast path: compare remote SHA with local worktree HEAD via ls-remote
+	// to skip pull when already up-to-date (no objects transferred).
+	remoteCommit := w.store.remoteBranchCommit(w.branch)
+	if remoteCommit == "" {
 		return nil
 	}
-
-	if !w.store.remoteBranchExists(w.branch) {
+	localCommit := gitmod.Default().RunSilent(w.dir, "rev-parse", "HEAD")
+	if strings.TrimSpace(localCommit) == remoteCommit {
 		return nil
 	}
 

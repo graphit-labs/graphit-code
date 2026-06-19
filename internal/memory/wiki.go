@@ -29,6 +29,12 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 	processCache, _ := wiki.NewWikiProcessCache(wikiDir)
 	validPaths := make(map[string]bool)
 
+	// --- STAT PRE-CHECK (shared AST pattern via wiki.StatPreCheck) ---
+	// Memory files live in rawDir; use it as baseDir for relPath resolution.
+	if wiki.StatPreCheck(rawDir, wikiDir, processCache) {
+		return &WikiResult{}, nil
+	}
+
 	entries, err := os.ReadDir(rawDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -110,6 +116,10 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 				DocType:     memType,
 				ContentHash: contentHash,
 			}})
+			// Record mtime so next sync can skip via StatPreCheck Phase A.
+			if info, statErr := os.Stat(absPath); statErr == nil {
+				processCache.StoreMtime(name, info.ModTime().UnixNano(), info.Size())
+			}
 		}
 	}
 

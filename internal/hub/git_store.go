@@ -41,6 +41,16 @@ func (g *GitStore) CacheBase() string {
 }
 
 func (g *GitStore) EnsureInitialised() error {
+	return g.ensureInitialisedInternal(false)
+}
+
+// ensureInitialisedFast skips git remote/reflog ops when there's no remote URL
+// and the repo is already initialised. Saves ~4 git process spawns per sync.
+func (g *GitStore) ensureInitialisedFast() error {
+	return g.ensureInitialisedInternal(true)
+}
+
+func (g *GitStore) ensureInitialisedInternal(fast bool) error {
 	if err := os.MkdirAll(g.repoDir, 0o755); err != nil {
 		return fmt.Errorf("creating hub repo dir: %w", err)
 	}
@@ -57,6 +67,12 @@ func (g *GitStore) EnsureInitialised() error {
 
 	if err := os.MkdirAll(g.cacheBase, 0o755); err != nil {
 		return fmt.Errorf("creating hub-cache dir: %w", err)
+	}
+
+	// Fast path: when there's no remote URL and repo is already initialised,
+	// skip config, remote sync, and ref pruning — saves ~4 git process spawns.
+	if fast && !g.hasRemote() {
+		return nil
 	}
 
 	if err := g.gitInRepo("config", "fetch.depth", "1"); err != nil {
@@ -134,7 +150,7 @@ func (g *GitStore) Sync() error {
 
 	g.syncRemote()
 
-	if g.isEmptyRepo() || g.isRemoteEmpty() {
+	if g.isEmptyRepo() {
 		return nil
 	}
 
@@ -143,9 +159,18 @@ func (g *GitStore) Sync() error {
 		branch = "main"
 	}
 
+	// Fast path: ls-remote returns only the remote commit SHA — no objects are
+	// transferred. If it matches the local HEAD we're already up-to-date.
+	remoteCommit := g.remoteCommit(branch)
+	if remoteCommit == "" {
+		return nil
+	}
+	if remoteCommit == g.HeadCommit() {
+		return nil
+	}
+
 	err := g.gitInRepo("pull", "--rebase", "--autostash", "--depth=1", "origin", branch)
 	if err != nil {
-
 		if g.isRebasing() {
 			if abortErr := g.gitInRepo("rebase", "--abort"); abortErr != nil {
 				g.log().Error("rebase --abort failed", "error", abortErr)
@@ -272,6 +297,25 @@ func (g *GitStore) isRemoteEmpty() bool {
 		return false
 	}
 	return strings.TrimSpace(out) == ""
+}
+
+// remoteCommit returns the commit SHA of <branch> on origin via ls-remote.
+// This is a lightweight network call — only SHA strings are exchanged, no
+// git objects are transferred. Returns empty string if unreachable or empty.
+func (g *GitStore) remoteCommit(branch string) string {
+	out, err := g.gitOutputInRepo("ls-remote", "origin", "refs/heads/"+branch)
+	if err != nil || strings.TrimSpace(out) == "" {
+		// Fallback: try HEAD (works for repos where branch may not be named)
+		out, err = g.gitOutputInRepo("ls-remote", "origin", "HEAD")
+		if err != nil {
+			return ""
+		}
+	}
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) >= 1 {
+		return fields[0]
+	}
+	return ""
 }
 
 func (g *GitStore) bootstrapEmptyRepo() error {
@@ -682,6 +726,17 @@ func (w *MemoryWorktree) Pull() error {
 	out := w.g.gitOutputInRepoNoErr("ls-remote", "origin", "refs/heads/"+w.branch)
 	if strings.TrimSpace(out) == "" {
 		return nil
+	}
+
+	// Fast path: compare the remote SHA with our local worktree HEAD to skip
+	// the pull when we're already up-to-date (no objects transferred).
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) >= 1 {
+		remoteCommit := fields[0]
+		localCommit := gitExec().RunSilent(w.dir, "rev-parse", "HEAD")
+		if strings.TrimSpace(localCommit) == remoteCommit {
+			return nil
+		}
 	}
 
 	if err := gitExec().Run(w.dir, "pull", "--rebase", "--autostash", "--depth=1",

@@ -37,8 +37,12 @@ type wikiCacheManifest struct {
 }
 
 type wikiCacheManifestEntry struct {
-	Hash       string `json:"h"`
-	ChunkCount int    `json:"n"`
+	Hash       string   `json:"h"`
+	ChunkCount int      `json:"n"`
+	Mtime      int64    `json:"mt,omitempty"`   // file mtime UnixNano
+	Size       int64    `json:"sz,omitempty"`   // file size in bytes
+	Slug       string   `json:"slug,omitempty"` // wiki slug for this source file
+	OutRefs    []string `json:"out_refs,omitempty"` // outgoing cross-ref titles (union of all chunks)
 }
 
 // cachedFileChunks stores the processed chunks for a single source file.
@@ -114,6 +118,81 @@ func (wc *WikiProcessCache) HasChanged(relPath, contentHash string) bool {
 	return e.Hash != contentHash
 }
 
+// StatMatch returns (cachedHash, true) if the file's mtime and size match the
+// cached stat, meaning the content is almost certainly unchanged. This avoids
+// a ReadFile call entirely — same technique as git's index stat caching.
+// Returns ("", false) if the stat doesn't match or the file isn't cached.
+func (wc *WikiProcessCache) StatMatch(relPath string, mtime, size int64) (string, bool) {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	e, ok := wc.manifest.Files[relPath]
+	if !ok || e.Mtime == 0 || e.Size == 0 {
+		return "", false
+	}
+	if e.Mtime == mtime && e.Size == size {
+		return e.Hash, true
+	}
+	return "", false
+}
+
+// StoreMtime records the mtime+size into an existing manifest entry so
+// future calls to StatMatch can skip ReadFile entirely.
+func (wc *WikiProcessCache) StoreMtime(relPath string, mtime, size int64) {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if e, ok := wc.manifest.Files[relPath]; ok {
+		e.Mtime = mtime
+		e.Size = size
+		wc.dirty[""] = true // manifest changed — ensure Save() writes it to disk
+	}
+}
+
+// StoreSlug records the wiki slug for a source file so AllStatEntries() can
+// return it for FastPathCheck without needing slug recomputation.
+func (wc *WikiProcessCache) StoreSlug(relPath, slug string) {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if e, ok := wc.manifest.Files[relPath]; ok && e.Slug != slug {
+		e.Slug = slug
+		wc.dirty[""] = true
+	}
+}
+
+// GetOutRefs returns the stored outgoing cross-reference titles for a cache key.
+// Returns nil if no refs were recorded (e.g. first run or unchanged-but-unchecked file).
+func (wc *WikiProcessCache) GetOutRefs(cacheKey string) []string {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if e, ok := wc.manifest.Files[cacheKey]; ok {
+		return e.OutRefs
+	}
+	return nil
+}
+
+// StoreOutRefs records the union of outgoing cross-reference titles for a
+// source file. Called after processing a changed file so the next run can
+// compare old vs new refs without loading shard files.
+func (wc *WikiProcessCache) StoreOutRefs(cacheKey string, refs []string) {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if e, ok := wc.manifest.Files[cacheKey]; ok {
+		e.OutRefs = refs
+		wc.dirty[""] = true
+	}
+}
+
+// AllCacheKeys returns every cache key currently in the manifest.
+// Used to detect deleted source files before Prune removes them.
+func (wc *WikiProcessCache) AllCacheKeys() []string {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	keys := make([]string, 0, len(wc.manifest.Files))
+	for k := range wc.manifest.Files {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // Get returns the cached chunks for a source file, or nil if not cached
 // or hash doesn't match.
 func (wc *WikiProcessCache) Get(relPath, contentHash string) []CachedChunk {
@@ -137,6 +216,40 @@ func (wc *WikiProcessCache) Get(relPath, contentHash string) []CachedChunk {
 	}
 	wc.chunks[relPath] = loaded
 	return loaded.Chunks
+}
+
+// CachedStatEntry holds the stat metadata for a single cached source file.
+// Used by the parallel stat pre-check in BuildKnowledgeWiki.
+type CachedStatEntry struct {
+	RelPath string
+	Hash    string
+	Slug    string
+	Mtime   int64 // UnixNano
+	Size    int64
+}
+
+// AllStatEntries returns the mtime/size/hash/slug for every file in the manifest.
+// Returns nil if the cache is empty or has no mtime data.
+func (wc *WikiProcessCache) AllStatEntries() []CachedStatEntry {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if len(wc.manifest.Files) == 0 {
+		return nil
+	}
+	entries := make([]CachedStatEntry, 0, len(wc.manifest.Files))
+	for relPath, e := range wc.manifest.Files {
+		if e.Mtime == 0 || e.Size == 0 {
+			return nil // incomplete stat data — fall through to full Walk
+		}
+		entries = append(entries, CachedStatEntry{
+			RelPath: relPath,
+			Hash:    e.Hash,
+			Slug:    e.Slug,
+			Mtime:   e.Mtime,
+			Size:    e.Size,
+		})
+	}
+	return entries
 }
 
 // Store saves the processed chunks for a source file.

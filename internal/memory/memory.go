@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/config"
 	gitmod "github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
@@ -114,10 +115,17 @@ func (m *MemoryService) HubBranch() string {
 }
 
 func (m *MemoryService) EnsureInitialised() error {
-
 	if m.gitStore != nil {
-		if err := m.gitStore.EnsureInitialised(); err != nil {
-			return fmt.Errorf("initialising memory git repo: %w", err)
+		// Use fast init when there's no remote URL — skips 3 unnecessary git
+		// process spawns (config, syncRemote, for-each-ref) per call.
+		var initErr error
+		if config.MemoryRepoURL() == "" {
+			initErr = m.gitStore.EnsureInitialisedFast()
+		} else {
+			initErr = m.gitStore.EnsureInitialised()
+		}
+		if initErr != nil {
+			return fmt.Errorf("initialising memory git repo: %w", initErr)
 		}
 	}
 
@@ -423,6 +431,27 @@ func (m *MemoryService) ListMemories() ([]MemoryEntry, error) {
 }
 
 func (m *MemoryService) SyncToLocal() error {
+	// Fast path: if there's no remote URL and the local worktree already exists,
+	// skip the full git sync and go directly to indexing. This avoids spawning
+	// multiple git processes (EnsureInitialised + syncRemote + for-each-ref) when
+	// nothing has changed remotely.
+	if m.gitStore != nil && config.MemoryRepoURL() == "" {
+		branch := m.HubBranch()
+		if m.gitStore.HasLocalWorktree(branch) {
+			wtDir := m.gitStore.WorktreeDirForBranch(branch)
+			m.localDir = wtDir
+			m.wikiDir = MemoryWikiGlobalDir(string(m.scope), m.scopeID)
+			if err := os.MkdirAll(m.wikiDir, 0o755); err != nil {
+				m.log().Warn("sync fast-path: mkdir wiki failed", "dir", m.wikiDir, "error", err)
+			}
+			ctx := context.Background()
+			if err := m.IndexMemories(ctx); err != nil {
+				m.log().Warn("wiki indexing failed", "scope", m.scope, "scopeID", m.scopeID, "error", err)
+			}
+			m.ensureProjectCopy(wtDir)
+			return nil
+		}
+	}
 	return m.syncToLocalInternal(false)
 }
 

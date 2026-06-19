@@ -1663,7 +1663,7 @@ func TestFolderBasedAdapter_CopyArtifact(t *testing.T) {
 		dstDir := filepath.Join(dir, "dst")
 		_ = os.MkdirAll(dstDir, 0o755)
 
-		err := a.copyArtifact("rule", srcDir, dstDir, "my-rule")
+		err := a.copyArtifact(dir, "rule", srcDir, dstDir, "my-rule")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1684,7 +1684,7 @@ func TestFolderBasedAdapter_CopyArtifact(t *testing.T) {
 		dstDir := filepath.Join(dir, "dst")
 		_ = os.MkdirAll(dstDir, 0o755)
 
-		err := a.copyArtifact("skill", srcDir, dstDir, "my-skill")
+		err := a.copyArtifact(dir, "skill", srcDir, dstDir, "my-skill")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1697,7 +1697,7 @@ func TestFolderBasedAdapter_CopyArtifact(t *testing.T) {
 	t.Run("source not found", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
-		err := a.copyArtifact("rule", filepath.Join(dir, "nonexistent"), dir, "x")
+		err := a.copyArtifact(dir, "rule", filepath.Join(dir, "nonexistent"), dir, "x")
 		if err == nil {
 			t.Error("expected error for nonexistent source")
 		}
@@ -1711,7 +1711,7 @@ func TestFolderBasedAdapter_CopyArtifact(t *testing.T) {
 		// only a subdirectory, no files
 		_ = os.MkdirAll(filepath.Join(srcDir, "subdir"), 0o755)
 
-		err := a.copyArtifact("rule", srcDir, dir, "x")
+		err := a.copyArtifact(dir, "rule", srcDir, dir, "x")
 		if err == nil {
 			t.Error("expected error when no canonical source found")
 		}

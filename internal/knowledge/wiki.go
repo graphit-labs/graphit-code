@@ -47,6 +47,13 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	// Load process cache (JSON shards) for incremental rebuilds.
 	processCache, _ := wiki.NewWikiProcessCache(wikiDir)
 
+	// --- STAT PRE-CHECK (shared AST pattern via wiki.StatPreCheck) ---
+	// If all cached source files are stat-unchanged and wiki.db exists,
+	// skip the Walk and full rebuild entirely.
+	if wiki.StatPreCheck(absRoot, wikiDir, processCache) {
+		return &WikiResult{OutputDir: wikiDir}, nil
+	}
+
 	// Track which source files exist for pruning stale cache entries.
 	validPaths := make(map[string]bool)
 
@@ -55,8 +62,14 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		data        []byte
 		contentHash string
 		ext         string
+		mtime       int64
+		size        int64
 	}
 	var sources []sourceFile
+
+	// Track mtime/size for fast-path on next run.
+	var docsFileCount int
+	var maxDocsFileTime int64
 
 	err = filepath.Walk(absRoot, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
@@ -84,31 +97,79 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			return nil
 		}
 
+		mtime := info.ModTime().UnixNano()
+		size := info.Size()
+		docsFileCount++
+		if mtime > maxDocsFileTime {
+			maxDocsFileTime = mtime
+		}
+
+		var data []byte
+		var contentHash string
+
+		// Stat-cache fast-path: if mtime+size match the processCache, the
+		// content hasn't changed. Skip ReadFile and use the cached hash.
+		// This is the same technique as git's index stat caching.
+		if processCache != nil {
+			if cachedHash, ok := processCache.StatMatch(relPath, mtime, size); ok {
+				contentHash = cachedHash
+				validPaths[relPath] = true
+				sources = append(sources, sourceFile{
+					relPath:     relPath,
+					contentHash: contentHash,
+					ext:         ext,
+					mtime:       mtime,
+					size:        size,
+				})
+				return nil
+			}
+		}
+
+		// Stat didn't match (or no cache): read the file and hash it.
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return nil
 		}
 
-		contentHash := fmt.Sprintf("%x", sha256.Sum256(data))[:16]
+		contentHash = fmt.Sprintf("%x", sha256.Sum256(data))[:16]
 		validPaths[relPath] = true
 		sources = append(sources, sourceFile{
 			relPath:     relPath,
 			data:        data,
 			contentHash: contentHash,
 			ext:         ext,
+			mtime:       mtime,
+			size:        size,
 		})
+		// If hash matches cache, record the new mtime so next sync can skip
+		// ReadFile entirely via StatMatch (same as AST's StoreMtime pattern).
+		if processCache != nil && !processCache.HasChanged(relPath, contentHash) {
+			processCache.StoreMtime(relPath, mtime, size)
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("walking docs: %w", err)
 	}
 
-	// Prune stale cache entries for deleted files.
+	// Before pruning: identify deleted keys that had outgoing cross-refs.
+	// If any exist, their targets will lose a backlink → graph rebuild needed.
+	var deletedWithRefs []string
 	if processCache != nil {
+		for _, key := range processCache.AllCacheKeys() {
+			if !validPaths[key] && len(processCache.GetOutRefs(key)) > 0 {
+				deletedWithRefs = append(deletedWithRefs, key)
+			}
+		}
 		processCache.Prune(validPaths)
 	}
 
 	// Process sources: use cache for unchanged files, re-parse changed ones.
+	// Track changed keys and their cross-refs for incremental graph detection.
+	// oldOutRefs is captured BEFORE WikiProcessCache.Store resets the entry.
+	var changedKeys []string
+	oldOutRefs := make(map[string][]string)
+	newOutRefs := make(map[string][]string)
 	var docs []knowledgeDoc
 	for _, src := range sources {
 		isMarkdown := src.ext == ".md" || src.ext == ".markdown" || src.ext == ".mdx"
@@ -188,6 +249,9 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 
 		// Store in cache.
 		if processCache != nil {
+			// Save old cross-refs BEFORE Store() resets the manifest entry.
+			oldOutRefs[src.relPath] = processCache.GetOutRefs(src.relPath)
+
 			cachedChunks := make([]wiki.CachedChunk, len(processedDocs))
 			for i, d := range processedDocs {
 				cachedChunks[i] = wiki.CachedChunk{
@@ -203,7 +267,22 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 				}
 			}
 			processCache.Store(src.relPath, src.contentHash, cachedChunks)
+			// Record mtime+size so the next sync can skip ReadFile via StatMatch.
+			processCache.StoreMtime(src.relPath, src.mtime, src.size)
+			// Collect new cross-refs (stored to processCache after CrossRefsUnchanged).
+			var fileRefs []string
+			seen := make(map[string]bool)
+			for _, d := range processedDocs {
+				for _, ref := range d.crossRefs {
+					if !seen[ref] {
+						seen[ref] = true
+						fileRefs = append(fileRefs, ref)
+					}
+				}
+			}
+			newOutRefs[src.relPath] = fileRefs
 		}
+		changedKeys = append(changedKeys, src.relPath)
 
 		docs = append(docs, processedDocs...)
 	}
@@ -261,6 +340,20 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	}
 	if wiki.FastPathCheck(wikiDir, fastEntries, processCache) {
 		// Nothing changed — skip ALL expensive phases.
+		// Always persist the current maxDocsFileTime so the mtime pre-scan
+		// can skip the ReadFile Walk entirely on the NEXT run.
+		if maxDocsFileTime > 0 && docsFileCount > 0 {
+			m := LoadManifest(wikiDir)
+			m.SourceHashes = make(map[string]string, len(docs))
+			m.PageSources = make(map[string]string, len(docs))
+			for i, doc := range docs {
+				m.SourceHashes[doc.path] = doc.contentHash
+				m.PageSources[docSlugs[i]] = doc.path
+			}
+			m.DocsModTime = maxDocsFileTime
+			m.DocsFileCount = docsFileCount
+			SaveManifest(wikiDir, m)
+		}
 		return result, nil
 	}
 
@@ -384,30 +477,64 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		return result, nil
 	}
 
-	// --- Phase 1: Initial index + cross-ref graph ---
+	// --- Phase 1: Cross-ref graph + backlink injection ---
+	// Skip if cross-refs haven't changed: no file gained/lost/changed any
+	// wikilink reference, so backlinks are already correct on disk.
+	crossRefsOK := processCache != nil &&
+		wiki.CrossRefsUnchanged(deletedWithRefs, changedKeys, oldOutRefs, newOutRefs)
+
+	// Persist new cross-refs now that the comparison is done.
+	if processCache != nil {
+		for _, key := range changedKeys {
+			if refs, ok := newOutRefs[key]; ok {
+				processCache.StoreOutRefs(key, refs)
+			}
+		}
+		_ = processCache.Save()
+	}
 	indexContent := knowledgeIndexPage(docs, nil)
 	if err := os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(indexContent), 0o644); err != nil {
 		return result, err
 	}
 
-	graph, err := wiki.BuildCrossRefGraph(wikiDir)
-	if err == nil {
-		xrefResult, _ := wiki.InjectBacklinks(wikiDir, graph)
-		if xrefResult != nil {
-			result.BacklinksAdded = xrefResult.BacklinksAdded
-			result.OrphanPages = xrefResult.OrphanPages
-			result.BrokenLinks = xrefResult.BrokenLinks
+	var graph *wiki.CrossRefGraph
+	if !crossRefsOK {
+		var graphErr error
+		graph, graphErr = wiki.BuildCrossRefGraph(wikiDir)
+		if graphErr == nil {
+			xrefResult, _ := wiki.InjectBacklinks(wikiDir, graph)
+			if xrefResult != nil {
+				result.BacklinksAdded = xrefResult.BacklinksAdded
+				result.OrphanPages = xrefResult.OrphanPages
+				result.BrokenLinks = xrefResult.BrokenLinks
+			}
 		}
 	}
 
 	// --- Phase 2: Community detection ---
 	var communities []KnowledgeCommunity
-	if graph != nil {
+	if crossRefsOK {
+		// Cross-refs identical to last run → graph is the same → reuse cached
+		// cluster assignments without rebuilding the community graph.
+		if slugToCluster, slugToClusterName, clOK := loadClusterCache(wikiDir); clOK {
+			for i := range docs {
+				slug := docSlugs[i]
+				if cid, ok := slugToCluster[slug]; ok {
+					docs[i].cluster = cid
+					docs[i].clusterName = slugToClusterName[slug]
+				} else {
+					docs[i].cluster = -1
+				}
+			}
+		}
+	} else if graph != nil {
 		communities = DetectKnowledgeCommunities(graph)
 		result.Communities = len(communities)
 
 		if len(communities) > 0 {
 			slugToCluster, slugToClusterName := AssignCommunities(communities)
+			// Persist cluster assignments for reuse when cross-refs are unchanged.
+			saveClusterCache(wikiDir, slugToCluster, slugToClusterName)
 
 			// Assign cluster info to docs
 			for i := range docs {
@@ -446,6 +573,13 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	for i, doc := range docs {
 		newManifest.SourceHashes[doc.path] = doc.contentHash
 		newManifest.PageSources[docSlugs[i]] = doc.path
+	}
+
+	// Save mtime fast-path data: store max-mtime of all docs files so the
+	// mtime pre-scan can detect any file modification, not just creates/deletes.
+	if docsFileCount > 0 {
+		newManifest.DocsModTime = maxDocsFileTime
+		newManifest.DocsFileCount = docsFileCount
 	}
 
 	stalePages := DetectStalePages(oldManifest, newManifest, graph)

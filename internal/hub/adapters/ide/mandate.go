@@ -1,6 +1,9 @@
 package ide
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +13,36 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
+
+// mandateHashCacheFile is a JSON sidecar file that stores per-trigger SHA256
+// hashes to enable fast-path skipping in UpsertMandateTrigger.
+const mandateHashCacheFile = ".mandate.hash"
+
+// mandateHashCache is the JSON structure stored in mandateHashCacheFile.
+type mandateHashCache struct {
+	Hashes map[string]string `json:"hashes"` // triggerTag → SHA256 of triggerContent
+}
+
+func loadMandateHashCache(rulesDir string) *mandateHashCache {
+	c := &mandateHashCache{Hashes: make(map[string]string)}
+	data, err := os.ReadFile(filepath.Join(rulesDir, mandateHashCacheFile))
+	if err != nil {
+		return c
+	}
+	_ = json.Unmarshal(data, c)
+	if c.Hashes == nil {
+		c.Hashes = make(map[string]string)
+	}
+	return c
+}
+
+func saveMandateHashCache(rulesDir string, c *mandateHashCache) {
+	data, err := json.Marshal(c)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(rulesDir, mandateHashCacheFile), data, 0o644)
+}
 
 var legacyHTMLBlocks = []string{
 	"MEMORY", "AST_EXPLORER", "HUB_DISCOVERY",
@@ -62,6 +95,21 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 		return err
 	}
 
+	// --- Hash-based fast-path ---
+	// Compute SHA256 of the new trigger content. If the stored hash for this
+	// triggerTag matches AND the target file exists, skip all regex work.
+	// Store hash cache in <projectDir>/.graphit/ to keep project root clean.
+	hashCacheDir := filepath.Join(projectDir, ".graphit")
+	_ = os.MkdirAll(hashCacheDir, 0o755)
+	hashCache := loadMandateHashCache(hashCacheDir)
+	newHash := fmt.Sprintf("%x", sha256.Sum256([]byte(triggerContent)))
+	if storedHash, ok := hashCache.Hashes[triggerTag]; ok && storedHash == newHash {
+		if _, err := os.Stat(targetPath); err == nil {
+			// Content unchanged and file exists — nothing to do.
+			return nil
+		}
+	}
+
 	fileData, _ := os.ReadFile(targetPath)
 	fileContent := string(fileData)
 
@@ -79,6 +127,9 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 	reCurrent := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(triggerTag) + `>(.*?)</` + regexp.QuoteMeta(triggerTag) + `>`)
 	if !hasLegacy {
 		if m := reCurrent.FindStringSubmatch(inner); m != nil && m[1] == triggerContent {
+			// Content is up to date; persist hash for next run and return.
+			hashCache.Hashes[triggerTag] = newHash
+			saveMandateHashCache(hashCacheDir, hashCache)
 			return nil
 		}
 	}
@@ -116,7 +167,14 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 		out = block + "\n"
 	}
 
-	return os.WriteFile(targetPath, []byte(out), 0o644)
+	if err := os.WriteFile(targetPath, []byte(out), 0o644); err != nil {
+		return err
+	}
+
+	// Update hash cache after a successful write.
+	hashCache.Hashes[triggerTag] = newHash
+	saveMandateHashCache(hashCacheDir, hashCache)
+	return nil
 }
 
 // RemoveMandateTrigger removes a module's trigger from the mandate.

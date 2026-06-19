@@ -1,6 +1,7 @@
 package ide
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -132,7 +133,7 @@ func (a *FolderBasedAdapter) Sync(
 			if typeDir == "" {
 				continue
 			}
-			if err := a.copyArtifact(artType, sourcePath, filepath.Join(baseDir, typeDir), localName); err != nil {
+			if err := a.copyArtifact(pp.ActiveProjectDir, artType, sourcePath, filepath.Join(baseDir, typeDir), localName); err != nil {
 				continue
 			}
 
@@ -140,7 +141,7 @@ func (a *FolderBasedAdapter) Sync(
 			if a.cfg.SkillsDir == "" {
 				continue
 			}
-			if err := a.copyArtifact(artType, sourcePath, filepath.Join(baseDir, a.cfg.SkillsDir), localName); err != nil {
+			if err := a.copyArtifact(pp.ActiveProjectDir, artType, sourcePath, filepath.Join(baseDir, a.cfg.SkillsDir), localName); err != nil {
 				continue
 			}
 
@@ -150,7 +151,7 @@ func (a *FolderBasedAdapter) Sync(
 				continue
 			}
 			if a.cfg.AgentsDir != "" {
-				_ = a.copyArtifact(artType, sourcePath, filepath.Join(baseDir, a.cfg.AgentsDir), localName)
+				_ = a.copyArtifact(pp.ActiveProjectDir, artType, sourcePath, filepath.Join(baseDir, a.cfg.AgentsDir), localName)
 			} else if a.cfg.RulesDir != "" && a.cfg.AgentsFile == "" {
 
 				dest := filepath.Join(baseDir, a.cfg.RulesDir, fmt.Sprintf("%s_agent.md", localName))
@@ -203,6 +204,7 @@ func (a *FolderBasedAdapter) Remove(pp *paths.ProjectPaths, installed map[string
 			if typeDir == "" {
 				continue
 			}
+			_ = os.Remove(artifactHashCachePath(pp.ActiveProjectDir, a.cfg.RootDirName, artType, localName))
 
 			fm := a.getFileMode(artType)
 			if fm.Mode == "file" {
@@ -425,7 +427,6 @@ func reconcileMCPFile(mcpTarget, projectID string, desiredServers map[string]any
 	if err != nil {
 		return err
 	}
-	// Idempotency: skip write if MCP config is already identical.
 	if existing, readErr := os.ReadFile(mcpTarget); readErr == nil && string(existing) == string(out)+"\n" {
 		return nil
 	}
@@ -490,25 +491,88 @@ func (a *FolderBasedAdapter) findCanonicalSource(artType, sourcePath string) str
 	return ""
 }
 
-func (a *FolderBasedAdapter) copyArtifact(artType, sourcePath, targetDir, localName string) error {
+// artifactHashCachePath returns the centralized hash-cache path for any hub
+// artifact type. Mirrors skillHashCachePath but covers rule/command/agent/skill.
+func artifactHashCachePath(projectDir, rootDirName, artType, localName string) string {
+	adapterKey := strings.TrimPrefix(rootDirName, ".")
+	return filepath.Join(projectDir, brand.DotDir(), "cache", "artifacts", adapterKey, artType, localName)
+}
+
+// computeSourceHash computes a deterministic SHA-256 fingerprint of the
+// artifact source (single file or directory tree). Returns hex string.
+func computeSourceHash(fm FileMode, sourcePath string) (string, error) {
+	h := sha256.New()
+	if fm.Mode == "folder" {
+		// Walk in sorted order so the hash is deterministic.
+		var files []string
+		_ = filepath.Walk(sourcePath, func(p string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() {
+				files = append(files, p)
+			}
+			return err
+		})
+		sort.Strings(files)
+		for _, f := range files {
+			data, err := os.ReadFile(f)
+			if err != nil {
+				return "", err
+			}
+			rel, _ := filepath.Rel(sourcePath, f)
+			fmt.Fprintf(h, "%s\x00", filepath.ToSlash(rel))
+			h.Write(data)
+		}
+	} else {
+		data, err := os.ReadFile(sourcePath)
+		if err != nil {
+			return "", err
+		}
+		h.Write(data)
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+func (a *FolderBasedAdapter) copyArtifact(projectDir, artType, sourcePath, targetDir, localName string) error {
 	if _, err := os.Stat(sourcePath); err != nil {
 		return err
 	}
 	fm := a.getFileMode(artType)
-	if fm.Mode == "folder" {
-		dest := filepath.Join(targetDir, localName)
-		if dirContentsEqual(sourcePath, dest) {
+
+	var srcFile string
+	if fm.Mode != "folder" {
+		srcFile = a.findCanonicalSource(artType, sourcePath)
+		if srcFile == "" {
+			return fmt.Errorf("no canonical source found in %s", sourcePath)
+		}
+	}
+
+	hashFile := artifactHashCachePath(projectDir, a.cfg.RootDirName, artType, localName)
+	hashSrc := sourcePath
+	if fm.Mode != "folder" {
+		hashSrc = srcFile
+	}
+	newHash, hashErr := computeSourceHash(fm, hashSrc)
+	if hashErr == nil {
+		if saved, err := os.ReadFile(hashFile); err == nil && strings.TrimSpace(string(saved)) == newHash {
 			return nil
 		}
+	}
+
+	var copyErr error
+	if fm.Mode == "folder" {
+		dest := filepath.Join(targetDir, localName)
 		_ = os.RemoveAll(dest)
-		return copyDirAll(sourcePath, dest)
+		copyErr = copyDirAll(sourcePath, dest)
+	} else {
+		dest := filepath.Join(targetDir, localName+"."+fm.Ext)
+		copyErr = copyFile(srcFile, dest)
 	}
-	srcFile := a.findCanonicalSource(artType, sourcePath)
-	if srcFile == "" {
-		return fmt.Errorf("no canonical source found in %s", sourcePath)
+
+	if copyErr == nil && hashErr == nil {
+		if err := os.MkdirAll(filepath.Dir(hashFile), 0o755); err == nil {
+			_ = os.WriteFile(hashFile, []byte(newHash), 0o644)
+		}
 	}
-	dest := filepath.Join(targetDir, localName+"."+fm.Ext)
-	return copyFile(srcFile, dest)
+	return copyErr
 }
 
 func findMCPJSON(artifactPath string) string {
