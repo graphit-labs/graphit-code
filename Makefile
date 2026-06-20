@@ -486,11 +486,15 @@ test: setup-lbug
 		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \
 	fi; \
 	echo "  → Running tests with race detector (project code)…"; \
-	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -cover -p 4 \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -coverprofile=coverage.out -covermode=atomic -p 4 \
 		$$(go list ./... | grep -v "/antlr/" | grep -v "/treesitter/"); \
-	echo "  → Running tests without race detector (generated parsers)…"; \
-	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -cover -p 4 \
-		$$(go list ./... | grep -E "/antlr/|/treesitter/")
+	echo "  → Running tests without race detector (generated parsers, appended)…"; \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -coverprofile=coverage-parsers.out -covermode=atomic -p 4 \
+		$$(go list ./... | grep -E "/antlr/|/treesitter/"); \
+	if [ -f coverage-parsers.out ]; then \
+		tail -n +2 coverage-parsers.out >> coverage.out; \
+		rm -f coverage-parsers.out; \
+	fi
 
 lint:
 	golangci-lint run ./...
@@ -505,7 +509,7 @@ fmt:
 	gofmt -w .
 
 vet:
-	go vet $$(go list ./... | grep -v "/antlr/plsql" | grep -v "/antlr/postgresql" | grep -v "/antlr/tsql" | grep -v "/antlr/db2" | grep -v "/antlr/cobol85")
+	go vet $$(go list ./... | grep -v "/antlr/" | grep -v "/treesitter/")
 
 
 ci: vet lint vulncheck test ui ui-lint

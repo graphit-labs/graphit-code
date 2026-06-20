@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, github, 'feature/**']
+    branches: [main, develop, github, "feature/**"]
   pull_request:
     branches: [main, develop]
+
+permissions:
+  contents: read
+  code-quality: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -69,6 +73,19 @@ jobs:
       - name: Run tests
         run: make test
 
+      - name: Convert coverage to Cobertura XML
+        run: |
+          go install github.com/boumenot/gocover-cobertura@latest
+          gocover-cobertura < coverage.out > coverage.xml
+
+      - name: Upload coverage report
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/upload-code-coverage@v1
+        with:
+          file: coverage.xml
+          language: Go
+          label: code-coverage/go
+
   # ── Security ──────────────────────────────────────────────────────────────
   security:
     name: Security Scan
@@ -111,8 +128,8 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: "22"
+          cache: "npm"
           cache-dependency-path: internal/ui/package-lock.json
 
       - name: Install CGO and build dependencies
@@ -125,8 +142,6 @@ jobs:
           ZIG_VERSION=0.16.0
           curl -sSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" | tar -xJ -C /tmp
           echo "/tmp/zig-x86_64-linux-${ZIG_VERSION}" >> $GITHUB_PATH
-
-
 
       - name: Build
         run: make build-linux
@@ -145,8 +160,8 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: "22"
+          cache: "npm"
           cache-dependency-path: internal/ui/package-lock.json
 
       - name: Build UI
