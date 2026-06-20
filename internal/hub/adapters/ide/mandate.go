@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	gitblk "github.com/graphit-labs/graphit-code/internal/git"
@@ -47,6 +48,66 @@ func saveMandateHashCache(rulesDir string, c *mandateHashCache) {
 var legacyHTMLBlocks = []string{
 	"MEMORY", "AST_EXPLORER", "HUB_DISCOVERY",
 	"KNOWLEDGE", "IMPROVEMENTS", "SYSTEM_MANDATE",
+}
+
+// canonicalTriggerOrder defines the fixed position of every known module
+// trigger inside the mandate block. UpsertMandateTrigger always rewrites
+// the full inner content in this order so the file never changes position
+// between syncs, keeping diffs minimal.
+var canonicalTriggerOrder = []string{
+	"mem_rule",
+	"ast_rule",
+	"hub_rule",
+	"doc_rule",
+	"imp_rule",
+}
+
+// parseTriggers extracts all <tag>...</tag> blocks from inner into a map.
+// Go's regexp package does not support backreferences, so we first collect
+// all tag names and then extract each one individually.
+func parseTriggers(inner string) map[string]string {
+	// Find all tag names present in the inner content.
+	tagRe := regexp.MustCompile(`<(\w+)>`)
+	tagMatches := tagRe.FindAllStringSubmatch(inner, -1)
+	seen := make(map[string]bool, len(tagMatches))
+	for _, m := range tagMatches {
+		seen[m[1]] = true
+	}
+
+	out := make(map[string]string, len(seen))
+	for tag := range seen {
+		re := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(tag) + `>(.*?)</` + regexp.QuoteMeta(tag) + `>`)
+		if m := re.FindStringSubmatch(inner); m != nil {
+			out[tag] = m[1]
+		}
+	}
+	return out
+}
+
+// assembleTriggers rebuilds the mandate inner content from a trigger map,
+// emitting known triggers in canonicalTriggerOrder and then any unknown
+// ones (from hub-installed artifacts, etc.) in sorted order after.
+func assembleTriggers(triggers map[string]string) string {
+	var parts []string
+	seen := make(map[string]bool, len(triggers))
+	for _, tag := range canonicalTriggerOrder {
+		if content, ok := triggers[tag]; ok {
+			parts = append(parts, "<"+tag+">"+content+"</"+tag+">")
+			seen[tag] = true
+		}
+	}
+	// Append unknown triggers in deterministic order.
+	extra := make([]string, 0, len(triggers))
+	for tag := range triggers {
+		if !seen[tag] {
+			extra = append(extra, tag)
+		}
+	}
+	sort.Strings(extra)
+	for _, tag := range extra {
+		parts = append(parts, "<"+tag+">"+triggers[tag]+"</"+tag+">")
+	}
+	return strings.Join(parts, "\n")
 }
 
 var MandateBlockName = strings.ToUpper(brand.Brand) + "_SYSTEM_MANDATE"
@@ -140,20 +201,22 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 
 	inner = readMandateContent(targetPath)
 
-	re := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(triggerTag) + `>.*?</` + regexp.QuoteMeta(triggerTag) + `>\n?`)
-	inner = re.ReplaceAllString(inner, "")
-	inner = strings.TrimSpace(inner)
+	// Parse all existing triggers, update the target one, then rewrite in
+	// canonical order so the mandate block is always position-stable.
+	triggers := parseTriggers(inner)
+	triggers[triggerTag] = triggerContent
 
-	wrapped := "<" + triggerTag + ">" + triggerContent + "</" + triggerTag + ">"
-	if inner == "" {
-		inner = mandatePreamble() + "\n\n" + wrapped
+	body := assembleTriggers(triggers)
+	var assembledInner string
+	if body == "" {
+		assembledInner = mandatePreamble() + "\n\n" + "<" + triggerTag + ">" + triggerContent + "</" + triggerTag + ">"
 	} else {
-		inner = inner + "\n" + wrapped
+		assembledInner = mandatePreamble() + "\n\n" + body
 	}
 
 	_, _ = gitblk.RemoveBlockStyled(targetPath, mandateTag(), false, gitblk.XMLBlockStyle)
 
-	block := "<" + mandateTag() + ">\n" + strings.TrimSpace(inner) + "\n</" + mandateTag() + ">"
+	block := "<" + mandateTag() + ">\n" + strings.TrimSpace(assembledInner) + "\n</" + mandateTag() + ">"
 
 	rest := ""
 	if data, err := os.ReadFile(targetPath); err == nil {

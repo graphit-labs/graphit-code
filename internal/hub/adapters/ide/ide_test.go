@@ -1805,3 +1805,161 @@ func TestAdapterInterfaceCompliance(t *testing.T) {
 	var _ Adapter = NewOpenCodeAdapter()
 	var _ Adapter = NewGeminiAdapter()
 }
+
+// ---------------------------------------------------------------------------
+// parseTriggers / assembleTriggers / canonical ordering
+// ---------------------------------------------------------------------------
+
+func TestParseTriggers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty string", func(t *testing.T) {
+		t.Parallel()
+		got := parseTriggers("")
+		if len(got) != 0 {
+			t.Errorf("expected empty map, got %v", got)
+		}
+	})
+
+	t.Run("single trigger", func(t *testing.T) {
+		t.Parallel()
+		inner := "<mem_rule>memory content</mem_rule>"
+		got := parseTriggers(inner)
+		if got["mem_rule"] != "memory content" {
+			t.Errorf("got %q, want %q", got["mem_rule"], "memory content")
+		}
+	})
+
+	t.Run("multiple triggers", func(t *testing.T) {
+		t.Parallel()
+		inner := "<mem_rule>mem</mem_rule>\n<ast_rule>ast</ast_rule>"
+		got := parseTriggers(inner)
+		if got["mem_rule"] != "mem" {
+			t.Errorf("mem_rule: got %q, want %q", got["mem_rule"], "mem")
+		}
+		if got["ast_rule"] != "ast" {
+			t.Errorf("ast_rule: got %q, want %q", got["ast_rule"], "ast")
+		}
+	})
+
+	t.Run("multiline content", func(t *testing.T) {
+		t.Parallel()
+		inner := "<doc_rule>\nline1\nline2\n</doc_rule>"
+		got := parseTriggers(inner)
+		if !strings.Contains(got["doc_rule"], "line1") {
+			t.Error("expected multiline content preserved")
+		}
+	})
+}
+
+func TestAssembleTriggers_CanonicalOrder(t *testing.T) {
+	t.Parallel()
+
+	// Insert in reverse canonical order; output must be in canonical order.
+	triggers := map[string]string{
+		"imp_rule": "imp",
+		"doc_rule": "doc",
+		"hub_rule": "hub",
+		"ast_rule": "ast",
+		"mem_rule": "mem",
+	}
+	got := assembleTriggers(triggers)
+
+	// Verify the canonical positions.
+	posOf := func(tag string) int {
+		return strings.Index(got, "<"+tag+">")
+	}
+	order := []string{"mem_rule", "ast_rule", "hub_rule", "doc_rule", "imp_rule"}
+	for i := 1; i < len(order); i++ {
+		if posOf(order[i-1]) >= posOf(order[i]) {
+			t.Errorf("%s should appear before %s in assembled output:\n%s", order[i-1], order[i], got)
+		}
+	}
+}
+
+func TestAssembleTriggers_UnknownTagsSorted(t *testing.T) {
+	t.Parallel()
+
+	triggers := map[string]string{
+		"zzz_rule": "zzz",
+		"aaa_rule": "aaa",
+		"mem_rule": "mem",
+	}
+	got := assembleTriggers(triggers)
+
+	// Known canonical trigger comes first.
+	memPos := strings.Index(got, "<mem_rule>")
+	aaaPos := strings.Index(got, "<aaa_rule>")
+	zzzPos := strings.Index(got, "<zzz_rule>")
+
+	if memPos >= aaaPos {
+		t.Errorf("mem_rule should come before aaa_rule")
+	}
+	// Unknown tags are sorted among themselves.
+	if aaaPos >= zzzPos {
+		t.Errorf("aaa_rule should come before zzz_rule in sorted unknowns")
+	}
+}
+
+func TestUpsertMandateTrigger_CanonicalOrdering(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	// Call UpsertMandateTrigger in reverse canonical order.
+	calls := []struct{ tag, content string }{
+		{"imp_rule", "IMP"},
+		{"doc_rule", "DOC"},
+		{"hub_rule", "HUB"},
+		{"ast_rule", "AST"},
+		{"mem_rule", "MEM"},
+	}
+	for _, c := range calls {
+		if err := UpsertMandateTrigger(dir, "claude", c.tag, c.content); err != nil {
+			t.Fatalf("UpsertMandateTrigger(%q): %v", c.tag, err)
+		}
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, GlobalRulesFile("claude")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+
+	posOf := func(tag string) int { return strings.Index(got, "<"+tag+">") }
+	order := []string{"mem_rule", "ast_rule", "hub_rule", "doc_rule", "imp_rule"}
+	for i := 1; i < len(order); i++ {
+		if posOf(order[i-1]) >= posOf(order[i]) {
+			t.Errorf("%s should appear before %s regardless of install order\nfile:\n%s",
+				order[i-1], order[i], got)
+		}
+	}
+}
+
+func TestUpsertMandateTrigger_Idempotent(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	if err := UpsertMandateTrigger(dir, "claude", "mem_rule", "MEM"); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertMandateTrigger(dir, "claude", "ast_rule", "AST"); err != nil {
+		t.Fatal(err)
+	}
+
+	data1, _ := os.ReadFile(filepath.Join(dir, GlobalRulesFile("claude")))
+
+	// Second sync with same content must not change the file.
+	if err := UpsertMandateTrigger(dir, "claude", "mem_rule", "MEM"); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertMandateTrigger(dir, "claude", "ast_rule", "AST"); err != nil {
+		t.Fatal(err)
+	}
+
+	data2, _ := os.ReadFile(filepath.Join(dir, GlobalRulesFile("claude")))
+
+	if string(data1) != string(data2) {
+		t.Errorf("file changed on second sync with identical content:\nbefore:\n%s\nafter:\n%s",
+			string(data1), string(data2))
+	}
+}

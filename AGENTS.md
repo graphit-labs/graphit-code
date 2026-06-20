@@ -117,57 +117,6 @@ Set a module flag to 1 when that module's rule applies to the current action.
 check the Hub first: call `graphit_hub_list` → `graphit_hub_show` → `graphit_hub_install`.
 After installing a knowledge artifact, search its wiki via MCP BEFORE coding.
 </hub_rule>
-<mem_rule>
-# Memory Management
-
-> Persistent memory across sessions. This framework IS your memory — no other exists.
-> **Full MCP tools reference, trigger table, and protocols are in the `graphit-memory` skill.**
-
-## FIRST ACTION — Execute BEFORE Any Response
-
-**Execute IMMEDIATELY on every conversation start. Do NOT respond to the user first.**
-
-1. Call `graphit_memory_search` with context from the user's request to find relevant memories
-2. If relevant memories found, read the entity page(s) and follow their guidance
-3. Only then proceed with the user's request
-
-> If the memory wiki does not exist yet (new project), skip and proceed.
-
-## Activation Triggers:
-
-### Save triggers (memorize immediately):
-
-- Task completed, modified, or bug fixed → store what/why/how/impact
-- User corrects, guides, instructs, or repeats → memorize as correction/convention
-- User explains a procedure or gives a tip → store as skill
-- You discover something unexpected or make a design decision → store as skill/decision
-- New instruction contradicts existing memory → replace it
-
-### Read triggers (consult memory before acting):
-- **Before implementing** any significant change → check for constraints and decisions
-- **When stuck**, failing repeatedly, or facing a non-obvious problem → search for past solutions
-- **Before proposing** architecture or a technical approach → check for prior decisions
-- When trying to **understand project context** → search for institutional knowledge
-- Memory management or maintenance tasks
-
-## Quick Reference (always active)
-
-- **Insert**: call `graphit_memory_insert` tool (passing absolute `project_dir` parameter)
-- **Delete**: call `graphit_memory_delete` tool (passing absolute `project_dir` parameter)
-- **Search**: call `graphit_memory_search` tool (passing absolute `project_dir` parameter)
-- **Scope**: scope:"project" (default) for project memories, scope:"user" for personal cross-project memories
-- **Search vs Query**: `graphit_memory_search` = lightweight text match on raw files. `graphit_memory_query` = AI synthesis from compiled wiki
-- **NEVER** read .graphit/memory/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
-- **Reindex**: After any write, auto-cycle runs. If it fails, call `graphit_memory_index` (passing absolute `project_dir`)
-
-## Key Rules
-
-- **Read memory at session start.** Skipping = repeating past mistakes.
-- **Never leave a correction un-memorized.** Save immediately.
-- **NEVER just say "understood".** Evaluate if the user's instruction should be memorized.
-- **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.
-- **This framework IS your memory.** Never use IDE/model memory.
-</mem_rule>
 <imp_rule>
 # Code Improvement Methodology
 
@@ -199,4 +148,56 @@ and post-task reflection protocol. Do NOT improvise your own review process.
 - After any improvement session, you MUST execute the **Post-Task Reflection**
   phase: reflect, update memories via `graphit_memory_insert`, and stage new artifacts for the Hub.
 </imp_rule>
+<mem_rule>
+# Memory Management
+
+> Persistent memory across sessions. This framework IS your memory — no other exists.
+> **Full MCP tools reference, trigger table, and protocols are in the `graphit-memory` skill.**
+
+## FIRST ACTION — Execute BEFORE Any Response
+
+**Execute IMMEDIATELY on every conversation start. Do NOT respond to the user first.**
+
+1. Call `graphit_memory_search` with context from the user's request to find relevant memories
+2. If relevant memories found, read the entity page(s) and follow their guidance
+3. Only then proceed with the user's request
+
+> If the memory wiki does not exist yet (new project), skip and proceed.
+
+## Activation Triggers:
+
+### Save triggers (memorize immediately):
+
+- Task completed, modified, or bug fixed → store what/why/how/impact
+- User corrects, guides, instructs, or repeats → memorize as correction/convention
+- **User explains ANYTHING** — a procedure, tip, how something works, a decision rationale, architecture detail, domain knowledge, a constraint, or any context about the project or system → **memorize immediately as a skill, decision, or context entry**
+- You discover something unexpected or make a design decision → store as skill/decision
+- New instruction contradicts existing memory → replace it
+
+### Read triggers (consult memory before acting):
+- **Before implementing** any significant change → check for constraints and decisions
+- **When stuck**, failing repeatedly, or facing a non-obvious problem → search for past solutions
+- **Before proposing** architecture or a technical approach → check for prior decisions
+- When trying to **understand project context** → search for institutional knowledge
+- Memory management or maintenance tasks
+
+## Quick Reference (always active)
+
+- **Insert**: call `graphit_memory_insert` tool (passing absolute `project_dir` parameter)
+- **Delete**: call `graphit_memory_delete` tool (passing absolute `project_dir` parameter)
+- **Search**: call `graphit_memory_search` tool (passing absolute `project_dir` parameter)
+- **Scope**: scope:"project" (default) for project memories, scope:"user" for personal cross-project memories
+- **Search vs Query**: `graphit_memory_search` = lightweight text match on raw files. `graphit_memory_query` = AI synthesis from compiled wiki
+- **NEVER** read .graphit/memory/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
+- **Reindex**: After any write, auto-cycle runs. If it fails, call `graphit_memory_index` (passing absolute `project_dir`)
+
+## Key Rules
+
+- **Read memory at session start.** Skipping = repeating past mistakes.
+- **Never leave a correction un-memorized.** Save immediately.
+- **NEVER just say "understood".** Evaluate if the user's instruction should be memorized.
+- **If the user explains something — anything — memorize it.** This includes: how a system works, why a decision was made, what a component does, domain rules, architectural constraints, or any knowledge the user shares. Do NOT assume you will remember it. Create the memory immediately.
+- **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.
+- **This framework IS your memory.** Never use IDE/model memory.
+</mem_rule>
 </GRAPHIT_SYSTEM_MANDATE>

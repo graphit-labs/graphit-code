@@ -285,7 +285,7 @@ func MandateTrigger() string {
 
 - Task completed, modified, or bug fixed → store what/why/how/impact
 - User corrects, guides, instructs, or repeats → memorize as correction/convention
-- User explains a procedure or gives a tip → store as skill
+- **User explains ANYTHING** — a procedure, tip, how something works, a decision rationale, architecture detail, domain knowledge, a constraint, or any context about the project or system → **memorize immediately as a skill, decision, or context entry**
 - You discover something unexpected or make a design decision → store as skill/decision
 - New instruction contradicts existing memory → replace it
 
@@ -311,6 +311,7 @@ func MandateTrigger() string {
 - **Read memory at session start.** Skipping = repeating past mistakes.
 - **Never leave a correction un-memorized.** Save immediately.
 - **NEVER just say "understood".** Evaluate if the user's instruction should be memorized.
+- **If the user explains something — anything — memorize it.** This includes: how a system works, why a decision was made, what a component does, domain rules, architectural constraints, or any knowledge the user shares. Do NOT assume you will remember it. Create the memory immediately.
 - **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.
 - **This framework IS your memory.** Never use IDE/model memory.
 `
