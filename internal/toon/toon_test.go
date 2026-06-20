@@ -102,13 +102,24 @@ func TestFormatAny_PipeInString(t *testing.T) {
 		{ID: "a", Name: "Alpha|Beta", Score: 1.0},
 	}
 	got := FormatAny(entries)
-	if strings.Contains(got, "Alpha|Beta") {
-		t.Errorf("FormatAny should replace pipes in string values, got: %s", got)
-	}
-	if !strings.Contains(got, "Alpha/Beta") {
-		t.Errorf("FormatAny should replace pipes with /, got: %s", got)
+	if !strings.Contains(got, `Alpha\|Beta`) {
+		t.Errorf("expected pipe escaped as \\|, got: %s", got)
 	}
 }
+
+func TestFormatAny_NewlineInString(t *testing.T) {
+	type withBody struct {
+		Name string `json:"name"`
+		Body string `json:"body"`
+	}
+	s := withBody{Name: "doc", Body: "line1\nline2"}
+	got := FormatAny(s)
+	if !strings.Contains(got, `line1\nline2`) {
+		t.Errorf("expected newline escaped as \\n, got: %s", got)
+	}
+}
+
+
 
 func TestFormatAny_TimeField(t *testing.T) {
 	ts := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)

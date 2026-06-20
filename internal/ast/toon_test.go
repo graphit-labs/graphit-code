@@ -9,6 +9,41 @@ import (
 // FormatRecordsTOON
 // ---------------------------------------------------------------------------
 
+func TestFormatRecordsTOON_Escaping(t *testing.T) {
+	t.Run("pipe_escaped", func(t *testing.T) {
+		records := []QueryRecord{
+			{"name": "foo(a|b)", "path": "a.go"},
+		}
+		got := FormatRecordsTOON(records)
+		if !strings.Contains(got, `foo(a\|b)`) {
+			t.Errorf("expected pipe escaped as \\|, got:\n%s", got)
+		}
+	})
+
+	t.Run("newline_escaped", func(t *testing.T) {
+		records := []QueryRecord{
+			{"name": "Foo", "source": "func foo() {\n\treturn 42\n}"},
+		}
+		got := FormatRecordsTOON(records)
+		if strings.Contains(got, "\n\t") {
+			t.Errorf("expected newline escaped, got literal newline in TOON:\n%s", got)
+		}
+		if !strings.Contains(got, `func foo() {\n`) {
+			t.Errorf("expected escaped newline \\n in output, got:\n%s", got)
+		}
+	})
+
+	t.Run("backslash_escaped", func(t *testing.T) {
+		records := []QueryRecord{
+			{"name": "Foo", "path": `C:\Users\foo`},
+		}
+		got := FormatRecordsTOON(records)
+		if !strings.Contains(got, `C:\\Users\\foo`) {
+			t.Errorf("expected backslash escaped as \\\\, got:\n%s", got)
+		}
+	})
+}
+
 func TestFormatRecordsTOON(t *testing.T) {
 	t.Run("empty_records", func(t *testing.T) {
 		got := FormatRecordsTOON(nil)

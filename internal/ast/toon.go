@@ -6,6 +6,13 @@ import (
 	"strings"
 )
 
+func escapeTOON(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "|", `\|`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	return s
+}
+
 func FormatRecordsTOON(records []QueryRecord) string {
 	if len(records) == 0 {
 		return "results[0]{}:"
@@ -34,8 +41,7 @@ func FormatRecordsTOON(records []QueryRecord) string {
 	for _, rec := range records {
 		vals := make([]string, len(columns))
 		for i, col := range columns {
-			v := rec[col]
-			vals[i] = formatTOONValue(v)
+			vals[i] = formatTOONValue(rec[col])
 		}
 		sb.WriteString("  ")
 		sb.WriteString(strings.Join(vals, "|"))
@@ -51,7 +57,7 @@ func formatTOONValue(v any) string {
 	}
 	switch val := v.(type) {
 	case string:
-		return val
+		return escapeTOON(val)
 	case float64:
 		if val == float64(int64(val)) {
 			return fmt.Sprintf("%d", int64(val))

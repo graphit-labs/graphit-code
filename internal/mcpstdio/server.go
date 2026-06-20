@@ -81,6 +81,9 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 }
 
 func toonResult(v any) (*mcp.CallToolResult, any, error) {
+	if s, ok := v.(string); ok {
+		return textResult(s)
+	}
 	return textResult(toon.FormatAny(v))
 }
 

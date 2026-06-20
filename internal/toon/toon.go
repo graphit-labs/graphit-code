@@ -1,13 +1,3 @@
-// Package toon provides a generic TOON (Token-Optimized Object Notation) formatter
-// that converts arbitrary Go values into a compact pipe-delimited text format
-// designed to minimize token consumption for AI agents.
-//
-// TOON Format:
-//
-//	Slice of structs: results[N]{field1|field2|...}:\n  val1|val2|...\n
-//	Single struct:    {field1:val1|field2:val2|...}
-//	Slice of strings: items[N]:\n  item1\n  item2\n
-//	Maps:             {key1:val1|key2:val2|...}
 package toon
 
 import (
@@ -18,16 +8,22 @@ import (
 	"time"
 )
 
-// FormatAny converts any Go value into compact TOON format using reflection.
-// It handles slices of structs, single structs, maps, string slices, and primitives.
+// escapeTOON escapes pipe, newline, and backslash in a string value
+// so it can be safely embedded in a pipe-delimited TOON field.
+// Escape rules: \ → \\, | → \|, newline → \n
+func escapeTOON(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "|", `\|`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	return s
+}
+
 func FormatAny(v any) string {
 	if v == nil {
 		return "null"
 	}
 
 	rv := reflect.ValueOf(v)
-
-	// Dereference pointer
 	for rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return "null"
@@ -53,7 +49,6 @@ func formatSlice(rv reflect.Value) string {
 	}
 
 	elem := rv.Type().Elem()
-	// Dereference pointer element types
 	for elem.Kind() == reflect.Pointer {
 		elem = elem.Elem()
 	}
@@ -64,7 +59,6 @@ func formatSlice(rv reflect.Value) string {
 	case reflect.String:
 		return formatStringSlice(rv)
 	default:
-		// Generic slice — just list values
 		var sb strings.Builder
 		fmt.Fprintf(&sb, "items[%d]:\n", rv.Len())
 		for i := 0; i < rv.Len(); i++ {
@@ -79,25 +73,21 @@ func formatStructSlice(rv reflect.Value) string {
 		return "results[0]{}:"
 	}
 
-	// Get field names from the first element
 	first := deref(rv.Index(0))
 	fields := structFields(first.Type())
 
 	var sb strings.Builder
-	// Header
 	names := make([]string, len(fields))
 	for i, f := range fields {
 		names[i] = jsonFieldName(f)
 	}
 	fmt.Fprintf(&sb, "results[%d]{%s}:\n", rv.Len(), strings.Join(names, "|"))
 
-	// Rows
 	for i := 0; i < rv.Len(); i++ {
 		elem := deref(rv.Index(i))
 		vals := make([]string, len(fields))
 		for j, f := range fields {
-			fv := elem.FieldByIndex(f.Index)
-			vals[j] = formatFieldValue(fv)
+			vals[j] = formatFieldValue(elem.FieldByIndex(f.Index))
 		}
 		sb.WriteString("  ")
 		sb.WriteString(strings.Join(vals, "|"))
@@ -128,7 +118,6 @@ func formatStruct(rv reflect.Value) string {
 		name := jsonFieldName(f)
 		val := formatFieldValue(fv)
 		if val == "" || val == "0" || val == "false" || val == "null" {
-			// Skip zero values for compactness
 			continue
 		}
 		parts = append(parts, name+":"+val)
@@ -158,7 +147,6 @@ func formatMap(rv reflect.Value) string {
 	return "{" + strings.Join(parts, "|") + "}"
 }
 
-// structFields returns all exported struct fields, including embedded.
 func structFields(t reflect.Type) []reflect.StructField {
 	var fields []reflect.StructField
 	for i := 0; i < t.NumField(); i++ {
@@ -166,7 +154,6 @@ func structFields(t reflect.Type) []reflect.StructField {
 		if !f.IsExported() {
 			continue
 		}
-		// Skip fields with json:"-"
 		tag := f.Tag.Get("json")
 		if tag == "-" {
 			continue
@@ -176,8 +163,6 @@ func structFields(t reflect.Type) []reflect.StructField {
 	return fields
 }
 
-// jsonFieldName extracts the JSON field name from a struct field tag,
-// falling back to the Go field name in snake_case style.
 func jsonFieldName(f reflect.StructField) string {
 	tag := f.Tag.Get("json")
 	if tag != "" {
@@ -190,7 +175,6 @@ func jsonFieldName(f reflect.StructField) string {
 }
 
 func formatFieldValue(rv reflect.Value) string {
-	// Dereference pointer
 	for rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return ""
@@ -198,7 +182,6 @@ func formatFieldValue(rv reflect.Value) string {
 		rv = rv.Elem()
 	}
 
-	// Handle interface values
 	if rv.Kind() == reflect.Interface {
 		if rv.IsNil() {
 			return ""
@@ -208,7 +191,6 @@ func formatFieldValue(rv reflect.Value) string {
 
 	iface := rv.Interface()
 
-	// Handle time.Time specially
 	if t, ok := iface.(time.Time); ok {
 		if t.IsZero() {
 			return ""
@@ -218,14 +200,7 @@ func formatFieldValue(rv reflect.Value) string {
 
 	switch rv.Kind() {
 	case reflect.String:
-		s := rv.String()
-		// Sanitize pipe and newline characters
-		s = strings.ReplaceAll(s, "|", "/")
-		s = strings.ReplaceAll(s, "\n", " ")
-		if len(s) > 200 {
-			s = s[:200] + "…"
-		}
-		return s
+		return escapeTOON(rv.String())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return fmt.Sprintf("%d", rv.Int())
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
