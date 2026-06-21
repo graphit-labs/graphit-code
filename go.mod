@@ -23,8 +23,8 @@ require (
 	github.com/tree-sitter/tree-sitter-json v0.24.8
 	github.com/tree-sitter/tree-sitter-julia v0.25.0
 	github.com/yalue/onnxruntime_go v1.30.1
-	golang.org/x/sys v0.44.0
-	golang.org/x/term v0.42.0
+	golang.org/x/sys v0.46.0
+	golang.org/x/term v0.44.0
 	golang.org/x/text v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
 )
