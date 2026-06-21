@@ -64,35 +64,31 @@ Memory is persistent and automatic. The system includes an autonomous **Dream Mo
 
 ## Installation
 
-**Zero dependencies required.** Supports Windows, Linux, and macOS out of the box. Fully auto-configurable.
+**Zero dependencies required.** Supports Windows, Linux, and macOS out of the box.
 
-### Option 1: Download from GitHub Artifacts (Recommended)
+### Option 1: One-liner Install (Recommended)
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
+```
+
+The installer auto-detects your OS and architecture, downloads the correct `.tar.gz` archive from the [latest release](https://github.com/graphit-labs/graphit-code/releases/latest), verifies the SHA-256 checksum, and installs the binary to `/usr/local/bin/graphit` (Linux/macOS) or `~/.graphit/bin/graphit.exe` (Windows).
+
+### Option 2: Manual Download
 
 <details>
 <summary><strong>Linux (amd64)</strong></summary>
 
 ```bash
-curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-linux-amd64 -o graphit
-chmod +x graphit
-sudo mv graphit /usr/local/bin/
-
-# Configure & Init
-graphit setup
-graphit init --ide <antigravity|gemini|claude|cursor|kiro|codex|opencode>
-```
-
-</details>
-
-<details>
-<summary><strong>Windows (amd64)</strong></summary>
-
-```powershell
-Invoke-WebRequest -Uri "https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-windows-amd64.exe" -OutFile "graphit.exe"
-# Move graphit.exe to a folder in your PATH
-
-# Configure & Init
-graphit setup
-graphit init --ide <antigravity|gemini|claude|cursor|kiro|codex|opencode>
+# Download and extract in one step
+curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-linux-amd64.tar.gz | tar -xz
+sudo mv graphit-linux-amd64 /usr/local/bin/graphit
 ```
 
 </details>
@@ -101,18 +97,32 @@ graphit init --ide <antigravity|gemini|claude|cursor|kiro|codex|opencode>
 <summary><strong>macOS (Apple Silicon)</strong></summary>
 
 ```bash
-curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-darwin-arm64 -o graphit
-chmod +x graphit
-sudo mv graphit /usr/local/bin/
-
-# Configure & Init
-graphit setup
-graphit init --ide <antigravity|gemini|claude|cursor|kiro|codex|opencode>
+# Download and extract in one step
+curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-darwin-arm64.tar.gz | tar -xz
+sudo mv graphit-darwin-arm64 /usr/local/bin/graphit
 ```
 
 </details>
 
-### Option 2: Build from Source
+<details>
+<summary><strong>Windows (amd64)</strong></summary>
+
+```powershell
+# Download, extract and install to ~/.graphit\bin\
+$InstallDir = "$env:USERPROFILE\.graphit\bin"
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+Invoke-WebRequest -Uri "https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-windows-amd64.tar.gz" -OutFile "$env:TEMP\graphit.tar.gz"
+tar -xzf "$env:TEMP\graphit.tar.gz" -C "$env:TEMP"
+Move-Item -Force "$env:TEMP\graphit-windows-amd64.exe" "$InstallDir\graphit.exe"
+
+# Add to PATH (current session + permanent user PATH)
+$env:PATH = "$env:PATH;$InstallDir"
+[System.Environment]::SetEnvironmentVariable("PATH", "$([System.Environment]::GetEnvironmentVariable('PATH','User'));$InstallDir", "User")
+```
+
+</details>
+
+### Option 3: Build from Source
 
 Requires: Go 1.23+, Node.js 22+, Make, gcc/g++
 

@@ -1,10 +1,13 @@
 package updater
 
 import (
+	"archive/tar"
 	"bufio"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -68,6 +71,10 @@ func LatestRelease(repo, selfUpdateURL string) (*Release, error) {
 	return &release, nil
 }
 
+func PlatformArchiveName(binName string) string {
+	return fmt.Sprintf("%s-%s-%s.tar.gz", binName, runtime.GOOS, runtime.GOARCH)
+}
+
 func PlatformBinaryName(binName string) string {
 	os := runtime.GOOS
 	arch := runtime.GOARCH
@@ -84,6 +91,48 @@ func FindAsset(release *Release, assetName string) string {
 		}
 	}
 	return ""
+}
+
+func ExtractFromTarGz(archivePath, binName, destPath string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("opening archive: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return fmt.Errorf("creating gzip reader: %w", err)
+	}
+	defer func() { _ = gr.Close() }()
+
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("reading tar: %w", err)
+		}
+		base := hdr.Name
+		if idx := strings.LastIndexByte(hdr.Name, '/'); idx >= 0 {
+			base = hdr.Name[idx+1:]
+		}
+		if hdr.Typeflag != tar.TypeReg || !strings.HasPrefix(base, binName) {
+			continue
+		}
+		out, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+		if err != nil {
+			return fmt.Errorf("creating destination file: %w", err)
+		}
+		if _, err = io.Copy(out, tr); err != nil {
+			_ = out.Close()
+			return fmt.Errorf("writing binary: %w", err)
+		}
+		return out.Close()
+	}
+	return fmt.Errorf("binary %q not found in archive %s", binName, archivePath)
 }
 
 func NeedsUpdate(currentVersion, latestVersion string) bool {

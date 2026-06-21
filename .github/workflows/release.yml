@@ -123,17 +123,18 @@ jobs:
             DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
             LBUG_PLATFORMS="linux-amd64"
 
-      - name: Generate SHA-256 checksum
+      - name: Package and generate SHA-256 checksum
         run: |
           cd .build
-          sha256sum graphit-linux-amd64 > graphit-linux-amd64.sha256
+          tar -czf graphit-linux-amd64.tar.gz graphit-linux-amd64
+          sha256sum graphit-linux-amd64.tar.gz > graphit-linux-amd64.sha256
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-amd64
           path: |
-            .build/graphit-linux-amd64
+            .build/graphit-linux-amd64.tar.gz
             .build/graphit-linux-amd64.sha256
           retention-days: 1
 
@@ -192,17 +193,18 @@ jobs:
             DISPLAY_NAME="Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems" \
             LBUG_PLATFORMS="darwin"
 
-      - name: Generate SHA-256 checksum
+      - name: Package and generate SHA-256 checksum
         run: |
           cd .build
-          shasum -a 256 graphit-darwin-arm64 > graphit-darwin-arm64.sha256
+          tar -czf graphit-darwin-arm64.tar.gz graphit-darwin-arm64
+          shasum -a 256 graphit-darwin-arm64.tar.gz > graphit-darwin-arm64.sha256
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: darwin-arm64
           path: |
-            .build/graphit-darwin-arm64
+            .build/graphit-darwin-arm64.tar.gz
             .build/graphit-darwin-arm64.sha256
           retention-days: 1
 
@@ -278,18 +280,19 @@ jobs:
             MODEL_CACHE="/c/cache/model" \
             LBUG_CACHE="/c/cache/lbug"
 
-      - name: Generate SHA-256 checksum
+      - name: Package and generate SHA-256 checksum
         run: |
           cd .build
-          sha256sum graphit-windows-amd64.exe > graphit-windows-amd64.exe.sha256
+          tar -czf graphit-windows-amd64.tar.gz graphit-windows-amd64.exe
+          sha256sum graphit-windows-amd64.tar.gz > graphit-windows-amd64.sha256
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-amd64
           path: |
-            .build/graphit-windows-amd64.exe
-            .build/graphit-windows-amd64.exe.sha256
+            .build/graphit-windows-amd64.tar.gz
+            .build/graphit-windows-amd64.sha256
           retention-days: 1
 
   # ── Publish Release ────────────────────────────────────────────────────────
@@ -347,22 +350,30 @@ jobs:
 
             ## Installation
 
-            ### Linux (amd64)
+            ### Linux / macOS (one-liner)
             ```bash
-            curl -fsSL https://github.com/graphit-labs/graphit-code/releases/download/${{ github.ref_name }}/graphit-linux-amd64 -o graphit
-            chmod +x graphit
-            sudo mv graphit /usr/local/bin/
+            curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash
             ```
 
-            ### macOS (Apple Silicon)
-            ```bash
-            curl -fsSL https://github.com/graphit-labs/graphit-code/releases/download/${{ github.ref_name }}/graphit-darwin-arm64 -o graphit
-            chmod +x graphit
-            sudo mv graphit /usr/local/bin/
+            ### Windows (one-liner — PowerShell)
+            ```powershell
+            irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
             ```
 
-            ### Windows (amd64)
-            Download `graphit-windows-amd64.exe` and add to your PATH.
+            ### Manual download
+
+            | Platform | Archive |
+            |---|---|
+            | Linux (amd64) | `graphit-linux-amd64.tar.gz` |
+            | macOS (Apple Silicon) | `graphit-darwin-arm64.tar.gz` |
+            | Windows (amd64) | `graphit-windows-amd64.tar.gz` |
+
+            Extract and move to your PATH:
+            ```bash
+            # Linux/macOS
+            tar -xzf graphit-<platform>.tar.gz
+            sudo mv graphit-<platform> /usr/local/bin/graphit
+            ```
 
             ### Verify integrity
             ```bash
@@ -374,13 +385,15 @@ jobs:
             ```bash
             graphit self-update
             ```
+            > **Note:** Starting from this release, `graphit self-update` downloads `.tar.gz` archives.
+            > Builds using a custom `SELF_UPDATE_URL` must update their release endpoint accordingly.
           files: |
-            release-assets/graphit-linux-amd64
+            release-assets/graphit-linux-amd64.tar.gz
             release-assets/graphit-linux-amd64.sha256
-            release-assets/graphit-darwin-arm64
+            release-assets/graphit-darwin-arm64.tar.gz
             release-assets/graphit-darwin-arm64.sha256
-            release-assets/graphit-windows-amd64.exe
-            release-assets/graphit-windows-amd64.exe.sha256
+            release-assets/graphit-windows-amd64.tar.gz
+            release-assets/graphit-windows-amd64.sha256
             release-assets/checksums.sha256
           fail_on_unmatched_files: true
           make_latest: true

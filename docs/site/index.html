@@ -733,10 +733,8 @@
       <div class="terminal">
         <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
         <div class="terminal-body">
-          <span class="c"># Download Pre-compiled Binary from GitHub Artifacts</span><br>
-          <span class="cmd">curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-linux-amd64 -o graphit</span><br>
-          <span class="cmd">chmod +x graphit</span><br>
-          <span class="cmd">sudo mv graphit /usr/local/bin/</span><br><br>
+          <span class="c"># One-liner installer (auto-detects OS &amp; arch, verifies checksum)</span><br>
+          <span class="cmd">curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash</span><br><br>
           <span class="c"># Configure & Init</span><br>
           <span class="cmd">graphit setup</span><br>
           <span class="cmd">graphit init</span> <span class="arg">--ide</span> <span class="str">&lt;antigravity|gemini|claude|cursor|kiro|codex|opencode&gt;</span>
@@ -747,10 +745,8 @@
       <div class="terminal">
         <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
         <div class="terminal-body">
-          <span class="c"># Download Pre-compiled Binary (Apple Silicon)</span><br>
-          <span class="cmd">curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-darwin-arm64 -o graphit</span><br>
-          <span class="cmd">chmod +x graphit</span><br>
-          <span class="cmd">sudo mv graphit /usr/local/bin/</span><br><br>
+          <span class="c"># One-liner installer (auto-detects OS &amp; arch, verifies checksum)</span><br>
+          <span class="cmd">curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash</span><br><br>
           <span class="c"># Configure & Init</span><br>
           <span class="cmd">graphit setup</span><br>
           <span class="cmd">graphit init</span> <span class="arg">--ide</span> <span class="str">&lt;antigravity|gemini|claude|cursor|kiro|codex|opencode&gt;</span>
@@ -761,12 +757,11 @@
       <div class="terminal">
         <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
         <div class="terminal-body">
-          <span class="c"># Download Pre-compiled Binary (PowerShell)</span><br>
-          <span class="cmd">Invoke-WebRequest -Uri "https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-windows-amd64.exe" -OutFile "graphit.exe"</span><br><br>
-          <span class="c"># Add graphit.exe to your PATH to run globally</span><br><br>
-          <span class="c"># Configure & Init</span><br>
-          <span class="cmd">.\graphit setup</span><br>
-          <span class="cmd">.\graphit init</span> <span class="arg">--ide</span> <span class="str">&lt;antigravity|gemini|claude|cursor|kiro|codex|opencode&gt;</span>
+          <span class="c"># One-liner installer (PowerShell 5.1+ — installs to PATH automatically)</span><br>
+          <span class="cmd">irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex</span><br><br>
+          <span class="c"># Configure &amp; Init</span><br>
+          <span class="cmd">graphit setup</span><br>
+          <span class="cmd">graphit init</span> <span class="arg">--ide</span> <span class="str">&lt;antigravity|gemini|claude|cursor|kiro|codex|opencode&gt;</span>
         </div>
       </div>
     </div>

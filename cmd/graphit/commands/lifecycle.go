@@ -569,31 +569,31 @@ func newSelfUpdateCmd() *cobra.Command {
 
 			task.Update("Updating %s → %s...", version.Version, release.TagName)
 
-			binaryName := updater.PlatformBinaryName(brand.BinName())
-			binaryURL := updater.FindAsset(release, binaryName)
-			if binaryURL == "" {
-				task.Fail("No binary available for this platform (%s)", binaryName)
-				return fmt.Errorf("no release asset %q found in %s", binaryName, release.TagName)
+			archiveName := updater.PlatformArchiveName(brand.BinName())
+			archiveURL := updater.FindAsset(release, archiveName)
+			if archiveURL == "" {
+				task.Fail("No archive available for this platform (%s)", archiveName)
+				return fmt.Errorf("no release asset %q found in %s", archiveName, release.TagName)
 			}
-			checksumURL := binaryURL + ".sha256"
+			checksumURL := strings.TrimSuffix(archiveURL, ".tar.gz") + ".sha256"
 
 			tmpDir := filepath.Dir(currentExe)
-			tmpFile, err := os.CreateTemp(tmpDir, "."+brand.Brand+"-update-*")
+			tmpArchive, err := os.CreateTemp(tmpDir, "."+brand.Brand+"-update-archive-*")
 			if err != nil {
-				tmpFile, err = os.CreateTemp("", brand.Brand+"-update-*")
+				tmpArchive, err = os.CreateTemp("", brand.Brand+"-update-archive-*")
 				if err != nil {
-					task.Fail("Create temp file: %v", err)
-					return fmt.Errorf("create temp file: %w", err)
+					task.Fail("Create temp archive: %v", err)
+					return fmt.Errorf("create temp archive: %w", err)
 				}
 			}
-			tmpPath := tmpFile.Name()
-			_ = tmpFile.Close()
-			defer func() { _ = os.Remove(tmpPath) }()
+			tmpArchivePath := tmpArchive.Name()
+			_ = tmpArchive.Close()
+			defer func() { _ = os.Remove(tmpArchivePath) }()
 
-			task.Update("Downloading %s...", binaryName)
-			if err := updater.Download(binaryURL, tmpPath, nil); err != nil {
+			task.Update("Downloading %s...", archiveName)
+			if err := updater.Download(archiveURL, tmpArchivePath, nil); err != nil {
 				task.Fail("Download failed: %v", err)
-				return fmt.Errorf("downloading binary: %w", err)
+				return fmt.Errorf("downloading archive: %w", err)
 			}
 
 			checksumTmp, err := os.CreateTemp("", brand.Brand+"-checksum-*")
@@ -611,17 +611,35 @@ func newSelfUpdateCmd() *cobra.Command {
 			}
 
 			task.Update("Verifying checksum...")
-			if err := updater.VerifyChecksum(tmpPath, checksumTmpPath); err != nil {
+			if err := updater.VerifyChecksum(tmpArchivePath, checksumTmpPath); err != nil {
 				task.Fail("Checksum verification failed: %v", err)
 				return fmt.Errorf("checksum verification: %w", err)
 			}
 
-			if err := os.Chmod(tmpPath, 0o755); err != nil {
+			tmpBin, err := os.CreateTemp(tmpDir, "."+brand.Brand+"-update-bin-*")
+			if err != nil {
+				tmpBin, err = os.CreateTemp("", brand.Brand+"-update-bin-*")
+				if err != nil {
+					task.Fail("Create temp binary: %v", err)
+					return fmt.Errorf("create temp binary: %w", err)
+				}
+			}
+			tmpBinPath := tmpBin.Name()
+			_ = tmpBin.Close()
+			defer func() { _ = os.Remove(tmpBinPath) }()
+
+			task.Update("Extracting archive...")
+			if err := updater.ExtractFromTarGz(tmpArchivePath, brand.BinName(), tmpBinPath); err != nil {
+				task.Fail("Extraction failed: %v", err)
+				return fmt.Errorf("extracting binary: %w", err)
+			}
+
+			if err := os.Chmod(tmpBinPath, 0o755); err != nil {
 				task.Fail("Chmod: %v", err)
 				return fmt.Errorf("chmod: %w", err)
 			}
 
-			if err := updater.AtomicReplace(tmpPath, currentExe); err != nil {
+			if err := updater.AtomicReplace(tmpBinPath, currentExe); err != nil {
 				task.Fail("Replace binary: %v", err)
 				return fmt.Errorf("replacing binary: %w", err)
 			}
