@@ -15,10 +15,10 @@
 
 <p align="center">
   <a href="https://graphit-labs.github.io/graphit-code">Website</a> ·
-  <a href="#-installation">Installation</a> ·
-  <a href="#-key-features">Features</a> ·
-  <a href="#-quick-start">Quick Start</a> ·
-  <a href="#-documentation">Documentation</a>
+  <a href="#installation">Installation</a> ·
+  <a href="#key-features">Features</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#documentation">Documentation</a>
 </p>
 
 <p align="center">
@@ -177,20 +177,20 @@ Point the **Memory** sync to a separate Git repository and your ecosystem gains 
 │                   Your Private Git Server                   │
 │  (GitLab / Bitbucket / GitHub Enterprise / Any Git Host)    │
 │                                                             │
-│   ┌──────────────────┐      ┌──────────────────────────┐   │
-│   │  Hub Repository   │      │  Memory Repository        │   │
-│   │  (Team Artifacts) │      │  (Shared Learning)        │   │
-│   │                   │      │                           │   │
-│   │  • Rules          │      │  • Corrections            │   │
-│   │  • Skills         │      │  • Conventions            │   │
-│   │  • Knowledge      │      │  • Decisions              │   │
-│   │  • MCP Servers    │      │  • Institutional Memory   │   │
-│   └────────┬──────────┘      └────────────┬──────────────┘   │
-│            │                              │                  │
-└────────────┼──────────────────────────────┼──────────────────┘
+│   ┌───────────────────┐      ┌──────────────────────────┐   │
+│   │  Hub Repository   │      │  Memory Repository       │   │
+│   │  (Team Artifacts) │      │  (Shared Learning)       │   │
+│   │                   │      │                          │   │
+│   │  • Rules          │      │  • Corrections           │   │
+│   │  • Skills         │      │  • Conventions           │   │
+│   │  • Knowledge      │      │  • Decisions             │   │
+│   │  • MCP Servers    │      │  • Institutional Memory  │   │
+│   └────────┬──────────┘      └────────────┬─────────────┘   │
+│            │                              │                 │
+└────────────┼──────────────────────────────┼─────────────────┘
              │        git push/pull         │
-     ┌───────┴──────────────────────────────────┴───────┐
-     │   Solo Developer or Entire Team                  │
+     ┌───────┴──────────────────────────────┴───────┐
+     │   Solo Developer or Entire Team              │
      │                                              │
      │   graphit setup  →  configure your repos     │
      │   graphit sync   →  push/pull knowledge      │
