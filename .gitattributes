@@ -1,4 +1,5 @@
-internal/ast/treesitter/*/parser.c.inc linguist-vendored=true
+internal/ast/treesitter/*/*.c.inc       linguist-vendored=true
+internal/ast/treesitter/*/tree_sitter/ linguist-vendored=true
 
 internal/ast/antlr/**/*.interp   linguist-generated=true
 internal/ast/antlr/**/*.tokens   linguist-generated=true
