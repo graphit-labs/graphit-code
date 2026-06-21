@@ -37,8 +37,6 @@ type Config struct {
 	DisableDream bool
 
 	OnEvent func(level string, msg string)
-
-	SkipPIDFile bool
 }
 
 func GlobalDaemonDir() string {
@@ -94,11 +92,9 @@ func (d *Daemon) event(level string, format string, args ...any) {
 
 func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, error)) error {
 
-	if !d.cfg.SkipPIDFile {
-		if alive := d.pid.IsAlive(); alive != nil {
-			return fmt.Errorf("daemon already running (pid %d, started %s)",
-				alive.PID, alive.StartedAt.Format(time.RFC3339))
-		}
+	if alive := d.pid.IsAlive(); alive != nil {
+		return fmt.Errorf("daemon already running (pid %d, started %s)",
+			alive.PID, alive.StartedAt.Format(time.RFC3339))
 	}
 
 	d.bootStamp = readLauncherStamp()
@@ -113,12 +109,10 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 	d.logFile = lf
 	defer func() { _ = lf.Close() }()
 
-	if !d.cfg.SkipPIDFile {
-		if err := d.pid.Write(); err != nil {
-			return fmt.Errorf("writing pid file: %w", err)
-		}
-		defer d.pid.Remove()
+	if err := d.pid.Write(); err != nil {
+		return fmt.Errorf("writing pid file: %w", err)
 	}
+	defer d.pid.Remove()
 
 	d.log("daemon started (pid=%d, discovery_interval=%s, version_check=%s, stamp=%s)",
 		os.Getpid(), d.cfg.DiscoveryInterval, d.cfg.VersionCheckInterval, d.bootStamp)

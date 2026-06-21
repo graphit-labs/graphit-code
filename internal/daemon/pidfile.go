@@ -6,10 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
-
-	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
 const pidFileName = "daemon.pid"
@@ -33,7 +30,7 @@ func (pf *PIDFile) Write() error {
 	if err := os.MkdirAll(filepath.Dir(pf.path), 0o755); err != nil {
 		return fmt.Errorf("creating pid dir: %w", err)
 	}
-	content := fmt.Sprintf("%d\n%s\n", sysutil.EffectivePID(), time.Now().UTC().Format(time.RFC3339))
+	content := fmt.Sprintf("%d\n%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
 	tmp, err := os.CreateTemp(filepath.Dir(pf.path), ".pid-*")
 	if err != nil {
 		return err
@@ -55,11 +52,7 @@ func (pf *PIDFile) Write() error {
 }
 
 func (pf *PIDFile) Remove() {
-	_ = pf.remove()
-}
-
-func (pf *PIDFile) remove() error {
-	return os.Remove(pf.path)
+	_ = os.Remove(pf.path)
 }
 
 func (pf *PIDFile) Read() (*pidData, error) {
@@ -88,37 +81,20 @@ func (pf *PIDFile) Read() (*pidData, error) {
 func (pf *PIDFile) IsAlive() *pidData {
 	pd, err := pf.Read()
 	if err != nil {
-		_ = pf.remove()
+		_ = os.Remove(pf.path)
 		return nil
 	}
 	if pd == nil {
 		return nil
 	}
-
-	proc, err := os.FindProcess(pd.PID)
-	if err != nil {
-		return nil
-	}
-	if err := proc.Signal(syscall.Signal(0)); err != nil {
+	if !pidIsAlive(pd.PID) {
 		pf.Remove()
 		return nil
 	}
 	return pd
 }
 
-func (pf *PIDFile) Signal(sig syscall.Signal) error {
-	pd, err := pf.Read()
-	if err != nil || pd == nil {
-		return fmt.Errorf("no daemon running (no pid file)")
-	}
-	proc, err := os.FindProcess(pd.PID)
-	if err != nil {
-		return fmt.Errorf("process %d not found: %w", pd.PID, err)
-	}
-	return proc.Signal(sig)
-}
-
-func (pf *PIDFile) SignalOS(sig os.Signal) error {
+func (pf *PIDFile) Signal(sig os.Signal) error {
 	pd, err := pf.Read()
 	if err != nil || pd == nil {
 		return fmt.Errorf("no daemon running (no pid file)")

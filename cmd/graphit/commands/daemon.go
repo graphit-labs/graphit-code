@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -97,7 +98,7 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 	if exe == "" {
 		exe, _ = os.Executable()
 	}
-	argv := []string{exe, "daemon"}
+	argv := []string{"daemon"}
 	if noEmbedding {
 		argv = append(argv, "--no-embedding")
 	}
@@ -107,10 +108,19 @@ func runDaemonStart(noEmbedding, noDream bool, logPath string) error {
 	if logPath != "" {
 		argv = append(argv, "--log", logPath)
 	}
-	if replErr := sysutil.ReplaceProcess(exe, argv, os.Environ()); replErr != nil {
-		return fmt.Errorf("exec replacement failed: %w", replErr)
+	if spawnErr := spawnDetachedDaemon(exe, argv); spawnErr != nil {
+		return fmt.Errorf("spawning new daemon: %w", spawnErr)
 	}
 	return nil
+}
+
+func spawnDetachedDaemon(exe string, argv []string) error {
+	cmd := exec.Command(exe, argv...)
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	sysutil.DetachProcess(cmd)
+	return cmd.Start()
 }
 
 func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), err error) {
@@ -122,8 +132,8 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	runCloseMCP := func() {
 		mcpOnce.Do(func() {
 			mcpCloserMu.Lock()
-			defer mcpCloserMu.Unlock()
 			fn := mcpCloserFn
+			mcpCloserMu.Unlock()
 			if fn != nil {
 				fn()
 			}
@@ -144,10 +154,6 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	cfg := daemon.DefaultConfig()
 	cfg.DisableEmbedding = noEmbedding
 	cfg.DisableDream = noDream
-
-	if runtime.GOOS == "windows" {
-		cfg.SkipPIDFile = true
-	}
 
 	if logPath != "" {
 		cfg.LogPath = logPath
@@ -349,7 +355,6 @@ func newDaemonStopCmd() *cobra.Command {
 				return fmt.Errorf("sending SIGKILL: %w", err)
 			}
 			pid.Remove()
-			// Clean up MCP files that the daemon's ctx.Done handler couldn't reach.
 			_ = os.Remove(daemonctl.PortFilePath())
 			_ = os.Remove(daemonctl.KeyFilePath())
 			p.Success("Daemon killed")
@@ -446,7 +451,6 @@ func newDaemonRestartCmd() *cobra.Command {
 				if pid.IsAlive() != nil {
 					_ = pid.Signal(syscall.SIGKILL)
 					pid.Remove()
-					// Clean up MCP files that the daemon's ctx.Done handler couldn't reach.
 					_ = os.Remove(daemonctl.PortFilePath())
 					_ = os.Remove(daemonctl.KeyFilePath())
 				}

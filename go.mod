@@ -17,7 +17,13 @@ require (
 	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/spf13/cobra v1.8.0
 	github.com/sugarme/tokenizer v0.3.0
+	github.com/tree-sitter-grammars/tree-sitter-xml v0.7.0
+	github.com/tree-sitter-grammars/tree-sitter-zig v1.1.2
+	github.com/tree-sitter/tree-sitter-haskell v0.23.1
+	github.com/tree-sitter/tree-sitter-json v0.24.8
+	github.com/tree-sitter/tree-sitter-julia v0.25.0
 	github.com/yalue/onnxruntime_go v1.30.1
+	golang.org/x/sys v0.44.0
 	golang.org/x/term v0.42.0
 	golang.org/x/text v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -44,15 +50,9 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/sugarme/regexpset v0.0.0-20200920021344-4d4ec8eaf93c // indirect
-	github.com/tree-sitter-grammars/tree-sitter-xml v0.7.0 // indirect
-	github.com/tree-sitter-grammars/tree-sitter-zig v1.1.2 // indirect
-	github.com/tree-sitter/tree-sitter-haskell v0.23.1 // indirect
-	github.com/tree-sitter/tree-sitter-json v0.24.8 // indirect
-	github.com/tree-sitter/tree-sitter-julia v0.25.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )

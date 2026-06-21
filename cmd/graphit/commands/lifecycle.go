@@ -1077,7 +1077,7 @@ configuration and custom rules. This is a destructive operation.`,
 			pid := daemon.NewPIDFile()
 			if alive := pid.IsAlive(); alive != nil {
 				task := p.StartTask("Stopping daemon (pid %d)...", alive.PID)
-				_ = pid.SignalOS(os.Interrupt)
+				_ = pid.Signal(os.Interrupt)
 
 				for i := 0; i < 10; i++ {
 					time.Sleep(500 * time.Millisecond)
@@ -1086,7 +1086,7 @@ configuration and custom rules. This is a destructive operation.`,
 					}
 				}
 				if pid.IsAlive() != nil {
-					_ = pid.SignalOS(os.Kill)
+					_ = pid.Signal(os.Kill)
 					pid.Remove()
 				}
 				task.Done("Daemon stopped")
