@@ -4,3 +4,5 @@ internal/ast/antlr/
 !internal/ast/antlr/*/parser_sll_ll.go
 !internal/ast/antlr/*/preprocessor.go
 !internal/ast/antlr/*/preprocessor/
+
+internal/ast/treesitter/*/parser.c.inc
