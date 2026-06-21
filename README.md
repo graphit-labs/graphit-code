@@ -62,77 +62,6 @@ Memory is persistent and automatic. The system includes an autonomous **Dream Mo
 
 ---
 
-## 🏆 The Ultimate Advantage: Private Knowledge Ecosystems
-
-> **This is the game-changer.** Whether you're a solo developer managing multiple projects or an enterprise team scaling across dozens of engineers — Graphit Code turns your Git infrastructure into a **persistent knowledge backbone** that grows smarter over time.
-
-For **individual developers**, it means your agent knows every project you work on, remembers past decisions, and carries context across your entire ecosystem. For **teams**, knowledge compounds: corrections, conventions, and skills propagate automatically to every member. Either way, context is never lost.
-
-### 🔗 Private Hub Registry — Your Team's Artifact Center
-
-During the interactive `graphit setup`, you can point the **Hub** to any Git repository — a personal repo for solo use, or a shared private repo (self-hosted GitLab, Bitbucket, GitHub Enterprise, or any SSH/HTTPS accessible repo) for teams. This repository becomes the **centralized artifact registry** for your entire ecosystem:
-
-- **Shared Coding Rules** — Enforce company-wide standards automatically across every developer's IDE.
-- **Team Skills** — Codify complex workflows (k8s debugging, internal API patterns, deployment checklists) so every agent on the team knows the procedures.
-- **Knowledge Artifacts** — Publish documentation about frameworks, APIs, and integration specs that every developer's agent can discover and install.
-- **Language Queries** — Share Tree-sitter and ANTLR extraction `.yaml` query files for customizing how entities are extracted from the built-in languages. Drop-in AST query customization without recompilation.
-- **Framework Configs** — Distribute framework detection `.yaml` rules (decorators, heritage, imports) for internal or niche frameworks across the team.
-- **MCP Servers, Commands, Agent Profiles** — Share reusable automation across the entire organization.
-
-Every artifact is versioned via Git, published directly, and distributed securely through your existing authentication infrastructure (SSH keys, SSO, access tokens).
-
-### 🧠 Shared Memory Repository — Collective Team Intelligence
-
-Point the **Memory** sync to a separate Git repository and your ecosystem gains **shared persistent memory**:
-
-- **Corrections compound across the team** — When one developer corrects their agent ("we don't use that library anymore"), the correction propagates to everyone.
-- **Conventions are learned once** — Architecture decisions, API patterns, and coding standards are stored as team-wide memories that every agent follows automatically.
-- **Institutional knowledge persists** — New team members' agents immediately benefit from the collective learning of the entire team. No more onboarding friction.
-- **Full Git history** — Every memory change is tracked, auditable, and reversible.
-
-### 🚀 The Result: A Private, Self-Hosted Collaboration Loop
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   Your Private Git Server                   │
-│  (GitLab / Bitbucket / GitHub Enterprise / Any Git Host)    │
-│                                                             │
-│   ┌──────────────────┐      ┌──────────────────────────┐   │
-│   │  Hub Repository   │      │  Memory Repository        │   │
-│   │  (Team Artifacts) │      │  (Shared Learning)        │   │
-│   │                   │      │                           │   │
-│   │  • Rules          │      │  • Corrections            │   │
-│   │  • Skills         │      │  • Conventions            │   │
-│   │  • Knowledge      │      │  • Decisions              │   │
-│   │  • MCP Servers    │      │  • Institutional Memory   │   │
-│   └────────┬──────────┘      └────────────┬──────────────┘   │
-│            │                              │                  │
-└────────────┼──────────────────────────────┼──────────────────┘
-             │        git push/pull         │
-     ┌───────┴──────────────────────────────────┴───────┐
-     │   Solo Developer or Entire Team                  │
-     │                                              │
-     │   graphit setup  →  configure your repos     │
-     │   graphit sync   →  push/pull knowledge      │
-     │   graphit init   →  inject rules into IDE    │
-     └──────────────────────────────────────────────┘
-```
-
-**Zero cloud dependencies. Zero SaaS subscriptions. Zero data leaving your network.**  
-Your knowledge stays 100% private, versioned in Git, and shared securely through your existing infrastructure.
-
-```bash
-# One-time setup — point to your own repos (personal or team)
-graphit setup
-# → Enter Hub Git URL:    git@gitlab.company.com:team/graphit-hub.git
-# → Enter Memory Git URL: git@gitlab.company.com:team/graphit-memory.git
-
-# That's it. Every sync propagates team knowledge automatically.
-graphit sync
-```
-
----
-
 ## Installation
 
 **Zero dependencies required.** Supports Windows, Linux, and macOS out of the box. Fully auto-configurable.
@@ -195,6 +124,85 @@ make install   # Compiles and installs to /usr/local/bin/
 
 ---
 
+## Quick Start
+
+```bash
+# 1. Setup global hub and memory repos. During this interactive setup, you can point to 
+# your organization's private Git repositories (e.g., self-hosted GitLab or GitHub 
+# Enterprise) to establish a secure, collaborative environment for your IT team.
+graphit setup
+
+# 2. Initialize your project (Auto-configures IDE rules, indexes AST + Wiki)
+cd your-project
+graphit init --ide <antigravity|gemini|claude|cursor|kiro|codex|opencode>
+
+# 3. For exploring the Graphit Code ecosystem, open the collaborative dashboard (optional)
+graphit ui
+```
+
+---
+
+## 🏆 The Ultimate Advantage: Private Knowledge Ecosystems
+
+> **This is the game-changer.** Whether you're a solo developer managing multiple projects or an enterprise team scaling across dozens of engineers — Graphit Code turns your Git infrastructure into a **persistent knowledge backbone** that grows smarter over time.
+
+For **individual developers**, it means your agent knows every project you work on, remembers past decisions, and carries context across your entire ecosystem. For **teams**, knowledge compounds: corrections, conventions, and skills propagate automatically to every member. Either way, context is never lost.
+
+### 🔗 Private Hub Registry — Your Team's Artifact Center
+
+During the interactive `graphit setup`, you can point the **Hub** to any Git repository — a personal repo for solo use, or a shared private repo (self-hosted GitLab, Bitbucket, GitHub Enterprise, or any SSH/HTTPS accessible repo) for teams. This repository becomes the **centralized artifact registry** for your entire ecosystem:
+
+- **Shared Coding Rules** — Enforce company-wide standards automatically across every developer's IDE.
+- **Team Skills** — Codify complex workflows (k8s debugging, internal API patterns, deployment checklists) so every agent on the team knows the procedures.
+- **Knowledge Artifacts** — Publish documentation about frameworks, APIs, and integration specs that every developer's agent can discover and install.
+- **Language Queries** — Share Tree-sitter and ANTLR extraction `.yaml` query files for customizing how entities are extracted from the built-in languages. Drop-in AST query customization without recompilation.
+- **Framework Configs** — Distribute framework detection `.yaml` rules (decorators, heritage, imports) for internal or niche frameworks across the team.
+- **MCP Servers, Commands, Agent Profiles** — Share reusable automation across the entire organization.
+
+Every artifact is versioned via Git, published directly, and distributed securely through your existing authentication infrastructure (SSH keys, SSO, access tokens).
+
+### 🧠 Shared Memory Repository — Collective Team Intelligence
+
+Point the **Memory** sync to a separate Git repository and your ecosystem gains **shared persistent memory**:
+
+- **Corrections compound across the team** — When one developer corrects their agent ("we don't use that library anymore"), the correction propagates to everyone.
+- **Conventions are learned once** — Architecture decisions, API patterns, and coding standards are stored as team-wide memories that every agent follows automatically.
+- **Institutional knowledge persists** — New team members' agents immediately benefit from the collective learning of the entire team. No more onboarding friction.
+- **Full Git history** — Every memory change is tracked, auditable, and reversible.
+
+### 🚀 The Result: A Private, Self-Hosted Collaboration Loop
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Your Private Git Server                   │
+│  (GitLab / Bitbucket / GitHub Enterprise / Any Git Host)    │
+│                                                             │
+│   ┌──────────────────┐      ┌──────────────────────────┐   │
+│   │  Hub Repository   │      │  Memory Repository        │   │
+│   │  (Team Artifacts) │      │  (Shared Learning)        │   │
+│   │                   │      │                           │   │
+│   │  • Rules          │      │  • Corrections            │   │
+│   │  • Skills         │      │  • Conventions            │   │
+│   │  • Knowledge      │      │  • Decisions              │   │
+│   │  • MCP Servers    │      │  • Institutional Memory   │   │
+│   └────────┬──────────┘      └────────────┬──────────────┘   │
+│            │                              │                  │
+└────────────┼──────────────────────────────┼──────────────────┘
+             │        git push/pull         │
+     ┌───────┴──────────────────────────────────┴───────┐
+     │   Solo Developer or Entire Team                  │
+     │                                              │
+     │   graphit setup  →  configure your repos     │
+     │   graphit sync   →  push/pull knowledge      │
+     │   graphit init   →  inject rules into IDE    │
+     └──────────────────────────────────────────────┘
+```
+
+**Zero cloud dependencies. Zero SaaS subscriptions. Zero data leaving your network.**  
+Your knowledge stays 100% private, versioned in Git, and shared securely through your existing infrastructure.
+
+---
+
 ## Key Features
 
 ### 1. Unified Graphical UI
@@ -205,6 +213,7 @@ graphit ui  # Opens http://localhost:8080
 - **AST Explorer:** 3D interactive graph with Cypher queries.
 - **Wiki Explorer:** FTS, semantic search, and documentation routing.
 - **Hub Manager:** Decentralized registry interface.
+- **Ecosystem Explorer:** Cluster discovery and navigation.
 
 <p align="center">
   <img src="docs/site/assets/hub-project-artifacts.png" alt="Hub Project Artifacts" width="100%">
@@ -213,98 +222,13 @@ graphit ui  # Opens http://localhost:8080
 ### 2. AST Graph Explorer — Instant & Deterministic
 Query the AST across the ecosystem instantly. Auto-incremental indexing ensures your agent always knows exactly where a function is defined or called. **Eliminates hallucinations** by grounding answers in exact structural truths, and drastically **reduces LLM token usage** by passing only precise nodes instead of massive files.
 
-#### Supported Languages (42)
+Two parser backends: **Tree-sitter** and **ANTLR v4**. The launcher ships with 42 default grammars.
 
-Graphit Code uses two parser backends: **Tree-sitter** (incremental, fast) and **ANTLR v4** (full grammar, enterprise SQL). Tree-sitter grammars are dynamically loaded as shared libraries (`.so`/`.dylib`/`.dll`) via CGO `dlopen` — no static compilation required. ANTLR grammars use per-grammar standalone sidecar binaries with IPC (stdin/stdout). The launcher ships with 16 default Tree-sitter grammars; additional grammars are installed via `graphit hub install`.
+**Tree-sitter (37):** Go · TypeScript · TSX · JavaScript · Python · Java · Rust · C · C++ · C# · Kotlin · Swift · Dart · PHP · Ruby · SQL · XML · HTML · Bash · Clojure · Dockerfile · Elixir · GraphQL · Groovy · Haskell · HCL · JSON · Julia · Lua · Markdown · Objective-C · Protocol Buffers · R · Scala · TOML · YAML · Zig
 
-| Language | Parser | Extensions | Extracted Entities |
-|---|---|---|---|
-| **Go** | Tree-sitter | `.go` | Functions, Methods, Structs, Interfaces, Types, Constants, Variables, Fields, Parameters |
-| **TypeScript** | Tree-sitter | `.ts` | Functions, Classes, Interfaces, Types, Enums, Variables, Fields, Parameters, Decorators |
-| **TSX** | Tree-sitter | `.tsx` | Functions, Classes, Interfaces, Types, Enums, Variables, Fields, Parameters, Decorators |
-| **JavaScript** | Tree-sitter | `.js`, `.jsx`, `.mjs` | Functions, Classes, Variables, Fields, Parameters, Exports |
-| **Python** | Tree-sitter | `.py` | Functions, Classes, Variables, Parameters, Decorators |
-| **Java** | Tree-sitter | `.java` | Functions, Classes, Interfaces, Enums, Variables, Fields, Parameters, Packages, Annotations |
-| **Rust** | Tree-sitter | `.rs` | Functions, Structs, Enums, Traits, Types, Constants, Variables, Fields, Parameters |
-| **C** | Tree-sitter | `.c`, `.h` | Functions, Structs, Enums, Types, Variables, Fields, Parameters |
-| **C++** | Tree-sitter | `.cpp`, `.hpp`, `.cc`, `.cxx`, `.hxx`, `.hh` | Functions, Classes, Structs, Enums, Namespaces, Types, Fields, Parameters |
-| **C#** | Tree-sitter | `.cs` | Functions, Classes, Interfaces, Enums, Structs, Properties, Namespaces, Fields, Parameters |
-| **Kotlin** | Tree-sitter | `.kt`, `.kts` | Functions, Classes, Interfaces, Enums, Variables, Fields, Parameters, Packages |
-| **Swift** | Tree-sitter | `.swift` | Functions, Classes, Structs, Enums, Protocols, Variables, Fields, Parameters |
-| **Dart** | Tree-sitter | `.dart` | Functions, Methods, Classes, Enums, Mixins, Variables, Fields, Parameters |
-| **PHP** | Tree-sitter | `.php` | Functions, Methods, Classes, Interfaces, Traits, Enums, Constants, Namespaces, Fields, Parameters |
-| **Ruby** | Tree-sitter | `.rb` | Functions, Classes, Modules, Variables, Fields, Parameters |
-| **SQL** | Tree-sitter | `.sql` | Functions, Tables, Views |
-| **XML** | Tree-sitter | `.xml`, `.xsl`, `.xslt`, `.xsd`, `.svg`, `.wsdl`, `.plist`, `.xhtml` | Elements |
-| **HTML** | Tree-sitter | `.html`, `.htm` | Elements, Script/Style blocks + ID/Class/href/src/action/name attributes, data-*/aria-* attributes, ARIA roles, label-for binding |
-| **Bash** | Tree-sitter | `.sh`, `.bash` | Functions, Variables |
-| **Clojure** | Tree-sitter | `.clj`, `.cljs`, `.cljc`, `.edn` | Functions, Namespaces, Variables |
-| **Dockerfile** | Tree-sitter | `.dockerfile`, `Dockerfile` | Instructions |
-| **Elixir** | Tree-sitter | `.ex`, `.exs` | Functions, Modules, Variables |
-| **GraphQL** | Tree-sitter | `.graphql`, `.gql` | Types, Fields, Queries, Mutations |
-| **Groovy** | Tree-sitter | `.groovy`, `.gradle` | Functions, Classes, Variables |
-| **Haskell** | Tree-sitter | `.hs` | Functions, Types, Classes, Modules |
-| **HCL** | Tree-sitter | `.hcl`, `.tf` | Blocks, Variables |
-| **JSON** | Tree-sitter | `.json` | Objects, Arrays |
-| **Julia** | Tree-sitter | `.jl` | Functions, Types, Modules, Variables |
-| **Lua** | Tree-sitter | `.lua` | Functions, Variables |
-| **Markdown** | Tree-sitter | `.md`, `.markdown` | Headings, Links |
-| **Objective-C** | Tree-sitter | `.m`, `.mm` | Functions, Classes, Interfaces, Methods |
-| **Protocol Buffers** | Tree-sitter | `.proto` | Messages, Services, RPCs |
-| **R** | Tree-sitter | `.r`, `.R` | Functions, Variables |
-| **Scala** | Tree-sitter | `.scala`, `.sc` | Functions, Classes, Traits, Objects |
-| **TOML** | Tree-sitter | `.toml` | Tables, Key-Value Pairs |
-| **YAML** | Tree-sitter | `.yaml`, `.yml` | Mappings, Sequences |
-| **Zig** | Tree-sitter | `.zig` | Functions, Structs, Variables |
-| **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Functions, Procedures, Packages, Types, Triggers, Tables, Views, Materialized Views, Indexes, Sequences, Synonyms, DB Links, Columns, Parameters, Variables, Constants, Cursors, Exceptions, Constraints, Savepoints + DML tracking (SELECTS, INSERTS, UPDATES, DELETES) |
-| **PostgreSQL** | ANTLR v4 | `.sql`, `.pgsql`, `.plpgsql`, `.pg` | Functions, Procedures, Tables, Views, Materialized Views, Schemas, Triggers, Sequences, Indexes, Extensions, Types (domain, composite, enum, range), Columns, Parameters, Constraints, Variables + DML tracking |
-| **DB2** | ANTLR v4 | `.sql`, `.db2` | Functions, Stored Procedures, Tables, Views, Triggers, Indexes, Sequences, Types, Schemas, Aliases, Tablespaces, Columns, Parameters, Variables + DML tracking |
-| **T-SQL** | ANTLR v4 | `.sql`, `.tsql` | Stored Procedures, Functions, Tables, Views, Triggers, Indexes, Sequences, Types, Schemas, Columns, Parameters, Variables + DML tracking |
-| **COBOL 85** | ANTLR v4 | `.cob`, `.cbl`, `.cpy`, `.cobol` | Programs, Sections, Paragraphs, Data Items, File Descriptions, Condition Names + PERFORM/CALL/GO TO tracking, File I/O (READ/WRITE/OPEN/CLOSE), COPY references |
+**ANTLR v4 (5):** PL/SQL · PostgreSQL · DB2 · T-SQL · COBOL 85
 
-#### What the AST Maps
-
-Every source file is parsed via **Tree-sitter** or **ANTLR v4** into a graph stored in **LadybugDB** (embedded graph database). The YAML language configuration determines which parser to use. The graph captures:
-
-- **Nodes:** `File`, `Directory`, `Function`, `Procedure`, `Method`, `Constructor`, `Class`, `Record`, `Annotation`, `Object`, `Struct`, `Interface`, `Protocol`, `Trait`, `Mixin`, `Extension`, `Enum`, `Type`, `Module`, `Variable`, `Constant`, `Parameter`, `Field`, `Column`, `Namespace`, `Package`, `Table`, `View`, `MaterializedView`, `Export`, `Element`, `Schema`, `Trigger`, `Index`, `Sequence`, `StoredProcedure`, `Constraint`, `Synonym`, `DBLink`, `Tablespace`, `Alias`, `Cursor`, `Exception`, `Savepoint`, `Property`
-- **Relationships:** `CONTAINS` (ownership), `IMPORTS` (dependencies), `CALLS` (invocations), `HAS_PARAMETER`, `HAS_FIELD`, `READS_FIELD` / `WRITES_FIELD` (data access tracing), `INHERITS`, `IMPLEMENTS`, `SELECTS` / `INSERTS` / `UPDATES` / `DELETES` / `ALTERS` / `DROPS` / `REFERENCES` (DML/DDL tracking — PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85)
-- **Properties:** `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported`, `entry_point_score`, `docstring`, `source`, `lang`, `cluster`
-
-#### Fully Customizable — Pure YAML-Driven Engine
-
-The entire AST pipeline is driven by **external YAML files** — not hardcoded. Every aspect of language understanding, framework detection, and scoring is runtime-customizable without recompilation:
-
-- **Language Query Patterns** — 42 language YAML files define all extraction patterns (functions, classes, imports, calls, etc.) for both Tree-sitter and ANTLR grammars.
-- **Framework Detection** — 51+ framework definitions across 59 YAML files. Decorators, heritage classes, and import patterns for frameworks like React, Django, Spring Boot, Flutter, Express, FastAPI, and many more.
-- **Ecosystem Detection** — `ecosystems.yaml` with 120+ entries classifying projects by technology stack (web, mobile, API, database, CLI, etc.)
-- **Entry Point Scoring** — Scoring rules embedded in each language YAML determine how functions are ranked as potential entry points.
-- **Language Configuration** — Export strategies, import match types (`prefix`, `exact`, `contains`, `suffix`, `regex`), `self`/`this` keywords, context type mappings, relation types, and declaration types are all defined per-language in YAML.
-- **Relation Types** — All entity and relation types (e.g., `CALLS`, `IMPORTS`, `INHERITS`, `IMPLEMENTS`, `READS_FIELD`, `WRITES_FIELD`) are defined in YAML. New relation types can be added without recompilation.
-
-All configuration follows a **4-level cascading resolution chain**:
-
-- **Per Project:** `.graphit/ast/queries/<language>.yaml` — override for one project only.
-- **User Global:** `~/.graphit/ast/queries/<language>.yaml` — your customizations across all projects.
-- **Runtime Defaults:** `~/.graphit/runtime/<version>/ast/queries/` — factory defaults, auto-extracted from the binary per version.
-- **Embedded:** Built-in YAML defaults compiled into the binary — used only when no external file is found at any higher level.
-
-**Extend without recompilation:** Add new frameworks, ecosystem patterns, entry point scoring rules, relation types, and customize all language behavior by simply dropping YAML files into the project or user directory. Community contributions can be YAML-only PRs — no Go knowledge required.
-
-> **Plug-and-Play Grammar Distribution:** Tree-sitter grammars are distributed as shared libraries (`.so`/`.dylib`/`.dll`) and loaded dynamically at runtime via CGO `dlopen`. ANTLR grammars are distributed as standalone sidecar binaries. Both can be installed via `graphit hub install` without recompilation:
->
-> 1. **Install new grammars** — `graphit hub install <language>` downloads and installs the grammar binary for your platform.
-> 2. **Customize extraction queries** — Modify which entities are extracted from any language by editing the YAML query files.
-> 3. **Override per project or globally** — Drop YAML files into `.graphit/ast/queries/` (project) or `~/.graphit/ast/queries/` (global).
->
-> The launcher ships with 16 default Tree-sitter grammars. Additional grammars — including all ANTLR grammars — are installed on-demand via the Hub.
-
-Resolution follows a cascading priority chain: **project → user global → runtime → embedded**. See the [User Manual](docs/guides/user_manual.md#customizing-ast-tree-sitter-queries) for examples, and the [AST Module Spec](docs/specs/ast_module.md#-external-query-customization) for the full technical reference.
-
-#### Indexing: Full & Incremental
-
-- **Full Index:** Scans every file via Tree-sitter or ANTLR v4 (depending on language YAML), extracts entities, writes the graph, builds FTS5 + trigram + vector indices.
-- **Incremental Index:** Uses SHA-256 hash cache per file — only changed files are re-parsed and re-written. Concurrent worker pool with single-threaded graph writer prevents contention.
-- **File Watcher:** Git-based polling (every 2s) with 500ms debounce. Detects both uncommitted edits and committed changes. Zero file descriptors used.
+Every source file is parsed into a graph stored in **LadybugDB** (embedded graph database) with support to **full** and **incremental** parsing modes. The entire pipeline is **pure YAML-driven**, allowing you to customize the AST parsing pipeline without recompiling the source code. See the [User Manual](docs/guides/user_manual.md#customizing-ast-tree-sitter-queries) and the [AST Module Spec](docs/specs/ast_module.md#-external-query-customization) for details.
 
 ### 3. LLM Wiki & Knowledge Discovery
 Documentation designed for agents. Replaces opaque vector embeddings with deterministic **self-discovery** and explicit **back-referencing**. The agent organically explores the wiki graph to find exact context, guaranteeing precise retrieval without hallucinated semantic matches.
@@ -356,50 +280,6 @@ Your AI agent uses the same discovery via MCP (`graphit_cluster_projects`) to:
 This prevents **integration hallucinations** — the agent sees real routes, DTOs, and interfaces from the actual sibling codebases instead of guessing.
 
 > See the [Cluster Discovery Spec](docs/specs/cluster_microservices.md) for the full technical reference.
-
----
-
-## Quick Start
-
-```bash
-# 1. Setup global hub and memory repos. During this interactive setup, you can point to 
-# your organization's private Git repositories (e.g., self-hosted GitLab or GitHub 
-# Enterprise) to establish a secure, collaborative environment for your IT team.
-graphit setup
-
-# 2. Initialize your project (Auto-configures IDE rules, indexes AST + Wiki)
-cd your-project
-graphit init --ide <antigravity|gemini|claude|cursor|kiro|codex|opencode>
-
-# 3. Keep the agent updated after you change files
-graphit sync &
-
-# 4. Open the collaborative dashboard
-graphit ui
-```
-
----
-
-## Architecture
-
-Graphit Code is a single self-contained binary written in Go. All data persists locally via standard Git repositories, meaning you retain 100% control over your knowledge and interactions.
-
-- **AST Module:** LadybugDB + Tree-sitter + ANTLR v4.
-- **Knowledge Module:** LLM Wiki & explicit back-referencing.
-- **Hub & Memory:** Git-backed transparent artifact storage.
-- **Dream Module:** Background skill generation, conversation mining, and knowledge extraction.
-
----
-
-## Enterprise & Brand Customization (White-Labeling)
-
-Graphit Code is built to be customized for private, self-hosted enterprise environments:
-- **100% Private Data:** Local syntactic parsing (Tree-sitter + ANTLR v4), local embedded graph database (LadybugDB), local embedding computations (ONNX runtime), and Git-backed repositories that stay inside your private network.
-- **Custom Branding (White-Labeling):** Compile the binary using Go `-ldflags` overrides to customize the binary name (`Brand`), the display name (`DisplayName`), environment variables, and default Git-backed registry repositories.
-- **Private Team Ecosystems (Git-Backed):** Set up team-wide coding standards, shared agent memories, and custom developer skills without relying on cloud-hosted SaaS databases. During the interactive `graphit setup` command, developers configure private Git repositories (e.g., self-hosted GitLab, Bitbucket, or GitHub Enterprise) as backend sync stores. The harness pushes/pulls memories, rules, and skills through standard SSH/HTTPS Git authentication, establishing a secure collaborative environment for your entire IT team.
-- **Keyless AI Harness:** Run agentic tasks without configuring separate LLM API keys. The framework leverages the active sessions, credentials, and quotas of developers' existing IDE and CLI agents natively.
-
-For instructions, see the **[Private Branding & Customization Guide](docs/guides/private_brand_customization.md)**.
 
 ---
 
