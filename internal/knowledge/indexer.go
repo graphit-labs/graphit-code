@@ -39,9 +39,7 @@ var supportedKnowledgeExts = map[string]bool{
 	".txt": true, ".adoc": true, ".rst": true,
 	".puml": true, ".plantuml": true,
 
-	".yaml": true, ".yml": true, ".json": true,
 	".proto": true, ".graphql": true, ".gql": true,
-	".wsdl": true, ".xml": true,
 }
 
 func RunIndexPipeline(ctx context.Context, rootPath, wikiDir string, cfg IndexConfig) (*IndexResult, error) {
