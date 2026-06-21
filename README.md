@@ -1,7 +1,7 @@
 <h1 align="center">Graphit Code</h1>
 
 <p align="center">
-  <strong>The Enterprise Collaboration Hub for AI-Guided Software Development</strong>
+  <strong>A Powerful Agent Harness for Enterprise Software Ecosystems</strong>
 </p>
 
 <p align="center">
@@ -323,6 +323,6 @@ Thank you for your support!
 [MIT](LICENSE) — Graphit Labs
 
 <p align="center">
-  <strong>Graphit Code</strong> — The Enterprise Collaboration Hub for AI-Guided Software Development<br>
+  <strong>Graphit Code</strong> — A Powerful Agent Harness for Enterprise Software Ecosystems<br>
   <em>Tell your agent once. It remembers forever.</em>
 </p>

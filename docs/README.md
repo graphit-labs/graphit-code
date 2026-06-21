@@ -12,8 +12,7 @@ keywords:
 
 # Graphit Code Documentation Hub
 
-Welcome to the official documentation for Graphit Code.
-Graphit Code is the enterprise collaboration hub for AI-guided software development.
+Welcome to the official documentation for Graphit Code — **A Powerful Agent Harness for Enterprise Software Ecosystems**.
 It synchronizes codebase structure (AST), persistent memory, and shared team specifications to keep local and remote AI agents aligned.
 
 This documentation is divided into three key areas:
