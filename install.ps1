@@ -1,12 +1,15 @@
 # Graphit Code Installer for Windows
 # Usage: irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
 #
-# Or to install silently:
-#   $env:GRAPHIT_INSTALL_DIR = "$env:USERPROFILE\.graphit\bin"
-#   irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
+# To specify a custom install directory, pass -Dir or set the env var:
+#   iex "& { $(irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1) } -Dir 'C:\Tools\graphit'"
+#   $env:GRAPHIT_INSTALL_DIR = "$env:LOCALAPPDATA\Programs\graphit"; irm ... | iex
 
 [CmdletBinding()]
-param()
+param(
+    # Custom installation directory. Overrides $env:GRAPHIT_INSTALL_DIR if set.
+    [string]$Dir
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -15,10 +18,12 @@ $BinName   = "graphit"
 $Platform  = "windows-amd64"
 
 # ── Install directory ─────────────────────────────────────────────────────────
-$InstallDir = if ($env:GRAPHIT_INSTALL_DIR) {
+$InstallDir = if ($Dir) {
+    $Dir
+} elseif ($env:GRAPHIT_INSTALL_DIR) {
     $env:GRAPHIT_INSTALL_DIR
 } else {
-    Join-Path $env:USERPROFILE ".graphit\bin"
+    Join-Path $env:LOCALAPPDATA "Programs\graphit"
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

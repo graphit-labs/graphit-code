@@ -1,11 +1,40 @@
 #!/usr/bin/env sh
 # Graphit Code Installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash
+# Or:    curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash -s -- --dir ~/.local/bin
 set -e
 
 REPO="graphit-labs/graphit-code"
 BIN_NAME="graphit"
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="${HOME}/.local/bin"
+
+# ── Parse arguments ───────────────────────────────────────────────────────────
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dir)
+      if [ -z "$2" ]; then
+        printf "Error: --dir requires a path argument\n" >&2
+        exit 1
+      fi
+      INSTALL_DIR="$2"
+      shift 2
+      ;;
+    --dir=*)
+      INSTALL_DIR="${1#--dir=}"
+      shift
+      ;;
+    --help|-h)
+      printf "Usage: install.sh [--dir <install-dir>]\n"
+      printf "\n"
+      printf "  --dir <path>   Install graphit to this directory (default: \$HOME/.local/bin)\n"
+      exit 0
+      ;;
+    *)
+      printf "Unknown option: %s\n" "$1" >&2
+      exit 1
+      ;;
+  esac
+done
 
 # ── Color helpers ────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -64,6 +93,15 @@ fetch_latest_version() {
   if [ -z "$VERSION" ]; then
     error "Could not determine latest version. Check your internet connection."
   fi
+}
+
+# ── Check if dir is in PATH ───────────────────────────────────────────────────
+check_path() {
+  _dir="$1"
+  case ":${PATH}:" in
+    *":${_dir}:"*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -136,14 +174,28 @@ chmod +x "$TMP_BIN"
 success "Archive extracted"
 
 # ── Install ──────────────────────────────────────────────────────────────────
-info "Installing to ${INSTALL_DIR}/${BIN_NAME}..."
+DLBIN="${INSTALL_DIR}/${BIN_NAME}"
+info "Installing to ${DLBIN}..."
+
+if [ ! -d "$INSTALL_DIR" ]; then
+  mkdir -p "$INSTALL_DIR" || sudo mkdir -p "$INSTALL_DIR"
+fi
 
 if [ -w "$INSTALL_DIR" ]; then
-  mv "$TMP_BIN" "${INSTALL_DIR}/${BIN_NAME}"
+  mv "$TMP_BIN" "$DLBIN"
 else
-  sudo mv "$TMP_BIN" "${INSTALL_DIR}/${BIN_NAME}"
+  sudo mv "$TMP_BIN" "$DLBIN"
 fi
-success "Installed to ${INSTALL_DIR}/${BIN_NAME}"
+success "Installed to ${DLBIN}"
+
+# ── macOS: remove quarantine flag and ad-hoc sign ────────────────────────────
+# The quarantine xattr is set by GUI downloads (Safari, Finder) — not by curl.
+# The codesign is needed for cross-compiled darwin-arm64 binaries (no native signature).
+# Both are no-ops when unnecessary, so keeping them is safe for future distribution methods.
+if [ "$(uname -s)" = "Darwin" ]; then
+  xattr -d com.apple.quarantine "$DLBIN" 2>/dev/null || true
+  codesign --sign - --force "$DLBIN" 2>/dev/null || true
+fi
 
 # ── Verify ───────────────────────────────────────────────────────────────────
 if command -v graphit >/dev/null 2>&1; then
@@ -151,8 +203,21 @@ if command -v graphit >/dev/null 2>&1; then
   success "Verified: $INSTALLED_VER"
 fi
 
+# ── PATH check ───────────────────────────────────────────────────────────────
+printf "\n"
+if ! check_path "$INSTALL_DIR"; then
+  warn "${INSTALL_DIR} is not in your PATH."
+  printf "\n"
+  printf "  Add it by running one of the following (then restart your shell):\n\n"
+  printf "  ${CYAN}bash/zsh:${RESET}\n"
+  printf "    ${BOLD}echo 'export PATH=\"\$PATH:${INSTALL_DIR}\"' >> ~/.bashrc${RESET}\n"
+  printf "    ${BOLD}echo 'export PATH=\"\$PATH:${INSTALL_DIR}\"' >> ~/.zshrc${RESET}\n\n"
+  printf "  ${CYAN}fish:${RESET}\n"
+  printf "    ${BOLD}fish_add_path ${INSTALL_DIR}${RESET}\n\n"
+fi
+
 # ── Next steps ───────────────────────────────────────────────────────────────
-printf "\n${BOLD}${GREEN}Installation complete!${RESET}\n\n"
+printf "${BOLD}${GREEN}Installation complete!${RESET}\n\n"
 printf "  Next steps:\n\n"
 printf "  ${CYAN}1.${RESET} Run initial setup:\n"
 printf "     ${BOLD}graphit setup${RESET}\n\n"
