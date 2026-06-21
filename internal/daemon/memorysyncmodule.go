@@ -39,20 +39,22 @@ func (m *MemorySyncModule) Start(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			m.poll(ctx, g, hashes)
+			if !m.poll(ctx, g, hashes) {
+				return ctx.Err()
+			}
 		}
 	}
 }
 
-func (m *MemorySyncModule) poll(ctx context.Context, g git.Git, hashes map[string]string) {
+func (m *MemorySyncModule) poll(ctx context.Context, g git.Git, hashes map[string]string) bool {
 	store, err := memory.NewMemoryGitStore()
 	if err != nil {
-		return
+		return true
 	}
 
 	branches, err := store.ActiveMemoryBranches()
 	if err != nil {
-		return
+		return true
 	}
 
 	repoDir := store.Dir()
@@ -74,13 +76,18 @@ func (m *MemorySyncModule) poll(ctx context.Context, g git.Git, hashes map[strin
 			continue
 		}
 
-		time.Sleep(memorySyncDebounce)
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(memorySyncDebounce):
+		}
 		hashes[branch] = memoryWorktreeHash(g, wtDir)
 
 		scope, scopeID := parseBranch(branch)
 		wikiDir := memory.MemoryWikiGlobalDir(scope, scopeID)
 		memory.RunCycle(ctx, scope, wtDir, wikiDir)
 	}
+	return true
 }
 
 func worktreeDirForBranch(wtBase, branch string) string {

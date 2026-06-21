@@ -283,7 +283,6 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-
 func sha256File(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -297,8 +296,6 @@ func sha256File(path string) (string, error) {
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
-
-
 
 func compareVersions(a, b string) int {
 	aParts := strings.SplitN(a, "-", 2)

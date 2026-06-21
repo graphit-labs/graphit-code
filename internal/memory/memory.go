@@ -302,13 +302,11 @@ func (m *MemoryService) RemoveMemory(id string) error {
 	normalPath := NormalFileName(id)
 	importantPath := ImportantFileName(id)
 
-	relPath := normalPath
 	if err := wt.RemoveFile(normalPath); err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("removing memory file: %w", err)
 		}
 
-		relPath = importantPath
 		if err := wt.RemoveFile(importantPath); err != nil {
 			if os.IsNotExist(err) {
 				return fmt.Errorf("memory %q not found", id)
@@ -316,7 +314,6 @@ func (m *MemoryService) RemoveMemory(id string) error {
 			return fmt.Errorf("removing memory file: %w", err)
 		}
 	}
-	_ = relPath
 
 	msg := fmt.Sprintf("memory: remove %s (%s/%s)", id, m.scope, m.scopeID)
 	if err := wt.CommitAndPush(msg); err != nil {

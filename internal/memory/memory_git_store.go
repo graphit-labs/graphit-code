@@ -465,8 +465,6 @@ func (m *MemoryGitStore) addWorktree(branch, destDir string) error {
 	return g.Run(m.repoDir, "worktree", "add", destDir, branch)
 }
 
-
-
 func copyDirRecursive(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {

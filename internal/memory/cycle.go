@@ -70,5 +70,3 @@ func OnHubImport(ctx context.Context, contextName, projectDir string, store Memo
 		}
 	}()
 }
-
-
