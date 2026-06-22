@@ -36,7 +36,7 @@ func TestIsPortAlive_ClosedPort(t *testing.T) {
 	}
 }
 
-func TestWaitForDaemon_StaleFilesGetCleaned(t *testing.T) {
+func TestWaitForDaemon_StaleFilesPreserved(t *testing.T) {
 	dir := t.TempDir()
 	portFile := filepath.Join(dir, "mcp.port")
 	keyFile := filepath.Join(dir, "mcp.key")
@@ -49,7 +49,6 @@ func TestWaitForDaemon_StaleFilesGetCleaned(t *testing.T) {
 	cfg := Config{
 		PortFile:      portFile,
 		KeyFile:       keyFile,
-		MaxRetries:    3,
 		RetryInterval: 10 * time.Millisecond,
 		EnsureDaemon: func() {
 			ensureCalled++
@@ -57,17 +56,21 @@ func TestWaitForDaemon_StaleFilesGetCleaned(t *testing.T) {
 	}
 	cfg.applyDefaults()
 
-	_, _, err := waitForDaemon(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, _, err := waitForDaemon(ctx, cfg)
 	if err == nil {
 		t.Fatal("expected error when daemon is not available")
 	}
 
-	// Stale files should have been removed.
-	if _, err := os.Stat(portFile); !os.IsNotExist(err) {
-		t.Error("expected port file to be removed")
+	// Stale files should be preserved — the proxy never deletes them.
+	// The daemon will overwrite them when it restarts.
+	if _, err := os.Stat(portFile); os.IsNotExist(err) {
+		t.Error("expected port file to be preserved")
 	}
-	if _, err := os.Stat(keyFile); !os.IsNotExist(err) {
-		t.Error("expected key file to be removed")
+	if _, err := os.Stat(keyFile); os.IsNotExist(err) {
+		t.Error("expected key file to be preserved")
 	}
 
 	// EnsureDaemon should have been called on each retry.
@@ -96,12 +99,14 @@ func TestWaitForDaemon_LiveDaemon(t *testing.T) {
 	cfg := Config{
 		PortFile:      portFile,
 		KeyFile:       keyFile,
-		MaxRetries:    3,
 		RetryInterval: 10 * time.Millisecond,
 	}
 	cfg.applyDefaults()
 
-	gotPort, gotKey, err := waitForDaemon(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	gotPort, gotKey, err := waitForDaemon(ctx, cfg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

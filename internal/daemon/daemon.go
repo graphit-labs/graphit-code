@@ -90,7 +90,7 @@ func (d *Daemon) event(level string, format string, args ...any) {
 	}
 }
 
-func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, error)) error {
+func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, error), onReady ...func()) error {
 
 	if alive := d.pid.IsAlive(); alive != nil {
 		return fmt.Errorf("daemon already running (pid %d, started %s)",
@@ -113,6 +113,10 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 		return fmt.Errorf("writing pid file: %w", err)
 	}
 	defer d.pid.Remove()
+
+	for _, fn := range onReady {
+		fn()
+	}
 
 	d.log("daemon started (pid=%d, discovery_interval=%s, version_check=%s, stamp=%s)",
 		os.Getpid(), d.cfg.DiscoveryInterval, d.cfg.VersionCheckInterval, d.bootStamp)

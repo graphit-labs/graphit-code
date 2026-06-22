@@ -26,7 +26,6 @@ type Config struct {
 	KeyFile       string
 	MCPPath       string // default "/mcp"
 	EnsureDaemon  func()
-	MaxRetries    int           // default 30
 	RetryInterval time.Duration // default 500ms
 	Stderr        io.Writer
 }
@@ -34,9 +33,6 @@ type Config struct {
 func (c *Config) applyDefaults() {
 	if c.MCPPath == "" {
 		c.MCPPath = "/mcp"
-	}
-	if c.MaxRetries <= 0 {
-		c.MaxRetries = 30
 	}
 	if c.RetryInterval <= 0 {
 		c.RetryInterval = 500 * time.Millisecond
@@ -91,7 +87,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 	firstConnect := true
 
 	for {
-		port, key, err := waitForDaemon(cfg)
+		port, key, err := waitForDaemon(ctx, cfg)
 		if err != nil {
 			return err
 		}
@@ -101,9 +97,7 @@ func RunProxy(cfg Config, stdin io.ReadCloser, stdout io.WriteCloser) error {
 
 		httpConn, err := connectHTTP(ctx, endpoint, key)
 		if err != nil {
-			cfg.logf("HTTP connect failed: %v — cleaning stale files and restarting daemon", err)
-			_ = os.Remove(cfg.PortFile)
-			_ = os.Remove(cfg.KeyFile)
+			cfg.logf("HTTP connect failed: %v, retrying…", err)
 			if cfg.EnsureDaemon != nil {
 				cfg.EnsureDaemon()
 			}
@@ -229,26 +223,25 @@ func connectHTTP(ctx context.Context, endpoint, apiKey string) (mcp.Connection, 
 	return httpTransport.Connect(ctx)
 }
 
-func waitForDaemon(cfg Config) (int, string, error) {
-	for i := 0; i < cfg.MaxRetries; i++ {
+func waitForDaemon(ctx context.Context, cfg Config) (int, string, error) {
+	for {
 		port, perr := ReadPort(cfg.PortFile)
 		key, kerr := ReadKey(cfg.KeyFile)
 		if perr == nil && kerr == nil && port > 0 && key != "" {
 			if isPortAlive(port) {
 				return port, key, nil
 			}
-			cfg.logf("port %d not reachable — removing stale files", port)
-			_ = os.Remove(cfg.PortFile)
-			_ = os.Remove(cfg.KeyFile)
-		} else if perr == nil && port == 0 {
-			_ = os.Remove(cfg.PortFile)
+			cfg.logf("port %d not reachable, retrying…", port)
 		}
 		if cfg.EnsureDaemon != nil {
 			cfg.EnsureDaemon()
 		}
-		time.Sleep(cfg.RetryInterval)
+		select {
+		case <-ctx.Done():
+			return 0, "", ctx.Err()
+		case <-time.After(cfg.RetryInterval):
+		}
 	}
-	return 0, "", fmt.Errorf("daemon MCP not available after %d retries", cfg.MaxRetries)
 }
 
 func isPortAlive(port int) bool {

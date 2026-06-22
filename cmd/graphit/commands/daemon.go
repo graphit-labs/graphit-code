@@ -222,7 +222,17 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 
 	mcpPortFile := daemonctl.PortFilePath()
 	mcpKeyFile := daemonctl.KeyFilePath()
+	pidClaimed := make(chan struct{})
+	mcpReady := make(chan struct{})
 	go func() {
+		defer func() {
+			select {
+			case <-mcpReady:
+			default:
+				close(mcpReady)
+			}
+		}()
+
 		apiKey, genErr := mcpproxy.GenerateAPIKey()
 		if genErr != nil {
 			return
@@ -247,6 +257,17 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 
 		port := listener.Addr().(*net.TCPAddr).Port
 		portStr := strconv.Itoa(port)
+
+		// Wait for PID to be claimed before writing port/key files.
+		// This prevents a duplicate daemon from overwriting our files
+		// before discovering the PID conflict and exiting.
+		select {
+		case <-pidClaimed:
+		case <-ctx.Done():
+			_ = listener.Close()
+			return
+		}
+
 		_ = os.MkdirAll(filepath.Dir(mcpPortFile), 0o755)
 		if err := os.WriteFile(mcpPortFile, []byte(portStr), 0o644); err != nil {
 			_ = listener.Close()
@@ -274,6 +295,27 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 			<-ctx.Done()
 			runCloseMCP()
 		}()
+
+		// Self-healing: periodically re-confirm port/key files are correct.
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					if data, err := os.ReadFile(mcpPortFile); err != nil || strings.TrimSpace(string(data)) != portStr {
+						_ = os.WriteFile(mcpPortFile, []byte(portStr), 0o644)
+					}
+					if data, err := os.ReadFile(mcpKeyFile); err != nil || strings.TrimSpace(string(data)) != apiKey {
+						_ = os.WriteFile(mcpKeyFile, []byte(apiKey), 0o600)
+					}
+				}
+			}
+		}()
+
+		close(mcpReady)
 
 		mux := http.NewServeMux()
 		mux.Handle("/mcp", authHandler)
@@ -319,7 +361,10 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 		return result, nil
 	}
 
-	return closeMCP, d.Start(ctx, discoverFn)
+	return closeMCP, d.Start(ctx, discoverFn, func() {
+		close(pidClaimed)
+		<-mcpReady
+	})
 }
 
 func newDaemonStopCmd() *cobra.Command {

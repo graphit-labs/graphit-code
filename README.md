@@ -129,19 +129,22 @@ cd graphit-code
 **Linux:**
 ```bash
 make install # installs to /usr/local/bin/ (sudo if not writable)
-# make install PREFIX=$HOME/.local/bin # user-space, no sudo
+# user-space, no sudo
+# make install PREFIX=$HOME/.local/bin
 ```
 
 **macOS:**
 ```bash
 make install-darwin # installs to /usr/local/bin/ (sudo if not writable)
-# make install-darwin PREFIX=$HOME/.local/bin # user-space, no sudo
+# user-space, no sudo
+# make install-darwin PREFIX=$HOME/.local/bin
 ```
 
 **Windows (MSYS2 / MinGW):**
 ```bash
 make install-windows # installs to C:\Program Files\graphit\ (may need admin)
-# make install-windows PREFIX_WIN='C:\Tools\graphit' # custom directory
+# custom directory
+# make install-windows PREFIX_WIN='C:\Tools\graphit'
 ```
 
 ---
