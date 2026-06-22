@@ -12,9 +12,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/chat"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
-	"github.com/graphit-labs/graphit-code/internal/wikisvc"
 )
 
 type wikiSearchInput struct {
@@ -28,16 +26,7 @@ type wikiSearchInput struct {
 	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
-type wikiChatInput struct {
-	SessionID string `json:"session_id" jsonschema:"Chat session ID to continue"`
-	Message   string `json:"message" jsonschema:"User message to send"`
-}
 
-type wikiSessionsInput struct {
-	Action     string `json:"action" jsonschema:"Action: list or delete"`
-	SessionID  string `json:"session_id,omitempty" jsonschema:"Session ID for delete action"`
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory for listing (required)"`
-}
 
 type wikiBrowseInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
@@ -112,7 +101,7 @@ func resolveWikiEmbedDir(projectDir, scope string) (string, error) {
 func registerWikiTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "search"),
-		Description: "Search across multiple wiki sources using AI-powered retrieval.",
+		Description: "Search across multiple wiki sources using BM25 full-text and optional semantic search.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiSearchInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -244,83 +233,6 @@ func registerWikiTools(server *mcp.Server) {
 		}
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("wiki", "chat"),
-		Description: "Continue a wiki chat session started by graphit_wiki_search.",
-	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiChatInput) (*mcp.CallToolResult, any, error) {
-		if input.SessionID == "" {
-			return errResult(fmt.Errorf("session_id is required"))
-		}
-		if input.Message == "" {
-			return errResult(fmt.Errorf("message is required"))
-		}
-
-		wikiSvc := wikisvc.NewWikiService("")
-		response, err := wikiSvc.ContinueChat(ctx, input.SessionID, input.Message)
-		if err != nil {
-			return errResult(err)
-		}
-
-		return textResult(response)
-	}))
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("wiki", "sessions"),
-		Description: "List or delete wiki chat sessions.",
-	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiSessionsInput) (*mcp.CallToolResult, any, error) {
-		switch input.Action {
-		case "delete":
-			if input.SessionID == "" {
-				return errResult(fmt.Errorf("session_id is required for delete action"))
-			}
-			wikiSvc := wikisvc.NewWikiService("")
-			if err := wikiSvc.DeleteSession(input.SessionID); err != nil {
-				return errResult(err)
-			}
-			return textResult(fmt.Sprintf("Session %s deleted.", input.SessionID))
-
-		case "list":
-			projectDir, err := resolveProjectDir(input.ProjectDir)
-			if err != nil {
-				return errResult(err)
-			}
-
-			var sessions []*chat.ChatSession
-			err = withProjectDir(projectDir, func() error {
-				wikiSvc := wikisvc.NewWikiService(projectDir)
-				var serr error
-				sessions, serr = wikiSvc.ListSessions()
-				return serr
-			})
-			if err != nil {
-				return textResult("No sessions found.")
-			}
-			if len(sessions) == 0 {
-				return textResult("No sessions found.")
-			}
-
-			var b strings.Builder
-			_, _ = fmt.Fprintf(&b, "Found %d session(s):\n\n", len(sessions))
-			for i, s := range sessions {
-				_, _ = fmt.Fprintf(&b, "%d. [%s] %s\n", i+1, s.ID, s.Title)
-				_, _ = fmt.Fprintf(&b, "   Created: %s | Updated: %s | Messages: %d\n",
-					s.CreatedAt.Format("2006-01-02 15:04"),
-					s.UpdatedAt.Format("2006-01-02 15:04"),
-					s.MessageCount)
-				if len(s.WikiSources) > 0 {
-					srcNames := make([]string, len(s.WikiSources))
-					for j, ws := range s.WikiSources {
-						srcNames[j] = ws.Label
-					}
-					_, _ = fmt.Fprintf(&b, "   Sources: %s\n", strings.Join(srcNames, ", "))
-				}
-			}
-			return textResult(b.String())
-
-		default:
-			return errResult(fmt.Errorf("unknown action %q — use 'list' or 'delete'", input.Action))
-		}
-	}))
 
 	// --- New WikiDB tools ---
 

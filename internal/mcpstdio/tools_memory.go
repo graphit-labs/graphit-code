@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/graphit-labs/graphit-code/internal/ai"
+
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/memory"
@@ -55,12 +55,7 @@ type memorySearchInput struct {
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
-type memoryQueryInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Query      string `json:"query" jsonschema:"Natural language query (required)"`
-	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	Context    string `json:"context,omitempty" jsonschema:"Named imported context"`
-}
+
 
 type memoryImportantInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
@@ -80,12 +75,7 @@ type memoryDemoteInput struct {
 	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 }
 
-type memoryConsolidateInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	Apply       bool   `json:"apply,omitempty" jsonschema:"Apply proposed changes"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
-}
+
 
 type memoryGCInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
@@ -285,43 +275,6 @@ func registerMemoryTools(server *mcp.Server) {
 		return jsonResult(results)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("memory", "query"),
-		Description: "Search memories with AI Consultation and return a synthesized response.",
-	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryQueryInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
-		if err != nil {
-			return errResult(err)
-		}
-
-		wikiDir := resolveWikiDir("memory", projectDir, input.Context)
-		if wikiDir == "" {
-			scopeLabel := input.Scope
-			if scopeLabel == "" {
-				scopeLabel = "project"
-			}
-			wikiDir = memory.WikiDir(scopeLabel)
-		}
-
-		aiClient, err := ai.NewClientFromConfig()
-		if err != nil {
-			return errResult(err)
-		}
-
-		var result *wiki.SearchResult
-		err = withProjectDir(projectDir, func() error {
-			var qerr error
-			result, qerr = wiki.SearchWiki(ctx, aiClient, input.Query, wiki.SearchConfig{
-				WikiDir:   wikiDir,
-				ModuleTag: "memory",
-			})
-			return qerr
-		})
-		if err != nil {
-			return errResult(err)
-		}
-		return textResult(result.Answer)
-	}))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "important"),
@@ -402,63 +355,6 @@ func registerMemoryTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Memory %q demoted", input.ID))
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("memory", "consolidate"),
-		Description: "Analyze memory wiki for staleness, duplicates, contradictions, and suggestions.",
-	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryConsolidateInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
-		if err != nil {
-			return errResult(err)
-		}
-
-		scope := "project"
-		if input.Scope == "user" {
-			scope = "user"
-		}
-
-		aiClient, _ := ai.NewClientFromConfig()
-
-		var report *memory.ConsolidationReport
-		err = withProjectDir(projectDir, func() error {
-			var cerr error
-			report, cerr = memory.RunConsolidation(ctx, scope, aiClient)
-			if cerr != nil {
-				return cerr
-			}
-
-			if input.Apply {
-				userScope := scopeFromString(input.Scope)
-				svc, err := newMemorySvc(userScope, projectDir)
-				if err != nil {
-					return err
-				}
-				defer func() { _ = svc.Close() }()
-
-				for _, a := range report.Suggestions {
-					if len(a.MemoryIDs) == 0 {
-						continue
-					}
-					id := a.MemoryIDs[0]
-					switch a.Type {
-					case "promote":
-						_ = svc.PromoteMemory(id)
-					case "demote":
-						_ = svc.DemoteMemory(id)
-					case "delete":
-						_ = svc.RemoveMemory(id)
-					}
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return errResult(err)
-		}
-		if aiOpt(input.AiOptimized) {
-			return toonResult(report)
-		}
-		return jsonResult(report)
-	}))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "gc"),

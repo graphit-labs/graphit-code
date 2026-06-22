@@ -35,13 +35,6 @@ type astQueryInput struct {
 }
 
 
-type astAIQueryInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Query       string `json:"query" jsonschema:"Natural language question about the codebase to convert to Cypher"`
-	Context     string `json:"context,omitempty" jsonschema:"Named imported context to query"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
-}
-
 type astSchemaInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Context    string `json:"context,omitempty" jsonschema:"Named imported context"`
@@ -209,41 +202,6 @@ func registerASTTools(server *mcp.Server) {
 	}))
 
 
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("ast", "query_ai"),
-		Description: "Convert a natural language question about the codebase into a Cypher query using AI, execute it, and return results.",
-	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astAIQueryInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
-		if err != nil {
-			return errResult(err)
-		}
-
-		db, err := openASTDB(projectDir, input.Context)
-		if err != nil {
-			return errResult(err)
-		}
-		defer func() { _ = db.Close() }()
-
-		aiClient, err := ai.NewClientFromConfig()
-		if err != nil {
-			return errResult(err)
-		}
-
-		resp, err := ast.GenerateAICypher(ctx, db, aiClient, ast.AICypherRequest{
-			UserQuery:  input.Query,
-			MaxResults: 25,
-			Backend:    db.BackendType(),
-		})
-		if err != nil {
-			return errResult(err)
-		}
-
-		if aiOpt(input.AiOptimized) {
-			return toonResult(resp)
-		}
-		return jsonResult(resp)
-	}))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "schema"),

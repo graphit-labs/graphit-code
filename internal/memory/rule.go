@@ -19,12 +19,12 @@ func RuleContent(contexts []string) string {
 	memUpdate := brand.MCPToolName("memory", "update")
 	memSearch := brand.MCPToolName("memory", "search")
 	memSearchRef := brand.MCPToolRef("memory", "search")
-	memQuery := brand.MCPToolName("memory", "query")
+
 	memPromote := brand.MCPToolName("memory", "promote")
 	memDemote := brand.MCPToolName("memory", "demote")
 	memList := brand.MCPToolName("memory", "list")
 	memImportant := brand.MCPToolName("memory", "important")
-	memConsolidate := brand.MCPToolName("memory", "consolidate")
+
 	memGc := brand.MCPToolName("memory", "gc")
 	memIndexRef := brand.MCPToolRef("memory", "index")
 	memWildcard := "`" + brand.Brand + "_memory_*`"
@@ -155,13 +155,11 @@ func RuleContent(contexts []string) string {
 		"Reading raw .md files is slower, wastes tokens, and bypasses ranking.",
 		"",
 		"**Scope parameter:** `scope: \"project\"` (default) = project-specific memories. `scope: \"user\"` = personal cross-project memories.",
-		"- `"+memSearch+"` searches raw `.md` memory files via text matching (Tier 1 — lightweight, no AI)",
-		"- `"+memQuery+"` queries the compiled memory wiki via AI synthesis (Tier 3 — deep, multi-turn)",
+		"- `"+memSearch+"` searches raw `.md` memory files via text matching (lightweight, no AI)",
 		"",
 		"| What you need | MCP tool | Why |",
 		"|---|---|---|",
 		"| Search memories by keyword/context | "+memSearchRef+" | Text matching on raw files, instant, ~200 tokens |",
-		"| AI-powered memory consultation | `"+memQuery+"` | Synthesizes relevant memories from wiki using AI |",
 		"| List all memories | `"+memList+"` | Structured catalog, grouped by type |",
 		"| List important memories only | `"+memImportant+"` | High-priority conventions, corrections |",
 	)
@@ -171,7 +169,7 @@ func RuleContent(contexts []string) string {
 		"**Retrieval steps:**",
 		"1. Call "+memSearchRef+" with query context — get ranked results",
 		"2. If results reference related memories, call "+memSearchRef+" again with refined query",
-		"3. For deep consultation, call `"+memQuery+"` with a natural language question",
+		"3. If you need deeper understanding, browse the wiki pages referenced in search results via `graphit_wiki_browse`, read their full content, follow `[[wikilinks]]`, and synthesize the answer yourself.",
 		"4. **Never** read .md memory files directly or grep raw memory files",
 		"",
 		"## 📋 MCP Tools Reference",
@@ -203,9 +201,6 @@ func RuleContent(contexts []string) string {
 		"# Search (lightweight, no AI)",
 		memSearch+"(project_dir: \"/path/to/project\", query: \"<term>\")",
 		"",
-		"# AI Consultation (Search with AI response synthesis)",
-		memQuery+"(project_dir: \"/path/to/project\", query: \"<natural language question>\")",
-		"",
 		"# Promote/demote importance",
 		memPromote+"(project_dir: \"/path/to/project\", id: \"<id>\")",
 		memDemote+"(project_dir: \"/path/to/project\", id: \"<id>\")",
@@ -214,11 +209,15 @@ func RuleContent(contexts []string) string {
 		memList+"(project_dir: \"/path/to/project\")",
 		memImportant+"(project_dir: \"/path/to/project\")",
 		"",
-		"# Maintenance (run periodically or when memory feels cluttered)",
-		memConsolidate+"(project_dir: \"/path/to/project\")                # AI-driven: find duplicates, contradictions",
-		memConsolidate+"(project_dir: \"/path/to/project\", apply: true)    # auto-apply safe suggestions",
+		"# Garbage collection (run periodically)",
 		memGc+"(project_dir: \"/path/to/project\")                         # find stale/empty memories (dry-run)",
 		memGc+"(project_dir: \"/path/to/project\", dry_run: false)         # delete GC candidates",
+		"",
+		"# Consolidation",
+		"# 1. Call "+memList+" to see all memories",
+		"# 2. Read through them and identify duplicates, contradictions, stale entries",
+		"# 3. Use "+memDelete+" to remove duplicates",
+		"# 4. Use "+memUpdate+" to resolve contradictions",
 		"```",
 		"",
 		"## 🔄 Contradiction Protocol",
@@ -259,7 +258,7 @@ func MandateTrigger() string {
 	memInsertRef := brand.MCPToolRef("memory", "insert")
 	memDeleteRef := brand.MCPToolRef("memory", "delete")
 	memSearchRef := brand.MCPToolRef("memory", "search")
-	memQueryRef := brand.MCPToolRef("memory", "query")
+
 	memIndexRef := brand.MCPToolRef("memory", "index")
 	dotBrand := "." + brand.Brand
 
@@ -302,7 +301,7 @@ func MandateTrigger() string {
 - **Delete**: call ` + memDeleteRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
 - **Search**: call ` + memSearchRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
 - **Scope**: scope:"project" (default) for project memories, scope:"user" for personal cross-project memories
-- **Search vs Query**: ` + memSearchRef + ` = lightweight text match on raw files. ` + memQueryRef + ` = AI synthesis from compiled wiki
+- **Deep consultation**: Search → browse referenced pages → follow wikilinks → synthesize the answer yourself
 - **NEVER** read ` + dotBrand + `/memory/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
 - **Reindex**: After any write, auto-cycle runs. If it fails, call ` + memIndexRef + ` (passing absolute ` + "`project_dir`" + `)
 

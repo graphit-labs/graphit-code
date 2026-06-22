@@ -10,7 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/graphit-labs/graphit-code/internal/ai"
+
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hub"
@@ -28,11 +28,6 @@ type knowledgeIndexInput struct {
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
-type knowledgeQueryInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Query      string `json:"query" jsonschema:"Natural language question to search the project knowledge wiki"`
-	Context    string `json:"context,omitempty" jsonschema:"Named imported context to search instead of the default project"`
-}
 
 type knowledgeSearchInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
@@ -121,40 +116,6 @@ func registerKnowledgeTools(server *mcp.Server) {
 		return jsonResult(result)
 	}))
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("knowledge", "query"),
-		Description: "Search the project knowledge wiki using AI-powered retrieval.",
-	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeQueryInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
-		if err != nil {
-			return errResult(err)
-		}
-
-		wikiDir := resolveWikiDir("knowledge", projectDir, input.Context)
-		if wikiDir == "" {
-			return errResult(fmt.Errorf("knowledge wiki not found"))
-		}
-
-		aiClient, err := ai.NewClientFromConfig()
-		if err != nil {
-			return errResult(err)
-		}
-
-		var result *wiki.SearchResult
-		err = withProjectDir(projectDir, func() error {
-			var qerr error
-			result, qerr = wiki.SearchWiki(ctx, aiClient, input.Query, wiki.SearchConfig{
-				WikiDir:   wikiDir,
-				ModuleTag: "knowledge",
-				UseBM25:   true,
-			})
-			return qerr
-		})
-		if err != nil {
-			return errResult(err)
-		}
-		return textResult(result.Answer)
-	}))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("knowledge", "search"),
