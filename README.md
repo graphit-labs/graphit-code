@@ -82,8 +82,7 @@ The installer auto-detects your OS and architecture, downloads the correct `.tar
 
 ### Option 2: Manual Download
 
-<details>
-<summary><strong>Linux (amd64)</strong></summary>
+#### Linux (amd64)
 
 ```bash
 # Download and extract, then move to your preferred bin directory
@@ -93,10 +92,7 @@ mkdir -p ~/.local/bin && mv graphit-linux-amd64 ~/.local/bin/graphit
 # sudo mv graphit-linux-amd64 /usr/local/bin/graphit
 ```
 
-</details>
-
-<details>
-<summary><strong>macOS (Apple Silicon)</strong></summary>
+#### macOS (Apple Silicon)
 
 ```bash
 # Download and extract, then move to your preferred bin directory
@@ -106,10 +102,7 @@ mkdir -p ~/.local/bin && mv graphit-darwin-arm64 ~/.local/bin/graphit
 # sudo mv graphit-darwin-arm64 /usr/local/bin/graphit
 ```
 
-</details>
-
-<details>
-<summary><strong>Windows (amd64)</strong></summary>
+#### Windows (amd64)
 
 ```powershell
 # Download, extract and install to %LOCALAPPDATA%\Programs\graphit\
@@ -123,8 +116,6 @@ Move-Item -Force "$env:TEMP\graphit-windows-amd64.exe" "$InstallDir\graphit.exe"
 $env:PATH = "$env:PATH;$InstallDir"
 [System.Environment]::SetEnvironmentVariable("PATH", "$([System.Environment]::GetEnvironmentVariable('PATH','User'));$InstallDir", "User")
 ```
-
-</details>
 
 ### Option 3: Build from Source
 
