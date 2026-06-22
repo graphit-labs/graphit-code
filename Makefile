@@ -1,4 +1,4 @@
-.PHONY: build build-all install install-windows clean fmt vet run ui ui-dev setup-lbug \
+.PHONY: build build-all install install-darwin install-windows clean fmt vet run ui ui-dev setup-lbug \
        fetch-ort-linux fetch-ort-darwin fetch-ort-windows fetch-model lint \
        ui-lint ci check test build-windows-native \
        grammars grammars-treesitter grammars-antlr grammars-clean
@@ -15,8 +15,10 @@ DEFAULT_HUB_REPO    ?=
 DEFAULT_MEMORY_REPO ?=
 SELF_UPDATE_URL ?=
 COMPILE_CONFIG ?=
-PREFIX        ?= /usr/local/bin   # override: make install PREFIX=$$HOME/.local/bin
-PREFIX_WIN    ?=                  # override: make install-windows PREFIX_WIN='C:\Tools\graphit'
+# Install directory for Linux/macOS (override: make install PREFIX=$$HOME/.local/bin)
+PREFIX       ?= /usr/local/bin
+# Install directory for Windows/MSYS2 (override: make install-windows PREFIX_WIN='C:\Tools\graphit')
+PREFIX_WIN   ?=
 
 ifeq ($(OS),Windows_NT)
   BUILD_ID ?= $(shell powershell -Command "[System.Guid]::NewGuid().ToString()")
@@ -421,6 +423,21 @@ install: build
 		sudo cp $(BIN_DIR)/$(BRAND)-linux-amd64 $(PREFIX)/$(BRAND); \
 	fi
 	@echo "  ✓ Installed to $(PREFIX)/$(BRAND)"
+	@case ":$$PATH:" in \
+		*":$(PREFIX):"*) ;; \
+		*) echo "  ⚠ $(PREFIX) is not in your PATH. Add it: export PATH=\"\$$PATH:$(PREFIX)\"" ;; \
+	esac
+
+install-darwin: build-darwin
+	@mkdir -p $(PREFIX)
+	@if [ -w "$(PREFIX)" ]; then \
+		cp $(BIN_DIR)/$(BRAND)-darwin-arm64 $(PREFIX)/$(BRAND); \
+	else \
+		sudo cp $(BIN_DIR)/$(BRAND)-darwin-arm64 $(PREFIX)/$(BRAND); \
+	fi
+	@echo "  ✓ Installed to $(PREFIX)/$(BRAND)"
+	@xattr -d com.apple.quarantine $(PREFIX)/$(BRAND) 2>/dev/null || true
+	@codesign --sign - --force $(PREFIX)/$(BRAND) 2>/dev/null || true
 	@case ":$$PATH:" in \
 		*":$(PREFIX):"*) ;; \
 		*) echo "  ⚠ $(PREFIX) is not in your PATH. Add it: export PATH=\"\$$PATH:$(PREFIX)\"" ;; \

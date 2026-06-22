@@ -769,12 +769,16 @@
       <div class="terminal">
         <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
         <div class="terminal-body">
-          <span class="c"># Compile manually. Requires: Go 1.23+, Node.js 22+, Make</span><br>
+          <span class="c"># Compile manually. Requires: Go 1.23+, Node.js 22+, Make, gcc/g++</span><br>
           <span class="cmd">git clone https://github.com/graphit-labs/graphit-code.git</span><br>
-          <span class="cmd">cd graphit-code</span><br>
-          <span class="cmd">make install</span><br><br>
-          <span class="c"># Linux/macOS: installs to /usr/local/bin/ (sudo if needed) — or: make install PREFIX=$HOME/.local/bin</span><br>
-          <span class="c"># Windows (MSYS2): make install-windows  →  C:\Program Files\graphit\</span>
+          <span class="cmd">cd graphit-code</span><br><br>
+          <span class="c"># Linux  → installs to /usr/local/bin/ (sudo if needed)</span><br>
+          <span class="cmd">make install</span><br>
+          <span class="c"># macOS  → installs to /usr/local/bin/ + fixes quarantine/codesign</span><br>
+          <span class="cmd">make install-darwin</span><br>
+          <span class="c"># Windows (MSYS2) → installs to C:\Program Files\graphit\ (admin if needed)</span><br>
+          <span class="cmd">make install-windows</span><br><br>
+          <span class="c"># All targets accept a custom dir: PREFIX=$HOME/.local/bin  or  PREFIX_WIN='C:\Tools\graphit'</span>
         </div>
       </div>
     </div>

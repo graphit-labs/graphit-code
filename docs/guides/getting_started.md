@@ -85,12 +85,20 @@ Move-Item -Force "$env:TEMP\graphit-windows-amd64.exe" "$InstallDir\graphit.exe"
 
 If you prefer to compile the application locally, clone the repository and compile the binaries:
 
-**Linux / macOS:**
+**Linux:**
 ```bash
 git clone https://github.com/graphit-labs/graphit-code.git
 cd graphit-code
 make install # installs to /usr/local/bin/ (sudo if not writable)
 # make install PREFIX=$HOME/.local/bin # user-space alternative, no sudo
+```
+
+**macOS:**
+```bash
+git clone https://github.com/graphit-labs/graphit-code.git
+cd graphit-code
+make install-darwin # installs to /usr/local/bin/ (sudo if not writable)
+# make install-darwin PREFIX=$HOME/.local/bin # user-space alternative, no sudo
 ```
 
 **Windows (MSYS2 / MinGW):**

@@ -121,12 +121,21 @@ $env:PATH = "$env:PATH;$InstallDir"
 
 Requires: Go 1.23+, Node.js 22+, Make, gcc/g++
 
-**Linux / macOS:**
 ```bash
 git clone https://github.com/graphit-labs/graphit-code.git
 cd graphit-code
-make install # installs to /usr/local/bin/ (requires sudo if not writable)
+```
+
+**Linux:**
+```bash
+make install # installs to /usr/local/bin/ (sudo if not writable)
 # make install PREFIX=$HOME/.local/bin # user-space, no sudo
+```
+
+**macOS:**
+```bash
+make install-darwin # installs to /usr/local/bin/ (sudo if not writable)
+# make install-darwin PREFIX=$HOME/.local/bin # user-space, no sudo
 ```
 
 **Windows (MSYS2 / MinGW):**
