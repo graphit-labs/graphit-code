@@ -133,7 +133,7 @@ func triggersInCanonicalOrder(fileContent string) bool {
 
 var MandateBlockName = strings.ToUpper(brand.Brand) + "_SYSTEM_MANDATE"
 
-var SysReminder = "\n\n_SYS_REMINDER: Mandate active: <" + brand.Brand + "> required. MCP-first: never read index.md directly. No grep for structure — use AST. If external, use Hub. If code changed, update docs/tasks/ & " + brand.Brand + "_sync."
+var SysReminder = "\n\n_SYS_REMINDER: Mandate active: <" + brand.Brand + "> required and MCP-first. For project knowledge, use the knowledge MCP tools and follow [[wikilinks]]. For memories, use the memory MCP tools and follow [[wikilinks]]. Never read index.md and log.md directly. No grep for structure — use AST. If external, use Hub. If code changed, update docs."
 
 func mandatePreamble() string {
 	tag := brand.Brand
