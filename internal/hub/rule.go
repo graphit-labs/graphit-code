@@ -6,10 +6,9 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
-	paths_pkg "github.com/graphit-labs/graphit-code/internal/paths"
 )
 
-func HubRuleContent(installed []InstalledArtifactInfo) string {
+func HubRuleContent() string {
 
 	astQueryRef := brand.MCPToolRef("ast", "query")
 	astQuery := brand.MCPToolName("ast", "query")
@@ -238,39 +237,9 @@ func InstallSkill(projectDir, ideName string) error {
 		}
 	}
 
-	// Fast-path: if the skill hash file is newer than the project lockfile,
-	// the installed artifact list hasn't changed — skip the expensive
-	// LoadInstalledArtifacts() → NewRegistryManager() chain.
-	if skipHubSkillGeneration(projectDir, ideName) {
-		return nil
-	}
-
-	installed := LoadInstalledArtifacts()
-	skillContent := brand.ResolveModuleSkill("hub", HubRuleContent(installed))
+	skillContent := brand.ResolveModuleSkill("hub", HubRuleContent())
 	frontmatter := "---\nname: " + hubSkillName + "\ndescription: Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, and powers. Use when working with external libraries, APIs, or frameworks to find pre-built knowledge artifacts. Check the hub BEFORE implementing integrations with unfamiliar systems. Also use to install/update artifacts and discover reusable components.\n---\n\n"
 	return ide.InstallManagedSkill(projectDir, ideName, hubSkillName, frontmatter+skillContent)
-}
-
-// skipHubSkillGeneration returns true if the hub skill hash file exists and
-// is newer than the project lockfile. This means installed artifacts haven't
-// changed since the last skill generation, so we can skip the expensive
-// LoadInstalledArtifacts → NewRegistryManager call chain.
-func skipHubSkillGeneration(projectDir, ideName string) bool {
-	hashFile := ide.ManagedSkillHashCachePath(projectDir, ideName, hubSkillName)
-	if hashFile == "" {
-		return false
-	}
-	hashInfo, err := os.Stat(hashFile)
-	if err != nil {
-		return false // no hash file yet
-	}
-	pp := paths_pkg.GetPaths(projectDir, false)
-	lockInfo, err := os.Stat(pp.LockFilePath)
-	if err != nil {
-		return false // no lockfile
-	}
-	// If hash file is newer than lockfile, installed artifacts haven't changed.
-	return hashInfo.ModTime().After(lockInfo.ModTime())
 }
 
 

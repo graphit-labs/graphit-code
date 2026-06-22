@@ -22,10 +22,14 @@ const mandateHashCacheFile = ".mandate.hash"
 // mandateHashCache is the JSON structure stored in mandateHashCacheFile.
 type mandateHashCache struct {
 	Hashes map[string]string `json:"hashes"` // triggerTag → SHA256 of triggerContent
+	Mtimes map[string]int64  `json:"mtimes"` // triggerTag → AGENTS.md mtime (UnixNano) at last write
 }
 
 func loadMandateHashCache(rulesDir string) *mandateHashCache {
-	c := &mandateHashCache{Hashes: make(map[string]string)}
+	c := &mandateHashCache{
+		Hashes: make(map[string]string),
+		Mtimes: make(map[string]int64),
+	}
 	data, err := os.ReadFile(filepath.Join(rulesDir, mandateHashCacheFile))
 	if err != nil {
 		return c
@@ -33,6 +37,9 @@ func loadMandateHashCache(rulesDir string) *mandateHashCache {
 	_ = json.Unmarshal(data, c)
 	if c.Hashes == nil {
 		c.Hashes = make(map[string]string)
+	}
+	if c.Mtimes == nil {
+		c.Mtimes = make(map[string]int64)
 	}
 	return c
 }
@@ -96,7 +103,6 @@ func assembleTriggers(triggers map[string]string) string {
 			seen[tag] = true
 		}
 	}
-	// Append unknown triggers in deterministic order.
 	extra := make([]string, 0, len(triggers))
 	for tag := range triggers {
 		if !seen[tag] {
@@ -108,6 +114,21 @@ func assembleTriggers(triggers map[string]string) string {
 		parts = append(parts, "<"+tag+">"+triggers[tag]+"</"+tag+">")
 	}
 	return strings.Join(parts, "\n")
+}
+
+func triggersInCanonicalOrder(fileContent string) bool {
+	lastPos := -1
+	for _, tag := range canonicalTriggerOrder {
+		pos := strings.Index(fileContent, "<"+tag+">")
+		if pos < 0 {
+			continue
+		}
+		if pos <= lastPos {
+			return false
+		}
+		lastPos = pos
+	}
+	return true
 }
 
 var MandateBlockName = strings.ToUpper(brand.Brand) + "_SYSTEM_MANDATE"
@@ -156,18 +177,28 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 		return err
 	}
 
-	// --- Hash-based fast-path ---
-	// Compute SHA256 of the new trigger content. If the stored hash for this
-	// triggerTag matches AND the target file exists, skip all regex work.
-	// Store hash cache in <projectDir>/.graphit/ to keep project root clean.
 	hashCacheDir := filepath.Join(projectDir, ".graphit")
 	_ = os.MkdirAll(hashCacheDir, 0o755)
 	hashCache := loadMandateHashCache(hashCacheDir)
 	newHash := fmt.Sprintf("%x", sha256.Sum256([]byte(triggerContent)))
 	if storedHash, ok := hashCache.Hashes[triggerTag]; ok && storedHash == newHash {
-		if _, err := os.Stat(targetPath); err == nil {
-			// Content unchanged and file exists — nothing to do.
-			return nil
+		if fi, err := os.Stat(targetPath); err == nil {
+			cachedMtime := hashCache.Mtimes[triggerTag]
+			if fi.ModTime().UnixNano() == cachedMtime {
+				return nil
+			}
+			if data, readErr := os.ReadFile(targetPath); readErr == nil {
+				inner := readMandateContentFromString(string(data))
+				triggers := parseTriggers(inner)
+				if currentContent, ok := triggers[triggerTag]; ok {
+					if fmt.Sprintf("%x", sha256.Sum256([]byte(currentContent))) == newHash &&
+						triggersInCanonicalOrder(string(data)) {
+						hashCache.Mtimes[triggerTag] = fi.ModTime().UnixNano()
+						saveMandateHashCache(hashCacheDir, hashCache)
+						return nil
+					}
+				}
+			}
 		}
 	}
 
@@ -187,8 +218,8 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 
 	reCurrent := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(triggerTag) + `>(.*?)</` + regexp.QuoteMeta(triggerTag) + `>`)
 	if !hasLegacy {
-		if m := reCurrent.FindStringSubmatch(inner); m != nil && m[1] == triggerContent {
-			// Content is up to date; persist hash for next run and return.
+		if m := reCurrent.FindStringSubmatch(inner); m != nil && m[1] == triggerContent &&
+			triggersInCanonicalOrder(fileContent) {
 			hashCache.Hashes[triggerTag] = newHash
 			saveMandateHashCache(hashCacheDir, hashCache)
 			return nil
@@ -234,8 +265,11 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 		return err
 	}
 
-	// Update hash cache after a successful write.
+	// Update hash + mtime cache after a successful write.
 	hashCache.Hashes[triggerTag] = newHash
+	if fi, err := os.Stat(targetPath); err == nil {
+		hashCache.Mtimes[triggerTag] = fi.ModTime().UnixNano()
+	}
 	saveMandateHashCache(hashCacheDir, hashCache)
 	return nil
 }

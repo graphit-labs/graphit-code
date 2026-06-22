@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
@@ -588,21 +589,41 @@ func installSkillForAdapter(adapter Adapter, projectDir, skillName, content stri
 	skillFile := filepath.Join(skillDir, "SKILL.md")
 	hashFile := skillHashCachePath(projectDir, rootDir, skillName)
 
-	// Hash-based idempotency: compute SHA256 of new content and compare with
-	// the stored hash. This avoids reading the full (potentially 50KB+) skill
-	// file on every sync when nothing has changed.
 	newHash := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
-	if savedHash, err := os.ReadFile(hashFile); err == nil && strings.TrimSpace(string(savedHash)) == newHash {
-		return nil
+	if cached, err := os.ReadFile(hashFile); err == nil {
+		parts := strings.SplitN(strings.TrimSpace(string(cached)), ":", 2)
+		if len(parts) == 2 && parts[0] == newHash {
+			if fi, statErr := os.Stat(skillFile); statErr == nil {
+				mtimeMatch := false
+				if cachedMtime, parseErr := strconv.ParseInt(parts[1], 10, 64); parseErr == nil {
+					mtimeMatch = fi.ModTime().UnixNano() == cachedMtime
+				}
+				if mtimeMatch {
+					return nil
+				}
+				if currentContent, readErr := os.ReadFile(skillFile); readErr == nil {
+					if fmt.Sprintf("%x", sha256.Sum256(currentContent)) == newHash {
+						if mkErr := os.MkdirAll(filepath.Dir(hashFile), 0o755); mkErr == nil {
+							entry := fmt.Sprintf("%s:%d", newHash, fi.ModTime().UnixNano())
+							_ = os.WriteFile(hashFile, []byte(entry), 0o644)
+						}
+						return nil
+					}
+				}
+			}
+		}
 	}
 
-	if err := os.MkdirAll(filepath.Dir(hashFile), 0o755); err == nil {
-		_ = os.WriteFile(hashFile, []byte(newHash), 0o644)
+	if err := os.WriteFile(skillFile, []byte(content), 0o644); err != nil {
+		return err
 	}
-	// Migrate: remove stale .skill.hash from inside the skill dir if present.
-	_ = os.Remove(filepath.Join(skillDir, ".skill.hash"))
-
-	return os.WriteFile(skillFile, []byte(content), 0o644)
+	if fi, err := os.Stat(skillFile); err == nil {
+		if mkErr := os.MkdirAll(filepath.Dir(hashFile), 0o755); mkErr == nil {
+			entry := fmt.Sprintf("%s:%d", newHash, fi.ModTime().UnixNano())
+			_ = os.WriteFile(hashFile, []byte(entry), 0o644)
+		}
+	}
+	return nil
 }
 
 func removeSkillForAdapter(adapter Adapter, projectDir, skillName string) error {

@@ -7,7 +7,7 @@ import (
 
 func TestHubRuleContent(t *testing.T) {
 	t.Parallel()
-	content := HubRuleContent(nil)
+	content := HubRuleContent()
 	if content == "" {
 		t.Error("expected non-empty content")
 	}
@@ -19,15 +19,6 @@ func TestHubRuleContent(t *testing.T) {
 	}
 	if !strings.Contains(content, "Ecosystem Project Discovery") {
 		t.Error("expected content to contain 'Ecosystem Project Discovery'")
-	}
-
-	// With installed artifacts
-	installed := []InstalledArtifactInfo{
-		{ID: "test-rule", Type: "rule", Version: "1.0.0"},
-	}
-	content2 := HubRuleContent(installed)
-	if content2 == "" {
-		t.Error("expected non-empty content")
 	}
 }
 

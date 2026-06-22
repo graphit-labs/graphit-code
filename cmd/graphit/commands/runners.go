@@ -169,8 +169,7 @@ func getModuleDefaultRule(module string) string {
 		docsDir := config.ResolveDocsDir(nil, loadProjectConfig())
 		return knowledge.KnowledgeRuleContent(contexts, docsDir)
 	case "hub":
-		installed := hub.LoadInstalledArtifacts()
-		return hub.HubRuleContent(installed)
+		return hub.HubRuleContent()
 	case "memory":
 		contexts := memory.AllContextDirs()
 		return memory.RuleContent(contexts)
@@ -190,8 +189,7 @@ func getModuleResolvedRule(module string) string {
 		docsDir := config.ResolveDocsDir(nil, loadProjectConfig())
 		return brand.ResolveModuleRule("knowledge", knowledge.KnowledgeRuleContent(contexts, docsDir))
 	case "hub":
-		installed := hub.LoadInstalledArtifacts()
-		return brand.ResolveModuleRule("hub", hub.HubRuleContent(installed))
+		return brand.ResolveModuleRule("hub", hub.HubRuleContent())
 	case "memory":
 		contexts := memory.AllContextDirs()
 		return brand.ResolveModuleRule("memory", memory.RuleContent(contexts))

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -550,26 +551,53 @@ func (a *FolderBasedAdapter) copyArtifact(projectDir, artType, sourcePath, targe
 	if fm.Mode != "folder" {
 		hashSrc = srcFile
 	}
+
+	var destPath string
+	if fm.Mode == "folder" {
+		destPath = filepath.Join(targetDir, localName)
+	} else {
+		destPath = filepath.Join(targetDir, localName+"."+fm.Ext)
+	}
+
 	newHash, hashErr := computeSourceHash(fm, hashSrc)
 	if hashErr == nil {
-		if saved, err := os.ReadFile(hashFile); err == nil && strings.TrimSpace(string(saved)) == newHash {
-			return nil
+		if cached, err := os.ReadFile(hashFile); err == nil {
+			parts := strings.SplitN(strings.TrimSpace(string(cached)), ":", 2)
+			if len(parts) == 2 && parts[0] == newHash {
+				if fi, statErr := os.Stat(destPath); statErr == nil {
+					mtimeMatch := false
+					if cachedMtime, parseErr := strconv.ParseInt(parts[1], 10, 64); parseErr == nil {
+						mtimeMatch = fi.ModTime().UnixNano() == cachedMtime
+					}
+					if mtimeMatch {
+						return nil
+					}
+					if destHash, rehashErr := computeSourceHash(fm, destPath); rehashErr == nil && destHash == newHash {
+						if mkErr := os.MkdirAll(filepath.Dir(hashFile), 0o755); mkErr == nil {
+							entry := fmt.Sprintf("%s:%d", newHash, fi.ModTime().UnixNano())
+							_ = os.WriteFile(hashFile, []byte(entry), 0o644)
+						}
+						return nil
+					}
+				}
+			}
 		}
 	}
 
 	var copyErr error
 	if fm.Mode == "folder" {
-		dest := filepath.Join(targetDir, localName)
-		_ = os.RemoveAll(dest)
-		copyErr = copyDirAll(sourcePath, dest)
+		_ = os.RemoveAll(destPath)
+		copyErr = copyDirAll(sourcePath, destPath)
 	} else {
-		dest := filepath.Join(targetDir, localName+"."+fm.Ext)
-		copyErr = copyFile(srcFile, dest)
+		copyErr = copyFile(srcFile, destPath)
 	}
 
 	if copyErr == nil && hashErr == nil {
-		if err := os.MkdirAll(filepath.Dir(hashFile), 0o755); err == nil {
-			_ = os.WriteFile(hashFile, []byte(newHash), 0o644)
+		if fi, statErr := os.Stat(destPath); statErr == nil {
+			if err := os.MkdirAll(filepath.Dir(hashFile), 0o755); err == nil {
+				entry := fmt.Sprintf("%s:%d", newHash, fi.ModTime().UnixNano())
+				_ = os.WriteFile(hashFile, []byte(entry), 0o644)
+			}
 		}
 	}
 	return copyErr
