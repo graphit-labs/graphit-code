@@ -78,7 +78,7 @@ curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/inst
 irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
 ```
 
-The installer auto-detects your OS and architecture, downloads the correct `.tar.gz` archive from the [latest release](https://github.com/graphit-labs/graphit-code/releases/latest), verifies the SHA-256 checksum, and installs the binary to `/usr/local/bin/graphit` (Linux/macOS) or `~/.graphit/bin/graphit.exe` (Windows).
+The installer auto-detects your OS and architecture, downloads the correct `.tar.gz` archive from the [latest release](https://github.com/graphit-labs/graphit-code/releases/latest), verifies the SHA-256 checksum, and installs the binary to `~/.local/bin/graphit` (Linux/macOS) or `%LOCALAPPDATA%\Programs\graphit\graphit.exe` (Windows). A custom directory can be specified with `--dir` (shell) or `-Dir` (PowerShell).
 
 ### Option 2: Manual Download
 
@@ -86,9 +86,11 @@ The installer auto-detects your OS and architecture, downloads the correct `.tar
 <summary><strong>Linux (amd64)</strong></summary>
 
 ```bash
-# Download and extract in one step
+# Download and extract, then move to your preferred bin directory
 curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-linux-amd64.tar.gz | tar -xz
-sudo mv graphit-linux-amd64 /usr/local/bin/graphit
+mkdir -p ~/.local/bin && mv graphit-linux-amd64 ~/.local/bin/graphit
+# Or system-wide (requires sudo):
+# sudo mv graphit-linux-amd64 /usr/local/bin/graphit
 ```
 
 </details>
@@ -97,9 +99,11 @@ sudo mv graphit-linux-amd64 /usr/local/bin/graphit
 <summary><strong>macOS (Apple Silicon)</strong></summary>
 
 ```bash
-# Download and extract in one step
+# Download and extract, then move to your preferred bin directory
 curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-darwin-arm64.tar.gz | tar -xz
-sudo mv graphit-darwin-arm64 /usr/local/bin/graphit
+mkdir -p ~/.local/bin && mv graphit-darwin-arm64 ~/.local/bin/graphit
+# Or system-wide (requires sudo):
+# sudo mv graphit-darwin-arm64 /usr/local/bin/graphit
 ```
 
 </details>
@@ -108,8 +112,8 @@ sudo mv graphit-darwin-arm64 /usr/local/bin/graphit
 <summary><strong>Windows (amd64)</strong></summary>
 
 ```powershell
-# Download, extract and install to ~/.graphit\bin\
-$InstallDir = "$env:USERPROFILE\.graphit\bin"
+# Download, extract and install to %LOCALAPPDATA%\Programs\graphit\
+$InstallDir = "$env:LOCALAPPDATA\Programs\graphit"
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Invoke-WebRequest -Uri "https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-windows-amd64.tar.gz" -OutFile "$env:TEMP\graphit.tar.gz"
 tar -xzf "$env:TEMP\graphit.tar.gz" -C "$env:TEMP"
@@ -126,10 +130,18 @@ $env:PATH = "$env:PATH;$InstallDir"
 
 Requires: Go 1.23+, Node.js 22+, Make, gcc/g++
 
+**Linux / macOS:**
 ```bash
 git clone https://github.com/graphit-labs/graphit-code.git
 cd graphit-code
-make install   # Compiles and installs to /usr/local/bin/
+make install                           # installs to /usr/local/bin/ (requires sudo if not writable)
+make install PREFIX=$HOME/.local/bin   # user-space, no sudo
+```
+
+**Windows (MSYS2 / MinGW):**
+```bash
+make install-windows                              # installs to C:\Program Files\graphit\ (may need admin)
+make install-windows PREFIX_WIN='C:\Tools\graphit' # custom directory
 ```
 
 ---

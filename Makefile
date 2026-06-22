@@ -1,4 +1,4 @@
-.PHONY: build build-all install clean fmt vet run ui ui-dev setup-lbug \
+.PHONY: build build-all install install-windows clean fmt vet run ui ui-dev setup-lbug \
        fetch-ort-linux fetch-ort-darwin fetch-ort-windows fetch-model lint \
        ui-lint ci check test build-windows-native \
        grammars grammars-treesitter grammars-antlr grammars-clean
@@ -15,6 +15,8 @@ DEFAULT_HUB_REPO    ?=
 DEFAULT_MEMORY_REPO ?=
 SELF_UPDATE_URL ?=
 COMPILE_CONFIG ?=
+PREFIX        ?= /usr/local/bin   # override: make install PREFIX=$$HOME/.local/bin
+PREFIX_WIN    ?=                  # override: make install-windows PREFIX_WIN='C:\Tools\graphit'
 
 ifeq ($(OS),Windows_NT)
   BUILD_ID ?= $(shell powershell -Command "[System.Guid]::NewGuid().ToString()")
@@ -412,7 +414,43 @@ fetch-ort-windows:
 build: build-linux
 
 install: build
-	sudo cp $(BIN_DIR)/$(BRAND)-linux-amd64 /usr/local/bin/$(BRAND)
+	@mkdir -p $(PREFIX)
+	@if [ -w "$(PREFIX)" ]; then \
+		cp $(BIN_DIR)/$(BRAND)-linux-amd64 $(PREFIX)/$(BRAND); \
+	else \
+		sudo cp $(BIN_DIR)/$(BRAND)-linux-amd64 $(PREFIX)/$(BRAND); \
+	fi
+	@echo "  ✓ Installed to $(PREFIX)/$(BRAND)"
+	@case ":$$PATH:" in \
+		*":$(PREFIX):"*) ;; \
+		*) echo "  ⚠ $(PREFIX) is not in your PATH. Add it: export PATH=\"\$$PATH:$(PREFIX)\"" ;; \
+	esac
+
+install-windows: build-windows-native
+	@# Default: %PROGRAMFILES%\graphit  (global — equivalent of /usr/local/bin, may need admin)
+	@# Override: make install-windows PREFIX_WIN='C:\Tools\graphit'
+	@_dir="$(PREFIX_WIN)"; \
+	if [ -z "$$_dir" ]; then _dir="$${PROGRAMFILES}/graphit"; fi; \
+	_dir="$$(echo "$$_dir" | sed 's|\\\\|/|g')"; \
+	mkdir -p "$$_dir" || { echo "  ✗ Cannot create $$_dir. Try running as Administrator."; exit 1; }; \
+	cp .build/$(BRAND)-windows-amd64.exe "$$_dir/$(BRAND).exe"; \
+	_windir="$$(echo "$$_dir" | sed 's|/|\\\\|g')"; \
+	echo "  ✓ Installed to $$_windir\\$(BRAND).exe"; \
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
+		"\$$d = '$$_windir'; \
+		\$$syspath = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine'); \
+		if (\$$syspath -notlike \"*\$$d*\") { \
+			try { \
+				[System.Environment]::SetEnvironmentVariable('PATH', \"\$$syspath;\$$d\", 'Machine'); \
+				Write-Host '  ✓ Added to system PATH (restart terminal to take effect)' -ForegroundColor Green \
+			} catch { \
+				\$$up = [System.Environment]::GetEnvironmentVariable('PATH', 'User'); \
+				[System.Environment]::SetEnvironmentVariable('PATH', \"\$$up;\$$d\", 'User'); \
+				Write-Host '  ⚠ No admin rights — added to user PATH instead (restart terminal)' -ForegroundColor Yellow \
+			} \
+		} else { Write-Host \"  ✓ \$$d already in PATH\" -ForegroundColor Green }" 2>/dev/null || \
+	echo "  ⚠ Could not update PATH automatically. Add manually: $$_windir"
+
 
 build-linux: ui setup-lbug fetch-ort-linux fetch-model
 	@mkdir -p cmd/launcher/runtime

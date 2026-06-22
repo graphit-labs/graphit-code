@@ -87,11 +87,18 @@ graphit: command not found
    which graphit
    echo $PATH
    ```
-2. If installed manually, move to a directory on your `PATH`:
+2. If installed via the one-liner script, ensure `~/.local/bin` is in your `PATH`:
    ```bash
-   sudo mv graphit /usr/local/bin/
+   export PATH="$PATH:$HOME/.local/bin"
+   # Add permanently to ~/.bashrc or ~/.zshrc
    ```
-3. On macOS, you may need to approve the binary in System Preferences → Security & Privacy after the first run.
+3. If installed manually to a custom path, move to a directory on your `PATH`:
+   ```bash
+   mkdir -p ~/.local/bin && mv graphit ~/.local/bin/
+   # Or system-wide (requires sudo):
+   # sudo mv graphit /usr/local/bin/
+   ```
+4. On macOS, you may need to approve the binary in System Preferences → Security & Privacy after the first run.
 
 ### Build from source fails with CGO errors
 

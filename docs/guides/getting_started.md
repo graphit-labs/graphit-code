@@ -39,40 +39,69 @@ Before installing, ensure your environment meets the minimum requirements:
 
 Choose one of the following methods to install the `graphit` CLI:
 
-### Option 1: Direct Download (Recommended)
+### Option 1: One-liner Install (Recommended)
 
-Download the latest pre-compiled binary for your system:
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash
+# Custom directory:
+# curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash -s -- --dir ~/.local/bin
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
+# Custom directory:
+# iex "& { $(irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1) } -Dir '$env:LOCALAPPDATA\Programs\graphit'"
+```
+
+The installer detects your OS/arch, verifies SHA-256, and installs to `~/.local/bin/graphit` (Linux/macOS) or `%LOCALAPPDATA%\Programs\graphit\` (Windows). It will warn if the directory is not yet in your `PATH`.
+
+### Option 2: Direct Download (Manual)
 
 #### Linux (amd64)
 ```bash
-curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-linux-amd64 -o graphit
-chmod +x graphit
-sudo mv graphit /usr/local/bin/
+curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-linux-amd64.tar.gz | tar -xz
+mkdir -p ~/.local/bin && mv graphit-linux-amd64 ~/.local/bin/graphit
 ```
 
 #### macOS (Apple Silicon)
 ```bash
-curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-darwin-arm64 -o graphit
-chmod +x graphit
-sudo mv graphit /usr/local/bin/
+curl -fsSL https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-darwin-arm64.tar.gz | tar -xz
+mkdir -p ~/.local/bin && mv graphit-darwin-arm64 ~/.local/bin/graphit
 ```
 
-#### Windows (amd64 Powershell)
+#### Windows (PowerShell)
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-windows-amd64.exe" -OutFile "graphit.exe"
-# Move graphit.exe to a directory in your system PATH variable
+$InstallDir = "$env:LOCALAPPDATA\Programs\graphit"
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+Invoke-WebRequest -Uri "https://github.com/graphit-labs/graphit-code/releases/latest/download/graphit-windows-amd64.tar.gz" -OutFile "$env:TEMP\graphit.tar.gz"
+tar -xzf "$env:TEMP\graphit.tar.gz" -C "$env:TEMP"
+Move-Item -Force "$env:TEMP\graphit-windows-amd64.exe" "$InstallDir\graphit.exe"
+[System.Environment]::SetEnvironmentVariable("PATH", "$([System.Environment]::GetEnvironmentVariable('PATH','User'));$InstallDir", "User")
 ```
 
-### Option 2: Build From Source
+### Option 3: Build From Source
 
 If you prefer to compile the application locally, clone the repository and compile the binaries:
 
+**Linux / macOS:**
 ```bash
 git clone https://github.com/graphit-labs/graphit-code.git
 cd graphit-code
-make install
+make install                           # installs to /usr/local/bin/ (sudo if not writable)
+make install PREFIX=$HOME/.local/bin   # user-space alternative, no sudo
 ```
-The Makefile automates dependencies installation, compiles the React UI static bundle, embeds assets into Go source files, and installs the binary to `/usr/local/bin/` (or your Go binary path).
+
+**Windows (MSYS2 / MinGW):**
+```bash
+git clone https://github.com/graphit-labs/graphit-code.git
+cd graphit-code
+make install-windows                               # installs to C:\Program Files\graphit\ (may need admin)
+make install-windows PREFIX_WIN='C:\Tools\graphit'  # custom directory
+```
+
+The Makefile automates dependencies installation, compiles the React UI static bundle, and embeds assets into Go source files. The `PREFIX` variable (Linux/macOS) and `PREFIX_WIN` variable (Windows) control the install directory.
 
 ---
 
