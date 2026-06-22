@@ -134,14 +134,14 @@ Requires: Go 1.23+, Node.js 22+, Make, gcc/g++
 ```bash
 git clone https://github.com/graphit-labs/graphit-code.git
 cd graphit-code
-make install                           # installs to /usr/local/bin/ (requires sudo if not writable)
-make install PREFIX=$HOME/.local/bin   # user-space, no sudo
+make install # installs to /usr/local/bin/ (requires sudo if not writable)
+# make install PREFIX=$HOME/.local/bin # user-space, no sudo
 ```
 
 **Windows (MSYS2 / MinGW):**
 ```bash
-make install-windows                              # installs to C:\Program Files\graphit\ (may need admin)
-make install-windows PREFIX_WIN='C:\Tools\graphit' # custom directory
+make install-windows # installs to C:\Program Files\graphit\ (may need admin)
+# make install-windows PREFIX_WIN='C:\Tools\graphit' # custom directory
 ```
 
 ---

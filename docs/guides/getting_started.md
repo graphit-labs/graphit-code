@@ -89,16 +89,16 @@ If you prefer to compile the application locally, clone the repository and compi
 ```bash
 git clone https://github.com/graphit-labs/graphit-code.git
 cd graphit-code
-make install                           # installs to /usr/local/bin/ (sudo if not writable)
-make install PREFIX=$HOME/.local/bin   # user-space alternative, no sudo
+make install # installs to /usr/local/bin/ (sudo if not writable)
+# make install PREFIX=$HOME/.local/bin # user-space alternative, no sudo
 ```
 
 **Windows (MSYS2 / MinGW):**
 ```bash
 git clone https://github.com/graphit-labs/graphit-code.git
 cd graphit-code
-make install-windows                               # installs to C:\Program Files\graphit\ (may need admin)
-make install-windows PREFIX_WIN='C:\Tools\graphit'  # custom directory
+make install-windows # installs to C:\Program Files\graphit\ (may need admin)
+# make install-windows PREFIX_WIN='C:\Tools\graphit' # custom directory
 ```
 
 The Makefile automates dependencies installation, compiles the React UI static bundle, and embeds assets into Go source files. The `PREFIX` variable (Linux/macOS) and `PREFIX_WIN` variable (Windows) control the install directory.
