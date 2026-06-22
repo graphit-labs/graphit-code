@@ -125,20 +125,18 @@ The wiki database is compiled, BM25-indexed, and pre-optimized for retrieval.
 Reading raw .md files is slower, wastes tokens, and bypasses ranking.
 
 **Scope parameter:** `scope: "project"` (default) = project-specific memories. `scope: "user"` = personal cross-project memories.
-- `graphit_memory_search` searches raw `.md` memory files via text matching (Tier 1 — lightweight, no AI)
-- `graphit_memory_query` queries the compiled memory wiki via AI synthesis (Tier 3 — deep, multi-turn)
+- `graphit_memory_search` searches raw `.md` memory files via text matching (lightweight, no AI)
 
 | What you need | MCP tool | Why |
 |---|---|---|
 | Search memories by keyword/context | `graphit_memory_search` | Text matching on raw files, instant, ~200 tokens |
-| AI-powered memory consultation | `graphit_memory_query` | Synthesizes relevant memories from wiki using AI |
 | List all memories | `graphit_memory_list` | Structured catalog, grouped by type |
 | List important memories only | `graphit_memory_important` | High-priority conventions, corrections |
 
 **Retrieval steps:**
 1. Call `graphit_memory_search` with query context — get ranked results
 2. If results reference related memories, call `graphit_memory_search` again with refined query
-3. For deep consultation, call `graphit_memory_query` with a natural language question
+3. If you need deeper understanding, browse the wiki pages referenced in search results via `graphit_wiki_browse`, read their full content, follow `[[wikilinks]]`, and synthesize the answer yourself.
 4. **Never** read .md memory files directly or grep raw memory files
 
 ## 📋 MCP Tools Reference
@@ -170,9 +168,6 @@ graphit_memory_delete(project_dir: "/path/to/project", id: "<id>")
 # Search (lightweight, no AI)
 graphit_memory_search(project_dir: "/path/to/project", query: "<term>")
 
-# AI Consultation (Search with AI response synthesis)
-graphit_memory_query(project_dir: "/path/to/project", query: "<natural language question>")
-
 # Promote/demote importance
 graphit_memory_promote(project_dir: "/path/to/project", id: "<id>")
 graphit_memory_demote(project_dir: "/path/to/project", id: "<id>")
@@ -181,11 +176,15 @@ graphit_memory_demote(project_dir: "/path/to/project", id: "<id>")
 graphit_memory_list(project_dir: "/path/to/project")
 graphit_memory_important(project_dir: "/path/to/project")
 
-# Maintenance (run periodically or when memory feels cluttered)
-graphit_memory_consolidate(project_dir: "/path/to/project")                # AI-driven: find duplicates, contradictions
-graphit_memory_consolidate(project_dir: "/path/to/project", apply: true)    # auto-apply safe suggestions
+# Garbage collection (run periodically)
 graphit_memory_gc(project_dir: "/path/to/project")                         # find stale/empty memories (dry-run)
 graphit_memory_gc(project_dir: "/path/to/project", dry_run: false)         # delete GC candidates
+
+# Consolidation
+# 1. Call graphit_memory_list to see all memories
+# 2. Read through them and identify duplicates, contradictions, stale entries
+# 3. Use graphit_memory_delete to remove duplicates
+# 4. Use graphit_memory_update to resolve contradictions
 ```
 
 ## 🔄 Contradiction Protocol

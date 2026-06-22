@@ -144,10 +144,10 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 ### How to search (step-by-step)
 
 **Step 1 — Search the wiki (ALWAYS start here)**
-  Call `graphit_knowledge_search` with your query. This uses FTS5 + BM25 ranking to find the most relevant pages.
+  Call `graphit_knowledge_search` with your query. This uses BM25 full-text and optional semantic search to find the most relevant pages.
   Alternatively, call `graphit_wiki_browse` for a structured catalog of all entities.
   The search returns entity summaries, cross-references, and confidence scores.
-  For AI-powered deep search, call `graphit_knowledge_query` which synthesizes a comprehensive answer using multi-turn consultation.
+  For deep consultation, search with `graphit_knowledge_search`, read the returned pages, follow [[wikilinks]] to expand context, call `graphit_wiki_xrefs` for cross-references, and synthesize the answer yourself — you ARE the AI.
   For multi-source search (knowledge + memory), call `graphit_wiki_search` with `wikis: ["project", "memory"]`.
 
 **Step 2 — Read the frontmatter FIRST (before the body)**
@@ -202,7 +202,7 @@ the definitive source. Your tools exist only for domains outside the wiki's scop
 
 Your tools are allowed ONLY when ALL of these conditions are true:
 
-1. You **already searched the wiki** using `graphit_knowledge_search`, `graphit_knowledge_query`, or `graphit_wiki_browse`
+1. You **already searched the wiki** using `graphit_knowledge_search`, `graphit_wiki_search`, or `graphit_wiki_browse`
 2. You **followed relevant [[wikilinks]]** and checked entity pages
 3. You **checked cross-references** using `graphit_wiki_xrefs` on the most relevant page
 4. The wiki **genuinely has no coverage** of the topic (not indexed, not documented)
@@ -225,7 +225,7 @@ Examples of INVALID fallback (protocol violations):
 | Scope | How to search |
 |---|---|
 | **project** (this project) | Call `graphit_knowledge_search` or `graphit_wiki_browse` |
-| **imported context** (hub artifact) | Call `graphit_knowledge_search` (context: "<name>") or `graphit_knowledge_query` (context: "<name>") |
+| **imported context** (hub artifact) | Call `graphit_knowledge_search` (context: "<name>") |
 | **multi-source** (project + memory) | Call `graphit_wiki_search` (wikis: ["project", "memory"]) |
 
 ### ⚡ MANDATORY: Sync After Every File Modification
@@ -662,7 +662,7 @@ a compiled, cross-referenced wiki.
 **Step 1 — Search the wiki (ALWAYS start here)**
   Call `graphit_knowledge_search` with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).
   Alternatively, call `graphit_wiki_browse` for a structured catalog.
-  For AI-powered deep search, call `graphit_knowledge_query` which synthesizes a comprehensive answer using multi-turn consultation.
+  For deep consultation, search with `graphit_knowledge_search`, read the returned pages, follow [[wikilinks]] to expand context, call `graphit_wiki_xrefs` for cross-references, and synthesize the answer yourself — you ARE the AI.
   For multi-source search (knowledge + memory), call `graphit_wiki_search` with `wikis: ["project", "memory"]`.
 
 **Step 2 — Read frontmatter FIRST**
@@ -700,7 +700,7 @@ the definitive source. Your tools exist only for domains outside the wiki's scop
 
 Your tools are allowed ONLY when ALL of these conditions are true:
 
-1. You **already searched the wiki** using `graphit_knowledge_search`, `graphit_knowledge_query`, or `graphit_wiki_browse`
+1. You **already searched the wiki** using `graphit_knowledge_search`, `graphit_wiki_search`, or `graphit_wiki_browse`
 2. You **followed relevant [[wikilinks]]** and checked entity pages
 3. You **checked cross-references** using `graphit_wiki_xrefs` on the most relevant page
 4. The wiki **genuinely has no coverage** of the integration (not indexed, not documented)

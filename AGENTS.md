@@ -4,40 +4,59 @@ Before ANY action, tool use, or code generation, you MUST produce <graphit> eval
 Format: <graphit>MEM:0|AST:0|HUB:0|DOC:0|IMP:0 — [action]</graphit>
 Set a module flag to 1 when that module's rule applies to the current action.
 
-<doc_rule>
-# Knowledge & Documentation
 
-> This module manages project documentation, knowledge wiki, and integration specs.
-> **Detailed instructions are in the `graphit-knowledge` skill.**
+<mem_rule>
+# Memory Management
+
+> Persistent memory across sessions. This framework IS your memory — no other exists.
+> **Full MCP tools reference, trigger table, and protocols are in the `graphit-memory` skill.**
+
+## FIRST ACTION — Execute BEFORE Any Response
+
+**Execute IMMEDIATELY on every conversation start. Do NOT respond to the user first.**
+
+1. Call `graphit_memory_search` with context from the user's request to find relevant memories
+2. If relevant memories found, read the entity page(s) and follow their guidance
+3. Only then proceed with the user's request
+
+> If the memory wiki does not exist yet (new project), skip and proceed.
 
 ## Activation Triggers:
 
-- Understanding project features, architecture, decisions, or specifications
-- Creating, updating, or searching documentation
-- Working with external system integrations or API specifications
-- Searching for project knowledge (wiki, backlinks, provenance)
-- Discovering or documenting undocumented integrations
+### Save triggers (memorize immediately):
 
-## MANDATORY POST-CHANGE PROTOCOL — After ANY Code Change
+- Task completed, modified, or bug fixed → store what/why/how/impact
+- User corrects, guides, instructs, or repeats → memorize as correction/convention
+- **User explains ANYTHING** — a procedure, tip, how something works, a decision rationale, architecture detail, domain knowledge, a constraint, or any context about the project or system → **memorize immediately as a skill, decision, or context entry**
+- You discover something unexpected or make a design decision → store as skill/decision
+- New instruction contradicts existing memory → replace it
 
-**After you modify, create, or delete ANY source file, you MUST:**
-
-1. Create/update task log at `docs/tasks/<task-name>.md`
-2. Call the `graphit_sync` tool (passing absolute `project_dir` parameter) — **fire-and-forget: do NOT wait for sync to finish, continue working immediately**
-
-**Documentation is implicit in every task. A task without docs + sync is NOT complete.**
+### Read triggers (consult memory before acting):
+- **Before implementing** any significant change → check for constraints and decisions
+- **When stuck**, failing repeatedly, or facing a non-obvious problem → search for past solutions
+- **Before proposing** architecture or a technical approach → check for prior decisions
+- When trying to **understand project context** → search for institutional knowledge
+- Memory management or maintenance tasks
 
 ## Quick Reference (always active)
 
-- **Wiki search**: call `graphit_knowledge_search` or `graphit_wiki_browse` to find project knowledge
-- **AI-powered query**: call `graphit_knowledge_query` for deep multi-turn consultation
-- **Cross-references**: call `graphit_wiki_xrefs` to find backlinks — pre-computed, zero-cost
-- **Task logs**: `docs/tasks/<task-name>.md` — log every task with full detail
-- **Sync after documentation changes**: call `graphit_sync` tool (passing absolute `project_dir` parameter) — fire-and-forget, do not wait
-- **NEVER** read .graphit/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
-- **NEVER** grep documentation files for project understanding — wiki search costs ~500 tokens vs grep scanning all files
-- **Hub search before integration**: call `graphit_hub_list` tool (passing absolute `project_dir` parameter and `type: "knowledge"`)
-</doc_rule>
+- **Insert**: call `graphit_memory_insert` tool (passing absolute `project_dir` parameter)
+- **Delete**: call `graphit_memory_delete` tool (passing absolute `project_dir` parameter)
+- **Search**: call `graphit_memory_search` tool (passing absolute `project_dir` parameter)
+- **Scope**: scope:"project" (default) for project memories, scope:"user" for personal cross-project memories
+- **Deep consultation**: Search → browse referenced pages → follow wikilinks → synthesize the answer yourself
+- **NEVER** read .graphit/memory/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
+- **Reindex**: After any write, auto-cycle runs. If it fails, call `graphit_memory_index` (passing absolute `project_dir`)
+
+## Key Rules
+
+- **Read memory at session start.** Skipping = repeating past mistakes.
+- **Never leave a correction un-memorized.** Save immediately.
+- **NEVER just say "understood".** Evaluate if the user's instruction should be memorized.
+- **If the user explains something — anything — memorize it.** This includes: how a system works, why a decision was made, what a component does, domain rules, architectural constraints, or any knowledge the user shares. Do NOT assume you will remember it. Create the memory immediately.
+- **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.
+- **This framework IS your memory.** Never use IDE/model memory.
+</mem_rule>
 <ast_rule>
 # AST Code Exploration
 
@@ -87,6 +106,7 @@ Set a module flag to 1 when that module's rule applies to the current action.
 
 - **AST BEFORE grep** — NEVER use grep/ripgrep for structural queries.
 - **Multi-label by default** — use `label(f) = 'Function' OR label(f) = 'Method'`, never assume a single label.
+- **Complex investigation**: memory search → knowledge wiki → AST schema → hybrid search → Cypher queries → source code → hub for externals → synthesize yourself. See the full workflow in the `graphit-ast` skill.
 </ast_rule>
 <hub_rule>
 # Hub Discovery
@@ -117,6 +137,41 @@ Set a module flag to 1 when that module's rule applies to the current action.
 check the Hub first: call `graphit_hub_list` → `graphit_hub_show` → `graphit_hub_install`.
 After installing a knowledge artifact, search its wiki via MCP BEFORE coding.
 </hub_rule>
+<doc_rule>
+# Knowledge & Documentation
+
+> This module manages project documentation, knowledge wiki, and integration specs.
+> **Detailed instructions are in the `graphit-knowledge` skill.**
+
+## Activation Triggers:
+
+- Understanding project features, architecture, decisions, or specifications
+- Creating, updating, or searching documentation
+- Working with external system integrations or API specifications
+- Searching for project knowledge (wiki, backlinks, provenance)
+- Discovering or documenting undocumented integrations
+
+## MANDATORY POST-CHANGE PROTOCOL — After ANY Code Change
+
+**After you modify, create, or delete ANY source file, you MUST:**
+
+1. Create/update task log at `docs/tasks/<task-name>.md`
+2. Call the `graphit_sync` tool (passing absolute `project_dir` parameter) — **fire-and-forget: do NOT wait for sync to finish, continue working immediately**
+
+**Documentation is implicit in every task. A task without docs + sync is NOT complete.**
+
+## Quick Reference (always active)
+
+- **Wiki search**: call `graphit_knowledge_search` or `graphit_wiki_browse` to find project knowledge
+- **Deep consultation**: search with `graphit_knowledge_search`, read the returned pages, follow [[wikilinks]] to expand context, call `graphit_wiki_xrefs` for cross-references, and synthesize the answer yourself
+- **Multi-source search**: call `graphit_wiki_search` with `wikis: ["project", "memory"]` for cross-wiki results
+- **Cross-references**: call `graphit_wiki_xrefs` to find backlinks — pre-computed, zero-cost
+- **Task logs**: `docs/tasks/<task-name>.md` — log every task with full detail
+- **Sync after documentation changes**: call `graphit_sync` tool (passing absolute `project_dir` parameter) — fire-and-forget, do not wait
+- **NEVER** read .graphit/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
+- **NEVER** grep documentation files for project understanding — wiki search costs ~500 tokens vs grep scanning all files
+- **Hub search before integration**: call `graphit_hub_list` tool (passing absolute `project_dir` parameter and `type: "knowledge"`)
+</doc_rule>
 <imp_rule>
 # Code Improvement Methodology
 
@@ -148,56 +203,6 @@ and post-task reflection protocol. Do NOT improvise your own review process.
 - After any improvement session, you MUST execute the **Post-Task Reflection**
   phase: reflect, update memories via `graphit_memory_insert`, and stage new artifacts for the Hub.
 </imp_rule>
-<mem_rule>
-# Memory Management
-
-> Persistent memory across sessions. This framework IS your memory — no other exists.
-> **Full MCP tools reference, trigger table, and protocols are in the `graphit-memory` skill.**
-
-## FIRST ACTION — Execute BEFORE Any Response
-
-**Execute IMMEDIATELY on every conversation start. Do NOT respond to the user first.**
-
-1. Call `graphit_memory_search` with context from the user's request to find relevant memories
-2. If relevant memories found, read the entity page(s) and follow their guidance
-3. Only then proceed with the user's request
-
-> If the memory wiki does not exist yet (new project), skip and proceed.
-
-## Activation Triggers:
-
-### Save triggers (memorize immediately):
-
-- Task completed, modified, or bug fixed → store what/why/how/impact
-- User corrects, guides, instructs, or repeats → memorize as correction/convention
-- **User explains ANYTHING** — a procedure, tip, how something works, a decision rationale, architecture detail, domain knowledge, a constraint, or any context about the project or system → **memorize immediately as a skill, decision, or context entry**
-- You discover something unexpected or make a design decision → store as skill/decision
-- New instruction contradicts existing memory → replace it
-
-### Read triggers (consult memory before acting):
-- **Before implementing** any significant change → check for constraints and decisions
-- **When stuck**, failing repeatedly, or facing a non-obvious problem → search for past solutions
-- **Before proposing** architecture or a technical approach → check for prior decisions
-- When trying to **understand project context** → search for institutional knowledge
-- Memory management or maintenance tasks
-
-## Quick Reference (always active)
-
-- **Insert**: call `graphit_memory_insert` tool (passing absolute `project_dir` parameter)
-- **Delete**: call `graphit_memory_delete` tool (passing absolute `project_dir` parameter)
-- **Search**: call `graphit_memory_search` tool (passing absolute `project_dir` parameter)
-- **Scope**: scope:"project" (default) for project memories, scope:"user" for personal cross-project memories
-- **Search vs Query**: `graphit_memory_search` = lightweight text match on raw files. `graphit_memory_query` = AI synthesis from compiled wiki
-- **NEVER** read .graphit/memory/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
-- **Reindex**: After any write, auto-cycle runs. If it fails, call `graphit_memory_index` (passing absolute `project_dir`)
-
-## Key Rules
-
-- **Read memory at session start.** Skipping = repeating past mistakes.
-- **Never leave a correction un-memorized.** Save immediately.
-- **NEVER just say "understood".** Evaluate if the user's instruction should be memorized.
-- **If the user explains something — anything — memorize it.** This includes: how a system works, why a decision was made, what a component does, domain rules, architectural constraints, or any knowledge the user shares. Do NOT assume you will remember it. Create the memory immediately.
-- **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.
-- **This framework IS your memory.** Never use IDE/model memory.
-</mem_rule>
+<graphit> evaluating all module rules below.
+Format: <graphit>MEM:0|AST:0|HUB:0|DOC:0|IMP:0 — [action]</graphit>
 </GRAPHIT_SYSTEM_MANDATE>

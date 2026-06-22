@@ -456,6 +456,78 @@ When you want metadata + source in a single call:
 MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source
 ```
 
+## 🧠 Complex Code Investigation — Agent-Driven Workflow
+
+When you need to answer a complex, open-ended code question (e.g., "how does authentication work?",
+"what's the impact of changing this interface?", "find all error handling patterns"), use this
+multi-step agentic workflow. **You ARE the AI — do the analysis yourself, step by step.**
+Combine **all your knowledge sources** — code graph, project memory, documentation wiki, and hub.
+
+### Step 0: Check memory for prior knowledge
+Call `graphit_memory_search` with keywords related to your question.
+Someone (you or another agent) may have already investigated this — check for past decisions, skills, and facts.
+
+### Step 1: Consult the knowledge wiki
+Call `graphit_knowledge_search` to find architecture docs, specs, and ADRs about the area you're investigating.
+The wiki contains pre-compiled project documentation — read it BEFORE diving into code.
+
+### Step 2: Understand the AST graph schema
+Call `graphit_ast_schema` to discover which node labels and relationships exist in this project's graph.
+
+### Step 3: Discover relevant entities via hybrid search
+Call `graphit_ast_search` with natural language keywords related to your question.
+This returns the most relevant functions, classes, and modules ranked by BM25 + semantic similarity.
+
+### Step 4: Write precise Cypher queries
+Using the entity names and labels discovered in Step 3, write targeted Cypher queries via `graphit_ast_query`:
+- Trace call chains: who calls these entities? What do they call?
+- Map relationships: inheritance, imports, containment, field access
+- Assess impact: find all inbound edges to understand coupling
+
+### Step 5: Read source code for context
+Call `graphit_ast_source` to extract the actual implementation of key entities discovered in Steps 3-4.
+Use entity extraction (`entity` parameter) to get specific functions/methods without reading entire files.
+
+### Step 6: Expand with external knowledge
+If the code interacts with external systems, frameworks, or APIs:
+- Call `graphit_hub_list` with `type: "knowledge"` to find pre-built knowledge artifacts
+- Install relevant artifacts and consult their wikis before guessing at API behavior
+- Check `graphit_wiki_xrefs` for cross-references that connect code to documentation
+
+### Step 7: Iterate and synthesize
+If your initial queries don't fully answer the question:
+- Refine search terms and re-run `graphit_ast_search`
+- Follow new leads from call chains — query deeper into the graph
+- Cross-reference AST findings with knowledge wiki and memory for full context
+- **Synthesize** the answer yourself from all gathered sources — you ARE the AI
+
+### Example: "How does the sync pipeline work?"
+```
+# Step 0: Check memory
+graphit_memory_search(project_dir: "/path/to/project", query: "sync pipeline")
+
+# Step 1: Check knowledge wiki
+graphit_knowledge_search(project_dir: "/path/to/project", query: "sync pipeline")
+
+# Step 2: Schema
+graphit_ast_schema(project_dir: "/path/to/project")
+
+# Step 3: Discover
+graphit_ast_search(project_dir: "/path/to/project", query: "sync pipeline")
+
+# Step 4: Trace (using names found in Step 3)
+graphit_ast_query(project_dir: "/path/to/project", query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'sync' RETURN f.name, f.path, f.line_number, label(f) AS type")
+
+# Step 4b: Call chain
+graphit_ast_query(project_dir: "/path/to/project", query: "MATCH (a:Function {name: 'RunSync'})-[:CALLS]->(b) RETURN b.name, label(b) AS type, b.path")
+
+# Step 5: Read implementation
+graphit_ast_source(project_dir: "/path/to/project", path: "internal/sync/pipeline.go", entity: "RunSync")
+
+# Step 6: Check hub for external dependencies
+graphit_hub_list(project_dir: "/path/to/project", type: "knowledge")
+```
+
 ## Cypher Guidelines
 
 - **IMPORTANT**: The `path` property is ALWAYS a relative path from the project root (e.g., `src/main.go`). Never use absolute paths when filtering `n.path`.
