@@ -58,7 +58,10 @@ func collectFiles(rootPath string) ([]string, error) {
 		if rel != "." {
 			if info.IsDir() {
 
-				if strings.HasPrefix(info.Name(), ".") || ic.IsIgnored(rel, true) {
+				if strings.HasPrefix(info.Name(), ".") {
+					return filepath.SkipDir
+				}
+				if ic.IsIgnored(rel, true) && !ic.ShouldDescend(rel) {
 					return filepath.SkipDir
 				}
 				return nil

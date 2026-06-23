@@ -120,3 +120,110 @@ func TestUncoveredHelperFunctions(t *testing.T) {
 		t.Errorf("expected 0 files, got %d", len(files))
 	}
 }
+
+func TestShouldDescend(t *testing.T) {
+	// Create temp directory structure with negation patterns
+	tempDir, err := os.MkdirTemp("", "ignorer-descend-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	err = os.MkdirAll(filepath.Join(tempDir, ".git"), 0755)
+	if err != nil {
+		t.Fatalf("failed to create .git dir: %v", err)
+	}
+
+	// .astignore with negation patterns (mimics the real .astignore):
+	//   internal/ast/antlr/         ← ignore entire dir
+	//   !internal/ast/antlr/common/ ← but re-include common/
+	//   !internal/ast/antlr/*/driver.go ← and re-include driver.go in each sub-dir
+	//   vendor/                     ← ignore vendor with no negations
+	astignoreContent := "internal/ast/antlr/\n!internal/ast/antlr/common/\n!internal/ast/antlr/*/driver.go\nvendor/\n"
+	err = os.WriteFile(filepath.Join(tempDir, ".astignore"), []byte(astignoreContent), 0644)
+	if err != nil {
+		t.Fatalf("failed to write .astignore: %v", err)
+	}
+
+	ic := New(tempDir, tempDir, ".astignore", nil)
+
+	tests := []struct {
+		dir  string
+		want bool
+	}{
+		// antlr/ is ignored but has negated children → must descend
+		{"internal/ast/antlr", true},
+		// internal/ast is NOT ignored (so ShouldDescend is irrelevant but should still be correct)
+		{"internal/ast", true},
+		// internal is a prefix of a negation → should descend
+		{"internal", true},
+		// vendor/ is ignored with NO negation children → do NOT descend
+		{"vendor", false},
+		// Edge cases
+		{"", false},
+		{".", false},
+		// A dir that's not mentioned at all
+		{"some/other/dir", false},
+	}
+
+	for _, tc := range tests {
+		got := ic.ShouldDescend(tc.dir)
+		if got != tc.want {
+			t.Errorf("ShouldDescend(%q) = %t; want %t", tc.dir, got, tc.want)
+		}
+	}
+}
+
+func TestShouldDescendWithDefaultPatterns(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "ignorer-default-neg-test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(tempDir) }()
+
+	err = os.MkdirAll(filepath.Join(tempDir, ".git"), 0755)
+	if err != nil {
+		t.Fatalf("failed to create .git dir: %v", err)
+	}
+
+	// No ignore files on disk — all patterns come from defaults
+	ic := New(tempDir, tempDir, "", []string{
+		"generated/",
+		"!generated/keep/",
+	})
+
+	if !ic.ShouldDescend("generated") {
+		t.Error("ShouldDescend(\"generated\") should be true with negated default pattern")
+	}
+	if ic.ShouldDescend("other") {
+		t.Error("ShouldDescend(\"other\") should be false")
+	}
+}
+
+func TestNegationToPrefix(t *testing.T) {
+	tests := []struct {
+		body   string
+		domain []string
+		want   string
+	}{
+		// Directory negation
+		{"internal/ast/antlr/common/", nil, "internal/ast/antlr/common"},
+		// Glob pattern — stops at first wildcard
+		{"internal/ast/antlr/*/driver.go", nil, "internal/ast/antlr"},
+		// Simple file negation
+		{"keep.txt", nil, "keep.txt"},
+		// With domain
+		{"sub/file.go", []string{"nested"}, "nested/sub/file.go"},
+		// Glob at start
+		{"*.go", nil, ""},
+		// Trailing spaces
+		{"path/to/dir  ", nil, "path/to/dir"},
+	}
+
+	for _, tc := range tests {
+		got := negationToPrefix(tc.body, tc.domain)
+		if got != tc.want {
+			t.Errorf("negationToPrefix(%q, %v) = %q; want %q", tc.body, tc.domain, got, tc.want)
+		}
+	}
+}
