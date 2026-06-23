@@ -32,8 +32,14 @@ type WikiProcessCache struct {
 }
 
 type wikiCacheManifest struct {
-	Version int                                `json:"v"`
-	Files   map[string]*wikiCacheManifestEntry `json:"files"`
+	Version    int                                `json:"v"`
+	Files      map[string]*wikiCacheManifestEntry `json:"files"`
+	WatchFiles map[string]*watchFileEntry         `json:"watch_files,omitempty"`
+}
+
+type watchFileEntry struct {
+	Mtime int64 `json:"mt"`
+	Size  int64 `json:"sz"`
 }
 
 type wikiCacheManifestEntry struct {
@@ -156,6 +162,29 @@ func (wc *WikiProcessCache) StoreSlug(relPath, slug string) {
 		e.Slug = slug
 		wc.dirty[""] = true
 	}
+}
+
+func (wc *WikiProcessCache) StoreWatchFile(name string, mtime, size int64) {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if wc.manifest.WatchFiles == nil {
+		wc.manifest.WatchFiles = make(map[string]*watchFileEntry)
+	}
+	wc.manifest.WatchFiles[name] = &watchFileEntry{Mtime: mtime, Size: size}
+	wc.dirty[""] = true
+}
+
+func (wc *WikiProcessCache) WatchFileChanged(name string, mtime, size int64) bool {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if wc.manifest.WatchFiles == nil {
+		return true
+	}
+	e, ok := wc.manifest.WatchFiles[name]
+	if !ok {
+		return true
+	}
+	return e.Mtime != mtime || e.Size != size
 }
 
 // GetOutRefs returns the stored outgoing cross-reference titles for a cache key.
@@ -416,7 +445,8 @@ func (wc *WikiProcessCache) Remove(relPath string) {
 	delete(wc.embDirty, relPath)
 	_ = os.Remove(wc.chunkShardPath(relPath))
 	_ = os.Remove(wc.embShardPath(relPath))
-	wc.dirty[""] = true // mark manifest dirty
+	removeEmptyParents(filepath.Dir(wc.chunkShardPath(relPath)), filepath.Join(wc.dir, "shards"))
+	wc.dirty[""] = true
 }
 
 // Prune removes cached entries for files that no longer exist in the given set.
@@ -430,8 +460,10 @@ func (wc *WikiProcessCache) Prune(validPaths map[string]bool) int {
 			delete(wc.manifest.Files, relPath)
 			delete(wc.chunks, relPath)
 			delete(wc.embs, relPath)
-			_ = os.Remove(wc.chunkShardPath(relPath))
+			chunkPath := wc.chunkShardPath(relPath)
+			_ = os.Remove(chunkPath)
 			_ = os.Remove(wc.embShardPath(relPath))
+			removeEmptyParents(filepath.Dir(chunkPath), filepath.Join(wc.dir, "shards"))
 			pruned++
 		}
 	}
@@ -572,4 +604,13 @@ func loadShard[T any](path string) (*T, error) {
 		return nil, err
 	}
 	return &data, nil
+}
+
+func removeEmptyParents(dir, stopAt string) {
+	for dir != stopAt && len(dir) > len(stopAt) {
+		if err := os.Remove(dir); err != nil {
+			break
+		}
+		dir = filepath.Dir(dir)
+	}
 }

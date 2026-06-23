@@ -50,7 +50,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	// --- STAT PRE-CHECK (shared AST pattern via wiki.StatPreCheck) ---
 	// If all cached source files are stat-unchanged and wiki.db exists,
 	// skip the Walk and full rebuild entirely.
-	if wiki.StatPreCheck(absRoot, wikiDir, processCache) {
+	if wiki.StatPreCheck(absRoot, wikiDir, processCache, KnowledgeIgnoreFile) {
 		return &WikiResult{OutputDir: wikiDir}, nil
 	}
 
@@ -77,7 +77,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		}
 		if info.IsDir() {
 			relDir, _ := filepath.Rel(absRoot, path)
-			if relDir != "." && ic.IsIgnored(relDir, true) {
+			if relDir != "." && ic.IsIgnored(relDir, true) && !ic.ShouldDescend(relDir) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -678,7 +678,15 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 
 	_ = wiki.RebuildDB(wikiDir, wikiChunks, xrefs, syncLogEntry, processCache)
 
-	// Also write legacy log.md for backward compatibility
+	// Record ignore file mtime so StatPreCheck detects changes next run.
+	if processCache != nil {
+		ignPath := filepath.Join(absRoot, KnowledgeIgnoreFile)
+		if info, err := os.Stat(ignPath); err == nil {
+			processCache.StoreWatchFile(KnowledgeIgnoreFile, info.ModTime().UnixNano(), info.Size())
+		}
+		_ = processCache.Save()
+	}
+
 	if len(added) > 0 || len(updated) > 0 || len(deleted) > 0 {
 		appendKnowledgeLog(filepath.Join(wikiDir, "log.md"), len(docs), result.ArticlesWritten, result.BacklinksAdded, added, updated, deleted, docDetails)
 	}

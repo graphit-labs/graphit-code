@@ -31,7 +31,7 @@ import (
 //   - cache:   the WikiProcessCache for this wiki.
 //
 // Returns true when the caller can safely skip the full rebuild.
-func StatPreCheck(baseDir, wikiDir string, cache *WikiProcessCache) bool {
+func StatPreCheck(baseDir, wikiDir string, cache *WikiProcessCache, watchFiles ...string) bool {
 	if cache == nil {
 		return false
 	}
@@ -39,6 +39,20 @@ func StatPreCheck(baseDir, wikiDir string, cache *WikiProcessCache) bool {
 	cachedEntries := cache.AllStatEntries()
 	if len(cachedEntries) == 0 {
 		return false
+	}
+
+	for _, wf := range watchFiles {
+		absWf := wf
+		if !filepath.IsAbs(absWf) {
+			absWf = filepath.Join(baseDir, wf)
+		}
+		info, err := os.Stat(absWf)
+		if err != nil {
+			continue
+		}
+		if cache.WatchFileChanged(wf, info.ModTime().UnixNano(), info.Size()) {
+			return false
+		}
 	}
 
 	// Phase A: stat all cached files in parallel.

@@ -487,7 +487,7 @@ func LastModifiedTime(projectDir string) (time.Time, error) {
 			}
 
 			if rel, relErr := filepath.Rel(projectDir, path); relErr == nil && rel != "." {
-				if ic.IsIgnored(rel, true) {
+				if ic.IsIgnored(rel, true) && !ic.ShouldDescend(rel) {
 					return filepath.SkipDir
 				}
 			}
