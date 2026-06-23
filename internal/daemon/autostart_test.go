@@ -12,9 +12,11 @@ func TestEnsureRunning_AlreadyAlive(t *testing.T) {
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
 	pf := NewPIDFile()
-	if err := pf.Write(); err != nil {
-		t.Fatalf("Write: %v", err)
+	// Use Acquire to hold flock — this simulates a running daemon.
+	if err := pf.Acquire(); err != nil {
+		t.Fatalf("Acquire: %v", err)
 	}
+	defer pf.Release()
 
 	started, err := EnsureRunning()
 	if err != nil {

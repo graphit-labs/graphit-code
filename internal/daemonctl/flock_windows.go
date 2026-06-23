@@ -1,6 +1,6 @@
 //go:build windows
 
-package daemon
+package daemonctl
 
 import (
 	"os"
@@ -9,21 +9,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func pidIsAlive(pid int) bool {
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-	if err != nil {
-		return false
-	}
-	defer windows.CloseHandle(handle)
-
-	var code uint32
-	if err := windows.GetExitCodeProcess(handle, &code); err != nil {
-		return false
-	}
-	return code == 259
-}
-
-func flockExclusive(f *os.File) error {
+func flockProbe(f *os.File) error {
 	ol := new(windows.Overlapped)
 	return windows.LockFileEx(
 		windows.Handle(f.Fd()),
@@ -34,7 +20,7 @@ func flockExclusive(f *os.File) error {
 	)
 }
 
-func flockRelease(f *os.File) {
+func flockProbeRelease(f *os.File) {
 	ol := new(windows.Overlapped)
 	_ = windows.UnlockFileEx(
 		windows.Handle(f.Fd()),

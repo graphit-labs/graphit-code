@@ -38,8 +38,8 @@ func TestDaemon_Start_PIDWriteError(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when PID write fails")
 	}
-	if !strings.Contains(err.Error(), "writing pid file") {
-		t.Errorf("expected 'writing pid file' in error, got %v", err)
+	if !strings.Contains(err.Error(), "acquiring pid lock") {
+		t.Errorf("expected 'acquiring pid lock' in error, got %v", err)
 	}
 }
 

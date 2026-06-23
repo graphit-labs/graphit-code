@@ -21,7 +21,7 @@ func PortFilePath() string { return filepath.Join(DaemonDir(), "mcp.port") }
 func KeyFilePath() string  { return filepath.Join(DaemonDir(), "mcp.key") }
 
 func EnsureRunning() (bool, error) {
-	if _, err := os.Stat(PIDFilePath()); err == nil {
+	if isDaemonLocked() {
 		return false, nil
 	}
 
@@ -41,6 +41,20 @@ func EnsureRunning() (bool, error) {
 	}
 	go func() { _ = cmd.Wait() }()
 	return true, nil
+}
+
+func isDaemonLocked() bool {
+	f, err := os.Open(PIDFilePath())
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	if err := flockProbe(f); err != nil {
+		return true
+	}
+	flockProbeRelease(f)
+	return false
 }
 
 func ResolveExe() string {

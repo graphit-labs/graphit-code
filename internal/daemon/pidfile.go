@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,10 +10,13 @@ import (
 	"time"
 )
 
+var ErrAlreadyRunning = errors.New("daemon: another instance is already running")
+
 const pidFileName = "daemon.pid"
 
 type PIDFile struct {
-	path string
+	path   string
+	lockFD *os.File
 }
 
 func NewPIDFile() *PIDFile {
@@ -24,6 +28,52 @@ func NewPIDFile() *PIDFile {
 type pidData struct {
 	PID       int
 	StartedAt time.Time
+}
+
+func (pf *PIDFile) Acquire() error {
+	if err := os.MkdirAll(filepath.Dir(pf.path), 0o755); err != nil {
+		return fmt.Errorf("creating pid dir: %w", err)
+	}
+
+	f, err := os.OpenFile(pf.path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("opening pid file: %w", err)
+	}
+
+	if err := flockExclusive(f); err != nil {
+		_ = f.Close()
+		return ErrAlreadyRunning
+	}
+
+	if err := f.Truncate(0); err != nil {
+		flockRelease(f)
+		_ = f.Close()
+		return fmt.Errorf("truncating pid file: %w", err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		flockRelease(f)
+		_ = f.Close()
+		return fmt.Errorf("seeking pid file: %w", err)
+	}
+	content := fmt.Sprintf("%d\n%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
+	if _, err := f.WriteString(content); err != nil {
+		flockRelease(f)
+		_ = f.Close()
+		return fmt.Errorf("writing pid file: %w", err)
+	}
+	_ = f.Sync()
+
+	pf.lockFD = f
+	return nil
+}
+
+func (pf *PIDFile) Release() {
+	if pf.lockFD != nil {
+		flockRelease(pf.lockFD)
+		_ = pf.lockFD.Close()
+		pf.lockFD = nil
+	}
+	_ = os.Remove(pf.path)
 }
 
 func (pf *PIDFile) Write() error {

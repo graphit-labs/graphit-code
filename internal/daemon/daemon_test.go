@@ -684,16 +684,26 @@ func TestDaemon_Start_AlreadyRunning(t *testing.T) {
 	logPath := filepath.Join(tmp, "daemon.log")
 	pidPath := filepath.Join(tmp, "daemon.pid")
 
+	// Simulate a running daemon by holding an exclusive flock on the PID file.
 	content := fmt.Sprintf("%d\n%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
 	if err := os.WriteFile(pidPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	lockFD, err := os.OpenFile(pidPath, os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockFD.Close()
+	if err := flockExclusive(lockFD); err != nil {
+		t.Fatalf("flock: %v", err)
+	}
+	defer flockRelease(lockFD)
 
 	cfg := Config{LogPath: logPath}
 	d := New(cfg, nil)
 	d.pid = &PIDFile{path: pidPath}
 
-	err := d.Start(context.Background(), func() ([]ProjectInfo, error) {
+	err = d.Start(context.Background(), func() ([]ProjectInfo, error) {
 		return nil, nil
 	})
 	if err == nil {

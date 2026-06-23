@@ -92,10 +92,17 @@ func (d *Daemon) event(level string, format string, args ...any) {
 
 func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, error), onReady ...func()) error {
 
-	if alive := d.pid.IsAlive(); alive != nil {
-		return fmt.Errorf("daemon already running (pid %d, started %s)",
-			alive.PID, alive.StartedAt.Format(time.RFC3339))
+	if err := d.pid.Acquire(); err != nil {
+		if errors.Is(err, ErrAlreadyRunning) {
+			if alive := d.pid.IsAlive(); alive != nil {
+				return fmt.Errorf("daemon already running (pid %d, started %s)",
+					alive.PID, alive.StartedAt.Format(time.RFC3339))
+			}
+			return fmt.Errorf("daemon already running (lock held)")
+		}
+		return fmt.Errorf("acquiring pid lock: %w", err)
 	}
+	defer d.pid.Release()
 
 	d.bootStamp = readLauncherStamp()
 
@@ -108,11 +115,6 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 	}
 	d.logFile = lf
 	defer func() { _ = lf.Close() }()
-
-	if err := d.pid.Write(); err != nil {
-		return fmt.Errorf("writing pid file: %w", err)
-	}
-	defer d.pid.Remove()
 
 	for _, fn := range onReady {
 		fn()
