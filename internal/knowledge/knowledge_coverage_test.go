@@ -1194,8 +1194,8 @@ func TestGenerateKnowledgeWikiIgnoredFile(t *testing.T) {
 	rootDir := t.TempDir()
 	wikiDir := filepath.Join(rootDir, ".wiki")
 
-	// Create a .knowledgeignore with a custom pattern
-	_ = os.WriteFile(filepath.Join(rootDir, ".knowledgeignore"), []byte("secret.md\n"), 0o644)
+	// Create a .wikiignore with a custom pattern
+	_ = os.WriteFile(filepath.Join(rootDir, ".wikiignore"), []byte("secret.md\n"), 0o644)
 
 	// Create the file that should be ignored
 	_ = os.WriteFile(filepath.Join(rootDir, "secret.md"), []byte("# Secret\nHidden"), 0o644)

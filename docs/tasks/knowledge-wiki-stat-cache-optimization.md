@@ -43,4 +43,4 @@ Se allUnchanged && wiki.db existe → Save() → return
 ## Arquivos modificados
 - `internal/wiki/process_cache.go`
 - `internal/knowledge/wiki.go`
-- `internal/knowledge/knowledgeignore.go` (adicionado .agents/, .claude/ etc ao ignore)
+- `internal/knowledge/knowledgeignore.go` (adicionado .agents/, .claude/ etc ao ignore, renomeado para .wikiignore)

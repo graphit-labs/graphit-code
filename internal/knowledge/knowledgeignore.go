@@ -5,7 +5,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
 )
 
-const KnowledgeIgnoreFile = ".knowledgeignore"
+const KnowledgeIgnoreFile = ".wikiignore"
 
 var DefaultKnowledgeIgnorePatterns = []string{
 

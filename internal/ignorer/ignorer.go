@@ -10,14 +10,9 @@ import (
 )
 
 type IgnoreChecker struct {
-	matcher gogitignore.Matcher
-
-	// negationPrefixes holds normalized path prefixes derived from negation
-	// patterns (lines starting with '!'). Used by ShouldDescend to determine
-	// whether a walker must enter an otherwise-ignored directory.
+	matcher          gogitignore.Matcher
 	negationPrefixes []string
-
-	rootPath string
+	rootPath         string
 }
 
 func New(rootPath, startDir, customFileName string, defaultPatterns []string) *IgnoreChecker {
@@ -40,8 +35,7 @@ func New(rootPath, startDir, customFileName string, defaultPatterns []string) *I
 	gitignoreFiles := collectIgnoreFiles(startDir, gitRoot, ".gitignore")
 	for _, gf := range gitignoreFiles {
 		domain := domainForFile(gf, absRoot)
-		patterns := readPatternsFromFile(gf, domain)
-		allPatterns = append(allPatterns, patterns...)
+		allPatterns = append(allPatterns, readPatternsFromFile(gf, domain)...)
 		negPrefixes = append(negPrefixes, readNegationPrefixesFromFile(gf, domain)...)
 	}
 
@@ -49,8 +43,7 @@ func New(rootPath, startDir, customFileName string, defaultPatterns []string) *I
 		customFiles := collectIgnoreFiles(startDir, gitRoot, customFileName)
 		for _, cf := range customFiles {
 			domain := domainForFile(cf, absRoot)
-			patterns := readPatternsFromFile(cf, domain)
-			allPatterns = append(allPatterns, patterns...)
+			allPatterns = append(allPatterns, readPatternsFromFile(cf, domain)...)
 			negPrefixes = append(negPrefixes, readNegationPrefixesFromFile(cf, domain)...)
 		}
 	}
@@ -60,7 +53,6 @@ func New(rootPath, startDir, customFileName string, defaultPatterns []string) *I
 		if p == "" || strings.HasPrefix(p, "#") {
 			continue
 		}
-
 		allPatterns = append(allPatterns, gogitignore.ParsePattern(p, nil))
 		if strings.HasPrefix(p, "!") {
 			negPrefixes = append(negPrefixes, negationToPrefix(p[1:], nil))
@@ -79,9 +71,7 @@ func (ic *IgnoreChecker) IsIgnored(relPath string, isDir bool) bool {
 	if relPath == "" || relPath == "." {
 		return false
 	}
-
-	pathSegments := strings.Split(relPath, "/")
-	return ic.matcher.Match(pathSegments, isDir)
+	return ic.matcher.Match(strings.Split(relPath, "/"), isDir)
 }
 
 // ShouldDescend reports whether the walker should enter a directory that
