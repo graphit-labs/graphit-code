@@ -283,6 +283,8 @@ func (sc *ShardCache) Remove(relPath string) {
 
 	_ = os.Remove(sc.shardPath(relPath, ".nodes.json"))
 	_ = os.Remove(sc.shardPath(relPath, ".edges.json"))
+	_ = os.Remove(sc.shardPath(relPath, ".emb.json"))
+	removeEmptyParents(filepath.Dir(sc.shardPath(relPath, "")), filepath.Join(sc.dir, "shards"))
 
 	sc.dirty[""] = true
 }
@@ -505,4 +507,13 @@ func loadShard[T any](path string) (*T, error) {
 		return nil, err
 	}
 	return &data, nil
+}
+
+func removeEmptyParents(dir, stopAt string) {
+	for dir != stopAt && len(dir) > len(stopAt) {
+		if err := os.Remove(dir); err != nil {
+			break
+		}
+		dir = filepath.Dir(dir)
+	}
 }

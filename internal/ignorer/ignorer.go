@@ -95,7 +95,7 @@ func (ic *IgnoreChecker) ShouldDescend(dirRelPath string) bool {
 	}
 	prefix := dirRelPath + "/"
 	for _, np := range ic.negationPrefixes {
-		if strings.HasPrefix(np, prefix) {
+		if strings.HasPrefix(np, prefix) || strings.HasPrefix(prefix, np+"/") {
 			return true
 		}
 	}

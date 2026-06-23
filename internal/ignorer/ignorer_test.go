@@ -151,18 +151,15 @@ func TestShouldDescend(t *testing.T) {
 		dir  string
 		want bool
 	}{
-		// antlr/ is ignored but has negated children → must descend
 		{"internal/ast/antlr", true},
-		// internal/ast is NOT ignored (so ShouldDescend is irrelevant but should still be correct)
 		{"internal/ast", true},
-		// internal is a prefix of a negation → should descend
 		{"internal", true},
-		// vendor/ is ignored with NO negation children → do NOT descend
+		{"internal/ast/antlr/plsql", true},
+		{"internal/ast/antlr/java", true},
+		{"internal/ast/antlr/common", true},
 		{"vendor", false},
-		// Edge cases
 		{"", false},
 		{".", false},
-		// A dir that's not mentioned at all
 		{"some/other/dir", false},
 	}
 
