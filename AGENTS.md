@@ -30,6 +30,10 @@ Set a module flag to 1 when that module's rule applies to the current action.
 - **User explains ANYTHING** — a procedure, tip, how something works, a decision rationale, architecture detail, domain knowledge, a constraint, or any context about the project or system → **memorize immediately as a skill, decision, or context entry**
 - You discover something unexpected or make a design decision → store as skill/decision
 - New instruction contradicts existing memory → replace it
+- **You analyze or reason about how the system works** — while reading code, investigating behavior, tracing call flows, or understanding a module → **memorize the insight immediately as a fact or skill**
+- **You read code and infer a pattern, convention, or architectural principle** that is not obvious from the surface → store it as a fact
+- **You understand why something is implemented a certain way** (even without the user explaining it) → store the reasoning as a decision or fact
+- **You investigate a non-obvious behavior, side effect, or dependency** → store the finding so the next session starts informed
 
 ### Read triggers (consult memory before acting):
 - **Before implementing** any significant change → check for constraints and decisions
@@ -55,6 +59,8 @@ Set a module flag to 1 when that module's rule applies to the current action.
 - **NEVER just say "understood".** Evaluate if the user's instruction should be memorized.
 - **If the user explains something — anything — memorize it.** This includes: how a system works, why a decision was made, what a component does, domain rules, architectural constraints, or any knowledge the user shares. Do NOT assume you will remember it. Create the memory immediately.
 - **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.
+- **Memorize your own reasoning about the system.** When you read code, trace a call flow, or analyze how a module works, create a memory of the insight. You will not remember it next session — externalize it now.
+- **Any non-trivial analysis you perform is a memory trigger.** Reading code and understanding it counts. Tracing behavior and inferring a rule counts. Discovering how two components interact counts. Store these findings immediately as facts.
 - **This framework IS your memory.** Never use IDE/model memory.
 </mem_rule>
 <ast_rule>

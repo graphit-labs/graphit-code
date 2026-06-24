@@ -88,6 +88,10 @@ Impact: <how it impacted the system — side effects, files changed, behavior ch
 | You **solve a complicated multi-step problem** | Store the full solution | `graphit_memory_insert` with `title: "<problem → solution>"`, `type: "skill"`, `important: true`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
 | You debug a non-obvious issue successfully | Save as a skill | `graphit_memory_insert` with `title: "<solution>"`, `type: "skill"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
 | User reveals a non-obvious project fact | Store the fact | `graphit_memory_insert` with `title: "<fact>"`, `type: "fact"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You **analyze or reason about how the system works** — while reading code, tracing call flows, or understanding a module | Store the insight immediately | `graphit_memory_insert` with `title: "<insight about system>"`, `type: "fact"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You **read code and infer a non-obvious pattern, convention, or architectural principle** | Store it as a fact | `graphit_memory_insert` with `title: "<pattern/principle>"`, `type: "fact"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You **understand why something is implemented a certain way** (even without the user explaining it) | Store as a decision or fact | `graphit_memory_insert` with `title: "<why X is done Y way>"`, `type: "decision"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
+| You **investigate a non-obvious behavior, side effect, or dependency** and understand it | Store the finding | `graphit_memory_insert` with `title: "<behavior/dependency understood>"`, `type: "fact"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
 | New instruction contradicts existing memory | Replace the memory | `graphit_memory_delete` with `id: "<old-id>"` then `graphit_memory_insert` with `title: "<new>"` |
 | Memory is >30 days old and still relevant | Refresh it | `graphit_memory_update` with `id: "<id>"`, `content: "<refreshed>"` |
 
@@ -214,3 +218,5 @@ runs automatically. If it fails, trigger manually calling the `graphit_memory_in
 5. **Handle contradictions.** Remove old + create new. Don't leave conflicting memories.
 6. **Promote critical memories.** Conventions, corrections, and constraints should be marked important.
 7. **NEVER just say "understood" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate whether it should be memorized. If it contains a convention, preference, correction, workflow, fact, or any persistent knowledge, create a memory immediately. Only skip memorization if the instruction is purely about an ephemeral, one-shot action with no future relevance.
+8. **Memorize your own reasoning about the system.** When you read code, trace a call flow, or analyze how a module works, you MUST create a memory of what you learned. This includes: how components interact, why something behaves unexpectedly, what a non-obvious function does, and any pattern or constraint you discover independently — even without the user saying anything.
+9. **Never discard an insight.** If you understood something non-trivial while analyzing the system, store it. The next session will start blind — your analysis notes must be externalized into memory to survive.
