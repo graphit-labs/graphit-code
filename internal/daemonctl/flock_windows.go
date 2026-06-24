@@ -29,3 +29,14 @@ func flockProbeRelease(f *os.File) {
 		(*windows.Overlapped)(unsafe.Pointer(ol)),
 	)
 }
+
+func flockExclusiveBlocking(f *os.File) error {
+	ol := new(windows.Overlapped)
+	return windows.LockFileEx(
+		windows.Handle(f.Fd()),
+		windows.LOCKFILE_EXCLUSIVE_LOCK,
+		0,
+		1, 0,
+		(*windows.Overlapped)(unsafe.Pointer(ol)),
+	)
+}

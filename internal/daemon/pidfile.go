@@ -69,11 +69,11 @@ func (pf *PIDFile) Acquire() error {
 
 func (pf *PIDFile) Release() {
 	if pf.lockFD != nil {
+		_ = pf.lockFD.Truncate(0)
 		flockRelease(pf.lockFD)
 		_ = pf.lockFD.Close()
 		pf.lockFD = nil
 	}
-	_ = os.Remove(pf.path)
 }
 
 func (pf *PIDFile) Write() error {
@@ -81,24 +81,19 @@ func (pf *PIDFile) Write() error {
 		return fmt.Errorf("creating pid dir: %w", err)
 	}
 	content := fmt.Sprintf("%d\n%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
-	tmp, err := os.CreateTemp(filepath.Dir(pf.path), ".pid-*")
+	f, err := os.OpenFile(pf.path, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
-	tmpName := tmp.Name()
-	_, err = tmp.WriteString(content)
-	if closeErr := tmp.Close(); closeErr != nil && err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		_ = os.Remove(tmpName)
+	defer f.Close()
+	if err := f.Truncate(0); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmpName, 0o600); err != nil {
-		_ = os.Remove(tmpName)
+	if _, err := f.Seek(0, 0); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, pf.path)
+	_, err = f.WriteString(content)
+	return err
 }
 
 func (pf *PIDFile) Remove() {

@@ -76,7 +76,7 @@ func TestDaemon_Start_LogFileOpenError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// daemon.go — Start removes PID file on exit (no handoff)
+// daemon.go — Start truncates (but keeps) PID file on exit (no handoff)
 // ---------------------------------------------------------------------------
 
 func TestDaemon_Start_RemovesPIDOnExit(t *testing.T) {
@@ -113,9 +113,19 @@ func TestDaemon_Start_RemovesPIDOnExit(t *testing.T) {
 
 	<-errCh
 
-	// PID file should be removed after normal exit.
-	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
-		t.Error("PID file should be removed after normal exit")
+	// PID file must still exist on disk after normal exit — removing it would
+	// allow a concurrent Acquire() to create a new inode and bypass the flock.
+	// The file should be empty (truncated) so it is visually clean.
+	data, err := os.ReadFile(pidPath)
+	if os.IsNotExist(err) {
+		t.Error("PID file must not be deleted on exit (would break flock guard for concurrent starters)")
+		return
+	}
+	if err != nil {
+		t.Fatalf("reading pid file: %v", err)
+	}
+	if len(strings.TrimSpace(string(data))) != 0 {
+		t.Errorf("PID file should be empty after exit, got %q", string(data))
 	}
 }
 

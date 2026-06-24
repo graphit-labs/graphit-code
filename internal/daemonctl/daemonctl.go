@@ -20,7 +20,27 @@ func PIDFilePath() string  { return filepath.Join(DaemonDir(), "daemon.pid") }
 func PortFilePath() string { return filepath.Join(DaemonDir(), "mcp.port") }
 func KeyFilePath() string  { return filepath.Join(DaemonDir(), "mcp.key") }
 
+func spawnLockPath() string { return filepath.Join(DaemonDir(), ".spawn.lock") }
+
 func EnsureRunning() (bool, error) {
+	if err := os.MkdirAll(DaemonDir(), 0o755); err != nil {
+		return false, err
+	}
+
+	sf, lockErr := os.OpenFile(spawnLockPath(), os.O_CREATE|os.O_RDWR, 0o600)
+	if lockErr == nil {
+		if err := flockExclusiveBlocking(sf); err != nil {
+			_ = sf.Close()
+			sf = nil
+		}
+	}
+	if sf != nil {
+		defer func() {
+			flockProbeRelease(sf)
+			_ = sf.Close()
+		}()
+	}
+
 	if isDaemonLocked() {
 		return false, nil
 	}
