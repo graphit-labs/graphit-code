@@ -118,6 +118,10 @@ func RuleContent(contexts []string) string {
 		"| You **solve a complicated multi-step problem** | Store the full solution | "+memInsertRef+" with `title: \"<problem → solution>\"`, `type: \"skill\"`, `important: true`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
 		"| You debug a non-obvious issue successfully | Save as a skill | "+memInsertRef+" with `title: \"<solution>\"`, `type: \"skill\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
 		"| User reveals a non-obvious project fact | Store the fact | "+memInsertRef+" with `title: \"<fact>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You **analyze or reason about how the system works** — while reading code, tracing call flows, or understanding a module | Store the insight immediately | "+memInsertRef+" with `title: \"<insight about system>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You **read code and infer a non-obvious pattern, convention, or architectural principle** | Store it as a fact | "+memInsertRef+" with `title: \"<pattern/principle>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You **understand why something is implemented a certain way** (even without the user explaining it) | Store as a decision or fact | "+memInsertRef+" with `title: \"<why X is done Y way>\"`, `type: \"decision\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
+		"| You **investigate a non-obvious behavior, side effect, or dependency** and understand it | Store the finding | "+memInsertRef+" with `title: \"<behavior/dependency understood>\"`, `type: \"fact\"`, `content: \"What: ...\\nWhy: ...\\nHow: ...\\nImpact: ...\"` |",
 		"| New instruction contradicts existing memory | Replace the memory | "+memDeleteRef+" with `id: \"<old-id>\"` then "+memInsertRef+" with `title: \"<new>\"` |",
 		"| Memory is >30 days old and still relevant | Refresh it | `"+memUpdate+"` with `id: \"<id>\"`, `content: \"<refreshed>\"` |",
 		"",
@@ -247,6 +251,8 @@ func RuleContent(contexts []string) string {
 		"5. **Handle contradictions.** Remove old + create new. Don't leave conflicting memories.",
 		"6. **Promote critical memories.** Conventions, corrections, and constraints should be marked important.",
 		"7. **NEVER just say \"understood\" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate whether it should be memorized. If it contains a convention, preference, correction, workflow, fact, or any persistent knowledge, create a memory immediately. Only skip memorization if the instruction is purely about an ephemeral, one-shot action with no future relevance.",
+		"8. **Memorize your own reasoning about the system.** When you read code, trace a call flow, or analyze how a module works, you MUST create a memory of what you learned. This includes: how components interact, why something behaves unexpectedly, what a non-obvious function does, and any pattern or constraint you discover independently — even without the user saying anything.",
+		"9. **Never discard an insight.** If you understood something non-trivial while analyzing the system, store it. The next session will start blind — your analysis notes must be externalized into memory to survive.",
 	)
 
 	return strings.Join(lines, "\n") + "\n"
@@ -287,6 +293,10 @@ func MandateTrigger() string {
 - **User explains ANYTHING** — a procedure, tip, how something works, a decision rationale, architecture detail, domain knowledge, a constraint, or any context about the project or system → **memorize immediately as a skill, decision, or context entry**
 - You discover something unexpected or make a design decision → store as skill/decision
 - New instruction contradicts existing memory → replace it
+- **You analyze or reason about how the system works** — while reading code, investigating behavior, tracing call flows, or understanding a module → **memorize the insight immediately as a fact or skill**
+- **You read code and infer a pattern, convention, or architectural principle** that is not obvious from the surface → store it as a fact
+- **You understand why something is implemented a certain way** (even without the user explaining it) → store the reasoning as a decision or fact
+- **You investigate a non-obvious behavior, side effect, or dependency** → store the finding so the next session starts informed
 
 ### Read triggers (consult memory before acting):
 - **Before implementing** any significant change → check for constraints and decisions
@@ -312,6 +322,8 @@ func MandateTrigger() string {
 - **NEVER just say "understood".** Evaluate if the user's instruction should be memorized.
 - **If the user explains something — anything — memorize it.** This includes: how a system works, why a decision was made, what a component does, domain rules, architectural constraints, or any knowledge the user shares. Do NOT assume you will remember it. Create the memory immediately.
 - **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.
+- **Memorize your own reasoning about the system.** When you read code, trace a call flow, or analyze how a module works, create a memory of the insight. You will not remember it next session — externalize it now.
+- **Any non-trivial analysis you perform is a memory trigger.** Reading code and understanding it counts. Tracing behavior and inferring a rule counts. Discovering how two components interact counts. Store these findings immediately as facts.
 - **This framework IS your memory.** Never use IDE/model memory.
 `
 }
