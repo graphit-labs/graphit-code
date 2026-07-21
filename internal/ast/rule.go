@@ -595,62 +595,9 @@ func ASTRuleContent() string {
 var astSkillName = brand.SkillDirName("ast")
 
 func MandateTrigger() string {
-	astQueryRef := brand.MCPToolRef("ast", "query")
-	astSearchRef := brand.MCPToolRef("ast", "search")
-	astSourceRef := brand.MCPToolRef("ast", "source")
-	astSchemaRef := brand.MCPToolRef("ast", "schema")
-	syncRef := brand.MCPToolRef("sync")
-
 	return `
 # AST Code Exploration
-
-> The AST graph database is your **PRIMARY and FIRST** code analysis tool.
-> It is pre-indexed, faster, and more accurate than any text-based search.
-> **Detailed instructions, query cookbook, and Cypher patterns are in the ` + "`" + brand.SkillDirName("ast") + "`" + ` skill.**
-
-## Activation Triggers:
-
-- Finding where a function/class/method is defined
-- Finding who calls a function or uses a class
-- Understanding call hierarchy, inheritance chains, or import graphs
-- Assessing impact of a code change (refactoring analysis)
-- Finding unused code, high-complexity functions, or entry points
-- Understanding file structure or module relationships
-- Querying DML/database dependencies
-
-## ⚡ grep → AST Translation (ALWAYS use AST instead of grep)
-
-| Instead of this grep | Use this AST tool call (passing absolute ` + "`project_dir`" + ` parameter) |
-|---|---|
-| ` + "`grep_search: func myFunction`" + ` | ` + astQueryRef + ` with ` + "`" + `query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'myfunction' RETURN f.name, f.path, f.line_number, label(f) AS type"` + "`" + ` |
-| ` + "`grep_search: type MyStruct`" + ` | ` + astQueryRef + ` with ` + "`" + `query: "MATCH (n) WHERE toLower(n.name) CONTAINS 'mystruct' RETURN n.name, label(n) AS type, n.path"` + "`" + ` |
-| ` + "`grep_search: import \"package\"`" + ` | ` + astQueryRef + ` with ` + "`" + `query: "MATCH (f:File)-[:IMPORTS]->(m:Module) WHERE toLower(m.name) CONTAINS 'package' RETURN f.path"` + "`" + ` |
-| ` + "`grep -l \"keyword\" *.go`" + ` | ` + astSearchRef + ` with ` + "`query: \"keyword\"`" + ` |
-| ` + "`find ... -name \"*.go\" \\| xargs grep -l \"daemon\"`" + ` | ` + astSearchRef + ` with ` + "`query: \"daemon\"`" + ` |
-
-## Quick Reference (always active)
-
-- **Always use**: call ` + astQueryRef + ` tool (passing absolute ` + "`project_dir`" + `)
-- **Discover node labels**: call ` + astSchemaRef + ` tool (passing absolute ` + "`project_dir`" + `)
-- **Never guess names**: Ground with ` + "`toLower(n.name) CONTAINS toLower('keyword')`" + `
-- **Hybrid search (RECOMMENDED)**: call ` + astSearchRef + ` (passing absolute ` + "`project_dir`" + ` and ` + "`query`" + `). Combines BM25 FTS + semantic vector search via Reciprocal Rank Fusion (RRF). Supports ` + "`mode: \"hybrid\"`" + ` (default), ` + "`\"fts\"`" + `, or ` + "`\"semantic\"`" + `.
-- **Get source code (discovery)**: call ` + astSourceRef + ` (passing absolute ` + "`project_dir`" + ` and relative ` + "`path`" + `). Retrieves source from the graph when you discovered a file through AST. Supports ` + "`head`" + `/` + "`tail`" + ` (first/last N lines), ` + "`start_line`" + `/` + "`end_line`" + ` (line range), ` + "`entity`" + `/` + "`entity_type`" + ` (extract entity source by name), ` + "`pattern`" + `/` + "`regex`" + `/` + "`before`" + `/` + "`after`" + ` (grep-like search with context), and ` + "`line_numbers`" + `. If you already know the path, use your IDE's file-reading tools instead.
-- **One-shot: get metadata + full file source**: call ` + astQueryRef + ` with ` + "`" + `query: "MATCH (fn:Function {name: 'Validate'})<-[:CONTAINS]-(file:File) RETURN fn.name, fn.line_number, fn.end_line, file.path, file.source"` + "`" + `
-- **Reindex after changes**: call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + `) — fire-and-forget, do not wait
-
-## Property Quick Reference (always active — NEVER guess property names)
-
-- **File**: ` + "`path`" + `, ` + "`name`" + `, ` + "`relative_path`" + `, ` + "`is_dependency`" + `, ` + "`lang`" + `, ` + "`cluster`" + `, ` + "`source`" + `
-- **Entities** (Function, Class, Method, etc.): ` + "`uid`" + `, ` + "`name`" + `, ` + "`path`" + `, ` + "`line_number`" + `, ` + "`end_line`" + `, ` + "`docstring`" + `, ` + "`lang`" + `, ` + "`cyclomatic_complexity`" + `, ` + "`context`" + `, ` + "`context_type`" + `, ` + "`class_context`" + `, ` + "`is_dependency`" + `, ` + "`is_exported`" + `, ` + "`value`" + `, ` + "`is_stub`" + `, ` + "`entry_point_score`" + `, ` + "`cluster`" + `
-- **Module**: same as entities + ` + "`full_import_name`" + ` (no ` + "`class_context`" + `, ` + "`value`" + `, ` + "`entry_point_score`" + `)
-- **CALLS edge**: ` + "`source_file`" + `, ` + "`line_number`" + `, ` + "`full_call_name`" + `, ` + "`receiver_type`" + `
-- **IMPORTS edge**: ` + "`alias`" + `, ` + "`full_import_name`" + `, ` + "`imported_name`" + `, ` + "`line_number`" + `, ` + "`source_file`" + `
-
-## Key Rules
-
-- **AST BEFORE grep** — NEVER use grep/ripgrep for structural queries.
-- **Multi-label by default** — use ` + "`label(f) = 'Function' OR label(f) = 'Method'`" + `, never assume a single label.
-- **Complex investigation**: memory search → knowledge wiki → AST schema → hybrid search → Cypher queries → source code → hub for externals → synthesize yourself. See the full workflow in the ` + "`" + brand.SkillDirName("ast") + "`" + ` skill.
+Read and use the AST exploration skill instructions before performing any AST or code exploration operations. Always read the corresponding skill.
 `
 }
 
@@ -679,7 +626,7 @@ func InstallSkill(projectDir, ideName string) error {
 		}
 	}
 	skillContent := brand.ResolveModuleSkill("ast", ASTRuleContent())
-	frontmatter := "---\nname: " + astSkillName + "\ndescription: AST Code Exploration and structural analysis graph queries. Use this skill for ANY code analysis: finding functions, classes, callers, imports, inheritance, unused code, and refactoring impact. This is your PRIMARY tool — use it INSTEAD OF grep_search, ripgrep, or file-by-file reading for all structural code queries. Also use when spawning subagents that need to explore code.\n---\n\n"
+	frontmatter := "---\nname: " + astSkillName + "\ndescription: AST Code Exploration and structural analysis via graph database. Your PRIMARY and FIRST code analysis tool — use INSTEAD OF grep_search, ripgrep, or file-by-file reading for all structural queries. Use for: finding functions, classes, methods, callers, imports, inheritance, unused code, refactoring impact, entry points, cyclomatic complexity, DML/database dependencies, file structure, and module relationships. Also use when spawning subagents that need to explore code.\n---\n\n"
 	return ide.InstallManagedSkill(projectDir, ideName, astSkillName, frontmatter+skillContent)
 }
 

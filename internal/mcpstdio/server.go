@@ -72,11 +72,14 @@ func jsonResult(v any) (*mcp.CallToolResult, any, error) {
 	if err != nil {
 		return errResult(fmt.Errorf("marshal result: %w", err))
 	}
+	content := []mcp.Content{
+		&mcp.TextContent{Text: string(data)},
+	}
+	if ide.SysReminder != "" {
+		content = append(content, &mcp.TextContent{Text: ide.SysReminder})
+	}
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(data)},
-			&mcp.TextContent{Text: ide.SysReminder},
-		},
+		Content: content,
 	}, nil, nil
 }
 

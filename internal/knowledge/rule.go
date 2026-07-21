@@ -925,47 +925,9 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 var knowledgeSkillName = brand.SkillDirName("knowledge")
 
 func MandateTrigger() string {
-	syncRef := brand.MCPToolRef("sync")
-	searchRef := brand.MCPToolRef("knowledge", "search")
-	wikiSearchRef := brand.MCPToolRef("wiki", "search")
-	browseRef := brand.MCPToolRef("wiki", "browse")
-	xrefsRef := brand.MCPToolRef("wiki", "xrefs")
-	dotBrand := "." + brand.Brand
-
 	return `
 # Knowledge & Documentation
-
-> This module manages project documentation, knowledge wiki, and integration specs.
-> **Detailed instructions are in the ` + "`" + brand.SkillDirName("knowledge") + "`" + ` skill.**
-
-## Activation Triggers:
-
-- Understanding project features, architecture, decisions, or specifications
-- Creating, updating, or searching documentation
-- Working with external system integrations or API specifications
-- Searching for project knowledge (wiki, backlinks, provenance)
-- Discovering or documenting undocumented integrations
-
-## MANDATORY POST-CHANGE PROTOCOL — After ANY Code Change
-
-**After you modify, create, or delete ANY source file, you MUST:**
-
-1. Create/update task log at ` + "`docs/tasks/<task-name>.md`" + `
-2. Call the ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter) — **fire-and-forget: do NOT wait for sync to finish, continue working immediately**
-
-**Documentation is implicit in every task. A task without docs + sync is NOT complete.**
-
-## Quick Reference (always active)
-
-- **Wiki search**: call ` + searchRef + ` or ` + browseRef + ` to find project knowledge
-- **Deep consultation**: search with ` + searchRef + `, read the returned pages, follow [[wikilinks]] to expand context, call ` + xrefsRef + ` for cross-references, and synthesize the answer yourself
-- **Multi-source search**: call ` + wikiSearchRef + ` with ` + "`wikis: [\"project\", \"memory\"]`" + ` for cross-wiki results
-- **Cross-references**: call ` + xrefsRef + ` to find backlinks — pre-computed, zero-cost
-- **Task logs**: ` + "`docs/tasks/<task-name>.md`" + ` — log every task with full detail
-- **Sync after documentation changes**: call ` + syncRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter) — fire-and-forget, do not wait
-- **NEVER** read ` + dotBrand + `/knowledge/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
-- **NEVER** grep documentation files for project understanding — wiki search costs ~500 tokens vs grep scanning all files
-- **Hub search before integration**: call ` + brand.MCPToolRef("hub", "list") + ` tool (passing absolute ` + "`project_dir`" + ` parameter and ` + "`type: \"knowledge\"`" + `)
+Read and use the knowledge and documentation skill instructions before performing any documentation or knowledge operations. Always read the corresponding skill.
 `
 }
 
@@ -1006,7 +968,7 @@ func InstallSkill(projectDir, ideName string) error {
 	contexts := InstalledContexts()
 	skillContent := brand.ResolveModuleSkill("knowledge", KnowledgeRuleContent(contexts, docsDir))
 	descDocsRef := docsDir + "/"
-	frontmatter := "---\nname: " + knowledgeSkillName + "\ndescription: Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, you MUST create/update documentation in " + descDocsRef + " and run sync. Search the knowledge wiki BEFORE searching " + descDocsRef + " with grep. Use this skill whenever understanding project features, creating documentation, or working with integrations.\n---\n\n"
+	frontmatter := "---\nname: " + knowledgeSkillName + "\ndescription: Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, create/update task log in " + descDocsRef + "tasks/ and run sync. Search the knowledge wiki BEFORE grepping documentation files. Use when: understanding project features, architecture, decisions, or specifications; creating or updating documentation; working with external system integrations or API specs; searching for project knowledge, backlinks, or provenance; discovering or documenting undocumented integrations.\n---\n\n"
 	return ide.InstallManagedSkill(projectDir, ideName, knowledgeSkillName, frontmatter+skillContent)
 }
 

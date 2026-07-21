@@ -93,13 +93,19 @@ func TestJsonResult(t *testing.T) {
 	if parsed.Name != "test" || parsed.Count != 42 {
 		t.Errorf("parsed = %+v; want {Name:test Count:42}", parsed)
 	}
-	// Verify reminder is present (as separate content block)
-	if len(result.Content) < 2 {
-		t.Fatal("expected reminder content block")
-	}
-	reminder := result.Content[1].(*mcp.TextContent)
-	if !strings.Contains(reminder.Text, "_SYS_REMINDER") {
-		t.Error("expected _SYS_REMINDER in second content block")
+	// Verify reminder is present if SysReminder is not empty
+	if ide.SysReminder != "" {
+		if len(result.Content) < 2 {
+			t.Fatal("expected reminder content block")
+		}
+		reminder := result.Content[1].(*mcp.TextContent)
+		if !strings.Contains(reminder.Text, "_SYS_REMINDER") {
+			t.Error("expected _SYS_REMINDER in second content block")
+		}
+	} else {
+		if len(result.Content) != 1 {
+			t.Errorf("expected 1 content block, got %d", len(result.Content))
+		}
 	}
 }
 

@@ -261,70 +261,9 @@ func RuleContent(contexts []string) string {
 var memorySkillName = brand.SkillDirName("memory")
 
 func MandateTrigger() string {
-	memInsertRef := brand.MCPToolRef("memory", "insert")
-	memDeleteRef := brand.MCPToolRef("memory", "delete")
-	memSearchRef := brand.MCPToolRef("memory", "search")
-
-	memIndexRef := brand.MCPToolRef("memory", "index")
-	dotBrand := "." + brand.Brand
-
 	return `
 # Memory Management
-
-> Persistent memory across sessions. This framework IS your memory — no other exists.
-> **Full MCP tools reference, trigger table, and protocols are in the ` + "`" + brand.SkillDirName("memory") + "`" + ` skill.**
-
-## FIRST ACTION — Execute BEFORE Any Response
-
-**Execute IMMEDIATELY on every conversation start. Do NOT respond to the user first.**
-
-1. Call ` + memSearchRef + ` with context from the user's request to find relevant memories
-2. If relevant memories found, read the entity page(s) and follow their guidance
-3. Only then proceed with the user's request
-
-> If the memory wiki does not exist yet (new project), skip and proceed.
-
-## Activation Triggers:
-
-### Save triggers (memorize immediately):
-
-- Task completed, modified, or bug fixed → store what/why/how/impact
-- User corrects, guides, instructs, or repeats → memorize as correction/convention
-- **User explains ANYTHING** — a procedure, tip, how something works, a decision rationale, architecture detail, domain knowledge, a constraint, or any context about the project or system → **memorize immediately as a skill, decision, or context entry**
-- You discover something unexpected or make a design decision → store as skill/decision
-- New instruction contradicts existing memory → replace it
-- **You analyze or reason about how the system works** — while reading code, investigating behavior, tracing call flows, or understanding a module → **memorize the insight immediately as a fact or skill**
-- **You read code and infer a pattern, convention, or architectural principle** that is not obvious from the surface → store it as a fact
-- **You understand why something is implemented a certain way** (even without the user explaining it) → store the reasoning as a decision or fact
-- **You investigate a non-obvious behavior, side effect, or dependency** → store the finding so the next session starts informed
-
-### Read triggers (consult memory before acting):
-- **Before implementing** any significant change → check for constraints and decisions
-- **When stuck**, failing repeatedly, or facing a non-obvious problem → search for past solutions
-- **Before proposing** architecture or a technical approach → check for prior decisions
-- When trying to **understand project context** → search for institutional knowledge
-- Memory management or maintenance tasks
-
-## Quick Reference (always active)
-
-- **Insert**: call ` + memInsertRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
-- **Delete**: call ` + memDeleteRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
-- **Search**: call ` + memSearchRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
-- **Scope**: scope:"project" (default) for project memories, scope:"user" for personal cross-project memories
-- **Deep consultation**: Search → browse referenced pages → follow wikilinks → synthesize the answer yourself
-- **NEVER** read ` + dotBrand + `/memory/*/index.md directly — MCP wiki is compiled, BM25-ranked, and pre-summarized
-- **Reindex**: After any write, auto-cycle runs. If it fails, call ` + memIndexRef + ` (passing absolute ` + "`project_dir`" + `)
-
-## Key Rules
-
-- **Read memory at session start.** Skipping = repeating past mistakes.
-- **Never leave a correction un-memorized.** Save immediately.
-- **NEVER just say "understood".** Evaluate if the user's instruction should be memorized.
-- **If the user explains something — anything — memorize it.** This includes: how a system works, why a decision was made, what a component does, domain rules, architectural constraints, or any knowledge the user shares. Do NOT assume you will remember it. Create the memory immediately.
-- **Before reporting results to the user**, always pause and evaluate: did you learn something, make a decision, discover a constraint, receive an instruction, or fix a non-obvious problem? If yes, memorize it FIRST, then respond.
-- **Memorize your own reasoning about the system.** When you read code, trace a call flow, or analyze how a module works, create a memory of the insight. You will not remember it next session — externalize it now.
-- **Any non-trivial analysis you perform is a memory trigger.** Reading code and understanding it counts. Tracing behavior and inferring a rule counts. Discovering how two components interact counts. Store these findings immediately as facts.
-- **This framework IS your memory.** Never use IDE/model memory.
+Read and use the memory skill instructions before performing any memory operations. Always read the corresponding skill.
 `
 }
 
@@ -354,7 +293,7 @@ func InstallSkill(projectDir, ideName string) error {
 	}
 	contexts := AllContextDirs()
 	skillContent := brand.ResolveModuleSkill("memory", RuleContent(contexts))
-	frontmatter := "---\nname: " + memorySkillName + "\ndescription: Persistent memory across sessions. MANDATORY: Read memory indexes at the START of every conversation before responding. Use when the user corrects you, teaches you something, or when you make design decisions. Also read memory when stuck or when implementing significant changes to check for prior constraints.\n---\n\n"
+	frontmatter := "---\nname: " + memorySkillName + "\ndescription: Persistent memory across sessions — this framework IS your memory. MANDATORY at conversation start: search memory before responding. Use when: user corrects, teaches, explains, instructs, or guides you; you complete a task, fix a bug, or make a design decision; you discover something unexpected or infer a non-obvious pattern; you are stuck or implementing significant changes (check prior constraints); memory maintenance (gc, consolidation, promote/demote).\n---\n\n"
 	return ide.InstallManagedSkill(projectDir, ideName, memorySkillName, frontmatter+skillContent)
 }
 

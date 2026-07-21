@@ -174,41 +174,9 @@ func HubRuleContent() string {
 var hubSkillName = brand.SkillDirName("hub")
 
 func MandateTrigger() string {
-	hubListRef := brand.MCPToolRef("hub", "list")
-	hubShowRef := brand.MCPToolRef("hub", "show")
-	hubInstallRef := brand.MCPToolRef("hub", "install")
-	hubUpdateRef := brand.MCPToolRef("hub", "update")
-	clusterRef := brand.MCPToolRef("cluster", "projects")
-	astQueryRef := brand.MCPToolRef("ast", "query")
-
 	return `
 # Hub Discovery
-
-> Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, powers and languages.
-> **Detailed instructions are in the ` + "`" + brand.SkillDirName("hub") + "`" + ` skill.**
-
-## Activation Triggers:
-
-- Working with a third-party library, framework, or API you haven't used in this session
-- Needing documentation or code examples for an external dependency
-- Looking for reusable rules, skills, commands, agents, or MCP servers
-- Setting up a new project or adding new dependencies
-- When ` + astQueryRef + ` returns no results for an external library (it might have a hub artifact)
-
-## Quick Reference (always active)
-
-- **Search**: call ` + hubListRef + ` tool
-- **Filter**: call ` + hubListRef + ` tool with ` + "`type`" + ` parameter
-- **Inspect**: call ` + hubShowRef + ` tool with ` + "`id`" + ` parameter
-- **Install**: call ` + hubInstallRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
-- **Update**: call ` + hubUpdateRef + ` tool (passing absolute ` + "`project_dir`" + ` parameter)
-- **Ecosystem**: call ` + clusterRef + ` tool to find sibling projects — query their AST/wiki using their project_dir
-
-## Critical Rule
-
-**NEVER guess APIs or structures.** If uncertain about a framework or library,
-check the Hub first: call ` + hubListRef + ` → ` + hubShowRef + ` → ` + hubInstallRef + `.
-After installing a knowledge artifact, search its wiki via MCP BEFORE coding.
+Read and use the Hub discovery skill instructions before performing any hub operations. Always read the corresponding skill.
 `
 }
 
@@ -238,10 +206,9 @@ func InstallSkill(projectDir, ideName string) error {
 	}
 
 	skillContent := brand.ResolveModuleSkill("hub", HubRuleContent())
-	frontmatter := "---\nname: " + hubSkillName + "\ndescription: Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, and powers. Use when working with external libraries, APIs, or frameworks to find pre-built knowledge artifacts. Check the hub BEFORE implementing integrations with unfamiliar systems. Also use to install/update artifacts and discover reusable components.\n---\n\n"
+	frontmatter := "---\nname: " + hubSkillName + "\ndescription: Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, powers, and languages. Use when: working with external libraries, APIs, or frameworks; needing documentation or code examples for a dependency; looking for reusable rules, skills, commands, or MCP servers; setting up a new project or adding dependencies; AST query returns no results for an external library. Check the hub BEFORE implementing integrations with unfamiliar systems. Also use to install/update artifacts, discover reusable components, and find sibling projects in the ecosystem.\n---\n\n"
 	return ide.InstallManagedSkill(projectDir, ideName, hubSkillName, frontmatter+skillContent)
 }
-
 
 func RemoveRule(projectDir, ideName string) error {
 	if projectDir == "" {

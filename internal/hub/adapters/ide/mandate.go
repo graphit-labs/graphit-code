@@ -133,14 +133,11 @@ func triggersInCanonicalOrder(fileContent string) bool {
 
 var MandateBlockName = strings.ToUpper(brand.Brand) + "_SYSTEM_MANDATE"
 
-var SysReminder = "\n\n_SYS_REMINDER: Mandate active: <" + brand.Brand + "> required and MCP-first. For project knowledge, use the knowledge MCP tools and follow [[wikilinks]]. For memories, use the memory MCP tools and follow [[wikilinks]]. Never read index.md and log.md directly. No grep for structure — use AST. If external, use Hub. If code changed, update docs. MEMORY: Any insight, pattern, or understanding you gain while analyzing or reading the system MUST be saved immediately as a memory — do not discard learnings."
+var SysReminder = ""
 
 func mandatePreamble() string {
-	tag := brand.Brand
 	return "You are the " + brand.Capitalize(brand.Brand) + " autonomous agent.\n" +
-		"Before ANY action, tool use, or code generation, you MUST produce <" + tag + "> evaluating all module rules below.\n" +
-		"Format: <" + tag + ">MEM:0|AST:0|HUB:0|DOC:0|IMP:0 — [action]</" + tag + ">\n" +
-		"Set a module flag to 1 when that module's rule applies to the current action.\n"
+		"Whenever you are about to perform any action, you MUST first read and use the corresponding skill. Always read the corresponding skill before proceeding.\n"
 }
 
 func mandateTag() string {
