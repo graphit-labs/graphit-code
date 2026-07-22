@@ -103,10 +103,8 @@ func TestJsonResult(t *testing.T) {
 		if !strings.Contains(reminder.Text, "_SYS_REMINDER") {
 			t.Error("expected _SYS_REMINDER in second content block")
 		}
-	} else {
-		if len(result.Content) != 1 {
-			t.Errorf("expected 1 content block, got %d", len(result.Content))
-		}
+	} else if len(result.Content) != 1 {
+		t.Errorf("expected 1 content block, got %d", len(result.Content))
 	}
 }
 

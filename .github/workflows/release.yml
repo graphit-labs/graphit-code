@@ -44,7 +44,7 @@ jobs:
         run: make vet
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12.2
           args: --timeout=5m
@@ -113,7 +113,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/lbug-cache
-          key: liblbug-linux-amd64-v0.13.1
+          key: liblbug-linux-amd64-v0.17.0
 
       - name: Build (Linux)
         run: |
@@ -183,7 +183,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/lbug-cache
-          key: liblbug-darwin-v0.13.1
+          key: liblbug-darwin-v0.17.0
 
       - name: Build (macOS)
         run: |
@@ -265,7 +265,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\cache\lbug
-          key: liblbug-windows-v0.13.1
+          key: liblbug-windows-v0.17.0
 
       - name: Build (Windows native)
         run: |

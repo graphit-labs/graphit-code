@@ -344,7 +344,7 @@ SOFTWARE.
 
 ### github.com/LadybugDB/go-ladybug
 
-- **Version:** v0.13.1
+- **Version:** v0.17.0
 - **License:** MIT
 
 ```

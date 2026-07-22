@@ -44,7 +44,7 @@ ORT_CACHE    := /tmp/onnxruntime-cache
 MODEL_REPO   := mrsladoje/CodeRankEmbed-onnx-int8
 MODEL_CACHE  := /tmp/coderankembed-cache
 
-LBUG_VERSION := v0.13.1
+LBUG_VERSION := v0.17.0
 LBUG_MOD     := $(shell go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)
 LBUG_CACHE   := /tmp/lbug-cache
 
@@ -328,42 +328,31 @@ setup-lbug:
 	@go mod download github.com/LadybugDB/go-ladybug
 	@chmod -R u+w "$(LBUG_MOD)" 2>/dev/null || true
 	@mkdir -p $(LBUG_CACHE)
+	@# go-ladybug v0.17.0 (cgo_bundled.go) expects a flat lib/ dir holding both
+	@# the header (lbug.h) and the shared library: -I${SRCDIR}/lib / -L${SRCDIR}/lib.
+	@# The release archives already bundle the header, so we extract them wholesale.
 	@for plat in $(LBUG_PLATFORMS); do \
 		case $$plat in \
 		linux-amd64) \
-			if [ ! -f "$(LBUG_MOD)/lib/dynamic/linux-amd64/liblbug.so" ]; then \
+			if [ ! -f "$(LBUG_MOD)/lib/liblbug.so" ] || [ ! -f "$(LBUG_MOD)/lib/lbug.h" ]; then \
 				echo "  → Downloading liblbug for linux-x86_64…"; \
-				mkdir -p "$(LBUG_MOD)/lib/dynamic/linux-amd64"; \
+				mkdir -p "$(LBUG_MOD)/lib"; \
 				curl -sSL "https://github.com/LadybugDB/ladybug/releases/latest/download/liblbug-linux-x86_64.tar.gz" -o "$(LBUG_CACHE)/liblbug-linux-x86_64.tar.gz"; \
-				rm -rf "$(LBUG_CACHE)/linux-amd64" && mkdir -p "$(LBUG_CACHE)/linux-amd64"; \
-				tar xzf "$(LBUG_CACHE)/liblbug-linux-x86_64.tar.gz" -C "$(LBUG_CACHE)/linux-amd64"; \
-				find "$(LBUG_CACHE)/linux-amd64" -name "liblbug.so" -exec cp -L {} "$(LBUG_MOD)/lib/dynamic/linux-amd64/" \; ; \
+				tar xzf "$(LBUG_CACHE)/liblbug-linux-x86_64.tar.gz" -C "$(LBUG_MOD)/lib"; \
 			fi ;; \
 		darwin) \
-			if [ ! -f "$(LBUG_MOD)/lib/dynamic/darwin/liblbug.dylib" ]; then \
-				echo "  → Downloading liblbug for darwin (arm64 + x86_64)…"; \
-				mkdir -p "$(LBUG_MOD)/lib/dynamic/darwin"; \
+			if [ ! -f "$(LBUG_MOD)/lib/liblbug.dylib" ] || [ ! -f "$(LBUG_MOD)/lib/lbug.h" ]; then \
+				echo "  → Downloading liblbug for darwin-arm64…"; \
+				mkdir -p "$(LBUG_MOD)/lib"; \
 				curl -sSL "https://github.com/LadybugDB/ladybug/releases/latest/download/liblbug-osx-arm64.tar.gz" -o "$(LBUG_CACHE)/liblbug-osx-arm64.tar.gz"; \
-				curl -sSL "https://github.com/LadybugDB/ladybug/releases/latest/download/liblbug-osx-x86_64.tar.gz" -o "$(LBUG_CACHE)/liblbug-osx-x86_64.tar.gz"; \
-				rm -rf "$(LBUG_CACHE)/darwin-arm64" "$(LBUG_CACHE)/darwin-x86_64"; \
-				mkdir -p "$(LBUG_CACHE)/darwin-arm64" "$(LBUG_CACHE)/darwin-x86_64"; \
-				tar xzf "$(LBUG_CACHE)/liblbug-osx-arm64.tar.gz" -C "$(LBUG_CACHE)/darwin-arm64"; \
-				tar xzf "$(LBUG_CACHE)/liblbug-osx-x86_64.tar.gz" -C "$(LBUG_CACHE)/darwin-x86_64"; \
-				if command -v lipo >/dev/null 2>&1; then \
-					lipo -create "$(LBUG_CACHE)/darwin-arm64/liblbug.dylib" "$(LBUG_CACHE)/darwin-x86_64/liblbug.dylib" \
-						-output "$(LBUG_MOD)/lib/dynamic/darwin/liblbug.dylib"; \
-				else \
-					cp -L "$(LBUG_CACHE)/darwin-x86_64/liblbug.dylib" "$(LBUG_MOD)/lib/dynamic/darwin/liblbug.dylib"; \
-				fi; \
+				tar xzf "$(LBUG_CACHE)/liblbug-osx-arm64.tar.gz" -C "$(LBUG_MOD)/lib"; \
 			fi ;; \
 		windows) \
-			if [ ! -f "$(LBUG_MOD)/lib/dynamic/windows/lbug_shared.dll" ]; then \
+			if [ ! -f "$(LBUG_MOD)/lib/lbug_shared.dll" ] || [ ! -f "$(LBUG_MOD)/lib/lbug.h" ]; then \
 				echo "  → Downloading liblbug for windows-x86_64…"; \
-				mkdir -p "$(LBUG_MOD)/lib/dynamic/windows"; \
+				mkdir -p "$(LBUG_MOD)/lib"; \
 				curl -sSL "https://github.com/LadybugDB/ladybug/releases/latest/download/liblbug-windows-x86_64.zip" -o "$(LBUG_CACHE)/liblbug-windows-x86_64.zip"; \
-				rm -rf "$(LBUG_CACHE)/windows" && mkdir -p "$(LBUG_CACHE)/windows"; \
-				unzip -qo "$(LBUG_CACHE)/liblbug-windows-x86_64.zip" -d "$(LBUG_CACHE)/windows"; \
-				find "$(LBUG_CACHE)/windows" -name "lbug_shared.dll" -exec cp -L {} "$(LBUG_MOD)/lib/dynamic/windows/" \; ; \
+				unzip -qo "$(LBUG_CACHE)/liblbug-windows-x86_64.zip" -d "$(LBUG_MOD)/lib"; \
 			fi ;; \
 		*) echo "  ⚠ Unknown platform: $$plat" ;; \
 		esac; \
@@ -473,7 +462,7 @@ build-linux: ui setup-lbug fetch-ort-linux fetch-model
 	@mkdir -p cmd/launcher/runtime
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
-	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug*/lib/dynamic/linux-amd64 -name "liblbug.so" -exec cp -L {} cmd/launcher/runtime/ \;
+	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)/lib -maxdepth 1 -name "liblbug.so" -exec cp -L {} cmd/launcher/runtime/ \;
 	cd cmd/launcher/runtime && cp liblbug.so liblbug.so.0
 	find /usr/lib /lib -name "libicu*.so.[0-9]*" -exec cp -L {} cmd/launcher/runtime/ \; 2>/dev/null || true
 	rm -f cmd/launcher/runtime/*.so.*.*
@@ -488,7 +477,7 @@ build-darwin: ui setup-lbug fetch-ort-darwin fetch-model
 	@mkdir -p cmd/launcher/runtime
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core $(CMD)
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp ./cmd/mcp
-	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug*/lib/dynamic/darwin -name "liblbug.dylib" -exec cp -L {} cmd/launcher/runtime/ \;
+	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)/lib -maxdepth 1 -name "liblbug.dylib" -exec cp -L {} cmd/launcher/runtime/ \;
 	cd cmd/launcher/runtime && cp liblbug.dylib liblbug.0.dylib
 	find /opt/homebrew/opt/icu4c/lib /usr/local/opt/icu4c/lib -name "libicu*.[0-9]*.dylib" -exec cp -L {} cmd/launcher/runtime/ \; 2>/dev/null || true
 	rm -f cmd/launcher/runtime/*.*.*.dylib
@@ -503,7 +492,7 @@ build-windows: ui setup-lbug fetch-ort-windows fetch-model
 	@mkdir -p cmd/launcher/runtime
 	CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ CGO_CFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_CXXFLAGS="-I/usr/x86_64-w64-mingw32/icu/include -I/usr/include" CGO_LDFLAGS="-L/usr/x86_64-w64-mingw32/icu/lib -licuuc -licuin -licudt -lstdc++ -static-libgcc -static-libstdc++" GOOS=windows GOARCH=amd64 CGO_ENABLED=1 go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcp
-	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug*/lib/dynamic/windows -name "lbug_shared.dll" -exec cp -L {} cmd/launcher/runtime/ \;
+	find $$(go env GOPATH)/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)/lib -maxdepth 1 -name "lbug_shared.dll" -exec cp -L {} cmd/launcher/runtime/ \;
 	find /usr/x86_64-w64-mingw32 -name "*.dll" -exec cp -L {} cmd/launcher/runtime/ \; 2>/dev/null || true
 	cp -L $(ORT_CACHE)/onnxruntime-win-x64-$(ORT_VERSION)/lib/onnxruntime.dll cmd/launcher/runtime/
 	$(call bundle_model)
@@ -516,7 +505,7 @@ build-windows-native: ui setup-lbug fetch-ort-windows fetch-model
 	@mkdir -p cmd/launcher/runtime
 	CGO_ENABLED=1 CGO_CFLAGS="-I/mingw64/include" CGO_CXXFLAGS="-I/mingw64/include" CGO_LDFLAGS="-L/mingw64/lib -licuuc -licuin -licudt -lstdc++" go build -tags "$(BUILD_TAGS)" -ldflags "$(LDFLAGS)" -o cmd/launcher/runtime/$(BRAND)-core.exe $(CMD)
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS) -s -w" -o cmd/launcher/runtime/$(BRAND)-mcp.exe ./cmd/mcp
-	GOPATH_UNIX=$$(cygpath -u "$$(go env GOPATH)") && find $$GOPATH_UNIX/pkg/mod/github.com/!ladybug!d!b/go-ladybug*/lib/dynamic/windows -name "lbug_shared.dll" -exec cp -L {} cmd/launcher/runtime/ \;
+	GOPATH_UNIX=$$(cygpath -u "$$(go env GOPATH)") && find $$GOPATH_UNIX/pkg/mod/github.com/!ladybug!d!b/go-ladybug@$(LBUG_VERSION)/lib -maxdepth 1 -name "lbug_shared.dll" -exec cp -L {} cmd/launcher/runtime/ \;
 	cp /mingw64/bin/libicuuc*.dll cmd/launcher/runtime/ 2>/dev/null || true
 	cp /mingw64/bin/libicuin*.dll cmd/launcher/runtime/ 2>/dev/null || true
 	cp /mingw64/bin/libicudt*.dll cmd/launcher/runtime/ 2>/dev/null || true
@@ -536,7 +525,7 @@ build-all: build-linux build-darwin build-windows
 
 
 test: setup-lbug
-	@LBUG_LIB="$(LBUG_MOD)/lib/dynamic/linux-amd64"; \
+	@LBUG_LIB="$(LBUG_MOD)/lib"; \
 	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
 		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \
 	fi; \
