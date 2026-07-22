@@ -131,6 +131,39 @@ func triggersInCanonicalOrder(fileContent string) bool {
 	return true
 }
 
+// ModuleMandateTrigger builds a standardized mandate trigger block for a
+// module. The block enforces MCP-tool priority over the model's native tools,
+// forbids CLI usage, and requires the agent to read the module skill before
+// acting. alwaysClause, when non-empty, adds an unconditional "always use this
+// skill" directive (used for the memory and AST modules).
+//
+// IMPORTANT: the returned content is embedded inside <triggerTag>...</triggerTag>
+// in AGENTS.md and is parsed by parseTriggers, which treats any <word> as a tag.
+// Therefore this text MUST NOT contain angle-bracket pseudo-tags.
+func ModuleMandateTrigger(heading, skillName, domain, alwaysClause string) string {
+	var b strings.Builder
+	b.WriteString("\n# ")
+	b.WriteString(heading)
+	b.WriteString("\n")
+	b.WriteString("MCP-FIRST — NON-NEGOTIABLE: for any ")
+	b.WriteString(domain)
+	b.WriteString(" task the ")
+	b.WriteString(brand.Brand)
+	b.WriteString(" MCP tools take ABSOLUTE PRECEDENCE over your built-in/native tools. ")
+	b.WriteString("Use them via MCP ONLY — NEVER via the CLI, and NEVER substitute them with your own native tooling (grep, ripgrep, file search, native memory/recall, web search, code symbols) when an MCP tool exists for the job.\n")
+	b.WriteString("You MUST read and follow the `")
+	b.WriteString(skillName)
+	b.WriteString("` skill BEFORE performing any ")
+	b.WriteString(domain)
+	b.WriteString(" operation, and use exactly the MCP tools it prescribes.\n")
+	if alwaysClause != "" {
+		b.WriteString(alwaysClause)
+		b.WriteString("\n")
+	}
+	b.WriteString("Bypassing, skipping, or short-circuiting these tools — or falling back to native tools without meeting the skill's explicit fallback conditions — is a framework integrity violation.\n")
+	return b.String()
+}
+
 var MandateBlockName = strings.ToUpper(brand.Brand) + "_SYSTEM_MANDATE"
 
 var SysReminder = ""

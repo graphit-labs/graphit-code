@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -355,5 +356,74 @@ func TestNopWriteCloser(t *testing.T) {
 
 	if err := wc.Close(); err != nil {
 		t.Errorf("Close() error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// hub type-path MCP tool
+// ---------------------------------------------------------------------------
+
+func TestHubTypePathTool(t *testing.T) {
+	ctx := context.Background()
+
+	server := NewServer()
+	clientT, serverT := mcp.NewInMemoryTransports()
+
+	ss, err := server.Connect(ctx, serverT, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	defer func() { _ = ss.Close() }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "0"}, nil)
+	cs, err := client.Connect(ctx, clientT, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = cs.Close() }()
+
+	toolName := brand.MCPToolName("hub", "type-path")
+
+	// 1. The tool must be registered.
+	list, err := cs.ListTools(ctx, nil)
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	found := false
+	for _, tl := range list.Tools {
+		if tl.Name == toolName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected tool %q to be registered", toolName)
+	}
+
+	// 2. Calling it must return a path for the requested skill/name.
+	dir := t.TempDir()
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name: toolName,
+		Arguments: map[string]any{
+			"project_dir": dir,
+			"type":        "skill",
+			"name":        "my-error-patterns",
+			"ide":         "claude",
+		},
+	})
+	if err != nil {
+		t.Fatalf("call tool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error result: %+v", res.Content)
+	}
+	var out string
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			out += tc.Text
+		}
+	}
+	if !strings.Contains(out, "my-error-patterns") {
+		t.Errorf("expected path to contain artifact name, got %q", out)
 	}
 }

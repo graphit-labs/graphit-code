@@ -162,7 +162,7 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 
 	b.WriteString("#### Skill Crystallization Protocol\n\n")
 	b.WriteString("For each candidate pattern from Phase 2 with ≥2 occurrences:\n\n")
-	_, _ = fmt.Fprintf(&b, "1. Resolve the artifact path: `%s hub type-path skill <name>`\n", brand.BinName())
+	_, _ = fmt.Fprintf(&b, "1. Resolve the artifact path by calling the `%s` MCP tool (type=skill, name=<name>) — never the CLI\n", brand.MCPToolName("hub", "type-path"))
 	b.WriteString("2. Create `SKILL.md` following this structure:\n")
 	b.WriteString("   - **Name & Description** (frontmatter)\n")
 	b.WriteString("   - **Activation Triggers** — when should the agent read this skill?\n")

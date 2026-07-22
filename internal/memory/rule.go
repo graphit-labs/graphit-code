@@ -73,6 +73,48 @@ func RuleContent(contexts []string) string {
 		"- **ALWAYS** read the memory wiki to recall — never rely on what you \"think you know\".",
 		"- This applies to ALL persistent facts: conventions, corrections, decisions, preferences.",
 		"",
+		"## 🔒 MANDATORY: Memory MCP Tools REPLACE Your Native Recall",
+		"",
+		"> **The " + brand.Brand + " memory MCP tools are your PRIMARY and ONLY mechanism for",
+		"> persisting and recalling knowledge across sessions.** They take ABSOLUTE",
+		"> PRECEDENCE over any built-in/native memory, recall, or \"remember\" feature of",
+		"> your model or IDE. Use them via MCP ONLY — NEVER via the CLI, and NEVER",
+		"> substitute them with your own recall.",
+		"",
+		"### Why this replaces your tools",
+		"",
+		"| Your tool | Memory MCP equivalent | Why the MCP tool wins |",
+		"|---|---|---|",
+		"| Model/native \"memory\" or recall | Call " + memSearchRef + ", then read the wiki page | Native memory is ephemeral and per-session; the wiki survives across sessions and agents |",
+		"| Remembering facts \"in your head\" | Call " + memInsertRef + " to persist | Your context is wiped between sessions — unpersisted knowledge is lost |",
+		"| `grep`/ripgrep over memory `.md` files | Call " + memSearchRef + " | BM25-ranked, pre-compiled (~200 tokens) vs scanning raw files |",
+		"| Reading `.graphit/memory/*/index.md` directly | Call " + memSearchRef + " or `" + memList + "` | The wiki is compiled and ranked; raw reads bypass ranking and waste tokens |",
+		"",
+		"### 🔒 When you MUST use the memory MCP tools (MANDATORY — no exceptions)",
+		"",
+		"| Scenario | What to do | What NOT to do |",
+		"|---|---|---|",
+		"| **Recalling any project knowledge** | Call " + memSearchRef + " → read the page | ❌ Don't answer from model memory or guess |",
+		"| **Persisting a fact/decision/correction** | Call " + memInsertRef + " | ❌ Don't rely on native/model memory to \"remember\" |",
+		"| **Listing what is known** | Call `" + memList + "` / `" + memImportant + "` | ❌ Don't `ls`/read the memory directory |",
+		"| **Replacing an outdated memory** | Call " + memDeleteRef + " then " + memInsertRef + " | ❌ Don't edit `.md` files directly |",
+		"",
+		"### 🔄 Fallback — There Is NO Fallback for Memory",
+		"",
+		"There is **no built-in alternative** to this framework's memory. You MUST NOT use",
+		"model-native memory, IDE memory, or any external scratchpad. The ONLY acceptable",
+		"action when the memory MCP tools are genuinely unavailable is to state explicitly",
+		"to the user: \"The memory MCP tools are unavailable, so I cannot persist/recall this now.\"",
+		"",
+		"### ❌ Anti-patterns (violations of this protocol)",
+		"",
+		"| Anti-pattern | Why it is a violation |",
+		"|---|---|",
+		"| Answering project questions from model memory | Model memory is stale/ephemeral; the wiki is the source of truth |",
+		"| Using the CLI (`" + brand.Brand + " memory ...`) instead of MCP tools | Agent-facing work MUST go through MCP tools, never the CLI |",
+		"| `grep`-ing raw `.md` memory files | Bypasses BM25 ranking and compiled summaries; wastes tokens |",
+		"| Saying \"I'll remember that\" without calling " + memInsertRef + " | The knowledge is lost at session end — it was never persisted |",
+		"",
 		"## 🎯 Trigger → Action Table",
 		"",
 		"**When you observe a trigger, execute the corresponding action immediately.**",
@@ -261,10 +303,12 @@ func RuleContent(contexts []string) string {
 var memorySkillName = brand.SkillDirName("memory")
 
 func MandateTrigger() string {
-	return `
-# Memory Management
-Read and use the memory skill instructions before performing any memory operations. Always read the corresponding skill.
-`
+	return ide.ModuleMandateTrigger(
+		"Memory Management",
+		memorySkillName,
+		"memory",
+		"ALWAYS consult this skill: search memory at session start BEFORE your first response, and again before implementing changes, proposing an approach, or when stuck. This is unconditional — there is no \"only if relevant\" escape. This framework IS your memory; NEVER use IDE/model native memory.",
+	)
 }
 
 func InstallRule(projectDir, ideName string) error {

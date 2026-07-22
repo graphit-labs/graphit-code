@@ -32,6 +32,10 @@ func ASTRuleContent() string {
 		"every function, class, method, variable, import, call relationship, and",
 		"containment hierarchy — pre-indexed and instantly queryable.",
 		"",
+		"> **Access it via the AST MCP tools ONLY — NEVER via the CLI.** These MCP tools",
+		"> take ABSOLUTE PRECEDENCE over your native/built-in code tools whenever a",
+		"> structural query is possible.",
+		"",
 		"### Why this replaces your tools",
 		"",
 		"| Your tool | AST equivalent | Why AST wins |",
@@ -595,10 +599,12 @@ func ASTRuleContent() string {
 var astSkillName = brand.SkillDirName("ast")
 
 func MandateTrigger() string {
-	return `
-# AST Code Exploration
-Read and use the AST exploration skill instructions before performing any AST or code exploration operations. Always read the corresponding skill.
-`
+	return ide.ModuleMandateTrigger(
+		"AST Code Exploration",
+		astSkillName,
+		"code exploration or structural analysis",
+		"ALWAYS consult this skill: query the AST graph FIRST for any code search, navigation, callers/callees, imports, inheritance, or structural analysis, BEFORE using grep/ripgrep/semantic search/file-by-file reading. This is unconditional — there is no \"only if relevant\" escape.",
+	)
 }
 
 func InstallRule(projectDir, ideName string) error {

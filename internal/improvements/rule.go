@@ -26,10 +26,12 @@ func ImprovementsRuleContent() string {
 var improvementsSkillName = brand.SkillDirName("improvements")
 
 func MandateTrigger() string {
-	return `
-# Code Improvement Methodology
-Read and use the improvements skill instructions before performing any improvement, audit, or reflection operations. Always read the corresponding skill.
-`
+	return ide.ModuleMandateTrigger(
+		"Code Improvement Methodology",
+		improvementsSkillName,
+		"improvement, audit, review, refactor, or post-task reflection",
+		"During analysis and the mandatory post-task reflection, all memory, knowledge, and hub lookups MUST go through the graphit MCP tools — never the CLI.",
+	)
 }
 
 func InstallRule(projectDir, ideName string) error {

@@ -12,6 +12,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
 type hubListInput struct {
@@ -83,6 +84,13 @@ type hubUnlinkInput struct {
 
 type hubProjectsInput struct {
 	AiOptimized *bool `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+}
+
+type hubTypePathInput struct {
+	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	Type       string `json:"type" jsonschema:"Artifact type: skill, rule, command, agent, mcp (required)"`
+	Name       string `json:"name" jsonschema:"Artifact name (required)"`
+	IDE        string `json:"ide,omitempty" jsonschema:"Target IDE (claude, cursor, gemini, etc.)"`
 }
 
 func registerHubTools(server *mcp.Server) {
@@ -376,5 +384,23 @@ func registerHubTools(server *mcp.Server) {
 			return toonResult(projects)
 		}
 		return jsonResult(projects)
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("hub", "type-path"),
+		Description: "Resolve the absolute path where an artifact of a given type and name should be created for the current IDE. Use this (not the CLI) before writing a new skill, rule, command, or agent.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubTypePathInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDir(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+
+		resolvedIDE := resolveIDEFromProject(input.IDE, projectDir)
+
+		typePath, err := ide.ArtifactTypePath(projectDir, resolvedIDE, strings.ToLower(input.Type), input.Name)
+		if err != nil {
+			return errResult(err)
+		}
+		return textResult(typePath)
 	}))
 }

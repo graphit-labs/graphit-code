@@ -131,6 +131,8 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"> questions about this project's architecture, decisions, specs, or conventions.**",
 		"> **ALWAYS consult the wiki FIRST. Only fall back to source code when the wiki",
 		"> explicitly points you there via provenance links.**",
+		"> **Access it via the knowledge/wiki MCP tools ONLY — NEVER via the CLI.** These",
+		"> MCP tools take ABSOLUTE PRECEDENCE over your native/built-in search tools.",
 		"",
 		"### Why this replaces your tools",
 		"",
@@ -925,10 +927,12 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 var knowledgeSkillName = brand.SkillDirName("knowledge")
 
 func MandateTrigger() string {
-	return `
-# Knowledge & Documentation
-Read and use the knowledge and documentation skill instructions before performing any documentation or knowledge operations. Always read the corresponding skill.
-`
+	return ide.ModuleMandateTrigger(
+		"Knowledge & Documentation",
+		knowledgeSkillName,
+		"documentation or project-knowledge",
+		"Search the knowledge wiki via MCP tools BEFORE grepping or reading docs directly. After ANY code change you MUST update the task log and run sync via MCP — a task without docs + sync is NOT complete.",
+	)
 }
 
 func resolveDocsDirFromProject(projectDir string) string {

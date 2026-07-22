@@ -1963,3 +1963,51 @@ func TestUpsertMandateTrigger_Idempotent(t *testing.T) {
 			string(data1), string(data2))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ModuleMandateTrigger
+// ---------------------------------------------------------------------------
+
+func TestModuleMandateTrigger(t *testing.T) {
+	t.Parallel()
+
+	t.Run("contains priority and no-bypass markers", func(t *testing.T) {
+		t.Parallel()
+		got := ModuleMandateTrigger("Memory Management", "graphit-memory", "memory", "")
+		for _, want := range []string{
+			"MCP-FIRST",
+			"ABSOLUTE PRECEDENCE",
+			"NEVER via the CLI",
+			"graphit-memory",
+			"framework integrity violation",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("expected trigger to contain %q, got:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("always clause included when provided", func(t *testing.T) {
+		t.Parallel()
+		got := ModuleMandateTrigger("AST", "graphit-ast", "code exploration", "ALWAYS consult this skill.")
+		if !strings.Contains(got, "ALWAYS consult this skill.") {
+			t.Errorf("expected always clause in output, got:\n%s", got)
+		}
+	})
+
+	t.Run("output is parser-safe (no pseudo-tags)", func(t *testing.T) {
+		t.Parallel()
+		// The trigger is embedded inside <mem_rule>...</mem_rule>; parseTriggers
+		// must recover exactly one trigger and its content unchanged.
+		content := ModuleMandateTrigger("Memory Management", "graphit-memory", "memory",
+			"ALWAYS consult this skill: search memory at session start.")
+		inner := "<mem_rule>" + content + "</mem_rule>"
+		got := parseTriggers(inner)
+		if len(got) != 1 {
+			t.Fatalf("expected exactly 1 trigger, got %d: %v", len(got), got)
+		}
+		if got["mem_rule"] != content {
+			t.Errorf("content mangled by parser:\ngot:  %q\nwant: %q", got["mem_rule"], content)
+		}
+	})
+}

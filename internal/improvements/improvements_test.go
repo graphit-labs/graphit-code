@@ -158,3 +158,32 @@ func TestGetwdErrorBranches(t *testing.T) {
 	}
 }
 
+
+func TestImprovementsRuleUsesMCPNotCLI(t *testing.T) {
+	content := ImprovementsRuleContent()
+
+	// No agent-facing CLI invocations may remain — everything goes through MCP.
+	cliPatterns := []string{
+		"graphit memory ",
+		"graphit hub ",
+		"graphit sync",
+		"graphit ast ",
+	}
+	for _, p := range cliPatterns {
+		if strings.Contains(content, p) {
+			t.Errorf("improvements skill still references CLI command %q — must use MCP tools", p)
+		}
+	}
+
+	// The MCP tool names must be present instead.
+	for _, want := range []string{
+		"graphit_memory_search",
+		"graphit_memory_insert",
+		"graphit_hub_type-path",
+		"graphit_hub_submit",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("improvements skill should reference MCP tool %q", want)
+		}
+	}
+}

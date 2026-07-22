@@ -5,7 +5,8 @@
     "description": "Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems"
   },
   "ides": [
-    "antigravity"
+    "antigravity",
+    "kiro"
   ],
   "artifacts": {},
   "config": {
