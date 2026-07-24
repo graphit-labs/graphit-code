@@ -2,12 +2,12 @@ package ast
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -16,21 +16,81 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
-func CopyDBDir(src, dst string) error {
-	_ = os.RemoveAll(dst)
+// errReflinkUnsupported signals that a copy-on-write clone is unavailable
+// (non-Linux, non-reflink filesystem, or a non-regular file), so CopyDBDir must
+// fall back to a portable byte copy.
+var errReflinkUnsupported = errors.New("reflink clone unsupported")
 
-	if runtime.GOOS == "linux" {
-		cmd := exec.Command("cp", "-a", "--reflink=auto", src, dst)
-		if err := cmd.Run(); err == nil {
-			return nil
+// CopyDBDir copies the LadybugDB store (a single file on liblbug 0.18.2; a
+// directory tree is also handled) from src to dst. It prefers a copy-on-write
+// reflink clone on Linux (near-instant on btrfs/XFS) and otherwise does a
+// portable native byte copy. Implemented in pure Go — no `cp` subprocess — so it
+// works on Windows and macOS, where the previous `cp` shell-out did not exist /
+// did not clone and (on Windows) silently forced a full rebuild every run.
+func CopyDBDir(src, dst string) error {
+	if err := os.RemoveAll(dst); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("copy db: clean dst: %w", err)
+	}
+	if err := reflinkClone(src, dst); err == nil {
+		return nil
+	}
+	return copyPath(src, dst)
+}
+
+func copyPath(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("copy db: stat src: %w", err)
+	}
+	if info.IsDir() {
+		return copyDir(src, dst, info)
+	}
+	return copyFile(src, dst, info)
+}
+
+func copyDir(src, dst string, info os.FileInfo) error {
+	if err := os.MkdirAll(dst, info.Mode().Perm()|0o700); err != nil {
+		return fmt.Errorf("copy db: mkdir %s: %w", dst, err)
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("copy db: read dir %s: %w", src, err)
+	}
+	for _, e := range entries {
+		s := filepath.Join(src, e.Name())
+		d := filepath.Join(dst, e.Name())
+		fi, err := e.Info()
+		if err != nil {
+			return err
+		}
+		if fi.IsDir() {
+			if err := copyDir(s, d, fi); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := copyFile(s, d, fi); err != nil {
+			return err
 		}
 	}
-
-	cmd := exec.Command("cp", "-a", src, dst)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("copy db dir: %w", err)
-	}
 	return nil
+}
+
+func copyFile(src, dst string, info os.FileInfo) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("copy db: open %s: %w", src, err)
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return fmt.Errorf("copy db: create %s: %w", dst, err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return fmt.Errorf("copy db: copy %s: %w", src, err)
+	}
+	return out.Close()
 }
 
 func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCache,
