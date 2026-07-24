@@ -167,23 +167,34 @@ func (a *AntlrParser) Parse(path string, isDepend bool, opts ParseOptions) (*Par
 		}
 	}
 
-	// Try each grammar; return the first that successfully extracts entities.
+	// Read the source once and share it across all candidate grammars.
+	src, readErr := ReadFileBytes(path)
+	if readErr != nil {
+		return nil, readErr
+	}
+
+	// Try each grammar exactly once: return the first that extracts entities,
+	// otherwise the first that parsed without error. (Previously a second loop
+	// re-parsed every candidate from scratch — up to 2x work, and each parse
+	// re-read the file — on files that yield no entities, e.g. .sql mapped to
+	// plsql+postgresql+tsql.)
+	var firstSuccess *ParsedFile
 	var lastErr error
 	for _, cfg := range cfgs {
-		pf, err := a.parseWithConfig(path, ext, cfg, isDepend, opts)
-		if err == nil && pf != nil && pf.EntityCount() > 0 {
-			return pf, nil
-		}
+		pf, err := a.parseWithConfig(path, ext, cfg, src, isDepend, opts)
 		if err != nil {
 			lastErr = err
+			continue
 		}
-	}
-	// If none extracted entities but parsing succeeded, return the last successful parse.
-	for _, cfg := range cfgs {
-		pf, err := a.parseWithConfig(path, ext, cfg, isDepend, opts)
-		if err == nil {
+		if pf != nil && pf.EntityCount() > 0 {
 			return pf, nil
 		}
+		if firstSuccess == nil && pf != nil {
+			firstSuccess = pf
+		}
+	}
+	if firstSuccess != nil {
+		return firstSuccess, nil
 	}
 	if lastErr != nil {
 		return nil, lastErr
@@ -199,14 +210,14 @@ func (a *AntlrParser) ParseWithGrammar(path, grammarName string, isDepend bool, 
 		return nil, fmt.Errorf("unknown ANTLR grammar: %s", grammarName)
 	}
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
-	return a.parseWithConfig(path, ext, cfg, isDepend, opts)
-}
-
-func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
 	src, err := ReadFileBytes(path)
 	if err != nil {
 		return nil, err
 	}
+	return a.parseWithConfig(path, ext, cfg, src, isDepend, opts)
+}
+
+func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, src []byte, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
 
 	var langConfig *ExternalQueryFile
 	var queries []tsQueryDef
