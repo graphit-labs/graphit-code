@@ -113,6 +113,12 @@ func (k *LadybugBackend) connect() error {
 		}
 
 		sysCfg := lbug.DefaultSystemConfig()
+		// Bound the buffer pool (default ~80% RAM) and native thread pool
+		// (default NumCPU) so the indexer stays machine-friendly — especially
+		// during incremental rebuilds, when a working DB is open alongside the
+		// production DB. Overridable via GRAPHIT_DB_BUFFER_MB / GRAPHIT_DB_THREADS.
+		sysCfg.BufferPoolSize = boundedDBBufferPool(sysCfg.BufferPoolSize)
+		sysCfg.MaxNumThreads = boundedDBThreads(sysCfg.MaxNumThreads)
 		if k.cfg.ReadOnly {
 			sysCfg.ReadOnly = true
 		}

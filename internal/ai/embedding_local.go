@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 
 	"github.com/sugarme/tokenizer/pretrained"
@@ -107,11 +108,24 @@ func NewLocalEmbeddingClient() (*localEmbeddingClient, error) {
 	inputNames := []string{"input_ids", "attention_mask"}
 	outputNames := []string{"sentence_embedding"}
 
+	// Bound ONNX Runtime's thread usage. With nil options it defaults its
+	// intra-op pool to NumCPU native threads, so the background embedding loop
+	// saturates every core while the machine is otherwise idle. Cap intra-op to
+	// half the cores (min 1) and inter-op to 1 to stay machine-friendly.
+	// GRAPHIT_EMBED_THREADS overrides.
+	var sessOpts *ort.SessionOptions
+	if opts, optErr := ort.NewSessionOptions(); optErr == nil {
+		_ = opts.SetIntraOpNumThreads(boundedEmbedThreads())
+		_ = opts.SetInterOpNumThreads(1)
+		sessOpts = opts
+		defer func() { _ = opts.Destroy() }()
+	}
+
 	session, err := ort.NewDynamicAdvancedSession(
 		modelPath,
 		inputNames,
 		outputNames,
-		nil,
+		sessOpts,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create ONNX session: %w", err)
@@ -121,6 +135,25 @@ func NewLocalEmbeddingClient() (*localEmbeddingClient, error) {
 		tk:      tk,
 		session: session,
 	}, nil
+}
+
+// boundedEmbedThreads returns the ONNX Runtime intra-op thread count: half the
+// cores (min 1, max 8) so background embedding does not monopolize the machine.
+// GRAPHIT_EMBED_THREADS overrides.
+func boundedEmbedThreads() int {
+	if s := os.Getenv("GRAPHIT_EMBED_THREADS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			return n
+		}
+	}
+	n := runtime.NumCPU() / 2
+	if n < 1 {
+		n = 1
+	}
+	if n > 8 {
+		n = 8
+	}
+	return n
 }
 
 func (c *localEmbeddingClient) ModelName() string { return localModelName }
