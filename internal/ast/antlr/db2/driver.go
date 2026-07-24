@@ -17,10 +17,9 @@ func (d *Driver) Parse(src []byte) (*antlrcommon.TreeNode, error) {
 	tokens := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
 	p := NewDb2Parser(tokens)
 	p.RemoveErrorListeners()
-	nativeTree := ParseSLLThenLL(
-		lexer,
+	nativeTree := antlrcommon.ParseSLLThenLL(
 		func() antlr.ParseTree { return p.Db2_file() },
-		func(mode int) { ConfigureParser(p, tokens, &p.BuildParseTrees, mode) },
+		func(mode int) { antlrcommon.ConfigureParser(p, tokens, &p.BuildParseTrees, mode) },
 	)
 	if nativeTree == nil {
 		return nil, fmt.Errorf("antlr parse db2 failed")
