@@ -1024,6 +1024,26 @@ func BenchmarkTS_LangLookup_Dynamic(b *testing.B) {
 	b.StopTimer()
 }
 
+// BenchmarkTS_ResolveLang_Go measures the per-file grammar resolution that
+// TreeSitterParser.parseWithConfig performs for every parsed file. Before the
+// language cache this ran the dynamic loader's findLibrary (several failing
+// os.Stat syscalls) plus a fresh ts.NewLanguage allocation on every call.
+func BenchmarkTS_ResolveLang_Go(b *testing.B) {
+	lang, err := resolveTreeSitterLang("go", "tree-sitter-go")
+	if err != nil || lang == nil {
+		b.Fatalf("resolve failed: %v", err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		lang, err := resolveTreeSitterLang("go", "tree-sitter-go")
+		if err != nil || lang == nil {
+			b.Fatalf("resolve failed: %v", err)
+		}
+	}
+	b.StopTimer()
+}
+
 // BenchmarkTS_Pool_FullParse_Go measures parse performance using sync.Pool
 // for the parser — this is the production path after the pool optimization.
 func BenchmarkTS_Pool_FullParse_Go(b *testing.B) {

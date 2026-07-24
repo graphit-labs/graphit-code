@@ -34,6 +34,44 @@ func initGrammarLoader() {
 	grammarLoader = NewDynGrammarLoader()
 }
 
+// resolvedLang memoizes a grammar resolution outcome (a *sitter.Language or the
+// terminal error) so the expensive lookup runs once per language, not per file.
+type resolvedLang struct {
+	lang *sitter.Language
+	err  error
+}
+
+// langResolveCache maps a language name to its memoized resolution.
+var langResolveCache sync.Map // map[string]resolvedLang
+
+// resolveTreeSitterLang returns the *sitter.Language for a grammar, preferring a
+// dynamically loaded shared library and falling back to a compiled-in native
+// grammar. Resolution is O(languages), not O(files): the uncached path runs the
+// loader's findLibrary (several failing os.Stat syscalls on the common install
+// with no .so grammars) plus a ts.NewLanguage allocation, so the outcome is
+// memoized per language name for the life of the process. Grammars are static
+// per process, so a negative result is cached too (a .so dropped in mid-run is
+// intentionally not picked up until restart).
+func resolveTreeSitterLang(langName, grammarName string) (*sitter.Language, error) {
+	if v, ok := langResolveCache.Load(langName); ok {
+		r := v.(resolvedLang)
+		return r.lang, r.err
+	}
+
+	grammarLoaderOnce.Do(initGrammarLoader)
+	lang, loadErr := grammarLoader.Load(langName)
+	if loadErr != nil {
+		lang = NativeLanguage(langName)
+		if lang == nil {
+			r := resolvedLang{nil, fmt.Errorf("grammar load failed for %s: %w", grammarName, loadErr)}
+			langResolveCache.Store(langName, r)
+			return nil, r.err
+		}
+	}
+	langResolveCache.Store(langName, resolvedLang{lang, nil})
+	return lang, nil
+}
+
 // parserPool reuses sitter.Parser instances across parse calls.
 // ts_parser_new() allocates ~50KB of C state; pooling amortizes this
 // across thousands of files parsed per indexing run.
@@ -110,13 +148,9 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 	}
 
 	langName := strings.TrimPrefix(cfg.Grammar, "tree-sitter-")
-	grammarLoaderOnce.Do(initGrammarLoader)
-	lang, loadErr := grammarLoader.Load(langName)
-	if loadErr != nil {
-		lang = NativeLanguage(langName)
-		if lang == nil {
-			return nil, fmt.Errorf("grammar load failed for %s: %w", cfg.Grammar, loadErr)
-		}
+	lang, langErr := resolveTreeSitterLang(langName, cfg.Grammar)
+	if langErr != nil {
+		return nil, langErr
 	}
 
 	p := parserPool.Get().(*sitter.Parser)
