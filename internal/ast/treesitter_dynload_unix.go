@@ -56,7 +56,7 @@ import (
 	"fmt"
 	"unsafe"
 
-	sitter "github.com/smacker/go-tree-sitter"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // loadFromPath does the actual dlopen + symbol resolution via CGO (Unix implementation).

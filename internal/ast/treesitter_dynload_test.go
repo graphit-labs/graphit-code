@@ -1,12 +1,10 @@
 package ast
 
 import (
-	"context"
 	"os"
 	"testing"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/golang"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 const (
@@ -67,9 +65,9 @@ func TestDynGrammarLoader_LoadGo(t *testing.T) {
 
 	// Parse Go source.
 	parser := sitter.NewParser()
-	parser.SetLanguage(lang)
+	_ = parser.SetLanguage(lang)
 
-	tree, err := parser.ParseCtx(context.Background(), nil, []byte(testGoSource))
+	tree, err := tsParse(parser, []byte(testGoSource))
 	if err != nil {
 		t.Fatalf("ParseCtx failed: %v", err)
 	}
@@ -84,22 +82,22 @@ func TestDynGrammarLoader_LoadGo(t *testing.T) {
 	}
 
 	// Verify the root is a source_file with children.
-	if root.Type() != "source_file" {
-		t.Errorf("expected root type 'source_file', got %q", root.Type())
+	if root.Kind() != "source_file" {
+		t.Errorf("expected root type 'source_file', got %q", root.Kind())
 	}
 	if root.ChildCount() == 0 {
 		t.Error("expected root node to have children")
 	}
 
-	t.Logf("Parsed Go source: root=%s children=%d", root.Type(), root.ChildCount())
+	t.Logf("Parsed Go source: root=%s children=%d", root.Kind(), root.ChildCount())
 
 	// Walk top-level children and verify key declarations exist.
 	foundPackage := false
 	foundFunc := false
 	foundType := false
 	for i := 0; i < int(root.ChildCount()); i++ {
-		child := root.Child(i)
-		switch child.Type() {
+		child := root.Child(uint(i))
+		switch child.Kind() {
 		case "package_clause":
 			foundPackage = true
 		case "function_declaration":
@@ -107,7 +105,7 @@ func TestDynGrammarLoader_LoadGo(t *testing.T) {
 		case "type_declaration":
 			foundType = true
 		}
-		t.Logf("  child[%d]: type=%s", i, child.Type())
+		t.Logf("  child[%d]: type=%s", i, child.Kind())
 	}
 
 	if !foundPackage {
@@ -134,9 +132,9 @@ func TestDynGrammarLoader_LoadPython(t *testing.T) {
 	}
 
 	parser := sitter.NewParser()
-	parser.SetLanguage(lang)
+	_ = parser.SetLanguage(lang)
 
-	tree, err := parser.ParseCtx(context.Background(), nil, []byte(testPythonSource))
+	tree, err := tsParse(parser, []byte(testPythonSource))
 	if err != nil {
 		t.Fatalf("ParseCtx failed: %v", err)
 	}
@@ -150,14 +148,14 @@ func TestDynGrammarLoader_LoadPython(t *testing.T) {
 		t.Fatal("root node is nil")
 	}
 
-	if root.Type() != "module" {
-		t.Errorf("expected root type 'module', got %q", root.Type())
+	if root.Kind() != "module" {
+		t.Errorf("expected root type 'module', got %q", root.Kind())
 	}
 	if root.ChildCount() == 0 {
 		t.Error("expected root node to have children")
 	}
 
-	t.Logf("Parsed Python source: root=%s children=%d", root.Type(), root.ChildCount())
+	t.Logf("Parsed Python source: root=%s children=%d", root.Kind(), root.ChildCount())
 }
 
 // TestDynGrammarLoader_Cache verifies that loading the same grammar twice returns the cached version.
@@ -206,9 +204,9 @@ func TestDynGrammarLoader_SearchPath(t *testing.T) {
 
 	// Verify it actually works by parsing.
 	parser := sitter.NewParser()
-	parser.SetLanguage(lang)
+	_ = parser.SetLanguage(lang)
 
-	tree, err := parser.ParseCtx(context.Background(), nil, []byte(testGoSource))
+	tree, err := tsParse(parser, []byte(testGoSource))
 	if err != nil {
 		t.Fatalf("ParseCtx failed: %v", err)
 	}
@@ -249,11 +247,11 @@ func TestDynGrammarLoader_ConsistentWithNative(t *testing.T) {
 	skipIfNoSharedLib(t, testGoGrammarPath)
 
 	// Parse with native CGO grammar.
-	nativeLang := golang.GetLanguage()
+	nativeLang := NativeLanguage("go")
 	nativeParser := sitter.NewParser()
-	nativeParser.SetLanguage(nativeLang)
+	_ = nativeParser.SetLanguage(nativeLang)
 
-	nativeTree, err := nativeParser.ParseCtx(context.Background(), nil, []byte(testGoSource))
+	nativeTree, err := tsParse(nativeParser, []byte(testGoSource))
 	if err != nil {
 		t.Fatalf("native parse failed: %v", err)
 	}
@@ -269,9 +267,9 @@ func TestDynGrammarLoader_ConsistentWithNative(t *testing.T) {
 	}
 
 	dynParser := sitter.NewParser()
-	dynParser.SetLanguage(dynLang)
+	_ = dynParser.SetLanguage(dynLang)
 
-	dynTree, err := dynParser.ParseCtx(context.Background(), nil, []byte(testGoSource))
+	dynTree, err := tsParse(dynParser, []byte(testGoSource))
 	if err != nil {
 		t.Fatalf("dynamic parse failed: %v", err)
 	}
@@ -281,16 +279,16 @@ func TestDynGrammarLoader_ConsistentWithNative(t *testing.T) {
 	nativeRoot := nativeTree.RootNode()
 	dynRoot := dynTree.RootNode()
 
-	if nativeRoot.Type() != dynRoot.Type() {
-		t.Errorf("root type mismatch: native=%q dynamic=%q", nativeRoot.Type(), dynRoot.Type())
+	if nativeRoot.Kind() != dynRoot.Kind() {
+		t.Errorf("root type mismatch: native=%q dynamic=%q", nativeRoot.Kind(), dynRoot.Kind())
 	}
 	if nativeRoot.ChildCount() != dynRoot.ChildCount() {
 		t.Errorf("root child count mismatch: native=%d dynamic=%d", nativeRoot.ChildCount(), dynRoot.ChildCount())
 	}
 
 	// Deep compare the S-expressions.
-	nativeSexp := nativeRoot.String()
-	dynSexp := dynRoot.String()
+	nativeSexp := nativeRoot.ToSexp()
+	dynSexp := dynRoot.ToSexp()
 	if nativeSexp != dynSexp {
 		t.Errorf("S-expression mismatch:\n  native:  %s\n  dynamic: %s", nativeSexp, dynSexp)
 	} else {
@@ -317,8 +315,8 @@ func BenchmarkTS_Dynamic(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		parser := sitter.NewParser()
-		parser.SetLanguage(lang)
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		_ = parser.SetLanguage(lang)
+		tree, err := tsParse(parser, src)
 		if err != nil {
 			b.Fatalf("parse failed: %v", err)
 		}
@@ -328,7 +326,7 @@ func BenchmarkTS_Dynamic(b *testing.B) {
 
 // BenchmarkTS_Native benchmarks parsing with native CGO-linked grammar.
 func BenchmarkTS_Native(b *testing.B) {
-	lang := golang.GetLanguage()
+	lang := NativeLanguage("go")
 	src := []byte(testGoSource)
 
 	b.ResetTimer()
@@ -336,8 +334,8 @@ func BenchmarkTS_Native(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		parser := sitter.NewParser()
-		parser.SetLanguage(lang)
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		_ = parser.SetLanguage(lang)
+		tree, err := tsParse(parser, src)
 		if err != nil {
 			b.Fatalf("parse failed: %v", err)
 		}

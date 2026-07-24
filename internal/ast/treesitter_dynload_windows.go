@@ -55,7 +55,7 @@ import (
 	"fmt"
 	"unsafe"
 
-	sitter "github.com/smacker/go-tree-sitter"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // loadFromPath does the actual LoadLibrary + symbol resolution via CGO (Windows implementation).

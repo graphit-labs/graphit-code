@@ -2,19 +2,17 @@ package ast
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/golang"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 const (
-	testGoGrammarSOPath     = "../../.build/grammars/treesitter/tree-sitter-golang.so"
+	testGoGrammarSOPath     = "../../.build/grammars/treesitter/tree-sitter-go.so"
 	testPythonGrammarSOPath = "../../.build/grammars/treesitter/tree-sitter-python.so"
 )
 
@@ -253,9 +251,9 @@ func TestDynGrammarLoader_LoadFromArchive(t *testing.T) {
 
 	// Parse Go source.
 	parser := sitter.NewParser()
-	parser.SetLanguage(lang)
+	_ = parser.SetLanguage(lang)
 
-	tree, err := parser.ParseCtx(context.Background(), nil, []byte(testGoSource))
+	tree, err := tsParse(parser, []byte(testGoSource))
 	if err != nil {
 		t.Fatalf("ParseCtx failed: %v", err)
 	}
@@ -265,26 +263,26 @@ func TestDynGrammarLoader_LoadFromArchive(t *testing.T) {
 	defer tree.Close()
 
 	root := tree.RootNode()
-	if root.Type() != "source_file" {
-		t.Errorf("expected root type 'source_file', got %q", root.Type())
+	if root.Kind() != "source_file" {
+		t.Errorf("expected root type 'source_file', got %q", root.Kind())
 	}
 	if root.ChildCount() == 0 {
 		t.Error("expected root node to have children")
 	}
 
 	// Compare with native parse to verify correctness.
-	nativeLang := golang.GetLanguage()
+	nativeLang := NativeLanguage("go")
 	nativeParser := sitter.NewParser()
-	nativeParser.SetLanguage(nativeLang)
+	_ = nativeParser.SetLanguage(nativeLang)
 
-	nativeTree, err := nativeParser.ParseCtx(context.Background(), nil, []byte(testGoSource))
+	nativeTree, err := tsParse(nativeParser, []byte(testGoSource))
 	if err != nil {
 		t.Fatalf("native parse failed: %v", err)
 	}
 	defer nativeTree.Close()
 
-	nativeSexp := nativeTree.RootNode().String()
-	archiveSexp := root.String()
+	nativeSexp := nativeTree.RootNode().ToSexp()
+	archiveSexp := root.ToSexp()
 	if nativeSexp != archiveSexp {
 		t.Errorf("S-expression mismatch between native and archive-extracted grammar")
 	} else {
@@ -402,8 +400,8 @@ func BenchmarkGrammarArchive_LoadAndParse(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		parser := sitter.NewParser()
-		parser.SetLanguage(lang)
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		_ = parser.SetLanguage(lang)
+		tree, err := tsParse(parser, src)
 		if err != nil {
 			b.Fatalf("parse failed: %v", err)
 		}
@@ -411,9 +409,9 @@ func BenchmarkGrammarArchive_LoadAndParse(b *testing.B) {
 	}
 }
 
-// BenchmarkTS_Parse_NativeImport benchmarks parsing with golang.GetLanguage() (baseline).
+// BenchmarkTS_Parse_NativeImport benchmarks parsing with NativeLanguage("go") (baseline).
 func BenchmarkTS_Parse_NativeImport(b *testing.B) {
-	lang := golang.GetLanguage()
+	lang := NativeLanguage("go")
 	src := []byte(testGoSource)
 
 	b.ResetTimer()
@@ -421,8 +419,8 @@ func BenchmarkTS_Parse_NativeImport(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		parser := sitter.NewParser()
-		parser.SetLanguage(lang)
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		_ = parser.SetLanguage(lang)
+		tree, err := tsParse(parser, src)
 		if err != nil {
 			b.Fatalf("parse failed: %v", err)
 		}
@@ -449,8 +447,8 @@ func BenchmarkTS_Parse_SharedLib(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		parser := sitter.NewParser()
-		parser.SetLanguage(lang)
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		_ = parser.SetLanguage(lang)
+		tree, err := tsParse(parser, src)
 		if err != nil {
 			b.Fatalf("parse failed: %v", err)
 		}
@@ -503,8 +501,8 @@ func BenchmarkTS_Parse_GrammarArchive(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		parser := sitter.NewParser()
-		parser.SetLanguage(lang)
-		tree, err := parser.ParseCtx(context.Background(), nil, src)
+		_ = parser.SetLanguage(lang)
+		tree, err := tsParse(parser, src)
 		if err != nil {
 			b.Fatalf("parse failed: %v", err)
 		}

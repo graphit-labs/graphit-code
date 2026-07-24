@@ -20,7 +20,7 @@ queries:
     pattern: '(method_signature (setter_signature name: (identifier) @name))'
   - data_key: classes
     graph_label: Class
-    pattern: '(class_definition name: (identifier) @name)'
+    pattern: '(class_declaration name: (identifier) @name)'
   - data_key: enums
     graph_label: Enum
     pattern: '(enum_declaration name: (identifier) @name)'
@@ -48,15 +48,15 @@ queries:
   - data_key: heritage
     type: relation
     relation_type: INHERITS
-    pattern: '(superclass (type_identifier) @name)'
+    pattern: '(superclass (type (type_identifier) @name))'
   - data_key: implements
     type: relation
     relation_type: IMPLEMENTS
-    pattern: '(interfaces (type_identifier) @name)'
+    pattern: '(interfaces (type (type_identifier) @name))'
   - data_key: heritage
     type: relation
     relation_type: INHERITS
-    pattern: '(mixins (type_identifier) @name)'
+    pattern: '(mixins (type (type_identifier) @name))'
 
 # Export detection strategy — Dart uses underscore prefix for private
 exports:
@@ -69,7 +69,7 @@ self_keywords: ["this."]
 
 # Parent context type mapping — Dart tree-sitter node types only
 context_types:
-  class_definition: Class
+  class_declaration: Class
   enum_declaration: Enum
   mixin_declaration: Mixin
   extension_declaration: Extension
@@ -80,7 +80,7 @@ anon_func_types:
 
 # Declaration types for docstring attachment — Dart node types only
 declaration_types:
-  - class_definition
+  - class_declaration
   - enum_declaration
   - mixin_declaration
   - extension_declaration

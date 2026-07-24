@@ -1,13 +1,13 @@
 package wiki
 
 import (
-	"context"
 	"math"
 	"regexp"
 	"strings"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	markdown "github.com/smacker/go-tree-sitter/markdown/tree-sitter-markdown"
+	sitter "github.com/tree-sitter/go-tree-sitter"
+
+	markdown "github.com/graphit-labs/graphit-code/internal/ast/treesitter/markdown"
 )
 
 // ChunkOpts controls how markdown content is split into semantic chunks.
@@ -73,12 +73,11 @@ func ChunkMarkdown(content string, opts ChunkOpts) ([]SemanticChunk, error) {
 	src := []byte(content)
 
 	parser := sitter.NewParser()
-	parser.SetLanguage(markdown.GetLanguage())
-
-	tree, err := parser.ParseCtx(context.Background(), nil, src)
-	if err != nil {
+	if err := parser.SetLanguage(sitter.NewLanguage(markdown.Language())); err != nil {
 		return nil, err
 	}
+
+	tree := parser.Parse(src, nil)
 	if tree == nil {
 		return nil, nil
 	}
@@ -115,10 +114,10 @@ func ChunkMarkdown(content string, opts ChunkOpts) ([]SemanticChunk, error) {
 				continue
 			}
 			if first {
-				startByte = c.node.StartByte()
+				startByte = uint32(c.node.StartByte())
 				first = false
 			}
-			endByte = c.node.EndByte()
+			endByte = uint32(c.node.EndByte())
 			body.WriteString(text)
 			body.WriteByte('\n')
 		}
@@ -346,10 +345,10 @@ func collectSectionBody(
 		// Skip the heading node itself for this section — its text is in Title.
 		if i == sec.startIdx && (c.nodeType == "atx_heading" || c.nodeType == "setext_heading") {
 			if first {
-				startByte = c.node.StartByte()
+				startByte = uint32(c.node.StartByte())
 				first = false
 			}
-			endByte = c.node.EndByte()
+			endByte = uint32(c.node.EndByte())
 			continue
 		}
 
@@ -358,10 +357,10 @@ func collectSectionBody(
 			continue
 		}
 		if first {
-			startByte = c.node.StartByte()
+			startByte = uint32(c.node.StartByte())
 			first = false
 		}
-		endByte = c.node.EndByte()
+		endByte = uint32(c.node.EndByte())
 		body.WriteString(text)
 		body.WriteByte('\n')
 	}
@@ -472,17 +471,17 @@ func extractHeadingLevel(node *sitter.Node, src []byte) int {
 		return 0
 	}
 
-	ntype := node.Type()
+	ntype := node.Kind()
 
 	if ntype == "atx_heading" {
 		// Look for atx_h1_marker through atx_h6_marker among children.
 		count := int(node.ChildCount())
 		for i := 0; i < count; i++ {
-			child := node.Child(i)
+			child := node.Child(uint(i))
 			if child == nil {
 				continue
 			}
-			ct := child.Type()
+			ct := child.Kind()
 			switch ct {
 			case "atx_h1_marker":
 				return 1
@@ -544,17 +543,17 @@ func extractHeadingText(node *sitter.Node, src []byte) string {
 		return ""
 	}
 
-	ntype := node.Type()
+	ntype := node.Kind()
 
 	if ntype == "atx_heading" {
 		// Find the inline or heading_content child.
 		count := int(node.ChildCount())
 		for i := 0; i < count; i++ {
-			child := node.Child(i)
+			child := node.Child(uint(i))
 			if child == nil {
 				continue
 			}
-			ct := child.Type()
+			ct := child.Kind()
 			// Skip marker nodes.
 			if strings.HasPrefix(ct, "atx_h") && strings.HasSuffix(ct, "_marker") {
 				continue
@@ -580,12 +579,12 @@ func extractHeadingText(node *sitter.Node, src []byte) string {
 }
 
 // nodeContent extracts the text for a range of bytes.
-func nodeContent(src []byte, startByte, endByte uint32) string {
+func nodeContent(src []byte, startByte, endByte uint) string {
 	if int(startByte) >= len(src) {
 		return ""
 	}
 	if int(endByte) > len(src) {
-		endByte = uint32(len(src))
+		endByte = uint(len(src))
 	}
 	return string(src[startByte:endByte])
 }
@@ -660,8 +659,6 @@ func extractChunkSummary(body string) string {
 	return ""
 }
 
-
-
 // skipFrontmatter removes YAML frontmatter (--- delimited) from the beginning
 // of the content. This reuses the same logic as stripYAMLFrontmatter but is
 // named to avoid confusion within this file.
@@ -681,11 +678,11 @@ func flattenSections(node *sitter.Node, src []byte) []docChild {
 	var result []docChild
 	count := int(node.ChildCount())
 	for i := 0; i < count; i++ {
-		child := node.Child(i)
+		child := node.Child(uint(i))
 		if child == nil {
 			continue
 		}
-		ntype := child.Type()
+		ntype := child.Kind()
 
 		if ntype == "section" {
 			// Unwrap section — recurse into its children.

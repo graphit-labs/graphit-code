@@ -6,19 +6,19 @@ queries:
   # Julia tree-sitter uses positional children, not named fields
   - data_key: functions
     graph_label: Function
-    pattern: '(function_definition (identifier) @name)'
+    pattern: '(function_definition (signature (call_expression (identifier) @name)))'
   - data_key: functions
     graph_label: Function
-    pattern: '(short_function_definition (identifier) @name)'
+    pattern: '(assignment (call_expression (identifier) @name))'
   - data_key: macros
     graph_label: Macro
-    pattern: '(macro_definition (identifier) @name)'
+    pattern: '(macro_definition (signature (call_expression (identifier) @name)))'
   - data_key: structs
     graph_label: Struct
-    pattern: '(struct_definition (identifier) @name)'
+    pattern: '(struct_definition (type_head (identifier) @name))'
   - data_key: abstract_types
     graph_label: AbstractType
-    pattern: '(abstract_definition (identifier) @name)'
+    pattern: '(abstract_definition (type_head (identifier) @name))'
   - data_key: modules
     graph_label: Module
     pattern: '(module_definition (identifier) @name)'
@@ -30,16 +30,16 @@ queries:
     pattern: '(assignment (identifier) @name)'
   - data_key: parameters
     graph_label: Parameter
-    pattern: '(parameter_list (identifier) @name)'
+    pattern: '(signature (call_expression (argument_list (identifier) @name)))'
   - data_key: parameters
     graph_label: Parameter
-    pattern: '(parameter_list (typed_expression (identifier) @name))'
+    pattern: '(signature (call_expression (argument_list (typed_expression (identifier) @name))))'
   - data_key: fields
     graph_label: Field
-    pattern: '(struct_definition (typed_expression (identifier) @name))'
+    pattern: '(struct_definition (block (typed_expression (identifier) @name)))'
   - data_key: fields
     graph_label: Field
-    pattern: '(struct_definition (named_field (identifier) @name))'
+    pattern: '(struct_definition (block (identifier) @name))'
   - data_key: imports
     graph_label: Import
     pattern: '(import_statement (identifier) @name)'
@@ -85,7 +85,6 @@ anon_func_types:
 # Declaration node types for docstring attachment
 declaration_types:
   - function_definition
-  - short_function_definition
   - macro_definition
   - struct_definition
   - abstract_definition

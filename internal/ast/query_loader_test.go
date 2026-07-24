@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	sitter "github.com/smacker/go-tree-sitter"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 	"gopkg.in/yaml.v3"
 )
 
@@ -272,18 +272,6 @@ func TestVerifyAllDefaultQueries(t *testing.T) {
 				return
 			}
 
-			// tree-sitter-julia v0.25 uses ABI v14 which is incompatible with
-			// smacker/go-tree-sitter (ABI v13). Skip until binding is updated.
-			if qf.Language == "julia" {
-				t.Skip("skipping julia: tree-sitter ABI v14 incompatible with smacker binding")
-			}
-
-			// tree-sitter-dart (UserNobody14) changed AST node types in latest version;
-			// queries need updating. Skip until dart.yaml is reconciled with the grammar.
-			if qf.Language == "dart" {
-				t.Skip("skipping dart: query patterns incompatible with current grammar version")
-			}
-
 			// Resolve tree-sitter language
 			grammar := qf.Grammar
 			if grammar == "" {
@@ -306,9 +294,9 @@ func TestVerifyAllDefaultQueries(t *testing.T) {
 					t.Errorf("query %s has type=relation but non-empty graph_label %q", q.DataKey, q.GraphLabel)
 				}
 
-				sQuery, err := sitter.NewQuery([]byte(q.Pattern), lang)
-				if err != nil {
-					t.Errorf("invalid pattern for %s: %v\nPattern: %s", q.DataKey, err, q.Pattern)
+				sQuery, qErr := sitter.NewQuery(lang, q.Pattern)
+				if qErr != nil {
+					t.Errorf("invalid pattern for %s: %v\nPattern: %s", q.DataKey, qErr, q.Pattern)
 				} else {
 					sQuery.Close()
 				}

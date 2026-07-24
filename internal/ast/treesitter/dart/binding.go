@@ -1,10 +1,13 @@
 package dart
 
-import (
-	tree_sitter_dart "github.com/UserNobody14/tree-sitter-dart/bindings/go"
-	sitter "github.com/smacker/go-tree-sitter"
-)
+/*
+#cgo CFLAGS: -std=c11 -fPIC
+#include "parser.c.inc"
+#include "scanner.c.inc"
+*/
+import "C"
 
-func GetLanguage() *sitter.Language {
-	return sitter.NewLanguage(tree_sitter_dart.Language())
-}
+import "unsafe"
+
+// Language returns the tree-sitter language pointer for Dart (ABI 15, nielsenko).
+func Language() unsafe.Pointer { return unsafe.Pointer(C.tree_sitter_dart()) }

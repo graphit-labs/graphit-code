@@ -64,7 +64,6 @@ ifeq ($(OS),Windows_NT)
 else
   GOMODCACHE    := $(shell go env GOMODCACHE)
 endif
-SMACKER_DIR    = $(shell find $(GOMODCACHE)/github.com/smacker/go-tree-sitter* -maxdepth 0 2>/dev/null | head -1)
 
 
 ifeq ($(OS),Windows_NT)
@@ -86,39 +85,42 @@ TS_CXXFLAGS   := -shared -fPIC -O2 -std=c++14 \
     -Dts_current_realloc=realloc -Dts_current_calloc=calloc
 
 
-TS_GRAMMARS_SMACKER_SIMPLE := c golang java protobuf \
-    dockerfile elixir groovy hcl javascript lua python swift toml \
-    kotlin php sql
+# Grammars sourced from Go modules that ship generated parser.c under bindings/go.
+# Format: key:modulepath[:subdir]  (subdir for multi-grammar modules like php/xml/typescript).
+GRAMMAR_MODULES := \
+    bash:github.com/tree-sitter/tree-sitter-bash \
+    c:github.com/tree-sitter/tree-sitter-c \
+    cpp:github.com/tree-sitter/tree-sitter-cpp \
+    c-sharp:github.com/tree-sitter/tree-sitter-c-sharp \
+    css:github.com/tree-sitter/tree-sitter-css \
+    go:github.com/tree-sitter/tree-sitter-go \
+    haskell:github.com/tree-sitter/tree-sitter-haskell \
+    html:github.com/tree-sitter/tree-sitter-html \
+    java:github.com/tree-sitter/tree-sitter-java \
+    javascript:github.com/tree-sitter/tree-sitter-javascript \
+    json:github.com/tree-sitter/tree-sitter-json \
+    julia:github.com/tree-sitter/tree-sitter-julia \
+    php:github.com/tree-sitter/tree-sitter-php:php \
+    python:github.com/tree-sitter/tree-sitter-python \
+    ruby:github.com/tree-sitter/tree-sitter-ruby \
+    rust:github.com/tree-sitter/tree-sitter-rust \
+    scala:github.com/tree-sitter/tree-sitter-scala \
+    typescript:github.com/tree-sitter/tree-sitter-typescript:typescript \
+    tsx:github.com/tree-sitter/tree-sitter-typescript:tsx \
+    hcl:github.com/tree-sitter-grammars/tree-sitter-hcl \
+    lua:github.com/tree-sitter-grammars/tree-sitter-lua \
+    toml:github.com/tree-sitter-grammars/tree-sitter-toml \
+    xml:github.com/tree-sitter-grammars/tree-sitter-xml:xml \
+    yaml:github.com/tree-sitter-grammars/tree-sitter-yaml \
+    zig:github.com/tree-sitter-grammars/tree-sitter-zig
 
 
-TS_GRAMMARS_SMACKER_ALLOC := bash cpp csharp html ruby rust scala
+# Grammars vendored in-repo (parser.c.inc under internal/ast/treesitter/<key>).
+GRAMMAR_VENDORED := clojure dockerfile elixir graphql groovy kotlin markdown \
+    objc proto r sql svelte swift dart
 
 
-TS_GRAMMAR_SRCDIR_markdown   := markdown/tree-sitter-markdown
-TS_GRAMMAR_SRCDIR_tsx        := typescript/tsx
-TS_GRAMMAR_SRCDIR_typescript := typescript/typescript
-TS_GRAMMARS_SMACKER_SUBDIR := markdown tsx typescript
-
-
-TS_GRAMMARS_SMACKER_CXX := yaml
-
-
-TS_GRAMMARS_EXTERNAL := \
-    json:github.com/tree-sitter/tree-sitter-json@v0.24.8 \
-    xml:github.com/tree-sitter-grammars/tree-sitter-xml@v0.7.0/xml \
-    zig:github.com/tree-sitter-grammars/tree-sitter-zig@v1.1.2 \
-    haskell:github.com/tree-sitter/tree-sitter-haskell@v0.23.1 \
-    julia:github.com/tree-sitter/tree-sitter-julia@v0.25.0 \
-    dart:github.com/!user!nobody14/tree-sitter-dart@v0.0.0-20260508020638-507c5546dc73
-
-
-TS_GRAMMARS_LOCAL := clojure graphql objc r
-
-
-TS_ALL_SMACKER := $(TS_GRAMMARS_SMACKER_SIMPLE) $(TS_GRAMMARS_SMACKER_ALLOC) \
-    $(TS_GRAMMARS_SMACKER_SUBDIR) $(TS_GRAMMARS_SMACKER_CXX)
-TS_ALL_EXTERNAL := $(foreach spec,$(TS_GRAMMARS_EXTERNAL),$(firstword $(subst :, ,$(spec))))
-TS_ALL := $(TS_ALL_SMACKER) $(TS_ALL_EXTERNAL) $(TS_GRAMMARS_LOCAL)
+TS_ALL := $(foreach spec,$(GRAMMAR_MODULES),$(firstword $(subst :, ,$(spec)))) $(GRAMMAR_VENDORED)
 
 
 ANTLR_GRAMMARS := plsql postgresql tsql db2 cobol85
@@ -194,71 +196,23 @@ grammars-treesitter: ensure-go-modules
 	@echo "  Building $(words $(TS_ALL)) tree-sitter grammars"
 	@echo "═══════════════════════════════════════════════════════════════════════"
 	@echo ""
-	@echo "  Category A: smacker/go-tree-sitter ($(words $(TS_ALL_SMACKER)) grammars)"
+	@echo "  Module grammars (bindings/go sources)"
 	@echo "  ──────────────────────────────────────────────────────────────────"
-
-	@for lang in $(TS_GRAMMARS_SMACKER_SIMPLE); do \
-		$(call compile_ts_grammar,$${lang},$(SMACKER_DIR)/$${lang},$(SMACKER_DIR)/$${lang} $(SMACKER_DIR),,); \
-	done
-
-	@for lang in $(TS_GRAMMARS_SMACKER_ALLOC); do \
-		$(call compile_ts_grammar,$${lang},$(SMACKER_DIR)/$${lang},$(SMACKER_DIR)/$${lang} $(SMACKER_DIR),1,); \
-	done
-
-	@for lang in $(TS_GRAMMARS_SMACKER_SUBDIR); do \
-		case $${lang} in \
-		markdown)   subdir="markdown/tree-sitter-markdown" ;; \
-		tsx)        subdir="typescript/tsx" ;; \
-		typescript) subdir="typescript/typescript" ;; \
-		esac; \
-		$(call compile_ts_grammar,$${lang},$(SMACKER_DIR)/$${subdir},$(SMACKER_DIR)/$${subdir} $(SMACKER_DIR),,); \
-	done
-
-	@for lang in $(TS_GRAMMARS_SMACKER_CXX); do \
-		$(call compile_ts_grammar,$${lang},$(SMACKER_DIR)/$${lang},$(SMACKER_DIR)/$${lang} $(SMACKER_DIR),,1); \
+	@for spec in $(GRAMMAR_MODULES); do \
+		key=$$(echo "$$spec" | cut -d: -f1); \
+		mod=$$(echo "$$spec" | cut -d: -f2); \
+		sub=$$(echo "$$spec" | cut -d: -f3); \
+		dir=$$(go list -m -f '{{.Dir}}' "$$mod" 2>/dev/null); \
+		if [ -z "$$dir" ]; then echo "  ✗ $$key: module $$mod not resolved"; continue; fi; \
+		if [ -n "$$sub" ]; then src="$$dir/$$sub/src"; else src="$$dir/src"; fi; \
+		$(call compile_ts_grammar,$${key},$${src},$${src},,); \
 	done
 	@echo ""
-	@echo "  Category B: External Go modules ($(words $(TS_ALL_EXTERNAL)) grammars)"
+	@echo "  Vendored grammars (internal/ast/treesitter)"
 	@echo "  ──────────────────────────────────────────────────────────────────"
-	@for spec in $(TS_GRAMMARS_EXTERNAL); do \
-		lang=$$(echo "$$spec" | cut -d: -f1); \
-		modspec=$$(echo "$$spec" | cut -d: -f2); \
-		modpath=$$(echo "$$modspec" | sed 's|@.*||'); \
-		version=$$(echo "$$modspec" | sed 's|.*/||; s|/.*||' | grep -oP '@.*' || echo "$$modspec" | grep -oP '@[^/]+'); \
-		subdir=$$(echo "$$modspec" | sed -n 's|.*@[^/]*/||p'); \
-		escaped=$$(echo "$$modpath$$version" | sed 's|/|/|g'); \
-		moddir="$(GOMODCACHE)/$${escaped}"; \
-		if [ ! -d "$$moddir" ]; then \
-			go mod download "$$modpath$$version" 2>/dev/null || true; \
-			moddir="$(GOMODCACHE)/$${escaped}"; \
-		fi; \
-		if [ ! -d "$$moddir" ]; then \
-			moddir=$$(find "$(GOMODCACHE)/$$(dirname $$modpath)" -maxdepth 1 -name "$$(basename $$modpath)*" 2>/dev/null | head -1); \
-		fi; \
-		if [ -n "$$subdir" ]; then srcdir="$$moddir/$$subdir/src"; \
-		else srcdir="$$moddir/src"; fi; \
-		$(call compile_ts_grammar,$${lang},$${srcdir},$${srcdir},,); \
-	done
-	@echo ""
-	@echo "  Category C: Local vendored ($(words $(TS_GRAMMARS_LOCAL)) grammars)"
-	@echo "  ──────────────────────────────────────────────────────────────────"
-	@for lang in $(TS_GRAMMARS_LOCAL); do \
-		$(call compile_ts_grammar,$${lang},internal/ast/treesitter/$${lang},internal/ast/treesitter/$${lang},,); \
-	done
-	@echo ""
-	@# Rename: module dir name → tree-sitter symbol name.
-	@for rename in golang:go csharp:c-sharp protobuf:proto; do \
-		from=$$(echo "$$rename" | cut -d: -f1); \
-		to=$$(echo "$$rename" | cut -d: -f2); \
-		if [ -f "$(TS_OUTDIR)/tree-sitter-$${from}.so" ]; then \
-			mv "$(TS_OUTDIR)/tree-sitter-$${from}.so" "$(TS_OUTDIR)/tree-sitter-$${to}.so"; \
-		fi; \
-		if [ -f "$(TS_OUTDIR)/tree-sitter-$${from}.dylib" ]; then \
-			mv "$(TS_OUTDIR)/tree-sitter-$${from}.dylib" "$(TS_OUTDIR)/tree-sitter-$${to}.dylib"; \
-		fi; \
-		if [ -f "$(TS_OUTDIR)/tree-sitter-$${from}.dll" ]; then \
-			mv "$(TS_OUTDIR)/tree-sitter-$${from}.dll" "$(TS_OUTDIR)/tree-sitter-$${to}.dll"; \
-		fi; \
+	@for key in $(GRAMMAR_VENDORED); do \
+		src="internal/ast/treesitter/$${key}"; \
+		$(call compile_ts_grammar,$${key},$${src},$${src},,); \
 	done
 	@echo ""
 	@total=$$(ls -1 $(TS_OUTDIR)/*$(SHLIB_EXT) 2>/dev/null | wc -l); \

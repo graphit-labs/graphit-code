@@ -6,14 +6,7 @@ package objc
 */
 import "C"
 
-import (
-	"unsafe"
+import "unsafe"
 
-	sitter "github.com/smacker/go-tree-sitter"
-)
-
-// GetLanguage returns the tree-sitter language for Objective-C.
-func GetLanguage() *sitter.Language {
-	ptr := unsafe.Pointer(C.tree_sitter_objc())
-	return sitter.NewLanguage(ptr)
-}
+// Language returns the tree-sitter language pointer for Objective-C.
+func Language() unsafe.Pointer { return unsafe.Pointer(C.tree_sitter_objc()) }

@@ -6,14 +6,7 @@ package graphql
 */
 import "C"
 
-import (
-	"unsafe"
+import "unsafe"
 
-	sitter "github.com/smacker/go-tree-sitter"
-)
-
-// GetLanguage returns the tree-sitter language for GraphQL.
-func GetLanguage() *sitter.Language {
-	ptr := unsafe.Pointer(C.tree_sitter_graphql())
-	return sitter.NewLanguage(ptr)
-}
+// Language returns the tree-sitter language pointer for GraphQL.
+func Language() unsafe.Pointer { return unsafe.Pointer(C.tree_sitter_graphql()) }

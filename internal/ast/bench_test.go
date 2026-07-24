@@ -1,14 +1,10 @@
 package ast
 
 import (
-	"context"
 	"sync"
 	"testing"
 
-	sitter "github.com/smacker/go-tree-sitter"
-	"github.com/smacker/go-tree-sitter/golang"
-	"github.com/smacker/go-tree-sitter/javascript"
-	"github.com/smacker/go-tree-sitter/python"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/graphit-labs/graphit-code/internal/ast/antlr/plsql"
 	"github.com/graphit-labs/graphit-code/internal/ast/antlr/postgresql"
@@ -798,13 +794,13 @@ const goQueryPattern = `
 // (parser creation + language set + parse) on every iteration.
 func BenchmarkTS_Native_FullParse_Go(b *testing.B) {
 	src := []byte(goSource)
-	lang := golang.GetLanguage()
+	lang := NativeLanguage("go")
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := sitter.NewParser()
-		p.SetLanguage(lang)
-		tree, err := p.ParseCtx(context.Background(), nil, src)
+		_ = p.SetLanguage(lang)
+		tree, err := tsParse(p, src)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -817,13 +813,13 @@ func BenchmarkTS_Native_FullParse_Go(b *testing.B) {
 // BenchmarkTS_Native_FullParse_Python parses a ~200-line Python file.
 func BenchmarkTS_Native_FullParse_Python(b *testing.B) {
 	src := []byte(pythonSource)
-	lang := python.GetLanguage()
+	lang := NativeLanguage("python")
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := sitter.NewParser()
-		p.SetLanguage(lang)
-		tree, err := p.ParseCtx(context.Background(), nil, src)
+		_ = p.SetLanguage(lang)
+		tree, err := tsParse(p, src)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -836,13 +832,13 @@ func BenchmarkTS_Native_FullParse_Python(b *testing.B) {
 // BenchmarkTS_Native_FullParse_JavaScript parses a ~200-line JavaScript file.
 func BenchmarkTS_Native_FullParse_JavaScript(b *testing.B) {
 	src := []byte(jsSource)
-	lang := javascript.GetLanguage()
+	lang := NativeLanguage("javascript")
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := sitter.NewParser()
-		p.SetLanguage(lang)
-		tree, err := p.ParseCtx(context.Background(), nil, src)
+		_ = p.SetLanguage(lang)
+		tree, err := tsParse(p, src)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -857,11 +853,11 @@ func BenchmarkTS_Native_FullParse_JavaScript(b *testing.B) {
 func BenchmarkTS_Native_ParseReuse_Go(b *testing.B) {
 	src := []byte(goSource)
 	p := sitter.NewParser()
-	p.SetLanguage(golang.GetLanguage())
+	_ = p.SetLanguage(NativeLanguage("go"))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		tree, err := p.ParseCtx(context.Background(), nil, src)
+		tree, err := tsParse(p, src)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -875,11 +871,11 @@ func BenchmarkTS_Native_ParseReuse_Go(b *testing.B) {
 func BenchmarkTS_Native_ParseReuse_Python(b *testing.B) {
 	src := []byte(pythonSource)
 	p := sitter.NewParser()
-	p.SetLanguage(python.GetLanguage())
+	_ = p.SetLanguage(NativeLanguage("python"))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		tree, err := p.ParseCtx(context.Background(), nil, src)
+		tree, err := tsParse(p, src)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -893,11 +889,11 @@ func BenchmarkTS_Native_ParseReuse_Python(b *testing.B) {
 func BenchmarkTS_Native_ParseReuse_JavaScript(b *testing.B) {
 	src := []byte(jsSource)
 	p := sitter.NewParser()
-	p.SetLanguage(javascript.GetLanguage())
+	_ = p.SetLanguage(NativeLanguage("javascript"))
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		tree, err := p.ParseCtx(context.Background(), nil, src)
+		tree, err := tsParse(p, src)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -911,10 +907,10 @@ func BenchmarkTS_Native_ParseReuse_JavaScript(b *testing.B) {
 // execution against a pre-parsed Go AST.
 func BenchmarkTS_Native_QueryExec_Go(b *testing.B) {
 	src := []byte(goSource)
-	lang := golang.GetLanguage()
+	lang := NativeLanguage("go")
 	p := sitter.NewParser()
-	p.SetLanguage(lang)
-	tree, err := p.ParseCtx(context.Background(), nil, src)
+	_ = p.SetLanguage(lang)
+	tree, err := tsParse(p, src)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -924,19 +920,18 @@ func BenchmarkTS_Native_QueryExec_Go(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		q, qErr := sitter.NewQuery([]byte(goQueryPattern), lang)
+		q, qErr := sitter.NewQuery(lang, goQueryPattern)
 		if qErr != nil {
 			b.Fatal(qErr)
 		}
 		qc := sitter.NewQueryCursor()
-		qc.Exec(q, root)
+		matches := qc.Matches(q, root, src)
 		count := 0
 		for {
-			m, ok := qc.NextMatch()
-			if !ok {
+			m := matches.Next()
+			if m == nil {
 				break
 			}
-			m = qc.FilterPredicates(m, src)
 			count += len(m.Captures)
 		}
 		qc.Close()
@@ -951,17 +946,17 @@ func BenchmarkTS_Native_QueryExec_Go(b *testing.B) {
 // with a pre-compiled query (no compilation overhead per iteration).
 func BenchmarkTS_Native_QueryExecReuse_Go(b *testing.B) {
 	src := []byte(goSource)
-	lang := golang.GetLanguage()
+	lang := NativeLanguage("go")
 	p := sitter.NewParser()
-	p.SetLanguage(lang)
-	tree, err := p.ParseCtx(context.Background(), nil, src)
+	_ = p.SetLanguage(lang)
+	tree, err := tsParse(p, src)
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer tree.Close()
 	root := tree.RootNode()
 
-	q, qErr := sitter.NewQuery([]byte(goQueryPattern), lang)
+	q, qErr := sitter.NewQuery(lang, goQueryPattern)
 	if qErr != nil {
 		b.Fatal(qErr)
 	}
@@ -970,14 +965,13 @@ func BenchmarkTS_Native_QueryExecReuse_Go(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		qc := sitter.NewQueryCursor()
-		qc.Exec(q, root)
+		matches := qc.Matches(q, root, src)
 		count := 0
 		for {
-			m, ok := qc.NextMatch()
-			if !ok {
+			m := matches.Next()
+			if m == nil {
 				break
 			}
-			m = qc.FilterPredicates(m, src)
 			count += len(m.Captures)
 		}
 		qc.Close()
@@ -994,7 +988,7 @@ func BenchmarkTS_LangLookup_Native(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		lang := golang.GetLanguage()
+		lang := NativeLanguage("go")
 		if lang == nil {
 			b.Fatal("language not found")
 		}
@@ -1030,19 +1024,18 @@ func BenchmarkTS_LangLookup_Dynamic(b *testing.B) {
 	b.StopTimer()
 }
 
-
 // BenchmarkTS_Pool_FullParse_Go measures parse performance using sync.Pool
 // for the parser — this is the production path after the pool optimization.
 func BenchmarkTS_Pool_FullParse_Go(b *testing.B) {
 	src := []byte(goSource)
-	lang := golang.GetLanguage()
+	lang := NativeLanguage("go")
 	pool := sync.Pool{New: func() any { return sitter.NewParser() }}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := pool.Get().(*sitter.Parser)
-		p.SetLanguage(lang)
-		tree, err := p.ParseCtx(context.Background(), nil, src)
+		_ = p.SetLanguage(lang)
+		tree, err := tsParse(p, src)
 		pool.Put(p)
 		if err != nil {
 			b.Fatal(err)
@@ -1056,14 +1049,14 @@ func BenchmarkTS_Pool_FullParse_Go(b *testing.B) {
 // BenchmarkTS_Pool_FullParse_Python measures pool parse for Python.
 func BenchmarkTS_Pool_FullParse_Python(b *testing.B) {
 	src := []byte(pythonSource)
-	lang := python.GetLanguage()
+	lang := NativeLanguage("python")
 	pool := sync.Pool{New: func() any { return sitter.NewParser() }}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := pool.Get().(*sitter.Parser)
-		p.SetLanguage(lang)
-		tree, err := p.ParseCtx(context.Background(), nil, src)
+		_ = p.SetLanguage(lang)
+		tree, err := tsParse(p, src)
 		pool.Put(p)
 		if err != nil {
 			b.Fatal(err)
@@ -1077,14 +1070,14 @@ func BenchmarkTS_Pool_FullParse_Python(b *testing.B) {
 // BenchmarkTS_Pool_FullParse_JavaScript measures pool parse for JS.
 func BenchmarkTS_Pool_FullParse_JavaScript(b *testing.B) {
 	src := []byte(jsSource)
-	lang := javascript.GetLanguage()
+	lang := NativeLanguage("javascript")
 	pool := sync.Pool{New: func() any { return sitter.NewParser() }}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := pool.Get().(*sitter.Parser)
-		p.SetLanguage(lang)
-		tree, err := p.ParseCtx(context.Background(), nil, src)
+		_ = p.SetLanguage(lang)
+		tree, err := tsParse(p, src)
 		pool.Put(p)
 		if err != nil {
 			b.Fatal(err)
@@ -1098,17 +1091,17 @@ func BenchmarkTS_Pool_FullParse_JavaScript(b *testing.B) {
 // BenchmarkTS_Pool_QueryExec_Go measures query cursor pool performance.
 func BenchmarkTS_Pool_QueryExec_Go(b *testing.B) {
 	src := []byte(goSource)
-	lang := golang.GetLanguage()
+	lang := NativeLanguage("go")
 	p := sitter.NewParser()
-	p.SetLanguage(lang)
-	tree, err := p.ParseCtx(context.Background(), nil, src)
+	_ = p.SetLanguage(lang)
+	tree, err := tsParse(p, src)
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer tree.Close()
 	root := tree.RootNode()
 
-	q, qErr := sitter.NewQuery([]byte(goQueryPattern), lang)
+	q, qErr := sitter.NewQuery(lang, goQueryPattern)
 	if qErr != nil {
 		b.Fatal(qErr)
 	}
@@ -1119,14 +1112,13 @@ func BenchmarkTS_Pool_QueryExec_Go(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		qc := pool.Get().(*sitter.QueryCursor)
-		qc.Exec(q, root)
+		matches := qc.Matches(q, root, src)
 		count := 0
 		for {
-			m, ok := qc.NextMatch()
-			if !ok {
+			m := matches.Next()
+			if m == nil {
 				break
 			}
-			m = qc.FilterPredicates(m, src)
 			count += len(m.Captures)
 		}
 		pool.Put(qc)
@@ -1136,7 +1128,6 @@ func BenchmarkTS_Pool_QueryExec_Go(b *testing.B) {
 	}
 	b.StopTimer()
 }
-
 
 // ===========================================================================
 // ANTLR Benchmarks

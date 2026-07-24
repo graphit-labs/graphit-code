@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	sitter "github.com/smacker/go-tree-sitter"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/version"
 	"gopkg.in/yaml.v3"
@@ -463,10 +463,10 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []t
 		for _, eq := range ef.Queries {
 			qd := tsQueryDef(eq)
 			if tsLang != nil {
-				q, err := sitter.NewQuery([]byte(qd.Pattern), tsLang)
-				if err != nil {
+				q, qErr := sitter.NewQuery(tsLang, qd.Pattern)
+				if qErr != nil {
 					slog.Warn("skip resolved query: invalid pattern",
-						"language", lang, "data_key", qd.DataKey, "error", err)
+						"language", lang, "data_key", qd.DataKey, "error", qErr)
 					continue
 				}
 				compiled = append(compiled, compiledQueryEntry{Def: qd, Query: q})

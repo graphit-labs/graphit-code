@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	sitter "github.com/smacker/go-tree-sitter"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 // DynGrammarLoader loads tree-sitter grammars from shared libraries via dlopen.
@@ -21,16 +21,13 @@ type DynGrammarLoader struct {
 	loadedPaths sync.Map
 }
 
-
 type DynGrammarLoaderOption func(*DynGrammarLoader)
-
 
 func WithProjectDir(dir string) DynGrammarLoaderOption {
 	return func(l *DynGrammarLoader) {
 		l.projectDir = dir
 	}
 }
-
 
 func NewDynGrammarLoader(opts ...DynGrammarLoaderOption) *DynGrammarLoader {
 	l := &DynGrammarLoader{}
@@ -106,7 +103,6 @@ func (l *DynGrammarLoader) searchDirs() []string {
 
 	return dirs
 }
-
 
 func (l *DynGrammarLoader) libraryCandidates(lang string) []string {
 	ext := sharedLibExt()

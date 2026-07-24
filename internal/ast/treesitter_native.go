@@ -1,123 +1,120 @@
 package ast
 
-
-
 import (
 	"strings"
+	"unsafe"
 
-	sitter "github.com/smacker/go-tree-sitter"
+	ts "github.com/tree-sitter/go-tree-sitter"
 
+	// Grammar modules that ship their own Go bindings (bindings/go).
+	tree_sitter_bash "github.com/tree-sitter/tree-sitter-bash/bindings/go"
+	tree_sitter_c_sharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
+	tree_sitter_c "github.com/tree-sitter/tree-sitter-c/bindings/go"
+	tree_sitter_cpp "github.com/tree-sitter/tree-sitter-cpp/bindings/go"
+	tree_sitter_css "github.com/tree-sitter/tree-sitter-css/bindings/go"
+	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
+	tree_sitter_haskell "github.com/tree-sitter/tree-sitter-haskell/bindings/go"
+	tree_sitter_html "github.com/tree-sitter/tree-sitter-html/bindings/go"
+	tree_sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
+	tree_sitter_javascript "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+	tree_sitter_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
+	tree_sitter_julia "github.com/tree-sitter/tree-sitter-julia/bindings/go"
+	tree_sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
+	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
+	tree_sitter_ruby "github.com/tree-sitter/tree-sitter-ruby/bindings/go"
+	tree_sitter_rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
+	tree_sitter_scala "github.com/tree-sitter/tree-sitter-scala/bindings/go"
+	tree_sitter_typescript "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 
-	"github.com/smacker/go-tree-sitter/bash"
-	"github.com/smacker/go-tree-sitter/c"
-	"github.com/smacker/go-tree-sitter/cpp"
-	"github.com/smacker/go-tree-sitter/css"
-	"github.com/smacker/go-tree-sitter/csharp"
-	"github.com/smacker/go-tree-sitter/dockerfile"
-	"github.com/smacker/go-tree-sitter/elixir"
-	"github.com/smacker/go-tree-sitter/golang"
-	"github.com/smacker/go-tree-sitter/groovy"
-	"github.com/smacker/go-tree-sitter/hcl"
-	"github.com/smacker/go-tree-sitter/html"
-	"github.com/smacker/go-tree-sitter/java"
-	"github.com/smacker/go-tree-sitter/javascript"
-	"github.com/smacker/go-tree-sitter/kotlin"
-	"github.com/smacker/go-tree-sitter/lua"
-	"github.com/smacker/go-tree-sitter/markdown/tree-sitter-markdown"
-	"github.com/smacker/go-tree-sitter/php"
-	"github.com/smacker/go-tree-sitter/protobuf"
-	"github.com/smacker/go-tree-sitter/python"
-	"github.com/smacker/go-tree-sitter/ruby"
-	"github.com/smacker/go-tree-sitter/rust"
-	"github.com/smacker/go-tree-sitter/scala"
-	"github.com/smacker/go-tree-sitter/sql"
-	"github.com/smacker/go-tree-sitter/svelte"
-	"github.com/smacker/go-tree-sitter/swift"
-	"github.com/smacker/go-tree-sitter/toml"
-	tsTypescript "github.com/smacker/go-tree-sitter/typescript/typescript"
-	tsTsx "github.com/smacker/go-tree-sitter/typescript/tsx"
-	"github.com/smacker/go-tree-sitter/yaml"
+	tree_sitter_hcl "github.com/tree-sitter-grammars/tree-sitter-hcl/bindings/go"
+	tree_sitter_lua "github.com/tree-sitter-grammars/tree-sitter-lua/bindings/go"
+	tree_sitter_toml "github.com/tree-sitter-grammars/tree-sitter-toml/bindings/go"
+	tree_sitter_xml "github.com/tree-sitter-grammars/tree-sitter-xml/bindings/go"
+	tree_sitter_yaml "github.com/tree-sitter-grammars/tree-sitter-yaml/bindings/go"
+	tree_sitter_zig "github.com/tree-sitter-grammars/tree-sitter-zig/bindings/go"
 
-
+	// Vendored grammars (parser.c committed under internal/ast/treesitter/<lang>).
 	tsClojure "github.com/graphit-labs/graphit-code/internal/ast/treesitter/clojure"
 	tsDart "github.com/graphit-labs/graphit-code/internal/ast/treesitter/dart"
+	tsDockerfile "github.com/graphit-labs/graphit-code/internal/ast/treesitter/dockerfile"
+	tsElixir "github.com/graphit-labs/graphit-code/internal/ast/treesitter/elixir"
 	tsGraphQL "github.com/graphit-labs/graphit-code/internal/ast/treesitter/graphql"
-	tsHaskell "github.com/graphit-labs/graphit-code/internal/ast/treesitter/haskell"
-	tsJSON "github.com/graphit-labs/graphit-code/internal/ast/treesitter/json"
-	tsJulia "github.com/graphit-labs/graphit-code/internal/ast/treesitter/julia"
+	tsGroovy "github.com/graphit-labs/graphit-code/internal/ast/treesitter/groovy"
+	tsKotlin "github.com/graphit-labs/graphit-code/internal/ast/treesitter/kotlin"
+	tsMarkdown "github.com/graphit-labs/graphit-code/internal/ast/treesitter/markdown"
 	tsObjC "github.com/graphit-labs/graphit-code/internal/ast/treesitter/objc"
+	tsProto "github.com/graphit-labs/graphit-code/internal/ast/treesitter/proto"
 	tsR "github.com/graphit-labs/graphit-code/internal/ast/treesitter/r"
-	tsXML "github.com/graphit-labs/graphit-code/internal/ast/treesitter/xml"
-	tsZig "github.com/graphit-labs/graphit-code/internal/ast/treesitter/zig"
+	tsSQL "github.com/graphit-labs/graphit-code/internal/ast/treesitter/sql"
+	tsSvelte "github.com/graphit-labs/graphit-code/internal/ast/treesitter/svelte"
+	tsSwift "github.com/graphit-labs/graphit-code/internal/ast/treesitter/swift"
 )
 
-// nativeGrammars maps language names to their GetLanguage() functions.
-// Keys match the grammar YAML conventions: "go" not "golang", "c-sharp" not "csharp".
-var nativeGrammars = map[string]func() *sitter.Language{
-
-	"bash":       bash.GetLanguage,
-	"c":          c.GetLanguage,
-	"cpp":        cpp.GetLanguage,
-	"c-sharp":    csharp.GetLanguage,
-	"css":        css.GetLanguage,
-	"dockerfile": dockerfile.GetLanguage,
-	"elixir":     elixir.GetLanguage,
-	"go":         golang.GetLanguage,
-	"groovy":     groovy.GetLanguage,
-	"hcl":        hcl.GetLanguage,
-	"html":       html.GetLanguage,
-	"java":       java.GetLanguage,
-	"javascript": javascript.GetLanguage,
-	"kotlin":     kotlin.GetLanguage,
-	"lua":        lua.GetLanguage,
-	"markdown":   tree_sitter_markdown.GetLanguage,
-	"php":        php.GetLanguage,
-	"proto":      protobuf.GetLanguage,
-	"python":     python.GetLanguage,
-	"ruby":       ruby.GetLanguage,
-	"rust":       rust.GetLanguage,
-	"scala":      scala.GetLanguage,
-	"sql":        sql.GetLanguage,
-	"svelte":     svelte.GetLanguage,
-	"swift":      swift.GetLanguage,
-	"toml":       toml.GetLanguage,
-	"typescript": tsTypescript.GetLanguage,
-	"tsx":        tsTsx.GetLanguage,
-	"yaml":       yaml.GetLanguage,
-
-
-	"json":    tsJSON.GetLanguage,
-	"xml":     tsXML.GetLanguage,
-	"zig":     tsZig.GetLanguage,
-	"haskell": tsHaskell.GetLanguage,
-	"julia":   tsJulia.GetLanguage,
-	"dart":    tsDart.GetLanguage,
-
-
-	"clojure": tsClojure.GetLanguage,
-	"graphql": tsGraphQL.GetLanguage,
-	"objc":    tsObjC.GetLanguage,
-	"r":       tsR.GetLanguage,
+// nativeGrammars maps language names to a function returning the raw tree-sitter
+// language pointer. Keys match the grammar YAML conventions: "go" not "golang",
+// "c-sharp" not "csharp". Pointers are wrapped by NativeLanguage with the
+// official tree-sitter runtime (github.com/tree-sitter/go-tree-sitter).
+var nativeGrammars = map[string]func() unsafe.Pointer{
+	"bash":       tree_sitter_bash.Language,
+	"c":          tree_sitter_c.Language,
+	"cpp":        tree_sitter_cpp.Language,
+	"c-sharp":    tree_sitter_c_sharp.Language,
+	"css":        tree_sitter_css.Language,
+	"go":         tree_sitter_go.Language,
+	"haskell":    tree_sitter_haskell.Language,
+	"html":       tree_sitter_html.Language,
+	"java":       tree_sitter_java.Language,
+	"javascript": tree_sitter_javascript.Language,
+	"json":       tree_sitter_json.Language,
+	"julia":      tree_sitter_julia.Language,
+	"php":        tree_sitter_php.LanguagePHP,
+	"python":     tree_sitter_python.Language,
+	"ruby":       tree_sitter_ruby.Language,
+	"rust":       tree_sitter_rust.Language,
+	"scala":      tree_sitter_scala.Language,
+	"typescript": tree_sitter_typescript.LanguageTypescript,
+	"tsx":        tree_sitter_typescript.LanguageTSX,
+	"hcl":        tree_sitter_hcl.Language,
+	"lua":        tree_sitter_lua.Language,
+	"toml":       tree_sitter_toml.Language,
+	"xml":        tree_sitter_xml.LanguageXML,
+	"yaml":       tree_sitter_yaml.Language,
+	"zig":        tree_sitter_zig.Language,
+	// Vendored
+	"clojure":    tsClojure.Language,
+	"dart":       tsDart.Language,
+	"dockerfile": tsDockerfile.Language,
+	"elixir":     tsElixir.Language,
+	"graphql":    tsGraphQL.Language,
+	"groovy":     tsGroovy.Language,
+	"kotlin":     tsKotlin.Language,
+	"markdown":   tsMarkdown.Language,
+	"objc":       tsObjC.Language,
+	"proto":      tsProto.Language,
+	"r":          tsR.Language,
+	"sql":        tsSQL.Language,
+	"svelte":     tsSvelte.Language,
+	"swift":      tsSwift.Language,
 }
 
 // NativeLanguage returns a natively compiled grammar, or nil if unavailable.
 // It normalises underscores to hyphens so that both "c_sharp" (grammar YAML)
 // and "c-sharp" (map key) resolve correctly.
-func NativeLanguage(lang string) *sitter.Language {
+func NativeLanguage(lang string) *ts.Language {
 	if fn, ok := nativeGrammars[lang]; ok {
-		return fn()
+		return ts.NewLanguage(fn())
 	}
 	// Try underscore↔hyphen normalisation (e.g. "c_sharp" → "c-sharp").
 	normalised := strings.ReplaceAll(lang, "_", "-")
 	if normalised != lang {
 		if fn, ok := nativeGrammars[normalised]; ok {
-			return fn()
+			return ts.NewLanguage(fn())
 		}
 	}
 	return nil
 }
 
-
+// HasNativeGrammar reports whether a natively compiled grammar exists for lang.
 func HasNativeGrammar(lang string) bool {
 	_, ok := nativeGrammars[lang]
 	return ok

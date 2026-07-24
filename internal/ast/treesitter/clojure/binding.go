@@ -6,14 +6,7 @@ package clojure
 */
 import "C"
 
-import (
-	"unsafe"
+import "unsafe"
 
-	sitter "github.com/smacker/go-tree-sitter"
-)
-
-// GetLanguage returns the tree-sitter language for Clojure.
-func GetLanguage() *sitter.Language {
-	ptr := unsafe.Pointer(C.tree_sitter_clojure())
-	return sitter.NewLanguage(ptr)
-}
+// Language returns the tree-sitter language pointer for Clojure.
+func Language() unsafe.Pointer { return unsafe.Pointer(C.tree_sitter_clojure()) }

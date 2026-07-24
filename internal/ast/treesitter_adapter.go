@@ -1,12 +1,11 @@
 package ast
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"sync"
 
-	sitter "github.com/smacker/go-tree-sitter"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 type tsLangConfig struct {
@@ -53,7 +52,6 @@ var queryCursorPool = sync.Pool{
 	},
 }
 
-
 func initTsExtMap() {
 	tsExtMap = make(map[string]*tsLangConfig)
 	tsGrammarMap = make(map[string]*tsLangConfig)
@@ -84,7 +82,7 @@ func init() {
 }
 
 type TreeSitterParser struct {
-	projectDir    string
+	projectDir string
 }
 
 func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
@@ -122,13 +120,13 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 	}
 
 	p := parserPool.Get().(*sitter.Parser)
-	p.SetLanguage(lang)
-
-	tree, err := p.ParseCtx(context.Background(), nil, src)
-	parserPool.Put(p)
-	if err != nil {
-		return nil, fmt.Errorf("tree-sitter parse failed: %w", err)
+	if err := p.SetLanguage(lang); err != nil {
+		parserPool.Put(p)
+		return nil, fmt.Errorf("tree-sitter set language failed: %w", err)
 	}
+
+	tree := p.Parse(src, nil)
+	parserPool.Put(p)
 	if tree == nil {
 		return nil, fmt.Errorf("tree-sitter parse returned nil tree")
 	}
@@ -168,17 +166,17 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 		qdef := rpcQueries[i]
 
 		qc := queryCursorPool.Get().(*sitter.QueryCursor)
-		qc.Exec(ce.Query, root)
+		matches := qc.Matches(ce.Query, root, src)
 
 		for {
-			match, ok := qc.NextMatch()
-			if !ok {
+			match := matches.Next()
+			if match == nil {
 				break
 			}
-			match = qc.FilterPredicates(match, src)
 
-			for _, capture := range match.Captures {
-				name := capture.Node.Content(src)
+			for ci := range match.Captures {
+				capture := &match.Captures[ci]
+				name := capture.Node.Utf8Text(src)
 				if name == "" {
 					continue
 				}
@@ -191,23 +189,23 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 					continue
 				}
 
-				startPt := capture.Node.StartPoint()
+				startPt := capture.Node.StartPosition()
 				startLine := int(startPt.Row) + 1
 
 				parent := capture.Node.Parent()
 				endLine := startLine
 				if parent != nil {
-					parentEndPt := parent.EndPoint()
+					parentEndPt := parent.EndPosition()
 					endLine = int(parentEndPt.Row) + 1
 				}
 				entitySource := ""
 				complexity := 1
 				if parent != nil {
-					entitySource = parent.Content(src)
+					entitySource = parent.Utf8Text(src)
 					complexity = ComputeCyclomaticComplexity(entitySource)
 				}
 
-				contextName, contextType := resolveParentContextTS(capture.Node, src, langConfig)
+				contextName, contextType := resolveParentContextTS(&capture.Node, src, langConfig)
 
 				result.AddEntity(qdef.DataKey, Entity{
 					Name:        name,
@@ -276,7 +274,7 @@ func SafeChild(n *sitter.Node, idx int) *sitter.Node {
 	if n == nil {
 		return nil
 	}
-	return n.Child(idx)
+	return n.Child(uint(idx))
 }
 
 func SafeParent(n *sitter.Node) *sitter.Node {
@@ -290,7 +288,7 @@ func SafeType(n *sitter.Node) string {
 	if n == nil {
 		return ""
 	}
-	return n.Type()
+	return n.Kind()
 }
 
 func SafeChildByFieldName(n *sitter.Node, name string) *sitter.Node {
@@ -329,7 +327,7 @@ func resolveParentContextTS(node *sitter.Node, src []byte, langConfig *ExternalQ
 		if label, ok := parentTypes[nodeType]; ok {
 			nameNode := SafeChildByFieldName(current, "name")
 			if !SafeIsNull(nameNode) {
-				return nameNode.Content(src), label
+				return nameNode.Utf8Text(src), label
 			}
 		}
 
@@ -339,7 +337,7 @@ func resolveParentContextTS(node *sitter.Node, src []byte, langConfig *ExternalQ
 				if SafeType(grandparent) == "variable_declarator" {
 					nameNode := SafeChildByFieldName(grandparent, "name")
 					if !SafeIsNull(nameNode) {
-						return nameNode.Content(src), "Function"
+						return nameNode.Utf8Text(src), "Function"
 					}
 				}
 			}
@@ -404,13 +402,13 @@ func extractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, lang
 					prev := SafeChild(node, i-1)
 					if !SafeIsNull(prev) {
 						if comTypes[SafeType(prev)] {
-							commentText := cleanDocstring(prev.Content(src))
+							commentText := cleanDocstring(prev.Utf8Text(src))
 							if commentText != "" {
-								sp := child.StartPoint()
+								sp := child.StartPosition()
 								declLine := int(sp.Row) + 1
 								nameNode := SafeChildByFieldName(child, "name")
 								if !SafeIsNull(nameNode) {
-									name := nameNode.Content(src)
+									name := nameNode.Utf8Text(src)
 									if e, ok := entityIdx[entityKey{declLine, name}]; ok {
 										e.Docstring = commentText
 									}
@@ -431,13 +429,13 @@ func extractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, lang
 										expr := SafeChild(firstStmt, 0)
 										if !SafeIsNull(expr) {
 											if SafeType(expr) == "string" {
-												sp := child.StartPoint()
+												sp := child.StartPosition()
 												declLine := int(sp.Row) + 1
 												nameNode := SafeChildByFieldName(child, "name")
 												if !SafeIsNull(nameNode) {
-													name := nameNode.Content(src)
+													name := nameNode.Utf8Text(src)
 													if e, ok := entityIdx[entityKey{declLine, name}]; ok && e.Docstring == "" {
-														e.Docstring = cleanDocstring(expr.Content(src))
+														e.Docstring = cleanDocstring(expr.Utf8Text(src))
 													}
 												}
 											}
@@ -482,7 +480,7 @@ func detectExportsTS(root *sitter.Node, src []byte, result *ParsedFile, lang str
 				if !SafeIsNull(decl) {
 					nameNode := SafeChildByFieldName(decl, "name")
 					if !SafeIsNull(nameNode) {
-						exportedNames[nameNode.Content(src)] = true
+						exportedNames[nameNode.Utf8Text(src)] = true
 					}
 				}
 
@@ -502,7 +500,7 @@ func detectExportsTS(root *sitter.Node, src []byte, result *ParsedFile, lang str
 							if SafeType(es) == "export_specifier" {
 								nameNode := SafeChildByFieldName(es, "name")
 								if !SafeIsNull(nameNode) {
-									exportedNames[nameNode.Content(src)] = true
+									exportedNames[nameNode.Utf8Text(src)] = true
 								}
 							}
 						}

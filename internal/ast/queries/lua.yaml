@@ -5,16 +5,16 @@ queries:
   # === Entity queries ===
   - data_key: functions
     graph_label: Function
-    pattern: '(function_statement (function_name) @name)'
+    pattern: '(function_declaration name: (identifier) @name)'
   - data_key: functions
     graph_label: Function
-    pattern: '(function_statement name: (function_name) @name)'
+    pattern: '(function_declaration name: (dot_index_expression field: (identifier) @name))'
   - data_key: variables
     graph_label: Variable
-    pattern: '(variable_declaration (variable_declarator (identifier) @name))'
+    pattern: '(assignment_statement (variable_list name: (identifier) @name))'
   - data_key: parameters
     graph_label: Parameter
-    pattern: '(parameter_list (identifier) @name)'
+    pattern: '(parameters (identifier) @name)'
   - data_key: fields
     graph_label: Field
     pattern: '(field (identifier) @name)'
@@ -38,7 +38,7 @@ self_keywords: ["self."]
 
 # Parent context type mapping — Lua tree-sitter node types only
 context_types:
-  function_statement: Function
+  function_declaration: Function
 
 # Lua has anonymous functions that can be assigned to variables
 anon_func_types:
@@ -46,7 +46,7 @@ anon_func_types:
 
 # Declaration node types for docstring attachment
 declaration_types:
-  - function_statement
+  - function_declaration
   - variable_declaration
 
 # Lua tree-sitter uses a single "comment" node type for -- and --[[ ]] comments
