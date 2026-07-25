@@ -50,19 +50,9 @@ func (e *Embedder) CountPending(ctx context.Context) int {
 	if e.cfg.EmbCache == nil || e.cfg.ParseCache == nil {
 		return 0
 	}
-
 	total := 0
-	for _, label := range embeddableLabels {
-		rows := e.scanEntities(label)
-		for _, row := range rows {
-			hash := e.cfg.ParseCache.GetHash(row.Path)
-			if hash == "" {
-				continue
-			}
-			if vec := e.cfg.EmbCache.Get(row.Path, row.UID, hash); vec == nil {
-				total++
-			}
-		}
+	for _, rows := range e.scanPending(false) {
+		total += len(rows)
 	}
 	return total
 }
@@ -82,6 +72,10 @@ type entityRow struct {
 	Line      int
 	EndLine   int
 	Context   string
+	// Source is the entity's source snippet, precomputed during the single
+	// streaming scan (while the shard is loaded) so the embedding phase does not
+	// reload/pin shards to fetch it. Empty when source indexing is off.
+	Source string
 }
 
 func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
@@ -89,7 +83,15 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
-	grandTotal := e.CountPending(ctx)
+	// Single streaming pass: collect only rows that still need embedding,
+	// bucketed by label, with their source snippet precomputed. Replaces the old
+	// per-label AllEntries() scans (which pinned every shard in RAM and re-walked
+	// the full cache ~2x per label).
+	buckets := e.scanPending(true)
+	grandTotal := 0
+	for _, rows := range buckets {
+		grandTotal += len(rows)
+	}
 	if grandTotal == 0 {
 		return 0, nil
 	}
@@ -99,11 +101,15 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 
 	done := 0
 	for _, label := range embeddableLabels {
+		rows := buckets[label]
+		if len(rows) == 0 {
+			continue
+		}
 		if ctx.Err() != nil {
 			return done, ctx.Err()
 		}
 
-		n, err := e.processLabel(ctx, label, &done, grandTotal)
+		n, err := e.processBatch(ctx, label, rows, &done, grandTotal)
 		done += n
 		if err != nil {
 			e.log().Warn("process label", "label", label, "error", err)
@@ -113,49 +119,31 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 	return done, nil
 }
 
-func (e *Embedder) processLabel(ctx context.Context, label string, donePtr *int, grandTotal int) (int, error) {
-
-	allRows := e.scanEntities(label)
-	if len(allRows) == 0 {
-		return 0, nil
+// scanPending performs ONE streaming pass over the parse cache (StreamEntries
+// loads and evicts one shard at a time, bounding memory to O(1) shard), keeping
+// only entities that still need embedding, bucketed by label. When withSnippet
+// is true it also precomputes each row's source snippet from the loaded shard so
+// the embedding phase never reloads a shard just to fetch source text.
+func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
+	labelSet := make(map[string]bool, len(embeddableLabels))
+	for _, l := range embeddableLabels {
+		labelSet[l] = true
 	}
 
-	var needRows []entityRow
-	for _, row := range allRows {
-		hash := e.cfg.ParseCache.GetHash(row.Path)
-		if hash == "" {
-			continue
-		}
-		if vec := e.cfg.EmbCache.Get(row.Path, row.UID, hash); vec != nil {
-			continue
-		}
-		needRows = append(needRows, row)
-	}
-
-	if len(needRows) == 0 {
-		return 0, nil
-	}
-
-	return e.processBatch(ctx, label, needRows, donePtr, grandTotal)
-}
-
-func (e *Embedder) scanEntities(label string) []entityRow {
-	entries := e.cfg.ParseCache.AllEntries()
-	if len(entries) == 0 {
-		return nil
-	}
-
-	labelSet := map[string]bool{label: true}
-	var rows []entityRow
-	for _, entry := range entries {
+	buckets := make(map[string][]entityRow)
+	e.cfg.ParseCache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
 		for _, ent := range entry.Entities {
-			if !labelSet[ent.Label] {
+			if !labelSet[ent.Label] || ent.UID == "" || ent.Name == "" {
 				continue
 			}
-			if ent.UID == "" || ent.Name == "" {
+			hash := e.cfg.ParseCache.GetHash(ent.Path)
+			if hash == "" {
 				continue
 			}
-			rows = append(rows, entityRow{
+			if vec := e.cfg.EmbCache.Get(ent.Path, ent.UID, hash); vec != nil {
+				continue
+			}
+			row := entityRow{
 				UID:       ent.UID,
 				Label:     ent.Label,
 				Name:      ent.Name,
@@ -164,10 +152,67 @@ func (e *Embedder) scanEntities(label string) []entityRow {
 				Line:      ent.Line,
 				EndLine:   ent.EndLine,
 				Context:   ent.Context,
-			})
+			}
+			if withSnippet {
+				row.Source = embedSourceSnippet(entry.Source, ent.Line, ent.EndLine)
+			}
+			buckets[ent.Label] = append(buckets[ent.Label], row)
+		}
+		return true
+	})
+
+	// Deduplicate (Path, UID) across labels, keeping the label that appears
+	// earliest in embeddableLabels order. The embedding cache is keyed on
+	// (relPath, UID) WITHOUT the label, but the embedding text includes the
+	// label, so when one UID appears under two embeddable labels (e.g. a TS
+	// `class Foo` + `interface Foo`, or a same-named Table + View) both variants
+	// collide on one cache key. The previous per-label interleaved Get/Set flow
+	// let the FIRST embeddable label win (its Set made later labels skip); this
+	// restores that, instead of letting the last-processed label overwrite.
+	seen := make(map[string]struct{})
+	for _, label := range embeddableLabels {
+		rows := buckets[label]
+		if len(rows) == 0 {
+			continue
+		}
+		kept := rows[:0]
+		for _, r := range rows {
+			key := r.Path + "\x00" + r.UID
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			kept = append(kept, r)
+		}
+		if len(kept) == 0 {
+			delete(buckets, label)
+		} else {
+			buckets[label] = kept
 		}
 	}
-	return rows
+	return buckets
+}
+
+// embedSourceSnippet extracts the [line, endLine] slice of a file's source used
+// for the embedding text. It mirrors the original inline slicing exactly so the
+// embedding text (and therefore the produced vectors) is byte-identical.
+func embedSourceSnippet(fileSource string, line, endLine int) string {
+	if fileSource == "" || line <= 0 {
+		return fileSource
+	}
+	lines := strings.Split(fileSource, "\n")
+	start := line - 1
+	end := endLine
+	if start < 0 {
+		start = 0
+	}
+	if start >= len(lines) {
+		return ""
+	}
+	if end <= start || end > len(lines) {
+		end = len(lines)
+	}
+	return strings.Join(lines[start:end], "\n")
 }
 
 func (e *Embedder) processBatch(ctx context.Context, label string, rows []entityRow, donePtr *int, grandTotal int) (int, error) {
@@ -245,30 +290,10 @@ func (e *Embedder) buildEmbeddingText(row entityRow) string {
 		parts = append(parts, row.Docstring)
 	}
 
-	source := ""
-	if row.Path != "" && e.cfg.ParseCache != nil {
-		if entry := e.cfg.ParseCache.GetEntry(row.Path); entry != nil {
-			source = entry.Source
-		}
-	}
-
-	if source != "" && row.Line > 0 {
-		lines := strings.Split(source, "\n")
-		start := row.Line - 1
-		end := row.EndLine
-		if start < 0 {
-			start = 0
-		}
-		if start < len(lines) {
-			if end <= start || end > len(lines) {
-				end = len(lines)
-			}
-			source = strings.Join(lines[start:end], "\n")
-		} else {
-			source = ""
-		}
-	}
-
+	// row.Source is the line-sliced snippet precomputed during scanPending (from
+	// the same file source and line range the old inline logic used); apply only
+	// the MaxSourceChars cap here so the embedding text stays byte-identical.
+	source := row.Source
 	if source != "" {
 		if len(source) > e.cfg.MaxSourceChars {
 			source = source[:e.cfg.MaxSourceChars]
@@ -278,8 +303,6 @@ func (e *Embedder) buildEmbeddingText(row entityRow) string {
 
 	return strings.Join(parts, "\n")
 }
-
-
 
 func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir string, logger *slog.Logger) error {
 	log := slogutil.Resolve(logger)
