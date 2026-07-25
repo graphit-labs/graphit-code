@@ -2,14 +2,17 @@ package ast
 
 import (
 	"runtime"
+
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
+// SafeWorkers returns a worker count. An explicit request is honored but capped
+// at NumCPU-1. The default (explicit <= 0) is the shared CPU budget
+// (sysutil.CPUBudget), which scales with the machine while reserving headroom
+// for interactive work — the same budget used for LadybugDB and ONNX threads.
 func SafeWorkers(explicit int) int {
-	cpus := runtime.NumCPU()
-
 	if explicit > 0 {
-
-		max := cpus - 1
+		max := runtime.NumCPU() - 1
 		if max < 1 {
 			max = 1
 		}
@@ -19,12 +22,5 @@ func SafeWorkers(explicit int) int {
 		return explicit
 	}
 
-	w := cpus / 2
-	if w < 2 {
-		w = 2
-	}
-	if w > 8 {
-		w = 8
-	}
-	return w
+	return sysutil.CPUBudget()
 }

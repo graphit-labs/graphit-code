@@ -141,14 +141,15 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	}
 	closeMCP = runCloseMCP
 
-	maxProcs := runtime.NumCPU() / 2
-	if maxProcs < 2 {
-		maxProcs = 2
+	// Coordinate Go-side parallelism with the shared CPU budget that also sizes
+	// the parse-worker pool, LadybugDB threads, and ONNX threads.
+	runtime.GOMAXPROCS(sysutil.CPUBudget())
+
+	// Run the background daemon at lowered CPU/IO priority so indexing and
+	// embedding yield to the user's interactive work. Best-effort.
+	if err := sysutil.LowerPriority(); err != nil {
+		output.NewPrinter("daemon").Warn("could not lower process priority: %v", err)
 	}
-	if maxProcs > 8 {
-		maxProcs = 8
-	}
-	runtime.GOMAXPROCS(maxProcs)
 
 	cfg := daemon.DefaultConfig()
 	cfg.DisableEmbedding = noEmbedding

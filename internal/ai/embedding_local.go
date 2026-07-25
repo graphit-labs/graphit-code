@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 	"github.com/sugarme/tokenizer/pretrained"
 	ort "github.com/yalue/onnxruntime_go"
 
@@ -137,8 +138,9 @@ func NewLocalEmbeddingClient() (*localEmbeddingClient, error) {
 	}, nil
 }
 
-// boundedEmbedThreads returns the ONNX Runtime intra-op thread count: half the
-// cores (min 1, max 8) so background embedding does not monopolize the machine.
+// boundedEmbedThreads returns the ONNX Runtime intra-op thread count, derived
+// from the shared CPU budget so background embedding does not monopolize the
+// machine or oversubscribe cores alongside the parse and DB thread pools.
 // GRAPHIT_EMBED_THREADS overrides.
 func boundedEmbedThreads() int {
 	if s := os.Getenv("GRAPHIT_EMBED_THREADS"); s != "" {
@@ -146,14 +148,7 @@ func boundedEmbedThreads() int {
 			return n
 		}
 	}
-	n := runtime.NumCPU() / 2
-	if n < 1 {
-		n = 1
-	}
-	if n > 8 {
-		n = 8
-	}
-	return n
+	return sysutil.CPUBudget()
 }
 
 func (c *localEmbeddingClient) ModelName() string { return localModelName }

@@ -3,6 +3,8 @@ package ast
 import (
 	"runtime"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
 func TestSafeWorkers(t *testing.T) {
@@ -12,13 +14,13 @@ func TestSafeWorkers(t *testing.T) {
 		maxAllowed = 1
 	}
 
-	t.Run("zero_uses_default", func(t *testing.T) {
+	t.Run("zero_uses_cpu_budget", func(t *testing.T) {
 		w := SafeWorkers(0)
-		if w < 2 {
-			t.Errorf("expected >= 2, got %d", w)
+		if w != sysutil.CPUBudget() {
+			t.Errorf("default should equal CPUBudget()=%d, got %d", sysutil.CPUBudget(), w)
 		}
-		if w > 8 {
-			t.Errorf("expected <= 8, got %d", w)
+		if w < 1 || w > cpus {
+			t.Errorf("default %d out of range [1,%d]", w, cpus)
 		}
 	})
 
@@ -50,10 +52,10 @@ func TestSafeWorkers(t *testing.T) {
 	})
 
 	t.Run("negative_treated_as_zero", func(t *testing.T) {
-		// Negative value: explicit > 0 is false, so falls through to default
+		// Negative value: explicit > 0 is false, so falls through to the default.
 		w := SafeWorkers(-5)
-		if w < 2 {
-			t.Errorf("expected >= 2 for negative input, got %d", w)
+		if w != sysutil.CPUBudget() {
+			t.Errorf("negative input should use CPUBudget()=%d, got %d", sysutil.CPUBudget(), w)
 		}
 	})
 }

@@ -3,6 +3,8 @@ package ast
 import (
 	"os"
 	"strconv"
+
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
 // Resource governance for the indexer.
@@ -19,7 +21,6 @@ import (
 const (
 	dbBufferPoolFloor uint64 = 256 << 20 // 256 MiB
 	dbBufferPoolCeil  uint64 = 1 << 30   // 1 GiB
-	dbThreadCap       uint64 = 8
 )
 
 // boundedDBBufferPool clamps LadybugDB's buffer-pool ceiling. The buffer pool is
@@ -44,18 +45,16 @@ func boundedDBBufferPool(def uint64) uint64 {
 	return v
 }
 
-// boundedDBThreads caps LadybugDB's native thread pool (default = NumCPU) so it
-// does not oversubscribe the machine alongside the Go worker pool and the ONNX
-// embedding threads. GRAPHIT_DB_THREADS overrides.
+// boundedDBThreads caps LadybugDB's native thread pool (default = NumCPU) to the
+// shared CPU budget so it does not oversubscribe the machine alongside the Go
+// worker pool and the ONNX embedding threads. GRAPHIT_DB_THREADS overrides.
 func boundedDBThreads(def uint64) uint64 {
 	if n := envUint("GRAPHIT_DB_THREADS"); n > 0 {
 		return n
 	}
-	if def == 0 {
-		return 1
-	}
-	if def > dbThreadCap {
-		return dbThreadCap
+	budget := uint64(sysutil.CPUBudget())
+	if def == 0 || def > budget {
+		return budget
 	}
 	return def
 }

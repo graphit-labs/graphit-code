@@ -1,6 +1,10 @@
 package ast
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
+)
 
 func TestBoundedDBBufferPool(t *testing.T) {
 	const gib = uint64(1) << 30
@@ -31,22 +35,27 @@ func TestBoundedDBBufferPoolEnvOverride(t *testing.T) {
 }
 
 func TestBoundedDBThreads(t *testing.T) {
-	cases := []struct{ def, want uint64 }{
-		{0, 1},
-		{4, 4},
-		{8, 8},
-		{20, dbThreadCap},
+	budget := uint64(sysutil.CPUBudget())
+
+	// A NumCPU-sized default (the liblbug default) is clamped to the budget.
+	if got := boundedDBThreads(1024); got != budget {
+		t.Errorf("boundedDBThreads(1024) = %d, want budget %d", got, budget)
 	}
-	for _, c := range cases {
-		if got := boundedDBThreads(c.def); got != c.want {
-			t.Errorf("boundedDBThreads(%d) = %d, want %d", c.def, got, c.want)
+	// A request already at/below the budget is preserved.
+	if budget >= 1 {
+		if got := boundedDBThreads(1); got != 1 {
+			t.Errorf("boundedDBThreads(1) = %d, want 1", got)
 		}
+	}
+	// Result is always a sane, bounded value.
+	if got := boundedDBThreads(0); got < 1 || got > budget {
+		t.Errorf("boundedDBThreads(0) = %d, want in [1,%d]", got, budget)
 	}
 }
 
 func TestBoundedDBThreadsEnvOverride(t *testing.T) {
 	t.Setenv("GRAPHIT_DB_THREADS", "2")
-	if got := boundedDBThreads(20); got != 2 {
+	if got := boundedDBThreads(1024); got != 2 {
 		t.Errorf("env override = %d, want 2", got)
 	}
 }
