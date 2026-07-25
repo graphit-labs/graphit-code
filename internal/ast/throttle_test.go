@@ -59,3 +59,52 @@ func TestSafeWorkers(t *testing.T) {
 		}
 	})
 }
+
+func TestParallelForEach(t *testing.T) {
+	const n = 1000
+	items := make([]int, n)
+	for i := range items {
+		items[i] = i
+	}
+
+	// collect runs on the caller goroutine, so mutating without a lock is safe.
+	sum, count := 0, 0
+	parallelForEach(items, 8,
+		func(x int) int { return x * 2 },
+		func(r int) { sum += r; count++ },
+	)
+
+	if count != n {
+		t.Errorf("collected %d results, want %d", count, n)
+	}
+	want := 0
+	for _, x := range items {
+		want += x * 2
+	}
+	if sum != want {
+		t.Errorf("sum = %d, want %d", sum, want)
+	}
+}
+
+func TestParallelForEachEmpty(t *testing.T) {
+	called := false
+	parallelForEach([]int{}, 4,
+		func(x int) int { called = true; return x },
+		func(int) { called = true },
+	)
+	if called {
+		t.Error("work/collect must not run for empty input")
+	}
+}
+
+func TestParallelForEachClampsWorkers(t *testing.T) {
+	// workers < 1 is clamped to 1; all items still processed exactly once.
+	got := 0
+	parallelForEach([]int{1, 2, 3, 4}, 0,
+		func(x int) int { return x },
+		func(r int) { got += r },
+	)
+	if got != 10 {
+		t.Errorf("got %d, want 10", got)
+	}
+}

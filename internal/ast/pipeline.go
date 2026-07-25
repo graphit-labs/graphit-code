@@ -15,22 +15,22 @@ import (
 )
 
 type PipelineOptions struct {
-	Workers       int
-	IsDepend      bool
-	IndexSource   bool
-	SkipExternal  bool
-	CacheDir      string
-	ExcludeExts   map[string]bool
+	Workers          int
+	IsDepend         bool
+	IndexSource      bool
+	SkipExternal     bool
+	CacheDir         string
+	ExcludeExts      map[string]bool
 	GrammarOverrides map[string]string
-	Cluster       string
-	ForceRebuild  bool
-	Logger        *slog.Logger
-	OnProgress    func(phase string, current, total, errors int)
+	Cluster          string
+	ForceRebuild     bool
+	Logger           *slog.Logger
+	OnProgress       func(phase string, current, total, errors int)
 }
 
 type PipelineResult struct {
-	TotalFiles  int
-	ParsedFiles int
+	TotalFiles   int
+	ParsedFiles  int
 	DiscoverTime time.Duration
 	HashTime     time.Duration
 	ParseTime    time.Duration
@@ -107,33 +107,6 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			mtime int64
 			skip  bool // mtime unchanged → treat as not changed
 		}
-		statCh := make(chan statResult, len(files))
-		var statWg sync.WaitGroup
-		statSem := make(chan struct{}, SafeWorkers(0))
-
-		for _, f := range files {
-			statWg.Add(1)
-			go func(path string) {
-				defer statWg.Done()
-				statSem <- struct{}{}
-				defer func() { <-statSem }()
-				fAbs, _ := filepath.Abs(path)
-				rel := writer.rel(fAbs)
-				info, err := os.Stat(path)
-				if err != nil {
-					statCh <- statResult{path: path, rel: rel}
-					return
-				}
-				mtime := info.ModTime().UnixNano()
-				skip := rel != "" && !jsonCache.NeedsHash(rel, mtime)
-				statCh <- statResult{path: path, rel: rel, mtime: mtime, skip: skip}
-			}(f)
-		}
-		go func() {
-			statWg.Wait()
-			close(statCh)
-		}()
-
 		// Collect stat results and partition into needHash vs confirmed-unchanged.
 		type fileInfo struct {
 			path  string
@@ -144,16 +117,32 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		var mtimeUnchanged []fileInfo // rel != "" && mtime matched
 		liveFiles := make(map[string]bool, len(files))
 
-		for sr := range statCh {
-			if sr.rel != "" {
-				liveFiles[sr.rel] = true
-			}
-			if sr.skip {
-				mtimeUnchanged = append(mtimeUnchanged, fileInfo{sr.path, sr.rel, sr.mtime})
-			} else {
-				needHash = append(needHash, fileInfo{sr.path, sr.rel, sr.mtime})
-			}
-		}
+		// Fixed worker pool over a bounded channel — O(workers) memory even for
+		// repos with tens of thousands of files (vs a goroutine + channel slot
+		// per file).
+		parallelForEach(files, SafeWorkers(0),
+			func(path string) statResult {
+				fAbs, _ := filepath.Abs(path)
+				rel := writer.rel(fAbs)
+				info, err := os.Stat(path)
+				if err != nil {
+					return statResult{path: path, rel: rel}
+				}
+				mtime := info.ModTime().UnixNano()
+				skip := rel != "" && !jsonCache.NeedsHash(rel, mtime)
+				return statResult{path: path, rel: rel, mtime: mtime, skip: skip}
+			},
+			func(sr statResult) {
+				if sr.rel != "" {
+					liveFiles[sr.rel] = true
+				}
+				if sr.skip {
+					mtimeUnchanged = append(mtimeUnchanged, fileInfo{sr.path, sr.rel, sr.mtime})
+				} else {
+					needHash = append(needHash, fileInfo{sr.path, sr.rel, sr.mtime})
+				}
+			},
+		)
 
 		// Phase B: SHA-256 only the files that need it (mtime changed or no mtime cached).
 		if len(needHash) > 0 {
@@ -163,37 +152,23 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				rel   string
 				mtime int64
 			}
-			hashCh := make(chan hashResult, len(needHash))
-			var hashWg sync.WaitGroup
-			sem := make(chan struct{}, SafeWorkers(0))
-
-			for _, fi := range needHash {
-				hashWg.Add(1)
-				go func(fi fileInfo) {
-					defer hashWg.Done()
-					sem <- struct{}{}
-					defer func() { <-sem }()
-					h := fileContentHash(fi.path)
-					hashCh <- hashResult{path: fi.path, hash: h, rel: fi.rel, mtime: fi.mtime}
-				}(fi)
-			}
-			go func() {
-				hashWg.Wait()
-				close(hashCh)
-			}()
-
-			for hr := range hashCh {
-				fileHashes[hr.path] = hr.hash
-				if hr.rel == "" {
-					continue
-				}
-				if jsonCache.HasChanged(hr.rel, hr.hash) {
-					changedFiles = append(changedFiles, hr.path)
-				} else {
-					// Hash confirmed unchanged — update mtime so next sync is faster.
-					jsonCache.StoreMtime(hr.rel, hr.mtime)
-				}
-			}
+			parallelForEach(needHash, SafeWorkers(0),
+				func(fi fileInfo) hashResult {
+					return hashResult{path: fi.path, hash: fileContentHash(fi.path), rel: fi.rel, mtime: fi.mtime}
+				},
+				func(hr hashResult) {
+					fileHashes[hr.path] = hr.hash
+					if hr.rel == "" {
+						return
+					}
+					if jsonCache.HasChanged(hr.rel, hr.hash) {
+						changedFiles = append(changedFiles, hr.path)
+					} else {
+						// Hash confirmed unchanged — update mtime so next sync is faster.
+						jsonCache.StoreMtime(hr.rel, hr.mtime)
+					}
+				},
+			)
 		}
 
 		// Detect deleted files (in cache but not on disk).
@@ -462,8 +437,6 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		EngineStats:     engineStats,
 	}, nil
 }
-
-
 
 func fileContentHash(path string) string {
 	data, err := os.ReadFile(path)
