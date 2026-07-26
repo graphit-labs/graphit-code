@@ -10,21 +10,20 @@ import (
 
 	antlrcommon "github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
 
-
 	antlrCobol85 "github.com/graphit-labs/graphit-code/internal/ast/antlr/cobol85"
+	_ "github.com/graphit-labs/graphit-code/internal/ast/antlr/cobol85/preprocessor"
 	antlrDB2 "github.com/graphit-labs/graphit-code/internal/ast/antlr/db2"
 	antlrPLSQL "github.com/graphit-labs/graphit-code/internal/ast/antlr/plsql"
 	antlrPostgreSQL "github.com/graphit-labs/graphit-code/internal/ast/antlr/postgresql"
 	antlrTSQL "github.com/graphit-labs/graphit-code/internal/ast/antlr/tsql"
 )
 
-
 var nativeAntlrDrivers = map[string]antlrcommon.GrammarDriver{
-	"antlr-plsql":     &antlrPLSQL.Driver{},
+	"antlr-plsql":      &antlrPLSQL.Driver{},
 	"antlr-postgresql": &antlrPostgreSQL.Driver{},
-	"antlr-tsql":      &antlrTSQL.Driver{},
-	"antlr-db2":       &antlrDB2.Driver{},
-	"antlr-cobol85":   &antlrCobol85.Driver{},
+	"antlr-tsql":       &antlrTSQL.Driver{},
+	"antlr-db2":        &antlrDB2.Driver{},
+	"antlr-cobol85":    &antlrCobol85.Driver{},
 }
 
 // antlrDrivers maps grammar names to their GrammarDriver.
@@ -33,9 +32,20 @@ var antlrDrivers map[string]antlrcommon.GrammarDriver
 var antlrDriversOnce sync.Once
 var antlrGrammarProjectDir string
 
-
 func SetAntlrGrammarProjectDir(dir string) {
 	antlrGrammarProjectDir = dir
+}
+
+// ResetAntlrCaches discards the accumulated ANTLR DFA / prediction-context caches
+// of every native grammar. Those caches are package-level, grow with each newly
+// seen input pattern and are never evicted (antlr4-go has no ClearDFA), which
+// measured ~2 MB of retention per parsed PL/SQL file — unbounded across a large
+// repository. Resetting trades a partial cache re-warm for bounded memory.
+//
+// NOT safe to call while a parse is in flight: it swaps shared static state. Call
+// it only at a barrier where no goroutine is parsing.
+func ResetAntlrCaches() {
+	antlrcommon.ResetAllCaches()
 }
 
 func initAntlrDrivers() {
@@ -89,8 +99,6 @@ func antlrGrammarSearchDirs(projectDir string) []string {
 	return dirs
 }
 
-
-
 // antlrExtMap maps file extensions to ANTLR language configs.
 // Multiple grammars may share the same extension (e.g. ".sql"); the first
 // grammar that successfully extracts entities wins.
@@ -137,7 +145,7 @@ func init() {
 
 // AntlrParser implements LanguageParser for ANTLR v4 grammars.
 type AntlrParser struct {
-	projectDir    string
+	projectDir string
 }
 
 func (a *AntlrParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
@@ -400,8 +408,6 @@ func detectExportsAntlr(result *ParsedFile, lang string, langConfig *ExternalQue
 	}
 }
 
-
-
 // HasAntlrForExtension returns true if there's an ANTLR grammar for the extension.
 func HasAntlrForExtension(ext string) bool {
 	cfgs := antlrExtMap[strings.ToLower(ext)]
@@ -412,4 +418,3 @@ func HasAntlrForExtension(ext string) bool {
 func HasParserForExtension(ext string) bool {
 	return HasTreeSitterForExtension(ext) || HasAntlrForExtension(ext)
 }
-

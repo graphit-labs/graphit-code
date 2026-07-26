@@ -24,7 +24,6 @@ import (
 // Populated by init() functions in driver_*.go files, selected by build tags.
 var drivers = map[string]antlrcommon.GrammarDriver{}
 
-
 const (
 	statusOK    = byte(0)
 	statusError = byte(1)
@@ -52,6 +51,13 @@ func main() {
 			writeErrorResponse(os.Stdout, fmt.Sprintf("parse error (%s): %v", grammar, err))
 			continue
 		}
+
+		// This process is long-lived and parses request after request, so the
+		// grammars' package-level DFA / prediction-context caches would grow
+		// unbounded exactly as they do in the indexer. Release them whenever the
+		// heap passes the machine-derived budget. Safe here without a barrier:
+		// the loop parses one request at a time (and ResetAllCaches locks anyway).
+		releaseCachesUnderPressure()
 
 		payload, err := json.Marshal(tree)
 		if err != nil {

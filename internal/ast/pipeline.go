@@ -7,12 +7,42 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
+
+// antlrCacheCheckInterval is how many files are parsed between memory checks.
+// Each check is a barrier (all workers drained), which is also the only point
+// where the shared ANTLR caches may safely be reset.
+var antlrCacheCheckInterval = func() int {
+	if n := envUint("GRAPHIT_ANTLR_RESET_FILES"); n > 0 {
+		return int(n)
+	}
+	return 250
+}()
+
+// antlrCacheHeapLimit is the Go-heap ceiling above which the ANTLR caches are
+// reset at the next barrier. Resetting is PRESSURE-DRIVEN rather than on a fixed
+// file count because each reset discards a warm DFA and measurably slows parsing
+// (measured: resetting every 500 files cost ~78% more parse time), while never
+// resetting let the heap reach 23 GB on a 35k-file Oracle corpus. Checking the
+// heap means small repositories never pay a reset and large ones pay only as many
+// as needed. The budget scales with the machine — see AntlrHeapBudget.
+var antlrCacheHeapLimit = AntlrHeapBudget()
+
+// antlrCachePressure reports whether the Go heap has grown past the limit. It
+// uses runtime.MemStats (not /proc) so the check works on Linux, macOS and
+// Windows alike; the ANTLR DFA / prediction-context caches are ordinary Go heap
+// allocations, so HeapInuse tracks them directly.
+func antlrCachePressure() (uint64, bool) {
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	return ms.HeapInuse, ms.HeapInuse > antlrCacheHeapLimit
+}
 
 type PipelineOptions struct {
 	Workers          int
@@ -247,29 +277,54 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		}()
 	} else {
 
-		paths := make(chan string)
+		// Parse in chunks so that between chunks every worker has drained — a
+		// barrier where no parse is in flight. ANTLR's package-level DFA /
+		// prediction-context caches grow with every newly seen input pattern and
+		// are never evicted (~2 MB per PL/SQL file measured), so without a
+		// periodic reset a large repository exhausts RAM. Resetting only at the
+		// barrier keeps the parse hot path lock-free.
 		go func() {
-			for _, f := range changedFiles {
-				paths <- f
-			}
-			close(paths)
-		}()
+			defer close(results)
 
-		var wg sync.WaitGroup
-		for i := 0; i < opts.Workers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				wp := NewCompositeParser(abs, opts.GrammarOverrides)
-				for path := range paths {
-					pf, err := wp.Parse(path, opts.IsDepend, parseOpts)
-					results <- result{path, pf, err}
+			for start := 0; start < len(changedFiles); start += antlrCacheCheckInterval {
+				end := start + antlrCacheCheckInterval
+				if end > len(changedFiles) {
+					end = len(changedFiles)
 				}
-			}()
-		}
-		go func() {
-			wg.Wait()
-			close(results)
+				chunk := changedFiles[start:end]
+
+				paths := make(chan string)
+				go func(files []string) {
+					for _, f := range files {
+						paths <- f
+					}
+					close(paths)
+				}(chunk)
+
+				var wg sync.WaitGroup
+				for i := 0; i < opts.Workers; i++ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						wp := NewCompositeParser(abs, opts.GrammarOverrides)
+						for path := range paths {
+							pf, err := wp.Parse(path, opts.IsDepend, parseOpts)
+							results <- result{path, pf, err}
+						}
+					}()
+				}
+				wg.Wait() // barrier: no parse in flight
+
+				// Only reset when the heap is actually under pressure — a warm
+				// DFA is worth keeping. This also runs after the final chunk:
+				// the caches are package-level and stay LIVE (not garbage), so a
+				// long-lived daemon would otherwise hold the whole budget until
+				// the process exits.
+				if heap, over := antlrCachePressure(); over {
+					ResetAntlrCaches()
+					logger.Debug("antlr caches reset", "heap_mb", heap>>20, "parsed", end)
+				}
+			}
 		}()
 	}
 
