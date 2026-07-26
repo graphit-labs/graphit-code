@@ -134,7 +134,12 @@ func DetectFrameworks(ctx context.Context, db GraphDB, projectDir string) map[st
 	}
 
 	for _, label := range []string{"Function", "Method", "Class"} {
-		q := fmt.Sprintf(`MATCH (n:%s) WHERE n.decorators IS NOT NULL AND len(n.decorators) > 0 RETURN n.decorators AS decorators LIMIT 1000`, label)
+		// No len()/size() predicate: LadybugDB has no LEN function, so the old
+		// query failed with "Catalog exception: function LEN does not exist" on
+		// every run — silently, because the caller skips failing queries. Decorator
+		// based framework detection was therefore dead. Empty values are filtered
+		// in Go below, and inside a transaction the failing query also aborted it.
+		q := fmt.Sprintf(`MATCH (n:%s) WHERE n.decorators IS NOT NULL RETURN n.decorators AS decorators LIMIT 1000`, label)
 		res, err := db.Query(ctx, q, nil)
 		if err != nil {
 			continue
