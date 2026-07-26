@@ -123,7 +123,10 @@ func (k *LadybugBackend) connect() error {
 			sysCfg.ReadOnly = true
 		}
 
-		db, err := lbug.OpenDatabase(k.cfg.DBPath, sysCfg)
+		// Share one *lbug.Database per path across backends in this process so a
+		// reader gets snapshot isolation against an in-process writer (see
+		// ladybug_registry.go).
+		db, err := acquireDatabase(k.cfg.DBPath, sysCfg)
 		if err != nil {
 			k.connectErr = fmt.Errorf("ladybug open: %w", err)
 			k.log().Error("ladybug: failed to open database", "path", k.cfg.DBPath, "readonly", k.cfg.ReadOnly, "error", err)
@@ -133,7 +136,7 @@ func (k *LadybugBackend) connect() error {
 		if err != nil {
 			k.connectErr = fmt.Errorf("ladybug connection: %w", err)
 			k.log().Error("ladybug: failed to open connection", "path", k.cfg.DBPath, "error", err)
-			db.Close() // close the database if connection failed
+			releaseDatabase(k.cfg.DBPath, db) // drop our reference if the connection failed
 			return
 		}
 		k.db = db
@@ -355,6 +358,14 @@ func (k *LadybugBackend) initSchemaForLabels(info SchemaInfo) error {
 		}
 	}
 	return nil
+}
+
+// ensureConnectedLocked connects while taking the backend mutex. Use from
+// callers that are not already holding it (the in-place incremental path).
+func (k *LadybugBackend) ensureConnectedLocked() error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.ensureConnected()
 }
 
 func (k *LadybugBackend) ensureConnected() error {
@@ -612,7 +623,9 @@ func (k *LadybugBackend) Close() error {
 		k.conn = nil
 	}
 	if k.db != nil {
-		k.db.Close()
+		// The handle may be shared with other backends in this process; the
+		// registry closes it only when the last reference goes away.
+		releaseDatabase(k.cfg.DBPath, k.db)
 		k.db = nil
 	}
 
@@ -765,4 +778,3 @@ func CleanupInterruptedSwap(dbPath string) {
 
 	_ = os.RemoveAll(dbPath + ".staging")
 }
-
