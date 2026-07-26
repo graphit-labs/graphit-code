@@ -295,7 +295,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}
 
 	t1 := time.Now()
-	parseOpts := ParseOptions{}
+	parseOpts := ParseOptions{IndexSource: opts.IndexSource}
 
 	dryRun := os.Getenv("AST_DRY_RUN") == "1"
 

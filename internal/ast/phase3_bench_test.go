@@ -3,6 +3,8 @@ package ast
 import (
 	"strings"
 	"testing"
+
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 var benchEntitySource = strings.Repeat(`
@@ -28,5 +30,66 @@ func BenchmarkComputeCyclomaticComplexity(b *testing.B) {
 		if ComputeCyclomaticComplexity(benchEntitySource) <= 0 {
 			b.Fatal("bad complexity")
 		}
+	}
+}
+
+func benchDocstringTree(b *testing.B) (*sitter.Node, []byte, *ExternalQueryFile, *sitter.Language, []Entity) {
+	b.Helper()
+	lang, err := resolveTreeSitterLang("go", "tree-sitter-go")
+	if err != nil || lang == nil {
+		b.Skipf("go grammar unavailable: %v", err)
+	}
+	var sb strings.Builder
+	sb.WriteString("package p\n")
+	ents := make([]Entity, 0, 300)
+	line := 2
+	for i := 0; i < 300; i++ {
+		sb.WriteString("\n// Doc comment for symbol.\nfunc F" + itoaBench(i) + "() { x := 1; _ = x }\n")
+		line += 3
+		ents = append(ents, Entity{Name: "F" + itoaBench(i), Line: line, GraphLabel: "Function"})
+	}
+	src := []byte(sb.String())
+	p := sitter.NewParser()
+	_ = p.SetLanguage(lang)
+	tree := p.Parse(src, nil)
+	b.Cleanup(func() { tree.Close(); p.Close() })
+	return tree.RootNode(), src, &ExternalQueryFile{DeclarationTypes: []string{"function_declaration"}}, lang, ents
+}
+
+func itoaBench(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var b [8]byte
+	pos := len(b)
+	for i > 0 {
+		pos--
+		b[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	return string(b[pos:])
+}
+
+func BenchmarkExtractDocstringsTS(b *testing.B) {
+	root, src, cfg, lang, ents := benchDocstringTree(b)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(src)))
+	for i := 0; i < b.N; i++ {
+		cp := make([]Entity, len(ents))
+		copy(cp, ents)
+		pf := &ParsedFile{Entities: map[string][]Entity{"functions": cp}}
+		extractDocstringsTS(root, src, pf, cfg, lang)
+	}
+}
+
+func BenchmarkExtractDocstringsTSLegacy(b *testing.B) {
+	root, src, cfg, _, ents := benchDocstringTree(b)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(src)))
+	for i := 0; i < b.N; i++ {
+		cp := make([]Entity, len(ents))
+		copy(cp, ents)
+		pf := &ParsedFile{Entities: map[string][]Entity{"functions": cp}}
+		legacyExtractDocstringsTS(root, src, pf, cfg)
 	}
 }
