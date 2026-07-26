@@ -11,13 +11,16 @@ import (
 type Driver struct{}
 
 func (d *Driver) Parse(src []byte) (*antlrcommon.TreeNode, error) {
+	antlrcommon.LockParse()
+	defer antlrcommon.UnlockParse()
+
 	input := antlr.NewInputStream(string(src))
 	lexer := NewPostgreSQLLexer(input)
 	lexer.RemoveErrorListeners()
 	tokens := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
 	p := NewPostgreSQLParser(tokens)
 	p.RemoveErrorListeners()
-	nativeTree := antlrcommon.ParseSLLThenLL(
+	nativeTree := antlrcommon.Parse(antlrcommon.LLOnly,
 		func() antlr.ParseTree { return p.Root() },
 		func(mode int) { antlrcommon.ConfigureParser(p, tokens, &p.BuildParseTrees, mode) },
 	)

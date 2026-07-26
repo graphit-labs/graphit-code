@@ -47,6 +47,39 @@ func TestSilentErrorStrategyNeverWritesStdout(t *testing.T) {
 	}
 }
 
+// TestConfigureParserModesNeverWriteStdout guards BOTH prediction modes. The SLL
+// (fast) mode uses a BailErrorStrategy, whose inherited ReportError also prints
+// "unknown recognition error type" to stdout on an unhandled exception type —
+// which the LL-only fix missed. ConfigureParser must install silent handlers for
+// both modes.
+func TestConfigureParserModesNeverWriteStdout(t *testing.T) {
+	for _, mode := range []struct {
+		name string
+		val  int
+	}{
+		{"SLL", antlrcommon.ModeSLL},
+		{"LL", antlrcommon.ModeLL},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			input := antlr.NewInputStream("SELECT 1 FROM dual")
+			lexer := NewPlSqlLexer(input)
+			lexer.RemoveErrorListeners()
+			tokens := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
+			p := NewPlSqlParser(tokens)
+			p.RemoveErrorListeners()
+
+			var buildParseTrees bool
+			antlrcommon.ConfigureParser(p, tokens, &buildParseTrees, mode.val)
+
+			e := antlr.NewBaseRecognitionException("synthetic", p, tokens, nil)
+			got := captureStdout(func() { p.GetErrorHandler().ReportError(p, e) })
+			if got != "" {
+				t.Errorf("%s-mode error handler wrote to stdout: %q", mode.name, got)
+			}
+		})
+	}
+}
+
 // TestStdoutPollutionRepro asserts that parsing malformed PL/SQL never writes
 // to stdout. The process runs as a stdio MCP server, so any stray write to
 // stdout corrupts the JSON-RPC framing. This is a Red test for the

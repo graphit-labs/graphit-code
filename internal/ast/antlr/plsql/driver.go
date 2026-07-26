@@ -11,6 +11,9 @@ import (
 type Driver struct{}
 
 func (d *Driver) Parse(src []byte) (*antlrcommon.TreeNode, error) {
+	antlrcommon.LockParse()
+	defer antlrcommon.UnlockParse()
+
 	preprocessed := Preprocess(string(src))
 	input := antlr.NewInputStream(preprocessed)
 	lexer := NewPlSqlLexer(input)
@@ -18,7 +21,7 @@ func (d *Driver) Parse(src []byte) (*antlrcommon.TreeNode, error) {
 	tokens := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
 	p := NewPlSqlParser(tokens)
 	p.RemoveErrorListeners()
-	nativeTree := antlrcommon.ParseSLLThenLL(
+	nativeTree := antlrcommon.Parse(antlrcommon.LLOnly,
 		func() antlr.ParseTree { return p.Sql_script() },
 		func(mode int) { antlrcommon.ConfigureParser(p, tokens, &p.BuildParseTrees, mode) },
 	)
