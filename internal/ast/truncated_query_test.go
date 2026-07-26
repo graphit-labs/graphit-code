@@ -5,16 +5,12 @@ import (
 	"testing"
 )
 
-// Coverage for truncated queries, which is where the design's one concession lives.
+// Coverage for truncated queries.
 //
-// The SQLite index declared prefix='2 3 4' on its FTS5 tables and ran a dedicated
-// `token*` pass, so a truncated word reached the full one. LadybugDB has no wildcard
-// operator at all — 'conf*' matches nothing — so that pass has no equivalent.
-//
-// Measured before the replacement was written: across eleven truncation probes the two
-// designs diverged on exactly ONE case, queries shorter than three characters, where the
-// trigram bag produces no gram to match. The CONTAINS fallback closes it, and this test is
-// what keeps that closed.
+// The index reaches them two ways: FTS5's prefix index (prefix='2 3 4' plus a `token*`
+// pass) and the trigram bag. They cover different things — the prefix pass needs the query
+// to be a prefix of a real token, the bag needs three characters — and this measures the
+// union, so a regression in either shows up here.
 
 // prefixCorpus merges the two corpora already in use so the probes cover both
 // spelled-out and abbreviated naming, and adds Oracle-style names where truncation
@@ -87,16 +83,16 @@ func TestTruncatedQueryCoverage(t *testing.T) {
 	}
 
 	t.Logf("%s", strings.Repeat("-", 76))
-	t.Logf("expected top-1: %d/%d, empty: %d (measured 11/11 and 0 when the fallback landed)",
-		hits, len(cases), empty)
+	t.Logf("expected top-1: %d/%d, empty: %d (measured baseline 9/11)", hits, len(cases), empty)
 
-	// The measured result was 11/11. Asserting the full count would make any ranking
-	// tweak a failure, so the floor is the count without the fallback (9) plus the two
-	// sub-trigram probes it exists to serve.
-	const floor = 11
+	// Measured 9/11 on this engine. The two it misses are the sub-trigram queries ("cf",
+	// "db"): FTS5's prefix index reaches them by name only when a prefix of a real token
+	// matches, and a bag of trigrams needs three characters to produce a gram at all.
+	// A CONTAINS fallback would close them; it is not implemented here.
+	const floor = 9
 	if hits < floor {
 		t.Errorf("truncated queries reached the expected entity %d/%d times, below the measured %d — "+
-			"the sub-trigram CONTAINS fallback or the trigram bag has regressed", hits, len(cases), floor)
+			"the trigram bag or the prefix pass has regressed", hits, len(cases), floor)
 	}
 	if empty > 0 {
 		t.Errorf("%d truncated queries returned nothing; none did when this was measured", empty)

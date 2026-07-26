@@ -9,9 +9,9 @@ import (
 	lbug "github.com/LadybugDB/go-ladybug"
 )
 
-// trigrams turns "config" into "con onf nfi fig" — what FTS5's trigram tokenizer did
-// internally, done in Go so the result can be stored in a property and indexed by
-// Ladybug's FTS. This is the mechanism the shipping index uses (see identifierTrigrams).
+// trigrams turns "config" into "con onf nfi fig" — exactly what SQLite's
+// trigram tokenizer does internally, just done in Go so the result can be
+// stored in a property and indexed by Ladybug's FTS.
 func trigrams(s string) string {
 	s = strings.ToLower(s)
 	if len(s) < 3 {
@@ -24,12 +24,11 @@ func trigrams(s string) string {
 	return strings.Join(parts, " ")
 }
 
-// TestLadybugIndexedSubstring proved Ladybug could match FTS5's trigram index —
-// INDEXED substring search, not a CONTAINS scan. It is the evidence the shipping
-// name_tri field rests on.
+// TestLadybugIndexedSubstring proves Ladybug matches SQLite's trigram index —
+// INDEXED substring search, not a CONTAINS scan.
 //
-// A trigram tokenizer is not a special engine capability: it splits text into
-// overlapping 3-grams and indexes those. Doing that split in Go, storing it
+// FTS5's trigram tokenizer is not a special engine capability: it splits text
+// into overlapping 3-grams and indexes those. Doing that split in Go, storing it
 // in a property and running CREATE_FTS_INDEX over it reproduces the mechanism
 // exactly, so substring queries stay index lookups at corpus scale.
 //
@@ -111,8 +110,8 @@ func TestLadybugIndexedSubstring(t *testing.T) {
 // supports. Probing the extension binary showed the supported tokenizers are
 // only 'simple' and 'jieba' — there is NO native trigram/ngram tokenizer, which
 // is why indexed substring search is built from precomputed trigrams above.
-// In exchange Ladybug offers stemming, which the SQLite index it replaced did not use
-// (FTS5 was configured with unicode61 and no stemmer).
+// In exchange Ladybug offers stemming, which the current SQLite index does not
+// use (FTS5 is configured with unicode61 and no stemmer).
 func TestLadybugFTSNativeOptions(t *testing.T) {
 	dir := t.TempDir()
 	db, err := lbug.OpenDatabase(filepath.Join(dir, "opt"), lbug.DefaultSystemConfig())
@@ -143,7 +142,7 @@ func TestLadybugFTSNativeOptions(t *testing.T) {
 	}
 
 	// With stemming, the query "parsing" must reach a document containing
-	// "Parses" — something the unstemmed FTS5 configuration could not do.
+	// "Parses" — something the unstemmed SQLite configuration cannot do.
 	r, err := c.Query("CALL QUERY_FTS_INDEX('D','idx_stem','parsing') RETURN node.uid AS u")
 	if err != nil {
 		t.Fatalf("stemmed query failed: %v", err)

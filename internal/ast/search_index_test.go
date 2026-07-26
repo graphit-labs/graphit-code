@@ -10,13 +10,13 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
-// Verification of the LadybugDB-backed search index.
+// Verification of the search index.
 //
-// These tests began as a differential comparison against the SQLite index, fed from the
-// same ShardCache so any difference had to be the implementation rather than the input.
-// That comparison cleared its gate (14/16 expected top-1 against SQLite's 12/16) and
-// SQLite was then removed, so the oracle is gone and the thresholds below are absolute,
-// with the measured SQLite figures recorded as the floor they must not fall under.
+// These tests were written to compare a LadybugDB implementation against the SQLite one,
+// fed from the same ShardCache so any difference had to be the implementation rather than
+// the input. The migration was reverted — LadybugDB does not maintain an FTS index on
+// insert, which forced an O(corpus) rebuild per edit, and it intermittently stored invalid
+// UTF-8 — so the tests now run against SQLite alone, keeping the requirements they encode.
 
 // cacheFromCorpus builds a parse cache from a corpus of entities.
 func cacheFromCorpus(t *testing.T, dir string, corpus []gateEntity) *ShardCache {
@@ -48,13 +48,13 @@ func cacheFromCorpus(t *testing.T, dir string, corpus []gateEntity) *ShardCache 
 func buildSearchIndex(t *testing.T, dir string, cache *ShardCache,
 	embLookup func(relPath, uid string) []float32) *SearchIndex {
 	t.Helper()
-	si, err := OpenSearchIndex(filepath.Join(dir, "search"))
+	si, err := OpenSearchIndex(filepath.Join(dir, "search.sqlite"))
 	if err != nil {
-		t.Skipf("ladybug search index unavailable: %v", err)
+		t.Fatalf("open search index: %v", err)
 	}
 	t.Cleanup(func() { _ = si.Close() })
 	if err := si.RebuildFromCache(cache, embLookup); err != nil {
-		t.Fatalf("rebuild ladybug search index: %v", err)
+		t.Fatalf("rebuild search index: %v", err)
 	}
 	return si
 }
@@ -119,8 +119,9 @@ func indexSearchNames(t *testing.T, si *SearchIndex, query string, topK int) []s
 // bar is "no worse than what was replaced", not "never regress by one position", so a
 // ranking tweak does not fail the suite while a real regression does.
 func TestSearchIndexQualityFloor(t *testing.T) {
-	// Measured on this corpus and probe set at the time SQLite was removed.
-	const sqliteBaselineTop1 = 12
+	// Measured on this corpus and probe set. The trigram bag is what carries the
+	// abbreviation probes; without it the score drops.
+	const baselineTop1 = 12
 
 	dir := t.TempDir()
 	corpus := prefixCorpus()
@@ -178,17 +179,16 @@ func TestSearchIndexQualityFloor(t *testing.T) {
 	}
 
 	t.Logf("%s", strings.Repeat("-", 84))
-	t.Logf("expected top-1: %d/%d (sqlite scored %d/%d on the same probes before removal)",
-		hits, len(cases), sqliteBaselineTop1, len(cases))
+	t.Logf("expected top-1: %d/%d (measured baseline %d/%d on the same probes)",
+		hits, len(cases), baselineTop1, len(cases))
 	t.Logf("empty results: %d", empty)
 
-	if hits < sqliteBaselineTop1 {
-		t.Errorf("QUALITY FLOOR: the expected entity ranked first %d/%d times, below the %d/%d the "+
-			"removed SQLite index achieved on the same corpus and probes",
-			hits, len(cases), sqliteBaselineTop1, len(cases))
+	if hits < baselineTop1 {
+		t.Errorf("QUALITY FLOOR: the expected entity ranked first %d/%d times, below the measured "+
+			"%d/%d on the same corpus and probes", hits, len(cases), baselineTop1, len(cases))
 	}
 	if empty > 0 {
-		t.Errorf("QUALITY FLOOR: %d queries returned nothing; SQLite returned nothing for none", empty)
+		t.Errorf("QUALITY FLOOR: %d queries returned nothing; the measured baseline had none", empty)
 	}
 }
 
@@ -234,9 +234,8 @@ func fingerprint(res []SearchResult) string {
 	return strings.Join(parts, "|")
 }
 
-// TestSearchIndexIncremental exercises the in-place update path, which is the reason to
-// consolidate: sqlite-vec allocated fixed 1024-row chunks and never reclaimed a deleted
-// vector's slot, so the index it replaced had to rewrite its whole file to shrink.
+// TestSearchIndexIncremental exercises the incremental update path: stale rows go, new rows
+// arrive, and repeating the same update does not duplicate anything.
 func TestSearchIndexIncremental(t *testing.T) {
 	dir := t.TempDir()
 	corpus := gateCorpus()
@@ -298,9 +297,11 @@ func TestSearchIndexIncremental(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
+	// The index stores the identifier together with its split ("renamedDigest renamed
+	// Digest"), so the raw Name never equals the identifier; entityNames normalises it.
 	count := 0
-	for _, r := range res {
-		if r.Name == "renamedDigest" {
+	for _, n := range entityNames(res, 0) {
+		if n == "renamedDigest" {
 			count++
 		}
 	}
@@ -347,10 +348,6 @@ func TestSearchIndexSemantic(t *testing.T) {
 	lb := buildSearchIndex(t, dir, cache, func(_, uid string) []float32 {
 		return byUID[uid]
 	})
-
-	if !lb.hasVector {
-		t.Skip("vector extension unavailable in this build")
-	}
 
 	qe, ok := client.(ai.QueryEmbedder)
 	if !ok {

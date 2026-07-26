@@ -109,14 +109,22 @@ func TestExpansionFieldCeiling(t *testing.T) {
 	exact := results["exact query token (\"config load\")"]
 	t.Logf("expansion recall: morphological %d, exact-token %d", morph, exact)
 
-	// The finding, asserted so it cannot quietly revert to the old story: without a prefix
-	// index an expansion only helps when it repeats the searcher's exact word. If the
-	// morphological wording ever starts working, Ladybug gained prefix or stem matching and
-	// the reasoning above — including the decision not to build the field — should be redone.
-	if morph >= exact {
-		t.Errorf("the morphological expansion (%d) now matches as well as the exact-token one (%d) — "+
-			"Ladybug appears to have gained prefix or stem matching; re-derive whether an expansion "+
-			"field is worth building", morph, exact)
+	// On this engine both wordings reach CFG_LOAD, because FTS5's prefix index lets the
+	// query "config" match the token "configuration". That is exactly what made the
+	// expansion field look like a 9/9 idea.
+	//
+	// It is engine-specific, and worth keeping written down: on an engine without prefix
+	// matching the morphological wording scored 8/9 while the exact-token one scored 9/9,
+	// so the expansion only helped when it happened to repeat the searcher's word. Any
+	// future move off FTS5 inherits that weaker claim.
+	if morph < exact {
+		t.Errorf("the morphological expansion (%d) no longer matches as well as the exact-token "+
+			"one (%d) — prefix matching has been lost, and an expansion field would only help "+
+			"when it repeats the query's exact word", morph, exact)
+	}
+	if exact <= 8 {
+		t.Errorf("a perfect expansion field scored %d/9, so it buys nothing over the trigram bag "+
+			"alone (8/9) and should not be built", exact)
 	}
 }
 

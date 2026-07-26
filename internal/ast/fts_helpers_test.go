@@ -136,25 +136,169 @@ func TestStripFTSSpecialChars(t *testing.T) {
 // quoteToken
 // ---------------------------------------------------------------------------
 
+func TestQuoteToken(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"hello", `"hello"`},
+		{`say "hi"`, `"say hi"`},
+		{"", `""`},
+		{`"already"`, `"already"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := quoteToken(tt.input)
+			if got != tt.want {
+				t.Errorf("quoteToken(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // buildPhraseQuery
 // ---------------------------------------------------------------------------
+
+func TestBuildPhraseQuery(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"hello world", `"hello world"`},
+		{`"already quoted"`, `"already quoted"`},
+		{"", ""},
+		{"   ", ""},
+		{"single", `"single"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := buildPhraseQuery(tt.input)
+			if got != tt.want {
+				t.Errorf("buildPhraseQuery(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
 
 // ---------------------------------------------------------------------------
 // buildANDQuery
 // ---------------------------------------------------------------------------
 
+func TestBuildANDQuery(t *testing.T) {
+	tests := []struct {
+		name   string
+		tokens []string
+		want   string
+	}{
+		{"empty", nil, ""},
+		{"single", []string{"foo"}, `"foo"`},
+		{"multiple", []string{"a", "b", "c"}, `"a" "b" "c"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildANDQuery(tt.tokens)
+			if got != tt.want {
+				t.Errorf("buildANDQuery(%v) = %q, want %q", tt.tokens, got, tt.want)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // buildORQuery
 // ---------------------------------------------------------------------------
+
+func TestBuildORQuery(t *testing.T) {
+	tests := []struct {
+		name   string
+		tokens []string
+		want   string
+	}{
+		{"empty", nil, ""},
+		{"single", []string{"foo"}, `"foo"`},
+		{"multiple", []string{"x", "y"}, `"x" OR "y"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildORQuery(tt.tokens)
+			if got != tt.want {
+				t.Errorf("buildORQuery(%v) = %q, want %q", tt.tokens, got, tt.want)
+			}
+		})
+	}
+}
 
 // ---------------------------------------------------------------------------
 // buildPrefixQuery
 // ---------------------------------------------------------------------------
 
+func TestBuildPrefixQuery(t *testing.T) {
+	tests := []struct {
+		name   string
+		tokens []string
+		want   string
+	}{
+		{"empty", nil, ""},
+		{"single", []string{"foo"}, `"foo"*`},
+		{"multiple", []string{"a", "b"}, `"a"* OR "b"*`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildPrefixQuery(tt.tokens)
+			if got != tt.want {
+				t.Errorf("buildPrefixQuery(%v) = %q, want %q", tt.tokens, got, tt.want)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // buildSearchPasses
 // ---------------------------------------------------------------------------
+
+func TestBuildSearchPasses(t *testing.T) {
+	t.Run("single_token", func(t *testing.T) {
+		passes := buildSearchPasses([]string{"test"}, "test")
+		// Single token: should have OR and prefix passes (no phrase/AND)
+		if len(passes) < 2 {
+			t.Fatalf("expected at least 2 passes, got %d", len(passes))
+		}
+		names := make(map[string]bool)
+		for _, p := range passes {
+			names[p.name] = true
+		}
+		if names["phrase"] || names["and"] {
+			t.Error("single token should not have phrase or AND passes")
+		}
+		if !names["or"] || !names["prefix"] {
+			t.Error("expected or and prefix passes")
+		}
+	})
+
+	t.Run("multiple_tokens", func(t *testing.T) {
+		passes := buildSearchPasses([]string{"hello", "world"}, "hello world")
+		if len(passes) < 4 {
+			t.Fatalf("expected at least 4 passes, got %d", len(passes))
+		}
+		names := make(map[string]bool)
+		for _, p := range passes {
+			names[p.name] = true
+		}
+		if !names["phrase"] || !names["and"] || !names["or"] || !names["prefix"] {
+			t.Error("expected all four pass types for multi-token query")
+		}
+	})
+
+	t.Run("phrase_has_highest_weight", func(t *testing.T) {
+		passes := buildSearchPasses([]string{"a", "b"}, "a b")
+		for _, p := range passes {
+			if p.name == "phrase" && p.weight < 2.0 {
+				t.Errorf("phrase weight should be >= 2.0, got %f", p.weight)
+			}
+		}
+	})
+}
 
 // ---------------------------------------------------------------------------
 // deduplicationKey
@@ -200,10 +344,3 @@ func assertNotContains(t *testing.T, tokens []string, unexpected string) {
 		}
 	}
 }
-
-// The FTS5 query-syntax builders that used to live here — quoteToken, buildPhraseQuery,
-// buildANDQuery, buildORQuery, buildPrefixQuery and buildSearchPasses — were removed with
-// the SQLite index. LadybugDB's FTS has no phrase, explicit-boolean or wildcard operators
-// (measured: 'conf*' matches nothing), so a query is a bag of terms and those builders had
-// nothing to build. What replaced them, and is covered elsewhere, is the weighted per-field
-// pass set plus the trigram bag.
