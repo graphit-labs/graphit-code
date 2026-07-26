@@ -13,7 +13,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
-
 func DetectProjectConfig(ctx context.Context, db GraphDB, rootPath string) map[string]string {
 	detected := make(map[string]string)
 
@@ -122,7 +121,6 @@ func DetectFrameworks(ctx context.Context, db GraphDB, projectDir string) map[st
 		}
 	}
 
-
 	matchDec := func(dec string) {
 		if dec == "" {
 			return
@@ -159,7 +157,6 @@ func DetectFrameworks(ctx context.Context, db GraphDB, projectDir string) map[st
 		}
 	}
 
-
 	for _, relType := range []string{"INHERITS", "IMPLEMENTS"} {
 		q := fmt.Sprintf(`MATCH (c)-[:%s]->(p) RETURN p.name AS parent LIMIT 500`, relType)
 		if res, err := db.Query(ctx, q, nil); err == nil {
@@ -171,7 +168,6 @@ func DetectFrameworks(ctx context.Context, db GraphDB, projectDir string) map[st
 			}
 		}
 	}
-
 
 	q3 := `MATCH (f:File)-[:IMPORTS]->(m:Module) RETURN m.name AS name, m.full_import_name AS full_name LIMIT 1000`
 	if res, err := db.Query(ctx, q3, nil); err == nil {
@@ -218,7 +214,10 @@ func compileImportRegex(match, pattern string) *regexp.Regexp {
 	return re
 }
 
-func ScoreEntryPoints(ctx context.Context, db GraphDB, projectDir string) {
+// ScoreEntryPoints computes entry-point scores. When scopePaths is non-empty
+// only functions from those files are (re)scored — the incremental path passes
+// the changed files so the work is O(delta) instead of O(graph).
+func ScoreEntryPoints(ctx context.Context, db GraphDB, projectDir string, scopePaths []string) {
 
 	frameworks := ResolveFrameworks(projectDir)
 	var nameRules []NameScoreRule
@@ -253,11 +252,30 @@ func ScoreEntryPoints(ctx context.Context, db GraphDB, projectDir string) {
 		}
 	}
 
-	q := `MATCH (f:Function) RETURN f.uid AS uid, f.name AS name, f.decorators AS decorators, f.is_exported AS is_exported, f.lang AS lang LIMIT 5000`
-	res, err := db.Query(ctx, q, nil)
+	// Scope to the changed files when the caller knows them (incremental
+	// rebuild): entry-point scoring is per-function local — it depends only on
+	// the function's own name, decorators, is_exported and lang — so rescoring
+	// untouched functions cannot change their score. On a large graph the
+	// unscoped query is also truncated by its LIMIT, so scoping is strictly more
+	// accurate for the files that did change.
+	var (
+		q      string
+		params map[string]any
+	)
+	if len(scopePaths) > 0 {
+		q = `MATCH (f:Function) WHERE f.path IN $paths RETURN f.uid AS uid, f.name AS name, f.decorators AS decorators, f.is_exported AS is_exported, f.lang AS lang`
+		params = map[string]any{"paths": scopePaths}
+	} else {
+		q = `MATCH (f:Function) RETURN f.uid AS uid, f.name AS name, f.decorators AS decorators, f.is_exported AS is_exported, f.lang AS lang LIMIT 5000`
+	}
+	res, err := db.Query(ctx, q, params)
 	if err != nil {
 		return
 	}
+
+	// Collect scores and write them in one batch: the previous code issued one
+	// MATCH ... SET round-trip per function (up to 5000 per rebuild).
+	scored := make([]map[string]any, 0, len(res.Records))
 
 	for _, rec := range res.Records {
 		uid, _ := rec["uid"].(string)
@@ -288,8 +306,19 @@ func ScoreEntryPoints(ctx context.Context, db GraphDB, projectDir string) {
 			continue
 		}
 
-		uq := `MATCH (f:Function {uid: $uid}) SET f.entry_point_score = $score`
-		_, _ = db.Execute(ctx, uq, map[string]any{"uid": uid, "score": score})
+		scored = append(scored, map[string]any{"uid": uid, "score": score})
+	}
+
+	if len(scored) == 0 {
+		return
+	}
+	uq := `UNWIND $rows AS row MATCH (f:Function {uid: row.uid}) SET f.entry_point_score = row.score`
+	if _, err := db.Execute(ctx, uq, map[string]any{"rows": scored}); err != nil {
+		// Fall back to per-row writes so a batch-level failure does not silently
+		// drop every score.
+		for _, row := range scored {
+			_, _ = db.Execute(ctx, `MATCH (f:Function {uid: $uid}) SET f.entry_point_score = $score`, row)
+		}
 	}
 }
 
@@ -345,8 +374,9 @@ func scoreFunctionYAML(name, decorators string, isExported bool, lang string,
 	return score
 }
 
-
-func RunEnrichment(ctx context.Context, db GraphDB, rootPath string, logger *slog.Logger) {
+// RunEnrichment refreshes derived graph properties. scopePaths, when non-empty,
+// restricts per-function enrichment to those files (incremental rebuild).
+func RunEnrichment(ctx context.Context, db GraphDB, rootPath string, scopePaths []string, logger *slog.Logger) {
 	log := slogutil.Resolve(logger)
 
 	configs := DetectProjectConfig(ctx, db, rootPath)
@@ -372,7 +402,7 @@ func RunEnrichment(ctx context.Context, db GraphDB, rootPath string, logger *slo
 		_, _ = db.Execute(ctx, q, map[string]any{"frameworks": fwStr})
 	}
 
-	ScoreEntryPoints(ctx, db, rootPath)
+	ScoreEntryPoints(ctx, db, rootPath, scopePaths)
 
 	if len(configs) > 0 || len(frameworks) > 0 {
 		log.Debug("enrichment complete", "configs", len(configs), "frameworks", len(frameworks))

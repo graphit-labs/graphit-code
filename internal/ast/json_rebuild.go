@@ -254,7 +254,7 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 	}
 
 	t4 := time.Now()
-	RunEnrichment(ctx, tempBackend, rootPath, logger)
+	RunEnrichment(ctx, tempBackend, rootPath, nil, logger)
 
 	log.Info("post-processing complete", "duration_s", time.Since(t4).Seconds())
 
