@@ -6,24 +6,45 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
+// TestBoundedDBBufferPool checks the contract rather than an exact number: the
+// pool is derived from the machine's effective memory limit (which varies by
+// host and container), so the guarantees are that it stays inside
+// [floor, ceil] and never inflates a default that is already tiny.
 func TestBoundedDBBufferPool(t *testing.T) {
 	const gib = uint64(1) << 30
-	cases := []struct {
-		name string
-		def  uint64
-		want uint64
-	}{
-		{"huge default clamped to ceil", 16 * gib, dbBufferPoolCeil},
-		{"half stays under ceil", gib + 512<<20, (gib + 512<<20) / 2},
-		{"tiny default not inflated", 128 << 20, 128 << 20},
-		{"half below floor raised to floor", 400 << 20, dbBufferPoolFloor},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := boundedDBBufferPool(c.def); got != c.want {
-				t.Errorf("boundedDBBufferPool(%d) = %d, want %d", c.def, got, c.want)
+
+	t.Run("stays within floor and ceiling", func(t *testing.T) {
+		for _, def := range []uint64{16 * gib, gib + 512<<20, 400 << 20} {
+			got := boundedDBBufferPool(def)
+			if got < dbBufferPoolFloor || got > dbBufferPoolCeil {
+				t.Errorf("boundedDBBufferPool(%d) = %d, want within [%d,%d]",
+					def, got, dbBufferPoolFloor, dbBufferPoolCeil)
 			}
-		})
+		}
+	})
+
+	t.Run("tiny default not inflated", func(t *testing.T) {
+		const tiny = 128 << 20 // already below the floor
+		if got := boundedDBBufferPool(tiny); got != tiny {
+			t.Errorf("boundedDBBufferPool(%d) = %d, want it left alone", uint64(tiny), got)
+		}
+	})
+}
+
+// TestAntlrHeapBudget checks the ANTLR cache budget scales with the machine and
+// stays inside its bounds.
+func TestAntlrHeapBudget(t *testing.T) {
+	got := AntlrHeapBudget()
+	t.Logf("AntlrHeapBudget = %d MiB", got>>20)
+	if got < antlrHeapFloor || got > antlrHeapCeil {
+		t.Errorf("AntlrHeapBudget = %d, want within [%d,%d]", got, antlrHeapFloor, antlrHeapCeil)
+	}
+}
+
+func TestAntlrHeapBudgetEnvOverride(t *testing.T) {
+	t.Setenv("GRAPHIT_ANTLR_HEAP_MB", "321")
+	if got := AntlrHeapBudget(); got != 321<<20 {
+		t.Errorf("env override = %d, want %d", got, uint64(321)<<20)
 	}
 }
 
