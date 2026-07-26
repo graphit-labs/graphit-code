@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	antlrcommon "github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 
 	antlrCobol85 "github.com/graphit-labs/graphit-code/internal/ast/antlr/cobol85"
 	_ "github.com/graphit-labs/graphit-code/internal/ast/antlr/cobol85/preprocessor"
@@ -61,7 +62,11 @@ func initAntlrDrivers() {
 	for _, grammar := range allGrammars {
 		bin := findAntlrGrammarBin(grammar, searchDirs)
 		if bin != "" {
-			antlrDrivers["antlr-"+grammar] = NewSidecarDriver(bin, grammar, 2)
+			// The pool size caps how many files can be parsed concurrently
+			// through the sidecar. It was hardcoded to 2, which throttled the
+			// whole indexer to two files at a time whenever a grammar pack was
+			// installed, regardless of how many cores the machine has.
+			antlrDrivers["antlr-"+grammar] = NewSidecarDriver(bin, grammar, sysutil.CPUBudget())
 		}
 	}
 }

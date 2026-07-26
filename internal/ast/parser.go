@@ -96,18 +96,3 @@ type ParseOptions struct {
 	// ConvertToCache consumes — and only when source indexing is on.
 	IndexSource bool
 }
-
-type BatchParser interface {
-	ParseBatch(files []BatchFileInput, opts ParseOptions, resultCh chan<- BatchResult)
-}
-
-type BatchFileInput struct {
-	Path     string
-	Content  string
-	IsDepend bool
-}
-
-type BatchResult struct {
-	File *ParsedFile
-	Err  error
-}

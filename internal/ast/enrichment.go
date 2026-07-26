@@ -260,69 +260,87 @@ func ScoreEntryPoints(ctx context.Context, db GraphDB, projectDir string, scopeP
 	// Scope to the changed files when the caller knows them (incremental
 	// rebuild): entry-point scoring is per-function local — it depends only on
 	// the function's own name, decorators, is_exported and lang — so rescoring
-	// untouched functions cannot change their score. On a large graph the
-	// unscoped query is also truncated by its LIMIT, so scoping is strictly more
-	// accurate for the files that did change.
-	var (
-		q      string
-		params map[string]any
-	)
-	if len(scopePaths) > 0 {
-		q = `MATCH (f:Function) WHERE f.path IN $paths RETURN f.uid AS uid, f.name AS name, f.decorators AS decorators, f.is_exported AS is_exported, f.lang AS lang`
-		params = map[string]any{"paths": scopePaths}
-	} else {
-		q = `MATCH (f:Function) RETURN f.uid AS uid, f.name AS name, f.decorators AS decorators, f.is_exported AS is_exported, f.lang AS lang LIMIT 5000`
-	}
-	res, err := db.Query(ctx, q, params)
-	if err != nil {
-		return
-	}
+	// untouched functions cannot change their score.
+	//
+	// The unscoped (full rebuild) path is PAGED rather than capped. It used to
+	// end in "LIMIT 5000", which silently left every function past the first
+	// 5000 unscored on any large graph; paging covers all of them while keeping
+	// at most one page resident.
+	const pageSize = 5000
 
-	// Collect scores and write them in one batch: the previous code issued one
-	// MATCH ... SET round-trip per function (up to 5000 per rebuild).
-	scored := make([]map[string]any, 0, len(res.Records))
-
-	for _, rec := range res.Records {
-		uid, _ := rec["uid"].(string)
-		name, _ := rec["name"].(string)
-		isExported, _ := rec["is_exported"].(bool)
-		lang, _ := rec["lang"].(string)
-
-		var decorators string
-		switch v := rec["decorators"].(type) {
-		case []any:
-			parts := make([]string, 0, len(v))
-			for _, d := range v {
-				if s, ok := d.(string); ok {
-					parts = append(parts, s)
-				}
+	writeScores := func(scored []map[string]any) {
+		if len(scored) == 0 {
+			return
+		}
+		uq := `UNWIND $rows AS row MATCH (f:Function {uid: row.uid}) SET f.entry_point_score = row.score`
+		if _, err := db.Execute(ctx, uq, map[string]any{"rows": scored}); err != nil {
+			// Fall back to per-row writes so a batch-level failure does not
+			// silently drop every score.
+			for _, row := range scored {
+				_, _ = db.Execute(ctx, `MATCH (f:Function {uid: $uid}) SET f.entry_point_score = $score`, row)
 			}
-			decorators = strings.Join(parts, ",")
-		case string:
-			decorators = v
 		}
-
-		if uid == "" || name == "" {
-			continue
-		}
-
-		score := scoreFunctionYAML(name, decorators, isExported, lang, nameRules, decRules, exportedBonus, maxScore)
-		if score == 0 {
-			continue
-		}
-
-		scored = append(scored, map[string]any{"uid": uid, "score": score})
 	}
 
-	if len(scored) == 0 {
+	// scorePage converts one result page into score rows.
+	scorePage := func(records []QueryRecord) []map[string]any {
+		scored := make([]map[string]any, 0, len(records))
+		for _, rec := range records {
+			uid, _ := rec["uid"].(string)
+			name, _ := rec["name"].(string)
+			isExported, _ := rec["is_exported"].(bool)
+			lang, _ := rec["lang"].(string)
+
+			var decorators string
+			switch v := rec["decorators"].(type) {
+			case []any:
+				parts := make([]string, 0, len(v))
+				for _, d := range v {
+					if s, ok := d.(string); ok {
+						parts = append(parts, s)
+					}
+				}
+				decorators = strings.Join(parts, ",")
+			case string:
+				decorators = v
+			}
+
+			if uid == "" || name == "" {
+				continue
+			}
+			score := scoreFunctionYAML(name, decorators, isExported, lang, nameRules, decRules, exportedBonus, maxScore)
+			if score == 0 {
+				continue
+			}
+			scored = append(scored, map[string]any{"uid": uid, "score": score})
+		}
+		return scored
+	}
+
+	const cols = `f.uid AS uid, f.name AS name, f.decorators AS decorators, f.is_exported AS is_exported, f.lang AS lang`
+
+	if len(scopePaths) > 0 {
+		res, err := db.Query(ctx,
+			`MATCH (f:Function) WHERE f.path IN $paths RETURN `+cols,
+			map[string]any{"paths": scopePaths})
+		if err != nil {
+			return
+		}
+		writeScores(scorePage(res.Records))
 		return
 	}
-	uq := `UNWIND $rows AS row MATCH (f:Function {uid: row.uid}) SET f.entry_point_score = row.score`
-	if _, err := db.Execute(ctx, uq, map[string]any{"rows": scored}); err != nil {
-		// Fall back to per-row writes so a batch-level failure does not silently
-		// drop every score.
-		for _, row := range scored {
-			_, _ = db.Execute(ctx, `MATCH (f:Function {uid: $uid}) SET f.entry_point_score = $score`, row)
+
+	// Full rebuild: page through every function. Ordering by uid keeps the pages
+	// disjoint and stable across queries.
+	for skip := 0; ; skip += pageSize {
+		res, err := db.Query(ctx,
+			fmt.Sprintf(`MATCH (f:Function) RETURN %s ORDER BY uid SKIP %d LIMIT %d`, cols, skip, pageSize), nil)
+		if err != nil || len(res.Records) == 0 {
+			return
+		}
+		writeScores(scorePage(res.Records))
+		if len(res.Records) < pageSize {
+			return
 		}
 	}
 }

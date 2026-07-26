@@ -306,87 +306,55 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}
 	results := make(chan result, 64)
 
-	if bp, ok := parser.(BatchParser); ok {
+	// Parse in chunks so that between chunks every worker has drained — a
+	// barrier where no parse is in flight. ANTLR's package-level DFA /
+	// prediction-context caches grow with every newly seen input pattern and
+	// are never evicted (~2 MB per PL/SQL file measured), so without a
+	// periodic reset a large repository exhausts RAM. Resetting only at the
+	// barrier keeps the parse hot path lock-free.
+	go func() {
+		defer close(results)
 
-		go func() {
-			defer close(results)
-
-			batchInput := make([]BatchFileInput, 0, len(changedFiles))
-			for _, f := range changedFiles {
-				src, err := os.ReadFile(f)
-				if err != nil {
-					results <- result{f, nil, fmt.Errorf("read error: %w", err)}
-					continue
-				}
-				batchInput = append(batchInput, BatchFileInput{
-					Path:     f,
-					Content:  string(src),
-					IsDepend: opts.IsDepend,
-				})
+		for start := 0; start < len(changedFiles); start += antlrCacheCheckInterval {
+			end := start + antlrCacheCheckInterval
+			if end > len(changedFiles) {
+				end = len(changedFiles)
 			}
+			chunk := changedFiles[start:end]
 
-			batchCh := make(chan BatchResult, 64)
-			bp.ParseBatch(batchInput, parseOpts, batchCh)
-			for br := range batchCh {
-				path := ""
-				if br.File != nil {
-					path = br.File.Path
+			paths := make(chan string)
+			go func(files []string) {
+				for _, f := range files {
+					paths <- f
 				}
-				results <- result{path, br.File, br.Err}
-			}
-		}()
-	} else {
+				close(paths)
+			}(chunk)
 
-		// Parse in chunks so that between chunks every worker has drained — a
-		// barrier where no parse is in flight. ANTLR's package-level DFA /
-		// prediction-context caches grow with every newly seen input pattern and
-		// are never evicted (~2 MB per PL/SQL file measured), so without a
-		// periodic reset a large repository exhausts RAM. Resetting only at the
-		// barrier keeps the parse hot path lock-free.
-		go func() {
-			defer close(results)
-
-			for start := 0; start < len(changedFiles); start += antlrCacheCheckInterval {
-				end := start + antlrCacheCheckInterval
-				if end > len(changedFiles) {
-					end = len(changedFiles)
-				}
-				chunk := changedFiles[start:end]
-
-				paths := make(chan string)
-				go func(files []string) {
-					for _, f := range files {
-						paths <- f
+			var wg sync.WaitGroup
+			for i := 0; i < opts.Workers; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					wp := NewCompositeParser(abs, opts.GrammarOverrides)
+					for path := range paths {
+						pf, err := wp.Parse(path, opts.IsDepend, parseOpts)
+						results <- result{path, pf, err}
 					}
-					close(paths)
-				}(chunk)
-
-				var wg sync.WaitGroup
-				for i := 0; i < opts.Workers; i++ {
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
-						wp := NewCompositeParser(abs, opts.GrammarOverrides)
-						for path := range paths {
-							pf, err := wp.Parse(path, opts.IsDepend, parseOpts)
-							results <- result{path, pf, err}
-						}
-					}()
-				}
-				wg.Wait() // barrier: no parse in flight
-
-				// Only reset when the heap is actually under pressure — a warm
-				// DFA is worth keeping. This also runs after the final chunk:
-				// the caches are package-level and stay LIVE (not garbage), so a
-				// long-lived daemon would otherwise hold the whole budget until
-				// the process exits.
-				if heap, over := antlrCachePressure(); over {
-					ResetAntlrCaches()
-					logger.Debug("antlr caches reset", "heap_mb", heap>>20, "parsed", end)
-				}
+				}()
 			}
-		}()
-	}
+			wg.Wait() // barrier: no parse in flight
+
+			// Only reset when the heap is actually under pressure — a warm
+			// DFA is worth keeping. This also runs after the final chunk:
+			// the caches are package-level and stay LIVE (not garbage), so a
+			// long-lived daemon would otherwise hold the whole budget until
+			// the process exits.
+			if heap, over := antlrCachePressure(); over {
+				ResetAntlrCaches()
+				logger.Debug("antlr caches reset", "heap_mb", heap>>20, "parsed", end)
+			}
+		}
+	}()
 
 	var (
 		parsedFilesCount int
