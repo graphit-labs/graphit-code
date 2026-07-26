@@ -7,6 +7,7 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/fatih/color v1.19.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/klauspost/compress v1.19.1
 	github.com/mattn/go-sqlite3 v1.14.48
