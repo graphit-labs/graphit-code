@@ -851,10 +851,26 @@ func TestLazyEmbeddingClient_ModelName_AfterInit(t *testing.T) {
 	}
 }
 
-func TestLazyEmbeddingClient_InitError(t *testing.T) {
-	// init() calls NewLocalEmbeddingClient(), which will fail
-	// because we don't have the ONNX model available in test env
+// failedLazyClient returns a client whose lazy initialisation has already run and
+// failed.
+//
+// Consuming the sync.Once is the only way to inject the failure: init() runs the
+// real NewLocalEmbeddingClient inside once.Do and assigns over l.err, so setting
+// l.err beforehand has no effect. Tests that relied on the model simply being
+// absent from the environment passed for the wrong reason — they went red the
+// moment the ONNX runtime actually worked.
+func failedLazyClient(t *testing.T, cause error) *LazyEmbeddingClient {
+	t.Helper()
 	lazy := NewLazyEmbeddingClient()
+	lazy.once.Do(func() { lazy.err = cause })
+	if lazy.init() == nil {
+		t.Fatal("injected init failure did not stick — LazyEmbeddingClient.init no longer memoises via once")
+	}
+	return lazy
+}
+
+func TestLazyEmbeddingClient_InitError(t *testing.T) {
+	lazy := failedLazyClient(t, errors.New("model unavailable"))
 
 	t.Run("Embed_InitError", func(t *testing.T) {
 		_, err := lazy.Embed(context.Background(), "test")
@@ -1255,9 +1271,7 @@ func TestNormalization(t *testing.T) {
 
 
 func TestLazyEmbeddingClient_MultipleCalls(t *testing.T) {
-	lazy := NewLazyEmbeddingClient()
-	// Set err on lazy to simulate init failure
-	lazy.err = errors.New("init error")
+	lazy := failedLazyClient(t, errors.New("init error"))
 
 	// Multiple Embed calls should all fail with same error
 	_, err1 := lazy.Embed(context.Background(), "test1")

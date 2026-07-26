@@ -38,7 +38,12 @@ LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/config.CompiledDefa
 
 BUILD_TAGS := fts5
 
-ORT_VERSION  := 1.25.0
+# Must satisfy the ORT_API_VERSION the onnxruntime_go binding in go.mod compiles
+# against (v1.31.0 declares 26). A runtime older than that aborts at
+# InitializeEnvironment with "requested API version [26] is not available", which
+# leaves the embedder nil and degrades semantic search to FTS-only in silence.
+# Bump this together with the binding.
+ORT_VERSION  := 1.26.0
 ORT_CACHE    := /tmp/onnxruntime-cache
 
 MODEL_REPO   := mrsladoje/CodeRankEmbed-onnx-int8

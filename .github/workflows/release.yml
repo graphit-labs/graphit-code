@@ -101,7 +101,7 @@ jobs:
           path: /tmp/onnxruntime-cache
           key: onnxruntime-linux-x64-${{ env.ORT_VERSION }}
         env:
-          ORT_VERSION: "1.25.0"
+          ORT_VERSION: "1.26.0"
 
       - name: Cache CodeRankEmbed model
         uses: actions/cache@v4
@@ -171,7 +171,7 @@ jobs:
           path: /tmp/onnxruntime-cache
           key: onnxruntime-osx-arm64-${{ env.ORT_VERSION }}
         env:
-          ORT_VERSION: "1.25.0"
+          ORT_VERSION: "1.26.0"
 
       - name: Cache CodeRankEmbed model
         uses: actions/cache@v4
@@ -253,7 +253,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\cache\ort
-          key: onnxruntime-win-x64-1.25.0
+          key: onnxruntime-win-x64-1.26.0
 
       - name: Cache CodeRankEmbed model
         uses: actions/cache@v4
