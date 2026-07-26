@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -233,9 +234,12 @@ func TestE2EIndex(t *testing.T) {
 	// processed (rather than with worker count) indicates cumulative retention
 	// (e.g. the ANTLR static DFA/ATN caches, which never evict) rather than
 	// per-parse tree size.
+	// Surface the write-path timing breakdown (copy/open/delete/insert/enrich)
+	// that IncrementalRebuild logs at Info level.
 	opts := PipelineOptions{
 		CacheDir:    cacheDir,
 		IndexSource: true,
+		Logger:      slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})),
 		// GRAPHIT_E2E_GRAMMAR pins one grammar per extension (e.g.
 		// ".sql=antlr-plsql") to measure the cost of trying every candidate
 		// grammar, each of which warms its own ANTLR static caches.
@@ -286,6 +290,53 @@ func TestE2EIndex(t *testing.T) {
 		t.Fatalf("incremental pipeline: %v", err)
 	}
 	incr := time.Since(t1)
+	// Alternate scoped and discovery incrementals so a per-run cost that grows
+	// with position (evolving DB state) can be told apart from a cost caused by
+	// the mode itself.
+	for round := 1; round <= 6; round++ {
+		for _, mode := range []string{"SCOPED"} {
+			fx, oErr := os.OpenFile(one, os.O_APPEND|os.O_WRONLY, 0o644)
+			if oErr != nil {
+				break
+			}
+			_, _ = fx.WriteString("\n-- e2e alternating touch\n")
+			_ = fx.Close()
+
+			tm := time.Now()
+			var r *PipelineResult
+			var rErr error
+			if mode == "SCOPED" {
+				r, rErr = RunPipelineForPaths(ctx, db, work, []string{one}, nil, opts)
+			} else {
+				r, rErr = RunPipeline(ctx, db, work, opts)
+			}
+			if rErr != nil {
+				t.Fatalf("%s pipeline: %v", mode, rErr)
+			}
+			// Correctness: the changed file must be present in the swapped-in DB.
+			relOne, _ := filepath.Rel(work, one)
+			vres, vErr := db.Query(ctx, "MATCH (f:File {path: $p}) RETURN count(f) AS c", map[string]any{"p": relOne})
+			var nodes int64
+			if vErr == nil && len(vres.Records) > 0 {
+				switch v := vres.Records[0]["c"].(type) {
+				case int64:
+					nodes = v
+				case int:
+					nodes = int64(v)
+				}
+			}
+			if nodes != 1 {
+				t.Errorf("round=%d %s: changed file %q not in graph after swap (count=%d)", round, mode, relOne, nodes)
+			}
+
+			t.Logf("AB round=%d %-9s parsed=%d | discover=%v hash=%v parse=%v write=%v total=%v",
+				round, mode, r.ParsedFiles,
+				r.DiscoverTime.Round(time.Millisecond), r.HashTime.Round(time.Millisecond),
+				r.ParseTime.Round(time.Millisecond), r.WriteTime.Round(time.Millisecond),
+				time.Since(tm).Round(time.Millisecond))
+		}
+	}
+
 	t.Logf("INCR  files=%d parsed=%d errors=%d | discover=%v hash=%v parse=%v write=%v total=%v | peakRSS=%dMB",
 		res2.TotalFiles, res2.ParsedFiles, res2.ErrorCount,
 		res2.DiscoverTime.Round(time.Millisecond), res2.HashTime.Round(time.Millisecond),
