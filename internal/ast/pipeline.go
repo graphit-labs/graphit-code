@@ -459,7 +459,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 
 		var searchIdx *SearchIndex
 		if isLB {
-			idxPath := lb.cfg.DBPath + ".search.sqlite"
+			idxPath := lb.cfg.DBPath + searchIndexSuffix
 			if si, err := OpenSearchIndex(idxPath); err == nil {
 				searchIdx = si
 				defer func() { _ = searchIdx.Close() }()

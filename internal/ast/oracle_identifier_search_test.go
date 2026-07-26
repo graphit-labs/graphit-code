@@ -21,9 +21,18 @@ import (
 // nothing while costing an extra property, an extra index and precision at
 // scale (trigrams match promiscuously on large corpora).
 //
-// Conclusion: for this corpus, consolidate onto Ladybug FTS alone — stemming is
-// on by default and per-field weighting comes from one index per field. A
-// camelCase-heavy corpus could reach a different answer; rerun this to check.
+// Scope of that result — and it is narrower than it first looked: every probe
+// below asks for a token the identifier contains COMPLETE. When the query and
+// the identifier only share a prefix ("config" vs coreConf, CONF_MGR), exact-token
+// FTS collapses to 3/9 recall while trigrams reach 8/9 — measured in
+// TestAbbreviatedIdentifierSearch. Since PL/SQL abbreviates heavily, the trigram
+// field is required, not optional; this test's 6/6 tie only means trigrams add
+// nothing FOR WHOLE-TOKEN QUERIES.
+//
+// Conclusion: consolidate onto Ladybug FTS with per-field indexes and index-time
+// identifier splitting (stemming is on by default), PLUS a precomputed trigram
+// field as a lower-weight recall pass — the same division of labour the SQLite
+// index already uses (see TestLadybugIndexedSubstring for the mechanism).
 func TestOracleIdentifierSearch(t *testing.T) {
 	dir := t.TempDir()
 	db, err := lbug.OpenDatabase(filepath.Join(dir, "ora"), lbug.DefaultSystemConfig())

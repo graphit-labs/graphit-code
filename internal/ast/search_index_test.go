@@ -1,0 +1,416 @@
+package ast
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/ai"
+)
+
+// Verification of the LadybugDB-backed search index.
+//
+// These tests began as a differential comparison against the SQLite index, fed from the
+// same ShardCache so any difference had to be the implementation rather than the input.
+// That comparison cleared its gate (14/16 expected top-1 against SQLite's 12/16) and
+// SQLite was then removed, so the oracle is gone and the thresholds below are absolute,
+// with the measured SQLite figures recorded as the floor they must not fall under.
+
+// cacheFromCorpus builds a parse cache from a corpus of entities.
+func cacheFromCorpus(t *testing.T, dir string, corpus []gateEntity) *ShardCache {
+	t.Helper()
+	pc, err := NewShardCache(dir)
+	if err != nil {
+		t.Fatalf("shard cache: %v", err)
+	}
+	byPath := map[string][]cachedEntity{}
+	for _, e := range corpus {
+		byPath[e.path] = append(byPath[e.path], cachedEntity{
+			Label: e.entityType, UID: e.uid, Name: e.name,
+			Path: e.path, Line: 1, EndLine: 1, Docstring: e.docstring,
+		})
+	}
+	for p, ents := range byPath {
+		if err := pc.Store(p, "h-"+p, &parseCacheEntry{
+			RelPath: p, Language: "go", Source: "// " + p + "\n", Entities: ents,
+		}); err != nil {
+			t.Fatalf("store %s: %v", p, err)
+		}
+	}
+	if err := pc.FlushDirty(); err != nil {
+		t.Fatal(err)
+	}
+	return pc
+}
+
+func buildSearchIndex(t *testing.T, dir string, cache *ShardCache,
+	embLookup func(relPath, uid string) []float32) *SearchIndex {
+	t.Helper()
+	si, err := OpenSearchIndex(filepath.Join(dir, "search"))
+	if err != nil {
+		t.Skipf("ladybug search index unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = si.Close() })
+	if err := si.RebuildFromCache(cache, embLookup); err != nil {
+		t.Fatalf("rebuild ladybug search index: %v", err)
+	}
+	return si
+}
+
+// entityNames reduces results to entity names, dropping file hits, so an expectation
+// about which ENTITY ranks first is not satisfied or spoiled by a file result.
+func entityNames(res []SearchResult, topK int) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, r := range res {
+		if r.Type == "file" {
+			continue
+		}
+		n := r.Name
+		if i := strings.IndexByte(n, ' '); i > 0 {
+			n = n[:i]
+		}
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+		if topK > 0 && len(out) == topK {
+			break
+		}
+	}
+	return out
+}
+
+// indexSearchNames returns the names of all results, files included, deduplicated and
+// capped. Used where an expectation is about reachability rather than about which entity
+// wins.
+func indexSearchNames(t *testing.T, si *SearchIndex, query string, topK int) []string {
+	t.Helper()
+	res, err := si.Search(query, topK)
+	if err != nil {
+		t.Logf("  search %q failed: %v", query, err)
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, r := range res {
+		n := r.Name
+		if i := strings.IndexByte(n, ' '); i > 0 {
+			n = n[:i]
+		}
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	return out
+}
+
+// TestSearchIndexQualityFloor is the gate the migration had to clear, kept as a floor now
+// that the index it was compared against no longer exists.
+//
+// The recorded numbers are from the differential run on this exact corpus and probe set:
+// Ladybug placed the expected entity first 14 times out of 16, SQLite 12, with neither
+// returning nothing for any query. The assertion is therefore against SQLite's 12 — the
+// bar is "no worse than what was replaced", not "never regress by one position", so a
+// ranking tweak does not fail the suite while a real regression does.
+func TestSearchIndexQualityFloor(t *testing.T) {
+	// Measured on this corpus and probe set at the time SQLite was removed.
+	const sqliteBaselineTop1 = 12
+
+	dir := t.TempDir()
+	corpus := prefixCorpus()
+	cache := cacheFromCorpus(t, filepath.Join(dir, "cache"), corpus)
+	si := buildSearchIndex(t, dir, cache, nil)
+
+	// Union of every probe set established for this corpus: whole words, abbreviations
+	// and truncations.
+	cases := []struct{ query, wantTop string }{
+		{"parseConfig", "parseConfig"},
+		{"configuration", "parseConfig"},
+		{"schema", "validateSchema"},
+		{"checksum", "computeChecksum"},
+		{"retry backoff", "retryPolicy"},
+		{"parse sql", "parseSQL"},
+		{"config", "configLoader"},
+		{"conf", "CONF_MGR"},
+		{"valid", "validateSchema"},
+		{"valida", "PKG_VALIDACAO_PAGAMENTO"},
+		{"compu", "computeChecksum"},
+		{"retr", "retryPolicy"},
+		{"connect", "connectDatabase"},
+		{"audit", "TRG_AUDITORIA_CLIENTE"},
+		{"extrair", "XPTO_EXTRAIR_ABCD01_DOC_LOTE"},
+		{"cf", "CFG_LOAD"},
+	}
+
+	t.Logf("%-16s | %-30s | %s", "query", "expected top-1", "got")
+	t.Logf("%s", strings.Repeat("-", 84))
+
+	var hits, empty int
+	for _, c := range cases {
+		res, err := si.Search(c.query, 5)
+		if err != nil {
+			t.Errorf("search %q: %v", c.query, err)
+			continue
+		}
+		names := entityNames(res, 5)
+		top := ""
+		if len(names) > 0 {
+			top = names[0]
+		} else {
+			empty++
+		}
+		if top == c.wantTop {
+			hits++
+		}
+		mark := top
+		if mark == "" {
+			mark = "(vazio)"
+		} else if top == c.wantTop {
+			mark += " OK"
+		}
+		t.Logf("%-16s | %-30s | %s", c.query, c.wantTop, mark)
+	}
+
+	t.Logf("%s", strings.Repeat("-", 84))
+	t.Logf("expected top-1: %d/%d (sqlite scored %d/%d on the same probes before removal)",
+		hits, len(cases), sqliteBaselineTop1, len(cases))
+	t.Logf("empty results: %d", empty)
+
+	if hits < sqliteBaselineTop1 {
+		t.Errorf("QUALITY FLOOR: the expected entity ranked first %d/%d times, below the %d/%d the "+
+			"removed SQLite index achieved on the same corpus and probes",
+			hits, len(cases), sqliteBaselineTop1, len(cases))
+	}
+	if empty > 0 {
+		t.Errorf("QUALITY FLOOR: %d queries returned nothing; SQLite returned nothing for none", empty)
+	}
+}
+
+// TestSearchIndexRebuildIsIdempotent guards the atomic swap: rebuilding must
+// replace the contents, not accumulate them, and must leave the index queryable.
+func TestSearchIndexRebuildIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	cache := cacheFromCorpus(t, filepath.Join(dir, "cache"), gateCorpus())
+	lb := buildSearchIndex(t, dir, cache, nil)
+
+	first, err := lb.Search("config", 20)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(first) == 0 {
+		t.Fatal("first rebuild produced an index that matches nothing")
+	}
+
+	for i := 0; i < 3; i++ {
+		if err := lb.RebuildFromCache(cache, nil); err != nil {
+			t.Fatalf("rebuild %d: %v", i+2, err)
+		}
+		got, err := lb.Search("config", 20)
+		if err != nil {
+			t.Fatalf("search after rebuild %d: %v", i+2, err)
+		}
+		if len(got) != len(first) {
+			t.Errorf("rebuild %d changed the result count: %d -> %d (duplicates or losses)",
+				i+2, len(first), len(got))
+		}
+		if fingerprint(got) != fingerprint(first) {
+			t.Errorf("rebuild %d changed results:\n first: %v\n got:   %v",
+				i+2, fingerprint(first), fingerprint(got))
+		}
+	}
+}
+
+func fingerprint(res []SearchResult) string {
+	parts := make([]string, 0, len(res))
+	for _, r := range res {
+		parts = append(parts, fmt.Sprintf("%s:%s:%s:%d", r.Type, r.Path, r.Name, r.Line))
+	}
+	return strings.Join(parts, "|")
+}
+
+// TestSearchIndexIncremental exercises the in-place update path, which is the reason to
+// consolidate: sqlite-vec allocated fixed 1024-row chunks and never reclaimed a deleted
+// vector's slot, so the index it replaced had to rewrite its whole file to shrink.
+func TestSearchIndexIncremental(t *testing.T) {
+	dir := t.TempDir()
+	corpus := gateCorpus()
+	cachePath := filepath.Join(dir, "cache")
+	cache := cacheFromCorpus(t, cachePath, corpus)
+	lb := buildSearchIndex(t, dir, cache, nil)
+
+	find := func(query, want string) bool {
+		res, err := lb.Search(query, 20)
+		if err != nil {
+			t.Fatalf("search %q: %v", query, err)
+		}
+		for _, n := range entityNames(res, 0) {
+			if n == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !find("checksum", "computeChecksum") {
+		t.Fatal("baseline: computeChecksum not found before the incremental update")
+	}
+
+	// Replace hash.go's contents with a differently named entity, and delete db.go.
+	if err := cache.Store("hash.go", "h2", &parseCacheEntry{
+		RelPath: "hash.go", Language: "go", Source: "// hash.go v2\n",
+		Entities: []cachedEntity{{
+			Label: "Function", UID: "u9b", Name: "renamedDigest",
+			Path: "hash.go", Line: 1, EndLine: 1, Docstring: "Computes a digest.",
+		}},
+	}); err != nil {
+		t.Fatalf("store changed file: %v", err)
+	}
+	cache.Remove("db.go")
+	if err := cache.FlushDirty(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := lb.UpdateIncremental(cache, []string{"hash.go"}, []string{"db.go"}, nil); err != nil {
+		t.Fatalf("incremental update: %v", err)
+	}
+
+	if find("checksum", "computeChecksum") {
+		t.Error("computeChecksum survived after its file was rewritten — stale rows are not removed")
+	}
+	if !find("digest", "renamedDigest") {
+		t.Error("renamedDigest not found after the incremental update — new rows are not indexed")
+	}
+	if find("database", "connectDatabase") {
+		t.Error("connectDatabase survived after db.go was deleted")
+	}
+
+	// Re-running the same update must not duplicate anything.
+	if err := lb.UpdateIncremental(cache, []string{"hash.go"}, []string{"db.go"}, nil); err != nil {
+		t.Fatalf("repeated incremental update: %v", err)
+	}
+	res, err := lb.Search("digest", 20)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	count := 0
+	for _, r := range res {
+		if r.Name == "renamedDigest" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("renamedDigest appears %d times after a repeated update, want 1 (delete-then-insert is not idempotent)", count)
+	}
+}
+
+// TestSearchIndexSemantic covers the vector half end to end with the real
+// embedder: vectors written through RebuildFromCache must be retrievable, and hybrid
+// search must fuse them with the lexical passes.
+func TestSearchIndexSemantic(t *testing.T) {
+	client, err := ai.NewEmbeddingClientFromConfig()
+	if err != nil {
+		if strings.Contains(err.Error(), "API version") {
+			t.Fatalf("ONNX Runtime rejects the binding's API version — Makefile ORT_VERSION is out of "+
+				"step with go.mod onnxruntime_go: %v", err)
+		}
+		t.Skipf("embedding client unavailable: %v", err)
+	}
+
+	ctx := context.Background()
+	dir := t.TempDir()
+	corpus := abbrevCorpusNamesOnly()
+	cache := cacheFromCorpus(t, filepath.Join(dir, "cache"), corpus)
+
+	// Embed the identifier alone, so a hit is attributable to the name rather than
+	// to prose — the confound isolated in TestAbbreviatedIdentifierSearchSQLite.
+	byUID := make(map[string][]float32, len(corpus))
+	names := make([]string, 0, len(corpus))
+	uids := make([]string, 0, len(corpus))
+	for _, e := range corpus {
+		names = append(names, e.name)
+		uids = append(uids, e.uid)
+	}
+	vecs, err := client.EmbedBatch(ctx, names)
+	if err != nil {
+		t.Skipf("embedding unavailable: %v", err)
+	}
+	for i, uid := range uids {
+		byUID[uid] = vecs[i]
+	}
+
+	lb := buildSearchIndex(t, dir, cache, func(_, uid string) []float32 {
+		return byUID[uid]
+	})
+
+	if !lb.hasVector {
+		t.Skip("vector extension unavailable in this build")
+	}
+
+	qe, ok := client.(ai.QueryEmbedder)
+	if !ok {
+		t.Skip("client does not implement QueryEmbedder")
+	}
+	qv, err := qe.EmbedQuery(ctx, "config")
+	if err != nil {
+		t.Fatalf("embed query: %v", err)
+	}
+
+	sem, err := lb.SemanticSearch(qv, 5)
+	if err != nil {
+		t.Fatalf("semantic search: %v", err)
+	}
+	if len(sem) == 0 {
+		t.Fatal("semantic search returned nothing although vectors were written")
+	}
+	semNames := entityNames(sem, 5)
+	t.Logf("semantic top-5 for \"config\": %v", semNames)
+
+	// CFG_LOAD shares no trigram with "config", so a lexical pass cannot reach it.
+	// The whole point of carrying vectors is that this one does.
+	found := false
+	for _, n := range semNames {
+		if n == "CFG_LOAD" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("semantic search did not surface CFG_LOAD for \"config\" (got %v) — "+
+			"vectors are stored but not usefully retrievable", semNames)
+	}
+
+	hyb, err := lb.HybridSearch("config", qv, 10)
+	if err != nil {
+		t.Fatalf("hybrid search: %v", err)
+	}
+	if len(hyb) == 0 {
+		t.Fatal("hybrid search returned nothing")
+	}
+	hybNames := entityNames(hyb, 10)
+	t.Logf("hybrid top-10 for \"config\": %v", hybNames)
+
+	// Fusion must not lose what either half found on its own.
+	lex, err := lb.Search("config", 10)
+	if err != nil {
+		t.Fatalf("lexical search: %v", err)
+	}
+	inHybrid := map[string]bool{}
+	for _, n := range hybNames {
+		inHybrid[n] = true
+	}
+	for _, n := range entityNames(lex, 10) {
+		if !inHybrid[n] {
+			t.Errorf("hybrid search dropped %q, which the lexical pass alone found", n)
+		}
+	}
+	for _, n := range semNames {
+		if !inHybrid[n] {
+			t.Errorf("hybrid search dropped %q, which the semantic pass alone found", n)
+		}
+	}
+}

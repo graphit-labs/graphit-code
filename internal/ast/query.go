@@ -36,7 +36,7 @@ func NewQueryService(db GraphDB) *QueryService {
 	}
 	if lb, ok := db.(*LadybugBackend); ok {
 		qs.dbPath = lb.cfg.DBPath
-		idxPath := lb.cfg.DBPath + ".search.sqlite"
+		idxPath := lb.cfg.DBPath + searchIndexSuffix
 		if si, err := OpenSearchIndex(idxPath); err == nil {
 			qs.searchIndex = si
 		}

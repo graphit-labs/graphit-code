@@ -390,7 +390,7 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 
 			probe := ast.NewEmbedder(nil, cfg)
 			pending := probe.CountPending(ctx)
-			idxPath := ladybugCfg.DBPath + ".search.sqlite"
+			idxPath := ladybugCfg.DBPath + ast.SearchIndexSuffix
 			if pending == 0 {
 				// Even if all embeddings are cached, the search index may have been
 				// deleted. Rebuild it from cache so search works without re-embedding.

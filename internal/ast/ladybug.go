@@ -770,7 +770,7 @@ func CleanupInterruptedSwap(dbPath string) {
 
 	matches, _ := filepath.Glob(dbPath + ".*")
 	for _, m := range matches {
-		if m == dbPath+".wal" || strings.HasPrefix(m, dbPath+".search.sqlite") {
+		if m == dbPath+".wal" || strings.HasPrefix(m, dbPath+searchIndexSuffix) {
 			continue
 		}
 		_ = os.RemoveAll(m)

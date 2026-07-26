@@ -381,7 +381,7 @@ func triggerEmbeddingRebuild(ctx context.Context, dbPath string, parseCache *Sha
 		return
 	}
 
-	idxPath := dbPath + ".search.sqlite"
+	idxPath := dbPath + searchIndexSuffix
 	searchIdx, err := OpenSearchIndex(idxPath)
 	if err != nil {
 		log.Error("open search index for embedding rebuild", "error", err)
