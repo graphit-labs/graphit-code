@@ -100,30 +100,9 @@ func isExported(strategy string, e *Entity, exportedNames map[string]bool, confi
 	case "export_statement":
 		return exportedNames[e.Name]
 
-	case "modifier":
-		keyword := config["keyword"]
-		if keyword == "" {
-			return false
-		}
-		return e.Source != "" && containsModifier(e.Source, keyword)
-
-	case "no_modifier":
-		keywords := configList["keywords"]
-		if len(keywords) == 0 {
-			return true
-		}
-		if e.Source == "" {
-			return true
-		}
-		for _, kw := range keywords {
-			if containsModifier(e.Source, kw) {
-				return false
-			}
-		}
-		return true
-
-	case "no_static":
-		return e.Source != "" && !containsModifier(e.Source, "static")
+	case "modifier", "no_modifier", "no_static":
+		// Decided at entity-construction time; see Entity.ModifierExport.
+		return e.ModifierExport
 
 	case "none":
 		return false
@@ -270,6 +249,49 @@ func resolveReceiverTypes(result *ParsedFile, src []byte, lang string, langConfi
 			}
 		}
 	}
+}
+
+// exportStrategyOf returns the export strategy and its config from a language
+// config, tolerating a nil config or nil Exports block.
+func exportStrategyOf(langConfig *ExternalQueryFile) (string, map[string]string, map[string][]string) {
+	if langConfig == nil || langConfig.Exports == nil {
+		return "", nil, nil
+	}
+	return langConfig.Exports.Strategy, langConfig.Exports.Config, langConfig.Exports.ConfigList
+}
+
+// ModifierExportVerdict evaluates the modifier-based export strategies against
+// an entity's body text. It is called while building the entity, so the text
+// does not have to be retained on the Entity afterwards. Behaviour is identical
+// to the previous in-isExported logic.
+func ModifierExportVerdict(strategy, source string, config map[string]string, configList map[string][]string) bool {
+	switch strategy {
+	case "modifier":
+		keyword := config["keyword"]
+		if keyword == "" {
+			return false
+		}
+		return source != "" && containsModifier(source, keyword)
+
+	case "no_modifier":
+		keywords := configList["keywords"]
+		if len(keywords) == 0 {
+			return true
+		}
+		if source == "" {
+			return true
+		}
+		for _, kw := range keywords {
+			if containsModifier(source, kw) {
+				return false
+			}
+		}
+		return true
+
+	case "no_static":
+		return source != "" && !containsModifier(source, "static")
+	}
+	return false
 }
 
 func selfKeywordsForLang(lang string, langConfig *ExternalQueryFile) []string {

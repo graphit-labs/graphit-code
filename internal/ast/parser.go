@@ -18,17 +18,25 @@ type ParsedFile struct {
 }
 
 type Entity struct {
-	Name        string
-	Line        int
-	EndLine     int
-	Source      string
-	Docstring   string
-	Args        []string
-	Context     string
-	ContextType string
-	GraphLabel  string
-	Complexity  int
-	Properties  map[string]string
+	Name    string
+	Line    int
+	EndLine int
+	// ModifierExport is the verdict of the modifier-based export strategies
+	// ("modifier", "no_modifier", "no_static"), decided when the entity is built
+	// and its body text is already in hand.
+	//
+	// It replaces a Source field that held a full copy of every entity's body —
+	// overlapping copies for nested entities — purely so isExported could run a
+	// substring check later. That text was never persisted (cachedEntity has no
+	// source field), so retaining it was pure overhead.
+	ModifierExport bool
+	Docstring      string
+	Args           []string
+	Context        string
+	ContextType    string
+	GraphLabel     string
+	Complexity     int
+	Properties     map[string]string
 }
 
 type CallInfo struct {
@@ -83,6 +91,10 @@ type LanguageParser interface {
 }
 
 type ParseOptions struct {
+	// IndexSource mirrors PipelineOptions.IndexSource. When false the parsers
+	// skip materialising ParsedFile.Source, a full copy of every file that only
+	// ConvertToCache consumes — and only when source indexing is on.
+	IndexSource bool
 }
 
 type BatchParser interface {

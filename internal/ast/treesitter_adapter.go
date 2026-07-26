@@ -175,8 +175,12 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 		Path:     path,
 		Language: cfg.Language,
 		IsDepend: isDepend,
-		Source:   string(src),
 		Entities: make(map[string][]Entity),
+	}
+	// Only materialise the whole-file source when it will actually be stored;
+	// otherwise this is a full copy of every parsed file, discarded immediately.
+	if opts.IndexSource {
+		result.Source = string(src)
 	}
 
 	specificLabels := map[string]bool{
@@ -195,6 +199,11 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 	for _, ce := range compiledEntries {
 		rpcQueries = append(rpcQueries, ExternalQueryDef(ce.Def))
 	}
+
+	// Export strategy is fixed per file, so the modifier-based verdict can be
+	// decided while each entity's body text is still in hand — no need to retain
+	// that text on the Entity.
+	exportStrategy, exportCfg, exportCfgList := exportStrategyOf(langConfig)
 
 	for i, ce := range compiledEntries {
 		qdef := rpcQueries[i]
@@ -242,14 +251,14 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 				contextName, contextType := resolveParentContextTS(&capture.Node, src, langConfig)
 
 				result.AddEntity(qdef.DataKey, Entity{
-					Name:        name,
-					Line:        startLine,
-					EndLine:     endLine,
-					Source:      entitySource,
-					GraphLabel:  qdef.GraphLabel,
-					Complexity:  complexity,
-					Context:     contextName,
-					ContextType: contextType,
+					Name:           name,
+					Line:           startLine,
+					EndLine:        endLine,
+					ModifierExport: ModifierExportVerdict(exportStrategy, entitySource, exportCfg, exportCfgList),
+					GraphLabel:     qdef.GraphLabel,
+					Complexity:     complexity,
+					Context:        contextName,
+					ContextType:    contextType,
 				})
 
 				if specificLabels[qdef.GraphLabel] {
@@ -260,7 +269,7 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 		queryCursorPool.Put(qc)
 	}
 
-	extractDocstringsTS(root, src, result, langConfig)
+	extractDocstringsTS(root, src, result, langConfig, lang)
 
 	relationTypes := buildRelationTypeMap(rpcQueries)
 	attachDecorators(result, relationTypes)
@@ -381,7 +390,48 @@ func resolveParentContextTS(node *sitter.Node, src []byte, langConfig *ExternalQ
 	return "", ""
 }
 
-func extractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, langConfig *ExternalQueryFile) {
+// kindMatcher matches node kinds by numeric symbol id when the grammar knows
+// the name, falling back to the kind string otherwise. Node.Kind() allocates a
+// Go string per call (C.GoString), and the docstring walk calls it for every
+// node in the file; KindId() is a plain uint16 read.
+type kindMatcher struct {
+	ids   map[uint16]bool
+	names map[string]bool // only for names the grammar did not resolve
+}
+
+func newKindMatcher(lang *sitter.Language, names map[string]bool) kindMatcher {
+	m := kindMatcher{ids: make(map[uint16]bool, len(names))}
+	for n := range names {
+		if lang != nil {
+			if id := lang.IdForNodeKind(n, true); id != 0 {
+				m.ids[id] = true
+				continue
+			}
+		}
+		// Unknown to this grammar: keep matching by string so behaviour is
+		// identical to the previous implementation.
+		if m.names == nil {
+			m.names = make(map[string]bool)
+		}
+		m.names[n] = true
+	}
+	return m
+}
+
+func (m kindMatcher) match(n *sitter.Node) bool {
+	if n == nil {
+		return false
+	}
+	if m.ids[n.KindId()] {
+		return true
+	}
+	if m.names == nil {
+		return false
+	}
+	return m.names[n.Kind()]
+}
+
+func extractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, langConfig *ExternalQueryFile, lang *sitter.Language) {
 	if SafeIsNull(root) {
 		return
 	}
@@ -407,6 +457,9 @@ func extractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, lang
 		comTypes = defaultCommentTypes
 	}
 
+	declM := newKindMatcher(lang, declTypes)
+	comM := newKindMatcher(lang, comTypes)
+
 	type entityKey struct {
 		line int
 		name string
@@ -430,12 +483,11 @@ func extractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, lang
 				continue
 			}
 
-			nodeType := SafeType(child)
-			if declTypes[nodeType] {
+			if declM.match(child) {
 				if i > 0 {
 					prev := SafeChild(node, i-1)
 					if !SafeIsNull(prev) {
-						if comTypes[SafeType(prev)] {
+						if comM.match(prev) {
 							commentText := cleanDocstring(prev.Utf8Text(src))
 							if commentText != "" {
 								sp := child.StartPosition()
@@ -452,7 +504,7 @@ func extractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, lang
 					}
 				}
 
-				if nodeType == "function_definition" || nodeType == "class_definition" {
+				if kind := SafeType(child); kind == "function_definition" || kind == "class_definition" {
 					body := SafeChildByFieldName(child, "body")
 					if !SafeIsNull(body) {
 						if SafeChildCount(body) > 0 {

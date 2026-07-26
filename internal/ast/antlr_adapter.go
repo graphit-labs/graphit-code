@@ -267,8 +267,10 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, sr
 		Path:     path,
 		Language: cfg.Language,
 		IsDepend: isDepend,
-		Source:   string(src),
 		Entities: make(map[string][]Entity),
+	}
+	if opts.IndexSource {
+		result.Source = string(src)
 	}
 
 	specificLabels := map[string]bool{
@@ -280,6 +282,8 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, sr
 		qdef    ExternalQueryDef
 		pattern *antlrcommon.Pattern
 	}
+
+	exportStrategy, exportCfg, exportCfgList := exportStrategyOf(langConfig)
 
 	var activeQueries []queryDefAndPattern
 	for _, qdef := range rpcQueries {
@@ -318,14 +322,14 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, sr
 			contextName, contextType := resolveParentContextAntlr(match, langConfig)
 
 			result.AddEntity(aq.qdef.DataKey, Entity{
-				Name:        name,
-				Line:        startLine,
-				EndLine:     endLine,
-				Source:      entitySource,
-				GraphLabel:  aq.qdef.GraphLabel,
-				Complexity:  complexity,
-				Context:     contextName,
-				ContextType: contextType,
+				Name:           name,
+				Line:           startLine,
+				EndLine:        endLine,
+				ModifierExport: ModifierExportVerdict(exportStrategy, entitySource, exportCfg, exportCfgList),
+				GraphLabel:     aq.qdef.GraphLabel,
+				Complexity:     complexity,
+				Context:        contextName,
+				ContextType:    contextType,
 			})
 
 			if specificLabels[aq.qdef.GraphLabel] {
