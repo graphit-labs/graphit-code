@@ -160,7 +160,8 @@ const (
 
 // Parse parses using the grammar's declared prediction strategy. Both stages
 // recover from panics; a failed stage returns nil and falls through to LL.
-func Parse(strategy Strategy, parse func() antlr.ParseTree, configure func(mode int)) antlr.ParseTree {
+// p is the parser being driven, used to detect a failed SLL parse.
+func Parse(strategy Strategy, p antlr.Parser, parse func() antlr.ParseTree, configure func(mode int)) antlr.ParseTree {
 	useSLL := strategy == SLLThenLL
 	if forceSLL {
 		useSLL = true
@@ -170,15 +171,22 @@ func Parse(strategy Strategy, parse func() antlr.ParseTree, configure func(mode 
 	}
 
 	if useSLL {
-		if tree := trySLLParse(parse, configure); tree != nil {
+		if tree := trySLLParse(p, parse, configure); tree != nil {
 			return tree
 		}
 	}
 	return llParse(parse, configure)
 }
 
-// trySLLParse attempts SLL prediction. Returns nil on failure.
-func trySLLParse(parse func() antlr.ParseTree, configure func(mode int)) (tree antlr.ParseTree) {
+// trySLLParse attempts SLL prediction, returning nil when it did not produce a
+// clean parse so the caller falls back to full-context LL.
+//
+// Checking p.HasError() is essential: antlr4-go does NOT panic on a recognition
+// error even under BailErrorStrategy — Recover ends with
+// recognizer.SetError(...), a flag rather than a panic — so relying on recover()
+// alone accepted the SLL tree of an input SLL had actually failed to parse, and
+// the LL stage never ran.
+func trySLLParse(p antlr.Parser, parse func() antlr.ParseTree, configure func(mode int)) (tree antlr.ParseTree) {
 	defer func() {
 		if r := recover(); r != nil {
 			tree = nil
@@ -186,6 +194,9 @@ func trySLLParse(parse func() antlr.ParseTree, configure func(mode int)) (tree a
 	}()
 	configure(ModeSLL)
 	tree = parse()
+	if p != nil && p.HasError() {
+		return nil
+	}
 	return tree
 }
 

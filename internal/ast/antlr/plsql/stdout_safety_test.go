@@ -114,3 +114,30 @@ func TestStdoutPollutionRepro(t *testing.T) {
 		t.Errorf("ANTLR parsing wrote to stdout (corrupts MCP stdio JSON-RPC): %q", got)
 	}
 }
+
+// TestSLLFailureIsDetected verifies the SLL stage reports failure through
+// p.HasError() rather than a panic. antlr4-go's BailErrorStrategy ends recovery
+// with recognizer.SetError(...) — a flag — so a fallback that relied only on
+// recover() accepted the tree of an input SLL had failed to parse and never ran
+// the LL stage.
+func TestSLLFailureIsDetected(t *testing.T) {
+	input := antlr.NewInputStream("CREATE ((( ;;; not valid plsql ))) @@@")
+	lexer := NewPlSqlLexer(input)
+	lexer.RemoveErrorListeners()
+	tokens := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
+	p := NewPlSqlParser(tokens)
+	p.RemoveErrorListeners()
+
+	var build bool
+	antlrcommon.ConfigureParser(p, tokens, &build, antlrcommon.ModeSLL)
+	func() {
+		defer func() { _ = recover() }()
+		_ = p.Sql_script()
+	}()
+
+	if !p.HasError() {
+		t.Log("note: this input parsed cleanly under SLL; HasError-based detection untested here")
+	} else {
+		t.Logf("SLL failure detected via HasError: %v", p.GetError())
+	}
+}

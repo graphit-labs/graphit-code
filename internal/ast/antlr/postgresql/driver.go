@@ -20,7 +20,7 @@ func (d *Driver) Parse(src []byte) (*antlrcommon.TreeNode, error) {
 	tokens := antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)
 	p := NewPostgreSQLParser(tokens)
 	p.RemoveErrorListeners()
-	nativeTree := antlrcommon.Parse(antlrcommon.LLOnly,
+	nativeTree := antlrcommon.Parse(antlrcommon.LLOnly, p,
 		func() antlr.ParseTree { return p.Root() },
 		func(mode int) { antlrcommon.ConfigureParser(p, tokens, &p.BuildParseTrees, mode) },
 	)
