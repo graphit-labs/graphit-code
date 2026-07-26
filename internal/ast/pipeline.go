@@ -486,7 +486,9 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			err = RebuildFromJSON(ctx, db, jsonCache, embCache, opts.Cluster, abs, opts.Logger)
 			if err == nil && searchIdx != nil {
 				embLookup := BuildEmbLookup(jsonCache, embCache)
-				_ = searchIdx.RebuildFromCache(jsonCache, embLookup)
+				if err := searchIdx.RebuildFromCache(jsonCache, embLookup); err != nil {
+					logger.Error("search index rebuild failed; search results are stale", "error", err)
+				}
 			}
 		}
 		if err != nil {

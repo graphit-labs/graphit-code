@@ -179,7 +179,11 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 		searchWg.Add(1)
 		go func() {
 			defer searchWg.Done()
-			_ = searchIdx.UpdateIncremental(cache, changedFiles, deletedFiles, embLookup)
+			if err := searchIdx.UpdateIncremental(cache, changedFiles, deletedFiles, embLookup); err != nil {
+				// Not fatal for the graph, but never silent: a failed update leaves search
+				// answering from stale rows, which is indistinguishable from working.
+				log.Error("search index update failed; search results are stale", "error", err)
+			}
 		}()
 	}
 
@@ -258,7 +262,10 @@ func fullRebuildWithSearch(ctx context.Context, lb *LadybugBackend, cache *Shard
 	}
 	if searchIdx != nil {
 		embLookup := BuildEmbLookup(cache, embCache)
-		_ = searchIdx.RebuildFromCache(cache, embLookup)
+		if err := searchIdx.RebuildFromCache(cache, embLookup); err != nil {
+			slogutil.Resolve(logger).Error("search index rebuild failed; search results are stale",
+				"error", err)
+		}
 	}
 	return nil
 }
@@ -479,7 +486,11 @@ func incrementalInPlace(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 		searchWg.Add(1)
 		go func() {
 			defer searchWg.Done()
-			_ = searchIdx.UpdateIncremental(cache, changedFiles, deletedFiles, embLookup)
+			if err := searchIdx.UpdateIncremental(cache, changedFiles, deletedFiles, embLookup); err != nil {
+				// Not fatal for the graph, but never silent: a failed update leaves search
+				// answering from stale rows, which is indistinguishable from working.
+				log.Error("search index update failed; search results are stale", "error", err)
+			}
 		}()
 	}
 	defer searchWg.Wait()

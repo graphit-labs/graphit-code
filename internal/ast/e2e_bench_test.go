@@ -197,32 +197,73 @@ func TestE2EIndex(t *testing.T) {
 	if err := os.MkdirAll(work, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	copied := 0
+
+	// Bounded subsets are sampled ROUND-ROBIN across top-level directories, not taken as a
+	// walk-order prefix.
+	//
+	// The prefix is what this test used to do, and it made every bounded run
+	// uninterpretable. The corpus is organised one directory per object type, WalkDir is
+	// lexical, and the first type in the Oracle corpus is "comments" — files holding
+	// COMMENT ON statements, which have no named entity to extract. A run with
+	// GRAPHIT_E2E_MAX_FILES=800 therefore reported "empty=799 errors=0" and timed a full
+	// pipeline over an extraction that yields nothing, search index included.
+	// TestOracleExtractionCensus is the per-type breakdown: 12 of 13 types do extract.
+	var groups []string
+	byGroup := map[string][]string{}
 	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, e error) error {
 		if e != nil || d.IsDir() {
 			return nil
 		}
-		if maxFiles > 0 && copied >= maxFiles {
-			return filepath.SkipAll
-		}
-		b, rerr := os.ReadFile(p)
+		rel, rerr := filepath.Rel(src, p)
 		if rerr != nil {
 			return nil
+		}
+		group := filepath.Dir(rel)
+		if _, seen := byGroup[group]; !seen {
+			groups = append(groups, group)
+		}
+		byGroup[group] = append(byGroup[group], p)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk corpus: %v", err)
+	}
+	sort.Strings(groups)
+
+	copyOne := func(p string) bool {
+		b, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return false
 		}
 		rel, _ := filepath.Rel(src, p)
 		dst := filepath.Join(work, rel)
 		if mkErr := os.MkdirAll(filepath.Dir(dst), 0o755); mkErr != nil {
-			return nil
+			return false
 		}
-		if wErr := os.WriteFile(dst, b, 0o644); wErr == nil {
-			copied++
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("copy corpus: %v", err)
+		return os.WriteFile(dst, b, 0o644) == nil
 	}
-	t.Logf("corpus: %d files copied from %s (workers=%d)", copied, src, SafeWorkers(0))
+
+	copied := 0
+	for round := 0; ; round++ {
+		progressed := false
+		for _, g := range groups {
+			if round >= len(byGroup[g]) {
+				continue
+			}
+			progressed = true
+			if maxFiles > 0 && copied >= maxFiles {
+				break
+			}
+			if copyOne(byGroup[g][round]) {
+				copied++
+			}
+		}
+		if !progressed || (maxFiles > 0 && copied >= maxFiles) {
+			break
+		}
+	}
+	t.Logf("corpus: %d files copied from %s across %d groups (workers=%d)",
+		copied, src, len(groups), SafeWorkers(0))
 
 	dbPath := filepath.Join(tmp, "ladybugdb")
 	cacheDir := filepath.Join(tmp, "cache")

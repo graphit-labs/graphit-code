@@ -414,3 +414,71 @@ func TestSearchIndexSemantic(t *testing.T) {
 		}
 	}
 }
+
+// TestSearchIndexIncrementalRepeated runs consecutive incremental updates, which is what a
+// daemon does all day and what two updates do not exercise.
+//
+// Two was not enough: with the FTS indexes recreated AFTER the writes, the fourth update's
+// DELETE hit an index that no longer knew the node it was deleting —
+//
+//	FTS index 'sf_source' is inconsistent: document for node offset 3002 is missing during
+//	delete. Drop and recreate the FTS index.
+//
+// — so UpdateIncremental returned early and the update was silently skipped. The end-to-end
+// benchmark read that as a speed-up (48 ms instead of 1.9 s) because a failing no-op is fast,
+// and the error was being discarded at the call site. Both are fixed; this is the test that
+// would have caught it.
+func TestSearchIndexIncrementalRepeated(t *testing.T) {
+	dir := t.TempDir()
+	cache := cacheFromCorpus(t, filepath.Join(dir, "cache"), prefixCorpus())
+	lb := buildSearchIndex(t, dir, cache, nil)
+
+	const rounds = 8
+	for round := 1; round <= rounds; round++ {
+		name := fmt.Sprintf("renamedRound%d", round)
+		if err := cache.Store("hash.go", fmt.Sprintf("h%d", round), &parseCacheEntry{
+			RelPath: "hash.go", Language: "go", Source: "// hash.go\n",
+			Entities: []cachedEntity{{
+				Label: "Function", UID: "u9r", Name: name,
+				Path: "hash.go", Line: 1, EndLine: 1,
+				Docstring: "Round " + fmt.Sprint(round) + " marker.",
+			}},
+		}); err != nil {
+			t.Fatalf("round %d store: %v", round, err)
+		}
+		if err := cache.FlushDirty(); err != nil {
+			t.Fatalf("round %d flush: %v", round, err)
+		}
+
+		if err := lb.UpdateIncremental(cache, []string{"hash.go"}, nil, nil); err != nil {
+			t.Fatalf("round %d update: %v", round, err)
+		}
+
+		// The new name must be searchable and the previous one gone.
+		res, err := lb.Search(name, 20)
+		if err != nil {
+			t.Fatalf("round %d search: %v", round, err)
+		}
+		found := false
+		for _, n := range entityNames(res, 0) {
+			if n == name {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("round %d: %q is not searchable after its incremental update", round, name)
+		}
+		if round > 1 {
+			prev := fmt.Sprintf("renamedRound%d", round-1)
+			res, err := lb.Search(prev, 20)
+			if err != nil {
+				t.Fatalf("round %d stale search: %v", round, err)
+			}
+			for _, n := range entityNames(res, 0) {
+				if n == prev {
+					t.Errorf("round %d: %q survived after being replaced", round, prev)
+				}
+			}
+		}
+	}
+}

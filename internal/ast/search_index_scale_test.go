@@ -10,6 +10,13 @@ import (
 // bigSyntheticCache builds a parse cache of roughly `total` entities with Oracle-shaped
 // names over a small vocabulary, so shared tokens and trigrams are genuinely common.
 func bigSyntheticCache(t *testing.T, dir string, total int) *ShardCache {
+	return syntheticCache(t, dir, total, 200)
+}
+
+// syntheticCache spreads `total` entities over files of `perFile` each. The file count
+// matters independently of the entity count: an FTS inconsistency on delete showed up only
+// once the file table held a few thousand nodes.
+func syntheticCache(t *testing.T, dir string, total, perFile int) *ShardCache {
 	t.Helper()
 	pc, err := NewShardCache(dir)
 	if err != nil {
@@ -17,7 +24,6 @@ func bigSyntheticCache(t *testing.T, dir string, total int) *ShardCache {
 	}
 	verbs := []string{"EXTRAIR", "ATUALIZA", "VALIDA", "CONF", "CFG", "CARGA", "PROC", "GRAVA"}
 	nouns := []string{"DOC_LOTE", "ENTRG", "CONTA", "SCHEMA", "CONFIG", "CHECKSUM", "PEDIDO", "CLIENTE"}
-	const perFile = 200
 	for i := 0; i < total/perFile; i++ {
 		path := fmt.Sprintf("pkg/pkg_%05d.sql", i)
 		ents := make([]cachedEntity, 0, perFile)
@@ -145,5 +151,77 @@ func TestSearchIndexScaleCost(t *testing.T) {
 		t.Errorf("incremental update took %s on %d entities — recreating the FTS indexes per edit "+
 			"is not viable at corpus scale and the design needs revisiting",
 			incremental.Round(time.Millisecond), total)
+	}
+}
+
+// TestSearchIndexIncrementalRepeatedAtScale reproduces the FTS inconsistency that a small
+// corpus hides.
+//
+// TestSearchIndexIncrementalRepeated runs eight consecutive updates over twenty entities and
+// passes. The same loop over a few thousand FILES fails on the fourth update with
+//
+//	FTS index 'sf_source' is inconsistent: document for node offset 3002 is missing during
+//	delete. Drop and recreate the FTS index.
+//
+// after which UpdateIncremental returns early and every later update is silently skipped —
+// which the end-to-end benchmark misread as the incremental path getting 40x faster.
+// The file count is what matters, not the entity count, so this uses many small files.
+func TestSearchIndexIncrementalRepeatedAtScale(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a few thousand files")
+	}
+
+	const files = 3200
+	const perFile = 2
+
+	dir := t.TempDir()
+	cache := syntheticCache(t, filepath.Join(dir, "cache"), files*perFile, perFile)
+
+	lb, err := OpenSearchIndex(filepath.Join(dir, "search"))
+	if err != nil {
+		t.Skipf("ladybug unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = lb.Close() })
+	if err := lb.RebuildFromCache(cache, nil); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	const target = "pkg/pkg_00007.sql"
+	for round := 1; round <= 6; round++ {
+		name := fmt.Sprintf("MARCADOR_RODADA_%d", round)
+		if err := cache.Store(target, fmt.Sprintf("h%d", round), &parseCacheEntry{
+			RelPath: target, Language: "sql", Source: "-- " + target + "\n",
+			Entities: []cachedEntity{{
+				Label: "Procedure", UID: "u-target", Name: name,
+				Path: target, Line: 1, EndLine: 1,
+			}},
+		}); err != nil {
+			t.Fatalf("round %d store: %v", round, err)
+		}
+		if err := cache.FlushDirty(); err != nil {
+			t.Fatalf("round %d flush: %v", round, err)
+		}
+
+		start := time.Now()
+		if err := lb.UpdateIncremental(cache, []string{target}, nil, nil); err != nil {
+			t.Fatalf("round %d update failed on a %d-file index: %v", round, files, err)
+		}
+		elapsed := time.Since(start)
+
+		res, err := lb.Search(name, 20)
+		if err != nil {
+			t.Fatalf("round %d search: %v", round, err)
+		}
+		found := false
+		for _, r := range res {
+			if r.Name == name {
+				found = true
+			}
+		}
+		t.Logf("round %d: %s, searchable=%v", round, elapsed.Round(time.Millisecond), found)
+		if !found {
+			t.Errorf("round %d: %q is not searchable after its update — the index went stale",
+				round, name)
+		}
 	}
 }

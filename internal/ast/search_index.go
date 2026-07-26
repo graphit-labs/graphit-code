@@ -240,11 +240,8 @@ var ftsIndexes = []struct{ table, name, fields string }{
 // The vector index does not share the problem — it reflects inserts and deletes in place
 // (TestLadybugVectorIndex) — but it is created here too so a rebuild has one ordering.
 func (s *SearchIndex) createIndexes() error {
-	for _, idx := range ftsIndexes {
-		q := fmt.Sprintf("CALL CREATE_FTS_INDEX('%s', '%s', %s)", idx.table, idx.name, idx.fields)
-		if err := s.execTolerant(q); err != nil {
-			return fmt.Errorf("search index fts: %w", err)
-		}
+	if err := s.createFTSIndexes(); err != nil {
+		return err
 	}
 
 	if s.hasVector {
@@ -258,18 +255,22 @@ func (s *SearchIndex) createIndexes() error {
 	return nil
 }
 
-// rebuildFTSIndexes drops and recreates the FTS indexes, which is the documented recovery
-// from the inconsistency above and the only reliable way to make rows written after index
-// creation visible.
-func (s *SearchIndex) rebuildFTSIndexes() error {
+// dropFTSIndexes removes the FTS indexes. A missing index is not an error: this runs before
+// writes that may precede any creation.
+func (s *SearchIndex) dropFTSIndexes() {
 	for _, idx := range ftsIndexes {
-		// A missing index is fine — this runs after writes that may precede creation.
 		if err := s.exec(fmt.Sprintf("CALL DROP_FTS_INDEX('%s', '%s')", idx.table, idx.name)); err != nil {
 			s.log().Debug("search index: drop fts index", "index", idx.name, "error", err)
 		}
+	}
+}
+
+// createFTSIndexes builds the FTS indexes over whatever rows currently exist.
+func (s *SearchIndex) createFTSIndexes() error {
+	for _, idx := range ftsIndexes {
 		q := fmt.Sprintf("CALL CREATE_FTS_INDEX('%s', '%s', %s)", idx.table, idx.name, idx.fields)
 		if err := s.execTolerant(q); err != nil {
-			return fmt.Errorf("search index fts recreate: %w", err)
+			return fmt.Errorf("search index fts: %w", err)
 		}
 	}
 	return nil
@@ -533,6 +534,21 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 	affected = append(affected, changedFiles...)
 	affected = append(affected, deletedFiles...)
 
+	// The FTS indexes come down BEFORE the mutation and go back up after it.
+	//
+	// They have to be rebuilt anyway — rows written while an index exists are only
+	// intermittently indexed (see createIndexes) — so keeping them live through the delete
+	// buys nothing and costs correctness: deleting a node the index has no document for
+	// fails outright,
+	//
+	//	FTS index 'sf_source' is inconsistent: document for node offset 3002 is missing
+	//	during delete. Drop and recreate the FTS index.
+	//
+	// which aborted the update and left the index stale. It surfaced from the fourth
+	// consecutive update on a 3000-file corpus, and only because the call site stopped
+	// discarding the error; the benchmark had been reading the failing no-op as a speed-up.
+	s.dropFTSIndexes()
+
 	delStmt, err := s.conn.Prepare(
 		"UNWIND $paths AS p MATCH (e:SearchEntity {path: p}) DELETE e")
 	if err != nil {
@@ -580,12 +596,11 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 		vecCount += len(r.entitiesWithEmb)
 	}
 
-	// Rows written while an FTS index exists are only intermittently indexed (see
-	// createIndexes), so the indexes are rebuilt after the writes. The vector index is
-	// left alone: it genuinely does update in place, which is what makes the whole
-	// consolidation worthwhile.
+	// Indexes back up over the mutated rows. The vector index is untouched throughout: it
+	// genuinely does update in place, which is what makes the whole consolidation
+	// worthwhile.
 	ftsStart := time.Now()
-	if err := s.rebuildFTSIndexes(); err != nil {
+	if err := s.createFTSIndexes(); err != nil {
 		return err
 	}
 	ftsMS := time.Since(ftsStart).Seconds() * 1000
