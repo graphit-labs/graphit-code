@@ -21,8 +21,10 @@ import (
 // Those two capabilities ARE reachable in Ladybug, just built differently —
 // verified empirically (see TestLadybugFTSFeatureParity):
 //   - per-field weighting: one FTS index per field, scores combined in Cypher;
-//   - substring matching:  the CONTAINS predicate (unindexed — a scan, so its
-//     cost at real corpus size is the open question, not its availability);
+//   - substring matching:  INDEXED, by storing precomputed trigrams in a
+//     property and indexing that field — the same mechanism FTS5's trigram
+//     tokenizer uses internally (see TestLadybugIndexedSubstring). A CONTAINS
+//     scan also works but is not needed.
 //   - BM25 tuning:         QUERY_FTS_INDEX accepts K, B and conjunctive.
 //
 // What remains unproven is ranking quality on a real corpus, which is what this
