@@ -56,6 +56,15 @@ type PipelineOptions struct {
 	ForceRebuild     bool
 	Logger           *slog.Logger
 	OnProgress       func(phase string, current, total, errors int)
+
+	// ChangedPaths / DeletedPaths let a caller that already knows exactly what
+	// changed (a filesystem watcher) skip discovery entirely. Without them every
+	// run walks the whole tree and stats every file just to learn that one file
+	// changed — measured at 344 ms of a 1.07 s incremental on a 35k-file repo.
+	// ChangedPaths are filesystem paths; DeletedPaths are repo-relative, matching
+	// the parse cache's keys.
+	ChangedPaths []string
+	DeletedPaths []string
 }
 
 type PipelineResult struct {
@@ -94,22 +103,42 @@ func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts Pipeline
 	return runFileWorkerPool(ctx, db, writer, abs, parser, t0, opts)
 }
 
-func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs string, parser LanguageParser, t0 time.Time, opts PipelineOptions) (*PipelineResult, error) {
-	tDiscover := time.Now()
-	files, err := collectFiles(abs)
-	if err != nil {
-		return nil, fmt.Errorf("discover files: %w", err)
-	}
+// RunPipelineForPaths indexes only the named changed and deleted paths, skipping
+// discovery (the full tree walk plus a stat of every file). Use it when a
+// filesystem watcher already knows what changed: on a 35k-file repository that
+// discovery costs ~344 ms of a ~1.07 s incremental run.
+//
+// changed are filesystem paths; deleted are repo-relative, matching parse-cache keys.
+func RunPipelineForPaths(ctx context.Context, db GraphDB, rootPath string, changed, deleted []string, opts PipelineOptions) (*PipelineResult, error) {
+	opts.ChangedPaths = changed
+	opts.DeletedPaths = deleted
+	return RunPipeline(ctx, db, rootPath, opts)
+}
 
-	if len(opts.ExcludeExts) > 0 {
-		var filtered []string
-		for _, f := range files {
-			ext := strings.ToLower(filepath.Ext(f))
-			if !opts.ExcludeExts[ext] {
-				filtered = append(filtered, f)
-			}
+func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs string, parser LanguageParser, t0 time.Time, opts PipelineOptions) (*PipelineResult, error) {
+	// scoped: the caller named the changed/deleted paths, so the tree walk and
+	// the stat-every-file pass are unnecessary.
+	scoped := len(opts.ChangedPaths) > 0 || len(opts.DeletedPaths) > 0
+
+	tDiscover := time.Now()
+	var files []string
+	if !scoped {
+		var err error
+		files, err = collectFiles(abs)
+		if err != nil {
+			return nil, fmt.Errorf("discover files: %w", err)
 		}
-		files = filtered
+
+		if len(opts.ExcludeExts) > 0 {
+			var filtered []string
+			for _, f := range files {
+				ext := strings.ToLower(filepath.Ext(f))
+				if !opts.ExcludeExts[ext] {
+					filtered = append(filtered, f)
+				}
+			}
+			files = filtered
+		}
 	}
 	discoverTime := time.Since(tDiscover)
 
@@ -128,7 +157,31 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	var changedFiles []string
 	var deletedFiles []string
 	fileHashes := make(map[string]string, len(files))
-	if jsonCache != nil && !opts.ForceRebuild {
+	if scoped {
+		// Only the named files are considered. Hash them (in parallel) so the
+		// parse cache stores the right content hash; everything else is untouched.
+		deletedFiles = append(deletedFiles, opts.DeletedPaths...)
+		if jsonCache != nil {
+			for _, rel := range opts.DeletedPaths {
+				jsonCache.Remove(rel)
+			}
+		}
+		if len(opts.ChangedPaths) > 0 {
+			type hres struct {
+				path, hash string
+			}
+			parallelForEach(opts.ChangedPaths, SafeWorkers(0),
+				func(p string) hres { return hres{p, fileContentHash(p)} },
+				func(r hres) {
+					if r.hash == "" {
+						return // unreadable/vanished — skip rather than index garbage
+					}
+					fileHashes[r.path] = r.hash
+					changedFiles = append(changedFiles, r.path)
+				},
+			)
+		}
+	} else if jsonCache != nil && !opts.ForceRebuild {
 		// Phase A: stat all files in parallel — much cheaper than SHA-256.
 		// Files whose mtime matches the cached mtime are skipped entirely.
 		type statResult struct {
@@ -219,13 +272,20 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}
 	hashTime := time.Since(tHash)
 
+	// In scoped mode the tree was never walked, so the corpus size comes from the
+	// parse cache rather than from a file listing.
+	totalFiles := len(files)
+	if scoped && jsonCache != nil {
+		totalFiles = jsonCache.Count()
+	}
+
 	if len(changedFiles) == 0 && len(deletedFiles) == 0 && jsonCache != nil && jsonCache.Count() > 0 && !opts.ForceRebuild {
 
 		_ = jsonCache.Save()
 		_ = jsonCache.Close()
 		totalTime := time.Since(t0)
 		return &PipelineResult{
-			TotalFiles:   len(files),
+			TotalFiles:   totalFiles,
 			ParsedFiles:  0,
 			DiscoverTime: discoverTime,
 			HashTime:     hashTime,
@@ -475,7 +535,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	totalTime := time.Since(t0)
 
 	return &PipelineResult{
-		TotalFiles:      len(files),
+		TotalFiles:      totalFiles,
 		ParsedFiles:     parsedFilesCount,
 		DiscoverTime:    discoverTime,
 		HashTime:        hashTime,
