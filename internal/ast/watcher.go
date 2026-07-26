@@ -2,14 +2,11 @@ package ast
 
 import (
 	"context"
-	"crypto/sha256"
-	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/fswatch"
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
 )
 
@@ -22,17 +19,18 @@ type WatcherConfig struct {
 
 	Cluster string
 
-	PollInterval time.Duration
+	// MaxDebounce caps how long a busy tree may defer a reindex.
+	MaxDebounce time.Duration
 
 	GrammarOverrides map[string]string
 }
 
 func DefaultWatcherConfig() WatcherConfig {
 	return WatcherConfig{
-		Debounce:     500 * time.Millisecond,
-		Workers:      2,
-		IndexSource:  true,
-		PollInterval: 2 * time.Second,
+		Debounce:    500 * time.Millisecond,
+		Workers:     2,
+		IndexSource: true,
+		MaxDebounce: 5 * time.Second,
 	}
 }
 
@@ -41,127 +39,78 @@ type Watcher struct {
 	rootPath string
 	cfg      WatcherConfig
 	ic       *ignorer.IgnoreChecker
-	g        git.Git
 }
 
 func NewWatcher(db GraphDB, rootPath string, cfg WatcherConfig) (*Watcher, error) {
-	if cfg.PollInterval <= 0 {
-		cfg.PollInterval = 2 * time.Second
-	}
-	g, err := git.DefaultErr()
-	if err != nil {
-		return nil, fmt.Errorf("watcher requires git: %w", err)
-	}
 	return &Watcher{
 		db:       db,
 		rootPath: rootPath,
 		cfg:      cfg,
 		ic:       NewAstIgnoreChecker(rootPath),
-		g:        g,
 	}, nil
 }
 
+// Start reindexes on filesystem notifications until ctx is cancelled.
+//
+// This used to poll `git status` every two seconds, which walked the whole
+// worktree per tick and required the project to be a git repository. Watching
+// the OS is idle until something changes and names the exact paths, so the
+// reindex can skip discovery (RunPipelineForPaths) instead of re-walking and
+// re-stating every file. Ignore rules (.gitignore plus .astignore) are applied
+// both when registering watches and when filtering events.
 func (w *Watcher) Start(ctx context.Context) error {
-	var lastHash string
+	fw, err := fswatch.New(fswatch.Config{
+		Root:        w.rootPath,
+		Ignore:      w.ic,
+		Debounce:    w.cfg.Debounce,
+		MaxDebounce: w.cfg.MaxDebounce,
+		Accept:      func(p string) bool { return HasParserForExtension(strings.ToLower(filepath.Ext(p))) },
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = fw.Close() }()
 
-	ticker := time.NewTicker(w.cfg.PollInterval)
-	defer ticker.Stop()
+	batches, err := fw.Start(ctx)
+	if err != nil {
+		return err
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
-			hash := w.statusHash()
-			if hash == lastHash || lastHash == "" {
-				lastHash = hash
-				continue
-			}
-
-			if !w.waitDebounce(ctx, hash) {
+		case batch, ok := <-batches:
+			if !ok {
 				return ctx.Err()
 			}
-
-			lastHash = w.statusHash()
-
-			pipeOpts := PipelineOptions{
-				Workers:          SafeWorkers(w.cfg.Workers),
-				IndexSource:      w.cfg.IndexSource,
-				Cluster:          w.cfg.Cluster,
-				GrammarOverrides: w.cfg.GrammarOverrides,
-			}
-			_, _ = RunPipeline(ctx, w.db, w.rootPath, pipeOpts)
+			w.reindex(ctx, batch)
 		}
 	}
 }
 
-func (w *Watcher) waitDebounce(ctx context.Context, hash string) bool {
-	timer := time.NewTimer(w.cfg.Debounce)
-	defer timer.Stop()
+func (w *Watcher) reindex(ctx context.Context, batch fswatch.Batch) {
+	pipeOpts := PipelineOptions{
+		Workers:          SafeWorkers(w.cfg.Workers),
+		IndexSource:      w.cfg.IndexSource,
+		Cluster:          w.cfg.Cluster,
+		GrammarOverrides: w.cfg.GrammarOverrides,
+	}
 
-	poll := time.NewTicker(250 * time.Millisecond)
-	defer poll.Stop()
+	// Dropped events mean the picture is incomplete; only a full scan is safe.
+	if batch.Rescan {
+		_, _ = RunPipeline(ctx, w.db, w.rootPath, pipeOpts)
+		return
+	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return false
-		case <-timer.C:
-			return true
-		case <-poll.C:
-			current := w.statusHash()
-			if current != hash {
-				hash = current
-				timer.Reset(w.cfg.Debounce)
-			}
+	removed := make([]string, 0, len(batch.Removed))
+	for _, p := range batch.Removed {
+		if rel, err := filepath.Rel(w.rootPath, p); err == nil {
+			removed = append(removed, filepath.ToSlash(rel))
 		}
 	}
-}
-
-func (w *Watcher) statusHash() string {
-	status, _ := w.g.RunOutput(w.rootPath, "status", "--porcelain", "-uall")
-	head, _ := w.g.RunOutput(w.rootPath, "rev-parse", "HEAD")
-
-	status = w.filterIgnored(status)
-	mtimes := dirtyFileMtimes(status, w.rootPath)
-	combined := head + "\n" + status + "\n" + mtimes
-	h := sha256.Sum256([]byte(combined))
-	return fmt.Sprintf("%x", h[:8])
-}
-
-func dirtyFileMtimes(porcelain, rootDir string) string {
-	var b strings.Builder
-	for _, line := range strings.Split(porcelain, "\n") {
-		if len(line) < 4 {
-			continue
-		}
-		rel := strings.TrimSpace(line[3:])
-		if rel == "" || strings.HasSuffix(rel, "/") {
-			continue
-		}
-		if info, err := os.Stat(filepath.Join(rootDir, rel)); err == nil {
-			fmt.Fprintf(&b, "%s:%d\n", rel, info.ModTime().UnixNano())
-		}
+	if len(batch.Changed) == 0 && len(removed) == 0 {
+		return
 	}
-	return b.String()
+	_, _ = RunPipelineForPaths(ctx, w.db, w.rootPath, batch.Changed, removed, pipeOpts)
 }
-
-func (w *Watcher) filterIgnored(porcelain string) string {
-	var kept []string
-	for _, line := range strings.Split(porcelain, "\n") {
-		if len(line) < 4 {
-			continue
-		}
-		path := strings.TrimSpace(line[3:])
-		if path == "" {
-			continue
-		}
-		path = strings.TrimSuffix(path, "/")
-		if w.ic.IsIgnored(path, false) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.Join(kept, "\n")
-}
-

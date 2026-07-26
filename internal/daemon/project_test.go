@@ -373,5 +373,3 @@ func TestSupervise_ContextCancelledBeforeStart(t *testing.T) {
 		t.Fatal("did not finish")
 	}
 }
-
-

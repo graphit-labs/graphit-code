@@ -18,8 +18,8 @@ type fakeModule struct {
 	startFn func(ctx context.Context) error
 }
 
-func (m *fakeModule) Name() string                        { return m.name }
-func (m *fakeModule) Start(ctx context.Context) error     { return m.startFn(ctx) }
+func (m *fakeModule) Name() string                    { return m.name }
+func (m *fakeModule) Start(ctx context.Context) error { return m.startFn(ctx) }
 
 func TestNewModuleEntry(t *testing.T) {
 	mod := &fakeModule{name: "test-mod"}

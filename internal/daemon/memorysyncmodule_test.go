@@ -38,22 +38,6 @@ func TestMemorySyncModule_Start_ContextCancelled(t *testing.T) {
 // MemorySyncModule — poll with no active memory branches
 // ---------------------------------------------------------------------------
 
-func TestMemorySyncModule_Poll_NoStore(t *testing.T) {
-	// This tests that poll doesn't panic when MemoryGitStore fails.
-	m := NewMemorySyncModule()
-
-	g := &mockGit{}
-	hashes := make(map[string]string)
-
-	// poll with a mock git — the memory store creation will likely fail
-	// because we're not in a valid memory repo, so it should return early.
-	m.poll(context.Background(), g, hashes)
-}
-
-// ---------------------------------------------------------------------------
-// SyncModule — Start context cancelled immediately
-// ---------------------------------------------------------------------------
-
 func TestSyncModule_Start_ContextCancelledImmediately(t *testing.T) {
 	tmpDir := t.TempDir()
 	m := NewSyncModule(tmpDir, filepath.Join(tmpDir, "cache"))

@@ -2,20 +2,19 @@ package daemon
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/graphit-labs/graphit-code/internal/git"
+	"github.com/graphit-labs/graphit-code/internal/fswatch"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 )
 
 const (
-	memorySyncPollInterval = 10 * time.Second
-	memorySyncDebounce     = 1 * time.Second
+	memorySyncDebounce    = 1 * time.Second
+	memorySyncMaxDebounce = 10 * time.Second
 )
 
 type MemorySyncModule struct{}
@@ -24,70 +23,91 @@ func NewMemorySyncModule() *MemorySyncModule {
 	return &MemorySyncModule{}
 }
 
+// Start recompiles a memory wiki whenever its worktree changes.
+//
+// The worktrees live under a single base directory that this tool owns, so one
+// recursive watch covers every branch — including worktrees created later, which
+// the watcher picks up when their directory appears. This replaces a 10s git
+// poll that ran `git status` once per active branch per tick.
 func (m *MemorySyncModule) Start(ctx context.Context) error {
-	g, err := git.DefaultErr()
+	store, err := memory.NewMemoryGitStore()
 	if err != nil {
-		return fmt.Errorf("memory-sync module requires git: %w", err)
+		return fmt.Errorf("memory-sync module: open memory store: %w", err)
 	}
-	hashes := make(map[string]string)
+	wtBase := store.Dir() + "-wt"
+	if err := os.MkdirAll(wtBase, 0o755); err != nil {
+		return fmt.Errorf("memory-sync module: worktree base %s: %w", wtBase, err)
+	}
 
-	ticker := time.NewTicker(memorySyncPollInterval)
-	defer ticker.Stop()
+	w, err := fswatch.New(fswatch.Config{
+		Root:        wtBase,
+		Debounce:    memorySyncDebounce,
+		MaxDebounce: memorySyncMaxDebounce,
+	})
+	if err != nil {
+		return fmt.Errorf("memory-sync module: start watcher: %w", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	batches, err := w.Start(ctx)
+	if err != nil {
+		return fmt.Errorf("memory-sync module: watch %s: %w", wtBase, err)
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
-			if !m.poll(ctx, g, hashes) {
+		case batch, ok := <-batches:
+			if !ok {
 				return ctx.Err()
 			}
+			m.recompile(ctx, wtBase, batch)
 		}
 	}
 }
 
-func (m *MemorySyncModule) poll(ctx context.Context, g git.Git, hashes map[string]string) bool {
+// recompile rebuilds the wiki of every memory branch the batch touched.
+func (m *MemorySyncModule) recompile(ctx context.Context, wtBase string, batch fswatch.Batch) {
 	store, err := memory.NewMemoryGitStore()
 	if err != nil {
-		return true
+		return
 	}
-
 	branches, err := store.ActiveMemoryBranches()
 	if err != nil {
-		return true
+		return
 	}
 
-	repoDir := store.Dir()
-	wtBase := repoDir + "-wt"
+	touched := append(append([]string{}, batch.Changed...), batch.Removed...)
 
 	for _, branch := range branches {
 		wtDir := worktreeDirForBranch(wtBase, branch)
 		if _, err := os.Stat(filepath.Join(wtDir, ".git")); err != nil {
 			continue
 		}
-
-		hash := memoryWorktreeHash(g, wtDir)
-		prev, seen := hashes[branch]
-		if !seen {
-			hashes[branch] = hash
+		// A lost-events batch has no reliable path list, so every branch is
+		// recompiled; otherwise only the ones with a changed file under them.
+		if !batch.Rescan && !anyUnder(touched, wtDir) {
 			continue
 		}
-		if hash == prev {
-			continue
-		}
-
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(memorySyncDebounce):
-		}
-		hashes[branch] = memoryWorktreeHash(g, wtDir)
-
 		scope, scopeID := parseBranch(branch)
 		wikiDir := memory.MemoryWikiGlobalDir(scope, scopeID)
 		memory.RunCycle(ctx, scope, wtDir, wikiDir)
 	}
-	return true
+}
+
+// anyUnder reports whether any path lies inside dir.
+func anyUnder(paths []string, dir string) bool {
+	for _, p := range paths {
+		rel, err := filepath.Rel(dir, p)
+		if err != nil {
+			continue
+		}
+		if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func worktreeDirForBranch(wtBase, branch string) string {
@@ -103,12 +123,7 @@ func parseBranch(branch string) (scope, scopeID string) {
 	return parts[1], parts[2]
 }
 
-func memoryWorktreeHash(g git.Git, wtDir string) string {
-	status, _ := g.RunOutput(wtDir, "status", "--porcelain", "-uall")
-	head, _ := g.RunOutput(wtDir, "rev-parse", "HEAD")
-
-	mtimes := dirtyFileMtimes(status, wtDir)
-	combined := head + "\n" + status + "\n" + mtimes
-	h := sha256.Sum256([]byte(combined))
-	return fmt.Sprintf("%x", h[:8])
-}
+// dirtyFileMtimes renders "path:mtime" lines for the dirty files in a git
+// porcelain listing. The memory module still polls its worktrees in ~/.graphit
+// (they are written by the MCP layer, not by an editor, so notification latency
+// does not matter there); project trees are watched instead — see fswatch.

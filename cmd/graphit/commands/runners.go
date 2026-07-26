@@ -13,17 +13,17 @@ import (
 	"syscall"
 	"time"
 
-	"crypto/sha256"
 	"io/fs"
 
-	"github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	_ "github.com/graphit-labs/graphit-code/internal/ast/cypher" // registers AI Cypher generator
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/fswatch"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/improvements"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
@@ -266,7 +266,6 @@ func runASTIndex(targetPath string, workers int, reset bool, reindex bool, clust
 	if len(grammarOverrides) > 0 {
 		p.Step("Grammar overrides: %v", grammarOverrides)
 	}
-
 
 	pipeOpts := ast.PipelineOptions{
 		Workers:          workers,
@@ -590,8 +589,6 @@ func runASTHybridSearch(query string, contextName string, topK int, aiOptimized 
 	p.Count("result", len(results))
 	return nil
 }
-
-
 
 func runASTImportList() error {
 	p := output.NewPrinter("")
@@ -1703,33 +1700,44 @@ func watchAndReindex(rootPath string, useLouvain bool, reindex func() error) err
 		p.Warn("Initial index error: %v", err)
 	}
 
-	g, err := git.DefaultErr()
+	// Filesystem notifications instead of polling `git status` every two
+	// seconds: no worktree walk per tick, no git requirement, and changes are
+	// picked up immediately. Ignore rules (.gitignore plus the module's own
+	// ignore file) are honoured when registering watches and filtering events.
+	w, err := fswatch.New(fswatch.Config{
+		Root:        rootPath,
+		Ignore:      ignorer.New(rootPath, rootPath, ast.AstIgnoreFile, nil),
+		Debounce:    500 * time.Millisecond,
+		MaxDebounce: 5 * time.Second,
+	})
 	if err != nil {
-		return fmt.Errorf("git required for watch: %w", err)
+		return fmt.Errorf("watch: %w", err)
+	}
+	defer func() { _ = w.Close() }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	batches, err := w.Start(ctx)
+	if err != nil {
+		return fmt.Errorf("watch %s: %w", rootPath, err)
 	}
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-
-	var lastHash string
-	pollTicker := time.NewTicker(2 * time.Second)
-	defer pollTicker.Stop()
 
 	for {
 		select {
 		case <-sig:
 			output.Interrupted()
 			return nil
-		case <-pollTicker.C:
-			hash := cliWatchHash(g, rootPath)
-			if hash == lastHash || lastHash == "" {
-				lastHash = hash
+		case batch, ok := <-batches:
+			if !ok {
+				return nil
+			}
+			if len(batch.Changed) == 0 && len(batch.Removed) == 0 && !batch.Rescan {
 				continue
 			}
-
-			time.Sleep(500 * time.Millisecond)
-			lastHash = cliWatchHash(g, rootPath)
-
 			p.Running("Change detected, re-indexing…")
 			if err := reindex(); err != nil {
 				p.Warn("Re-index error: %v", err)
@@ -1738,33 +1746,6 @@ func watchAndReindex(rootPath string, useLouvain bool, reindex func() error) err
 			}
 		}
 	}
-}
-
-func cliWatchHash(g git.Git, dir string) string {
-	status, _ := g.RunOutput(dir, "status", "--porcelain", "-uall")
-	head, _ := g.RunOutput(dir, "rev-parse", "HEAD")
-
-	mtimes := cliDirtyFileMtimes(status, dir)
-	combined := head + "\n" + status + "\n" + mtimes
-	h := sha256.Sum256([]byte(combined))
-	return fmt.Sprintf("%x", h[:8])
-}
-
-func cliDirtyFileMtimes(porcelain, rootDir string) string {
-	var b strings.Builder
-	for _, line := range strings.Split(porcelain, "\n") {
-		if len(line) < 4 {
-			continue
-		}
-		rel := strings.TrimSpace(line[3:])
-		if rel == "" || strings.HasSuffix(rel, "/") {
-			continue
-		}
-		if info, err := os.Stat(filepath.Join(rootDir, rel)); err == nil {
-			fmt.Fprintf(&b, "%s:%d\n", rel, info.ModTime().UnixNano())
-		}
-	}
-	return b.String()
 }
 
 func runASTSync(contextName string) error {
@@ -2368,4 +2349,3 @@ func runWikiEmbed(wikiScope string) error {
 
 	return nil
 }
-
