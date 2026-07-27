@@ -277,7 +277,34 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # Comment on column (references the column being commented)
+  # COMMENT ON ... IS '<text>' — the comment TEXT is the entity name.
+  #
+  # These used to be relations pointing at the commented column or table, with the text
+  # never captured at all. In an Oracle export that is the whole data dictionary thrown
+  # away: 2209 files in the reference corpus contain nothing but COMMENT ON statements,
+  # and they yielded zero entities.
+  #
+  # The commented object still gets a reference edge below, so "what is documented" and
+  # "what does the documentation say" are both answerable.
+  - data_key: comments
+    graph_label: Comment
+    pattern: "//comment_on_column/quoted_string"
+    name_capture: name
+    type: entity
+
+  - data_key: comments
+    graph_label: Comment
+    pattern: "//comment_on_table/quoted_string"
+    name_capture: name
+    type: entity
+
+  - data_key: comments
+    graph_label: Comment
+    pattern: "//comment_on_materialized/quoted_string"
+    name_capture: name
+    type: entity
+
+  # The object each comment documents.
   - data_key: comment_refs
     graph_label: ""
     pattern: "//comment_on_column/column_name"
@@ -285,7 +312,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # Comment on table (references the table being commented)
   - data_key: comment_refs
     graph_label: ""
     pattern: "//comment_on_table/tableview_name"
@@ -293,7 +319,6 @@ queries:
     type: relation
     relation_type: REFERENCES
 
-  # Comment on materialized view (references the mview being commented)
   - data_key: comment_refs
     graph_label: ""
     pattern: "//comment_on_materialized/tableview_name"

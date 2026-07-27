@@ -300,7 +300,7 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, sr
 	}
 
 	for _, aq := range activeQueries {
-		matches := aq.pattern.Match(antlrTree)
+		matches := aq.pattern.MatchWithContext(antlrTree, contextRulePredicate(langConfig))
 		for _, match := range matches {
 			name := extractNameFromMatch(match.Node, aq.qdef.NameCapture)
 			if name == "" {
@@ -309,6 +309,15 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, sr
 
 			if aq.qdef.DataKey == "imports" {
 				name = strings.Trim(name, "'\"")
+			}
+
+			// Oracle delimits quoted identifiers and string literals; the delimiters are
+			// not part of the name. This matters most for Comment entities, whose name IS
+			// the comment text: 'Indicador se Caixa e para Almoxarifado' would otherwise
+			// carry its quotes into the UID and into search results.
+			name = unquoteIdentifier(name)
+			if name == "" {
+				continue
 			}
 
 			if !specificLabels[aq.qdef.GraphLabel] && seenNames[name] {
@@ -369,24 +378,79 @@ func extractNameFromMatch(node *antlrcommon.TreeNode, nameCapture string) string
 	return node.FirstTerminalText()
 }
 
+// contextRulePredicate turns the language's context_types map into the predicate the
+// matcher uses to track the enclosing declaration while it descends.
+func contextRulePredicate(langConfig *ExternalQueryFile) func(string) bool {
+	if langConfig == nil || len(langConfig.ContextTypes) == 0 {
+		return nil
+	}
+	types := langConfig.ContextTypes
+	return func(rule string) bool {
+		_, ok := types[rule]
+		return ok
+	}
+}
+
+// resolveParentContextAntlr names the declaration a match belongs to.
+//
+// It reads the enclosing context the matcher tracked, not the immediate parent. Reading
+// the parent was wrong for anything nested more than one level: for
+// //parameter/parameter_name the parent is `parameter`, so every PL/SQL parameter came
+// out with an empty context — and ConvertToCache drops parameters and fields that have
+// none, discarding 967 of 2732 entities across a 367-file sample of the Oracle corpus.
+//
+// The immediate parent is still consulted as a fallback, which keeps the previous
+// behaviour for grammars whose context node IS the parent.
 func resolveParentContextAntlr(match antlrcommon.MatchResult, langConfig *ExternalQueryFile) (string, string) {
 	if langConfig == nil || len(langConfig.ContextTypes) == 0 {
 		return "", ""
 	}
 
-	if match.Parent == nil {
-		return "", ""
-	}
-
-	node := match.Parent
-	if label, ok := langConfig.ContextTypes[node.Rule]; ok {
-		name := node.FirstTerminalText()
-		if name != "" {
+	for _, node := range []*antlrcommon.TreeNode{match.Context, match.Parent} {
+		if node == nil {
+			continue
+		}
+		label, ok := langConfig.ContextTypes[node.Rule]
+		if !ok {
+			continue
+		}
+		if name := declarationName(node); name != "" {
 			return name, label
 		}
 	}
 
 	return "", ""
+}
+
+// declarationName returns the identifier a declaration node declares.
+//
+// Not the first terminal: a declaration starts with keywords, so create_function_body
+// reported "CREATE" and every entity inside it was attributed to a context named CREATE —
+// which no node has, leaving HAS_PARAMETER edges pointing at a phantom. The identifier sits
+// in a direct child whose rule ends in "_name" (function_name, procedure_name,
+// tableview_name, package_name), which is the convention this grammar family follows.
+//
+// Falls back to the first terminal so a grammar without that convention behaves as before.
+func declarationName(node *antlrcommon.TreeNode) string {
+	for _, child := range node.Children {
+		if child.IsRule() && strings.HasSuffix(child.Rule, "_name") {
+			if name := unquoteIdentifier(child.FirstTerminalText()); name != "" {
+				return name
+			}
+		}
+	}
+	return unquoteIdentifier(node.FirstTerminalText())
+}
+
+// unquoteIdentifier strips the delimiters Oracle puts around quoted identifiers and string
+// literals, so "GC" becomes GC and 'some text' becomes some text.
+func unquoteIdentifier(s string) string {
+	if len(s) >= 2 {
+		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
 }
 
 func detectExportsAntlr(result *ParsedFile, lang string, langConfig *ExternalQueryFile, relationTypes map[string]string) {

@@ -101,10 +101,31 @@ func nextSegmentName(s string) (name, remaining string) {
 type MatchResult struct {
 	Node   *TreeNode
 	Parent *TreeNode
+
+	// Context is the nearest enclosing node whose rule the caller declared as a
+	// context (a function body, a package, a table). Nil unless the match came from
+	// MatchWithContext.
+	//
+	// It exists because Parent alone cannot answer "what owns this?": for
+	// //parameter/parameter_name the parent is `parameter`, while the owning
+	// function body is several levels up. Resolving ownership from Parent silently
+	// left every PL/SQL parameter without an owner, and a downstream rule drops
+	// owner-less parameters — 967 of 2732 entities across a 367-file sample, 35%.
+	//
+	// Carried down during the walk rather than reconstructed afterwards: no parent
+	// pointers exist on TreeNode, and an ancestor map would cost one entry per node
+	// on files that reach 700 KB.
+	Context *TreeNode
 }
 
 // Match finds all nodes in the tree that match this pattern.
 func (p *Pattern) Match(root *TreeNode) []MatchResult {
+	return p.MatchWithContext(root, nil)
+}
+
+// MatchWithContext is Match, additionally reporting for each result the nearest
+// enclosing node accepted by isContext. Pass nil to skip context tracking.
+func (p *Pattern) MatchWithContext(root *TreeNode, isContext func(rule string) bool) []MatchResult {
 	if root == nil || len(p.segments) == 0 {
 		return nil
 	}
@@ -113,17 +134,22 @@ func (p *Pattern) Match(root *TreeNode) []MatchResult {
 	first := p.segments[0]
 	isLast := len(p.segments) == 1
 
+	ctx := (*TreeNode)(nil)
+	if isContext != nil && isContext(root.Rule) {
+		ctx = root
+	}
+
 	switch first.mode {
 	case matchRecursive:
 		// //rule — search entire tree including root
-		p.walkRecursive(root, nil, first.rule, 0, isLast, &results)
+		p.walkRecursive(root, nil, ctx, isContext, first.rule, 0, isLast, &results)
 	case matchDirect:
 		// /rule — root itself must match this rule name
 		if root.Rule == first.rule {
 			if isLast {
-				results = append(results, MatchResult{Node: root, Parent: nil})
+				results = append(results, MatchResult{Node: root, Parent: nil, Context: ctx})
 			} else {
-				p.matchSegment(root, nil, 1, &results)
+				p.matchSegment(root, nil, ctx, isContext, 1, &results)
 			}
 		}
 	}
@@ -149,12 +175,13 @@ func (p *Pattern) MatchAt(node, parent *TreeNode) ([]MatchResult, bool) {
 	if isLast {
 		results = []MatchResult{{Node: node, Parent: parent}}
 	} else {
-		p.matchSegment(node, parent, 1, &results)
+		p.matchSegment(node, parent, nil, nil, 1, &results)
 	}
 	return results, len(results) > 0
 }
 
-func (p *Pattern) matchSegment(node, parent *TreeNode, segIdx int, results *[]MatchResult) {
+func (p *Pattern) matchSegment(node, parent, ctx *TreeNode, isContext func(string) bool,
+	segIdx int, results *[]MatchResult) {
 	if segIdx >= len(p.segments) {
 		return
 	}
@@ -165,31 +192,39 @@ func (p *Pattern) matchSegment(node, parent *TreeNode, segIdx int, results *[]Ma
 	switch seg.mode {
 	case matchRecursive:
 		// Find all descendants (including node itself) matching this rule name
-		p.walkRecursive(node, parent, seg.rule, segIdx, isLast, results)
+		p.walkRecursive(node, parent, ctx, isContext, seg.rule, segIdx, isLast, results)
 	case matchDirect:
 		// Only check direct children
 		for _, child := range node.Children {
 			if child.Rule == seg.rule {
+				childCtx := ctx
+				if isContext != nil && isContext(child.Rule) {
+					childCtx = child
+				}
 				if isLast {
-					*results = append(*results, MatchResult{Node: child, Parent: node})
+					*results = append(*results, MatchResult{Node: child, Parent: node, Context: childCtx})
 				} else {
-					p.matchSegment(child, node, segIdx+1, results)
+					p.matchSegment(child, node, childCtx, isContext, segIdx+1, results)
 				}
 			}
 		}
 	}
 }
 
-func (p *Pattern) walkRecursive(node, parent *TreeNode, rule string, segIdx int, isLast bool, results *[]MatchResult) {
+func (p *Pattern) walkRecursive(node, parent, ctx *TreeNode, isContext func(string) bool,
+	rule string, segIdx int, isLast bool, results *[]MatchResult) {
+	if isContext != nil && isContext(node.Rule) {
+		ctx = node
+	}
 	if node.Rule == rule {
 		if isLast {
-			*results = append(*results, MatchResult{Node: node, Parent: parent})
+			*results = append(*results, MatchResult{Node: node, Parent: parent, Context: ctx})
 		} else {
-			p.matchSegment(node, parent, segIdx+1, results)
+			p.matchSegment(node, parent, ctx, isContext, segIdx+1, results)
 		}
 	}
 	for _, child := range node.Children {
-		p.walkRecursive(child, node, rule, segIdx, isLast, results)
+		p.walkRecursive(child, node, ctx, isContext, rule, segIdx, isLast, results)
 	}
 }
 
