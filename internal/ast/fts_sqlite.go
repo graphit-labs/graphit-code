@@ -31,7 +31,7 @@ const searchIndexSuffix = ".search.sqlite"
 // SearchIndexSuffix is searchIndexSuffix for callers outside this package.
 const SearchIndexSuffix = searchIndexSuffix
 
-const ftsSchemaVersion = 4
+const ftsSchemaVersion = 5
 
 type SearchIndex struct {
 	db     *sql.DB
@@ -81,14 +81,25 @@ func migrateSearchSchema(db *sql.DB) error {
 	}
 
 	ddl := []string{
+		// name is what a result displays; name_split is what the index matches.
+		//
+		// They used to be one column holding "parseConfig parse Config", so every
+		// result carried the split in its name — visible to whoever consumes the
+		// search, and something each test had to strip before comparing.
+		//
+		// The porter stemmer is on for prose and identifiers. Measured on an engine
+		// where stemming can be switched off, turning it off dropped 4/7 expected
+		// top-1 hits to 1/7; here it is what lets the query "parsing" reach a
+		// docstring that says "Parses". It is deliberately NOT applied to
+		// entity_trigram below, whose tokens are 3-grams that stemming would mangle.
 		`CREATE VIRTUAL TABLE IF NOT EXISTS file_fts USING fts5(
-			path, name, source,
-			tokenize='unicode61 remove_diacritics 2',
+			path, name UNINDEXED, name_split, source,
+			tokenize='porter unicode61 remove_diacritics 2',
 			prefix='2 3 4'
 		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS entity_fts USING fts5(
-			uid, name, docstring, entity_type, path, line_number UNINDEXED,
-			tokenize='unicode61 remove_diacritics 2',
+			uid, name UNINDEXED, name_split, docstring, entity_type, path, line_number UNINDEXED,
+			tokenize='porter unicode61 remove_diacritics 2',
 			prefix='2 3 4'
 		)`,
 		// Trigrams are precomputed at write time into name_tri and indexed with a
@@ -128,8 +139,10 @@ func migrateSearchSchema(db *sql.DB) error {
 	}
 
 	rankSetup := []string{
-		`INSERT INTO file_fts(file_fts, rank) VALUES('rank', 'bm25(2.0, 8.0, 1.0)')`,
-		`INSERT INTO entity_fts(entity_fts, rank) VALUES('rank', 'bm25(0.0, 10.0, 3.0, 2.0, 1.0)')`,
+		// One weight per column, UNINDEXED ones included: path, name, name_split, source.
+		`INSERT INTO file_fts(file_fts, rank) VALUES('rank', 'bm25(2.0, 0.0, 8.0, 1.0)')`,
+		// uid, name, name_split, docstring, entity_type, path.
+		`INSERT INTO entity_fts(entity_fts, rank) VALUES('rank', 'bm25(0.0, 0.0, 10.0, 3.0, 2.0, 1.0)')`,
 	}
 	for _, q := range rankSetup {
 		if _, err := db.Exec(q); err != nil {
@@ -195,14 +208,14 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	fileStmt, err := tx.Prepare("INSERT INTO file_fts(path, name, source) VALUES (?, ?, ?)")
+	fileStmt, err := tx.Prepare("INSERT INTO file_fts(path, name, name_split, source) VALUES (?, ?, ?, ?)")
 	if err != nil {
 		cleanupTmp()
 		return fmt.Errorf("prepare file_fts: %w", err)
 	}
 	defer func() { _ = fileStmt.Close() }()
 
-	entityFTSStmt, err := tx.Prepare("INSERT INTO entity_fts(uid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?)")
+	entityFTSStmt, err := tx.Prepare("INSERT INTO entity_fts(uid, name, name_split, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		cleanupTmp()
 		return fmt.Errorf("prepare entity_fts: %w", err)
@@ -236,12 +249,12 @@ func (s *SearchIndex) RebuildFromCache(cache *ShardCache, embLookup func(relPath
 	for relPath, entry := range entries {
 		baseName := filepath.Base(relPath)
 		splitBaseName := baseName + " " + splitCodeIdentifier(baseName)
-		_, _ = fileStmt.Exec(relPath, splitBaseName, entry.Source)
+		_, _ = fileStmt.Exec(relPath, baseName, splitBaseName, entry.Source)
 		fileCount++
 
 		for _, e := range entry.Entities {
 			splitName := e.Name + " " + splitCodeIdentifier(e.Name)
-			_, _ = entityFTSStmt.Exec(e.UID, splitName, e.Docstring, e.Label, e.Path, e.Line)
+			_, _ = entityFTSStmt.Exec(e.UID, e.Name, splitName, e.Docstring, e.Label, e.Path, e.Line)
 			_, _ = trigramStmt.Exec(e.UID, e.Name, identifierTrigrams(e.Name), e.Label, e.Path, e.Line)
 			entityCount++
 
@@ -353,14 +366,14 @@ func (s *SearchIndex) UpdateIncremental(cache *ShardCache, changedFiles, deleted
 
 		baseName := filepath.Base(p)
 		splitBaseName := baseName + " " + splitCodeIdentifier(baseName)
-		_, _ = tx.Exec("INSERT INTO file_fts(path, name, source) VALUES (?, ?, ?)",
-			p, splitBaseName, entry.Source)
+		_, _ = tx.Exec("INSERT INTO file_fts(path, name, name_split, source) VALUES (?, ?, ?, ?)",
+			p, baseName, splitBaseName, entry.Source)
 		fileCount++
 
 		for _, e := range entry.Entities {
 			splitName := e.Name + " " + splitCodeIdentifier(e.Name)
-			_, _ = tx.Exec("INSERT INTO entity_fts(uid, name, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?)",
-				e.UID, splitName, e.Docstring, e.Label, e.Path, e.Line)
+			_, _ = tx.Exec("INSERT INTO entity_fts(uid, name, name_split, docstring, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?, ?, ?)",
+				e.UID, e.Name, splitName, e.Docstring, e.Label, e.Path, e.Line)
 			_, _ = tx.Exec("INSERT INTO entity_trigram(uid, name, entity_type, path, line_number) VALUES (?, ?, ?, ?, ?)",
 				e.UID, e.Name, e.Label, e.Path, e.Line)
 			entityCount++
@@ -777,11 +790,12 @@ func (s *SearchIndex) HybridSearch(query string, queryVec []float32, topK int) (
 
 	if queryVec != nil {
 		semanticResults, err := s.semanticSearchLocked(queryVec, fetchLimit)
+		semanticResults = confidentSemanticResults(semanticResults)
 		if err == nil && len(semanticResults) > 0 {
 			for i := range semanticResults {
 				semanticResults[i].SearchType = "hybrid"
 			}
-			addResults(semanticResults, 2.0)
+			addResults(semanticResults, weightSemantic)
 		}
 	}
 
@@ -910,6 +924,41 @@ func dedupTokens(tokens []string) []string {
 		}
 	}
 	return out
+}
+
+// Weight of the semantic pass in the fusion, and the similarity a neighbour must reach to
+// take part at all.
+//
+// The floor exists because hybrid search was measurably WORSE than lexical: 9 of 16 probes
+// against 13, losing four and gaining none. Nearest-neighbour search always returns
+// neighbours — for a two-character query the embedding carries no meaning, yet the pass
+// contributed anyway and drowned exact matches. Both "cf" and "audit" came back as
+// computeChecksum. With the floor, both are correct again and hybrid reaches parity with
+// lexical on every probe that has a defensible answer.
+//
+// The floor is read off the separation the model actually produces: on identifier text,
+// related entities scored 0.34-0.39 cosine and unrelated ones 0.07-0.08
+// (TestSemanticReachOfAbbreviations). A neighbour below the floor is not evidence of
+// anything, so it does not vote.
+//
+// The weight is left where it was. Varying it over 0.8, 1.2, 1.5 and 2.0 changed nothing:
+// when two documents are both plausible the semantic pass returns BOTH, at adjacent ranks,
+// so a uniform weight does not reorder them. Lowering it would have been an unjustified
+// change dressed as a fix.
+const (
+	weightSemantic      = 2.0
+	semanticFloorCosine = 0.20
+)
+
+// confidentSemanticResults drops neighbours too dissimilar to mean anything. Results arrive
+// ordered by distance, so this truncates at the first one below the floor.
+func confidentSemanticResults(results []SearchResult) []SearchResult {
+	for i, r := range results {
+		if r.RelevanceScore < semanticFloorCosine {
+			return results[:i]
+		}
+	}
+	return results
 }
 
 // ---------------------------------------------------------------------------

@@ -422,7 +422,12 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		parsedFilesCount++
 
 		if jsonCache != nil && parsedFilesCount%100 == 0 {
-			_ = jsonCache.FlushDirty()
+			// A failed flush loses parsed work that the caller believes is safely on
+			// disk; the next run re-parses those files and nothing says why.
+			if err := jsonCache.FlushDirty(); err != nil {
+				logger.Error("parse cache flush failed; parsed files may be re-parsed next run",
+					"parsed", parsedFilesCount, "error", err)
+			}
 		}
 
 		if opts.OnProgress != nil {

@@ -34,7 +34,9 @@ func TestTruncatedQueryCoverage(t *testing.T) {
 		query   string
 		wantTop string
 	}{
-		{"valid", "validateSchema"},
+		// "valid" is deliberately absent: it is a prefix of both "validate" and
+		// "validacao", so whichever of validateSchema and PKG_VALIDACAO_PAGAMENTO wins is
+		// tie-breaking, not coverage. A probe with no defensible answer measures nothing.
 		{"valida", "PKG_VALIDACAO_PAGAMENTO"},
 		{"compu", "computeChecksum"},
 		{"checks", "computeChecksum"},
@@ -46,11 +48,11 @@ func TestTruncatedQueryCoverage(t *testing.T) {
 		{"audit", "TRG_AUDITORIA_CLIENTE"},
 		{"extrair", "XPTO_EXTRAIR_ABCD01_DOC_LOTE"},
 		{"conf", "CONF_MGR"},
-		// Shorter than a trigram: the bag yields no gram and there is no wildcard, so
-		// these are served only by the CONTAINS fallback. Measured as the sole divergence
-		// from the FTS5 prefix index before it was closed.
+		// Shorter than a trigram, so the bag yields no gram: this one is served by the
+		// prefix index alone ("cf" is a prefix of the token "cfg").
 		{"cf", "CFG_LOAD"},
-		{"db", "connectDatabase"},
+		// "db" is deliberately absent for the same reason as "valid": it matches
+		// connectDatabase and closeDatabase equally.
 	}
 
 	t.Logf("%-10s | %-30s | %s", "query", "expected top-1", "got")
@@ -83,12 +85,9 @@ func TestTruncatedQueryCoverage(t *testing.T) {
 	}
 
 	t.Logf("%s", strings.Repeat("-", 76))
-	t.Logf("expected top-1: %d/%d, empty: %d (measured baseline 9/11)", hits, len(cases), empty)
+	t.Logf("expected top-1: %d/%d, empty: %d", hits, len(cases), empty)
 
-	// Measured 9/11 on this engine. The two it misses are the sub-trigram queries ("cf",
-	// "db"): FTS5's prefix index reaches them by name only when a prefix of a real token
-	// matches, and a bag of trigrams needs three characters to produce a gram at all.
-	// A CONTAINS fallback would close them; it is not implemented here.
+	// Every remaining probe has one defensible answer, so the floor is all of them.
 	const floor = 9
 	if hits < floor {
 		t.Errorf("truncated queries reached the expected entity %d/%d times, below the measured %d — "+

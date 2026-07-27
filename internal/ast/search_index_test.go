@@ -119,9 +119,10 @@ func indexSearchNames(t *testing.T, si *SearchIndex, query string, topK int) []s
 // bar is "no worse than what was replaced", not "never regress by one position", so a
 // ranking tweak does not fail the suite while a real regression does.
 func TestSearchIndexQualityFloor(t *testing.T) {
-	// Measured on this corpus and probe set. The trigram bag is what carries the
-	// abbreviation probes; without it the score drops.
-	const baselineTop1 = 12
+	// Measured on this corpus and probe set. The trigram bag carries the abbreviation
+	// probes and the porter stemmer added one more (12 -> 13); without either the score
+	// drops.
+	const baselineTop1 = 13
 
 	dir := t.TempDir()
 	corpus := prefixCorpus()
@@ -476,6 +477,35 @@ func TestSearchIndexIncrementalRepeated(t *testing.T) {
 					t.Errorf("round %d: %q survived after being replaced", round, prev)
 				}
 			}
+		}
+	}
+}
+
+// TestSearchResultsCarryCleanNames pins down what a result shows.
+//
+// The index stores an identifier together with its split so both spellings match, and that
+// used to live in the same column the result displayed — so search returned
+// "parseConfig parse Config" and "config.go config go" as names, to the agent consuming it
+// over MCP and to every test, which had to strip the suffix before comparing. The split now
+// lives in name_split and the displayed column holds the identifier alone.
+func TestSearchResultsCarryCleanNames(t *testing.T) {
+	dir := t.TempDir()
+	cache := cacheFromCorpus(t, filepath.Join(dir, "cache"), gateCorpus())
+	si := buildSearchIndex(t, dir, cache, nil)
+
+	res, err := si.Search("config", 20)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(res) == 0 {
+		t.Fatal("no results — the test would pass vacuously")
+	}
+
+	for _, r := range res {
+		t.Logf("%-8s %-14s %q", r.Type, r.Path, r.Name)
+		if strings.ContainsRune(r.Name, ' ') {
+			t.Errorf("result name %q contains a space: the indexed split is leaking into the "+
+				"displayed name", r.Name)
 		}
 	}
 }
