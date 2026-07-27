@@ -23,7 +23,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
 	"github.com/graphit-labs/graphit-code/internal/hub"
-	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/improvements"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
@@ -1706,7 +1705,7 @@ func watchAndReindex(rootPath string, useLouvain bool, reindex func() error) err
 	// ignore file) are honoured when registering watches and filtering events.
 	w, err := fswatch.New(fswatch.Config{
 		Root:        rootPath,
-		Ignore:      ignorer.New(rootPath, rootPath, ast.AstIgnoreFile, nil),
+		Ignore:      ast.NewAstIgnoreChecker(rootPath),
 		Debounce:    500 * time.Millisecond,
 		MaxDebounce: 5 * time.Second,
 	})

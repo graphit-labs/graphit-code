@@ -13,7 +13,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
-	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 )
 
@@ -42,7 +41,12 @@ func (m *SyncModule) Start(ctx context.Context) error {
 	// ~6s late, while the watcher is idle until something happens and names the
 	// exact paths — which lets the AST reindex skip discovery entirely
 	// (~350ms of a ~1.07s incremental on a 35k-file repository).
-	ic := ignorer.New(m.projectDir, m.projectDir, ast.AstIgnoreFile, nil)
+	//
+	// The shared checker, not a bare ignorer: its defaults exclude the brand
+	// directory, which every reindex writes into and which sits inside the tree
+	// being watched. Without that the daemon wakes itself up in a loop — see
+	// DefaultAstIgnorePatterns.
+	ic := ast.NewAstIgnoreChecker(m.projectDir)
 
 	w, err := fswatch.New(fswatch.Config{
 		Root:        m.projectDir,
@@ -73,6 +77,58 @@ func (m *SyncModule) Start(ctx context.Context) error {
 	}
 }
 
+// batchTargets names the indexers a batch has to reach. The two are
+// independent, not alternatives: .md, .yaml, .json and .xml are indexed by both
+// the AST pipeline and the knowledge wiki, so one path can set both.
+type batchTargets struct {
+	astChanged []string
+	astRemoved []string
+	knowledge  bool
+}
+
+// classifyBatch routes each path in a batch to the indexers that own it.
+//
+// AST ownership follows the extension and nothing else, which is exactly how a
+// full pipeline scan decides it: a scan indexes docs/guia.md, so an incremental
+// update of that same file has to as well, or full and incremental runs
+// disagree about what is in the index.
+//
+// Knowledge ownership needs the path to be under the docs directory *and* to
+// carry an extension the wiki indexes. Location on its own cannot decide it —
+// knowledge.docs_dir defaults to ".", which makes every file in the project
+// "under docs".
+func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeExts map[string]bool) batchTargets {
+	var t batchTargets
+
+	classify := func(paths []string, removed bool) {
+		for _, p := range paths {
+			rel, err := filepath.Rel(projectDir, p)
+			if err != nil || insideDotDir(rel) {
+				continue
+			}
+			ext := strings.ToLower(filepath.Ext(p))
+
+			if knowledgeExts[ext] && isUnder(p, docsPath) {
+				t.knowledge = true
+			}
+
+			if !ast.HasParserForExtension(ext) {
+				continue
+			}
+			if removed {
+				// The parse cache is keyed by repo-relative path.
+				t.astRemoved = append(t.astRemoved, filepath.ToSlash(rel))
+				continue
+			}
+			t.astChanged = append(t.astChanged, p)
+		}
+	}
+	classify(batch.Changed, false)
+	classify(batch.Removed, true)
+
+	return t
+}
+
 // handleBatch reindexes whatever the batch touched. AST and knowledge are
 // dispatched independently so a docs-only edit does not reparse code, and vice
 // versa.
@@ -80,31 +136,8 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch) {
 	projectCfg := loadProjectConfigFromDir(m.projectDir)
 
 	docsPath := filepath.Join(m.projectDir, config.ResolveDocsDir(nil, projectCfg))
-
-	var astChanged, astRemoved []string
-	knowledgeTouched := false
-
-	classify := func(paths []string, removed bool) {
-		for _, p := range paths {
-			if isUnder(p, docsPath) {
-				knowledgeTouched = true
-				continue
-			}
-			if !ast.HasParserForExtension(strings.ToLower(filepath.Ext(p))) {
-				continue
-			}
-			if removed {
-				// The parse cache is keyed by repo-relative path.
-				if rel, err := filepath.Rel(m.projectDir, p); err == nil {
-					astRemoved = append(astRemoved, filepath.ToSlash(rel))
-				}
-				continue
-			}
-			astChanged = append(astChanged, p)
-		}
-	}
-	classify(batch.Changed, false)
-	classify(batch.Removed, true)
+	targets := classifyBatch(batch, m.projectDir, docsPath,
+		config.ResolveKnowledgeExtensions(nil, projectCfg))
 
 	if !config.IsModuleDisabled("ast", nil, projectCfg) {
 		switch {
@@ -113,14 +146,39 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch) {
 			// consistent picture.
 			slog.Warn("daemon: watcher lost events, running a full AST scan", "project", m.projectDir)
 			m.reindexAST(ctx, projectCfg, nil, nil)
-		case len(astChanged) > 0 || len(astRemoved) > 0:
-			m.reindexAST(ctx, projectCfg, astChanged, astRemoved)
+		case len(targets.astChanged) > 0 || len(targets.astRemoved) > 0:
+			m.reindexAST(ctx, projectCfg, targets.astChanged, targets.astRemoved)
 		}
 	}
 
-	if (knowledgeTouched || batch.Rescan) && !config.IsModuleDisabled("knowledge", nil, projectCfg) {
+	if (targets.knowledge || batch.Rescan) && !config.IsModuleDisabled("knowledge", nil, projectCfg) {
 		m.reindexKnowledge(ctx, projectCfg)
 	}
+}
+
+// insideDotDir reports whether any directory component of a project-relative
+// path starts with a dot.
+//
+// Full-scan discovery skips dot-directories outright (see collectFiles), and the
+// incremental path has to skip them for the same reason plus a sharper one: the
+// daemon writes its shards into .graphit inside the very tree it watches, and a
+// shard is a .json file, for which there is a parser. Indexing one makes the
+// pipeline emit a shard for that shard, whose write is another event, and the
+// batch grows without bound.
+//
+// Only directory components are tested — discovery skips dot-directories, not
+// dotfiles, so a parseable .hidden.sql at the root is still source.
+func insideDotDir(rel string) bool {
+	dir := filepath.ToSlash(filepath.Dir(rel))
+	if dir == "." || dir == "" {
+		return false
+	}
+	for _, seg := range strings.Split(dir, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 // isUnder reports whether path is inside dir.
