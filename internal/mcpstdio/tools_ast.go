@@ -121,8 +121,9 @@ func registerASTTools(server *mcp.Server) {
 
 		projectCfg := loadProjectConfig(projectDir)
 
+		ladybugCfg := astConfigForProject(projectDir, "")
+
 		if input.Reset {
-			ladybugCfg := ast.DefaultLadybugConfig()
 			_ = os.RemoveAll(filepath.Dir(ladybugCfg.DBPath))
 		}
 
@@ -133,8 +134,12 @@ func registerASTTools(server *mcp.Server) {
 		defer func() { _ = db.Close() }()
 
 		if input.Reindex && !input.Reset {
+			// Surfaced rather than ignored: a reindex that could not drop the old
+			// graph would silently layer new nodes over stale ones.
 			writer := ast.NewGraphWriter(db, absPath, true)
-			_ = writer.DeleteRepository(ctx, absPath)
+			if err := writer.DeleteRepository(ctx, absPath); err != nil {
+				return errResult(err)
+			}
 		}
 
 		workers := input.Workers
@@ -154,7 +159,6 @@ func registerASTTools(server *mcp.Server) {
 			grammarOverrides = config.MergeGrammarOverrides(grammarOverrides, flagOverrides)
 		}
 
-		ladybugCfg := ast.DefaultLadybugConfig()
 		pipeOpts := ast.PipelineOptions{
 			Workers:          workers,
 			IndexSource:      indexSource,

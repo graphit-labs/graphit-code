@@ -634,6 +634,11 @@ func (k *LadybugBackend) Ping(ctx context.Context) error {
 
 func (k *LadybugBackend) BackendType() string { return "ladybug" }
 
+// DBPath returns the database location this backend will open. The backend
+// connects lazily, so this is the only way for a caller to check where a
+// configured backend actually points before it touches the disk.
+func (k *LadybugBackend) DBPath() string { return k.cfg.DBPath }
+
 func (k *LadybugBackend) Shutdown() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()

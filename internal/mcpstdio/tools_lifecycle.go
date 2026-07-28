@@ -166,7 +166,7 @@ func registerLifecycleTools(server *mcp.Server) {
 				pipeOpts := ast.PipelineOptions{
 					Workers:          4,
 					IndexSource:      config.ResolveIndexSource(nil, projectCfg),
-					CacheDir:         filepath.Dir(ast.DefaultLadybugConfig().DBPath),
+					CacheDir:         filepath.Dir(astConfigForProject(projectDir, "").DBPath),
 					GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
 				}
 				_, _ = ast.RunPipeline(ctx, db, projectDir, pipeOpts)

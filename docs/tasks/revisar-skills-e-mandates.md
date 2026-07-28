@@ -112,19 +112,19 @@ e o adaptador de comentários não preenche `SourceUID`, então a tabela nunca �
 descartada. Os nós `Comment` existem e são alcançáveis por `CONTAINS`; só a aresta falta. Tarefa
 separada aberta.
 
-**`ast_index` via MCP grava no grafo do projeto errado.** `openASTDBReadWrite` faz `chdir`, monta
+**`ast_index` via MCP grava no grafo do projeto errado.** ~~`openASTDBReadWrite` faz `chdir`, monta
 `DefaultLadybugConfig()` com `DBPath` **relativo**, e devolve um handle cujo banco só abre na
-primeira query — quando o `defer` já reverteu o `chdir`. O caminho relativo então resolve no cwd do
-servidor MCP. Indexar um projeto pode contaminar o grafo de outro, e a indexação **reporta
-sucesso**. Junto: `GraphWriter.DeleteRepository` (`internal/ast/writer.go:38`) é um stub que retorna
-`nil` sem apagar, então `reindex: true` não remove nó obsoleto. Tarefa separada aberta com a
-reprodução.
+primeira query — quando o `defer` já reverteu o `chdir`.~~ **Corrigido**, junto com o stub de
+`DeleteRepository` — ver `docs/tasks/corrigir-indexacao-no-projeto-errado.md`. A causa raiz era mais
+ampla do que este parágrafo supunha: o mesmo defeito aparecia em mais quatro lugares, incluindo um
+`os.RemoveAll` de caminho relativo em `ast_index(reset: true)` que apagava o banco AST do projeto
+errado.
 
 **Índice AST deste projeto tem 16 nós de sonda**, consequência do bug acima durante a verificação
 desta tarefa: um `File` `main.go` que não existe aqui, mais entidades e comentários de nomes
-inventados. Nada foi destruído — o grafo estava vazio e `DeleteRepository` é stub, então a chamada
-só adicionou. Sai com `ast_index(reset: true)`, que é reindexação completa e por isso não foi
-rodada.
+inventados. Nada foi destruído — o grafo estava vazio e `DeleteRepository` era stub, então a chamada
+só adicionou. Continuam lá: saem com `ast_index(reset: true)` ou, agora que funciona,
+`reindex: true`.
 
 **`__config__` tem `lang` vazio neste projeto.** A query *Identifying project frameworks* da skill
 devolve a linha, com `frameworks` em branco — o enriquecimento não detectou framework num CLI Go, o

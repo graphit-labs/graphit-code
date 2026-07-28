@@ -510,16 +510,18 @@ test: setup-lbug
 	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
 		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \
 	fi; \
+	status=0; \
 	echo "  → Running tests with race detector (project code)…"; \
-	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -coverprofile=coverage.out -covermode=atomic -p 4 \
-		$$(go list ./... | grep -v "/antlr/" | grep -v "/treesitter/"); \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -tags $(BUILD_TAGS) -coverprofile=coverage.out -covermode=atomic -p 4 \
+		$$(go list ./... | grep -v "/antlr/" | grep -v "/treesitter/") || status=1; \
 	echo "  → Running tests without race detector (generated parsers, appended)…"; \
-	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -coverprofile=coverage-parsers.out -covermode=atomic -p 4 \
-		$$(go list ./... | grep -E "/antlr/|/treesitter/"); \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -tags $(BUILD_TAGS) -coverprofile=coverage-parsers.out -covermode=atomic -p 4 \
+		$$(go list ./... | grep -E "/antlr/|/treesitter/") || status=1; \
 	if [ -f coverage-parsers.out ]; then \
 		tail -n +2 coverage-parsers.out >> coverage.out; \
 		rm -f coverage-parsers.out; \
-	fi
+	fi; \
+	exit $$status
 
 lint:
 	golangci-lint run ./...
@@ -537,7 +539,7 @@ vet:
 	go vet $$(go list ./... | grep -v "/antlr/" | grep -v "/treesitter/")
 
 
-ci: vet lint vulncheck test ui ui-lint
+ci: ui vet lint vulncheck test ui-lint
 	@echo ""
 	@echo "  ✅ All CI checks passed."
 	@echo ""
