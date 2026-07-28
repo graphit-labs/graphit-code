@@ -11,6 +11,22 @@ When the user asks you to **autonomously improve**, **audit**, **review**,
 or **refactor** the codebase (or parts of it), you MUST follow the
 engineering analysis methodology detailed below.
 
+## These rules can be project-specific — read the resolved copy
+
+The methodology below is the **default**. A project or a Hub artifact can replace or
+extend it, and when it does, the text in this skill is not what applies. `graphit_improvements_rules`
+returns the version actually in force:
+
+```
+graphit_improvements_rules()                 # the resolved rules — project override if there is one
+graphit_improvements_rules(default: true)    # the compiled-in default, ignoring every override
+```
+
+Call it before a review you are going to report on, and compare the two when a finding
+feels wrong for this codebase: the difference between them **is** the project's own
+standard, and reviewing against the default when an override exists means flagging as
+defects the very choices this project made deliberately.
+
 ---
 
 # Code Improvement Analysis Methodology
@@ -365,10 +381,18 @@ Beyond the principles above, also check for:
 **Before changing ANY code, you MUST verify that no prior decision justifies the current implementation.**
 
 For every improvement you intend to make, check:
-1. **Memories**: Search project and user memories by calling the `graphit_memory_search` MCP tool (never the CLI) for mentions of the module, pattern, or technology you want to change. Look for `tension`, `decision`, and `convention` types.
-2. **ADRs**: Check `docs/decisions/` for an architectural decision record that explains why the current approach was chosen.
-3. **Past reports**: Check if a previous analysis already documented a reason NOT to change it.
-4. **Code comments**: Look for comments like `// NOTE:`, `// IMPORTANT:`, `// DECISION:` that explain intentional choices.
+1. **Memories**: Search project and user memories by calling the `graphit_memory_search` MCP tool (never the CLI) for mentions of the module, pattern, or technology you want to change. Look for `tension`, `decision`, and `convention` types. Also search the memories of sibling projects in the same domain — the decision may have been made next door.
+2. **ADRs**: Call `graphit_knowledge_search` for the decision — **do not list or grep the decisions directory.** The wiki ranks the pages and gives you their cross-references, so you find the ADR that mentions your module even when its filename does not.
+3. **Past reports**: Check whether a previous analysis already documented a reason NOT to change it — including `graphit_dream_reports` with `all: true`, since an overnight session may have looked at exactly this and concluded to leave it alone.
+4. **Code comments**: Comments are entities in the graph, so query them instead of grepping — and query the whole codebase at once, not just the file you are touching:
+
+   ```
+   graphit_ast_query(project_dir: "/path/to/project", query: "MATCH (c:Comment) WHERE toLower(c.name) CONTAINS toLower('DECISION') RETURN c.name, c.path, c.line_number")
+   ```
+
+   Repeat for `NOTE`, `IMPORTANT`, `SAFETY`, `HACK`. A single query covers every file; a
+   multi-line comment comes back as one node, so you read the whole justification instead
+   of the one line that matched.
 
 If you find a deliberate decision that justifies the current implementation:
 - **Do NOT change it** — respect the decision
@@ -400,6 +424,21 @@ Examples of things that might look "wrong" but are intentional:
 - Common symptoms of cache problems: 'it works on a clean machine but not here', code changes that don't seem to take effect, intermittent behavior that clears after restart, errors referencing functions/types that no longer exist in the source
 - When in doubt, **clear the relevant cache and retry BEFORE investigating further** — a 30-second cache clear can save hours of debugging
 
+### Before Any Internet Search — the Hub Comes First
+> **Every item in the next section is gated on this one.** For anything external — a
+> library, a framework, an API, an error coming out of a dependency — call `graphit_hub_search`
+> **before** reaching for web search or answering from model knowledge. If the Hub has an
+> artifact, install it and read it: it is curated, versioned, and pinned to the version
+> this project actually uses, which is exactly what a search result is not.
+
+Search the web only after the Hub came back empty, and **say so explicitly** to the user:
+*"The Hub has no artifact for X, falling back to web search."* The Hub skill covers how to
+search it properly — the match is a substring, so one empty result is not an answer.
+
+Same order for the codebase side: before searching the web about **this** project's
+behaviour, the graph and the wiki already know. `graphit_ast_search` and `graphit_knowledge_search`
+answer from what is actually here; a search engine answers from what is usually true.
+
 ### When to Search the Internet
 - **Complex or unfamiliar errors**: When you encounter an error message, stack trace, or behavior that you cannot resolve after 2-3 attempts — search for the exact error message or symptoms online
 - **Library/framework-specific issues**: When dealing with third-party library quirks, version incompatibilities, or undocumented behavior — the solution is often in a GitHub issue, Stack Overflow answer, or official documentation
@@ -408,7 +447,7 @@ Examples of things that might look "wrong" but are intentional:
 - **API changes and deprecations**: When a previously working approach suddenly fails, search for recent API changes, breaking updates, or migration guides
 - **Uncertainty about the correct approach**: When you are NOT sure how to implement something, which API to use, or what the best practice is — **search first, then code**. Guessing wastes time and produces fragile solutions; a 30-second search grounds your decision in real-world usage and official guidance
 - **Unfamiliar territory**: When working with a technology, tool, or domain you have limited knowledge about — do NOT improvise. Search for official documentation, tutorials, and canonical examples before writing a single line of code
-- **Before building from scratch**: Before implementing non-trivial functionality yourself, **search for existing, battle-tested libraries** that already solve the problem. Reinventing the wheel wastes time, introduces bugs, and ignores years of community-hardened edge-case handling. Search for 'best [language] library for [problem]' and evaluate maturity (stars, maintenance activity, download count) before committing to a dependency — or deciding to build your own
+- **Before building from scratch**: Before implementing non-trivial functionality yourself, **search for existing, battle-tested libraries** that already solve the problem. Reinventing the wheel wastes time, introduces bugs, and ignores years of community-hardened edge-case handling. Order matters here: `graphit_hub_search` first — the Hub may already carry the artifact, and a sibling project may already have picked the library, which is worth more than any comparison you could run. Then search the web for 'best [language] library for [problem]' and evaluate maturity (stars, maintenance activity, download count) before committing to a dependency — or deciding to build your own
 
 ### How to Search Effectively
 - **Search with the exact error message** (in quotes) — this yields the most precise results
@@ -432,6 +471,71 @@ Examples of things that might look "wrong" but are intentional:
 - Follow the project's established patterns and conventions
 - **Workspace Hygiene**: ALWAYS remove any temporary files, scratch scripts, or experimental code created to test a hypothesis, validate an idea, or assist during the task. Do not leave unversioned artifacts behind that are not part of the final system.
 - Prioritize fixes by severity: **security > concurrency > 12-factor > observability > correctness > quality > style**
+
+## Work You Are Not Going to Do Now — Dream Subjects
+
+Every review turns up more than the current change should carry. Today that finding has
+two exits, and both are bad: widen the change until it is unreviewable, or mention it once
+in prose and lose it. **There is a third.**
+
+The daemon runs an autonomous session — a *dream* — when the project has been idle long
+enough. Subjects are the instructions waiting for it. Leaving one costs a single call and
+keeps the current change focused:
+
+```
+graphit_dream_subject_add(project_dir: "/path/to/project", title: "<the finding, in one line>", body: "<the full brief>")
+```
+
+**Write `body` for a reader with no conversation history.** The dream agent does not
+inherit this session: not the files you were in, not what the user said, not why it matters.
+A subject that says "fix the duplication we discussed" is a subject that gets nothing done.
+Name the paths, the symptom, what you already ruled out, and how to tell it worked — the
+same standard as the task logs in the documentation skill.
+
+### When to leave one
+
+| You find | Why it belongs here rather than in the current change |
+|---|---|
+| A real problem outside the scope you were given | Widening scope without being asked is its own defect |
+| A refactor too large to do safely alongside the fix in flight | Two unrelated risks in one diff is how a revert loses the good half |
+| An audit worth running across the whole codebase, not just the file you touched | Breadth is precisely what an idle machine is good at |
+| Something you deliberately decided **not** to change, that a human should still see | Otherwise the decision dies with your context |
+
+### Checking, and not over-promising
+
+```
+graphit_dream_status(project_dir: "/path/to/project")
+graphit_dream_subject_list(project_dir: "/path/to/project")
+graphit_dream_subject_remove(project_dir: "/path/to/project", slug: "<slug>")
+```
+
+**Dream is opt-in and it needs the daemon.** `graphit_dream_status` returns `enabled`,
+`daemon_running`, a `status` of `dreaming` / `deep sleep` / `standby` / `inactive`, the
+configured `idle_timeout`, and the `pending_subjects` already queued.
+
+So do not tell the user "this will be handled tonight" without looking. With
+`enabled: false` — the default, since the module is opt-in — or `daemon_running: false`,
+the subject sits there forever and the finding is lost exactly as if you had said nothing.
+Report what you left **and** whether anything is going to pick it up.
+
+Check `graphit_dream_subject_list` before adding: a queue with the same subject three times
+is three sessions spent on one problem. `graphit_dream_subject_remove` takes the `slug` from
+that listing — use it when you have just fixed what a subject asked for.
+
+### Reading what a dream did
+
+```
+graphit_dream_reports(project_dir: "/path/to/project")              # only reports you have not seen
+graphit_dream_reports(project_dir: "/path/to/project", all: true)   # every report
+```
+
+> ⚠️ **Reading marks as read.** The default call returns what is new *and advances the
+> last-seen marker*, so calling it twice returns an empty list the second time — the
+> reports did not vanish. Use `all: true` to see them again, and read the result the
+> first time rather than assuming you can come back to it.
+
+Each entry carries `id`, `path` to the report file, `title`, `created`, and
+`has_deep_sleep` — the last meaning that session exhausted its subject queue.
 
 ## Post-Task Reflection & Knowledge Generation
 
@@ -574,7 +678,7 @@ call the `graphit_hub_submit` MCP tool with the artifact `id`, `local_path`, `ty
 
 If the project already has IDE artifacts (skills, rules, commands), check whether your session's insights warrant **updating** them:
 
-- Look in the IDE artifact directories for existing artifacts
+- Find the directories by calling `graphit_hub_type-path` for the type you care about — do not guess them. Each IDE lays them out differently, and looking in the wrong place tells you "there is no such artifact" when there is one
 - If an existing skill/rule is incomplete or could benefit from what you learned, **update it directly**
 - Report what you changed in the Reflection Summary
 
@@ -600,6 +704,11 @@ At the end of your response, include a **Reflection Summary** section:
   - [<type>] <name> — <one-line description>
 - Updated: <count>
   - [<type>] <name> — <what changed>
+
+### Deferred
+- Dream subjects left: <count>
+  - "<title>" — <why it was out of scope here>
+- Will anything pick them up? <from `graphit_dream_status`: enabled + daemon_running>
 
 ### Key Insights
 - <Insight 1: the most important thing you learned>

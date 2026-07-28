@@ -67,12 +67,39 @@ To execute any Cypher queries below, call the `graphit_ast_query` tool (passing 
 
 | Scenario | Use instead |
 |---|---|
-| Reading a file whose path you already know | Your native IDE file-reading tools (view_file, etc.) — faster and simpler |
-| Searching inside string literals or comments | grep/ripgrep on source files |
-| Editing source code | File edit tools |
+| Editing source code | File edit tools — the graph is read-only |
 | Running tests or builds | Terminal commands |
-| Checking runtime behavior or logs | Terminal/browser tools |
+| Checking runtime behaviour or logs | Terminal/browser tools |
 | Understanding project documentation | Knowledge wiki (not AST) |
+
+### Two cases that look like exceptions and are not
+
+**"I already know the path, I will just read the file."** Use `graphit_ast_source`.
+It reads the indexed copy, so one call gives you a line range, a single function by name, or
+a pattern with context — where a plain file read gives you the whole file and you pay for
+every line of it in tokens. It is also the only one of the two that works on an imported
+context, whose files are not in this checkout at all.
+
+Your native read is correct in one situation, and it is worth naming: the file is **not in
+the graph** — you just created it, or `.astignore` excludes it, or `ast.index_source` is
+`false` so the graph holds structure without text. `graphit_ast_source` says
+so plainly when that happens; that answer is your signal to read from disk, not a reason to
+skip the tool.
+
+**"I need to search inside comments."** Comments are **in the graph**, as `Comment` nodes
+whose `name` is the comment text:
+```
+MATCH (c:Comment) WHERE toLower(c.name) CONTAINS toLower('deprecated') RETURN c.name, c.path, c.line_number
+```
+
+Which beats grep on the thing grep is supposedly good at: no regex to escape, results already
+attached to a file and a line, and a block comment arrives as one node instead of five
+unrelated matching lines.
+
+String literals **inside function bodies** genuinely are not entities. Even there, try
+`graphit_ast_source` with `pattern` first — it searches the indexed text
+with `before`/`after` context, scoped to a file or a single entity. Fall back to
+grep/ripgrep across the tree when you do not know which file to look in.
 
 ## Phased Graph Exploration
 
@@ -96,6 +123,13 @@ property names listed below — inventing names will crash queries.
 | **Directory** | `path`, `name`, `cluster` |
 | **Function, Method, Class, Struct, Interface, Type, Variable, Constant, Field, Parameter** | `uid`, `name`, `path`, `line_number`, `end_line`, `docstring`, `lang`, `cyclomatic_complexity`, `context`, `context_type`, `class_context`, `is_dependency`, `is_exported`, `value`, `is_stub`, `entry_point_score`, `cluster` |
 | **Module** | `uid`, `name`, `lang`, `full_import_name`, `path`, `line_number`, `end_line`, `docstring`, `cyclomatic_complexity`, `context`, `context_type`, `is_dependency`, `is_exported`, `is_stub`, `cluster` |
+| **Comment** | `uid`, `name` — **`name` is the comment text itself** — plus `path`, `line_number`, `end_line`, `lang`, `cluster` |
+
+> **`Comment` is why you do not need grep for comments.** Every comment is an entity, not just
+> the ones attached to a declaration: licence headers, notes inside a function body, an
+> explanatory block between two functions, commented-out code. A multi-line comment is **one**
+> node spanning `line_number`..`end_line`, so you match the whole thought instead of the one
+> line that happened to contain your keyword.
 
 | Relationship | Properties |
 |---|---|
@@ -146,8 +180,9 @@ Use the optional `mode` parameter to restrict to a single search type:
 > ❌ Wrong: Call `graphit_ast_search` with `query: "MATCH (f:Function) WHERE ..."`
 
 **Important:** Semantic mode requires embeddings to have been computed.
-If semantic results are empty, call the `graphit_sync` tool (passing `project_dir`) to generate embeddings — fire-and-forget, do not wait for it to finish.
-In hybrid mode, it gracefully falls back to FTS-only when embeddings are unavailable.
+If semantic results are empty, call `graphit_ast_embed` (passing `project_dir`) — fire-and-forget, do not wait for it to finish.
+Not `graphit_sync`: that also reindexes the AST graph, both wikis and the Hub to fix one missing set of vectors.
+In hybrid mode, search gracefully falls back to FTS-only while the vectors are missing, so an empty *semantic* result does not mean an empty *hybrid* result — retry in hybrid before concluding the code is not there.
 
 ### Phase 3: Precise Graph Query
 
@@ -358,7 +393,33 @@ MATCH (f:Function {name: 'legacyHelper'}) OPTIONAL MATCH (caller)-[:CALLS]->(f) 
 MATCH (f:File {path: 'src/utils/helpers.go'})-[:CONTAINS]->(entity) OPTIONAL MATCH (external)-[r]->(entity) WHERE external.path <> 'src/utils/helpers.go' RETURN entity.name, label(entity) AS type, count(external) AS external_deps
 ```
 
-#### 9. Cross-Cutting Queries
+#### 9. Comments — searchable, without grep
+
+Query templates to run with `graphit_ast_query`:
+```bash
+# Find a marker anywhere in the codebase's comments
+MATCH (c:Comment) WHERE toLower(c.name) CONTAINS toLower('TODO') RETURN c.name, c.path, c.line_number ORDER BY c.path
+
+# Every comment in one file, in reading order — the commentary of a file as a document
+MATCH (f:File)-[:CONTAINS]->(c:Comment) WHERE f.path ENDS WITH 'handler.go' RETURN c.line_number, c.name ORDER BY c.line_number
+
+# File skeleton with its commentary interleaved: comments and declarations, by line
+MATCH (f:File {path: 'internal/auth/handler.go'})-[:CONTAINS]->(e) RETURN label(e) AS type, e.name, e.line_number ORDER BY e.line_number
+
+# Commented-out code left behind (a comment that reads like a statement)
+MATCH (c:Comment) WHERE c.name CONTAINS '(' AND c.name CONTAINS ')' AND c.name CONTAINS ';' RETURN c.path, c.line_number, c.name
+
+# Which files carry a licence header
+MATCH (f:File)-[:CONTAINS]->(c:Comment) WHERE c.line_number = 1 AND toLower(c.name) CONTAINS 'copyright' RETURN f.path
+
+# Comments near a declaration you care about — same file, adjacent lines
+MATCH (f:File)-[:CONTAINS]->(fn:Function {name: 'ValidateToken'}) MATCH (f)-[:CONTAINS]->(c:Comment) WHERE c.end_line >= fn.line_number - 3 AND c.end_line < fn.line_number RETURN c.name, c.line_number
+```
+
+The last one exists because the file-and-line arithmetic is currently how you connect a
+comment to what it documents: pair them through their shared `File` and their line numbers.
+
+#### 10. Cross-Cutting Queries
 
 Query templates to run with `graphit_ast_query`:
 ```bash
@@ -389,10 +450,13 @@ MATCH (f:Function {name: 'createUser'})-[:HAS_PARAMETER]->(p:Parameter) RETURN p
 The AST graph stores the **complete source code** of every indexed file. The `graphit_ast_source` tool
 provides IDE-like capabilities to navigate source code efficiently — equivalent to `grep`, `head`, `tail`, and more.
 
-> **⚠️ IMPORTANT: If you already know the file path** and just need to read its content,
-> **use your native IDE file-reading tools** (e.g., `view_file`). They are faster and simpler.
-> Use `graphit_ast_source` when you **discovered** a file through an AST query and want its content in the same round-trip,
-> or when you need **advanced slicing** (entity extraction, pattern search with context).
+> **This tool is the default way to read code here, including when you already know the path.**
+> One call gives you a line range, a named entity, or a pattern with context — a plain file
+> read gives you the whole file and charges you tokens for all of it. It also reaches imported
+> contexts, whose files are not in this checkout.
+> Read from disk with your native tools when the file is **not in the graph**: brand new,
+> excluded by `.astignore`, or `ast.index_source` is `false`. This tool tells you when that is
+> the case.
 
 **Imported ast contexts** also may contain **source code** included in their imported graph,
 try querying for it to understand the imported code and the overall behavior of the external contexts.
@@ -494,7 +558,7 @@ Use entity extraction (`entity` parameter) to get specific functions/methods wit
 
 ### Step 6: Expand with external knowledge
 If the code interacts with external systems, frameworks, or APIs:
-- Call `graphit_hub_list` with `type: "knowledge"` to find pre-built knowledge artifacts
+- Call `graphit_hub_search` with the system's name and `type: "knowledge"` to find pre-built knowledge artifacts
 - Install relevant artifacts and consult their wikis before guessing at API behavior
 - Check `graphit_wiki_xrefs` for cross-references that connect code to documentation
 
@@ -529,7 +593,7 @@ graphit_ast_query(project_dir: "/path/to/project", query: "MATCH (a:Function {na
 graphit_ast_source(project_dir: "/path/to/project", path: "internal/sync/pipeline.go", entity: "RunSync")
 
 # Step 6: Check hub for external dependencies
-graphit_hub_list(project_dir: "/path/to/project", type: "knowledge")
+graphit_hub_search(query: "<dependency name>", type: "knowledge")
 ```
 
 ## Cypher Guidelines
@@ -553,6 +617,103 @@ When indexing, all nodes are tagged with a `cluster` property.
 Call graphit_ast_query with query: "MATCH (n:Function {cluster: 'backend'}) RETURN n.name, n.path"
 ```
 
+## Imported Contexts — querying code that is not in this repository
+
+Every query tool above takes an optional `context` parameter, and the rest of this skill
+tells you not to pass it for your own project. This section is where contexts come from.
+
+A context is another repository's graph, indexed once and queryable from here. That is how
+you answer "what does this dependency actually do" without reading its source file by file.
+
+### What is already imported
+```
+graphit_ast_list(project_dir: "/path/to/project")
+```
+
+Returns each context name and the repository path it was built from. **Call this before
+assuming a `context` name exists** — a query with an unknown context fails, and a query
+against the wrong one silently answers about the wrong codebase.
+
+### Importing a local repository as a context
+```
+graphit_ast_install(project_dir: "/path/to/project", path: "/absolute/path/to/other-repo", context: "other-repo")
+```
+
+`path` must be absolute and must already exist on this machine — this indexes a checkout,
+it does not download anything. For a dependency you do **not** have checked out, the Hub is
+the route: `graphit_hub_search` with `type: "ast"`, then `graphit_hub_install`.
+
+Then query it by name:
+```
+graphit_ast_query(project_dir: "/path/to/project", context: "other-repo", query: "MATCH (f:Function {name: 'Handle'}) RETURN f.path, f.line_number")
+```
+
+### Removing a context
+```
+graphit_ast_remove(project_dir: "/path/to/project", context: "other-repo")
+```
+
+> ⚠️ **Called without `context`, this tool wipes the current project's entire graph**
+> (`MATCH (n) DETACH DELETE n`) and every query afterwards returns nothing until a full
+> reindex finishes. Never call it without `context` unless the user asked for exactly that.
+
+## Index Maintenance — the tools, and when they are actually needed
+
+### `graphit_ast_index` — reindex now, or reindex differently
+
+The daemon already reindexes on file change (see the section on staleness below), so this is
+not part of the normal edit loop. Reach for it when you need something the watcher does not do:
+
+| Situation | Call |
+|---|---|
+| One directory, right now, before a query you are about to run | `path: "internal/auth"` |
+| A file's extension is parsed by the wrong grammar | `grammar: ".pks=antlr-plsql"` |
+| The graph looks wrong and you want the file re-parsed even though its hash is unchanged | `reindex: true` |
+| The graph is corrupt and you want to start clean (destructive — drops the database) | `reset: true` |
+
+```
+graphit_ast_index(project_dir: "/path/to/project", path: "internal/auth")
+```
+
+### `graphit_ast_embed` — make semantic search work
+
+`mode: "semantic"` and the semantic half of `mode: "hybrid"` need vectors. If semantic
+results come back empty, the vectors are missing — not the code:
+```
+graphit_ast_embed(project_dir: "/path/to/project")
+```
+
+Fire-and-forget; hybrid search keeps working on FTS alone in the meantime. Prefer this over
+a full `graphit_sync`: it does exactly this one job, where sync also reindexes
+the AST, the wiki, and memory.
+
+### The graph did not open — read this before falling back to grep
+
+```
+ladybug open: failed to open database with status 1
+```
+
+The daemon holds a write lock while it reindexes, and a read landing in that window fails
+with the message above. It names the database, so it reads like "there is no graph here" —
+**it is a lock, not an absence. Retry.** The same query succeeds seconds later.
+
+Falling back to grep here is the most expensive mistake available in this framework: you
+abandon the graph exactly because it was busy building itself, and the answer you produce
+from text search is the worse one. If retrying keeps failing, call `graphit_daemon_status` —
+`running: false` means nothing has been indexing at all, and `recent_logs` says why a rebuild
+failed. A genuinely missing index reports itself differently: *no AST database found at ...*.
+
+### `graphit_ast_export` — hand the graph to something else
+
+```
+graphit_ast_export(project_dir: "/path/to/project", format: "obsidian", output: "/tmp/graph-md")
+graphit_ast_export(project_dir: "/path/to/project", format: "bundle", output: "/tmp/graph-bundle")
+```
+
+`format` and `output` are both required; only `obsidian` (browsable markdown) and `bundle`
+(archive for sharing or importing elsewhere) are accepted. This is an export for a human or
+another tool — **it is never the way to read code for yourself.** For that, query the graph.
+
 ## 🔄 Fallback to Built-In Tools — ONLY for What the Graph Does Not Contain
 
 **Your built-in tools (grep, ripgrep, semantic search, code symbols) are permitted
@@ -568,19 +729,31 @@ Your tools are allowed ONLY when ALL of these conditions are true:
 
 **If even ONE of these conditions is not met, you MUST NOT use your tools.**
 
-## ⚡ MANDATORY: Sync After Every File Modification
+## Reindexing is automatic — do not call sync after editing code
 
-**After ANY modification to ANY source code file (edit, create, rename, or delete),
-you MUST trigger a project sync by calling the `graphit_sync` tool (passing absolute `project_dir`):**
-```
-graphit_sync(project_dir: "/path/to/project")
-```
+The daemon watches the source tree and reindexes incrementally when a file changes. It is
+told the exact paths, so an edit costs about a second of its time and none of yours. After
+you edit, create, rename, or delete a source file, **there is nothing to call.**
 
-**This is NON-NEGOTIABLE.** The framework depends on an up-to-date index to function.
-Without syncing, the AST graph becomes stale and subsequent queries return
-outdated or incomplete results — breaking the analysis pipeline.
+Calling `graphit_sync` after every edit is the most common way this module
+gets misused: it redoes work the watcher already did, and on a large repository it makes you
+wait on a full rebuild — AST, wiki, memory and Hub — to get an incremental result you were
+going to have anyway.
 
-**Rules:**
-- Call `graphit_sync` immediately after any source code file modifications — **fire-and-forget: do NOT wait for sync to complete, continue working immediately.**
-- **Forgetting to call sync is a framework integrity violation.**
+**Reindex by hand only when the watcher cannot have seen the change:**
+
+| situation | why the watcher missed it | what to call |
+|---|---|---|
+| the daemon is not running | nothing is watching — confirm with `graphit_daemon_status` | `graphit_ast_index` |
+| code arrived from outside this machine — a pull, a checkout, a rebase, a restore | the daemon was down, or it landed as one bulk event | `graphit_ast_index` |
+| a query returns something you know is stale, a minute after the edit | the reindex failed; the tool surfaces the error | `graphit_ast_index` with `path` |
+| the file is parsed by the wrong grammar | the watcher reindexes with the configured grammar, which is the one that is wrong | `graphit_ast_index` with `grammar` |
+| semantic search returns nothing | vectors are computed separately from the index | `graphit_ast_embed` |
+
+In every one of those rows the targeted tool beats `graphit_sync`: same fix,
+a fraction of the work. Reach for `graphit_sync` only when you genuinely want
+every subsystem rebuilt at once.
+
+**What is still on you is writing the code and its documentation** — see the documentation
+skill. That obligation was never about reindexing.
 

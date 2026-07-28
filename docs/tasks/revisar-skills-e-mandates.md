@@ -1,9 +1,9 @@
 # Tarefa: completar a revisão das skills e mandates
 
-**Status: concluída** em 2026-07-28. As três etapas estão nos commits `f0432fef`, `70fa594c` e
-`39184383`, cada uma com seu changelog em `docs/changelogs/`. O levantamento abaixo fica como
-referência (comandos, catálogo de ferramentas, convenções); a seção **O que sobrou** no fim
-registra o que não pertencia a esta tarefa.
+**Status: concluída** em 2026-07-28. Quatro etapas, nos commits `f0432fef`, `70fa594c`,
+`39184383` e `09b73553`, cada uma com seu changelog em `docs/changelogs/`. O levantamento abaixo
+fica como referência (comandos, catálogo de ferramentas, convenções); a seção **O que sobrou** no
+fim registra o que não pertencia a esta tarefa.
 
 ---
 
@@ -51,6 +51,22 @@ commit `9e179bc9` acrescentou; o bloco obsoleto de sync ainda existia inteiro no
 recebia `project_dir` e um filtro por nome que não tem, na única etapa obrigatória da skill;
 quatro lugares aceitavam ferramenta nativa sem o harness ter sido tentado; e `memory_search` era
 descrito como leitura de `.md` crus quando é FTS5 sobre o wiki compilado.
+
+### Etapa 4 — `09b73553` — explorar outro projeto começa no ecossistema
+
+Pedida pelo Engenheiro durante a tarefa. Ordem obrigatória quando a pergunta é sobre código ou
+documentação fora deste repositório: `cluster_projects` **primeiro**, depois os mesmos tools MCP
+com o `dir` do irmão como `project_dir`, e ferramenta nativa por último.
+
+A distinção que faltava: a skill de ast tratava context importado como o único jeito de consultar
+código de fora. **Projeto irmão registrado já tem grafo, wiki e memórias próprios** — importá-lo
+reindexa o que já existe, e não saber disso é o que mandava o agente ler arquivo por arquivo.
+Virou tabela de quatro linhas (este repositório / irmão do ecossistema / checkout não registrado /
+dependência sem checkout).
+
+Nada precisa ser instalado, linkado ou importado: `project_dir` é parâmetro. `hub_link` entrou
+como anti-padrão — traz um artefato para *este* projeto e não concede acesso que passar
+`project_dir` já não dê.
 
 ---
 

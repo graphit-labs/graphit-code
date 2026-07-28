@@ -1,6 +1,6 @@
 ---
 name: graphit-knowledge
-description: Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, create/update task log in ./tasks/ and run sync. Search the knowledge wiki BEFORE grepping documentation files. Use when: understanding project features, architecture, decisions, or specifications; creating or updating documentation; working with external system integrations or API specs; searching for project knowledge, backlinks, or provenance; discovering or documenting undocumented integrations.
+description: Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, create/update the task log in ./tasks/ — reindexing is automatic, the daemon watches the docs tree. Search the knowledge wiki BEFORE grepping documentation files. Use when: understanding project features, architecture, decisions, or specifications; creating or updating documentation; working with external system integrations or API specs; searching for project knowledge, backlinks, or provenance; discovering or documenting undocumented integrations.
 ---
 
 # Knowledge Maintenance Rule
@@ -50,8 +50,11 @@ No exceptions. No shortcuts. If the documentation is missing, the task is NOT do
 
 1. **Do the work** — implement the code change.
 2. **Write the documentation** — update or create the relevant docs.
-3. **Sync the wiki** — call the `graphit_sync` tool (passing absolute `project_dir` parameter) — **fire-and-forget: do NOT wait for sync to finish, continue immediately.**
-4. **Only then** report the task as complete.
+3. **Only then** report the task as complete.
+
+There is no reindex step. The daemon watches the docs tree and rebuilds the wiki on its own —
+see *Reindexing is automatic* below for the few situations where it cannot have seen your
+change. The completion requirement is the **record**, not its index.
 
 ### 🔒 MANDATORY: Clean Code Documentation Policy
 
@@ -138,10 +141,16 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 
 | Scenario | Use instead |
 |---|---|
-| Reading/editing actual source code (.go, .ts, etc.) | Normal file tools |
-| Searching inside string literals or code comments | grep/ripgrep on source code |
+| Understanding source code — structure, callers, imports, inheritance | The **AST graph** (`graphit_ast_query`), not grep |
+| Reading the contents of a source file | `graphit_ast_source` — the indexed copy, sliceable by entity or line range |
+| Searching inside code comments | The AST graph: comments are `Comment` entities with the text in `name` |
+| Searching string literals inside function bodies | `graphit_ast_source` with `pattern` when you know the file; grep/ripgrep only when you do not |
+| Editing source or docs files (writing, not reading) | File edit tools |
 | Running tests or build commands | Terminal commands |
-| Editing ./ files (writing, not reading) | File edit tools |
+
+> Note what this table does **not** say: "the wiki is not for code, so use grep". Leaving the
+> wiki hands you to the **AST skill**, not to text search. Each of the two indexes covers what
+> the other does not, and grep is below both.
 
 ### How to search (step-by-step)
 
@@ -230,22 +239,148 @@ Examples of INVALID fallback (protocol violations):
 | **imported context** (hub artifact) | Call `graphit_knowledge_search` (context: "<name>") |
 | **multi-source** (project + memory) | Call `graphit_wiki_search` (wikis: ["project", "memory"]) |
 
-### ⚡ MANDATORY: Sync After Every File Modification
+### The rest of the knowledge tools
 
-**After ANY modification to ANY file in `./` (edit, create, rename, or delete),
-you MUST trigger a project sync by calling the `graphit_sync` tool (passing absolute `project_dir` parameter):**
+Search and browse answer "what does this project say about X". These four answer questions
+*about the wiki itself* — reach for them when the wiki is what looks wrong.
+
+#### `graphit_knowledge_list` — every article, by name
+```
+graphit_knowledge_list(project_dir: "/path/to/project")
+```
+
+A flat list of article slugs (`index` and `log` excluded). Use it to answer **"is there a
+page for X at all"** when `graphit_knowledge_search` returned nothing and you need to know whether the
+page is missing or merely ranked low — a search miss and an absent page are different
+problems with different fixes. It carries no summaries; `graphit_wiki_browse` is the catalogue
+with types and confidence.
+
+#### `graphit_knowledge_lint` — audit the wiki's structure
+```
+graphit_knowledge_lint(project_dir: "/path/to/project")
+graphit_knowledge_lint(project_dir: "/path/to/project", stale_days: 90)
+graphit_knowledge_lint(project_dir: "/path/to/project", fix: true)
+```
+
+Reports orphan pages, broken links, missing backlinks and stale pages (default: older than
+30 days). `fix: true` repairs what is mechanically repairable — backlinks — and nothing else;
+a broken `[[wikilink]]` needs a human decision about which page was meant. `deep: true` adds
+AI-assisted contradiction detection and costs a model call per candidate, so ask for it
+deliberately.
+
+Run it when a documentation task is finished and you want to know whether what you wrote
+actually connected to the rest of the wiki.
+
+#### `graphit_knowledge_schema` — where the wiki lives
+```
+graphit_knowledge_schema(project_dir: "/path/to/project")
+```
+
+Returns the wiki directory and confirms the architecture is a file-based wiki, not a graph
+database. Useful for one thing: telling apart "the wiki is empty" from "I am pointed at the
+wrong project". Do not expect node labels — that is `graphit_ast_schema`.
+
+#### `graphit_knowledge_export` — publish this project's wiki to the Hub
+```
+graphit_knowledge_export(project_dir: "/path/to/project")
+```
+
+Pushes the docs tree and the compiled wiki to a Hub branch, where other projects can install
+it as a knowledge context. This writes to a shared repository — **only when the user asks
+for it.** It is the counterpart of `graphit_knowledge_install`, which is how a context arrives
+from the other direction.
+
+To drop an imported context you no longer want, call `graphit_knowledge_remove` with its `context` name.
+Called **without** `context` it clears this project's own wiki instead, so always pass one
+unless wiping the local wiki is precisely the request.
+
+### Reindexing is automatic — do not call sync in the normal flow
+
+The daemon watches the docs tree and rebuilds the wiki when a file changes. After
+you edit, create, rename, or delete anything under `./`, **there is nothing to
+call**. Reindexing costs a second or two and happens without you.
+
+Calling `graphit_sync` after every edit is the most common way this module gets
+misused: it duplicates work the watcher is already doing and, on a large docs tree,
+makes the agent wait on a rebuild it did not need.
+
+**Call `graphit_sync` only when the watcher cannot have seen the change:**
+
+| situation | why the watcher missed it |
+|---|---|
+| the daemon is not running | nothing is watching |
+| docs were changed by something outside this machine — a pull, a checkout, a restore | the daemon was down, or the change landed as one bulk event |
+| a search returns something you know is stale, minutes after the edit | the rebuild failed; sync surfaces the error |
+
+### First check whether anything is watching at all
+
+The first row of that table is a **question, not an assumption** — and `graphit_daemon_status` is
+how you answer it:
+
+```
+graphit_daemon_status()
+```
+
+No `project_dir`: the daemon is global, one process for every project on the machine. What
+comes back and what to do with it:
+
+| Field | What it tells you |
+|---|---|
+| `running` | `false` means **nothing has been reindexing anything.** Every staleness symptom in this section is explained, and reindexing by hand is the only route until the daemon is back |
+| `uptime_seconds` | Started after your edit? Then it never saw the edit — the watcher only knows about changes made while it was alive |
+| `recent_logs` | The last ten lines, which is where a failed rebuild says why it failed |
+| `pid`, `pid_file_path` | Which process, and the file that tracks it |
+
+**Check status before reporting a stale index to the user**, and before concluding a module
+is broken. "The wiki is out of date" and "the daemon is down" look identical from where you
+are standing, and only one of them is a bug.
+
+### The transient failure that looks like a missing index
+
+The daemon holds a write lock while it reindexes. A read that lands in that window fails —
+and the message names the database, which reads exactly like "there is no index here":
+
+```
+ladybug open: failed to open database with status 1
+```
+
+**That is a lock, not an absence. Retry it.** The same query succeeds seconds later. Treating
+it as "no index" and falling back to grep is the single most expensive way to misread this
+framework — you abandon the graph precisely because it was busy building itself. If retries
+keep failing, then call `graphit_daemon_status`: a daemon stuck mid-reindex shows up in
+`recent_logs`.
+
+### Stopping it
+
+```
+graphit_daemon_stop()
+```
+
+Sends SIGTERM, waits ten seconds, then SIGKILL. **Do this only when the user asks.** Stopping
+the daemon turns off automatic reindexing for every project on the machine, and takes the
+overnight dream sessions with it — after which everything in this skill that says
+"reindexing is automatic" stops being true.
 
 ```
 graphit_sync(project_dir: "/path/to/project")
 ```
 
-**This is NON-NEGOTIABLE.** The framework depends on an up-to-date wiki to function.
-Without syncing, the knowledge wiki becomes stale and subsequent lookups return
-outdated or incomplete results — breaking the knowledge pipeline.
+Fire-and-forget: do not wait for it, continue working.
 
-**Rules:**
-- Call `graphit_sync` immediately after any docs modification — **fire-and-forget: do NOT wait for sync to complete, continue working immediately.**
-- **Forgetting to call sync is a framework integrity violation.**
+**When only the wiki is suspect, `graphit_knowledge_sync` is the narrower tool** — it rebuilds
+the wiki from the docs tree and nothing else, where `graphit_sync` also reindexes the AST
+graph, both memory wikis, and the Hub. Same fix, a fraction of the work:
+
+```
+graphit_knowledge_sync(project_dir: "/path/to/project")
+
+# Re-pull one imported context after it changed upstream in the Hub
+graphit_knowledge_sync(project_dir: "/path/to/project", context: "<name>")
+```
+
+**What IS mandatory is the record itself.** A change without its task log is
+incomplete — that obligation is about writing the documentation, not about
+reindexing it.
 
 ## Documentation Requirements
 
@@ -546,11 +681,16 @@ This enables a new agent to understand the full trajectory.>
 
 ### Before implementing ANY integration with an external system:
 
-**Step 1 — Search the hub for an existing knowledge artifact using the `graphit_hub_list` tool:**
+**Step 1 — Search the hub for an existing knowledge artifact using the `graphit_hub_search` tool:**
 
 ```
-graphit_hub_list(project_dir: "/path/to/project", type: "knowledge")
+graphit_hub_search(query: "<the system's name>", type: "knowledge")
 ```
+
+Search by the system's name — that is what you have and what the artifact is registered under.
+No `project_dir`: the registry is global. If the name returns nothing, widen the term before
+giving up (the match is a substring, not a semantic search), and only then fall back to
+`graphit_hub_list` for the whole `knowledge` catalogue.
 
 **Step 2 — If found, install it immediately using the `graphit_knowledge_install` tool (passing absolute `project_dir` and the context `name`):**
 
@@ -655,7 +795,9 @@ a compiled, cross-referenced wiki.
 | Scenario | Use instead |
 |---|---|
 | Writing or editing spec files (.yaml, .proto, .graphql) | File edit tools |
-| Implementing integration code (.go, .ts, etc.) | Normal source code tools |
+| Finding where an integration is implemented in this codebase | The **AST graph** — `graphit_ast_search` then `graphit_ast_query`, not grep |
+| Reading that implementation | `graphit_ast_source` |
+| Learning how the **external** system behaves | The Hub — `graphit_hub_search` for a `knowledge` artifact before model knowledge or web search |
 | Running API tests or curl commands | Terminal commands |
 | Checking live API responses | Browser or HTTP tools |
 
@@ -871,7 +1013,7 @@ type Query {
 ## Workflow
 
 **0. (MANDATORY) Before touching any external system:**
-   - Call `graphit_hub_list` tool filtering by name/type — always.
+   - Call `graphit_hub_search` with the system's name and `type: "knowledge"` — always. `graphit_hub_list` cannot filter by name, only by type; it is the fallback when search comes back empty.
    - If found: call `graphit_knowledge_install` with `name` and read the wiki.
    - If not found: document what the user provides, never assume.
 

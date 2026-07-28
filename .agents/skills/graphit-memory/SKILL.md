@@ -57,7 +57,7 @@ in these situations — proactively, without being asked:
 |---|---|---|
 | Model/native "memory" or recall | Call `graphit_memory_search`, then read the wiki page | Native memory is ephemeral and per-session; the wiki survives across sessions and agents |
 | Remembering facts "in your head" | Call `graphit_memory_insert` to persist | Your context is wiped between sessions — unpersisted knowledge is lost |
-| `grep`/ripgrep over memory `.md` files | Call `graphit_memory_search` | BM25-ranked, pre-compiled (~200 tokens) vs scanning raw files |
+| `grep`/ripgrep over memory `.md` files | Call `graphit_memory_search` | FTS5-ranked over the compiled wiki (~200 tokens) vs scanning raw files |
 | Reading `.graphit/memory/*/index.md` directly | Call `graphit_memory_search` or `graphit_memory_list` | The wiki is compiled and ranked; raw reads bypass ranking and waste tokens |
 
 ### 🔒 When you MUST use the memory MCP tools (MANDATORY — no exceptions)
@@ -171,18 +171,24 @@ The wiki database is compiled, BM25-indexed, and pre-optimized for retrieval.
 Reading raw .md files is slower, wastes tokens, and bypasses ranking.
 
 **Scope parameter:** `scope: "project"` (default) = project-specific memories. `scope: "user"` = personal cross-project memories.
-- `graphit_memory_search` searches raw `.md` memory files via text matching (lightweight, no AI)
+
+**What `graphit_memory_search` actually searches:** the **compiled memory wiki**, through SQLite
+FTS5, falling back to an in-memory BM25 index over the wiki when the FTS database is not
+there. It does **not** scan your raw `.md` files, which is the whole reason it is ranked and
+cheap — and the reason a memory written seconds ago may not surface yet: it is in the store,
+but the wiki has not recompiled. When you know something was just written and search misses
+it, that is the explanation; `graphit_memory_index` forces the rebuild.
 
 | What you need | MCP tool | Why |
 |---|---|---|
-| Search memories by keyword/context | `graphit_memory_search` | Text matching on raw files, instant, ~200 tokens |
-| List all memories | `graphit_memory_list` | Structured catalog, grouped by type |
+| Search memories by keyword/context | `graphit_memory_search` | FTS5 over the compiled wiki, ranked, ~200 tokens |
+| List all memories | `graphit_memory_list` | Structured catalog, grouped by type — reads the store, so it sees writes the wiki has not compiled yet |
 | List important memories only | `graphit_memory_important` | High-priority conventions, corrections |
 
 **Retrieval steps:**
 1. Call `graphit_memory_search` with query context — get ranked results
 2. If results reference related memories, call `graphit_memory_search` again with refined query
-3. If you need deeper understanding, browse the wiki pages referenced in search results via `graphit_wiki_browse`, read their full content, follow `[[wikilinks]]`, and synthesize the answer yourself.
+3. If you need deeper understanding, browse the wiki pages referenced in search results via `graphit_wiki_browse` with `wiki: "memory"`, read their full content, follow `[[wikilinks]]`, and synthesize the answer yourself.
 4. **Never** read .md memory files directly or grep raw memory files
 
 ## 📋 MCP Tools Reference
@@ -222,9 +228,9 @@ graphit_memory_demote(project_dir: "/path/to/project", id: "<id>")
 graphit_memory_list(project_dir: "/path/to/project")
 graphit_memory_important(project_dir: "/path/to/project")
 
-# Garbage collection (run periodically)
-graphit_memory_gc(project_dir: "/path/to/project")                         # find stale/empty memories (dry-run)
-graphit_memory_gc(project_dir: "/path/to/project", dry_run: false)         # delete GC candidates
+# Garbage collection — see the warning below, the bare call DELETES
+graphit_memory_gc(project_dir: "/path/to/project", dry_run: true)          # scan only, delete nothing
+graphit_memory_gc(project_dir: "/path/to/project")                         # deletes every candidate
 
 # Consolidation
 # 1. Call graphit_memory_list to see all memories
@@ -232,6 +238,65 @@ graphit_memory_gc(project_dir: "/path/to/project", dry_run: false)         # del
 # 3. Use graphit_memory_delete to remove duplicates
 # 4. Use graphit_memory_update to resolve contradictions
 ```
+
+## ⚠️ `graphit_memory_gc` deletes by default
+
+> **`dry_run` defaults to false, which means the bare call removes every candidate it finds.**
+> There is no confirmation step and no undo — the memories are gone.
+
+So the order is: **scan, read, then delete.**
+
+```
+# 1. See what it would take
+graphit_memory_gc(project_dir: "/path/to/project", dry_run: true)
+
+# 2. Only after reading that list
+graphit_memory_gc(project_dir: "/path/to/project")
+```
+
+A candidate is a memory untouched for `stale_days` (default 30) or one with no content. Thirty
+days of not being read is weak evidence for deleting a `convention` or a `correction`: those
+are exactly the memories that sit unused until the one session where they stop you repeating
+a mistake. Read the scan; `graphit_memory_promote` what should survive; only then collect.
+
+## 🗄️ The Remaining Tools
+
+### `graphit_memory_export` — push project memories to the git repository
+
+```
+graphit_memory_export(project_dir: "/path/to/project")
+```
+
+Reindexes, then syncs the project memory store back to its local git repository. Memories
+already persist to disk on `graphit_memory_insert` — this is the step that makes them **shareable**,
+so it matters when the user says another machine or another agent should see them. Project
+scope only; there is no `scope` parameter.
+
+### `graphit_memory_schema` — the shape of the memory graph
+
+```
+graphit_memory_schema(project_dir: "/path/to/project")
+```
+
+Node labels (`Document`, `Section`), edges (`REFERENCES`, `CONTAINS`) and the properties on
+each. Read it before you assume a field exists on a memory page. It is fixed text, not a
+live introspection of your data — an empty store returns the same answer as a full one.
+
+### Imported memory contexts
+
+When a Hub artifact or another repository brings its own memories along, they arrive as a
+named context beside your own:
+
+```
+# Pull that context's memories in again after it changed upstream
+graphit_memory_sync(project_dir: "/path/to/project", context: "<name>")
+
+# Drop the context — removes the link, not your own memories
+graphit_memory_remove(project_dir: "/path/to/project", context: "<name>")
+```
+
+`context` is **required** on both. Neither touches project or user scope, so neither is a
+way to delete a memory — that is `graphit_memory_delete` with an `id`.
 
 ## 🔄 Contradiction Protocol
 
