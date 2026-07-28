@@ -1,9 +1,10 @@
 # Tarefa: completar a revisão das skills e mandates
 
-**Status: concluída** em 2026-07-28. Quatro etapas, nos commits `f0432fef`, `70fa594c`,
-`39184383` e `09b73553`, cada uma com seu changelog em `docs/changelogs/`. O levantamento abaixo
-fica como referência (comandos, catálogo de ferramentas, convenções); a seção **O que sobrou** no
-fim registra o que não pertencia a esta tarefa.
+**Status: concluída** em 2026-07-28. Seis etapas — `f0432fef`, `70fa594c`, `39184383`, `09b73553`,
+`076426eb` e `1a0070b4` — cada uma com seu changelog em `docs/changelogs/`. As três primeiras eram
+o escopo original; as três últimas vieram de correções do Engenheiro durante o trabalho. O
+levantamento abaixo fica como referência (comandos, catálogo de ferramentas, convenções); a seção
+**O que sobrou** no fim registra o que não pertencia a esta tarefa.
 
 ---
 
@@ -68,6 +69,37 @@ Nada precisa ser instalado, linkado ou importado: `project_dir` é parâmetro. `
 como anti-padrão — traz um artefato para *este* projeto e não concede acesso que passar
 `project_dir` já não dê.
 
+### Etapa 5 — `076426eb` — `wiki_source`: ler página do wiki por MCP
+
+Pedida pelo Engenheiro. As skills mandavam *"leia a página da entidade"* e **ler a página era o
+único passo sem ferramenta** — sobrava leitura direta de arquivo, que é exatamente o que falha
+quando o agente está confinado ao próprio workspace e a página é de outro projeto.
+
+`wiki_source` em MCP e CLI, com o mesmo fatiamento do `ast_source` (`head`, `tail`,
+`start_line`/`end_line`, `line_numbers`, `pattern` + `regex`/`before`/`after`). `path` aceita slug,
+slug com `.md` ou path relativo, sem diferenciar caixa — nome de arquivo de wiki é gerado do título
+e o slug em mão raramente bate exato.
+
+O fatiamento saiu para `internal/textslice` em vez de ganhar segunda cópia: depois de buscar o
+texto, tudo em `ast.SourceService` é manipulação pura. `ErrPageNotFound` separa slug errado de
+referência recusada, senão a listagem de alternativas enterra o motivo da recusa.
+
+### Etapa 6 — `1a0070b4` — Cypher, e o bug que apaga código vivo
+
+O Engenheiro observou que o agente usava `ast_search` e quase nunca query. **Não era falta de
+exemplo** — era o cabeçalho `Phase 2.3: Hybrid Search (RECOMMENDED — Best Results)`. Virou *"the
+best way to FIND NAMES, never the answer"*, com a Fase 3 renomeada para *"where the question gets
+answered"*.
+
+E aí apareceu o pior achado de toda a revisão: **cada callable existe duas vezes no grafo.**
+`CONTAINS` liga o `File` à declaração; `CALLS` aponta para um stub chaveado pelo nome nu, com
+`path` vazio e linha `0`. São nós diferentes, então `NOT ()-[:CALLS]->(f)` é verdadeiro para **toda**
+declaração — `Apply`, com 13 callers, era reportado como código morto. Estava em três lugares, e um
+agente seguindo qualquer um deles apaga código em uso.
+
+Da mesma causa: misturar tipos de aresta em volta do mesmo nó devolve **zero linhas e nenhum erro**.
+Duas queries pré-existentes sempre voltavam vazias por isso.
+
 ---
 
 ## O que sobrou (não pertence a esta tarefa)
@@ -80,11 +112,28 @@ e o adaptador de comentários não preenche `SourceUID`, então a tabela nunca �
 descartada. Os nós `Comment` existem e são alcançáveis por `CONTAINS`; só a aresta falta. Tarefa
 separada aberta.
 
-**Índice AST deste projeto tem 16 nós de sonda.** Durante a verificação desta tarefa um projeto de
-sonda foi indexado e, por um bug de caminho relativo do `ast_index` via MCP, os nós foram para o
-grafo deste projeto: um `File` `main.go` que não existe aqui, mais dez entidades e três comentários.
-Nada foi destruído — o grafo estava vazio e `DeleteRepository` é um stub, então a chamada só
-adicionou. Sai com `ast_index(reset: true)`, que é reindexação completa.
+**`ast_index` via MCP grava no grafo do projeto errado.** `openASTDBReadWrite` faz `chdir`, monta
+`DefaultLadybugConfig()` com `DBPath` **relativo**, e devolve um handle cujo banco só abre na
+primeira query — quando o `defer` já reverteu o `chdir`. O caminho relativo então resolve no cwd do
+servidor MCP. Indexar um projeto pode contaminar o grafo de outro, e a indexação **reporta
+sucesso**. Junto: `GraphWriter.DeleteRepository` (`internal/ast/writer.go:38`) é um stub que retorna
+`nil` sem apagar, então `reindex: true` não remove nó obsoleto. Tarefa separada aberta com a
+reprodução.
+
+**Índice AST deste projeto tem 16 nós de sonda**, consequência do bug acima durante a verificação
+desta tarefa: um `File` `main.go` que não existe aqui, mais entidades e comentários de nomes
+inventados. Nada foi destruído — o grafo estava vazio e `DeleteRepository` é stub, então a chamada
+só adicionou. Sai com `ast_index(reset: true)`, que é reindexação completa e por isso não foi
+rodada.
+
+**`__config__` tem `lang` vazio neste projeto.** A query *Identifying project frameworks* da skill
+devolve a linha, com `frameworks` em branco — o enriquecimento não detectou framework num CLI Go, o
+que é plausível. A query roda; só não responde nada aqui.
+
+**`receiver_type` é mais estreito do que a skill sugere.** O texto fala em rastrear chamadas
+`self`/`this` até a classe dona; na amostra deste grafo os valores populados eram construtores
+JS/TS (`new:Map`, `new:CustomEvent`). Não corrigido — a query roda e devolve dados, só cobre menos
+do que a frase promete.
 
 ---
 
