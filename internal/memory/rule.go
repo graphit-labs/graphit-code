@@ -27,6 +27,12 @@ func RuleContent(contexts []string) string {
 
 	memGc := brand.MCPToolName("memory", "gc")
 	memIndexRef := brand.MCPToolRef("memory", "index")
+	memExport := brand.MCPToolName("memory", "export")
+	memExportRef := brand.MCPToolRef("memory", "export")
+	memSchema := brand.MCPToolName("memory", "schema")
+	memSchemaRef := brand.MCPToolRef("memory", "schema")
+	memRemove := brand.MCPToolName("memory", "remove")
+	memSyncTool := brand.MCPToolName("memory", "sync")
 	memWildcard := "`" + brand.Brand + "_memory_*`"
 
 	lines := []string{
@@ -266,6 +272,45 @@ func RuleContent(contexts []string) string {
 		"# 4. Use "+memUpdate+" to resolve contradictions",
 		"```",
 		"",
+		"## 🗄️ The Remaining Tools",
+		"",
+		"### "+memExportRef+" — push project memories to the git repository",
+		"",
+		"```",
+		memExport+"(project_dir: \"/path/to/project\")",
+		"```",
+		"",
+		"Reindexes, then syncs the project memory store back to its local git repository. Memories",
+		"already persist to disk on "+memInsertRef+" — this is the step that makes them **shareable**,",
+		"so it matters when the user says another machine or another agent should see them. Project",
+		"scope only; there is no `scope` parameter.",
+		"",
+		"### "+memSchemaRef+" — the shape of the memory graph",
+		"",
+		"```",
+		memSchema+"(project_dir: \"/path/to/project\")",
+		"```",
+		"",
+		"Node labels (`Document`, `Section`), edges (`REFERENCES`, `CONTAINS`) and the properties on",
+		"each. Read it before you assume a field exists on a memory page. It is fixed text, not a",
+		"live introspection of your data — an empty store returns the same answer as a full one.",
+		"",
+		"### Imported memory contexts",
+		"",
+		"When a Hub artifact or another repository brings its own memories along, they arrive as a",
+		"named context beside your own:",
+		"",
+		"```",
+		"# Pull that context's memories in again after it changed upstream",
+		memSyncTool+"(project_dir: \"/path/to/project\", context: \"<name>\")",
+		"",
+		"# Drop the context — removes the link, not your own memories",
+		memRemove+"(project_dir: \"/path/to/project\", context: \"<name>\")",
+		"```",
+		"",
+		"`context` is **required** on both. Neither touches project or user scope, so neither is a",
+		"way to delete a memory — that is "+memDeleteRef+" with an `id`.",
+		"",
 		"## 🔄 Contradiction Protocol",
 		"",
 		"When the user's new instruction contradicts an existing memory:",
@@ -316,8 +361,9 @@ func MandateTrigger() string {
 			"you learned something about this project that the code does not say and the next session would need",
 			"the user says they told you this before, or refers to an earlier decision",
 			"you are about to write to any IDE-native or model-native memory — do this instead, never that",
+			"the memories that matter live in a sibling project — pass its `project_dir`, do not re-derive them",
 		},
-		[]string{"memory_search", "memory_insert", "memory_update", "memory_list", "memory_important", "memory_promote", "memory_demote", "memory_delete", "memory_index", "memory_gc", "memory_schema", "memory_export"},
+		[]string{"memory_search", "memory_insert", "memory_update", "memory_list", "memory_important", "memory_promote", "memory_demote", "memory_delete", "memory_index", "memory_gc", "memory_schema", "memory_export", "memory_sync", "memory_remove"},
 	)
 }
 

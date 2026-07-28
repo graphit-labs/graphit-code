@@ -11,11 +11,27 @@ import (
 func ImprovementsRuleContent() string {
 	var b strings.Builder
 
+	rulesRef := brand.MCPToolRef("improvements", "rules")
+	rulesTool := brand.MCPToolName("improvements", "rules")
+
 	b.WriteString("# Code Improvement Methodology Rule\n\n")
 	b.WriteString("## When to Use\n\n")
 	b.WriteString("When the user asks you to **autonomously improve**, **audit**, **review**,\n")
 	b.WriteString("or **refactor** the codebase (or parts of it), you MUST follow the\n")
 	b.WriteString("engineering analysis methodology detailed below.\n\n")
+
+	b.WriteString("## These rules can be project-specific — read the resolved copy\n\n")
+	b.WriteString("The methodology below is the **default**. A project or a Hub artifact can replace or\n")
+	b.WriteString("extend it, and when it does, the text in this skill is not what applies. " + rulesRef + "\n")
+	b.WriteString("returns the version actually in force:\n\n")
+	b.WriteString("```\n")
+	b.WriteString(rulesTool + "()                 # the resolved rules — project override if there is one\n")
+	b.WriteString(rulesTool + "(default: true)    # the compiled-in default, ignoring every override\n")
+	b.WriteString("```\n\n")
+	b.WriteString("Call it before a review you are going to report on, and compare the two when a finding\n")
+	b.WriteString("feels wrong for this codebase: the difference between them **is** the project's own\n")
+	b.WriteString("standard, and reviewing against the default when an override exists means flagging as\n")
+	b.WriteString("defects the very choices this project made deliberately.\n\n")
 	b.WriteString("---\n\n")
 
 	b.WriteString(Rules())

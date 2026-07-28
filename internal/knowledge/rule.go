@@ -28,6 +28,17 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 	browseRef := brand.MCPToolRef("wiki", "browse")
 	xrefsRef := brand.MCPToolRef("wiki", "xrefs")
 	wikiSearchRef := brand.MCPToolRef("wiki", "search")
+	listRef := brand.MCPToolRef("knowledge", "list")
+	knowledgeList := brand.MCPToolName("knowledge", "list")
+	lintRef := brand.MCPToolRef("knowledge", "lint")
+	knowledgeLint := brand.MCPToolName("knowledge", "lint")
+	schemaRef := brand.MCPToolRef("knowledge", "schema")
+	knowledgeSchema := brand.MCPToolName("knowledge", "schema")
+	exportRef := brand.MCPToolRef("knowledge", "export")
+	knowledgeExport := brand.MCPToolName("knowledge", "export")
+	removeRef := brand.MCPToolRef("knowledge", "remove")
+	knowledgeSyncRef := brand.MCPToolRef("knowledge", "sync")
+	knowledgeSync := brand.MCPToolName("knowledge", "sync")
 
 	lines := []string{
 		"# Knowledge Maintenance Rule",
@@ -256,6 +267,61 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"| **project** (this project) | Call " + searchRef + " or " + browseRef + " |",
 		"| **imported context** (hub artifact) | Call " + searchRef + " (context: \"<name>\") |",
 		"| **multi-source** (project + memory) | Call " + wikiSearchRef + " (wikis: [\"project\", \"memory\"]) |",
+		"",
+		"### The rest of the knowledge tools",
+		"",
+		"Search and browse answer \"what does this project say about X\". These four answer questions",
+		"*about the wiki itself* — reach for them when the wiki is what looks wrong.",
+		"",
+		"#### " + listRef + " — every article, by name",
+		"```",
+		knowledgeList + "(project_dir: \"/path/to/project\")",
+		"```",
+		"",
+		"A flat list of article slugs (`index` and `log` excluded). Use it to answer **\"is there a",
+		"page for X at all\"** when " + searchRef + " returned nothing and you need to know whether the",
+		"page is missing or merely ranked low — a search miss and an absent page are different",
+		"problems with different fixes. It carries no summaries; " + browseRef + " is the catalogue",
+		"with types and confidence.",
+		"",
+		"#### " + lintRef + " — audit the wiki's structure",
+		"```",
+		knowledgeLint + "(project_dir: \"/path/to/project\")",
+		knowledgeLint + "(project_dir: \"/path/to/project\", stale_days: 90)",
+		knowledgeLint + "(project_dir: \"/path/to/project\", fix: true)",
+		"```",
+		"",
+		"Reports orphan pages, broken links, missing backlinks and stale pages (default: older than",
+		"30 days). `fix: true` repairs what is mechanically repairable — backlinks — and nothing else;",
+		"a broken `[[wikilink]]` needs a human decision about which page was meant. `deep: true` adds",
+		"AI-assisted contradiction detection and costs a model call per candidate, so ask for it",
+		"deliberately.",
+		"",
+		"Run it when a documentation task is finished and you want to know whether what you wrote",
+		"actually connected to the rest of the wiki.",
+		"",
+		"#### " + schemaRef + " — where the wiki lives",
+		"```",
+		knowledgeSchema + "(project_dir: \"/path/to/project\")",
+		"```",
+		"",
+		"Returns the wiki directory and confirms the architecture is a file-based wiki, not a graph",
+		"database. Useful for one thing: telling apart \"the wiki is empty\" from \"I am pointed at the",
+		"wrong project\". Do not expect node labels — that is " + brand.MCPToolRef("ast", "schema") + ".",
+		"",
+		"#### " + exportRef + " — publish this project's wiki to the Hub",
+		"```",
+		knowledgeExport + "(project_dir: \"/path/to/project\")",
+		"```",
+		"",
+		"Pushes the docs tree and the compiled wiki to a Hub branch, where other projects can install",
+		"it as a knowledge context. This writes to a shared repository — **only when the user asks",
+		"for it.** It is the counterpart of " + knowledgeInstallRef + ", which is how a context arrives",
+		"from the other direction.",
+		"",
+		"To drop an imported context you no longer want, call " + removeRef + " with its `context` name.",
+		"Called **without** `context` it clears this project's own wiki instead, so always pass one",
+		"unless wiping the local wiki is precisely the request.",
 	}
 
 	lines = append(lines,
@@ -283,6 +349,17 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"```",
 		"",
 		"Fire-and-forget: do not wait for it, continue working.",
+		"",
+		"**When only the wiki is suspect, "+knowledgeSyncRef+" is the narrower tool** — it rebuilds",
+		"the wiki from the docs tree and nothing else, where "+syncRef+" also reindexes the AST",
+		"graph, both memory wikis, and the Hub. Same fix, a fraction of the work:",
+		"",
+		"```",
+		knowledgeSync+"(project_dir: \"/path/to/project\")",
+		"",
+		"# Re-pull one imported context after it changed upstream in the Hub",
+		knowledgeSync+"(project_dir: \"/path/to/project\", context: \"<name>\")",
+		"```",
 		"",
 		"**What IS mandatory is the record itself.** A change without its task log is",
 		"incomplete — that obligation is about writing the documentation, not about",
@@ -951,8 +1028,9 @@ func MandateTrigger() string {
 			"the task involves an external system integration, an API contract, or a spec",
 			"you finished a change and have not yet recorded it",
 			"you need the provenance of a page — what links to it, what it came from",
+			"a search returned nothing and you cannot tell whether the page is missing or just ranked low",
 		},
-		[]string{"knowledge_search", "wiki_search", "wiki_browse", "wiki_xrefs", "wiki_log", "knowledge_list", "knowledge_schema", "knowledge_lint", "knowledge_export"},
+		[]string{"knowledge_search", "wiki_search", "wiki_browse", "wiki_xrefs", "wiki_log", "wiki_embed", "knowledge_list", "knowledge_lint", "knowledge_schema", "knowledge_export", "knowledge_install", "knowledge_remove", "knowledge_sync"},
 	)
 }
 
