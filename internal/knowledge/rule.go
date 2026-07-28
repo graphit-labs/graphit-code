@@ -47,6 +47,8 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 	wikiLogRef := brand.MCPToolRef("wiki", "log")
 	astSourceTool := brand.MCPToolName("ast", "source")
 	clusterProjects := brand.MCPToolName("cluster", "projects")
+	wikiSourceRef := brand.MCPToolRef("wiki", "source")
+	wikiSource := brand.MCPToolName("wiki", "source")
 	daemonStatusRef := brand.MCPToolRef("daemon", "status")
 	daemonStatus := brand.MCPToolName("daemon", "status")
 	daemonStop := brand.MCPToolName("daemon", "stop")
@@ -172,6 +174,7 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"| Semantic search across docs/ | Call " + searchRef + " → scan results | Wiki: structured search. Semantic: noisy, expensive |",
 		"| Reading every .md in docs/ | Call " + browseRef + " (~2000 tokens for 80 pages) | Wiki: 40% fewer tokens, pre-summarized |",
 		"| `grep` for reverse references | Check `## Backlinks` section on entity page | Wiki: instant, pre-computed. Grep: O(n) scan |",
+		"| Opening a wiki page with your file-read tool | Call " + wikiSourceRef + " | Takes the project as a parameter, so it reaches pages outside your workspace — and slices, so a long page costs only the part you asked for |",
 		"",
 		"### 🔒 When you MUST use the wiki (MANDATORY — no exceptions)",
 		"",
@@ -197,6 +200,9 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"| Editing source or docs files (writing, not reading) | File edit tools |",
 		"| Running tests or build commands | Terminal commands |",
 		"",
+		"> **Reading a wiki page is not on this list.** That is " + wikiSourceRef + ", not a file read —",
+		"> see Step 1b. Your file tools come in for *writing* documentation, never for retrieving it.",
+		"",
 		"> Note what this table does **not** say: \"the wiki is not for code, so use grep\". Leaving the",
 		"> wiki hands you to the **AST skill**, not to text search. Each of the two indexes covers what",
 		"> the other does not, and grep is below both.",
@@ -209,6 +215,40 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"  The search returns entity summaries, cross-references, and confidence scores.",
 		"  For deep consultation, search with " + searchRef + ", read the returned pages, follow [[wikilinks]] to expand context, call " + xrefsRef + " for cross-references, and synthesize the answer yourself — you ARE the AI.",
 		"  For multi-source search (knowledge + memory), call " + wikiSearchRef + " with `wikis: [\"project\", \"memory\"]`.",
+		"",
+		"**Step 1b — Read the page with " + wikiSourceRef + ", not with a file read**",
+		"  Search hands you a slug. " + wikiSourceRef + " turns that slug into content:",
+		"  ```",
+		"  " + wikiSource + "(project_dir: \"/path/to/project\", path: \"<slug from search>\")",
+		"  ```",
+		"  Two reasons it comes before your own file tools, and the first one is not about taste:",
+		"",
+		"  - **It takes the project as a parameter.** You are frequently confined to your own",
+		"    workspace, and a page you need may belong to another project in the ecosystem. A file read",
+		"    cannot leave your sandbox; this tool reads on your behalf, so a sibling's page is the same",
+		"    one call with a different `project_dir`.",
+		"  - **It slices.** Same options as " + brand.MCPToolRef("ast", "source") + ": `head`, `tail`,",
+		"    `start_line`/`end_line`, `line_numbers`, and `pattern` with `before`/`after` context. A",
+		"    long page costs you the part you asked for instead of all of it.",
+		"",
+		"  ```",
+		"  # the summary at the top, and nothing else",
+		"  " + wikiSource + "(project_dir: \"/path/to/project\", path: \"auth-flow\", head: 40)",
+		"",
+		"  # everywhere the page mentions a term, with surrounding lines",
+		"  " + wikiSource + "(project_dir: \"/path/to/project\", path: \"auth-flow\", pattern: \"refresh token\", before: 2, after: 4)",
+		"",
+		"  # a page in the memory wiki instead of the project wiki",
+		"  " + wikiSource + "(project_dir: \"/path/to/project\", path: \"<slug>\", wiki: \"memory\")",
+		"",
+		"  # a page belonging to a sibling project — impossible with a file read from here",
+		"  " + wikiSource + "(project_dir: \"<sibling dir>\", path: \"<slug>\")",
+		"  ```",
+		"",
+		"  `path` accepts what the other tools return: the slug, the slug with `.md`, or a path",
+		"  relative to the wiki directory — matched case-insensitively, because a slug built from a",
+		"  title rarely matches the file name exactly. Guessed wrong? The error lists the pages that",
+		"  do exist, which is your answer, not a reason to go back to reading files.",
 		"",
 		"**Step 2 — Read the frontmatter FIRST (before the body)**",
 		"  Every entity page starts with YAML frontmatter. Read it before the body content:",
@@ -307,7 +347,10 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		wikiBrowseTool + "(project_dir: \"<sibling dir>\")",
 		wikiLogTool + "(project_dir: \"<sibling dir>\")",
 		"",
-		"# 4. only then read a file the wiki pointed you at — and read it through the graph",
+		"# 4. read the pages it found — with the tool, because a file read cannot leave your workspace",
+		wikiSource + "(project_dir: \"<sibling dir>\", path: \"<slug from the search>\")",
+		"",
+		"# 5. and read the source the wiki pointed you at through the graph, same reason",
 		astSourceTool + "(project_dir: \"<sibling dir>\", path: \"<path from the wiki>\")",
 		"```",
 		"",
@@ -1148,7 +1191,7 @@ func MandateTrigger() string {
 			"an index looks stale, or a graph read failed to open the database — find out whether the daemon is alive before concluding anything",
 			"the documentation you need belongs to another project — resolve it in the ecosystem and search ITS wiki, never walk or grep its docs tree",
 		},
-		[]string{"knowledge_search", "wiki_search", "wiki_browse", "wiki_xrefs", "wiki_log", "wiki_embed", "knowledge_list", "knowledge_lint", "knowledge_schema", "knowledge_export", "knowledge_install", "knowledge_remove", "knowledge_sync", "cluster_projects", "daemon_status", "daemon_stop"},
+		[]string{"knowledge_search", "wiki_search", "wiki_browse", "wiki_xrefs", "wiki_log", "wiki_source", "wiki_embed", "knowledge_list", "knowledge_lint", "knowledge_schema", "knowledge_export", "knowledge_install", "knowledge_remove", "knowledge_sync", "cluster_projects", "daemon_status", "daemon_stop"},
 	)
 }
 

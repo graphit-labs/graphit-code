@@ -101,39 +101,8 @@ func TestFormatWithLineNumbers(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// sortInts
-// ---------------------------------------------------------------------------
-
-func TestSortInts(t *testing.T) {
-	tests := []struct {
-		name  string
-		input []int
-		want  []int
-	}{
-		{"already_sorted", []int{1, 2, 3}, []int{1, 2, 3}},
-		{"reverse", []int{5, 3, 1}, []int{1, 3, 5}},
-		{"duplicates", []int{3, 1, 3, 2}, []int{1, 2, 3, 3}},
-		{"single", []int{42}, []int{42}},
-		{"empty", []int{}, []int{}},
-		{"nil", nil, nil},
-		{"negative", []int{-1, 5, -10, 0}, []int{-10, -1, 0, 5}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sortInts(tt.input)
-			if len(tt.input) != len(tt.want) {
-				t.Fatalf("length mismatch: got %v, want %v", tt.input, tt.want)
-			}
-			for i := range tt.input {
-				if tt.input[i] != tt.want[i] {
-					t.Errorf("index %d: got %d, want %d (full: %v)", i, tt.input[i], tt.want[i], tt.input)
-					break
-				}
-			}
-		})
-	}
-}
+// The hand-rolled insertion sort this file used to carry is gone: the index
+// sorting moved to textslice, which uses sort.Ints. Nothing here to test.
 
 // ---------------------------------------------------------------------------
 // SourceRequest / SourceResult types sanity

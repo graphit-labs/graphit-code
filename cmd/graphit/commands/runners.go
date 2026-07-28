@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -27,6 +28,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"github.com/graphit-labs/graphit-code/internal/uiserver"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"github.com/graphit-labs/graphit-code/internal/wikisvc"
@@ -2127,6 +2129,81 @@ func openWikiDBForScope(wikiScope, projectDir string) (*wiki.WikiDB, error) {
 	}
 
 	return wiki.OpenWikiDB(wikiDir)
+}
+
+// wikiDirForScope resolves the directory holding a wiki's markdown pages.
+//
+// It is deliberately separate from openWikiDBForScope: that one hunts for the
+// wiki.db file and may descend into a wiki/ subdirectory to find it, while the
+// pages themselves live wherever the generator wrote them.
+func wikiDirForScope(wikiScope, contextName, projectDir string) (string, error) {
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(projectDir); err != nil {
+		return "", fmt.Errorf("cannot enter %s: %w", projectDir, err)
+	}
+	defer func() { _ = os.Chdir(origWd) }()
+
+	switch wikiScope {
+	case "project", "knowledge", "":
+		if contextName != "" {
+			return knowledge.WikiDirForContext(contextName), nil
+		}
+		return knowledge.WikiDir(), nil
+	case "memory":
+		scope := contextName
+		if scope == "" {
+			scope = "project"
+		}
+		return memory.WikiDir(scope), nil
+	default:
+		return "", fmt.Errorf("unknown wiki scope %q — use 'project' or 'memory'", wikiScope)
+	}
+}
+
+func runWikiSource(page, wikiScope, contextName, projectDir string, req textslice.Request) error {
+	p := output.NewPrinter("")
+
+	if projectDir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting working directory: %w", err)
+		}
+		projectDir = wd
+	}
+	abs, err := filepath.Abs(projectDir)
+	if err != nil {
+		return fmt.Errorf("resolving project directory: %w", err)
+	}
+
+	wikiDir, err := wikiDirForScope(wikiScope, contextName, abs)
+	if err != nil {
+		return err
+	}
+
+	result, err := wiki.ReadPage(wikiDir, page, req)
+	if err != nil {
+		// Only a mistyped slug is helped by a list of alternatives. A rejected
+		// reference — one escaping the wiki directory — needs its own reason kept.
+		if errors.Is(err, wiki.ErrPageNotFound) {
+			if pages := wiki.ListPages(wikiDir); len(pages) > 0 {
+				sort.Strings(pages)
+				p.StepWarn("%v", err)
+				p.Info("Pages in this wiki:")
+				for _, name := range pages {
+					p.Step("%s", name)
+				}
+			}
+		}
+		return err
+	}
+
+	if result.Source == "" && len(result.Matches) == 0 {
+		p.Info("No matches found for pattern %q in %s", req.Pattern, result.Page)
+		return nil
+	}
+
+	p.Data(result.Source)
+	return nil
 }
 
 func runWikiBrowse(wikiScope, docType string, limit int, aiOptimized bool) error {

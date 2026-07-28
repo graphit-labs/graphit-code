@@ -2,6 +2,7 @@ package mcpstdio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
@@ -25,8 +27,6 @@ type wikiSearchInput struct {
 	Mode        string   `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
 	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
-
-
 
 type wikiBrowseInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
@@ -54,6 +54,22 @@ type wikiXRefsInput struct {
 type wikiEmbedInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Wiki       string `json:"wiki,omitempty" jsonschema:"Wiki scope: project (default) or memory"`
+}
+
+type wikiSourceInput struct {
+	ProjectDir  string `json:"project_dir" jsonschema:"Project directory — may be another project in the ecosystem (required)"`
+	Path        string `json:"path" jsonschema:"Page to read: the slug returned by search/browse/xrefs, that slug with .md, or a path relative to the wiki directory (required)"`
+	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project (default) or memory"`
+	Context     string `json:"context,omitempty" jsonschema:"Named imported knowledge context where the page resides"`
+	Head        int    `json:"head,omitempty" jsonschema:"Show only the first N lines"`
+	Tail        int    `json:"tail,omitempty" jsonschema:"Show only the last N lines"`
+	StartLine   int    `json:"start_line,omitempty" jsonschema:"Start line number (1-indexed)"`
+	EndLine     int    `json:"end_line,omitempty" jsonschema:"End line number (1-indexed, inclusive)"`
+	Pattern     string `json:"pattern,omitempty" jsonschema:"Search for a pattern (literal text or regex if regex=true)"`
+	IsRegex     bool   `json:"regex,omitempty" jsonschema:"Treat pattern as a regular expression"`
+	Before      int    `json:"before,omitempty" jsonschema:"Number of context lines before each pattern match"`
+	After       int    `json:"after,omitempty" jsonschema:"Number of context lines after each pattern match"`
+	LineNumbers bool   `json:"line_numbers,omitempty" jsonschema:"Include line numbers in the output"`
 }
 
 // resolveWikiDBDir resolves the wiki scope to a directory containing (or for) wiki.db.
@@ -232,7 +248,6 @@ func registerWikiTools(server *mcp.Server) {
 			return jsonResult(allResults)
 		}
 	}))
-
 
 	// --- New WikiDB tools ---
 
@@ -471,5 +486,64 @@ func registerWikiTools(server *mcp.Server) {
 
 		return textResult(fmt.Sprintf("%d wiki chunks embedded.", count))
 	}))
-}
 
+	mcp.AddTool(server, &mcp.Tool{
+		Name: brand.MCPToolName("wiki", "source"),
+		Description: "Read the content of a wiki page, with head/tail, line ranges and pattern search with context — the same slicing as the code-source tool. " +
+			"Use this instead of reading the page file directly: it takes the project as a parameter, so it reads pages belonging to any project in the ecosystem, including ones outside your own workspace.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiSourceInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDir(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+
+		module := "knowledge"
+		contextName := input.Context
+		switch input.Wiki {
+		case "", "project", "knowledge":
+		case "memory":
+			module = "memory"
+			// The memory wiki is addressed by scope, not by imported context.
+			if contextName == "" {
+				contextName = "project"
+			}
+		default:
+			return errResult(fmt.Errorf("unknown wiki scope %q — use 'project' or 'memory'", input.Wiki))
+		}
+
+		wikiDir := resolveWikiDir(module, projectDir, contextName)
+		result, err := wiki.ReadPage(wikiDir, input.Path, textslice.Request{
+			Head:        input.Head,
+			Tail:        input.Tail,
+			StartLine:   input.StartLine,
+			EndLine:     input.EndLine,
+			Pattern:     input.Pattern,
+			IsRegex:     input.IsRegex,
+			Before:      input.Before,
+			After:       input.After,
+			LineNumbers: input.LineNumbers,
+		})
+		if err != nil {
+			// A wrong slug is the common mistake, so name what is actually there
+			// rather than leaving the agent to guess or fall back to a file read.
+			// A refused reference keeps its own reason instead.
+			if pages := wiki.ListPages(wikiDir); errors.Is(err, wiki.ErrPageNotFound) && len(pages) > 0 {
+				sort.Strings(pages)
+				shown := pages
+				suffix := ""
+				if len(shown) > 40 {
+					shown = shown[:40]
+					suffix = fmt.Sprintf("\n… and %d more", len(pages)-40)
+				}
+				return errResult(fmt.Errorf("%w\n\nPages in this wiki:\n%s%s",
+					err, strings.Join(shown, "\n"), suffix))
+			}
+			return errResult(err)
+		}
+
+		if result.Source == "" && len(result.Matches) == 0 {
+			return textResult(fmt.Sprintf("No matches found for pattern %q in wiki page %s", input.Pattern, result.Page))
+		}
+		return textResult(result.Source)
+	}))
+}

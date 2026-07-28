@@ -2,6 +2,7 @@ package commands
 
 import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"github.com/spf13/cobra"
 )
 
@@ -22,6 +23,7 @@ Commands:
   browse     Browse wiki documents in a structured format
   log        Show wiki sync history
   xrefs      Show cross-references for an entity
+  source     Read a wiki page's content (head/tail, line ranges, pattern search)
 
 Examples:
   ` + brand.BinName() + ` wiki search "how does auth work?"
@@ -31,7 +33,8 @@ Examples:
   ` + brand.BinName() + ` wiki sessions
   ` + brand.BinName() + ` wiki browse --wiki project
   ` + brand.BinName() + ` wiki log --limit 5
-  ` + brand.BinName() + ` wiki xrefs "auth-flow"`,
+  ` + brand.BinName() + ` wiki xrefs "auth-flow"
+  ` + brand.BinName() + ` wiki source "auth-flow"`,
 	}
 
 	cmd.AddCommand(
@@ -42,8 +45,74 @@ Examples:
 		newWikiLogCmd(),
 		newWikiXRefsCmd(),
 		newWikiEmbedCmd(),
+		newWikiSourceCmd(),
 	)
 
+	return cmd
+}
+
+func newWikiSourceCmd() *cobra.Command {
+	var (
+		wikiScope   string
+		contextName string
+		projectDir  string
+		head        int
+		tail        int
+		startLine   int
+		endLine     int
+		pattern     string
+		isRegex     bool
+		before      int
+		after       int
+		lineNumbers bool
+	)
+	cmd := &cobra.Command{
+		Use:   "source <page>",
+		Short: "Read a wiki page's content",
+		Long: `Read the content of a wiki page, with the same slicing the code-source
+command offers: head/tail, line ranges, and pattern search with context.
+
+<page> accepts what search, browse and xrefs hand back: a slug, that slug with
+its .md extension, or a path relative to the wiki directory. Lookup is
+case-insensitive.
+
+Use --project to read a page belonging to another project in the ecosystem —
+` + brand.BinName() + ` cluster projects lists their directories.
+
+Examples:
+  ` + brand.BinName() + ` wiki source auth-flow
+  ` + brand.BinName() + ` wiki source auth-flow --head 40
+  ` + brand.BinName() + ` wiki source auth-flow --start-line 20 --end-line 60 --line-numbers
+  ` + brand.BinName() + ` wiki source auth-flow --pattern "token" --before 2 --after 4
+  ` + brand.BinName() + ` wiki source correction-x --wiki memory
+  ` + brand.BinName() + ` wiki source auth-flow --project /path/to/other-project`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiSource(args[0], wikiScope, contextName, projectDir, textslice.Request{
+				Head:        head,
+				Tail:        tail,
+				StartLine:   startLine,
+				EndLine:     endLine,
+				Pattern:     pattern,
+				IsRegex:     isRegex,
+				Before:      before,
+				After:       after,
+				LineNumbers: lineNumbers,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&wikiScope, "wiki", "project", "Wiki scope: project or memory")
+	cmd.Flags().StringVar(&contextName, "context", "", "Named imported knowledge context")
+	cmd.Flags().StringVar(&projectDir, "project", "", "Read from another project's wiki (absolute path)")
+	cmd.Flags().IntVar(&head, "head", 0, "Show only the first N lines")
+	cmd.Flags().IntVar(&tail, "tail", 0, "Show only the last N lines")
+	cmd.Flags().IntVar(&startLine, "start-line", 0, "Start line number (1-indexed)")
+	cmd.Flags().IntVar(&endLine, "end-line", 0, "End line number (1-indexed, inclusive)")
+	cmd.Flags().StringVar(&pattern, "pattern", "", "Search for a pattern within the page")
+	cmd.Flags().BoolVar(&isRegex, "regex", false, "Treat --pattern as a regular expression")
+	cmd.Flags().IntVar(&before, "before", 0, "Context lines before each match")
+	cmd.Flags().IntVar(&after, "after", 0, "Context lines after each match")
+	cmd.Flags().BoolVar(&lineNumbers, "line-numbers", false, "Include line numbers in the output")
 	return cmd
 }
 

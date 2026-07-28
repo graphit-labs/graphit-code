@@ -25,6 +25,8 @@ func RuleContent(contexts []string) string {
 	memList := brand.MCPToolName("memory", "list")
 	memImportant := brand.MCPToolName("memory", "important")
 
+	wikiSourceRef := brand.MCPToolRef("wiki", "source")
+	wikiSource := brand.MCPToolName("wiki", "source")
 	memGc := brand.MCPToolName("memory", "gc")
 	memGcRef := brand.MCPToolRef("memory", "gc")
 	memPromoteRef := brand.MCPToolRef("memory", "promote")
@@ -112,6 +114,7 @@ func RuleContent(contexts []string) string {
 		"| Remembering facts \"in your head\" | Call "+memInsertRef+" to persist | Your context is wiped between sessions — unpersisted knowledge is lost |",
 		"| `grep`/ripgrep over memory `.md` files | Call "+memSearchRef+" | FTS5-ranked over the compiled wiki (~200 tokens) vs scanning raw files |",
 		"| Reading `"+brand.DotDir()+"/memory/*/index.md` directly | Call "+memSearchRef+" or `"+memList+"` | The wiki is compiled and ranked; raw reads bypass ranking and waste tokens |",
+		"| Opening a memory page with your file-read tool | Call "+wikiSourceRef+" with `wiki: \"memory\"` | Takes the project as a parameter, so it reaches memories outside your workspace — and slices a long memory down to the part you asked for |",
 		"",
 		"### 🔒 When you MUST use the memory MCP tools (MANDATORY — no exceptions)",
 		"",
@@ -244,8 +247,21 @@ func RuleContent(contexts []string) string {
 		"**Retrieval steps:**",
 		"1. Call "+memSearchRef+" with query context — get ranked results",
 		"2. If results reference related memories, call "+memSearchRef+" again with refined query",
-		"3. If you need deeper understanding, browse the wiki pages referenced in search results via "+brand.MCPToolRef("wiki", "browse")+" with `wiki: \"memory\"`, read their full content, follow `[[wikilinks]]`, and synthesize the answer yourself.",
-		"4. **Never** read .md memory files directly or grep raw memory files",
+		"3. Read the page itself with "+wikiSourceRef+" — `wiki: \"memory\"` — then follow its",
+		"   `[[wikilinks]]` and synthesize the answer yourself:",
+		"   ```",
+		"   "+wikiSource+"(project_dir: \"/path/to/project\", path: \"<slug from search>\", wiki: \"memory\")",
+		"",
+		"   # only the part that matters, on a long memory",
+		"   "+wikiSource+"(project_dir: \"/path/to/project\", path: \"<slug>\", wiki: \"memory\", pattern: \"<term>\", before: 2, after: 4)",
+		"",
+		"   # a sibling project's memory — a file read cannot reach outside your workspace",
+		"   "+wikiSource+"(project_dir: \"<sibling dir>\", path: \"<slug>\", wiki: \"memory\")",
+		"   ```",
+		"   For the catalogue rather than one page, "+brand.MCPToolRef("wiki", "browse")+" with `wiki: \"memory\"`.",
+		"4. **Never** read .md memory files directly or grep raw memory files — "+wikiSourceRef+" is how",
+		"   a memory gets read, and it is the only way that works when the memory belongs to another",
+		"   project.",
 		"",
 		"## 📋 MCP Tools Reference",
 		"",
@@ -406,7 +422,7 @@ func MandateTrigger() string {
 			"you are about to write to any IDE-native or model-native memory — do this instead, never that",
 			"the question is about another project in the ecosystem — its memories hold why it is the way it is; pass its `project_dir` instead of re-deriving that from its code",
 		},
-		[]string{"memory_search", "memory_insert", "memory_update", "memory_list", "memory_important", "memory_promote", "memory_demote", "memory_delete", "memory_index", "memory_gc", "memory_schema", "memory_export", "memory_sync", "memory_remove"},
+		[]string{"memory_search", "memory_insert", "memory_update", "memory_list", "memory_important", "memory_promote", "memory_demote", "memory_delete", "memory_index", "memory_gc", "memory_schema", "memory_export", "memory_sync", "memory_remove", "wiki_source"},
 	)
 }
 

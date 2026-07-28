@@ -3,22 +3,23 @@ package ast
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/textslice"
 )
 
 type SourceRequest struct {
-	Path       string
-	Entity     string
-	EntityType string
-	Head       int
-	Tail       int
-	StartLine  int
-	EndLine    int
-	Pattern    string
-	IsRegex    bool
-	Before     int
-	After      int
+	Path        string
+	Entity      string
+	EntityType  string
+	Head        int
+	Tail        int
+	StartLine   int
+	EndLine     int
+	Pattern     string
+	IsRegex     bool
+	Before      int
+	After       int
 	LineNumbers bool
 }
 
@@ -237,102 +238,29 @@ func (s *SourceService) resolveEntity(ctx context.Context, req SourceRequest) (*
 	return info, nil
 }
 
+// searchPattern, formatMatches and formatWithLineNumbers delegate to textslice:
+// slicing text is identical whether it came from the code graph or from a wiki
+// directory, and only the fetching differs. Fetching is what stays here.
 func (s *SourceService) searchPattern(lines []string, lineOffset int, req SourceRequest) ([]SourceMatch, error) {
-	var matcher func(string) bool
-
-	if req.IsRegex {
-		re, err := regexp.Compile(req.Pattern)
-		if err != nil {
-			return nil, fmt.Errorf("invalid regex pattern %q: %w", req.Pattern, err)
-		}
-		matcher = re.MatchString
-	} else {
-		patLower := strings.ToLower(req.Pattern)
-		matcher = func(line string) bool {
-			return strings.Contains(strings.ToLower(line), patLower)
-		}
+	matches, err := textslice.Search(lines, lineOffset, req.Pattern, req.IsRegex, req.Before, req.After)
+	if err != nil {
+		return nil, err
 	}
-
-	matchLines := make([]int, 0)
-	for i, line := range lines {
-		if matcher(line) {
-			matchLines = append(matchLines, i)
-		}
+	out := make([]SourceMatch, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, SourceMatch(m))
 	}
-
-	if len(matchLines) == 0 {
-		return nil, nil
-	}
-
-	included := make(map[int]bool)
-	for _, mi := range matchLines {
-		start := mi - req.Before
-		if start < 0 {
-			start = 0
-		}
-		end := mi + req.After
-		if end >= len(lines) {
-			end = len(lines) - 1
-		}
-		for j := start; j <= end; j++ {
-			included[j] = true
-		}
-	}
-
-	matchSet := make(map[int]bool, len(matchLines))
-	for _, mi := range matchLines {
-		matchSet[mi] = true
-	}
-
-	sortedIndices := make([]int, 0, len(included))
-	for idx := range included {
-		sortedIndices = append(sortedIndices, idx)
-	}
-	sortInts(sortedIndices)
-
-	var matches []SourceMatch
-	for _, idx := range sortedIndices {
-		matches = append(matches, SourceMatch{
-			LineNumber: lineOffset + idx,
-			Line:       lines[idx],
-			IsMatch:    matchSet[idx],
-		})
-	}
-
-	return matches, nil
+	return out, nil
 }
 
 func formatMatches(matches []SourceMatch) string {
-	var sb strings.Builder
-	prevLine := -1
-	for i, m := range matches {
-		if i > 0 && m.LineNumber > prevLine+1 {
-			sb.WriteString("---\n")
-		}
-		marker := " "
-		if m.IsMatch {
-			marker = ">"
-		}
-		fmt.Fprintf(&sb, "%s %4d: %s\n", marker, m.LineNumber, m.Line)
-		prevLine = m.LineNumber
+	converted := make([]textslice.Match, 0, len(matches))
+	for _, m := range matches {
+		converted = append(converted, textslice.Match(m))
 	}
-	return strings.TrimRight(sb.String(), "\n")
+	return textslice.FormatMatches(converted)
 }
 
 func formatWithLineNumbers(lines []string, offset int) string {
-	var sb strings.Builder
-	for i, line := range lines {
-		fmt.Fprintf(&sb, "%4d: %s\n", offset+i, line)
-	}
-	return strings.TrimRight(sb.String(), "\n")
-}
-
-
-
-func sortInts(a []int) {
-	for i := 1; i < len(a); i++ {
-		for j := i; j > 0 && a[j] < a[j-1]; j-- {
-			a[j], a[j-1] = a[j-1], a[j]
-		}
-	}
+	return textslice.FormatWithLineNumbers(lines, offset)
 }
