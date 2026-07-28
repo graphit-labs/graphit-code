@@ -25,7 +25,7 @@ import (
 // to open. Without the injection this test would only run on a machine where the
 // launcher had already unpacked a runtime.
 func TestDocstringsSurviveTheRealQueryPipeline(t *testing.T) {
-	repoQueries, err := filepath.Abs(filepath.Join("queries"))
+	repoQueries, err := filepath.Abs("queries")
 	if err != nil {
 		t.Fatal(err)
 	}

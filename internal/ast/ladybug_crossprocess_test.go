@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -46,14 +47,17 @@ func TestCrossProcessReaderHelper(t *testing.T) {
 		fmt.Printf("OPEN_FAILED %v\n", err)
 		os.Exit(3)
 	}
-	defer db.Close()
 	conn, err := lbug.OpenConnection(db)
 	if err != nil {
 		fmt.Printf("CONN_FAILED %v\n", err)
+		db.Close()
 		os.Exit(4)
 	}
-	defer conn.Close()
 
+	// No defers past this point. This function is a subprocess entry point whose
+	// every exit is an os.Exit, which does not run them — leaving the handles to
+	// a deferred close would mean never closing them, and the parent waits on a
+	// database this process still holds.
 	deadline := time.Now().Add(20 * time.Second)
 	reads, anomalies := 0, 0
 	for time.Now().Before(deadline) {
@@ -91,6 +95,8 @@ func TestCrossProcessReaderHelper(t *testing.T) {
 		}
 	}
 	fmt.Printf("READS %d ANOMALIES %d\n", reads, anomalies)
+	conn.Close()
+	db.Close()
 	if anomalies > 0 {
 		os.Exit(5)
 	}
@@ -224,7 +230,8 @@ func TestLadybugInPlaceWritesUnderCrossProcessReaders(t *testing.T) {
 			defer wg.Done()
 			err := c.Wait()
 			results[i] = outs[i].String()
-			if ee, ok := err.(*exec.ExitError); ok {
+			var ee *exec.ExitError
+			if errors.As(err, &ee) {
 				codes[i] = ee.ExitCode()
 			} else if err != nil {
 				codes[i] = -1

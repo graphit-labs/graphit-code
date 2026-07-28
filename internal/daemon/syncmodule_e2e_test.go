@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -205,7 +206,7 @@ func TestSyncModuleEndToEnd(t *testing.T) {
 	cancel()
 	select {
 	case err := <-errCh:
-		if err != nil && err != context.Canceled {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			t.Errorf("sync module exited with %v, want context.Canceled", err)
 		}
 	case <-time.After(10 * time.Second):

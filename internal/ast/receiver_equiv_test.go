@@ -112,7 +112,7 @@ func TestResolveReceiverTypesMatchesLegacy(t *testing.T) {
 func benchReceiverInput() (*ParsedFile, []byte, *ExternalQueryFile) {
 	var b strings.Builder
 	for i := 0; i < 4000; i++ {
-		b.WriteString(fmt.Sprintf("  this.doThing() // line %d\n", i))
+		fmt.Fprintf(&b, "  this.doThing() // line %d\n", i)
 	}
 	src := []byte(b.String())
 	pf := &ParsedFile{
