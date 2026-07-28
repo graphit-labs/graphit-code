@@ -71,11 +71,9 @@ def beta(x):
     return x
 `,
 			want: map[string]string{
-				// KNOWN DEFECT, also predates the change and also verified against
-				// the previous implementation: cleanDocstring strips the opening
-				// triple quote of a Python docstring but not the closing one, so
-				// every Python docstring reaches the index with a trailing """.
-				"alpha": `Alpha docstring."""`,
+				// cleanDocstring used to strip only opening markers, so this came
+				// back as `Alpha docstring."""`. It now strips closing ones too.
+				"alpha": "Alpha docstring.",
 				"beta":  "beta comment",
 			},
 		},

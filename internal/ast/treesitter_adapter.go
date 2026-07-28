@@ -2,6 +2,9 @@ package ast
 
 import (
 	"fmt"
+	"log/slog"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -374,6 +377,11 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 
 	attachDocstringsTS(docSites, src, result, docM)
 
+	// Comments are entities in their own right, in every language: the text is
+	// the name, so "what does the documentation say" is answerable by search.
+	extractCommentsTS(root, src, result,
+		commentQueryFor(cfg.Grammar, lang, langConfig), docM, filepath.Base(path))
+
 	relationTypes := buildRelationTypeMap(rpcQueries)
 	attachDecorators(result, relationTypes)
 
@@ -567,6 +575,128 @@ func newDocstringMatchers(langConfig *ExternalQueryFile, lang *sitter.Language) 
 		decl: newKindMatcher(lang, declTypes),
 		com:  newKindMatcher(lang, comTypes),
 		on:   true,
+	}
+}
+
+// commentQueryCache holds one synthesized comment query per grammar.
+var commentQueryCache sync.Map // map[string]*sitter.Query
+
+// commentQueryFor builds a query matching every comment node kind the grammar
+// actually has.
+//
+// Comments are not reachable through the per-language query files: those describe
+// declarations, and no language declares a pattern for its own comments. Scanning
+// the tree for them would reintroduce the whole-file traversal that was just
+// removed, so the kinds are turned into one query instead and run by the same
+// engine, on the C side, as part of the existing pass.
+//
+// Kinds absent from a grammar are dropped rather than passed through, because a
+// single unknown node kind makes the whole query fail to compile — and the set of
+// comment kinds is a union across languages, so most of it is absent from any one
+// of them.
+func commentQueryFor(grammarName string, lang *sitter.Language, langConfig *ExternalQueryFile) *sitter.Query {
+	if lang == nil {
+		return nil
+	}
+	if v, ok := commentQueryCache.Load(grammarName); ok {
+		q, _ := v.(*sitter.Query)
+		return q
+	}
+
+	kinds := make([]string, 0, len(defaultCommentTypes)+4)
+	seen := map[string]bool{}
+	add := func(k string) {
+		if k == "" || seen[k] {
+			return
+		}
+		seen[k] = true
+		if lang.IdForNodeKind(k, true) != 0 {
+			kinds = append(kinds, k)
+		}
+	}
+	if langConfig != nil {
+		for _, c := range langConfig.CommentTypes {
+			add(c)
+		}
+	}
+	for k := range defaultCommentTypes {
+		add(k)
+	}
+	sort.Strings(kinds)
+
+	var q *sitter.Query
+	if len(kinds) > 0 {
+		var b strings.Builder
+		b.WriteByte('[')
+		for _, k := range kinds {
+			b.WriteString("(" + k + ")")
+		}
+		b.WriteString("] @c")
+		compiled, err := sitter.NewQuery(lang, b.String())
+		if err != nil {
+			slog.Warn("comment query failed to compile", "grammar", grammarName, "error", err)
+		} else {
+			q = compiled
+		}
+	}
+	commentQueryCache.Store(grammarName, q)
+	return q
+}
+
+// extractCommentsTS records every comment in the file as an entity whose name is
+// the comment's own text, and attaches it to what it documents.
+//
+// A comment that sits immediately before a declaration documents that
+// declaration and points at it. Every other comment — a note inside a function
+// body, a licence header, a commented-out line — points at the file, so it is
+// still reachable rather than being dropped for having no owner.
+func extractCommentsTS(root *sitter.Node, src []byte, result *ParsedFile,
+	q *sitter.Query, m docstringMatchers, fileName string) {
+	if q == nil || SafeIsNull(root) {
+		return
+	}
+
+	qc := queryCursorPool.Get().(*sitter.QueryCursor)
+	defer queryCursorPool.Put(qc)
+
+	seen := map[string]bool{}
+	matches := qc.Matches(q, root, src)
+	for {
+		match := matches.Next()
+		if match == nil {
+			break
+		}
+		for ci := range match.Captures {
+			node := &match.Captures[ci].Node
+			text := cleanDocstring(node.Utf8Text(src))
+			if text == "" || seen[text] {
+				continue
+			}
+			seen[text] = true
+
+			line := int(node.StartPosition().Row) + 1
+			target := fileName
+			if m.on {
+				if next := node.NextSibling(); !SafeIsNull(next) && m.decl.match(next) {
+					if nameNode := SafeChildByFieldName(next, "name"); !SafeIsNull(nameNode) {
+						target = nameNode.Utf8Text(src)
+					}
+				}
+			}
+
+			result.AddEntity("comments", Entity{
+				Name:       text,
+				Line:       line,
+				EndLine:    int(node.EndPosition().Row) + 1,
+				GraphLabel: LabelComment,
+			})
+			result.References = append(result.References, ReferenceInfo{
+				SourceName: text,
+				TargetName: target,
+				RelType:    "REFERENCES",
+				Line:       line,
+			})
+		}
 	}
 }
 

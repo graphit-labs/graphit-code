@@ -11,10 +11,21 @@ func cleanDocstring(raw string) string {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 
-		for _, prefix := range []string{"///", "//!", "//", "/**", "*/", "*", "# ", "#", `"""`, "'''", "/*"} {
+		for _, prefix := range []string{"///", "//!", "//", "/**", "*/", "*", "# ", "#", `"""`, "'''", "/*", "--", "<!--"} {
 			if strings.HasPrefix(line, prefix) {
 				line = strings.TrimPrefix(line, prefix)
 				line = strings.TrimSpace(line)
+				break
+			}
+		}
+
+		// Closing markers were never removed, only opening ones, so a one-line
+		// Python docstring came out as `Alpha docstring."""` and a one-line block
+		// comment kept its `*/`. The name of a Comment entity is the text itself,
+		// which makes the leftovers visible to anyone searching.
+		for _, suffix := range []string{`"""`, "'''", "*/", "-->"} {
+			if strings.HasSuffix(line, suffix) {
+				line = strings.TrimSpace(strings.TrimSuffix(line, suffix))
 				break
 			}
 		}
