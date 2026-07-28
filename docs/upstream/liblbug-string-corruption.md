@@ -48,13 +48,25 @@ corruption. They are listed so the same ground is not covered again.
 | **Garbage collection moving or freeing the Go string behind a C pointer** | `debug.SetGCPercent(1)` plus a goroutine calling `runtime.GC()` continuously, during 3000 batched inserts, with a second connection reading the same table throughout | no corruption |
 | **Illegal Go pointer passed into C by the binding** | the same probe rebuilt with `GOEXPERIMENT=cgocheck2`, which validates every pointer crossing the cgo boundary | clean, no diagnostic |
 
-## What has not been ruled out
+| **Scale combined with value size** | the field run reproduced exactly: 35358 rows, 866 MB of accented text including the C1 control characters, written in batches of 64, then `CREATE_FTS_INDEX` over the same column and a full scan of every row | index built cleanly, 35358 of 35358 rows returned, **0 invalid, 0 wrong length** |
 
-The one dimension no probe has matched is **scale combined with value size**: the field
-failure wrote 35358 rows whose values were whole source files, and produced 4 bad rows —
-roughly one in nine thousand. The largest probe run to date is 3000 rows of synthetic text.
-A defect at that rate may simply need the larger run to surface, and reproducing it may
-require a buffer or arena that only recycles after a certain volume.
+## Where this leaves the diagnosis
+
+With volume ruled out alongside content shape, concurrency and cgo pointer handling, the
+honest conclusion is that **this report may be misdirected**. A synthetic run matching the
+field failure on row count, value size, byte composition, batch size and index build produces
+nothing.
+
+What the probes do not reproduce is the *path the strings travel before reaching the
+database*: in the field they are produced by a parser, held in a shard cache, serialised to
+JSON and read back, then handed to the writer, with several worker goroutines in flight.
+Every probe here hands the database a string built inline moments earlier.
+
+So the next place to look is upstream of the database — the parse cache round trip and the
+string handling in the reporting project itself — rather than in liblbug. This file is left
+in place because the eliminations are worth having on record, and because a storage-layer
+defect that only volume plus real content triggers is not impossible. But it should not be
+filed as a liblbug bug on the current evidence.
 
 ## Reproduction
 

@@ -88,6 +88,41 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  # ── Cross-platform ────────────────────────────────────────────────────────
+  # The filesystem watcher is the one component whose behaviour is supplied by
+  # the operating system: inotify on Linux, kqueue on macOS,
+  # ReadDirectoryChangesW on Windows. It replaced a git-status poll that behaved
+  # identically everywhere, and until this job existed it had only ever been
+  # executed on Linux — the Tests job above is ubuntu-only, and the macOS and
+  # Windows runners in this repository build releases without running tests.
+  #
+  # Only the packages that need no CGO, no ICU and no LadybugDB are run here, so
+  # the job needs no platform-specific dependency setup and stays fast. That is
+  # exactly the watcher and the ignore rules it consults.
+  watcher-cross-platform:
+    name: Watcher (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Timing-sensitive by nature: the watcher debounces, and a shared runner
+      # is slower and noisier than a workstation. -count=1 defeats the test
+      # cache so a green result means it actually ran on this platform.
+      - name: Watcher and ignore rules
+        run: go test -race -count=1 -timeout 10m ./internal/fswatch/... ./internal/ignorer/...
+
   # ── Security ──────────────────────────────────────────────────────────────
   security:
     name: Security Scan

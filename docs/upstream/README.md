@@ -15,12 +15,13 @@ upstream).
 | `liblbug-close-and-unwind.md` | LadybugDB/liblbug 0.18.2 | média | `Close()` até 5s; crash em `UNWIND ... CREATE` |
 | `liblbug-string-corruption.md` | LadybugDB/liblbug 0.18.2 | alta | **perda silenciosa de dado** |
 
-Quatro dos cinco têm repro mínimo. O quinto, `liblbug-string-corruption.md`, **não tem** — é
-a observação de campo mais a lista do que já foi eliminado, e está escrito assim de propósito.
-Três sessões tentaram reduzi-lo; a última eliminou escrita concorrente (o motor a proíbe),
-pressão de coletor e passagem ilegal de ponteiro Go para C (`GOEXPERIMENT=cgocheck2` limpo).
-O que resta não testado é escala junto com tamanho de valor: o caso de campo eram 35358 linhas
-de arquivos inteiros para 4 linhas ruins, e a maior sonda até hoje tem 3000 linhas sintéticas.
+Quatro dos cinco têm repro mínimo. O quinto, `liblbug-string-corruption.md`, **não tem, e
+provavelmente não deve ser enviado como está** — a sonda em escala de campo (35358 linhas,
+866 MB, mesma composição de bytes, mesmo build de índice) não reproduz nada. Com volume
+eliminado junto com forma do dado, concorrência e ponteiro cgo, a suspeita passa a recair no
+caminho que as strings percorrem **antes** do banco: parser, cache de shard, ida e volta em
+JSON, várias goroutines. Nenhuma sonda cobre isso; todas entregam ao banco uma string montada
+ali mesmo. O arquivo fica pelo valor das eliminações registradas.
 
 O de maior valor para nós é `liblbug-fts-insert.md`: enquanto ele não for corrigido, cada
 atualização incremental do índice de busca recria sete índices FTS sobre o corpus inteiro.
