@@ -39,8 +39,8 @@ func (c *CompositeParser) Parse(path string, isDepend bool, opts ParseOptions) (
 		return c.parseWithGrammar(path, grammar, isDepend, opts)
 	}
 
-	hasTS := HasTreeSitterForExtension(ext)
-	hasAntlr := HasAntlrForExtension(ext)
+	hasTS := HasTreeSitterForExtensionIn(c.treeSitter.projectDir, ext)
+	hasAntlr := HasAntlrForExtensionIn(c.treeSitter.projectDir, ext)
 
 	if hasAntlr && !hasTS {
 		pf, err := c.antlr.Parse(path, isDepend, opts)

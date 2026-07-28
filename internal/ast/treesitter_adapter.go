@@ -90,29 +90,119 @@ var queryCursorPool = sync.Pool{
 	},
 }
 
-func initTsExtMap() {
-	tsExtMap = make(map[string]*tsLangConfig)
-	tsGrammarMap = make(map[string]*tsLangConfig)
+// tsConfigOf builds the extension config a query file describes, or nil when the
+// file is not a tree-sitter language.
+func tsConfigOf(qf ExternalQueryFile) *tsLangConfig {
+	if qf.Parser == "antlr4" {
+		return nil
+	}
+	grammar := qf.Grammar
+	if grammar == "" {
+		grammar = "tree-sitter-" + qf.Language
+	}
+	return &tsLangConfig{
+		Language:   qf.Language,
+		Grammar:    grammar,
+		Extensions: qf.Extensions,
+	}
+}
 
-	runtimeQ := loadRuntimeCached()
-	for _, qf := range runtimeQ {
-		if qf.Parser == "antlr4" {
+// extTablesMu guards the four global extension tables.
+//
+// They used to be written once at package init and read forever, so no lock was
+// needed. They are now rebuilt whenever the runtime or user query directory
+// changes under a running process, which makes them shared mutable state. Reads
+// are on the per-file hot path, hence RWMutex rather than a plain Mutex.
+var extTablesMu sync.RWMutex
+
+// rebuildExtTables recomputes the languages that exist for every project: the
+// installed runtime, then the user's own global query directory on top.
+//
+// Project-scoped languages are not here — there is no single project — and are
+// resolved per directory by tsLangConfigFor.
+func rebuildExtTables() {
+	runtimeQ := runtimeQueryState.cached()
+	userQ := userQueryState.cached()
+
+	ts := make(map[string]*tsLangConfig)
+	tsGram := make(map[string]*tsLangConfig)
+	antlrExt := make(map[string][]*antlrLangConfig)
+	antlrGram := make(map[string]*antlrLangConfig)
+
+	register := func(files []ExternalQueryFile) {
+		for _, qf := range files {
+			if qf.Parser == "antlr4" {
+				cfg := antlrConfigOf(qf)
+				for _, ext := range qf.Extensions {
+					e := strings.ToLower(ext)
+					antlrExt[e] = append(antlrExt[e], cfg)
+				}
+				antlrGram[cfg.Grammar] = cfg
+				continue
+			}
+			cfg := tsConfigOf(qf)
+			if cfg == nil {
+				continue
+			}
+			for _, ext := range qf.Extensions {
+				ts[strings.ToLower(ext)] = cfg
+			}
+			tsGram[cfg.Grammar] = cfg
+		}
+	}
+	register(runtimeQ)
+	// The user directory outranks the runtime, matching resolveQueriesForLang.
+	register(userQ)
+
+	extTablesMu.Lock()
+	tsExtMap, tsGrammarMap = ts, tsGram
+	antlrExtMap, antlrGrammarMap = antlrExt, antlrGram
+	extTablesMu.Unlock()
+}
+
+func initTsExtMap() {
+	loadRuntimeCached()
+	loadUserCached()
+	rebuildExtTables()
+}
+
+// projectTsExtCache memoizes the per-project extension table, keyed by project
+// directory. loadProjectCached already caches the parsed files; this caches the
+// small map derived from them so it is not rebuilt once per file indexed.
+var projectTsExtCache sync.Map // map[string]map[string]*tsLangConfig
+
+func projectTsExtMap(projectDir string) map[string]*tsLangConfig {
+	if v, ok := projectTsExtCache.Load(projectDir); ok {
+		return v.(map[string]*tsLangConfig)
+	}
+	m := make(map[string]*tsLangConfig)
+	for _, qf := range loadProjectCached(projectDir) {
+		cfg := tsConfigOf(qf)
+		if cfg == nil {
 			continue
 		}
-		grammar := qf.Grammar
-		if grammar == "" {
-			grammar = "tree-sitter-" + qf.Language
-		}
-		cfg := &tsLangConfig{
-			Language:   qf.Language,
-			Grammar:    grammar,
-			Extensions: qf.Extensions,
-		}
 		for _, ext := range qf.Extensions {
-			tsExtMap[ext] = cfg
+			m[strings.ToLower(ext)] = cfg
 		}
-		tsGrammarMap[grammar] = cfg
 	}
+	projectTsExtCache.Store(projectDir, m)
+	return m
+}
+
+// tsLangConfigFor resolves an extension for one project: the project's own query
+// files first, then the global table. This is the lookup that lets a project
+// introduce a language, rather than only override one the runtime declares.
+func tsLangConfigFor(projectDir, ext string) (*tsLangConfig, bool) {
+	ext = strings.ToLower(ext)
+	if projectDir != "" {
+		if cfg, ok := projectTsExtMap(projectDir)[ext]; ok {
+			return cfg, true
+		}
+	}
+	extTablesMu.RLock()
+	defer extTablesMu.RUnlock()
+	cfg, ok := tsExtMap[ext]
+	return cfg, ok
 }
 
 func init() {
@@ -125,7 +215,7 @@ type TreeSitterParser struct {
 
 func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
-	cfg, ok := tsExtMap[ext]
+	cfg, ok := tsLangConfigFor(t.projectDir, ext)
 	if !ok {
 		return nil, fmt.Errorf("no grammar for %s", ext)
 	}
@@ -133,7 +223,9 @@ func (t *TreeSitterParser) Parse(path string, isDepend bool, opts ParseOptions) 
 }
 
 func (t *TreeSitterParser) ParseWithGrammar(path, grammarName string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
+	extTablesMu.RLock()
 	cfg, ok := tsGrammarMap[grammarName]
+	extTablesMu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("unknown tree-sitter grammar: %s", grammarName)
 	}
@@ -205,6 +297,11 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 	// that text on the Entity.
 	exportStrategy, exportCfg, exportCfgList := exportStrategyOf(langConfig)
 
+	// Declaration nodes for the entities found below, collected while their name
+	// nodes are already in hand. See attachDocstringsTS.
+	docM := newDocstringMatchers(langConfig, lang)
+	var docSites []*sitter.Node
+
 	for i, ce := range compiledEntries {
 		qdef := rpcQueries[i]
 
@@ -261,6 +358,12 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 					ContextType:    contextType,
 				})
 
+				if docM.on && qdef.GraphLabel != "" {
+					if decl := declSiteFor(&capture.Node, docM); decl != nil {
+						docSites = append(docSites, decl)
+					}
+				}
+
 				if specificLabels[qdef.GraphLabel] {
 					seenNames[name] = true
 				}
@@ -269,7 +372,7 @@ func (t *TreeSitterParser) parseWithConfig(path, ext string, cfg *tsLangConfig, 
 		queryCursorPool.Put(qc)
 	}
 
-	extractDocstringsTS(root, src, result, langConfig, lang)
+	attachDocstringsTS(docSites, src, result, docM)
 
 	relationTypes := buildRelationTypeMap(rpcQueries)
 	attachDecorators(result, relationTypes)
@@ -431,13 +534,17 @@ func (m kindMatcher) match(n *sitter.Node) bool {
 	return m.names[n.Kind()]
 }
 
-func extractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, langConfig *ExternalQueryFile, lang *sitter.Language) {
-	if SafeIsNull(root) {
-		return
-	}
+// docstringMatchers holds the compiled declaration/comment matchers for a file,
+// or reports that the language has no declaration types and docstrings are not
+// extracted at all.
+type docstringMatchers struct {
+	decl kindMatcher
+	com  kindMatcher
+	on   bool
+}
 
-	var declTypes map[string]bool
-	var comTypes map[string]bool
+func newDocstringMatchers(langConfig *ExternalQueryFile, lang *sitter.Language) docstringMatchers {
+	var declTypes, comTypes map[string]bool
 	if langConfig != nil && len(langConfig.DeclarationTypes) > 0 {
 		declTypes = make(map[string]bool, len(langConfig.DeclarationTypes))
 		for _, dt := range langConfig.DeclarationTypes {
@@ -451,14 +558,53 @@ func extractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, lang
 		}
 	}
 	if declTypes == nil {
-		return
+		return docstringMatchers{}
 	}
 	if comTypes == nil {
 		comTypes = defaultCommentTypes
 	}
+	return docstringMatchers{
+		decl: newKindMatcher(lang, declTypes),
+		com:  newKindMatcher(lang, comTypes),
+		on:   true,
+	}
+}
 
-	declM := newKindMatcher(lang, declTypes)
-	comM := newKindMatcher(lang, comTypes)
+// declSiteFor returns the innermost ancestor of a captured name node that the
+// language calls a declaration, or nil.
+//
+// Queries capture the name, not the declaration around it, and how far apart the
+// two sit depends on the grammar — one level for `function_declaration name:`,
+// two for a Go `var_declaration > var_spec`. Walking up from the capture costs a
+// handful of steps per entity; finding the same nodes by scanning the tree costs
+// one visit per node in the file.
+func declSiteFor(nameNode *sitter.Node, m docstringMatchers) *sitter.Node {
+	for n := SafeParent(nameNode); !SafeIsNull(n); n = SafeParent(n) {
+		if m.decl.match(n) {
+			return n
+		}
+	}
+	return nil
+}
+
+// attachDocstringsTS assigns each declaration's documentation to the entity that
+// shares its line and name.
+//
+// This used to run as a second full traversal of the tree, after the query pass
+// had already found every entity. The traversal visited every node to locate the
+// few that are declarations, and each visit crosses into the C library several
+// times (child, kind, null checks), so its cost tracked file size rather than
+// entity count. The query pass already holds the nodes, so the sites are
+// collected there and only they are examined here.
+//
+// The pairing rule is unchanged: a declaration documents the entity recorded at
+// the declaration's own start line under the declaration's own name. Declarations
+// whose name sits on a later line than the declaration keyword — a signature
+// broken across lines — therefore still go undocumented, exactly as before.
+func attachDocstringsTS(sites []*sitter.Node, src []byte, result *ParsedFile, m docstringMatchers) {
+	if !m.on || len(sites) == 0 {
+		return
+	}
 
 	type entityKey struct {
 		line int
@@ -473,70 +619,50 @@ func extractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile, lang
 			}
 		}
 	}
+	if len(entityIdx) == 0 {
+		return
+	}
 
-	var walk func(node *sitter.Node)
-	walk = func(node *sitter.Node) {
-		childCount := SafeChildCount(node)
-		for i := 0; i < childCount; i++ {
-			child := SafeChild(node, i)
-			if SafeIsNull(child) {
-				continue
+	for _, decl := range sites {
+		if SafeIsNull(decl) {
+			continue
+		}
+		nameNode := SafeChildByFieldName(decl, "name")
+		if SafeIsNull(nameNode) {
+			continue
+		}
+		sp := decl.StartPosition()
+		e, ok := entityIdx[entityKey{int(sp.Row) + 1, nameNode.Utf8Text(src)}]
+		if !ok {
+			continue
+		}
+
+		// A comment immediately preceding the declaration.
+		if prev := decl.PrevSibling(); !SafeIsNull(prev) && m.com.match(prev) {
+			if commentText := cleanDocstring(prev.Utf8Text(src)); commentText != "" {
+				e.Docstring = commentText
 			}
+		}
 
-			if declM.match(child) {
-				if i > 0 {
-					prev := SafeChild(node, i-1)
-					if !SafeIsNull(prev) {
-						if comM.match(prev) {
-							commentText := cleanDocstring(prev.Utf8Text(src))
-							if commentText != "" {
-								sp := child.StartPosition()
-								declLine := int(sp.Row) + 1
-								nameNode := SafeChildByFieldName(child, "name")
-								if !SafeIsNull(nameNode) {
-									name := nameNode.Utf8Text(src)
-									if e, ok := entityIdx[entityKey{declLine, name}]; ok {
-										e.Docstring = commentText
-									}
-								}
-							}
-						}
-					}
-				}
-
-				if kind := SafeType(child); kind == "function_definition" || kind == "class_definition" {
-					body := SafeChildByFieldName(child, "body")
-					if !SafeIsNull(body) {
-						if SafeChildCount(body) > 0 {
-							firstStmt := SafeChild(body, 0)
-							if !SafeIsNull(firstStmt) {
-								if SafeType(firstStmt) == "expression_statement" {
-									if SafeChildCount(firstStmt) > 0 {
-										expr := SafeChild(firstStmt, 0)
-										if !SafeIsNull(expr) {
-											if SafeType(expr) == "string" {
-												sp := child.StartPosition()
-												declLine := int(sp.Row) + 1
-												nameNode := SafeChildByFieldName(child, "name")
-												if !SafeIsNull(nameNode) {
-													name := nameNode.Utf8Text(src)
-													if e, ok := entityIdx[entityKey{declLine, name}]; ok && e.Docstring == "" {
-														e.Docstring = cleanDocstring(expr.Utf8Text(src))
-													}
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-			walk(child)
+		// Python-style: a bare string as the first statement of the body.
+		if e.Docstring != "" {
+			continue
+		}
+		if kind := SafeType(decl); kind != "function_definition" && kind != "class_definition" {
+			continue
+		}
+		body := SafeChildByFieldName(decl, "body")
+		if SafeChildCount(body) == 0 {
+			continue
+		}
+		firstStmt := SafeChild(body, 0)
+		if SafeType(firstStmt) != "expression_statement" || SafeChildCount(firstStmt) == 0 {
+			continue
+		}
+		if expr := SafeChild(firstStmt, 0); SafeType(expr) == "string" {
+			e.Docstring = cleanDocstring(expr.Utf8Text(src))
 		}
 	}
-	walk(root)
 }
 
 func detectExportsTS(root *sitter.Node, src []byte, result *ParsedFile, lang string, langConfig *ExternalQueryFile, relationTypes map[string]string) {
@@ -618,19 +744,32 @@ func detectExportsTS(root *sitter.Node, src []byte, result *ParsedFile, lang str
 	}
 }
 
+// HasTreeSitterForExtension answers for the languages every project has. Callers
+// that know which project they are working in should use the …In variant, or a
+// language declared only by that project's query files will be invisible to them.
 func HasTreeSitterForExtension(ext string) bool {
-	_, ok := tsExtMap[strings.ToLower(ext)]
+	return HasTreeSitterForExtensionIn("", ext)
+}
+
+func HasTreeSitterForExtensionIn(projectDir, ext string) bool {
+	_, ok := tsLangConfigFor(projectDir, ext)
 	return ok
 }
 
 func TreeSitterLangForExtension(ext string) string {
-	if cfg, ok := tsExtMap[strings.ToLower(ext)]; ok {
+	return TreeSitterLangForExtensionIn("", ext)
+}
+
+func TreeSitterLangForExtensionIn(projectDir, ext string) string {
+	if cfg, ok := tsLangConfigFor(projectDir, ext); ok {
 		return cfg.Language
 	}
 	return ""
 }
 
 func TreeSitterSupportedExtensions() []string {
+	extTablesMu.RLock()
+	defer extTablesMu.RUnlock()
 	var exts []string
 	for ext := range tsExtMap {
 		exts = append(exts, ext)

@@ -79,6 +79,11 @@ func installGrammarArchive(archivePath, projectDir, dotDir string) error {
 		return fmt.Errorf("writing grammar binary: %w", err)
 	}
 
+	// The parser caches its query directories and only re-reads them when their
+	// contents change, on a timer. An install knows it changed something, so it
+	// says so instead of letting a long-lived daemon wait out the interval.
+	ast.InvalidateQueryCaches()
+
 	return nil
 }
 
@@ -195,6 +200,8 @@ func uninstallGrammarFiles(cloneDir, projectDir, dotDir string) {
 			_ = os.Remove(target)
 		}
 	}
+
+	ast.InvalidateQueryCaches()
 }
 
 // sharedLibExt returns the platform-appropriate shared library extension.

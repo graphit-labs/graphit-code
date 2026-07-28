@@ -70,15 +70,34 @@ func itoaBench(i int) string {
 	return string(b[pos:])
 }
 
+// BenchmarkExtractDocstringsTS measures what the query pass now pays: the sites
+// are already in hand, so only they are examined.
 func BenchmarkExtractDocstringsTS(b *testing.B) {
 	root, src, cfg, lang, ents := benchDocstringTree(b)
+	m := newDocstringMatchers(cfg, lang)
+	sites := collectDeclSites(root, m)
 	b.ReportAllocs()
 	b.SetBytes(int64(len(src)))
 	for i := 0; i < b.N; i++ {
 		cp := make([]Entity, len(ents))
 		copy(cp, ents)
 		pf := &ParsedFile{Entities: map[string][]Entity{"functions": cp}}
-		extractDocstringsTS(root, src, pf, cfg, lang)
+		attachDocstringsTS(sites, src, pf, m)
+	}
+}
+
+// BenchmarkExtractDocstringsTSWithScan adds back the cost the old code paid on
+// every file: scanning the whole tree to find those same sites.
+func BenchmarkExtractDocstringsTSWithScan(b *testing.B) {
+	root, src, cfg, lang, ents := benchDocstringTree(b)
+	m := newDocstringMatchers(cfg, lang)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(src)))
+	for i := 0; i < b.N; i++ {
+		cp := make([]Entity, len(ents))
+		copy(cp, ents)
+		pf := &ParsedFile{Entities: map[string][]Entity{"functions": cp}}
+		attachDocstringsTS(collectDeclSites(root, m), src, pf, m)
 	}
 }
 

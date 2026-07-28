@@ -64,7 +64,9 @@ func (w *Watcher) Start(ctx context.Context) error {
 		Ignore:      w.ic,
 		Debounce:    w.cfg.Debounce,
 		MaxDebounce: w.cfg.MaxDebounce,
-		Accept:      func(p string) bool { return HasParserForExtension(strings.ToLower(filepath.Ext(p))) },
+		Accept: func(p string) bool {
+			return HasParserForExtensionIn(w.rootPath, strings.ToLower(filepath.Ext(p)))
+		},
 	})
 	if err != nil {
 		return err

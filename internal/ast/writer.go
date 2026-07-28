@@ -77,7 +77,7 @@ func collectFiles(rootPath string) ([]string, error) {
 		}
 
 		ext := strings.ToLower(filepath.Ext(path))
-		if HasParserForExtension(ext) {
+		if HasParserForExtensionIn(rootPath, ext) {
 			files = append(files, path)
 		}
 		return nil

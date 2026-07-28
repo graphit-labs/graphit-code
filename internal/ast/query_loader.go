@@ -5,8 +5,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -344,51 +346,174 @@ type compiledQueryEntry struct {
 	Query *sitter.Query
 }
 
-// userQueriesOnce ensures user global queries are loaded only once.
-var userQueriesOnce sync.Once
-var userQueriesCache []ExternalQueryFile
+// Query files used to be read once and kept for the life of the process. That is
+// wrong for the daemon, which runs for days: installing a grammar pack, or
+// editing a query file by hand, had no effect until it was restarted, and the
+// symptom was silence — files of the new language were skipped by discovery with
+// no error anywhere.
+//
+// Each directory is now cached against a cheap signature of its contents and
+// reloaded when that signature moves. The check is rate limited because the
+// lookups it feeds run once per file: during a 35k-file scan the directories are
+// stat-swept a handful of times, not 35k times.
+const queryStaleCheckInterval = 2 * time.Second
 
-// runtimeQueriesOnce ensures runtime queries are loaded only once.
-var runtimeQueriesOnce sync.Once
-var runtimeQueriesCache []ExternalQueryFile
+// queryDirState is one directory's cached contents plus what it looked like when
+// they were read.
+type queryDirState struct {
+	mu        sync.Mutex
+	loaded    bool
+	files     []ExternalQueryFile
+	signature string
+	lastCheck time.Time
+}
 
+// get returns the directory's query files, reloading them when the directory has
+// changed since the last look. It reports whether the contents changed, so the
+// caller can drop whatever it derived from them.
+func (s *queryDirState) get(dir string, load func() ([]ExternalQueryFile, error)) ([]ExternalQueryFile, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
+	now := time.Now()
+	if s.loaded && now.Sub(s.lastCheck) < queryStaleCheckInterval {
+		return s.files, false
+	}
+	s.lastCheck = now
+
+	sig := queryDirSignature(dir)
+	if s.loaded && sig == s.signature {
+		return s.files, false
+	}
+
+	files, err := load()
+	if err != nil {
+		slog.Warn("query load error", "dir", dir, "error", err)
+		files = nil
+	}
+	if s.loaded {
+		slog.Info("query files changed on disk, reloading", "dir", dir, "files", len(files))
+	}
+	s.files, s.signature, s.loaded = files, sig, true
+	return s.files, true
+}
+
+// cached returns what was last read, without checking the directory. The table
+// rebuild uses this: it is itself triggered by a reload, and going back through
+// get would re-enter the path that called it.
+func (s *queryDirState) cached() []ExternalQueryFile {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.files
+}
+
+// queryDirSignature describes a directory's query files well enough to notice a
+// change. The directory's own mtime is not enough: editing a file in place does
+// not move it, so each file's size and mtime are folded in. These directories
+// hold dozens of files, so the sweep is negligible next to the reload it avoids.
+func queryDirSignature(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "missing"
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		n := e.Name()
+		if !strings.HasSuffix(n, ".yaml") && !strings.HasSuffix(n, ".yml") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		names = append(names, fmt.Sprintf("%s:%d:%d", n, info.Size(), info.ModTime().UnixNano()))
+	}
+	sort.Strings(names)
+	return strings.Join(names, "|")
+}
+
+var runtimeQueryState queryDirState
+var userQueryState queryDirState
 
 func loadRuntimeCached() []ExternalQueryFile {
-	runtimeQueriesOnce.Do(func() {
-		rq, err := LoadRuntimeQueries()
-		if err != nil {
-			slog.Warn("runtime query load error", "error", err)
-		}
-		runtimeQueriesCache = rq
-	})
-	return runtimeQueriesCache
+	files, changed := runtimeQueryState.get(runtimeQueriesDir(), LoadRuntimeQueries)
+	if changed {
+		invalidateDerivedQueryCaches()
+	}
+	return files
 }
 
 func loadUserCached() []ExternalQueryFile {
-	userQueriesOnce.Do(func() {
-		uq, err := LoadUserQueries()
-		if err != nil {
-			slog.Warn("user query load error", "error", err)
-		}
-		userQueriesCache = uq
-	})
-	return userQueriesCache
+	files, changed := userQueryState.get(userQueriesDir(), LoadUserQueries)
+	if changed {
+		invalidateDerivedQueryCaches()
+	}
+	return files
 }
 
+var projectQueryStates sync.Map // map[string]*queryDirState
+
 func loadProjectCached(projectDir string) []ExternalQueryFile {
-	if cached, ok := externalQueryCache.Load(projectDir); ok {
-		return cached.([]ExternalQueryFile)
+	v, _ := projectQueryStates.LoadOrStore(projectDir, &queryDirState{})
+	st := v.(*queryDirState)
+	files, changed := st.get(projectQueriesDir(projectDir), func() ([]ExternalQueryFile, error) {
+		return LoadExternalQueries(projectDir)
+	})
+	if changed {
+		invalidateDerivedQueryCaches()
 	}
+	return files
+}
 
-	externals, err := LoadExternalQueries(projectDir)
-	if err != nil {
-		slog.Warn("external query load error", "dir", projectDir, "error", err)
-		externals = nil
-	}
+// invalidateDerivedQueryCaches drops everything computed from query files.
+//
+// Compiled *sitter.Query objects are dropped, not closed. Nothing in this package
+// has ever closed them — they live as long as the process — so a parse already
+// holding a slice of them keeps working on valid pointers. Closing here would be
+// a use-after-free for that parse; leaking the handful of queries a reload
+// orphans is the cheaper mistake, and reloads happen when someone installs a
+// grammar, not in a loop.
+func invalidateDerivedQueryCaches() {
+	clearSyncMap(&mergedQueryCache)
+	clearSyncMap(&compiledQueryCache)
+	clearSyncMap(&projectTsExtCache)
+	rebuildExtTables()
+}
 
-	externalQueryCache.Store(projectDir, externals)
-	return externals
+func clearSyncMap(m *sync.Map) {
+	m.Range(func(k, _ any) bool {
+		m.Delete(k)
+		return true
+	})
+}
+
+// InvalidateQueryCaches forces the next lookup to re-read every query directory.
+// Call it after installing or removing a grammar so the change is visible without
+// waiting for the staleness check.
+func InvalidateQueryCaches() {
+	runtimeQueryState.mu.Lock()
+	runtimeQueryState.loaded = false
+	runtimeQueryState.mu.Unlock()
+
+	userQueryState.mu.Lock()
+	userQueryState.loaded = false
+	userQueryState.mu.Unlock()
+
+	projectQueryStates.Range(func(_, v any) bool {
+		st := v.(*queryDirState)
+		st.mu.Lock()
+		st.loaded = false
+		st.mu.Unlock()
+		return true
+	})
+
+	invalidateDerivedQueryCaches()
 }
 
 // resolveQueriesForLang returns the resolved query files for a given language

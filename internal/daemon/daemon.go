@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 )
@@ -67,6 +68,11 @@ type Daemon struct {
 	mu          sync.RWMutex // protects supervisors map
 	logMu       sync.Mutex   // protects logFile writes (separate to avoid deadlock)
 	bootStamp   string
+
+	// grammarSigs records what each grammar directory looked like when this
+	// process last accepted it: "" for the global pair, one entry per supervised
+	// project. Guarded by mu.
+	grammarSigs map[string]string
 }
 
 func New(cfg Config, builder ProjectModuleBuilder) *Daemon {
@@ -105,6 +111,9 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 	defer d.pid.Release()
 
 	d.bootStamp = readLauncherStamp()
+	d.mu.Lock()
+	d.grammarSigs = map[string]string{"": ast.GrammarSignature("")}
+	d.mu.Unlock()
 
 	if err := os.MkdirAll(filepath.Dir(d.cfg.LogPath), 0o755); err != nil {
 		return fmt.Errorf("creating log dir: %w", err)
@@ -147,6 +156,16 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 			if d.stampChanged() {
 				d.log("launcher stamp changed — shutting down for replacement")
 				d.event("warn", "New version detected — replacing daemon process")
+				d.shutdown()
+				return ErrReplace
+			}
+			if where, changed := d.grammarsChanged(); changed {
+				// Query files reload in place; grammar libraries cannot. A
+				// *sitter.Language backs live parse state and is memoised for
+				// the life of the process, so the only way to pick up a newly
+				// installed one is the same exit the launcher already handles.
+				d.log("grammar libraries changed in %s — shutting down for replacement", where)
+				d.event("warn", "New grammar installed — replacing daemon process")
 				d.shutdown()
 				return ErrReplace
 			}
@@ -263,6 +282,47 @@ func (d *Daemon) stampChanged() bool {
 		return false
 	}
 	return current != d.bootStamp
+}
+
+// grammarsChanged reports whether a grammar directory this process already
+// accepted now looks different, and which one.
+//
+// A directory seen for the first time is recorded, not acted on: a project
+// discovered with grammars already installed is not a reason to restart, and
+// treating it as one would make the daemon bounce every time a new project
+// appeared.
+func (d *Daemon) grammarsChanged() (string, bool) {
+	dirs := []string{""}
+	d.mu.RLock()
+	for _, sup := range d.supervisors {
+		dirs = append(dirs, sup.projectDir)
+	}
+	d.mu.RUnlock()
+
+	var changedIn string
+	var changed bool
+
+	d.mu.Lock()
+	for _, dir := range dirs {
+		sig := ast.GrammarSignature(dir)
+		known, seen := d.grammarSigs[dir]
+		if !seen {
+			d.grammarSigs[dir] = sig
+			continue
+		}
+		if sig != known {
+			d.grammarSigs[dir] = sig
+			if !changed {
+				changedIn, changed = dir, true
+				if changedIn == "" {
+					changedIn = "the global grammar directory"
+				}
+			}
+		}
+	}
+	d.mu.Unlock()
+
+	return changedIn, changed
 }
 
 func (d *Daemon) log(format string, args ...any) {

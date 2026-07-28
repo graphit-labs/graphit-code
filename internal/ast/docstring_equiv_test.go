@@ -96,6 +96,33 @@ func legacyExtractDocstringsTS(root *sitter.Node, src []byte, result *ParsedFile
 	walk(root)
 }
 
+// collectDeclSites enumerates declaration nodes by scanning the whole tree — the
+// way the production code used to find them, before the query pass started
+// handing them over directly. Feeding these to attachDocstringsTS isolates the
+// pairing logic from the change in how sites are gathered, so the differential
+// against the legacy implementation still means something.
+func collectDeclSites(root *sitter.Node, m docstringMatchers) []*sitter.Node {
+	if !m.on {
+		return nil
+	}
+	var out []*sitter.Node
+	var walk func(*sitter.Node)
+	walk = func(n *sitter.Node) {
+		for i := 0; i < SafeChildCount(n); i++ {
+			child := SafeChild(n, i)
+			if SafeIsNull(child) {
+				continue
+			}
+			if m.decl.match(child) {
+				out = append(out, child)
+			}
+			walk(child)
+		}
+	}
+	walk(root)
+	return out
+}
+
 const docstringGoSrc = `package p
 
 // Alpha does alpha things.
@@ -154,7 +181,8 @@ func runDocstringCase(t *testing.T, langName, source string, decls []string, ent
 	}
 	newPF, oldPF := mk(), mk()
 
-	extractDocstringsTS(root, src, newPF, cfg, lang)
+	m := newDocstringMatchers(cfg, lang)
+	attachDocstringsTS(collectDeclSites(root, m), src, newPF, m)
 	legacyExtractDocstringsTS(root, src, oldPF, cfg)
 
 	got, want := newPF.Entities["functions"], oldPF.Entities["functions"]

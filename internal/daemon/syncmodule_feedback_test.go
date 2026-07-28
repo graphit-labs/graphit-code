@@ -31,6 +31,7 @@ func TestSyncModuleDoesNotTriggerItself(t *testing.T) {
 	if testing.Short() {
 		t.Skip("starts a filesystem watcher and runs the indexing pipeline")
 	}
+	requireParsers(t)
 
 	projectDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(projectDir, "a.sql"),

@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"sync"
+	"time"
 
 	antlrcommon "github.com/graphit-labs/graphit-code/internal/ast/antlr/common"
 )
@@ -22,12 +24,24 @@ type SidecarDriver struct {
 	binaryPath string
 	grammar    string
 
-	// Process pool — buffered channel acts as a semaphore/queue.
+	// Process pool — buffered channel acts as a semaphore/queue. A slot holding
+	// nil is a live slot with no process behind it yet; whoever draws it starts
+	// one. That is what keeps a crash from costing a slot: the failure path
+	// returns an empty slot instead of the corpse, and the next caller retries
+	// the spawn.
 	pool     chan *sidecarProcess
 	poolSize int
 	initOnce sync.Once
-	initErr  error
 }
+
+// maxSidecarFrame bounds a response frame.
+//
+// The length is a uint32 read off a pipe, so a desynchronised stream — a sidecar
+// that writes a diagnostic where a frame belongs, say — can announce up to 4 GB.
+// The old code allocated that before discovering the stream was short, so one
+// confused subprocess took the indexer's whole address space with it. 256 MB is
+// far past any real serialised parse tree and still small enough to fail loudly.
+const maxSidecarFrame = 256 << 20
 
 // sidecarProcess represents a single long-lived sidecar subprocess.
 type sidecarProcess struct {
@@ -53,50 +67,50 @@ func NewSidecarDriver(binaryPath, grammar string, poolSize int) *SidecarDriver {
 
 // Parse sends src to the sidecar process and returns the deserialized TreeNode.
 func (d *SidecarDriver) Parse(src []byte) (*antlrcommon.TreeNode, error) {
+	// Slots exist from the start; the processes behind them do not. Spawning
+	// eagerly here meant a single failure left the already-started processes
+	// running with no way to reach them, and made every later call fail with the
+	// stored init error even if the cause had gone away.
 	d.initOnce.Do(func() {
 		d.pool = make(chan *sidecarProcess, d.poolSize)
 		for i := 0; i < d.poolSize; i++ {
-			proc, err := d.startProcess()
-			if err != nil {
-				d.initErr = fmt.Errorf("sidecar init: %w", err)
-				return
-			}
-			d.pool <- proc
+			d.pool <- nil
 		}
 	})
-	if d.initErr != nil {
-		return nil, d.initErr
-	}
 
-	// Acquire a process from the pool.
 	proc := <-d.pool
+	if proc == nil {
+		started, err := d.startProcess()
+		if err != nil {
+			d.pool <- nil
+			return nil, fmt.Errorf("sidecar start: %w", err)
+		}
+		proc = started
+	}
 
 	tree, err := d.callProcess(proc, src)
-	if err != nil {
-		// Process may be dead — try to restart it.
-		proc.close()
-		newProc, startErr := d.startProcess()
-		if startErr != nil {
-			d.pool <- proc // put broken one back to avoid deadlock
-			return nil, fmt.Errorf("sidecar restart failed: %w (original: %v)", startErr, err)
-		}
-		proc = newProc
-		// Retry once with fresh process.
-		tree, err = d.callProcess(proc, src)
-		if err != nil {
-			proc.close()
-			newProc2, startErr2 := d.startProcess()
-			if startErr2 != nil {
-				d.pool <- proc
-				return nil, fmt.Errorf("sidecar second restart failed: %w", startErr2)
-			}
-			d.pool <- newProc2
-			return nil, fmt.Errorf("sidecar parse failed after restart: %w", err)
-		}
+	if err == nil {
+		d.pool <- proc
+		return tree, nil
 	}
 
-	// Return process to pool.
-	d.pool <- proc
+	// The process may be dead. Replace it and retry once; whatever happens, the
+	// slot goes back either holding a live process or holding nothing at all.
+	proc.close()
+	replacement, startErr := d.startProcess()
+	if startErr != nil {
+		d.pool <- nil
+		return nil, fmt.Errorf("sidecar restart failed: %w (original: %v)", startErr, err)
+	}
+
+	tree, retryErr := d.callProcess(replacement, src)
+	if retryErr != nil {
+		replacement.close()
+		d.pool <- nil
+		return nil, fmt.Errorf("sidecar parse failed after restart: %w", retryErr)
+	}
+
+	d.pool <- replacement
 	return tree, nil
 }
 
@@ -105,12 +119,19 @@ func (d *SidecarDriver) Close() {
 	if d.pool == nil {
 		return
 	}
+	// Every slot is drained, not just the ones ready right now. The previous
+	// version returned at the first slot that was not immediately available,
+	// which left every process behind it running. Slots still checked out by an
+	// in-flight Parse are waited for briefly rather than abandoned.
 	for i := 0; i < d.poolSize; i++ {
 		select {
 		case proc := <-d.pool:
-			proc.close()
-		default:
-			return
+			if proc != nil {
+				proc.close()
+			}
+		case <-time.After(2 * time.Second):
+			slog.Warn("sidecar: giving up on a slot still in use at shutdown",
+				"grammar", d.grammar, "slot", i)
 		}
 	}
 }
@@ -165,10 +186,19 @@ func (d *SidecarDriver) callProcess(proc *sidecarProcess, src []byte) (*antlrcom
 		return nil, fmt.Errorf("read response length: %w", err)
 	}
 
-	respBuf := make([]byte, respLength)
-	if _, err := io.ReadFull(proc.stdout, respBuf); err != nil {
+	if respLength > maxSidecarFrame {
+		return nil, fmt.Errorf("sidecar response frame too large: %d bytes (limit %d) — "+
+			"the stream is out of sync", respLength, maxSidecarFrame)
+	}
+
+	// Grown from what actually arrives rather than pre-sized from the header, so
+	// a header that overstates the body costs only the bytes really sent.
+	var respBody bytes.Buffer
+	respBody.Grow(int(min(respLength, 1<<16)))
+	if _, err := io.CopyN(&respBody, proc.stdout, int64(respLength)); err != nil {
 		return nil, fmt.Errorf("read response payload (%d bytes): %w", respLength, err)
 	}
+	respBuf := respBody.Bytes()
 
 	if len(respBuf) < 1 {
 		return nil, fmt.Errorf("empty response")

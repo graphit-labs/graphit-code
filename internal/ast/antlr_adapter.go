@@ -118,35 +118,25 @@ type antlrLangConfig struct {
 	StartRule  string
 }
 
-func initAntlrExtMap() {
-	antlrExtMap = make(map[string][]*antlrLangConfig)
-	antlrGrammarMap = make(map[string]*antlrLangConfig)
-
-	runtimeQ := loadRuntimeCached()
-	for _, qf := range runtimeQ {
-		if qf.Parser != "antlr4" {
-			continue
-		}
-		grammar := qf.Grammar
-		if grammar == "" {
-			grammar = "antlr-" + qf.Language
-		}
-		cfg := &antlrLangConfig{
-			Language:   qf.Language,
-			Grammar:    grammar,
-			Extensions: qf.Extensions,
-			StartRule:  qf.StartRule,
-		}
-		for _, ext := range qf.Extensions {
-			antlrExtMap[ext] = append(antlrExtMap[ext], cfg)
-		}
-		antlrGrammarMap[grammar] = cfg
+// antlrConfigOf builds the extension config an ANTLR query file describes.
+func antlrConfigOf(qf ExternalQueryFile) *antlrLangConfig {
+	grammar := qf.Grammar
+	if grammar == "" {
+		grammar = "antlr-" + qf.Language
+	}
+	return &antlrLangConfig{
+		Language:   qf.Language,
+		Grammar:    grammar,
+		Extensions: qf.Extensions,
+		StartRule:  qf.StartRule,
 	}
 }
 
-func init() {
-	initAntlrExtMap()
-}
+// The ANTLR tables are built by rebuildExtTables together with the tree-sitter
+// ones, from a single sweep of the query directories, and initialised by the
+// init in treesitter_adapter.go. Having a second init here would run before or
+// after that one depending on file order and build the tables from sources not
+// yet read.
 
 // AntlrParser implements LanguageParser for ANTLR v4 grammars.
 type AntlrParser struct {
@@ -155,7 +145,9 @@ type AntlrParser struct {
 
 func (a *AntlrParser) Parse(path string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
 	ext := strings.ToLower(path[strings.LastIndex(path, "."):])
+	extTablesMu.RLock()
 	cfgs := antlrExtMap[ext]
+	extTablesMu.RUnlock()
 
 	if len(cfgs) == 0 {
 		// Check for local YAML query configurations matching the extension
@@ -218,7 +210,9 @@ func (a *AntlrParser) Parse(path string, isDepend bool, opts ParseOptions) (*Par
 // ParseWithGrammar parses using a specific ANTLR grammar name (e.g. "antlr-plsql"),
 // bypassing the extension-based lookup. Used by CompositeParser for --grammar overrides.
 func (a *AntlrParser) ParseWithGrammar(path, grammarName string, isDepend bool, opts ParseOptions) (*ParsedFile, error) {
+	extTablesMu.RLock()
 	cfg, ok := antlrGrammarMap[grammarName]
+	extTablesMu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("unknown ANTLR grammar: %s", grammarName)
 	}
@@ -483,11 +477,48 @@ func detectExportsAntlr(result *ParsedFile, lang string, langConfig *ExternalQue
 
 // HasAntlrForExtension returns true if there's an ANTLR grammar for the extension.
 func HasAntlrForExtension(ext string) bool {
-	cfgs := antlrExtMap[strings.ToLower(ext)]
-	return len(cfgs) > 0
+	return HasAntlrForExtensionIn("", ext)
+}
+
+// HasAntlrForExtensionIn also counts grammars a project's own query files
+// declare. AntlrParser.Parse has always fallen back to those, but nothing could
+// reach it: discovery and the watcher filter by extension first, and they were
+// asking the global table only.
+func HasAntlrForExtensionIn(projectDir, ext string) bool {
+	ext = strings.ToLower(ext)
+	extTablesMu.RLock()
+	registered := len(antlrExtMap[ext]) > 0
+	extTablesMu.RUnlock()
+	if registered {
+		return true
+	}
+	if projectDir == "" {
+		return false
+	}
+	for _, qf := range loadProjectCached(projectDir) {
+		if qf.Parser != "antlr4" {
+			continue
+		}
+		for _, e := range qf.Extensions {
+			if strings.EqualFold(e, ext) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // HasParserForExtension returns true if any parser (tree-sitter or ANTLR) handles the extension.
+//
+// This form knows only the languages shared by every project — the installed
+// runtime and the user's global query directory. Use HasParserForExtensionIn
+// wherever a project directory is at hand.
 func HasParserForExtension(ext string) bool {
-	return HasTreeSitterForExtension(ext) || HasAntlrForExtension(ext)
+	return HasParserForExtensionIn("", ext)
+}
+
+// HasParserForExtensionIn is HasParserForExtension including the languages a
+// project declares for itself.
+func HasParserForExtensionIn(projectDir, ext string) bool {
+	return HasTreeSitterForExtensionIn(projectDir, ext) || HasAntlrForExtensionIn(projectDir, ext)
 }

@@ -112,7 +112,7 @@ func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeEx
 				t.knowledge = true
 			}
 
-			if !ast.HasParserForExtension(ext) {
+			if !ast.HasParserForExtensionIn(projectDir, ext) {
 				continue
 			}
 			if removed {

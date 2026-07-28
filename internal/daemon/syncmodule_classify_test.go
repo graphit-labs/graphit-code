@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
 )
@@ -19,8 +20,28 @@ import (
 //   - the two destinations are not exclusive. The AST pipeline has parsers for
 //     .md, .yaml, .json and .xml, and a full scan indexes those files even when
 //     they live under docs/. An incremental update has to agree with a full scan.
+// requireParsers skips when no parser is registered for the extensions these
+// tests route on.
+//
+// ast.HasParserForExtension answers from a table that initTsExtMap builds at
+// package init out of the installed runtime query files alone. On a machine where
+// the launcher has not unpacked a runtime — a fresh checkout, or a home directory
+// that was cleared — that table is empty, every extension looks unparseable, and
+// these tests fail with an empty astChanged that says nothing about the routing
+// logic they exist to cover.
+func requireParsers(t *testing.T) {
+	t.Helper()
+	for _, ext := range []string{".sql", ".go", ".md"} {
+		if !ast.HasParserForExtension(ext) {
+			t.Skipf("no parser registered for %s — the runtime query files are not "+
+				"installed, so extension routing cannot be judged from here", ext)
+		}
+	}
+}
+
 func TestClassifyBatch(t *testing.T) {
 	t.Parallel()
+	requireParsers(t)
 
 	const projectDir = "/proj"
 	knowledgeExts := config.ResolveKnowledgeExtensions(nil, nil)
