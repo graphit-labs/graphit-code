@@ -29,7 +29,6 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
@@ -46,13 +45,26 @@ type Batch struct {
 }
 
 // Config configures a Watcher.
+// Ignorer is the subset of ignorer.IgnoreChecker a watcher needs.
+// *ignorer.IgnoreChecker satisfies it.
+type Ignorer interface {
+	IsIgnored(relPath string, isDir bool) bool
+	ShouldDescend(dirRelPath string) bool
+}
+
 type Config struct {
 	// Root is the directory tree to watch.
 	Root string
 
 	// Ignore decides which paths are skipped. Directories it rejects are never
 	// watched at all. May be nil to watch everything.
-	Ignore *ignorer.IgnoreChecker
+	//
+	// An interface rather than *ignorer.IgnoreChecker because one watcher can
+	// feed consumers with different rules: the daemon drives both the AST index
+	// and the wiki from a single watch, and each honours its own ignore file.
+	// What gets watched has to be the union of what they care about, which no
+	// single checker expresses.
+	Ignore Ignorer
 
 	// Accept optionally filters files by name (e.g. only extensions a parser
 	// handles). Directories are never passed to it.

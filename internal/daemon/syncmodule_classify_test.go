@@ -145,7 +145,7 @@ func TestClassifyBatch(t *testing.T) {
 			batch := fswatch.Batch{Changed: toAbs(tc.changed), Removed: toAbs(tc.removed)}
 			docsPath := filepath.Join(projectDir, tc.docsDir)
 
-			got := classifyBatch(batch, projectDir, docsPath, knowledgeExts)
+			got := classifyBatch(batch, projectDir, docsPath, knowledgeExts, nil, nil)
 
 			if !reflect.DeepEqual(got.astChanged, tc.wantAstCh) {
 				t.Errorf("astChanged = %v, want %v", got.astChanged, tc.wantAstCh)

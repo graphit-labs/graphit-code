@@ -66,7 +66,13 @@ func New(rootPath, startDir, customFileName string, defaultPatterns []string) *I
 	}
 }
 
+// A nil checker ignores nothing. Callers hold this behind an interface
+// (fswatch.Ignorer), where a nil *IgnoreChecker is not a nil interface value, so
+// their own nil check cannot catch it — the guard has to live here.
 func (ic *IgnoreChecker) IsIgnored(relPath string, isDir bool) bool {
+	if ic == nil {
+		return false
+	}
 	relPath = filepath.ToSlash(relPath)
 	if relPath == "" || relPath == "." {
 		return false
@@ -79,6 +85,9 @@ func (ic *IgnoreChecker) IsIgnored(relPath string, isDir bool) bool {
 // negation pattern ("!") targets a child path inside dirRelPath, meaning that
 // skipping this directory would hide files the user explicitly re-included.
 func (ic *IgnoreChecker) ShouldDescend(dirRelPath string) bool {
+	if ic == nil {
+		return false
+	}
 	dirRelPath = filepath.ToSlash(dirRelPath)
 	if dirRelPath == "" || dirRelPath == "." {
 		return false

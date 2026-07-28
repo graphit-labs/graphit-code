@@ -82,7 +82,7 @@ func TestSyncModuleDoesNotTriggerItself(t *testing.T) {
 					"writes are being fed back into it",
 					n, len(b.Changed), len(b.Removed), sampleOf(b.Changed))
 			}
-			mod.handleBatch(ctx, b)
+			mod.handleBatch(ctx, b, ic, nil)
 		case <-deadline:
 			if n != 1 {
 				t.Fatalf("expected exactly 1 batch from 1 external write, got %d", n)

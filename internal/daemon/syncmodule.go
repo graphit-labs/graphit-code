@@ -42,15 +42,25 @@ func (m *SyncModule) Start(ctx context.Context) error {
 	// exact paths — which lets the AST reindex skip discovery entirely
 	// (~350ms of a ~1.07s incremental on a 35k-file repository).
 	//
-	// The shared checker, not a bare ignorer: its defaults exclude the brand
-	// directory, which every reindex writes into and which sits inside the tree
-	// being watched. Without that the daemon wakes itself up in a loop — see
-	// DefaultAstIgnorePatterns.
-	ic := ast.NewAstIgnoreChecker(m.projectDir)
+	// Two consumers, two ignore files, one watch.
+	//
+	// The AST honours .astignore and the wiki honours .wikiignore, each applied
+	// inside its own pipeline. But there is only one watcher, and it used to be
+	// built from the AST checker alone — so .astignore silently decided whether
+	// the wiki got told anything at all. Putting docs/ in .astignore, which is a
+	// reasonable thing to do since the AST does parse markdown, meant the
+	// directory was never watched and editing a document rebuilt nothing.
+	//
+	// The watch now covers the union of what the two care about, and each
+	// consumer applies its own file to what arrives. Both checkers exclude the
+	// brand directory by default, so the union still excludes it and the daemon
+	// does not wake itself up on its own writes.
+	astIgnore := ast.NewAstIgnoreChecker(m.projectDir)
+	wikiIgnore := knowledge.NewKnowledgeIgnoreChecker(m.projectDir)
 
 	w, err := fswatch.New(fswatch.Config{
 		Root:        m.projectDir,
-		Ignore:      ic,
+		Ignore:      ignoreUnion{astIgnore, wikiIgnore},
 		Debounce:    syncDebounce,
 		MaxDebounce: syncMaxDebounce,
 	})
@@ -72,9 +82,35 @@ func (m *SyncModule) Start(ctx context.Context) error {
 			if !ok {
 				return ctx.Err()
 			}
-			m.handleBatch(ctx, batch)
+			m.handleBatch(ctx, batch, astIgnore, wikiIgnore)
 		}
 	}
+}
+
+// ignoreUnion watches whatever any member wants watched: a path is skipped only
+// when every member skips it. Routing the survivors to the right consumer is
+// classifyBatch's job, using each consumer's own checker.
+type ignoreUnion []fswatch.Ignorer
+
+func (u ignoreUnion) IsIgnored(relPath string, isDir bool) bool {
+	for _, ig := range u {
+		if ig == nil {
+			continue
+		}
+		if !ig.IsIgnored(relPath, isDir) {
+			return false
+		}
+	}
+	return len(u) > 0
+}
+
+func (u ignoreUnion) ShouldDescend(dirRelPath string) bool {
+	for _, ig := range u {
+		if ig != nil && ig.ShouldDescend(dirRelPath) {
+			return true
+		}
+	}
+	return false
 }
 
 // batchTargets names the indexers a batch has to reach. The two are
@@ -97,7 +133,8 @@ type batchTargets struct {
 // carry an extension the wiki indexes. Location on its own cannot decide it —
 // knowledge.docs_dir defaults to ".", which makes every file in the project
 // "under docs".
-func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeExts map[string]bool) batchTargets {
+func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeExts map[string]bool,
+	astIgnore, wikiIgnore fswatch.Ignorer) batchTargets {
 	var t batchTargets
 
 	classify := func(paths []string, removed bool) {
@@ -107,11 +144,19 @@ func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeEx
 				continue
 			}
 			ext := strings.ToLower(filepath.Ext(p))
+			slashRel := filepath.ToSlash(rel)
 
-			if knowledgeExts[ext] && isUnder(p, docsPath) {
+			// Each consumer applies its own ignore file. The watch is the union
+			// of what they want, so a path can arrive that only one of them
+			// claims.
+			if knowledgeExts[ext] && isUnder(p, docsPath) &&
+				!ignores(wikiIgnore, slashRel) {
 				t.knowledge = true
 			}
 
+			if ignores(astIgnore, slashRel) {
+				continue
+			}
 			if !ast.HasParserForExtensionIn(projectDir, ext) {
 				continue
 			}
@@ -132,12 +177,13 @@ func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeEx
 // handleBatch reindexes whatever the batch touched. AST and knowledge are
 // dispatched independently so a docs-only edit does not reparse code, and vice
 // versa.
-func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch) {
+func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
+	astIgnore, wikiIgnore fswatch.Ignorer) {
 	projectCfg := loadProjectConfigFromDir(m.projectDir)
 
 	docsPath := filepath.Join(m.projectDir, config.ResolveDocsDir(nil, projectCfg))
 	targets := classifyBatch(batch, m.projectDir, docsPath,
-		config.ResolveKnowledgeExtensions(nil, projectCfg))
+		config.ResolveKnowledgeExtensions(nil, projectCfg), astIgnore, wikiIgnore)
 
 	if !config.IsModuleDisabled("ast", nil, projectCfg) {
 		switch {
@@ -154,6 +200,11 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch) {
 	if (targets.knowledge || batch.Rescan) && !config.IsModuleDisabled("knowledge", nil, projectCfg) {
 		m.reindexKnowledge(ctx, projectCfg)
 	}
+}
+
+// ignores reports whether a checker rejects a project-relative path.
+func ignores(ig fswatch.Ignorer, relPath string) bool {
+	return ig != nil && ig.IsIgnored(relPath, false)
 }
 
 // insideDotDir reports whether any directory component of a project-relative
