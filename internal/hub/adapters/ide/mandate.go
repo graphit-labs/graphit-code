@@ -140,7 +140,19 @@ func triggersInCanonicalOrder(fileContent string) bool {
 // IMPORTANT: the returned content is embedded inside <triggerTag>...</triggerTag>
 // in AGENTS.md and is parsed by parseTriggers, which treats any <word> as a tag.
 // Therefore this text MUST NOT contain angle-bracket pseudo-tags.
-func ModuleMandateTrigger(heading, skillName, domain, alwaysClause string) string {
+// ModuleMandateTrigger renders one module's block of the system mandate.
+//
+// triggers are the concrete situations that must make the agent open the skill.
+// They exist because an abstract domain name does not fire reliably: an agent
+// asked to "find who calls saveUser" does not necessarily classify that as
+// "structural analysis", and so reaches for grep. Listing the shapes a request
+// actually arrives in — the words a person types, the intent behind them — is
+// what turns the mandate from a policy into a trigger.
+//
+// tools are the MCP tools the module owns. Naming them here means the agent
+// knows a tool exists before it has read the skill, which is the moment the
+// decision between MCP and a native tool is actually made.
+func ModuleMandateTrigger(heading, skillName, domain, alwaysClause string, triggers, tools []string) string {
 	var b strings.Builder
 	b.WriteString("\n# ")
 	b.WriteString(heading)
@@ -156,7 +168,34 @@ func ModuleMandateTrigger(heading, skillName, domain, alwaysClause string) strin
 	b.WriteString("` skill BEFORE performing any ")
 	b.WriteString(domain)
 	b.WriteString(" operation, and use exactly the MCP tools it prescribes.\n")
+
+	if len(triggers) > 0 {
+		b.WriteString("\nOPEN THE `")
+		b.WriteString(skillName)
+		b.WriteString("` SKILL WHEN ANY OF THESE IS TRUE — this is the trigger list, not a summary:\n")
+		for _, t := range triggers {
+			b.WriteString("- ")
+			b.WriteString(t)
+			b.WriteString("\n")
+		}
+		b.WriteString("If you are unsure whether one of these applies, it applies. Reading the skill costs one tool call; guessing costs a wrong answer.\n")
+	}
+
+	if len(tools) > 0 {
+		b.WriteString("\nMCP tools this module owns: ")
+		for i, t := range tools {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString("`")
+			b.WriteString(brand.MCPToolName(t))
+			b.WriteString("`")
+		}
+		b.WriteString(". The skill says when and how to call each; never invent arguments for them.\n")
+	}
+
 	if alwaysClause != "" {
+		b.WriteString("\n")
 		b.WriteString(alwaysClause)
 		b.WriteString("\n")
 	}

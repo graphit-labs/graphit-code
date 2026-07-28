@@ -260,22 +260,33 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 
 	lines = append(lines,
 		"",
-		"### ⚡ MANDATORY: Sync After Every File Modification",
+		"### Reindexing is automatic — do not call sync in the normal flow",
 		"",
-		"**After ANY modification to ANY file in `docs/` (edit, create, rename, or delete),",
-		"you MUST trigger a project sync by calling the "+syncRef+" tool (passing absolute `project_dir` parameter):**",
+		"The daemon watches the docs tree and rebuilds the wiki when a file changes. After",
+		"you edit, create, rename, or delete anything under `docs/`, **there is nothing to",
+		"call**. Reindexing costs a second or two and happens without you.",
+		"",
+		"Calling "+syncRef+" after every edit is the most common way this module gets",
+		"misused: it duplicates work the watcher is already doing and, on a large docs tree,",
+		"makes the agent wait on a rebuild it did not need.",
+		"",
+		"**Call "+syncRef+" only when the watcher cannot have seen the change:**",
+		"",
+		"| situation | why the watcher missed it |",
+		"|---|---|",
+		"| the daemon is not running | nothing is watching |",
+		"| docs were changed by something outside this machine — a pull, a checkout, a restore | the daemon was down, or the change landed as one bulk event |",
+		"| a search returns something you know is stale, minutes after the edit | the rebuild failed; sync surfaces the error |",
 		"",
 		"```",
 		syncTool+"(project_dir: \"/path/to/project\")",
 		"```",
 		"",
-		"**This is NON-NEGOTIABLE.** The framework depends on an up-to-date wiki to function.",
-		"Without syncing, the knowledge wiki becomes stale and subsequent lookups return",
-		"outdated or incomplete results — breaking the knowledge pipeline.",
+		"Fire-and-forget: do not wait for it, continue working.",
 		"",
-		"**Rules:**",
-		"- Call "+syncRef+" immediately after any docs modification — **fire-and-forget: do NOT wait for sync to complete, continue working immediately.**",
-		"- **Forgetting to call sync is a framework integrity violation.**",
+		"**What IS mandatory is the record itself.** A change without its task log is",
+		"incomplete — that obligation is about writing the documentation, not about",
+		"reindexing it.",
 		"",
 		"## Documentation Requirements",
 		"",
@@ -931,7 +942,17 @@ func MandateTrigger() string {
 		"Knowledge & Documentation",
 		knowledgeSkillName,
 		"documentation or project-knowledge",
-		"Search the knowledge wiki via MCP tools BEFORE grepping or reading docs directly. After ANY code change you MUST update the task log and run sync via MCP — a task without docs + sync is NOT complete.",
+		"Search the knowledge wiki via MCP tools BEFORE grepping or reading docs directly. After ANY code change the task log MUST be updated — a change without its record is not complete. Reindexing is NOT your job: the daemon watches the docs tree and rebuilds the wiki on its own.",
+		[]string{
+			"you are about to grep, glob, or read files under the docs tree to find something",
+			"the request asks why something is the way it is — a decision, a constraint, a trade-off already made",
+			"the request is about a feature, an architecture, or a specification rather than about a specific symbol",
+			"you are about to state how this project works, from inference rather than from something you read here",
+			"the task involves an external system integration, an API contract, or a spec",
+			"you finished a change and have not yet recorded it",
+			"you need the provenance of a page — what links to it, what it came from",
+		},
+		[]string{"knowledge_search", "wiki_search", "wiki_browse", "wiki_xrefs", "wiki_log", "knowledge_list", "knowledge_schema", "knowledge_lint", "knowledge_export"},
 	)
 }
 
@@ -972,7 +993,7 @@ func InstallSkill(projectDir, ideName string) error {
 	contexts := InstalledContexts()
 	skillContent := brand.ResolveModuleSkill("knowledge", KnowledgeRuleContent(contexts, docsDir))
 	descDocsRef := docsDir + "/"
-	frontmatter := "---\nname: " + knowledgeSkillName + "\ndescription: Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, create/update task log in " + descDocsRef + "tasks/ and run sync. Search the knowledge wiki BEFORE grepping documentation files. Use when: understanding project features, architecture, decisions, or specifications; creating or updating documentation; working with external system integrations or API specs; searching for project knowledge, backlinks, or provenance; discovering or documenting undocumented integrations.\n---\n\n"
+	frontmatter := "---\nname: " + knowledgeSkillName + "\ndescription: Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, create/update the task log in " + descDocsRef + "tasks/ — reindexing is automatic, the daemon watches the docs tree. Search the knowledge wiki BEFORE grepping documentation files. Use when: understanding project features, architecture, decisions, or specifications; creating or updating documentation; working with external system integrations or API specs; searching for project knowledge, backlinks, or provenance; discovering or documenting undocumented integrations.\n---\n\n"
 	return ide.InstallManagedSkill(projectDir, ideName, knowledgeSkillName, frontmatter+skillContent)
 }
 

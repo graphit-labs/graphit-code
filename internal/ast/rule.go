@@ -604,6 +604,16 @@ func MandateTrigger() string {
 		astSkillName,
 		"code exploration or structural analysis",
 		"ALWAYS consult this skill: query the AST graph FIRST for any code search, navigation, callers/callees, imports, inheritance, or structural analysis, BEFORE using grep/ripgrep/semantic search/file-by-file reading. This is unconditional — there is no \"only if relevant\" escape.",
+		[]string{
+			"you are about to run grep, ripgrep, glob, find, or any file-by-file read in order to locate code",
+			"the request names a symbol — \"where is X\", \"find the X function\", \"what is X\"",
+			"the request is about relationships — who calls X, what does X call, what imports X, what inherits from X, what would break if X changed",
+			"the request asks what exists — list the endpoints, the models, the entry points, the dead code, the most complex functions",
+			"you need the shape of a file or module before editing it",
+			"you are about to answer a question about code you have not read, from memory of similar codebases",
+			"you are spawning a subagent that will need to explore code — it gets this skill too",
+		},
+		[]string{"ast_search", "ast_query", "ast_schema", "ast_source", "ast_list", "ast_index", "ast_export", "ast_embed"},
 	)
 }
 

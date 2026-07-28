@@ -232,6 +232,16 @@ func MandateTrigger() string {
 		hubSkillName,
 		"external library, framework, API, or reusable-artifact",
 		"Before relying on your own model knowledge or web search for ANY external framework/library/API, you MUST first check the Hub via the MCP tools. Never guess or hallucinate external APIs.",
+		[]string{
+			"the task involves a library, framework, SDK, or external API — of any kind, including ones you believe you know well",
+			"you are about to write an import, a client call, or a config block for something outside this repository",
+			"you are about to answer from model knowledge about an external API's signature, options, or behaviour",
+			"you are about to reach for web search to find out how a dependency works",
+			"the work looks like something another project here may already have solved — a shared rule, skill, grammar, or context",
+			"you produced something reusable and are deciding whether it should be shared",
+			"you need to know which projects share a cluster, or what a project is linked to",
+		},
+		[]string{"hub_search", "hub_show", "hub_list", "hub_install", "hub_link", "hub_unlink", "hub_update", "hub_submit", "hub_projects", "hub_uninstall"},
 	)
 }
 

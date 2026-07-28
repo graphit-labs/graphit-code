@@ -134,12 +134,12 @@ func TestArtifactTypePath(t *testing.T) {
 	dir := t.TempDir()
 
 	tests := []struct {
-		name     string
-		ide      string
-		artType  string
-		artName  string
-		wantSub  string
-		wantErr  bool
+		name    string
+		ide     string
+		artType string
+		artName string
+		wantSub string
+		wantErr bool
 	}{
 		{"gemini rule", "gemini", "rule", "my-rule", filepath.Join(".gemini", "rules", "my-rule.md"), false},
 		{"gemini skill", "gemini", "skill", "my-skill", filepath.Join(".gemini", "skills", "my-skill"), false},
@@ -1973,7 +1973,7 @@ func TestModuleMandateTrigger(t *testing.T) {
 
 	t.Run("contains priority and no-bypass markers", func(t *testing.T) {
 		t.Parallel()
-		got := ModuleMandateTrigger("Memory Management", "graphit-memory", "memory", "")
+		got := ModuleMandateTrigger("Memory Management", "graphit-memory", "memory", "", nil, nil)
 		for _, want := range []string{
 			"MCP-FIRST",
 			"ABSOLUTE PRECEDENCE",
@@ -1989,7 +1989,7 @@ func TestModuleMandateTrigger(t *testing.T) {
 
 	t.Run("always clause included when provided", func(t *testing.T) {
 		t.Parallel()
-		got := ModuleMandateTrigger("AST", "graphit-ast", "code exploration", "ALWAYS consult this skill.")
+		got := ModuleMandateTrigger("AST", "graphit-ast", "code exploration", "ALWAYS consult this skill.", nil, nil)
 		if !strings.Contains(got, "ALWAYS consult this skill.") {
 			t.Errorf("expected always clause in output, got:\n%s", got)
 		}
@@ -2000,7 +2000,8 @@ func TestModuleMandateTrigger(t *testing.T) {
 		// The trigger is embedded inside <mem_rule>...</mem_rule>; parseTriggers
 		// must recover exactly one trigger and its content unchanged.
 		content := ModuleMandateTrigger("Memory Management", "graphit-memory", "memory",
-			"ALWAYS consult this skill: search memory at session start.")
+			"ALWAYS consult this skill: search memory at session start.",
+			[]string{"the session just started"}, []string{"memory_search"})
 		inner := "<mem_rule>" + content + "</mem_rule>"
 		got := parseTriggers(inner)
 		if len(got) != 1 {
@@ -2010,4 +2011,57 @@ func TestModuleMandateTrigger(t *testing.T) {
 			t.Errorf("content mangled by parser:\ngot:  %q\nwant: %q", got["mem_rule"], content)
 		}
 	})
+}
+
+// A mandate that only names its domain does not fire: an agent asked to "find
+// who calls saveUser" does not necessarily classify that as "structural
+// analysis", and reaches for grep. The trigger list is what turns the mandate
+// from a policy statement into something that actually activates, and the tool
+// list is what lets the agent know an MCP tool exists before it has opened the
+// skill — which is the moment it decides between MCP and a native tool.
+func TestModuleMandateTriggerCarriesTriggersAndTools(t *testing.T) {
+	t.Parallel()
+
+	got := ModuleMandateTrigger("AST", "graphit-ast", "code exploration",
+		"ALWAYS consult this skill.",
+		[]string{
+			"you are about to run grep in order to locate code",
+			"the request names a symbol",
+		},
+		[]string{"ast_search", "ast_query"},
+	)
+
+	for _, want := range []string{
+		"you are about to run grep in order to locate code",
+		"the request names a symbol",
+		"it applies",
+		"`graphit_ast_search`",
+		"`graphit_ast_query`",
+		"never invent arguments",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected %q in the trigger, got:\n%s", want, got)
+		}
+	}
+
+	// Still parser-safe with the new sections: the whole block is embedded
+	// inside <ast_rule>…</ast_rule> and must survive a round trip unchanged.
+	inner := "<ast_rule>" + got + "</ast_rule>"
+	parsed := parseTriggers(inner)
+	if len(parsed) != 1 || parsed["ast_rule"] != got {
+		t.Errorf("the trigger list broke the mandate parser; got %d triggers", len(parsed))
+	}
+}
+
+// Empty lists must produce no empty sections, so a module that owns no tools
+// does not ship a dangling heading.
+func TestModuleMandateTriggerOmitsEmptySections(t *testing.T) {
+	t.Parallel()
+
+	got := ModuleMandateTrigger("X", "graphit-x", "x", "", nil, nil)
+	for _, unwanted := range []string{"OPEN THE", "MCP tools this module owns"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("expected no %q section when the list is empty, got:\n%s", unwanted, got)
+		}
+	}
 }

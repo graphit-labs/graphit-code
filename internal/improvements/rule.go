@@ -30,7 +30,16 @@ func MandateTrigger() string {
 		"Code Improvement Methodology",
 		improvementsSkillName,
 		"improvement, audit, review, refactor, or post-task reflection",
-		"During analysis and the mandatory post-task reflection, all memory, knowledge, and hub lookups MUST go through the graphit MCP tools — never the CLI.",
+		"During analysis and the mandatory post-task reflection, all memory, knowledge, and hub lookups MUST go through the "+brand.Brand+" MCP tools — never the CLI.",
+		[]string{
+			"the request is to review, audit, refactor, clean up, optimise, or harden something",
+			"you just finished a task — the reflection is part of finishing, not an optional extra",
+			"you are about to declare work complete",
+			"you noticed something worth fixing that is outside the current change",
+			"the request asks what is wrong with something, or how it could be better",
+			"you are deciding what \"good\" means for this codebase rather than in general",
+		},
+		[]string{"improvements_rules"},
 	)
 }
 
