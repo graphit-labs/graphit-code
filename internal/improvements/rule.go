@@ -51,11 +51,16 @@ func MandateTrigger() string {
 			"the request is to review, audit, refactor, clean up, optimise, or harden something",
 			"you just finished a task — the reflection is part of finishing, not an optional extra",
 			"you are about to declare work complete",
-			"you noticed something worth fixing that is outside the current change",
+			"you noticed something worth fixing that is outside the current change — there is a tool for that, it does not have to be dropped or crammed in",
 			"the request asks what is wrong with something, or how it could be better",
 			"you are deciding what \"good\" means for this codebase rather than in general",
+			"the user wants work queued for later, or wants to know what ran while they were away",
 		},
-		[]string{"improvements_rules"},
+		[]string{
+			"improvements_rules",
+			"dream_subject_add", "dream_subject_list", "dream_subject_remove",
+			"dream_status", "dream_reports",
+		},
 	)
 }
 

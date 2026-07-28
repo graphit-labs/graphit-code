@@ -41,6 +41,14 @@ func HubRuleContent() string {
 	clusterGet := brand.MCPToolName("cluster", "get")
 	clusterUnsetRef := brand.MCPToolRef("cluster", "unset")
 	clusterUnset := brand.MCPToolName("cluster", "unset")
+	configListRef := brand.MCPToolRef("config", "list")
+	configList := brand.MCPToolName("config", "list")
+	configGetRef := brand.MCPToolRef("config", "get")
+	configGet := brand.MCPToolName("config", "get")
+	configSetRef := brand.MCPToolRef("config", "set")
+	configSet := brand.MCPToolName("config", "set")
+	configUnsetRef := brand.MCPToolRef("config", "unset")
+	configUnset := brand.MCPToolName("config", "unset")
 
 	lines := []string{
 		"# Hub Discovery Rule",
@@ -368,6 +376,65 @@ func HubRuleContent() string {
 
 	lines = append(lines,
 		"",
+		"## ⚙️ Configuration — read it before diagnosing framework behaviour",
+		"",
+		"Almost every \"why did the framework do that\" has its answer in configuration, and guessing",
+		"the answer wastes the user's time on a setting they already chose. Four tools, all cheap:",
+		"",
+		"```",
+		configList+"(project_dir: \"/path/to/project\")     # everything set for this project",
+		configList+"(global: true)                          # everything set for this machine",
+		configGet+"(project_dir: \"/path/to/project\", key: \"knowledge.docs_dir\")",
+		configSet+"(project_dir: \"/path/to/project\", key: \"modules.dream\", value: \"true\")",
+		configUnset+"(project_dir: \"/path/to/project\", key: \"modules.dream\")",
+		"```",
+		"",
+		"### When to read it — concrete situations, not \"when configuring\"",
+		"",
+		"| What you observe | The key that explains it |",
+		"|---|---|",
+		"| The docs tree is not `docs/`, or the wiki indexes files you did not expect | `knowledge.docs_dir` — **defaults to `.`, the whole project**, not `docs/` |",
+		"| A module's tools return nothing and nothing looks broken | `modules.<name>` — the module may be switched off |",
+		"| "+brand.MCPToolRef("ast", "source")+" has no source for an indexed file | `ast.index_source` — with `false`, the graph stores structure but not text |",
+		"| A file is parsed by the wrong grammar | `ast.grammar` overrides, per extension |",
+		"| Nothing ever happens overnight | `modules.dream` — dream is **opt-in**, off unless explicitly `true` |",
+		"| Hub operations fail before reaching the network | `hub.repo` |",
+		"| An artifact installed into the wrong IDE's directory | `ide` |",
+		"",
+		"### The precedence, because it is where the confusion actually is",
+		"",
+		"A key can be set in several places. From strongest to weakest:",
+		"",
+		"1. Inline (a parameter on the call itself)",
+		"2. **Environment variable** — `"+brand.EnvPrefix()+"_KNOWLEDGE_DOCS_DIR` for `knowledge.docs_dir`: upper-cased, dots to underscores",
+		"3. Project — `"+brand.LockFileName()+"`, which is what "+configListRef+" shows without `global`",
+		"4. Global — `~/"+brand.DotDir()+"/config.json`, which is what it shows **with** `global: true`",
+		"5. Compiled-in defaults",
+		"",
+		"So a value can be in force while "+configListRef+" shows nothing: an env var outranks both",
+		"files and appears in neither. When the listed config contradicts observed behaviour, an",
+		"environment variable is the first suspect, not a bug.",
+		"",
+		"### Two traps",
+		"",
+		"**"+configGetRef+" answers in prose when a key is unset** — it returns the sentence \"Key",
+		"\\\"x\\\" is not set locally.\" rather than an error or an empty value. Do not pass that string on",
+		"as if it were the setting.",
+		"",
+		"**`modules.<name>` is inverted from how it reads.** `\"false\"` disables the module; `\"true\"`",
+		"enables it. And absent is not the same as `\"true\"`: for opt-in modules — `dream` — absent",
+		"means off.",
+		"",
+		"### Writing configuration",
+		"",
+		""+configSetRef+" and "+configUnsetRef+" change how the framework behaves for this",
+		"project, or with `global: true` for **every** project on the machine. Set what the user asked",
+		"for; do not silently \"fix\" a setting you disagree with, and never touch global scope on your",
+		"own initiative — the blast radius is every repository they own.",
+		"",
+		"Project scope needs the project initialised ("+brand.MCPToolRef("init")+"); without a",
+		"lockfile these tools fail rather than falling back to global.",
+		"",
 		"## ⚠️ Rule",
 		"",
 		"Rely entirely on the official artifacts from the Hub rather than generic internet knowledge.",
@@ -383,7 +450,7 @@ func MandateTrigger() string {
 	return ide.ModuleMandateTrigger(
 		"Hub Discovery",
 		hubSkillName,
-		"external library, framework, API, reusable-artifact, or project-ecosystem",
+		"external library, framework, API, reusable-artifact, project-ecosystem, or framework-configuration",
 		"Before relying on your own model knowledge or web search for ANY external framework/library/API, you MUST first check the Hub via the MCP tools. Never guess or hallucinate external APIs.",
 		[]string{
 			"the task involves a library, framework, SDK, or external API — of any kind, including ones you believe you know well",
@@ -396,11 +463,14 @@ func MandateTrigger() string {
 			"the user names another project, service, or repository — find it in the ecosystem instead of guessing its path",
 			"you want to know what this project is for, or which projects are grouped with it",
 			"you are about to design something that a sibling project in the same domain may already have solved",
+			"a module of this framework behaved in a way you cannot explain — read its configuration before calling it a bug",
+			"you are about to say where this project keeps its docs, or whether a module is on",
 		},
 		[]string{
 			"hub_search", "hub_show", "hub_list", "hub_install", "hub_uninstall", "hub_update",
 			"hub_link", "hub_unlink", "hub_submit", "hub_projects", "hub_type-path",
 			"cluster_projects", "cluster_get", "cluster_set", "cluster_unset",
+			"config_list", "config_get", "config_set", "config_unset",
 		},
 	)
 }
