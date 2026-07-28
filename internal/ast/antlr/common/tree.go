@@ -9,6 +9,11 @@ type TreeNode struct {
 	Start    [2]int      `json:"start"`    // [line (1-indexed), column (0-indexed)]
 	End      [2]int      `json:"end"`      // [line (1-indexed), column (0-indexed)]
 	Children []*TreeNode `json:"children,omitempty"`
+
+	// Comments holds the hidden-channel comment tokens, set on the root only.
+	// Kept out of Children so the extraction patterns that walk the tree are
+	// unaffected; see CollectComments.
+	Comments []*TreeNode `json:"comments,omitempty"`
 }
 
 // IsTerminal returns true if this is a leaf/token node.

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 
@@ -356,8 +357,80 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, sr
 	processRelations(result, relationTypes)
 	resolveReceiverTypes(result, src, cfg.Language, langConfig)
 
+	// Comments last: attaching one to the declaration it precedes needs every
+	// entity's line to be known already.
+	extractCommentsAntlr(antlrTree, result, filepath.Base(path))
+
 	return result, nil
 }
+
+// extractCommentsAntlr records the hidden-channel comments the driver recovered
+// as entities named after their own text, each pointing at what it documents.
+//
+// The tree-sitter side decides ownership structurally — a comment owns the
+// declaration that is its next sibling. There is no equivalent here, because the
+// comments were never in the tree to have siblings. Proximity is the substitute:
+// a comment belongs to the first entity that starts within commentAttachGap
+// lines below it, and to the file when nothing is that close.
+func extractCommentsAntlr(tree *antlrcommon.TreeNode, result *ParsedFile, fileName string) {
+	if tree == nil || len(tree.Comments) == 0 {
+		return
+	}
+
+	// Entity start lines, so the nearest one below a comment can be found.
+	type lineName struct {
+		line int
+		name string
+	}
+	var starts []lineName
+	for _, ents := range result.Entities {
+		for _, e := range ents {
+			if e.GraphLabel != "" && e.GraphLabel != LabelComment && e.Line > 0 {
+				starts = append(starts, lineName{e.Line, e.Name})
+			}
+		}
+	}
+	sort.Slice(starts, func(i, j int) bool { return starts[i].line < starts[j].line })
+
+	seen := map[string]bool{}
+	for _, c := range tree.Comments {
+		text := cleanDocstring(c.Text)
+		if text == "" || seen[text] {
+			continue
+		}
+		seen[text] = true
+
+		endLine := c.End[0]
+		target := fileName
+		for _, s := range starts {
+			if s.line > endLine {
+				if s.line-endLine <= commentAttachGap {
+					target = s.name
+				}
+				break
+			}
+		}
+
+		result.AddEntity("comments", Entity{
+			Name:       text,
+			Line:       c.Start[0],
+			EndLine:    endLine,
+			GraphLabel: LabelComment,
+		})
+		result.References = append(result.References, ReferenceInfo{
+			SourceName: text,
+			TargetName: target,
+			RelType:    "REFERENCES",
+			Line:       c.Start[0],
+		})
+	}
+}
+
+// commentAttachGap is how many blank or intervening lines may sit between a
+// comment and the declaration it documents. One line covers the usual case of a
+// comment written directly above; more than that and the two are unrelated text
+// that happens to be nearby.
+const commentAttachGap = 2
 
 func extractNameFromMatch(node *antlrcommon.TreeNode, nameCapture string) string {
 	if nameCapture == "" || nameCapture == "name" {

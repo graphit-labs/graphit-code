@@ -59,30 +59,35 @@ Comentários idênticos no mesmo arquivo geram uma entidade só. Isso é o compo
 existente para rótulos não específicos, e aqui é desejável: separadores como `// -----`
 gerariam centenas de entidades idênticas.
 
-## O que NÃO foi feito: o lado ANTLR
+## O lado ANTLR
 
-O pedido era para os dois motores. **Só o tree-sitter está pronto.**
+Os drivers montam o stream com `antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)`
+e nessas gramáticas comentários vão para o canal `HIDDEN`, então **não estão na árvore** que
+`Parse` devolve. Não estão perdidos: o `CommonTokenStream` bufferiza todo token que o lexer
+produziu e apenas filtra por canal no acesso, então depois do parse dá para lê-los de volta.
 
-O motivo é estrutural, não esquecimento: os drivers ANTLR constroem o stream com
-`antlr.NewCommonTokenStream(lexer, antlr.TokenDefaultChannel)`, e nessas gramáticas comentários
-vão para o canal `HIDDEN`. Eles **não estão na árvore** que `Parse` devolve, e a interface
-`GrammarDriver` é `Parse(src []byte) (*TreeNode, error)` — não há por onde devolvê-los.
+- `antlrcommon.CollectComments` chama `Fill()` primeiro — o parser pode ter parado antes do EOF,
+  por erro de parse ou porque a regra de entrada terminou, e os tokens finais nunca teriam sido
+  puxados do lexer — e devolve os tokens de comentário como `TreeNode`.
+- O resultado é anexado à raiz em **`TreeNode.Comments`, não em `Children`**. `Children` é o que
+  os padrões de extração percorrem, e injetar nós ali mudaria o que todo padrão existente casa.
+  Um campo separado atravessa o JSON do sidecar por conta própria.
+- "Não está no canal padrão" seria largo demais para significar "é comentário": o canal oculto
+  carrega espaço em branco e, em algumas dessas gramáticas, diretivas. A decisão é pelo nome do
+  token na gramática — todas as cinco nomeiam os seus com `COMMENT` dentro.
+- Os cinco drivers nativos receberam uma linha cada.
 
-O caminho existe e é curto de descrever:
+### Posse por proximidade, não por estrutura
 
-1. O `CommonTokenStream` bufferiza todos os tokens, inclusive os ocultos, então um helper em
-   `antlrcommon` consegue extraí-los depois do parse.
-2. Os cinco drivers nativos têm ~31 linhas cada e são idênticos em forma; passar o stream ao
-   helper é uma linha em cada.
-3. O adapter emite entidade e aresta a partir daí, como `extractCommentsTS` faz.
-4. **Ressalva do sidecar:** gramáticas instaladas como binário separado só ganhariam isso ao
-   serem reconstruídas, porque o protocolo transporta `TreeNode`. Se os comentários forem
-   anexados como nós da árvore em vez de canal próprio, eles atravessam o JSON sozinhos — o que
-   é argumento a favor desse desenho.
+O lado tree-sitter decide estruturalmente: o comentário é dono da declaração que é seu irmão
+seguinte. Aqui não há equivalente, porque os comentários nunca estiveram na árvore para ter
+irmãos. `extractCommentsAntlr` usa proximidade: o comentário pertence à primeira entidade que
+começa até `commentAttachGap` (2) linhas abaixo dele, e ao arquivo quando nada está tão perto.
+Roda por último, porque precisa das linhas de todas as entidades já conhecidas.
 
-Isso ficou de fora por orçamento de contexto desta sessão, não por dificuldade. PL/SQL continua
-com suas entidades `Comment` vindas de `COMMENT ON`, que é outra coisa: documentação de
-dicionário de dados, não comentário léxico.
+**Ressalva do sidecar:** gramáticas instaladas como binário separado só produzem comentários
+depois de reconstruídas com esta mudança. Como o campo é JSON, binários antigos simplesmente
+omitem e o resultado é `nil` — degrada em silêncio, sem erro.
 
 ## Testes
 
@@ -90,5 +95,8 @@ dicionário de dados, não comentário léxico.
 comentário de cabeçalho apontando para o arquivo, comentário de declaração apontando para a
 declaração, e nota dentro de corpo de função apontando para o arquivo.
 `TestCommentNamesCarryNoMarkers` garante que nenhum marcador sobrevive no nome.
+`TestCommentsAreEntitiesInAntlrLanguages` percorre a rota inteira do ANTLR, do canal do lexer
+até entidade indexada com aresta, e verifica que o cabeçalho vai para o arquivo enquanto o
+bloco colado na função vai para a função.
 
 Suíte completa com `-race` limpa.

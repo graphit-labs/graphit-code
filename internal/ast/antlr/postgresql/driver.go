@@ -27,5 +27,10 @@ func (d *Driver) Parse(src []byte) (*antlrcommon.TreeNode, error) {
 	if nativeTree == nil {
 		return nil, fmt.Errorf("antlr parse postgresql failed")
 	}
-	return antlrcommon.ConvertParseTree(nativeTree, p.RuleNames, p.SymbolicNames, p.LiteralNames), nil
+	converted := antlrcommon.ConvertParseTree(nativeTree, p.RuleNames, p.SymbolicNames, p.LiteralNames)
+	// Comments live on the hidden channel and never reach the tree.
+	if converted != nil {
+		converted.Comments = antlrcommon.CollectComments(tokens, p.SymbolicNames)
+	}
+	return converted, nil
 }

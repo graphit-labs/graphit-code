@@ -187,3 +187,73 @@ func keysOf(m map[string]bool) []string {
 	}
 	return out
 }
+
+// The ANTLR engine reaches comments by a different route: they sit on the lexer's
+// hidden channel and never enter the parse tree, so the driver reads them back
+// out of the buffered token stream after the parse. This checks the whole route,
+// from lexer channel to indexed entity with an edge.
+func TestCommentsAreEntitiesInAntlrLanguages(t *testing.T) {
+	drv := nativeAntlrDrivers["antlr-plsql"]
+	if drv == nil {
+		t.Skip("antlr-plsql driver not built into this binary")
+	}
+
+	src := []byte(`-- Cabeçalho do pacote.
+
+/* Bloco explicativo
+   em duas linhas. */
+CREATE OR REPLACE FUNCTION SOMA_VALORES(a IN NUMBER, b IN NUMBER) RETURN NUMBER IS
+BEGIN
+  -- nota dentro do corpo
+  RETURN a + b;
+END;
+/
+`)
+
+	tree, err := drv.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if tree == nil {
+		t.Fatal("nil tree")
+	}
+	if len(tree.Comments) == 0 {
+		t.Fatal("the driver recovered no comments — hidden-channel tokens are not being " +
+			"read back from the stream")
+	}
+
+	got := map[string]bool{}
+	for _, c := range tree.Comments {
+		got[cleanDocstring(c.Text)] = true
+	}
+	for _, want := range []string{
+		"Cabeçalho do pacote.",
+		"nota dentro do corpo",
+	} {
+		if !got[want] {
+			t.Errorf("comment %q not recovered; got %v", want, keysOf(got))
+		}
+	}
+
+	// And the adapter turns them into entities with an edge.
+	result := &ParsedFile{Path: "pkg.sql", Entities: map[string][]Entity{
+		"functions": {{Name: "SOMA_VALORES", Line: 5, GraphLabel: "Function"}},
+	}}
+	extractCommentsAntlr(tree, result, "pkg.sql")
+
+	names, targets := commentsOf(t, result)
+	if len(names) == 0 {
+		t.Fatal("no Comment entity produced from the ANTLR tree")
+	}
+	if !names["Cabeçalho do pacote."] {
+		t.Errorf("header comment was not indexed; got %v", keysOf(names))
+	}
+	// The header is far from the function and belongs to the file; the block
+	// comment sits directly above it and belongs to the function.
+	if tgt := targets["Cabeçalho do pacote."]; tgt != "pkg.sql" {
+		t.Errorf("header comment points at %q, want the file", tgt)
+	}
+	for name, tgt := range targets {
+		t.Logf("  %-28q -> %s", name, tgt)
+	}
+}
