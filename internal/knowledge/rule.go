@@ -40,6 +40,13 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 	removeRef := brand.MCPToolRef("knowledge", "remove")
 	knowledgeSyncRef := brand.MCPToolRef("knowledge", "sync")
 	knowledgeSync := brand.MCPToolName("knowledge", "sync")
+	knowledgeSearch := brand.MCPToolName("knowledge", "search")
+	wikiSearchTool := brand.MCPToolName("wiki", "search")
+	wikiBrowseTool := brand.MCPToolName("wiki", "browse")
+	wikiLogTool := brand.MCPToolName("wiki", "log")
+	wikiLogRef := brand.MCPToolRef("wiki", "log")
+	astSourceTool := brand.MCPToolName("ast", "source")
+	clusterProjects := brand.MCPToolName("cluster", "projects")
 	daemonStatusRef := brand.MCPToolRef("daemon", "status")
 	daemonStatus := brand.MCPToolName("daemon", "status")
 	daemonStop := brand.MCPToolName("daemon", "stop")
@@ -278,8 +285,48 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"| Scope | How to search |",
 		"|---|---|",
 		"| **project** (this project) | Call " + searchRef + " or " + browseRef + " |",
+		"| **a sibling project in the ecosystem** | Call " + searchRef + " or " + wikiSearchRef + " with **that project's `dir` as `project_dir`** — it has its own compiled wiki |",
 		"| **imported context** (hub artifact) | Call " + searchRef + " (context: \"<name>\") |",
 		"| **multi-source** (project + memory) | Call " + wikiSearchRef + " (wikis: [\"project\", \"memory\"]) |",
+		"",
+		"### 🔒 Another project's documentation — the ecosystem first, never its files",
+		"",
+		"When the question is about a different project — *\"how does the auth service issue tokens\"* —",
+		"**resolve it in the ecosystem before doing anything else**, then search its wiki with the same",
+		"tools you use here:",
+		"",
+		"```",
+		"# 1. resolve the project — never guess the path",
+		clusterProjects + "(project_dir: \"/path/to/project\")",
+		"",
+		"# 2. search ITS wiki, with its dir as project_dir",
+		knowledgeSearch + "(project_dir: \"<sibling dir>\", query: \"token issuing\")",
+		wikiSearchTool + "(project_dir: \"<sibling dir>\", query: \"how tokens are issued\", wikis: [\"project\", \"memory\"])",
+		"",
+		"# 3. what documentation it even has, and what changed there lately",
+		wikiBrowseTool + "(project_dir: \"<sibling dir>\")",
+		wikiLogTool + "(project_dir: \"<sibling dir>\")",
+		"",
+		"# 4. only then read a file the wiki pointed you at — and read it through the graph",
+		astSourceTool + "(project_dir: \"<sibling dir>\", path: \"<path from the wiki>\")",
+		"```",
+		"",
+		"**Nothing needs to be installed, linked or imported for this.** `project_dir` is a parameter:",
+		"pointing these tools at another project is passing a different value, and that is the whole",
+		"of it.",
+		"",
+		"A registered sibling has **its own compiled wiki and its own memories**, so you get ranked",
+		"pages and recorded decisions instead of an unfamiliar docs tree to walk. Reading its files, or",
+		"grepping them, throws all of that away — and its memories hold the *why* that its documents",
+		"often do not state.",
+		"",
+		"" + wikiLogRef + " is the one to remember: it lists what that project's wiki added, updated and",
+		"deleted per sync, so \"what changed over there recently\" is one call rather than a diff you",
+		"have to reconstruct.",
+		"",
+		"The hub skill has the full protocol, including what to do when the project turns out not to be",
+		"in the ecosystem. What matters here: **the lookup comes before the reading, and the wiki comes",
+		"before the files.**",
 		"",
 		"### The rest of the knowledge tools",
 		"",
@@ -1099,8 +1146,9 @@ func MandateTrigger() string {
 			"you need the provenance of a page — what links to it, what it came from",
 			"a search returned nothing and you cannot tell whether the page is missing or just ranked low",
 			"an index looks stale, or a graph read failed to open the database — find out whether the daemon is alive before concluding anything",
+			"the documentation you need belongs to another project — resolve it in the ecosystem and search ITS wiki, never walk or grep its docs tree",
 		},
-		[]string{"knowledge_search", "wiki_search", "wiki_browse", "wiki_xrefs", "wiki_log", "wiki_embed", "knowledge_list", "knowledge_lint", "knowledge_schema", "knowledge_export", "knowledge_install", "knowledge_remove", "knowledge_sync", "daemon_status", "daemon_stop"},
+		[]string{"knowledge_search", "wiki_search", "wiki_browse", "wiki_xrefs", "wiki_log", "wiki_embed", "knowledge_list", "knowledge_lint", "knowledge_schema", "knowledge_export", "knowledge_install", "knowledge_remove", "knowledge_sync", "cluster_projects", "daemon_status", "daemon_stop"},
 	)
 }
 

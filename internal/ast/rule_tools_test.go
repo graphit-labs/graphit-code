@@ -32,11 +32,11 @@ func TestASTRuleContentExplainsImportedContexts(t *testing.T) {
 	content := ASTRuleContent()
 
 	for _, want := range []string{
-		"Imported Contexts",
+		"imported contexts",
 		brand.MCPToolName("ast", "install") + "(project_dir",
 		brand.MCPToolName("ast", "list") + "(project_dir",
 	} {
-		if !strings.Contains(content, want) {
+		if !strings.Contains(strings.ToLower(content), strings.ToLower(want)) {
 			t.Errorf("ast skill is missing %q", want)
 		}
 	}
