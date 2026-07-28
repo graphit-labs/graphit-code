@@ -180,6 +180,24 @@ jobs:
           curl -sSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" | tar -xJ -C /tmp
           echo "/tmp/zig-x86_64-linux-${ZIG_VERSION}" >> $GITHUB_PATH
 
+      # The build pulls a 132 MB model, the ONNX Runtime and liblbug from three
+      # different external hosts. None of that changes between runs, and one CDN
+      # timing out failed the whole job — which is exactly what happened. Cached,
+      # the usual run touches none of them.
+      #
+      # The key carries the versions the Makefile pins, so bumping ORT or the
+      # model repository invalidates it instead of serving a stale artifact.
+      - name: Cache model, ONNX Runtime and liblbug
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/coderankembed-cache
+            /tmp/onnxruntime-cache
+            /tmp/lbug-cache
+          key: build-deps-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: |
+            build-deps-${{ runner.os }}-
+
       - name: Build
         run: make build-linux
         env:

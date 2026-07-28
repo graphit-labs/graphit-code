@@ -317,17 +317,39 @@ setup-lbug:
 		esac; \
 	done
 
+# curl_fetch <url> <destination>
+#
+# Downloads with retries and fails loudly on the real error.
+#
+# The plain `curl -sSL` this replaces had three problems: no retry, so one
+# transient CDN timeout failed the whole build; no -f, so an HTTP error page
+# was written to the file as if it were the payload; and no cleanup, so the
+# following `mv` reported "cannot stat" and that misleading message is the one
+# that ends up in the CI log, several lines below the actual cause.
+#
+# --retry-all-errors is what covers connection timeouts; --retry alone only
+# retries responses curl considers transient.
+define curl_fetch
+	if ! curl -fSL --retry 5 --retry-delay 5 --retry-all-errors \
+		--connect-timeout 30 --progress-bar "$(1)" -o "$(2).tmp"; then \
+		rm -f "$(2).tmp"; \
+		echo ""; \
+		echo "  ✗ download failed: $(1)"; \
+		echo "    the file was not written; nothing downstream will find it."; \
+		exit 1; \
+	fi; \
+	mv "$(2).tmp" "$(2)"
+endef
+
 fetch-model:
 	@mkdir -p $(MODEL_CACHE)
 	@if [ ! -f $(MODEL_CACHE)/model.onnx ]; then \
 		echo "→ Downloading CodeRankEmbed-137M INT8 model (~132MB)…"; \
-		curl -sSL "https://huggingface.co/$(MODEL_REPO)/resolve/main/onnx/model.onnx" -o $(MODEL_CACHE)/model.onnx.tmp; \
-		mv $(MODEL_CACHE)/model.onnx.tmp $(MODEL_CACHE)/model.onnx; \
+		$(call curl_fetch,https://huggingface.co/$(MODEL_REPO)/resolve/main/onnx/model.onnx,$(MODEL_CACHE)/model.onnx); \
 	fi
 	@if [ ! -f $(MODEL_CACHE)/tokenizer.json ]; then \
 		echo "→ Downloading CodeRankEmbed tokenizer…"; \
-		curl -sSL "https://huggingface.co/$(MODEL_REPO)/resolve/main/tokenizer.json" -o $(MODEL_CACHE)/tokenizer.json.tmp; \
-		mv $(MODEL_CACHE)/tokenizer.json.tmp $(MODEL_CACHE)/tokenizer.json; \
+		$(call curl_fetch,https://huggingface.co/$(MODEL_REPO)/resolve/main/tokenizer.json,$(MODEL_CACHE)/tokenizer.json); \
 	fi
 	@if [ ! -f $(MODEL_CACHE)/model.onnx.gz ] || [ $(MODEL_CACHE)/model.onnx -nt $(MODEL_CACHE)/model.onnx.gz ]; then \
 		echo "→ Compressing model.onnx with gzip…"; \
