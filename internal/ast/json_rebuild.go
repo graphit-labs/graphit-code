@@ -175,8 +175,8 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 	edgeProps := []string{"source_file", "line_number"}
 
 	if ri.hasParams {
-		for _, cl := range ri.callerLabels {
-			copyEdge("HAS_PARAMETER", cl, "Parameter", "func_uid", "uid", edgeProps, ri.paramEdgeJSON(cl))
+		for _, owner := range ri.paramOwnerLabels {
+			copyEdge("HAS_PARAMETER", owner, "Parameter", "func_uid", "uid", edgeProps, ri.paramEdgeJSON(owner))
 		}
 	}
 
@@ -201,6 +201,9 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 	}
 
 	for _, cl := range ri.callerLabels {
+		if !ri.labelSet[cl] || !ri.labelSet["Function"] {
+			continue
+		}
 		copyEdge("CALLS", cl, "Function", "caller_uid", "callee_uid",
 			[]string{"source_file", "line_number", "full_call_name", "receiver_type"},
 			ri.callEdgeJSON(cl))
@@ -219,7 +222,7 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 		}
 	}
 
-	if ri.labelSet["Field"] {
+	if ri.labelSet["Field"] && ri.labelSet["Function"] {
 		copyEdge("READS_FIELD", "Function", "Field", "source_uid", "field_uid", edgeProps, ri.fieldAccessEdgeJSON(false))
 		copyEdge("WRITES_FIELD", "Function", "Field", "source_uid", "field_uid", edgeProps, ri.fieldAccessEdgeJSON(true))
 	}
@@ -232,7 +235,12 @@ func RebuildFromJSON(ctx context.Context, db GraphDB, cache *ShardCache, embCach
 			if !ri.labelSet[src] {
 				continue
 			}
-			copyEdge(rt, src, "Table", "source_uid", "target_uid", edgeProps, ri.dmlEdgeJSON(rt, src))
+			// One COPY per target label, matching the pairs the rel table group
+			// declares. Sending every edge to Table was only ever right because
+			// every target used to be a stub Table.
+			for _, tgt := range ri.dmlTargetLabels {
+				copyEdge(rt, src, tgt, "source_uid", "target_uid", edgeProps, ri.dmlEdgeJSON(rt, src, tgt))
+			}
 		}
 	}
 

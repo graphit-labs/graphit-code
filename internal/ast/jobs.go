@@ -36,7 +36,6 @@ func NewJobManager() *JobManager {
 	return &JobManager{jobs: make(map[string]*Job)}
 }
 
-
 func (m *JobManager) Get(id string) *Job {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -54,7 +53,6 @@ func (m *JobManager) List() []*Job {
 	sortJobsDesc(out)
 	return out
 }
-
 
 func sortJobsDesc(jobs []*Job) {
 	for i := 1; i < len(jobs); i++ {

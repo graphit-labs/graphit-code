@@ -169,7 +169,9 @@ type SchemaInfo struct {
 	ContainsPairs        [][2]string
 	CallerLabels         []string
 	DMLTypes             []string
+	DMLTargetLabels      []string
 	DMLSourceLabels      []string
+	ParamOwnerLabels     []string
 	FieldOwnerLabels     []string
 	InheritLabels        []string
 	DecoratorOwnerLabels []string
@@ -205,7 +207,20 @@ func (k *LadybugBackend) initSchemaForLabels(info SchemaInfo) error {
 		ddl = append(ddl, q)
 	}
 
+	// nodeTables is every label that will have a node table once this DDL runs.
+	// A rel table group naming anything else is not a partial failure: LadybugDB
+	// rejects the whole statement, initSchemaForLabels returns, and the rebuild
+	// aborts before swapping the database in — which after --reset leaves no
+	// database at all.
+	nodeTables := make(map[string]bool, len(labelSet)+4)
+	for l := range labelSet {
+		nodeTables[l] = true
+	}
+	nodeTables[LabelFile] = true
+	nodeTables[LabelDirectory] = true
+
 	for _, extra := range []string{"Parameter", "Field"} {
+		nodeTables[extra] = true
 		if !labelSet[extra] {
 			safeLabel := "`" + extra + "`"
 			q := fmt.Sprintf("CREATE NODE TABLE IF NOT EXISTS %s(uid STRING, name STRING, lang STRING, is_stub BOOLEAN, PRIMARY KEY (uid))", safeLabel)
@@ -223,6 +238,9 @@ func (k *LadybugBackend) initSchemaForLabels(info SchemaInfo) error {
 		contains = append(contains, fmt.Sprintf("FROM File TO `%s`", label))
 	}
 	for _, pair := range info.ContainsPairs {
+		if !nodeTables[pair[0]] || !nodeTables[pair[1]] {
+			continue
+		}
 		contains = append(contains, fmt.Sprintf("FROM `%s` TO `%s`", pair[0], pair[1]))
 	}
 	if len(contains) > 0 {
@@ -230,43 +248,62 @@ func (k *LadybugBackend) initSchemaForLabels(info SchemaInfo) error {
 	}
 
 	if len(info.CallerLabels) > 0 {
+		// Callees are written into Function — real or stub — so the group needs
+		// that end even when no caller happens to be one.
+		callTargets := append([]string{}, info.CallerLabels...)
+		callTargets = append(callTargets, LabelFunction)
 		seen := make(map[string]bool)
 		var callRels []string
 		for _, from := range info.CallerLabels {
-			for _, to := range info.CallerLabels {
+			if !nodeTables[from] {
+				continue
+			}
+			for _, to := range callTargets {
 				key := from + "→" + to
-				if !seen[key] {
-					callRels = append(callRels, fmt.Sprintf("FROM `%s` TO `%s`", from, to))
-					seen[key] = true
+				if seen[key] || !nodeTables[to] {
+					continue
 				}
+				callRels = append(callRels, fmt.Sprintf("FROM `%s` TO `%s`", from, to))
+				seen[key] = true
 			}
 		}
-		ddl = append(ddl, "CREATE REL TABLE GROUP IF NOT EXISTS CALLS("+strings.Join(callRels, ", ")+", source_file STRING, line_number INT64, full_call_name STRING, receiver_type STRING)")
+		if len(callRels) > 0 {
+			ddl = append(ddl, "CREATE REL TABLE GROUP IF NOT EXISTS CALLS("+strings.Join(callRels, ", ")+", source_file STRING, line_number INT64, full_call_name STRING, receiver_type STRING)")
+		}
 	}
 
 	if info.HasParams {
 		var paramRels []string
-		for _, cl := range info.CallerLabels {
-			paramRels = append(paramRels, fmt.Sprintf("FROM `%s` TO `Parameter`", cl))
+		for _, owner := range info.ParamOwnerLabels {
+			if nodeTables[owner] {
+				paramRels = append(paramRels, fmt.Sprintf("FROM `%s` TO `Parameter`", owner))
+			}
 		}
-		if len(paramRels) == 0 {
-			paramRels = append(paramRels, "FROM `Function` TO `Parameter`")
+		if len(paramRels) > 0 {
+			ddl = append(ddl, "CREATE REL TABLE GROUP IF NOT EXISTS HAS_PARAMETER("+strings.Join(paramRels, ", ")+", source_file STRING, line_number INT64)")
 		}
-		ddl = append(ddl, "CREATE REL TABLE GROUP IF NOT EXISTS HAS_PARAMETER("+strings.Join(paramRels, ", ")+", source_file STRING, line_number INT64)")
 	}
 
 	if info.HasFields {
 		var fieldOwners []string
 		for _, l := range info.FieldOwnerLabels {
-			if labelSet[l] {
+			if nodeTables[l] {
 				fieldOwners = append(fieldOwners, fmt.Sprintf("FROM `%s` TO `Field`", l))
 			}
 		}
 		if len(fieldOwners) > 0 {
 			ddl = append(ddl, "CREATE REL TABLE GROUP IF NOT EXISTS HAS_FIELD("+strings.Join(fieldOwners, ", ")+", source_file STRING, line_number INT64)")
 		}
+		// Field access is written from Function, so that end is required and the
+		// caller labels are the extra ones.
+		accessSources := append([]string{LabelFunction}, info.CallerLabels...)
+		seenAccess := make(map[string]bool)
 		var accessRels []string
-		for _, cl := range info.CallerLabels {
+		for _, cl := range accessSources {
+			if !nodeTables[cl] || seenAccess[cl] {
+				continue
+			}
+			seenAccess[cl] = true
 			accessRels = append(accessRels, fmt.Sprintf("FROM `%s` TO `Field`", cl))
 		}
 		if len(accessRels) > 0 {
@@ -278,7 +315,7 @@ func (k *LadybugBackend) initSchemaForLabels(info SchemaInfo) error {
 	if info.HasInherits {
 		var typeish []string
 		for _, l := range info.InheritLabels {
-			if labelSet[l] {
+			if nodeTables[l] {
 				typeish = append(typeish, l)
 			}
 		}
@@ -297,13 +334,14 @@ func (k *LadybugBackend) initSchemaForLabels(info SchemaInfo) error {
 	if info.HasDecorators {
 		for _, kind := range info.AnnotationKinds {
 			ddl = append(ddl, fmt.Sprintf("CREATE NODE TABLE IF NOT EXISTS `%s`(uid STRING, name STRING, lang STRING, is_stub BOOLEAN, PRIMARY KEY (uid))", kind))
+			nodeTables[kind] = true
 		}
 
 		for _, kind := range info.AnnotationKinds {
 			edgeName := "HAS_" + strings.ToUpper(kind)
 			var rels []string
 			for _, l := range info.DecoratorOwnerLabels {
-				if labelSet[l] {
+				if nodeTables[l] {
 					rels = append(rels, fmt.Sprintf("FROM `%s` TO `%s`", l, kind))
 				}
 			}
@@ -314,10 +352,13 @@ func (k *LadybugBackend) initSchemaForLabels(info SchemaInfo) error {
 	}
 
 	if len(info.DMLTypes) > 0 {
+		// The targets are the labels the references actually resolve to, not a
+		// fixed list of object kinds: the fixed list dropped every ALTERS on an
+		// index and, because it required a Table label to be present, produced no
+		// DML edges at all for a corpus whose tables were never extracted.
 		var dmlTargets []string
-		for _, l := range info.Labels {
-			switch l {
-			case "Table", "View", "Sequence", "MaterializedView", "DatabaseLink", "Synonym":
+		for _, l := range info.DMLTargetLabels {
+			if nodeTables[l] {
 				dmlTargets = append(dmlTargets, l)
 			}
 		}
@@ -331,7 +372,7 @@ func (k *LadybugBackend) initSchemaForLabels(info SchemaInfo) error {
 			for _, dmlType := range info.DMLTypes {
 				var dmlRels []string
 				for _, s := range dmlSources {
-					if labelSet[s] {
+					if nodeTables[s] {
 						for _, t := range dmlTargets {
 							dmlRels = append(dmlRels, fmt.Sprintf("FROM `%s` TO `%s`", s, t))
 						}

@@ -27,8 +27,8 @@ type WikiProcessCache struct {
 	mu       sync.Mutex
 	dirty    map[string]bool
 	embDirty map[string]bool
-	chunks   map[string]*cachedFileChunks  // relPath → cached chunks
-	embs     map[string]*cachedFileEmbeds  // relPath → cached embeddings
+	chunks   map[string]*cachedFileChunks // relPath → cached chunks
+	embs     map[string]*cachedFileEmbeds // relPath → cached embeddings
 }
 
 type wikiCacheManifest struct {
@@ -45,9 +45,9 @@ type watchFileEntry struct {
 type wikiCacheManifestEntry struct {
 	Hash       string   `json:"h"`
 	ChunkCount int      `json:"n"`
-	Mtime      int64    `json:"mt,omitempty"`   // file mtime UnixNano
-	Size       int64    `json:"sz,omitempty"`   // file size in bytes
-	Slug       string   `json:"slug,omitempty"` // wiki slug for this source file
+	Mtime      int64    `json:"mt,omitempty"`       // file mtime UnixNano
+	Size       int64    `json:"sz,omitempty"`       // file size in bytes
+	Slug       string   `json:"slug,omitempty"`     // wiki slug for this source file
 	OutRefs    []string `json:"out_refs,omitempty"` // outgoing cross-ref titles (union of all chunks)
 }
 

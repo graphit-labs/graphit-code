@@ -6,9 +6,9 @@ import (
 	"log/slog"
 	"strings"
 
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 )
 
 // WikiEmbedConfig controls wiki embedding behavior.

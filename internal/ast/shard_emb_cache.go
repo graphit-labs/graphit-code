@@ -98,8 +98,6 @@ func (ec *ShardEmbCache) Get(relPath, uid, currentHash string) []float32 {
 	return emb.Embeddings[uid]
 }
 
-
-
 func (ec *ShardEmbCache) Set(relPath, uid, contentHash string, vec []float32) {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
@@ -145,8 +143,6 @@ func (ec *ShardEmbCache) Save() error {
 }
 
 func (ec *ShardEmbCache) Close() error { return ec.Save() }
-
-
 
 func (ec *ShardEmbCache) shardPath(relPath string) string {
 	return filepath.Join(ec.dir, "shards", relPath+".emb.json")

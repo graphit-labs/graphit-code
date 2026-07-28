@@ -22,10 +22,10 @@ type CompositeParser struct {
 func NewCompositeParser(projectDir string, grammarOverrides map[string]string) *CompositeParser {
 	return &CompositeParser{
 		treeSitter: &TreeSitterParser{
-			projectDir:    projectDir,
+			projectDir: projectDir,
 		},
 		antlr: &AntlrParser{
-			projectDir:    projectDir,
+			projectDir: projectDir,
 		},
 		grammarOverrides: grammarOverrides,
 	}

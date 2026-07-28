@@ -1491,4 +1491,3 @@ func (w *WikiDB) EmbeddingStats() (embedded, total int) {
 	_ = w.db.QueryRow(`SELECT COUNT(*) FROM chunks WHERE word_count >= 10`).Scan(&total)
 	return embedded, total
 }
-

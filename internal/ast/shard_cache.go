@@ -402,8 +402,6 @@ func (sc *ShardCache) flushLocked(evict bool) error {
 	return firstErr
 }
 
-
-
 func (sc *ShardCache) Close() error { return sc.Save() }
 
 func (sc *ShardCache) Reload() {

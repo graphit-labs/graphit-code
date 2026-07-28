@@ -268,7 +268,6 @@ func (cf *CodeFinder) AnalyzeRelationships(ctx context.Context, name, path, repo
 	return result, nil
 }
 
-
 type ComplexityResult struct {
 	Name       string `json:"name"`
 	Path       string `json:"path"`

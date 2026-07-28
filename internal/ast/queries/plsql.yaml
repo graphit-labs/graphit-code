@@ -115,16 +115,29 @@ queries:
   # ═══════════════════════════════════════════════════════════════════════════
 
   # Tables
+  #
+  # create_table is `CREATE ... TABLE (schema_name '.')? table_name`, so the name
+  # is under table_name — never under tableview_name, which this pattern used to
+  # name and which appears in create_table only in the rare PARENT clause. The
+  # pattern matched nothing: an Oracle export of 35358 files yielded 0 Table
+  # entities while carrying 75121 Table->Column edges, and the CONTAINS rel table
+  # group then referenced a node table that was never created.
   - data_key: tables
     graph_label: Table
-    pattern: "//create_table/tableview_name"
+    pattern: "//create_table/table_name"
     name_capture: name
     type: entity
 
   # Views
+  #
+  # create_view names the view with a bare id_expression (`VIEW (schema_name '.')?
+  # v = id_expression`), not a tableview_name — same miss as tables above, 0 View
+  # entities extracted. The other id_expression that can sit directly under
+  # create_view belongs to DEFAULT COLLATION, which no view in the reference
+  # corpus uses.
   - data_key: views
     graph_label: View
-    pattern: "//create_view/tableview_name"
+    pattern: "//create_view/id_expression"
     name_capture: name
     type: entity
 

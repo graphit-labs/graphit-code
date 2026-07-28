@@ -103,8 +103,8 @@ type MatchResult struct {
 	Parent *TreeNode
 
 	// Context is the nearest enclosing node whose rule the caller declared as a
-	// context (a function body, a package, a table). Nil unless the match came from
-	// MatchWithContext.
+	// context (a function body, a package, a table), linked outwards to the ones
+	// enclosing it. Nil unless the match came from MatchWithContext.
 	//
 	// It exists because Parent alone cannot answer "what owns this?": for
 	// //parameter/parameter_name the parent is `parameter`, while the owning
@@ -112,10 +112,22 @@ type MatchResult struct {
 	// left every PL/SQL parameter without an owner, and a downstream rule drops
 	// owner-less parameters — 967 of 2732 entities across a 367-file sample, 35%.
 	//
+	// The chain, and not just the nearest link, because a declaration's own node is
+	// a context too: the match for //procedure_body/identifier sits inside the very
+	// procedure_body it names, and the answer wanted there is the package around it.
+	//
 	// Carried down during the walk rather than reconstructed afterwards: no parent
 	// pointers exist on TreeNode, and an ancestor map would cost one entry per node
 	// on files that reach 700 KB.
-	Context *TreeNode
+	Context *ContextNode
+}
+
+// ContextNode is one enclosing declaration, linked to the one outside it. A linked
+// list rather than a slice: the walk forks at every child, and appending to a shared
+// slice would let sibling branches overwrite each other's ancestry.
+type ContextNode struct {
+	Node  *TreeNode
+	Outer *ContextNode
 }
 
 // Match finds all nodes in the tree that match this pattern.
@@ -134,9 +146,9 @@ func (p *Pattern) MatchWithContext(root *TreeNode, isContext func(rule string) b
 	first := p.segments[0]
 	isLast := len(p.segments) == 1
 
-	ctx := (*TreeNode)(nil)
+	ctx := (*ContextNode)(nil)
 	if isContext != nil && isContext(root.Rule) {
-		ctx = root
+		ctx = &ContextNode{Node: root}
 	}
 
 	switch first.mode {
@@ -180,7 +192,7 @@ func (p *Pattern) MatchAt(node, parent *TreeNode) ([]MatchResult, bool) {
 	return results, len(results) > 0
 }
 
-func (p *Pattern) matchSegment(node, parent, ctx *TreeNode, isContext func(string) bool,
+func (p *Pattern) matchSegment(node, parent *TreeNode, ctx *ContextNode, isContext func(string) bool,
 	segIdx int, results *[]MatchResult) {
 	if segIdx >= len(p.segments) {
 		return
@@ -199,7 +211,7 @@ func (p *Pattern) matchSegment(node, parent, ctx *TreeNode, isContext func(strin
 			if child.Rule == seg.rule {
 				childCtx := ctx
 				if isContext != nil && isContext(child.Rule) {
-					childCtx = child
+					childCtx = &ContextNode{Node: child, Outer: ctx}
 				}
 				if isLast {
 					*results = append(*results, MatchResult{Node: child, Parent: node, Context: childCtx})
@@ -211,10 +223,10 @@ func (p *Pattern) matchSegment(node, parent, ctx *TreeNode, isContext func(strin
 	}
 }
 
-func (p *Pattern) walkRecursive(node, parent, ctx *TreeNode, isContext func(string) bool,
+func (p *Pattern) walkRecursive(node, parent *TreeNode, ctx *ContextNode, isContext func(string) bool,
 	rule string, segIdx int, isLast bool, results *[]MatchResult) {
 	if isContext != nil && isContext(node.Rule) {
-		ctx = node
+		ctx = &ContextNode{Node: node, Outer: ctx}
 	}
 	if node.Rule == rule {
 		if isLast {

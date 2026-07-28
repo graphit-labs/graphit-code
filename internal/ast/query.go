@@ -20,7 +20,6 @@ type SearchResult struct {
 	Distance       float64
 }
 
-
 type QueryService struct {
 	db              GraphDB
 	dbPath          string
@@ -54,8 +53,6 @@ func (q *QueryService) Close() {
 func (q *QueryService) SetEmbeddingClient(client ai.EmbeddingClient) {
 	q.embeddingClient = client
 }
-
-
 
 func (q *QueryService) FullTextSearch(ctx context.Context, query string, topK int) ([]SearchResult, error) {
 	if q.searchIndex == nil {

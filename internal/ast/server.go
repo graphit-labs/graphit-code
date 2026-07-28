@@ -21,7 +21,6 @@ type cachedDB struct {
 	lastUsed time.Time
 }
 
-
 type Server struct {
 	db       GraphDB
 	jobs     *JobManager
@@ -33,8 +32,6 @@ type Server struct {
 	dbCacheMu sync.Mutex
 	dbCache   map[string]*cachedDB
 }
-
-
 
 func NewServerOnPort(db GraphDB, jobs *JobManager, repoPath string, port int) (*Server, error) {
 
@@ -53,10 +50,6 @@ func NewServerOnPort(db GraphDB, jobs *JobManager, repoPath string, port int) (*
 
 	return s, nil
 }
-
-
-
-
 
 func (s *Server) RegisterAPIRoutes(mux *http.ServeMux) {
 
@@ -82,7 +75,6 @@ func (s *Server) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/repositories", s.handleListRepositories)
 	mux.HandleFunc("GET /api/stats", s.handleRepoStats)
 
-
 	mux.HandleFunc("GET /api/status", s.handleStatus)
 	mux.HandleFunc("GET /api/ping", s.handlePing)
 
@@ -93,8 +85,6 @@ func (s *Server) RegisterAPIRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("DELETE /api/context/{name}", s.handleDeleteContext)
 }
-
-
 
 type emptyGraphDB struct{}
 
@@ -128,8 +118,6 @@ func (s *Server) getOrCreateCachedDB(dbPath string, readOnly bool) GraphDB {
 	s.dbCache[dbPath] = &cachedDB{db: db, lastUsed: time.Now()}
 	return db
 }
-
-
 
 func (s *Server) dbForContext(r *http.Request) GraphDB {
 	ctxName := r.URL.Query().Get("context")
@@ -358,8 +346,6 @@ func (s *Server) handleObsidianExport(w http.ResponseWriter, r *http.Request) {
 		"status":     "exported",
 	})
 }
-
-
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
@@ -1075,8 +1061,6 @@ func (s *Server) handleRepoStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, stats)
 }
 
-
-
 func (s *Server) handleExportBundle(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		RepoPath   string `json:"repo_path"`
@@ -1108,8 +1092,6 @@ func (s *Server) handleParsersStatus(w http.ResponseWriter, _ *http.Request) {
 		"count":                len(exts),
 	})
 }
-
-
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

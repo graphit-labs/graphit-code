@@ -328,7 +328,7 @@ func (a *AntlrParser) parseWithConfig(path, ext string, cfg *antlrLangConfig, sr
 			}
 			complexity := ComputeCyclomaticComplexity(entitySource)
 
-			contextName, contextType := resolveParentContextAntlr(match, langConfig)
+			contextName, contextType := resolveParentContextAntlr(match, langConfig, name, aq.qdef.GraphLabel)
 
 			result.AddEntity(aq.qdef.DataKey, Entity{
 				Name:           name,
@@ -433,15 +433,21 @@ func extractCommentsAntlr(tree *antlrcommon.TreeNode, result *ParsedFile, fileNa
 const commentAttachGap = 2
 
 func extractNameFromMatch(node *antlrcommon.TreeNode, nameCapture string) string {
-	if nameCapture == "" || nameCapture == "name" {
-		return node.FirstTerminalText()
+	if nameCapture != "" && nameCapture != "name" {
+		if child := node.ChildByRule(nameCapture); child != nil {
+			return nodeName(child)
+		}
 	}
+	return nodeName(node)
+}
 
-	child := node.ChildByRule(nameCapture)
-	if child != nil {
-		return child.FirstTerminalText()
+// nodeName is the name a matched node carries: the object name of a qualified
+// name when the node is shaped like one, the leading terminal otherwise (a
+// comment's text, a COMMIT, an expression).
+func nodeName(node *antlrcommon.TreeNode) string {
+	if name := node.QualifiedNameText(); name != "" {
+		return name
 	}
-
 	return node.FirstTerminalText()
 }
 
@@ -460,30 +466,50 @@ func contextRulePredicate(langConfig *ExternalQueryFile) func(string) bool {
 
 // resolveParentContextAntlr names the declaration a match belongs to.
 //
-// It reads the enclosing context the matcher tracked, not the immediate parent. Reading
+// It reads the enclosing contexts the matcher tracked, not the immediate parent. Reading
 // the parent was wrong for anything nested more than one level: for
 // //parameter/parameter_name the parent is `parameter`, so every PL/SQL parameter came
 // out with an empty context — and ConvertToCache drops parameters and fields that have
 // none, discarding 967 of 2732 entities across a 367-file sample of the Oracle corpus.
 //
+// selfName and selfLabel are the entity being placed, because the nearest context is
+// often the entity's OWN declaration: the match for //create_table/table_name sits
+// inside that create_table. Naming itself as its parent made every top-level object
+// contain an object of its own name — a CONTAINS self-loop per table, procedure and
+// package, and a uid spelled path::X.X. Skipping the self link answers with what
+// actually encloses it: the package around a procedure, nothing at all around a table.
+// A constructor still gets its class, since there the labels differ.
+//
 // The immediate parent is still consulted as a fallback, which keeps the previous
 // behaviour for grammars whose context node IS the parent.
-func resolveParentContextAntlr(match antlrcommon.MatchResult, langConfig *ExternalQueryFile) (string, string) {
+func resolveParentContextAntlr(match antlrcommon.MatchResult, langConfig *ExternalQueryFile,
+	selfName, selfLabel string) (string, string) {
 	if langConfig == nil || len(langConfig.ContextTypes) == 0 {
 		return "", ""
 	}
 
-	for _, node := range []*antlrcommon.TreeNode{match.Context, match.Parent} {
+	owner := func(node *antlrcommon.TreeNode) (string, string, bool) {
 		if node == nil {
-			continue
+			return "", "", false
 		}
 		label, ok := langConfig.ContextTypes[node.Rule]
 		if !ok {
-			continue
+			return "", "", false
 		}
-		if name := declarationName(node); name != "" {
+		name := declarationName(node)
+		if name == "" || (name == selfName && label == selfLabel) {
+			return "", "", false
+		}
+		return name, label, true
+	}
+
+	for ctx := match.Context; ctx != nil; ctx = ctx.Outer {
+		if name, label, ok := owner(ctx.Node); ok {
 			return name, label
 		}
+	}
+	if name, label, ok := owner(match.Parent); ok {
+		return name, label
 	}
 
 	return "", ""
@@ -493,18 +519,21 @@ func resolveParentContextAntlr(match antlrcommon.MatchResult, langConfig *Extern
 //
 // Not the first terminal: a declaration starts with keywords, so create_function_body
 // reported "CREATE" and every entity inside it was attributed to a context named CREATE —
-// which no node has, leaving HAS_PARAMETER edges pointing at a phantom. The identifier sits
-// in a direct child whose rule ends in "_name" (function_name, procedure_name,
-// tableview_name, package_name), which is the convention this grammar family follows.
+// which no node has, leaving HAS_PARAMETER edges pointing at a phantom.
 //
-// Falls back to the first terminal so a grammar without that convention behaves as before.
+// Not the first "_name" child either, which is what this used to read. A declaration
+// spells its name qualified — `CREATE TABLE (schema_name '.')? table_name` — so the
+// first such child is the SCHEMA: every column of every table in an Oracle export was
+// attributed to one phantom parent named GC. TreeNode.DeclaredNameText walks the
+// qualified name to its last component instead, and finds names that no "_name" child
+// carries (create_type hides it inside type_definition; a package-level function_body
+// declares a plain identifier, which used to resolve to the keyword FUNCTION).
+//
+// Falls back to the first terminal so a grammar without a name-shaped child behaves as
+// it did before.
 func declarationName(node *antlrcommon.TreeNode) string {
-	for _, child := range node.Children {
-		if child.IsRule() && strings.HasSuffix(child.Rule, "_name") {
-			if name := unquoteIdentifier(child.FirstTerminalText()); name != "" {
-				return name
-			}
-		}
+	if name := unquoteIdentifier(node.DeclaredNameText()); name != "" {
+		return name
 	}
 	return unquoteIdentifier(node.FirstTerminalText())
 }

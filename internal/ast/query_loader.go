@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/version"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 	"gopkg.in/yaml.v3"
 )
 
@@ -46,11 +46,10 @@ type ExternalQueryFile struct {
 type ExportConfig struct {
 	// Strategy is one of: capitalized_name, no_prefix, modifier, export_statement,
 	// no_modifier, no_static, none.
-	Strategy string            `yaml:"strategy"`
-	Config   map[string]string `yaml:"config,omitempty"`
+	Strategy   string              `yaml:"strategy"`
+	Config     map[string]string   `yaml:"config,omitempty"`
 	ConfigList map[string][]string `yaml:"config_list,omitempty"`
 }
-
 
 type ExternalQueryDef struct {
 	DataKey      string `yaml:"data_key"`
@@ -218,8 +217,6 @@ func projectFrameworksDir(projectDir string) string {
 	return filepath.Join(projectASTDir(projectDir), "frameworks")
 }
 
-
-
 // ---------------------------------------------------------------------------
 // Loading
 // ---------------------------------------------------------------------------
@@ -260,8 +257,6 @@ func loadQueriesFromDir(dir string) ([]ExternalQueryFile, error) {
 	return result, nil
 }
 
-
-
 func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 	var qf ExternalQueryFile
 	if err := yaml.Unmarshal(data, &qf); err != nil {
@@ -273,7 +268,6 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 		slog.Warn("skip external query file: missing 'language' field", "path", sourcePath)
 		return qf, false
 	}
-
 
 	var valid []ExternalQueryDef
 	for i, q := range qf.Queries {
@@ -816,7 +810,6 @@ func loadEcosystemFile(path string) (*EcosystemFile, error) {
 	return &ef, nil
 }
 
-
 // ResolveEcosystems returns the merged ecosystem entries from all levels.
 // Like frameworks, ecosystems MERGE from all levels.
 func ResolveEcosystems(projectDir string) []EcosystemEntry {
@@ -842,4 +835,3 @@ func ResolveEcosystems(projectDir string) []EcosystemEntry {
 
 	return all
 }
-

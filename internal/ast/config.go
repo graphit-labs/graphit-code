@@ -88,7 +88,6 @@ func SaveConfig(cfg *Config) error {
 	return os.WriteFile(configFile, data, 0o600)
 }
 
-
 func sanitizeContextName(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	name = strings.ReplaceAll(name, " ", "-")
@@ -171,8 +170,6 @@ func RemoveImportedContext(name string) error {
 	delete(cfg.ImportedContexts, sanitized)
 	return SaveConfig(cfg)
 }
-
-
 
 func ListImportedContexts() map[string]ImportedContext {
 	result := map[string]ImportedContext{}
