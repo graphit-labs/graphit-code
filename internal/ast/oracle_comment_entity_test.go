@@ -3,9 +3,16 @@ package ast
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
+
+// NOTE: probe identifiers in this file are synthetic, and should stay that way.
+// These tests seed their own database, so any identifier of the right shape
+// serves the purpose — the measurement is whether a fragment of a compound name
+// finds it. Keeping them synthetic also keeps the tests independent of whatever
+// corpus GRAPHIT_E2E_SQL_DIR happens to point at.
 
 // TestOracleCommentsAreEntitiesAndSearchable covers the data dictionary, which the indexer
 // used to throw away entirely.
@@ -27,10 +34,16 @@ func TestOracleCommentsAreEntitiesAndSearchable(t *testing.T) {
 	if src == "" {
 		t.Skip("set GRAPHIT_E2E_SQL_DIR to a corpus directory")
 	}
-	sample := filepath.Join(src, "comments", "EXEMPLO_OBJETO_UM.sql")
-	if _, err := os.Stat(sample); err != nil {
-		t.Skipf("no comments sample: %v", err)
+	// Any file from the comments directory will do — the assertions are about
+	// COMMENT ON producing entities, not about a particular object. Picking one
+	// at random from the directory also keeps a real object name out of this
+	// repository; see the note at the top of this file.
+	matches, err := filepath.Glob(filepath.Join(src, "comments", "*.sql"))
+	if err != nil || len(matches) == 0 {
+		t.Skipf("no comments sample under %s: %v", filepath.Join(src, "comments"), err)
 	}
+	sort.Strings(matches)
+	sample := matches[0]
 
 	comp := NewCompositeParser(filepath.Dir(sample), nil)
 	pf, err := comp.Parse(sample, false, ParseOptions{IndexSource: true})

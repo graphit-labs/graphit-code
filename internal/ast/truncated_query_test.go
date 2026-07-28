@@ -5,6 +5,12 @@ import (
 	"testing"
 )
 
+// NOTE: probe identifiers in this file are synthetic, and should stay that way.
+// These tests seed their own database, so any identifier of the right shape
+// serves the purpose — the measurement is whether a fragment of a compound name
+// finds it. Keeping them synthetic also keeps the tests independent of whatever
+// corpus GRAPHIT_E2E_SQL_DIR happens to point at.
+
 // Coverage for truncated queries.
 //
 // The index reaches them two ways: FTS5's prefix index (prefix='2 3 4' plus a `token*`

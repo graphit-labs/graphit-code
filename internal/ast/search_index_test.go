@@ -10,6 +10,12 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
+// NOTE: probe identifiers in this file are synthetic, and should stay that way.
+// These tests seed their own database, so any identifier of the right shape
+// serves the purpose — the measurement is whether a fragment of a compound name
+// finds it. Keeping them synthetic also keeps the tests independent of whatever
+// corpus GRAPHIT_E2E_SQL_DIR happens to point at.
+
 // Verification of the search index.
 //
 // These tests were written to compare a LadybugDB implementation against the SQLite one,
