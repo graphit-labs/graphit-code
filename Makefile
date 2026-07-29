@@ -38,6 +38,19 @@ LDFLAGS += -X 'github.com/graphit-labs/graphit-code/internal/config.CompiledDefa
 
 BUILD_TAGS := fts5
 
+# The generated parsers are excluded from the race detector run and get their own
+# pass in `test`; node_modules is excluded from both.
+#
+# `make ui` runs npm ci, and one of the UI's transitive packages ships Go sources
+# under internal/ui/node_modules — so after a UI build `go list ./...` starts
+# returning a package that is not ours. `make ci` runs ui first, which means vet,
+# lint and test would all cover third-party code that the GitHub jobs never see:
+# they only create a dist placeholder, so node_modules does not exist there.
+# .golangci.yml already excludes the directory for this reason; these two keep the
+# go tool consistent with it.
+GO_PKGS_SKIP    := /antlr/|/treesitter/|/node_modules/
+GO_PKGS_PARSERS := /antlr/|/treesitter/
+
 # Must satisfy the ORT_API_VERSION the onnxruntime_go binding in go.mod compiles
 # against (v1.31.0 declares 26). A runtime older than that aborts at
 # InitializeEnvironment with "requested API version [26] is not available", which
@@ -513,10 +526,10 @@ test: setup-lbug
 	status=0; \
 	echo "  → Running tests with race detector (project code)…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -race -tags $(BUILD_TAGS) -coverprofile=coverage.out -covermode=atomic -p 4 \
-		$$(go list ./... | grep -v "/antlr/" | grep -v "/treesitter/") || status=1; \
+		$$(go list ./... | grep -Ev "$(GO_PKGS_SKIP)") || status=1; \
 	echo "  → Running tests without race detector (generated parsers, appended)…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$$LD_LIBRARY_PATH" go test -tags $(BUILD_TAGS) -coverprofile=coverage-parsers.out -covermode=atomic -p 4 \
-		$$(go list ./... | grep -E "/antlr/|/treesitter/") || status=1; \
+		$$(go list ./... | grep -E "$(GO_PKGS_PARSERS)" | grep -v "/node_modules/") || status=1; \
 	if [ -f coverage-parsers.out ]; then \
 		tail -n +2 coverage-parsers.out >> coverage.out; \
 		rm -f coverage-parsers.out; \
@@ -536,7 +549,7 @@ fmt:
 	gofmt -w .
 
 vet:
-	go vet $$(go list ./... | grep -v "/antlr/" | grep -v "/treesitter/")
+	go vet $$(go list ./... | grep -Ev "$(GO_PKGS_SKIP)")
 
 
 ci: ui vet lint vulncheck test ui-lint

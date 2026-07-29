@@ -11,9 +11,14 @@ import (
 // produces: those two get the minimal node table, without a path column, and can
 // only be reached through their owner. That is the case the delete has to handle
 // without a file path to match on.
+// ParamOwnerLabels has to name Function explicitly: HAS_PARAMETER is built from
+// the owner labels alone, and the fallback that used to guess `FROM Function`
+// when they were empty is gone — it invented a rel table end for a node table
+// the corpus never created.
 var sondaSchema = SchemaInfo{
 	Labels:           []string{"Function", "Struct", "Method"},
 	CallerLabels:     []string{"Function", "Method"},
+	ParamOwnerLabels: []string{"Function"},
 	FieldOwnerLabels: []string{"Struct"},
 	ContainsPairs:    [][2]string{{"Struct", "Method"}},
 	HasParams:        true,
