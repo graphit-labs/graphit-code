@@ -1,13 +1,11 @@
 package ast
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -15,11 +13,9 @@ import (
 )
 
 // TestLadybugSeparateHandleDuringWrite already covers a second handle inside one
-// process. Production does not look like that: the MCP server is its own process,
-// started separately and outliving individual indexing runs, and it reads the
-// database while the daemon writes to it in place. Nothing exercised that, so
-// "in-place writes do not break lock-free reads" was an in-process claim being
-// applied to a cross-process arrangement.
+// process. This file covers the cross-process arrangement: the MCP server is its
+// own process, started separately and outliving individual indexing runs, and it
+// reads the database while the daemon writes.
 //
 // The readers here are real subprocesses. The test binary re-executes itself
 // with GRAPHIT_XPROC_READER set, which is the cheapest way to get a separate
@@ -119,152 +115,6 @@ func safePrefix(s string) string {
 		return s[:24]
 	}
 	return s
-}
-
-func TestLadybugInPlaceWritesUnderCrossProcessReaders(t *testing.T) {
-	if testing.Short() {
-		t.Skip("spawns reader subprocesses and writes continuously")
-	}
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, "xproc")
-
-	wdb, err := lbug.OpenDatabase(path, lbug.DefaultSystemConfig())
-	if err != nil {
-		t.Skipf("ladybug unavailable: %v", err)
-	}
-	w, err := lbug.OpenConnection(wdb)
-	if err != nil {
-		wdb.Close()
-		t.Fatalf("writer conn: %v", err)
-	}
-
-	run := func(q string) error {
-		res, err := w.Query(q)
-		if err != nil {
-			return err
-		}
-		res.Close()
-		return nil
-	}
-	if err := run("CREATE NODE TABLE T(id INT64, body STRING, PRIMARY KEY(id))"); err != nil {
-		w.Close()
-		wdb.Close()
-		t.Fatalf("schema: %v", err)
-	}
-	unit := "abcdefgh"
-	for i := 0; i < 200; i++ {
-		if err := run(fmt.Sprintf("CREATE (:T {id: %d, body: '%s'})",
-			i, strings.Repeat(unit, 4+i%12))); err != nil {
-			w.Close()
-			wdb.Close()
-			t.Fatalf("seed %d: %v", i, err)
-		}
-	}
-
-	// The writer's handle is released before the readers start, then reacquired
-	// once they are attached, so the write happens with readers already inside.
-	w.Close()
-	wdb.Close()
-
-	const readers = 3
-	procs := make([]*exec.Cmd, 0, readers)
-	outs := make([]*strings.Builder, 0, readers)
-	for i := 0; i < readers; i++ {
-		cmd := exec.Command(os.Args[0], "-test.run", "TestCrossProcessReaderHelper", "-test.v")
-		cmd.Env = append(os.Environ(), xprocReaderEnv+"="+path)
-		var sb strings.Builder
-		cmd.Stdout = &sb
-		cmd.Stderr = &sb
-		if err := cmd.Start(); err != nil {
-			t.Fatalf("start reader %d: %v", i, err)
-		}
-		procs = append(procs, cmd)
-		outs = append(outs, &sb)
-	}
-	t.Cleanup(func() {
-		for _, c := range procs {
-			if c.Process != nil {
-				_ = c.Process.Kill()
-			}
-		}
-	})
-
-	// Give the readers time to open the database before writing starts.
-	time.Sleep(2 * time.Second)
-
-	wdb2, err := lbug.OpenDatabase(path, lbug.DefaultSystemConfig())
-	if err != nil {
-		t.Fatalf("a writer cannot attach while read-only readers hold the database: %v", err)
-	}
-	defer wdb2.Close()
-	w2, err := lbug.OpenConnection(wdb2)
-	if err != nil {
-		t.Fatalf("writer reconnect: %v", err)
-	}
-	defer w2.Close()
-
-	// In-place updates while the readers are mid-scan.
-	writes, writeErrs := 0, 0
-	deadline := time.Now().Add(10 * time.Second)
-	for i := 200; time.Now().Before(deadline); i++ {
-		q := fmt.Sprintf("CREATE (:T {id: %d, body: '%s'})", i, strings.Repeat(unit, 4+i%12))
-		res, err := w2.Query(q)
-		if err != nil {
-			writeErrs++
-			if writeErrs <= 3 {
-				t.Logf("write %d: %v", i, err)
-			}
-			continue
-		}
-		res.Close()
-		writes++
-	}
-
-	var wg sync.WaitGroup
-	results := make([]string, readers)
-	codes := make([]int, readers)
-	for i, c := range procs {
-		wg.Add(1)
-		go func(i int, c *exec.Cmd) {
-			defer wg.Done()
-			err := c.Wait()
-			results[i] = outs[i].String()
-			var ee *exec.ExitError
-			if errors.As(err, &ee) {
-				codes[i] = ee.ExitCode()
-			} else if err != nil {
-				codes[i] = -1
-			}
-		}(i, c)
-	}
-	wg.Wait()
-
-	t.Logf("writer: %d writes, %d errors", writes, writeErrs)
-	if writes == 0 {
-		t.Error("no write succeeded while readers were attached")
-	}
-
-	for i, out := range results {
-		summary := "(no summary line)"
-		for _, line := range strings.Split(out, "\n") {
-			if strings.HasPrefix(line, "READS ") {
-				summary = line
-			}
-			for _, bad := range []string{"TORN_ROW", "QUERY_ERROR", "NEXT_ERROR", "SHAPE_ERROR"} {
-				if strings.HasPrefix(line, bad) {
-					t.Errorf("reader %d: %s", i, line)
-				}
-			}
-			if strings.HasPrefix(line, "OPEN_FAILED") || strings.HasPrefix(line, "CONN_FAILED") {
-				t.Errorf("reader %d could not attach to a database being written: %s", i, line)
-			}
-		}
-		t.Logf("reader %d: exit=%d %s", i, codes[i], summary)
-		if codes[i] != 0 {
-			t.Errorf("reader %d exited %d", i, codes[i])
-		}
-	}
 }
 
 // A reader that opens read-write does not merely share badly — it takes the

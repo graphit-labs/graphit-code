@@ -1,6 +1,6 @@
 ---
 name: graphit-memory
-description: Persistent memory across sessions — this framework IS your memory. MANDATORY at conversation start: search memory before responding. Use when: user corrects, teaches, explains, instructs, or guides you; you complete a task, fix a bug, or make a design decision; you discover something unexpected or infer a non-obvious pattern; you are stuck or implementing significant changes (check prior constraints); memory maintenance (gc, consolidation, promote/demote).
+description: 'Persistent memory across sessions — this framework IS your memory. MANDATORY at conversation start: search memory before responding. Use when: user corrects, teaches, explains, instructs, or guides you; you complete a task, fix a bug, or make a design decision; you discover something unexpected or infer a non-obvious pattern; you are stuck or implementing significant changes (check prior constraints); memory maintenance (gc, consolidation, promote/demote).'
 ---
 
 # Memory Management Rule
@@ -17,6 +17,15 @@ description: Persistent memory across sessions — this framework IS your memory
 3. Only then proceed with the user's request
 
 > If the memory wiki does not exist yet (new project), skip and proceed.
+
+> **An empty search result does not tell you which of the two you are in** — a store with
+> nothing in it and a store where nothing matched your words look identical, and guessing
+> wrong costs a second and third search on a base that was never going to answer.
+> `graphit_memory_list` settles it in ONE call: it reads the store
+> directly rather than the compiled wiki, so an empty listing means the store really is
+> empty — cold start, nothing to recall, proceed — while a populated one means your query
+> missed and rewording is worth it. Reach for it the first time a search comes back empty,
+> not after the third.
 
 
 ## 📖 When to Read Memory (Beyond Session Start)
@@ -35,6 +44,21 @@ in these situations — proactively, without being asked:
 | **User seems frustrated** or repeats an instruction | Corrections about your behavior | You may be ignoring a correction already memorized |
 
 **How to search:** call `graphit_memory_search` tool (passing absolute `project_dir` parameter)
+
+### Another project's memories are readable too
+
+`project_dir` is not fixed to the project you are sitting in. When the work touches a sibling
+project in the ecosystem, **its** memories are where its conventions, corrections and
+trade-offs live:
+
+```
+graphit_cluster_projects(project_dir: "/path/to/project")   # get the sibling's dir
+graphit_memory_search(project_dir: "<sibling dir>", query: "<what you are about to change or assume>")
+```
+
+Do this before changing anything over there, and before explaining why it behaves as it does.
+Its code shows *what*; its memories are the only record of *why*, and reading the source will
+not reconstruct a decision someone made deliberately.
 
 ## 🔒 This Framework IS Your Memory — No Other Exists
 
@@ -58,7 +82,8 @@ in these situations — proactively, without being asked:
 | Model/native "memory" or recall | Call `graphit_memory_search`, then read the wiki page | Native memory is ephemeral and per-session; the wiki survives across sessions and agents |
 | Remembering facts "in your head" | Call `graphit_memory_insert` to persist | Your context is wiped between sessions — unpersisted knowledge is lost |
 | `grep`/ripgrep over memory `.md` files | Call `graphit_memory_search` | FTS5-ranked over the compiled wiki (~200 tokens) vs scanning raw files |
-| Reading `.graphit/memory/*/index.md` directly | Call `graphit_memory_search` or `graphit_memory_list` | The wiki is compiled and ranked; raw reads bypass ranking and waste tokens |
+| Reading a memory `index.md` directly | Call `graphit_memory_search` or `graphit_memory_list` | There is no memory directory in the project to read; the wiki is global, compiled and ranked |
+| Opening a memory page with your file-read tool | Call `graphit_wiki_source` with `wiki: "memory"` | Takes the project as a parameter, so it reaches memories outside your workspace — and slices a long memory down to the part you asked for |
 
 ### 🔒 When you MUST use the memory MCP tools (MANDATORY — no exceptions)
 
@@ -67,7 +92,7 @@ in these situations — proactively, without being asked:
 | **Recalling any project knowledge** | Call `graphit_memory_search` → read the page | ❌ Don't answer from model memory or guess |
 | **Persisting a fact/decision/correction** | Call `graphit_memory_insert` | ❌ Don't rely on native/model memory to "remember" |
 | **Listing what is known** | Call `graphit_memory_list` / `graphit_memory_important` | ❌ Don't `ls`/read the memory directory |
-| **Replacing an outdated memory** | Call `graphit_memory_delete` then `graphit_memory_insert` | ❌ Don't edit `.md` files directly |
+| **Replacing an outdated memory** | Call `graphit_memory_update` to rewrite it in place | ❌ Don't edit `.md` files directly, and don't delete-then-insert — that loses the id, importance and tags |
 
 ### 🔄 Fallback — There Is NO Fallback for Memory
 
@@ -134,8 +159,11 @@ Impact: <how it impacted the system — side effects, files changed, behavior ch
 | You **read code and infer a non-obvious pattern, convention, or architectural principle** | Store it as a fact | `graphit_memory_insert` with `title: "<pattern/principle>"`, `type: "fact"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
 | You **understand why something is implemented a certain way** (even without the user explaining it) | Store as a decision or fact | `graphit_memory_insert` with `title: "<why X is done Y way>"`, `type: "decision"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
 | You **investigate a non-obvious behavior, side effect, or dependency** and understand it | Store the finding | `graphit_memory_insert` with `title: "<behavior/dependency understood>"`, `type: "fact"`, `content: "What: ...\nWhy: ...\nHow: ...\nImpact: ..."` |
-| New instruction contradicts existing memory | Replace the memory | `graphit_memory_delete` with `id: "<old-id>"` then `graphit_memory_insert` with `title: "<new>"` |
-| Memory is >30 days old and still relevant | Refresh it | `graphit_memory_update` with `id: "<id>"`, `content: "<refreshed>"` |
+| New instruction contradicts existing memory | Update it in place to the new truth | `graphit_memory_update` with `id: "<old-id>"`, `content: "<new truth>"` |
+| **Two memories you just read disagree** | Resolve it now — see Sanitise On Sight | `graphit_memory_update` the true one, then `graphit_memory_delete` the outdated one |
+| **Two memories you just read say the same thing** | Fold them now — union into one, then delete the other | `graphit_memory_update` then `graphit_memory_delete` |
+| **A memory you just read is out of date** (renamed path, removed flag, changed API) | Correct it now, in the same turn | `graphit_memory_update` with `id: "<id>"`, `content: "<current truth>"` |
+| Memory is still relevant but vague or incomplete | Extend it in place rather than adding a second one | `graphit_memory_update` with `id: "<id>"`, `content: "<fuller>"` |
 
 ### 📖 Read Triggers — Consult Memory Before Acting
 
@@ -170,6 +198,24 @@ Default type when `type` is omitted: `fact`.
 The wiki database is compiled, BM25-indexed, and pre-optimized for retrieval.
 Reading raw .md files is slower, wastes tokens, and bypasses ranking.
 
+### 🔒 There is no memory directory in the project
+
+A memory scope has exactly two locations on this machine, both global:
+
+```
+<global>/memory-raw/memory-<scope>-<id>/  the raw markdown — the truth
+<global>/wiki/memory/<scope>/<id>/        the compiled wiki — what search opens
+```
+
+There used to be a third — a replica of the wiki inside every project that read it, which is
+what search actually opened. It is gone, along with the fan-out that kept the copies in step.
+So `.graphit/memory` does not exist, and neither does a file you could open: both
+locations are outside the workspace you are allowed to read.
+
+This is why `graphit_wiki_source` is not the *preferred* way to read a memory but the **only**
+one — and why it takes `project_dir` as a parameter, which is also what lets it serve a
+sibling project's memories.
+
 **Scope parameter:** `scope: "project"` (default) = project-specific memories. `scope: "user"` = personal cross-project memories.
 
 **What `graphit_memory_search` actually searches:** the **compiled memory wiki**, through SQLite
@@ -181,15 +227,34 @@ it, that is the explanation; `graphit_memory_index` forces the rebuild.
 
 | What you need | MCP tool | Why |
 |---|---|---|
-| Search memories by keyword/context | `graphit_memory_search` | FTS5 over the compiled wiki, ranked, ~200 tokens |
+| Search memories by keyword/context | `graphit_memory_search` | FTS5 over the compiled wiki, ranked and cheap — but every hit is a ~200-char preview, never the full memory |
 | List all memories | `graphit_memory_list` | Structured catalog, grouped by type — reads the store, so it sees writes the wiki has not compiled yet |
 | List important memories only | `graphit_memory_important` | High-priority conventions, corrections |
 
 **Retrieval steps:**
 1. Call `graphit_memory_search` with query context — get ranked results
+   > ⚠️ **What comes back is a preview, not the memory.** Each hit carries at most ~200
+   > characters of the body, cut at a word boundary. A trailing `…` is the tell that it was
+   > cut, and most memories are long enough to be cut. The ranking and the titles are
+   > reliable; the content is not complete, and the sentence that answers your question is
+   > frequently past the cut. **Step 3 is part of retrieval, not an optional follow-up** —
+   > deciding anything from the preview alone is how you act on half a memory.
 2. If results reference related memories, call `graphit_memory_search` again with refined query
-3. If you need deeper understanding, browse the wiki pages referenced in search results via `graphit_wiki_browse` with `wiki: "memory"`, read their full content, follow `[[wikilinks]]`, and synthesize the answer yourself.
-4. **Never** read .md memory files directly or grep raw memory files
+3. Read the page itself with `graphit_wiki_source` — `wiki: "memory"` — then follow its
+   `[[wikilinks]]` and synthesize the answer yourself:
+   ```
+   graphit_wiki_source(project_dir: "/path/to/project", path: "<slug from search>", wiki: "memory")
+
+   # only the part that matters, on a long memory
+   graphit_wiki_source(project_dir: "/path/to/project", path: "<slug>", wiki: "memory", pattern: "<term>", before: 2, after: 4)
+
+   # a sibling project's memory — a file read cannot reach outside your workspace
+   graphit_wiki_source(project_dir: "<sibling dir>", path: "<slug>", wiki: "memory")
+   ```
+   For the catalogue rather than one page, `graphit_wiki_browse` with `wiki: "memory"`.
+4. **Never** try to read a memory `.md` file or grep the memory store — there is no copy in
+   the project and the global store is outside your workspace. `graphit_wiki_source` is how a
+   memory gets read, for this project and for any other.
 
 ## 📋 MCP Tools Reference
 
@@ -228,36 +293,49 @@ graphit_memory_demote(project_dir: "/path/to/project", id: "<id>")
 graphit_memory_list(project_dir: "/path/to/project")
 graphit_memory_important(project_dir: "/path/to/project")
 
-# Garbage collection — see the warning below, the bare call DELETES
-graphit_memory_gc(project_dir: "/path/to/project", dry_run: true)          # scan only, delete nothing
-graphit_memory_gc(project_dir: "/path/to/project")                         # deletes every candidate
-
-# Consolidation
-# 1. Call graphit_memory_list to see all memories
-# 2. Read through them and identify duplicates, contradictions, stale entries
-# 3. Use graphit_memory_delete to remove duplicates
-# 4. Use graphit_memory_update to resolve contradictions
 ```
 
-## ⚠️ `graphit_memory_gc` deletes by default
+> There is no consolidation tool, and no garbage collection tool. Resolving
+> duplicates, contradictions and outdated memories is done with the tools above —
+> `graphit_memory_update` and `graphit_memory_delete` — at the moment you notice them. See
+> **Sanitise On Sight** below.
 
-> **`dry_run` defaults to false, which means the bare call removes every candidate it finds.**
-> There is no confirmation step and no undo — the memories are gone.
+## 🧹 Sanitise On Sight — Your Job, Not a Maintenance Window's
 
-So the order is: **scan, read, then delete.**
+**You fix the memory store while you are in it.** Whenever you read memories and notice one
+of the four problems below, resolve it in the same turn — before continuing with whatever
+you were doing. Do not collect these into a list for later, do not report them as findings,
+and do not wait to be asked.
 
-```
-# 1. See what it would take
-graphit_memory_gc(project_dir: "/path/to/project", dry_run: true)
+| What you notice | What you do | Tool |
+|---|---|---|
+| **Two memories say the same thing** | Fold them into one: write the union of both into the better-written one, then delete the other. Union, not summary — keep every distinct fact, path, number and caveat from both. | graphit_memory_update then `graphit_memory_delete` |
+| **Two memories contradict** | Determine which is true NOW. Update it to state the current truth, and keep the superseded claim as history when the *fact that it changed* is itself useful. Then delete the outdated one. | graphit_memory_update then `graphit_memory_delete` |
+| **A memory is deprecated** — it describes an API, path, flag or workflow that no longer exists | Update it to describe what is true now. If the old behaviour explains why the new one looks odd, say so in the same memory. | `graphit_memory_update` |
+| **A memory is right but incomplete or vague** | Extend it in place. A second memory beside it makes both harder to find. | `graphit_memory_update` |
 
-# 2. Only after reading that list
-graphit_memory_gc(project_dir: "/path/to/project")
-```
+### The one rule about deleting
 
-A candidate is a memory untouched for `stale_days` (default 30) or one with no content. Thirty
-days of not being read is weak evidence for deleting a `convention` or a `correction`: those
-are exactly the memories that sit unused until the one session where they stop you repeating
-a mistake. Read the scan; `graphit_memory_promote` what should survive; only then collect.
+**Carry the content forward first.** Write the surviving memory, verify it holds everything
+worth keeping, and only then delete the other. Reversed, an interruption between the two
+steps loses the knowledge permanently; in this order the worst case is a duplicate that
+survives until someone notices it again.
+
+Never delete a memory whose knowledge exists nowhere else. "Old", "narrow" and "I did not
+need it this time" are not reasons — they describe most of the memories that later save a
+session.
+
+### Why this is yours and not a scheduled job
+
+You have what a scheduled pass does not: the reason you were reading those memories. You know
+which one matched the task, which one misled you, and which one the code has since outgrown.
+A background pass sees text without that context and has to be conservative.
+
+The Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems dream module does run a scheduled consolidation over the whole store,
+and it is deliberately narrow: it merges what it can prove is duplicated, resolves what it can
+prove contradicts, refuses anything it cannot carry forward safely, and writes every refusal
+into its report. The refusals are the work left for an agent with context — you. The two are
+complements, so finding something does not mean waiting for the other one to get to it.
 
 ## 🗄️ The Remaining Tools
 
@@ -302,19 +380,39 @@ way to delete a memory — that is `graphit_memory_delete` with an `id`.
 
 When the user's new instruction contradicts an existing memory:
 
-1. Read the wiki index to find the contradicted memory
-2. Delete it: call `graphit_memory_delete` tool with `id: "<id>"` (passing absolute `project_dir`)
-3. Create the replacement: call `graphit_memory_insert` tool with `title: "<new>"` ...
-4. Confirm: "Updated memory: removed '<old title>' and saved '<new title>'"
+1. Find the contradicted memory with `graphit_memory_search` and read the page
+2. Write the new truth into it: call `graphit_memory_update` with the corrected content —
+   updating in place keeps the memory's id, type, importance and tags, so anything that
+   already referred to it still resolves
+3. Only if the old memory is about something that no longer exists at all, delete it with
+   `graphit_memory_delete` **after** the replacement knowledge is written somewhere
+4. Confirm: "Updated memory: '<title>' now records <the new truth>"
+
+> Delete-then-insert also works, and used to be the instruction here, but it loses the id,
+> the importance flag and the tags, and it has a window where the knowledge exists nowhere.
+> Prefer updating in place.
 
 ## 📣 Transparency Rules
 
 - **Never** ask permission to create memories — just save silently.
 
-## ⚡ Reindex After Writes
+## ⚡ Reindex After Writes — automatic, but not instant
 
 After any write (`insert`, `delete`, `update`, `promote`, `demote`), the auto-cycle
 runs automatically. If it fails, trigger manually calling the `graphit_memory_index` tool (passing absolute `project_dir` parameter).
+
+**"Automatic" means eventually, not immediately.** The recompile lands after the write, so
+there is a short window in which the memory exists in the store and `graphit_memory_search` still
+cannot see it — and search does not report the gap, it just answers from the previous state.
+Two consequences worth acting on:
+
+- **`graphit_memory_list` reads the store, not the wiki.** When you need to confirm that something you
+  just wrote is really there, list rather than search — that is the read that cannot be behind.
+- **When you need CERTAINTY that the indexes are current — before deciding on what they
+  return, or before reporting work as done — call it, do not assume it.** `graphit_memory_index` rebuilds
+  the memory wiki alone; `graphit_sync` is what brings the memory wikis, the
+  knowledge wiki and the AST graph to the same point, which is what makes "up to date" a fact
+  you established instead of one you hoped for.
 
 ## ⛔ Critical Rules (Never Violate)
 
@@ -322,7 +420,7 @@ runs automatically. If it fails, trigger manually calling the `graphit_memory_in
 2. **Never leave a correction un-memorized.** If the user corrects you, save it immediately.
 3. **Never edit .md memory files directly.** Always use `graphit_memory_*` MCP tools.
 4. **Capture trade-offs, not just facts.** "We chose X over Y because Z" > "We use X".
-5. **Handle contradictions.** Remove old + create new. Don't leave conflicting memories.
+5. **Handle contradictions when you see them.** Update the memory that is true; never leave two conflicting memories behind for a later session to trip over. Same for duplicates and for memories the codebase has outgrown — fixing them is part of reading them, not separate work.
 6. **Promote critical memories.** Conventions, corrections, and constraints should be marked important.
 7. **NEVER just say "understood" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate whether it should be memorized. If it contains a convention, preference, correction, workflow, fact, or any persistent knowledge, create a memory immediately. Only skip memorization if the instruction is purely about an ephemeral, one-shot action with no future relevance.
 8. **Memorize your own reasoning about the system.** When you read code, trace a call flow, or analyze how a module works, you MUST create a memory of what you learned. This includes: how components interact, why something behaves unexpectedly, what a non-obvious function does, and any pattern or constraint you discover independently — even without the user saying anything.

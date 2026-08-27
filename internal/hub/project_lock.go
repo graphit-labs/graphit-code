@@ -78,7 +78,6 @@ func GetClusterProjects(projectDir string, filterLabel ...string) (map[string]*S
 	return projects, nil
 }
 
-
 func resolveCurrentProject(projectDir string, lock *GlobalHubLock) (string, *InstanceEntry) {
 	absDir, err := filepath.Abs(projectDir)
 	if err != nil {

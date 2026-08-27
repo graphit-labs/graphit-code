@@ -5,11 +5,11 @@ import (
 	"os"
 	"strings"
 	"unicode"
+
+	"gopkg.in/yaml.v3"
 )
 
-// ---------------------------------------------------------------------------
 // Slug helpers — shared by wiki generators
-// ---------------------------------------------------------------------------
 
 // SafeSlug converts a title or path into a safe filesystem slug.
 // Replaces spaces/slashes/colons with underscores/dashes, strips non-alphanumeric
@@ -49,30 +49,78 @@ func UniqueSlug(base string, used map[string]bool) string {
 	return slug
 }
 
-// ---------------------------------------------------------------------------
 // Frontmatter helpers — shared by wiki generators
-// ---------------------------------------------------------------------------
 
-// ReadFrontmatterField reads a single YAML frontmatter field from a .md file
-// without full YAML parsing. Returns "" if the file doesn't exist, the field
-// is absent, or the file doesn't start with "---".
+// FrontmatterBlock returns the text of the document's leading YAML frontmatter
+// block, without the --- delimiters. ok is false when the document does not
+// open with one.
+func FrontmatterBlock(content string) (string, bool) {
+	if !strings.HasPrefix(content, "---") {
+		return "", false
+	}
+	rest := content[3:]
+	end := strings.Index(rest, "\n---")
+	if end < 0 {
+		return "", false
+	}
+	return rest[:end], true
+}
+
+// FrontmatterField returns a scalar field from the document's leading YAML
+// frontmatter, letting the YAML parser resolve quoting and escaping instead of
+// guessing at them: a single-quoted value with a doubled apostrophe, or a
+// double-quoted one with a \" in it, arrives as the author wrote it.
+//
+// The scalar's literal text is returned, without YAML type resolution, so a
+// content hash that happens to be all digits stays the string it was.
+//
+// ok is false when there is no frontmatter, when the block does not parse, and
+// when the field is absent, null or not a scalar — each a signal for the caller
+// to fall back to its own scan rather than to trust an empty answer.
+func FrontmatterField(content, field string) (string, bool) {
+	block, ok := FrontmatterBlock(content)
+	if !ok {
+		return "", false
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(block), &doc); err != nil || len(doc.Content) == 0 {
+		return "", false
+	}
+	mapping := doc.Content[0]
+	if mapping.Kind != yaml.MappingNode {
+		return "", false
+	}
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value != field {
+			continue
+		}
+		value := mapping.Content[i+1]
+		if value.Kind != yaml.ScalarNode || value.Tag == "!!null" {
+			return "", false
+		}
+		return value.Value, value.Value != ""
+	}
+	return "", false
+}
+
+// ReadFrontmatterField reads a single YAML frontmatter field from a .md file.
+// Returns "" if the file doesn't exist, the field is absent, or the file
+// doesn't start with "---".
 func ReadFrontmatterField(path, field string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
 	content := string(data)
-	if !strings.HasPrefix(content, "---") {
+	if value, ok := FrontmatterField(content, field); ok {
+		return value
+	}
+	block, ok := FrontmatterBlock(content)
+	if !ok {
 		return ""
 	}
-	rest := content[3:]
-	end := strings.Index(rest, "\n---")
-	if end < 0 {
-		return ""
-	}
-	fm := rest[:end]
 	prefix := field + ": "
-	for _, line := range strings.Split(fm, "\n") {
+	for _, line := range strings.Split(block, "\n") {
 		if strings.HasPrefix(line, prefix) {
 			return strings.TrimSpace(line[len(prefix):])
 		}
@@ -106,9 +154,7 @@ func StripFrontmatter(content string) string {
 	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
-// ---------------------------------------------------------------------------
 // Trigram similarity — shared by search and wiki-link resolution
-// ---------------------------------------------------------------------------
 
 // CleanForFuzzy normalizes a string for trigram comparison: lowercase, letters
 // and digits only.

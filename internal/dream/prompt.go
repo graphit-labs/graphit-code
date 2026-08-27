@@ -2,30 +2,68 @@ package dream
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/memory"
 )
 
-func buildDreamPrompt(projectDir, ulid, ide string, subject *Subject) string {
-	context := buildDreamContext(projectDir, ulid, ide, subject)
+func buildDreamPrompt(projectDir, sessionID, ide string, item *backlog.Item, outcomes []*memory.ConsolidationOutcome) string {
+	context := buildDreamContext(projectDir, sessionID, ide, item)
 	analysisRules := brand.ResolveModuleRule("dream", "")
-	envelope := buildDreamEnvelope(ulid, subject)
+	envelope := buildDreamEnvelope(projectDir, sessionID, item)
 
 	var b strings.Builder
 	b.WriteString(context)
+	b.WriteString(buildConsolidationBriefing(outcomes))
 	b.WriteString(analysisRules)
 	b.WriteString(envelope)
 	return b.String()
 }
 
-func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
+// buildConsolidationBriefing tells the agent what the runner already did to the
+// memory store. Without it the agent re-derives the same duplicates, proposes
+// changes that have already happened, and reports them as its own work.
+func buildConsolidationBriefing(outcomes []*memory.ConsolidationOutcome) string {
+	var b strings.Builder
+	b.WriteString("## 🧹 Memory Consolidation Already Ran\n\n")
+
+	if len(outcomes) == 0 {
+		b.WriteString("No consolidation ran this session (the memory module is off, or no AI client was available).\n")
+		b.WriteString("Treat the memory store as unsanitised: if you notice duplicates or contradictions while\n")
+		b.WriteString("working, record them in your report under Recommendations rather than deleting anything.\n\n")
+		return b.String()
+	}
+
+	b.WriteString("**Before you started, the runner sanitised the memory store deterministically.**\n")
+	b.WriteString("This is already done — do not redo it, and do not report it as your own work.\n\n")
+	for _, o := range outcomes {
+		if o == nil {
+			continue
+		}
+		_, _ = fmt.Fprintf(&b, "- `%s` scope: %d memories analysed, %d actions applied, %d refused, %d failed\n",
+			o.Scope, o.Analysed, len(o.Applied), len(o.Skipped), len(o.Failed))
+		for _, skipped := range o.Skipped {
+			_, _ = fmt.Fprintf(&b, "  - refused (%s, `%s`): %s\n", skipped.Type, skipped.Kept, skipped.Skipped)
+		}
+	}
+	b.WriteString("\nThe refused actions are the interesting ones: the runner declined them to avoid losing\n")
+	b.WriteString("knowledge. Where a refusal needs judgement — a memory flagged for review, an important\n")
+	b.WriteString("memory that looks obsolete — you can resolve it by **updating** the memory with better\n")
+	b.WriteString("content. You still must not delete memories; removal only happens through the runner,\n")
+	b.WriteString("where the content is carried into a survivor first.\n\n")
+	return b.String()
+}
+
+func buildDreamContext(projectDir, sessionID, ide string, item *backlog.Item) string {
 	var b strings.Builder
 
 	b.WriteString("# Dream Session — Autonomous Skill Generation & Knowledge Mining\n\n")
 
-	_, _ = fmt.Fprintf(&b, "**Dream ID**: `%s`\n", ulid)
+	_, _ = fmt.Fprintf(&b, "**Dream ID**: `%s`\n", sessionID)
 	_, _ = fmt.Fprintf(&b, "**Project**: `%s`\n", projectDir)
 	_, _ = fmt.Fprintf(&b, "**Started**: `%s`\n", time.Now().UTC().Format(time.RFC3339))
 	_, _ = fmt.Fprintf(&b, "**IDE**: `%s`\n", ide)
@@ -45,31 +83,31 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 	b.WriteString("Use this when interacting with the hub, syncing rules, or any IDE-scoped operations. ")
 	_, _ = fmt.Fprintf(&b, "For example: `%s sync --ide %s` or `%s hub install --ide %s`.\n\n", brand.BinName(), ide, brand.BinName(), ide)
 
-	if subject != nil {
-		b.WriteString("## 🎯 Assigned Subject\n\n")
-		b.WriteString("**This dream session has a specific subject assigned by the developer.**\n")
-		b.WriteString("You MUST prioritize this subject above general exploration.\n\n")
-		_, _ = fmt.Fprintf(&b, "**Subject**: %s\n", subject.Title)
-		_, _ = fmt.Fprintf(&b, "**Instruction file**: `%s`\n\n", subject.Path)
-		b.WriteString("### Subject Instructions\n\n")
+	if item != nil {
+		b.WriteString("## 🎯 Assigned Backlog Item\n\n")
+		b.WriteString("**This dream session has a specific backlog item assigned by the developer.**\n")
+		b.WriteString("You MUST prioritize this item above general exploration.\n\n")
+		_, _ = fmt.Fprintf(&b, "**Item**: %s\n", item.Title)
+		_, _ = fmt.Fprintf(&b, "**Instruction file**: `%s`\n\n", item.Path)
+		b.WriteString("### Item Instructions\n\n")
 		b.WriteString("```\n")
-		b.WriteString(subject.Body)
+		b.WriteString(item.Body)
 		b.WriteString("```\n\n")
-		b.WriteString("### Subject Completion Protocol\n\n")
-		b.WriteString("When you have completed work on this subject:\n")
+		b.WriteString("### Item Completion Protocol\n\n")
+		b.WriteString("When you have completed work on this item:\n")
 		_, _ = fmt.Fprintf(&b, "1. Create the result file at `%s/%s%s` with a summary of what was done\n",
-			SubjectsDir(projectDir), subject.Slug, resultExt)
-		b.WriteString("2. Reference this subject in your dream report under **Skills Created** or **Skills Improved** with the tag `[subject]`\n")
-		b.WriteString("3. Include a section **Subject Resolution** in your dream report explaining:\n")
-		b.WriteString("   - What the developer asked for (the subject)\n")
+			backlog.Dir(projectDir), item.Slug, backlog.ResultExt)
+		b.WriteString("2. Reference this item in your dream report under **Skills Created** or **Skills Improved** with the tag `[backlog]`\n")
+		b.WriteString("3. Include a section **Backlog Item Resolution** in your dream report explaining:\n")
+		b.WriteString("   - What the developer asked for (the item)\n")
 		b.WriteString("   - What you analyzed and found\n")
 		b.WriteString("   - What skills, memories, or artifacts you created/improved to address it\n")
-		b.WriteString("   - Whether the subject is fully resolved or partially addressed\n\n")
+		b.WriteString("   - Whether the item is fully resolved or partially addressed\n\n")
 		b.WriteString("The result file should be a concise markdown summary:\n\n")
 		b.WriteString("```markdown\n")
-		_, _ = fmt.Fprintf(&b, "# %s — Result\n\n", subject.Title)
+		_, _ = fmt.Fprintf(&b, "# %s — Result\n\n", item.Title)
 		b.WriteString("## Resolution\n\n")
-		b.WriteString("[Explain what was done to address the subject]\n\n")
+		b.WriteString("[Explain what was done to address the backlog item]\n\n")
 		b.WriteString("## Artifacts Generated\n\n")
 		b.WriteString("- [List skills, memories, rules created or improved]\n\n")
 		b.WriteString("## Status\n\n")
@@ -77,7 +115,7 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 		b.WriteString("```\n\n")
 	}
 
-	// ── Phase 1: OBSERVE ──────────────────────────────────────────────────
+	// Phase 1: OBSERVE
 	b.WriteString("## Your Mission — 5-Phase Architecture\n\n")
 
 	b.WriteString("### Phase 1: OBSERVE — Understand the System\n\n")
@@ -87,11 +125,10 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 	b.WriteString("3. Query the AST graph to understand code structure, public APIs, and module boundaries\n")
 	b.WriteString("4. Scan installed IDE artifacts — list ALL existing skills, rules, and commands in the project\n")
 	b.WriteString("5. Study architectural decisions (ADRs) in `docs/decisions/` if they exist\n")
-	_, _ = fmt.Fprintf(&b, "6. Read **all** existing dream reports in `%s/dream/` for progressive continuity\n", brand.DotDir())
+	_, _ = fmt.Fprintf(&b, "6. Read **all** existing dream reports in `%s` for progressive continuity\n", ReportsDir(projectDir))
 	b.WriteString("   - Pay special attention to **\"Recommendations for Future\"** sections\n")
 	b.WriteString("   - Address pending recommendations from previous dream sessions\n\n")
 
-	// ── Phase 2: EXTRACT ──────────────────────────────────────────────────
 	b.WriteString("### Phase 2: EXTRACT — Mine Conversation History\n\n")
 	b.WriteString("A critical part of your mission is to **mine the developer's conversation history** ")
 	b.WriteString("for recurring patterns, unmet needs, and knowledge gaps.\n\n")
@@ -126,7 +163,6 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 	b.WriteString("| Integration pattern with external system | Create an **Integration Skill** (see Phase 4) |\n")
 	b.WriteString("| Abandoned important work | Flag in dream report under Recommendations for Future |\n\n")
 
-	// ── Phase 3: DIAGNOSE ─────────────────────────────────────────────────
 	b.WriteString("### Phase 3: DIAGNOSE — Evaluate Existing Skill Effectiveness (Self-Healing Loop)\n\n")
 	b.WriteString("For each installed skill in the project, apply the **4-phase self-healing loop**:\n\n")
 
@@ -157,14 +193,20 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 	b.WriteString("Modify the skill **in-place** with the diagnosed improvement.\n")
 	b.WriteString("Log every fix in the dream report with the before/after rationale.\n\n")
 
-	// ── Phase 4: CREATE ───────────────────────────────────────────────────
 	b.WriteString("### Phase 4: CREATE — Generate New Artifacts\n\n")
 
 	b.WriteString("#### Skill Crystallization Protocol\n\n")
 	b.WriteString("For each candidate pattern from Phase 2 with ≥2 occurrences:\n\n")
 	_, _ = fmt.Fprintf(&b, "1. Resolve the artifact path by calling the `%s` MCP tool (type=skill, name=<name>) — never the CLI\n", brand.MCPToolName("hub", "type-path"))
 	b.WriteString("2. Create `SKILL.md` following this structure:\n")
-	b.WriteString("   - **Name & Description** (frontmatter)\n")
+	b.WriteString("   - **YAML frontmatter** with `name` and `description`. `name` must equal the skill's directory name — lowercase letters, digits and single separating hyphens, at most 64 characters — and `description` is at most 1024 characters.\n")
+	b.WriteString("     **Quote the description.** It is prose, so it almost certainly contains `: `, and a plain YAML scalar may not: a strict parser reads the colon as a nested mapping and rejects the whole frontmatter. The skill is then not degraded, it is invisible — the IDE discovers no metadata and never offers the skill, with nothing logged to say why.\n")
+	b.WriteString("     ```yaml\n")
+	b.WriteString("     ---\n")
+	b.WriteString("     name: error-handling-patterns\n")
+	b.WriteString("     description: \"Use when: wrapping or returning errors in this project. Codifies the wrapped error pattern with context enrichment.\"\n")
+	b.WriteString("     ---\n")
+	b.WriteString("     ```\n")
 	b.WriteString("   - **Activation Triggers** — when should the agent read this skill?\n")
 	b.WriteString("   - **Instructions** — step-by-step procedure\n")
 	b.WriteString("   - **Examples** — concrete before/after demonstrations\n")
@@ -187,12 +229,14 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 
 	b.WriteString("#### Memory Generation\n\n")
 	b.WriteString("For conventions, corrections, and decisions extracted in Phase 2:\n\n")
-	_, _ = fmt.Fprintf(&b, "1. Use `%s memory insert` with proper type classification (convention/correction/decision/skill)\n", brand.BinName())
-	b.WriteString("2. **Deduplication**: Check existing memories before creating new ones\n")
-	_, _ = fmt.Fprintf(&b, "   - Search with `%s memory search --query \"<keyword>\"` first\n", brand.BinName())
+	_, _ = fmt.Fprintf(&b, "1. Use the `%s` MCP tool with proper type classification (convention/correction/decision/skill)\n",
+		brand.MCPToolName("memory", "insert"))
+	b.WriteString("2. **Deduplication**: search before creating, so you extend the store instead of widening it\n")
+	_, _ = fmt.Fprintf(&b, "   - Search with the `%s` MCP tool first\n", brand.MCPToolName("memory", "search"))
+	_, _ = fmt.Fprintf(&b, "   - If an existing memory covers the topic but is incomplete or now wrong, use `%s` to correct it rather than adding a second memory beside it\n",
+		brand.MCPToolName("memory", "update"))
 	b.WriteString("3. Include clear provenance: which conversation(s) the knowledge came from\n\n")
 
-	// ── Phase 5: VALIDATE ─────────────────────────────────────────────────
 	b.WriteString("### Phase 5: VALIDATE — Reflection & Reporting\n\n")
 	b.WriteString("Generate the dream report (see report structure below).\n")
 	b.WriteString("Assess whether more patterns remain to be extracted → continue or signal deep sleep.\n\n")
@@ -207,14 +251,17 @@ func buildDreamContext(projectDir, ulid, ide string, subject *Subject) string {
 	return b.String()
 }
 
-
-
-func buildDreamEnvelope(ulid string, subject *Subject) string {
+func buildDreamEnvelope(projectDir, sessionID string, item *backlog.Item) string {
 	var b strings.Builder
+	reportPath := filepath.Join(ReportsDir(projectDir), sessionID+reportExt)
 
 	b.WriteString("### Document Everything\n\n")
 	b.WriteString("Reports you write are always visible to the developer.\n\n")
-	_, _ = fmt.Fprintf(&b, "Create or update the report at `%s/dream/%s.md`.\n\n", brand.DotDir(), ulid)
+	_, _ = fmt.Fprintf(&b, "Write the report to `%s`. If you cannot write files in this\n", reportPath)
+	b.WriteString("environment, return it as your answer and the runner will save it there — but say so\n")
+	b.WriteString("explicitly, because that also means none of the other artifacts got created.\n\n")
+	b.WriteString("The runner appends its own memory-consolidation audit to whichever version survives,\n")
+	b.WriteString("so do not transcribe that section yourself.\n\n")
 
 	b.WriteString("**CRITICAL: The dream report is the primary deliverable of every session.** ")
 	b.WriteString("It must be comprehensive, detailed, and self-contained — a developer reading it ")
@@ -226,27 +273,27 @@ func buildDreamEnvelope(ulid string, subject *Subject) string {
 
 	b.WriteString("```markdown\n")
 	b.WriteString("---\n")
-	_, _ = fmt.Fprintf(&b, "title: Dream Session %s\n", ulid)
+	_, _ = fmt.Fprintf(&b, "title: Dream Session %s\n", sessionID)
 	_, _ = fmt.Fprintf(&b, "created: %s\n", time.Now().UTC().Format(time.RFC3339))
 	b.WriteString("type: dream-report\n")
-	if subject != nil {
-		_, _ = fmt.Fprintf(&b, "subject: %s\n", subject.Slug)
+	if item != nil {
+		_, _ = fmt.Fprintf(&b, "backlog_item: %s\n", item.Slug)
 	}
 	b.WriteString("---\n\n")
 
 	b.WriteString("# Dream Report\n\n")
 
-	if subject != nil {
-		b.WriteString("## Subject Resolution\n\n")
-		_, _ = fmt.Fprintf(&b, "**Subject**: %s\n", subject.Title)
-		_, _ = fmt.Fprintf(&b, "**Slug**: `%s`\n", subject.Slug)
-		_, _ = fmt.Fprintf(&b, "**Instruction file**: `%s`\n\n", subject.Path)
+	if item != nil {
+		b.WriteString("## Backlog Item Resolution\n\n")
+		_, _ = fmt.Fprintf(&b, "**Item**: %s\n", item.Title)
+		_, _ = fmt.Fprintf(&b, "**Slug**: `%s`\n", item.Slug)
+		_, _ = fmt.Fprintf(&b, "**Instruction file**: `%s`\n\n", item.Path)
 		b.WriteString("### What was requested\n\n")
-		b.WriteString("[Summarize what the developer asked for in the subject]\n\n")
+		b.WriteString("[Summarize what the developer asked for in the backlog item]\n\n")
 		b.WriteString("### Analysis & Findings\n\n")
-		b.WriteString("[What you found when investigating the subject — be specific]\n\n")
+		b.WriteString("[What you found when investigating the item — be specific]\n\n")
 		b.WriteString("### Artifacts Generated\n\n")
-		b.WriteString("[What skills, memories, or rules you created/improved to address the subject]\n\n")
+		b.WriteString("[What skills, memories, or rules you created/improved to address the item]\n\n")
 		b.WriteString("### Completion Status\n\n")
 		b.WriteString("[COMPLETED | PARTIALLY_COMPLETED — explain what remains if partial]\n\n")
 	}
@@ -322,18 +369,16 @@ func buildDreamEnvelope(ulid string, subject *Subject) string {
 
 	b.WriteString("```\n\n")
 
-	// ── Deep sleep signal ──────────────────────────────────────────────────
 	b.WriteString("### Deep Sleep — Signal When Done\n\n")
 	b.WriteString("After completing your analysis, you MUST decide whether there are further patterns to extract.\n\n")
 	b.WriteString("**If you found NO more patterns to extract** (all conversations have been mined, all skills are healthy, ")
 	b.WriteString("all memories are up to date), signal **deep sleep** by creating:\n\n")
-	_, _ = fmt.Fprintf(&b, "Create an empty file at: `%s/dream/%s%s`\n\n", brand.DotDir(), ulid, DeepSleepSentinelName())
+	_, _ = fmt.Fprintf(&b, "Create an empty file at: `%s/dream/%s%s`\n\n", brand.DotDir(), sessionID, DeepSleepSentinelName())
 	b.WriteString("This tells the daemon that this dream cycle is complete. No more sessions will run until ")
 	b.WriteString("the developer makes new changes to the project and a new cycle begins.\n\n")
 	b.WriteString("**If you DID create or improve artifacts**, do NOT create this file — the daemon will schedule ")
 	b.WriteString("another session to continue progressive work.\n\n")
 
-	// ── Rules ──────────────────────────────────────────────────────────────
 	b.WriteString("## Rules\n\n")
 	b.WriteString("- Do NOT make code changes — only generate/improve skills, rules, commands, and memories\n")
 	b.WriteString("- Do NOT delete existing skills without documenting the rationale in the dream report\n")
@@ -344,25 +389,33 @@ func buildDreamEnvelope(ulid string, subject *Subject) string {
 	b.WriteString("- ALWAYS log skill modifications with before/after rationale\n")
 	b.WriteString("- NEVER introduce breaking changes to existing skills without justification\n")
 	_, _ = fmt.Fprintf(&b, "- ALWAYS create `%s/dream/%s%s` if you found nothing to improve\n",
-		brand.DotDir(), ulid, DeepSleepSentinelName())
+		brand.DotDir(), sessionID, DeepSleepSentinelName())
 	_, _ = fmt.Fprintf(&b, "- NEVER create `%s/dream/%s%s` if you created or modified any artifacts\n",
-		brand.DotDir(), ulid, DeepSleepSentinelName())
+		brand.DotDir(), sessionID, DeepSleepSentinelName())
 
 	return b.String()
 }
 
-func buildDreamArtifact(ulid, agentOutput string) string {
+func buildDreamArtifact(sessionID, agentOutput, diagnostic string) string {
 	var b strings.Builder
 
 	b.WriteString("---\n")
-	_, _ = fmt.Fprintf(&b, "title: Dream Session %s\n", ulid)
+	_, _ = fmt.Fprintf(&b, "title: Dream Session %s\n", sessionID)
 	_, _ = fmt.Fprintf(&b, "created: %s\n", time.Now().UTC().Format(time.RFC3339))
 	b.WriteString("type: dream-report\n")
 	b.WriteString("---\n\n")
 
 	b.WriteString("# Dream Report\n\n")
-	_, _ = fmt.Fprintf(&b, "**Dream ID**: `%s`\n", ulid)
+	_, _ = fmt.Fprintf(&b, "**Dream ID**: `%s`\n", sessionID)
 	_, _ = fmt.Fprintf(&b, "**Timestamp**: `%s`\n\n", time.Now().UTC().Format(time.RFC3339))
+
+	// Before the output, not after: this section says the output below is probably
+	// not what was asked for, and that is worth knowing before reading it.
+	if diagnostic != "" {
+		b.WriteString("## ⚠️ No artifacts were produced\n\n")
+		b.WriteString(diagnostic)
+		b.WriteString("\n")
+	}
 
 	b.WriteString("## Agent Output\n\n")
 	b.WriteString(agentOutput)

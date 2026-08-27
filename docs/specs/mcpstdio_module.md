@@ -198,7 +198,7 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 | `graphit_memory_promote` | Promote a memory to important status. |
 | `graphit_memory_demote` | Demote a memory from important status. |
 | `graphit_memory_consolidate` | Analyze memory wiki for staleness, duplicates, and contradictions. Supports auto-apply. |
-| `graphit_memory_gc` | Garbage collect stale memories. Supports dry-run mode. |
+
 | `graphit_memory_index` | Regenerate the semantic wiki index of memory store. |
 | `graphit_memory_export` | Index and sync project memories to git repository. |
 | `graphit_memory_schema` | Show the memory graph schema. |
@@ -232,11 +232,14 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 
 | Tool | Description |
 |---|---|
-| `graphit_dream_status` | Show status (dreaming/standby/deep sleep/inactive), daemon info, pending subjects, and config. |
+| `graphit_dream_status` | Show status (dreaming/standby/deep sleep/inactive), daemon info, the pending improvement backlog, and config. |
 | `graphit_dream_reports` | List dream session reports. Supports filtering by new-only or all. Tracks last-viewed timestamp. |
-| `graphit_dream_subject_list` | List dream subjects queued for future sessions. |
-| `graphit_dream_subject_add` | Add a new dream subject with title and optional body. |
-| `graphit_dream_subject_remove` | Remove a dream subject by slug. |
+
+Both delegate to `internal/dream` (`ListReports`, `ReportsSince`, `LoadLastSeen`,
+`MarkReportsSeen`) rather than walking the reports directory here. That scanner used to be
+copied into this package, the CLI and the UI server; it now has one owner.
+
+The improvement backlog a session consumes is registered under the Improvements tools, not here — the Improvements module owns the concept.
 
 ### 8. Daemon Tools (`tools_daemon.go`)
 
@@ -259,6 +262,9 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 | Tool | Description |
 |---|---|
 | `graphit_improvements_rules` | Output the resolved code improvement analysis methodology rules. Supports `default` flag to return compiled-in defaults ignoring customization. |
+| `graphit_improvements_backlog_list` | List the improvement backlog — work identified but deliberately deferred. |
+| `graphit_improvements_backlog_add` | Add a backlog item with a title and optional body. |
+| `graphit_improvements_backlog_remove` | Remove a backlog item by slug. |
 
 ---
 
@@ -287,7 +293,8 @@ Git operations use `BatchMode=yes` via `GIT_SSH_COMMAND` to prevent SSH from han
 | `internal/brand` | Tool naming, directory conventions, lockfile names. |
 | `internal/config` | Configuration resolution, module enable/disable, IDE/CLI resolution. |
 | `internal/daemon` | Background daemon management, PID file, ensure running. |
-| `internal/dream` | Dream module state, subjects, configuration. |
+| `internal/dream` | Dream module state, reports, configuration. |
+| `internal/backlog` | Improvement backlog items and their location. |
 | `internal/hub` | Hub registry, artifact management, lockfile operations, global lock. |
 | `internal/knowledge` | Knowledge indexing pipeline, wiki management. |
 | `internal/memory` | Memory service, scoping, wiki, consolidation, GC. |

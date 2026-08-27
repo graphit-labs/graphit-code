@@ -1,131 +1,46 @@
 package hub
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	gitmod "github.com/graphit-labs/graphit-code/internal/git"
-	"github.com/oklog/ulid/v2"
+	"github.com/graphit-labs/graphit-code/internal/projectlock"
 )
 
-type LockfileArtifactMeta struct {
-	Version     string   `json:"version"`
-	Hash        string   `json:"hash,omitempty"`
-	InstalledBy []string `json:"installed_by,omitempty"`
-	Members     []string `json:"members,omitempty"`
-	ProjectID   string   `json:"project_id,omitempty"`
-	Alias       string   `json:"alias,omitempty"`
-	RemoteID    string   `json:"remote_id,omitempty"`
-	Origin      string   `json:"origin,omitempty"`
+// The lockfile format lives in internal/projectlock, a leaf package.
+//
+// It moved out of here because the packages that have to read a project's membership —
+// ast, knowledge, store — cannot import this one: hub imports them. The format is data
+// and has no reason to sit behind a service layer.
+//
+// These are ALIASES, not wrappers, so `hub.Lockfile` and `projectlock.Lockfile` are the
+// same type and every existing caller keeps working. New code should prefer the
+// projectlock package directly.
+type (
+	ArtifactType         = projectlock.ArtifactType
+	ProjectIdentity      = projectlock.ProjectIdentity
+	Lockfile             = projectlock.Lockfile
+	LockfileArtifactMeta = projectlock.ArtifactMeta
+)
 
-	LinkSource       string `json:"link_source,omitempty"`
-	RequestedVersion string `json:"requested_version,omitempty"`
-}
+const (
+	TypeAgent     = projectlock.TypeAgent
+	TypeRule      = projectlock.TypeRule
+	TypeWorkflow  = projectlock.TypeWorkflow
+	TypeSkill     = projectlock.TypeSkill
+	TypeKnowledge = projectlock.TypeKnowledge
+	TypeAST       = projectlock.TypeAST
+	TypeMCP       = projectlock.TypeMCP
+	TypeCommand   = projectlock.TypeCommand
+	TypePower     = projectlock.TypePower
+	TypeLanguage  = projectlock.TypeLanguage
+)
 
-func (m *LockfileArtifactMeta) IsHubInstalled() bool {
-	if m.Origin == "publish" {
-		return false
-	}
-	if m.RemoteID != "" {
-		return true
-	}
-	switch m.Origin {
-	case "hub", "managed", "link":
-		return true
-	}
-	return false
-}
+func LoadLockfile(path string) (*Lockfile, error) { return projectlock.Load(path) }
 
-type ProjectIdentity struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-type Lockfile struct {
-	Project   ProjectIdentity                                   `json:"project"`
-	IDEs      []string                                          `json:"ides,omitempty"`
-	Artifacts map[ArtifactType]map[string]*LockfileArtifactMeta `json:"artifacts"`
-	Config    map[string]any                                    `json:"config,omitempty"`
-}
-
-func LoadLockfile(path string) (*Lockfile, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("reading lockfile: %w", err)
-	}
-
-	lf := &Lockfile{
-		Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta),
-	}
-	if err := json.Unmarshal(data, lf); err != nil {
-		return nil, fmt.Errorf("parsing lockfile: %w", err)
-	}
-	if lf.Artifacts == nil {
-		lf.Artifacts = make(map[ArtifactType]map[string]*LockfileArtifactMeta)
-	}
-
-	return lf, nil
-}
-
-func SaveLockfile(path string, lf *Lockfile) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("creating lockfile directory: %w", err)
-	}
-
-	if lf.Project.ID == "" {
-		existingName := lf.Project.Name
-		existingDesc := lf.Project.Description
-		lf.Project = resolveProjectIdentity(filepath.Dir(path))
-		if existingName != "" {
-			lf.Project.Name = existingName
-		}
-		if existingDesc != "" && lf.Project.Description == "" {
-			lf.Project.Description = existingDesc
-		}
-	}
-	if lf.Artifacts == nil {
-		lf.Artifacts = make(map[ArtifactType]map[string]*LockfileArtifactMeta)
-	}
-
-	data, err := json.MarshalIndent(lf, "", "  ")
-	if err != nil {
-		return fmt.Errorf("serializing lockfile: %w", err)
-	}
-
-	return os.WriteFile(path, data, 0o644)
-}
-
-func resolveProjectIdentity(projectDir string) ProjectIdentity {
-	name := filepath.Base(projectDir)
-
-	out, err := gitmod.Default().RunOutput(projectDir, "remote", "get-url", "origin")
-	if err == nil {
-		url := out
-		if url != "" {
-
-			if m := regexp.MustCompile(`^git@[^:]+:(.+?)(?:\.git)?$`).FindStringSubmatch(url); m != nil {
-				name = m[1]
-			} else if m := regexp.MustCompile(`^https?://.+?/(.+?)(?:\.git)?$`).FindStringSubmatch(url); m != nil {
-
-				name = m[1]
-			}
-		}
-	}
-
-	return ProjectIdentity{
-		ID:   ulid.Make().String(),
-		Name: name,
-	}
-}
+func SaveLockfile(path string, lf *Lockfile) error { return projectlock.Save(path, lf) }
 
 func AddIDE(path, ide string) ([]string, error) {
 	lf, err := LoadLockfile(path)

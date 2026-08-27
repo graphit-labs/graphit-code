@@ -1,16 +1,133 @@
 language: sql
 grammar: tree-sitter-sql
 extensions: [".sql"]
+# BEWARE field names in this grammar. `object_reference` assigns `name` to its
+# identifier, but `create_table` / `create_view` / `create_function` assign a field
+# to no child at all — every one comes back with field="". A pattern requiring a field
+# that does not exist COMPILES (the name exists somewhere in the grammar) and matches
+# ZERO times, silently. That is how `(create_table name: (object_reference ...))` went
+# unnoticed: `.sql` appeared to work because CompositeParser fell back to ANTLR on
+# seeing zero entities. Confirm with a tree dump, not by reading grammar.json.
+target_rules:
+  # COLUMN grain — the target is always QUALIFIED (`TABLE.COLUMN`). Here the qualifier
+  # is another CAPTURE of the same pattern: a tree-sitter pattern is structural and
+  # matches the table beside the column, so it need not climb to an ancestor the way
+  # the ANTLR backend does.
+  READS_COLUMN: { labels: [Column], fallback: Column }
+  WRITES_COLUMN: { labels: [Column], fallback: Column }
 queries:
+  - data_key: column_writes_update
+    pattern: '(update (relation (object_reference (identifier) @tbl)) (assignment (field (identifier) @name)))'
+    name_capture: name
+    qualifier_capture: tbl
+    type: relation
+    relation_type: WRITES_COLUMN
+
+  - data_key: column_writes_insert
+    pattern: '(insert (object_reference (identifier) @tbl) (list (column (identifier) @name)))'
+    name_capture: name
+    qualifier_capture: tbl
+    type: relation
+    relation_type: WRITES_COLUMN
+
   - data_key: functions
     graph_label: Function
-    pattern: '(create_function (object_reference name: (identifier) @name))'
+    pattern: '(create_function (object_reference (identifier) @name))'
   - data_key: tables
     graph_label: Table
-    pattern: '(create_table name: (object_reference name: (identifier) @name))'
+    pattern: '(create_table (object_reference (identifier) @name))'
   - data_key: views
     graph_label: View
-    pattern: '(create_view (object_reference name: (identifier) @name))'
+    pattern: '(create_view (object_reference (identifier) @name))'
+
+  # The table's columns. A table without columns is half a table, and the ANTLR side
+  # always had them. `parent_capture` is legitimate here: `column_definitions` is not
+  # a context type, so the ancestor walk would never find the table.
+  - data_key: columns
+    graph_label: Column
+    pattern: '(create_table (object_reference (identifier) @table) (column_definitions (column_definition (identifier) @name)))'
+    parent_capture: table
+    parent_label: Table
+
+  # The shape of an index: its TABLE (an edge), the COLUMNS it covers in order, and
+  # UNIQUENESS, which is what answers "does the database enforce this, or only the
+  # application?".
+  #
+  # Uniqueness comes from a SECOND query over the same node, with the same data_key and
+  # label: it matches only when `keyword_unique` is present, and merges into the first
+  # one's entity filling its `value`. A non-unique index simply does not match the
+  # second and keeps an empty `value`.
+  - data_key: indexes
+    graph_label: Index
+    pattern: '(create_index (identifier) @name)'
+
+  - data_key: indexes
+    graph_label: Index
+    pattern: '(create_index (keyword_unique) @uniq (identifier) @name)'
+    name_capture: name
+    value_capture: uniq
+    value_label: Value
+
+  - data_key: index_table
+    pattern: '(create_index (object_reference (identifier) @name))'
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: columns
+    graph_label: Column
+    pattern: '(create_index (index_fields (field (identifier) @name)))'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DML — which table each statement touches, and how
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # Without this a `select * from xpto` contributes nothing, and since tree-sitter is
+  # the DEFAULT parser for `.sql` that would hold for most of a project's SQL files.
+  # The edge types are the same ones the ANTLR dialects produce, so that "who reads
+  # this table" is one question regardless of which backend parsed the file.
+  #
+  # The table is REFERENCED here, not declared, so none of these creates a `Table`
+  # node — creating one would make a used table look like a declared one.
+  #
+  # ONE data_key PER EDGE TYPE, and this is not style: `buildRelationTypeMap`
+  # (internal/ast/helper.go) maps data_key → relation_type, so two queries with
+  # the same data_key and different types collide and the LAST one wins — silently. With
+  # all under `dml`, every SELECT/INSERT/UPDATE became ALTERS.
+  #
+  # And beware the shape of FROM: in a SELECT it wraps the table in a `relation`, in a
+  # DELETE it does not, and in both the `from` is the statement's SIBLING, not its
+  # child. That is why the
+  # DELETE ancora no `statement`.
+  - data_key: dml_selects
+    graph_label: ""
+    pattern: '(from (relation (object_reference (identifier) @name)))'
+    type: relation
+    relation_type: SELECTS
+  - data_key: dml_selects
+    graph_label: ""
+    pattern: '(join (relation (object_reference (identifier) @name)))'
+    type: relation
+    relation_type: SELECTS
+  - data_key: dml_inserts
+    graph_label: ""
+    pattern: '(insert (object_reference (identifier) @name))'
+    type: relation
+    relation_type: INSERTS
+  - data_key: dml_updates
+    graph_label: ""
+    pattern: '(update (relation (object_reference (identifier) @name)))'
+    type: relation
+    relation_type: UPDATES
+  - data_key: dml_deletes
+    graph_label: ""
+    pattern: '(statement (delete) (from (object_reference (identifier) @name)))'
+    type: relation
+    relation_type: DELETES
+  - data_key: dml_alters
+    graph_label: ""
+    pattern: '(alter_table (object_reference (identifier) @name))'
+    type: relation
+    relation_type: ALTERS
 
 # SQL has no export concept
 exports:
@@ -18,8 +135,26 @@ exports:
 
 self_keywords: []
 
-# SQL tree-sitter has no class/struct/namespace concepts
-context_types: {}
+# SQL tree-sitter has no class/struct/namespace concepts, so the ancestor walk has
+# nothing to resolve. A Column belongs to its Table through the `parent_capture` on
+# the columns query instead — `column_definitions` is not a container the walk could
+# name. See flatLanguages in containment_coverage_test.go.
+context_types:
+  # The index owns the columns it covers, and the table/view/function owns theirs.
+  create_index: Index
+  create_table: Table
+  create_view: View
+  create_function: Function
+
+# None of these keeps its name in a `name` field: the index has it in a direct
+# identifier and the rest inside an object_reference. Without the path, the context's
+# name would be the
+# primeiro terminal — a palavra CREATE.
+context_name_paths:
+  create_index: identifier
+  create_table: object_reference
+  create_view: object_reference
+  create_function: object_reference
 
 anon_func_types: []
 
@@ -28,15 +163,29 @@ declaration_types:
   - create_function
   - create_table
   - create_view
+  - column_definition
 
 # SQL tree-sitter comment types
 comment_types:
   - comment
   - marginalia
 
-# SQL has no meaningful entry points
-entry_points:
-  names: []
-  exported_bonus: 0
-  max_score: 0
-  decorators: []
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. Plain SQL has no if/for/while — a CASE
+# expression is the only branch construct, and it is counted once per CASE,
+# not once per WHEN (the grammar checked has no per-WHEN node of its own).
+complexity:
+  node_types:
+    - case
+
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Table
+  - View
+  - Function
+  - Column
+  - Index
+  - Comment

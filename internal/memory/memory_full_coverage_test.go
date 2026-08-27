@@ -4,77 +4,101 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-// ===========================================================================
 // memory_git_store.go — using real git init in TempDir
-// ===========================================================================
 
-func gitAvailable() bool {
-	_, err := exec.LookPath("git")
-	return err == nil
-}
-
-func setupGitTestEnv(t *testing.T) {
-	t.Helper()
-	t.Setenv("GIT_AUTHOR_NAME", "Test")
-	t.Setenv("GIT_AUTHOR_EMAIL", "test@example.com")
-	t.Setenv("GIT_COMMITTER_NAME", "Test")
-	t.Setenv("GIT_COMMITTER_EMAIL", "test@example.com")
-}
-
-func TestMemoryGitStore_EnsureInitialised_Full(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
+// Initialisation creates the raw directory root and nothing else.
+//
+// It used to run `git init`, write a bootstrap commit, configure a remote and prune refs, and the
+// test asserted a `.git` had appeared. There is no repository now, so the assertion is the
+// directory — and no git binary is required, which is why the skip is gone too.
+func TestMemoryStore_EnsureInitialised_Full(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
+	store := &MemoryStore{rawBase: wtBase}
 
-	setupGitTestEnv(t)
-
-	err := store.EnsureInitialised()
-	if err != nil {
+	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
 	}
-
-	// Should have created .git
-	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err != nil {
-		t.Errorf("expected .git to exist: %v", err)
+	info, err := os.Stat(wtBase)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("expected the raw directory root to exist: %v", err)
 	}
-
-	// Second call should be idempotent
-	err = store.EnsureInitialised()
-	if err != nil {
+	if store.Configured() {
+		t.Error("a store with no bucket must report itself unconfigured")
+	}
+	// Idempotent.
+	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("second EnsureInitialised: %v", err)
 	}
 }
 
-func TestMemoryGitStore_MemoryWorktreeLocal_Full(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
+// Publish with no remote configured is a no-op that must not error, because local-only is a
+// supported mode and every memory write ends in a Publish.
+func TestMemoryStore_PublishWithoutRemoteIsANoop(t *testing.T) {
+	store := &MemoryStore{rawBase: filepath.Join(t.TempDir(), "wt")}
+	w, err := store.OpenScopeLocal("memory/project/p1")
+	if err != nil {
+		t.Fatalf("open scope: %v", err)
+	}
+	if err := w.WriteFile("a.md", []byte("# a")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := w.Publish("adding a"); err != nil {
+		t.Fatalf("Publish with no remote must not fail: %v", err)
+	}
+	WaitForPendingPushes()
+	if _, err := w.ReadFile("a.md"); err != nil {
+		t.Errorf("the raw directory is the truth and must still hold the file: %v", err)
+	}
+}
+
+// A leftover .git from the worktree this replaced must never be uploaded, and must not appear in
+// an extraction either.
+func TestMemoryStoreSkipsLeftoverGitMetadata(t *testing.T) {
+	store := &MemoryStore{rawBase: filepath.Join(t.TempDir(), "wt")}
+	w, err := store.OpenScopeLocal("memory/project/p1")
+	if err != nil {
+		t.Fatalf("open scope: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(w.Dir(), ".git", "refs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(w.Dir(), ".git", "HEAD"), []byte("ref: refs/heads/x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.WriteFile("mem.md", []byte("# m")); err != nil {
+		t.Fatal(err)
 	}
 
-	repoDir := filepath.Join(t.TempDir(), "repo")
-	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
+	dest := filepath.Join(t.TempDir(), "out")
+	if err := store.ExtractScopeDir("memory/project/p1", ".", dest); err != nil {
+		t.Fatalf("ExtractScopeDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, ".git")); !os.IsNotExist(err) {
+		t.Errorf("git metadata leaked into the extraction: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "mem.md")); err != nil {
+		t.Errorf("the memory itself did not survive extraction: %v", err)
+	}
+}
 
-	setupGitTestEnv(t)
+func TestMemoryStore_OpenScopeLocal_Full(t *testing.T) {
+	wtBase := filepath.Join(t.TempDir(), "wt")
+	store := &MemoryStore{rawBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
 	}
 
 	branch := "memory/project/test-proj"
-	wt, err := store.MemoryWorktreeLocal(branch)
+	wt, err := store.OpenScopeLocal(branch)
 	if err != nil {
-		t.Fatalf("MemoryWorktreeLocal: %v", err)
+		t.Fatalf("OpenScopeLocal: %v", err)
 	}
 	if wt == nil {
 		t.Fatal("expected non-nil worktree")
@@ -83,7 +107,6 @@ func TestMemoryGitStore_MemoryWorktreeLocal_Full(t *testing.T) {
 		t.Error("expected non-empty dir")
 	}
 
-	// Write a file
 	if err := wt.WriteFile("test.md", []byte("hello")); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -98,106 +121,45 @@ func TestMemoryGitStore_MemoryWorktreeLocal_Full(t *testing.T) {
 	}
 
 	// CommitAndPush (without remote — push will be skipped)
-	if err := wt.CommitAndPush("test commit"); err != nil {
+	if err := wt.Publish("test commit"); err != nil {
 		t.Fatalf("CommitAndPush: %v", err)
 	}
 
-	// Second call to MemoryWorktreeLocal should reuse existing worktree
-	wt2, err := store.MemoryWorktreeLocal(branch)
+	// Second call to OpenScopeLocal should reuse existing worktree
+	wt2, err := store.OpenScopeLocal(branch)
 	if err != nil {
-		t.Fatalf("second MemoryWorktreeLocal: %v", err)
+		t.Fatalf("second OpenScopeLocal: %v", err)
 	}
 	if wt2.Dir() != wt.Dir() {
 		t.Errorf("expected same worktree dir, got %q vs %q", wt2.Dir(), wt.Dir())
 	}
 }
 
-func TestMemoryGitStore_CommitAndPush_NothingToCommit(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
+func TestMemoryStore_ExtractScopeDir_Full(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	branch := "memory/project/empty"
-	wt, err := store.MemoryWorktreeLocal(branch)
-	if err != nil {
-		t.Fatalf("MemoryWorktreeLocal: %v", err)
-	}
-
-	// CommitAndPush with nothing to commit — should be a no-op
-	if err := wt.CommitAndPush("empty commit"); err != nil {
-		t.Fatalf("CommitAndPush: %v", err)
-	}
-}
-
-func TestMemoryGitStore_CreateOrphanBranch_Full(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
-	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	err := store.createOrphanBranch("memory/test/orphan")
-	if err != nil {
-		t.Fatalf("createOrphanBranch: %v", err)
-	}
-
-	out := store.gitOutputInRepoNoErr("rev-parse", "--verify", "memory/test/orphan")
-	if out == "" {
-		t.Error("expected branch to exist after createOrphanBranch")
-	}
-}
-
-func TestMemoryGitStore_ExtractBranchDir_Full(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
-	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
+	store := &MemoryStore{rawBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
 	}
 
 	branch := "memory/project/extract-test"
-	wt, err := store.MemoryWorktreeLocal(branch)
+	wt, err := store.OpenScopeLocal(branch)
 	if err != nil {
-		t.Fatalf("MemoryWorktreeLocal: %v", err)
+		t.Fatalf("OpenScopeLocal: %v", err)
 	}
 
-	// Write a file in a subdir
 	if err := wt.WriteFile("data/test.md", []byte("extracted")); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	if err := wt.CommitAndPush("add data"); err != nil {
+	if err := wt.Publish("add data"); err != nil {
 		t.Fatalf("CommitAndPush: %v", err)
 	}
 
 	// Extract
 	destDir := filepath.Join(t.TempDir(), "dest")
-	if err := store.ExtractBranchDir(branch, "data", destDir); err != nil {
-		t.Fatalf("ExtractBranchDir: %v", err)
+	if err := store.ExtractScopeDir(branch, "data", destDir); err != nil {
+		t.Fatalf("ExtractScopeDir: %v", err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(destDir, "test.md"))
@@ -209,55 +171,41 @@ func TestMemoryGitStore_ExtractBranchDir_Full(t *testing.T) {
 	}
 }
 
-func TestMemoryGitStore_ExtractBranchDir_NonExistentSubdir(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
+func TestMemoryStore_ExtractScopeDir_NonExistentSubdir(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
+	store := &MemoryStore{rawBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
 	}
 
 	branch := "memory/project/no-subdir"
-	_, err := store.MemoryWorktreeLocal(branch)
+	_, err := store.OpenScopeLocal(branch)
 	if err != nil {
-		t.Fatalf("MemoryWorktreeLocal: %v", err)
+		t.Fatalf("OpenScopeLocal: %v", err)
 	}
 
 	destDir := filepath.Join(t.TempDir(), "empty-dest")
-	if err := store.ExtractBranchDir(branch, "nonexistent", destDir); err != nil {
-		t.Fatalf("ExtractBranchDir: %v", err)
+	if err := store.ExtractScopeDir(branch, "nonexistent", destDir); err != nil {
+		t.Fatalf("ExtractScopeDir: %v", err)
 	}
 	if _, err := os.Stat(destDir); err != nil {
 		t.Errorf("expected destDir to exist: %v", err)
 	}
 }
 
-func TestMemoryGitStore_Prune_Full(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
+func TestMemoryStore_Prune_Full(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
+	store := &MemoryStore{rawBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
 	}
 
 	branch := "memory/project/prune-test"
-	wt, err := store.MemoryWorktreeLocal(branch)
+	wt, err := store.OpenScopeLocal(branch)
 	if err != nil {
-		t.Fatalf("MemoryWorktreeLocal: %v", err)
+		t.Fatalf("OpenScopeLocal: %v", err)
 	}
 
 	wtDir := wt.Dir()
@@ -274,20 +222,9 @@ func TestMemoryGitStore_Prune_Full(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// memory_branch_lock.go — RegisterBranch, DeregisterBranch, ActiveBranches, Summary
-// ===========================================================================
-
-func TestMemoryGitStore_RegisterDeregisterBranch_Full(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
+func TestMemoryStore_RegisterDeregisterScope_Full(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
+	store := &MemoryStore{rawBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -296,20 +233,18 @@ func TestMemoryGitStore_RegisterDeregisterBranch_Full(t *testing.T) {
 	branch := "memory/project/lock-test"
 	ref := "/some/ref/path"
 
-	// Register
-	if err := store.RegisterBranch(branch, ref); err != nil {
-		t.Fatalf("RegisterBranch: %v", err)
+	if err := store.RegisterScope(branch, ref); err != nil {
+		t.Fatalf("RegisterScope: %v", err)
 	}
 
 	// Register again (duplicate check)
-	if err := store.RegisterBranch(branch, ref); err != nil {
-		t.Fatalf("RegisterBranch (dup): %v", err)
+	if err := store.RegisterScope(branch, ref); err != nil {
+		t.Fatalf("RegisterScope (dup): %v", err)
 	}
 
-	// Active branches
-	active, err := store.ActiveMemoryBranches()
+	active, err := store.ActiveScopes()
 	if err != nil {
-		t.Fatalf("ActiveMemoryBranches: %v", err)
+		t.Fatalf("ActiveScopes: %v", err)
 	}
 	found := false
 	for _, b := range active {
@@ -321,10 +256,9 @@ func TestMemoryGitStore_RegisterDeregisterBranch_Full(t *testing.T) {
 		t.Error("expected branch to be active")
 	}
 
-	// Summary
-	summary, err := store.MemoryBranchSummary()
+	summary, err := store.ScopeSummary()
 	if err != nil {
-		t.Fatalf("MemoryBranchSummary: %v", err)
+		t.Fatalf("ScopeSummary: %v", err)
 	}
 	refs, ok := summary[branch]
 	if !ok {
@@ -334,26 +268,18 @@ func TestMemoryGitStore_RegisterDeregisterBranch_Full(t *testing.T) {
 		t.Errorf("refs = %v", refs)
 	}
 
-	// Deregister
-	unused, err := store.DeregisterBranch(branch, ref)
+	unused, err := store.DeregisterScope(branch, ref)
 	if err != nil {
-		t.Fatalf("DeregisterBranch: %v", err)
+		t.Fatalf("DeregisterScope: %v", err)
 	}
 	if !unused {
 		t.Error("expected branch to become unused")
 	}
 }
 
-func TestMemoryGitStore_ValidateMemBranchRefs_Full(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
+func TestMemoryStore_ValidateScopeRefs_Full(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
+	store := &MemoryStore{rawBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -362,40 +288,33 @@ func TestMemoryGitStore_ValidateMemBranchRefs_Full(t *testing.T) {
 	branch := "memory/project/validate-test"
 
 	// Register with non-existent ref path — should be cleaned
-	if err := store.RegisterBranch(branch, "/nonexistent/ref/path"); err != nil {
-		t.Fatalf("RegisterBranch: %v", err)
+	if err := store.RegisterScope(branch, "/nonexistent/ref/path"); err != nil {
+		t.Fatalf("RegisterScope: %v", err)
 	}
 
 	// Also register with "user" ref — should be preserved
-	if err := store.RegisterBranch(branch, "user"); err != nil {
-		t.Fatalf("RegisterBranch: %v", err)
+	if err := store.RegisterScope(branch, "user"); err != nil {
+		t.Fatalf("RegisterScope: %v", err)
 	}
 
-	cleaned, err := store.ValidateMemBranchRefs()
+	cleaned, err := store.ValidateScopeRefs()
 	if err != nil {
-		t.Fatalf("ValidateMemBranchRefs: %v", err)
+		t.Fatalf("ValidateScopeRefs: %v", err)
 	}
 	if cleaned < 1 {
 		t.Errorf("expected at least 1 cleaned ref, got %d", cleaned)
 	}
 }
 
-func TestMemoryGitStore_DeregisterBranch_NotFound(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
+func TestMemoryStore_DeregisterScope_NotFound(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
+	store := &MemoryStore{rawBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
 	}
 
-	unused, err := store.DeregisterBranch("nonexistent-branch", "ref")
+	unused, err := store.DeregisterScope("nonexistent-branch", "ref")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -404,167 +323,37 @@ func TestMemoryGitStore_DeregisterBranch_NotFound(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// memory_git_store.go — git helper functions
-// ===========================================================================
-
-func TestMemoryGitStore_GitHelpers_Full(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
+// Pruning a scope removes its raw directory and nothing else.
+//
+// It used to also delete a branch ref, and the test created an orphan branch to have one. There
+// is no ref now: the directory and the lock entry are this machine's whole record of a scope.
+// The remote prefix must survive, because another machine may still be using the scope.
+func TestMemoryStore_PruneLocalBranch_Full(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
+	store := &MemoryStore{rawBase: wtBase}
+	t.Setenv("HOME", t.TempDir()) // isolate from the developer's global lock file
 
-	setupGitTestEnv(t)
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	// gitOutputInRepo
-	out, err := store.gitOutputInRepo("rev-parse", "--git-dir")
+	const branch = "memory/prune/target"
+	w, err := store.OpenScopeLocal(branch)
 	if err != nil {
-		t.Fatalf("gitOutputInRepo: %v", err)
+		t.Fatalf("open scope: %v", err)
 	}
-	if out == "" {
-		t.Error("expected non-empty output from rev-parse")
-	}
-
-	// gitOutputInRepoNoErr
-	noErr := store.gitOutputInRepoNoErr("rev-parse", "--git-dir")
-	if noErr == "" {
-		t.Error("expected non-empty output from gitOutputInRepoNoErr")
+	if err := w.WriteFile("m.md", []byte("# m")); err != nil {
+		t.Fatal(err)
 	}
 
-	// gitInRepo
-	err = store.gitInRepo("status")
-	if err != nil {
-		t.Fatalf("gitInRepo status: %v", err)
+	store.pruneLocalScope(branch)
+
+	if _, err := os.Stat(store.ScopeDir(branch)); !os.IsNotExist(err) {
+		t.Errorf("expected the raw directory to be gone, got %v", err)
 	}
 }
 
-func TestMemoryGitStore_SyncRemote_NoURL(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
-	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
-	t.Setenv("HOME", t.TempDir()) // isolate from developer's global config
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	// syncRemote with no URL should remove origin
-	store.syncRemote()
-	// Should not panic
-}
-
-func TestMemoryGitStore_IsRemoteEmpty_NoURL(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: repoDir + "-wt"}
-
-	setupGitTestEnv(t)
-	t.Setenv("HOME", t.TempDir()) // isolate from developer's global config
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	empty := store.isRemoteEmpty()
-	if empty {
-		t.Error("expected false when no remote URL configured")
-	}
-}
-
-func TestMemoryGitStore_RemoteBranchExists_NoURL(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: repoDir + "-wt"}
-
-	setupGitTestEnv(t)
-	t.Setenv("HOME", t.TempDir()) // isolate from developer's global config
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	exists := store.remoteBranchExists("main")
-	if exists {
-		t.Error("expected false when no remote URL configured")
-	}
-}
-
-func TestMemoryGitStore_PushBranchInBackground_NoURL(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: repoDir + "-wt"}
-
-	setupGitTestEnv(t)
-	t.Setenv("HOME", t.TempDir()) // isolate from developer's global config
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	// No remote URL — should be a no-op
-	store.pushBranchInBackground("test-branch", repoDir)
-	WaitForPendingPushes()
-}
-
-func TestMemoryGitStore_PruneLocalBranch_Full(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
-	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
-	t.Setenv("HOME", t.TempDir()) // isolate from developer's global config
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	// Create a branch to prune
-	_ = store.createOrphanBranch("memory/prune/target")
-	WaitForPendingPushes() // ensure background goroutine from createOrphanBranch finishes
-	store.pruneLocalBranch("memory/prune/target")
-	// Should not panic
-}
-
-// ===========================================================================
-// memory.go — MemoryService operations with MemoryWorktree (via git)
-// ===========================================================================
+// memory.go — MemoryService operations with ScopeStore (via git)
 
 func TestMemoryService_AddUpdateRemoveMemory_WithGitStore(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
+	store := &MemoryStore{rawBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -575,10 +364,9 @@ func TestMemoryService_AddUpdateRemoveMemory_WithGitStore(t *testing.T) {
 		scope:    MemoryScopeProject,
 		scopeID:  "test-proj",
 		localDir: localDir,
-		gitStore: store,
+		store:    store,
 	}
 
-	// AddMemory
 	id, err := svc.AddMemory("Test Title", "Test body content", MemoryOpts{})
 	if err != nil {
 		t.Fatalf("AddMemory: %v", err)
@@ -587,25 +375,21 @@ func TestMemoryService_AddUpdateRemoveMemory_WithGitStore(t *testing.T) {
 		t.Fatal("expected non-empty ID")
 	}
 
-	// UpdateMemory
 	err = svc.UpdateMemory(id, "Updated Title", "Updated body content")
 	if err != nil {
 		t.Fatalf("UpdateMemory: %v", err)
 	}
 
-	// PromoteMemory
 	err = svc.PromoteMemory(id)
 	if err != nil {
 		t.Fatalf("PromoteMemory: %v", err)
 	}
 
-	// DemoteMemory
 	err = svc.DemoteMemory(id)
 	if err != nil {
 		t.Fatalf("DemoteMemory: %v", err)
 	}
 
-	// RemoveMemory
 	err = svc.RemoveMemory(id)
 	if err != nil {
 		t.Fatalf("RemoveMemory: %v", err)
@@ -613,15 +397,8 @@ func TestMemoryService_AddUpdateRemoveMemory_WithGitStore(t *testing.T) {
 }
 
 func TestMemoryService_AddMemory_WithTypeAndTags(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
+	store := &MemoryStore{rawBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -632,7 +409,7 @@ func TestMemoryService_AddMemory_WithTypeAndTags(t *testing.T) {
 		scope:    MemoryScopeProject,
 		scopeID:  "test-proj",
 		localDir: localDir,
-		gitStore: store,
+		store:    store,
 	}
 
 	id, err := svc.AddMemory("Typed Memory", "Body with type", MemoryOpts{
@@ -649,15 +426,8 @@ func TestMemoryService_AddMemory_WithTypeAndTags(t *testing.T) {
 }
 
 func TestMemoryService_SyncToLocal_WithGitStore(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
+	store := &MemoryStore{rawBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -668,16 +438,14 @@ func TestMemoryService_SyncToLocal_WithGitStore(t *testing.T) {
 		scope:    MemoryScopeProject,
 		scopeID:  "test-proj",
 		localDir: localDir,
-		gitStore: store,
+		store:    store,
 	}
 
-	// Add a memory first
 	id, err := svc.AddMemory("Sync Test", "Body content for sync", MemoryOpts{})
 	if err != nil {
 		t.Fatalf("AddMemory: %v", err)
 	}
 
-	// SyncToLocal
 	err = svc.SyncToLocal()
 	if err != nil {
 		t.Fatalf("SyncToLocal: %v", err)
@@ -688,22 +456,15 @@ func TestMemoryService_SyncToLocal_WithGitStore(t *testing.T) {
 }
 
 func TestMemoryService_EnsureInitialised_WithGitStore(t *testing.T) {
-	if !gitAvailable() {
-		t.Skip("git not available")
-	}
-
-	repoDir := filepath.Join(t.TempDir(), "repo")
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryGitStore{repoDir: repoDir, wtBase: wtBase}
-
-	setupGitTestEnv(t)
+	store := &MemoryStore{rawBase: wtBase}
 
 	localDir := t.TempDir()
 	svc := &MemoryService{
 		scope:    MemoryScopeProject,
 		scopeID:  "test-proj",
 		localDir: localDir,
-		gitStore: store,
+		store:    store,
 	}
 
 	err := svc.EnsureInitialised()
@@ -712,49 +473,22 @@ func TestMemoryService_EnsureInitialised_WithGitStore(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// memory.go — gitProjectDir
-// ===========================================================================
-
-func TestGitProjectDir(t *testing.T) {
-	dir := t.TempDir()
-
-	// Not a git repo — should return ""
-	result := gitProjectDir()
-	// May or may not find a git repo depending on test environment
-	_ = result
-
-	if !gitAvailable() {
-		t.Skip("git not available for git init test")
-	}
-
-	// Make it a git repo
-	setupGitTestEnv(t)
-	cmd := exec.Command("git", "init", dir)
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("git init: %v", err)
-	}
-
-	result = gitProjectDir()
-	if result == "" {
-		t.Error("expected non-empty for git dir")
+// The project root no longer depends on git being present or on there being a repository at all.
+// TestProjectRootComesFromTheLockfileNotGit covers the real behaviour; this only pins that the
+// function always answers something usable.
+func TestProjectRootDirAlwaysAnswers(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if projectRootDir() == "" {
+		t.Error("projectRootDir returned empty outside any project")
 	}
 }
 
-// ===========================================================================
-// memory.go — UserHashFromGit
-// ===========================================================================
-
-func TestUserHashFromGit_Coverage(t *testing.T) {
+func TestUserScopeID_Coverage(t *testing.T) {
 	// This calls git config — may or may not return a hash
-	hash, _ := UserHashFromGit()
+	hash, _ := UserScopeID()
 	// Just verify it doesn't panic — may be empty if git user not configured
 	_ = hash
 }
-
-// ===========================================================================
-// memory.go — buildMemoryFile completeness
-// ===========================================================================
 
 func TestBuildMemoryFile_AllFieldsCoverage(t *testing.T) {
 	content := buildMemoryFile(
@@ -793,46 +527,6 @@ func TestBuildMemoryFile_MinimalFields(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// memory.go — ensureProjectCopy
-// ===========================================================================
-
-func TestEnsureProjectCopy_WithProjectDir(t *testing.T) {
-	localDir := t.TempDir()
-
-	// Write a file in localDir
-	writeMemFile(t, localDir, "MEM1.md", "---\ntitle: Test\n---\n\n# Test\n\nBody.")
-
-	// ProjectLinkDir depends on brand.GlobalDir
-	// Just ensure no panic calling it
-	linkDir := ProjectLinkDir("project")
-	_ = linkDir
-}
-
-// ===========================================================================
-// paths.go — MemoryLocalDir, MemoryGlobalContextDir, MemoryWikiGlobalDir
-// ===========================================================================
-
-func TestMemoryLocalDir_Coverage(t *testing.T) {
-	dir := MemoryLocalDir("project")
-	if dir == "" {
-		t.Error("expected non-empty MemoryLocalDir")
-	}
-	if !strings.Contains(dir, "project") {
-		t.Errorf("expected 'project' in path, got %q", dir)
-	}
-}
-
-func TestMemoryGlobalContextDir_Coverage(t *testing.T) {
-	dir := MemoryGlobalContextDir("test-ctx")
-	if dir == "" {
-		t.Error("expected non-empty")
-	}
-	if !strings.Contains(dir, "test-ctx") {
-		t.Errorf("expected 'test-ctx' in path, got %q", dir)
-	}
-}
-
 func TestMemoryWikiGlobalDir_Coverage(t *testing.T) {
 	dir := MemoryWikiGlobalDir("user", "test-user")
 	if dir == "" {
@@ -842,10 +536,6 @@ func TestMemoryWikiGlobalDir_Coverage(t *testing.T) {
 		t.Errorf("expected 'user' in path, got %q", dir)
 	}
 }
-
-// ===========================================================================
-// paths.go — WikiDir, RawDir
-// ===========================================================================
 
 func TestWikiDir_Coverage(t *testing.T) {
 	dir := WikiDir("project")
@@ -859,9 +549,7 @@ func TestRawDir_Coverage(t *testing.T) {
 	_ = dir
 }
 
-// ===========================================================================
 // consolidate.go — RunConsolidation edge cases (helper-based)
-// ===========================================================================
 
 func TestRunConsolidation_WithAIClient_Coverage(t *testing.T) {
 	dir := t.TempDir()
@@ -884,7 +572,7 @@ None found
 	client := &fakeAIClient{response: aiResponse}
 
 	ctx := context.Background()
-	report, err := consolidationHelper(ctx, dir, client)
+	report, err := consolidateDir(ctx, dir, client)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -904,7 +592,7 @@ func TestRunConsolidation_AIClientError_Coverage(t *testing.T) {
 
 	client := &fakeAIClient{err: fmt.Errorf("AI unavailable")}
 	ctx := context.Background()
-	report, err := consolidationHelper(ctx, dir, client)
+	report, err := consolidateDir(ctx, dir, client)
 	if err != nil {
 		t.Fatalf("should not return error, got: %v", err)
 	}
@@ -920,7 +608,7 @@ func TestRunConsolidation_SingleMemory_Coverage(t *testing.T) {
 
 	client := &fakeAIClient{response: "should not be called"}
 	ctx := context.Background()
-	report, err := consolidationHelper(ctx, dir, client)
+	report, err := consolidateDir(ctx, dir, client)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -934,12 +622,12 @@ func TestRunConsolidation_SingleMemory_Coverage(t *testing.T) {
 
 func TestRunConsolidation_ImportantMemory_Coverage(t *testing.T) {
 	dir := t.TempDir()
-	date := time.Now().Add(-60 * 24 * time.Hour).Format(time.RFC3339)
+	date := time.Now().Add(-120 * 24 * time.Hour).Format(time.RFC3339)
 	writeMemFile(t, dir, "IMP_important_.md", fmt.Sprintf("---\ntitle: Important\ncreated_at: %s\nimportant: true\n---\n\n# Important\n\nBody of important memory.", date))
 	writeMemFile(t, dir, "NORM.md", fmt.Sprintf("---\ntitle: Normal\ncreated_at: %s\n---\n\n# Normal\n\nBody of normal memory.", date))
 
 	ctx := context.Background()
-	report, err := consolidationHelper(ctx, dir, nil)
+	report, err := consolidateDir(ctx, dir, nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -960,90 +648,6 @@ type fakeAIClient struct {
 func (f *fakeAIClient) Complete(_ context.Context, _, _ string) (string, error) {
 	return f.response, f.err
 }
-
-// consolidationHelper replaces RunConsolidation's RawDir with a direct dir.
-func consolidationHelper(ctx context.Context, dir string, aiClient interface{ Complete(context.Context, string, string) (string, error) }) (*ConsolidationReport, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &ConsolidationReport{}, nil
-		}
-		return nil, err
-	}
-
-	var memories []memorySnapshot
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-		name := e.Name()
-		absPath := filepath.Join(dir, name)
-		data, readErr := os.ReadFile(absPath)
-		if readErr != nil {
-			continue
-		}
-		important := IsImportantMemory(name)
-		var id string
-		if important {
-			id = strings.TrimSuffix(name, ImportantMemorySuffix+".md")
-		} else {
-			id = strings.TrimSuffix(name, ".md")
-		}
-		title, createdAt := parseMemoryMeta(absPath)
-		body := extractBodyAfterFrontmatter(string(data))
-		memType := parseConsolidationType(string(data))
-
-		memories = append(memories, memorySnapshot{
-			ID:        id,
-			Title:     title,
-			Body:      strings.TrimSpace(body),
-			Type:      memType,
-			CreatedAt: createdAt,
-			Important: important,
-		})
-	}
-
-	report := &ConsolidationReport{TotalMemories: len(memories)}
-	if len(memories) == 0 {
-		return report, nil
-	}
-
-	report.Stale = detectStaleMemories(memories)
-
-	if aiClient != nil && len(memories) > 1 {
-		aiReport, aiErr := aiConsolidation(ctx, aiClient, memories)
-		if aiErr != nil {
-			report.AIAnalysis = fmt.Sprintf("AI analysis failed: %v", aiErr)
-			return report, nil
-		}
-		report.Duplicates = aiReport.Duplicates
-		report.Contradictions = aiReport.Contradictions
-		report.Suggestions = aiReport.Suggestions
-		report.AIAnalysis = aiReport.AIAnalysis
-	}
-
-	return report, nil
-}
-
-// ===========================================================================
-// consolidate.go — ApplyGC
-// ===========================================================================
-
-func TestApplyGC_EmptyCandidates_Coverage(t *testing.T) {
-	svc := &MemoryService{scope: MemoryScopeProject, scopeID: "test"}
-	ctx := context.Background()
-	deleted, err := ApplyGC(ctx, "project", nil, svc)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if deleted != 0 {
-		t.Errorf("expected 0, got %d", deleted)
-	}
-}
-
-// ===========================================================================
-// memory.go — MemoryService.IndexMemories with data
-// ===========================================================================
 
 func TestMemoryService_IndexMemories_Coverage(t *testing.T) {
 	rawDir := t.TempDir()
@@ -1075,10 +679,6 @@ func TestMemoryService_IndexMemories_Coverage(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// memory.go — syncToLocalInternal nil store
-// ===========================================================================
-
 func TestSyncToLocalInternal_NilStore_Coverage(t *testing.T) {
 	svc := &MemoryService{scope: MemoryScopeProject, scopeID: "test"}
 	err := svc.syncToLocalInternal(true)
@@ -1098,10 +698,6 @@ func TestSyncToLocalInternal_Fast_Coverage(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// cycle.go — SyncAndCycle with store error details
-// ===========================================================================
-
 func TestSyncAndCycle_StoreError_Coverage(t *testing.T) {
 	ctx := context.Background()
 	store := &mockStoreProviderCov{extractErr: fmt.Errorf("extract failed")}
@@ -1115,7 +711,7 @@ type mockStoreProviderCov struct {
 	extractErr error
 }
 
-func (m *mockStoreProviderCov) ExtractBranchDir(_, _, _ string) error {
+func (m *mockStoreProviderCov) ExtractScopeDir(_, _, _ string) error {
 	return m.extractErr
 }
 
@@ -1127,10 +723,6 @@ func TestSyncContextFromMemoryRepo_StoreError_Coverage(t *testing.T) {
 		t.Errorf("Scope = %q", result.Scope)
 	}
 }
-
-// ===========================================================================
-// cycle.go — EnsureWikiIndexExists
-// ===========================================================================
 
 func TestEnsureWikiIndexExists_CreatesNew(t *testing.T) {
 	// Use a temp dir to create a wiki dir that doesn't exist yet
@@ -1154,10 +746,6 @@ func TestEnsureWikiIndexExists_CreatesNew(t *testing.T) {
 		t.Error("missing header")
 	}
 }
-
-// ===========================================================================
-// wiki.go — GenerateMemoryWiki with unreadable files
-// ===========================================================================
 
 func TestGenerateMemoryWiki_WithImportantMemories(t *testing.T) {
 	rawDir := t.TempDir()
@@ -1185,9 +773,7 @@ func TestGenerateMemoryWiki_WithImportantMemories(t *testing.T) {
 	}
 }
 
-// ===========================================================================
 // wiki.go — memoryEntityPage dates and stale calculations
-// ===========================================================================
 
 func TestMemoryEntityPage_RecentDate(t *testing.T) {
 	recentDate := time.Now().Add(-1 * 24 * time.Hour).Format(time.RFC3339)
@@ -1204,10 +790,6 @@ func TestMemoryEntityPage_CreatedAtDate(t *testing.T) {
 		t.Error("expected created date in page")
 	}
 }
-
-// ===========================================================================
-// important.go — firstLineFromContent
-// ===========================================================================
 
 func TestFirstLineFromContent_Empty(t *testing.T) {
 	got := firstLineFromContent("")
@@ -1238,47 +820,17 @@ func TestFirstLineFromContent_LongLine(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// consolidate.go — parseConsolidationType
-// ===========================================================================
-
-func TestParseConsolidationType_WithType(t *testing.T) {
-	content := "---\ntitle: Test\ntype: convention\n---\n\nBody"
-	got := parseConsolidationType(content)
-	if got != "convention" {
-		t.Errorf("expected 'convention', got %q", got)
-	}
-}
-
-func TestParseConsolidationType_NoType(t *testing.T) {
-	content := "---\ntitle: Test\n---\n\nBody"
-	got := parseConsolidationType(content)
-	if got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
-}
-
-func TestParseConsolidationType_NoFrontmatter(t *testing.T) {
-	content := "Just some plain text"
-	got := parseConsolidationType(content)
-	if got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
-}
-
-// ===========================================================================
 // consolidate.go — aiConsolidation edge cases
-// ===========================================================================
 
 func TestAIConsolidation_WithImportantFlag(t *testing.T) {
-	client := &fakeAIClient{response: "## DUPLICATES\nNone found\n\n## CONTRADICTIONS\nNone found\n\n## SUGGESTIONS\nNone found"}
+	client := &fakeAIClient{response: `{"duplicates": [], "contradictions": [], "suggestions": []}`}
 	memories := []memorySnapshot{
 		{ID: "MEM1", Title: "M1", Body: "Body with content", Type: "fact", CreatedAt: "2026-01-01T00:00:00Z", Important: true},
 		{ID: "MEM2", Title: "M2", Body: "Body two", Type: "convention", CreatedAt: "2026-01-02T00:00:00Z", Important: false},
 	}
 
 	ctx := context.Background()
-	report, err := aiConsolidation(ctx, client, memories)
+	report, err := aiConsolidation(ctx, client, memories, nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -1288,24 +840,30 @@ func TestAIConsolidation_WithImportantFlag(t *testing.T) {
 }
 
 func TestAIConsolidation_WithConflictsAndSuggestions(t *testing.T) {
-	aiResponse := `## DUPLICATES
-None found
-
-## CONTRADICTIONS
-- CONFLICT [01J5XABC1234567890] vs [01J5XDEF1234567890]: one says X, other says Y — recommend keeping [01J5XABC1234567890]
-
-## SUGGESTIONS
-- PROMOTE [01J5XGHI1234567890]: should be important
-- DELETE [01J5XJKL1234567890]: obsolete`
+	aiResponse := `{
+  "duplicates": [],
+  "contradictions": [
+    {"ids": ["01J5XABC1234567890", "01J5XDEF1234567890"], "keep_id": "01J5XABC1234567890",
+     "resolved_content": "X is current; it used to be Y", "reason": "one says X, other says Y"}
+  ],
+  "suggestions": [
+    {"action": "promote", "id": "01J5XGHI1234567890", "reason": "should be important"},
+    {"action": "delete", "id": "01J5XJKL1234567890", "reason": "obsolete"}
+  ]
+}`
 
 	client := &fakeAIClient{response: aiResponse}
+	// Every ID the analysis names has to exist in the corpus, otherwise it is
+	// filtered out — see TestAIConsolidation_DropsActionsNamingUnknownIDs.
 	memories := []memorySnapshot{
 		{ID: "01J5XABC1234567890", Title: "Mem1", Body: "Body1", Type: "fact", CreatedAt: "2026-01-01T00:00:00Z"},
 		{ID: "01J5XDEF1234567890", Title: "Mem2", Body: "Body2", Type: "fact", CreatedAt: "2026-01-02T00:00:00Z"},
+		{ID: "01J5XGHI1234567890", Title: "Mem3", Body: "Body3", Type: "fact", CreatedAt: "2026-01-03T00:00:00Z"},
+		{ID: "01J5XJKL1234567890", Title: "Mem4", Body: "Body4", Type: "fact", CreatedAt: "2026-01-04T00:00:00Z"},
 	}
 
 	ctx := context.Background()
-	report, err := aiConsolidation(ctx, client, memories)
+	report, err := aiConsolidation(ctx, client, memories, nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -1315,38 +873,72 @@ None found
 	if len(report.Suggestions) != 2 {
 		t.Errorf("expected 2 suggestions, got %d", len(report.Suggestions))
 	}
-}
-
-// ===========================================================================
-// consolidate.go — parseConsolidationSection edge cases
-// ===========================================================================
-
-func TestParseSuggestionSection_MultipleTypes(t *testing.T) {
-	response := `## SUGGESTIONS
-- PROMOTE [01J5XABC1234567890]: should be important
-- DEMOTE [01J5XDEF1234567890]: too specific
-- DELETE [01J5XGHI1234567890]: obsolete
-- UPDATE [01J5XJKL1234567890]: needs more detail`
-
-	actions := parseSuggestionSection(response)
-	if len(actions) != 4 {
-		t.Fatalf("expected 4 actions, got %d", len(actions))
-	}
-
-	typeMap := map[string]bool{}
-	for _, a := range actions {
-		typeMap[a.Type] = true
-	}
-	for _, expected := range []string{"promote", "demote", "delete", "update"} {
-		if !typeMap[expected] {
-			t.Errorf("expected type %q in actions", expected)
-		}
+	// The survivor the analysis recommended must be the one that survives.
+	if got := report.Contradictions[0].KeepID; got != "01J5XABC1234567890" {
+		t.Errorf("KeepID = %q; want the recommended survivor", got)
 	}
 }
 
-// ===========================================================================
+// A model that invents an ID, or names one from a different batch, must not get an
+// action out of it: the apply step would look up a memory that does not exist, and
+// in the worst case act on a coincidental match.
+func TestAIConsolidation_DropsActionsNamingUnknownIDs(t *testing.T) {
+	aiResponse := `{
+  "duplicates": [{"ids": ["01J5XABC1234567890", "01J5XNOTINCORPUS9"], "keep_id": "01J5XABC1234567890", "merged_content": "x", "reason": "r"}],
+  "contradictions": [],
+  "suggestions": [{"action": "delete", "id": "01J5XALSOMISSING01", "reason": "r"}]
+}`
+	client := &fakeAIClient{response: aiResponse}
+	memories := []memorySnapshot{
+		{ID: "01J5XABC1234567890", Title: "Mem1", Body: "Body1"},
+		{ID: "01J5XDEF1234567890", Title: "Mem2", Body: "Body2"},
+	}
+
+	report, err := aiConsolidation(context.Background(), client, memories, nil)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	// One of the two duplicate IDs is unknown, leaving fewer than two — not a merge.
+	if len(report.Duplicates) != 0 {
+		t.Errorf("expected the merge to be dropped, got %d", len(report.Duplicates))
+	}
+	if len(report.Suggestions) != 0 {
+		t.Errorf("expected the delete of an unknown ID to be dropped, got %d", len(report.Suggestions))
+	}
+}
+
+// The JSON form is the primary contract; the sectioned text parser is only the
+// fallback. This asserts JSON wins and is parsed even when the model wraps it in a
+// fence, which several CLIs do unconditionally.
+func TestAIConsolidation_ParsesFencedJSON(t *testing.T) {
+	aiResponse := "Here is the plan:\n```json\n" + `{
+  "duplicates": [{"ids": ["01J5XABC1234567890", "01J5XDEF1234567890"], "keep_id": "01J5XDEF1234567890", "merged_title": "Merged", "merged_content": "union of both", "reason": "same thing"}],
+  "contradictions": [],
+  "suggestions": []
+}` + "\n```\n"
+	client := &fakeAIClient{response: aiResponse}
+	memories := []memorySnapshot{
+		{ID: "01J5XABC1234567890", Title: "Mem1", Body: "Body1"},
+		{ID: "01J5XDEF1234567890", Title: "Mem2", Body: "Body2"},
+	}
+
+	report, err := aiConsolidation(context.Background(), client, memories, nil)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if len(report.Duplicates) != 1 {
+		t.Fatalf("expected 1 duplicate group, got %d", len(report.Duplicates))
+	}
+	got := report.Duplicates[0]
+	if got.KeepID != "01J5XDEF1234567890" {
+		t.Errorf("KeepID = %q; want 01J5XDEF1234567890", got.KeepID)
+	}
+	if got.NewContent != "union of both" {
+		t.Errorf("NewContent = %q; want the merged content from the JSON", got.NewContent)
+	}
+}
+
 // wiki.go — memoryEntityPage with all type emojis
-// ===========================================================================
 
 func TestMemoryEntityPage_EachType(t *testing.T) {
 	types := []string{"convention", "correction", "decision", "tension", "fact", "skill"}
@@ -1360,13 +952,9 @@ func TestMemoryEntityPage_EachType(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// memory.go — MemoryWorktree operations
-// ===========================================================================
-
-func TestMemoryWorktree_WriteFileSubdir_Coverage(t *testing.T) {
+func TestScopeStore_WriteFileSubdir_Coverage(t *testing.T) {
 	dir := t.TempDir()
-	wt := &MemoryWorktree{dir: dir, branch: "test"}
+	wt := &ScopeStore{dir: dir, scopePath: "test"}
 
 	if err := wt.WriteFile("sub/dir/test.md", []byte("nested")); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -1379,10 +967,6 @@ func TestMemoryWorktree_WriteFileSubdir_Coverage(t *testing.T) {
 		t.Errorf("content = %q", string(data))
 	}
 }
-
-// ===========================================================================
-// appsvc.go — MemoryAppService integration
-// ===========================================================================
 
 func TestMemoryAppService_InsertValidated_EmptyTitle(t *testing.T) {
 	svc := NewMemoryAppService("/some/project")
@@ -1408,10 +992,6 @@ func TestMemoryAppService_InsertValidated_EmptyContent(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// extractBodyAfterFrontmatter — edge cases
-// ===========================================================================
-
 func TestExtractBodyAfterFrontmatter_NoFrontmatter(t *testing.T) {
 	content := "Just some text\nWith lines."
 	got := extractBodyAfterFrontmatter(content)
@@ -1435,10 +1015,6 @@ func TestExtractBodyAfterFrontmatter_WithHeadingAfterFrontmatter(t *testing.T) {
 		t.Errorf("expected body text after heading, got %q", got)
 	}
 }
-
-// ===========================================================================
-// parseMemoryType additional coverage
-// ===========================================================================
 
 func TestParseMemoryType_TypeWithQuotes(t *testing.T) {
 	got := parseMemoryType("---\ntype: \"decision\"\n---\n")

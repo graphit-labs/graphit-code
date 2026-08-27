@@ -15,21 +15,21 @@ O fast-path verificava `content_hash` lendo cada arquivo `.md` do wikiDir do dis
 
 ### 2. WikiDB rebuild sempre executava em `wiki/pipeline.go`
 
-`RebuildDB` sempre fazia write-to-temp + FTS5 rebuild + atomic rename + embedding restore, mesmo quando nenhum doc mudou. Na wiki de memória, `logEntry` era **sempre** não-nil, então o fast-path do pipeline nunca disparava.
+The inline 0 always performed write-to-temp + FTS5 rebuild + atomic rename + embedding restore, even when no document had changed. On the memory wiki, inline 1 was always not null, so the fast path of the pipeline never triggered.
 
 ### 3. FTS5 `optimize` em cada rebuild
 
-`optimizeTables()` (merge de segmentos FTS5) rodava em todo rebuild — operação cara e desnecessária.
+The `optimizeTables()` (FTS5 segments merge) operation ran on every rebuild — a costly and unnecessary task.
 
 ## Fixes
 
 ### Fix 1 — Fast-path via `processCache` (zero disk I/O)
 
-`internal/knowledge/wiki.go` e `internal/memory/wiki.go`: substituído o loop de N leituras de `.md` por `processCache.HasChanged()` — O(1) em memória por doc. Se o manifest do cache confirmar que nenhum arquivo mudou, retorna imediatamente sem tocar o disco.
+Inline 0 and Inline 1: Replaced the N reads of Inline 2 with Inline 3 — O(1) in memory by design. If the cache manifest confirms that no file has changed, it returns immediately without touching the disk.
 
 ### Fix 2 — Skip do rebuild via `CheckAllHashesMatch`
 
-`internal/wiki/fts.go`: adicionado `CheckAllHashesMatch(chunks []WikiChunk) bool` — faz uma única query `SELECT content_hash FROM chunks` e compara em Go.
+Added `CheckAllHashesMatch(chunks []WikiChunk) bool` — performs a single query `SELECT content_hash FROM chunks` and compares in Go.
 
 `internal/wiki/pipeline.go`: `RebuildDB` chama `CheckAllHashesMatch` antes do `Rebuild`. Se bater (e `logEntry == nil`), retorna imediatamente.
 
@@ -37,13 +37,13 @@ O fast-path verificava `content_hash` lendo cada arquivo `.md` do wikiDir do dis
 
 ### Fix 3 — FTS5 `optimize` condicional
 
-`internal/wiki/fts.go`: substituído `optimizeTables()` por `optimizeTablesIfNeeded()` — roda FTS optimize apenas a cada 10 rebuilds (contador em `wiki_meta.rebuild_count`, copiado entre rebuilds no atomic rename).
+The inline replacement of `optimizeTables()` with `optimizeTablesIfNeeded()` is optimized for every 10 rebuilds (`wiki_meta.rebuild_count`).
 
 ## Files Changed
 
 - `internal/knowledge/wiki.go` — fast-path O(1) via processCache
 - `internal/memory/wiki.go` — fast-path O(1) + logEntry condicional
-- `internal/wiki/fts.go` — `CheckAllHashesMatch`, `optimizeTablesIfNeeded`, cópia de `wiki_meta` no Rebuild
+- Copy of `wiki_meta` in `optimizeTablesIfNeeded` during `CheckAllHashesMatch` and `internal/wiki/fts.go`
 - `internal/wiki/pipeline.go` — skip condicional do rebuild quando `logEntry == nil && CheckAllHashesMatch`
 
 ## Verification

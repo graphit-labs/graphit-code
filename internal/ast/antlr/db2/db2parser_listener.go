@@ -1594,6 +1594,15 @@ type Db2ParserListener interface {
 	// EnterCompound_sql_inlined is called when entering the compound_sql_inlined production.
 	EnterCompound_sql_inlined(c *Compound_sql_inlinedContext)
 
+	// EnterDeclare_variable_statement is called when entering the declare_variable_statement production.
+	EnterDeclare_variable_statement(c *Declare_variable_statementContext)
+
+	// EnterAssignment_statement is called when entering the assignment_statement production.
+	EnterAssignment_statement(c *Assignment_statementContext)
+
+	// EnterCompound_body_statement is called when entering the compound_body_statement production.
+	EnterCompound_body_statement(c *Compound_body_statementContext)
+
 	// EnterSql_statement_inlined is called when entering the sql_statement_inlined production.
 	EnterSql_statement_inlined(c *Sql_statement_inlinedContext)
 
@@ -4680,6 +4689,15 @@ type Db2ParserListener interface {
 
 	// ExitCompound_sql_inlined is called when exiting the compound_sql_inlined production.
 	ExitCompound_sql_inlined(c *Compound_sql_inlinedContext)
+
+	// ExitDeclare_variable_statement is called when exiting the declare_variable_statement production.
+	ExitDeclare_variable_statement(c *Declare_variable_statementContext)
+
+	// ExitAssignment_statement is called when exiting the assignment_statement production.
+	ExitAssignment_statement(c *Assignment_statementContext)
+
+	// ExitCompound_body_statement is called when exiting the compound_body_statement production.
+	ExitCompound_body_statement(c *Compound_body_statementContext)
 
 	// ExitSql_statement_inlined is called when exiting the sql_statement_inlined production.
 	ExitSql_statement_inlined(c *Sql_statement_inlinedContext)

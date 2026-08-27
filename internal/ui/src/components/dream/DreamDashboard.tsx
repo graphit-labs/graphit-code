@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { dreamApi, type DreamStatus, type DreamReport, type DreamSubject } from '@/api/dream'
+import { dreamApi, type DreamStatus, type DreamReport } from '@/api/dream'
+import { backlogApi, type BacklogItem } from '@/api/backlog'
 import { useAppStore } from '@/store/appStore'
 import {
   Sparkles,
@@ -24,17 +25,17 @@ export default function DreamDashboard() {
   const { activeProjectDir } = useAppStore()
   const [status, setStatus] = useState<DreamStatus | null>(null)
   const [reports, setReports] = useState<DreamReport[]>([])
-  const [subjects, setSubjects] = useState<DreamSubject[]>([])
+  const [backlogItems, setBacklogItems] = useState<BacklogItem[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Subject adding form state
+  // Backlog item form state
   const [newTitle, setNewTitle] = useState('')
   const [newBody, setNewBody] = useState('')
-  const [addingSubject, setAddingSubject] = useState(false)
+  const [addingItem, setAddingItem] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
 
   // Selected item states
-  const [selectedSubject, setSelectedSubject] = useState<DreamSubject | null>(null)
+  const [selectedItem, setSelectedItem] = useState<BacklogItem | null>(null)
   const [selectedReport, setSelectedReport] = useState<DreamReport | null>(null)
   const [reportContent, setReportContent] = useState<string>('')
   const [loadingReport, setLoadingReport] = useState(false)
@@ -43,14 +44,14 @@ export default function DreamDashboard() {
     if (!activeProjectDir) return
     if (!silent) setLoading(true)
     try {
-      const [statusData, reportsData, subjectsData] = await Promise.all([
+      const [statusData, reportsData, backlogData] = await Promise.all([
         dreamApi.getStatus(activeProjectDir),
         dreamApi.getReports(activeProjectDir),
-        dreamApi.getSubjects(activeProjectDir),
+        backlogApi.list(activeProjectDir),
       ])
       setStatus(statusData)
       setReports(reportsData || [])
-      setSubjects(subjectsData || [])
+      setBacklogItems(backlogData || [])
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       showToast(`Failed to load dream data: ${msg}`, 'error')
@@ -70,52 +71,56 @@ export default function DreamDashboard() {
     }
   }, [activeProjectDir, fetchData])
 
-  const handleAddSubject = async (e: React.FormEvent) => {
+  const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newTitle.trim()) {
-      showToast('Subject title is required', 'error')
+      showToast('A title is required', 'error')
       return
     }
-    setAddingSubject(true)
+    setAddingItem(true)
     try {
-      await dreamApi.addSubject(activeProjectDir, newTitle, newBody)
-      showToast('Dream subject added successfully', 'success')
+      await backlogApi.add(activeProjectDir, newTitle, newBody)
+      showToast('Backlog item added successfully', 'success')
       setNewTitle('')
       setNewBody('')
       setShowAddForm(false)
       fetchData(true)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      showToast(`Failed to add subject: ${msg}`, 'error')
+      showToast(`Failed to add the backlog item: ${msg}`, 'error')
     } finally {
-      setAddingSubject(false)
+      setAddingItem(false)
     }
   }
 
-  const handleRemoveSubject = async (slug: string) => {
-    if (!window.confirm('Are you sure you want to remove this subject?')) return
+  const handleRemoveItem = async (slug: string) => {
+    if (!window.confirm('Are you sure you want to remove this backlog item?')) return
     try {
-      await dreamApi.removeSubject(activeProjectDir, slug)
-      showToast('Subject removed successfully', 'success')
-      if (selectedSubject?.Slug === slug) {
-        setSelectedSubject(null)
+      await backlogApi.remove(activeProjectDir, slug)
+      showToast('Backlog item removed successfully', 'success')
+      if (selectedItem?.slug === slug) {
+        setSelectedItem(null)
         setReportContent('')
       }
       fetchData(true)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      showToast(`Failed to remove subject: ${msg}`, 'error')
+      showToast(`Failed to remove the backlog item: ${msg}`, 'error')
     }
   }
 
-  const viewSubjectReport = async (sub: DreamSubject) => {
+  // The backlog directory is configurable, so the location is taken from the
+  // item's own result_path rather than reconstructed from a hardcoded path.
+  const viewItemResult = async (item: BacklogItem) => {
     setSelectedReport(null)
-    setSelectedSubject(sub)
+    setSelectedItem(item)
     setLoadingReport(true)
     setReportContent('')
     try {
-      const dir = `${activeProjectDir}/.graphit/dream/subjects`
-      const path = `${sub.Slug}.done.md`
+      if (!item.result_path) throw new Error('this item has no result file yet')
+      const sep = item.result_path.lastIndexOf('/')
+      const dir = item.result_path.slice(0, sep)
+      const path = item.result_path.slice(sep + 1)
       const url = `${useAppStore.getState().apiBase}/api/wiki/page?dir=${encodeURIComponent(dir)}&path=${encodeURIComponent(path)}`
       const res = await fetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -130,13 +135,14 @@ export default function DreamDashboard() {
   }
 
   const viewGeneralReport = async (report: DreamReport) => {
-    setSelectedSubject(null)
+    setSelectedItem(null)
     setSelectedReport(report)
     setLoadingReport(true)
     setReportContent('')
     try {
-      const dir = `${activeProjectDir}/.graphit/dream`
-      const path = `${report.id}.md`
+      const sep = report.path.lastIndexOf('/')
+      const dir = report.path.slice(0, sep)
+      const path = report.path.slice(sep + 1)
       const url = `${useAppStore.getState().apiBase}/api/wiki/page?dir=${encodeURIComponent(dir)}&path=${encodeURIComponent(path)}`
       const res = await fetch(url)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -184,14 +190,14 @@ export default function DreamDashboard() {
       )
     }
 
-    if (selectedSubject) {
-      if (selectedSubject.Done) {
+    if (selectedItem) {
+      if (selectedItem.done) {
         return (
           <div className="glass-panel rounded-2xl overflow-hidden flex flex-col h-[650px] shadow-sm">
             <div className="px-5 py-4 border-b border-border/40 bg-card/40 flex items-center justify-between">
               <div className="flex flex-col min-w-0">
-                <span className="font-heading font-semibold text-sm truncate">{selectedSubject.Title}</span>
-                <span className="text-[10px] text-muted-foreground">Task Resolution Report</span>
+                <span className="font-heading font-semibold text-sm truncate">{selectedItem.title}</span>
+                <span className="text-[10px] text-muted-foreground">Resolution Report</span>
               </div>
               <span className="bg-success/15 text-success text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded border border-success/20">
                 Completed
@@ -206,20 +212,20 @@ export default function DreamDashboard() {
         return (
           <div className="glass-panel rounded-2xl p-6 md:p-8 space-y-6 h-[400px] shadow-sm">
             <div className="flex items-center justify-between border-b border-border/40 pb-4">
-              <h3 className="font-heading font-bold text-lg text-foreground">{selectedSubject.Title}</h3>
+              <h3 className="font-heading font-bold text-lg text-foreground">{selectedItem.title}</h3>
               <span className="bg-amber-500/10 text-amber-400 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded border border-amber-500/20">
-                Pending in Queue
+                Pending in Backlog
               </span>
             </div>
             <div className="space-y-4">
               <p className="text-xs text-muted-foreground leading-relaxed">
-                This task is currently queued. The background daemon will process it during the next idle period.
+                This item is queued. The background daemon will process it during the next idle period.
               </p>
-              {selectedSubject.Body && (
+              {selectedItem.body && (
                 <div className="space-y-1.5">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Instructions:</span>
                   <pre className="bg-black/15 p-4 rounded-xl font-mono text-xs text-foreground/80 whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed border border-border/30">
-                    {selectedSubject.Body}
+                    {selectedItem.body}
                   </pre>
                 </div>
               )}
@@ -255,7 +261,7 @@ export default function DreamDashboard() {
         <FileText className="w-10 h-10 opacity-30" />
         <div>
           <h4 className="font-bold text-foreground text-sm">Select an item</h4>
-          <p className="text-xs mt-1">Select a queued subject or a session report from the sidebar list to view details.</p>
+          <p className="text-xs mt-1">Select a backlog item or a session report from the sidebar list to view details.</p>
         </div>
       </div>
     )
@@ -346,40 +352,40 @@ export default function DreamDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left column lists */}
         <div className="lg:col-span-1 flex flex-col gap-6">
-          {/* Tasks & Subjects List */}
+          {/* Improvement Backlog List */}
           <div className="glass-panel rounded-2xl overflow-hidden flex flex-col max-h-[480px] shadow-sm">
             <div className="px-5 py-4 border-b border-border/40 bg-card/40 flex items-center justify-between">
-              <span className="font-heading font-semibold text-sm">Tasks & Subjects</span>
+              <span className="font-heading font-semibold text-sm">Improvement Backlog</span>
               <button
                 onClick={() => setShowAddForm(true)}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs font-semibold hover:bg-primary/20 hover:scale-[1.02] transition-all"
               >
-                <Plus className="w-3.5 h-3.5" /> Queue Subject
+                <Plus className="w-3.5 h-3.5" /> Add Item
               </button>
             </div>
             
             <div className="overflow-y-auto flex-1 divide-y divide-border/30 scrollbar-thin">
-              {subjects.length > 0 ? (
-                subjects.map((sub) => (
+              {backlogItems.length > 0 ? (
+                backlogItems.map((item) => (
                   <button
-                    key={sub.Slug}
+                    key={item.slug}
                     onClick={() => {
-                      if (sub.Done) {
-                        viewSubjectReport(sub)
+                      if (item.done) {
+                        viewItemResult(item)
                       } else {
                         setSelectedReport(null)
-                        setSelectedSubject(sub)
+                        setSelectedItem(item)
                       }
                     }}
                     className={`w-full text-left px-5 py-4 hover:bg-accent/30 transition-colors flex flex-col gap-2 ${
-                      selectedSubject?.Slug === sub.Slug ? 'bg-primary/5' : ''
+                      selectedItem?.slug === item.slug ? 'bg-primary/5' : ''
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2 min-w-0">
                       <span className="font-heading font-bold text-sm truncate flex-1 leading-snug">
-                        {sub.Title}
+                        {item.title}
                       </span>
-                      {sub.Done ? (
+                      {item.done ? (
                         <span className="shrink-0 bg-success/15 text-success text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded border border-success/20 flex items-center gap-1">
                           <Check className="w-2.5 h-2.5" /> Done
                         </span>
@@ -391,14 +397,14 @@ export default function DreamDashboard() {
                     </div>
                     
                     <div className="flex items-center justify-between text-[10px] text-muted-foreground font-semibold mt-1">
-                      <span>Created: {new Date(sub.CreatedAt).toLocaleDateString()}</span>
+                      <span>Created: {new Date(item.created_at).toLocaleDateString()}</span>
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleRemoveSubject(sub.Slug)
+                          handleRemoveItem(item.slug)
                         }}
                         className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                        title="Remove subject"
+                        title="Remove backlog item"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -408,7 +414,7 @@ export default function DreamDashboard() {
               ) : (
                 <div className="p-8 text-center text-muted-foreground flex flex-col items-center gap-2">
                   <Inbox className="w-8 h-8 opacity-40" />
-                  <p className="text-xs">No dream subjects queued.</p>
+                  <p className="text-xs">The improvement backlog is empty.</p>
                 </div>
               )}
             </div>
@@ -464,7 +470,7 @@ export default function DreamDashboard() {
         </div>
       </div>
 
-      {/* Subject Form Modal Overlay */}
+      {/* Backlog Item Form Modal Overlay */}
       {showAddForm && (
         <div
           className="fixed inset-0 z-[9000] flex items-center justify-center backdrop-blur-md bg-black/40 animate-fade-in overflow-y-auto py-8"
@@ -478,7 +484,7 @@ export default function DreamDashboard() {
 
             <div className="flex items-center justify-between mb-2 relative z-10">
               <h2 className="text-lg font-heading font-bold text-foreground">
-                Queue Dream Subject
+                Add Backlog Item
               </h2>
               <button
                 onClick={() => setShowAddForm(false)}
@@ -489,10 +495,10 @@ export default function DreamDashboard() {
             </div>
             
             <p className="text-sm text-muted-foreground mb-5 relative z-10 leading-relaxed">
-              Define a specific objective or task context for the next autonomous dream execution.
+              Record work you are deliberately not doing now. The next autonomous dream session picks up the oldest pending item.
             </p>
 
-            <form onSubmit={handleAddSubject} className="relative z-10">
+            <form onSubmit={handleAddItem} className="relative z-10">
               <div className="mb-4 relative z-10">
                 <label className="block text-xs font-semibold text-muted-foreground mb-1.5">Title</label>
                 <input
@@ -525,11 +531,11 @@ export default function DreamDashboard() {
                 </button>
                 <button
                   type="submit"
-                  disabled={addingSubject}
+                  disabled={addingItem}
                   className="px-4 py-2 rounded-xl text-sm font-semibold hover:scale-[1.01] transition-all btn-premium flex items-center gap-1.5"
                 >
                   <Plus className="w-4 h-4" />
-                  {addingSubject ? 'Adding...' : 'Queue Subject'}
+                  {addingItem ? 'Adding...' : 'Add Item'}
                 </button>
               </div>
             </form>

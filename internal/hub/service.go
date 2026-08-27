@@ -13,7 +13,10 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	ideAdapter "github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/paths"
+	"github.com/graphit-labs/graphit-code/internal/projectlock"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
+	"github.com/graphit-labs/graphit-code/internal/store"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
 type HubService struct {
@@ -25,10 +28,31 @@ type HubService struct {
 
 func (s *HubService) log() *slog.Logger { return slogutil.Resolve(s.Logger) }
 
+// NewUntrackedHubService builds a service that installs artifacts without recording
+// anything about the project that asked for them.
+//
+// Install normally does two things beyond placing files: it registers the install in
+// the global lock, and it publishes an artifact.install event into the Hub's git
+// store. Both are records *of a project*, and the live search's ephemeral project is
+// not one — it is created for a single search and deleted with it, so either record
+// would outlive its subject and be keyed to a project ID that resolves to nothing.
+//
+// Those two are the only difference. Resolving the version, cloning, placing the
+// artifact, writing the project's own lockfile, installing dependencies: all of it
+// happens exactly as for a real project, because the ephemeral project has to behave
+// exactly like one.
+//
+// Suppression works by leaving the two collaborators nil rather than by a flag:
+// RegisterInstall is already guarded by a nil check and TrackEvent already tolerates
+// a nil receiver, because a service built without a reachable registry has neither.
+func NewUntrackedHubService(registry *RegistryManager) *HubService {
+	return &HubService{registry: registry}
+}
+
 func NewHubService(registry *RegistryManager) *HubService {
 	var tracker *EventTracker
 	if registry.IsReady() {
-		tracker = NewEventTracker(registry.GitStore())
+		tracker = NewEventTracker(registry.Store())
 	}
 	var lockMgr *GlobalLockManager
 	if mgr, err := NewGlobalLockManager(); err == nil {
@@ -42,6 +66,15 @@ func (s *HubService) ListEntries(typeFilter ArtifactType) []*Entry {
 		return nil
 	}
 	return s.registry.ListEntries(typeFilter)
+}
+
+// GetEntry looks up one registry entry by ID and type, or nil when the registry
+// does not have it.
+func (s *HubService) GetEntry(id string, entryType ArtifactType) *Entry {
+	if s.registry == nil {
+		return nil
+	}
+	return s.registry.GetEntry(id, entryType)
 }
 
 type InstallResult struct {
@@ -110,9 +143,37 @@ func (s *HubService) Install(
 
 	pp := paths.GetPathsForProject(ide, projectDir)
 
+	// NOTHING MOUNTABLE IS TRANSFERRED ANY MORE. Both artifact families are read where they were
+	// published: a knowledge artifact is a search index and mounts as one, and an AST artifact is
+	// an icebug graph plus a search index, both of which the engines open over `s3://`.
+	//
+	// Decided BEFORE the clone, because the clone is the transfer. The rest of the install still
+	// runs — the lockfile entry, the dependencies, the telemetry — and the lockfile entry is what
+	// makes the mount resolvable later: the location is DERIVED from it rather than stored. See
+	// internal/hub/mount.go.
+	//
+	// The graph half carries known gaps, ACCEPTED rather than hidden: multi-hop traversal over a
+	// mounted graph is weaker than over a native one, and a relationship table holds one CSR so
+	// every label is folded into `Entity` with the label as a column. Both are format limits,
+	// measured and recorded in docs/tasks/hub-em-s3-icebug-e-lancedb.md, and stated again in
+	// internal/ast/icebug_transfer.go where a caller will meet them.
+	mountArtifact := s.registry.MountsArtifact(artType)
+
 	var cachePath string
 	var cloneDir string
-	if s.registry.IsReady() {
+	// The mounted path still has work to do for AST: the local CATALOG has to exist, or there is
+	// nothing for a query to resolve against. It is the DDL and nothing else — no graph bytes —
+	// which is why it lives here, outside the clone branch, instead of looking like part of it.
+	if mountArtifact && artType == TypeAST {
+		contextID := ast.HubContextID(entry.ProjectID, realID)
+		storeDir, err := s.ensureASTStore(ctx, "", contextID, resolvedVersion,
+			artifactRef{ID: realID, ProjectID: entry.ProjectID})
+		if err != nil {
+			return nil, err
+		}
+		cachePath = storeDir
+	}
+	if s.registry.IsReady() && !mountArtifact {
 		var err error
 		cloneDir, err = s.registry.EnsureArtifactClone(ctx, artType, realID, resolvedVersion, entry.ProjectID)
 		if err != nil {
@@ -122,57 +183,61 @@ func (s *HubService) Install(
 
 		switch artType {
 		case TypeKnowledge:
-
-			knowledgeDir := filepath.Join(pp.ActiveProjectDir, brand.DotDir(), "knowledge")
-			linkPath := filepath.Join(knowledgeDir, entry.ProjectID)
-			if err := os.MkdirAll(knowledgeDir, 0o755); err != nil {
-				return nil, fmt.Errorf("creating knowledge dir: %w", err)
+			// One copy per machine, in the global wiki root, shared by every project
+			// that installs the artifact. The project records that it has it; it does
+			// not carry the pages, which an agent reads through the wiki MCP tools
+			// rather than off disk.
+			//
+			// The artifact is placed and then INDEXED, never recompiled: it was
+			// published compiled, shards and embedding vectors included, so running
+			// the generator again would re-derive pages from sources that need not
+			// have travelled and re-run the embedding model over text whose vectors
+			// are already in hand.
+			contextName := store.ContextNameFor(realID, entry.ProjectID)
+			// VERSIONED, like the AST store beside it. It used to land in the
+			// unversioned context directory, so two projects pinned to different
+			// versions of the same artifact shared one copy and the last install
+			// silently won — while both lockfiles recorded a version nothing enforced.
+			//
+			// internal/knowledge cannot be reached from here — it imports this
+			// package for its rule installation — so the two primitives it would
+			// have offered are used directly. They live in internal/wiki, which is
+			// neutral to both.
+			ctxDir, err := wiki.ResetDir(store.KnowledgeHubDir(contextName, resolvedVersion))
+			if err != nil {
+				return nil, err
 			}
-			if err := paths.SafeCopyDir(cloneDir, linkPath); err != nil {
-				return nil, fmt.Errorf("copying knowledge to project: %w", err)
+			if err := paths.SafeCopyDir(publishedWikiDir(cloneDir), ctxDir); err != nil {
+				return nil, fmt.Errorf("copying knowledge to the global wiki: %w", err)
 			}
+			// An artifact that carries its tables is LOADED, not indexed: the publisher
+			// already chunked, embedded and assembled, so the consumer copies rows in
+			// and builds only the indexes, which are engine structures and cannot
+			// travel. Artifacts published before that carry shards and still take the
+			// path below, which is why both exist.
+			if wiki.HasBundle(ctxDir) {
+				if _, err := wiki.ImportFromParquet(ctx, ctxDir, wiki.BundlePath(ctxDir)); err != nil {
+					return nil, fmt.Errorf("loading knowledge context %q: %w", contextName, err)
+				}
+			} else if _, err := wiki.BuildDBFromCache(ctx, ctxDir); err != nil {
+				return nil, fmt.Errorf("indexing knowledge context %q: %w", contextName, err)
+			}
+			// Nothing is registered here. The lockfile entry written after this switch
+			// records the claim, with the version that keys the directory above — the
+			// second registry that used to be written at this point is gone.
 
 		case TypeAST:
-			globalDir := filepath.Join(brand.GlobalDir(), "ast", entry.ProjectID)
-			if err := os.MkdirAll(globalDir, 0o755); err != nil {
-				return nil, fmt.Errorf("creating global AST dir: %w", err)
-			}
-
-			dbPath := filepath.Join(globalDir, "ladybugdb")
-			shardCache, err := ast.NewShardCache(cloneDir)
+			// The store is shared between every project pinned to this version and
+			// nothing is placed in the project itself: resolution reads the
+			// lockfile entry written below, and an AST store is only ever reached
+			// through this binary, never opened as files by an agent.
+			contextID := ast.HubContextID(entry.ProjectID, realID)
+			storeDir, err := s.ensureASTStore(ctx, cloneDir, contextID, resolvedVersion,
+				artifactRef{ID: realID, ProjectID: entry.ProjectID})
 			if err != nil {
-				return nil, fmt.Errorf("loading AST shard cache from clone: %w", err)
+				return nil, err
 			}
-			if shardCache.Count() > 0 {
-				db := ast.NewLadybugDB(ast.LadybugConfig{DBPath: dbPath})
-				if err := ast.CreateGraphSchema(ctx, db); err != nil {
-					_ = db.Close()
-					_ = shardCache.Close()
-					return nil, fmt.Errorf("creating AST schema: %w", err)
-				}
-				var embCache *ast.ShardEmbCache
-				if ec, embErr := ast.NewShardEmbCache(cloneDir, shardCache); embErr == nil {
-					embCache = ec
-					defer func() { _ = embCache.Close() }()
-				}
-				if err := ast.RebuildFromJSON(ctx, db, shardCache, embCache, "", "", nil); err != nil {
-					_ = db.Close()
-					_ = shardCache.Close()
-					return nil, fmt.Errorf("rebuilding AST DB from cache: %w", err)
-				}
-				_ = db.Close()
-			}
-			_ = shardCache.Close()
-			cachePath = globalDir
-
-			astDir := filepath.Join(pp.ActiveProjectDir, brand.DotDir(), "ast")
-			linkPath := filepath.Join(astDir, entry.ProjectID)
-			if err := os.MkdirAll(astDir, 0o755); err != nil {
-				return nil, fmt.Errorf("creating ast dir: %w", err)
-			}
-			if err := paths.SafeSymlink(globalDir, linkPath); err != nil {
-				return nil, fmt.Errorf("creating symlink to AST: %w", err)
-			}
+			cachePath = storeDir
 
 		case TypeLanguage:
 
@@ -205,27 +270,6 @@ func (s *HubService) Install(
 				if strings.HasSuffix(name, ".grammar") {
 					if err := installGrammarArchive(src, globalDir, ""); err != nil {
 						s.log().Warn("installing grammar archive", "file", name, "error", err)
-					}
-				}
-			}
-
-		case TypeFramework:
-
-			frameworksDir := filepath.Join(pp.ActiveProjectDir, brand.DotDir(), "ast", "frameworks")
-			if err := os.MkdirAll(frameworksDir, 0o755); err != nil {
-				return nil, fmt.Errorf("creating frameworks dir: %w", err)
-			}
-
-			cloneEntries, _ := os.ReadDir(cloneDir)
-			for _, ce := range cloneEntries {
-				if ce.IsDir() {
-					continue
-				}
-				name := ce.Name()
-				if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
-					src := filepath.Join(cloneDir, name)
-					if err := copyFile(src, filepath.Join(frameworksDir, name)); err != nil {
-						s.log().Warn("installing framework yaml", "file", name, "error", err)
 					}
 				}
 			}
@@ -341,6 +385,12 @@ func (s *HubService) Install(
 		if _, err := s.Install(ctx, depIDVersioned, "", ide, dep.Type, realID, projectDir); err != nil {
 			s.log().Warn("install dependency", "dependency", dep.ID, "parent", realID, "error", err)
 		}
+	}
+
+	if mountArtifact {
+		s.log().Info("context mounted, not downloaded",
+			"type", string(artType), "artifact", realID, "version", resolvedVersion,
+			"read_from", "object storage")
 	}
 
 	result := &InstallResult{
@@ -534,6 +584,11 @@ func (s *HubService) Uninstall(
 			if artType == TypeLanguage {
 				s.cleanupGlobalLanguageFiles(meta, entryID, pp)
 			}
+			// An AST store is shared by every project on its version, so an
+			// uninstall removes nothing until the last of them lets go.
+			if artType == TypeAST {
+				s.cleanupSharedASTStore(meta, entryID)
+			}
 			if _, gcErr := s.lockMgr.GCOrphans(); gcErr != nil {
 				s.log().Warn("GC orphans", "after", entryID, "error", gcErr)
 			}
@@ -717,6 +772,24 @@ func (s *HubService) UninstallAll(ctx context.Context, ide, projectDir string) e
 	return os.Remove(pp.LockFilePath)
 }
 
+// publishedWikiDir locates the compiled wiki inside a downloaded knowledge artifact.
+//
+// An artifact published by `knowledge export` carries it under `wiki/`, next to
+// whatever else its author chose to include. One submitted with `hub submit
+// --local-path <a wiki dir>` IS the wiki. Both shapes are legitimate, and telling
+// them apart by looking for the index is more honest than demanding a convention the
+// publisher never agreed to.
+func publishedWikiDir(cloneDir string) string {
+	sub := filepath.Join(cloneDir, "wiki")
+	if _, err := os.Stat(filepath.Join(sub, "index.md")); err == nil {
+		return sub
+	}
+	if _, err := os.Stat(filepath.Join(sub, "shards")); err == nil {
+		return sub
+	}
+	return cloneDir
+}
+
 func (s *HubService) postInstallHook(ctx context.Context, artType ArtifactType, id, dir string, pp *paths.ProjectPaths) error {
 
 	return nil
@@ -725,56 +798,26 @@ func (s *HubService) postInstallHook(ctx context.Context, artType ArtifactType, 
 func (s *HubService) preUninstallHook(ctx context.Context, artType ArtifactType, id string, meta *LockfileArtifactMeta, pp *paths.ProjectPaths) error {
 	switch artType {
 	case TypeKnowledge:
-
-		linkName := id
+		// The wiki is shared by every project that installed the artifact, so an
+		// uninstall drops this project's claim and nothing else. The directory is
+		// collected when the global lock reports the artifact orphaned.
+		name := id
 		if meta != nil && meta.ProjectID != "" {
-			linkName = meta.ProjectID
+			name = meta.ProjectID
 		}
-		target := filepath.Join(pp.ActiveProjectDir, brand.DotDir(), "knowledge", linkName)
-		if info, err := os.Lstat(target); err == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				return os.Remove(target)
-			}
-			return os.RemoveAll(target)
-		}
+		_ = store.RemoveContext(pp.ActiveProjectDir, store.KindKnowledge, name)
 		return nil
 	case TypeAST:
-
-		linkName := id
-		if meta != nil && meta.ProjectID != "" {
-			linkName = meta.ProjectID
-		}
-		target := filepath.Join(pp.ActiveProjectDir, brand.DotDir(), "ast", linkName)
-		if info, err := os.Lstat(target); err == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				return os.Remove(target)
-			}
-			return os.RemoveAll(target)
-		}
+		// Same reasoning: the store is shared across every project pinned to this
+		// version and is removed only when the last of them lets go — handled in
+		// Uninstall once RegisterUninstall reports the artifact orphaned. The
+		// project's claim lives in its lockfile, which the caller is already
+		// rewriting, so there is nothing project-local left to clean up.
 		return nil
 	case TypeLanguage:
 		// Language artifacts live in global dirs and are shared across projects.
 		// File cleanup happens only when orphaned (no project references remain),
 		// handled in Uninstall after RegisterUninstall confirms orphaned status.
-		return nil
-	case TypeFramework:
-
-		frameworksDir := filepath.Join(pp.ActiveProjectDir, brand.DotDir(), "ast", "frameworks")
-
-		cloneDir := resolveArtifactPath(meta, artType, id, pp)
-		if cloneDir == "" {
-			return nil
-		}
-		cloneEntries, _ := os.ReadDir(cloneDir)
-		for _, ce := range cloneEntries {
-			if ce.IsDir() {
-				continue
-			}
-			name := ce.Name()
-			if strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml") {
-				_ = os.Remove(filepath.Join(frameworksDir, name))
-			}
-		}
 		return nil
 	}
 	return nil
@@ -818,36 +861,35 @@ func (s *HubService) Link(
 
 	switch artType {
 	case TypeAST:
-
-		sourceAST := filepath.Join(absSource, dotDir, "ast", "project")
+		// Linking a sibling project's graph is now a pointer, not a symlink: the
+		// sibling's store is global and already built, so this project records where
+		// it is and queries it in place. Nothing is copied and nothing is linked,
+		// which also means the link never goes stale when the sibling reindexes.
+		sourceAST := store.ASTProjectDBPath(absSource)
 		if _, err := os.Stat(sourceAST); err != nil {
-			return nil, fmt.Errorf("source AST not found at %s", sourceAST)
+			return nil, fmt.Errorf("source AST not found at %s — index the source project first", sourceAST)
 		}
-		astDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast")
-		linkPath := filepath.Join(astDir, artifactName)
-		if err := os.MkdirAll(astDir, 0o755); err != nil {
-			return nil, err
+		// The sibling's DIRECTORY is what gets recorded; its store is derived on every
+		// read. sourceAST above is only the existence check.
+		if err := ast.LinkImportedContext(pp.ActiveProjectDir, artifactName, absSource); err != nil {
+			return nil, fmt.Errorf("registering linked AST context: %w", err)
 		}
-		if err := paths.SafeSymlink(sourceAST, linkPath); err != nil {
-			return nil, fmt.Errorf("creating AST symlink: %w", err)
-		}
-		result.Links = append(result.Links, linkPath+" → "+sourceAST)
+		result.Links = append(result.Links, artifactName+" → "+sourceAST)
 
 	case TypeKnowledge:
 
-		sourceKnowledge := filepath.Join(absSource, dotDir, "knowledge", "project")
+		sourceKnowledge := store.KnowledgeProjectDir(absSource)
 		if _, err := os.Stat(sourceKnowledge); err != nil {
-			return nil, fmt.Errorf("source knowledge not found at %s", sourceKnowledge)
+			return nil, fmt.Errorf("source knowledge not found at %s — index the source project first", sourceKnowledge)
 		}
-		knDir := filepath.Join(pp.ActiveProjectDir, dotDir, "knowledge")
-		linkPath := filepath.Join(knDir, artifactName)
-		if err := os.MkdirAll(knDir, 0o755); err != nil {
-			return nil, err
+		if err := store.AddContext(pp.ActiveProjectDir, store.KindKnowledge, store.ContextRecord{
+			Name:       artifactName,
+			SourcePath: absSource,
+			Origin:     projectlock.OriginLink,
+		}); err != nil {
+			return nil, fmt.Errorf("registering linked knowledge context: %w", err)
 		}
-		if err := paths.SafeCopyDir(sourceKnowledge, linkPath); err != nil {
-			return nil, fmt.Errorf("copying knowledge to project: %w", err)
-		}
-		result.Links = append(result.Links, "copied "+sourceKnowledge+" → "+linkPath)
+		result.Links = append(result.Links, artifactName+" → "+sourceKnowledge)
 
 	case TypeMCP:
 
@@ -878,7 +920,9 @@ func (s *HubService) Link(
 		if globalDir == "" {
 			break
 		}
-		sourceQueries := filepath.Join(absSource, dotDir, "ast", "queries")
+		// Where that project keeps its grammars is its own configuration
+		// (ast.queries_dir), not a fixed path under the brand directory.
+		sourceQueries := ast.ProjectQueriesDir(absSource)
 		queriesDir := filepath.Join(globalDir, "ast", "queries")
 		_ = os.MkdirAll(queriesDir, 0o755)
 
@@ -887,24 +931,6 @@ func (s *HubService) Link(
 				if !e.IsDir() && (strings.HasSuffix(e.Name(), ".yaml") || strings.HasSuffix(e.Name(), ".yml")) {
 					src := filepath.Join(sourceQueries, e.Name())
 					dst := filepath.Join(queriesDir, e.Name())
-					if err := copyFile(src, dst); err == nil {
-						result.Links = append(result.Links, "copied "+src+" → "+dst)
-					}
-				}
-			}
-		}
-
-	case TypeFramework:
-
-		sourceFrameworks := filepath.Join(absSource, dotDir, "ast", "frameworks")
-		frameworksDir := filepath.Join(pp.ActiveProjectDir, dotDir, "ast", "frameworks")
-		_ = os.MkdirAll(frameworksDir, 0o755)
-
-		if entries, err := os.ReadDir(sourceFrameworks); err == nil {
-			for _, e := range entries {
-				if !e.IsDir() && (strings.HasSuffix(e.Name(), ".yaml") || strings.HasSuffix(e.Name(), ".yml")) {
-					src := filepath.Join(sourceFrameworks, e.Name())
-					dst := filepath.Join(frameworksDir, e.Name())
 					if err := copyFile(src, dst); err == nil {
 						result.Links = append(result.Links, "copied "+src+" → "+dst)
 					}
@@ -970,7 +996,6 @@ func (s *HubService) Unlink(
 	}
 
 	pp := paths.GetPathsForProject(ide, projectDir)
-	dotDir := brand.DotDir()
 
 	lf, err := LoadLockfile(pp.LockFilePath)
 	if err != nil || lf == nil {
@@ -987,10 +1012,10 @@ func (s *HubService) Unlink(
 
 	switch artType {
 	case TypeAST:
-		_ = os.Remove(filepath.Join(pp.ActiveProjectDir, dotDir, "ast", artifactName))
+		_ = store.RemoveContext(pp.ActiveProjectDir, store.KindAST, artifactName)
 
 	case TypeKnowledge:
-		_ = os.Remove(filepath.Join(pp.ActiveProjectDir, dotDir, "knowledge", artifactName))
+		_ = store.RemoveContext(pp.ActiveProjectDir, store.KindKnowledge, artifactName)
 
 	default:
 		if targetPath, err := ideArtifactPath(pp.ActiveProjectDir, ide, string(artType), artifactName); err == nil {
@@ -1023,23 +1048,9 @@ func (s *HubService) EnsureKnowledgeAvailable(ctx context.Context, artifactID st
 		return "", fmt.Errorf("knowledge artifact %q not found in hub registry", realID)
 	}
 
-	constraint, err := ParseVersionConstraint(reqVersion)
+	resolvedVersion, err := resolveEntryVersion(entry, reqVersion)
 	if err != nil {
-		return "", fmt.Errorf("invalid version constraint %q: %w", reqVersion, err)
-	}
-	var resolvedVersion string
-	if constraint.IsLatest() {
-		resolvedVersion = entry.Latest
-	} else if len(entry.Versions) > 0 {
-		resolved, err := ResolveVersion(entry.Versions, constraint)
-		if err != nil {
-			return "", fmt.Errorf("no version matching %q for %s: %w", reqVersion, realID, err)
-		}
-		resolvedVersion = resolved
-	} else if constraint.IsExact() {
-		resolvedVersion = reqVersion
-	} else {
-		resolvedVersion = entry.Latest
+		return "", err
 	}
 
 	if !s.registry.IsReady() {
@@ -1102,12 +1113,11 @@ func resolveArtifactPath(meta *LockfileArtifactMeta, artType ArtifactType, artID
 
 	hubDir, err := config.HubRepoDirPath()
 	if err == nil {
-		gs := &GitStore{repoDir: hubDir, cacheBase: hubDir + "-cache"}
 		remoteID := meta.RemoteID
 		if remoteID == "" {
 			remoteID = artID
 		}
-		return gs.ArtifactCloneDir(artType, remoteID, meta.Version, meta.ProjectID)
+		return ArtifactCacheDirIn(hubDir, artType, remoteID, meta.Version, meta.ProjectID)
 	}
 
 	folder := TypeFolderMap[artType]
@@ -1139,7 +1149,5 @@ func (s *HubService) cleanupGlobalLanguageFiles(meta *LockfileArtifactMeta, id s
 			_ = os.Remove(filepath.Join(queriesDir, name))
 		}
 	}
-	// Remove grammar binaries from global dir.
 	uninstallGrammarFiles(cloneDir, globalDir, "")
 }
-

@@ -30,7 +30,6 @@ var HTMLBlockStyle = BlockStyle{
 	EndSuffix: " -->",
 }
 
-
 var XMLBlockStyle = BlockStyle{
 	Start:     "<",
 	End:       ">",
@@ -45,7 +44,6 @@ func buildBlockRegex(marker string, style BlockStyle) *regexp.Regexp {
 	end := regexp.QuoteMeta(style.EndPrefix + marker + style.EndSuffix)
 	return regexp.MustCompile(`(?s)\n*` + start + `.*?` + end + `\n*`)
 }
-
 
 func stripBlock(content, marker string, style BlockStyle) string {
 	re := buildBlockRegex(marker, style)

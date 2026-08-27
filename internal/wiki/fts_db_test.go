@@ -1,7 +1,7 @@
 package wiki
 
 import (
-	"os"
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,20 +13,22 @@ import (
 // none of which touch SQLite.
 //
 // The sharpest consequence is the build tag. The chunk index is an FTS5 virtual
-// table, so `go build` without -tags fts5 produces a binary whose wiki fails the
+// table, so `go build` without -tags lancedb produces a binary whose wiki fails the
 // moment it opens the database. The suite would have stayed green through that.
 //
-// So these tests fail loudly rather than skipping when FTS5 is unavailable. A
-// skip would restore exactly the blind spot they exist to close.
+// So these tests fail loudly rather than skipping when the engine is unavailable. A skip would
+// restore exactly the blind spot they exist to close — and the shape of that blind spot survived
+// the move off SQLite: a binary built without the `lancedb` tag opens nothing either, it just
+// says so in a different sentence.
 
 func newTestWikiDB(t *testing.T) *WikiDB {
 	t.Helper()
-	db, err := OpenWikiDB(t.TempDir())
+	db, err := OpenWikiDB(context.Background(), t.TempDir())
 	if err != nil {
-		if strings.Contains(err.Error(), "fts5") || strings.Contains(err.Error(), "no such module") {
-			t.Fatalf("FTS5 is not available in this binary — it was almost certainly built "+
-				"without -tags fts5, which leaves the wiki unable to open its index at "+
-				"runtime: %v", err)
+		if strings.Contains(err.Error(), "lancedb tag") {
+			t.Fatalf("the LanceDB engine is not available in this binary — it was almost "+
+				"certainly built without -tags lancedb, which leaves the wiki unable to open "+
+				"its index at runtime: %v", err)
 		}
 		t.Fatalf("OpenWikiDB: %v", err)
 	}
@@ -73,27 +75,24 @@ func rebuiltTestDB(t *testing.T) *WikiDB {
 		"autenticacao": {"indexacao"},
 		"indexacao":    {"implantacao"},
 	}
-	if err := db.Rebuild(testChunks(), xrefs, nil, nil); err != nil {
+	if err := db.Rebuild(context.Background(), testChunks(), xrefs, nil, nil); err != nil {
 		t.Fatalf("Rebuild: %v", err)
 	}
 	return db
 }
 
-// Opening the database creates the FTS5 virtual table. This is the test that
-// notices a binary built without the tag.
+// Opening the index creates it. This is the test that notices a binary built without the tag.
 func TestWikiDBOpensAndCreatesFTSIndex(t *testing.T) {
 	db := newTestWikiDB(t)
 
-	if _, err := os.Stat(db.DBPath()); err != nil {
-		t.Fatalf("no database file at %s: %v", db.DBPath(), err)
-	}
-	if filepath.Base(db.DBPath()) != wikiDBFilename {
-		t.Errorf("database file is %q, want %q", filepath.Base(db.DBPath()), wikiDBFilename)
+	if filepath.Base(db.DBPath()) != WikiIndexDirName {
+		t.Errorf("index is at %q, want a directory named %q",
+			filepath.Base(db.DBPath()), WikiIndexDirName)
 	}
 
-	// Search on an empty index must return nothing and no error. An engine
-	// without FTS5 fails here instead.
-	res, err := db.Search("qualquer coisa", 5)
+	// Search on an empty index must return nothing and no error. An engine that is not linked in
+	// fails here instead.
+	res, err := db.Search(context.Background(), "qualquer coisa", 5)
 	if err != nil {
 		t.Fatalf("Search on an empty index: %v", err)
 	}
@@ -106,24 +105,24 @@ func TestWikiDBOpensAndCreatesFTSIndex(t *testing.T) {
 func TestWikiDBReopenKeepsContent(t *testing.T) {
 	dir := t.TempDir()
 
-	db, err := OpenWikiDB(dir)
+	db, err := OpenWikiDB(context.Background(), dir)
 	if err != nil {
 		t.Fatalf("OpenWikiDB: %v", err)
 	}
-	if err := db.Rebuild(testChunks(), nil, nil, nil); err != nil {
+	if err := db.Rebuild(context.Background(), testChunks(), nil, nil, nil); err != nil {
 		t.Fatalf("Rebuild: %v", err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
-	reopened, err := OpenWikiDB(dir)
+	reopened, err := OpenWikiDB(context.Background(), dir)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
 	defer func() { _ = reopened.Close() }()
 
-	chunks, slugs, _, _, err := reopened.Stats()
+	chunks, slugs, _, _, err := reopened.Stats(context.Background())
 	if err != nil {
 		t.Fatalf("Stats: %v", err)
 	}
@@ -134,7 +133,7 @@ func TestWikiDBReopenKeepsContent(t *testing.T) {
 		t.Errorf("after reopen: %d slugs, want %d", slugs, len(testChunks()))
 	}
 
-	res, err := reopened.Search("login", 5)
+	res, err := reopened.Search(context.Background(), "login", 5)
 	if err != nil {
 		t.Fatalf("Search after reopen: %v", err)
 	}
@@ -159,7 +158,7 @@ func TestWikiDBSearchRoundTrip(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := db.Search(tc.query, 5)
+			res, err := db.Search(context.Background(), tc.query, 5)
 			if err != nil {
 				t.Fatalf("Search(%q): %v", tc.query, err)
 			}
@@ -192,7 +191,7 @@ func TestWikiDBSearchHandlesAccents(t *testing.T) {
 	db := rebuiltTestDB(t)
 
 	for _, q := range []string{"Autenticação", "autenticacao", "Implantação"} {
-		res, err := db.Search(q, 5)
+		res, err := db.Search(context.Background(), q, 5)
 		if err != nil {
 			t.Fatalf("Search(%q): %v", q, err)
 		}
@@ -207,16 +206,16 @@ func TestWikiDBSearchHandlesAccents(t *testing.T) {
 func TestWikiDBRebuildDropsRemovedChunks(t *testing.T) {
 	db := rebuiltTestDB(t)
 
-	if res, _ := db.Search("credenciais", 5); len(res) == 0 {
+	if res, _ := db.Search(context.Background(), "credenciais", 5); len(res) == 0 {
 		t.Fatal("precondition: the first chunk should be searchable")
 	}
 
 	kept := testChunks()[1:]
-	if err := db.Rebuild(kept, nil, nil, nil); err != nil {
+	if err := db.Rebuild(context.Background(), kept, nil, nil, nil); err != nil {
 		t.Fatalf("second Rebuild: %v", err)
 	}
 
-	res, err := db.Search("credenciais", 5)
+	res, err := db.Search(context.Background(), "credenciais", 5)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -227,7 +226,7 @@ func TestWikiDBRebuildDropsRemovedChunks(t *testing.T) {
 		}
 	}
 
-	chunks, _, _, _, err := db.Stats()
+	chunks, _, _, _, err := db.Stats(context.Background())
 	if err != nil {
 		t.Fatalf("Stats: %v", err)
 	}
@@ -241,17 +240,17 @@ func TestWikiDBRebuildDropsRemovedChunks(t *testing.T) {
 func TestWikiDBCheckAllHashesMatch(t *testing.T) {
 	db := rebuiltTestDB(t)
 
-	if !db.CheckAllHashesMatch(testChunks()) {
+	if !db.CheckAllHashesMatch(context.Background(), testChunks()) {
 		t.Error("identical chunks reported as changed — every sync would rebuild")
 	}
 
 	changed := testChunks()
 	changed[0].ContentHash = "h-auth-modificado"
-	if db.CheckAllHashesMatch(changed) {
+	if db.CheckAllHashesMatch(context.Background(), changed) {
 		t.Error("a changed hash reported as matching — the wiki would serve stale content")
 	}
 
-	if db.CheckAllHashesMatch(testChunks()[1:]) {
+	if db.CheckAllHashesMatch(context.Background(), testChunks()[1:]) {
 		t.Error("a removed chunk reported as matching")
 	}
 }
@@ -259,7 +258,7 @@ func TestWikiDBCheckAllHashesMatch(t *testing.T) {
 func TestWikiDBCrossReferences(t *testing.T) {
 	db := rebuiltTestDB(t)
 
-	direct, err := db.FindXRefs("autenticacao", 1)
+	direct, err := db.FindXRefs(context.Background(), "autenticacao", 1)
 	if err != nil {
 		t.Fatalf("FindXRefs: %v", err)
 	}
@@ -267,7 +266,7 @@ func TestWikiDBCrossReferences(t *testing.T) {
 		t.Fatal("no cross-reference from autenticacao, one was written")
 	}
 
-	deep, err := db.FindXRefs("autenticacao", 2)
+	deep, err := db.FindXRefs(context.Background(), "autenticacao", 2)
 	if err != nil {
 		t.Fatalf("FindXRefs depth 2: %v", err)
 	}
@@ -279,7 +278,7 @@ func TestWikiDBCrossReferences(t *testing.T) {
 func TestWikiDBBrowseFilters(t *testing.T) {
 	db := rebuiltTestDB(t)
 
-	all, err := db.Browse(BrowseFilter{ClusterID: -1, Limit: 50})
+	all, err := db.Browse(context.Background(), BrowseFilter{ClusterID: -1, Limit: 50})
 	if err != nil {
 		t.Fatalf("Browse: %v", err)
 	}
@@ -287,7 +286,7 @@ func TestWikiDBBrowseFilters(t *testing.T) {
 		t.Fatalf("unfiltered Browse returned %d, want %d", len(all), len(testChunks()))
 	}
 
-	runbooks, err := db.Browse(BrowseFilter{DocType: "runbook", ClusterID: -1, Limit: 50})
+	runbooks, err := db.Browse(context.Background(), BrowseFilter{DocType: "runbook", ClusterID: -1, Limit: 50})
 	if err != nil {
 		t.Fatalf("Browse by doc type: %v", err)
 	}
@@ -295,7 +294,7 @@ func TestWikiDBBrowseFilters(t *testing.T) {
 		t.Errorf("doc type filter returned %v, want just implantacao", browseSlugs(runbooks))
 	}
 
-	cluster2, err := db.Browse(BrowseFilter{ClusterID: 2, Limit: 50})
+	cluster2, err := db.Browse(context.Background(), BrowseFilter{ClusterID: 2, Limit: 50})
 	if err != nil {
 		t.Fatalf("Browse by cluster: %v", err)
 	}
@@ -304,7 +303,7 @@ func TestWikiDBBrowseFilters(t *testing.T) {
 	}
 
 	yes := true
-	important, err := db.Browse(BrowseFilter{Important: &yes, ClusterID: -1, Limit: 50})
+	important, err := db.Browse(context.Background(), BrowseFilter{Important: &yes, ClusterID: -1, Limit: 50})
 	if err != nil {
 		t.Fatalf("Browse important: %v", err)
 	}
@@ -323,11 +322,11 @@ func TestWikiDBSyncLogRoundTrip(t *testing.T) {
 		Updated:        []string{"indexacao"},
 		Deleted:        []string{"obsoleto"},
 	}
-	if err := db.AppendSyncLog(entry); err != nil {
+	if err := db.AppendSyncLog(context.Background(), entry); err != nil {
 		t.Fatalf("AppendSyncLog: %v", err)
 	}
 
-	got, err := db.QuerySyncLog(10)
+	got, err := db.QuerySyncLog(context.Background(), 10)
 	if err != nil {
 		t.Fatalf("QuerySyncLog: %v", err)
 	}
@@ -357,7 +356,7 @@ func TestWikiDBSearchSurvivesHostileQueries(t *testing.T) {
 		`"`, `""`, `AND`, `OR`, `NOT`, `*`, `^`, `(`, `()`, `a AND`, `- -`,
 		`login OR`, `"unbalanced`, `NEAR(`, `token*`, `  `,
 	} {
-		if _, err := db.Search(q, 5); err != nil {
+		if _, err := db.Search(context.Background(), q, 5); err != nil {
 			t.Errorf("Search(%q) returned an error instead of no results: %v", q, err)
 		}
 	}

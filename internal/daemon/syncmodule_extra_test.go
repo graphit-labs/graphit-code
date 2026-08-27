@@ -4,13 +4,11 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
 // SyncModule — constructor fields
-// ---------------------------------------------------------------------------
 
-func TestWorktreeDirForBranch_EmptyBranch(t *testing.T) {
+func TestScopeDir_EmptyBranch(t *testing.T) {
 	t.Parallel()
-	got := worktreeDirForBranch("/tmp/wt", "")
+	got := scopeDir("/tmp/wt", "")
 	if got != "/tmp/wt/" {
 		// filepath.Join("/tmp/wt", "") = "/tmp/wt"
 		if got != "/tmp/wt" {
@@ -19,13 +17,9 @@ func TestWorktreeDirForBranch_EmptyBranch(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// parseBranch — edge cases
-// ---------------------------------------------------------------------------
-
 func TestParseBranch_EmptyString(t *testing.T) {
 	t.Parallel()
-	scope, id := parseBranch("")
+	scope, id := parseScopePath("")
 	if scope != "project" {
 		t.Errorf("scope: expected 'project', got %q", scope)
 	}
@@ -36,7 +30,7 @@ func TestParseBranch_EmptyString(t *testing.T) {
 
 func TestParseBranch_SingleSegment(t *testing.T) {
 	t.Parallel()
-	scope, id := parseBranch("main")
+	scope, id := parseScopePath("main")
 	if scope != "project" {
 		t.Errorf("scope: expected 'project', got %q", scope)
 	}
@@ -47,7 +41,7 @@ func TestParseBranch_SingleSegment(t *testing.T) {
 
 func TestParseBranch_TwoSegments(t *testing.T) {
 	t.Parallel()
-	scope, id := parseBranch("memory/project")
+	scope, id := parseScopePath("memory/project")
 	if scope != "project" {
 		t.Errorf("scope: expected 'project', got %q", scope)
 	}
@@ -58,7 +52,7 @@ func TestParseBranch_TwoSegments(t *testing.T) {
 
 func TestParseBranch_FourSegments(t *testing.T) {
 	t.Parallel()
-	scope, id := parseBranch("memory/user/john/extra")
+	scope, id := parseScopePath("memory/user/john/extra")
 	if scope != "user" {
 		t.Errorf("scope: expected 'user', got %q", scope)
 	}
@@ -67,6 +61,4 @@ func TestParseBranch_FourSegments(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // MemorySyncModule — constructor
-// ---------------------------------------------------------------------------

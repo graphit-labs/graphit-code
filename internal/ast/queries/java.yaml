@@ -1,6 +1,13 @@
 language: java
 grammar: tree-sitter-java
 extensions: [".java"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function, Constructor, Package] }
+  READS_FIELD: { labels: [Field] }
+  WRITES_FIELD: { labels: [Field] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -25,7 +32,7 @@ queries:
     graph_label: Annotation
     pattern: '(annotation_type_declaration name: (identifier) @name)'
   - data_key: imports
-    graph_label: Module
+    graph_label: Import
     pattern: '(import_declaration (scoped_identifier) @name)'
   - data_key: packages
     graph_label: Package
@@ -39,6 +46,19 @@ queries:
   - data_key: fields
     graph_label: Field
     pattern: '(field_declaration declarator: (variable_declarator name: (identifier) @name))'
+
+  # Declared literal values — the literal becomes a node contained by the name, so
+  # that "which constant holds this URL" is reachable by search.
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration declarator: (variable_declarator name: (identifier) @name value: [(decimal_integer_literal) (hex_integer_literal) (octal_integer_literal) (binary_integer_literal) (decimal_floating_point_literal) (hex_floating_point_literal) (true) (false) (null_literal) (character_literal) (string_literal)] @value))'
+    value_capture: value
+    value_label: Value
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(local_variable_declaration declarator: (variable_declarator name: (identifier) @name value: [(decimal_integer_literal) (hex_integer_literal) (decimal_floating_point_literal) (true) (false) (null_literal) (character_literal) (string_literal)] @value))'
+    value_capture: value
+    value_label: Value
 
   # === Relation queries ===
   - data_key: decorators
@@ -90,6 +110,9 @@ context_types:
   enum_declaration: Enum
   record_declaration: Record
   method_declaration: Method
+  # A constructor is a container too: without it, its parameters resolve to the
+  # enclosing class and read as fields of the type rather than arguments.
+  constructor_declaration: Constructor
 
 # Anonymous function types for variable_declarator resolution
 anon_func_types:
@@ -111,169 +134,32 @@ comment_types:
   - line_comment
   - block_comment
 
-# Entry point scoring rules for Java
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "Test*"
-      score: 60
-    - pattern: "test*"
-      score: 60
-    - pattern: init
-      score: 40
-    - pattern: setup
-      score: 40
-    - pattern: configure
-      score: 40
-    - pattern: "*Handler"
-      score: 30
-    - pattern: "*Controller"
-      score: 30
-    - pattern: "*Servlet"
-      score: 30
-    - pattern: "run*"
-      score: 20
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. switch_label fires for both `case` and
+# `default`, so a bare switch/default with no case labels still adds one —
+# a minor, accepted deviation from the other languages here.
+complexity:
+  node_types:
+    - if_statement
+    - for_statement
+    - while_statement
+    - switch_label
+    - catch_clause
+    - ternary_expression
+  operators: ["&&", "||"]
 
-  exported_bonus: 10
-  max_score: 100
-
-  decorators:
-    # Spring HTTP route annotations
-    - name: GetMapping
-      score: 70
-    - name: PostMapping
-      score: 70
-    - name: PutMapping
-      score: 70
-    - name: DeleteMapping
-      score: 70
-    - name: PatchMapping
-      score: 70
-    - name: RequestMapping
-      score: 70
-    # Jakarta/JAX-RS annotations
-    - name: GET
-      score: 70
-    - name: POST
-      score: 70
-    - name: PUT
-      score: 70
-    - name: DELETE
-      score: 70
-    - name: PATCH
-      score: 70
-    - name: Path
-      score: 60
-    # Test annotations
-    - name: Test
-      score: 60
-    - name: ParameterizedTest
-      score: 60
-    - name: RepeatedTest
-      score: 60
-    - name: BeforeEach
-      score: 40
-    - name: AfterEach
-      score: 40
-    - name: BeforeAll
-      score: 40
-    - name: AfterAll
-      score: 40
-    # Controller/Service annotations
-    - name: Controller
-      score: 50
-    - name: RestController
-      score: 50
-    - name: Service
-      score: 40
-    - name: Component
-      score: 30
-    - name: Bean
-      score: 40
-    - name: Configuration
-      score: 40
-    # Scheduling
-    - name: Scheduled
-      score: 50
-    - name: EventListener
-      score: 50
-
-# Import detection (Java framework detection)
-import_detection:
-  - pattern: "org.springframework"
-    match: prefix
-    framework: spring
-    category: web
-  - pattern: "jakarta.ws.rs"
-    match: prefix
-    framework: jaxrs
-    category: web
-  - pattern: "javax.ws.rs"
-    match: prefix
-    framework: jaxrs
-    category: web
-  - pattern: "jakarta.servlet"
-    match: prefix
-    framework: servlet
-    category: web
-  - pattern: "org.junit"
-    match: prefix
-    framework: junit
-    category: test
-  - pattern: "org.mockito"
-    match: prefix
-    framework: mockito
-    category: test
-  - pattern: "org.hibernate"
-    match: prefix
-    framework: hibernate
-    category: orm
-  - pattern: "jakarta.persistence"
-    match: prefix
-    framework: jpa
-    category: orm
-  - pattern: "javax.persistence"
-    match: prefix
-    framework: jpa
-    category: orm
-  - pattern: "org.mybatis"
-    match: prefix
-    framework: mybatis
-    category: orm
-  - pattern: "org.apache.kafka"
-    match: prefix
-    framework: kafka
-    category: messaging
-  - pattern: "com.google.gson"
-    match: prefix
-    framework: gson
-    category: serialization
-  - pattern: "com.fasterxml.jackson"
-    match: prefix
-    framework: jackson
-    category: serialization
-  - pattern: "io.grpc"
-    match: prefix
-    framework: grpc
-    category: rpc
-  - pattern: "org.slf4j"
-    match: prefix
-    framework: slf4j
-    category: logging
-  - pattern: "org.apache.logging.log4j"
-    match: prefix
-    framework: log4j
-    category: logging
-  - pattern: "lombok"
-    match: prefix
-    framework: lombok
-    category: codegen
-  - pattern: "io.micronaut"
-    match: prefix
-    framework: micronaut
-    category: web
-  - pattern: "io.quarkus"
-    match: prefix
-    framework: quarkus
-    category: web
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Class
+  - Interface
+  - Enum
+  - Record
+  - Function
+  - Constructor
+  - Field
+  - Package
+  - Variable
+  - Comment

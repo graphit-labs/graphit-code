@@ -4,10 +4,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// sanitizeContextName
-// ---------------------------------------------------------------------------
-
 func TestSanitizeContextName(t *testing.T) {
 	tests := []struct {
 		input string
@@ -35,10 +31,6 @@ func TestSanitizeContextName(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// envOr
-// ---------------------------------------------------------------------------
-
 func TestEnvOr(t *testing.T) {
 	t.Run("returns_fallback_for_unset", func(t *testing.T) {
 		got := envOr("GRAPHIT_TEST_NONEXISTENT_KEY_XYZ_12345", "fallback")
@@ -54,27 +46,4 @@ func TestEnvOr(t *testing.T) {
 			t.Error("expected PATH value, got fallback")
 		}
 	})
-}
-
-// ---------------------------------------------------------------------------
-// DefaultConfig
-// ---------------------------------------------------------------------------
-
-func TestDefaultConfig(t *testing.T) {
-	cfg := DefaultConfig()
-	if cfg == nil {
-		t.Fatal("expected non-nil config")
-	}
-	if cfg.Contexts == nil {
-		t.Error("expected non-nil Contexts map")
-	}
-	if cfg.ImportedContexts == nil {
-		t.Error("expected non-nil ImportedContexts map")
-	}
-	if cfg.OpenAIModel != "gpt-4o-mini" {
-		t.Errorf("expected default model 'gpt-4o-mini', got %q", cfg.OpenAIModel)
-	}
-	if cfg.LadybugPath == "" {
-		t.Error("expected non-empty LadybugPath")
-	}
 }

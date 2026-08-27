@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
 	"github.com/graphit-labs/graphit-code/internal/memory"
+	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 const (
@@ -17,30 +19,40 @@ const (
 	memorySyncMaxDebounce = 10 * time.Second
 )
 
-type MemorySyncModule struct{}
+type MemorySyncModule struct {
+	Logger *slog.Logger
+}
 
 func NewMemorySyncModule() *MemorySyncModule {
 	return &MemorySyncModule{}
 }
 
-// Start recompiles a memory wiki whenever its worktree changes.
+func (m *MemorySyncModule) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
+
+// Start recompiles a memory wiki whenever its raw directory changes.
 //
-// The worktrees live under a single base directory that this tool owns, so one
-// recursive watch covers every branch — including worktrees created later, which
-// the watcher picks up when their directory appears. This replaces a 10s git
-// poll that ran `git status` once per active branch per tick.
+// Every scope's raw directory lives under a single root that this tool owns, so one recursive
+// watch covers all of them — including scopes created later, which the watcher picks up when
+// their directory appears. This replaced a 10s poll that ran `git status` once per active scope
+// per tick.
+//
+// THE ROOT IS store.Dir() AND NOTHING APPENDED TO IT. It used to be `store.Dir() + "-wt"`,
+// because the store's Dir() was the git repository and the worktrees sat beside it. Dir() is the
+// raw root itself now, so the suffix pointed the watcher at an empty directory it created on the
+// way — a watch that never fires, and a memory wiki that never recompiles, with nothing to see
+// but a stray `memory-raw-wt` in the global directory.
 func (m *MemorySyncModule) Start(ctx context.Context) error {
-	store, err := memory.NewMemoryGitStore()
+	store, err := memory.NewMemoryStore()
 	if err != nil {
 		return fmt.Errorf("memory-sync module: open memory store: %w", err)
 	}
-	wtBase := store.Dir() + "-wt"
-	if err := os.MkdirAll(wtBase, 0o755); err != nil {
-		return fmt.Errorf("memory-sync module: worktree base %s: %w", wtBase, err)
+	rawRoot := store.Dir()
+	if err := os.MkdirAll(rawRoot, 0o755); err != nil {
+		return fmt.Errorf("memory-sync module: raw memory root %s: %w", rawRoot, err)
 	}
 
 	w, err := fswatch.New(fswatch.Config{
-		Root:        wtBase,
+		Root:        rawRoot,
 		Debounce:    memorySyncDebounce,
 		MaxDebounce: memorySyncMaxDebounce,
 	})
@@ -51,7 +63,7 @@ func (m *MemorySyncModule) Start(ctx context.Context) error {
 
 	batches, err := w.Start(ctx)
 	if err != nil {
-		return fmt.Errorf("memory-sync module: watch %s: %w", wtBase, err)
+		return fmt.Errorf("memory-sync module: watch %s: %w", rawRoot, err)
 	}
 
 	for {
@@ -62,39 +74,51 @@ func (m *MemorySyncModule) Start(ctx context.Context) error {
 			if !ok {
 				return ctx.Err()
 			}
-			m.recompile(ctx, wtBase, batch)
+			m.recompile(ctx, rawRoot, batch)
 		}
 	}
 }
 
-// recompile rebuilds the wiki of every memory branch the batch touched.
-func (m *MemorySyncModule) recompile(ctx context.Context, wtBase string, batch fswatch.Batch) {
-	store, err := memory.NewMemoryGitStore()
+// recompile rebuilds the wiki of every memory scope the batch touched.
+func (m *MemorySyncModule) recompile(ctx context.Context, rawRoot string, batch fswatch.Batch) {
+	store, err := memory.NewMemoryStore()
 	if err != nil {
 		return
 	}
-	branches, err := store.ActiveMemoryBranches()
+	scopes, err := store.ActiveScopes()
 	if err != nil {
 		return
 	}
 
 	touched := append(append([]string{}, batch.Changed...), batch.Removed...)
 
-	for _, branch := range branches {
-		wtDir := worktreeDirForBranch(wtBase, branch)
-		if _, err := os.Stat(filepath.Join(wtDir, ".git")); err != nil {
+	for _, scopePath := range scopes {
+		rawDir := scopeDir(rawRoot, scopePath)
+		if _, err := os.Stat(filepath.Join(rawDir, ".git")); err != nil {
 			continue
 		}
-		// A lost-events batch has no reliable path list, so every branch is
+		// A lost-events batch has no reliable path list, so every scope is
 		// recompiled; otherwise only the ones with a changed file under them.
-		if !batch.Rescan && !anyUnder(touched, wtDir) {
+		if !batch.Rescan && !anyUnder(touched, rawDir) {
 			continue
 		}
-		scope, scopeID := parseBranch(branch)
+		scope, scopeID := parseScopePath(scopePath)
 		wikiDir := memory.MemoryWikiGlobalDir(scope, scopeID)
-		memory.RunCycle(ctx, scope, wtDir, wikiDir)
+		if res := memory.RunCycle(ctx, scope, rawDir, wikiDir); res.Err != nil {
+			m.log().Warn("memory wiki compile failed", "scope", scope, "scope_id", scopeID, "error", res.Err)
+			continue
+		}
 	}
 }
+
+// Compiling is the whole job. There used to be a fan-out step here that copied each
+// freshly compiled wiki into every project that read it, with a policy per scope —
+// project to its owner, user to every registered project, an imported context only
+// where a replica already existed. It existed because the wiki a project opened was
+// a copy, so a memory arriving from the remote reached nobody until something pushed
+// it outward. The wiki is now read where it is compiled, so the push has nothing left
+// to do and the failure mode it carried — a project quietly serving a copy nobody
+// refreshed — cannot happen.
 
 // anyUnder reports whether any path lies inside dir.
 func anyUnder(paths []string, dir string) bool {
@@ -110,20 +134,15 @@ func anyUnder(paths []string, dir string) bool {
 	return false
 }
 
-func worktreeDirForBranch(wtBase, branch string) string {
-	safe := strings.NewReplacer("/", "-", " ", "_").Replace(branch)
-	return filepath.Join(wtBase, safe)
+func scopeDir(rawRoot, scopePath string) string {
+	safe := strings.NewReplacer("/", "-", " ", "_").Replace(scopePath)
+	return filepath.Join(rawRoot, safe)
 }
 
-func parseBranch(branch string) (scope, scopeID string) {
-	parts := strings.SplitN(branch, "/", 3)
+func parseScopePath(scopePath string) (scope, scopeID string) {
+	parts := strings.SplitN(scopePath, "/", 3)
 	if len(parts) < 3 {
 		return "project", ""
 	}
 	return parts[1], parts[2]
 }
-
-// dirtyFileMtimes renders "path:mtime" lines for the dirty files in a git
-// porcelain listing. The memory module still polls its worktrees in ~/.graphit
-// (they are written by the MCP layer, not by an editor, so notification latency
-// does not matter there); project trees are watched instead — see fswatch.

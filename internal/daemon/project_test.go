@@ -10,10 +10,6 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// newProjectSupervisor
-// ---------------------------------------------------------------------------
-
 func TestNewProjectSupervisor(t *testing.T) {
 	mods := []WatchModule{
 		&fakeModule{name: "mod1"},
@@ -47,10 +43,6 @@ func TestNewProjectSupervisor_Empty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ProjectSupervisor — AddCloser
-// ---------------------------------------------------------------------------
-
 func TestProjectSupervisor_AddCloser(t *testing.T) {
 	ps := newProjectSupervisor("test", "/tmp", nil)
 	closed := false
@@ -66,10 +58,6 @@ func TestProjectSupervisor_AddCloser(t *testing.T) {
 		t.Error("closer was not called")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ProjectSupervisor — Stop
-// ---------------------------------------------------------------------------
 
 func TestProjectSupervisor_Stop(t *testing.T) {
 	ps := newProjectSupervisor("test", "/tmp", nil)
@@ -89,10 +77,6 @@ func TestProjectSupervisor_Stop_WithCancel(t *testing.T) {
 		t.Error("expected stopped to be true")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ProjectSupervisor — projectLog
-// ---------------------------------------------------------------------------
 
 func TestProjectSupervisor_ProjectLog_NoFile(t *testing.T) {
 	ps := newProjectSupervisor("test", "/tmp", nil)
@@ -127,10 +111,6 @@ func TestProjectSupervisor_ProjectLog_WithFile(t *testing.T) {
 		t.Errorf("expected 'test msg' in log, got %q", string(data))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ProjectSupervisor — Start (full integration)
-// ---------------------------------------------------------------------------
 
 func TestProjectSupervisor_Start_ModulesRunAndStop(t *testing.T) {
 	projectDir := t.TempDir()
@@ -222,9 +202,7 @@ func TestProjectSupervisor_Start_WithCloserError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // supervise — crash and restart behavior
-// ---------------------------------------------------------------------------
 
 func TestSupervise_ModuleCrashesThenShutdown(t *testing.T) {
 	projectDir := t.TempDir()
@@ -371,5 +349,29 @@ func TestSupervise_ContextCancelledBeforeStart(t *testing.T) {
 	case <-doneCh:
 	case <-time.After(5 * time.Second):
 		t.Fatal("did not finish")
+	}
+}
+
+// Touch / IdleFor
+
+func TestNewProjectSupervisor_StartsWithFreshIdleClock(t *testing.T) {
+	ps := newProjectSupervisor("proj", "/tmp/project", nil)
+	if idle := ps.IdleFor(); idle > time.Second {
+		t.Errorf("expected a freshly created supervisor to look active, IdleFor() = %v", idle)
+	}
+}
+
+func TestProjectSupervisor_TouchResetsIdleFor(t *testing.T) {
+	ps := newProjectSupervisor("proj", "/tmp/project", nil)
+
+	// Simulate the project having gone quiet a while ago.
+	ps.lastActivity.Store(time.Now().Add(-time.Hour).UnixNano())
+	if idle := ps.IdleFor(); idle < 55*time.Minute {
+		t.Fatalf("expected IdleFor() to reflect the backdated timestamp, got %v", idle)
+	}
+
+	ps.Touch()
+	if idle := ps.IdleFor(); idle > time.Second {
+		t.Errorf("expected Touch() to reset the idle clock, IdleFor() = %v", idle)
 	}
 }

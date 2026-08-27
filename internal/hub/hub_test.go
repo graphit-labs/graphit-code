@@ -14,13 +14,11 @@ func TestHubHashing(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
-	// 1. Hash of non-existent path
 	_, err = HashPath(filepath.Join(tempDir, "nonexistent"))
 	if err == nil {
 		t.Error("expected error for nonexistent path")
 	}
 
-	// 2. Hash of empty directory
 	emptyDir := filepath.Join(tempDir, "empty")
 	_ = os.Mkdir(emptyDir, 0755)
 	_, err = HashPath(emptyDir)
@@ -61,7 +59,6 @@ func TestHubHashing(t *testing.T) {
 		t.Error("expected non-empty directory hash")
 	}
 
-	// 5. TruncateHash
 	truncated := TruncateHash(hDir, 8)
 	if len(truncated) != 8 {
 		t.Errorf("expected length 8, got %d", len(truncated))
@@ -71,7 +68,6 @@ func TestHubHashing(t *testing.T) {
 		t.Errorf("expected '123', got %q", truncatedShort)
 	}
 
-	// 6. VerifyHash
 	ok, err := VerifyHash(filePath, h1)
 	if err != nil || !ok {
 		t.Errorf("VerifyHash failed: %v, %t", err, ok)

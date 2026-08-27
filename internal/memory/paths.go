@@ -1,48 +1,60 @@
 package memory
 
 import (
-	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/hub"
-	"github.com/graphit-labs/graphit-code/internal/paths"
-	"github.com/graphit-labs/graphit-code/internal/slogutil"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-func GlobalScopeDir(scope string) string {
-	localPath := ProjectLinkDir(scope)
-	if _, err := os.Stat(localPath); err == nil {
-		return localPath
+// A memory scope has exactly two directories, both global:
+//
+//	<global>/memory-raw/memory-<scope>-<id>/  the raw markdown — the truth
+//	<global>/wiki/memory/<scope>/<id>/        the compiled wiki — what search opens
+//
+// There used to be a third: a replica of the wiki inside every project that read it,
+// which is what `memory_search` actually opened. It bought nothing and cost a fan-out
+// pass on every compile, a Windows-specific failure mode when a reader held the copy
+// open, and a class of bug where a project answered from a replica nobody had
+// refreshed — indistinguishable, from the outside, from a project with fewer
+// memories. The wiki is now read where it is compiled.
+
+// WikiDirFor is the compiled wiki of one scope, for a named project.
+//
+// The project matters only for the "project" scope, whose id comes from that
+// project's lockfile. "user" is keyed by the git identity and an imported context by
+// its own name, so both answer the same for every project on the machine.
+func WikiDirFor(projectDir, scope string) string {
+	scopeID := resolveScopeIDIn(projectDir, scope)
+	if scopeID == "" {
+		return ""
 	}
-	return ""
+	return MemoryWikiGlobalDir(scope, scopeID)
 }
 
+// WikiDir is WikiDirFor the working directory. Prefer WikiDirFor wherever the project
+// is known.
 func WikiDir(scope string) string {
-	return GlobalScopeDir(scope)
+	wd, _ := os.Getwd()
+	return WikiDirFor(wd, scope)
 }
 
+// RawDir is the directory holding a scope's raw memories, for the project in the
+// working directory.
 func RawDir(scope string) string {
-	return WorktreeRawDirForScope(scope)
+	return RawDirForScope(scope)
 }
 
-// resolveScopeID returns the real scope identifier for the given scope.
-// For "project": reads the project ID from the lockfile (CWD must be the project root).
-// For "user": computes the user hash from git config.
-// For context scopes: the scope name itself is the identifier.
-func resolveScopeID(scope string) string {
+// resolveScopeIDIn returns the real scope identifier for a scope, for one project.
+// For "project": the project's lockfile ID. For "user": the hash of the git identity.
+// For a context scope: the scope name itself.
+func resolveScopeIDIn(projectDir, scope string) string {
 	switch scope {
 	case "project":
-		lf, err := hub.LoadLockfile(brand.LockFileName())
-		if err != nil || lf == nil || lf.Project.ID == "" {
-			return ""
-		}
-		return lf.Project.ID
+		return store.ProjectID(projectDir)
 	case "user":
-		hash, err := UserHashFromGit()
+		hash, err := UserScopeID()
 		if err != nil {
 			return ""
 		}
@@ -52,66 +64,45 @@ func resolveScopeID(scope string) string {
 	}
 }
 
-func WorktreeRawDirForScope(scope string) string {
-	if GlobalScopeDir(scope) == "" {
-		return ""
-	}
+func resolveScopeID(scope string) string {
+	wd, _ := os.Getwd()
+	return resolveScopeIDIn(wd, scope)
+}
+
+// RawDirForScope locates the directory holding a scope's raw memories.
+//
+// It does NOT require anything to have been compiled first. It used to require the
+// project replica to exist, and that made the raw store — the source of truth, the
+// thing the remote syncs into — unreachable in a project that had not been compiled
+// yet: no replica, so no raw dir, so no compile, so no replica. A fresh clone could
+// not bootstrap its own memories.
+func RawDirForScope(scope string) string {
 	scopeID := resolveScopeID(scope)
 	if scopeID == "" {
 		return ""
 	}
-	return WorktreeRawDir(scope, scopeID)
+	return RawDirFor(scope, scopeID)
 }
 
-func WorktreeRawDir(scope, scopeID string) string {
-	d := brand.GlobalDir()
-	if d == "" {
-		d = brand.DotDir()
-	}
-	wtBase := filepath.Join(d, "memory-wt")
-	branch := fmt.Sprintf("memory/%s/%s", scope, scopeID)
-	safe := strings.NewReplacer("/", "-", " ", "_").Replace(branch)
-	return filepath.Join(wtBase, safe)
+func RawDirFor(scope, scopeID string) string {
+	return store.MemoryRawDir(scope, scopeID)
 }
 
-func ProjectLinkDir(scope string) string {
-	return filepath.Join(brand.DotDir(), "memory", scope)
-}
-
-func EnsureScopeDirs(scope, projectDir string) error {
-	if projectDir != "" {
-		linkPath := filepath.Join(projectDir, ProjectLinkDir(scope))
-		if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func EnsureContextCopy(contextName, projectDir string, logger *slog.Logger) {
-	log := slogutil.Resolve(logger)
-	if projectDir == "" {
-		return
-	}
-
-	wikiDir := MemoryWikiGlobalDir(contextName, contextName)
-	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
-		log.Warn("context copy: mkdir failed", "dir", wikiDir, "error", err)
-	}
-
-	copyPath := filepath.Join(projectDir, ProjectLinkDir(contextName))
-	if err := os.MkdirAll(filepath.Dir(copyPath), 0o755); err != nil {
-		log.Warn("context copy: mkdir parent failed", "dir", filepath.Dir(copyPath), "error", err)
-	}
-	if err := paths.SyncCopyDir(wikiDir, copyPath); err != nil {
-		log.Warn("context copy failed", "src", wikiDir, "dst", copyPath, "error", err)
-	}
-}
-
-func AllContextDirs() []string {
-
-	memDir := filepath.Dir(ProjectLinkDir("project"))
-	entries, err := os.ReadDir(memDir)
+// ContextNamesFrom lists the imported memory contexts a raw directory root holds.
+//
+// Memory contexts have no per-project registry, and should not have one: a context's
+// memories are a prefix in the shared memory bucket, and the set of local directories
+// is the record of which prefixes this unit has. Scoping them per project would need a
+// second record of the same fact.
+//
+// The name is recovered from the directory, which is the scope path with its separators
+// flattened: `memory/<scope>/<id>` becomes `memory-<scope>-<id>`. A flattened name is
+// ambiguous in general — a scope may contain a hyphen — but not for a context, whose
+// scope and id are the SAME string, so the remainder splits into two equal halves.
+// That equality is also what tells a context apart from the project and user scopes
+// without matching their names.
+func ContextNamesFrom(rawRoot string) []string {
+	entries, err := os.ReadDir(rawRoot)
 	if err != nil {
 		return nil
 	}
@@ -120,12 +111,64 @@ func AllContextDirs() []string {
 		if !e.IsDir() {
 			continue
 		}
-		name := e.Name()
-
-		if name == "project" || name == "user" || strings.HasPrefix(name, ".") {
+		rest, ok := cutPrefix(e.Name(), "memory-")
+		if !ok || strings.HasPrefix(rest, ".") {
+			continue
+		}
+		name, ok := doubledName(rest)
+		if !ok {
 			continue
 		}
 		contexts = append(contexts, name)
 	}
 	return contexts
+}
+
+func cutPrefix(s, prefix string) (string, bool) {
+	if !strings.HasPrefix(s, prefix) {
+		return s, false
+	}
+	return s[len(prefix):], true
+}
+
+// doubledName reports the half of "<x>-<x>", which is how a context's directory name
+// carries its name twice — once as the scope and once as the id.
+func doubledName(s string) (string, bool) {
+	if len(s) < 3 || len(s)%2 == 0 {
+		return "", false
+	}
+	mid := len(s) / 2
+	if s[mid] != '-' {
+		return "", false
+	}
+	left, right := s[:mid], s[mid+1:]
+	if left != right {
+		return "", false
+	}
+	return left, true
+}
+
+// AllContextDirs lists the imported memory contexts on this machine, by name.
+func AllContextDirs() []string {
+	return ContextNamesFrom(store.MemoryRawRoot())
+}
+
+// EnsureScopeDirs creates the wiki directory of a scope so that a reader opening it
+// finds an empty wiki rather than a missing path.
+func EnsureScopeDirs(scope, projectDir string) error {
+	dir := WikiDirFor(projectDir, scope)
+	if dir == "" {
+		return nil
+	}
+	return os.MkdirAll(dir, 0o755)
+}
+
+// MemoryWikiGlobalDir is the compiled wiki of one scope, by explicit id.
+func MemoryWikiGlobalDir(scope, scopeID string) string {
+	return store.MemoryWikiDir(scope, scopeID)
+}
+
+// contextWikiDir is the wiki of an imported context.
+func contextWikiDir(contextName string) string {
+	return filepath.Clean(MemoryWikiGlobalDir(contextName, contextName))
 }

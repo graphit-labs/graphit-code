@@ -9,8 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-
-
 func cronMarker() string {
 	return "# " + strings.ToUpper(brand.Brand) + "_DAEMON_SCHEDULER"
 }

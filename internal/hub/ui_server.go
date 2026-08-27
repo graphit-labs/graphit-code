@@ -18,7 +18,18 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
+
+// dirHasEntries reports whether a directory exists and holds anything.
+func dirHasEntries(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	entries, _ := os.ReadDir(dir)
+	return len(entries) > 0
+}
 
 type UIServer struct {
 	Logger *slog.Logger
@@ -322,7 +333,7 @@ func (s *UIServer) handleProjectArtifacts(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	knowledgeDir := filepath.Join(projectDir, brand.DotDir(), "knowledge", "project")
+	knowledgeDir := store.KnowledgeProjectDir(projectDir)
 	if info, err := os.Stat(knowledgeDir); err == nil && info.IsDir() {
 		entries, _ := os.ReadDir(knowledgeDir)
 		if len(entries) > 0 {
@@ -347,29 +358,18 @@ func (s *UIServer) handleProjectArtifacts(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	astDir := filepath.Join(projectDir, brand.DotDir(), "ast")
-	if info, err := os.Stat(astDir); err == nil && info.IsDir() {
-		entries, _ := os.ReadDir(astDir)
-		for _, e := range entries {
-			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-				continue
-			}
-
-			if e.Type()&os.ModeSymlink != 0 {
-				continue
-			}
-			artID := e.Name()
-
-			displayID := artID
-			if artID == "project" {
-				displayID = projectName
-			}
+	// The project's own graph is the only AST artifact it can publish. Imported and
+	// linked contexts belong to whoever built them, and every store is global now,
+	// so there is no project directory left to walk for them.
+	if astStore := store.ASTProjectDir(projectDir); dirHasEntries(astStore) {
+		{
+			displayID := projectName
 			art := map[string]any{
 				"local_id":  displayID,
 				"type":      "ast",
 				"remote_id": displayID,
 				"origin":    "local",
-				"path":      filepath.Join(astDir, artID),
+				"path":      astStore,
 				"published": false,
 			}
 			if regEntry := s.svc.registry.GetEntry(displayID, TypeAST); regEntry != nil {
@@ -814,9 +814,13 @@ func (s *UIServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func CorsWrap(h http.Handler) http.Handler {
+	return CorsWrapWithAllowedOrigins(h, nil)
+}
+
+func CorsWrapWithAllowedOrigins(h http.Handler, allowedOrigins []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if isAllowedOrigin(origin) {
+		if isAllowedOriginWithOverride(origin, allowedOrigins) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
@@ -829,6 +833,21 @@ func CorsWrap(h http.Handler) http.Handler {
 		}
 		h.ServeHTTP(w, r)
 	})
+}
+
+func isAllowedOriginWithOverride(origin string, allowedOrigins []string) bool {
+	if origin == "" {
+		return true
+	}
+	if len(allowedOrigins) == 0 {
+		return isAllowedOrigin(origin)
+	}
+	for _, allowed := range allowedOrigins {
+		if allowed == "*" || origin == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 func isAllowedOrigin(origin string) bool {

@@ -14,26 +14,13 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	paths_pkg "github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
-)
-
-type ArtifactType string
-
-const (
-	TypeAgent     ArtifactType = "agent"
-	TypeRule      ArtifactType = "rule"
-	TypeWorkflow  ArtifactType = "workflow"
-	TypeSkill     ArtifactType = "skill"
-	TypeKnowledge ArtifactType = "knowledge"
-	TypeAST       ArtifactType = "ast"
-	TypeMCP       ArtifactType = "mcp"
-	TypeCommand   ArtifactType = "command"
-	TypePower     ArtifactType = "power"
-	TypeLanguage  ArtifactType = "language"
-	TypeFramework ArtifactType = "framework"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
 var TypeFolderMap = map[ArtifactType]string{
@@ -47,13 +34,12 @@ var TypeFolderMap = map[ArtifactType]string{
 	TypeCommand:   "commands",
 	TypePower:     "powers",
 	TypeLanguage:  "languages",
-	TypeFramework: "frameworks",
 }
 
 var ValidTypes = []ArtifactType{
 	TypeAgent, TypeRule, TypeWorkflow, TypeSkill,
 	TypeKnowledge, TypeAST, TypeMCP, TypeCommand, TypePower,
-	TypeLanguage, TypeFramework,
+	TypeLanguage,
 }
 
 type Entry struct {
@@ -120,8 +106,14 @@ const (
 )
 
 type RegistryManager struct {
-	Logger   *slog.Logger
-	gitStore *GitStore
+	Logger        *slog.Logger
+	store         *S3Store
+	projectConfig config.ConfigMap
+
+	// baseCtx is the context the manager was built with. Every method below performs Hub
+	// object I/O, and they are all called from the command that constructed the manager, so
+	// carrying it here is what keeps ctx out of twenty signatures for no gain.
+	baseCtx context.Context
 
 	entries  map[ArtifactType]map[string]*Entry
 	projects map[string]*Project
@@ -136,6 +128,7 @@ func NewRegistryManager(ctx context.Context, paths ...string) (*RegistryManager,
 		entries:       make(map[ArtifactType]map[string]*Entry),
 		projects:      make(map[string]*Project),
 		registryPaths: paths,
+		baseCtx:       ctx,
 	}
 
 	var projectCfg config.ConfigMap
@@ -143,17 +136,18 @@ func NewRegistryManager(ctx context.Context, paths ...string) (*RegistryManager,
 	if lf, err := LoadLockfile(pp.LockFilePath); err == nil && lf != nil {
 		projectCfg = lf.Config
 	}
+	m.projectConfig = projectCfg
 
-	gs, err := NewGitStore(nil, projectCfg)
-	if err == nil {
-		m.gitStore = gs
-		if err := gs.EnsureCloned(); err != nil {
-
-			m.gitStore = nil
-		} else {
-			if err := m.loadRegistry(); err != nil {
-				m.log().Warn("load registry", "error", err)
-			}
+	st, err := NewS3Store(ctx, nil, projectCfg)
+	if err == nil && st.Configured() {
+		m.store = st
+		if err := st.SyncRegistry(ctx); err != nil {
+			// A registry that cannot be mirrored leaves the manager in local-only mode,
+			// which is what an unreachable git remote produced.
+			m.log().Warn("sync registry", "error", err)
+			m.store = nil
+		} else if err := m.loadRegistry(); err != nil {
+			m.log().Warn("load registry", "error", err)
 		}
 	}
 
@@ -162,13 +156,13 @@ func NewRegistryManager(ctx context.Context, paths ...string) (*RegistryManager,
 }
 
 func (m *RegistryManager) loadRegistry() error {
-	if m.gitStore == nil {
+	if m.store == nil {
 		return fmt.Errorf("git store not initialized")
 	}
 
 	cache, err := m.LoadRegistryCache()
 	if err == nil && cache != nil {
-		headCommit := m.gitStore.HeadCommit()
+		headCommit := m.store.RegistryRevision(m.baseCtx)
 		if cache.Commit != "" && cache.Commit == headCommit {
 			m.loadFromCacheData(cache)
 			return nil
@@ -201,18 +195,18 @@ func (m *RegistryManager) loadFromCacheData(cache *RegistryCache) {
 }
 
 func (m *RegistryManager) BuildRegistryCache() (*RegistryCache, error) {
-	if m.gitStore == nil {
+	if m.store == nil {
 		return nil, fmt.Errorf("git store not initialized")
 	}
 
 	cache := &RegistryCache{
 		V:        hubManifestVersion,
-		Commit:   m.gitStore.HeadCommit(),
+		Commit:   m.store.RegistryRevision(m.baseCtx),
 		Projects: make(map[string]Project),
 		Entries:  []Entry{},
 	}
 
-	projectsDir := m.gitStore.AbsPath("projects")
+	projectsDir := m.store.AbsPath("projects")
 
 	topEntries, err := os.ReadDir(projectsDir)
 	if err != nil {
@@ -432,10 +426,10 @@ func (m *RegistryManager) GetProjectByName(name string) *Project {
 }
 
 func (m *RegistryManager) GetDefaultBaselines(_ context.Context) ([]Baseline, error) {
-	if m.gitStore == nil {
+	if m.store == nil {
 		return nil, fmt.Errorf("hub not configured")
 	}
-	data, err := m.gitStore.ReadFile("baselines.json")
+	data, err := m.store.ReadFile(m.baseCtx, "baselines.json")
 	if err != nil {
 		return nil, err
 	}
@@ -447,11 +441,11 @@ func (m *RegistryManager) GetDefaultBaselines(_ context.Context) ([]Baseline, er
 }
 
 func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, localPath string, meta *Entry, version string) error {
-	if m.gitStore == nil {
+	if m.store == nil {
 		return fmt.Errorf("hub not configured — run '%s setup' first", brand.BinName())
 	}
 
-	if err := m.gitStore.Sync(); err != nil {
+	if err := m.store.SyncRegistry(ctx); err != nil {
 		return err
 	}
 
@@ -462,16 +456,36 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 
 	publishPath := localPath
 
-	if meta.Type == TypeAST {
-		prepared, err := prepareASTPublish(localPath)
+	switch meta.Type {
+	case TypeAST:
+		// The URI the CONSUMER will read from, computed before the export because every table's
+		// `storage` clause is written with it. The publisher is the only party that knows where
+		// the objects are going, which is why this is decided here and never rewritten later.
+		storageURI := m.store.ArtifactURI(TypeAST, entryID, version, meta.ProjectID, ast.IcebugBundleDir)
+		if storageURI == "" {
+			return fmt.Errorf("preparing AST publish: the hub is not configured, so there is no " +
+				"location to point the published graph at")
+		}
+		prepared, err := prepareASTPublish(localPath, storageURI, m.projectConfig, m.Logger)
 		if err != nil {
 			return fmt.Errorf("preparing AST publish: %w", err)
 		}
 		defer func() { _ = os.RemoveAll(prepared) }()
 		publishPath = prepared
+	case TypeKnowledge:
+		if prepared, err := prepareKnowledgePublish(ctx, localPath); err == nil {
+			defer func() { _ = os.RemoveAll(prepared) }()
+			publishPath = prepared
+		} else {
+			// Not fatal: publishing the directory as it stands still carries the pages
+			// and the shards, which is what a consumer knew how to index before tables
+			// travelled at all.
+			slog.Warn("knowledge-publish: table export unavailable, publishing shards",
+				"error", err)
+		}
 	}
 
-	if err := m.gitStore.WriteArtifactBranch(meta.Type, entryID, version, meta.ProjectID, publishPath); err != nil {
+	if err := m.store.PublishArtifact(ctx, meta.Type, entryID, version, meta.ProjectID, publishPath); err != nil {
 		return fmt.Errorf("publishing artifact to branch: %w", err)
 	}
 
@@ -521,10 +535,6 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 		return err
 	}
 
-	if err := m.gitStore.CommitAndPush(fmt.Sprintf("publish %s@%s (%s)", entryID, version, meta.Type)); err != nil {
-		return err
-	}
-
 	if _, err := m.BuildRegistryCache(); err != nil {
 		m.log().Warn("rebuild cache after publish", "error", err)
 	}
@@ -533,11 +543,11 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 }
 
 func (m *RegistryManager) DeleteEntry(ctx context.Context, entryID string, entryType ArtifactType) error {
-	if m.gitStore == nil {
+	if m.store == nil {
 		return fmt.Errorf("hub not configured")
 	}
 
-	if err := m.gitStore.Sync(); err != nil {
+	if err := m.store.SyncRegistry(ctx); err != nil {
 		return err
 	}
 
@@ -552,25 +562,19 @@ func (m *RegistryManager) DeleteEntry(ctx context.Context, entryID string, entry
 	}
 
 	for _, ver := range entry.Versions {
-		if err := m.gitStore.DeleteArtifactBranch(entry.Type, entryID, ver, entry.ProjectID); err != nil {
+		if err := m.store.DeleteArtifact(ctx, entry.Type, entryID, ver, entry.ProjectID); err != nil {
 			m.log().Warn("delete branch", "id", entryID, "version", ver, "error", err)
 		}
 	}
 
-	entryFileName := sanitizeEntryFileName(entry)
-	projDir := m.gitStore.AbsPath(projectDir(projKey))
-	entryFilePath := filepath.Join(projDir, entryFileName)
-	if err := os.Remove(entryFilePath); err != nil && !os.IsNotExist(err) {
-		m.log().Warn("remove entry file", "path", entryFilePath, "error", err)
+	entryRelPath := projectDir(projKey) + "/" + sanitizeEntryFileName(entry)
+	if err := m.store.RemoveFile(ctx, entryRelPath); err != nil {
+		m.log().Warn("remove entry file", "path", entryRelPath, "error", err)
 	}
 
 	delete(m.entries[entry.Type], entryID)
 	if len(m.entries[entry.Type]) == 0 {
 		delete(m.entries, entry.Type)
-	}
-
-	if err := m.gitStore.CommitAndPush(fmt.Sprintf("delete %s (%s)", entryID, entry.Type)); err != nil {
-		return err
 	}
 
 	if _, err := m.BuildRegistryCache(); err != nil {
@@ -602,16 +606,12 @@ func (m *RegistryManager) UpsertProject(ctx context.Context, remoteID, name, des
 	}
 	m.projects[remoteID] = proj
 
-	if m.gitStore == nil {
+	if m.store == nil {
 		return proj, nil
 	}
 
 	if err := m.persistProjectFile(remoteID); err != nil {
 		return nil, err
-	}
-
-	if err := m.gitStore.CommitAndPush(fmt.Sprintf("upsert project %s", name)); err != nil {
-		return nil, fmt.Errorf("persisting project: %w", err)
 	}
 
 	if _, err := m.BuildRegistryCache(); err != nil {
@@ -621,12 +621,12 @@ func (m *RegistryManager) UpsertProject(ctx context.Context, remoteID, name, des
 	return proj, nil
 }
 
-func (m *RegistryManager) EnsureArtifactClone(_ context.Context, artType ArtifactType, entryID, version, projectID string) (string, error) {
-	if m.gitStore == nil {
+func (m *RegistryManager) EnsureArtifactClone(ctx context.Context, artType ArtifactType, entryID, version, projectID string) (string, error) {
+	if m.store == nil {
 		return "", fmt.Errorf("hub not configured")
 	}
 
-	cloneDir, err := m.gitStore.EnsureArtifactClone(artType, entryID, version, projectID)
+	cloneDir, err := m.store.DownloadArtifact(ctx, artType, entryID, version, projectID)
 	if err != nil {
 		return "", fmt.Errorf("ensuring artifact clone %s@%s (%s): %w", entryID, version, artType, err)
 	}
@@ -634,51 +634,80 @@ func (m *RegistryManager) EnsureArtifactClone(_ context.Context, artType Artifac
 	return cloneDir, nil
 }
 
-func prepareASTPublish(srcDir string) (string, error) {
+// prepareASTPublish stages what an AST artifact carries.
+//
+// It publishes the BUILT graph as Parquet, one file per table, rather than the parse
+// shards. Installing used to mean replaying those shards — parsing the JSON, transposing
+// one source file's parse result into rows across every table, then loading — and every
+// consumer paid it separately for a result the version had already frozen. Exporting the
+// tables the publisher already built moves that work to the side that does it once, and
+// Parquet is several times smaller than the shards it replaces.
+//
+// The shards are the fallback and are only staged when the export could not run: an
+// artifact whose store is missing or unreadable still publishes something a consumer can
+// replay, which is also what keeps artifacts published before this change installable.
+func prepareASTPublish(srcDir, storageURI string, projectCfg config.ConfigMap, logger *slog.Logger) (string, error) {
 	tmpDir, err := os.MkdirTemp("", brand.TempDirPrefix("ast-pub"))
 	if err != nil {
 		return "", err
 	}
 
-	manifestSrc := filepath.Join(srcDir, "manifest.json")
-	if data, err := os.ReadFile(manifestSrc); err == nil {
-		if err := os.WriteFile(filepath.Join(tmpDir, "manifest.json"), data, 0o644); err != nil {
-			slog.Warn("ast-publish: write manifest", "error", err)
-		}
+	dbPath := filepath.Join(srcDir, "ladybugdb")
+	if _, statErr := os.Stat(dbPath); statErr != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("preparing AST publish: no graph at %s", dbPath)
 	}
 
-	shardsDir := filepath.Join(srcDir, "shards")
-	if info, err := os.Stat(shardsDir); err == nil && info.IsDir() {
-		_ = filepath.Walk(shardsDir, func(path string, fi os.FileInfo, walkErr error) error {
-			if walkErr != nil || fi.IsDir() {
-				rel, _ := filepath.Rel(srcDir, path)
-				_ = os.MkdirAll(filepath.Join(tmpDir, rel), 0o755)
-				return nil
-			}
-			if fi.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			rel, _ := filepath.Rel(srcDir, path)
-			data, readErr := os.ReadFile(path)
-			if readErr != nil {
-				return nil
-			}
-			dest := filepath.Join(tmpDir, rel)
-			_ = os.MkdirAll(filepath.Dir(dest), 0o755)
-			_ = os.WriteFile(dest, data, 0o644)
-			return nil
-		})
+	// ICEBUG IS THE ONLY MECHANISM NOW. Both fallbacks are gone, and deliberately:
+	//
+	//   - the Parquet bundle made the consumer LOAD the graph, so the bytes travelled and every
+	//     project pinned to a version kept its own copy of the same immutable data;
+	//   - publishing the parse shards made the consumer REBUILD it, paying per install for a
+	//     result the publisher had already frozen.
+	//
+	// Both also meant an artifact's behaviour depended on which path it happened to take, so a
+	// consumer could not know whether its context was mounted or copied. A failure here is now
+	// fatal rather than a fallback, because an artifact that cannot be mounted is one nobody can
+	// install the intended way, and finding that out at publish time is the cheap end.
+	reverseEdges := config.ResolveHubIcebugReverseEdges(nil, projectCfg)
+	if _, err := ast.ExportGraphToIcebug(dbPath,
+		ast.IcebugBundlePath(tmpDir),
+		filepath.Join(tmpDir, ast.SearchBundleDir),
+		storageURI, reverseEdges, logger); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("preparing AST publish: %w", err)
 	}
-
 	return tmpDir, nil
 }
 
 func (m *RegistryManager) IsReady() bool {
-	return m.gitStore != nil
+	return m.store != nil
 }
 
-func (m *RegistryManager) GitStore() *GitStore {
-	return m.gitStore
+func (m *RegistryManager) Store() *S3Store {
+	return m.store
+}
+
+// MountsKnowledge reports whether a knowledge artifact can be read where it lives instead of
+// downloaded.
+//
+// It is a capability question, not a preference: it needs a configured bucket AND a binary with
+// the search engine linked in. Without the engine there is nothing that can open an `s3://` index,
+// so a build without the `lancedb` tag must still download — and answering yes there would leave a
+// context installed with no bytes and no way to read them.
+func (m *RegistryManager) MountsKnowledge() bool { return m.MountsArtifact(TypeKnowledge) }
+
+// MountsArtifact reports whether an artifact of this type can be read where it lives.
+//
+// Both mountable families need the same two things — a configured bucket AND a binary with the
+// search engine linked in — because both carry a search index, and without the engine there is
+// nothing that can open an `s3://` one. Answering yes without it would install a context with no
+// bytes and no way to read them.
+func (m *RegistryManager) MountsArtifact(artType ArtifactType) bool {
+	if !IsMountable(artType) {
+		return false
+	}
+	return m.store != nil && m.store.Configured() && lancestore.Available()
 }
 
 func projectDir(remoteID string) string {
@@ -718,7 +747,7 @@ func sanitizeEntryFileName(entry *Entry) string {
 }
 
 func (m *RegistryManager) persistEntryFile(entry *Entry) error {
-	if m.gitStore == nil {
+	if m.store == nil {
 		return fmt.Errorf("hub not configured")
 	}
 
@@ -738,7 +767,7 @@ func (m *RegistryManager) persistEntryFile(entry *Entry) error {
 	}
 
 	relPath := projectDir(projKey) + "/" + sanitizeEntryFileName(entry)
-	if err := m.gitStore.WriteFile(relPath, data); err != nil {
+	if err := m.store.WriteFile(m.baseCtx, relPath, data); err != nil {
 		return fmt.Errorf("writing entry file %s: %w", relPath, err)
 	}
 
@@ -746,7 +775,7 @@ func (m *RegistryManager) persistEntryFile(entry *Entry) error {
 }
 
 func (m *RegistryManager) persistProjectFile(remoteID string) error {
-	if m.gitStore == nil {
+	if m.store == nil {
 		return fmt.Errorf("hub not configured")
 	}
 
@@ -757,7 +786,7 @@ func (m *RegistryManager) persistProjectFile(remoteID string) error {
 	relPath := projectDir(remoteID) + "/project.json"
 
 	pf := projectFile{Version: hubManifestVersion}
-	if existing, err := m.gitStore.ReadFile(relPath); err == nil {
+	if existing, err := m.store.ReadFile(m.baseCtx, relPath); err == nil {
 		var existingPF projectFile
 		if json.Unmarshal(existing, &existingPF) == nil {
 			pf = existingPF
@@ -774,7 +803,7 @@ func (m *RegistryManager) persistProjectFile(remoteID string) error {
 		return fmt.Errorf("serializing project file: %w", err)
 	}
 
-	if err := m.gitStore.WriteFile(relPath, data); err != nil {
+	if err := m.store.WriteFile(m.baseCtx, relPath, data); err != nil {
 		return fmt.Errorf("writing project file %s: %w", relPath, err)
 	}
 
@@ -842,4 +871,50 @@ func copyFileWithBrand(src, dst string) error {
 	}
 
 	return os.WriteFile(dst, data, 0o644)
+}
+
+// prepareKnowledgePublish stages what a knowledge artifact carries.
+//
+// It publishes the wiki's own TABLES as Parquet instead of the shards, for the same reason
+// an AST artifact does: the artifact is written by one project, pinned by its version and
+// never compiled by a consumer, so having every consumer re-derive the same frozen index
+// repeats work for a value already computed.
+//
+// The PAGES still travel. They are not derived in any sense that matters — they are what a
+// reader opens, and nothing reconstructs them without the sources, which stay in the
+// publishing project's own repository.
+//
+// A memory wiki never reaches here, and must not: it is read-and-write and multi-writer, so
+// it carries its source and a consumer extends it.
+func prepareKnowledgePublish(ctx context.Context, srcDir string) (string, error) {
+	tmpDir, err := os.MkdirTemp("", brand.TempDirPrefix("kn-pub"))
+	if err != nil {
+		return "", err
+	}
+	if _, err := wiki.ExportToParquet(ctx, srcDir, wiki.BundlePath(tmpDir)); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", err
+	}
+
+	// The pages, and nothing else: the shards are what the tables replace, and the
+	// database is derived.
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return "", err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+			continue
+		}
+		data, readErr := os.ReadFile(filepath.Join(srcDir, e.Name()))
+		if readErr != nil {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, e.Name()), data, 0o644); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return "", err
+		}
+	}
+	return tmpDir, nil
 }

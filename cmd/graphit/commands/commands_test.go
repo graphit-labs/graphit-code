@@ -93,6 +93,33 @@ func TestCLIHelpAndRoot(t *testing.T) {
 	}
 }
 
+func TestASTExportDefaultOutputUsesProjectRuntime(t *testing.T) {
+	cmd := newASTExportCmd()
+	flag := cmd.Flags().Lookup("output")
+	if flag == nil {
+		t.Fatal("output flag is missing")
+	}
+	want := brand.ProjectRuntimePath(".", "ast", "export")
+	if flag.DefValue != want {
+		t.Fatalf("output default = %q, want %q", flag.DefValue, want)
+	}
+}
+
+func TestDreamHelpUsesRuntimeReportsDir(t *testing.T) {
+	wantDir := brand.ProjectRuntimePath(".", "dream")
+
+	dreamCmd := newDreamCmd()
+	if !strings.Contains(dreamCmd.Long, wantDir) {
+		t.Fatalf("dream help does not mention default runtime reports directory %q", wantDir)
+	}
+
+	reportsCmd := newDreamReportsCmd()
+	wantReport := filepath.Join(wantDir, "<id>.md")
+	if !strings.Contains(reportsCmd.Long, wantReport) {
+		t.Fatalf("dream reports help does not mention default runtime report path %q", wantReport)
+	}
+}
+
 func TestCLIConfigGlobal(t *testing.T) {
 	_, cleanup := setupTestHome(t)
 	defer cleanup()
@@ -121,7 +148,6 @@ func TestCLIConfigGlobal(t *testing.T) {
 		t.Errorf("expected cursor in get output, got: %s", out)
 	}
 
-	// 4. List config
 	out, err = executeCommand("config", "--global", "--list")
 	if err != nil {
 		t.Errorf("failed to list config: %v", err)
@@ -179,7 +205,6 @@ func TestCLIConfigProjectWithInit(t *testing.T) {
 	tempHome, cleanup := setupTestHome(t)
 	defer cleanup()
 
-	// Create a temp project directory
 	tempProj, err := os.MkdirTemp("", "graphit-test-proj-*")
 	if err != nil {
 		t.Fatalf("failed to create temp project: %v", err)
@@ -191,7 +216,6 @@ func TestCLIConfigProjectWithInit(t *testing.T) {
 	_ = os.Chdir(tempProj)
 	defer func() { _ = os.Chdir(oldWd) }()
 
-	// Create the global config directory first
 	err = os.MkdirAll(filepath.Join(tempHome, "."+brand.Brand), 0755)
 	if err != nil {
 		t.Fatalf("failed to create global config dir: %v", err)
@@ -203,7 +227,6 @@ func TestCLIConfigProjectWithInit(t *testing.T) {
 		t.Fatalf("failed to write global mock config: %v", err)
 	}
 
-	// Initialize the project
 	out, err := executeCommand("init", "--id", "01H2PJX...", "--name", "test-project", "--description", "test project description", "--ide", "cursor")
 	if err != nil {
 		t.Errorf("failed to initialize project: %v, output: %s", err, out)
@@ -218,7 +241,6 @@ func TestCLIConfigProjectWithInit(t *testing.T) {
 		t.Errorf("unexpected output when setting project config: %s", out)
 	}
 
-	// Test config get
 	out, err = executeCommand("config", "--get", "ide")
 	if err != nil {
 		t.Errorf("failed to get project config: %v", err)
@@ -227,7 +249,6 @@ func TestCLIConfigProjectWithInit(t *testing.T) {
 		t.Errorf("expected cursor in get output, got: %s", out)
 	}
 
-	// Test config list
 	out, err = executeCommand("config", "--list")
 	if err != nil {
 		t.Errorf("failed to list project config: %v", err)
@@ -236,7 +257,6 @@ func TestCLIConfigProjectWithInit(t *testing.T) {
 		t.Errorf("expected ide: cursor in list output, got: %s", out)
 	}
 
-	// Test config unset
 	out, err = executeCommand("config", "--unset", "ide")
 	if err != nil {
 		t.Errorf("failed to unset project config: %v", err)

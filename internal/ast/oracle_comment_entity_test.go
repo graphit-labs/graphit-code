@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -92,7 +93,7 @@ func TestOracleCommentsAreEntitiesAndSearchable(t *testing.T) {
 
 	// A word from inside the comment, not from any identifier in the file.
 	for _, query := range []string{"almoxarifado", "indicador"} {
-		res, err := si.Search(query, 10)
+		res, err := si.Search(context.Background(), query, 10)
 		if err != nil {
 			t.Fatalf("search %q: %v", query, err)
 		}

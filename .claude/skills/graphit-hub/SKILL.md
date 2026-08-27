@@ -1,6 +1,6 @@
 ---
 name: graphit-hub
-description: Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, powers, and languages. Use when: working with external libraries, APIs, or frameworks; needing documentation or code examples for a dependency; looking for reusable rules, skills, commands, or MCP servers; setting up a new project or adding dependencies; AST query returns no results for an external library. Check the hub BEFORE implementing integrations with unfamiliar systems. Also use to install/update artifacts, discover reusable components, and find sibling projects in the ecosystem.
+description: 'Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, powers, and languages. Use when: working with external libraries, APIs, or frameworks; needing documentation or code examples for a dependency; looking for reusable rules, skills, commands, or MCP servers; setting up a new project or adding dependencies; AST query returns no results for an external library. Check the hub BEFORE implementing integrations with unfamiliar systems. Also use to install/update artifacts, discover reusable components, and find sibling projects in the ecosystem.'
 ---
 
 # Hub Discovery Rule
@@ -160,6 +160,10 @@ graphit_hub_unlink(project_dir: "/path/to/project", name: "<name>", type: "<type
 Link points at a directory on this machine via symlink, so edits at the source are live.
 Use it while authoring an artifact; publish it with `graphit_hub_submit` once it is worth sharing.
 
+**This is not how you reach another project.** Link brings one artifact into *this* project,
+for authoring it. It grants no access you do not already have: to read or query a sibling
+project you pass its `dir` as `project_dir` — see the ecosystem protocol below.
+
 ### 8. Where a new artifact goes — ask, do not guess
 
 Before creating a skill, rule, command, or agent, call `graphit_hub_type-path` to get the
@@ -305,6 +309,71 @@ A sibling is not a black box — it is a project you can interrogate exactly lik
 - **Read its memories** — `graphit_memory_search` with the sibling's `project_dir`: decisions and corrections recorded over there, which is often exactly why it behaves the way it does
 - **Change it** — if the user asks for a cross-project edit, the path is where you edit
 
+### 🔒 MANDATORY: the ecosystem comes first, and a sibling is explored with MCP
+
+**Whenever a question is about code, documentation, or behaviour that is not in this
+repository, this order is obligatory:**
+
+1. **Resolve it in the ecosystem — `graphit_cluster_projects` — before anything else.** Before
+   asking the user where the project is, before guessing a path, before `ls` on a parent
+   directory, and before answering from what such a service usually does.
+2. **If it is in the ecosystem, explore it exactly as you explore this project.** Nothing to
+   install, nothing to link, nothing to import: **`project_dir` is a parameter, so pointing a
+   tool at another project is just passing a different value.** Its `dir` from step 1:
+   ```
+   # what the code does
+   graphit_ast_search(project_dir: "<sibling dir>", query: "token validation")
+   graphit_ast_query(project_dir: "<sibling dir>", query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'validate' RETURN f.name, f.path, f.line_number, label(f) AS type")
+
+   # then read it — by entity or line range, never the whole file
+   graphit_ast_source(project_dir: "<sibling dir>", path: "<path from the query>", entity: "<name from the query>")
+
+   # what it is for, and what changed there lately
+   graphit_knowledge_search(project_dir: "<sibling dir>", query: "authentication")
+   graphit_wiki_search(project_dir: "<sibling dir>", query: "how tokens are issued", wikis: ["project", "memory"])
+   graphit_wiki_browse(project_dir: "<sibling dir>")
+   graphit_wiki_log(project_dir: "<sibling dir>")
+
+   # why it is the way it is
+   graphit_memory_search(project_dir: "<sibling dir>", query: "token")
+   ```
+
+   `graphit_wiki_log` earns its call when the sibling's behaviour surprises
+   you: it lists what its wiki added, updated and deleted per sync, which is the cheapest way
+   to see what moved over there recently.
+3. **Only if it is not in the ecosystem** does the question change shape: a checkout the user
+   points you at becomes an imported context (`graphit_ast_install`), and a
+   dependency you do not have becomes a Hub lookup (`graphit_hub_search` with `type: "ast"`
+   or `"knowledge"`).
+4. **Native tools on a sibling's tree are last** — after the graph and the wiki, not instead
+   of them, and only for what they structurally cannot hold.
+
+#### Why this order and not the obvious one
+
+- **A registered sibling already has its own graph and its own compiled wiki.** Nothing to
+  import, nothing to index, no artifact to install — you have the same tools over there that
+  you have here, the moment you know the path. Skipping step 1 is how that gets missed.
+- **The sibling's memories say why it is the way it is.** Decisions, corrections and
+  trade-offs recorded by whoever worked there. No amount of reading its source recovers them.
+- **Grepping another project's tree is the worst option available.** Unfamiliar layout, no
+  ranking, every match paid for in tokens, and no access to the relationships — callers,
+  imports, implementors — that are the reason you were looking in the first place.
+- **Guessing the path fails silently.** A wrong `project_dir` does not error; it answers
+  confidently about a different codebase, or returns nothing and reads as "the code is not
+  there".
+
+#### ❌ Anti-patterns
+
+| Anti-pattern | Why it is a violation |
+|---|---|
+| Answering about a sibling service from model knowledge of how such services work | It is on this machine, indexed, and queryable |
+| Asking the user for the path before calling `graphit_cluster_projects` | The tool exists so the question is unnecessary |
+| `ls`, `find`, or grep on a sibling's directory to orient yourself | `graphit_ast_search` and `graphit_wiki_browse` with its `project_dir` orient you better and cheaper |
+| Reading a sibling's files one by one | `graphit_ast_source` slices by entity or line range; the graph tells you which file first |
+| Importing a registered sibling as an AST context | Redundant — it has its own graph; pass its `project_dir` |
+| Reaching for `graphit_hub_link` to "get access to" a sibling | Wrong tool. Link exists to develop an artifact locally, and it symlinks one artifact into **this** project. It grants no access you did not already have: `project_dir` is a parameter |
+| Concluding "not in the ecosystem" without looking at `name` and `description` in the output | The user's word for a project rarely matches its directory name |
+
 ### Two worked examples
 
 **The user names a project you have never seen.** "Why does the auth service reject our
@@ -336,12 +405,16 @@ graphit_config_unset(project_dir: "/path/to/project", key: "modules.dream")
 
 | What you observe | The key that explains it |
 |---|---|
-| The docs tree is not `docs/`, or the wiki indexes files you did not expect | `knowledge.docs_dir` — **defaults to `.`, the whole project**, not `docs/` |
+| The wiki is empty, or it is missing documentation you know exists | `knowledge.docs_dir` — **defaults to `docs`**, so documentation kept anywhere else is not indexed until this says where |
+| A page came from the root `README.md` even though it is outside the docs tree | `knowledge.include_readme` — on by default; `false` indexes the docs tree alone |
+| The code graph has no `File` node for a document under the docs tree | `ast.index_docs` — off by default, because the docs tree belongs to the wiki; `true` puts it in both |
 | A module's tools return nothing and nothing looks broken | `modules.<name>` — the module may be switched off |
 | `graphit_ast_source` has no source for an indexed file | `ast.index_source` — with `false`, the graph stores structure but not text |
 | A file is parsed by the wrong grammar | `ast.grammar` overrides, per extension |
+| A grammar YAML the project committed has no effect | `ast.queries_dir` — the project's grammar directory, **`.graphit/ast/queries` by default**, which IS tracked by git; check the key has not been pointed elsewhere, since a configured directory replaces the default rather than adding to it |
 | Nothing ever happens overnight | `modules.dream` — dream is **opt-in**, off unless explicitly `true` |
-| Hub operations fail before reaching the network | `hub.repo` |
+| The improvement backlog is not where you expected it | `improvements.backlog_dir` — **defaults to `docs/tasks/backlog`**, inside the docs tree so items are versioned; it follows `knowledge.docs_dir` |
+| Hub operations fail before reaching the network | `hub.bucket` |
 | An artifact installed into the wrong IDE's directory | `ide` |
 
 ### The precedence, because it is where the confusion actually is

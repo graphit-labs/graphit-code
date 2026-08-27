@@ -189,5 +189,3 @@ func TestTreeNodeFirstTerminalText(t *testing.T) {
 		t.Fatalf("got %q, want empty", got)
 	}
 }
-
-

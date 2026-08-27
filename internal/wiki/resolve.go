@@ -9,16 +9,8 @@ import (
 // reWikiLinkResolvable matches [[target]] and [[target|label]] wikilinks.
 var reWikiLinkResolvable = regexp.MustCompile(`\[\[([^\]|]+)(?:\|([^\]]+))?\]\]`)
 
-// ResolveWikiLinksInBody rewrites every [[wikilink]] in body using titlesMap,
-// attempting resolution in order:
-//  1. Exact title match
-//  2. Slugified match (SafeSlug)
-//  3. Case-insensitive title or slug match
-//  4. Case-insensitive slugified match
-//  5. Trigram fuzzy match (threshold 0.55)
-//
-// Unresolvable links are left unchanged.
-// titlesMap maps title OR slug → canonical slug.
+// ResolveWikiLinksInBody rewrites every [[wikilink]] in body using titlesMap into
+// OKF compliant standard Markdown links [label](resolvedSlug.md).
 func ResolveWikiLinksInBody(body string, titlesMap map[string]string) string {
 	return reWikiLinkResolvable.ReplaceAllStringFunc(body, func(match string) string {
 		submatches := reWikiLinkResolvable.FindStringSubmatch(match)
@@ -26,7 +18,7 @@ func ResolveWikiLinksInBody(body string, titlesMap map[string]string) string {
 			return match
 		}
 		target := strings.TrimSpace(submatches[1])
-		label := ""
+		label := target
 		if len(submatches) > 2 && submatches[2] != "" {
 			label = strings.TrimSpace(submatches[2])
 		}
@@ -60,10 +52,7 @@ func ResolveWikiLinksInBody(body string, titlesMap map[string]string) string {
 		}
 
 		if ok {
-			if label != "" {
-				return fmt.Sprintf("[[%s|%s]]", resolvedSlug, label)
-			}
-			return fmt.Sprintf("[[%s]]", resolvedSlug)
+			return fmt.Sprintf("[%s](%s.md)", label, resolvedSlug)
 		}
 		return match
 	})

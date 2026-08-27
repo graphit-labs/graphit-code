@@ -4,30 +4,88 @@ extensions: [".tf", ".hcl", ".tfvars"]
 queries:
   # === Entity queries ===
   # HCL uses blocks with type labels: resource "type" "name" { ... }
+  #
+  # The block-type identifier and the type label are matched only so a predicate
+  # can test them, hence the `@_` prefix — name_capture decides which capture is
+  # the entity. template_literal, not string_lit, carries the label text:
+  # string_lit spans its own quotes.
   - data_key: resources
     graph_label: Resource
-    pattern: '(block (identifier) @_type (string_lit) @_rtype (string_lit) @name)'
-  - data_key: variables
-    graph_label: Variable
-    pattern: '(block (identifier) @_type (string_lit) @name)'
-  - data_key: outputs
-    graph_label: Output
-    pattern: '(block (identifier) @_type (string_lit) @name)'
-  - data_key: modules
-    graph_label: Module
-    pattern: '(block (identifier) @_type (string_lit) @name)'
+    pattern: '(block (identifier) @_type (string_lit (template_literal) @_rtype) (string_lit (template_literal) @name) (#eq? @_type "resource"))'
   - data_key: data_sources
     graph_label: Data
-    pattern: '(block (identifier) @_type (string_lit) @_dtype (string_lit) @name)'
-  - data_key: locals
-    graph_label: Local
-    pattern: '(block (identifier) @name)'
+    pattern: '(block (identifier) @_type (string_lit (template_literal) @_dtype) (string_lit (template_literal) @name) (#eq? @_type "data"))'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(block (identifier) @_type (string_lit (template_literal) @name) (#eq? @_type "variable"))'
+  - data_key: outputs
+    graph_label: Output
+    pattern: '(block (identifier) @_type (string_lit (template_literal) @name) (#eq? @_type "output"))'
+  - data_key: modules
+    graph_label: Module
+    pattern: '(block (identifier) @_type (string_lit (template_literal) @name) (#eq? @_type "module"))'
   - data_key: providers
     graph_label: Provider
-    pattern: '(block (identifier) @_type (string_lit) @name)'
+    pattern: '(block (identifier) @_type (string_lit (template_literal) @name) (#eq? @_type "provider"))'
+  - data_key: locals
+    graph_label: Local
+    pattern: '(block (identifier) @name (#eq? @name "locals"))'
+
+  # Attributes are key/value: both halves are nodes, so both are reachable by
+  # full-text search and the pairing survives as a CONTAINS edge:
+  #   Attribute "ami" → Value "ami-123"
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(attribute (identifier) @name (expression (literal_value (string_lit (template_literal) @value))))'
+    value_capture: value
+    value_label: Value
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(attribute (identifier) @name (expression (literal_value [(numeric_lit) (bool_lit)] @value)))'
+    value_capture: value
+    value_label: Value
+
+  # Heredocs — `script = <<EOT ... EOT` — carry the content most worth finding by
+  # search. A multi-line heredoc is dropped by the engine's size limit; a one-line
+  # one becomes a node.
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(attribute (identifier) @name (expression (template_expr (heredoc_template (template_literal) @value))))'
+    value_capture: value
+    value_label: Value
+
+  # Attributes whose value is an expression, a list or an object still need a
+  # node of their own.
   - data_key: attributes
     graph_label: Attribute
     pattern: '(attribute (identifier) @name)'
+
+  # List and object elements hang off the attribute that names them:
+  #   Attribute "ports" → Value "443",  Attribute "tags" → Attribute "Name" → Value "prod"
+  - data_key: tuple_items
+    graph_label: Value
+    pattern: '(attribute (identifier) @parent (expression (collection_value (tuple (expression (literal_value [(numeric_lit) (bool_lit)] @name))))))'
+    parent_capture: parent
+    parent_label: Attribute
+  - data_key: tuple_items
+    graph_label: Value
+    pattern: '(attribute (identifier) @parent (expression (collection_value (tuple (expression (literal_value (string_lit (template_literal) @name)))))))'
+    parent_capture: parent
+    parent_label: Attribute
+  - data_key: object_elems
+    graph_label: Attribute
+    pattern: '(attribute (identifier) @parent (expression (collection_value (object (object_elem key: (expression (variable_expr (identifier) @name)) val: (expression (literal_value [(numeric_lit) (bool_lit)] @value)))))))'
+    parent_capture: parent
+    parent_label: Attribute
+    value_capture: value
+    value_label: Value
+  - data_key: object_elems
+    graph_label: Attribute
+    pattern: '(attribute (identifier) @parent (expression (collection_value (object (object_elem key: (expression (variable_expr (identifier) @name)) val: (expression (literal_value (string_lit (template_literal) @value))))))))'
+    parent_capture: parent
+    parent_label: Attribute
+    value_capture: value
+    value_label: Value
 
 # HCL/Terraform has no export system
 exports:
@@ -40,6 +98,20 @@ self_keywords: []
 context_types:
   block: Resource
 
+# tree-sitter-hcl defines no "name" field, so without a path this context is inert and
+# every attribute falls back to the File.
+#
+# The index is what makes it correct: `resource "aws_s3_bucket" "logs"` is a block with TWO
+# string_lit labels, and the entity is the SECOND — the first is the type, which is
+# deliberately not an entity (TestHCLBlockLabelsAreNotAllEntities). Naming the context after
+# the first made ConvertToCache synthesize a parent UID for a node that never gets created.
+#
+# The second alternative covers the one-label blocks — variable, output, module, provider —
+# whose only label IS the name. Alternatives are tried in order, so a two-label block never
+# reaches it.
+context_name_paths:
+  block: string_lit[1]/template_literal|string_lit[0]/template_literal
+
 # HCL has no anonymous function types
 anon_func_types: []
 
@@ -51,9 +123,25 @@ declaration_types:
 comment_types:
   - comment
 
-# Entry point scoring — not applicable for Terraform/HCL config files
-entry_points:
-  names: []
-  exported_bonus: 0
-  max_score: 0
-  decorators: []
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. for_expr/conditional are Terraform's own
+# branch-shaped constructs — a filtered for-expression and a ternary — both
+# genuinely change which values a block ends up with.
+complexity:
+  node_types:
+    - for_expr
+    - conditional
+
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Resource
+  - Data
+  - Module
+  - Provider
+  - Variable
+  - Output
+  - Local
+  - Comment

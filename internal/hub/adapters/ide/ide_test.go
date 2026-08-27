@@ -11,10 +11,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/paths"
 )
 
-// ---------------------------------------------------------------------------
-// GetAdapter
-// ---------------------------------------------------------------------------
-
 func TestGetAdapter(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -46,10 +42,6 @@ func TestGetAdapter(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// SupportedIDEs
-// ---------------------------------------------------------------------------
-
 func TestSupportedIDEs(t *testing.T) {
 	t.Parallel()
 	ides := SupportedIDEs()
@@ -76,10 +68,6 @@ func TestSupportedIDEs(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GlobalRulesFile
-// ---------------------------------------------------------------------------
-
 func TestGlobalRulesFile(t *testing.T) {
 	t.Parallel()
 	for _, ide := range append(SupportedIDEs(), "unknown") {
@@ -92,10 +80,6 @@ func TestGlobalRulesFile(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// GetFileMode
-// ---------------------------------------------------------------------------
 
 func TestGetFileMode(t *testing.T) {
 	t.Parallel()
@@ -124,10 +108,6 @@ func TestGetFileMode(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ArtifactTypePath
-// ---------------------------------------------------------------------------
 
 func TestArtifactTypePath(t *testing.T) {
 	t.Parallel()
@@ -170,10 +150,6 @@ func TestArtifactTypePath(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// expandHome
-// ---------------------------------------------------------------------------
-
 func TestExpandHome(t *testing.T) {
 	t.Parallel()
 
@@ -213,10 +189,6 @@ func TestExpandHome(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// projectIDFrom
-// ---------------------------------------------------------------------------
-
 func TestProjectIDFrom(t *testing.T) {
 	t.Parallel()
 
@@ -255,10 +227,6 @@ func TestProjectIDFrom(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// findMCPJSON
-// ---------------------------------------------------------------------------
-
 func TestFindMCPJSON(t *testing.T) {
 	t.Parallel()
 
@@ -295,9 +263,7 @@ func TestFindMCPJSON(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // Constructor tests
-// ---------------------------------------------------------------------------
 
 func TestNewAntigravityAdapter(t *testing.T) {
 	t.Parallel()
@@ -388,10 +354,6 @@ func TestNewGeminiAdapter(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// NewFolderBasedAdapter defaults
-// ---------------------------------------------------------------------------
-
 func TestNewFolderBasedAdapter_Defaults(t *testing.T) {
 	t.Parallel()
 
@@ -430,10 +392,6 @@ func TestNewFolderBasedAdapter_Defaults(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// FolderBasedAdapter.MCPConfig
-// ---------------------------------------------------------------------------
-
 func TestFolderBasedAdapter_MCPConfig(t *testing.T) {
 	t.Parallel()
 
@@ -457,10 +415,6 @@ func TestFolderBasedAdapter_MCPConfig(t *testing.T) {
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// copyFile
-// ---------------------------------------------------------------------------
 
 func TestCopyFile(t *testing.T) {
 	t.Parallel()
@@ -507,10 +461,6 @@ func TestCopyFile(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// copyDirAll
-// ---------------------------------------------------------------------------
-
 func TestCopyDirAll(t *testing.T) {
 	t.Parallel()
 
@@ -552,10 +502,6 @@ func TestCopyDirAll(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// FolderBasedAdapter.ScanLocal
-// ---------------------------------------------------------------------------
-
 func TestFolderBasedAdapter_ScanLocal(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -573,11 +519,9 @@ func TestFolderBasedAdapter_ScanLocal(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(baseDir, "skills"), 0o755)
 	_ = os.MkdirAll(filepath.Join(baseDir, "agents"), 0o755)
 
-	// Rules are files
 	_ = os.WriteFile(filepath.Join(baseDir, "rules", "r1.md"), []byte("rule"), 0o644)
 	_ = os.WriteFile(filepath.Join(baseDir, "rules", "r2.md"), []byte("rule"), 0o644)
 
-	// Commands are files
 	_ = os.WriteFile(filepath.Join(baseDir, "commands", "c1.md"), []byte("cmd"), 0o644)
 
 	// Skills are folders
@@ -589,7 +533,6 @@ func TestFolderBasedAdapter_ScanLocal(t *testing.T) {
 		_ = os.MkdirAll(filepath.Join(baseDir, "skills", coreID), 0o755)
 	}
 
-	// Agents are files
 	_ = os.WriteFile(filepath.Join(baseDir, "agents", "a1.md"), []byte("agent"), 0o644)
 
 	results := a.ScanLocal(dir)
@@ -623,10 +566,6 @@ func TestFolderBasedAdapter_ScanLocal_EmptyDir(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// FolderBasedAdapter.Sync
-// ---------------------------------------------------------------------------
-
 func TestFolderBasedAdapter_Sync(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -638,7 +577,6 @@ func TestFolderBasedAdapter_Sync(t *testing.T) {
 		AgentsDir:   "agents",
 	})
 
-	// Prepare source artifacts
 	srcRule := filepath.Join(dir, "src-artifacts", "rule1")
 	_ = os.MkdirAll(srcRule, 0o755)
 	_ = os.WriteFile(filepath.Join(srcRule, "RULE.md"), []byte("# rule content"), 0o644)
@@ -740,10 +678,6 @@ func TestFolderBasedAdapter_Sync_Workflow(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// FolderBasedAdapter.Remove
-// ---------------------------------------------------------------------------
-
 func TestFolderBasedAdapter_Remove(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -814,10 +748,6 @@ func TestFolderBasedAdapter_Remove_AgentsFile(t *testing.T) {
 		t.Error("expected agents file to be removed")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// reconcileMCPFile
-// ---------------------------------------------------------------------------
 
 func TestReconcileMCPFile(t *testing.T) {
 	t.Parallel()
@@ -895,7 +825,6 @@ func TestReconcileMCPFile(t *testing.T) {
 		dir := t.TempDir()
 		target := filepath.Join(dir, "mcp.json")
 
-		// First, add a server
 		servers := map[string]any{
 			"my-server": map[string]any{"command": "cmd"},
 		}
@@ -939,13 +868,7 @@ func TestReconcileMCPFile(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // InjectManagedBlock / RemoveManagedBlock
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// InstallManagedSkill / RemoveManagedSkill
-// ---------------------------------------------------------------------------
 
 func TestInstallManagedSkill(t *testing.T) {
 	t.Parallel()
@@ -1045,10 +968,6 @@ func TestRemoveManagedSkill(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// blockMarkerForName
-// ---------------------------------------------------------------------------
-
 func TestBlockMarkerForName(t *testing.T) {
 	t.Parallel()
 	got := blockMarkerForName("memory")
@@ -1057,10 +976,6 @@ func TestBlockMarkerForName(t *testing.T) {
 		t.Errorf("got %q, want %q", got, expected)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// FolderConfig.allMCPPaths
-// ---------------------------------------------------------------------------
 
 func TestFolderConfig_AllMCPPaths(t *testing.T) {
 	t.Parallel()
@@ -1095,10 +1010,6 @@ func TestFolderConfig_AllMCPPaths(t *testing.T) {
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// FolderBasedAdapter internal methods
-// ---------------------------------------------------------------------------
 
 func TestFolderBasedAdapter_GetTypeDir(t *testing.T) {
 	t.Parallel()
@@ -1184,10 +1095,6 @@ func TestFolderBasedAdapter_BaseDir(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// ClaudeAdapter Sync/Remove
-// ---------------------------------------------------------------------------
-
 func TestClaudeAdapter_Sync(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -1222,11 +1129,9 @@ func TestClaudeAdapter_Remove(t *testing.T) {
 	dir := t.TempDir()
 	a := NewClaudeAdapter()
 
-	// Set up CLAUDE.md with managed block
 	pp := &paths.ProjectPaths{ActiveProjectDir: dir}
 	_ = a.Sync(map[string]map[string]string{}, pp, "proj-1")
 
-	// Now remove
 	if err := a.Remove(pp, map[string]map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
@@ -1240,10 +1145,6 @@ func TestClaudeAdapter_Remove(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// CodexAdapter Sync/Remove
-// ---------------------------------------------------------------------------
 
 func TestCodexAdapter_Sync(t *testing.T) {
 	t.Parallel()
@@ -1303,10 +1204,6 @@ func TestCodexAdapter_Remove(t *testing.T) {
 		t.Error("expected core server to be removed from TOML")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// OpenCodeAdapter Sync/Remove
-// ---------------------------------------------------------------------------
 
 func TestOpenCodeAdapter_Sync(t *testing.T) {
 	t.Parallel()
@@ -1421,16 +1318,11 @@ func TestOpenCodeAdapter_Remove_PreservesOtherKeys(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GeminiAdapter Sync/Remove
-// ---------------------------------------------------------------------------
-
 func TestGeminiAdapter_Sync(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	a := NewGeminiAdapter()
 
-	// Create rules that syncGeminiMD will discover
 	rulesDir := filepath.Join(dir, ".gemini", "rules")
 	_ = os.MkdirAll(rulesDir, 0o755)
 	_ = os.WriteFile(filepath.Join(rulesDir, "test-rule.md"), []byte("rule"), 0o644)
@@ -1483,7 +1375,6 @@ func TestGeminiAdapter_Remove(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(rulesDir, "r1.md"), []byte("rule"), 0o644)
 	_ = a.Sync(map[string]map[string]string{}, pp, "proj-1")
 
-	// Now remove
 	if err := a.Remove(pp, map[string]map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
@@ -1497,9 +1388,7 @@ func TestGeminiAdapter_Remove(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // FolderBasedAdapter.Sync with agent into rules dir (no AgentsDir, no AgentsFile)
-// ---------------------------------------------------------------------------
 
 func TestFolderBasedAdapter_Sync_AgentToRulesDir(t *testing.T) {
 	t.Parallel()
@@ -1529,10 +1418,6 @@ func TestFolderBasedAdapter_Sync_AgentToRulesDir(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// FolderBasedAdapter.Sync with MCP artifact
-// ---------------------------------------------------------------------------
-
 func TestFolderBasedAdapter_Sync_MCPArtifact(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -1543,7 +1428,6 @@ func TestFolderBasedAdapter_Sync_MCPArtifact(t *testing.T) {
 		MCPFilePath: mcpTarget,
 	})
 
-	// Create an MCP artifact with a mcp.json
 	srcMCP := filepath.Join(dir, "src-mcp", "mcp1")
 	_ = os.MkdirAll(srcMCP, 0o755)
 	mcpConf := map[string]any{
@@ -1576,10 +1460,6 @@ func TestFolderBasedAdapter_Sync_MCPArtifact(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// getGraphitExecutable
-// ---------------------------------------------------------------------------
-
 func TestGetGraphitExecutable(t *testing.T) {
 	t.Parallel()
 	// Just verify it returns a non-empty string
@@ -1588,10 +1468,6 @@ func TestGetGraphitExecutable(t *testing.T) {
 		t.Error("expected non-empty executable path")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// FolderBasedAdapter.findCanonicalSource
-// ---------------------------------------------------------------------------
 
 func TestFolderBasedAdapter_FindCanonicalSource(t *testing.T) {
 	t.Parallel()
@@ -1644,10 +1520,6 @@ func TestFolderBasedAdapter_FindCanonicalSource(t *testing.T) {
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// FolderBasedAdapter.copyArtifact
-// ---------------------------------------------------------------------------
 
 func TestFolderBasedAdapter_CopyArtifact(t *testing.T) {
 	t.Parallel()
@@ -1718,10 +1590,6 @@ func TestFolderBasedAdapter_CopyArtifact(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// CodexAdapter.removeCodexMCP edge cases
-// ---------------------------------------------------------------------------
-
 func TestCodexAdapter_RemoveCodexMCP_FileNotExist(t *testing.T) {
 	t.Parallel()
 	a := NewCodexAdapter()
@@ -1762,10 +1630,6 @@ func TestCodexAdapter_RemoveCodexMCP_EmptyServersDeleted(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// FolderBasedAdapter.Sync skips artifacts with missing type dir
-// ---------------------------------------------------------------------------
-
 func TestFolderBasedAdapter_Sync_SkipsMissingTypeDir(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -1791,10 +1655,6 @@ func TestFolderBasedAdapter_Sync_SkipsMissingTypeDir(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Adapter interface compliance
-// ---------------------------------------------------------------------------
-
 func TestAdapterInterfaceCompliance(t *testing.T) {
 	t.Parallel()
 	var _ Adapter = NewAntigravityAdapter()
@@ -1806,9 +1666,7 @@ func TestAdapterInterfaceCompliance(t *testing.T) {
 	var _ Adapter = NewGeminiAdapter()
 }
 
-// ---------------------------------------------------------------------------
 // parseTriggers / assembleTriggers / canonical ordering
-// ---------------------------------------------------------------------------
 
 func TestParseTriggers(t *testing.T) {
 	t.Parallel()
@@ -1964,25 +1822,48 @@ func TestUpsertMandateTrigger_Idempotent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ModuleMandateTrigger
-// ---------------------------------------------------------------------------
-
 func TestModuleMandateTrigger(t *testing.T) {
 	t.Parallel()
 
-	t.Run("contains priority and no-bypass markers", func(t *testing.T) {
+	// A module block carries what VARIES — its domain and the skill covering it. The
+	// invariant policy (precedence, the CLI ban, the integrity clause) was
+	// hoisted into the preamble and stated ONCE; repeating it per module cost five
+	// copies of the same paragraph at the top of every session.
+	t.Run("carries what varies: the domain and its skill", func(t *testing.T) {
 		t.Parallel()
 		got := ModuleMandateTrigger("Memory Management", "graphit-memory", "memory", "", nil, nil)
 		for _, want := range []string{
-			"MCP-FIRST",
-			"ABSOLUTE PRECEDENCE",
-			"NEVER via the CLI",
+			"MCP-FIRST for memory",
 			"graphit-memory",
-			"framework integrity violation",
 		} {
 			if !strings.Contains(got, want) {
 				t.Errorf("expected trigger to contain %q, got:\n%s", want, got)
+			}
+		}
+		for _, unwanted := range []string{
+			"ABSOLUTE PRECEDENCE",
+			"framework integrity violation",
+		} {
+			if strings.Contains(got, unwanted) {
+				t.Errorf("invariant policy %q is back in the per-module block; it belongs to the preamble, once", unwanted)
+			}
+		}
+	})
+
+	// And the policy must still be STATED — once, in the preamble, which always
+	// precedes the blocks. Without this half the test above would approve deleting it.
+	t.Run("the invariant policy is stated exactly once, in the preamble", func(t *testing.T) {
+		t.Parallel()
+		preamble := mandatePreamble()
+		for _, want := range []string{
+			"ABSOLUTE PRECEDENCE",
+			"NEVER via the CLI",
+			"framework integrity violation",
+			"it applies",
+			"never invent arguments",
+		} {
+			if n := strings.Count(preamble, want); n != 1 {
+				t.Errorf("preamble states %q %d times, want exactly 1", want, n)
 			}
 		}
 	})
@@ -2034,10 +1915,9 @@ func TestModuleMandateTriggerCarriesTriggersAndTools(t *testing.T) {
 	for _, want := range []string{
 		"you are about to run grep in order to locate code",
 		"the request names a symbol",
-		"it applies",
 		"`graphit_ast_search`",
 		"`graphit_ast_query`",
-		"never invent arguments",
+		"The skill says when and how to call each",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected %q in the trigger, got:\n%s", want, got)

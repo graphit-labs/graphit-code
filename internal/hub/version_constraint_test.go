@@ -117,29 +117,22 @@ func TestVersionConstraintMatches(t *testing.T) {
 		version    string
 		want       bool
 	}{
-		// Latest matches anything
 		{name: "latest matches any", constraint: "", version: "1.2.3", want: true},
 		// Major only
 		{name: "major match", constraint: "1", version: "1.2.3", want: true},
 		{name: "major mismatch", constraint: "2", version: "1.2.3", want: false},
-		// Major.Minor
 		{name: "major.minor match", constraint: "1.2", version: "1.2.3", want: true},
 		{name: "major.minor mismatch", constraint: "1.3", version: "1.2.3", want: false},
-		// Exact
 		{name: "exact match", constraint: "1.2.3", version: "1.2.3", want: true},
 		{name: "exact mismatch", constraint: "1.2.4", version: "1.2.3", want: false},
-		// v prefix on version
 		{name: "v prefix version", constraint: "1.2.3", version: "v1.2.3", want: true},
-		// Non-numeric version parts
 		{name: "non-numeric major in version", constraint: "1", version: "abc", want: false},
 		{name: "non-numeric minor in version", constraint: "1.2", version: "1.abc", want: false},
 		{name: "non-numeric patch in version", constraint: "1.2.3", version: "1.2.abc", want: false},
 		// Missing parts in version
 		{name: "version lacks minor", constraint: "1.2", version: "1", want: false},
 		{name: "version lacks patch", constraint: "1.2.3", version: "1.2", want: false},
-		// Empty version
 		{name: "empty version parts", constraint: "1", version: "", want: false},
-		// Pre-release version
 		{name: "pre-release match", constraint: "1.2.3", version: "1.2.3-beta", want: true},
 		{name: "plus build match", constraint: "1.2.3", version: "1.2.3+build", want: true},
 	}

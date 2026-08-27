@@ -28,6 +28,7 @@ type CrossRefResult struct {
 }
 
 var reXRefWikiLink = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
+var reXRefMdLink = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 
 func BuildCrossRefGraph(wikiDir string) (*CrossRefGraph, error) {
 	graph := &CrossRefGraph{
@@ -62,11 +63,26 @@ func BuildCrossRefGraph(wikiDir string) (*CrossRefGraph, error) {
 		}
 
 		contentNoBacklinks := stripBacklinksSection(content)
-		matches := reXRefWikiLink.FindAllStringSubmatch(contentNoBacklinks, -1)
+		matchesWiki := reXRefWikiLink.FindAllStringSubmatch(contentNoBacklinks, -1)
+		matchesMd := reXRefMdLink.FindAllStringSubmatch(contentNoBacklinks, -1)
 		seen := make(map[string]bool)
-		for _, m := range matches {
+
+		for _, m := range matchesWiki {
 			target := m[1]
 			resolvedTarget := ResolveSlug(target)
+			if resolvedTarget == "" || resolvedTarget == slug || seen[resolvedTarget] {
+				continue
+			}
+			seen[resolvedTarget] = true
+			graph.Outbound[slug] = append(graph.Outbound[slug], resolvedTarget)
+		}
+
+		for _, m := range matchesMd {
+			rawTarget := m[2]
+			if strings.HasPrefix(rawTarget, "http://") || strings.HasPrefix(rawTarget, "https://") || strings.HasPrefix(rawTarget, "file://") || strings.HasPrefix(rawTarget, "#") {
+				continue
+			}
+			resolvedTarget := ResolveSlug(rawTarget)
 			if resolvedTarget == "" || resolvedTarget == slug || seen[resolvedTarget] {
 				continue
 			}
@@ -210,11 +226,24 @@ func stripCodeBlocks(content string) string {
 
 func FindWikiLinks(content string) []string {
 	content = stripCodeBlocks(content)
-	matches := reXRefWikiLink.FindAllStringSubmatch(content, -1)
+	matchesWiki := reXRefWikiLink.FindAllStringSubmatch(content, -1)
+	matchesMd := reXRefMdLink.FindAllStringSubmatch(content, -1)
 	seen := make(map[string]bool)
 	var result []string
-	for _, m := range matches {
+
+	for _, m := range matchesWiki {
 		target := ResolveSlug(m[1])
+		if target != "" && !seen[target] {
+			seen[target] = true
+			result = append(result, target)
+		}
+	}
+	for _, m := range matchesMd {
+		rawTarget := m[2]
+		if strings.HasPrefix(rawTarget, "http://") || strings.HasPrefix(rawTarget, "https://") || strings.HasPrefix(rawTarget, "file://") || strings.HasPrefix(rawTarget, "#") {
+			continue
+		}
+		target := ResolveSlug(rawTarget)
 		if target != "" && !seen[target] {
 			seen[target] = true
 			result = append(result, target)
@@ -229,6 +258,10 @@ func ResolveSlug(rawLink string) string {
 		target = target[:idx]
 	}
 	target = strings.TrimSpace(target)
+	target = strings.TrimPrefix(target, "wiki://")
+	if strings.HasSuffix(strings.ToLower(target), ".md") {
+		target = target[:len(target)-3]
+	}
 	return SafeSlug(target)
 }
 
@@ -260,9 +293,9 @@ func injectBacklinksSection(content string, inbound []string, titles map[string]
 	for _, src := range inbound {
 		title := titles[src]
 		if title == "" || title == src {
-			_, _ = fmt.Fprintf(&b, "- [[%s]]\n", src)
+			_, _ = fmt.Fprintf(&b, "- [%s](%s.md)\n", src, src)
 		} else {
-			_, _ = fmt.Fprintf(&b, "- [[%s]] — %s\n", src, title)
+			_, _ = fmt.Fprintf(&b, "- [%s](%s.md) — %s\n", title, src, title)
 		}
 	}
 

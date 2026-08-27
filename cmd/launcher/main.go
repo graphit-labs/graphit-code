@@ -1,12 +1,9 @@
 package main
 
 import (
-	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -20,13 +17,11 @@ import (
 )
 
 func main() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting home directory: %v\n", err)
+	appDir := brand.GlobalDir()
+	if appDir == "" {
+		fmt.Fprintf(os.Stderr, "Error getting home directory: cannot resolve the global %s directory\n", brand.Brand)
 		os.Exit(1)
 	}
-
-	appDir := filepath.Join(home, brand.DotDir())
 	versionSafe := strings.ReplaceAll(version.Version, ":", "_")
 	runtimeDir := filepath.Join(appDir, "runtime", versionSafe)
 
@@ -39,14 +34,7 @@ func main() {
 
 	coreBinPath := filepath.Join(runtimeDir, coreBinName)
 
-	shouldExtract := false
-	if _, err := os.Stat(coreBinPath); os.IsNotExist(err) {
-		shouldExtract = true
-	} else if versionSafe == "dev" {
-		shouldExtract = devStampChanged(appDir)
-	}
-
-	if shouldExtract {
+	if shouldExtractRuntime(appDir, runtimeDir) {
 
 		cleanupOldRuntimes(filepath.Join(appDir, "runtime"), versionSafe)
 
@@ -58,9 +46,7 @@ func main() {
 		}
 
 		writeLauncherStamp(appDir)
-
-
-		deduplicateModels(runtimeDir)
+		writeRuntimeStamp(runtimeDir)
 
 	}
 
@@ -158,32 +144,7 @@ func extractRuntime(runtimeDir string) error {
 			return err
 		}
 
-		if strings.HasSuffix(destPath, ".gz") {
-			destPath = strings.TrimSuffix(destPath, ".gz")
-
-			gr, gzErr := gzip.NewReader(bytes.NewReader(data))
-			if gzErr != nil {
-				return fmt.Errorf("gzip open %s: %w", relPath, gzErr)
-			}
-			defer func() { _ = gr.Close() }()
-
-			f, fErr := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-			if fErr != nil {
-				return fErr
-			}
-			if _, cpErr := io.Copy(f, gr); cpErr != nil {
-				_ = f.Close()
-				_ = os.Remove(destPath)
-				return fmt.Errorf("gzip decompress %s: %w", relPath, cpErr)
-			}
-			return f.Close()
-		}
-
-		if err := os.WriteFile(destPath, data, 0755); err != nil {
-			return err
-		}
-
-		return nil
+		return os.WriteFile(destPath, data, 0755)
 	})
 }
 
@@ -222,11 +183,29 @@ func isMCPStdio() bool {
 	return args[0] == "mcp" && args[1] == "--stdio"
 }
 
-func devStampChanged(appDir string) bool {
-	stampPath := filepath.Join(appDir, "daemon", "launcher.stamp")
-	existing, err := os.ReadFile(stampPath)
+const runtimeStampName = ".build-id"
+
+func runtimeStampPath(runtimeDir string) string {
+	return filepath.Join(runtimeDir, runtimeStampName)
+}
+
+func launcherStampPath(appDir string) string {
+	return filepath.Join(appDir, "daemon", "launcher.stamp")
+}
+
+func shouldExtractRuntime(appDir, runtimeDir string) bool {
+	return !stampMatchesBuild(runtimeStampPath(runtimeDir)) ||
+		!stampMatchesBuild(launcherStampPath(appDir))
+}
+
+func stampMatchesBuild(stampPath string) bool {
+	data, err := os.ReadFile(stampPath)
 	if err != nil {
-		return true
+		return false
 	}
-	return strings.TrimSpace(string(existing)) != computeBuildIDStamp()
+	return strings.TrimSpace(string(data)) == computeBuildIDStamp()
+}
+
+func writeRuntimeStamp(runtimeDir string) {
+	_ = os.WriteFile(runtimeStampPath(runtimeDir), []byte(computeBuildIDStamp()+"\n"), 0o644)
 }

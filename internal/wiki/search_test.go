@@ -298,7 +298,9 @@ func TestExtractSnippet(t *testing.T) {
 			strings.Repeat("word ", 100),
 			"zzzzz",
 			func(t *testing.T, snippet string) {
-				if len(snippet) > 160 {
+				// Bounded by the window, plus room for the ellipsis and for pulling the
+				// edge out to a word boundary.
+				if len(snippet) > wikiSnippetWidth+64 {
 					t.Errorf("snippet too long: %d chars", len(snippet))
 				}
 			},

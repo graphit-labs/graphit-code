@@ -117,10 +117,16 @@ sql_schema_statement
     | create_module_statement
     | create_nickname_statement
     | create_permission_statement
+    // create_procedure_statement already IS the choice between external,
+    // sourced and sql — listing its three branches again here duplicated
+    // every one of them as a second, redundant path to the same rule. On a
+    // grammar this size that duplication was not harmless: a compound
+    // procedure body combining enough constructs (IF + WHILE + CASE
+    // together, confirmed by bisection — no pair of them triggered it) made
+    // full LL(*) prediction commit to the wrong one of the two paths dozens
+    // of tokens later, and the body was silently dropped rather than
+    // attached to the procedure. See TestDb2FullProcedure.
     | create_procedure_statement
-    | create_procedure_external_statement
-    | create_procedure_sourced_statement
-    | create_procedure_sql_statement
     | create_role_statement
     | create_schema_statement
     | create_security_label_component_statement
@@ -3336,8 +3342,43 @@ sql_method_body
 
 compound_sql_inlined
     : (label ':')? BEGIN (NOT? ATOMIC)?
-todo
+        (declare_variable_statement ';')*
+        (compound_body_statement ';')*
         END (label ':')?
+    ;
+
+// declare_variable_statement was missing entirely: a compound statement's
+// DECLARE section (local variables, as opposed to declare_cursor_statement
+// or the CLI's begin_declare_section_statement, both declared elsewhere)
+// had no rule to parse against at all.
+declare_variable_statement
+    : DECLARE id_ (',' id_)* data_type default_clause?
+    ;
+
+// assignment_statement was also missing: `SET var-name = expression` — the
+// single most common statement inside any procedure body — had no complete
+// rule. set_statement covers SET session/environment options (SET
+// CURRENT ..., SET CONNECTION, ...), never a plain variable assignment.
+assignment_statement
+    : SET variable EQ expression
+    ;
+
+// compound_body_statement is what a compound statement's body actually
+// runs, statement by statement. sql_procedure_statement is meant to be this
+// same thing — it is referenced from case_statement's WHEN/ELSE clauses and
+// from loop_statement's body — but its own definition was `CALL | FOR | IF
+// | todo`: four bare keywords, none carrying a body. Every real IF/CASE/
+// LOOP/WHILE previously reached sql_constrol_statement's actually-complete
+// rules only by accident, through error recovery from the four-keyword
+// stub failing right after matching the keyword. sql_procedure_statement
+// now IS this rule, so that path is no longer accidental.
+compound_body_statement
+    : sql_constrol_statement
+    | assignment_statement
+    | insert_statement
+    | merge_statement
+    | get_diagnostics_statement
+    | (WITH common_table_expression_list)? fullselect
     ;
 
 sql_statement_inlined
@@ -3553,7 +3594,8 @@ option_list_item
     ;
 
 sql_procedure_body
-    : sql_procedure_statement
+    : compound_sql_inlined
+    | sql_procedure_statement
     ;
 
 create_role_statement
@@ -4245,10 +4287,7 @@ triggered_action
     ;
 
 sql_procedure_statement
-    : CALL
-    | FOR
-    | IF
-    | todo
+    : compound_body_statement
     ;
 
 sql_function_statement

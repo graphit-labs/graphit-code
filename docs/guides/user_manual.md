@@ -46,7 +46,7 @@ The AST Explorer features an interactive **3D force-directed node canvas** that 
 
 ### 2. Wiki and Knowledge Explorer
 The Wiki Explorer indexes documentation and structured files in your codebase:
-- **Default Indexing Path**: By default, it scans the entire project root directory (respecting ignore rules). You can customize this by setting `knowledge.docs_dir` in your configuration to point to a specific directory (like `docs/`).
+- **Default Indexing Path**: By default it scans `docs/` plus the project root's `README.md`, respecting ignore rules. Point it somewhere else with `knowledge.docs_dir`, set that key to `.` to scan the whole project as earlier versions did, or set `knowledge.include_readme=false` to index the docs tree alone. See [ignore_files](ignore_files.md) for what reaches the wiki before ignore rules apply.
 - **Configurable Extensions**: The set of file extensions to index is configurable via `knowledge.extensions`. By default, it indexes 16 extensions: `.md`, `.markdown`, `.mdx`, `.txt`, `.adoc`, `.rst`, `.puml`, `.plantuml`, `.yaml`, `.yml`, `.json`, `.proto`, `.graphql`, `.gql`, `.wsdl`, `.xml`.
 - **Multi-Format Rendering**: Markdown files (`.md`, `.markdown`, `.mdx`) are split by H2 headers into parent/child pages and rendered as native markdown. Structured data files (`.yaml`, `.json`, `.graphql`, `.xml`) are rendered as syntax-highlighted code blocks. Other formats (`.proto`, `.rst`, `.txt`, etc.) are rendered as plain monospaced text.
 - **Collapsed Tree**: The sidebar tree starts collapsed. Nodes expand automatically when their children are selected, keeping the navigation clean.
@@ -62,7 +62,7 @@ Set the extensions globally (all projects) or per project:
 
 ```bash
 # Global — applies to all projects
-graphit config set knowledge.extensions "md,yaml,json,proto,graphql"
+graphit config knowledge.extensions "md,yaml,json,proto,graphql"
 
 # Per project — in .graphit/config.json or graphit.lock.json config section
 {
@@ -83,22 +83,17 @@ The Hub Manager allows you to review rules and agent configurations shared acros
 
 #### Hub Artifact Types
 
-The Hub supports 10 artifact types. Two are dedicated to the AST module's language and framework detection pipeline:
+The Hub supports 10 artifact types. One is dedicated to the AST module's language pipeline:
 
 - **Language Queries** (`language`): Packages extraction `.yaml` query files that customize how entities are extracted from the built-in languages. These can override default extraction patterns, export strategies, and language configuration. On installation, the `.yaml` queries are placed into `<project>/.graphit/ast/queries/`.
-
-- **Framework Configs** (`framework`): Packages a `.yaml` framework detection file defining decorator, heritage, and import detection rules for a framework. On installation, the `.yaml` file is placed into `<project>/.graphit/ast/frameworks/`, where its rules merge with built-in defaults on the next sync.
 
 Install Hub artifacts using the CLI:
 ```bash
 # Install a language grammar (e.g., Elixir support)
 graphit hub install elixir-lang@1.0
-
-# Install a framework detection config (e.g., Phoenix)
-graphit hub install phoenix-framework@1.0
 ```
 
-After installation, run `graphit sync` to activate the new language or framework. No recompilation is required.
+After installation, run `graphit sync` to activate the new language. No recompilation is required.
 
 ---
 
@@ -106,8 +101,14 @@ After installation, run `graphit sync` to activate the new language or framework
 
 AI agents often suffer from "session amnesia"—forgetting your preferences, style guidelines, and corrections as soon as a conversation ends.
 Graphit Code solves this by dividing memory into two scopes:
-- **Project Memory**: Stored under `.graphit/memory/project/`. Shared across the team using a central Git repository. Best for database architectures, API contracts, and design conventions.
-- **User Memory**: Stored under `.graphit/memory/user/`. Kept local to the machine or private repo. Best for personal coding preferences.
+- **Project Memory**: Shared through the configured Hub bucket's project-memory prefix. Best for database architectures, API contracts, and design conventions.
+- **User Memory**: Local-only when no bucket is configured, or published to the bucket's user-memory prefix. Best for personal coding preferences.
+
+Neither is stored inside the project. Both live once in the global directory — the raw
+markdown in `~/.graphit/memory-wt/`, the compiled wiki in `~/.graphit/wiki/memory/` —
+and are read from there by every project, which is why a memory you record in one
+project is not duplicated into the next. See
+[Storage Layout](../architecture/storage_layout.md).
 
 ### Memory Categories
 
@@ -142,15 +143,21 @@ The Dream module allows AI agents to mine conversation history and generate reus
 5. **Skill Effectiveness Evaluation**: Existing skills are analyzed for failures and improved using a self-healing loop with root cause classification.
 6. **Integration Skills**: The module creates skills designed for external developers integrating with your project.
 
-### Submitting Dream Subjects
-You can queue tasks or instructions for the background agent to work on during its next dream cycle:
+### Queueing Work — the Improvement Backlog
+You queue tasks or instructions for the background agent through the **improvement backlog**. It is also where a review records work it deliberately did not do, so the finding survives the conversation that produced it:
 ```bash
-# Register a subject for the next dream cycle
-graphit dream subject add "Create skill for deployment workflow" --body "Review conversations about deployment to extract a reusable skill"
+# Add an item for the next dream cycle to pick up
+graphit improvements backlog add "Create skill for deployment workflow" --body "Review conversations about deployment to extract a reusable skill"
 
-# Check subjects queue
-graphit dream subject list
+# Check what is queued
+graphit improvements backlog list
+
+# Drop an item you have since handled yourself
+graphit improvements backlog rm create-skill-for-deployment-workflow
 ```
+Items are markdown files under `improvements.backlog_dir` — `docs/tasks/backlog/` by default — so they are committed with the project and visible in review, not hidden in a gitignored directory. Each session picks the oldest pending item and writes a `<slug>.done.md` beside it when finished. Full details in [Improvement Backlog](../specs/backlog.md).
+
+> Adding an item always works, but the session that would act on it is opt-in: `modules.dream` must be `true` and the daemon must be running. Check with `graphit dream status`.
 
 ### Reviewing Dream Reports
 After the session finishes, it produces a markdown report detailing the skill generation findings, conversation analysis results, and any new memories or skills created:
@@ -159,8 +166,13 @@ After the session finishes, it produces a markdown report detailing the skill ge
 graphit dream reports
 
 # Read a report
-cat .graphit/dream/<session-id>.md
+cat .graphit/runtime/dream/<session-id>.md
 ```
+
+The runtime vault is intentionally ignored. To publish reports, set
+`dream.reports_dir` to a versioned directory such as `docs/dream`. Existing reports in
+the former `.graphit/dream/` location are not moved or deleted automatically; point
+`dream.reports_dir` there temporarily if you still need to list them.
 
 ---
 
@@ -172,13 +184,23 @@ The AST module extracts code entities (functions, classes, imports, etc.) from s
 
 When Graphit Code parses a source file, it resolves query patterns using a **3-level priority chain** (all YAML — there is no hardcoded Go fallback):
 
-1. **Project** (`.graphit/ast/queries/`) — Highest priority. Applies only to this project.
+1. **Project** (`ast.queries_dir`, `.graphit/ast/queries/` by default) — Highest priority. Applies only to this project.
 2. **User Global** (`~/.graphit/ast/queries/`) — Your personal customizations. Applies to all projects. **Never written by the framework.**
 3. **Runtime** (`~/.graphit/runtime/<version>/ast/queries/`) — Factory defaults extracted by the launcher during binary setup. **Automatically updated on each version upgrade.**
 
 > The runtime defaults serve as the base. They are automatically extracted by the launcher during binary setup and updated on each version upgrade. YAML extraction rules and language configuration follow the 3-level resolution chain — query customization requires no recompilation.
 
 For each language, the **first source that provides queries wins**. If you create a `go.yaml` in your project, only Go queries use the project version — all other languages continue resolving from user → runtime.
+
+That winning file **replaces** the level below it, unless it declares `merge: true` at its root — then it merges instead, and you write only the part you are changing. See [Merging instead of replacing](#merging-instead-of-replacing-merge-true).
+
+> **A query file can also add a language, not just adjust one.** A grammar is
+> compiled into the binary; a query file is what binds extensions to it. Markdown is
+> the case that exists on purpose: `tree-sitter-markdown` ships, but no runtime
+> `markdown.yaml` does, so `.md` files are not indexed and documents stay the
+> knowledge wiki's. Writing your own `markdown.yaml` into `ast.queries_dir` — with
+> `language: markdown`, `grammar: tree-sitter-markdown` and the extensions you want —
+> puts markdown structure in the code graph for that project alone.
 
 ### Viewing the Defaults
 
@@ -213,13 +235,119 @@ $EDITOR ~/.graphit/ast/queries/go.yaml
 
 ### Customizing Per Project
 
-To customize queries for a single project, create the file in the project's `.graphit/` directory:
+A project's grammar directory is `ast.queries_dir`, relative to the project root. It
+defaults to `.graphit/ast/queries/`, and **that default is tracked by git**. The generated
+ignore block covers `.graphit/runtime/` and the platform-specific parser binaries in
+`.graphit/grammars/`, but not query YAMLs. Commit the YAML and every other checkout gets
+the same query override.
 
 ```bash
-mkdir -p .graphit/ast/queries/
+mkdir -p .graphit/ast/queries
 cp ~/.graphit/runtime/*/ast/queries/python.yaml .graphit/ast/queries/python.yaml
 $EDITOR .graphit/ast/queries/python.yaml
+git add .graphit/ast/queries/python.yaml
 ```
+
+**Point the key somewhere else if you would rather keep grammars beside your other
+tooling:**
+
+```bash
+graphit config ast.queries_dir tooling/grammars
+
+mkdir -p tooling/grammars
+cp ~/.graphit/runtime/*/ast/queries/python.yaml tooling/grammars/python.yaml
+$EDITOR tooling/grammars/python.yaml
+```
+
+The configured directory replaces the default rather than adding to it: files left
+under `.graphit/ast/queries/` are not read once the key is set. The change lands on a
+running daemon within seconds — no restart.
+
+### Turning a Language Off
+
+Customizing a query file changes *how* a language is parsed. Two keys decide
+*whether* it is parsed, and both are comma-separated lists:
+
+```bash
+# stop indexing YAML here
+graphit config ast.grammars_blacklist yaml
+
+# …and on every project on this machine
+graphit config --global ast.grammars_blacklist yaml
+
+# the other way round: index nothing but Go and SQL
+graphit config ast.grammars_whitelist go,sql
+
+# one command only
+GRAPHIT_AST_GRAMMARS_BLACKLIST=yaml graphit ast index
+```
+
+`ast.grammars_whitelist` is exhaustive when it is not empty: everything it does not
+name is off. `ast.grammars_blacklist` subtracts on top of it, so a grammar in both
+lists is disabled.
+
+A name matches the language, the grammar, or the grammar without its
+`tree-sitter-` / `antlr-` prefix — `yaml`, `yaml_lang` and `tree-sitter-yaml` are the
+same language, and `antlr-plsql` names one SQL dialect without touching the others
+that also claim `.sql`. A name matching nothing is inert: no error, and nothing
+disabled — so check the spelling with `graphit config --list` if a language you
+expected to drop is still in the graph.
+
+Disabling takes files out of discovery, so the next **full** `graphit ast index`
+also removes what was already indexed. A scoped run (`--path`) cannot: it never
+walks the tree, so it has nothing to compare against.
+
+> This is the third and broadest of the three exclusion axes — language, extension,
+> path. See [Ignore Files](ignore_files.md#excluding-a-language-rather-than-a-path)
+> for how they compose, and
+> [config_module](../specs/config_module.md#turning-grammars-off-astgrammars_blacklist-and-astgrammars_whitelist)
+> for the precedence chain.
+
+One thing to expect if you do move it: a directory in the ordinary source tree is
+indexed as code, where the whole of `.graphit/` is not, so those YAMLs will show up in
+the code graph. Add the directory to `.astignore` if you would rather they did not.
+
+### Merging instead of replacing (`merge: true`)
+
+By default the winning file **is** the language: everything the level below said is
+gone. So overriding one pattern meant copying the whole shipped file — and then owning
+every future fix to it. Worse, the copy silently takes over `extensions` and `grammar`
+too, and a copy that omits them breaks the language instead of leaving it alone.
+
+Declare `merge: true` at the root and the file merges onto the level below instead.
+It works at every level — yours over the runtime's, the project's over both. What pairs
+your file with the one below is the **`language` field alone** (case does not matter);
+`extensions` is one of the things you inherit, not part of the pairing:
+
+```yaml
+# tooling/grammars/python.yaml — three lines instead of three hundred
+language: python
+merge: true
+queries:
+  - data_key: decorators
+    graph_label: Annotation
+    pattern: '(decorator (identifier) @name)'
+```
+
+What that inherits, and what it replaces:
+
+| Field | With `merge: true` |
+|---|---|
+| `extensions`, `parser`, `grammar`, `start_rule` | inherited when you omit them — this is what makes a three-line file a working language |
+| `queries` | merged by `data_key`: redeclaring a key replaces that group, a new key is added, everything else is inherited |
+| `context_types`, `context_name_paths`, `text_normalizers` | merged key by key; add one entry without restating forty |
+| `self_keywords`, `declaration_types`, `comment_types`, `anon_func_types`, `exports` | replaced when you declare them, inherited when you don't — declaring a shorter list is how you remove an entry |
+| `embedded` | your blocks go first, then the ones below; the first block that matches a body claims it |
+| `complexity` | `node_types`, `operators` and `head_calls` each replaced-if-declared |
+
+Leave the flag out and nothing changes from how it has always worked: your file is the
+whole language. And if the language you name is one no lower level declares, there is
+nothing to merge onto — the file simply stands on its own, which is how you introduce a
+new language either way.
+
+The combination this was written for is a project that adds an embedded block plus the
+normalizer it needs — see [Where to declare it](#where-to-declare-it). Both merge, so
+the result is the shipped language plus your dialect, with every query it already had.
 
 ### Example: Adding Custom Patterns
 
@@ -240,12 +368,12 @@ queries:
 
 ### Example: Completely Replacing Queries
 
-Set `replace: true` to discard all lower-priority queries and use only your definitions:
+Replacing is the **default** — no flag needed. A file for a language is that language, and
+the levels below it are ignored:
 
 ```yaml
 language: sql
 extensions: [".sql"]
-replace: true   # Ignore runtime defaults entirely
 queries:
   - data_key: tables
     graph_label: Table
@@ -255,279 +383,49 @@ queries:
     pattern: '(create_procedure_statement name: (identifier) @name)'
 ```
 
+Everything the runtime's `sql.yaml` declared is gone here — its queries, and also its
+`extensions`, `grammar`, `context_types` and the rest, so anything this file needs it must
+restate. That is what `merge: true` exists to avoid; see
+[Merging instead of replacing](#merging-instead-of-replacing-merge-true).
+
 ### YAML Reference — Query Files
 
 | Field | Required | Description |
 |---|---|---|
 | `language` | ✅ | Tree-sitter language name (e.g., `go`, `python`, `typescript`) |
 | `extensions` | ❌ | File extensions filter (e.g., `[".ts"]`). Omit to match all extensions |
-| `replace` | ❌ | `true` = replace lower-priority queries; `false` = append (default) |
+| `merge` | ❌ | `true` = merge into the same language at the level below, field by field. Omitted (the default) = replace it entirely. Files pair on `language` alone, case-insensitively |
 | `queries[].data_key` | ✅ | Entity category: `functions`, `classes`, `imports`, `calls`, `fields`, etc. |
 | `queries[].type` | ❌ | `"entity"` (default) or `"relation"`. Entities become graph nodes; relations become edges. |
 | `queries[].relation_type` | ❌* | Required when `type: relation`. Edge label in the graph: `CALLS`, `INSTANTIATES`, `INHERITS`, `IMPLEMENTS`, `READS_FIELD`, `WRITES_FIELD`, `DECORATOR`, `EXPORT`, or any custom string. |
 | `queries[].graph_label` | ❌ | LadybugDB node label (e.g., `Function`, `Class`). Empty = relational data |
 | `queries[].pattern` | ✅ | Tree-sitter S-expression query |
-| `queries[].name_capture` | ❌ | Capture group name for the entity. Default: `name` |
+| `queries[].name_capture` | ❌ | Capture group name for the entity. Default: `name`. Only this capture becomes an entity — every other one exists for a predicate to test, which is what the `@_` prefix convention signals |
+| `queries[].value_capture` | ❌ | The value the entity is set to — for key/value languages, where the key alone is half the content. It becomes a node named after itself (so search reaches it), contained by the key, and is also written to the key's `value` property. Requires `value_label`; ignored on `type: relation` |
+| `queries[].value_label` | ✅* | Required with `value_capture`. Node label for the value (e.g. `AttributeValue`, `Value`) |
+| `queries[].parent_capture` | ❌ | Capture holding the name of the entity that contains this one, producing a `CONTAINS` edge. Use it when `context_types` cannot resolve the parent — tree-sitter-xml `element`, tree-sitter-json `pair` and tree-sitter-html `start_tag` have no `name` field for the tree walk to read. Requires `parent_label` |
+| `queries[].parent_label` | ✅* | Required with `parent_capture`. Node label of the containing entity |
 | `exports` | ❌ | Export detection config (see [Language Configuration](#customizing-language-configuration)) |
 | `exports.strategy` | ✅* | One of: `capitalized_name`, `no_prefix`, `modifier`, `export_statement`, `no_modifier`, `no_static`, `none` |
 | `exports.config` | ❌ | Key-value config for the strategy (e.g., `prefix: "_"`) |
 | `exports.config_list` | ❌ | List-type config values (e.g., `keywords: [private, protected]`) |
 | `self_keywords` | ❌ | Self/this keywords for receiver type resolution (e.g., `["self.", "this."]`) |
 | `context_types` | ❌ | Map of Tree-sitter node types to graph labels (e.g., `class_definition: Class`) |
+| `context_name_paths` | ❌ | How to read a context node's name when it is not in a `name` field: a `/`-separated path of field names or child kinds, optionally indexed (`string_lit[1]`). Data-format and markup grammars need this — see [Context Types](#context-types) |
 | `anon_func_types` | ❌ | Tree-sitter node types for anonymous function detection |
 | `declaration_types` | ❌ | Node types eligible for docstring attachment |
 | `comment_types` | ❌ | Node types recognized as comments for docstring extraction |
-
-### YAML Reference — Framework Files
-
-| Field | Required | Description |
-|---|---|---|
-| `framework` | ✅ | Framework identifier (e.g., `spring`, `flask`, `express`) |
-| `languages` | ❌ | Languages this framework applies to (e.g., `[java, kotlin]`) |
-| `decorator_detection[]` | ❌ | List of decorator names and categories to detect framework usage |
-| `decorator_detection[].name` | ✅ | Decorator name to match (e.g., `RestController`) |
-| `decorator_detection[].category` | ✅ | Framework category (e.g., `web`, `orm`, `di`, `test`) |
-| `decorator_detection[].framework_name` | ❌ | Override the parent `framework` name for this rule |
-| `heritage_detection[]` | ❌ | List of parent class/interface names to detect via inheritance |
-| `heritage_detection[].parent` | ✅ | Parent class or interface name (e.g., `JpaRepository`) |
-| `heritage_detection[].category` | ✅ | Framework category |
-| `heritage_detection[].framework_name` | ❌ | Override the parent `framework` name |
-| `import_detection[]` | ❌ | List of import path patterns to detect framework usage |
-| `import_detection[].pattern` | ✅ | Import path pattern (e.g., `github.com/gin-gonic/gin`) |
-| `import_detection[].match` | ❌ | Match strategy: `"prefix"` (default), `"exact"`, `"contains"`, `"suffix"`, or `"regex"` (Go `regexp` syntax) |
-| `import_detection[].category` | ✅ | Framework category |
-| `import_detection[].framework_name` | ❌ | Override the parent `framework` name |
-| `entry_points` | ❌ | Entry point scoring rules (see [Entry Point Scoring](#customizing-entry-point-scoring)) |
-| `entry_points.names[]` | ❌ | Name-based scoring rules using glob patterns |
-| `entry_points.names[].pattern` | ✅ | Glob pattern: `main` (exact), `Test*` (prefix), `*Handler` (suffix), `*cmd*` (contains) |
-| `entry_points.names[].score` | ✅ | Score to add when the pattern matches |
-| `entry_points.decorators[]` | ❌ | Decorator-based scoring rules |
-| `entry_points.decorators[].name` | ✅ | Decorator name to match |
-| `entry_points.decorators[].score` | ✅ | Score to add when the decorator is present |
-| `entry_points.exported_bonus` | ❌ | Bonus score for exported functions (default: `10`) |
-| `entry_points.max_score` | ❌ | Maximum score cap (default: `100`) |
-
-### YAML Reference — Ecosystems File
-
-| Field | Required | Description |
-|---|---|---|
-| `config_files[]` | ✅ | List of ecosystem detection entries |
-| `config_files[].filename` | ✅ | Config filename to detect (e.g., `package.json`, `Cargo.toml`) |
-| `config_files[].language` | ✅ | Language associated with this config file |
-| `config_files[].ecosystem` | ✅ | Ecosystem identifier (e.g., `node`, `cargo`, `django`) |
-| `config_files[].glob` | ❌ | `true` = treat `filename` as a glob pattern (e.g., `*.csproj`) |
+| `embedded` | ❌ | Regions of the file written in **another language** — the body of a single-file component's `<script>` / `<style>`. See [Embedded Languages](#embedded-languages) |
+| `embedded[].pattern` | ✅* | Tree-sitter query that selects the blocks — the same query language as `queries[].pattern`, so `#eq?`, `#match?` (regex), sibling anchors and nesting all work |
+| `embedded[].text_capture` | ✅* | Capture in `pattern` whose node's text **is** the body |
+| `embedded[].lang_capture` | ❌ | Capture holding the value that selects the language. Omit to always use `default` |
+| `embedded[].default` | ❌* | Language used when `lang_capture` is absent or resolves empty |
+| `embedded[].languages` | ❌* | Map of captured value → language name. An **allowlist**: a value that is not a key is skipped in silence. An explicit `{}` means "claim these bodies and map none of them" |
+| `embedded[].normalize` | ❌ | Name of one of this language's `text_normalizers` to run on the body before the sub-parse. Needed whenever the host escapes its text — an XML element's content does, an HTML `<script>`'s raw text does not |
+| `text_normalizers` | ❌ | Named ways this language turns escaped text back into what it represents, for an `embedded` block to name. Each entry: `replace` (literal → replacement) and `numeric_char_refs` (decode `&#62;` / `&#x3E;`). **A replacement containing a line break is dropped at load time**, because changing the newline count would shift every line the sub-parse reports. See [Normalizing an escaped body](#normalizing-an-escaped-body) |
+| `complexity` | ❌ | What counts as a decision point when scoring `cyclomatic_complexity`, by walking the entity's own parsed subtree. `node_types` = named kinds (`if_statement`, a case clause), `operators` = anonymous tokens (`"&&"`, `"\|\|"`), `head_calls` = for grammars where every control form is the same node kind, told apart by the text of its first child (Clojure, Elixir). **Omitted means complexity stays at the base 1** for that language. See `docs/specs/ast_module.md` |
 
 > For the full technical specification and implementation details, see `docs/specs/ast_module.md`.
-
----
-
-## Customizing Framework Detection
-
-The AST module automatically detects which frameworks your project uses (e.g., Spring, Flask, Express, Angular) by scanning decorators, class inheritance, and import paths. These detection rules are defined in **framework YAML files** that you can fully customize.
-
-### How It Works
-
-When Graphit Code detects frameworks, it loads framework rules from **all three levels and merges them** (unlike queries, which use precedence-based override):
-
-1. **Runtime** (`~/.graphit/runtime/<version>/ast/frameworks/`) — Factory defaults extracted from the binary.
-2. **User Global** (`~/.graphit/ast/frameworks/`) — Your personal framework rules. Apply to all projects.
-3. **Project** (`.graphit/ast/frameworks/`) — Highest priority. Applies only to this project.
-
-All levels are merged together — your project-level framework files **extend** the built-in rules rather than replacing them. This means you can add detection for your custom internal frameworks without losing detection for standard ones.
-
-### Viewing the Defaults
-
-After your first `graphit sync`, the default framework rules are extracted to:
-```
-~/.graphit/runtime/<version>/ast/frameworks/
-```
-
-Browse these files to see all built-in framework detection rules:
-```bash
-ls ~/.graphit/runtime/*/ast/frameworks/
-# _go_lang.yaml   _java_lang.yaml   angular.yaml   django.yaml
-# express.yaml    flask.yaml        nestjs.yaml    spring.yaml
-# vue.yaml        ...
-```
-
-Files prefixed with `_` (e.g., `_go_lang.yaml`) contain language-level base rules including entry point scoring, while unprefixed files contain framework-specific detection rules.
-
-### Framework YAML Schema
-
-Each framework YAML file can contain the following sections:
-
-```yaml
-framework: my_framework        # Unique framework identifier (required)
-languages: [python, javascript] # Languages this framework applies to
-
-decorator_detection:            # Detect framework by decorator/annotation usage
-  - name: MyDecorator
-    category: web               # Category: web, orm, di, test, config, etc.
-
-heritage_detection:             # Detect framework by class inheritance
-  - parent: BaseController
-    category: web
-    framework_name: my_fw_web   # Optional: override the framework name
-
-import_detection:               # Detect framework by import path patterns
-  - pattern: "my-framework"
-    match: prefix               # "prefix" (default), "exact", "contains", "suffix", or "regex"
-    category: web
-
-entry_points:                   # Entry point scoring (see next section)
-  names: [...]
-  decorators: [...]
-  exported_bonus: 10
-  max_score: 100
-```
-
-### Example: Adding Detection for a Custom Internal Framework
-
-Suppose your team uses an internal Python RPC framework called `acme-rpc`. Create a framework file at `.graphit/ast/frameworks/acme_rpc.yaml`:
-
-```yaml
-framework: acme_rpc
-languages: [python]
-
-decorator_detection:
-  - name: rpc_method
-    category: rpc
-  - name: rpc_service
-    category: rpc
-
-heritage_detection:
-  - parent: AcmeServiceBase
-    category: rpc
-
-import_detection:
-  - pattern: "acme.rpc"
-    match: prefix
-    category: rpc
-  - pattern: "^acme\\.(rpc|grpc)\\.v[0-9]+$"
-    match: regex
-    category: rpc
-
-entry_points:
-  decorators:
-    - name: rpc_method
-      score: 70
-    - name: rpc_service
-      score: 50
-```
-
-After running `graphit sync`, the framework detection will identify your internal RPC framework alongside standard ones. You can then query detected frameworks via:
-```cypher
-MATCH (c:File {path: '__config__'}) RETURN c.lang AS frameworks
-```
-
----
-
-## Customizing Entry Point Scoring
-
-The `entry_point_score` property on Function nodes indicates how likely a function is to be an application entry point (e.g., `main`, HTTP handlers, test functions). This score is computed from YAML rules defined in framework files.
-
-### How Scoring Works
-
-The scoring engine evaluates each function against three criteria. Scores from all matching rules are **summed together**, then capped at `max_score`:
-
-1. **Name-based scoring** — Matches function names using glob patterns.
-2. **Decorator-based scoring** — Matches specific decorators/annotations.
-3. **Exported bonus** — Adds a flat bonus if the function is exported.
-
-### Name-Based Scoring with Glob Patterns
-
-Name patterns support four matching modes:
-
-| Pattern | Mode | Example Match |
-|---|---|---|
-| `main` | Exact | `main` only |
-| `Test*` | Prefix | `TestLogin`, `TestPayment` |
-| `*Handler` | Suffix | `AuthHandler`, `PaymentHandler` |
-| `*cmd*` | Contains | `cmdStart`, `runCmdLoop` |
-
-> Name matching is case-insensitive. The pattern `Test*` matches both `TestFoo` and `testFoo`.
-
-### Decorator-Based Scoring
-
-Decorator rules match by exact name, optionally with a suffix match (e.g., a decorator `PostMapping` matches both `PostMapping` and `org.springframework.web.bind.annotation.PostMapping`).
-
-### Configuration Fields
-
-- **`exported_bonus`** — Flat score added to every exported/public function (default: `10`).
-- **`max_score`** — Hard cap on the total score (default: `100`).
-
-### Example: Customizing Scoring for a Project
-
-To boost the entry point score for CLI command handlers in a Go project, create `.graphit/ast/frameworks/my_cli.yaml`:
-
-```yaml
-framework: my_project_cli
-languages: [go]
-
-entry_points:
-  names:
-    - pattern: "Execute*"
-      score: 60
-    - pattern: "Run*"
-      score: 50
-    - pattern: "*Cmd"
-      score: 40
-  decorators:
-    - name: cobra.Command
-      score: 70
-  exported_bonus: 15
-  max_score: 100
-```
-
-After `graphit sync`, you can query high-scoring entry points:
-```cypher
-MATCH (f:Function) WHERE f.entry_point_score > 50
-RETURN f.name, f.entry_point_score, f.path
-ORDER BY f.entry_point_score DESC
-```
-
----
-
-## Customizing Ecosystem Detection
-
-Ecosystem detection identifies your project's build tools, package managers, and development environment by checking for the presence of well-known configuration files (e.g., `package.json`, `Cargo.toml`, `pyproject.toml`).
-
-### What `ecosystems.yaml` Does
-
-The `ecosystems.yaml` file contains a list of `config_files` entries. Each entry maps a config filename to a language and ecosystem identifier. When Graphit Code finds a matching file in your project root, it records the ecosystem in the AST graph's `__config__` node.
-
-### How Resolution Works
-
-Like frameworks, ecosystem entries **merge from all levels**:
-1. **Runtime** → 2. **User Global** (`~/.graphit/ast/ecosystems.yaml`) → 3. **Project** (`.graphit/ast/ecosystems.yaml`)
-
-All entries from every level are combined — project-level entries extend the built-in list.
-
-### Example: Adding Custom Config File Patterns
-
-If your organization uses a custom build system with a `build.acme` config file, create `.graphit/ast/ecosystems.yaml` in your project:
-
-```yaml
-config_files:
-  - filename: build.acme
-    language: go
-    ecosystem: acme_build
-
-  - filename: ".acme-ci.yaml"
-    language: go
-    ecosystem: acme_ci
-
-  # Glob patterns are supported for dynamic filenames
-  - filename: "*.acme"
-    language: go
-    ecosystem: acme_build
-    glob: true
-```
-
-After `graphit sync`, the detected ecosystems will be visible in:
-```cypher
-MATCH (c:File {path: '__config__'}) RETURN c.source AS configs
-```
 
 ---
 
@@ -591,9 +489,130 @@ context_types:
 - **`declaration_types`** — Node types eligible for docstring attachment. When the engine encounters a comment immediately before a declaration node, it attaches the comment as a `docstring` property.
 - **`comment_types`** — Node types recognized as comments for docstring extraction (e.g., `comment`, `block_comment`, `line_comment`).
 
+### Embedded Languages
+
+A single-file component is several languages in one file, and the outer grammar does not look inside: `tree-sitter-vue`, `tree-sitter-svelte` and `tree-sitter-html` all hand the body of `<script>` and `<style>` over as one opaque text node. The `embedded` list says which regions are written in another language, so each is parsed with **that** language's grammar and merged back at the file's absolute line numbers.
+
+This is what makes an `import` inside a component produce a real `IMPORTS` edge.
+
+**A block is selected by a tree-sitter query** — the same query language as `queries[].pattern`. There is one mechanism, and it is the same one whether the block is a Vue `<script>` or an `<execute>` element in your own XML: "which node is this block" is the same question, and only a query answers it in general.
+
+```yaml
+# vue.yaml — the `lang` attribute is OPTIONAL, so the block takes two patterns
+embedded:
+  # lang present: the pattern captures the value, lang_capture names it
+  - pattern: '(script_element (start_tag (attribute (attribute_name) @_a (quoted_attribute_value (attribute_value) @lang))) (raw_text) @body (#eq? @_a "lang"))'
+    text_capture: body
+    lang_capture: lang
+    languages:
+      js: javascript
+      ts: typescript
+      tsx: tsx
+  # lang absent: the fallback, behind the specific one
+  - pattern: '(script_element (raw_text) @body)'
+    text_capture: body
+    default: javascript
+```
+
+**Order is part of the mechanism.** The first block whose pattern matches a given body node **claims** it; later blocks skip that body. That is how two patterns express one optional attribute, with no special case in the engine.
+
+The claim is taken **at the match**, before the language resolves. That is what makes `<style lang="scss">` skip rather than fall through:
+
+```yaml
+  - pattern: '(style_element (start_tag (attribute (attribute_name) @_a (quoted_attribute_value (attribute_value) @lang))) (raw_text) @body (#eq? @_a "lang"))'
+    text_capture: body
+    lang_capture: lang
+    languages: {}          # every preprocessor: claim the body, map none of it
+  - pattern: '(style_element (raw_text) @body)'
+    text_capture: body
+    default: css
+```
+
+**`languages` is an allowlist, not a list of exceptions.** A value that is not a key is skipped **in silence** — `<style lang="scss">` is ordinary Vue and has no grammar here. An explicit `languages: {}` is a real declaration, distinct from omitting the key: it means "match these bodies, claim them, and map none of their values". Without the claim, the generic block behind it would parse SCSS as CSS and report entities from a grammar that never saw the real syntax.
+
+That property is also how HTML tells code from payload. `html.yaml` reads `type` rather than `lang` — only the pattern changes, not the mechanism — and maps only the values that *are* JavaScript, so `type="application/json"` and `type="importmap"` are skipped instead of parsed as code.
+
+#### Selecting any node, in any grammar
+
+Because the selector is a query, it reaches cases no fixed node kind could. To index the body of `<execute>` in your project's XML as SQL, drop a `xml.yaml` into `.graphit/ast/queries/` and add:
+
+```yaml
+embedded:
+  - pattern: '(element (STag (Name) @_tag) (content (CharData) @body) (#eq? @_tag "execute"))'
+    text_capture: body
+    default: sql
+```
+
+`#match?` takes a regex, so `(#match? @_tag "^sql")` covers a family of tag names without listing them. Sibling anchors and nesting express context — "only inside `<mapper>`". And because the pattern also locates the language value, a grammar that spells attributes differently needs no engine change: tree-sitter-xml writes `Attribute` → `Name` / `AttValue`, and a pattern says so directly.
+
+> **Add `merge: true`, or the rest of the XML extraction disappears.** Override is per language: a project `xml.yaml` containing only `embedded:` **replaces** the runtime's XML file, queries and all. Declaring `merge: true` at the root keeps them and adds your block in front — see [Merging instead of replacing](#merging-instead-of-replacing-merge-true). Without it, the only correct move is copying the whole file and editing it, as in [How to Override Per Project](#how-to-override-per-project).
+
+#### Normalizing an escaped body
+
+A block embedded in XML is **not plain text**, and this is the difference between working and silently wrong. `<` and `&` are markup, so a `WHERE qt > 0` reaches the file as `qt &gt; 0`, and the host grammar splits that content into `CharData` / `EntityRef` / `CharData`.
+
+That has two consequences for the pattern:
+
+1. Capture the **whole `content` node**, not a `CharData` child. A `CharData` capture takes only the first chunk, and the sub-parse gets a statement truncated at the first comparison operator — with no error anywhere.
+2. Declare a **normalizer** so the captured body becomes readable again.
+
+```yaml
+text_normalizers:
+  xml_entities:
+    replace:
+      "&lt;": "<"
+      "&gt;": ">"
+      "&amp;": "&"
+      "&quot;": '"'
+      "&apos;": "'"
+    numeric_char_refs: true      # &#62; and &#x3E;
+
+embedded:
+  - pattern: '(element (STag (Name) @_t) (content) @body (#eq? @_t "execute"))'
+    text_capture: body
+    normalize: xml_entities
+    default: plsql
+```
+
+**The engine knows no escaping scheme at all** — there is no entity table in the code and no "XML mode". How a language escapes its text is a fact about that language, so it is declared in YAML, exactly like `context_types`. A grammar that escapes differently declares its own.
+
+**Declared by the language, chosen by the block**, because those are two different facts: an escaping scheme belongs to the language, but *needing* it belongs to the position. An XML element's content is escaped; an HTML `<script>`'s raw text is not, even though HTML has entities too.
+
+> **A normalizer may not change the number of line breaks**, and the engine enforces it. Every line the sub-parse reports is shifted by the block's starting line in the host file, so a replacement that produced a newline would move every entity after it — turning a visible syntax error into a wrong line number. A pair whose replacement contains a line break is dropped at load time with a warning, and `&#10;` / `&#xA;` are left as written.
+
+Anything not declared is left alone: a `&nbsp;` is not the engine's to guess at, and a bare `&` is far more likely to be an operator than a broken entity.
+
+#### Where to declare it
+
+Put the declaration where the need is. A **shipped** grammar should only declare a normalizer if the whole language needs one; a project that embeds SQL in its own XML dialect declares it in that project's own `xml.yaml` — under `ast.queries_dir`, `.graphit/ast/queries/` by default — and the resolution chain does the rest: no engine change, nothing added to the general grammar.
+
+> A project file of two sections needs `merge: true`, since override is **per language**: without it, an `xml.yaml` carrying only `text_normalizers:` and `embedded:` replaces the runtime's XML file entirely and takes its queries with it. `text_normalizers` merges key by key and `embedded` puts your blocks first, so the merged file is the language plus your dialect.
+
+#### Adding a language to a block
+
+Mapping a new inner language is **one line of YAML, no rebuild**. To index the body of a JSON script block as real JSON:
+
+```yaml
+languages:
+  module: javascript
+  application/json: json        # ← this, and nothing else
+```
+
+The body then yields `json.yaml`'s own entities (`Pair`, `Value`) at the file's absolute lines, while the element's markup stays exactly as it was.
+
+The only requirement is that the inner language **exists** — that it has a query file, which is what registers its extensions. Every shipped language qualifies, on **either backend**: `json`, `css`, `typescript`, `javascript`, `yaml`, `xml`, `python`, and the rest on tree-sitter, plus `plsql`, `postgresql`, `tsql`, `db2` and `cobol85` on ANTLR.
+
+The config names the **language**; which backend parses it is the engine's problem. That matters for SQL in particular: the generic `sql` grammar knows DDL, but the dialect grammars are the ones that produce `SELECTS` / `INSERTS` / `UPDATES` edges and know what a stored procedure is. Naming `plsql` in an XML's `<execute>` block gives you those edges, out of the `.xml`, at absolute line numbers.
+
+#### What is not configurable
+
+One thing, and it fails safe: **nesting is one level deep.** A block inside a block inside a block is not parsed; no real component needs it, since `<script>` holds TypeScript and TypeScript declares no blocks.
+
+Full design, the decisions behind it and the extensibility boundary: [Embedded Language Parsing](../specs/embedded_language_parsing.md).
+
 ### How to Override Per Project
 
-To customize language configuration for a specific project, create or copy the language YAML file into `.graphit/ast/queries/`:
+To customize language configuration for a specific project, create or copy the language YAML file into the project's grammar directory (`ast.queries_dir`, `.graphit/ast/queries/` by default):
 
 ```bash
 # Copy the default Python config as a starting point
@@ -604,17 +623,17 @@ cp ~/.graphit/runtime/*/ast/queries/python.yaml .graphit/ast/queries/python.yaml
 $EDITOR .graphit/ast/queries/python.yaml
 ```
 
-> Language configuration follows the same 3-level resolution chain as queries: project → user global → runtime (all YAML). The first source that provides configuration for a language wins.
+> Language configuration follows the same 3-level resolution chain as queries: project → user global → runtime (all YAML). The first source that provides configuration for a language wins — or merges into the level below it, if it declares `merge: true`.
 
 ---
 
 ## Adding New Language Support
 
-Graphit Code supports 42 supported languages. Tree-sitter grammars (37 languages) are loaded dynamically via CGO dlopen, and 5 ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) run as sidecar binaries with IPC. **Adding an entirely new language grammar does not require recompilation — grammars are installed as plug-and-play binaries via the Hub.**
+Graphit Code supports 45 supported languages. Tree-sitter grammars (40 languages) are loaded dynamically via CGO dlopen, and 5 ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) run as sidecar binaries with IPC. **Adding an entirely new language grammar does not require recompilation — grammars are installed as plug-and-play binaries via the Hub.**
 
 However, the YAML query files that control what gets extracted from the AST are fully customizable. You can:
 
-- **Customize extraction queries** for any of the 42 supported languages
+- **Customize extraction queries** for any of the 45 supported languages
 - **Override export strategies, self keywords, context types**, and other language configuration
 - **Add or remove entity extraction patterns** per project or globally
 
@@ -624,7 +643,7 @@ All extraction behavior is driven by YAML files that follow the 3-level resoluti
 
 | Priority | Path | Scope |
 |----------|------|-------|
-| 1 | `.graphit/ast/queries/` | Project-only |
+| 1 | `ast.queries_dir` — `.graphit/ast/queries/` by default | Project-only |
 | 2 | `~/.graphit/ast/queries/` | All projects (user) |
 | 3 | `~/.graphit/runtime/<version>/ast/queries/` | Factory defaults |
 
@@ -638,6 +657,9 @@ cp ~/.graphit/runtime/*/ast/queries/python.yaml .graphit/ast/queries/python.yaml
 # Edit extraction patterns, exports, context types, etc.
 $EDITOR .graphit/ast/queries/python.yaml
 ```
+
+Or declare `merge: true` and write only what you are changing, instead of owning a
+copy of the whole file — see [Merging instead of replacing](#merging-instead-of-replacing-merge-true).
 
 ### Adding a New Grammar (No Recompilation Required)
 
@@ -735,96 +757,10 @@ The grammar name determines the backend automatically: names starting with `antl
 
 ### Important Notes
 
-- **Built-in grammars**: All 37 Tree-sitter grammars and 5 ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) are loaded dynamically at runtime. YAML query files (extraction patterns, export strategies, language configuration) are customizable via the resolution chain. New grammars can be added via Hub without recompilation.
+- **Built-in grammars**: All 40 Tree-sitter grammars and 5 ANTLR grammars (PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85) are loaded dynamically at runtime. YAML query files (extraction patterns, export strategies, language configuration) are customizable via the resolution chain. New grammars can be added via Hub without recompilation.
 - **Pattern validation**: Invalid Tree-sitter patterns are detected at parse time and logged as warnings, while valid patterns proceed normally. Invalid XPath expressions in ANTLR queries are similarly logged.
-- **Customizing existing languages**: For the 42 languages included by default, all extraction rules, export detection, scoring, context resolution, and docstring attachment are fully YAML-driven. Changing the YAML is sufficient — no rebuild needed.
+- **Customizing existing languages**: For the 44 languages indexed by default, all extraction rules, export detection, context resolution, and docstring attachment are fully YAML-driven. Changing the YAML is sufficient — no rebuild needed.
 - **Parser field**: If the `parser` field is omitted from a YAML file, Tree-sitter is assumed. Existing YAML files do not need modification.
-
----
-
-## Adding New Framework Support
-
-You can add detection for any framework by creating a framework YAML file. This is useful for internal frameworks, niche libraries, or recently released tools not yet included in the defaults.
-
-### Step-by-Step Guide
-
-**1. Create a framework YAML file:**
-
-For a project-level framework, create it in `.graphit/ast/frameworks/`. For a global framework (all projects), use `~/.graphit/ast/frameworks/`.
-
-```bash
-mkdir -p .graphit/ast/frameworks/
-$EDITOR .graphit/ast/frameworks/fastapi.yaml
-```
-
-**2. Define detection rules:**
-
-```yaml
-framework: fastapi
-languages: [python]
-
-# Detect by decorators applied to functions/classes
-decorator_detection:
-  - name: app.get
-    category: web
-  - name: app.post
-    category: web
-  - name: app.put
-    category: web
-  - name: app.delete
-    category: web
-  - name: Depends
-    category: di
-
-# Detect by class inheritance
-heritage_detection:
-  - parent: BaseModel
-    framework_name: pydantic
-    category: validation
-
-# Detect by import paths
-import_detection:
-  - pattern: fastapi
-    match: prefix
-    category: web
-  - pattern: pydantic
-    match: prefix
-    framework_name: pydantic
-    category: validation
-
-# Score entry points specific to this framework
-entry_points:
-  decorators:
-    - name: app.get
-      score: 70
-    - name: app.post
-      score: 70
-    - name: app.put
-      score: 70
-    - name: app.delete
-      score: 70
-    - name: Depends
-      score: 30
-```
-
-**3. Run `graphit sync`:**
-
-```bash
-graphit sync
-```
-
-**4. Verify detection:**
-
-```cypher
-MATCH (c:File {path: '__config__'}) RETURN c.lang AS frameworks
-```
-
-### Tips
-
-- **Use `framework_name`** on individual rules to attribute detection to a sub-framework (e.g., `pydantic` detected via a `fastapi` framework file).
-- **Combine all three detection methods** (decorators, heritage, imports) for robust detection — different projects may use the framework in different ways.
-- **Entry point scoring** in framework files is additive — if multiple framework files define scoring rules, all matching rules contribute to the final score.
-- **Testing your rules**: After `graphit sync`, query for frameworks and entry points to verify that your rules produce the expected results.
 
 ---
 
@@ -838,7 +774,7 @@ Graphit Code provides a **multi-layer override system** so you can customize bot
 
 1. **Project-Level** — `.graphit/rules/<module>.md` / `<module>_skill.md` in the project directory. Applies only to that project.
 2. **Global CLI** — `~/.graphit/rules/<module>.md` / `<module>_skill.md`. Applies to all projects on your machine.
-3. **Hub Main Branch** — `rules/<module>.md` / `rules/<module>_skill.md` on the `main` branch of the Hub Git repository. Applies to all team members automatically.
+3. **Hub Rule Prefix** — `rules/<module>.md` / `rules/<module>_skill.md` in the configured Hub bucket. Applies to all team members automatically.
 4. **Compiled-In Default** — Built into the Graphit Code binary.
 
 The first source found wins. This means a project-level override always takes precedence, followed by the user's global override, then the team's Hub-distributed override, and finally the built-in default.
@@ -891,17 +827,19 @@ The placeholders are replaced at runtime with the full default content. This let
 
 ### Team-Wide Rules and Skills via Hub
 
-To enforce standards across your entire team, commit rule and/or skill files to the `rules/` directory on the `main` branch of the Hub Git repository. For example:
+To enforce standards across your entire team, publish rule and/or skill files to the
+`rules/` prefix of the configured Hub bucket. For example:
 
 ```
-hub-repo (main branch)
+Hub bucket
 └── rules/
     ├── improvements.md          # team-wide improvements rule override
     ├── ast.md                   # team-wide AST rule override
     └── memory_skill.md          # team-wide memory skill override
 ```
 
-Every team member will receive these overrides automatically on `graphit sync` or `graphit update` — they are distributed via git pull, without needing each developer to manually configure their machine.
+Every team member receives these overrides on `graphit sync` or `graphit update` through
+the S3-backed Hub, without separately configuring each project.
 
 > For the full technical specification, see `docs/specs/rule_override.md`.
 

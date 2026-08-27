@@ -50,4 +50,3 @@ func DefaultErr() (Git, error) {
 	_ = Default()
 	return defaultInstance, defaultInitErr
 }
-

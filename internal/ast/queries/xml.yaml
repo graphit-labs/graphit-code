@@ -2,6 +2,12 @@ language: xml
 grammar: tree-sitter-xml
 extensions: [".xml", ".xsl", ".xslt", ".xsd", ".svg", ".wsdl", ".plist", ".xhtml"]
 queries:
+  # === Entity queries ===
+  # XML is a key/value format. Element names, attribute names, attribute values
+  # and character data are all nodes, so every half of every pair is reachable
+  # by full-text search and the pairing survives as a CONTAINS edge:
+  #   Element "database" → Attribute "host" → AttributeValue "db.example.com"
+  #   Element "name"     → Text "orders"
   - data_key: elements
     graph_label: Element
     pattern: '(STag (Name) @name)'
@@ -9,12 +15,53 @@ queries:
     graph_label: Element
     pattern: '(EmptyElemTag (Name) @name)'
 
+  # Attributes. tree-sitter-xml's AttValue spans its own quotes; the engine
+  # strips them, so no extra capture is needed to reach the text.
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(STag (Name) @element (Attribute (Name) @name (AttValue) @value))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(EmptyElemTag (Name) @element (Attribute (Name) @name (AttValue) @value))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+
+  # Character data — <port>5432</port> is a key/value pair as much as an
+  # attribute is, and in configuration XML it carries most of the content.
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(element (STag (Name) @name) (content (CharData) @value))'
+    value_capture: value
+    value_label: Text
+
+  # CDATA holds what character data cannot — a SQL statement, a script, a
+  # fragment of markup — and is exactly the content worth finding by search.
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(element (STag (Name) @name) (content (CDSect (CData) @value)))'
+    value_capture: value
+    value_label: Text
+
 exports:
   strategy: none
 
 self_keywords: []
 
-context_types: {}
+# An element is contained by the element that encloses it, not by the file.
+# tree-sitter-xml's `element` has no "name" field — its name is the Name of its
+# start tag — so the path is declared here. The enclosing element is found by
+# skipping the element the entity itself names.
+context_types:
+  element: Element
+
+context_name_paths:
+  element: STag/Name
 
 anon_func_types: []
 
@@ -23,8 +70,13 @@ declaration_types: []
 comment_types:
   - Comment
 
-entry_points:
-  names: []
-  exported_bonus: 0
-  max_score: 0
-  decorators: []
+# No cyclomatic complexity: XML is a markup format with no control flow.
+
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Element
+  - Text
+  - Comment

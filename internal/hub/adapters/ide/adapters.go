@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	toml "github.com/pelletier/go-toml/v2"
+	"gopkg.in/yaml.v3"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	gitblk "github.com/graphit-labs/graphit-code/internal/git"
@@ -468,40 +471,79 @@ func GlobalRulesFile(ide string) string {
 	}
 }
 
+// SkillFrontmatter builds the YAML frontmatter block that opens a managed
+// SKILL.md: the `name`, which must match the skill's directory, and the
+// `description`, which is what an IDE matches a request against.
+//
+// The block is produced by the YAML marshaller, never by string concatenation.
+// Every module writes prose into the description — "Use when: ...",
+// "MANDATORY: ..." — and a plain YAML scalar may not contain ": ": a strict
+// parser reads the colon as a nested mapping and rejects the whole frontmatter.
+// The skill is then not degraded, it is invisible: the IDE discovers no valid
+// metadata and the agent is never offered the skill, with nothing logged to say
+// why. Kiro (strict) skipped all five skills this way while Claude Code
+// (lenient) loaded the very same files. Deciding which values need quoting, and
+// how, is the marshaller's job — the next description with a character we did
+// not anticipate has to keep working.
+// Both fields are validated against the limits every IDE enforces on a skill,
+// because a value outside them is dropped in the same silent way: the skill
+// stops being offered and nothing says so. Failing here surfaces it as a sync
+// error instead.
+func SkillFrontmatter(name, description string) (string, error) {
+	if err := validateSkillName(name); err != nil {
+		return "", err
+	}
+	if err := validateSkillDescription(name, description); err != nil {
+		return "", err
+	}
+	body, err := yaml.Marshal(skillFrontmatter{Name: name, Description: description})
+	if err != nil {
+		return "", fmt.Errorf("marshaling skill frontmatter for %s: %w", name, err)
+	}
+	return "---\n" + string(body) + "---\n\n", nil
+}
+
+type skillFrontmatter struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+}
+
+const (
+	MaxSkillNameLength        = 64
+	MaxSkillDescriptionLength = 1024
+)
+
+var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+func validateSkillName(name string) error {
+	if name == "" {
+		return fmt.Errorf("skill name is empty")
+	}
+	if utf8.RuneCountInString(name) > MaxSkillNameLength {
+		return fmt.Errorf("skill name %q is %d characters, over the %d-character limit", name, utf8.RuneCountInString(name), MaxSkillNameLength)
+	}
+	if !skillNamePattern.MatchString(name) {
+		return fmt.Errorf("skill name %q must be lowercase letters, digits and single separating hyphens, and must match the skill's directory name", name)
+	}
+	return nil
+}
+
+func validateSkillDescription(name, description string) error {
+	if strings.TrimSpace(description) == "" {
+		return fmt.Errorf("skill %s: description is empty, and it is what the IDE matches a request against", name)
+	}
+	if n := utf8.RuneCountInString(description); n > MaxSkillDescriptionLength {
+		return fmt.Errorf("skill %s: description is %d characters, over the %d-character limit", name, n, MaxSkillDescriptionLength)
+	}
+	return nil
+}
+
 func InstallManagedSkill(projectDir, ideName, skillName, content string) error {
 	adapter := GetAdapter(ideName)
 	if adapter == nil {
 		return fmt.Errorf("unknown IDE: %s", ideName)
 	}
 	return installSkillForAdapter(adapter, projectDir, skillName, content)
-}
-
-func ManagedSkillHashCachePath(projectDir, ideName, skillName string) string {
-	adapter := GetAdapter(ideName)
-	if adapter == nil {
-		return ""
-	}
-	rootDir := adapterRootDir(adapter)
-	if rootDir == "" {
-		return ""
-	}
-	return skillHashCachePath(projectDir, rootDir, skillName)
-}
-
-func adapterRootDir(adapter Adapter) string {
-	switch a := adapter.(type) {
-	case *GeminiAdapter:
-		return a.cfg.RootDirName
-	case *ClaudeAdapter:
-		return a.cfg.RootDirName
-	case *CodexAdapter:
-		return a.cfg.RootDirName
-	case *OpenCodeAdapter:
-		return a.cfg.RootDirName
-	case *FolderBasedAdapter:
-		return a.cfg.RootDirName
-	}
-	return ""
 }
 
 func RemoveManagedSkill(projectDir, ideName, skillName string) error {
@@ -512,17 +554,10 @@ func RemoveManagedSkill(projectDir, ideName, skillName string) error {
 	return removeSkillForAdapter(adapter, projectDir, skillName)
 }
 
-// SkillHashCachePath returns the path for a skill's content hash.
-// Hashes are stored in {projectDir}/.graphit/cache/skills/{adapterRoot}/{skillName}
-// rather than inside the skill directory, keeping skill dirs free of cache files.
-func SkillHashCachePath(projectDir, rootDirName, skillName string) string {
-	return skillHashCachePath(projectDir, rootDirName, skillName)
-}
-
 func skillHashCachePath(projectDir, rootDirName, skillName string) string {
 	// Strip leading dot from rootDirName (.agents → agents, .cursor → cursor).
 	adapterKey := strings.TrimPrefix(rootDirName, ".")
-	return filepath.Join(projectDir, brand.DotDir(), "cache", "skills", adapterKey, skillName)
+	return brand.ProjectRuntimePath(projectDir, "cache", "skills", adapterKey, skillName)
 }
 
 // GetSkillDir returns the directory where a skill is installed for the given

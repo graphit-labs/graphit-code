@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
@@ -33,9 +33,9 @@ func (h *DaemonDreamHandler) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/daemon/stop", corsJSON(h.handleDaemonStop))
 	mux.HandleFunc("GET /api/dream/status", corsJSON(h.handleDreamStatus))
 	mux.HandleFunc("GET /api/dream/reports", corsJSON(h.handleDreamReports))
-	mux.HandleFunc("GET /api/dream/subjects", corsJSON(h.handleDreamSubjects))
-	mux.HandleFunc("POST /api/dream/subject", corsJSON(h.handleDreamSubjectAdd))
-	mux.HandleFunc("DELETE /api/dream/subject/{slug}", corsJSON(h.handleDreamSubjectRemove))
+	mux.HandleFunc("GET /api/backlog", corsJSON(h.handleBacklogList))
+	mux.HandleFunc("POST /api/backlog/item", corsJSON(h.handleBacklogAdd))
+	mux.HandleFunc("DELETE /api/backlog/item/{slug}", corsJSON(h.handleBacklogRemove))
 }
 
 func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.Request) {
@@ -133,17 +133,17 @@ func (h *DaemonDreamHandler) handleDreamStatus(w http.ResponseWriter, r *http.Re
 	cfg := dream.ResolveDreamConfig(projectCfg)
 
 	type DreamStatusResult struct {
-		Enabled         bool      `json:"enabled"`
-		DaemonRunning   bool      `json:"daemon_running"`
-		DaemonPID       int       `json:"daemon_pid,omitempty"`
-		Status          string    `json:"status"`
-		SessionID       string    `json:"session_id,omitempty"`
-		LastDreamAt     time.Time `json:"last_dream_at,omitempty"`
-		LastUserEditAt  time.Time `json:"last_user_edit_at,omitempty"`
-		IdleTimeout     string    `json:"idle_timeout"`
-		MaxDuration     string    `json:"max_duration"`
-		TotalReports    int       `json:"total_reports"`
-		PendingSubjects []string  `json:"pending_subjects,omitempty"`
+		Enabled        bool      `json:"enabled"`
+		DaemonRunning  bool      `json:"daemon_running"`
+		DaemonPID      int       `json:"daemon_pid,omitempty"`
+		Status         string    `json:"status"`
+		SessionID      string    `json:"session_id,omitempty"`
+		LastDreamAt    time.Time `json:"last_dream_at,omitempty"`
+		LastUserEditAt time.Time `json:"last_user_edit_at,omitempty"`
+		IdleTimeout    string    `json:"idle_timeout"`
+		MaxDuration    string    `json:"max_duration"`
+		TotalReports   int       `json:"total_reports"`
+		PendingBacklog []string  `json:"pending_backlog,omitempty"`
 	}
 
 	var res DreamStatusResult
@@ -155,8 +155,8 @@ func (h *DaemonDreamHandler) handleDreamStatus(w http.ResponseWriter, r *http.Re
 		res.MaxDuration = "unlimited"
 	}
 
-	currentULID, lastUserMod, lastDreamAt, _, _, exhausted, dreaming := dream.LoadStateFromDir(projectDir)
-	res.SessionID = currentULID
+	currentSessionID, lastUserMod, lastDreamAt, _, _, exhausted, dreaming := dream.LoadStateFromDir(projectDir)
+	res.SessionID = currentSessionID
 	res.LastDreamAt = lastDreamAt
 	res.LastUserEditAt = lastUserMod
 
@@ -177,14 +177,13 @@ func (h *DaemonDreamHandler) handleDreamStatus(w http.ResponseWriter, r *http.Re
 		res.Status = "inactive"
 	}
 
-	dreamDir := filepath.Join(projectDir, brand.DotDir(), "dream")
-	if entries, err := scanDreamReportsLocal(dreamDir); err == nil {
-		res.TotalReports = len(entries)
+	if reports, err := dream.ListReports(projectDir); err == nil {
+		res.TotalReports = len(reports)
 	}
 
-	if pending, err := dream.PendingSubjects(projectDir); err == nil {
-		for _, s := range pending {
-			res.PendingSubjects = append(res.PendingSubjects, s.Title)
+	if pending, err := backlog.Pending(projectDir); err == nil {
+		for _, item := range pending {
+			res.PendingBacklog = append(res.PendingBacklog, item.Title)
 		}
 	}
 
@@ -198,49 +197,38 @@ func (h *DaemonDreamHandler) handleDreamReports(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	dreamDir := filepath.Join(projectDir, brand.DotDir(), "dream")
-	info, err := os.Stat(dreamDir)
-	if err != nil || !info.IsDir() {
-		writeJSON(w, []dreamReportEntry{})
-		return
-	}
-
-	entries, err := scanDreamReportsLocal(dreamDir)
+	reports, err := dream.ListReports(projectDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if entries == nil {
-		entries = []dreamReportEntry{}
+	if reports == nil {
+		reports = []dream.Report{}
 	}
 
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Created.After(entries[j].Created)
-	})
-
-	writeJSON(w, entries)
+	writeJSON(w, reports)
 }
 
-func (h *DaemonDreamHandler) handleDreamSubjects(w http.ResponseWriter, r *http.Request) {
+func (h *DaemonDreamHandler) handleBacklogList(w http.ResponseWriter, r *http.Request) {
 	projectDir := r.URL.Query().Get("project_dir")
 	if projectDir == "" {
 		http.Error(w, "project_dir required", http.StatusBadRequest)
 		return
 	}
 
-	subjects, err := dream.ListSubjects(projectDir)
+	items, err := backlog.List(projectDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if subjects == nil {
-		subjects = []dream.Subject{}
+	if items == nil {
+		items = []backlog.Item{}
 	}
 
-	writeJSON(w, subjects)
+	writeJSON(w, items)
 }
 
-func (h *DaemonDreamHandler) handleDreamSubjectAdd(w http.ResponseWriter, r *http.Request) {
+func (h *DaemonDreamHandler) handleBacklogAdd(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -266,16 +254,16 @@ func (h *DaemonDreamHandler) handleDreamSubjectAdd(w http.ResponseWriter, r *htt
 		return
 	}
 
-	subj, err := dream.AddSubject(projectDir, body.Title, body.Body)
+	item, err := backlog.Add(projectDir, body.Title, body.Body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	writeJSON(w, subj)
+	writeJSON(w, item)
 }
 
-func (h *DaemonDreamHandler) handleDreamSubjectRemove(w http.ResponseWriter, r *http.Request) {
+func (h *DaemonDreamHandler) handleBacklogRemove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "DELETE only", http.StatusMethodNotAllowed)
 		return
@@ -293,89 +281,12 @@ func (h *DaemonDreamHandler) handleDreamSubjectRemove(w http.ResponseWriter, r *
 		return
 	}
 
-	if err := dream.RemoveSubject(projectDir, slug); err != nil {
+	if err := backlog.Remove(projectDir, slug); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	writeJSON(w, map[string]any{"success": true, "message": fmt.Sprintf("Subject %q removed.", slug)})
-}
-
-type dreamReportEntry struct {
-	ID           string    `json:"id"`
-	Path         string    `json:"path"`
-	Created      time.Time `json:"created"`
-	Title        string    `json:"title"`
-	Size         int64     `json:"size"`
-	HasDeepSleep bool      `json:"has_deep_sleep"`
-}
-
-func scanDreamReportsLocal(dreamDir string) ([]dreamReportEntry, error) {
-	dirEntries, err := os.ReadDir(dreamDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var reports []dreamReportEntry
-	for _, de := range dirEntries {
-		name := de.Name()
-		if de.IsDir() || !strings.HasSuffix(name, ".md") {
-			continue
-		}
-
-		id := strings.TrimSuffix(name, ".md")
-		path := filepath.Join(dreamDir, name)
-
-		info, err := de.Info()
-		if err != nil {
-			continue
-		}
-
-		entry := dreamReportEntry{
-			ID:      id,
-			Path:    path,
-			Created: info.ModTime(),
-			Size:    info.Size(),
-		}
-
-		entry.Title = extractFrontmatterTitleLocal(path)
-		sentinelPath := filepath.Join(dreamDir, id+".exhausted")
-		if _, err := os.Stat(sentinelPath); err == nil {
-			entry.HasDeepSleep = true
-		}
-
-		reports = append(reports, entry)
-	}
-	return reports, nil
-}
-
-func extractFrontmatterTitleLocal(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-
-	content := string(data)
-	if !strings.HasPrefix(content, "---\n") {
-		return ""
-	}
-
-	endIdx := strings.Index(content[4:], "\n---")
-	if endIdx < 0 {
-		return ""
-	}
-
-	frontmatter := content[4 : 4+endIdx]
-	for _, line := range strings.Split(frontmatter, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "title:") {
-			title := strings.TrimPrefix(line, "title:")
-			title = strings.TrimSpace(title)
-			title = strings.Trim(title, "\"'")
-			return title
-		}
-	}
-	return ""
+	writeJSON(w, map[string]any{"success": true, "message": fmt.Sprintf("Backlog item %q removed.", slug)})
 }
 
 func splitLastNLocal(s string, n int) []string {

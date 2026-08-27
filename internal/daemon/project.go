@@ -6,11 +6,21 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
+
+// ActivityReporter is implemented by modules that can tell their supervisor
+// about filesystem activity as they see it — SyncModule, watching every file
+// change in the project — so the supervisor's idle clock resets on real
+// activity instead of daemon.reconcileProjects having to re-walk the tree.
+type ActivityReporter interface {
+	SetActivityCallback(func())
+}
 
 type ProjectSupervisor struct {
 	projectDir     string
@@ -23,6 +33,11 @@ type ProjectSupervisor struct {
 	stopped        bool
 	projectLogFile *os.File
 	globalLogFn    func(string, ...any)
+
+	// lastActivity is a UnixNano timestamp, touched by modules implementing
+	// ActivityReporter whenever they observe a filesystem change. reconcileProjects
+	// parks a supervisor once IdleFor() exceeds the configured activity window.
+	lastActivity atomic.Int64
 }
 
 func newProjectSupervisor(projectID, projectDir string, modules []WatchModule) *ProjectSupervisor {
@@ -30,11 +45,23 @@ func newProjectSupervisor(projectID, projectDir string, modules []WatchModule) *
 	for _, m := range modules {
 		entries = append(entries, newModuleEntry(m))
 	}
-	return &ProjectSupervisor{
+	ps := &ProjectSupervisor{
 		projectDir: projectDir,
 		projectID:  projectID,
 		modules:    entries,
 	}
+	ps.Touch()
+	return ps
+}
+
+// Touch records filesystem activity, resetting the idle clock.
+func (ps *ProjectSupervisor) Touch() {
+	ps.lastActivity.Store(time.Now().UnixNano())
+}
+
+// IdleFor reports how long it has been since the last recorded activity.
+func (ps *ProjectSupervisor) IdleFor() time.Duration {
+	return time.Since(time.Unix(0, ps.lastActivity.Load()))
 }
 
 func (ps *ProjectSupervisor) AddCloser(c io.Closer) {
@@ -45,7 +72,7 @@ func (ps *ProjectSupervisor) Start(ctx context.Context, logFn func(string, ...an
 	ctx, ps.cancel = context.WithCancel(ctx)
 	ps.globalLogFn = logFn
 
-	projectLogDir := filepath.Join(ps.projectDir, brand.DotDir(), "daemon")
+	projectLogDir := brand.ProjectRuntimePath(ps.projectDir, "daemon")
 	if err := os.MkdirAll(projectLogDir, 0o755); err == nil {
 		if f, err := os.OpenFile(
 			filepath.Join(projectLogDir, "daemon.log"),
@@ -181,7 +208,11 @@ func (ps *ProjectSupervisor) supervise(ctx context.Context, entry *moduleEntry) 
 func runProtected(ctx context.Context, entry *moduleEntry) (retErr error) {
 	defer func() {
 		if r := recover(); r != nil {
-			retErr = fmt.Errorf("panic: %v", r)
+			// The stack, not just the value: a module that crash-loops writes one
+			// line per restart, and "panic: slice bounds out of range" names no
+			// file, no function and no line. Sixty-six of those accumulated over
+			// twelve days here without ever saying where to look.
+			retErr = fmt.Errorf("panic: %v\n%s", r, debug.Stack())
 		}
 	}()
 	return entry.mod.Start(ctx)

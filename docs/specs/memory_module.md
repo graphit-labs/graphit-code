@@ -1,124 +1,127 @@
----
-title: "Memory Module Specification"
-description: "Technical specification of the Memory module, detailing Git-backed memories, scopes, and background consolidation cycles."
-content-type: reference
-audience: developers
-keywords:
-  - memory
-  - git
-  - consolidation
-  - project memory
-  - user memory
-prerequisites:
-  - "docs/architecture/architecture_overview.md"
-related:
-  - "docs/specs/wiki_module.md"
-  - "docs/specs/hub_collaboration.md"
----
-
 # Memory Module Specification
 
-The Memory module manages persistent, progressive memories for AI agents.
-It captures preferences, corrections, design decisions, and skills, ensuring that agents learn from past iterations and do not repeat identical mistakes across sessions.
+The Memory module stores durable preferences, corrections, decisions, and learned
+procedures for AI agents. Raw Markdown is the source of truth; a compiled wiki is
+the query surface. Optional S3 publication shares scopes across machines without a
+Git repository.
 
----
+## Scopes and local storage
 
-## 🗃️ Dual-Scope Git Storage
+Memory has two primary scopes:
 
-Memory is split into two scopes, isolated as markdown files inside a hidden directory under the workspace:
+- `project`: shared architectural facts, workflows, and team conventions, keyed
+  by the project's ULID.
+- `user`: personal preferences and workstation conventions, keyed by the user
+  identity hash.
 
+Imported memory contexts use the same mechanism with a context name. All stores
+live once in the global brand directory:
+
+```text
+~/.graphit/
+├── memory-raw/memory-project-<project-id>/   raw Markdown, source of truth
+├── memory-raw/memory-user-<user-id>/         raw Markdown, source of truth
+└── wiki/memory/<scope>/<id>/                 compiled searchable wiki
 ```
-workspace/
-└── .graphit/
-    └── memory/
-        ├── project/              # Shared Project Memory
-        │   ├── index.md          # Index catalog
-        │   └── ALWAYS_run_make_ci.md
-        └── user/                 # Personal User Memory
-            ├── index.md          # Index catalog
-            └── prefer_tabs.md
+
+Nothing is copied into a project's `.graphit` directory. See
+[Storage Layout](../architecture/storage_layout.md).
+
+## Optional S3 backend
+
+Memory shares the Hub's S3 configuration; there is no `memory.repo` or separate
+memory bucket key. With `hub.bucket` configured, a scope maps directly to:
+
+```text
+s3://<bucket>/<hub.prefix>/memory/<scope>/<id>/
 ```
 
-### 1. Project Memory
-- **Location**: `.graphit/memory/project/`
-- **Scope**: Team-wide.
-- **Backend**: Commits are pushed to a shared central Git repository.
-- **Use Case**: Encodes database schemas, architectural patterns, test workflows, and team-specific code invariants.
+A complete explicit credential pair from global Graphit config is passed to the
+S3 client. When either explicit value is absent, the AWS SDK provider chain is
+used. With no bucket, every memory operation remains available locally and no
+objects are uploaded. See
+[S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md).
 
-### 2. User Memory
-- **Location**: `.graphit/memory/user/`
-- **Scope**: User-specific.
-- **Backend**: Local to the machine, or pushed to a private personal repository.
-- **Use Case**: Encodes local environment setups, API keys configuration preferences, and personal editor commands.
+### Pull, publish, conflict, and deletion semantics
 
----
+- `Pull` merges remote objects into the raw directory. It does not mirror-delete
+  local files, because an unpublished local memory must survive synchronization.
+- `Publish` uploads the raw scope in the background. The CLI and daemon wait for
+  pending uploads on shutdown so the last write is not abandoned.
+- `RemoveFile` records a local deletion; the next publish removes the matching
+  remote object.
+- Independent memory IDs do not conflict. Concurrent edits to the same object are
+  last-writer-wins.
+- Pruning a local scope reclaims local disk and deregisters it; it deliberately
+  does not delete the remote prefix another machine may still use.
 
-## 🃏 Memory Card Structure
+Object storage has no commit message. Audit history lives in the memory itself:
+`revision`, `previous`, and `updated_by` frontmatter identify the chain, and
+superseded bodies are archived under the memory history path.
 
-Every memory card is a markdown file containing structured YAML frontmatter:
+## Memory card structure
+
+Each card is a Markdown file with YAML frontmatter and a structured body:
 
 ```yaml
 ---
-title: "NEVER_write_output_directly_to_stdout"
-type: "correction"
-tags: ["logging", "output"]
-created_at: 2026-05-29T20:00:00Z
-updated_at: 2026-05-29T20:00:00Z
+title: "Prefer table-driven Go tests"
+type: "preference"
+tags: ["go", "testing"]
+created_at: 2026-08-24T12:00:00Z
+updated_at: 2026-08-24T12:00:00Z
 important: true
+revision: "01..."
+updated_by: "user-id"
 ---
 
-# NEVER Write Output Directly to stdout
+# Prefer table-driven Go tests
 
 ## What
-The domain layer must never write directly to stdout or stderr.
+Use table-driven cases for related Go scenarios.
 
 ## Why
-Writing directly to system outputs breaks context rendering in IDE extensions and CLI adapters.
+The shared setup makes edge cases visible and keeps assertions consistent.
 
 ## How
-Redirect all command and domain operations through the `internal/output` package printer.
+Name every case and run it with `t.Run`.
 
 ## Impact
-Enables clean JSON formatting and progressive loader spinners across all interfaces.
+New tests follow one reviewable pattern.
 ```
 
-The body must conform to the **What/Why/How/Impact** template to ensure that instructions are clear and actionable for LLM agents.
+The What/Why/How/Impact sections make the instruction actionable for an agent.
 
----
+## Shards and compiled wiki
 
-## 🔄 Memory Cycle & Consolidation Pipeline
+After a successful compile, content-addressed chunk and embedding shards are
+mirrored beside the raw scope under `.wiki/shards/` and published with it. Another
+machine can reuse those vectors instead of embedding unchanged text again.
 
-To prevent memory bloat, `internal/memory/consolidate.go` runs background optimization tasks:
+The compiled pages and LanceDB index remain local and are rebuilt from raw
+Markdown plus valid shards. Imports are additive; a shard is used only when its
+source hash matches. The generated search database is never the source of truth.
 
-```mermaid
-graph TD
-    Trigger["Daemon Ticker (Periodic)"] --> Scan["Scan Memory Files"]
-    Scan --> CheckConflicts{"Check Contradictions?"}
-    CheckConflicts -- Yes --> Resolve["Overwrite / Merge files"]
-    CheckConflicts -- No --> Deduplicate{"Deduplicate & Summarize"}
-    
-    Deduplicate --> Commit["Commit Changes to Git"]
-    Commit --> Push["Push to remote Git repositories"]
+## Write and consolidation cycle
+
+A normal memory mutation follows this chain:
+
+```text
+pull/merge remote → write raw Markdown → compile wiki → mirror shards → publish in background
 ```
 
-### 1. Deduplication
-If multiple similar corrections are logged (e.g. repeated user prompts about writing logs), the consolidation pipeline merges them into a single, comprehensive convention card.
+The consolidation cycle can deduplicate related cards, resolve superseded
+instructions, promote durable facts, and maintain history. It changes raw cards
+first and recompiles the same scope; it never edits the compiled index as primary
+data.
 
-### 2. Contradiction Resolution
-If a new convention contradicts an older memory, the pipeline overrides the stale record, updates the `updated_at` attribute, and logs a note inside `log.md`.
+## Daemon synchronization
 
-### 3. Git Push
-To ensure sync reliability without interrupting user workflow, commits are pushed asynchronously.
-The CLI calls `memory.WaitForPendingPushes()` on exit to ensure that background Git pushes finish before the shell command terminates.
+The global memory sync module discovers active scopes from the global memory lock
+and watches the `memory-raw/` root. It debounces filesystem changes, recompiles only
+the touched scopes, and handles lost-event rescans by recompiling all registered
+scopes. The module runs once per daemon because memory storage is global, not once
+per project.
 
----
-
-## 🔄 Daemon Auto-Sync (`MemorySyncModule`)
-
-The daemon includes a global `MemorySyncModule` that watches all active memory git worktrees:
-
-- **Discovery**: Reads `~/.graphit/memory.lock.json` to find active branches (project and user scopes)
-- **Polling**: Every 10 seconds, runs `git status --porcelain -unormal` + `git rev-parse HEAD` on each worktree
-- **Detection**: Combined state hash detects both uncommitted raw file edits and committed changes (from `memory_insert`/`memory_update` MCP calls)
-- **Recompilation**: When changes are detected, calls `memory.RunCycle` to regenerate the memory wiki from raw files
-- **Global scope**: Runs once per daemon instance, not per-project, since memory worktrees live in `~/.graphit/memory-wt/`
+Remote failures do not erase the local raw source. They are logged and retried by
+later synchronization, while an unconfigured bucket stays intentionally local-only.

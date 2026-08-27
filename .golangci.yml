@@ -7,8 +7,17 @@ linters:
     - gosec
     - errorlint
     - gocritic
-  disable:
-    - unused
+    # unused is the only automated guard against dead code here, and it covers
+    # exactly half the problem: staticcheck's unused reports UNEXPORTED
+    # identifiers only. Every package in this repository is internal/, so an
+    # export nobody references is unreachable too — and for that half there is no
+    # linter at all, only a query against the AST graph, run by hand.
+    #
+    # Turning it on cost 0 issues, so the half that CAN be automated is now kept
+    # clean between one manual sweep and the next. A false positive — a struct
+    # field read only through encoding/json reflection, a method satisfying an
+    # interface by duck typing — takes a //nolint:unused at the site with its
+    # reason on the same line, never a second blanket disable.
   settings:
     govet:
       disable-all: false

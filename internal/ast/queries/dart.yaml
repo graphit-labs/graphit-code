@@ -31,7 +31,7 @@ queries:
     graph_label: Extension
     pattern: '(extension_declaration name: (identifier) @name)'
   - data_key: imports
-    graph_label: Module
+    graph_label: Import
     pattern: '(import_specification (configurable_uri (uri (string_literal) @name)))'
   - data_key: parameters
     graph_label: Parameter
@@ -39,6 +39,21 @@ queries:
   - data_key: fields
     graph_label: Field
     pattern: '(initialized_identifier (identifier) @name)'
+
+  # Declared literal values — the literal becomes a node contained by the name.
+  - data_key: fields
+    graph_label: Field
+    pattern: '(initialized_identifier name: (identifier) @name value: [(decimal_integer_literal) (hex_integer_literal) (decimal_floating_point_literal) (true) (false) (null_literal) (string_literal)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(static_final_declaration name: (identifier) @name)'
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(static_final_declaration name: (identifier) @name value: [(decimal_integer_literal) (hex_integer_literal) (decimal_floating_point_literal) (true) (false) (null_literal) (string_literal)] @value)'
+    value_capture: value
+    value_label: Value
 
   # === Relation queries ===
   - data_key: decorators
@@ -73,6 +88,11 @@ context_types:
   enum_declaration: Enum
   mixin_declaration: Mixin
   extension_declaration: Extension
+  # Dart declares a subprogram's signature as its own node — the queries above
+  # read Function and Method out of function_signature/method_signature — so
+  # these have to be contexts or every parameter is attributed to the class.
+  function_signature: Function
+  method_signature: Method
 
 # Anonymous function types for variable_declarator resolution
 anon_func_types:
@@ -93,136 +113,33 @@ comment_types:
   - comment
   - documentation_comment
 
-# Entry point scoring rules for Dart
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "test*"
-      score: 60
-    - pattern: init
-      score: 40
-    - pattern: initState
-      score: 50
-    - pattern: build
-      score: 50
-    - pattern: setup
-      score: 40
-    - pattern: configure
-      score: 40
-    - pattern: "*Handler"
-      score: 30
-    - pattern: "*Controller"
-      score: 30
-    - pattern: "run*"
-      score: 20
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. && / || are wrapped in logical_and_expression /
+# logical_or_expression here, not bare tokens — do not also list them as
+# operators, or every one would be counted twice. switch_statement_case is
+# cleanly separate from switch_statement_default, unlike C/C++/Java.
+complexity:
+  node_types:
+    - if_statement
+    - for_statement
+    - while_statement
+    - switch_statement_case
+    - catch_clause
+    - conditional_expression
+    - logical_and_expression
+    - logical_or_expression
 
-  exported_bonus: 10
-  max_score: 100
-
-  decorators:
-    # Flutter widget/state annotations
-    - name: override
-      score: 30
-    - name: immutable
-      score: 20
-    - name: protected
-      score: 20
-    - name: required
-      score: 20
-    - name: visibleForTesting
-      score: 40
-    # Testing annotations
-    - name: isTest
-      score: 60
-    - name: isTestGroup
-      score: 60
-    # Code generation annotations
-    - name: JsonSerializable
-      score: 30
-    - name: freezed
-      score: 30
-    - name: riverpod
-      score: 40
-    # Server-side annotations (shelf/dart_frog)
-    - name: Route
-      score: 70
-
-# Import detection (Dart/Flutter framework detection)
-import_detection:
-  - pattern: "package:flutter/"
-    match: prefix
-    framework: flutter
-    category: ui
-  - pattern: "package:flutter_test/"
-    match: prefix
-    framework: flutter-test
-    category: test
-  - pattern: "package:test/"
-    match: prefix
-    framework: dart-test
-    category: test
-  - pattern: "package:http/"
-    match: prefix
-    framework: http
-    category: web
-  - pattern: "package:dio/"
-    match: prefix
-    framework: dio
-    category: web
-  - pattern: "package:provider/"
-    match: prefix
-    framework: provider
-    category: state
-  - pattern: "package:riverpod/"
-    match: prefix
-    framework: riverpod
-    category: state
-  - pattern: "package:flutter_riverpod/"
-    match: prefix
-    framework: riverpod
-    category: state
-  - pattern: "package:bloc/"
-    match: prefix
-    framework: bloc
-    category: state
-  - pattern: "package:flutter_bloc/"
-    match: prefix
-    framework: bloc
-    category: state
-  - pattern: "package:get/"
-    match: prefix
-    framework: getx
-    category: state
-  - pattern: "package:shelf/"
-    match: prefix
-    framework: shelf
-    category: web
-  - pattern: "package:dart_frog/"
-    match: prefix
-    framework: dart-frog
-    category: web
-  - pattern: "package:json_annotation/"
-    match: prefix
-    framework: json-serializable
-    category: serialization
-  - pattern: "package:freezed_annotation/"
-    match: prefix
-    framework: freezed
-    category: codegen
-  - pattern: "package:drift/"
-    match: prefix
-    framework: drift
-    category: orm
-  - pattern: "package:sqflite/"
-    match: prefix
-    framework: sqflite
-    category: database
-  - pattern: "package:firebase_core/"
-    match: prefix
-    framework: firebase
-    category: cloud
-  - pattern: "package:grpc/"
-    match: prefix
-    framework: grpc
-    category: rpc
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Class
+  - Mixin
+  - Extension
+  - Enum
+  - Function
+  - Method
+  - Field
+  - Constant
+  - Comment

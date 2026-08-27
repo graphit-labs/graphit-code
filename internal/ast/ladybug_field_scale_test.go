@@ -23,7 +23,7 @@ import (
 // This one matches the field run: same row count, same order of value size, and
 // the same FTS index build that raised the original exception.
 //
-//	go test -tags fts5 -run TestLadybugFieldScaleStringIntegrity -timeout 60m ./internal/ast/
+//	go test -tags lancedb -run TestLadybugFieldScaleStringIntegrity -timeout 60m ./internal/ast/
 //
 // It is skipped unless GRAPHIT_FIELD_SCALE is set, because it writes on the
 // order of a gigabyte and takes minutes.

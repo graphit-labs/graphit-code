@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
 type EmbeddingConfig struct {
@@ -22,6 +25,30 @@ type EmbeddingConfig struct {
 	EmbCache *ShardEmbCache
 
 	ParseCache *ShardCache
+
+	// RepoRoot is the indexed tree, read only when the parse cache has no text for
+	// a file — which is what `ast.index_source: false` produces.
+	//
+	// That setting says "do not keep a copy of the source", not "do not look at the
+	// source": an embedding is a vector, not recoverable text, so it can be computed
+	// from the file and persisted while the text itself never is. Without this the
+	// flag silently degraded semantic search, since the snippet is the only part of
+	// the embedded text that describes what an entity DOES rather than what it is
+	// called. Empty disables the read, and the embedding falls back to name,
+	// docstring and context alone.
+	RepoRoot string
+
+	// ProjectDir is the project whose grammars decide which labels get a vector —
+	// `embed_labels`, resolved project-then-user-then-runtime.
+	//
+	// It is the same directory as RepoRoot in every caller, and separate from it on
+	// purpose: RepoRoot is a place to READ SOURCE FROM, and blanking it is a
+	// supported state that means "do not read the tree". Blanking the answer to
+	// "which labels does this language embed" is a different thing entirely — it
+	// embeds nothing — and one field cannot mean both. Empty here falls back to the
+	// user and runtime grammar levels, which is what a caller outside any project
+	// should get.
+	ProjectDir string
 }
 
 func DefaultEmbeddingConfig() EmbeddingConfig {
@@ -57,10 +84,39 @@ func (e *Embedder) CountPending(ctx context.Context) int {
 	return total
 }
 
-var embeddableLabels = []string{
-	"Function", "Class", "Procedure", "Method", "Package", "Trigger",
-	"Struct", "Enum", "Type", "Interface", "Module", "Trait",
-	"Variable", "Constant", "Table", "View",
+// embedRanker answers "does this (lang, label) get a vector, and at what
+// priority" from the grammars themselves — `embed_labels` in each language's query
+// YAML. See ExternalQueryFile.EmbedLabels for why the answer cannot live here.
+//
+// Rank is the label's index in its own language's declared list, and it is what
+// resolves a (path, uid) carried by two labels: lower rank wins. Comparing ranks
+// across languages is meaningless and never happens — a collision is one entity in
+// one file, so both sides come from the same grammar.
+type embedRanker struct {
+	projectDir string
+	byLang     map[string]map[string]int
+}
+
+func newEmbedRanker(projectDir string) *embedRanker {
+	return &embedRanker{projectDir: projectDir, byLang: make(map[string]map[string]int)}
+}
+
+// rank reports the label's priority for its language, and whether the language
+// asked for it to be embedded at all.
+func (r *embedRanker) rank(lang, label string) (int, bool) {
+	ranks, ok := r.byLang[lang]
+	if !ok {
+		declared := EmbedLabelsForLang(r.projectDir, lang)
+		ranks = make(map[string]int, len(declared))
+		for i, l := range declared {
+			if _, dup := ranks[l]; !dup {
+				ranks[l] = i
+			}
+		}
+		r.byLang[lang] = ranks
+	}
+	i, ok := ranks[label]
+	return i, ok
 }
 
 type entityRow struct {
@@ -72,10 +128,43 @@ type entityRow struct {
 	Line      int
 	EndLine   int
 	Context   string
+	// Rank is this label's index in its language's embed_labels, carried on the
+	// row because the row is the only place that still knows which language
+	// answered for it. See embedRanker.
+	Rank int
 	// Source is the entity's source snippet, precomputed during the single
 	// streaming scan (while the shard is loaded) so the embedding phase does not
 	// reload/pin shards to fetch it. Empty when source indexing is off.
 	Source string
+}
+
+// labelOrder puts the buckets in a deterministic, grammar-declared order: by the
+// best rank any of a label's rows carries, then by name so two labels that tie
+// never swap between runs.
+//
+// The batch loop and the dedup both walk this, and they must walk the SAME order:
+// the dedup decides which label keeps a (path, uid), and it decides it by being
+// there first.
+func labelOrder(buckets map[string][]entityRow) []string {
+	labels := make([]string, 0, len(buckets))
+	best := make(map[string]int, len(buckets))
+	for label, rows := range buckets {
+		labels = append(labels, label)
+		r := rows[0].Rank
+		for _, row := range rows[1:] {
+			if row.Rank < r {
+				r = row.Rank
+			}
+		}
+		best[label] = r
+	}
+	sort.Slice(labels, func(i, j int) bool {
+		if best[labels[i]] != best[labels[j]] {
+			return best[labels[i]] < best[labels[j]]
+		}
+		return labels[i] < labels[j]
+	})
+	return labels
 }
 
 func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
@@ -100,7 +189,7 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 	}
 
 	done := 0
-	for _, label := range embeddableLabels {
+	for _, label := range labelOrder(buckets) {
 		rows := buckets[label]
 		if len(rows) == 0 {
 			continue
@@ -125,15 +214,35 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 // is true it also precomputes each row's source snippet from the loaded shard so
 // the embedding phase never reloads a shard just to fetch source text.
 func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
-	labelSet := make(map[string]bool, len(embeddableLabels))
-	for _, l := range embeddableLabels {
-		labelSet[l] = true
-	}
+	// Which labels are embeddable is a per-LANGUAGE answer, read from the grammar
+	// that produced the entity — so it is resolved per row, not once for the scan.
+	// The ranker memoises each language the first time it is asked.
+	ranker := newEmbedRanker(e.cfg.ProjectDir)
+
+	// Shards with no text and no readable file: their entities get embedded by name
+	// alone. Counted so the degradation is reported instead of being silent — the
+	// case is a context installed from elsewhere whose origin indexed without source,
+	// where there is no tree here to read and nothing the operator can do locally,
+	// but plenty they would want to know.
+	textless := 0
 
 	buckets := make(map[string][]entityRow)
 	e.cfg.ParseCache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
+		// Split ONCE per shard, not once per entity, and resolved lazily so a cache
+		// that DOES carry text never touches the disk.
+		var fileLines []string
+		sourceResolved := false
+		if entry.Source != "" {
+			fileLines = strings.Split(entry.Source, "\n")
+			sourceResolved = true
+		}
+
 		for _, ent := range entry.Entities {
-			if !labelSet[ent.Label] || ent.UID == "" || ent.Name == "" {
+			if ent.UID == "" || ent.Name == "" {
+				continue
+			}
+			rank, embeddable := ranker.rank(ent.Lang, ent.Label)
+			if !embeddable {
 				continue
 			}
 			hash := e.cfg.ParseCache.GetHash(ent.Path)
@@ -152,25 +261,36 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 				Line:      ent.Line,
 				EndLine:   ent.EndLine,
 				Context:   ent.Context,
+				Rank:      rank,
 			}
-			if withSnippet {
-				row.Source = embedSourceSnippet(entry.Source, ent.Line, ent.EndLine)
+			// A comment's snippet is the comment itself, marker syntax included, so
+			// slicing it appends the name a second time and pays for the shard read
+			// to do it. Every other label's snippet is a body its name does not carry.
+			if withSnippet && ent.Label != LabelComment {
+				if !sourceResolved {
+					fileLines = e.sourceFromDisk(relPath, hash)
+					sourceResolved = true
+					if len(fileLines) == 0 {
+						textless++
+					}
+				}
+				row.Source = sliceLines(fileLines, ent.Line, ent.EndLine)
 			}
 			buckets[ent.Label] = append(buckets[ent.Label], row)
 		}
 		return true
 	})
 
-	// Deduplicate (Path, UID) across labels, keeping the label that appears
-	// earliest in embeddableLabels order. The embedding cache is keyed on
-	// (relPath, UID) WITHOUT the label, but the embedding text includes the
-	// label, so when one UID appears under two embeddable labels (e.g. a TS
-	// `class Foo` + `interface Foo`, or a same-named Table + View) both variants
-	// collide on one cache key. The previous per-label interleaved Get/Set flow
-	// let the FIRST embeddable label win (its Set made later labels skip); this
-	// restores that, instead of letting the last-processed label overwrite.
+	// Deduplicate (Path, UID) across labels, keeping the label its own grammar
+	// ranked first in embed_labels. The embedding cache is keyed on (relPath, UID)
+	// WITHOUT the label, but the embedding text includes the label, so when one UID
+	// appears under two embeddable labels (e.g. a TS `class Foo` + `interface Foo`,
+	// or a same-named Table + View) both variants collide on one cache key. The
+	// per-label interleaved Get/Set flow this replaced let the FIRST embeddable
+	// label win (its Set made later labels skip); ranked order restores that, with
+	// the grammar rather than a Go slice saying which label comes first.
 	seen := make(map[string]struct{})
-	for _, label := range embeddableLabels {
+	for _, label := range labelOrder(buckets) {
 		rows := buckets[label]
 		if len(rows) == 0 {
 			continue
@@ -190,17 +310,51 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 			buckets[label] = kept
 		}
 	}
+
+	if textless > 0 {
+		e.log().Warn("embedding without source text: these entities are described by name, "+
+			"docstring and context only, so semantic search over what they DO is weaker",
+			"files", textless, "repo_root_set", e.cfg.RepoRoot != "")
+	}
 	return buckets
 }
 
-// embedSourceSnippet extracts the [line, endLine] slice of a file's source used
-// for the embedding text. It mirrors the original inline slicing exactly so the
-// embedding text (and therefore the produced vectors) is byte-identical.
-func embedSourceSnippet(fileSource string, line, endLine int) string {
-	if fileSource == "" || line <= 0 {
-		return fileSource
+// sourceFromDisk reads the indexed file so an entity can still be embedded with its
+// body when the parse cache holds no text.
+//
+// The whole file is read because the hash covers the whole file — there is no way to
+// verify it from a line range. Memory is at parity with the default path, where the
+// shard being streamed carries the same text; the extra cost is one read per shard.
+//
+// SAFETY: the content hash must match the one the shard was built from. The embedding
+// cache is keyed on that hash, so embedding newer text under an older key would cache
+// a vector describing code that the graph does not contain — and it would survive
+// until the file changed again. A mismatch means the shard is stale and about to be
+// reparsed, so no snippet is better than the wrong one.
+func (e *Embedder) sourceFromDisk(relPath, shardHash string) []string {
+	if e.cfg.RepoRoot == "" || relPath == "" || shardHash == "" {
+		return nil
 	}
-	lines := strings.Split(fileSource, "\n")
+	data, err := os.ReadFile(filepath.Join(e.cfg.RepoRoot, relPath))
+	if err != nil {
+		return nil
+	}
+	if contentHashOf(data) != shardHash {
+		return nil
+	}
+	return strings.Split(string(data), "\n")
+}
+
+// sliceLines returns the [line, endLine] slice of an already-split file.
+//
+// Splitting belongs to the caller and happens ONCE per shard. It used to happen inside
+// embedSourceSnippet, which runs once per ENTITY: a file with 500 embeddable entities
+// was split into lines 500 times, allocating a slice of every line in the file each
+// time.
+func sliceLines(lines []string, line, endLine int) string {
+	if len(lines) == 0 || line <= 0 {
+		return ""
+	}
 	start := line - 1
 	end := endLine
 	if start < 0 {
@@ -215,8 +369,32 @@ func embedSourceSnippet(fileSource string, line, endLine int) string {
 	return strings.Join(lines[start:end], "\n")
 }
 
+// embedSourceSnippet extracts the [line, endLine] slice of a file's source used for
+// the embedding text, mirroring the original inline slicing exactly so the embedding
+// text — and therefore the produced vectors — stays byte-identical.
+func embedSourceSnippet(fileSource string, line, endLine int) string {
+	if fileSource == "" || line <= 0 {
+		return fileSource
+	}
+	return sliceLines(strings.Split(fileSource, "\n"), line, endLine)
+}
+
+// maxSkippedSample caps how many unembeddable entities are named in the warning.
+// The count is the signal; the sample is what makes it actionable.
+const maxSkippedSample = 5
+
 func (e *Embedder) processBatch(ctx context.Context, label string, rows []entityRow, donePtr *int, grandTotal int) (int, error) {
 	total := 0
+	skipped := 0
+	var skippedSample []string
+
+	defer func() {
+		if skipped > 0 {
+			e.log().Warn("entities skipped: the embedding client returned no vector, "+
+				"so they stay out of semantic search until their text changes",
+				"label", label, "skipped", skipped, "sample", skippedSample)
+		}
+	}()
 
 	for i := 0; i < len(rows); i += e.cfg.BatchSize {
 		if ctx.Err() != nil {
@@ -245,6 +423,14 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 		for j, row := range batch {
 			vec := vectors[j]
 			if len(vec) == 0 {
+				// The client could not embed this one — today that means its text
+				// could not be tokenized. Named, because the alternative is an
+				// entity that silently never becomes searchable, and nothing says
+				// which one.
+				skipped++
+				if len(skippedSample) < maxSkippedSample {
+					skippedSample = append(skippedSample, row.Path+"::"+row.UID)
+				}
 				continue
 			}
 
@@ -304,7 +490,7 @@ func (e *Embedder) buildEmbeddingText(row entityRow) string {
 	return strings.Join(parts, "\n")
 }
 
-func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir string, logger *slog.Logger) error {
+func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, repoRoot string, logger *slog.Logger) error {
 	log := slogutil.Resolve(logger)
 
 	client, err := ai.NewEmbeddingClientFromConfig()
@@ -314,6 +500,8 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir stri
 	}
 
 	cfg := DefaultEmbeddingConfig()
+	cfg.RepoRoot = repoRoot
+	cfg.ProjectDir = repoRoot
 
 	if cacheDir != "" {
 		if jc, err := NewShardCache(cacheDir); err == nil {
@@ -331,12 +519,31 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir stri
 
 	dbPath := filepath.Join(cacheDir, "ladybugdb")
 
-	if n, err := embedder.RunCycle(ctx); err != nil {
-		log.Warn("initial cycle error", "error", err)
-	} else if n > 0 {
-		log.Info("initial cycle complete", "entities_embedded", n)
-		triggerEmbeddingRebuild(ctx, dbPath, cfg.ParseCache, cfg.EmbCache, logger)
+	// One cycle, holding the process-wide heavy-work slot for its whole duration.
+	// The cycle drives an ONNX session sized to the entire CPU budget, and the
+	// rebuild that follows a productive one opens a second LadybugDB alongside the
+	// live database — so this is precisely the work the gate exists to serialize.
+	// The daemon runs one of these loops per active project inside a single process.
+	cycle := func(label string, reload bool) {
+		release, err := sysutil.AcquireHeavy(ctx)
+		if err != nil {
+			return
+		}
+		defer release()
+
+		if reload && cfg.ParseCache != nil {
+			cfg.ParseCache.Reload()
+		}
+
+		if n, err := embedder.RunCycle(ctx); err != nil {
+			log.Warn(label+" error", "error", err)
+		} else if n > 0 {
+			log.Info(label+" complete", "entities_embedded", n)
+			triggerEmbeddingRebuild(ctx, dbPath, cfg.ParseCache, cfg.EmbCache, logger)
+		}
 	}
+
+	cycle("initial cycle", false)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -346,17 +553,7 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir stri
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-
-			if cfg.ParseCache != nil {
-				cfg.ParseCache.Reload()
-			}
-
-			if n, err := embedder.RunCycle(ctx); err != nil {
-				log.Warn("cycle error", "error", err)
-			} else if n > 0 {
-				log.Info("embedding cycle complete", "entities_embedded", n)
-				triggerEmbeddingRebuild(ctx, dbPath, cfg.ParseCache, cfg.EmbCache, logger)
-			}
+			cycle("embedding cycle", true)
 		}
 	}
 }
@@ -376,21 +573,12 @@ func triggerEmbeddingRebuild(ctx context.Context, dbPath string, parseCache *Sha
 
 	lb := NewLadybugDB(LadybugConfig{DBPath: dbPath})
 
-	if err := RebuildFromJSON(ctx, lb, parseCache, embCache, "", "", logger); err != nil {
+	// WithSearch, because the point of this rebuild is the embeddings, and the embeddings
+	// live in the search index. Rebuilding the graph alone would republish a store whose
+	// vectors are exactly as absent as they were before — the reason this function ran.
+	if err := RebuildFromJSONWithSearch(ctx, lb, parseCache, embCache, "", "", logger, nil); err != nil {
 		log.Error("rebuild error", "error", err)
 		return
-	}
-
-	idxPath := dbPath + searchIndexSuffix
-	searchIdx, err := OpenSearchIndex(idxPath)
-	if err != nil {
-		log.Error("open search index for embedding rebuild", "error", err)
-	} else {
-		embLookup := BuildEmbLookup(parseCache, embCache)
-		if err := searchIdx.RebuildFromCache(parseCache, embLookup); err != nil {
-			log.Error("search index rebuild after embeddings", "error", err)
-		}
-		_ = searchIdx.Close()
 	}
 
 	log.Info("rebuild complete", "duration_s", time.Since(t0).Seconds())

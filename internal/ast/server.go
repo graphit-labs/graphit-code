@@ -14,6 +14,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 type cachedDB struct {
@@ -23,7 +24,6 @@ type cachedDB struct {
 
 type Server struct {
 	db       GraphDB
-	jobs     *JobManager
 	aiClient ai.Client
 	repoPath string
 	port     int
@@ -33,13 +33,12 @@ type Server struct {
 	dbCache   map[string]*cachedDB
 }
 
-func NewServerOnPort(db GraphDB, jobs *JobManager, repoPath string, port int) (*Server, error) {
+func NewServerOnPort(db GraphDB, repoPath string, port int) (*Server, error) {
 
 	aiClient, _ := ai.NewClientFromConfig()
 
 	s := &Server{
 		db:       db,
-		jobs:     jobs,
 		aiClient: aiClient,
 		repoPath: repoPath,
 		port:     port,
@@ -68,9 +67,6 @@ func (s *Server) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/relationships", s.handleRelationships)
 	mux.HandleFunc("GET /api/complexity", s.handleComplexity)
 	mux.HandleFunc("GET /api/most_complex", s.handleMostComplex)
-
-	mux.HandleFunc("GET /api/jobs", s.handleListJobs)
-	mux.HandleFunc("GET /api/jobs/{id}", s.handleGetJob)
 
 	mux.HandleFunc("GET /api/repositories", s.handleListRepositories)
 	mux.HandleFunc("GET /api/stats", s.handleRepoStats)
@@ -119,29 +115,39 @@ func (s *Server) getOrCreateCachedDB(dbPath string, readOnly bool) GraphDB {
 	return db
 }
 
-func (s *Server) dbForContext(r *http.Request) GraphDB {
-	ctxName := r.URL.Query().Get("context")
-
-	requestedDir := r.URL.Query().Get("project_dir")
-	root := s.repoPath
+// requestedRoot reports which project root the request is about, and whether
+// that is a different project than the one this server was started in.
+//
+// The UI's project switcher sends project_dir on every call, so this decision —
+// "answer from my own store, or from that project's store" — has to be taken the
+// same way by every handler. Taking it in one place is what keeps them agreeing.
+func (s *Server) requestedRoot(r *http.Request) (root string, otherProject bool) {
+	root = s.repoPath
 	if root == "" {
 		root, _ = os.Getwd()
 	}
-	if requestedDir != "" && requestedDir != root {
+	if requested := r.URL.Query().Get("project_dir"); requested != "" && requested != root {
+		return requested, true
+	}
+	return root, false
+}
+
+func (s *Server) dbForContext(r *http.Request) GraphDB {
+	ctxName := r.URL.Query().Get("context")
+
+	root, otherProject := s.requestedRoot(r)
+	if otherProject {
 
 		if ctxName != "" && ctxName != "__project__" {
 
-			importDBPath := filepath.Join(requestedDir, brand.DotDir(), "ast", ctxName, "ladybugdb")
-			if resolved, err := filepath.EvalSymlinks(importDBPath); err == nil {
-				importDBPath = resolved
-			}
+			importDBPath := ContextDBPathIn(root, ctxName)
 			if _, err := os.Stat(importDBPath); err == nil {
 				return s.getOrCreateCachedDB(importDBPath, true)
 			}
 			return &emptyGraphDB{}
 		}
 
-		otherDBPath := filepath.Join(requestedDir, brand.DotDir(), "ast", "project", "ladybugdb")
+		otherDBPath := store.ASTProjectDBPath(root)
 		if _, err := os.Stat(otherDBPath); err == nil {
 			return s.getOrCreateCachedDB(otherDBPath, true)
 		}
@@ -153,7 +159,7 @@ func (s *Server) dbForContext(r *http.Request) GraphDB {
 		return s.db
 	}
 
-	cfg := LadybugConfigForContext(ctxName)
+	cfg := LadybugConfigForContextIn(root, ctxName)
 	return s.getOrCreateCachedDB(cfg.DBPath, false)
 }
 
@@ -257,10 +263,35 @@ func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"nodes":       nodeStats,
 		"edges":       edgeStats,
+		"langs":       schemaLangGroups(ctx, db),
 		"node_labels": nodeLabels,
 		"edge_types":  edgeTypes,
 		"backend":     db.BackendType(),
 	})
+}
+
+// schemaLangGroups renders SchemaLangGroups as the JSON the explorer's Schema panel
+// reads. The grouping itself — including the rule that keeps the language-less group
+// last — lives in SchemaLangGroups, so the panel and `ast schema` never disagree.
+//
+// The empty `lang` is passed through as-is rather than as NoLangGroup: the client names
+// that group itself, because the same string is also its hide-filter key.
+func schemaLangGroups(ctx context.Context, db GraphDB) []map[string]any {
+	groups := SchemaLangGroups(ctx, db)
+
+	out := make([]map[string]any, 0, len(groups))
+	for _, g := range groups {
+		labels := make([]map[string]any, 0, len(g.Labels))
+		for _, l := range g.Labels {
+			labels = append(labels, map[string]any{"label": l.Label, "count": l.Count})
+		}
+		out = append(out, map[string]any{
+			"lang":   g.Lang,
+			"count":  g.Count,
+			"labels": labels,
+		})
+	}
+	return out
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -292,20 +323,6 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, result)
-}
-
-func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, s.jobs.List())
-}
-
-func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	job := s.jobs.Get(id)
-	if job == nil {
-		writeError(w, http.StatusNotFound, "job not found")
-		return
-	}
-	writeJSON(w, job)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -347,6 +364,108 @@ func (s *Server) handleObsidianExport(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// How much of the graph the explorer draws when it opens. Both bind the SCAN, not
+// the projection: on a graph with millions of nodes a LIMIT after an expansion
+// materialises the intermediate result first and exhausts the buffer pool.
+//
+// The edge budget is the larger one because edges are what make the picture, and
+// because raising it is nearly free — measured on a 2M-node graph, the edge sample
+// costs ~0.19s at 300 rows and ~0.19s at 1000. Its cost is fan-out over the graph's
+// tables, paid once, not per row.
+const (
+	graphSampleNodes = 300
+	graphSampleEdges = 1000
+)
+
+// The node sample answers one question — what is IN this graph — and does not
+// expand. That is a performance decision, taken against measurements rather than
+// intuition, and it is worth stating because the obvious shape is the expensive one.
+//
+// It used to expand into `OPTIONAL MATCH (n)-[r]->(m) WHERE id(m) IN sample_ids`,
+// to draw the edges among the sampled nodes. That expansion cost 0.45s for 300
+// nodes, and none of it was data: the same query on a graph 34x smaller took the
+// same 0.35s. The cost is the unlabelled pattern fanning out across every node and
+// relationship table, plus an IN filter over a 300-element list evaluated per row —
+// neither of which an index can help with, because nothing is being looked up by
+// value. Without the expansion the same sample costs 0.01s.
+//
+// What it bought was 293 Directory-CONTAINS->File edges: the directory tree, which
+// the explorer's file panel already shows. defaultGraphEdgeQuery is where the
+// picture's connectivity comes from, and its budget was raised to more than cover
+// what this stopped returning.
+func graphNodeSampleQuery(withLine bool) string {
+	return fmt.Sprintf(`
+	MATCH (n)
+	WITH n LIMIT %d
+	RETURN
+		%s`, graphSampleNodes, graphSideColumns("n", "src", withLine))
+}
+
+var defaultGraphQuery = graphNodeSampleQuery(true)
+
+// graphEdgeSampleQuery samples the graph the other way round — edges first, with
+// the nodes on both ends — and is the only source of links in the default view.
+//
+// Sampling nodes alone draws a field of dots: the first nodes of a repository-shaped
+// graph are Files and Directories, which point at entities that fall outside any
+// node sample. This scan starts from the edges instead, so every row is a link with
+// both of its endpoints.
+//
+// The two stay separate rather than merged into one query: each remains a simple
+// bounded scan, either one coming back empty is harmless, and a graph with no edges
+// at all is still drawn through the node sample.
+func graphEdgeSampleQuery(withLine bool) string {
+	return fmt.Sprintf(`
+	MATCH (n)-[r]->(m)
+	WITH n, r, m LIMIT %d
+	RETURN
+		%s,
+		%s,
+		label(r) AS rel_type`, graphSampleEdges,
+		graphSideColumns("n", "src", withLine), graphSideColumns("m", "dst", withLine))
+}
+
+var defaultGraphEdgeQuery = graphEdgeSampleQuery(true)
+
+// graphSideColumns projects one end of a row. Both sample queries name their columns
+// the same way, which is what lets one reader — graphNodeSideFrom — serve both ends.
+//
+// withLine is not a preference, it is a fallback. `n` is unlabelled, and a property
+// binds only if SOME label in the graph carries it: a graph holding nothing but
+// files and directories has no table with line_number, and asking for it there is
+// not an empty column but a Binder exception that fails the whole query. That graph
+// has no entity to jump to anyway, so the explorer drops the column and still draws.
+func graphSideColumns(v, prefix string, withLine bool) string {
+	cols := fmt.Sprintf(`CAST(id(%[1]s) AS STRING) AS %[2]s_id,
+		label(%[1]s) AS %[2]s_label,
+		%[1]s.name AS %[2]s_name,
+		%[1]s.path AS %[2]s_path,
+		%[1]s.cluster AS %[2]s_cluster,
+		%[1]s.lang AS %[2]s_lang`, v, prefix)
+	if withLine {
+		cols += fmt.Sprintf(`,
+		%s.line_number AS %s_line`, v, prefix)
+	}
+	return cols
+}
+
+// querySample runs a sample that asks for line_number and retries without it when
+// this particular graph has no table carrying that property. Only a binder error on
+// that exact column is retried — anything else is the caller's error to report.
+func querySample(ctx context.Context, db GraphDB, withLine, withoutLine string) (*QueryResult, error) {
+	res, err := db.Query(ctx, withLine, nil)
+	if err == nil || !strings.Contains(err.Error(), "Cannot find property line_number") {
+		return res, err
+	}
+	return db.Query(ctx, withoutLine, nil)
+}
+
+// defaultGraphQueryText exposes the query so its shape can be asserted.
+func defaultGraphQueryText() string { return defaultGraphQuery }
+
+// defaultGraphEdgeQueryText exposes the edge sample for the same reason.
+func defaultGraphEdgeQueryText() string { return defaultGraphEdgeQuery }
+
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	repoPath := q.Get("repo_path")
@@ -356,25 +475,6 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	const defaultGraphQuery = `
-		MATCH (n)
-		OPTIONAL MATCH (n)-[r]->(m)
-		RETURN
-			CAST(id(n) AS STRING) AS src_id,
-			label(n) AS src_label,
-			n.name AS src_name,
-			n.path AS src_path,
-			n.cluster AS src_cluster,
-			n.lang AS src_lang,
-			CAST(id(m) AS STRING) AS dst_id,
-			label(m) AS dst_label,
-			m.name AS dst_name,
-			m.path AS dst_path,
-			m.cluster AS dst_cluster,
-			m.lang AS dst_lang,
-			label(r) AS rel_type
-		LIMIT 300`
-
 	cypher, isUserQuery := resolveGraphQuery(cypherQuery, repoPath, defaultGraphQuery)
 	if isUserQuery {
 		if err := validateReadOnlyQuery(cypher); err != nil {
@@ -383,7 +483,13 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := db.Query(ctx, cypher, nil)
+	var result *QueryResult
+	var err error
+	if isUserQuery {
+		result, err = db.Query(ctx, cypher, nil)
+	} else {
+		result, err = querySample(ctx, db, defaultGraphQuery, graphNodeSampleQuery(false))
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -400,6 +506,18 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 			extractUserQueryGraph(rec, nodesMap, &edges)
 		} else {
 			extractBuiltinQueryGraph(rec, nodesMap, &edges)
+		}
+	}
+
+	// The node sample says what is in the graph; the edge sample says how it is
+	// connected. Neither alone is a picture: sampling nodes on a repository-shaped
+	// graph returns Files only, which have no edges between them. A failure here is
+	// not fatal — the nodes already collected are still worth drawing.
+	if !isUserQuery {
+		if edgeResult, edgeErr := querySample(ctx, db, defaultGraphEdgeQuery, graphEdgeSampleQuery(false)); edgeErr == nil {
+			for _, rec := range edgeResult.Records {
+				extractBuiltinQueryGraph(rec, nodesMap, &edges)
+			}
 		}
 	}
 
@@ -459,11 +577,19 @@ func extractUserQueryGraph(rec map[string]any, nodesMap map[string]map[string]an
 						props = map[string]any{}
 					}
 					name := getStr(props, "name", getStr(props, "path", "Unknown"))
-					nodesMap[id] = map[string]any{
-						"id": id, "name": name, "label": name,
+					node := map[string]any{
+						"id": id, "name": name, "label": label,
 						"type": label, "file": getStr(props, "path", ""),
 						"properties": props,
 					}
+					// A node returned by a typed query carries its raw properties, so
+					// the line is already there — it just has to be lifted to where
+					// the explorer looks for it, the same place the sample queries
+					// put it.
+					if line := toInt(props["line_number"]); line > 0 {
+						node["line"] = line
+					}
+					nodesMap[id] = node
 				}
 			}
 		}
@@ -494,34 +620,50 @@ func extractUserQueryGraph(rec map[string]any, nodesMap map[string]map[string]an
 	}
 }
 
+// graphNodeSide is one end of a row from either sample query. Both queries name
+// their columns with the same src_/dst_ prefixes, so one reader serves both ends —
+// which is also what keeps a new column from having to be threaded through a
+// growing list of positional string arguments.
+type graphNodeSide struct {
+	id      string
+	label   string
+	name    string
+	path    string
+	cluster string
+	lang    string
+	line    int
+}
+
+func graphNodeSideFrom(rec map[string]any, prefix string) graphNodeSide {
+	return graphNodeSide{
+		id:      ladybugIDStr(rec[prefix+"_id"]),
+		label:   safeStr(rec[prefix+"_label"]),
+		name:    safeStr(rec[prefix+"_name"]),
+		path:    safeStr(rec[prefix+"_path"]),
+		cluster: safeStr(rec[prefix+"_cluster"]),
+		lang:    safeStr(rec[prefix+"_lang"]),
+		line:    toInt(rec[prefix+"_line"]),
+	}
+}
+
 func extractBuiltinQueryGraph(rec map[string]any, nodesMap map[string]map[string]any, edges *[]map[string]any) {
 
-	srcID := ladybugIDStr(rec["src_id"])
-	if srcID == "" {
+	src := graphNodeSideFrom(rec, "src")
+	if src.id == "" {
 		return
 	}
-	srcLabel := safeStr(rec["src_label"])
-	srcName := safeStr(rec["src_name"])
-	srcPath := safeStr(rec["src_path"])
-	srcCluster := safeStr(rec["src_cluster"])
-	srcLang := safeStr(rec["src_lang"])
-	dstID := ladybugIDStr(rec["dst_id"])
-	dstLabel := safeStr(rec["dst_label"])
-	dstName := safeStr(rec["dst_name"])
-	dstPath := safeStr(rec["dst_path"])
-	dstCluster := safeStr(rec["dst_cluster"])
-	dstLang := safeStr(rec["dst_lang"])
+	dst := graphNodeSideFrom(rec, "dst")
 	relType := safeStr(rec["rel_type"])
 
-	if _, exists := nodesMap[srcID]; !exists {
-		nodesMap[srcID] = buildGraphNode(srcID, srcLabel, srcName, srcPath, srcCluster, srcLang)
+	if _, exists := nodesMap[src.id]; !exists {
+		nodesMap[src.id] = buildGraphNode(src)
 	}
-	if dstID != "" {
-		if _, exists := nodesMap[dstID]; !exists {
-			nodesMap[dstID] = buildGraphNode(dstID, dstLabel, dstName, dstPath, dstCluster, dstLang)
+	if dst.id != "" {
+		if _, exists := nodesMap[dst.id]; !exists {
+			nodesMap[dst.id] = buildGraphNode(dst)
 		}
 		*edges = append(*edges, map[string]any{
-			"source": srcID, "target": dstID, "type": strings.ToUpper(relType),
+			"source": src.id, "target": dst.id, "type": strings.ToUpper(relType),
 		})
 	}
 }
@@ -572,23 +714,53 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	contextName := r.URL.Query().Get("context")
-	db := s.db
-	if contextName != "" && contextName != "__project__" {
-		cfg := LadybugConfigForContext(contextName)
-		db = s.getOrCreateCachedDB(cfg.DBPath, false)
-	}
-
-	ctx := r.Context()
-	res, err := db.Query(ctx, `MATCH (f:File {path: $path}) RETURN f.source AS source`, map[string]any{"path": path})
-	if err == nil && len(res.Records) > 0 {
-		if src, ok := res.Records[0]["source"].(string); ok && src != "" {
-			writeJSON(w, map[string]string{"content": src, "source": "indexed"})
-			return
-		}
+	if src, ok := FileSourceAt(r.Context(), s.storePathForRequest(r), path); ok {
+		writeJSON(w, map[string]string{"content": src, "source": "indexed"})
+		return
 	}
 
 	writeError(w, http.StatusNotFound, "File source not found")
+}
+
+// storePathForRequest resolves the store this request is asking about — the same
+// answer dbForContext gives, as a path.
+//
+// The file handler needs the path and not the handle, because file text lives in
+// the search index beside the database rather than in the graph. It used to ask
+// storePathFor, which only ever knows about the project this server was started
+// in: with the UI pointed at another project, /api/graph answered from that
+// project's store and /api/file answered 404 from this one, for a file that is
+// indexed — just not here.
+func (s *Server) storePathForRequest(r *http.Request) string {
+	ctxName := r.URL.Query().Get("context")
+
+	root, otherProject := s.requestedRoot(r)
+	if otherProject {
+		if ctxName != "" && ctxName != "__project__" {
+			return ContextDBPathIn(root, ctxName)
+		}
+		return store.ASTProjectDBPath(root)
+	}
+
+	dbPath := s.storePathFor(root, ctxName)
+	if dbPath != "" && !filepath.IsAbs(dbPath) {
+		// Every resolver in this package now returns an absolute path, so this is a
+		// guard rather than the normal case: a backend constructed by hand with a
+		// relative DBPath would otherwise resolve against the process working
+		// directory, which is the repo root only when the server was started from it.
+		dbPath = filepath.Join(root, dbPath)
+	}
+	return dbPath
+}
+
+func (s *Server) storePathFor(projectDir, contextName string) string {
+	if contextName != "" && contextName != "__project__" {
+		return LadybugConfigForContextIn(projectDir, contextName).DBPath
+	}
+	if lb, ok := s.db.(*LadybugBackend); ok {
+		return lb.DBPath()
+	}
+	return ""
 }
 
 func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
@@ -622,7 +794,7 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 	contexts := []map[string]any{}
 	ctx := r.Context()
 
-	projectDBPath := filepath.Join(targetDir, brand.DotDir(), "ast", "project", "ladybugdb")
+	projectDBPath := store.ASTProjectDBPath(targetDir)
 	if _, err := os.Stat(projectDBPath); err == nil {
 		nodeCount, edgeCount := 0, 0
 		if !isDifferentProject {
@@ -664,98 +836,37 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	seenIDs := map[string]bool{"__project__": true}
-	astBaseDir := filepath.Join(targetDir, brand.DotDir(), "ast")
-	if entries, err := os.ReadDir(astBaseDir); err == nil {
-		for _, entry := range entries {
-			name := entry.Name()
-			if name == "project" || name == "imports" || name == "export" || strings.HasPrefix(name, ".") || name == "config.yaml" {
-				continue
-			}
 
-			fullPath := filepath.Join(astBaseDir, name)
-			info, err := os.Stat(fullPath)
-			if err != nil || !info.IsDir() {
-				continue
-			}
-
-			dbPath := filepath.Join(fullPath, "ladybugdb")
-			if _, err := os.Stat(dbPath); err != nil {
-				continue
-			}
-
-			seenIDs[name] = true
-			displayName := name
-			if readable, ok := projectIDNames[name]; ok {
-				displayName = readable
-			}
-			ic := map[string]any{
-				"id": name, "name": displayName, "type": "import",
-				"database": "ladybugdb", "db_path": dbPath,
-			}
-
-			ctxDB := s.getOrCreateCachedDB(dbPath, true)
-			if nRes, err := ctxDB.Query(ctx, "MATCH (n) RETURN count(n) AS c", nil); err == nil && len(nRes.Records) > 0 {
-				ic["node_count"] = toInt(nRes.Records[0]["c"])
-			}
-			if eRes, err := ctxDB.Query(ctx, "MATCH ()-[r]->() RETURN count(r) AS c", nil); err == nil && len(eRes.Records) > 0 {
-				ic["edge_count"] = toInt(eRes.Records[0]["c"])
-			}
-
-			contexts = append(contexts, ic)
+	// ListImportedContextsIn answers for targetDir whether or not that is the
+	// project this server was started in, and it reads targetDir's own records —
+	// its lockfile for Hub contexts and its context registry for locally imported
+	// ones. Every store is global, so walking the project would find nothing.
+	for key, ictx := range ListImportedContextsIn(targetDir) {
+		if seenIDs[key] {
+			continue
 		}
-	}
+		seenIDs[key] = true
 
-	if !isDifferentProject {
-		for key, ictx := range ListImportedContexts() {
-			if seenIDs[key] {
-				continue
-			}
-			seenIDs[key] = true
-			ic := map[string]any{
-				"id": key, "name": ictx.Name, "type": "import",
-				"database": "ladybugdb", "path": ictx.SourcePath,
-				"imported_at": ictx.ImportedAt, "db_path": ictx.DBPath,
-			}
-
-			cfg := LadybugConfigForContext(key)
-			ctxDB := s.getOrCreateCachedDB(cfg.DBPath, false)
-			if nRes, err := ctxDB.Query(ctx, "MATCH (n) RETURN count(n) AS c", nil); err == nil && len(nRes.Records) > 0 {
-				ic["node_count"] = toInt(nRes.Records[0]["c"])
-			}
-			if eRes, err := ctxDB.Query(ctx, "MATCH ()-[r]->() RETURN count(r) AS c", nil); err == nil && len(eRes.Records) > 0 {
-				ic["edge_count"] = toInt(eRes.Records[0]["c"])
-			}
-
-			contexts = append(contexts, ic)
+		displayName := ictx.Name
+		if readable, ok := projectIDNames[key]; ok {
+			displayName = readable
 		}
-	}
 
-	importsDir := filepath.Join(targetDir, brand.DotDir(), "ast", "imports")
-	if entries, err := os.ReadDir(importsDir); err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			name := entry.Name()
-			if seenIDs[name] {
-				continue
-			}
-			meta := map[string]any{}
-			metaPath := filepath.Join(importsDir, name, "import_meta.json")
-			if data, err := os.ReadFile(metaPath); err == nil {
-				_ = json.Unmarshal(data, &meta)
-			}
-			displayName := name
-			if n, ok := meta["name"].(string); ok && n != "" {
-				displayName = n
-			}
-			contexts = append(contexts, map[string]any{
-				"id": name, "name": displayName, "type": "import",
-				"node_count": toInt(meta["node_count"]),
-				"edge_count": toInt(meta["edge_count"]),
-				"path":       filepath.Join(importsDir, name),
-			})
+		ic := map[string]any{
+			"id": key, "name": displayName, "type": "import",
+			"database": "ladybugdb", "path": ictx.SourcePath,
+			"imported_at": ictx.ImportedAt, "db_path": ictx.DBPath,
 		}
+
+		ctxDB := s.getOrCreateCachedDB(ictx.DBPath, true)
+		if nRes, err := ctxDB.Query(ctx, "MATCH (n) RETURN count(n) AS c", nil); err == nil && len(nRes.Records) > 0 {
+			ic["node_count"] = toInt(nRes.Records[0]["c"])
+		}
+		if eRes, err := ctxDB.Query(ctx, "MATCH ()-[r]->() RETURN count(r) AS c", nil); err == nil && len(eRes.Records) > 0 {
+			ic["edge_count"] = toInt(eRes.Records[0]["c"])
+		}
+
+		contexts = append(contexts, ic)
 	}
 
 	writeJSON(w, map[string]any{"contexts": contexts, "project_root": targetDir, "project_name": projectName})
@@ -768,7 +879,8 @@ func (s *Server) handleDeleteContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := RemoveImportedContext(name); err != nil {
+	root, _ := s.requestedRoot(r)
+	if err := RemoveImportedContext(root, name); err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
@@ -849,37 +961,56 @@ func safeStr(v any) string {
 	return s
 }
 
-func buildGraphNode(id, label, name, path, cluster, lang string) map[string]any {
-	displayName := name
+// buildGraphNode shapes one node for the visualizer.
+//
+// `name` is what the user reads (the entity name, or its path when it has none);
+// `label` and `type` both carry the GRAPH label — `File`, `Function`, `Struct`.
+// The distinction is not cosmetic: the explorer keys its per-label colours, its
+// node radii and the sidebar's hide toggles off `label`, and the schema panel
+// gets those labels from /api/schema, which returns `label(n)`. Emitting the
+// display name as `label` — as this did — silently breaks all three, because a
+// label like `Function` never equals a name like `handleFile`.
+func buildGraphNode(s graphNodeSide) map[string]any {
+	displayName := s.name
 	if displayName == "" {
-		displayName = path
+		displayName = s.path
 	}
 	if displayName == "" {
-		displayName = label
+		displayName = s.label
 	}
 
-	filePath := path
-	if filePath == "" && (label == "File" || label == "Directory") {
-		filePath = name
+	filePath := s.path
+	if filePath == "" && (s.label == "File" || s.label == "Directory") {
+		filePath = s.name
 	}
 	props := map[string]any{}
-	if name != "" {
-		props["name"] = name
+	if s.name != "" {
+		props["name"] = s.name
 	}
-	if path != "" {
-		props["path"] = path
+	if s.path != "" {
+		props["path"] = s.path
 	}
-	if cluster != "" {
-		props["cluster"] = cluster
+	if s.cluster != "" {
+		props["cluster"] = s.cluster
 	}
-	if lang != "" {
-		props["lang"] = lang
+	if s.lang != "" {
+		props["lang"] = s.lang
 	}
-	return map[string]any{
-		"id": id, "name": displayName, "label": displayName,
-		"type": label, "file": filePath,
+	// Line 0 is the call-target stub's placeholder, not a location: those nodes are
+	// created by a call site and have no declaration to open. Omitting it is what
+	// lets the explorer tell "no line to jump to" from "line 1".
+	if s.line > 0 {
+		props["line_number"] = s.line
+	}
+	node := map[string]any{
+		"id": s.id, "name": displayName, "label": s.label,
+		"type": s.label, "file": filePath,
 		"properties": props,
 	}
+	if s.line > 0 {
+		node["line"] = s.line
+	}
+	return node
 }
 
 func ladybugIDStr(v any) string {
@@ -1065,6 +1196,7 @@ func (s *Server) handleExportBundle(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		RepoPath   string `json:"repo_path"`
 		OutputPath string `json:"output_path"`
+		NoSources  bool   `json:"no_sources"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, 400, "invalid request body")
@@ -1077,7 +1209,8 @@ func (s *Server) handleExportBundle(w http.ResponseWriter, r *http.Request) {
 		body.OutputPath = body.RepoPath + ".ast"
 	}
 
-	if err := ExportBundle(r.Context(), s.db, body.RepoPath, body.OutputPath, nil); err != nil {
+	opts := BundleOptions{StorePath: s.storePathFor(body.RepoPath, ""), NoSources: body.NoSources}
+	if err := ExportBundle(r.Context(), s.db, body.RepoPath, body.OutputPath, opts, nil); err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}

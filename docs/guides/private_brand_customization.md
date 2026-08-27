@@ -1,197 +1,152 @@
----
-title: "Private Deployment and Brand Customization Guide"
-description: "A complete guide on deploying Graphit Code in 100% private, self-hosted environments with custom branding and enterprise collaboration configurations."
-content-type: guide
-audience: developers, operators
-keywords:
-  - private
-  - white-label
-  - brand
-  - self-hosted
-  - ldflags
-  - registry
-prerequisites:
-  - "docs/guides/getting_started.md"
-related:
-  - "docs/specs/hub_collaboration.md"
-  - "docs/specs/cluster_microservices.md"
----
+# Private Branding and Deployment
 
-# Private Deployment & Brand Customization
+Graphit Code can be compiled as a private white-label distribution and connected
+to an S3-compatible service inside your network. This guide separates build-time
+branding from runtime operator configuration and calls out the network boundaries
+that still need protection.
 
-Graphit Code is designed from the ground up for maximum data privacy and flexibility. It can be completely self-hosted, operates 100% locally by default, and can be customized with your company's own brand (white-labeling) to create private collaboration ecosystems for IT teams.
+## Build-time branding
 
----
+The Makefile injects brand fields through Go linker flags. The relevant variables
+are:
 
-## 🔒 100% Private Data Guarantee
-
-Unlike traditional AI developer assistants that rely on cloud APIs and external databases, Graphit Code operates locally first:
-
-1. **Local Graph Database:** Syntactic analysis is executed locally using Tree-sitter and stored inside an embedded **LadybugDB** instance on the developer's machine.
-2. **Local Embeddings:** Semantic indexing utilizes a local ONNX runtime executing the `CodeRankEmbed-137M` model. No code leaves the developer's machine to compute vector embeddings.
-3. **Git-Backed Hubs & Memory:** Memories and registries are stored as standard Git repositories. During the interactive `graphit setup` process, you can point them to your organization's private self-hosted GitLab, Bitbucket, or GitHub Enterprise instances to create a secure, shared collaborative workspace.
-4. **Secure Local Tunnels:** If cloud-based LLM agents need access to your local context, you can set up secure, encrypted reverse tunnels (e.g., ngrok) bound to local TCP port listeners.
-
----
-
-## 🎨 Custom Branding & White-Labeling
-
-You can compile a customized, branded binary of Graphit Code to present a unified tool to your development teams.
-
-The compilation process binds branding configuration values into the executable using Go linker flags (`-ldflags`).
-
-### Customization Parameters
-
-The following variables in `internal/brand/brand.go` can be overridden at compile time:
-
-| Flag / Variable | Default Value | Description |
+| Make variable | Runtime field | Purpose |
 |---|---|---|
-| `Brand` | `graphit` | Short identifier used for directories, file prefixes, and rules (e.g., `.mybrand/`, `mybrand.lock.json`). |
-| `DisplayName` | `Graphit Code: AI Harness...` | The formal product name displayed in CLI help and user interface headers. |
-| `GitHubRepo` | `graphit-labs/graphit-code` | Default repository used for update checks and issues. |
-| `DefaultHubRepoURL` | `""` | Default private Git repository used to synchronize team skills and rules. |
-| `DefaultMemoryRepoURL` | `""` | Default private Git repository used to synchronize project memories. |
-| `SelfUpdateURL` | `""` | Custom URL for self-update releases endpoint. When set, `self-update` fetches release metadata from this URL instead of the GitHub API. The endpoint must return JSON in the GitHub Release format. When empty, falls back to `https://api.github.com/repos/{GitHubRepo}/releases/latest`. |
+| `BRAND` | `brand.Brand` | Binary/config-directory prefix |
+| `DISPLAY_NAME` | `brand.DisplayName` | Human-readable product name |
+| `GITHUB_REPO` | `brand.GitHubRepo` | Source/update metadata when applicable |
+| `DEFAULT_HUB_BUCKET` | `brand.DefaultHubBucket` | Compiled default S3 bucket |
+| `DEFAULT_HUB_REGION` | `brand.DefaultHubRegion` | Compiled default region |
+| `DEFAULT_HUB_ENDPOINT` | `brand.DefaultHubEndpoint` | Compiled default S3-compatible endpoint |
+| `SELF_UPDATE_URL` | `brand.SelfUpdateURL` | Private update source when provided |
 
-### Compilation Example
-
-To build your custom binary, inject these variables into the compiler:
-
-```bash
-# Variables for customization
-BRAND="devkit"
-DISPLAY_NAME="Enterprise DevKit AI Harness"
-HUB_URL="git@github.com:mycompany/devkit-hub.git"
-SELF_UPDATE_URL="https://releases.mycompany.com/devkit/latest"
-MODULE="github.com/graphit-labs/graphit-code"
-
-# Compile CLI core
-go build -tags "fts5" -ldflags \
-  "-X '${MODULE}/internal/brand.Brand=${BRAND}' \
-   -X '${MODULE}/internal/brand.DisplayName=${DISPLAY_NAME}' \
-   -X '${MODULE}/internal/brand.DefaultHubRepoURL=${HUB_URL}' \
-   -X '${MODULE}/internal/brand.SelfUpdateURL=${SELF_UPDATE_URL}'" \
-  -o .build/devkit-linux-amd64 ./cmd/launcher
-```
-
-Or using Make variables:
+Example:
 
 ```bash
-make build-linux \
-  BRAND=devkit \
-  DISPLAY_NAME="Enterprise DevKit AI Harness" \
-  DEFAULT_HUB_REPO="git@github.com:mycompany/devkit-hub.git" \
-  SELF_UPDATE_URL="https://releases.mycompany.com/devkit/latest"
+make build-local \
+  BRAND=acme-code \
+  DISPLAY_NAME="Acme Code Intelligence" \
+  DEFAULT_HUB_BUCKET=acme-graphit-prod \
+  DEFAULT_HUB_REGION=us-east-1 \
+  DEFAULT_HUB_ENDPOINT=https://s3.internal.example
 ```
 
-Once built, the custom binary (e.g., `devkit`) will automatically:
-- Create and read configuration directories under `~/.devkit/` and `.devkit/`.
-- Look for configuration files named `devkit.lock.json`.
-- Export MCP tools prefixed with `devkit_` (e.g., `devkit_ast_query`).
-- Use the configured private repository as the default hub.
+The compiled S3 values are defaults, not credentials. Operators can override them
+through environment, project config, or global config. Do not embed access keys or
+secrets in linker flags or release workflows.
 
----
+The public `.github/workflows/release.yml` deliberately omits all three
+`DEFAULT_HUB_*` variables. Their empty Makefile defaults leave the released binary
+in local-only/operator-configured mode until setup, environment, or layered config
+provides an S3 location. A private release may pass `DEFAULT_HUB_BUCKET`,
+`DEFAULT_HUB_REGION`, and `DEFAULT_HUB_ENDPOINT`; `DEFAULT_HUB_REPO` is obsolete and
+is not part of the build contract.
 
-## 🤝 Setting Up Private Collaboration Ecosystems
+Release builds run natively on each platform because the LanceDB search library
+cannot be cross-compiled. The Windows job must call `make build-windows-native` on
+its MSYS2 runner; that target bundles the Windows-native LanceDB, LadybugDB, and
+ONNX Runtime libraries. Do not replace it with a Windows cross-build that omits the
+search engine.
 
-> **This is the defining advantage of Graphit Code.** By configuring private Git repositories for the Hub and Memory, you transform Graphit from a solo developer tool into a **team-wide collaboration platform** where knowledge, standards, and corrections compound across every developer — all within your private infrastructure.
+## Global directory and environment names
 
-By deploying branded binaries across your engineering teams, you establish a secure, shared knowledge loop:
+The brand controls the default global directory and environment prefix. A build
+with `BRAND=acme-code` uses `~/.acme-code/` and `ACME_CODE_*` variables. The
+environment-only `<PREFIX>_GLOBAL_DIR` can relocate that directory before config
+resolution begins.
 
-### The Two Pillars of Team Collaboration
+Global state includes configuration, global rules, raw memory, compiled AST/wiki
+stores, runtime payloads, models, and daemon metadata. Project-local source,
+`graphit.lock.json`, rule/query overrides, and generated runtime state remain
+separate. See [Storage Layout](../architecture/storage_layout.md).
 
-#### 🔗 Hub Repository — Centralized Team Artifact Registry
+## Setting up private collaboration ecosystems
 
-The Hub is a **single Git repository** that acts as the centralized registry for all shared team artifacts. During `graphit setup`, developers configure the Hub Git URL (e.g., `git@gitlab.company.com:team/graphit-hub.git`), and the CLI automatically synchronizes artifacts via standard SSH/HTTPS Git authentication.
-
-**What the Hub shares across your team:**
-
-| Artifact Type | Description | Impact |
-|---|---|---|
-| **Rules** | Company-wide coding standards and conventions | Every developer's IDE enforces the same standards automatically |
-| **Skills** | Codified workflows (k8s debugging, API patterns, deployments) | Every agent knows team-specific procedures without being told |
-| **Knowledge** | Framework docs, API specs, integration guides | Agents never hallucinate APIs — they consult the registry first |
-| **MCP Servers** | Shared IDE bridge configurations | Standardized tooling across the organization |
-| **Commands** | Reusable agent actions | Consistent automation patterns for all developers |
-| **Agent Profiles** | Pre-configured agent personas | New team members start with optimally configured agents |
-| **Powers** | Bundled multi-artifact packages | Complex capabilities deployed as a single install |
-
-All artifacts are version-controlled via Git, published directly, and distributed through your existing authentication (SSH keys, SSO, access tokens). This means your standards **evolve organically** — whether you're a solo developer curating your own toolkit or a team sharing knowledge across dozens of engineers.
-
-#### 🧠 Memory Repository — Collective Team Intelligence
-
-The Memory repository is a **separate Git repository** where shared project memories are stored and synchronized. When configured during `graphit setup`, every developer's agent contributes to and benefits from a collective memory that **compounds across the entire team**.
-
-**What shared memory enables:**
-
-- **Corrections propagate team-wide** — When one developer corrects their agent ("we don't use that library anymore", "error responses must follow this format"), the correction is saved to the shared memory repo. On the next sync, **every developer's agent learns the same lesson** without being told individually.
-- **Conventions are enforced automatically** — Architecture decisions, API patterns, naming conventions, and coding standards stored as memories are followed by every agent on the team, ensuring perfect consistency.
-- **Institutional knowledge persists** — When team members leave or new members join, the collective memory persists. New developers' agents **immediately benefit from months of accumulated corrections, decisions, and contextual knowledge**, eliminating onboarding friction.
-- **Full audit trail via Git history** — Every memory change is a Git commit: tracked, auditable, diffable, and reversible. You can see exactly when a convention was established, who contributed it, and how it evolved.
-
-### 1. Centralized Rule Staging
-Define company-wide coding guidelines or project-specific rules in your private Hub repository (e.g., `devkit-hub`). When developers run `devkit sync` or `devkit init`, the CLI pulls these rules and injects them directly into their IDE profiles (e.g., `.cursorrules`, `.claudecoderc`).
-
-### 2. Standardized Team Skills
-Codify complex developer workflows (e.g., k8s debugging, internal API structures) into custom agent skills under the `skills/` directory of your Hub repository. AI agents operating in individual developer workspaces can dynamically discover and run these skills.
-
-### 3. Local Cluster Discovery
-Use the local daemon cluster discovery to allow agents to discover other projects on the same machine. This enables agents to query sibling microservice structures locally to generate integration code without exposing private endpoints.
-
-### 4. Configuration During CLI Setup
-
-When developers run the interactive setup command:
+Use a private AWS S3 bucket or an S3-compatible endpoint such as an internal MinIO
+deployment. The configured bucket carries the registry, versioned artifacts,
+events, team rules, published knowledge, mounted graph/search stores, and memory
+scopes under distinct prefixes.
 
 ```bash
-graphit setup
+acme-code setup
 ```
 
-The CLI prompts for key collaboration configurations:
+Setup collects the bucket, region, endpoint, and optional access/secret pair. A
+complete pair is written to the global config. Leaving either credential blank
+removes both explicit values and uses the AWS provider chain, which is preferred
+for workload roles and short-lived credentials.
+
+Explicit secrets are stored as plain text in the owner-only global config file.
+They are redacted from config output but are not encrypted at rest. Bucket policy,
+endpoint TLS, identity/role policy, and network segmentation remain the real data
+security boundary. See
+[S3 Credentials and UI Network Configuration](s3-and-ui-network.md) and
+[Hub S3 Object Layout](../specs/hub-s3-object-layout.md).
+
+### Prefix isolation
+
+Set `hub.prefix` when multiple teams or environments share a bucket:
+
+```bash
+acme-code config --global hub.prefix engineering/prod
+```
+
+Use separate prefixes or buckets for production, staging, and unrelated trust
+domains. A prefix is an object namespace, not an authorization boundary unless the
+bucket policy enforces it.
+
+## UI network hardening
+
+The unified UI binds to `0.0.0.0` by default and selects a free port. Browser CORS
+remains limited to localhost until `ui.allowed_origins` is explicitly configured.
+The server has no authentication, and CORS does not stop scripts or direct network
+clients.
+
+For a workstation-only private build:
+
+```bash
+acme-code config --global ui.host 127.0.0.1
+```
+
+For a shared deployment, keep the service on a private network and put it behind
+an authenticated TLS reverse proxy:
+
+```bash
+acme-code config --global ui.host 0.0.0.0
+acme-code config --global ui.allowed_origins https://code.acme.internal
+```
+
+Do not expose the raw server directly to the public Internet. Configure firewall
+rules, VPN access, authentication, request limits, and TLS at the proxy or platform
+boundary.
+
+## Private model and API policy
+
+The local embedding engine does not require an LLM API key. S3 credentials, when
+used, are infrastructure credentials and are distinct from model-provider API
+keys. A private distribution can keep embeddings local while still choosing
+whether prompt-completion integrations are disabled, proxied, or explicitly
+configured.
+
+## Air-gapped deployments
+
+The launcher embeds runtime binaries and query YAMLs, but the embedding model is
+downloaded during `setup`. For an offline image, pre-stage both model files in the
+branded global directory:
 
 ```text
-? Enter the Git URL for the Shared Hub Registry (e.g., git@github.com:company/graphit-hub.git):
-? Enter the Git URL for the Shared Memory Repository (e.g., git@github.com:company/graphit-memory.git):
+~/.<brand>/models/coderankembed/model.onnx
+~/.<brand>/models/coderankembed/tokenizer.json
 ```
 
-Once configured:
-1. **Standard Git Authentication:** The CLI uses the developer's local SSH keys or Git credentials (e.g., HTTPS access tokens) to interact with the remote repository. No new credentials or keys are managed by Graphit Code, maintaining strict security boundaries and leveraging existing SSO/access controls.
-2. **Push/Pull Sync Loop:** Staged memories, custom developer skills, and global coding rules are updated on the developer's machine and synced with the remote repository during synchronization (`graphit sync`), ensuring the entire team stays in a progressive, collaborative knowledge loop.
+`setup` detects the complete cache and skips the network download. Also provide:
 
-### 5. The Result: A Fully Self-Hosted Collaboration Loop
+- the application/launcher artifacts for every target platform;
+- any required native libraries and grammar packages;
+- an internal S3-compatible endpoint, or no bucket for local-only operation;
+- an internal update source if self-update is enabled; and
+- firewall/DNS rules that prevent unintended egress.
 
-```
-Your Private Git Server (GitLab / Bitbucket / GitHub Enterprise)
-├── team/graphit-hub.git      ← Shared rules, skills, knowledge, MCP servers
-└── team/graphit-memory.git   ← Shared corrections, conventions, decisions
-
-Every developer:
-  graphit setup  →  configure private repo URLs (once)
-  graphit sync   →  push/pull team knowledge (continuous)
-  graphit init   →  inject shared rules into IDE (per project)
-```
-
-**Zero cloud dependencies. Zero SaaS subscriptions. Zero data leaving your network. Zero cost.**
-
----
-
-## 🔑 Keyless AI Harness (Zero API Key Setup)
-
-One of the most powerful architectural features of Graphit Code is its ability to enable agentic tasks **without requiring separate LLM API access keys**. 
-
-Traditionally, developer tools require configuring API keys (e.g., OpenAI, Anthropic, Gemini) or setting up complex proxy relays in every developer's environment, exposing organizations to credential leaks and separate billing management. Graphit Code completely bypasses this requirement.
-
-### How it Works
-
-Graphit Code operates as a Model Context Protocol (MCP) server over standard input/output (`stdio`) or HTTP. It does not initiate connections to external LLM providers directly to serve tools; instead, the **calling agent** (e.g., Claude Code running in a terminal, or Gemini Code Assist in the IDE) is the one that is authenticated and communicates with the LLM backend.
-
-When an agent interacts with your workspace:
-1. The developer's IDE or CLI agent (which is already authenticated to its respective LLM backend) starts the Graphit Code process in the background.
-2. The agent queries Graphit Code's MCP tools (such as AST querying, memory lookup, and wiki explorer) via standard stdio JSON-RPC.
-3. Graphit Code responds locally with deterministic AST code graphs, memory context, and wiki entries.
-4. The calling agent uses this localized context to formulate its final responses and code edits using its **own active accounts, quotas, and capabilities**.
-
-### Key Benefits
-
-- **Zero API Keys Configured:** Developers do not need to configure, store, or manage any API keys inside Graphit Code's global or local profiles.
-- **Quota & Cost Reusability:** The harness automatically reuses the existing subscriptions, active quotas, and capabilities of the developer's IDE and CLI agents (e.g., Claude Code, Cursor, Gemini Code Assist).
-- **Enterprise Controls:** Leverages the enterprise security controls, Single Sign-On (SSO), and logging mechanisms already set up for developer IDE/CLI tools.
+Validate the branded binary in a clean environment before release: run setup,
+initialize a sample project, perform an S3 publish/install cycle when remote mode
+is enabled, and verify UI access through the intended network boundary.

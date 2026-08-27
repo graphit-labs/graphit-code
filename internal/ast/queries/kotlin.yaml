@@ -1,6 +1,12 @@
 language: kotlin
 grammar: tree-sitter-kotlin
 extensions: [".kt", ".kts"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function, Package] }
+  READS_FIELD: { labels: [Field] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -13,7 +19,7 @@ queries:
     graph_label: Object
     pattern: '(object_declaration (type_identifier) @name)'
   - data_key: imports
-    graph_label: Module
+    graph_label: Import
     pattern: '(import_header (identifier) @name)'
   - data_key: packages
     graph_label: Package
@@ -21,6 +27,18 @@ queries:
   - data_key: variables
     graph_label: Variable
     pattern: '(property_declaration (variable_declaration (simple_identifier) @name))'
+
+  # Declared literal values — the literal becomes a node contained by the name.
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(property_declaration variable: (variable_declaration (simple_identifier) @name) expression: [(integer_literal) (real_literal) (hex_literal) (bin_literal) (long_literal) (boolean_literal) (character_literal) (string_literal)] @value)'
+    value_capture: value
+    value_label: Value
+
+  # Enum entries — antes a enum class existia sem seus valores.
+  - data_key: enum_members
+    graph_label: EnumMember
+    pattern: '(enum_entry (simple_identifier) @name)'
   - data_key: parameters
     graph_label: Parameter
     pattern: '(parameter (simple_identifier) @name)'
@@ -85,127 +103,31 @@ comment_types:
   - line_comment
   - multiline_comment
 
-# Entry point scoring rules for Kotlin
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "Test*"
-      score: 60
-    - pattern: "test*"
-      score: 60
-    - pattern: init
-      score: 40
-    - pattern: setup
-      score: 40
-    - pattern: configure
-      score: 40
-    - pattern: "*Handler"
-      score: 30
-    - pattern: "*Controller"
-      score: 30
-    - pattern: "run*"
-      score: 20
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. && / || are wrapped in conjunction_expression /
+# disjunction_expression here, not bare tokens — do not also list them as
+# operators, or every one would be counted twice. when_entry fires for the
+# else branch too, so a bare `when` with no other entry still adds one.
+complexity:
+  node_types:
+    - if_expression
+    - for_statement
+    - while_statement
+    - when_entry
+    - catch_block
+    - conjunction_expression
+    - disjunction_expression
 
-  exported_bonus: 10
-  max_score: 100
-
-  decorators:
-    # Spring/Ktor HTTP route annotations
-    - name: GetMapping
-      score: 70
-    - name: PostMapping
-      score: 70
-    - name: PutMapping
-      score: 70
-    - name: DeleteMapping
-      score: 70
-    - name: PatchMapping
-      score: 70
-    - name: RequestMapping
-      score: 70
-    # Test annotations
-    - name: Test
-      score: 60
-    - name: ParameterizedTest
-      score: 60
-    - name: BeforeEach
-      score: 40
-    - name: AfterEach
-      score: 40
-    - name: BeforeAll
-      score: 40
-    - name: AfterAll
-      score: 40
-    # Controller/Service annotations (Spring in Kotlin)
-    - name: Controller
-      score: 50
-    - name: RestController
-      score: 50
-    - name: Service
-      score: 40
-    - name: Component
-      score: 30
-    # Compose/Android annotations
-    - name: Composable
-      score: 50
-    - name: Preview
-      score: 40
-    # Serialization
-    - name: Serializable
-      score: 30
-
-# Import detection (Kotlin framework detection)
-import_detection:
-  - pattern: "org.springframework"
-    match: prefix
-    framework: spring
-    category: web
-  - pattern: "io.ktor"
-    match: prefix
-    framework: ktor
-    category: web
-  - pattern: "org.junit"
-    match: prefix
-    framework: junit
-    category: test
-  - pattern: "kotlin.test"
-    match: prefix
-    framework: kotlin-test
-    category: test
-  - pattern: "kotlinx.coroutines"
-    match: prefix
-    framework: coroutines
-    category: async
-  - pattern: "kotlinx.serialization"
-    match: prefix
-    framework: kotlinx-serialization
-    category: serialization
-  - pattern: "org.jetbrains.exposed"
-    match: prefix
-    framework: exposed
-    category: orm
-  - pattern: "androidx.compose"
-    match: prefix
-    framework: compose
-    category: ui
-  - pattern: "io.grpc"
-    match: prefix
-    framework: grpc
-    category: rpc
-  - pattern: "org.apache.kafka"
-    match: prefix
-    framework: kafka
-    category: messaging
-  - pattern: "com.fasterxml.jackson"
-    match: prefix
-    framework: jackson
-    category: serialization
-  - pattern: "dagger"
-    match: prefix
-    framework: dagger
-    category: di
-  - pattern: "koin"
-    match: prefix
-    framework: koin
-    category: di
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Class
+  - Object
+  - Function
+  - Package
+  - Field
+  - EnumMember
+  - Variable
+  - Comment

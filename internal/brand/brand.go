@@ -13,13 +13,41 @@ var GitHubRepo = ""
 
 var DisplayName = "Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems"
 
-var DefaultHubRepoURL = ""
+var DefaultHubBucket = ""
 
-var DefaultMemoryRepoURL = ""
+var DefaultHubRegion = ""
+
+var DefaultHubEndpoint = ""
 
 var SelfUpdateURL = ""
 
 func DotDir() string { return "." + Brand }
+
+// RuntimeSubdir holds generated project-local state: caches, locks, stamps, hashes,
+// exports, dream output and the per-project daemon log.
+func RuntimeSubdir() string { return "runtime" }
+
+// ProjectRuntimePath returns <projectDir>/.brand/runtime/<parts...>.
+//
+// Every writer of project-local generated state goes through here. Project-local
+// grammar binaries are the other ignored tree and use their grammar resolvers.
+func ProjectRuntimePath(projectDir string, parts ...string) string {
+	return filepath.Join(append([]string{projectDir, DotDir(), RuntimeSubdir()}, parts...)...)
+}
+
+// GitignoreContent is the block `graphit init` writes into the project's
+// .gitignore. It ignores generated runtime state and project-local grammar
+// binaries while leaving rule and query overrides visible.
+//
+// NOTE: the leading "**/" is what keeps it matching at any depth. A pattern with a
+// separator in the middle is anchored to the directory of the .gitignore that
+// declares it, so a bare ".brand/runtime/" would ignore the project's own machine
+// state and expose that of every nested project, test fixture and sub-checkout
+// below it.
+func GitignoreContent() string {
+	prefix := "**/" + DotDir() + "/"
+	return prefix + RuntimeSubdir() + "/\n" + prefix + "grammars/"
+}
 
 func LockFileName() string { return Brand + ".lock.json" }
 
@@ -45,7 +73,23 @@ func TempDirPrefix(module string) string { return Brand + "-" + module + "-" }
 
 func ManagedMCPKey() string { return "_" + Brand + "ManagedMcpKeys" }
 
+// processStartDir is the working directory as it was before anything in this process
+// could change it.
+//
+// NOTE: the daemon chdirs into GlobalDir(), so resolving a relative override against
+// the live working directory would answer one level deeper on every later call.
+var processStartDir, _ = os.Getwd()
+
+// GlobalDir resolves the global brand directory.
+// The <BRAND>_GLOBAL_DIR override is documented in docs/architecture/storage_layout.md.
 func GlobalDir() string {
+	if override := strings.TrimSpace(os.Getenv(EnvVar("GLOBAL_DIR"))); override != "" {
+		if filepath.IsAbs(override) {
+			return filepath.Clean(override)
+		}
+		return filepath.Join(processStartDir, override)
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -170,5 +214,3 @@ func Capitalize(s string) string {
 	runes[0] = unicode.ToUpper(runes[0])
 	return string(runes)
 }
-
-

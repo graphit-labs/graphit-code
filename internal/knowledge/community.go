@@ -35,7 +35,6 @@ func DetectKnowledgeCommunities(graph *wiki.CrossRefGraph) []KnowledgeCommunity 
 		}
 	}
 
-	// Run Louvain
 	assignment := wiki.Louvain(adj)
 
 	// Group by community

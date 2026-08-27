@@ -4,10 +4,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// entityUID
-// ---------------------------------------------------------------------------
-
 func TestEntityUID(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -63,10 +59,6 @@ func TestEntityUID(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// contextTypeToLabel
-// ---------------------------------------------------------------------------
-
 func TestContextTypeToLabel(t *testing.T) {
 	tests := []struct {
 		input string
@@ -105,10 +97,6 @@ func TestContextTypeToLabel(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// canonicalModuleName
-// ---------------------------------------------------------------------------
 
 func TestCanonicalModuleName(t *testing.T) {
 	tests := []struct {

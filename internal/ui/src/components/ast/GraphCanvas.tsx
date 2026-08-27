@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useRef, useCallback, useMemo, forwardRef } from 'react'
 import type { GraphNode, GraphEdge } from '@/api/ast'
-import { labelColor } from '@/lib/utils'
+import { labelColor, langKey } from '@/lib/utils'
 
 const CLUSTER_DEFAULT_COLORS = [
   '#8b5cf6', '#06b6d4', '#f59e0b', '#ec4899', '#10b981',
@@ -128,7 +128,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
     }
     if (hiddenLangs.size > 0) {
       const lang = (n.properties?.lang as string) ?? ''
-      if (lang && hiddenLangs.has(lang)) return false
+      if (hiddenLangs.has(langKey(lang))) return false
     }
     return true
   }), [nodes, hiddenLabels, hiddenClusters, hiddenLangs])
@@ -511,7 +511,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
     })
 
     setTimeout(() => fg.zoomToFit(400, 60), 1500)
-  }, [destroyGraph, linkWidthFn, getClusterColor, getLangColor, getNodeColor])
+  }, [destroyGraph, linkWidthFn, getClusterColor, getLangColor, getNodeColor, containerRef])
 
   useEffect(() => {
     const fg = graphRef.current
@@ -814,13 +814,12 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(function
 
     setTimeout(() => fg.zoomToFit(400, 60), 1500)
   
-  }, [destroyGraph, getClusterColor, getLangColor])
+  }, [destroyGraph, getClusterColor, getLangColor, getNodeColor, containerRef])
 
   useEffect(() => {
     if (!graphRef.current || !is3D) return
     const fg = graphRef.current
     const selId = selectedIdRef.current
-    const neighbourhood = selId ? getNeighbourIds(selId, visibleLinksRef.current) : null
 
     requestAnimationFrame(() => {
       applySelection3D()

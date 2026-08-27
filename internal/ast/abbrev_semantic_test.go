@@ -97,7 +97,7 @@ func TestExpansionFieldCeiling(t *testing.T) {
 			wantTotal += len(cs.want)
 			t.Logf("  %-8s | %-46s | %d/%d -> %v", cs.query, strings.Join(cs.want, ","), n, len(cs.want), got)
 		}
-		t.Logf("  recall: %d/%d (trigram alone, no expansion field: 8/9)", total, wantTotal)
+		t.Logf("  recall: %d/%d (without the prefix index this wording reaches 8/9)", total, wantTotal)
 		results[v.label] = total
 
 		if wantTotal == 0 {
@@ -109,22 +109,49 @@ func TestExpansionFieldCeiling(t *testing.T) {
 	exact := results["exact query token (\"config load\")"]
 	t.Logf("expansion recall: morphological %d, exact-token %d", morph, exact)
 
-	// On this engine both wordings reach CFG_LOAD, because FTS5's prefix index lets the
-	// query "config" match the token "configuration". That is exactly what made the
-	// expansion field look like a 9/9 idea.
+	// The two wordings score ALIKE, and that parity is the whole finding.
 	//
-	// It is engine-specific, and worth keeping written down: on an engine without prefix
-	// matching the morphological wording scored 8/9 while the exact-token one scored 9/9,
-	// so the expansion only helped when it happened to repeat the searcher's word. Any
-	// future move off FTS5 inherits that weaker claim.
-	if morph < exact {
-		t.Errorf("the morphological expansion (%d) no longer matches as well as the exact-token "+
-			"one (%d) — prefix matching has been lost, and an expansion field would only help "+
-			"when it repeats the query's exact word", morph, exact)
+	// This assertion has now been measured on both engines, and the pair is worth more than
+	// either number, because it separates a property of the index from a property of the
+	// idea:
+	//
+	//   - On FTS5 both wordings reach 9/9. The prefix index lets the query "config" match
+	//     the token "configuration" directly, so a generated expansion field would add a
+	//     column that reproduces what the index already does.
+	//   - On LadybugDB, which has neither prefix matching nor a wildcard, the morphological
+	//     wording dropped to 8/9 — level with the trigram bag alone — and only the wording
+	//     that happened to repeat the searcher's exact word still reached 9/9.
+	//
+	// So on the engine that ships, an expansion field buys nothing; on the one that does
+	// not, it bought a single probe, and only when its author guessed the searcher's exact
+	// word. No generator guarantees that. The field is not worth building, and the reason
+	// no longer depends on which storage engine is underneath.
+	//
+	// WHAT THIS GUARDS NOW IS THE CONCLUSION, NOT THE MECHANISM. It used to guard the prefix
+	// index, and the prefix index is gone with SQLite — LanceDB's BM25 has no wildcard operator,
+	// so the gram bag carries every truncation. Asserting a mechanism that no longer exists would
+	// make this test fail for the one reason that is not a regression.
+	//
+	// The finding it exists to protect is unchanged: an expansion field is not worth building,
+	// because it pays only when its author happened to write the searcher's exact word, and no
+	// generator can guarantee that. Two things say so, and both are still measurable.
+	//
+	// MEASURED here: exact-token 9/9, morphological 8/9. The single probe of difference IS the
+	// lucky guess, quantified.
+	if exact != 9 {
+		t.Errorf("the exact-token wording scored %d/9, expected 9/9. This wording repeats the "+
+			"searcher's exact word, so it should reach every probe without any expansion at all",
+			exact)
 	}
-	if exact <= 8 {
-		t.Errorf("a perfect expansion field scored %d/9, so it buys nothing over the trigram bag "+
-			"alone (8/9) and should not be built", exact)
+	if exact < morph {
+		t.Errorf("the morphological wording (%d) beat the exact-token one (%d), which should be "+
+			"impossible: repeating the searcher's word cannot be worse than not repeating it. "+
+			"Something has changed about how the query reaches the index", morph, exact)
+	}
+	if exact-morph > 1 {
+		t.Errorf("an expansion field is now worth %d probes (exact %d vs morphological %d), not "+
+			"the one it was worth when this was measured. Above one, the case for building it "+
+			"has to be re-argued rather than assumed closed", exact-morph, exact, morph)
 	}
 }
 

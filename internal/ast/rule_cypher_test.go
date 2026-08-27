@@ -34,20 +34,31 @@ func TestASTRuleContentHasNoAlwaysTrueDeadCodeQuery(t *testing.T) {
 	}
 }
 
-// A query that mixes CALLS and CONTAINS around one node returns zero rows and no
-// error. That silence is the trap — it reads as "nothing matches" — so the skill
-// has to state the constraint rather than leaving the agent to discover it.
+// A call is joined to the declaration it names, so CALLS normally lands on the same
+// node CONTAINS reaches and the two compose. A stub survives only where there is
+// nothing here to join to — a builtin, a dependency, or a name with homonyms — and an
+// agent that does not know which case it is looking at either distrusts a traversal
+// that works or trusts a location that is empty.
 func TestASTRuleContentExplainsTheStubDuality(t *testing.T) {
 	t.Parallel()
 	content := ASTRuleContent()
 
 	for _, want := range []string{
-		"exists TWICE",
+		"points at the real declaration",
 		"is_stub",
-		"zero rows and no error",
+		"resolves to **nothing**",
 	} {
 		if !strings.Contains(content, want) {
-			t.Errorf("skill does not explain the declaration/stub split: missing %q", want)
+			t.Errorf("skill does not explain when a call target is the declaration and when it is a stub: missing %q", want)
+		}
+	}
+
+	// The superseded model is worse than silence: it tells the agent to replace a
+	// traversal that now works with a name-join, and to treat every declaration as
+	// uncalled.
+	for _, gone := range []string{"exists TWICE", "never points at a declaration"} {
+		if strings.Contains(content, gone) {
+			t.Errorf("skill still asserts the superseded two-node model: %q", gone)
 		}
 	}
 }
@@ -93,8 +104,8 @@ func TestASTRuleContentCoversTheQueryOnlyQuestions(t *testing.T) {
 	}
 
 	// Aggregation is what turns a survey into one query.
-	if !strings.Contains(content, "cyclomatic_complexity") || !strings.Contains(content, "entry_point_score") {
-		t.Error("skill does not show the precomputed risk properties")
+	if !strings.Contains(content, "cyclomatic_complexity") {
+		t.Error("skill does not show the precomputed risk property")
 	}
 	if !strings.Contains(content, brand.MCPToolName("ast", "query")) {
 		t.Error("skill does not name the query tool")

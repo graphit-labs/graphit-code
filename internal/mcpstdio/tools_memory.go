@@ -4,14 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
@@ -55,8 +52,6 @@ type memorySearchInput struct {
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
-
-
 type memoryImportantInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
@@ -73,16 +68,6 @@ type memoryDemoteInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
 	ID         string `json:"id" jsonschema:"Memory ID to demote (required)"`
 	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-}
-
-
-
-type memoryGCInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	DryRun      bool   `json:"dry_run,omitempty" jsonschema:"Only scan, do not delete"`
-	StaleDays   int    `json:"stale_days,omitempty" jsonschema:"Days of inactivity before memory is stale"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memoryIndexInput struct {
@@ -159,7 +144,11 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		return textResult(fmt.Sprintf("Memory %q saved", slug))
+		msg := fmt.Sprintf("Memory %q saved", slug)
+		if notice := memoryScopeNotice(userScope, projectDir); notice != "" {
+			msg += "\n" + notice
+		}
+		return textResult(msg)
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -251,30 +240,39 @@ func registerMemoryTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
+		userScope := input.Scope == "user"
+		notice := memoryScopeNotice(userScope, projectDir)
 		scope := "project"
-		if input.Scope == "user" {
+		if userScope {
 			scope = "user"
 		}
 
+		// resolveWikiDir applies the ephemeral redirect itself, so scope stays as
+		// asked and the notice is what tells the caller it was not honoured.
 		wikiDir := resolveWikiDir("memory", projectDir, scope)
 		if wikiDir == "" {
+			if notice != "" {
+				return textResult(notice + "\nyour user memory has not been built yet, so there is nothing to recall")
+			}
 			return errResult(fmt.Errorf("memory wiki not found for %s scope", scope))
 		}
 
 		var results []wiki.BM25Result
 		err = withProjectDir(projectDir, func() error {
-			results = wiki.BM25Search(wikiDir, input.Query, input.TopK)
+			results = wiki.BM25Search(ctx, wikiDir, input.Query, input.TopK)
 			return nil
 		})
 		if err != nil {
 			return errResult(err)
+		}
+		if notice != "" {
+			return noticeResult(notice, results, aiOpt(input.AiOptimized))
 		}
 		if aiOpt(input.AiOptimized) {
 			return toonResult(results)
 		}
 		return jsonResult(results)
 	}))
-
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "important"),
@@ -355,57 +353,6 @@ func registerMemoryTools(server *mcp.Server) {
 		return textResult(fmt.Sprintf("Memory %q demoted", input.ID))
 	}))
 
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("memory", "gc"),
-		Description: "Garbage collect inactive or stale memories.",
-	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryGCInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
-		if err != nil {
-			return errResult(err)
-		}
-
-		scope := "project"
-		if input.Scope == "user" {
-			scope = "user"
-		}
-
-		staleDays := input.StaleDays
-		if staleDays <= 0 {
-			staleDays = 30
-		}
-
-		var report *memory.GCReport
-		err = withProjectDir(projectDir, func() error {
-			var gerr error
-			report, gerr = memory.RunGC(scope, staleDays)
-			if gerr != nil {
-				return gerr
-			}
-
-			if !input.DryRun && len(report.Candidates) > 0 {
-				userScope := scopeFromString(input.Scope)
-				svc, err := newMemorySvc(userScope, projectDir)
-				if err != nil {
-					return err
-				}
-				defer func() { _ = svc.Close() }()
-
-				for _, c := range report.Candidates {
-					_ = svc.RemoveMemory(c.ID)
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return errResult(err)
-		}
-		if aiOpt(input.AiOptimized) {
-			return toonResult(report)
-		}
-		return jsonResult(report)
-	}))
-
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "index"),
 		Description: "Regenerate the semantic wiki index of the memory store.",
@@ -476,8 +423,14 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		linkDir := filepath.Join(projectDir, brand.DotDir(), "memory", cleanCtx)
-		if err := os.RemoveAll(linkDir); err != nil {
+		// An imported memory context is a branch of the shared memory repository, so
+		// what is dropped is this machine's copy of it: its worktree and its
+		// compiled wiki, both global. There is no project-local copy any more.
+		_ = projectDir
+		if err := os.RemoveAll(memory.RawDirFor(cleanCtx, cleanCtx)); err != nil {
+			return errResult(err)
+		}
+		if err := os.RemoveAll(memory.MemoryWikiGlobalDir(cleanCtx, cleanCtx)); err != nil {
 			return errResult(err)
 		}
 		return textResult(fmt.Sprintf("Removed memory context %q", cleanCtx))
@@ -493,7 +446,7 @@ func registerMemoryTools(server *mcp.Server) {
 		}
 
 		err = withProjectDir(projectDir, func() error {
-			ms, err := memory.NewMemoryGitStore()
+			ms, err := memory.NewMemoryStore()
 			if err != nil {
 				return err
 			}
@@ -514,27 +467,12 @@ func registerMemoryTools(server *mcp.Server) {
 }
 
 func newMemorySvcDetails(userScope bool, projectDir string) (*memory.MemoryService, string, error) {
-	var scope memory.MemoryScope
-	var scopeID string
-
-	if userScope {
-		scope = memory.MemoryScopeUser
-		hash, err := memory.UserHashFromGit()
-		if err != nil {
-			return nil, "", fmt.Errorf("cannot determine user identity: %w", err)
-		}
-		scopeID = hash
-	} else {
-		scope = memory.MemoryScopeProject
-		lockPath := filepath.Join(projectDir, brand.LockFileName())
-		lf, err := hub.LoadLockfile(lockPath)
-		if err != nil || lf == nil {
-			return nil, "", fmt.Errorf("project not initialised")
-		}
-		scopeID = lf.Project.ID
+	scope, scopeID, _, err := memoryScopeFor(userScope, projectDir)
+	if err != nil {
+		return nil, "", err
 	}
 
-	ms, _ := memory.NewMemoryGitStore()
+	ms, _ := memory.NewMemoryStore()
 	svc := memory.NewMemoryService(scope, scopeID, ms)
 	_ = svc.EnsureInitialised()
 	return svc, scopeID, nil

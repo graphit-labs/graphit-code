@@ -149,7 +149,6 @@ func TestLoadFromCacheData(t *testing.T) {
 		t.Error("expected other-proj to be loaded")
 	}
 
-	// Entries
 	if m.entries[TypeRule] == nil || len(m.entries[TypeRule]) != 2 {
 		t.Errorf("expected 2 rule entries, got %d", len(m.entries[TypeRule]))
 	}
@@ -360,28 +359,28 @@ func TestIsReady(t *testing.T) {
 		projects: make(map[string]*Project),
 	}
 	if m.IsReady() {
-		t.Error("expected not ready when gitStore is nil")
+		t.Error("expected not ready when the store is nil")
 	}
 
-	m.gitStore = &GitStore{repoDir: "/tmp/fake"}
+	m.store = &S3Store{cacheBase: "/tmp/fake"}
 	if !m.IsReady() {
-		t.Error("expected ready when gitStore is set")
+		t.Error("expected ready when the store is set")
 	}
 }
 
-func TestGitStore_methods(t *testing.T) {
+func TestStore_methods(t *testing.T) {
 	t.Parallel()
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
 		projects: make(map[string]*Project),
 	}
-	if m.GitStore() != nil {
-		t.Error("expected nil gitStore")
+	if m.Store() != nil {
+		t.Error("expected nil store")
 	}
-	gs := &GitStore{repoDir: "/tmp/fake"}
-	m.gitStore = gs
-	if m.GitStore() != gs {
-		t.Error("expected gitStore to be returned")
+	st := &S3Store{cacheBase: "/tmp/fake"}
+	m.store = st
+	if m.Store() != st {
+		t.Error("expected the store to be returned")
 	}
 }
 
@@ -390,7 +389,6 @@ func TestCopyDir(t *testing.T) {
 	srcDir := t.TempDir()
 	dstDir := t.TempDir()
 
-	// Create source structure
 	if err := os.MkdirAll(filepath.Join(srcDir, "subdir"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -552,16 +550,17 @@ func TestCopyFile_ErrorPaths(t *testing.T) {
 	})
 }
 
-func TestPrepareASTPublish(t *testing.T) {
-	t.Parallel()
+// THE SHARD FALLBACK IS GONE, and this is what says so.
+//
+// It used to be that a store with no graph published its parse shards, and the consumer rebuilt
+// the graph from them. That made an artifact's behaviour depend on which shape it happened to
+// carry — mounted or rebuilt — and a consumer had no way to tell which it had got. Publishing now
+// refuses instead, which moves the discovery from every consumer to the one publisher.
+func TestPrepareASTPublishNoLongerFallsBackToShards(t *testing.T) {
 	dir := t.TempDir()
-
-	// Create manifest.json
-	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"version":1}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"v":7}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
-	// Create shards directory with files
 	shardsDir := filepath.Join(dir, "shards")
 	if err := os.MkdirAll(filepath.Join(shardsDir, "sub"), 0o755); err != nil {
 		t.Fatal(err)
@@ -569,43 +568,30 @@ func TestPrepareASTPublish(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(shardsDir, "shard1.json"), []byte(`{"data":1}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(shardsDir, "sub", "shard2.json"), []byte(`{"data":2}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
-	result, err := prepareASTPublish(dir)
-	if err != nil {
-		t.Fatalf("prepareASTPublish failed: %v", err)
+	result, err := prepareASTPublish(dir, "s3://bucket/prefix", nil, nil)
+	if err == nil {
+		_ = os.RemoveAll(result)
+		t.Fatal("a store with shards but no graph was published; the fallback is supposed to be gone")
 	}
-	defer func() { _ = os.RemoveAll(result) }()
-
-	// Verify manifest was copied
-	if _, err := os.Stat(filepath.Join(result, "manifest.json")); err != nil {
-		t.Error("expected manifest.json in result")
-	}
-
-	// Verify shards were copied
-	if _, err := os.Stat(filepath.Join(result, "shards", "shard1.json")); err != nil {
-		t.Error("expected shard1.json in result")
-	}
-	if _, err := os.Stat(filepath.Join(result, "shards", "sub", "shard2.json")); err != nil {
-		t.Error("expected sub/shard2.json in result")
+	if !strings.Contains(err.Error(), "no graph") {
+		t.Errorf("the refusal does not name what is missing: %v", err)
 	}
 }
 
-func TestPrepareASTPublish_NoShardsDir(t *testing.T) {
+// An empty directory is not publishable either, and it must not leave a staging directory behind
+// when it refuses — a temp directory per failed publish is a leak nothing cleans up.
+func TestPrepareASTPublishRefusesAnEmptyDirectory(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	result, err := prepareASTPublish(dir)
-	if err != nil {
-		t.Fatalf("prepareASTPublish failed: %v", err)
+	result, err := prepareASTPublish(dir, "s3://bucket/prefix", nil, nil)
+	if err == nil {
+		_ = os.RemoveAll(result)
+		t.Fatal("an empty directory was published")
 	}
-	defer func() { _ = os.RemoveAll(result) }()
-
-	// Should still succeed, just no shards
-	if result == "" {
-		t.Error("expected non-empty result path")
+	if result != "" {
+		t.Errorf("a failed publish returned a staging path %q, which nothing will clean up", result)
 	}
 }
 
@@ -613,7 +599,6 @@ func TestLoadLocalRegistries(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	// Create a local registry file
 	registry := struct {
 		Entries []Entry `json:"entries"`
 	}{
@@ -710,7 +695,6 @@ func TestLoadProjectDir(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 
-	// Create project.json
 	pf := projectFile{
 		Version: 1,
 		Project: &Project{RemoteID: "test-proj", Name: "Test Project"},
@@ -718,7 +702,6 @@ func TestLoadProjectDir(t *testing.T) {
 	pfData, _ := json.Marshal(pf)
 	_ = os.WriteFile(filepath.Join(dir, "project.json"), pfData, 0o644)
 
-	// Create entry files
 	ef := entryFile{
 		Version: 1,
 		Entry:   Entry{ID: "my-entry", Type: TypeRule, Name: "My Entry"},
@@ -803,7 +786,7 @@ func TestLoadProjectDir_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestLoadRegistry_NoGitStore(t *testing.T) {
+func TestLoadRegistry_NoStore(t *testing.T) {
 	t.Parallel()
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
@@ -811,14 +794,14 @@ func TestLoadRegistry_NoGitStore(t *testing.T) {
 	}
 	err := m.loadRegistry()
 	if err == nil {
-		t.Error("expected error when gitStore is nil")
+		t.Error("expected error when the store is nil")
 	}
 	if !strings.Contains(err.Error(), "git store not initialized") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
 
-func TestBuildRegistryCache_NoGitStore(t *testing.T) {
+func TestBuildRegistryCache_NoStore(t *testing.T) {
 	t.Parallel()
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
@@ -826,11 +809,11 @@ func TestBuildRegistryCache_NoGitStore(t *testing.T) {
 	}
 	_, err := m.BuildRegistryCache()
 	if err == nil {
-		t.Error("expected error when gitStore is nil")
+		t.Error("expected error when the store is nil")
 	}
 }
 
-func TestPersistEntryFile_NoGitStore(t *testing.T) {
+func TestPersistEntryFile_NoStore(t *testing.T) {
 	t.Parallel()
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
@@ -838,11 +821,11 @@ func TestPersistEntryFile_NoGitStore(t *testing.T) {
 	}
 	err := m.persistEntryFile(&Entry{ID: "test", Type: TypeRule, Latest: "1.0.0"})
 	if err == nil {
-		t.Error("expected error when gitStore is nil")
+		t.Error("expected error when the store is nil")
 	}
 }
 
-func TestPersistProjectFile_NoGitStore(t *testing.T) {
+func TestPersistProjectFile_NoStore(t *testing.T) {
 	t.Parallel()
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
@@ -850,18 +833,19 @@ func TestPersistProjectFile_NoGitStore(t *testing.T) {
 	}
 	err := m.persistProjectFile("test-id")
 	if err == nil {
-		t.Error("expected error when gitStore is nil")
+		t.Error("expected error when the store is nil")
 	}
 }
 
-func TestPersistEntryFile_WithGitStore(t *testing.T) {
-	t.Parallel()
+// Not parallel: the store is configured through environment variables.
+func TestPersistEntryFile_WithStore(t *testing.T) {
 	dir := t.TempDir()
-	gs := &GitStore{repoDir: dir}
+	st, fake := newFakeBackedStore(t, dir)
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
 		projects: make(map[string]*Project),
-		gitStore: gs,
+		store:    st,
+		baseCtx:  context.Background(),
 	}
 	entry := &Entry{ID: "test-entry", Type: TypeRule, Name: "Test", Latest: "1.0.0"}
 	err := m.persistEntryFile(entry)
@@ -869,22 +853,26 @@ func TestPersistEntryFile_WithGitStore(t *testing.T) {
 		t.Fatalf("persistEntryFile failed: %v", err)
 	}
 
-	// Verify file was written
 	relPath := projectDir("_global") + "/" + sanitizeEntryFileName(entry)
-	fullPath := filepath.Join(dir, relPath)
-	if _, err := os.Stat(fullPath); err != nil {
-		t.Errorf("expected entry file at %s", fullPath)
+
+	// Both sides: the bucket is the truth, and the local mirror is what the registry walk
+	// reads. A write that lands on only one of them is the bug this asserts against.
+	if _, ok := fake.Object("registry/" + relPath); !ok {
+		t.Errorf("entry not written to the bucket; keys: %v", fake.Keys())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "registry", filepath.FromSlash(relPath))); err != nil {
+		t.Errorf("entry not written to the local mirror: %v", err)
 	}
 }
 
 func TestPersistEntryFile_WithProjectID(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
-	gs := &GitStore{repoDir: dir}
+	st, _ := newFakeBackedStore(t, dir)
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
 		projects: make(map[string]*Project),
-		gitStore: gs,
+		store:    st,
+		baseCtx:  context.Background(),
 	}
 	entry := &Entry{ID: "test-entry", Type: TypeRule, Name: "Test", Latest: "1.0.0", ProjectID: "my-project"}
 	err := m.persistEntryFile(entry)
@@ -893,14 +881,14 @@ func TestPersistEntryFile_WithProjectID(t *testing.T) {
 	}
 }
 
-func TestPersistProjectFile_WithGitStore(t *testing.T) {
-	t.Parallel()
+func TestPersistProjectFile_WithStore(t *testing.T) {
 	dir := t.TempDir()
-	gs := &GitStore{repoDir: dir}
+	st, _ := newFakeBackedStore(t, dir)
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
 		projects: make(map[string]*Project),
-		gitStore: gs,
+		store:    st,
+		baseCtx:  context.Background(),
 	}
 
 	// With non-global project
@@ -917,7 +905,7 @@ func TestPersistProjectFile_WithGitStore(t *testing.T) {
 	}
 }
 
-func TestGetDefaultBaselines_NoGitStore(t *testing.T) {
+func TestGetDefaultBaselines_NoStore(t *testing.T) {
 	t.Parallel()
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
@@ -925,7 +913,7 @@ func TestGetDefaultBaselines_NoGitStore(t *testing.T) {
 	}
 	_, err := m.GetDefaultBaselines(context.TODO())
 	if err == nil {
-		t.Error("expected error when gitStore is nil")
+		t.Error("expected error when the store is nil")
 	}
 }
 
@@ -937,7 +925,7 @@ func TestEnsureArtifactClone_NoGitStore(t *testing.T) {
 	}
 	_, err := m.EnsureArtifactClone(context.TODO(), TypeRule, "test", "1.0.0", "")
 	if err == nil {
-		t.Error("expected error when gitStore is nil")
+		t.Error("expected error when the store is nil")
 	}
 }
 

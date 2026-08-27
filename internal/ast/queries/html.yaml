@@ -22,7 +22,90 @@ queries:
     pattern: '(self_closing_tag (tag_name) @name)'
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # ATTRIBUTES
+  # ATTRIBUTES AS KEY/VALUE NODES
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # Every attribute is a node named after the attribute and containing a node
+  # named after its value, so both halves are reachable by full-text search and
+  # the pairing survives as a CONTAINS edge:
+  #   Element "a" → Attribute "href" → AttributeValue "/orders"
+  #
+  # The REFERENCES relations further down stay: they say that a value points at
+  # something, which containment does not.
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name (quoted_attribute_value (attribute_value) @value)))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(self_closing_tag (tag_name) @element (attribute (attribute_name) @name (quoted_attribute_value (attribute_value) @value)))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+
+  # Unquoted values — <input type=text>.
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name (attribute_value) @value))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(self_closing_tag (tag_name) @element (attribute (attribute_name) @name (attribute_value) @value))'
+    parent_capture: element
+    parent_label: Element
+    value_capture: value
+    value_label: AttributeValue
+
+  # Valueless attributes — <input disabled>.
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(start_tag (tag_name) @element (attribute (attribute_name) @name))'
+    parent_capture: element
+    parent_label: Element
+  - data_key: attributes
+    graph_label: Attribute
+    pattern: '(self_closing_tag (tag_name) @element (attribute (attribute_name) @name))'
+    parent_capture: element
+    parent_label: Element
+
+  # Visible text — the content an element wraps is its value.
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(element (start_tag (tag_name) @name) (text) @value)'
+    value_capture: value
+    value_label: Text
+
+  # Inline <script> and <style> bodies. The code between the tags was parsed and
+  # dropped, so an inline handler or an inline rule was no node at all. A one-liner
+  # — the common case for inline config — becomes one; a multi-statement body does
+  # not, because dataText rejects an interior newline, which decides it long before
+  # the 256-char cap does. Either way the text stays findable through the file's
+  # indexed source; what a body loses is structure.
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(script_element (start_tag (tag_name) @name) (raw_text) @value)'
+    value_capture: value
+    value_label: Text
+  - data_key: element_text
+    graph_label: Element
+    pattern: '(style_element (start_tag (tag_name) @name) (raw_text) @value)'
+    value_capture: value
+    value_label: Text
+
+  # <!DOCTYPE html> — the document's declared type.
+  - data_key: doctypes
+    graph_label: Doctype
+    pattern: '(doctype) @name'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ATTRIBUTE REFERENCES
   # ═══════════════════════════════════════════════════════════════════════════
 
   # ID attributes (unique identifiers — high-value for AST)
@@ -121,6 +204,50 @@ queries:
     type: relation
     relation_type: REFERENCES
 
+# ═════════════════════════════════════════════════════════════════════════════
+# EMBEDDED LANGUAGES
+# ═════════════════════════════════════════════════════════════════════════════
+#
+# An inline <script> is JavaScript and an inline <style> is CSS, and neither is
+# visible to this grammar — the body arrives as one raw_text. Declaring the blocks
+# gets each parsed with its own grammar and merged back at absolute lines, so an
+# inline module's `import` becomes an IMPORTS edge like any other.
+#
+# The attribute that decides is `type`, not `lang`: HTML has no `lang` on a script,
+# and `type` is what distinguishes code from a payload. Only the values that ARE
+# JavaScript are listed, so `type="application/json"`, `type="importmap"` and
+# `type="text/x-template"` are skipped in silence rather than parsed as JavaScript
+# — which is the whole point of listing them explicitly.
+# Two patterns per block because `type` is optional: the specific one first, the
+# generic one as the fallback, and order is the tie-break — the first block whose pattern
+# matches a body node claims it. The claim is at the MATCH, not at language
+# resolution: that is what makes `type="application/json"` be skipped instead of
+# falling back to the generic block's `default: javascript`.
+#
+# Same mechanism as vue.yaml and svelte.yaml; only which attribute the pattern reads.
+embedded:
+  - pattern: '(script_element (start_tag (attribute (attribute_name) @_a (quoted_attribute_value (attribute_value) @lang))) (raw_text) @body (#eq? @_a "type"))'
+    text_capture: body
+    lang_capture: lang
+    languages:
+      module: javascript
+      text/javascript: javascript
+      application/javascript: javascript
+      text/ecmascript: javascript
+      application/ecmascript: javascript
+  - pattern: '(script_element (raw_text) @body)'
+    text_capture: body
+    default: javascript
+
+  - pattern: '(style_element (start_tag (attribute (attribute_name) @_a (quoted_attribute_value (attribute_value) @lang))) (raw_text) @body (#eq? @_a "type"))'
+    text_capture: body
+    lang_capture: lang
+    languages:
+      text/css: css
+  - pattern: '(style_element (raw_text) @body)'
+    text_capture: body
+    default: css
+
 exports:
   strategy: none
 
@@ -131,6 +258,16 @@ context_types:
   script_element: Element
   style_element: Element
 
+# Without these every context above is TRANSPARENT and each entity falls back to
+# being contained by the File: tree-sitter-html's element exposes no "name" field
+# — the tag name lives in its start_tag — so the default field lookup finds
+# nothing and the walk continues past the container it just matched. xml, json,
+# yaml and svelte all declare their path; html was the one that did not.
+context_name_paths:
+  element: start_tag/tag_name
+  script_element: start_tag/tag_name
+  style_element: start_tag/tag_name
+
 anon_func_types: []
 
 declaration_types: []
@@ -138,22 +275,15 @@ declaration_types: []
 comment_types:
   - comment
 
-entry_points:
-  names:
-    - pattern: "index"
-      score: 80
-    - pattern: "main"
-      score: 60
-    - pattern: "home"
-      score: 50
-    - pattern: "app"
-      score: 50
-    - pattern: "layout"
-      score: 40
-    - pattern: "base"
-      score: 40
-    - pattern: "template"
-      score: 30
-  exported_bonus: 0
-  max_score: 100
-  decorators: []
+# No cyclomatic complexity: HTML markup has no control flow of its own — an
+# embedded <script>'s branches belong to that script's own language and are
+# already counted there.
+
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Element
+  - Text
+  - Comment

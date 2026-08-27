@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/dream"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/memory"
+	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
@@ -29,7 +32,12 @@ func NewEmbeddingModule(rootPath string, interval time.Duration, cacheDir string
 func (m *EmbeddingModule) Name() string { return "embedding" }
 
 func (m *EmbeddingModule) Start(ctx context.Context) error {
-	return ast.RunEmbeddingLoop(ctx, m.interval, m.cacheDir, nil)
+	// A real logger, for the same reason the sync module has one: nil resolves to a
+	// NOP handler that discards every record, so the loop's warnings — notably the one
+	// that says entities are being embedded with no source text — went nowhere.
+	logger, closeLog := projectRebuildLogger(m.rootPath)
+	defer closeLog()
+	return ast.RunEmbeddingLoop(ctx, m.interval, m.cacheDir, m.rootPath, logger)
 }
 
 type DreamModule struct {
@@ -51,22 +59,61 @@ func (m *DreamModule) Start(ctx context.Context) error {
 }
 
 // WikiEmbeddingModule generates vector embeddings for wiki chunks in the background.
+//
+// Registered in cmd/graphit/commands/daemon.go under the same gate as the AST
+// embedding module. It existed here, fully written, and was never instantiated —
+// which is why no wiki chunk in any project had ever been embedded, and why hybrid
+// search silently answered from the lexical index alone.
 type WikiEmbeddingModule struct {
 	projectDir string
+	targets    []wiki.EmbedTarget
 	interval   time.Duration
 }
 
-func NewWikiEmbeddingModule(projectDir string, interval time.Duration) *WikiEmbeddingModule {
+func NewWikiEmbeddingModule(projectDir string, targets []wiki.EmbedTarget, interval time.Duration) *WikiEmbeddingModule {
 	if interval <= 0 {
 		interval = 2 * time.Minute
 	}
-	return &WikiEmbeddingModule{projectDir: projectDir, interval: interval}
+	return &WikiEmbeddingModule{projectDir: projectDir, targets: targets, interval: interval}
 }
 
 func (m *WikiEmbeddingModule) Name() string { return "wiki_embedding" }
 
 func (m *WikiEmbeddingModule) Start(ctx context.Context) error {
-	return wiki.RunWikiEmbeddingLoop(ctx, m.interval, m.projectDir, nil)
+	logger, closeLog := projectRebuildLogger(m.projectDir)
+	defer closeLog()
+	return wiki.RunWikiEmbeddingLoop(ctx, m.interval, m.targets, logger)
+}
+
+// WikiEmbedTargets lists the wikis of a project worth embedding.
+//
+// Every one of them is the single copy that exists: the knowledge wiki and both
+// memory wikis are compiled once, globally, and read in place. There used to be an
+// OnEmbedded callback per target whose job was to push the fresh vectors into each
+// project's replica — vectors that the next replication could overwrite, and work
+// repeated once per project. With one copy there is nothing to push.
+func WikiEmbedTargets(projectDir string, _ *slog.Logger) []wiki.EmbedTarget {
+	targets := []wiki.EmbedTarget{
+		{Dir: store.KnowledgeProjectDir(projectDir)},
+	}
+
+	if projectID := projectIDOf(projectDir); projectID != "" {
+		targets = append(targets, wiki.EmbedTarget{Dir: memory.MemoryWikiGlobalDir("project", projectID)})
+	}
+	if userHash, err := memory.UserScopeID(); err == nil && userHash != "" {
+		targets = append(targets, wiki.EmbedTarget{Dir: memory.MemoryWikiGlobalDir("user", userHash)})
+	}
+	return targets
+}
+
+// projectIDOf reads a project's id from its lockfile, without changing the working
+// directory — the daemon serves many projects at once and must never depend on one.
+func projectIDOf(projectDir string) string {
+	lf, err := hub.LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
+	if err != nil || lf == nil {
+		return ""
+	}
+	return lf.Project.ID
 }
 
 func loadProjectConfigFromDir(projectDir string) config.ConfigMap {

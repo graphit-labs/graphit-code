@@ -7,7 +7,43 @@ grammar: antlr-postgresql
 start_rule: root
 extensions: [".sql", ".pgsql", ".plpgsql", ".pg"]
 
+# Target resolution: a DML/DDL relation captures its object by NAME, and the name
+# alone does not say what kind of thing it is. A target this corpus never declares is
+# still a table — whoever reads a schema they do not own depends on it for real — and
+# that is why `fallback: Table` is declared here instead of being the engine's default
+# for every reference of every language.
+target_rules:
+  CALLS: { labels: [Function, Procedure, Trigger] }
+  SELECTS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  INSERTS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  UPDATES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  DELETES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  ALTERS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  DROPS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  CREATES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  TRUNCATES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  REFERENCES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  # COLUMN grain — types of their own, and a target that is always QUALIFIED
+  # (`TABLE.COLUMN`). A bare column name lives in dozens of tables and resolves to
+  # none; qualified it resolves to one, and the qualified stub records ONE column of
+  # ONE table instead of merging every table's.
+  READS_COLUMN: { labels: [Column], fallback: Column }
+  WRITES_COLUMN: { labels: [Column], fallback: Column }
 queries:
+  - data_key: column_writes_update
+    pattern: "//set_clause/set_target"
+    name_capture: name
+    qualifier_capture: "updatestmt/relation_expr_opt_alias/relation_expr/qualified_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+
+  - data_key: column_writes_insert
+    pattern: "//insert_column_list/insert_column_item"
+    name_capture: name
+    qualifier_capture: "insertstmt/insert_target/qualified_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+
   # ═══════════════════════════════════════════════════════════════════════════
   # FUNCTIONS & PROCEDURES
   # ═══════════════════════════════════════════════════════════════════════════
@@ -67,9 +103,34 @@ queries:
   # INDEXES
   # ═══════════════════════════════════════════════════════════════════════════
 
+  # The shape of an index: its TABLE (an edge), the COLUMNS it covers in order
+  # (semantic in a composite index) and UNIQUENESS, which answers "does the database
+  # enforce this, or only the application?". Without them an index is a name and the
+  # question has no answer in the graph.
+  #
+  # Uniqueness comes from `value_capture` and needs NO guard: the capture returns empty
+  # when the marker is absent, so a non-unique index simply keeps an empty `value`.
+  # Where the marker is a TOKEN, the capture reaches it because ChildByRule falls back
+  # to the token when no rule matches.
   - data_key: indexes
     graph_label: Index
-    pattern: "//indexstmt/index_name_"
+    pattern: "//indexstmt"
+    name_capture: index_name_
+    value_capture: "unique_"
+    value_label: Value
+    type: entity
+
+  # The table the index is on.
+  - data_key: index_table
+    pattern: "//indexstmt/relation_expr/qualified_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  # As colunas cobertas.
+  - data_key: columns
+    graph_label: Column
+    pattern: "//indexstmt/index_params/index_elem"
     name_capture: name
     type: entity
 
@@ -152,6 +213,18 @@ queries:
     graph_label: Column
     pattern: "//columnDef/colid"
     name_capture: name
+    type: entity
+
+  # Declared DEFAULT — the value becomes a node contained by the column.
+  #
+  # colconstraintelem spells DEFAULT with b_expr and CHECK with a_expr, so naming
+  # b_expr is enough to tell a default from a constraint.
+  - data_key: columns
+    graph_label: Column
+    pattern: "//columnDef"
+    name_capture: colid
+    value_capture: "colquallist/**/colconstraintelem/b_expr"
+    value_label: Value
     type: entity
 
   # Function/procedure parameters
@@ -318,15 +391,22 @@ exports:
 context_types:
   createfunctionstmt: Function
   createprocedurestmt: Procedure
+  createschemastmt: Schema
   createstmt: Table
   viewstmt: View
   creatematviewstmt: MaterializedView
-  createschemastmt: Schema
   createtrigstmt: Trigger
   createdomainstmt: Type
   compositetypestmt: Type
   createenumstmt: Type
   createrangestmt: Type
+  indexstmt: Index
+
+# Where a context's name is NOT the statement's first terminal — that would be CREATE —
+# or is not the first name to appear: createtrigstmt's would be the trigger's TABLE.
+context_name_paths:
+  createtrigstmt: name
+  indexstmt: index_name_
 
 # ANTLR comment token types
 comment_types:
@@ -345,38 +425,67 @@ declaration_types:
   - createschemastmt
   - createdomainstmt
 
-# Entry point scoring
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "run*"
-      score: 60
-    - pattern: "process*"
-      score: 60
-    - pattern: "execute*"
-      score: 50
-    - pattern: "load*"
-      score: 40
-    - pattern: "init*"
-      score: 40
-    - pattern: "setup*"
-      score: 40
-    - pattern: "migrate*"
-      score: 40
-    - pattern: "sync*"
-      score: 30
-    - pattern: "refresh*"
-      score: 30
-    - pattern: "purge*"
-      score: 30
-    - pattern: "cleanup*"
-      score: 30
-    - pattern: "batch*"
-      score: 30
-    - pattern: "schedule*"
-      score: 30
+# Cyclomatic complexity: real syntax-tree branches, not a text scan — but the
+# tree comes from a splice, not from this grammar directly. This grammar
+# parses CREATE FUNCTION at the DDL level only; the `AS $$ ... $$` body is
+# opaque to it (func_as -> sconst -> anysconst, a single string constant),
+# the same way it is opaque to PostgreSQL's own SQL parser — the body's
+# language (plpgsql, sql, plpython3u, ...) is a run-time property named by
+# the sibling LANGUAGE clause in the same createfunc_opt_list, not syntax
+# this grammar owns.
+#
+# `plpgsql_splice.go` reads that LANGUAGE clause and, when it says plpgsql,
+# re-parses the dollar-quoted body with the REAL PL/pgSQL tree-sitter
+# grammar (github.com/gmr/tree-sitter-postgres, plpgsql/ — code-generated
+# from PostgreSQL's own Bison grammar for the SQL half, hand-written for the
+# procedural half) — not a foreign grammar coerced into fitting, which was
+# tried and reverted once already (see git history: PERFORM, RAISE EXCEPTION,
+# RETURN QUERY are not PL/SQL syntax, and the PL/SQL parser silently
+# recovered into nonsense for them instead of erroring). This grammar was
+# checked against those exact constructs plus FOREACH — none produced an
+# error node, so they neither crash the parse nor invent a false branch.
+#
+# The spliced tree hangs off the anysconst node, which is a descendant of
+# createfunctionstmt — the complexity walk reaches it automatically while
+# scoring the Function entity that already contains it; no separate entity
+# and no merge step was needed.
+#
+# elsif_clause is its own node (IF does not re-nest ELSIF the way the
+# C-family languages here do). case_when is counted per WHEN, not once for
+# the whole CASE. proc_exception fires for WHEN OTHERS too, same "default is
+# not distinguished from a real case" deviation taken for several ANTLR
+# dialects here. Boolean operators inside an expression are NOT counted:
+# PL/pgSQL's own grammar treats every expression as one opaque span meant
+# for a separate SQL-grammar injection this pipeline does not consume, so
+# there is no AND/OR node to find without a second embedding level this
+# project does not support.
+complexity:
+  node_types:
+    - stmt_if
+    - elsif_clause
+    - stmt_for
+    - stmt_while
+    - stmt_foreach_a
+    - case_when
+    - proc_exception
 
-  exported_bonus: 0
-  max_score: 100
-  decorators: []
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Function
+  - Procedure
+  - Trigger
+  - Type
+  - Table
+  - View
+  - MaterializedView
+  - Schema
+  - Extension
+  - Column
+  - Constraint
+  - Index
+  - Sequence
+  - Variable
+  - Comment

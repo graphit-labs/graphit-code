@@ -2123,6 +2123,18 @@ func (v *BaseDb2ParserVisitor) VisitCompound_sql_inlined(ctx *Compound_sql_inlin
 	return v.VisitChildren(ctx)
 }
 
+func (v *BaseDb2ParserVisitor) VisitDeclare_variable_statement(ctx *Declare_variable_statementContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseDb2ParserVisitor) VisitAssignment_statement(ctx *Assignment_statementContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
+func (v *BaseDb2ParserVisitor) VisitCompound_body_statement(ctx *Compound_body_statementContext) interface{} {
+	return v.VisitChildren(ctx)
+}
+
 func (v *BaseDb2ParserVisitor) VisitSql_statement_inlined(ctx *Sql_statement_inlinedContext) interface{} {
 	return v.VisitChildren(ctx)
 }

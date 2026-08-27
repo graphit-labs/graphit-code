@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
-	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 // End-to-end exercise of the daemon's sync module, which until now had never been run the
@@ -52,18 +52,26 @@ END;
 // goroutine, and holding a handle open across a rebuild would read a stale one.
 func searchFinds(t *testing.T, projectDir, query, want string) bool {
 	t.Helper()
-	idxPath := filepath.Join(projectDir, brand.DotDir(), "ast", "project", "ladybugdb") +
-		ast.SearchIndexSuffix
+	idxPath := store.ASTProjectDBPath(projectDir)
 	if _, err := os.Stat(idxPath); err != nil {
 		return false
 	}
-	si, err := ast.OpenSearchIndex(idxPath)
+	// READ-ONLY, and retried once. Read-only because the search tables live in the graph
+	// store and the daemon holds its write slot — opening read-write here would lock the
+	// thing under test out of its own database. Retried because the daemon republishes
+	// that store by renaming a file over it, and a read landing in that window fails to
+	// open; reporting that as "not found" would make every assertion below turn on timing.
+	si, err := ast.OpenSearchIndex(context.Background(), idxPath)
+	if err != nil {
+		time.Sleep(150 * time.Millisecond)
+		si, err = ast.OpenSearchIndex(context.Background(), idxPath)
+	}
 	if err != nil {
 		return false
 	}
 	defer func() { _ = si.Close() }()
 
-	res, err := si.Search(query, 25)
+	res, err := si.Search(context.Background(), query, 25)
 	if err != nil {
 		return false
 	}
@@ -125,7 +133,7 @@ func TestSyncModuleEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mod := NewSyncModule(projectDir, filepath.Join(projectDir, brand.DotDir(), "ast", "project"))
+	mod := NewSyncModule(projectDir, store.ASTProjectDir(projectDir))
 
 	// Seed the index the way production does. The daemon never scans a project it
 	// adopts — it only applies changes from the moment it starts watching — so an

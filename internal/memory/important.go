@@ -74,8 +74,6 @@ func listImportantInDir(dir string) ([]ImportantEntry, error) {
 	return important, nil
 }
 
-
-
 func extractBodyAfterFrontmatter(content string) string {
 	lines := strings.Split(content, "\n")
 	inFrontmatter := false

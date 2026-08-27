@@ -14,6 +14,18 @@ import (
 //	/ruleName        — match direct child with this rule name
 //	//a/b            — match b that is a direct child of any a descendant
 //	//a//b           — match b anywhere under any a descendant
+//	//a[KEYWORD]     — match a only when it has KEYWORD as a direct terminal
+//	//a[!KEYWORD]    — match a only when it does not
+//
+// The keyword guard exists because a grammar can spell two different things with
+// one rule. Oracle has no constant_declaration: a constant is a
+// variable_declaration carrying the CONSTANT keyword —
+//
+//	variable_declaration : identifier CONSTANT? type_spec (NOT? NULL_)? default_value_part? ';'
+//
+// so without a guard every PL/SQL constant is indexed as a Variable and the query
+// written against //constant_declaration matches nothing at all. Comparison is
+// case-insensitive: SQL keywords are written both ways in the wild.
 //
 // The captured name comes from the first terminal child of the matched node,
 // or from a specific child rule if the YAML specifies name_capture.
@@ -32,6 +44,38 @@ const (
 type segment struct {
 	rule string
 	mode matchMode
+	// requireTerminal and rejectTerminal hold the keyword guard from a `[KW]` or
+	// `[!KW]` suffix, upper-cased for case-insensitive comparison. Empty when the
+	// segment has no guard.
+	requireTerminal string
+	rejectTerminal  string
+}
+
+// matches reports whether a node satisfies this segment: the rule name, and the
+// keyword guard when there is one.
+func (s segment) matches(node *TreeNode) bool {
+	if node == nil || node.Rule != s.rule {
+		return false
+	}
+	if s.requireTerminal == "" && s.rejectTerminal == "" {
+		return true
+	}
+	has := hasTerminalChild(node, s.requireTerminal+s.rejectTerminal)
+	if s.requireTerminal != "" {
+		return has
+	}
+	return !has
+}
+
+// hasTerminalChild reports whether node has a direct terminal child whose text
+// equals keyword, ignoring case.
+func hasTerminalChild(node *TreeNode, keyword string) bool {
+	for _, child := range node.Children {
+		if child != nil && child.IsTerminal() && strings.EqualFold(child.Text, keyword) {
+			return true
+		}
+	}
+	return false
 }
 
 var patternCache sync.Map // map[string]*Pattern
@@ -64,18 +108,20 @@ func compilePatternImpl(pattern string) (*Pattern, error) {
 		if strings.HasPrefix(rest, "//") {
 			rest = rest[2:]
 			name, remaining := nextSegmentName(rest)
-			if name == "" {
-				return nil, fmt.Errorf("empty rule name after '//' in pattern %q", pattern)
+			seg, err := parseSegment(name, matchRecursive, pattern, "//")
+			if err != nil {
+				return nil, err
 			}
-			segments = append(segments, segment{rule: name, mode: matchRecursive})
+			segments = append(segments, seg)
 			rest = remaining
 		} else if strings.HasPrefix(rest, "/") {
 			rest = rest[1:]
 			name, remaining := nextSegmentName(rest)
-			if name == "" {
-				return nil, fmt.Errorf("empty rule name after '/' in pattern %q", pattern)
+			seg, err := parseSegment(name, matchDirect, pattern, "/")
+			if err != nil {
+				return nil, err
 			}
-			segments = append(segments, segment{rule: name, mode: matchDirect})
+			segments = append(segments, seg)
 			rest = remaining
 		} else {
 			return nil, fmt.Errorf("unexpected character %q in pattern %q (expected '/' or '//')", rest[:1], pattern)
@@ -95,6 +141,38 @@ func nextSegmentName(s string) (name, remaining string) {
 		return s, ""
 	}
 	return s[:idx], s[idx:]
+}
+
+// parseSegment splits a segment into its rule name and optional `[KW]` /
+// `[!KW]` keyword guard.
+func parseSegment(raw string, mode matchMode, pattern, sep string) (segment, error) {
+	open := strings.IndexByte(raw, '[')
+	if open < 0 {
+		if raw == "" {
+			return segment{}, fmt.Errorf("empty rule name after %q in pattern %q", sep, pattern)
+		}
+		return segment{rule: raw, mode: mode}, nil
+	}
+	if !strings.HasSuffix(raw, "]") {
+		return segment{}, fmt.Errorf("unterminated '[' in segment %q of pattern %q", raw, pattern)
+	}
+	rule := raw[:open]
+	if rule == "" {
+		return segment{}, fmt.Errorf("empty rule name after %q in pattern %q", sep, pattern)
+	}
+	guard := strings.TrimSpace(raw[open+1 : len(raw)-1])
+	negate := strings.HasPrefix(guard, "!")
+	guard = strings.ToUpper(strings.TrimSpace(strings.TrimPrefix(guard, "!")))
+	if guard == "" {
+		return segment{}, fmt.Errorf("empty keyword guard in segment %q of pattern %q", raw, pattern)
+	}
+	seg := segment{rule: rule, mode: mode}
+	if negate {
+		seg.rejectTerminal = guard
+	} else {
+		seg.requireTerminal = guard
+	}
+	return seg, nil
 }
 
 // MatchResult represents a single match of a pattern against the parse tree.
@@ -154,10 +232,10 @@ func (p *Pattern) MatchWithContext(root *TreeNode, isContext func(rule string) b
 	switch first.mode {
 	case matchRecursive:
 		// //rule — search entire tree including root
-		p.walkRecursive(root, nil, ctx, isContext, first.rule, 0, isLast, &results)
+		p.walkRecursive(root, nil, ctx, isContext, first, 0, isLast, &results)
 	case matchDirect:
 		// /rule — root itself must match this rule name
-		if root.Rule == first.rule {
+		if first.matches(root) {
 			if isLast {
 				results = append(results, MatchResult{Node: root, Parent: nil, Context: ctx})
 			} else {
@@ -178,7 +256,7 @@ func (p *Pattern) MatchAt(node, parent *TreeNode) ([]MatchResult, bool) {
 	if first.mode == matchDirect && parent != nil {
 		return nil, false
 	}
-	if node.Rule != first.rule {
+	if !first.matches(node) {
 		return nil, false
 	}
 
@@ -204,11 +282,11 @@ func (p *Pattern) matchSegment(node, parent *TreeNode, ctx *ContextNode, isConte
 	switch seg.mode {
 	case matchRecursive:
 		// Find all descendants (including node itself) matching this rule name
-		p.walkRecursive(node, parent, ctx, isContext, seg.rule, segIdx, isLast, results)
+		p.walkRecursive(node, parent, ctx, isContext, seg, segIdx, isLast, results)
 	case matchDirect:
 		// Only check direct children
 		for _, child := range node.Children {
-			if child.Rule == seg.rule {
+			if seg.matches(child) {
 				childCtx := ctx
 				if isContext != nil && isContext(child.Rule) {
 					childCtx = &ContextNode{Node: child, Outer: ctx}
@@ -224,11 +302,11 @@ func (p *Pattern) matchSegment(node, parent *TreeNode, ctx *ContextNode, isConte
 }
 
 func (p *Pattern) walkRecursive(node, parent *TreeNode, ctx *ContextNode, isContext func(string) bool,
-	rule string, segIdx int, isLast bool, results *[]MatchResult) {
+	seg segment, segIdx int, isLast bool, results *[]MatchResult) {
 	if isContext != nil && isContext(node.Rule) {
 		ctx = &ContextNode{Node: node, Outer: ctx}
 	}
-	if node.Rule == rule {
+	if seg.matches(node) {
 		if isLast {
 			*results = append(*results, MatchResult{Node: node, Parent: parent, Context: ctx})
 		} else {
@@ -236,7 +314,7 @@ func (p *Pattern) walkRecursive(node, parent *TreeNode, ctx *ContextNode, isCont
 		}
 	}
 	for _, child := range node.Children {
-		p.walkRecursive(child, node, ctx, isContext, rule, segIdx, isLast, results)
+		p.walkRecursive(child, node, ctx, isContext, seg, segIdx, isLast, results)
 	}
 }
 

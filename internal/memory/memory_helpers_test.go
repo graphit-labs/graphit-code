@@ -8,21 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
-
-func GlobalBaseDir() string {
-	g := brand.GlobalDir()
-	if g == "" {
-		return filepath.Join(brand.DotDir(), "memory")
-	}
-	return filepath.Join(g, "memory")
-}
 
 func EnsureWikiIndexExists(scope string, logger *slog.Logger) {
 	log := slogutil.Resolve(logger)
 	wikiDir := WikiDir(scope)
+	if wikiDir == "" {
+		return
+	}
 	indexPath := filepath.Join(wikiDir, "index.md")
 	if _, err := os.Stat(indexPath); err == nil {
 		return
@@ -58,14 +52,14 @@ func memoryBranch(scope, scopeID string) string {
 
 func SyncAndCycle(ctx context.Context, scope, scopeID string, store MemoryStoreProvider, logger *slog.Logger) *CycleResult {
 	log := slogutil.Resolve(logger)
-	rawDir := WorktreeRawDir(scope, scopeID)
+	rawDir := RawDirFor(scope, scopeID)
 	branch := memoryBranch(scope, scopeID)
 
 	if store != nil {
-		if err := store.ExtractBranchDir(branch, ".", rawDir); err != nil {
+		if err := store.ExtractScopeDir(branch, ".", rawDir); err != nil {
 			log.Warn("sync: extract branch failed", "scope", scope, "branch", branch, "error", err)
 		}
 	}
 
-	return RunCycle(ctx, scope, rawDir, WikiDir(scope))
+	return RunCycle(ctx, scope, rawDir, MemoryWikiGlobalDir(scope, scopeID))
 }

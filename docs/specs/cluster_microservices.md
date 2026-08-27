@@ -125,8 +125,10 @@ The agent can query the AST of another project by setting the `project_dir` para
 
 ### 2. Project Wiki Exploration
 Similarly, the agent can search the compiled documentation of another project:
-- It uses the `view_file` tool to read the index:
-  `/path/to/auth-service/.graphit/knowledge/project/index.md`.
+- It calls `graphit_knowledge_search` and `graphit_wiki_source` with the sibling's
+  directory as `project_dir`. There is no file to open: the sibling's wiki lives once
+  in the global brand directory, keyed by its project id, which is precisely what lets
+  these tools serve it without the agent leaving its own workspace.
 - It executes targeted searches to understand the API contracts, DTO structs, and routes of the other service.
 
 This cross-project visibility prevents **integration hallucinations**—ensuring the agent writes upstream client calls that exactly match the downstream backend parameters.

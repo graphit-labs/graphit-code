@@ -11,10 +11,7 @@ import (
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
-const (
-	testGoGrammarSOPath     = "../../.build/grammars/treesitter/tree-sitter-go.so"
-	testPythonGrammarSOPath = "../../.build/grammars/treesitter/tree-sitter-python.so"
-)
+const testGoGrammarSOPath = "../../.build/grammars/treesitter/tree-sitter-go.so"
 
 func skipIfNoGrammarSO(t *testing.T, path string) {
 	t.Helper()
@@ -313,8 +310,6 @@ func TestGrammarArchive_EmptyPlatforms(t *testing.T) {
 	}
 	t.Logf("Expected error: %v", err)
 }
-
-// --- Benchmarks ---
 
 // BenchmarkGrammarArchive_Extract measures one-time extraction cost.
 func BenchmarkGrammarArchive_Extract(b *testing.B) {

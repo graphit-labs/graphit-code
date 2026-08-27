@@ -10,9 +10,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ast/antlr/postgresql"
 )
 
-// ---------------------------------------------------------------------------
 // Fixture: Go source (~200 lines)
-// ---------------------------------------------------------------------------
 const goSource = `package server
 
 import (
@@ -208,9 +206,7 @@ func RecoveryMiddleware(logger Logger) Middleware {
 var _ Logger = (*stdLogger)(nil)
 `
 
-// ---------------------------------------------------------------------------
 // Fixture: Python source (~200 lines)
-// ---------------------------------------------------------------------------
 const pythonSource = `"""
 Data processing pipeline with multiple stages.
 """
@@ -405,9 +401,7 @@ if __name__ == "__main__":
         print("Usage: pipeline.py <input.json>")
 `
 
-// ---------------------------------------------------------------------------
 // Fixture: JavaScript source (~200 lines)
-// ---------------------------------------------------------------------------
 const jsSource = `/**
  * Event-driven message bus with middleware support.
  * @module MessageBus
@@ -595,9 +589,7 @@ export { MessageBus, EventEmitter, Middleware, createLogger, withRetry };
 export default MessageBus;
 `
 
-// ---------------------------------------------------------------------------
 // Fixture: PL/SQL source (~100 lines)
-// ---------------------------------------------------------------------------
 const plsqlSource = `CREATE OR REPLACE PROCEDURE process_employee_records(
     p_department_id IN NUMBER,
     p_effective_date IN DATE DEFAULT SYSDATE,
@@ -689,9 +681,7 @@ END process_employee_records;
 /
 `
 
-// ---------------------------------------------------------------------------
 // Fixture: PostgreSQL source (~80 lines)
-// ---------------------------------------------------------------------------
 const pgSource = `CREATE TABLE IF NOT EXISTS orders (
     order_id     SERIAL PRIMARY KEY,
     customer_id  INTEGER NOT NULL REFERENCES customers(customer_id),
@@ -770,9 +760,7 @@ ORDER BY s.total_spent DESC
 LIMIT 50;
 `
 
-// ---------------------------------------------------------------------------
 // Tree-sitter query patterns for Go (from queries/go.yaml)
-// ---------------------------------------------------------------------------
 const goQueryPattern = `
 (function_declaration name: (identifier) @name)
 (method_declaration name: (field_identifier) @name)
@@ -786,9 +774,7 @@ const goQueryPattern = `
 (call_expression function: (selector_expression field: (field_identifier) @name))
 `
 
-// ===========================================================================
 // Tree-sitter Benchmarks
-// ===========================================================================
 
 // BenchmarkTS_Native_FullParse_Go parses a ~200-line Go file from scratch
 // (parser creation + language set + parse) on every iteration.
@@ -1148,10 +1134,6 @@ func BenchmarkTS_Pool_QueryExec_Go(b *testing.B) {
 	}
 	b.StopTimer()
 }
-
-// ===========================================================================
-// ANTLR Benchmarks
-// ===========================================================================
 
 // BenchmarkANTLR_Native_PLSQL parses a PL/SQL procedure using the plsql Driver.
 // This includes lexing, SLL→LL parsing, and tree conversion.

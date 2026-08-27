@@ -38,14 +38,30 @@ These flags can be appended to any command:
 These commands initialize and maintain Graphit Code environments:
 
 ### `setup`
-Initializes global workspaces, global directories (`~/.graphit`), configuration paths, and links repositories.
+Initializes the global directory (`~/.graphit`), collects machine-wide defaults, verifies
+the configured S3-compatible Hub, and downloads shared runtime assets.
 ```bash
 graphit setup
 ```
+When a Hub bucket is entered, setup optionally asks for an S3 access key and secret. A
+complete pair is saved globally; leaving either prompt blank removes both explicit keys
+and keeps the AWS SDK provider chain active. The secret is not echoed, but it is stored as
+plain text in the owner-only global config file. Prefer profiles or workload roles when
+possible. See [S3 Credentials and UI Network Configuration](s3-and-ui-network.md).
+
+Its final step downloads the embedding model (~132 MB) into
+`~/.graphit/models/coderankembed/`, showing a progress bar on a terminal and reporting
+in tenths when the output is redirected. The model is not built into the binary.
+
+**The command fails if that download fails** — a non-zero exit, because an
+installation without the model cannot answer a semantic query. It is the last step, so
+every setting collected before it is already saved and re-running `setup` after fixing
+the network loses nothing.
+See [AI Engine](../specs/ai_engine.md#-model-manager-downloaded-once-shared-by-everything).
 
 ### `init`
 Initializes a new project workspace.
-It creates a project-local `graphit.lock.json` file, registers the project under the global active tracker, and generates rules or skills files in your `.graphit/` directory.
+It creates a project-local `graphit.lock.json` file, registers the project under the global active tracker, generates rules or skills files, and maintains a generated block in the project's `.gitignore`. The block ignores `**/.graphit/runtime/` and `**/.graphit/grammars/`; project query YAMLs and rule overrides remain versionable. See [Storage Layout](../architecture/storage_layout.md#inside-a-projects-brand-directory).
 ```bash
 graphit init --ide <ide_name> [flags]
 ```
@@ -112,20 +128,40 @@ graphit config --global ide cursor
 graphit config --get ide
 graphit config --unset ide
 graphit config --list
+printf '%s' "$S3_SECRET_ACCESS_KEY" | graphit config --global --secret hub.secret_access_key
 ```
+
+**AST Cluster Configuration:**
+```bash
+# Set cluster mapping for multi-domain monorepos (persisted to graphit.lock.json)
+graphit config ast.cluster_map "backend/=python,frontend/=javascript,shared/=typescript"
+
+# Set default cluster for unmatched paths
+graphit config ast.cluster default-cluster
+```
+The `ast.cluster_map` accepts comma-separated `path=cluster` pairs. Paths are directory prefixes (trailing slash optional). When using `graphit ast index` or `graphit ast watch` with `--cluster-path`, the mapping is automatically persisted.
+
+`hub.secret_access_key` is shown as `[REDACTED]` by `--get` and `--list`; redaction does
+not encrypt the value on disk. Project values override global values, while matching
+`GRAPHIT_*` environment variables override both.
 
 ---
 
 ## Dashboard Interface
 
 ### `ui`
-Launches the local Vite unified web application server.
+Launches the embedded unified web application server and automatically selects a free port.
 Allows you to explore the AST code database in 3D, chat with the wiki knowledge, and view memories.
 ```bash
-graphit ui [flags]
+graphit ui [--repo <path>]
 ```
-**Flags:**
-- `--port <int>`: Port for the local UI server (defaults to `8080` or `8080+` if in use).
+
+The server binds to `ui.host` (`0.0.0.0` by default). Browser origins use the exact,
+comma-separated `ui.allowed_origins` policy; without an override, only same-origin and
+localhost loopback origins are accepted. The server has no authentication, so a reachable
+instance needs a firewall, VPN, or authenticated reverse proxy. `--repo` selects the
+repository to visualize; there is no fixed-port flag. See
+[S3 Credentials and UI Network Configuration](s3-and-ui-network.md).
 
 ---
 
@@ -162,14 +198,16 @@ Directly indexes, queries, and manages the abstract syntax tree.
 graphit ast <subcommand> [flags]
 ```
 **Subcommands:**
-- `index [path]`: Parses source code and builds the AST knowledge graph.
+- `index [path...]`: Parses source code and builds the AST knowledge graph.
   - `--reset`: Wipe database before indexing.
   - `--reindex`: Wipe only this repo's data before re-indexing.
-  - `--cluster <name>`: Logical cluster tag for queries.
+  - `--cluster <name>`: Logical cluster tag for queries (fallback for unmatched paths).
+  - `--cluster-path <path=cluster>`: Tag nodes under <path> with <cluster> (repeatable). Paths are directory prefixes; most specific match wins.
   - `--workers <int>`: Worker thread count.
   - `--no-source`: Skip storing raw source code inside nodes.
 - `watch [path]`: Watch directory for file changes and re-index incrementally.
-  - `--cluster <name>`: Logical cluster tag.
+  - `--cluster <name>`: Logical cluster tag (fallback).
+  - `--cluster-path <path=cluster>`: Tag nodes under <path> with <cluster> (repeatable).
   - `--workers <int>`: Worker thread count.
 - `query <cypher-query | natural-language-question>`: Execute graph query.
   - `--ai`: Generate Cypher from natural language via AI.
@@ -189,7 +227,7 @@ graphit ast <subcommand> [flags]
 - `sync`: Re-sync imported context from cache.
 - `export`: Export AST graph to Obsidian vault or `.ast` bundle.
   - `--format <format>`: Format: `obsidian` or `bundle`.
-  - `--output <dir>`: Output path.
+  - `--output <dir>`: Output path; defaults to `.graphit/runtime/ast/export/`.
   - `--no-sources`: Exclude source code contents.
 - `list`: List all installed AST contexts.
 - `source <relative-path>`: Show stored source code for a file.
@@ -216,12 +254,12 @@ Manages project documentation wiki and contexts.
 graphit knowledge <subcommand> [flags]
 ```
 **Subcommands:**
-- `index [path]`: Scan docs/ and compile wiki index.
+- `index [path]`: Scan `knowledge.docs_dir` (default `docs/`) plus the root README, and compile the wiki index. A `path` argument overrides both and indexes that directory wholesale.
   - `--reset`: Clear knowledge graph first.
   - `--louvain`: Detect community structures.
   - `--workers <int>`: Thread count.
   - `--context <name>`: Re-index context.
-- `watch [path]`: Watch docs/ and incrementally compile.
+- `watch [path]`: Watch the project and incrementally recompile from the same scope. A `path` argument watches and indexes that directory wholesale.
   - `--louvain`: Detect community structures.
 - `query <text>`: Search the knowledge wiki.
   - `--context <name>`: Search context.
@@ -286,12 +324,23 @@ graphit memory <subcommand> [flags]
   - `--user`: User scope.
 - `demote <id>`: Remove important status.
   - `--user`: User scope.
-- `consolidate`: Run AI review for duplicates.
+- `consolidate`: Find and resolve duplicate, contradicting and stale memories.
   - `--user`: User scope.
-  - `--apply`: Save corrections.
-- `gc`: Clean stale/empty memories.
-  - `--user`: User scope.
-  - `--dry-run`: Simulation mode.
+  - `--dry-run`: Show the plan only, change nothing (default `true`).
+
+The analysis runs on the agent CLI from `ai.cli`; every change is then applied in Go
+under invariants the analysis cannot override — content is always carried into a
+surviving memory before anything is removed, importance and classification survive a
+merge, an important memory is never deleted outright, the last memory in a scope is
+never deleted, and every refusal is reported with its reason. Without an AI CLI, only
+the deterministic staleness check runs.
+
+This is the same pass the [dream module](../specs/dream_module.md) performs on idle.
+Run it here to have it now, or when the dream module is off.
+
+> `gc` was removed. Collecting memories by age answers the wrong question: age says a
+> memory has not been revised, not that it is wrong. Consolidation reasons about
+> content instead, and carries it forward instead of deleting it.
   - `--stale-days <int>`: Expiry threshold.
 - `rule`: Manage memory rule.
 
@@ -334,17 +383,20 @@ Controls autonomous skill generation and knowledge mining.
 graphit dream <subcommand> [flags]
 ```
 **Subcommands:**
-- `status`: Show dream state (active/idle/exhausted).
+- `status`: Show dream state (active/idle/exhausted) and the pending improvement backlog.
 - `reports`: List dream session reports.
   - `--all`: Show all reports.
-- `subject <list|add|rm>`: Manage dream subjects queue.
-  - `subject list`: List subjects.
-  - `subject add [title]`: Add new subject.
-    - `--body <body>`: Subject details.
-  - `subject rm [slug]`: Remove subject.
+
+Each session picks up the oldest pending item from the improvement backlog — manage that with
+`graphit improvements backlog`.
+
+The default reports vault is `.graphit/runtime/dream/`, which is covered by the generated
+`.gitignore`. Set `dream.reports_dir` to a versioned directory such as `docs/dream` when
+reports are intended to be reviewed and committed. Existing `.graphit/dream/` reports are
+not moved or deleted automatically.
 
 ### `improvements`
-Manages code improvement rules.
+Manages code improvement rules and the improvement backlog.
 ```bash
 graphit improvements <subcommand> [flags]
 ```
@@ -355,6 +407,14 @@ graphit improvements <subcommand> [flags]
 - `rule [file]`: Customize IDE rule block.
   - `--default`: Output built-in defaults.
   - `--unset`: Remove override.
+- `backlog <list|add|rm>`: Manage the improvement backlog — work identified but deferred.
+  - `backlog list`: List every item, pending and done.
+  - `backlog add [title]`: Add an item.
+    - `--body <body>`: The full brief for whoever picks it up.
+  - `backlog rm [slug]`: Remove an item.
+
+Backlog items are markdown files under `improvements.backlog_dir` (default `docs/tasks/backlog`),
+so they are versioned with the project. See [Improvement Backlog](../specs/backlog.md).
 
 ### `cluster`
 Manages project grouping.

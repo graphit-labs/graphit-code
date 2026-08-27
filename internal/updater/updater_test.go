@@ -205,7 +205,6 @@ func TestDownloadAndChecksum(t *testing.T) {
 		t.Errorf("expected content %q, got %q", mockContent, string(data))
 	}
 
-	// 2. Checksum file
 	checksumFile := filepath.Join(tempDir, "checksums.sha256")
 	checksumContent := checksumHex + "  graphit-bin\n"
 	_ = os.WriteFile(checksumFile, []byte(checksumContent), 0644)
@@ -264,7 +263,6 @@ func TestVerifyChecksumPerAsset(t *testing.T) {
 		t.Error("expected VerifyChecksum to fail due to mismatch")
 	}
 
-	// Empty file
 	emptyChecksum := filepath.Join(tempDir, "empty.sha256")
 	_ = os.WriteFile(emptyChecksum, []byte(""), 0644)
 
@@ -597,7 +595,6 @@ func TestVerifyChecksumSha256Error(t *testing.T) {
 	checksumFile := filepath.Join(tmpDir, "checksums.sha256")
 	_ = os.WriteFile(checksumFile, []byte("abc123  file.bin\n"), 0644)
 
-	// File to verify doesn't exist
 	err := VerifyChecksum(filepath.Join(tmpDir, "nonexistent"), checksumFile)
 	if err == nil || !strings.Contains(err.Error(), "computing checksum") {
 		t.Errorf("expected computing checksum error, got %v", err)

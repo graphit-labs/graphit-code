@@ -3,6 +3,7 @@ package commands
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/improvements"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/lockfile"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/updater"
@@ -178,14 +180,13 @@ auto-generated values and interactive prompts.`,
 				reg, _ = hub.NewRegistryManager(ctx)
 			}
 
-			if err := hub.OnInit(ctx, reg, ide); err != nil {
+			if err := hub.OnInit(ctx, reg, ide, ""); err != nil {
 				p.Error("%v", err)
 				return err
 			}
 
 			gitignorePath := filepath.Join(wd, ".gitignore")
-			ignoreContent := brand.DotDir() + "/"
-			if err := git.InjectGitignore(gitignorePath, ignoreContent); err != nil {
+			if err := git.InjectGitignore(gitignorePath, brand.GitignoreContent()); err != nil {
 				p.StepWarn(".gitignore: %v", err)
 			}
 
@@ -194,22 +195,6 @@ auto-generated values and interactive prompts.`,
 			_ = memory.EnsureScopeDirs("user", wd)
 
 			p.Success("Project initialized successfully")
-
-			if mgr, err := hub.NewGlobalLockManager(); err == nil {
-
-				if updatedLf, err := hub.LoadLockfile(lockPath); err == nil && updatedLf != nil {
-					var regOpts []func(*hub.InstanceEntry)
-					if updatedLf.Project.Name != "" {
-						regOpts = append(regOpts, hub.WithProjectName(updatedLf.Project.Name))
-					}
-					if updatedLf.Project.Description != "" {
-						regOpts = append(regOpts, hub.WithProjectDescription(updatedLf.Project.Description))
-					}
-					if err := mgr.RegisterProject(updatedLf.Project.ID, wd, regOpts...); err != nil {
-						p.StepWarn("Global project registration: %v", err)
-					}
-				}
-			}
 
 			p.Running("Synchronizing project...")
 			runSyncPhase1(ctx, wd, []string{ide}, p)
@@ -244,7 +229,7 @@ func newUpdateCmd() *cobra.Command {
 				return err
 			}
 
-			if err := hub.OnUpdate(ctx, reg, ide); err != nil {
+			if err := hub.OnUpdate(ctx, reg, ide, ""); err != nil {
 				p.Error("%v", err)
 				return err
 			}
@@ -286,7 +271,7 @@ func newRemoveCmd() *cobra.Command {
 
 			reg, _ := hub.NewRegistryManager(ctx)
 
-			if err := hub.OnRemove(ctx, reg, ide); err != nil {
+			if err := hub.OnRemove(ctx, reg, ide, ""); err != nil {
 				p.Error("%v", err)
 				return err
 			}
@@ -438,6 +423,9 @@ func runConfigGet(p *output.Printer, key string, global bool) error {
 		if !ok {
 			return fmt.Errorf("key %q not set in global config", key)
 		}
+		if config.IsSecretConfigKey(key) {
+			val = "***"
+		}
 		p.Data(val)
 		return nil
 	}
@@ -456,6 +444,9 @@ func runConfigGet(p *output.Printer, key string, global bool) error {
 	val, ok := config.GetConfigValue(lf.Config, key)
 	if !ok {
 		return fmt.Errorf("key %q not set in project config", key)
+	}
+	if config.IsSecretConfigKey(key) {
+		val = "***"
 	}
 	p.Data(val)
 	return nil
@@ -500,7 +491,11 @@ func runConfigList(p *output.Printer, global bool) error {
 			return nil
 		}
 		for _, e := range entries {
-			p.KeyValue(e[0], e[1])
+			value := e[1]
+			if config.IsSecretConfigKey(e[0]) {
+				value = "***"
+			}
+			p.KeyValue(e[0], value)
 		}
 		return nil
 	}
@@ -519,7 +514,11 @@ func runConfigList(p *output.Printer, global bool) error {
 	}
 	entries := config.ListConfigEntries(lf.Config)
 	for _, e := range entries {
-		p.KeyValue(e[0], e[1])
+		value := e[1]
+		if config.IsSecretConfigKey(e[0]) {
+			value = "***"
+		}
+		p.KeyValue(e[0], value)
 	}
 	return nil
 }
@@ -683,6 +682,7 @@ Phase 2 (background by default):
 Flags:
   --no-background   Run both phases in the same process with terminal output
   --heavy           Run only Phase 2 with terminal output
+  --debounce        Skip when a sync already finished this recently
 
 Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 		PreRunE: requireSetupAndProject,
@@ -690,6 +690,17 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 			wd, _ := os.Getwd()
 
 			if heavy, _ := cmd.Flags().GetBool("heavy"); heavy {
+				// Phase 2 saturates the machine: embeddings drive an ONNX session
+				// sized to the whole CPU budget, and the memory GC that follows
+				// reindexes both wikis. A second copy does not halve the work, it
+				// doubles the contention — so the loser exits rather than queueing.
+				// Everything it would have done, the winner is already doing.
+				lock, proceed := acquireSyncLock(wd, "sync-heavy.lock")
+				if !proceed {
+					return nil
+				}
+				defer lock.Release()
+
 				p := output.NewPrinter("")
 				runSyncHeavyTasks(cmd.Context(), wd, p)
 				return nil
@@ -697,6 +708,25 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 
 			p := output.NewPrinter("")
 			ctx := context.Background()
+
+			// The git hooks fire this on post-commit, pre-push and post-merge, so a
+			// commit followed by a push used to pay for two full reindexes of a tree
+			// that changed once. The window collapses the burst into one sync.
+			debounce, _ := cmd.Flags().GetDuration("debounce")
+			if syncedWithin(wd, debounce) {
+				return nil
+			}
+
+			lock, proceed := acquireSyncLock(wd, "sync.lock")
+			if !proceed {
+				// Hook-driven runs are silent by contract; an interactive one says
+				// why it did nothing.
+				if debounce == 0 {
+					p.StepWarn("Another sync is already running — skipping")
+				}
+				return nil
+			}
+			defer lock.Release()
 
 			p.Running("Synchronizing project...")
 
@@ -710,6 +740,7 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 			}
 
 			runSyncPhase1(ctx, wd, idesToSync, p)
+			stampSync(wd)
 
 			noBg, _ := cmd.Flags().GetBool("no-background")
 			if noBg {
@@ -725,7 +756,69 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 	registerIDEFlagCompletion(cmd)
 	cmd.Flags().Bool("no-background", false, "Run all tasks synchronously in the same terminal")
 	cmd.Flags().Bool("heavy", false, "Run only heavy tasks (embeddings, memory GC) with terminal output")
+	cmd.Flags().Duration("debounce", 0,
+		"Skip the sync when one finished less than this ago (used by the git hooks)")
 	return cmd
+}
+
+// syncStateFile locates one of the sync's coordination files inside the project's
+// runtime directory — the same tree the daemon already writes its log to, so
+// nothing new needs ignoring or cleaning up.
+func syncStateFile(wd, name string) string {
+	return brand.ProjectRuntimePath(wd, name)
+}
+
+// acquireSyncLock takes the named lock and reports whether the caller should go ahead.
+//
+// Three outcomes, and only one of them stops the work: the lock is free (proceed with
+// it held), someone else holds it (skip — they are doing this already), or the lock
+// itself could not be created. The last case proceeds WITHOUT a lock: an unwritable
+// brand directory is a reason to log and degrade to the old unsynchronized behaviour,
+// never a reason to silently stop syncing the project.
+//
+// A nil *lockfile.Lock is safe to Release, so callers can defer unconditionally.
+func acquireSyncLock(wd, name string) (*lockfile.Lock, bool) {
+	lock, err := lockfile.TryAcquire(syncStateFile(wd, name))
+	switch {
+	case err == nil:
+		return lock, true
+	case errors.Is(err, lockfile.ErrLocked):
+		return nil, false
+	default:
+		syncLogError("lock", "%s: %v", name, err)
+		return nil, true
+	}
+}
+
+// syncedWithin reports whether a full sync finished less than window ago. A missing or
+// unreadable stamp reads as "no idea", which runs the sync — the debounce may only
+// ever skip work it can prove is redundant.
+func syncedWithin(wd string, window time.Duration) bool {
+	if window <= 0 {
+		return false
+	}
+	data, err := os.ReadFile(syncStateFile(wd, "sync.stamp"))
+	if err != nil {
+		return false
+	}
+	last, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if err != nil {
+		return false
+	}
+	return time.Since(last) < window
+}
+
+// stampSync records that Phase 1 completed, which is what syncedWithin reads.
+//
+// It is written after Phase 1 and not after Phase 2 on purpose: Phase 1 is the part a
+// git hook exists to trigger, and Phase 2 is fire-and-forget by design, so waiting for
+// it would leave the window open for the whole length of an embedding run.
+func stampSync(wd string) {
+	path := syncStateFile(wd, "sync.stamp")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(path, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
 }
 
 func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
@@ -744,6 +837,7 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 			}
 		} else {
 			cfg := ast.DefaultEmbeddingConfig()
+			cfg.RepoRoot, _ = os.Getwd()
 			ladybugCfg := ast.DefaultLadybugConfig()
 			cacheDir := filepath.Dir(ladybugCfg.DBPath)
 			if parseCache, cacheErr := ast.NewShardCache(cacheDir); cacheErr == nil {
@@ -765,12 +859,12 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 		}
 	}
 
-	if gs, err := hub.NewGitStore(nil, projectCfg); err == nil {
+	if st, err := hub.NewS3Store(ctx, nil, projectCfg); err == nil {
 		var task *output.Task
 		if p != nil {
 			task = p.StartTask("Syncing background events...")
 		}
-		gs.SyncEvents()
+		st.SyncEvents(ctx)
 		if task != nil {
 			task.Done("Events synced")
 		}
@@ -828,7 +922,6 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 		if err != nil {
 			task.Fail("AST backend: %v", err)
 		} else {
-			_ = ast.CreateGraphSchema(ctx, db)
 			ladybugCfg := ast.DefaultLadybugConfig()
 			pipeOpts := ast.PipelineOptions{
 				Workers:          ast.SafeWorkers(0),
@@ -854,23 +947,28 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 
 	if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
 		task := p.StartTask("Reindexing knowledge wiki...")
-		docsDir := config.ResolveDocsDir(nil, projectCfg)
-		docsPath := filepath.Join(wd, docsDir)
-		if _, err := os.Stat(docsPath); err == nil {
+		scope := knowledge.ScopeFor(wd, nil, projectCfg)
+		_, docsErr := os.Stat(filepath.Join(wd, scope.Subdir))
+		// A project with no docs tree yet still has a README to index, so the
+		// missing directory is only the end of the story when there is nothing else.
+		if docsErr == nil || len(scope.ExtraFiles) > 0 {
 			wikiDir := knowledge.WikiDir()
-			cfg := knowledge.IndexConfig{UseLouvain: false}
-			if _, err := knowledge.RunIndexPipeline(ctx, docsPath, wikiDir, cfg); err != nil {
+			cfg := knowledge.IndexConfig{UseLouvain: false, ProjectCfg: projectCfg, Scope: scope}
+			if _, err := knowledge.RunIndexPipeline(ctx, wd, wikiDir, cfg); err != nil {
 				task.Fail("Knowledge index: %v", err)
-			} else {
+			} else if docsErr == nil {
 				task.Done("Knowledge wiki reindexed")
+			} else {
+				task.Done("Knowledge wiki reindexed (no %s/ yet — %s only)",
+					scope.Subdir, strings.Join(scope.ExtraFiles, ", "))
 			}
 		} else {
-			task.Done("No %s/ directory — skipping", docsDir)
+			task.Done("No %s/ directory and no README — skipping", scope.Subdir)
 		}
 	}
 
 	task := p.StartTask("Syncing memory repository...")
-	memStore, err := memory.NewMemoryGitStore()
+	memStore, err := memory.NewMemoryStore()
 	if err != nil {
 		task.Fail("Memory store: %v", err)
 	} else {
@@ -922,16 +1020,14 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 		task.Done("Memory wikis reindexed")
 	}
 
-	task = p.StartTask("Syncing hub repository...")
-	gs, err := hub.NewGitStore(nil, loadProjectConfig())
+	task = p.StartTask("Syncing hub registry...")
+	st, err := hub.NewS3Store(ctx, nil, loadProjectConfig())
 	if err != nil {
 		task.Fail("Hub not configured: %v", err)
+	} else if err := st.SyncRegistry(ctx); err != nil {
+		task.Fail("Hub sync: %v", err)
 	} else {
-		if err := gs.Sync(); err != nil {
-			task.Fail("Hub sync: %v", err)
-		} else {
-			task.Done("Hub repository synced")
-		}
+		task.Done("Hub registry synced")
 	}
 
 	task = p.StartTask("Updating IDE rules...")
@@ -945,7 +1041,7 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 	if lfErr == nil && lf != nil {
 		var syncErrs []string
 		for _, targetIDE := range idesToSync {
-			if syncErr := hub.SyncIDEAdapter(targetIDE, lf); syncErr != nil {
+			if syncErr := hub.SyncIDEAdapter(targetIDE, wd, lf); syncErr != nil {
 				syncErrs = append(syncErrs, fmt.Sprintf("%s: %v", targetIDE, syncErr))
 			}
 		}
@@ -1024,23 +1120,28 @@ func syncLogError(module, format string, args ...any) {
 	_, _ = fmt.Fprintf(f, "%s [sync:%s] %s\n", time.Now().UTC().Format(time.RFC3339), module, msg)
 }
 
+// runMemoryMaintenance regenerates the memory wiki for each scope.
+//
+// It used to garbage-collect first: RunGC(90) followed by os.Remove straight into
+// the worktree. That is gone deliberately. Deleting memories is not maintenance —
+// it was destructive work with no report, no confirmation and no undo, triggered
+// by a command a developer runs to *index* things, bypassing MemoryService so
+// neither git nor the wiki knew a memory had ever existed. Age is also the weakest
+// possible evidence: the memories that sit unread for months are exactly the
+// conventions and corrections that later stop a repeated mistake.
+//
+// Sanitising the store is consolidation's job — the dream module on idle, or
+// `memory consolidate` on demand. There the model judges what actually duplicates or
+// contradicts what, every removal carries the content into a survivor first, and the
+// result is a report the developer can read. Deletion by age is gone entirely: GC was
+// removed rather than relocated.
 func runMemoryMaintenance(ctx context.Context, projectDir string) {
+	_ = projectDir
 	for _, scope := range []string{"project", "user"} {
 		dir := memory.RawDir(scope)
 		if dir == "" {
 			continue
 		}
-
-		gcReport, err := memory.RunGC(scope, 90)
-		if err == nil && len(gcReport.Candidates) > 0 {
-			for _, c := range gcReport.Candidates {
-				_ = os.Remove(filepath.Join(dir, c.ID+".md"))
-				_ = os.Remove(filepath.Join(dir, c.ID+memory.ImportantMemorySuffix+".md"))
-			}
-		}
-
-
-
 		memory.RunCycle(ctx, scope, dir, memory.WikiDir(scope))
 	}
 }
@@ -1069,8 +1170,8 @@ configuration and custom rules. This is a destructive operation.`,
 
 			p.Header("Uninstalling %s", brand.DisplayName)
 
-			if gs, err := hub.NewGitStore(nil, nil); err == nil {
-				tracker := hub.NewEventTracker(gs)
+			if st, err := hub.NewS3Store(cmd.Context(), nil, nil); err == nil {
+				tracker := hub.NewEventTracker(st)
 				tracker.TrackEvent("global.uninstall", "", nil, nil)
 			}
 

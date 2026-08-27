@@ -13,7 +13,7 @@ const ContextsPage = lazy(() => import('./components/ast/ContextsPage'))
 const ExplorerPage = lazy(() => import('./components/ast/ExplorerPage'))
 const WikiExplorerPage = lazy(() => import('./components/wiki/WikiExplorerPage'))
 const WikiContextsPage = lazy(() => import('./components/wiki/WikiContextsPage'))
-const WikiSearchPage = lazy(() => import('./components/wiki/WikiSearchPage'))
+const LiveSearchPage = lazy(() => import('./components/live/LiveSearchPage'))
 const DaemonDashboard = lazy(() => import('./components/daemon/DaemonDashboard'))
 const DreamDashboard = lazy(() => import('./components/dream/DreamDashboard'))
 const EcosystemDashboard = lazy(() => import('./components/system/EcosystemDashboard'))
@@ -84,8 +84,7 @@ export default function App() {
           <Route path="/knowledge/explorer" element={<KnowledgeExplorerWrapper />} />
           <Route path="/memory/explorer/:moduleId" element={<MemoryExplorerWrapper />} />
           <Route path="/memory/explorer" element={<MemoryExplorerWrapper />} />
-          <Route path="/wiki/search/results/:sessionId" element={<WikiSearchResultsWrapper />} />
-          <Route path="/wiki/search/results" element={<WikiSearchResultsWrapper />} />
+          <Route path="/wiki/explorer" element={<WikiSearchResultsWrapper />} />
 
           
           <Route
@@ -99,8 +98,8 @@ export default function App() {
                     <Route path="/hub/upload" element={<UploadPage />} />
                     <Route path="/ast/contexts" element={<ContextsPage />} />
                     <Route path="/knowledge/contexts" element={<KnowledgeContextsPage />} />
-                    <Route path="/wiki/search" element={<WikiSearchPage />} />
-                    <Route path="/wiki" element={<Navigate to="/wiki/search" replace />} />
+                    <Route path="/live" element={<LiveSearchPage />} />
+                    <Route path="/wiki" element={<Navigate to="/live" replace />} />
                     <Route path="/system/daemon" element={<DaemonDashboard />} />
                     <Route path="/system/dream" element={<DreamDashboard />} />
                     <Route path="/system/ecosystem" element={<EcosystemDashboard />} />

@@ -16,6 +16,7 @@ prerequisites:
 related:
   - "docs/specs/dream_module.md"
   - "docs/specs/memory_module.md"
+  - "docs/specs/backlog.md"
 ---
 
 # Improvements Module Specification
@@ -91,6 +92,21 @@ The standard methodology covers six key pillars:
 
 ---
 
+## 🗂️ The Improvement Backlog
+
+A review routinely finds more than the current change should carry. The module owns the
+**improvement backlog** as the place that finding goes instead of bloating the diff or being
+lost in prose. It is specified separately in [Improvement Backlog](backlog.md); in summary:
+
+- Items are markdown files under `improvements.backlog_dir`, defaulting to `docs/tasks/backlog`
+  — inside the documentation tree, so they are versioned and reviewable.
+- Managed by `graphit improvements backlog {list,add,rm}` and the
+  `graphit_improvements_backlog_{list,add,remove}` MCP tools.
+- Consumed by the Dream module, which picks the oldest pending item per session. Recording an
+  item always works; whether anything acts on it depends on `modules.dream` and the daemon.
+
+---
+
 ## 🔄 Post-Task Reflection Phase
 
 Every code modification triggers a mandatory reflection process:
@@ -98,3 +114,4 @@ Every code modification triggers a mandatory reflection process:
 1. **Convention Extraction**: The agent reflects on the changes made to identify recurring patterns or preferences.
 2. **Memory Staging**: Extracted preferences are stored as project or user memories using the `memory` package.
 3. **Hub Staging & Codification**: Staged improvements, templates, or instructions are codified as local artifacts (such as custom `skills`, `rules`, `commands`, or `workflows`) inside the project's `.agents/` directory. These local artifacts can then be shared with the team via standard Git version control, or explicitly registered/submitted to the Hub repository using CLI commands if collaborative reuse across projects is desired.
+4. **Deferral**: Findings that are real but out of scope are recorded in the improvement backlog rather than dropped, and reported to the user along with whether anything is going to pick them up.

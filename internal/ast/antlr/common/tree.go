@@ -150,9 +150,33 @@ func isNameRule(rule string) bool {
 }
 
 // ChildByRule returns the first child with the given rule name, or nil.
+// ChildByRule finds a direct child by its rule name, falling back to its TOKEN
+// name.
+//
+// The fallback exists because a grammar states some facts as a keyword rather than
+// as a rule, and those facts are not reachable any other way. Oracle's index is the
+// plain case:
+//
+//	create_index : CREATE UNIQUE? BITMAP? INDEX index_name ON ...
+//
+// Uniqueness — the difference between "the database enforces this" and "the
+// application hopes so" — is the presence of one terminal. With rules only, a query
+// could name every part of that statement except the part that matters.
+//
+// Rule first, so a grammar with a rule and a token of the same name keeps the
+// behaviour it had; only a lookup that would have returned nothing can now match a
+// token.
 func (n *TreeNode) ChildByRule(rule string) *TreeNode {
 	for _, child := range n.Children {
 		if child.Rule == rule {
+			return child
+		}
+	}
+	for _, child := range n.Children {
+		// A terminal's Token is the grammar's spelling of it, and a literal keyword
+		// is spelled quoted — `'UNIQUE'`, not `UNIQUE`. Callers write the bare word,
+		// which is also how the keyword guards in the query patterns spell it.
+		if strings.Trim(child.Token, "'") == rule {
 			return child
 		}
 	}

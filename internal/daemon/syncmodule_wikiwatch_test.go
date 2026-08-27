@@ -15,8 +15,13 @@ import (
 // The AST honours .astignore and the wiki honours .wikiignore, each inside its
 // own pipeline. But the daemon runs one watcher, and it was built from the AST
 // checker alone, so .astignore decided whether the wiki heard about anything at
-// all. Excluding docs/ from AST parsing — reasonable, since the AST does parse
-// markdown — left the directory unwatched and the wiki never rebuilt.
+// all. Excluding docs/ from AST parsing left the directory unwatched and the wiki
+// never rebuilt.
+//
+// These tests stage their own project query files, so the extensions they route
+// on are the ones staged here rather than whatever the installed runtime holds —
+// which is why .md still has a parser below even though the framework ships no
+// markdown query file.
 //
 // The watch is now the union of what the two want, and each applies its own file
 // to what arrives.
@@ -73,13 +78,15 @@ func classifyIn(t *testing.T, projectDir string, changed ...string) batchTargets
 	for _, c := range changed {
 		abs = append(abs, filepath.Join(projectDir, filepath.FromSlash(c)))
 	}
+	scope := knowledge.ScopeFor(projectDir, nil, nil)
 	return classifyBatch(
 		fswatch.Batch{Changed: abs},
 		projectDir,
-		filepath.Join(projectDir, config.ResolveDocsDir(nil, nil)),
+		filepath.Join(projectDir, scope.Subdir),
 		config.ResolveKnowledgeExtensions(nil, nil),
 		ast.NewAstIgnoreChecker(projectDir),
 		knowledge.NewKnowledgeIgnoreChecker(projectDir),
+		scope.ExtraFiles,
 	)
 }
 

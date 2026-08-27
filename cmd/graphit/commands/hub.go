@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -129,27 +128,9 @@ func newHubUninstallCmd() *cobra.Command {
 				}
 				p.Success("Removed %s", id)
 
-				if artType == "knowledge" || artType == "" {
-					wd, _ := os.Getwd()
-					knDir := filepath.Join(wd, brand.DotDir(), "knowledge", id)
-					if _, statErr := os.Stat(knDir); statErr == nil {
-						if rmErr := os.RemoveAll(knDir); rmErr == nil {
-							p.Step("Knowledge context removed: %s", knDir)
-						}
-					}
-					memDir := filepath.Join(wd, brand.DotDir(), "memory", id)
-					if info, statErr := os.Lstat(memDir); statErr == nil {
-						var rmErr error
-						if info.Mode()&os.ModeSymlink != 0 {
-							rmErr = os.Remove(memDir)
-						} else {
-							rmErr = os.RemoveAll(memDir)
-						}
-						if rmErr == nil {
-							p.Step("Memory context removed: %s", memDir)
-						}
-					}
-				}
+				// Uninstall already dropped this project's claims on the shared
+				// knowledge wiki and memory context; the stores themselves belong
+				// to whoever else still has them installed.
 			}
 
 			wd, _ := os.Getwd()

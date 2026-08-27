@@ -10,46 +10,46 @@ tags: [ast, toon, mcp, ai_optimized, bug-fix]
 
 ## Problem
 
-`graphit_ast_query` com `ai_optimized: true` (o default) chamava `FormatRecordsTOON`
-que passava **todos** os campos para o formato pipe-delimited TOON. Isso quebrava o output
-quando a query retornava colunas "pesadas" — como `file.source`, `docstring`, ou qualquer
-valor com `\n` ou `|`:
+`graphit_ast_query` with `ai_optimized: true` (the default) called `FormatRecordsTOON`
+that passed **all** the fields to the pipe-delimited TOON format. This would break the output
+when the query returned "heavy" columns — such as `file.source`, `docstring`, or any
+value with `\n` or `|`:
 
-- Newlines viravam separadores de linha extras → formato TOON corrompido
-- Pipes no código viravam separadores de coluna → colunas ilegíveis
+- Newlines became extra line separators in corrupted TOON → FORMAT
+- Pipes in the code became column separators illegible → columns
 
-O comportamento era silencioso: a saída era sintaticamente válida para o parser MCP,
-mas semanticamente incorreta para a IA.
+The behavior was silent: the output was syntactically valid for the MCP parser,
+but semantically incorrect for AI.
 
-## Solução
+Solution 
 
-Adicionada **detecção automática** em `FormatRecordsTOON` (`internal/ast/toon.go`):
+Added ** auto detect ** in `FormatRecordsTOON` (`internal/ast/toon.go`):
 
-1. **Primeiro passo** (scan): varre todos os registros para detectar quais colunas
-   contêm strings com `\n` ou `|` — chamadas de "colunas pesadas".
+1. **First step** (scan): scans all records to detect which columns
+   contain strings with `\n` or `|` — called "heavy columns".
 
-2. **Renderização em dois níveis**:
-   - Colunas leves: emitidas normalmente na tabela pipe-delimited.
-   - Colunas pesadas: emitidas como blocos nomeados **fora** da tabela, no formato:
+2. ** Two-level rendering **:
+   - Light columns: normally issued in the pipe-delimited table.
+   - Heavy columns: issued as blocks named * * outside * * of the table, in the format:
      ```
      --- <colname> ---
-     <conteúdo completo preservado>
+The content is preserved as originally stated.
      ```
-     Para múltiplos registros:
+For multiple records:
      ```
      --- <colname>[0] ---
-     <conteúdo do registro 0>
+Content of Registration 0
      --- <colname>[1] ---
-     <conteúdo do registro 1>
+Content of Registration 1
      ```
 
-3. O conteúdo **não é truncado nem sanitizado** — preservado integralmente.
+3. The content ** is neither truncated nor sanitized** — fully preserved.
 
 ## Exemplo
 
 Query: `MATCH (fn:Function {name: 'Foo'})<-[:CONTAINS]-(f:File) RETURN fn.name, fn.line_number, f.source`
 
-**Antes (quebrado):**
+**Before (broken):**
 ```
 results[3]{f.source|fn.line_number|fn.name}:
   func Foo() {
@@ -57,7 +57,7 @@ results[3]{f.source|fn.line_number|fn.name}:
 }|10|Foo
 ```
 
-**Depois (correto):**
+**After (correct):**
 ```
 results[3]{fn.line_number|fn.name}:
   10|Foo
@@ -68,20 +68,20 @@ func Foo() {
 }
 ```
 
-## Não requer opt-out
+## Does not require opt-out
 
-O comportamento é completamente automático. A flag `ai_optimized` não precisa ser
-alterada — o sistema detecta e adapta o formato internamente baseado no conteúdo
-dos dados.
+The behavior is completely automatic. The `ai_optimized` flag does not need to be
+changed — the system detects and adapts the format internally based on the content
+of the data.
 
 ## Arquivos alterados
 
-| Arquivo | Mudança |
+| File | Change |
 |---|---|
-| `internal/ast/toon.go` | `isHeavyString()` helper + lógica de two-pass em `FormatRecordsTOON` |
-| `internal/ast/toon_test.go` | 4 novos testes para heavy columns |
+| `internal/ast/toon.go` | `isHeavyString()` helper + two-pass logic in `FormatRecordsTOON` |
+| `internal/ast/toon_test.go` | 4 new tests for heavy columns |
 
-## Verificação
+verification
 
 - `go test ./internal/ast/ -run TestFormatRecordsTOON -v` — 10/10 PASS
 - `go build ./...` — build limpo

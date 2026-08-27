@@ -8,7 +8,56 @@ import (
 	"sync"
 )
 
-const shardCacheVersion = 1
+// shardCacheVersion invalidates every cached shard when it changes: a manifest written
+// under a different version is discarded, so every file looks changed and is parsed
+// again.
+//
+// **Bump it whenever the shape of what gets cached changes** — a new entity kind, a
+// different label, a field added to an entry. Entries are keyed by the file's content
+// hash, so a change in the conversion logic does not move the key: without a bump, the
+// new logic reaches only files that happen to be edited afterwards, and everyone else
+// keeps the old graph while running the new binary.
+//
+// 2: imports became entities (Import / Include / Export) instead of edge records only.
+// 3: captured names are trimmed, so a padded reference target resolves to its declaration.
+// 4: the <script>/<style> body of a single-file component is parsed with its own
+//
+//	grammar, so a .vue or .svelte now yields imports, script entities and CALLS
+//	where it previously yielded only markup.
+//
+// 5: entities, calls and references carry the language that PRODUCED them, not the
+//
+//	host file's, so an embedded block resolves against its own grammar's
+//	declarations and TargetRules. Without the bump, a corpus whose embedded SQL
+//	files are unchanged keeps resolving them as the host format.
+//
+// 6: an embedded block's statements are attributed to the HOST entity that contains
+//
+//	them instead of to the file, so the source of the edge changes for every file
+//	that carries one; and an index now yields its table, its covered columns and a
+//	UNIQUE marker where it used to yield a bare name; and the SQL family emits
+//	column-grain writes whose target is qualified by its table.
+//
+// 7: JavaScript, TypeScript and TSX yield Pair/Value for a config or lookup object and
+//
+//	an Import for require(), so a file whose only content is `export default { … }`
+//	stops being empty — measured on this repository, tailwind.config.js went from 0
+//	entities to 83.
+//
+// 8: the host of an embedded block is the entity that CONTAINS it, not the one crossing
+//
+//	the line above it — so the source of every DML edge from an embedded block moves,
+//	from the sibling element preceding the block to whatever unit the grammar declares
+//	around it (or to the file, when it declares none). Without the bump, a corpus whose
+//	files are unchanged keeps the previous, wrong source.
+//
+// 9: a keyword is no longer indexed as a call target (PL/SQL's `call_statement` makes a
+//
+//	bare identifier a complete call, and its non-reserved keyword list holds BEGIN,
+//	DECLARE, IF and PROCEDURE), a trigger is no longer a possible call target at all, and
+//	an embedded block may declare the wrapping a FRAGMENT needs to parse — which turns a
+//	program unit body from nothing into its procedure and everything it calls.
+const shardCacheVersion = 9
 
 type ShardCache struct {
 	dir      string
@@ -456,11 +505,16 @@ func splitEntry(entry *parseCacheEntry, hash string) (*shardNodes, *shardEdges) 
 }
 
 func mergeShards(relPath string, n *shardNodes, e *shardEdges, lang string, isDep bool) *parseCacheEntry {
+	cluster := ""
+	if len(n.FileRow) >= 7 {
+		cluster = n.FileRow[6]
+	}
 	return &parseCacheEntry{
 		RelPath:       relPath,
 		Language:      lang,
 		IsDepend:      isDep,
 		Source:        n.Source,
+		Cluster:       cluster,
 		FileRow:       n.FileRow,
 		DirPaths:      n.DirPaths,
 		Entities:      n.Entities,

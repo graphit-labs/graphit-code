@@ -15,12 +15,50 @@ queries:
   - data_key: array_tables
     graph_label: ArrayTable
     pattern: '(table_array_element (dotted_key) @name)'
+  # Key/value pairs. Both halves are nodes so both are reachable by full-text
+  # search, and the pairing survives as a CONTAINS edge:
+  #   Pair "host" → Value "db.example.com"
+  # tree-sitter-toml's string node spans its quotes; the engine strips them.
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair (bare_key) @name [(string) (integer) (float) (boolean) (local_date) (local_time) (local_date_time) (offset_date_time)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: pairs
+    graph_label: Pair
+    pattern: '(pair (dotted_key) @name [(string) (integer) (float) (boolean) (local_date) (local_time) (local_date_time) (offset_date_time)] @value)'
+    value_capture: value
+    value_label: Value
+
+  # Keys whose value is an array or an inline table still need their own node.
   - data_key: pairs
     graph_label: Pair
     pattern: '(pair (bare_key) @name)'
   - data_key: pairs
     graph_label: Pair
     pattern: '(pair (dotted_key) @name)'
+
+  # Array elements belong to the key that names the array.
+  - data_key: array_items
+    graph_label: Value
+    pattern: '(pair (bare_key) @parent (array (string) @name))'
+    parent_capture: parent
+    parent_label: Pair
+  - data_key: array_items
+    graph_label: Value
+    pattern: '(pair (bare_key) @parent (array [(integer) (float) (boolean)] @name))'
+    parent_capture: parent
+    parent_label: Pair
+
+  # Inline tables — `inline = { host = "h" }` — are pairs inside a pair, and the
+  # inner ones are already matched by the pair queries above: a member of an
+  # inline table is a `pair` with a bare_key like any other.
+  #
+  # They deliberately do NOT hang off the key that opens the table. That would
+  # need a second pattern per key, and since a uid is derived from name plus
+  # context, the same member would exist as two nodes — `f::host` from the plain
+  # query and `f::inline.host` from the nested one. See
+  # docs/tasks/data-format-key-value-nodes.md.
 
 # TOML is a config format — no export concept
 exports:
@@ -33,6 +71,17 @@ context_types:
   table: Table
   table_array_element: ArrayTable
 
+# Without these both contexts above are TRANSPARENT and every pair falls back to being
+# contained by the File: tree-sitter-toml's `table` exposes no "name" field — its name is
+# a bare_key child — so the default field lookup finds nothing and the walk continues past
+# the container it just matched. Same failure html.yaml had.
+#
+# Two alternatives because toml keys a table either way: [database] is a bare_key and
+# [server.http] is a dotted_key. Tried in order, so the common case costs one lookup.
+context_name_paths:
+  table: bare_key|dotted_key
+  table_array_element: bare_key|dotted_key
+
 anon_func_types: []
 
 declaration_types:
@@ -43,9 +92,14 @@ declaration_types:
 comment_types:
   - comment
 
-# TOML has no entry points — it's a data format
-entry_points:
-  names: []
-  exported_bonus: 0
-  max_score: 0
-  decorators: []
+# No cyclomatic complexity: TOML is a data format with no control flow.
+
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Table
+  - ArrayTable
+  - Pair
+  - Comment

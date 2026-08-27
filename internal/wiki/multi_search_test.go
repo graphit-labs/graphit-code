@@ -270,7 +270,7 @@ func TestBM25SearchMulti(t *testing.T) {
 	t.Parallel()
 	dir1, dir2 := setupMultiWikiDirs(t)
 
-	results := BM25SearchMulti([]WikiSource{
+	results := BM25SearchMulti(context.Background(), []WikiSource{
 		{ID: "knowledge", Label: "Knowledge", Dir: dir1},
 		{ID: "memory", Label: "Memory", Dir: dir2},
 	}, "architecture design", 3)
@@ -294,7 +294,7 @@ func TestBM25SearchMulti_NoResults(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "index.md", "# Empty Wiki")
 
-	results := BM25SearchMulti([]WikiSource{
+	results := BM25SearchMulti(context.Background(), []WikiSource{
 		{ID: "empty", Label: "Empty", Dir: dir},
 	}, "xyznonexistent", 5)
 
@@ -307,7 +307,7 @@ func TestBm25PreFilterMulti(t *testing.T) {
 	t.Parallel()
 	dir1, dir2 := setupMultiWikiDirs(t)
 
-	result := bm25PreFilterMulti([]WikiSource{
+	result := bm25PreFilterMulti(context.Background(), []WikiSource{
 		{ID: "knowledge", Label: "Knowledge", Dir: dir1},
 		{ID: "memory", Label: "Memory", Dir: dir2},
 	}, "architecture design", 3)
@@ -325,7 +325,7 @@ func TestBm25PreFilterMulti_Empty(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "index.md", "# Empty")
 
-	result := bm25PreFilterMulti([]WikiSource{
+	result := bm25PreFilterMulti(context.Background(), []WikiSource{
 		{ID: "empty", Label: "Empty", Dir: dir},
 	}, "xyznonexistent", 5)
 

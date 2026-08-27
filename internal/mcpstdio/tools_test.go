@@ -357,10 +357,6 @@ func TestNopWriteCloser(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// hub type-path MCP tool
-// ---------------------------------------------------------------------------
-
 func TestHubTypePathTool(t *testing.T) {
 	ctx := context.Background()
 

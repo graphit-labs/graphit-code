@@ -7,7 +7,7 @@ import { ConfirmModal } from './modals/ConfirmModal'
 import { SubmitModal } from './modals/SubmitModal'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { FolderOpen, CloudUpload, RefreshCw, Download, Package, ArrowUpCircle } from 'lucide-react'
+import { FolderOpen, CloudUpload, RefreshCw, Download, Package } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function ProjectArtifactsPage() {

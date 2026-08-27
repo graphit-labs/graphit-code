@@ -17,8 +17,11 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/memory"
+	"github.com/graphit-labs/graphit-code/internal/projectlock"
+	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
-	"github.com/graphit-labs/graphit-code/internal/wikisvc"
 )
 
 type WikiModule struct {
@@ -84,12 +87,6 @@ func (h *WikiHandler) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/wiki/search", corsJSON(h.handleSearch))
 	mux.HandleFunc("POST /api/wiki/ai-search", corsJSON(h.handleAISearch))
 
-	mux.HandleFunc("POST /api/wiki/multi-search", corsJSON(h.handleMultiSearch))
-	mux.HandleFunc("POST /api/wiki/multi-keyword-search", corsJSON(h.handleMultiKeywordSearch))
-	mux.HandleFunc("POST /api/wiki/chat", corsJSON(h.handleChat))
-	mux.HandleFunc("/api/wiki/sessions", corsJSON(h.handleSessions))
-	mux.HandleFunc("GET /api/wiki/sessions/messages", corsJSON(h.handleSessionMessages))
-	mux.HandleFunc("/api/wiki/hub-knowledge", corsJSON(h.handleHubKnowledge))
 }
 
 func (h *WikiHandler) handleModules(w http.ResponseWriter, r *http.Request) {
@@ -167,9 +164,9 @@ func (h *WikiHandler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Try SQLite FTS5 first (faster, richer results)
-	if db, err := wiki.OpenWikiDB(wikiDir); err == nil {
+	if db, err := wiki.OpenWikiDB(r.Context(), wikiDir); err == nil {
 		defer db.Close()
-		ftsResults, err := db.Search(query, 30)
+		ftsResults, err := db.Search(r.Context(), query, 30)
 		if err == nil && len(ftsResults) > 0 {
 			var results []SearchResult
 			for _, r := range ftsResults {
@@ -185,7 +182,7 @@ func (h *WikiHandler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	bm25Results := wiki.BM25Search(wikiDir, query, 30)
+	bm25Results := wiki.BM25Search(r.Context(), wikiDir, query, 30)
 	if len(bm25Results) > 0 {
 		var results []SearchResult
 		for _, br := range bm25Results {
@@ -237,158 +234,98 @@ func (h *WikiHandler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, results)
 }
 
+// discoverModules lists the wikis the UI can browse for one project: its own
+// documentation wiki, its two memory scopes, and every context it has imported.
+//
+// Every wiki is global and keyed by identity, so each directory is RESOLVED through
+// internal/store — nothing here walks the project. It used to probe four places that
+// no longer hold a wiki: `<project>/.graphit/knowledge/project` and
+// `<project>/.graphit/memory/{project,user}`, which were the per-project replicas the
+// storage centralization removed, and `<global>/knowledge` / `<global>/memory`, which
+// moved under `<global>/wiki/`. All four missed at once, so the knowledge context list
+// came back empty and the memory entries vanished from the sidebar while every wiki
+// behind them was intact — a resolution bug that reads exactly like data loss.
+//
+// Which documentation contexts a project may read is a per-project record, not a
+// directory listing: they are claims in its lockfile, resolved per origin, because a
+// listing of the global wiki root would report every context anybody on this machine
+// ever installed. Memory contexts are the deliberate exception — one is a branch of the
+// shared memory repository, so the worktree set is the record and there is no second
+// one to consult.
 func discoverModules(projectDir string) []WikiModule {
-	var dotBrand string
-	if projectDir != "" {
-		dotBrand = filepath.Join(projectDir, brand.DotDir())
-	} else {
-		dotBrand = brand.DotDir()
+	if projectDir == "" {
+		projectDir, _ = os.Getwd()
 	}
-	globalBase := brand.GlobalDir()
-
-	projectName := ""
-	lockPath := filepath.Join(dotBrand, "..", brand.LockFileName())
-	if data, err := os.ReadFile(lockPath); err == nil {
-		var lockData map[string]any
-		if json.Unmarshal(data, &lockData) == nil {
-			if proj, ok := lockData["project"].(map[string]any); ok {
-				if name, ok := proj["name"].(string); ok && name != "" {
-					projectName = name
-				}
-			}
-		}
-	}
-
-	projectIDNames := loadProjectIDNames()
-	if projectName == "" {
-		if projectDir != "" {
-			projectName = filepath.Base(projectDir)
-		} else if cwd, err := os.Getwd(); err == nil {
-			projectName = filepath.Base(cwd)
-		}
-	}
-
-	type candidate struct {
-		id      string
-		label   string
-		relDir  string
-		context string
-	}
-
-	locals := []candidate{
-		{"knowledge", projectName, filepath.Join(dotBrand, "knowledge", "project"), "project"},
-		{"memory-project", "Memory (project)", filepath.Join(dotBrand, "memory", "project"), "project"},
-		{"memory-user", "Memory (user)", filepath.Join(dotBrand, "memory", "user"), "user"},
-	}
+	idNames := loadProjectIDNames()
 
 	var modules []WikiModule
-	for _, c := range locals {
-		dir := c.relDir
-		if _, err := os.Stat(dir); err != nil {
-			dir = filepath.Join(c.relDir, "wiki")
+	add := func(id, label, dir, contextName string, requirePages bool) {
+		if dir == "" {
+			// No identity to key the store by: a project with no lockfile has no
+			// project-scoped memory, and an ephemeral session has no wiki of its own.
+			return
 		}
-		if _, err := os.Stat(dir); err == nil {
-
-			resolved := resolveDir(dir)
-			n := countMarkdownFiles(resolved)
-			_, hasLog := os.Stat(filepath.Join(resolved, "log.md"))
-			modules = append(modules, WikiModule{
-				ID:      c.id,
-				Label:   c.label,
-				Path:    dir,
-				Context: c.context,
-				Pages:   n,
-				HasLog:  hasLog == nil,
-			})
+		resolved := resolveDir(dir)
+		if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
+			return
 		}
+		pages := countMarkdownFiles(resolved)
+		if requirePages && pages == 0 {
+			return
+		}
+		_, hasLog := os.Stat(filepath.Join(resolved, "log.md"))
+		modules = append(modules, WikiModule{
+			ID:      id,
+			Label:   label,
+			Path:    resolved,
+			Context: contextName,
+			Pages:   pages,
+			HasLog:  hasLog == nil,
+		})
 	}
 
-	discoverContexts(&modules, filepath.Join(dotBrand, "knowledge"), "knowledge", "Knowledge", projectIDNames)
-	discoverContexts(&modules, filepath.Join(dotBrand, "memory"), "memory", "Memory", projectIDNames)
+	// The project's own three wikis. Existence of the directory is enough — a wiki
+	// compiled but empty is a real state the explorer should open, and hiding it
+	// reads as "this module is gone" rather than "nothing is indexed yet".
+	add("knowledge", projectDisplayName(projectDir), knowledge.WikiDirFor(projectDir), "project", false)
+	add("memory-project", "Memory (project)",
+		memory.WikiDirFor(projectDir, string(memory.MemoryScopeProject)), "project", false)
+	add("memory-user", "Memory (user)",
+		memory.WikiDirFor(projectDir, string(memory.MemoryScopeUser)), "user", false)
 
-	if globalBase != "" {
-		discoverContexts(&modules, filepath.Join(globalBase, "knowledge"), "knowledge", "Knowledge", projectIDNames)
-		discoverContexts(&modules, filepath.Join(globalBase, "memory"), "memory", "Memory", projectIDNames)
+	// Imported documentation sets, resolved per origin: a Hub artifact is
+	// version-keyed, a link points at a sibling project's own wiki.
+	for _, name := range store.ContextNames(projectDir, store.KindKnowledge) {
+		add("knowledge/"+name, contextLabel(name, idNames),
+			store.KnowledgeContextDirIn(projectDir, name), name, true)
+	}
+
+	// Imported memory contexts, whose scope and id are the same name.
+	for _, name := range memory.AllContextDirs() {
+		add("memory/"+name, contextLabel(name, idNames),
+			memory.MemoryWikiGlobalDir(name, name), name, true)
 	}
 
 	return modules
 }
 
-func discoverContexts(out *[]WikiModule, base, moduleID, label string, idNames map[string]string) {
-	scanDir(out, base, base, moduleID, label, 1, idNames)
+// projectDisplayName is the project's name from its lockfile, falling back to the
+// directory name for a project that was never initialised.
+func projectDisplayName(projectDir string) string {
+	if lf, err := projectlock.Load(filepath.Join(projectDir, brand.LockFileName())); err == nil &&
+		lf != nil && lf.Project.Name != "" {
+		return lf.Project.Name
+	}
+	return filepath.Base(projectDir)
 }
 
-func scanDir(out *[]WikiModule, base, current, moduleID, label string, depth int, idNames map[string]string) {
-	entries, err := os.ReadDir(current)
-	if err != nil {
-		return
+// contextLabel prefers a readable project name over the ULID a Hub context published
+// by a project is keyed by.
+func contextLabel(name string, idNames map[string]string) string {
+	if readable, ok := idNames[name]; ok && readable != "" {
+		return readable
 	}
-	for _, e := range entries {
-		isDir := e.IsDir()
-		if !isDir {
-			info, err := os.Stat(filepath.Join(current, e.Name()))
-			if err == nil && info.IsDir() {
-				isDir = true
-			}
-		}
-		if !isDir {
-			continue
-		}
-
-		name := e.Name()
-		if depth == 1 && (name == "project" || name == "user" || name == "export" || strings.HasPrefix(name, ".")) {
-			continue
-		}
-
-		fullPath := filepath.Join(current, name)
-
-		if resolved, err := filepath.EvalSymlinks(fullPath); err == nil {
-			fullPath = resolved
-		}
-		wikiDir := filepath.Join(fullPath, "wiki")
-		if info, err := os.Stat(wikiDir); err != nil || !info.IsDir() {
-			wikiDir = fullPath
-		}
-
-		mdCount := countMarkdownFiles(wikiDir)
-		if mdCount > 0 {
-			contextName := name
-			if depth > 1 {
-
-				origFull := filepath.Join(current, name)
-				if rel, err := filepath.Rel(base, origFull); err == nil {
-					contextName = filepath.ToSlash(rel)
-				}
-			}
-
-			displayName := contextName
-			if readable, ok := idNames[contextName]; ok {
-				displayName = readable
-			}
-
-			_, hasLog := os.Stat(filepath.Join(wikiDir, "log.md"))
-
-			exists := false
-			for _, m := range *out {
-				if m.ID == moduleID+"/"+contextName {
-					exists = true
-					break
-				}
-			}
-			if !exists {
-				*out = append(*out, WikiModule{
-					ID:      moduleID + "/" + contextName,
-					Label:   displayName,
-					Path:    wikiDir,
-					Context: contextName,
-					Pages:   mdCount,
-					HasLog:  hasLog == nil,
-				})
-			}
-		} else if depth < 2 {
-			scanDir(out, base, fullPath, moduleID, label, depth+1, idNames)
-		}
-	}
+	return name
 }
 
 var reH1 = regexp.MustCompile(`(?m)^#\s+(.+)$`)
@@ -535,7 +472,7 @@ func (h *WikiHandler) handleAISearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bm25Results := wiki.BM25Search(body.Dir, body.Query, 15)
+	bm25Results := wiki.BM25Search(r.Context(), body.Dir, body.Query, 15)
 
 	pages, err := listWikiPages(body.Dir)
 	if err != nil {
@@ -650,7 +587,7 @@ Wiki Content:
 	aiResp.Results = validated
 
 	wd, _ := os.Getwd()
-	session := chat.NewSession(wd, []chat.WikiSource{
+	session := chat.NewSession(wd, []chat.Source{
 		{ID: "wiki", Label: "Wiki", Dir: body.Dir},
 	}, body.Query)
 	_ = session.Append(chat.ChatMessage{
@@ -697,355 +634,6 @@ func isAllowedOrigin(origin string) bool {
 
 func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-type MultiSearchRequest struct {
-	Query    string       `json:"query"`
-	WikiDirs []WikiDirRef `json:"wiki_dirs"`
-	HubRefs  []HubKnowRef `json:"hub_refs"`
-}
-
-type WikiDirRef struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Dir   string `json:"dir"`
-}
-
-type HubKnowRef struct {
-	ID      string `json:"id"`
-	Version string `json:"version"`
-}
-
-type MultiSearchResponse struct {
-	Answer         string   `json:"answer"`
-	SessionID      string   `json:"session_id"`
-	Turns          int      `json:"turns"`
-	Tokens         int      `json:"tokens"`
-	PagesConsulted []string `json:"pages_consulted,omitempty"`
-	Error          string   `json:"error,omitempty"`
-}
-
-func (h *WikiHandler) handleMultiSearch(w http.ResponseWriter, r *http.Request) {
-	var body MultiSearchRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Query == "" {
-		writeJSON(w, MultiSearchResponse{Error: "query is required"})
-		return
-	}
-
-	if h.aiClient == nil {
-		writeJSON(w, MultiSearchResponse{
-			Error: "AI CLI not configured. Run:\n" +
-				"  " + brand.BinName() + " config --global ai.cli <gemini|claude|opencode|codex|cursor-agent>\n" +
-				"Then make sure the CLI is installed and authenticated on your system.",
-		})
-		return
-	}
-
-	var sources []wiki.WikiSource
-	for _, wd := range body.WikiDirs {
-		dir := resolveDir(wd.Dir)
-		if _, err := os.Stat(dir); err != nil {
-			continue
-		}
-		sources = append(sources, wiki.WikiSource{
-			ID:    wd.ID,
-			Label: wd.Label,
-			Dir:   dir,
-		})
-	}
-
-	if h.hubSvc != nil {
-		for _, ref := range body.HubRefs {
-			artifactRef := ref.ID
-			if ref.Version != "" {
-				artifactRef += "@" + ref.Version
-			}
-			wikiDir, err := h.hubSvc.EnsureKnowledgeAvailable(r.Context(), artifactRef)
-			if err != nil {
-				writeJSON(w, MultiSearchResponse{Error: "hub knowledge error: " + err.Error()})
-				return
-			}
-			sources = append(sources, wiki.WikiSource{
-				ID:    "hub/" + ref.ID,
-				Label: ref.ID,
-				Dir:   wikiDir,
-			})
-		}
-	}
-
-	if len(sources) == 0 {
-		writeJSON(w, MultiSearchResponse{Error: "no valid wiki sources found"})
-		return
-	}
-
-	ctx := r.Context()
-	result, err := wiki.SearchMultiWiki(ctx, h.aiClient, body.Query, wiki.MultiWikiSearchConfig{
-		Sources:           sources,
-		UseBM25:           true,
-		BM25TopNPerSource: 5,
-	})
-	if err != nil {
-		writeJSON(w, MultiSearchResponse{Error: "search failed: " + err.Error()})
-		return
-	}
-
-	wd, _ := os.Getwd()
-	chatSources := make([]chat.WikiSource, len(sources))
-	for i, s := range sources {
-		chatSources[i] = chat.WikiSource{ID: s.ID, Label: s.Label, Dir: s.Dir}
-	}
-	session := chat.NewSession(wd, chatSources, body.Query)
-
-	_ = session.Append(chat.ChatMessage{
-		Role:    "user",
-		Content: body.Query,
-	})
-	_ = session.Append(chat.ChatMessage{
-		Role:    "assistant",
-		Content: result.Answer,
-	})
-
-	wikiLinkRe := regexp.MustCompile(`\[\[([^\]]+)\]\]`)
-	matches := wikiLinkRe.FindAllStringSubmatch(result.Answer, -1)
-	var pagesConsulted []string
-	seen := map[string]bool{}
-	for _, m := range matches {
-		if len(m) > 1 && !seen[m[1]] {
-			seen[m[1]] = true
-			pagesConsulted = append(pagesConsulted, m[1])
-		}
-	}
-
-	writeJSON(w, MultiSearchResponse{
-		Answer:         result.Answer,
-		SessionID:      session.ID,
-		Turns:          result.Turns,
-		Tokens:         result.TokensSent,
-		PagesConsulted: pagesConsulted,
-	})
-}
-
-type ChatRequest struct {
-	SessionID string `json:"session_id"`
-	Message   string `json:"message"`
-}
-
-type ChatResponse struct {
-	Answer    string `json:"answer"`
-	SessionID string `json:"session_id"`
-	Error     string `json:"error,omitempty"`
-}
-
-func (h *WikiHandler) handleChat(w http.ResponseWriter, r *http.Request) {
-	var body ChatRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.SessionID == "" || body.Message == "" {
-		writeJSON(w, ChatResponse{Error: "session_id and message are required"})
-		return
-	}
-
-	if h.aiClient == nil {
-		writeJSON(w, ChatResponse{Error: "AI CLI not configured"})
-		return
-	}
-
-	wikiSvc := wikisvc.NewWikiService("")
-	response, err := wikiSvc.ContinueChat(r.Context(), body.SessionID, body.Message)
-	if err != nil {
-		writeJSON(w, ChatResponse{Error: err.Error()})
-		return
-	}
-
-	writeJSON(w, ChatResponse{
-		Answer:    response,
-		SessionID: body.SessionID,
-	})
-}
-
-type SessionListItem struct {
-	ID           string            `json:"id"`
-	Title        string            `json:"title"`
-	CreatedAt    string            `json:"created_at"`
-	UpdatedAt    string            `json:"updated_at"`
-	MessageCount int               `json:"message_count"`
-	WikiSources  []chat.WikiSource `json:"wiki_sources"`
-}
-
-func (h *WikiHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		projectDir := r.URL.Query().Get("project_dir")
-		if projectDir == "" {
-			projectDir, _ = os.Getwd()
-		}
-		wikiSvc := wikisvc.NewWikiService(projectDir)
-		sessions, err := wikiSvc.ListSessions()
-		if err != nil {
-			writeJSON(w, []SessionListItem{})
-			return
-		}
-		items := make([]SessionListItem, len(sessions))
-		for i, s := range sessions {
-			items[i] = SessionListItem{
-				ID:           s.ID,
-				Title:        s.Title,
-				CreatedAt:    s.CreatedAt.Format("2006-01-02T15:04:05Z"),
-				UpdatedAt:    s.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-				MessageCount: s.MessageCount,
-				WikiSources:  s.WikiSources,
-			}
-		}
-		writeJSON(w, items)
-
-	case http.MethodDelete:
-		sessionID := r.URL.Query().Get("id")
-		if sessionID == "" {
-			http.Error(w, "id required", http.StatusBadRequest)
-			return
-		}
-		wikiSvc := wikisvc.NewWikiService("")
-		if err := wikiSvc.DeleteSession(sessionID); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		writeJSON(w, map[string]string{"status": "deleted"})
-
-	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-type HubKnowledgeItem struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Version     string   `json:"version"`
-	Versions    []string `json:"versions"`
-	Installed   bool     `json:"installed"`
-}
-
-func (h *WikiHandler) handleHubKnowledge(w http.ResponseWriter, r *http.Request) {
-	if h.hubSvc == nil {
-		writeJSON(w, []HubKnowledgeItem{})
-		return
-	}
-
-	entries := h.hubSvc.ListEntries(hub.TypeKnowledge)
-	items := make([]HubKnowledgeItem, 0, len(entries))
-
-	for _, e := range entries {
-
-		globalDir := filepath.Join(brand.GlobalDir(), "wiki", "knowledge", e.ProjectID)
-		installed := false
-		if _, err := os.Stat(globalDir); err == nil {
-			installed = true
-		}
-
-		versions := make([]string, len(e.Versions))
-		for i, v := range e.Versions {
-			versions[len(e.Versions)-1-i] = v
-		}
-
-		items = append(items, HubKnowledgeItem{
-			ID:          e.ID,
-			Name:        e.Name,
-			Description: e.Description,
-			Version:     e.Latest,
-			Versions:    versions,
-			Installed:   installed,
-		})
-	}
-
-	writeJSON(w, items)
-}
-
-type MultiKeywordResult struct {
-	SourceID    string  `json:"source_id"`
-	SourceLabel string  `json:"source_label"`
-	Path        string  `json:"path"`
-	Title       string  `json:"title"`
-	Snippet     string  `json:"snippet"`
-	Score       float64 `json:"score"`
-}
-
-func (h *WikiHandler) handleMultiKeywordSearch(w http.ResponseWriter, r *http.Request) {
-	var body MultiSearchRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Query == "" {
-		writeJSON(w, []MultiKeywordResult{})
-		return
-	}
-
-	type source struct {
-		ID    string
-		Label string
-		Dir   string
-	}
-	var sources []source
-	for _, wd := range body.WikiDirs {
-		dir := resolveDir(wd.Dir)
-		if _, err := os.Stat(dir); err != nil {
-			continue
-		}
-		sources = append(sources, source{ID: wd.ID, Label: wd.Label, Dir: dir})
-	}
-
-	if h.hubSvc != nil {
-		for _, ref := range body.HubRefs {
-			artifactRef := ref.ID
-			if ref.Version != "" {
-				artifactRef += "@" + ref.Version
-			}
-			wikiDir, err := h.hubSvc.EnsureKnowledgeAvailable(r.Context(), artifactRef)
-			if err != nil {
-				continue
-			}
-			sources = append(sources, source{ID: "hub/" + ref.ID, Label: ref.ID, Dir: wikiDir})
-		}
-	}
-
-	var results []MultiKeywordResult
-	for _, src := range sources {
-		bm25Results := wiki.BM25Search(src.Dir, body.Query, 10)
-		for _, br := range bm25Results {
-			results = append(results, MultiKeywordResult{
-				SourceID:    src.ID,
-				SourceLabel: src.Label,
-				Path:        br.Path,
-				Title:       br.Title,
-				Snippet:     br.Snippet,
-				Score:       br.Score,
-			})
-		}
-	}
-
-	sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })
-
-	writeJSON(w, results)
-}
-
-func (h *WikiHandler) handleSessionMessages(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.URL.Query().Get("id")
-	if sessionID == "" {
-		http.Error(w, "id required", http.StatusBadRequest)
-		return
-	}
-
-	session, err := chat.LoadSession(sessionID)
-	if err != nil {
-		http.Error(w, "session not found: "+err.Error(), http.StatusNotFound)
-		return
-	}
-
-	messages, err := session.LoadHistory()
-	if err != nil {
-		http.Error(w, "failed to load history: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if messages == nil {
-		messages = []chat.ChatMessage{}
-	}
-
-	writeJSON(w, messages)
 }
 
 func loadProjectIDNames() map[string]string {

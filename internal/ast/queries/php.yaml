@@ -1,6 +1,13 @@
 language: php
 grammar: tree-sitter-php
 extensions: [".php"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function, Method, Package] }
+  READS_FIELD: { labels: [Field] }
+  WRITES_FIELD: { labels: [Field] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -24,14 +31,21 @@ queries:
   - data_key: constants
     graph_label: Constant
     pattern: '(const_declaration (const_element (name) @name))'
+
+  # Declared literal values — the literal becomes a node contained by the name.
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_element (name) @name [(integer) (float) (boolean) (null) (string) (encapsed_string)] @value)'
+    value_capture: value
+    value_label: Value
   - data_key: namespaces
     graph_label: Package
     pattern: '(namespace_definition name: (namespace_name) @name)'
   - data_key: imports
-    graph_label: Module
+    graph_label: Import
     pattern: '(namespace_use_declaration (namespace_use_clause (name) @name))'
   - data_key: imports
-    graph_label: Module
+    graph_label: Import
     pattern: '(namespace_use_declaration (namespace_use_clause (qualified_name) @name))'
   - data_key: parameters
     graph_label: Parameter
@@ -39,6 +53,11 @@ queries:
   - data_key: fields
     graph_label: Field
     pattern: '(property_declaration (property_element (variable_name (name) @name)))'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(property_element name: (variable_name (name) @name) default_value: [(integer) (float) (boolean) (null) (string) (encapsed_string)] @value)'
+    value_capture: value
+    value_label: Value
 
   # === Relation queries ===
   - data_key: calls
@@ -120,54 +139,33 @@ declaration_types:
 comment_types:
   - comment
 
-# Entry point scoring rules for PHP
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: __construct
-      score: 40
-    - pattern: __invoke
-      score: 40
-    - pattern: "Test*"
-      score: 60
-    - pattern: "test_*"
-      score: 60
-    - pattern: "test*"
-      score: 60
-    - pattern: init
-      score: 40
-    - pattern: setup
-      score: 40
-    - pattern: configure
-      score: 40
-    - pattern: "*Handler"
-      score: 30
-    - pattern: "*Controller"
-      score: 30
-    - pattern: "cmd*"
-      score: 20
-    - pattern: "run*"
-      score: 20
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. else_if_clause is its own node (PHP does not
+# nest "elseif" as another if_statement), and case_statement is cleanly
+# separate from default_statement here, unlike C/C++/Java.
+complexity:
+  node_types:
+    - if_statement
+    - else_if_clause
+    - for_statement
+    - while_statement
+    - case_statement
+    - catch_clause
+    - conditional_expression
+  operators: ["&&", "||"]
 
-  exported_bonus: 10
-  max_score: 100
-
-  # PHP has no decorator-style annotations — attributes are handled in queries
-  # This section is intentionally empty
-  decorators: []
-
-# Import detection (language-level framework detection)
-import_detection:
-  - pattern: Illuminate
-    match: prefix
-    framework: laravel
-    category: web
-  - pattern: Symfony
-    match: prefix
-    framework: symfony
-    category: web
-  - pattern: Doctrine
-    match: prefix
-    framework: doctrine
-    category: orm
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Class
+  - Interface
+  - Trait
+  - Enum
+  - Function
+  - Method
+  - Constant
+  - Field
+  - Package
+  - Comment

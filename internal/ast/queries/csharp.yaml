@@ -1,6 +1,13 @@
 language: csharp
 grammar: tree-sitter-c_sharp
 extensions: [".cs"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function] }
+  READS_FIELD: { labels: [Field] }
+  WRITES_FIELD: { labels: [Field] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -30,6 +37,28 @@ queries:
   - data_key: fields
     graph_label: Field
     pattern: '(field_declaration (variable_declaration (variable_declarator (identifier) @name)))'
+
+  # Declared literal values — the literal becomes a node contained by the name.
+  - data_key: fields
+    graph_label: Field
+    pattern: '(variable_declarator (identifier) @name [(integer_literal) (real_literal) (boolean_literal) (null_literal) (character_literal) (string_literal) (verbatim_string_literal)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: properties
+    graph_label: Property
+    pattern: '(property_declaration name: (identifier) @name value: [(integer_literal) (real_literal) (boolean_literal) (null_literal) (character_literal) (string_literal) (verbatim_string_literal)] @value)'
+    value_capture: value
+    value_label: Value
+
+  # Enum members. Antes o enum existia sem seus membros.
+  - data_key: enum_members
+    graph_label: EnumMember
+    pattern: '(enum_member_declaration name: (identifier) @name)'
+  - data_key: enum_members
+    graph_label: EnumMember
+    pattern: '(enum_member_declaration name: (identifier) @name value: [(integer_literal) (real_literal) (string_literal)] @value)'
+    value_capture: value
+    value_label: Value
 
   # === Relation queries ===
   - data_key: calls
@@ -98,59 +127,33 @@ declaration_types:
 comment_types:
   - comment
 
-# Entry point scoring rules for C#
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: Main
-      score: 80
-    - pattern: "Test*"
-      score: 60
-    - pattern: "test_*"
-      score: 60
-    - pattern: init
-      score: 40
-    - pattern: setup
-      score: 40
-    - pattern: configure
-      score: 40
-    - pattern: "*Handler"
-      score: 30
-    - pattern: "*Controller"
-      score: 30
-    - pattern: "cmd*"
-      score: 20
-    - pattern: "run*"
-      score: 20
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar (loaded as a native/embedded grammar, not via
+# the dynamic loader, so it is checked under the grammar name "c_sharp").
+# switch_section fires for `default` too, so a bare switch with no case
+# still adds one — a minor, accepted deviation also taken for C/C++/Java.
+complexity:
+  node_types:
+    - if_statement
+    - for_statement
+    - while_statement
+    - switch_section
+    - catch_clause
+    - conditional_expression
+  operators: ["&&", "||"]
 
-  exported_bonus: 10
-  max_score: 100
-
-  # C# attribute-based decorators (ASP.NET)
-  decorators:
-    # HTTP route attributes (ASP.NET)
-    - name: HttpGet
-      score: 70
-    - name: HttpPost
-      score: 70
-    - name: HttpPut
-      score: 70
-    - name: HttpDelete
-      score: 70
-    - name: Route
-      score: 70
-    # Test attributes (NUnit, xUnit, MSTest)
-    - name: Test
-      score: 60
-    - name: TestMethod
-      score: 60
-    - name: Fact
-      score: 60
-    - name: Theory
-      score: 60
-    # Controller attributes
-    - name: ApiController
-      score: 50
-    - name: Controller
-      score: 50
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Class
+  - Interface
+  - Struct
+  - Enum
+  - Namespace
+  - Function
+  - Property
+  - Field
+  - EnumMember
+  - Comment

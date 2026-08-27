@@ -58,7 +58,7 @@ func MandateTrigger() string {
 		},
 		[]string{
 			"improvements_rules",
-			"dream_subject_add", "dream_subject_list", "dream_subject_remove",
+			"improvements_backlog_add", "improvements_backlog_list", "improvements_backlog_remove",
 			"dream_status", "dream_reports",
 		},
 	)
@@ -89,7 +89,10 @@ func InstallSkill(projectDir, ideName string) error {
 		}
 	}
 	skillContent := brand.ResolveModuleSkill("improvements", ImprovementsRuleContent())
-	frontmatter := "---\nname: " + improvementsSkillName + "\ndescription: Autonomous code improvement, audit, review, refactoring methodology, and dream subjects. Use when: user asks to improve, audit, review, or refactor the codebase; user requests quality assessment or code smell detection; after completing any significant task for reflection and knowledge generation; you notice improvement patterns out of scope for the current task; you want to schedule work for later autonomous processing; you need to create, update, or codify recurring patterns as Hub artifacts.\n---\n\n"
+	frontmatter, err := ide.SkillFrontmatter(improvementsSkillName, "Autonomous code improvement, audit, review, refactoring methodology, and the improvement backlog. Use when: user asks to improve, audit, review, or refactor the codebase; user requests quality assessment or code smell detection; after completing any significant task for reflection and knowledge generation; you notice improvement patterns out of scope for the current task; you want to schedule work for later autonomous processing; you need to create, update, or codify recurring patterns as Hub artifacts.")
+	if err != nil {
+		return err
+	}
 	return ide.InstallManagedSkill(projectDir, ideName, improvementsSkillName, frontmatter+skillContent)
 }
 

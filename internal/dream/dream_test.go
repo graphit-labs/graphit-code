@@ -11,278 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// ---------------------------------------------------------------------------
-// subjects.go tests
-// ---------------------------------------------------------------------------
-
-func TestSlugify(t *testing.T) {
-	tests := []struct {
-		title string
-		want  string
-	}{
-		{"Hello World!", "hello-world"},
-		{"Título com Acentuação", "titulo-com-acentuacao"},
-		{"---Special---Characters---", "special-characters"},
-		{strings.Repeat("a", 100), strings.Repeat("a", 60)},
-		{"", ""},
-		{"   ", ""},
-		{"abc", "abc"},
-		{"CamelCase Title", "camelcase-title"},
-		// Slug truncation: if 60th char boundary lands in the middle of a word
-		// followed by hyphens, TrimRight strips them
-		{strings.Repeat("abcde-", 11), strings.TrimRight(strings.Repeat("abcde-", 11)[:60], "-")},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.title, func(t *testing.T) {
-			got := slugify(tc.title)
-			if got != tc.want {
-				t.Errorf("slugify(%q) = %q; want %q", tc.title, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestExtractTitle(t *testing.T) {
-	tests := []struct {
-		name     string
-		content  string
-		fallback string
-		want     string
-	}{
-		{"with h1", "# My Title\n\nBody text", "fallback", "My Title"},
-		{"no h1", "some text\nmore text", "fallback", "fallback"},
-		{"h1 not first line", "preamble\n# Later Title\nmore", "fallback", "Later Title"},
-		{"empty content", "", "fallback", "fallback"},
-		{"h2 only", "## Not H1\ntext", "fallback", "fallback"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := extractTitle(tc.content, tc.fallback)
-			if got != tc.want {
-				t.Errorf("extractTitle() = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestDreamSubjects(t *testing.T) {
-	tempProj := t.TempDir()
-
-	// 1. Add Subject
-	sub, err := AddSubject(tempProj, "My Dream Subject", "Instructions to dream about.")
-	if err != nil {
-		t.Fatalf("AddSubject failed: %v", err)
-	}
-	if sub.Slug != "my-dream-subject" {
-		t.Errorf("expected slug 'my-dream-subject', got %q", sub.Slug)
-	}
-
-	// Try adding duplicate
-	_, err = AddSubject(tempProj, "My Dream Subject", "Instructions.")
-	if err == nil {
-		t.Error("expected error when adding duplicate subject")
-	}
-
-	// 2. List and Pending
-	list, err := ListSubjects(tempProj)
-	if err != nil {
-		t.Fatalf("ListSubjects failed: %v", err)
-	}
-	if len(list) != 1 || list[0].Slug != "my-dream-subject" {
-		t.Errorf("expected 1 subject in list, got %v", list)
-	}
-
-	pending, err := PendingSubjects(tempProj)
-	if err != nil || len(pending) != 1 {
-		t.Errorf("expected 1 pending subject, got %v, error: %v", pending, err)
-	}
-
-	// 3. Pick Subject
-	picked, err := PickSubject(tempProj)
-	if err != nil || picked == nil || picked.Slug != "my-dream-subject" {
-		t.Errorf("unexpected picked subject: %v, error: %v", picked, err)
-	}
-
-	// Mark done by writing done file
-	donePath := filepath.Join(SubjectsDir(tempProj), "my-dream-subject"+resultExt)
-	_ = os.WriteFile(donePath, []byte("Done content"), 0644)
-
-	listDone, _ := ListSubjects(tempProj)
-	if len(listDone) != 1 || !listDone[0].Done {
-		t.Error("expected subject to be marked done")
-	}
-
-	pendingEmpty, _ := PendingSubjects(tempProj)
-	if len(pendingEmpty) != 0 {
-		t.Errorf("expected 0 pending subjects after done, got %v", pendingEmpty)
-	}
-
-	// 4. Remove Subject
-	err = RemoveSubject(tempProj, "my-dream-subject")
-	if err != nil {
-		t.Fatalf("RemoveSubject failed: %v", err)
-	}
-
-	listEmpty, _ := ListSubjects(tempProj)
-	if len(listEmpty) != 0 {
-		t.Errorf("expected empty list after removal, got %v", listEmpty)
-	}
-}
-
-func TestAddSubjectEmptySlug(t *testing.T) {
-	dir := t.TempDir()
-	_, err := AddSubject(dir, "   ", "body")
-	if err == nil {
-		t.Error("expected error for title producing empty slug")
-	}
-}
-
-func TestAddSubjectBodyWithoutNewline(t *testing.T) {
-	dir := t.TempDir()
-	sub, err := AddSubject(dir, "Test Subject", "body without newline")
-	if err != nil {
-		t.Fatalf("AddSubject failed: %v", err)
-	}
-	// Verify content has newline appended
-	data, _ := os.ReadFile(sub.Path)
-	if !strings.HasSuffix(string(data), "\n") {
-		t.Error("expected content to end with newline")
-	}
-}
-
-func TestAddSubjectBodyWithNewline(t *testing.T) {
-	dir := t.TempDir()
-	sub, err := AddSubject(dir, "Newline Subject", "body with newline\n")
-	if err != nil {
-		t.Fatalf("AddSubject failed: %v", err)
-	}
-	// Body already ends with newline, no extra newline should be added
-	data, _ := os.ReadFile(sub.Path)
-	content := string(data)
-	if strings.HasSuffix(content, "\n\n") && !strings.HasPrefix(content, "# ") {
-		t.Error("should not have double newline at end")
-	}
-}
-
-func TestAddSubjectEmptyBody(t *testing.T) {
-	dir := t.TempDir()
-	sub, err := AddSubject(dir, "No Body", "")
-	if err != nil {
-		t.Fatalf("AddSubject failed: %v", err)
-	}
-	data, _ := os.ReadFile(sub.Path)
-	content := string(data)
-	// Should only have title
-	if !strings.HasPrefix(content, "# No Body\n") {
-		t.Errorf("expected title-only content, got %q", content)
-	}
-}
-
-func TestAddSubjectWriteError(t *testing.T) {
-	dir := t.TempDir()
-	subDir := SubjectsDir(dir)
-	_ = os.MkdirAll(subDir, 0o755)
-	// Make dir read-only to prevent writing
-	_ = os.Chmod(subDir, 0o555)
-	defer func() { _ = os.Chmod(subDir, 0o755) }()
-
-	_, err := AddSubject(dir, "Write Error", "body")
-	if err == nil {
-		t.Error("expected error when writing subject file fails")
-	}
-}
-
-func TestListSubjectsNonExistentDir(t *testing.T) {
-	dir := t.TempDir()
-	list, err := ListSubjects(dir)
-	if err != nil {
-		t.Errorf("expected nil error for non-existent dir, got %v", err)
-	}
-	if list != nil {
-		t.Errorf("expected nil list, got %v", list)
-	}
-}
-
-func TestListSubjectsWithDirectoryEntry(t *testing.T) {
-	dir := t.TempDir()
-	subDir := SubjectsDir(dir)
-	_ = os.MkdirAll(subDir, 0o755)
-
-	// Create a directory entry (should be skipped)
-	_ = os.MkdirAll(filepath.Join(subDir, "a-directory"), 0o755)
-	// Create a non-.md file (should be skipped)
-	_ = os.WriteFile(filepath.Join(subDir, "readme.txt"), []byte("not a subject"), 0644)
-	// Create a valid subject
-	_ = os.WriteFile(filepath.Join(subDir, "valid-subject.md"), []byte("# Valid\n\nbody"), 0644)
-
-	list, err := ListSubjects(dir)
-	if err != nil {
-		t.Fatalf("ListSubjects failed: %v", err)
-	}
-	if len(list) != 1 || list[0].Slug != "valid-subject" {
-		t.Errorf("expected 1 valid subject, got %v", list)
-	}
-}
-
-func TestListSubjectsSortOrder(t *testing.T) {
-	dir := t.TempDir()
-	subDir := SubjectsDir(dir)
-	_ = os.MkdirAll(subDir, 0o755)
-
-	// Create subjects with different mod times
-	p1 := filepath.Join(subDir, "first.md")
-	p2 := filepath.Join(subDir, "second.md")
-	_ = os.WriteFile(p1, []byte("# First"), 0644)
-	// Small delay to ensure different mod times
-	time.Sleep(10 * time.Millisecond)
-	_ = os.WriteFile(p2, []byte("# Second"), 0644)
-
-	list, err := ListSubjects(dir)
-	if err != nil {
-		t.Fatalf("ListSubjects failed: %v", err)
-	}
-	if len(list) != 2 {
-		t.Fatalf("expected 2 subjects, got %d", len(list))
-	}
-	if list[0].Slug != "first" || list[1].Slug != "second" {
-		t.Errorf("expected sorted order [first, second], got [%s, %s]", list[0].Slug, list[1].Slug)
-	}
-}
-
-func TestRemoveSubjectNotFound(t *testing.T) {
-	dir := t.TempDir()
-	err := RemoveSubject(dir, "nonexistent")
-	if err == nil {
-		t.Error("expected error for non-existent subject")
-	}
-}
-
-func TestPickSubjectNoPending(t *testing.T) {
-	dir := t.TempDir()
-	picked, err := PickSubject(dir)
-	if err != nil {
-		t.Fatalf("PickSubject failed: %v", err)
-	}
-	if picked != nil {
-		t.Errorf("expected nil for no pending subjects, got %v", picked)
-	}
-}
-
-func TestSubjectsDir(t *testing.T) {
-	dir := SubjectsDir("/tmp/testproj")
-	if !strings.Contains(dir, "subjects") {
-		t.Errorf("SubjectsDir should contain 'subjects', got %q", dir)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // dream.go tests
-// ---------------------------------------------------------------------------
 
 func TestDeepSleepSentinelName(t *testing.T) {
 	name := DeepSleepSentinelName()
@@ -341,7 +75,6 @@ func TestLastModifiedTime(t *testing.T) {
 		t.Error("expected error for empty directory")
 	}
 
-	// Create a file
 	filePath := filepath.Join(dir, "file.txt")
 	_ = os.WriteFile(filePath, []byte("hello"), 0644)
 
@@ -359,7 +92,6 @@ func TestLastModifiedTimeSkipsGitDir(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(dir, ".git"), 0o755)
 	_ = os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("ref: refs/heads/main"), 0644)
 
-	// File in main dir
 	_ = os.WriteFile(filepath.Join(dir, "src.go"), []byte("package main"), 0644)
 
 	modTime, err := LastModifiedTime(dir)
@@ -377,7 +109,6 @@ func TestLastModifiedTimeSkipsBrandDir(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(dir, brandDir), 0o755)
 	_ = os.WriteFile(filepath.Join(dir, brandDir, "config.json"), []byte("{}"), 0644)
 
-	// File in main dir
 	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0644)
 
 	modTime, err := LastModifiedTime(dir)
@@ -414,38 +145,35 @@ func TestLastModifiedTimeNestedFiles(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // dreamState persistence tests
-// ---------------------------------------------------------------------------
 
 func TestLoadStateFromDir(t *testing.T) {
 	dir := t.TempDir()
 
 	// No state file — should return zero values
-	ulid, lastMod, lastDream, dreamStarted, sleepingSince, exhausted, dreaming := LoadStateFromDir(dir)
-	if ulid != "" || !lastMod.IsZero() || !lastDream.IsZero() || !dreamStarted.IsZero() || !sleepingSince.IsZero() || exhausted || dreaming {
+	sessionID, lastMod, lastDream, dreamStarted, sleepingSince, exhausted, dreaming := LoadStateFromDir(dir)
+	if sessionID != "" || !lastMod.IsZero() || !lastDream.IsZero() || !dreamStarted.IsZero() || !sleepingSince.IsZero() || exhausted || dreaming {
 		t.Error("expected zero values when no state file exists")
 	}
 
-	// Create a state file
 	stateDir := filepath.Dir(StatePath(dir))
 	_ = os.MkdirAll(stateDir, 0o755)
 
 	state := dreamState{
-		CurrentULID:     "test-ulid",
-		LastUserModTime: time.Now().Add(-1 * time.Hour),
-		Exhausted:       true,
-		Dreaming:        false,
-		DreamStartedAt:  time.Time{},
-		SleepingSince:   time.Now().Add(-30 * time.Minute),
-		LastDreamAt:     time.Now().Add(-2 * time.Hour),
+		CurrentSessionID: "test-session",
+		LastUserModTime:  time.Now().Add(-1 * time.Hour),
+		Exhausted:        true,
+		Dreaming:         false,
+		DreamStartedAt:   time.Time{},
+		SleepingSince:    time.Now().Add(-30 * time.Minute),
+		LastDreamAt:      time.Now().Add(-2 * time.Hour),
 	}
 	data, _ := json.MarshalIndent(state, "", "  ")
 	_ = os.WriteFile(StatePath(dir), data, 0644)
 
-	ulid, lastMod, lastDream, _, sleepingSince, exhausted, dreaming = LoadStateFromDir(dir)
-	if ulid != "test-ulid" {
-		t.Errorf("expected ULID 'test-ulid', got %q", ulid)
+	sessionID, lastMod, lastDream, _, sleepingSince, exhausted, dreaming = LoadStateFromDir(dir)
+	if sessionID != "test-session" {
+		t.Errorf("expected session id 'test-session', got %q", sessionID)
 	}
 	if lastMod.IsZero() {
 		t.Error("expected non-zero last mod time")
@@ -470,15 +198,11 @@ func TestLoadStateFromDirInvalidJSON(t *testing.T) {
 	_ = os.MkdirAll(stateDir, 0o755)
 	_ = os.WriteFile(StatePath(dir), []byte("invalid json{{{"), 0644)
 
-	ulid, _, _, _, _, _, _ := LoadStateFromDir(dir)
-	if ulid != "" {
-		t.Error("expected empty ulid for invalid JSON")
+	sessionID, _, _, _, _, _, _ := LoadStateFromDir(dir)
+	if sessionID != "" {
+		t.Error("expected empty sessionID for invalid JSON")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Runner tests
-// ---------------------------------------------------------------------------
 
 func TestNewRunner(t *testing.T) {
 	dir := t.TempDir()
@@ -497,7 +221,6 @@ func TestNewRunner(t *testing.T) {
 func TestNewRunnerWithExistingState(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create state file with dreaming=true
 	stateDir := filepath.Dir(StatePath(dir))
 	_ = os.MkdirAll(stateDir, 0o755)
 	state := dreamState{
@@ -661,7 +384,7 @@ func TestRunnerCheckDeepSleep(t *testing.T) {
 
 	t.Run("no sentinel file", func(t *testing.T) {
 		r := NewRunner(dir, "ide", nil)
-		r.checkDeepSleep("test-ulid")
+		r.checkDeepSleep("test-session")
 		if r.state.Exhausted {
 			t.Error("expected exhausted=false when no sentinel")
 		}
@@ -673,12 +396,12 @@ func TestRunnerCheckDeepSleep(t *testing.T) {
 		r.logFn = func(format string, args ...any) {
 			logged = append(logged, format)
 		}
-		sentinelDir := filepath.Join(dir, brand.DotDir(), "dream")
+		sentinelDir := ReportsDir(dir)
 		_ = os.MkdirAll(sentinelDir, 0o755)
-		sentinelPath := filepath.Join(sentinelDir, "test-ulid"+exhaustedSentinel)
+		sentinelPath := filepath.Join(sentinelDir, "test-session"+exhaustedSentinel)
 		_ = os.WriteFile(sentinelPath, nil, 0644)
 
-		r.checkDeepSleep("test-ulid")
+		r.checkDeepSleep("test-session")
 		if !r.state.Exhausted {
 			t.Error("expected exhausted=true when sentinel exists")
 		}
@@ -688,21 +411,21 @@ func TestRunnerCheckDeepSleep(t *testing.T) {
 	})
 }
 
-func TestRunnerResolveSessionULID(t *testing.T) {
+func TestRunnerResolveSessionID(t *testing.T) {
 	dir := t.TempDir()
 
-	t.Run("new session - empty ULID", func(t *testing.T) {
+	t.Run("new session - empty session id", func(t *testing.T) {
 		r := NewRunner(dir, "ide", nil)
 		var logged []string
 		r.logFn = func(format string, args ...any) {
 			logged = append(logged, format)
 		}
-		ulid := r.resolveSessionULID(time.Now())
-		if ulid == "" {
-			t.Error("expected non-empty ULID")
+		sessionID := r.resolveSessionID(time.Now())
+		if sessionID == "" {
+			t.Error("expected non-empty session id")
 		}
-		if r.state.CurrentULID != ulid {
-			t.Error("state should be updated with new ULID")
+		if r.state.CurrentSessionID != sessionID {
+			t.Error("state should be updated with new session id")
 		}
 	})
 
@@ -713,22 +436,22 @@ func TestRunnerResolveSessionULID(t *testing.T) {
 			logged = append(logged, format)
 		}
 		modTime := time.Now()
-		ulid1 := r.resolveSessionULID(modTime)
+		session1 := r.resolveSessionID(modTime)
 		// Same or earlier mod time should resume
-		ulid2 := r.resolveSessionULID(modTime.Add(-1 * time.Second))
-		if ulid1 != ulid2 {
-			t.Errorf("expected same ULID for resume, got %q vs %q", ulid1, ulid2)
+		session2 := r.resolveSessionID(modTime.Add(-1 * time.Second))
+		if session1 != session2 {
+			t.Errorf("expected same session id for resume, got %q vs %q", session1, session2)
 		}
 	})
 
 	t.Run("new session - newer mod time", func(t *testing.T) {
 		r := NewRunner(dir, "ide", nil)
 		modTime := time.Now()
-		ulid1 := r.resolveSessionULID(modTime)
+		session1 := r.resolveSessionID(modTime)
 		// Newer mod time should create new session
-		ulid2 := r.resolveSessionULID(modTime.Add(1 * time.Second))
-		if ulid1 == ulid2 {
-			t.Error("expected different ULID for new session")
+		session2 := r.resolveSessionID(modTime.Add(1 * time.Second))
+		if session1 == session2 {
+			t.Error("expected different session id for new session")
 		}
 	})
 }
@@ -737,15 +460,15 @@ func TestRunnerSaveAndLoadState(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
 	r.mu.Lock()
-	r.state.CurrentULID = "saved-ulid"
+	r.state.CurrentSessionID = "saved-session"
 	r.state.Exhausted = true
 	r.saveStateLocked()
 	r.mu.Unlock()
 
 	// Create new runner — should load saved state
 	r2 := NewRunner(dir, "ide", nil)
-	if r2.state.CurrentULID != "saved-ulid" {
-		t.Errorf("expected loaded ULID='saved-ulid', got %q", r2.state.CurrentULID)
+	if r2.state.CurrentSessionID != "saved-session" {
+		t.Errorf("expected loaded session id='saved-session', got %q", r2.state.CurrentSessionID)
 	}
 	if !r2.state.Exhausted {
 		t.Error("expected loaded exhausted=true")
@@ -841,10 +564,14 @@ func TestRunnerTickExhausted(t *testing.T) {
 		}
 	}
 	r := NewRunner(dir, "ide", loader)
-	// Set exhausted state
+	// Exhausted, and the watermark is already at the newest file — so there is no
+	// activity since the cycle that exhausted itself. The watermark matters: deep
+	// sleep is conditional on "nothing new happened", and setting Exhausted without
+	// it describes a state the runner never reaches.
 	r.mu.Lock()
 	r.state.Exhausted = true
-	r.state.CurrentULID = "existing-ulid"
+	r.state.CurrentSessionID = "existing-session"
+	r.state.SessionModWatermark = time.Now()
 	r.mu.Unlock()
 
 	ctx := context.Background()
@@ -852,6 +579,85 @@ func TestRunnerTickExhausted(t *testing.T) {
 	// Should not start dream because exhausted
 	if r.IsRunning() {
 		t.Error("should not start dream when exhausted")
+	}
+}
+
+// The other half of deep sleep, which had no test and did not work: exhaustion has
+// to END. Exhausted was only ever cleared on session rotation, and rotation
+// compared the newest mtime against a field tick had already overwritten with that
+// same mtime — so the comparison was never true, and the first deep sleep was
+// permanent for the life of the project.
+func TestRunnerTickWakesFromDeepSleepOnNewActivity(t *testing.T) {
+	dir := t.TempDir()
+
+	oldFile := filepath.Join(dir, "old.txt")
+	if err := os.WriteFile(oldFile, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Now().Add(-5 * time.Hour)
+	if err := os.Chtimes(oldFile, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+
+	loader := func() map[string]any {
+		return map[string]any{
+			"modules": map[string]any{"dream": "true"},
+			"dream":   map[string]any{"idle_timeout": "1"},
+		}
+	}
+
+	r := NewRunner(dir, "ide", loader)
+	r.mu.Lock()
+	r.state.Exhausted = true
+	r.state.CurrentSessionID = "exhausted-session"
+	// The cycle exhausted itself when the newest file was this old.
+	r.state.SessionModWatermark = oldTime
+	r.mu.Unlock()
+
+	// The developer edits something: newer than the watermark.
+	newFile := filepath.Join(dir, "new.txt")
+	if err := os.WriteFile(newFile, []byte("new work"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Still idle long enough to qualify, just not as old as the watermark.
+	idleButNewer := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(newFile, idleButNewer, idleButNewer); err != nil {
+		t.Fatal(err)
+	}
+
+	// resolveSessionID owns the wake-up decision; calling it directly keeps the
+	// assertion on the state transition rather than on the goroutine tick spawns.
+	sessionID := r.resolveSessionID(idleButNewer)
+
+	r.mu.Lock()
+	exhausted := r.state.Exhausted
+	watermark := r.state.SessionModWatermark
+	r.mu.Unlock()
+
+	if exhausted {
+		t.Error("new activity must clear Exhausted — otherwise the first deep sleep is permanent")
+	}
+	if sessionID == "exhausted-session" {
+		t.Error("new activity must open a new session, not resume the exhausted one")
+	}
+	if !watermark.Equal(idleButNewer) {
+		t.Errorf("watermark = %v; want it advanced to the mtime that opened the session (%v)", watermark, idleButNewer)
+	}
+}
+
+// And the inverse, which is what the watermark protects: a tick with no new
+// activity must resume the same session rather than rotating. Rotation resets
+// Exhausted, so a runner that rotated on every tick could never stay asleep.
+func TestRunnerResumesSameSessionWithoutNewActivity(t *testing.T) {
+	dir := t.TempDir()
+	r := NewRunner(dir, "ide", nil)
+
+	modTime := time.Now().Add(-3 * time.Hour)
+	first := r.resolveSessionID(modTime)
+	second := r.resolveSessionID(modTime)
+
+	if first != second {
+		t.Errorf("same mtime must resume the same session: %q then %q", first, second)
 	}
 }
 
@@ -869,9 +675,7 @@ func TestRunnerRunContextCancel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // tick() — full execution path (dream goroutine)
-// ---------------------------------------------------------------------------
 
 func TestRunnerTickStartsDream(t *testing.T) {
 	dir := t.TempDir()
@@ -989,10 +793,6 @@ func TestRunnerTickCallsCheckDeepSleep(t *testing.T) {
 	// We verify it ran by checking state was persisted
 }
 
-// ---------------------------------------------------------------------------
-// Run loop test
-// ---------------------------------------------------------------------------
-
 func TestRunnerRunLoop(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
@@ -1006,14 +806,9 @@ func TestRunnerRunLoop(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// LastModifiedTime edge cases
-// ---------------------------------------------------------------------------
-
 func TestLastModifiedTimeWithIgnoredDir(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a .gitignore with a pattern
 	gitignorePath := filepath.Join(dir, ".gitignore")
 	_ = os.WriteFile(gitignorePath, []byte("build/\n"), 0644)
 
@@ -1022,7 +817,6 @@ func TestLastModifiedTimeWithIgnoredDir(t *testing.T) {
 	_ = os.MkdirAll(buildDir, 0o755)
 	_ = os.WriteFile(filepath.Join(buildDir, "output.bin"), []byte("binary"), 0644)
 
-	// Create a source file
 	_ = os.WriteFile(filepath.Join(dir, "src.go"), []byte("package main"), 0644)
 
 	modTime, err := LastModifiedTime(dir)
@@ -1037,7 +831,6 @@ func TestLastModifiedTimeWithIgnoredDir(t *testing.T) {
 func TestLastModifiedTimeWithIgnoredFile(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a .gitignore that ignores specific file
 	_ = os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.log\n"), 0644)
 	_ = os.WriteFile(filepath.Join(dir, "app.log"), []byte("log data"), 0644)
 	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main"), 0644)
@@ -1051,111 +844,15 @@ func TestLastModifiedTimeWithIgnoredFile(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Subjects error paths
-// ---------------------------------------------------------------------------
-
-func TestListSubjectsReadDirError(t *testing.T) {
-	dir := t.TempDir()
-	subDir := SubjectsDir(dir)
-	_ = os.MkdirAll(subDir, 0o755)
-
-	// Write a file where ReadDir expects a directory
-	// Actually, we need to make the dir unreadable
-	_ = os.Chmod(subDir, 0o000)
-	defer func() { _ = os.Chmod(subDir, 0o755) }()
-
-	_, err := ListSubjects(dir)
-	if err == nil {
-		t.Error("expected error when ReadDir fails")
-	}
-}
-
-func TestListSubjectsReadFileError(t *testing.T) {
-	dir := t.TempDir()
-	subDir := SubjectsDir(dir)
-	_ = os.MkdirAll(subDir, 0o755)
-
-	// Create a subject file that can't be read
-	subPath := filepath.Join(subDir, "unreadable.md")
-	_ = os.WriteFile(subPath, []byte("# Title"), 0644)
-	_ = os.Chmod(subPath, 0o000)
-	defer func() { _ = os.Chmod(subPath, 0o644) }()
-
-	list, err := ListSubjects(dir)
-	if err != nil {
-		t.Fatalf("ListSubjects should not fail: %v", err)
-	}
-	// Subject should have slug as title (fallback)
-	if len(list) == 1 && list[0].Title != "unreadable" {
-		t.Errorf("expected fallback title 'unreadable', got %q", list[0].Title)
-	}
-}
-
-func TestPendingSubjectsError(t *testing.T) {
-	dir := t.TempDir()
-	subDir := SubjectsDir(dir)
-	_ = os.MkdirAll(subDir, 0o755)
-	_ = os.Chmod(subDir, 0o000)
-	defer func() { _ = os.Chmod(subDir, 0o755) }()
-
-	_, err := PendingSubjects(dir)
-	if err == nil {
-		t.Error("expected error when ListSubjects fails")
-	}
-}
-
-func TestPickSubjectError(t *testing.T) {
-	dir := t.TempDir()
-	subDir := SubjectsDir(dir)
-	_ = os.MkdirAll(subDir, 0o755)
-	_ = os.Chmod(subDir, 0o000)
-	defer func() { _ = os.Chmod(subDir, 0o755) }()
-
-	_, err := PickSubject(dir)
-	if err == nil {
-		t.Error("expected error when PendingSubjects fails")
-	}
-}
-
-func TestRemoveSubjectRemoveError(t *testing.T) {
-	dir := t.TempDir()
-	sub, err := AddSubject(dir, "Remove Error Test", "body")
-	if err != nil {
-		t.Fatalf("AddSubject failed: %v", err)
-	}
-
-	// Make dir read-only to prevent file removal
-	subDir := SubjectsDir(dir)
-	_ = os.Chmod(subDir, 0o555)
-	defer func() { _ = os.Chmod(subDir, 0o755) }()
-
-	err = RemoveSubject(dir, sub.Slug)
-	if err == nil {
-		t.Error("expected error when os.Remove fails")
-	}
-}
-
-func TestAddSubjectMkdirError(t *testing.T) {
-	// Use a path that can't have directories created
-	_, err := AddSubject("/proc/nonexistent/path", "Test", "body")
-	if err == nil {
-		t.Error("expected error when MkdirAll fails")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// prompt.go tests
-// ---------------------------------------------------------------------------
-
 func TestBuildDreamPrompt(t *testing.T) {
 	t.Run("without subject", func(t *testing.T) {
-		result := buildDreamPrompt("/tmp/project", "test-ulid", "vscode", nil)
+		projectDir := "/tmp/project"
+		result := buildDreamPrompt(projectDir, "test-session", "vscode", nil, nil)
 		if result == "" {
 			t.Error("expected non-empty prompt")
 		}
-		if !strings.Contains(result, "test-ulid") {
-			t.Error("prompt should contain the ULID")
+		if !strings.Contains(result, "test-session") {
+			t.Error("prompt should contain the session id")
 		}
 		if !strings.Contains(result, "/tmp/project") {
 			t.Error("prompt should contain the project dir")
@@ -1163,70 +860,74 @@ func TestBuildDreamPrompt(t *testing.T) {
 		if !strings.Contains(result, "vscode") {
 			t.Error("prompt should contain the IDE name")
 		}
+		if !strings.Contains(result, ReportsDir(projectDir)) {
+			t.Errorf("prompt should contain resolved reports directory %q", ReportsDir(projectDir))
+		}
 	})
 
-	t.Run("with subject", func(t *testing.T) {
-		subject := &Subject{
-			Title: "Test Subject",
-			Slug:  "test-subject",
+	t.Run("with backlog item", func(t *testing.T) {
+		item := &backlog.Item{
+			Title: "Test Item",
+			Slug:  "test-item",
 			Body:  "Do something specific",
-			Path:  "/tmp/project/.graphit/dream/subjects/test-subject.md",
+			Path:  "/tmp/project/docs/tasks/backlog/test-item.md",
 		}
-		result := buildDreamPrompt("/tmp/project", "test-ulid", "cursor", subject)
-		if !strings.Contains(result, "Test Subject") {
-			t.Error("prompt should contain subject title")
+		result := buildDreamPrompt("/tmp/project", "test-session", "cursor", item, nil)
+		if !strings.Contains(result, "Test Item") {
+			t.Error("prompt should contain the item title")
 		}
-		if !strings.Contains(result, "test-subject") {
-			t.Error("prompt should contain subject slug")
+		if !strings.Contains(result, "test-item") {
+			t.Error("prompt should contain the item slug")
 		}
 		if !strings.Contains(result, "Do something specific") {
-			t.Error("prompt should contain subject body")
+			t.Error("prompt should contain the item body")
 		}
-		if !strings.Contains(result, "Assigned Subject") {
-			t.Error("prompt should contain assigned subject section")
+		if !strings.Contains(result, "Assigned Backlog Item") {
+			t.Error("prompt should contain the assigned backlog item section")
 		}
 	})
 }
 
 func TestBuildDreamContext(t *testing.T) {
-	t.Run("without subject", func(t *testing.T) {
-		result := buildDreamContext("/tmp/project", "ulid1", "ide1", nil)
-		if !strings.Contains(result, "ulid1") {
-			t.Error("context should contain ULID")
+	t.Run("without backlog item", func(t *testing.T) {
+		result := buildDreamContext("/tmp/project", "session1", "ide1", nil)
+		if !strings.Contains(result, "session1") {
+			t.Error("context should contain the session id")
 		}
 		if !strings.Contains(result, "Phase 1") {
 			t.Error("context should contain mission phases")
 		}
-		if strings.Contains(result, "Assigned Subject") {
-			t.Error("context should NOT contain subject section without subject")
+		if strings.Contains(result, "Assigned Backlog Item") {
+			t.Error("context should NOT contain the item section without an item")
 		}
 	})
 
-	t.Run("with subject", func(t *testing.T) {
-		subject := &Subject{
-			Title: "My Subject",
-			Slug:  "my-subject",
+	t.Run("with backlog item", func(t *testing.T) {
+		item := &backlog.Item{
+			Title: "My Item",
+			Slug:  "my-item",
 			Body:  "Instructions here",
-			Path:  "/path/to/subject.md",
+			Path:  "/path/to/my-item.md",
 		}
-		result := buildDreamContext("/tmp/project", "ulid2", "ide2", subject)
-		if !strings.Contains(result, "Assigned Subject") {
-			t.Error("context should contain assigned subject section")
+		result := buildDreamContext("/tmp/project", "session2", "ide2", item)
+		if !strings.Contains(result, "Assigned Backlog Item") {
+			t.Error("context should contain the assigned backlog item section")
 		}
-		if !strings.Contains(result, "My Subject") {
-			t.Error("context should contain subject title")
+		if !strings.Contains(result, "My Item") {
+			t.Error("context should contain the item title")
 		}
-		if !strings.Contains(result, "Subject Completion Protocol") {
+		if !strings.Contains(result, "Item Completion Protocol") {
 			t.Error("context should contain completion protocol")
 		}
 	})
 }
 
 func TestBuildDreamEnvelope(t *testing.T) {
-	t.Run("without subject", func(t *testing.T) {
-		result := buildDreamEnvelope("ulid1", nil)
-		if !strings.Contains(result, "ulid1") {
-			t.Error("envelope should contain ULID")
+	t.Run("without backlog item", func(t *testing.T) {
+		projectDir := "/tmp/project"
+		result := buildDreamEnvelope(projectDir, "session1", nil)
+		if !strings.Contains(result, "session1") {
+			t.Error("envelope should contain the session id")
 		}
 		if !strings.Contains(result, "Dream Report") {
 			t.Error("envelope should contain Dream Report section")
@@ -1234,34 +935,37 @@ func TestBuildDreamEnvelope(t *testing.T) {
 		if !strings.Contains(result, "Deep Sleep") {
 			t.Error("envelope should contain deep sleep section")
 		}
-		if strings.Contains(result, "Subject Resolution") {
-			t.Error("envelope should NOT contain subject resolution without subject")
+		if strings.Contains(result, "Backlog Item Resolution") {
+			t.Error("envelope should NOT contain item resolution without an item")
+		}
+		if !strings.Contains(result, filepath.Join(ReportsDir(projectDir), "session1"+reportExt)) {
+			t.Error("envelope should contain the resolved runtime report path")
 		}
 	})
 
-	t.Run("with subject", func(t *testing.T) {
-		subject := &Subject{
-			Title: "Test Subj",
-			Slug:  "test-subj",
-			Path:  "/path/to/subject.md",
+	t.Run("with backlog item", func(t *testing.T) {
+		item := &backlog.Item{
+			Title: "Test Item",
+			Slug:  "test-item",
+			Path:  "/path/to/test-item.md",
 		}
-		result := buildDreamEnvelope("ulid2", subject)
-		if !strings.Contains(result, "Subject Resolution") {
-			t.Error("envelope should contain subject resolution")
+		result := buildDreamEnvelope("/tmp/project", "session2", item)
+		if !strings.Contains(result, "Backlog Item Resolution") {
+			t.Error("envelope should contain the item resolution section")
 		}
-		if !strings.Contains(result, "Test Subj") {
-			t.Error("envelope should contain subject title")
+		if !strings.Contains(result, "Test Item") {
+			t.Error("envelope should contain the item title")
 		}
-		if !strings.Contains(result, "test-subj") {
-			t.Error("envelope should contain subject slug")
+		if !strings.Contains(result, "test-item") {
+			t.Error("envelope should contain the item slug")
 		}
 	})
 }
 
 func TestBuildDreamArtifact(t *testing.T) {
-	result := buildDreamArtifact("test-ulid", "Agent did things.\nMore details.")
-	if !strings.Contains(result, "test-ulid") {
-		t.Error("artifact should contain ULID")
+	result := buildDreamArtifact("test-session", "Agent did things.\nMore details.", "")
+	if !strings.Contains(result, "test-session") {
+		t.Error("artifact should contain the session id")
 	}
 	if !strings.Contains(result, "Agent did things") {
 		t.Error("artifact should contain agent output")
@@ -1274,10 +978,8 @@ func TestBuildDreamArtifact(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Runner.executeDream and executeLocal — These require AI integration,
 // but we test the surrounding infrastructure.
-// ---------------------------------------------------------------------------
 
 func TestRunnerStatePath(t *testing.T) {
 	dir := t.TempDir()
@@ -1296,8 +998,8 @@ func TestRunnerLoadStateInvalidJSON(t *testing.T) {
 
 	r := NewRunner(dir, "ide", nil)
 	// Should not panic, state should be zero-valued
-	if r.state.CurrentULID != "" {
-		t.Error("expected empty ULID after invalid JSON load")
+	if r.state.CurrentSessionID != "" {
+		t.Error("expected empty session id after invalid JSON load")
 	}
 }
 
@@ -1306,7 +1008,7 @@ func TestRunnerSaveStateLocked(t *testing.T) {
 	r := NewRunner(dir, "ide", nil)
 
 	r.mu.Lock()
-	r.state.CurrentULID = "save-test"
+	r.state.CurrentSessionID = "save-test"
 	r.state.Dreaming = true
 	r.saveStateLocked()
 	r.mu.Unlock()
@@ -1317,52 +1019,23 @@ func TestRunnerSaveStateLocked(t *testing.T) {
 		t.Fatalf("expected state file to exist: %v", err)
 	}
 	if !strings.Contains(string(data), "save-test") {
-		t.Error("state file should contain the ULID")
+		t.Error("state file should contain the session id")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// RemoveSubject with result file present
-// ---------------------------------------------------------------------------
-
-func TestRemoveSubjectWithResultFile(t *testing.T) {
-	dir := t.TempDir()
-	sub, err := AddSubject(dir, "Remove Test", "body")
-	if err != nil {
-		t.Fatalf("AddSubject failed: %v", err)
-	}
-
-	// Create result file
-	resultPath := filepath.Join(SubjectsDir(dir), sub.Slug+resultExt)
-	_ = os.WriteFile(resultPath, []byte("done"), 0644)
-
-	// Remove should also clean up result file
-	err = RemoveSubject(dir, sub.Slug)
-	if err != nil {
-		t.Fatalf("RemoveSubject failed: %v", err)
-	}
-
-	if _, err := os.Stat(resultPath); !os.IsNotExist(err) {
-		t.Error("expected result file to be removed")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// executeDream — direct tests
-// ---------------------------------------------------------------------------
 
 func TestExecuteDreamMkdirError(t *testing.T) {
 	// Use a path that prevents MkdirAll from succeeding
 	dir := t.TempDir()
 	// Create a file where the dream directory needs to be
-	dreamParent := filepath.Join(dir, brand.DotDir())
+	dreamDir := ReportsDir(dir)
+	dreamParent := filepath.Dir(dreamDir)
 	_ = os.MkdirAll(dreamParent, 0o755)
 	// Create a regular file named "dream" so MkdirAll fails
-	_ = os.WriteFile(filepath.Join(dreamParent, "dream"), []byte("blocker"), 0o644)
+	_ = os.WriteFile(dreamDir, []byte("blocker"), 0o644)
 
 	r := NewRunner(dir, "ide", nil)
 
-	err := r.executeDream(context.Background(), "test-ulid")
+	err := r.executeDream(context.Background(), "test-session")
 	if err == nil {
 		t.Error("expected error when MkdirAll fails for dream artifact dir")
 	}
@@ -1379,7 +1052,7 @@ func TestExecuteDreamExecuteLocalError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	err := r.executeDream(ctx, "test-ulid")
+	err := r.executeDream(ctx, "test-session")
 	if err == nil {
 		t.Error("expected error from executeDream")
 	}
@@ -1389,12 +1062,12 @@ func TestExecuteDreamExecuteLocalError(t *testing.T) {
 	}
 }
 
-func TestExecuteDreamWithSubject(t *testing.T) {
+func TestExecuteDreamWithBacklogItem(t *testing.T) {
 	dir := t.TempDir()
-	// Add a pending subject so PickSubject returns it
-	_, err := AddSubject(dir, "Test Subject", "body here")
+	// Add a pending item so backlog.Pick returns it
+	_, err := backlog.Add(dir, "Test Item", "body here")
 	if err != nil {
-		t.Fatalf("AddSubject failed: %v", err)
+		t.Fatalf("backlog.Add failed: %v", err)
 	}
 
 	r := NewRunner(dir, "ide", nil)
@@ -1406,21 +1079,21 @@ func TestExecuteDreamWithSubject(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately so AI CLI terminates fast
 
-	// This will fail at executeLocal but covers the PickSubject path
-	err = r.executeDream(ctx, "test-ulid")
+	// This will fail at executeLocal but covers the backlog.Pick path
+	err = r.executeDream(ctx, "test-session")
 	if err == nil {
 		t.Error("expected error from executeLocal")
 	}
 
-	// Verify subject was picked
-	foundSubjectLog := false
+	// Verify the item was picked
+	foundItemLog := false
 	for _, l := range logged {
-		if strings.Contains(l, "picked subject") && strings.Contains(l, "test-subject") {
-			foundSubjectLog = true
+		if strings.Contains(l, "picked backlog item") && strings.Contains(l, "test-item") {
+			foundItemLog = true
 		}
 	}
-	if !foundSubjectLog {
-		t.Error("expected log about picked subject")
+	if !foundItemLog {
+		t.Error("expected log about the picked backlog item")
 	}
 }
 
@@ -1429,13 +1102,13 @@ func TestExecuteLocalCancelledContext(t *testing.T) {
 	r := NewRunner(dir, "ide", nil)
 
 	// Ensure dream dir exists
-	dreamDir := filepath.Join(dir, brand.DotDir(), "dream")
+	dreamDir := ReportsDir(dir)
 	_ = os.MkdirAll(dreamDir, 0o755)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	result, err := r.executeLocal(ctx, "test prompt", "test-ulid")
+	result, err := r.executeLocal(ctx, "test prompt", "test-session")
 	if err == nil {
 		t.Error("expected error from executeLocal")
 	}
@@ -1453,10 +1126,10 @@ func TestExecuteLocalNoAIClientOnPath(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
 
-	dreamDir := filepath.Join(dir, brand.DotDir(), "dream")
+	dreamDir := ReportsDir(dir)
 	_ = os.MkdirAll(dreamDir, 0o755)
 
-	result, err := r.executeLocal(context.Background(), "test prompt", "test-ulid")
+	result, err := r.executeLocal(context.Background(), "test prompt", "test-session")
 	if err == nil {
 		t.Error("expected error when no AI CLI is on PATH")
 	}
@@ -1468,9 +1141,7 @@ func TestExecuteLocalNoAIClientOnPath(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // executeLocal + executeDream success paths — use a fake AI CLI script
-// ---------------------------------------------------------------------------
 
 func TestExecuteLocalSuccessWithFakeCLI(t *testing.T) {
 	// Create a fake CLI binary that echoes "Dream report output"
@@ -1485,10 +1156,10 @@ func TestExecuteLocalSuccessWithFakeCLI(t *testing.T) {
 	dir := t.TempDir()
 	r := NewRunner(dir, "ide", nil)
 
-	dreamDir := filepath.Join(dir, brand.DotDir(), "dream")
+	dreamDir := ReportsDir(dir)
 	_ = os.MkdirAll(dreamDir, 0o755)
 
-	result, err := r.executeLocal(context.Background(), "test prompt", "test-ulid")
+	result, err := r.executeLocal(context.Background(), "test prompt", "test-session")
 	if err != nil {
 		t.Fatalf("executeLocal failed unexpectedly: %v", err)
 	}
@@ -1513,14 +1184,14 @@ func TestExecuteDreamSuccessWithFakeCLI(t *testing.T) {
 		logged = append(logged, fmt.Sprintf(format, args...))
 	}
 
-	err := r.executeDream(context.Background(), "test-ulid")
+	err := r.executeDream(context.Background(), "test-session")
 	if err != nil {
 		t.Fatalf("executeDream failed: %v", err)
 	}
 
 	// Verify artifact was written
-	dreamDir := filepath.Join(dir, brand.DotDir(), "dream")
-	artifactPath := filepath.Join(dreamDir, "test-ulid.md")
+	dreamDir := ReportsDir(dir)
+	artifactPath := filepath.Join(dreamDir, "test-session.md")
 	if !fileExists(artifactPath) {
 		t.Error("expected dream artifact file to be created")
 	}
@@ -1539,12 +1210,12 @@ func TestExecuteDreamWriteFileError(t *testing.T) {
 	r := NewRunner(dir, "ide", nil)
 
 	// Pre-create the dream dir and make it read-only
-	dreamDir := filepath.Join(dir, brand.DotDir(), "dream")
+	dreamDir := ReportsDir(dir)
 	_ = os.MkdirAll(dreamDir, 0o755)
 	_ = os.Chmod(dreamDir, 0o555)
 	defer func() { _ = os.Chmod(dreamDir, 0o755) }()
 
-	err := r.executeDream(context.Background(), "test-ulid")
+	err := r.executeDream(context.Background(), "test-session")
 	if err == nil {
 		t.Error("expected error from WriteFile")
 	}
@@ -1613,9 +1284,7 @@ func TestTickGoroutineSuccessWithFakeCLI(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // tick() goroutine coverage — use synchronization to ensure coverage is captured
-// ---------------------------------------------------------------------------
 
 func TestTickGoroutineCompletesWithError(t *testing.T) {
 	dir := t.TempDir()
@@ -1705,7 +1374,6 @@ func TestTickGoroutineWithMaxDuration(t *testing.T) {
 	}
 	r := NewRunner(dir, "ide", loader)
 
-	// Use a short-lived context
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	r.tick(ctx)
@@ -1746,7 +1414,6 @@ func TestTickGoroutineChecksDeepSleep(t *testing.T) {
 		mu.Unlock()
 	}
 
-	// Use a short-lived context
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	r.tick(ctx)
@@ -1772,9 +1439,7 @@ func TestTickGoroutineChecksDeepSleep(t *testing.T) {
 	r.mu.Unlock()
 }
 
-// ---------------------------------------------------------------------------
 // Run loop — ticker.C fires at least once
-// ---------------------------------------------------------------------------
 
 func TestRunnerRunTickerFires(t *testing.T) {
 	dir := t.TempDir()
@@ -1800,10 +1465,6 @@ func TestRunnerRunTickerFires(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// tick() — already running with enabled dream
-// ---------------------------------------------------------------------------
-
 func TestTickAlreadyRunningWithEnabledDream(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "file.txt"), []byte("data"), 0644)
@@ -1826,10 +1487,6 @@ func TestTickAlreadyRunningWithEnabledDream(t *testing.T) {
 	// Should have returned early without starting another dream
 	// (already running)
 }
-
-// ---------------------------------------------------------------------------
-// LastModifiedTime — Walk error paths
-// ---------------------------------------------------------------------------
 
 func TestLastModifiedTimeWalkError(t *testing.T) {
 	dir := t.TempDir()
@@ -1859,36 +1516,6 @@ func TestLastModifiedTimeNonExistentDir(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ListSubjects — e.Info() error path (subjects.go:116-117)
-// ---------------------------------------------------------------------------
-
-func TestListSubjectsInfoError(t *testing.T) {
-	// This is extremely hard to trigger because DirEntry.Info() from os.ReadDir
-	// almost never fails. We test the behavior by verifying the continue logic
-	// works — if a subject file is removed between ReadDir and Info() calls,
-	// it should skip that entry.
-	dir := t.TempDir()
-	subDir := SubjectsDir(dir)
-	_ = os.MkdirAll(subDir, 0o755)
-
-	// Create two valid subjects
-	_ = os.WriteFile(filepath.Join(subDir, "first.md"), []byte("# First"), 0644)
-	_ = os.WriteFile(filepath.Join(subDir, "second.md"), []byte("# Second"), 0644)
-
-	list, err := ListSubjects(dir)
-	if err != nil {
-		t.Fatalf("ListSubjects failed: %v", err)
-	}
-	if len(list) != 2 {
-		t.Errorf("expected 2 subjects, got %d", len(list))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// executeDream — WriteFile error for artifact
-// ---------------------------------------------------------------------------
-
 func TestExecuteDreamWriteArtifactError(t *testing.T) {
 	// We can't easily get past executeLocal without an AI client.
 	// But we can test that executeDream returns the executeLocal error,
@@ -1899,22 +1526,19 @@ func TestExecuteDreamWriteArtifactError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately to avoid AI CLI hang
 
-	err := r.executeDream(ctx, "test-ulid")
+	err := r.executeDream(ctx, "test-session")
 	if err == nil {
 		t.Error("expected error")
 	}
-	// This covers lines 291-306 (MkdirAll succeeds, PickSubject runs, executeLocal fails)
+	// Covers the happy path up to the agent call: MkdirAll succeeds, backlog.Pick
+	// runs, executeLocal fails.
 }
 
-// ---------------------------------------------------------------------------
 // saveStateLocked — json.MarshalIndent error (line 385-387)
 // This is effectively unreachable because dreamState contains only basic types
 // that json.MarshalIndent can always encode. We document it as untestable.
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
 // Full Run loop with ticker.C actually firing
-// ---------------------------------------------------------------------------
 
 func TestRunWithTickerC(t *testing.T) {
 	// This test verifies the ticker.C case in the Run loop (lines 113-114).
@@ -1934,5 +1558,54 @@ func TestRunWithTickerC(t *testing.T) {
 	err := r.Run(ctx)
 	if err != nil {
 		t.Errorf("Run should return nil: %v", err)
+	}
+}
+
+// A session that produced nothing has to say so IN THE REPORT.
+//
+// The warning used to live only in the daemon log, which is the one place the person
+// waiting for artifacts does not look — so the run spent a full model call, wrote no
+// file, and looked like an agent with nothing to say. Every cycle, silently.
+func TestToollessRunNamesTheLikelyCauseInTheReport(t *testing.T) {
+	d := toollessRunDiagnostic(&ai.StreamResult{Binary: "claude", Structured: true})
+
+	for _, want := range []string{"ai.agent_args", "claude", "model call was spent"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("diagnostic does not mention %q:\n%s", want, d)
+		}
+	}
+
+	// It has to reach the artifact, above the output, because it says the output
+	// below is probably not what was asked for.
+	report := buildDreamArtifact("s1", "some prose", d)
+	if !strings.Contains(report, "No artifacts were produced") {
+		t.Fatalf("diagnostic never reached the report:\n%s", report)
+	}
+	if strings.Index(report, "ai.agent_args") > strings.Index(report, "## Agent Output") {
+		t.Error("the diagnostic sits below the output it is warning about")
+	}
+}
+
+// The mirror, and the reason this stays a hypothesis: with the setting already in
+// place, the report must NOT send someone to fix it. A correctly configured CLI can
+// still decide a session needs no tools.
+func TestToollessRunDoesNotBlameAConfiguredSetting(t *testing.T) {
+	d := toollessRunDiagnostic(&ai.StreamResult{
+		Binary: "claude", Structured: true, AgentArgsConfigured: true,
+	})
+
+	if !strings.Contains(d, "IS configured") {
+		t.Errorf("diagnostic does not acknowledge the setting is present:\n%s", d)
+	}
+	if strings.Contains(d, "config ai.agent_args.") {
+		t.Errorf("it still tells the operator to set what is already set:\n%s", d)
+	}
+}
+
+// A healthy session must carry no warning at all — the section exists to be rare.
+func TestAReportWithNoDiagnosticHasNoWarningSection(t *testing.T) {
+	report := buildDreamArtifact("s1", "did real work", "")
+	if strings.Contains(report, "No artifacts were produced") {
+		t.Errorf("a clean session carries a warning:\n%s", report)
 	}
 }

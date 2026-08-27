@@ -43,11 +43,13 @@ import (
 	tsKotlin "github.com/graphit-labs/graphit-code/internal/ast/treesitter/kotlin"
 	tsMarkdown "github.com/graphit-labs/graphit-code/internal/ast/treesitter/markdown"
 	tsObjC "github.com/graphit-labs/graphit-code/internal/ast/treesitter/objc"
+	tsPlpgsql "github.com/graphit-labs/graphit-code/internal/ast/treesitter/plpgsql"
 	tsProto "github.com/graphit-labs/graphit-code/internal/ast/treesitter/proto"
 	tsR "github.com/graphit-labs/graphit-code/internal/ast/treesitter/r"
 	tsSQL "github.com/graphit-labs/graphit-code/internal/ast/treesitter/sql"
 	tsSvelte "github.com/graphit-labs/graphit-code/internal/ast/treesitter/svelte"
 	tsSwift "github.com/graphit-labs/graphit-code/internal/ast/treesitter/swift"
+	tsVue "github.com/graphit-labs/graphit-code/internal/ast/treesitter/vue"
 )
 
 // nativeGrammars maps language names to a function returning the raw tree-sitter
@@ -90,11 +92,13 @@ var nativeGrammars = map[string]func() unsafe.Pointer{
 	"kotlin":     tsKotlin.Language,
 	"markdown":   tsMarkdown.Language,
 	"objc":       tsObjC.Language,
+	"plpgsql":    tsPlpgsql.Language,
 	"proto":      tsProto.Language,
 	"r":          tsR.Language,
 	"sql":        tsSQL.Language,
 	"svelte":     tsSvelte.Language,
 	"swift":      tsSwift.Language,
+	"vue":        tsVue.Language,
 }
 
 // NativeLanguage returns a natively compiled grammar, or nil if unavailable.
@@ -112,10 +116,4 @@ func NativeLanguage(lang string) *ts.Language {
 		}
 	}
 	return nil
-}
-
-// HasNativeGrammar reports whether a natively compiled grammar exists for lang.
-func HasNativeGrammar(lang string) bool {
-	_, ok := nativeGrammars[lang]
-	return ok
 }

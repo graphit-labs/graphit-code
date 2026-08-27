@@ -54,7 +54,7 @@ func oracleLikeEntries() map[string]*parseCacheEntry {
 // aborted before swapping the database in — with --reset having already deleted the old
 // one, leaving nothing at all.
 func TestContainsPairWithoutNodeTableIsDropped(t *testing.T) {
-	ri := newRebuildIndex(oracleLikeEntries())
+	ri := newRebuildIndex(oracleLikeEntries(), dmlTargetRules("plsql"))
 
 	for _, p := range ri.containsPairs {
 		if !ri.labelSet[p[0]] || !ri.labelSet[p[1]] {
@@ -124,16 +124,20 @@ func TestInitSchemaForLabelsSurvivesAnUnbackedPair(t *testing.T) {
 // and the graph held two nodes per table — one with the columns, one with the inbound
 // SELECTS — which no query could join.
 func TestDMLTargetResolvesToTheDeclaringNode(t *testing.T) {
-	ri := newRebuildIndex(oracleLikeEntries())
+	ri := newRebuildIndex(oracleLikeEntries(), dmlTargetRules("plsql"))
 
-	uid, label := ri.resolveRefTarget("PEDIDO")
+	uid, label := ri.resolveRefTarget(cachedReference{
+		TargetUID: "PEDIDO", RelType: RelSelects, Path: "packages/PCK_VENDA.sql",
+	}, "plsql")
 	if uid != "tables/PEDIDO.sql::PEDIDO" || label != LabelTable {
 		t.Errorf("PEDIDO resolved to %q/%q, want the declaring node", uid, label)
 	}
 
 	// Undeclared targets keep their name and become stub tables, so the dependency
 	// is still recorded when the DDL is not part of the corpus.
-	uid, label = ri.resolveRefTarget("FATURA_EXTERNA")
+	uid, label = ri.resolveRefTarget(cachedReference{
+		TargetUID: "FATURA_EXTERNA", RelType: RelInserts, Path: "packages/PCK_VENDA.sql",
+	}, "plsql")
 	if uid != "FATURA_EXTERNA" || label != LabelTable {
 		t.Errorf("undeclared target resolved to %q/%q, want a stub Table", uid, label)
 	}

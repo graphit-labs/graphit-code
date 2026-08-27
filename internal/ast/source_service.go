@@ -46,12 +46,29 @@ type EntityInfo struct {
 	EndLine   int    `json:"end_line"`
 }
 
+// SourceService serves indexed file text out of the search index.
+//
+// The graph is not consulted for it. File text lived in File.source as well, which
+// meant every rebuild pushed the whole repository through one COPY — 2.4 GB on a
+// 36k-file export — and when that COPY failed the graph published File nodes with no
+// text and nothing said so. The search index is the only copy that is queryable, so
+// it is now the only copy: one store, one writer, no divergence to reconcile.
 type SourceService struct {
 	db GraphDB
+	// indexPath is the search index. Empty means no source can be served.
+	indexPath string
 }
 
 func NewSourceService(db GraphDB) *SourceService {
 	return &SourceService{db: db}
+}
+
+// WithStore points the service at the graph store whose SearchFile rows hold the text.
+func (s *SourceService) WithStore(dbPath string) *SourceService {
+	if dbPath != "" {
+		s.indexPath = dbPath
+	}
+	return s
 }
 
 func (s *SourceService) GetSource(ctx context.Context, req SourceRequest) (*SourceResult, error) {
@@ -177,46 +194,70 @@ func (s *SourceService) GetSource(ctx context.Context, req SourceRequest) (*Sour
 }
 
 func (s *SourceService) fetchFileSource(ctx context.Context, path string) (string, error) {
-	res, err := s.db.Query(ctx,
-		`MATCH (f:File {path: $path}) RETURN f.source AS source`,
-		map[string]any{"path": path})
-	if err != nil {
-		return "", fmt.Errorf("query file source: %w", err)
+	if s.indexPath == "" {
+		return "", fmt.Errorf("source unavailable for %q: this service was built without a "+
+			"store, so it cannot reach the search index that holds file text", path)
 	}
-
-	if len(res.Records) == 0 {
-		return "", fmt.Errorf("source not found for path %q", path)
+	if src, ok := FileSourceAt(ctx, s.indexPath, path); ok {
+		return src, nil
 	}
-
-	src, ok := res.Records[0]["source"].(string)
-	if !ok || src == "" {
-		return "", fmt.Errorf("file source is empty: %s", path)
-	}
-	return src, nil
+	return "", fmt.Errorf("source not found for path %q: not in the search index. Either the "+
+		"file is not indexed, or ast.index_source is false so the graph holds structure "+
+		"without text", path)
 }
 
+// entityMatchExact and entityMatchFold are the same lookup twice: once comparing names as
+// they are, once comparing them case-insensitively.
+//
+// The exact form runs first, and not only because it is cheaper. `toLower` over an
+// unlabelled `MATCH (e)` asks the database to lowercase the name of every node in the
+// project, so a single row holding bytes LOWER refuses — which the storage layer is known to
+// produce occasionally, see docs/upstream/liblbug-string-corruption.md — failed every
+// entity lookup in the project, including the thousands of entities whose own names are
+// perfectly fine. Identifiers match exactly nearly always; folding is the fallback, so the
+// blast radius of one bad row shrinks to the lookups that actually need it.
+const (
+	entityMatchExact = "e.name = $name"
+	entityMatchFold  = "toLower(e.name) = toLower($name)"
+)
+
 func (s *SourceService) resolveEntity(ctx context.Context, req SourceRequest) (*EntityInfo, error) {
-	var cypher string
 	params := map[string]any{
 		"name": req.Entity,
 		"path": req.Path,
 	}
 
-	if req.EntityType != "" {
-		cypher = fmt.Sprintf(
-			`MATCH (e:%s) WHERE toLower(e.name) = toLower($name) AND e.path = $path RETURN e.name AS name, label(e) AS type, e.line_number AS start_line, e.end_line AS end_line LIMIT 1`,
-			"`"+req.EntityType+"`")
-	} else {
-		cypher = `MATCH (e) WHERE toLower(e.name) = toLower($name) AND e.path = $path AND e.line_number IS NOT NULL AND e.end_line IS NOT NULL RETURN e.name AS name, label(e) AS type, e.line_number AS start_line, e.end_line AS end_line LIMIT 1`
+	query := func(nameMatch string) string {
+		if req.EntityType != "" {
+			return fmt.Sprintf(
+				`MATCH (e:%s) WHERE %s AND e.path = $path RETURN e.name AS name, label(e) AS type, e.line_number AS start_line, e.end_line AS end_line LIMIT 1`,
+				"`"+req.EntityType+"`", nameMatch)
+		}
+		return fmt.Sprintf(
+			`MATCH (e) WHERE %s AND e.path = $path AND e.line_number IS NOT NULL AND e.end_line IS NOT NULL RETURN e.name AS name, label(e) AS type, e.line_number AS start_line, e.end_line AS end_line LIMIT 1`,
+			nameMatch)
 	}
 
-	res, err := s.db.Query(ctx, cypher, params)
+	res, err := s.db.Query(ctx, query(entityMatchExact), params)
 	if err != nil {
 		return nil, fmt.Errorf("resolve entity %q: %w", req.Entity, err)
 	}
 
 	if len(res.Records) == 0 {
-		return nil, fmt.Errorf("entity %q not found in %q", req.Entity, req.Path)
+		foldRes, foldErr := s.db.Query(ctx, query(entityMatchFold), params)
+		switch {
+		case foldErr != nil:
+			// The exact match already said no, so the fold is the only remaining chance and
+			// it broke on some other row's bytes. Report both facts: the entity was not
+			// found under its own name, and the case-insensitive retry could not run.
+			return nil, fmt.Errorf("entity %q not found in %q, and the case-insensitive "+
+				"retry failed — a value in this graph cannot be lowercased, which a "+
+				"reindex of the affected file repairs: %w", req.Entity, req.Path, foldErr)
+		case len(foldRes.Records) == 0:
+			return nil, fmt.Errorf("entity %q not found in %q", req.Entity, req.Path)
+		default:
+			res = foldRes
+		}
 	}
 
 	rec := res.Records[0]

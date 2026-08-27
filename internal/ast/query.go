@@ -26,6 +26,10 @@ type QueryService struct {
 	lacksFulltext   bool
 	embeddingClient ai.EmbeddingClient
 	searchIndex     *SearchIndex
+
+	// searchUnavailable is why there is no index, when there is none. It is REPORTED rather
+	// than swallowed — see NewQueryService.
+	searchUnavailable error
 }
 
 func NewQueryService(db GraphDB) *QueryService {
@@ -35,9 +39,23 @@ func NewQueryService(db GraphDB) *QueryService {
 	}
 	if lb, ok := db.(*LadybugBackend); ok {
 		qs.dbPath = lb.cfg.DBPath
-		idxPath := lb.cfg.DBPath + searchIndexSuffix
-		if si, err := OpenSearchIndex(idxPath); err == nil {
+		// A second store, and a second handle. Nothing here contends with the graph handle this
+		// service already holds: Lance is multi-version, so this reader sees a consistent
+		// snapshot while the daemon writes the same directory — which is what makes an in-place
+		// update safe to read through.
+		//
+		// A failure is not fatal: a project with no index yet, or one whose index is mid-rebuild,
+		// still answers structural queries. searchIndex stays nil and the search entry points
+		// return nothing rather than an error.
+		if si, err := OpenSearchIndex(context.Background(), lb.cfg.DBPath); err == nil {
 			qs.searchIndex = si
+		} else {
+			// Kept, so the search entry points can tell "no index yet" from "this binary
+			// cannot search at all". Returning no results for the second is the trap the
+			// fts5 guard file existed to close: a build without the engine answered every
+			// query with silence, and silence is indistinguishable from a correct empty
+			// result.
+			qs.searchUnavailable = err
 		}
 	}
 	return qs
@@ -56,13 +74,16 @@ func (q *QueryService) SetEmbeddingClient(client ai.EmbeddingClient) {
 
 func (q *QueryService) FullTextSearch(ctx context.Context, query string, topK int) ([]SearchResult, error) {
 	if q.searchIndex == nil {
-		return nil, nil
+		return nil, q.searchUnavailable
 	}
-	return q.searchIndex.Search(query, topK)
+	return q.searchIndex.Search(ctx, query, topK)
 }
 
 func (q *QueryService) SemanticSearch(ctx context.Context, query string, topK int, cluster string) ([]SearchResult, error) {
-	if q.embeddingClient == nil || q.searchIndex == nil {
+	if q.searchIndex == nil {
+		return nil, q.searchUnavailable
+	}
+	if q.embeddingClient == nil {
 		return nil, nil
 	}
 
@@ -85,7 +106,7 @@ func (q *QueryService) SemanticSearch(ctx context.Context, query string, topK in
 		vec = vec[:ai.EmbeddingDimensions]
 	}
 
-	results, err := q.searchIndex.SemanticSearch(vec, topK)
+	results, err := q.searchIndex.SemanticSearch(ctx, vec, topK)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +120,7 @@ func (q *QueryService) SemanticSearch(ctx context.Context, query string, topK in
 
 func (q *QueryService) HybridSearch(ctx context.Context, query string, topK int) ([]SearchResult, error) {
 	if q.searchIndex == nil {
-		return nil, nil
+		return nil, q.searchUnavailable
 	}
 
 	var queryVec []float32
@@ -125,7 +146,7 @@ func (q *QueryService) HybridSearch(ctx context.Context, query string, topK int)
 		}
 	}
 
-	return q.searchIndex.HybridSearch(query, queryVec, topK)
+	return q.searchIndex.HybridSearch(ctx, query, queryVec, topK)
 }
 
 type AIClient interface {

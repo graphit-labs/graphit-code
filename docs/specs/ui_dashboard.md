@@ -46,12 +46,44 @@ The backend server is implemented inside `internal/uiserver/`:
   var embeddedUI embed.FS
   ```
   It dynamically resolves server paths and binds API routes.
+
+### Network binding and origin policy
+
+`graphit ui` selects a free port and binds it on the resolved `ui.host`. The built-in
+default is `0.0.0.0`; `GRAPHIT_UI_HOST`, project config, or global config can override it
+through the standard precedence chain. The embedded frontend uses same-origin `/api`
+URLs, so it works through a LAN hostname or reverse proxy without calling the browser's
+own localhost.
+
+Every endpoint is wrapped by one CORS policy. With no `ui.allowed_origins` override,
+empty/same-origin requests and localhost loopback origins are accepted. A configured
+comma-separated list replaces that default with exact origins; `*` is an explicit
+allow-all value. The UI server has no authentication, and CORS is not access control for
+non-browser clients. Restrict `ui.host` or place reachable deployments behind a firewall,
+VPN, or authenticated TLS proxy. See
+[S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md).
 - **Wiki Handlers (`wiki_handler.go`)**:
   Exposes JSON endpoints:
-  - `GET /api/wiki/pages`: Returns the directory list tree.
-  - `GET /api/wiki/page/:slug`: Returns raw page contents and metadata.
-  - `POST /api/wiki/search`: Connects queries to the BM25 and semantic RRF engine.
-  - `POST /api/wiki/chat`: Orchestrates multi-turn wiki agent completions.
+  - `GET /api/wiki/modules?project_dir=`: Returns the wikis browsable for that project — its documentation wiki, its two memory scopes, and every context it has imported.
+  - `GET /api/wiki/pages?dir=`: Returns the page list of one wiki directory.
+  - `GET /api/wiki/page?dir=&path=`: Returns raw page contents and metadata.
+  - `GET /api/wiki/search?dir=&q=`: BM25 search inside one wiki.
+  - `POST /api/wiki/ai-search`: Single-wiki AI search. Multi-turn agentic search over several sources is the live search, under `/api/live`.
+
+  **Module discovery resolves, it does not scan.** Every wiki lives once in the global
+  brand directory keyed by identity, so `discoverModules` asks `internal/store` where each
+  one is: `store.KnowledgeProjectDir` for the project's documentation,
+  `store.MemoryWikiDir` for the `project` and `user` memory scopes,
+  `store.KnowledgeContextDirIn` for each context named in the project's lockfile, and the
+  memory worktree set for imported memory contexts. Nothing under the project directory is
+  probed — a wiki left at the pre-centralization path (`<project>/.graphit/knowledge/project`)
+  is deliberately not reported.
+
+  The module `id` is the UI's contract, not an implementation detail: the sidebar builds its
+  Memory section from ids prefixed `memory-`, and the Knowledge Contexts page filters on
+  `knowledge` and `knowledge/`. The `context` field is what the explorer route is built from
+  (`/memory/explorer/<context>`), and `project`/`user` are what the cards style as
+  project-scoped.
 
 ---
 
@@ -73,4 +105,4 @@ The backend server is implemented inside `internal/uiserver/`:
 ### 3. Registry Hub Page
 - **Component**: `RegistryPage.tsx`.
 - **Function**: Communicates with the hub service to display catalogs of rules and skills.
-- **Upload Modal**: `SubmitModal.tsx` provides interface forms to package rulesets and upload them to the remote Git registry.
+- **Upload Modal**: `SubmitModal.tsx` packages rulesets and publishes them to the configured S3-backed Hub registry.

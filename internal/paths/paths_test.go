@@ -18,7 +18,6 @@ func TestGetPaths(t *testing.T) {
 	_ = os.Setenv("HOME", tempDir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Test GetPaths
 	p := GetPaths("test-ide", false)
 	if p.IDE != "test-ide" {
 		t.Errorf("expected IDE to be test-ide, got %q", p.IDE)
@@ -29,7 +28,6 @@ func TestGetPaths(t *testing.T) {
 		t.Errorf("expected global targetDir to match frameworksDir")
 	}
 
-	// Test GetPathsForProject
 	pProj := GetPathsForProject("test-ide", tempDir)
 	if pProj.ActiveProjectDir != tempDir {
 		t.Errorf("expected projectDir to match activeProjectDir, got %q", pProj.ActiveProjectDir)
@@ -55,7 +53,6 @@ func TestResolveGitDir(t *testing.T) {
 		t.Errorf("expected default .git path, got %q", gitDir1)
 	}
 
-	// Case 2: .git is a directory
 	dotGitDir := filepath.Join(tempProj, ".git")
 	err = os.MkdirAll(dotGitDir, 0755)
 	if err != nil {
@@ -66,7 +63,6 @@ func TestResolveGitDir(t *testing.T) {
 		t.Errorf("expected directory %q, got %q", dotGitDir, gitDir2)
 	}
 
-	// Clean up .git directory
 	_ = os.RemoveAll(dotGitDir)
 
 	// Case 3: .git is a file but empty/invalid
@@ -102,7 +98,6 @@ func TestResolveGitDir(t *testing.T) {
 		t.Errorf("expected absolute resolved path %q, got %q", expectedRel, gitDir5)
 	}
 
-	// Case 6: .git is an unreadable file
 	err = os.WriteFile(dotGitDir, []byte("gitdir: unreadable"), 0000)
 	if err != nil {
 		t.Fatalf("failed to write unreadable .git file: %v", err)
@@ -197,7 +192,6 @@ func TestSafeSymlink(t *testing.T) {
 		t.Error("expected error from fallback, got nil")
 	}
 
-	// 7. Test SafeSymlink failure path
 	errFail := SafeSymlink("/nonexistent/source", "/nonexistent/dir/link")
 	if errFail == nil {
 		t.Error("expected SafeSymlink to fail for nonexistent paths, but it succeeded")
@@ -226,7 +220,6 @@ func TestBuildPathsHooks(t *testing.T) {
 		t.Errorf("expected default hooks path to be %q, got %q", expectedHooks, p.RepoHooksDir)
 	}
 
-	// 2. With core.hooksPath set as absolute path
 	cmdConfigAbs := exec.Command("git", "config", "core.hooksPath", "/abs/custom/hooks")
 	cmdConfigAbs.Dir = tempProj
 	_ = cmdConfigAbs.Run()
@@ -236,7 +229,6 @@ func TestBuildPathsHooks(t *testing.T) {
 		t.Errorf("expected absolute hooks path to be '/abs/custom/hooks', got %q", pAbs.RepoHooksDir)
 	}
 
-	// 3. With core.hooksPath set as relative path
 	cmdConfigRel := exec.Command("git", "config", "core.hooksPath", "rel/custom/hooks")
 	cmdConfigRel.Dir = tempProj
 	_ = cmdConfigRel.Run()

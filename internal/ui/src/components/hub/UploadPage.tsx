@@ -12,7 +12,7 @@ type UploadScope = 'global' | 'project'
 interface Dep { type: string; id: string; version: string }
 
 export default function UploadPage() {
-  const { webMode, activeIde, activeProjectId, activeProjectDir } = useAppStore()
+  const { webMode, activeIde, activeProjectDir } = useAppStore()
 
   const [file, setFile] = useState<File | null>(null)
   const [scope, setScope] = useState<UploadScope>('project')

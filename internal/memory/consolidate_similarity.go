@@ -1,0 +1,161 @@
+package memory
+
+import (
+	"context"
+	"math"
+	"sort"
+	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/wiki"
+)
+
+// loadMemoryVectors reads this scope's embeddings out of its compiled wiki, keyed by
+// memory ID.
+//
+// Nothing is computed here. A memory scope IS a wiki, the wiki carries embeddings, and
+// the daemon's embedding loop keeps them current — so the semantic neighbourhood of the
+// corpus is already sitting in the database, paid for, waiting to be read. Recomputing
+// it for consolidation would be paying twice for an answer already on disk.
+//
+// The join is by source path: the wiki records each memory as `<ID>_…​.md`, so the ID is
+// the prefix. Missing vectors are not an error — a scope embedded moments ago may have
+// none yet, and the caller degrades to the previous behaviour.
+func loadMemoryVectors(ctx context.Context, wikiDir string) map[string][]float32 {
+	if wikiDir == "" {
+		return nil
+	}
+	db, err := wiki.OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = db.Close() }()
+
+	bySource, err := db.VectorsBySource(ctx)
+	if err != nil || len(bySource) == 0 {
+		return nil
+	}
+
+	byID := make(map[string][]float32, len(bySource))
+	for source, vec := range bySource {
+		if id := memoryIDFromSource(source); id != "" {
+			byID[id] = vec
+		}
+	}
+	return byID
+}
+
+// memoryIDFromSource extracts the memory ID from a wiki source filename.
+func memoryIDFromSource(source string) string {
+	base := source
+	if i := strings.LastIndexAny(base, "/\\"); i >= 0 {
+		base = base[i+1:]
+	}
+	base = strings.TrimSuffix(base, ".md")
+	if i := strings.Index(base, "_"); i > 0 {
+		return base[:i]
+	}
+	return base
+}
+
+// orderBySimilarity reorders memories so that semantically close ones sit next to each
+// other, and returns them unchanged when there is nothing to order by.
+//
+// This is what makes batching survive a corpus that no longer fits one prompt. Batches
+// are filled in order, so whatever is adjacent lands together — and in ID order, which
+// is arrival order, adjacency means nothing. Two memories about the same thing written
+// six months apart end up in different batches, are never put in front of the model
+// together, and their duplication cannot be noticed. The report then says "nothing to
+// do" about a pair it never compared.
+//
+// A greedy nearest-neighbour chain, which is O(n²) in a corpus of hundreds and costs
+// microseconds. It is not an optimal clustering and does not need to be: the only
+// property required is that near-duplicates are adjacent, and a duplicate is by
+// definition its neighbour's nearest neighbour.
+//
+// Boundaries still exist — a chain has to be cut somewhere, and the two memories either
+// side of a cut are separated. That is why CoverageNote keeps telling the truth about
+// batched runs rather than claiming this solved it.
+func orderBySimilarity(memories []memorySnapshot, vecs map[string][]float32) []memorySnapshot {
+	if len(vecs) == 0 || len(memories) < 3 {
+		return memories
+	}
+
+	// Only memories that HAVE a vector can be placed by similarity. The rest keep
+	// their order and follow, rather than being dropped or scattered at random.
+	var placeable []memorySnapshot
+	var rest []memorySnapshot
+	for _, m := range memories {
+		if len(vecs[m.ID]) > 0 {
+			placeable = append(placeable, m)
+			continue
+		}
+		rest = append(rest, m)
+	}
+	if len(placeable) < 3 {
+		return memories
+	}
+
+	norms := make([]float64, len(placeable))
+	for i, m := range placeable {
+		norms[i] = norm(vecs[m.ID])
+	}
+
+	// Deterministic start: the lowest ID. Map iteration or "whatever came first" would
+	// make the same corpus batch differently between runs, and a consolidation whose
+	// coverage changes run to run is not reproducible.
+	sort.Slice(placeable, func(i, j int) bool { return placeable[i].ID < placeable[j].ID })
+
+	used := make([]bool, len(placeable))
+	ordered := make([]memorySnapshot, 0, len(placeable))
+	current := 0
+	used[0] = true
+	ordered = append(ordered, placeable[0])
+
+	for len(ordered) < len(placeable) {
+		best, bestSim := -1, math.Inf(-1)
+		cv := vecs[placeable[current].ID]
+		cn := norms[current]
+		for i := range placeable {
+			if used[i] {
+				continue
+			}
+			sim := cosine(cv, vecs[placeable[i].ID], cn, norms[i])
+			if sim > bestSim {
+				best, bestSim = i, sim
+			}
+		}
+		if best < 0 {
+			break
+		}
+		used[best] = true
+		ordered = append(ordered, placeable[best])
+		current = best
+	}
+
+	return append(ordered, rest...)
+}
+
+func norm(v []float32) float64 {
+	var sum float64
+	for _, x := range v {
+		sum += float64(x) * float64(x)
+	}
+	return math.Sqrt(sum)
+}
+
+// cosine takes the precomputed norms because it runs n² times and recomputing them
+// there is most of the cost.
+func cosine(a, b []float32, na, nb float64) float64 {
+	if na == 0 || nb == 0 {
+		return -1
+	}
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	var dot float64
+	for i := 0; i < n; i++ {
+		dot += float64(a[i]) * float64(b[i])
+	}
+	return dot / (na * nb)
+}

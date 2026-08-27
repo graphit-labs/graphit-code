@@ -63,6 +63,7 @@ func init() {
 		newKnowledgeCmd(),
 		newMemoryCmd(),
 		newWikiCmd(),
+		newLiveCmd(),
 		newDreamCmd(),
 		newImprovementsCmd(),
 		newDaemonCmd(),
@@ -71,7 +72,7 @@ func init() {
 	)
 
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")
-	rootCmd.PersistentFlags().StringArrayP("config", "c", nil, "Override config key=value (repeatable, e.g. -c ide=cursor -c hub.repo=git@...)")
+	rootCmd.PersistentFlags().StringArrayP("config", "c", nil, "Override config key=value (repeatable, e.g. -c ide=cursor -c hub.bucket=my-bucket)")
 }
 
 func Execute() {
@@ -81,6 +82,7 @@ func Execute() {
 	err := rootCmd.Execute()
 
 	memory.WaitForPendingPushes()
+	hub.WaitForPendingEvents()
 
 	if err != nil {
 		output.Fatal("%s", err)

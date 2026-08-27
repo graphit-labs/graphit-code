@@ -42,36 +42,157 @@ graph TD
 ```
 
 ### 1. Project Discovery & Handoff
-Every 30 seconds, the discovery loop calls `ListActiveProjects()` against the Global Lock Manager.
-It tracks sibling services, launches dedicated `ProjectSupervisor` threads for newly discovered locations, and stops supervisors for deleted paths.
+
+Every 30 seconds (`DiscoveryInterval`) the discovery loop calls `ListActiveProjects()`
+against the Global Lock Manager, which reads `~/.graphit/global.lock.json`.
+
+> **`ListActiveProjects()` is misleadingly named.** It filters only by *the lockfile still
+> exists on disk* — it does no activity filtering of its own. Deciding what is active is
+> the daemon's job, below.
+
+A registered project is in one of three states, and `reconcileProjects` moves it between
+them on every tick:
+
+| State | Meaning |
+|---|---|
+| **Supervised** | A `ProjectSupervisor` is running: filesystem watch, embedding loop, dream runner |
+| **Parked** | Registered and known, but nothing is running for it |
+| **Gone** | No longer returned by discovery — the supervisor is stopped and both entries dropped |
+
+#### Parking: registered is not the same as supervised
+
+Supervising every registered project forever meant a developer who had accumulated
+dozens of them over time paid for an inotify watch tree, an embedding loop and a dream
+runner on each, indefinitely. Parking bounds that to the projects actually being worked
+on.
+
+- **Supervised → parked** when `ProjectSupervisor.IdleFor()` exceeds the activity window.
+  The idle clock is *pushed*, not polled: modules implementing `ActivityReporter` call
+  `Touch()` as they observe changes, and `SyncModule` does so on every `fswatch` batch —
+  even a batch with nothing reindexable in it. Demotion therefore costs no disk walk.
+- **Parked or newly discovered → supervised** when `dream.LastModifiedTime(dir)` shows a
+  change inside the window. This is the one direction that does walk the tree, because a
+  parked project has no watch to report activity from. A walk that fails defaults to
+  *active*, so a project is never parked on account of the probe itself failing.
+
+#### Configuration
+
+`daemon.activity_window` — a Go duration string, default `30m`. Setting it to `0`
+disables parking entirely: every registered project stays supervised for as long as it
+stays registered, which is the pre-parking behaviour. An unset or invalid value falls
+back to the default.
+
+The window is resolved **once**, at daemon start (`runDaemonCore`), not per reconcile
+tick — re-resolving would read `~/.graphit/config.json` every 30 seconds. A `Daemon`
+built directly, as the tests do, gets a zero window and therefore never parks.
 
 ### 2. Project Supervisors
 Each active project has an isolated supervisor thread monitoring watch modules:
-- **`SyncModule`**: Polls `git status --porcelain -unormal` + `git rev-parse HEAD` every 5 seconds. If the combined hash changes (uncommitted edits OR new commits), it debounces 1 second then reindexes:
-  - **AST graph** (LadybugDB) — full incremental pipeline
-  - **Knowledge wiki** — recompiles from configurable docs directory (`knowledge.docs_dir`)
-  - Respects `.gitignore` (via git) and `.astignore` (via `ignorer.IgnoreChecker`)
+- **`SyncModule`**: Holds one recursive filesystem watch over the project tree (`internal/fswatch`) and reindexes what each batch names. Debounces 1 second of quiet, capped at 5 seconds for a continuously busy tree.
+  - **AST graph** (LadybugDB) — incremental pipeline over the exact changed paths (`ast.RunPipelineForPaths`), which skips discovery entirely
+  - **Knowledge wiki** — recompiles from the configurable docs directory (`knowledge.docs_dir`, default `docs`) plus the root README (`knowledge.include_readme`), assembled by `knowledge.ScopeFor`. A project with a README and no docs tree yet still gets a wiki; only when neither exists does the reindex return without running the pipeline.
+  - **One watch, two ignore files.** The watch covers the *union* of what the AST and the wiki care about; each consumer then applies its own file (`.astignore`, `.wikiignore`) to what arrives. Building the watch from the AST checker alone used to let `.astignore` silently decide whether the wiki heard anything — putting `docs/` in `.astignore` meant editing a document rebuilt nothing.
+  - **Routing** (`classifyBatch`): AST ownership follows the extension and nothing else, exactly as a full scan decides it — which now means the docs tree is excluded, because `ast.index_docs` is off and the exclusion is part of the AST ignore checker both paths use. Knowledge ownership needs the path to be under the docs directory — or to be one of the documents the scope names explicitly, which is how the root README reaches the wiki — *and* to carry an extension the wiki indexes. Location alone cannot decide it, since `knowledge.docs_dir` can be set to `.`. The two are independent, not alternatives: `.md`, `.yaml`, `.json` and `.xml` set both, and with `ast.index_docs=true` a document under `docs/` sets both again.
+  - **Activity reporting**: every batch touches the supervisor's idle clock (`ActivityReporter`), even a batch with nothing reindexable in it — any change under the tree counts as the project being worked on.
   - Reads per-project config from the project lockfile (inline → env → project → global → compiled defaults)
-- **`EmbeddingModule`**: Triggers every 2 minutes. It scans files for modified AST nodes, generates high-dimensional embeddings, and indexes them into the local SQLite vector database.
+- **`EmbeddingModule`**: Triggers every 2 minutes. It scans files for modified AST nodes, generates high-dimensional embeddings, and writes them into the vector column of the local LadybugDB store.
 - **`DreamModule`**: Initiates background agent routines during processor idle periods, mining conversation patterns and generating skills, memories, and integration artifacts.
+
+#### Cross-Pipeline Resource Gate
+
+`sysutil.CPUBudget()` sizes the Go parse-worker pool, LadybugDB's native thread pool
+and the ONNX intra-op pool — but it is a budget for **one** pipeline, and the daemon
+runs one supervisor per active project inside a single process. Three active projects
+therefore claimed three times the machine, plus a LadybugDB buffer pool per open
+database (two per database during a copy+swap rebuild).
+
+`sysutil.AcquireHeavy(ctx)` is the missing half of that budget: a process-wide
+semaphore that every CPU-saturating job takes before it starts.
+
+| Call site | What it gates |
+|---|---|
+| `SyncModule.handleBatch` | The AST and knowledge reindexes for one batch — one slot for the whole batch, not one per indexer |
+| `ast.RunEmbeddingLoop` | Each embedding cycle plus the DB rebuild that a productive one triggers |
+
+Capacity is **1** by construction, not by conservatism: `CPUBudget` already hands a
+single pipeline as much of the machine as it may have, so a second concurrent slot is
+by definition oversubscription. `GRAPHIT_HEAVY_SLOTS` raises it (clamped to the CPU
+budget) for an operator who would rather trade peak memory for throughput.
+
+Serializing does not make the set of jobs finish later — these are batch jobs, so it
+makes each one finish sooner, without thrashing, and caps peak RSS at what a single
+pipeline needs. A batch with nothing to reindex returns before touching the gate, so
+an idle supervisor never queues behind a busy one.
+
+A cancelled wait returns `ctx.Err()` with a nil release and the caller skips the work:
+a supervisor being parked must not keep queueing for a slot to do work nobody is
+waiting on.
+
+**Scope limit.** The gate is per-process. It governs the daemon's own supervisors, not
+a `graphit sync` running in a separate process — that collision is bounded by the
+`.graphit/runtime/sync.lock` file lock and the git-hook debounce instead. Nothing yet
+coordinates the daemon against a concurrent CLI sync.
 
 ### 3. Global Modules
 Modules that run once per daemon (not per-project):
-- **`MemorySyncModule`**: Watches all active memory git worktrees (`~/.graphit/memory-wt/`) every 10 seconds. Detects changes via `git status` + `git rev-parse HEAD` combined hash. When memory raw files change (project or user scope), recompiles the corresponding memory wiki via `memory.RunCycle`.
+- **`MemorySyncModule`**: Holds one recursive watch over the worktree base directory (`~/.graphit/memory-wt/`), which this tool owns — so a single watch covers every branch, including worktrees created later, picked up when their directory appears. Debounces 1 second, capped at 10. On each batch it recompiles only the branches whose worktree contains a touched path, via `memory.RunCycle`; a lost-events batch has no reliable path list, so it recompiles every branch.
 - **`EmbedServer`**: Shared ONNX embedding model server for vector search.
 
-### 4. Git-Based Change Detection
-All watchers use a combined state hash instead of filesystem notifications:
-```
-hash = SHA256(git_rev_parse_HEAD + "\n" + git_status_porcelain)
-```
-This captures both uncommitted changes AND committed-then-cleaned changes between polls, avoiding the race condition where a commit between two polls makes `git status` appear clean both times.
+### 4. Filesystem Change Detection
 
-Advantages over `fsnotify`:
-- Zero file descriptors (no per-directory inotify watches)
-- Automatically respects `.gitignore`
-- Works across all OS platforms identically
-- No file descriptor exhaustion on large projects
+Every watcher in the daemon — `SyncModule`, `MemorySyncModule`, and the standalone
+`ast.Watcher` — is built on `internal/fswatch`, which reports changes from the operating
+system's own notification API (`fsnotify`: inotify on Linux, kqueue on BSD/macOS,
+`ReadDirectoryChangesW` on Windows).
+
+An earlier design polled `git status --porcelain` on a timer and hashed the result
+together with `git rev-parse HEAD`. It was replaced because the poll cost a full worktree
+walk per tick per project and detected a change up to ~6 s late, while notifications are
+near-instant and idle-free. The decisive gain is not latency, though: a notification
+**names the exact paths that changed**, which lets the indexer skip discovery altogether
+(`ast.RunPipelineForPaths`) — measured at ~350 ms of a ~1.07 s incremental on a
+35k-file repository.
+
+#### Batching
+
+Raw events are coalesced into a `fswatch.Batch`:
+
+| Field | Meaning |
+|---|---|
+| `Changed` | Absolute paths created or modified |
+| `Removed` | Absolute paths deleted or renamed away |
+| `Rescan` | The kernel event queue overflowed. `Changed`/`Removed` are only a partial picture and the consumer must fall back to a full scan |
+
+A batch is emitted after `Debounce` of quiet, so a save-storm or a branch checkout
+collapses into one reindex. `MaxDebounce` caps how long a continuously busy tree may
+defer that batch. Package defaults are 400 ms and 3 s; each module sets its own.
+
+#### Ignore rules apply at two levels
+
+An ignored directory never gets a watch registered at all, and any event that slips
+through for an ignored path is dropped. The first half is what keeps the inotify budget
+sane — on Linux every watched directory costs a watch. `.git` is never watched: it churns
+constantly and holds nothing that is indexed.
+
+`ShouldDescend` re-includes a directory that ignore rules reject when a negation pattern
+(`!`) targets something inside it.
+
+#### Edge cases the watcher handles
+
+- **A newly created directory** is watched *and* scanned, because files written into it
+  between the `mkdir` and the watch landing would otherwise be missed entirely.
+- **Exhausting the watch limit** is reported as such. The raw error is `no space left on
+  device`, which sends people looking at disk usage; the wrapper says to raise
+  `fs.inotify.max_user_watches` (and `fs.inotify.max_user_instances`) instead.
+- **An unreadable subtree** is skipped rather than aborting the whole watch.
+
+#### Trade-off accepted
+
+The old poll used zero file descriptors and got `.gitignore` for free from git. The
+watcher spends one watch per directory and has to apply ignore rules itself — in exchange
+for near-instant detection, no periodic worktree walk, and the path list that makes
+incremental indexing possible. Custom ignore files (`.astignore`, `.wikiignore`) are now
+honoured directly rather than as a second filter after git's.
 
 ---
 

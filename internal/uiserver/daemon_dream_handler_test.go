@@ -13,6 +13,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
+	"github.com/graphit-labs/graphit-code/internal/dream"
 )
 
 func TestHandleDaemonStatus(t *testing.T) {
@@ -201,7 +202,7 @@ func TestHandleDreamStatus_NoLockFile(t *testing.T) {
 func TestHandleDreamStatus_WithDreamDir(t *testing.T) {
 	tmp := t.TempDir()
 	// Create dream dir with reports to exercise the TotalReports counting
-	dreamDir := filepath.Join(tmp, brand.DotDir(), "dream")
+	dreamDir := dream.ReportsDir(tmp)
 	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -234,12 +235,11 @@ func TestHandleDreamStatus_WithDreamDir(t *testing.T) {
 
 func TestHandleDreamReports(t *testing.T) {
 	tmp := t.TempDir()
-	dreamDir := filepath.Join(tmp, brand.DotDir(), "dream")
+	dreamDir := dream.ReportsDir(tmp)
 	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create fake report md
 	reportContent := []byte("---\ntitle: \"Fake Dream Report\"\n---\n# Reflection\nAutonomous improvements.")
 	if err := os.WriteFile(filepath.Join(dreamDir, "session1.md"), reportContent, 0o644); err != nil {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func TestHandleDreamReports(t *testing.T) {
 		t.Errorf("status = %d; want %d", w.Code, http.StatusOK)
 	}
 
-	var reports []dreamReportEntry
+	var reports []dream.Report
 	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
 		t.Fatalf("failed to decode: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestHandleDreamReports_NoDreamDir(t *testing.T) {
 		t.Fatalf("status = %d; want %d", w.Code, http.StatusOK)
 	}
 
-	var reports []dreamReportEntry
+	var reports []dream.Report
 	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -308,12 +308,11 @@ func TestHandleDreamReports_NoDreamDir(t *testing.T) {
 
 func TestHandleDreamReports_MultipleReports(t *testing.T) {
 	tmp := t.TempDir()
-	dreamDir := filepath.Join(tmp, brand.DotDir(), "dream")
+	dreamDir := dream.ReportsDir(tmp)
 	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create multiple reports
 	for i := 0; i < 3; i++ {
 		name := fmt.Sprintf("session%d.md", i)
 		content := fmt.Sprintf("---\ntitle: \"Report %d\"\n---\n# Report %d", i, i)
@@ -330,7 +329,7 @@ func TestHandleDreamReports_MultipleReports(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	var reports []dreamReportEntry
+	var reports []dream.Report
 	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -348,7 +347,7 @@ func TestHandleDreamReports_MultipleReports(t *testing.T) {
 
 func TestHandleDreamReports_WithDeepSleep(t *testing.T) {
 	tmp := t.TempDir()
-	dreamDir := filepath.Join(tmp, brand.DotDir(), "dream")
+	dreamDir := dream.ReportsDir(tmp)
 	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +356,6 @@ func TestHandleDreamReports_WithDeepSleep(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dreamDir, "deep1.md"), reportContent, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Create the .exhausted sentinel
 	if err := os.WriteFile(filepath.Join(dreamDir, "deep1.exhausted"), []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +368,7 @@ func TestHandleDreamReports_WithDeepSleep(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	var reports []dreamReportEntry
+	var reports []dream.Report
 	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -384,12 +382,11 @@ func TestHandleDreamReports_WithDeepSleep(t *testing.T) {
 
 func TestHandleDreamReports_NonMarkdownFilesIgnored(t *testing.T) {
 	tmp := t.TempDir()
-	dreamDir := filepath.Join(tmp, brand.DotDir(), "dream")
+	dreamDir := dream.ReportsDir(tmp)
 	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create various non-md files
 	if err := os.WriteFile(filepath.Join(dreamDir, "state.json"), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -408,7 +405,7 @@ func TestHandleDreamReports_NonMarkdownFilesIgnored(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	var reports []dreamReportEntry
+	var reports []dream.Report
 	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -417,12 +414,12 @@ func TestHandleDreamReports_NonMarkdownFilesIgnored(t *testing.T) {
 	}
 }
 
-func TestHandleDreamSubjects_MissingDir(t *testing.T) {
+func TestHandleBacklogList_MissingDir(t *testing.T) {
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/dream/subjects", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/backlog", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -431,13 +428,13 @@ func TestHandleDreamSubjects_MissingDir(t *testing.T) {
 	}
 }
 
-func TestHandleDreamSubjects_EmptyDir(t *testing.T) {
+func TestHandleBacklogList_EmptyDir(t *testing.T) {
 	tmp := t.TempDir()
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/dream/subjects?project_dir="+tmp, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/backlog?project_dir="+tmp, nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -448,7 +445,7 @@ func TestHandleDreamSubjects_EmptyDir(t *testing.T) {
 	// Should return an empty array, not null
 	body := strings.TrimSpace(w.Body.String())
 	if body != "[]" {
-		// It could be null if ListSubjects returns nil
+		// It could be null if backlog.List returns nil
 		var subjects []any
 		if err := json.Unmarshal([]byte(body), &subjects); err != nil {
 			t.Fatalf("decode: %v", err)
@@ -459,58 +456,65 @@ func TestHandleDreamSubjects_EmptyDir(t *testing.T) {
 	}
 }
 
-func TestHandleDreamSubjects_AndAddRemove(t *testing.T) {
+func TestHandleBacklogList_AndAddRemove(t *testing.T) {
 	tmp := t.TempDir()
 
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
-	// 1. Add subject
+	// 1. Add an item
 	addBody := `{"title":"Optimize imports","body":"Clean all unused packages."}`
-	reqAdd := httptest.NewRequest(http.MethodPost, "/api/dream/subject?project_dir="+tmp, strings.NewReader(addBody))
+	reqAdd := httptest.NewRequest(http.MethodPost, "/api/backlog/item?project_dir="+tmp, strings.NewReader(addBody))
 	wAdd := httptest.NewRecorder()
 	mux.ServeHTTP(wAdd, reqAdd)
 
 	if wAdd.Code != http.StatusOK {
-		t.Errorf("add subject status = %d; want %d", wAdd.Code, http.StatusOK)
+		t.Errorf("add item status = %d; want %d", wAdd.Code, http.StatusOK)
 	}
 
-	// 2. List subjects
-	reqList := httptest.NewRequest(http.MethodGet, "/api/dream/subjects?project_dir="+tmp, nil)
+	reqList := httptest.NewRequest(http.MethodGet, "/api/backlog?project_dir="+tmp, nil)
 	wList := httptest.NewRecorder()
 	mux.ServeHTTP(wList, reqList)
 
 	if wList.Code != http.StatusOK {
-		t.Errorf("list subjects status = %d; want %d", wList.Code, http.StatusOK)
+		t.Errorf("list backlog status = %d; want %d", wList.Code, http.StatusOK)
 	}
 
-	var subjects []map[string]any
-	if err := json.NewDecoder(wList.Body).Decode(&subjects); err != nil {
-		t.Fatalf("failed to decode subjects: %v", err)
+	var items []map[string]any
+	if err := json.NewDecoder(wList.Body).Decode(&items); err != nil {
+		t.Fatalf("failed to decode the backlog: %v", err)
 	}
-	if len(subjects) != 1 {
-		t.Errorf("expected 1 subject, got %d", len(subjects))
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
 	}
 
-	// 3. Remove subject
-	slug := subjects[0]["Slug"].(string)
-	reqRemove := httptest.NewRequest(http.MethodDelete, "/api/dream/subject/"+slug+"?project_dir="+tmp, nil)
+	// The wire contract is snake_case, matching every other result struct and
+	// the TypeScript BacklogItem interface.
+	slug, ok := items[0]["slug"].(string)
+	if !ok {
+		t.Fatalf("expected a string \"slug\" key, got %#v", items[0])
+	}
+	if _, ok := items[0]["created_at"]; !ok {
+		t.Errorf("expected a \"created_at\" key, got %#v", items[0])
+	}
+
+	reqRemove := httptest.NewRequest(http.MethodDelete, "/api/backlog/item/"+slug+"?project_dir="+tmp, nil)
 	wRemove := httptest.NewRecorder()
 	mux.ServeHTTP(wRemove, reqRemove)
 
 	if wRemove.Code != http.StatusOK {
-		t.Errorf("remove subject status = %d; want %d", wRemove.Code, http.StatusOK)
+		t.Errorf("remove item status = %d; want %d", wRemove.Code, http.StatusOK)
 	}
 }
 
-func TestHandleDreamSubjectAdd_MissingDir(t *testing.T) {
+func TestHandleBacklogAdd_MissingDir(t *testing.T) {
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
 	body := `{"title":"Test","body":"Body"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/dream/subject", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/backlog/item", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -519,13 +523,13 @@ func TestHandleDreamSubjectAdd_MissingDir(t *testing.T) {
 	}
 }
 
-func TestHandleDreamSubjectAdd_InvalidJSON(t *testing.T) {
+func TestHandleBacklogAdd_InvalidJSON(t *testing.T) {
 	tmp := t.TempDir()
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/dream/subject?project_dir="+tmp, strings.NewReader("not-json"))
+	req := httptest.NewRequest(http.MethodPost, "/api/backlog/item?project_dir="+tmp, strings.NewReader("not-json"))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -534,14 +538,14 @@ func TestHandleDreamSubjectAdd_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestHandleDreamSubjectAdd_EmptyTitle(t *testing.T) {
+func TestHandleBacklogAdd_EmptyTitle(t *testing.T) {
 	tmp := t.TempDir()
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
 	body := `{"title":"","body":"Some body"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/dream/subject?project_dir="+tmp, strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/backlog/item?project_dir="+tmp, strings.NewReader(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -550,11 +554,11 @@ func TestHandleDreamSubjectAdd_EmptyTitle(t *testing.T) {
 	}
 }
 
-func TestHandleDreamSubjectAdd_InvalidMethod(t *testing.T) {
+func TestHandleBacklogAdd_InvalidMethod(t *testing.T) {
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	// Register using non-pattern route to test method check inside handler
-	mux.HandleFunc("/test/dream/subject", corsJSON(h.handleDreamSubjectAdd))
+	mux.HandleFunc("/test/dream/subject", corsJSON(h.handleBacklogAdd))
 
 	req := httptest.NewRequest(http.MethodGet, "/test/dream/subject?project_dir=/tmp", nil)
 	w := httptest.NewRecorder()
@@ -565,12 +569,12 @@ func TestHandleDreamSubjectAdd_InvalidMethod(t *testing.T) {
 	}
 }
 
-func TestHandleDreamSubjectRemove_MissingDir(t *testing.T) {
+func TestHandleBacklogRemove_MissingDir(t *testing.T) {
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/dream/subject/test-slug", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/backlog/item/test-slug", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -579,11 +583,11 @@ func TestHandleDreamSubjectRemove_MissingDir(t *testing.T) {
 	}
 }
 
-func TestHandleDreamSubjectRemove_InvalidMethod(t *testing.T) {
+func TestHandleBacklogRemove_InvalidMethod(t *testing.T) {
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	// Register without method pattern to test the handler's own method check
-	mux.HandleFunc("/test/dream/subject/{slug}", corsJSON(h.handleDreamSubjectRemove))
+	mux.HandleFunc("/test/dream/subject/{slug}", corsJSON(h.handleBacklogRemove))
 
 	req := httptest.NewRequest(http.MethodPost, "/test/dream/subject/test-slug?project_dir=/tmp", nil)
 	w := httptest.NewRecorder()
@@ -594,13 +598,13 @@ func TestHandleDreamSubjectRemove_InvalidMethod(t *testing.T) {
 	}
 }
 
-func TestHandleDreamSubjectRemove_NonexistentSlug(t *testing.T) {
+func TestHandleBacklogRemove_NonexistentSlug(t *testing.T) {
 	tmp := t.TempDir()
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/dream/subject/nonexistent-slug-xyz?project_dir="+tmp, nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/backlog/item/nonexistent-slug-xyz?project_dir="+tmp, nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -635,122 +639,6 @@ func TestSplitLastNLocal(t *testing.T) {
 				t.Errorf("last = %q; want %q", res[len(res)-1], tt.wantLast)
 			}
 		})
-	}
-}
-
-func TestExtractFrontmatterTitleLocal(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{"valid frontmatter", "---\ntitle: \"My Report\"\n---\n# Content", "My Report"},
-		{"single quoted title", "---\ntitle: 'Single Quoted'\n---\n# Content", "Single Quoted"},
-		{"unquoted title", "---\ntitle: Unquoted Title\n---\n# Content", "Unquoted Title"},
-		{"no frontmatter", "no frontmatter", ""},
-		{"no title in frontmatter", "---\ntags: [a, b]\n---\n# Content", ""},
-		{"empty content", "", ""},
-		{"frontmatter no closing", "---\ntitle: Never Closed", ""},
-		{"frontmatter with other fields", "---\ndate: 2024-01-01\ntitle: After Other\ntags: [x]\n---\nContent", "After Other"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tmpFile := filepath.Join(t.TempDir(), "test.md")
-			if err := os.WriteFile(tmpFile, []byte(tt.content), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			got := extractFrontmatterTitleLocal(tmpFile)
-			if got != tt.want {
-				t.Errorf("extractFrontmatterTitleLocal = %q; want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestExtractFrontmatterTitleLocal_NonexistentFile(t *testing.T) {
-	got := extractFrontmatterTitleLocal("/nonexistent-file-xyz")
-	if got != "" {
-		t.Errorf("expected empty title for nonexistent file, got %q", got)
-	}
-}
-
-func TestScanDreamReportsLocal(t *testing.T) {
-	tmp := t.TempDir()
-
-	// Create reports
-	if err := os.WriteFile(filepath.Join(tmp, "report1.md"), []byte("---\ntitle: Report 1\n---\n# R1"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tmp, "report2.md"), []byte("# No frontmatter"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// Non-md files should be ignored
-	if err := os.WriteFile(filepath.Join(tmp, "state.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// Directories should be ignored
-	if err := os.MkdirAll(filepath.Join(tmp, "subdir"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Exhausted sentinel
-	if err := os.WriteFile(filepath.Join(tmp, "report1.exhausted"), []byte(""), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	reports, err := scanDreamReportsLocal(tmp)
-	if err != nil {
-		t.Fatalf("scanDreamReportsLocal error: %v", err)
-	}
-
-	if len(reports) != 2 {
-		t.Fatalf("expected 2 reports, got %d", len(reports))
-	}
-
-	// Check report1 details
-	var r1, r2 *dreamReportEntry
-	for i := range reports {
-		switch reports[i].ID {
-		case "report1":
-			r1 = &reports[i]
-		case "report2":
-			r2 = &reports[i]
-		}
-	}
-
-	if r1 == nil {
-		t.Fatal("report1 not found")
-	}
-	if r1.Title != "Report 1" {
-		t.Errorf("report1 title = %q; want %q", r1.Title, "Report 1")
-	}
-	if !r1.HasDeepSleep {
-		t.Error("report1 should have HasDeepSleep=true")
-	}
-
-	if r2 == nil {
-		t.Fatal("report2 not found")
-	}
-	if r2.HasDeepSleep {
-		t.Error("report2 should not have HasDeepSleep")
-	}
-}
-
-func TestScanDreamReportsLocal_NonexistentDir(t *testing.T) {
-	_, err := scanDreamReportsLocal("/nonexistent-dir-xyz")
-	if err == nil {
-		t.Error("expected error for nonexistent dir")
-	}
-}
-
-func TestScanDreamReportsLocal_EmptyDir(t *testing.T) {
-	tmp := t.TempDir()
-	reports, err := scanDreamReportsLocal(tmp)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if len(reports) != 0 {
-		t.Errorf("expected 0 reports, got %d", len(reports))
 	}
 }
 
@@ -797,7 +685,7 @@ func TestDaemonDreamHandler_RegisterAPIRoutes(t *testing.T) {
 		{http.MethodGet, "/api/daemon/status"},
 		{http.MethodGet, "/api/dream/status?project_dir=/tmp"},
 		{http.MethodGet, "/api/dream/reports?project_dir=/tmp"},
-		{http.MethodGet, "/api/dream/subjects?project_dir=/tmp"},
+		{http.MethodGet, "/api/backlog?project_dir=/tmp"},
 	}
 	for _, ep := range endpoints {
 		req := httptest.NewRequest(ep.method, ep.path, nil)

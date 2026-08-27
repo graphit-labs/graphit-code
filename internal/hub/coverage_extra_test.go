@@ -16,11 +16,10 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/paths"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// ---------------------------------------------------------------------------
 // service.go – Uninstall deeper paths
-// ---------------------------------------------------------------------------
 
 func TestHubService_Uninstall_WithMembers(t *testing.T) {
 	t.Parallel()
@@ -145,18 +144,20 @@ func TestHubService_Uninstall_CleanupEmptyTypeMap(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // service.go – Link deeper paths
-// ---------------------------------------------------------------------------
 
 func TestHubService_Link_AST(t *testing.T) {
-	t.Parallel()
+	// Not parallel: the source project's store is resolved against HOME.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	dir := t.TempDir()
 	sourceDir := t.TempDir()
-	dotDir := brand.DotDir()
 
-	astSourceDir := filepath.Join(sourceDir, dotDir, "ast", "project")
-	_ = os.MkdirAll(astSourceDir, 0o755)
+	// Linking points at the source project's GLOBAL store, so that is what has to
+	// exist — there is nothing inside the source project to link to any more.
+	_ = os.MkdirAll(store.ASTProjectDir(sourceDir), 0o755)
+	_ = os.WriteFile(store.ASTProjectDBPath(sourceDir), []byte("graph"), 0o644)
 
 	lf := &Lockfile{
 		Project:   ProjectIdentity{ID: "test-id", Name: "Test"},
@@ -181,12 +182,14 @@ func TestHubService_Link_AST(t *testing.T) {
 }
 
 func TestHubService_Link_Knowledge(t *testing.T) {
-	t.Parallel()
+	// Not parallel: the source project's wiki is resolved against HOME.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	dir := t.TempDir()
 	sourceDir := t.TempDir()
-	dotDir := brand.DotDir()
 
-	knSourceDir := filepath.Join(sourceDir, dotDir, "knowledge", "project")
+	knSourceDir := store.KnowledgeProjectDir(sourceDir)
 	_ = os.MkdirAll(knSourceDir, 0o755)
 	_ = os.WriteFile(filepath.Join(knSourceDir, "index.md"), []byte("# Wiki"), 0o644)
 
@@ -240,9 +243,7 @@ func TestHubService_Link_Knowledge_SourceNotFound(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // service.go – Unlink deeper paths
-// ---------------------------------------------------------------------------
 
 func TestHubService_Unlink_Success(t *testing.T) {
 	t.Parallel()
@@ -354,10 +355,6 @@ func TestHubService_Unlink_Success(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// service.go – EnsureKnowledgeAvailable
-// ---------------------------------------------------------------------------
-
 func TestHubService_EnsureKnowledgeAvailable_VersionBranches(t *testing.T) {
 	t.Parallel()
 
@@ -394,10 +391,6 @@ func TestHubService_EnsureKnowledgeAvailable_VersionBranches(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// service.go – RecordPublish
-// ---------------------------------------------------------------------------
-
 func TestHubService_RecordPublish_ExistingWithEmptyOrigin(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -429,10 +422,6 @@ func TestHubService_RecordPublish_ExistingWithEmptyOrigin(t *testing.T) {
 		t.Errorf("expected 'publish', got %q", meta.Origin)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// service.go – UpdateOne with version matching
-// ---------------------------------------------------------------------------
 
 func TestHubService_UpdateOne_WithConstraint(t *testing.T) {
 	t.Parallel()
@@ -471,10 +460,6 @@ func TestHubService_UpdateOne_WithConstraint(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// service.go – UninstallAll with entries
-// ---------------------------------------------------------------------------
-
 func TestHubService_UninstallAll_WithEntries(t *testing.T) {
 	t.Parallel()
 	m := &RegistryManager{
@@ -501,10 +486,6 @@ func TestHubService_UninstallAll_WithEntries(t *testing.T) {
 		t.Logf("UninstallAll: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// service.go – UpdateAll with remote entries
-// ---------------------------------------------------------------------------
 
 func TestHubService_UpdateAll_WithRemoteEntries(t *testing.T) {
 	t.Parallel()
@@ -533,10 +514,6 @@ func TestHubService_UpdateAll_WithRemoteEntries(t *testing.T) {
 	_ = results
 }
 
-// ---------------------------------------------------------------------------
-// reconcile.go – ReconcileManagedArtifacts deeper paths
-// ---------------------------------------------------------------------------
-
 func TestReconcileManagedArtifacts_WithEntries(t *testing.T) {
 	t.Parallel()
 
@@ -554,7 +531,7 @@ func TestReconcileManagedArtifacts_WithEntries(t *testing.T) {
 		reg := &RegistryManager{
 			entries:  make(map[ArtifactType]map[string]*Entry),
 			projects: make(map[string]*Project),
-			gitStore: &GitStore{},
+			store:    &S3Store{},
 		}
 		reg.entries[TypeRule] = map[string]*Entry{
 			"proj-rule": {ID: "proj-rule", Type: TypeRule, Latest: "1.0.0", ProjectID: "my-project"},
@@ -584,7 +561,7 @@ func TestReconcileManagedArtifacts_WithEntries(t *testing.T) {
 		reg := &RegistryManager{
 			entries:  make(map[ArtifactType]map[string]*Entry),
 			projects: make(map[string]*Project),
-			gitStore: &GitStore{},
+			store:    &S3Store{},
 		}
 		reg.entries[TypeRule] = map[string]*Entry{
 			"other-rule": {ID: "other-rule", Type: TypeRule, Latest: "1.0.0", ProjectID: "other-project"},
@@ -611,10 +588,6 @@ func TestArtifactExistsForIDE_UnknownTypeDir(t *testing.T) {
 		t.Error("expected false for type without IDE type dir")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ui_server.go – handleUpload with multipart form
-// ---------------------------------------------------------------------------
 
 func TestUIServer_handleUpload_MissingID(t *testing.T) {
 	t.Parallel()
@@ -814,10 +787,6 @@ func TestUIServer_handleUpload_PowerNoFile(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 }
 
-// ---------------------------------------------------------------------------
-// ui_server.go – handleSubmit with dependencies
-// ---------------------------------------------------------------------------
-
 func TestUIServer_handleSubmit_WithDeps(t *testing.T) {
 	t.Parallel()
 	s := newTestUIServer(t)
@@ -868,10 +837,6 @@ func TestUIServer_handleSubmit_ProjectScopedWithLockfile(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 }
 
-// ---------------------------------------------------------------------------
-// ui_server.go – handleUnpublish with delete
-// ---------------------------------------------------------------------------
-
 func TestUIServer_handleUnpublish_WithProjectDir(t *testing.T) {
 	t.Parallel()
 	s := newTestUIServer(t)
@@ -884,10 +849,6 @@ func TestUIServer_handleUnpublish_WithProjectDir(t *testing.T) {
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 }
-
-// ---------------------------------------------------------------------------
-// ui_server.go – handleUnlink with IDE override
-// ---------------------------------------------------------------------------
 
 func TestUIServer_handleUnlink_WithIDEOverride(t *testing.T) {
 	t.Parallel()
@@ -902,10 +863,6 @@ func TestUIServer_handleUnlink_WithIDEOverride(t *testing.T) {
 		t.Error("unexpected bad request for valid JSON body")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ui_server.go – handleProjectArtifacts with lockfile data
-// ---------------------------------------------------------------------------
 
 func TestUIServer_handleProjectArtifacts_WithLockfile(t *testing.T) {
 	t.Parallel()
@@ -942,10 +899,6 @@ func TestUIServer_handleProjectArtifacts_WithLockfile(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ui_server.go – handleRegistry with lockfile
-// ---------------------------------------------------------------------------
-
 func TestUIServer_handleRegistry_WithLockfile(t *testing.T) {
 	t.Parallel()
 	s := newTestUIServer(t)
@@ -975,10 +928,6 @@ func TestUIServer_handleRegistry_WithLockfile(t *testing.T) {
 		t.Fatal("expected installed array")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ui_server.go – scanMCPArtifacts with servers
-// ---------------------------------------------------------------------------
 
 func TestScanMCPArtifacts_WithServers(t *testing.T) {
 	t.Parallel()
@@ -1014,10 +963,6 @@ func TestScanMCPArtifacts_WithServers(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// ui_server.go – handleInstall with IDE fallback
-// ---------------------------------------------------------------------------
-
 func TestUIServer_handleInstall_IDEFallback(t *testing.T) {
 	t.Parallel()
 	s := newTestUIServer(t)
@@ -1031,10 +976,6 @@ func TestUIServer_handleInstall_IDEFallback(t *testing.T) {
 		t.Error("expected JSON response")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ui_server.go – handleUpdateAll with IDE fallback
-// ---------------------------------------------------------------------------
 
 func TestUIServer_handleUpdateAll_IDEFallback(t *testing.T) {
 	t.Parallel()
@@ -1051,10 +992,6 @@ func TestUIServer_handleUpdateAll_IDEFallback(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ui_server.go – handleUpdateOne with IDE fallback
-// ---------------------------------------------------------------------------
-
 func TestUIServer_handleUpdateOne_IDEFallback(t *testing.T) {
 	t.Parallel()
 	s := newTestUIServer(t)
@@ -1069,10 +1006,6 @@ func TestUIServer_handleUpdateOne_IDEFallback(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// service.go – resolveArtifactPath
-// ---------------------------------------------------------------------------
-
 func TestResolveArtifactPath_NoLinkSource(t *testing.T) {
 	t.Parallel()
 	pp := &paths.ProjectPaths{
@@ -1085,10 +1018,6 @@ func TestResolveArtifactPath_NoLinkSource(t *testing.T) {
 		t.Error("expected non-empty path")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// service.go – Install validation with version constraints
-// ---------------------------------------------------------------------------
 
 func TestHubService_Install_InvalidVersionConstraint(t *testing.T) {
 	t.Parallel()
@@ -1172,10 +1101,6 @@ func TestHubService_Install_ExactVersionNoVersionsList(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// service.go – log helpers
-// ---------------------------------------------------------------------------
-
 func TestHubService_Log(t *testing.T) {
 	t.Parallel()
 	svc := &HubService{}
@@ -1212,10 +1137,6 @@ func TestGlobalLockManager_LogExtra(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ui_server.go – handleInstall with @ in ID
-// ---------------------------------------------------------------------------
-
 func TestUIServer_handleInstall_IDWithAtSign(t *testing.T) {
 	t.Parallel()
 	s := newTestUIServer(t)
@@ -1229,10 +1150,6 @@ func TestUIServer_handleInstall_IDWithAtSign(t *testing.T) {
 		t.Error("expected JSON response")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ui_server.go – handleUninstall with IDE fallback
-// ---------------------------------------------------------------------------
 
 func TestUIServer_handleUninstall_IDEFallback(t *testing.T) {
 	t.Parallel()
@@ -1248,21 +1165,13 @@ func TestUIServer_handleUninstall_IDEFallback(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// lifecycle.go – SyncIDEAdapter exported
-// ---------------------------------------------------------------------------
-
 func TestSyncIDEAdapter_Exported(t *testing.T) {
-	// Use a temp dir as CWD to avoid polluting the real project with CLAUDE.md
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	_ = os.Chdir(dir)
-	t.Cleanup(func() { _ = os.Chdir(origDir) })
 
 	lf := &Lockfile{
 		Project:   ProjectIdentity{ID: "test-id"},
 		Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta),
 	}
-	err := SyncIDEAdapter("claude", lf)
+	err := SyncIDEAdapter("claude", dir, lf)
 	_ = err
 }

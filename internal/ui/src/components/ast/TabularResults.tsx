@@ -1,5 +1,4 @@
 import { Download, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
 
 interface TabularResultsProps {
   columns: string[]

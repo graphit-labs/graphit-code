@@ -1,9 +1,0 @@
-# Express.js framework detection rules.
-# Extracted from frameworkRules (line 375).
-
-framework: express
-languages: [javascript, typescript]
-
-decorator_detection:
-  - name: middleware
-    category: middleware

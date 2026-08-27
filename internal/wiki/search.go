@@ -3,6 +3,7 @@ package wiki
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,8 +38,8 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 
 	// Try WikiDB catalog first, fall back to index.md.
 	var indexContent []byte
-	if db, dbErr := OpenWikiDB(cfg.WikiDir); dbErr == nil {
-		entries, browseErr := db.Browse(BrowseFilter{Limit: 100})
+	if db, dbErr := OpenWikiDB(ctx, cfg.WikiDir); dbErr == nil {
+		entries, browseErr := db.Browse(ctx, BrowseFilter{Limit: 100})
 		db.Close()
 		if browseErr == nil && len(entries) > 0 {
 			var b strings.Builder
@@ -65,7 +66,7 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 	result.TokensSent += len(indexContent) / 4
 
 	if cfg.UseBM25 {
-		bm25Ctx := bm25PreFilter(cfg.WikiDir, query, cfg.BM25TopN)
+		bm25Ctx := bm25PreFilter(ctx, cfg.WikiDir, query, cfg.BM25TopN)
 		if bm25Ctx != "" {
 			context_ += "\n\n" + bm25Ctx
 			result.TokensSent += len(bm25Ctx) / 4
@@ -193,27 +194,60 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 	return result, nil
 }
 
-func bm25PreFilter(wikiDir, query string, topN int) string {
-	// Try SQLite FTS5 first.
-	if db, err := OpenWikiDB(wikiDir); err == nil {
-		defer db.Close()
-		results, err := db.Search(query, topN)
-		if err == nil && len(results) > 0 {
-			var b strings.Builder
-			b.WriteString("=== FTS5 Relevant Pages (pre-filtered) ===\n")
-			fmt.Fprintf(&b, "Query: %q — top %d by BM25+FTS5 relevance:\n\n", query, len(results))
-			for i, r := range results {
-				fmt.Fprintf(&b, "%d. [[%s]]", i+1, r.Slug)
-				if r.Title != "" {
-					fmt.Fprintf(&b, " — %s", r.Title)
-				}
-				fmt.Fprintf(&b, " (score: %.3f)\n", r.Score)
+// searchCompiledWiki asks the compiled index, and says whether that index was in a
+// position to answer at all.
+//
+// The second return value is the whole point, and it used to be missing. The markdown
+// files are the source of truth and the SQLite index is a compiled cache of them — see
+// OpenWikiDB, which gitignores the database as a derived artifact — so there are two
+// genuinely different situations behind an empty result:
+//
+//   - the index holds chunks, so it is AUTHORITATIVE. Its empty answer is a real "no
+//     matches", and re-asking the markdown would only manufacture hits that the index
+//     deliberately did not rank.
+//   - the index holds nothing, so it has not been compiled yet: a fresh project, or a
+//     page written in the seconds before the daemon rebuilds. Only the markdown can
+//     answer, and scanning it is why a memory is findable the moment it is written.
+//
+// Deciding this on `len(results) > 0` conflated the two, which is what made an empty or
+// stale index invisible: every miss quietly came back from the other engine, so nothing
+// ever surfaced that the index had no content.
+func searchCompiledWiki(ctx context.Context, wikiDir, query string, topN int) (results []WikiSearchResult, authoritative bool) {
+	db, err := OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return nil, false
+	}
+	defer db.Close()
+
+	if !db.HasContent(ctx) {
+		return nil, false
+	}
+	results, err = db.Search(ctx, query, topN)
+	if err != nil {
+		return nil, false
+	}
+	return results, true
+}
+
+func bm25PreFilter(ctx context.Context, wikiDir, query string, topN int) string {
+	// The compiled index answers when it has content and ranked something. It falling
+	// through is not a clean miss — see BM25Search for why the scan stays underneath.
+	if results, authoritative := searchCompiledWiki(ctx, wikiDir, query, topN); authoritative && len(results) > 0 {
+		var b strings.Builder
+		b.WriteString("=== FTS5 Relevant Pages (pre-filtered) ===\n")
+		fmt.Fprintf(&b, "Query: %q — top %d by BM25+FTS5 relevance:\n\n", query, len(results))
+		for i, r := range results {
+			fmt.Fprintf(&b, "%d. [[%s]]", i+1, r.Slug)
+			if r.Title != "" {
+				fmt.Fprintf(&b, " — %s", r.Title)
 			}
-			return b.String()
+			fmt.Fprintf(&b, " (score: %.3f)\n", r.Score)
 		}
+		return b.String()
 	}
 
-	// Fallback to in-memory BM25.
+	// Not compiled yet: rank the markdown, which is the source of truth. The heading
+	// names the engine, so a reader can tell which one answered.
 	idx, err := NewBM25Index(wikiDir, DefaultBM25Config())
 	if err != nil || idx.totalDocs == 0 {
 		return ""
@@ -239,17 +273,43 @@ func bm25PreFilter(wikiDir, query string, topN int) string {
 	return b.String()
 }
 
-func BM25Search(wikiDir, query string, topN int) []BM25Result {
-	// Try SQLite FTS5 first (faster, richer results).
-	if db, err := OpenWikiDB(wikiDir); err == nil {
-		defer db.Close()
-		results, err := db.Search(query, topN)
-		if err == nil && len(results) > 0 {
-			return wikiFTSToB25Results(results)
-		}
+// BM25Search searches a wiki, from the compiled index when there is one and from the
+// markdown itself when there is not.
+//
+// Both paths rank by BM25 — the index through FTS5's bm25(), the scan through the Go
+// implementation in bm25.go — so the name describes the ranking, not one engine. Which
+// path answers is decided by searchCompiledWiki: see it for why an empty index and an
+// empty ANSWER are not the same thing.
+//
+// An authoritative miss still falls through to the scan, and that is deliberate. The
+// tempting change is to report it as a real miss, which reads cleaner and is wrong here:
+// an index can hold content and still be BEHIND the files it indexes, and this project
+// has already shipped that exact state — a stale pre-check left new pages unindexed while
+// old ones were present, so every session ran without recall while believing the project
+// simply had no memories. The scan is the net under that.
+//
+// What was missing was not the fallback but the signal, so the disagreement is now said
+// out loud: an index that ranked nothing for a query the markdown answers is stale, and
+// that is worth a warning naming the diagnostic instead of a silent second opinion.
+func BM25Search(ctx context.Context, wikiDir, query string, topN int) []BM25Result {
+	compiled, authoritative := searchCompiledWiki(ctx, wikiDir, query, topN)
+	if authoritative && len(compiled) > 0 {
+		return wikiFTSToB25Results(compiled)
 	}
 
-	// Fallback to in-memory BM25.
+	scanned := scanMarkdownBM25(wikiDir, query, topN)
+	if authoritative && len(scanned) > 0 {
+		slog.Warn("wiki index is behind its markdown: it ranked nothing for a query the files answer",
+			"wiki_dir", wikiDir, "hits_from_markdown", len(scanned),
+			"diagnose", "SELECT count(*) FROM chunks in wiki.db, then reindex")
+	}
+	return scanned
+}
+
+// scanMarkdownBM25 ranks the markdown files directly, which is what answers before the
+// wiki has ever been compiled — and, for a memory, within the seconds between writing it
+// and the daemon rebuilding.
+func scanMarkdownBM25(wikiDir, query string, topN int) []BM25Result {
 	idx, err := NewBM25Index(wikiDir, DefaultBM25Config())
 	if err != nil {
 		return nil
@@ -279,46 +339,12 @@ func wikiFTSToB25Results(ftsResults []WikiSearchResult) []BM25Result {
 	return results
 }
 
+// extractSnippet previews a markdown page for a query. It delegates to the same
+// window builder the compiled index uses, so the two engines cannot disagree about
+// what a preview is; the frontmatter goes first because it is metadata the reader
+// did not ask to see.
 func extractSnippet(content, query string) string {
-	lower := strings.ToLower(content)
-	queryLower := strings.ToLower(query)
-
-	terms := strings.Fields(queryLower)
-	bestIdx := -1
-	for _, term := range terms {
-		idx := strings.Index(lower, term)
-		if idx >= 0 {
-			bestIdx = idx
-			break
-		}
-	}
-
-	if bestIdx < 0 {
-
-		body := StripFrontmatter(content)
-		if len(body) > 150 {
-			return body[:150] + "…"
-		}
-		return body
-	}
-
-	start := bestIdx - 60
-	if start < 0 {
-		start = 0
-	}
-	end := bestIdx + 120
-	if end > len(content) {
-		end = len(content)
-	}
-
-	snippet := strings.TrimSpace(content[start:end])
-	if start > 0 {
-		snippet = "…" + snippet
-	}
-	if end < len(content) {
-		snippet += "…"
-	}
-	return snippet
+	return snippetAround(StripFrontmatter(content), query, wikiSnippetWidth)
 }
 
 func buildSearchSystemPrompt(moduleTag string) string {

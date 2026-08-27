@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
@@ -31,9 +33,28 @@ type BundleManifest struct {
 	RepoPath  string `json:"repo_path"`
 	NodeCount int    `json:"node_count"`
 	EdgeCount int    `json:"edge_count"`
+	// SourceCount is how many files the bundle carries text for, so a consumer can
+	// tell a structure-only bundle from a truncated one instead of guessing.
+	SourceCount int `json:"source_count"`
 }
 
-func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string, logger *slog.Logger) error {
+// BundleOptions says where the file text comes from and whether to carry it.
+//
+// Text is not a graph property — the search index owns it — so a bundle can only
+// include it when it knows which store to read. Without StorePath the bundle is
+// structure-only, and says so in its manifest.
+type BundleOptions struct {
+	StorePath string
+	NoSources bool
+}
+
+// bundleSourceDir is the archive member prefix under which file text is written, one
+// entry per file rather than one large map, so extracting a bundle yields a tree and
+// reading one file out of it does not require parsing all of them.
+const bundleSourceDir = "sources/"
+
+func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string,
+	opts BundleOptions, logger *slog.Logger) error {
 	log := slogutil.Resolve(logger)
 	abs, _ := filepath.Abs(repoPath)
 	prefix := abs + "/"
@@ -113,11 +134,21 @@ func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string, 
 	zw := zip.NewWriter(f)
 	defer func() { _ = zw.Close() }()
 
+	sourceCount := 0
+	if !opts.NoSources && opts.StorePath != "" {
+		n, err := writeBundleSources(zw, opts.StorePath)
+		if err != nil {
+			return err
+		}
+		sourceCount = n
+	}
+
 	manifest := BundleManifest{
-		Version:   "1.0",
-		RepoPath:  abs,
-		NodeCount: len(nodes),
-		EdgeCount: len(edges),
+		Version:     "1.0",
+		RepoPath:    abs,
+		NodeCount:   len(nodes),
+		EdgeCount:   len(edges),
+		SourceCount: sourceCount,
 	}
 	if err := writeJSONToZip(zw, "manifest.json", manifest); err != nil {
 		return err
@@ -129,8 +160,37 @@ func ExportBundle(ctx context.Context, db GraphDB, repoPath, outputPath string, 
 		return err
 	}
 
-	log.Info("bundle exported", "nodes", len(nodes), "edges", len(edges), "path", outputPath)
+	log.Info("bundle exported", "nodes", len(nodes), "edges", len(edges),
+		"sources", sourceCount, "path", outputPath)
 	return nil
+}
+
+// writeBundleSources streams every indexed file's text into the archive.
+//
+// A path that would escape the archive root is skipped rather than written: the paths
+// come from an index built elsewhere, and a bundle is something a person extracts.
+func writeBundleSources(zw *zip.Writer, indexPath string) (int, error) {
+	count := 0
+	err := EachFileSource(context.Background(), indexPath, func(relPath, src string) error {
+		clean := filepath.Clean(relPath)
+		if filepath.IsAbs(clean) || clean == ".." ||
+			strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			return nil
+		}
+		w, err := zw.Create(bundleSourceDir + filepath.ToSlash(clean))
+		if err != nil {
+			return fmt.Errorf("bundle source entry %s: %w", clean, err)
+		}
+		if _, err := io.WriteString(w, src); err != nil {
+			return fmt.Errorf("bundle source write %s: %w", clean, err)
+		}
+		count++
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("bundle sources: %w", err)
+	}
+	return count, nil
 }
 
 func writeJSONToZip(zw *zip.Writer, name string, data any) error {

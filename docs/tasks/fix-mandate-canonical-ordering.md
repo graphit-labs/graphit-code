@@ -5,30 +5,30 @@
 
 ## Problema
 
-`UpsertMandateTrigger` removia o trigger existente e o reappendava ao final do bloco do mandate. Isso fazia com que módulos adicionados pela primeira vez (ex: `imp_rule` via `graphit sync`) mudassem de posição, gerando diffs grandes mesmo sem mudança de conteúdo.
+The inline 2 removed and re-added the existing trigger to the end of the mandate block. This caused modules added for the first time (e.g., inline 3 via inline 4) to change position, generating large diffs even without content changes.
 
-## Causa Raiz
+Root Cause
 
 ```go
 // antes — sempre appenda ao final
 inner = inner + "\n" + wrapped
 ```
 
-## Solução
+Solution
 
-Substituída a estratégia de append por reescrita completa ordenada:
+Replaced the append strategy with an ordered complete rewrite:
 
-1. `parseTriggers(inner)` — extrai todos os triggers existentes em um `map[string]string`
-2. Atualiza o trigger alvo no mapa
-3. `assembleTriggers(triggers)` — reescreve o inner seguindo `canonicalTriggerOrder`:
+1. **Extracts all existing triggers from a `map[string]string`**
+2. Update the target trigger in the map
+3. **Rewrites the inner with `canonicalTriggerOrder`:**
    `mem_rule → ast_rule → hub_rule → doc_rule → imp_rule`
-   Triggers desconhecidos (hub-installed) ficam após os canônicos, ordenados alfabeticamente
+Triggers that are unknown (installed on the hub) come after the canonical ones, sorted alphabetically.
 
 ## Resultado
 
-- `graphit sync` num projeto já sincronizado → diff zero
-- `graphit sync` com novo módulo → módulo aparece na posição canônica, não ao final
-- Ordem de chamada dos `InstallRule` não importa mais
+- The inline 10th project is already synchronized → diff zero
+- With the new module → the module appears in canonical position, not at the end
+- The order of calls to `InstallRule` no longer matters
 
 ## Arquivos Modificados
 

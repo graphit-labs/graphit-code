@@ -10,30 +10,27 @@ tags: [mcp, ai_optimized, refactor, breaking-change]
 
 ## Objective
 
-Remover a instrução obrigatória de que agentes precisam passar `ai_optimized: true`
-em cada chamada MCP, tornando o valor `true` o padrão implícito tanto no servidor
-MCP stdio quanto na CLI. Agentes que queiram output JSON verbose devem passar
-`ai_optimized: false` explicitamente (opt-out ao invés de opt-in).
+Remove the mandatory instruction that agents must pass `ai_optimized: true` in every MCP call, making the value `true` the implicit default for both the stdio MCP server and the CLI. Agents that want verbose JSON output must explicitly pass `ai_optimized: false` (opt-out instead of opt-in).
 
 ## Implementation Details
 
 ### MCP Stdio Tools (opt-in → opt-out)
 
-Todos os structs de input nos arquivos `internal/mcpstdio/tools_*.go` que tinham:
+All input structs in the files `internal/mcpstdio/tools_*.go` that had:
 
 ```go
 AiOptimized bool `json:"ai_optimized,omitempty" jsonschema:"MANDATORY for AI agents. Set to true..."`
 ```
 
-Foram alterados para:
+They were changed to:
 
 ```go
 AiOptimized *bool `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 ```
 
-O uso de `*bool` permite distinguir entre "não passado" (nil → true por padrão)
-e "passado explicitamente como false". O helper `aiOpt()` em `server.go` trata
-essa lógica:
+The use of `*bool` allows distinguishing between "not passed" (nil → true by default)
+and "explicitly passed as false". The helper `aiOpt()` in `server.go` handles
+this logic:
 
 ```go
 func aiOpt(v *bool) bool {
@@ -56,40 +53,33 @@ func aiOpt(v *bool) bool {
 - `internal/mcpstdio/tools_wiki.go`
 - `internal/mcpstdio/server.go` (helper `aiOpt` adicionado)
 
-### CLI (false → true por padrão)
+### CLI (false → true by default)
 
-As flags `--ai-optimized` nos comandos CLI foram alteradas de `false` para `true`
-como valor padrão:
+The `--ai-optimized` flags in the CLI commands were changed from `false` to `true` as the default value:
 
 - `cmd/graphit/commands/ast.go`
 - `cmd/graphit/commands/wiki.go`
 
-### Remoção de instrução automática nos skills/rules
+### Removal of automatic instruction in skills/rules
 
-- `internal/brand/brand.go`: removida função `UniversalAIOptimizedNote()`
-- `internal/ast/rule.go`: removida injeção da nota no conteúdo do rule
+- `internal/brand/brand.go`: removed function `UniversalAIOptimizedNote()`
+- `internal/ast/rule.go`: removed note injection into the rule content
 - `internal/hub/adapters/ide/mandate.go`: removida nota do preamble
-- `internal/hub/rule.go`: removida injeção da nota
-- `internal/knowledge/rule.go`: removida injeção da nota
-- `internal/memory/rule.go`: removida injeção da nota
-- `internal/improvements/rules.go`: removida injeção da nota
+- `internal/hub/rule.go`: removed note injection
+- `internal/knowledge/rule.go`: removed note injection
+- `internal/memory/rule.go`: removed note injection
+- `internal/improvements/rules.go`: removed note injection
 
 ## Key Decisions
 
-- **`*bool` vs custom type**: Escolhido `*bool` como tipo para `AiOptimized` em vez
-  de criar um tipo dedicado. Simples e direto para o caso de uso de opt-out.
-- **JSON schema `omitempty`**: Mantido `omitempty` para que o campo não apareça
-  em schemas gerados quando não passado — reduz ruído nos schemas MCP.
-- **Compatibilidade retroativa**: Agentes que ainda passem `ai_optimized: true`
-  continuam funcionando normalmente. A quebra de compatibilidade é apenas para
-  quem passava `ai_optimized: false` intencionalmente (improvável, era opt-in).
+- **`*bool` vs custom type**: Chosen `*bool` as the type for `AiOptimized` instead of creating a dedicated type. Simple and straightforward for the opt-out use case.
+- **JSON schema `omitempty`**: Kept `omitempty` so that the field does not appear in generated schemas when not provided — reduces noise in MCP schemas.
+- **Backward compatibility**: Agents still passing `ai_optimized: true` continue to function normally. The breaking change only affects those who intentionally passed `ai_optimized: false` (unlikely, as it was opt-in).
 
 ## Trade-offs & Decisions
 
-- Troca opt-in por opt-out: simplifica o uso para agentes (que eram o caso padrão)
-  e mantém a opção de JSON verbose para debugging via `false`.
-- A remoção da nota dos skills reduz tokens consumidos desnecessariamente a cada
-  leitura de skill.
+- Switch opt-in to opt-out: simplifies usage for agents (who were the default case) and keeps the verbose JSON option for debugging via `false`.
+- Removing the notes from skills reduces unnecessarily consumed tokens during each skill read.
 
 ## Files Changed
 
@@ -110,9 +100,9 @@ como valor padrão:
 ## Progress Log
 
 ### 2026-06-18
-- Adicionado helper `aiOpt()` em `server.go`
-- Refatorados todos os 9 arquivos `tools_*.go` de `bool` para `*bool`
-- Alteradas flags CLI em `ast.go` e `wiki.go`
-- Removida `UniversalAIOptimizedNote()` de `brand.go`
-- Removidas todas as injeções nos 5 arquivos de rules
-- Build validado com sucesso (`go build ./...`)
+- Added helper `aiOpt()` in `server.go`
+- Refactored all 9 files from `tools_*.go` to `*bool`
+- Changed CLI flags in `ast.go` and `wiki.go`
+- Removed `UniversalAIOptimizedNote()` from `brand.go`
+- Removed all injections in the 5 rules files
+- Build validated successfully (`go build ./...`)

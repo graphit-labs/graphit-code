@@ -4,10 +4,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// DefaultEmbeddingConfig
-// ---------------------------------------------------------------------------
-
 func TestDefaultEmbeddingConfig(t *testing.T) {
 	cfg := DefaultEmbeddingConfig()
 	if cfg.BatchSize != 128 {
@@ -27,44 +23,28 @@ func TestDefaultEmbeddingConfig(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// embeddableLabels
-// ---------------------------------------------------------------------------
-
-func TestEmbeddableLabels(t *testing.T) {
-	if len(embeddableLabels) == 0 {
-		t.Fatal("expected non-empty embeddableLabels")
+// Which labels are embeddable is the GRAMMAR's answer, resolved per language —
+// there is no list in this package to assert against. What is worth pinning here
+// is the resolution itself: a language nobody declared embeds nothing, rather
+// than falling back to a built-in guess that would answer for grammars the binary
+// has never seen. See ExternalQueryFile.EmbedLabels.
+//
+// Coverage of the shipped grammars' own declarations lives in
+// embed_labels_coverage_test.go.
+func TestEmbedLabelsResolvePerLanguage(t *testing.T) {
+	if got := EmbedLabelsForLang("", "no-such-language-anywhere"); len(got) != 0 {
+		t.Errorf("undeclared language resolved to %v, want nothing", got)
+	}
+	if got := EmbedLabelsForLang("", ""); len(got) != 0 {
+		t.Errorf("empty language resolved to %v, want nothing", got)
 	}
 
-	expected := map[string]bool{
-		"Function":  true,
-		"Class":     true,
-		"Method":    true,
-		"Struct":    true,
-		"Interface": true,
-		"Module":    true,
-		"Variable":  true,
-		"Constant":  true,
-	}
-
-	found := make(map[string]bool)
-	for _, label := range embeddableLabels {
-		found[label] = true
-		if label == "" {
-			t.Error("found empty label in embeddableLabels")
-		}
-	}
-
-	for key := range expected {
-		if !found[key] {
-			t.Errorf("expected %q in embeddableLabels", key)
-		}
+	projectDir := stageEmbedLabelsGrammar(t, "Function", "Comment")
+	got := EmbedLabelsForLang(projectDir, embedLabelsTestLang)
+	if len(got) != 2 || got[0] != "Function" || got[1] != LabelComment {
+		t.Errorf("EmbedLabelsForLang = %v, want [Function Comment]", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// NewEmbedder
-// ---------------------------------------------------------------------------
 
 func TestNewEmbedder_NilClient(t *testing.T) {
 	cfg := DefaultEmbeddingConfig()

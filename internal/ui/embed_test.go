@@ -12,12 +12,12 @@ func TestServeStatic(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		path              string
-		wantServed        bool
-		wantContentType   string
-		wantCacheControl  string
-		wantNonEmptyBody  bool
+		name             string
+		path             string
+		wantServed       bool
+		wantContentType  string
+		wantCacheControl string
+		wantNonEmptyBody bool
 	}{
 		{
 			name:       "root path returns false",

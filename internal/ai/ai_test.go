@@ -18,10 +18,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// ---------------------------------------------------------------------------
-// CLI tests
-// ---------------------------------------------------------------------------
-
 func TestTryFallbackCLIAndComplete(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -58,7 +54,6 @@ cat > /dev/null; echo "grok completed"
 		t.Errorf("expected 'grok completed', got %q", resp)
 	}
 
-	// Test fallback path with unknown provider
 	clientGeneral := tryFallbackCLI("unknown_provider", "")
 	if clientGeneral == nil {
 		t.Fatalf("expected client for unknown_provider fallback, since grok is in PATH")
@@ -227,7 +222,6 @@ func TestNonInteractivePreamble(t *testing.T) {
 	})
 
 	t.Run("arg_mode", func(t *testing.T) {
-		// Script that echoes its last argument
 		argScript := "#!/bin/sh\nfor arg; do last=\"$arg\"; done; echo \"$last\"\n"
 		bp := filepath.Join(tempDir, "opencode")
 		if err := os.WriteFile(bp, []byte(argScript), 0755); err != nil {
@@ -296,7 +290,6 @@ func TestCompleteFileInput(t *testing.T) {
 
 func TestCompleteArgInput(t *testing.T) {
 	tempDir := t.TempDir()
-	// Script that echoes last argument
 	script := "#!/bin/sh\nfor arg; do last=$arg; done; echo \"arg: $last\"\n"
 
 	binaries := []string{"opencode", "cline"}
@@ -468,7 +461,6 @@ func TestCompleteError(t *testing.T) {
 func TestTryFallbackCLI_AllProviders(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Save/restore old ideToCLI
 	oldIDEToCLI := ideToCLI
 	defer func() { ideToCLI = oldIDEToCLI }()
 	ideToCLI = func(ide string) string { return "" }
@@ -476,8 +468,8 @@ func TestTryFallbackCLI_AllProviders(t *testing.T) {
 	t.Setenv("PATH", tempDir)
 
 	providers := []struct {
-		provider  string
-		firstBin  string
+		provider string
+		firstBin string
 	}{
 		{"google", "agy"},
 		{"anthropic", "claude"},
@@ -490,7 +482,6 @@ func TestTryFallbackCLI_AllProviders(t *testing.T) {
 
 	for _, p := range providers {
 		t.Run("provider_"+p.provider, func(t *testing.T) {
-			// Create first expected binary
 			script := "#!/bin/sh\necho ok\n"
 			binPath := filepath.Join(tempDir, p.firstBin)
 			if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
@@ -613,10 +604,6 @@ func TestNewClientFromConfig_Success(t *testing.T) {
 		t.Fatal("expected non-nil client")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Proxy embedding tests
-// ---------------------------------------------------------------------------
 
 func TestProxyEmbeddingClient(t *testing.T) {
 	tempHome := t.TempDir()
@@ -790,10 +777,6 @@ func TestNewProxyEmbeddingClient_NoSockFile(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Embedding config tests
-// ---------------------------------------------------------------------------
-
 func TestNewEmbeddingClientFromConfig_ProxyAvailable(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
@@ -820,10 +803,6 @@ func TestNewEmbeddingClientFromConfig_ProxyAvailable(t *testing.T) {
 		t.Errorf("ModelName = %q; expected proxy tag", client.ModelName())
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Lazy embedding tests
-// ---------------------------------------------------------------------------
 
 func TestNewLazyEmbeddingClient(t *testing.T) {
 	lazy := NewLazyEmbeddingClient()
@@ -894,10 +873,6 @@ func TestLazyEmbeddingClient_InitError(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
-// findORTLibrary tests
-// ---------------------------------------------------------------------------
-
 func TestFindORTLibrary_NoLibrary(t *testing.T) {
 	// With a clean env, findORTLibrary should return "" when no library exists
 	t.Setenv("LD_LIBRARY_PATH", "")
@@ -924,10 +899,6 @@ func TestFindORTLibrary_InEnvPath(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// initONNXRuntime tests
-// ---------------------------------------------------------------------------
-
 func TestInitONNXRuntime(t *testing.T) {
 	// We can't actually initialize ONNX runtime in tests
 	// but we can verify the function doesn't panic on repeated calls
@@ -936,10 +907,6 @@ func TestInitONNXRuntime(t *testing.T) {
 	// It might succeed or fail depending on environment — just ensure no panic
 	_ = err
 }
-
-// ---------------------------------------------------------------------------
-// Model Manager tests
-// ---------------------------------------------------------------------------
 
 func TestNewModelManager(t *testing.T) {
 	mgr, err := NewModelManager()
@@ -1070,27 +1037,24 @@ func TestModelManager_download(t *testing.T) {
 	})
 }
 
+// No bundled models sit next to a test binary in /tmp/go-build, so findBundledModels
+// returns "" and EnsureModel falls through to the cache, finds it empty, and
+// downloads. Pointed at a local server that is what happens, and it is checkable:
+// before, this reached huggingface.co and accepted either outcome.
 func TestModelManager_EnsureModel_BundledModels(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Get the current executable path
-	exe, err := os.Executable()
+	mgr := modelServer(t, tmpDir)
+
+	modelPath, tokenizerPath, err := mgr.EnsureModel(context.Background())
 	if err != nil {
-		t.Skip("cannot get executable path")
+		t.Fatalf("EnsureModel fell through to download and failed: %v", err)
 	}
-
-	modelsDir := filepath.Join(filepath.Dir(exe), "models")
-	// The bundled models dir most likely doesn't exist in test env
-	// So this test mainly exercises the path where it falls through
-	mgr := &ModelManager{cacheDir: tmpDir}
-	_ = modelsDir
-
-	// EnsureModel will fail because no model files exist
-	_, _, err = mgr.EnsureModel(context.Background())
-	// Expected to fail (either download or model validation)
-	if err == nil {
-		// If it succeeds (perhaps models are actually cached), that's fine too
-		t.Log("EnsureModel succeeded - models may be cached")
+	if modelPath != filepath.Join(tmpDir, modelFileName) {
+		t.Errorf("model path = %q; want it in the cache dir, not a bundled dir", modelPath)
+	}
+	if tokenizerPath != filepath.Join(tmpDir, tokenizerFileName) {
+		t.Errorf("tokenizer path = %q; want it in the cache dir", tokenizerPath)
 	}
 }
 
@@ -1124,30 +1088,36 @@ func TestModelManager_EnsureModel_CachedModels(t *testing.T) {
 	}
 }
 
+// A server that answers 200 with a body below the minimum size. This used to
+// build exactly that server and then never point EnsureModel at it, so what was
+// really being measured was huggingface.co.
 func TestModelManager_EnsureModel_DownloadModel(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Mock model download server - returns content smaller than min size
-	modelContent := make([]byte, 50) // Too small
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write(modelContent)
+	tooSmall := make([]byte, 50)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(tooSmall)
 	}))
 	defer srv.Close()
 
-	mgr := &ModelManager{cacheDir: tmpDir}
+	mgr := &ModelManager{
+		cacheDir:     tmpDir,
+		modelURL:     srv.URL + "/" + modelFileName,
+		tokenizerURL: srv.URL + "/" + tokenizerFileName,
+	}
 
-	// Even if we had the right URLs, the downloaded model is too small
-	// so EnsureModel should error
 	_, _, err := mgr.EnsureModel(context.Background())
 	if err == nil {
-		t.Log("EnsureModel succeeded unexpectedly - model might be cached elsewhere")
+		t.Fatal("a 50-byte model was accepted; the size floor is what stops a truncated download")
+	}
+	if !strings.Contains(err.Error(), "too small") {
+		t.Errorf("error = %v; want it to name the size problem", err)
 	}
 }
 
 func TestModelManager_EnsureModel_DownloadSuccess(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create a mock server for downloads
 	modelContent := make([]byte, modelONNXMinSize+1)
 	tokenizerContent := make([]byte, tokenizerJSONMinSize+1)
 
@@ -1193,42 +1163,55 @@ func TestModelManager_EnsureModel_DownloadSuccess(t *testing.T) {
 	}
 }
 
+// A cached tokenizer is valid and the cached model is not, so only the model is
+// re-fetched. The tokenizer's mtime is the evidence: an untouched file means the
+// second download branch was correctly skipped.
 func TestModelManager_EnsureModel_NeedDownloadModelTooSmall(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create too-small model and valid tokenizer
 	if err := os.WriteFile(filepath.Join(tmpDir, modelFileName), []byte("tiny"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tokenizerData := make([]byte, tokenizerJSONMinSize+1)
-	if err := os.WriteFile(filepath.Join(tmpDir, tokenizerFileName), tokenizerData, 0o644); err != nil {
+	tokenizerPath := filepath.Join(tmpDir, tokenizerFileName)
+	sparseFile(t, tokenizerPath, tokenizerJSONMinSize+1)
+	before, err := os.Stat(tokenizerPath)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	mgr := &ModelManager{cacheDir: tmpDir}
-	// EnsureModel will try to download model from hardcoded URL — will fail
-	_, _, err := mgr.EnsureModel(context.Background())
-	if err == nil {
-		t.Log("EnsureModel succeeded unexpectedly")
+	mgr := modelServer(t, tmpDir)
+	if _, _, err := mgr.EnsureModel(context.Background()); err != nil {
+		t.Fatalf("EnsureModel could not replace the undersized model: %v", err)
+	}
+
+	if info, err := os.Stat(filepath.Join(tmpDir, modelFileName)); err != nil {
+		t.Fatal(err)
+	} else if info.Size() < modelONNXMinSize {
+		t.Errorf("model is still %d bytes; it was not replaced", info.Size())
+	}
+	after, err := os.Stat(tokenizerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.ModTime().Equal(before.ModTime()) {
+		t.Error("the already-valid tokenizer was downloaded again")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// NewLocalEmbeddingClient tests
-// ---------------------------------------------------------------------------
-
 func TestNewLocalEmbeddingClient_Fails(t *testing.T) {
-	// Without the actual ONNX model, this should fail
-	t.Setenv("HOME", t.TempDir())
+	// Without a real ONNX model this should fail. The seeded cache is the right
+	// size and the wrong content, so it still fails — at the ONNX load, which is
+	// the step under test, rather than after a 132 MB download.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	seedModelCache(t, home)
 	_, err := NewLocalEmbeddingClient()
 	if err == nil {
 		t.Log("NewLocalEmbeddingClient succeeded - model may be cached in default location")
 	}
 }
 
-// ---------------------------------------------------------------------------
 // localEmbeddingClient tests (unit-testable parts)
-// ---------------------------------------------------------------------------
 
 func TestLocalEmbeddingClient_ModelName(t *testing.T) {
 	c := &localEmbeddingClient{}
@@ -1263,12 +1246,6 @@ func TestNormalization(t *testing.T) {
 		t.Errorf("normalized[0] = %f; want 0.6", normalized[0])
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Lazy client with mock tests
-// ---------------------------------------------------------------------------
-
-
 
 func TestLazyEmbeddingClient_MultipleCalls(t *testing.T) {
 	lazy := failedLazyClient(t, errors.New("init error"))

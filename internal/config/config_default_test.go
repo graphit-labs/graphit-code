@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
@@ -45,14 +46,12 @@ func TestIsModuleDisabled(t *testing.T) {
 func TestConfigCRUD(t *testing.T) {
 	cfg := make(ConfigMap)
 
-	// Test SetConfigValue (non-nested)
 	SetConfigValue(cfg, "foo", "bar")
 	val, ok := GetConfigValue(cfg, "foo")
 	if !ok || val != "bar" {
 		t.Errorf("expected foo=bar, got %q (ok=%t)", val, ok)
 	}
 
-	// Test SetConfigValue (nested)
 	SetConfigValue(cfg, "nested.key", "value")
 	val, ok = GetConfigValue(cfg, "nested.key")
 	if !ok || val != "value" {
@@ -80,7 +79,6 @@ func TestConfigCRUD(t *testing.T) {
 		t.Errorf("expected nested_non_string.key to fail, got %q (ok=%t)", val, ok)
 	}
 
-	// Test ListConfigEntries
 	entries := ListConfigEntries(cfg)
 	foundFoo := false
 	for _, entry := range entries {
@@ -92,14 +90,12 @@ func TestConfigCRUD(t *testing.T) {
 		t.Errorf("expected foo=bar in listed entries, entries: %v", entries)
 	}
 
-	// Test UnsetConfigValue (non-nested)
 	UnsetConfigValue(cfg, "foo")
 	_, ok = GetConfigValue(cfg, "foo")
 	if ok {
 		t.Error("expected foo to be unset")
 	}
 
-	// Test UnsetConfigValue (nested)
 	UnsetConfigValue(cfg, "nested.key")
 	_, ok = GetConfigValue(cfg, "nested.key")
 	if ok {
@@ -108,7 +104,6 @@ func TestConfigCRUD(t *testing.T) {
 }
 
 func TestResolveConfig(t *testing.T) {
-	// Set defaults
 	origCompiledDefaults := CompiledDefaults
 	defer func() { CompiledDefaults = origCompiledDefaults }()
 	CompiledDefaults = "default.key=default_val,other.key=other_val"
@@ -189,7 +184,6 @@ func TestResolveIDEAndCLI(t *testing.T) {
 	parsedDefaults = nil
 	defaultsOnce = sync.Once{}
 
-	// ResolveIDE tests
 	ide := ResolveIDE("flag_ide", nil, nil)
 	if ide != "flag_ide" {
 		t.Errorf("expected flag_ide, got %q", ide)
@@ -200,7 +194,6 @@ func TestResolveIDEAndCLI(t *testing.T) {
 		t.Errorf("expected default fallback to be 'claude', got %q", ide)
 	}
 
-	// CLIForIDE mappings
 	if CLIForIDE("antigravity") != "agy" {
 		t.Errorf("expected agy for antigravity, got %q", CLIForIDE("antigravity"))
 	}
@@ -226,7 +219,6 @@ func TestResolveIDEAndCLI(t *testing.T) {
 		t.Errorf("expected empty for unknown, got %q", CLIForIDE("unknown"))
 	}
 
-	// ResolveCLI tests
 	cli := ResolveCLI("flag_cli", nil, nil, "")
 	if cli != "flag_cli" {
 		t.Errorf("expected flag_cli, got %q", cli)
@@ -242,7 +234,6 @@ func TestResolveIDEAndCLI(t *testing.T) {
 		t.Errorf("expected default CLI to be 'claude', got %q", cli)
 	}
 
-	// DefaultIDE and DefaultCLI
 	if DefaultIDE() != "claude" {
 		t.Errorf("expected DefaultIDE to be 'claude', got %q", DefaultIDE())
 	}
@@ -258,14 +249,12 @@ func TestResolveProjectIDE(t *testing.T) {
 		t.Errorf("ResolveProjectIDE flag = %q; want %q", ide, "flag_ide")
 	}
 
-	// Test priority 2: inlineCfg
 	inlineCfg := ConfigMap{"ide": "inline_ide"}
 	ide = ResolveProjectIDE("", inlineCfg, nil, nil)
 	if ide != "inline_ide" {
 		t.Errorf("ResolveProjectIDE inline = %q; want %q", ide, "inline_ide")
 	}
 
-	// Test priority 3: projectCfg
 	projectCfg := ConfigMap{"ide": "project_ide"}
 	ide = ResolveProjectIDE("", nil, projectCfg, nil)
 	if ide != "project_ide" {
@@ -290,13 +279,11 @@ func TestResolveProjectIDE(t *testing.T) {
 }
 
 func TestRepoURLsAndDirs(t *testing.T) {
-	// Test HubRepoURL, MemoryRepoURL, MemoryRepoDirPath, HubRepoDirPath, ResolveIndexSource, ResolveDocsDir
+	// Test HubBucket, HubRepoDirPath, ResolveIndexSource, ResolveDocsDir
 	inline := ConfigMap{
 		"hub": map[string]any{
-			"repo": "hub_repo_url",
-		},
-		"memory": map[string]any{
-			"repo": "memory_repo_url",
+			"bucket": "hub-bucket",
+			"region": "us-east-1",
 		},
 		"ast": map[string]any{
 			"index_source": "false",
@@ -306,11 +293,11 @@ func TestRepoURLsAndDirs(t *testing.T) {
 		},
 	}
 
-	if ResolveHubRepo(inline, nil) != "hub_repo_url" {
-		t.Errorf("expected hub_repo_url")
+	if ResolveHubBucket(inline, nil) != "hub-bucket" {
+		t.Errorf("expected hub-bucket")
 	}
-	if ResolveMemoryRepo(inline, nil) != "memory_repo_url" {
-		t.Errorf("expected memory_repo_url")
+	if ResolveHubRegion(inline, nil) != "us-east-1" {
+		t.Errorf("expected us-east-1")
 	}
 	if ResolveIndexSource(inline, nil) != false {
 		t.Errorf("expected index_source to be false")
@@ -318,8 +305,87 @@ func TestRepoURLsAndDirs(t *testing.T) {
 	if ResolveDocsDir(inline, nil) != "custom_docs" {
 		t.Errorf("expected custom_docs")
 	}
-	if ResolveDocsDir(nil, nil) != "." {
-		t.Errorf("expected default docs dir to be '.'")
+	// "docs", not "." — the whole project was the old default and it made the wiki
+	// index every indexable file in the repository.
+	if got := ResolveDocsDir(nil, nil); got != DefaultDocsDir {
+		t.Errorf("default docs dir = %q; want %q", got, DefaultDocsDir)
+	}
+}
+
+// The root README is in the wiki whatever knowledge.docs_dir says, unless the
+// project asks for it not to be.
+func TestResolveKnowledgeIncludeReadme(t *testing.T) {
+	if !ResolveKnowledgeIncludeReadme(nil, nil) {
+		t.Error("the root README is not indexed by default")
+	}
+	off := ConfigMap{"knowledge": map[string]any{"include_readme": "false"}}
+	if ResolveKnowledgeIncludeReadme(off, nil) {
+		t.Error("knowledge.include_readme=false did not switch the README off")
+	}
+	on := ConfigMap{"knowledge": map[string]any{"include_readme": "true"}}
+	if !ResolveKnowledgeIncludeReadme(on, nil) {
+		t.Error("knowledge.include_readme=true switched the README off")
+	}
+}
+
+func TestResolveHubIcebugReverseEdges(t *testing.T) {
+	if !ResolveHubIcebugReverseEdges(nil, nil) {
+		t.Error("reverse edges are not enabled by default")
+	}
+
+	off := ConfigMap{"hub": map[string]any{"icebug.reverse_edges": "false"}}
+	if ResolveHubIcebugReverseEdges(off, nil) {
+		t.Error("inline hub.icebug.reverse_edges=false did not disable reverse edges")
+	}
+	if ResolveHubIcebugReverseEdges(nil, off) {
+		t.Error("project hub.icebug.reverse_edges=false did not disable reverse edges")
+	}
+
+	on := ConfigMap{"hub": map[string]any{"icebug.reverse_edges": "true"}}
+	if !ResolveHubIcebugReverseEdges(on, off) {
+		t.Error("higher-priority inline true did not override project false")
+	}
+}
+
+// The docs tree is the wiki's, not the code graph's — unless the project says so.
+func TestResolveAstIndexDocs(t *testing.T) {
+	if ResolveAstIndexDocs(nil, nil) {
+		t.Error("the AST pipeline indexes the docs tree by default")
+	}
+	on := ConfigMap{"ast": map[string]any{"index_docs": "true"}}
+	if !ResolveAstIndexDocs(on, nil) {
+		t.Error("ast.index_docs=true did not opt the docs tree back in")
+	}
+	off := ConfigMap{"ast": map[string]any{"index_docs": "false"}}
+	if ResolveAstIndexDocs(off, nil) {
+		t.Error("ast.index_docs=false enabled docs indexing")
+	}
+}
+
+// LoadProjectConfig exists so internal/ast can read project config without
+// importing hub, which imports ast. It has to be as forgiving as the lockfile
+// loader it stands in for: no file and no valid JSON both mean "nothing set".
+func TestLoadProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	if cfg := LoadProjectConfig(dir); cfg != nil {
+		t.Errorf("no lockfile returned %v; want nil", cfg)
+	}
+
+	lock := filepath.Join(dir, brand.LockFileName())
+	if err := os.WriteFile(lock, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if cfg := LoadProjectConfig(dir); cfg != nil {
+		t.Errorf("malformed lockfile returned %v; want nil", cfg)
+	}
+
+	body := `{"project":{"id":"x"},"config":{"knowledge":{"docs_dir":"documentacao"}}}`
+	if err := os.WriteFile(lock, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ResolveDocsDir(nil, LoadProjectConfig(dir)); got != "documentacao" {
+		t.Errorf("docs dir from lockfile = %q; want %q", got, "documentacao")
 	}
 }
 
@@ -335,7 +401,6 @@ func TestGlobalConfigOperations(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tempDir) }()
 	_ = os.Setenv("HOME", tempDir)
 
-	// Validate AppDir
 	appDir, err := AppDir()
 	if err != nil {
 		t.Fatalf("AppDir() error: %v", err)
@@ -345,13 +410,6 @@ func TestGlobalConfigOperations(t *testing.T) {
 	}
 
 	// Validate paths
-	memPath, err := MemoryRepoDirPath()
-	if err != nil {
-		t.Fatalf("MemoryRepoDirPath() error: %v", err)
-	}
-	if !strings.Contains(memPath, "memory") {
-		t.Errorf("expected path to contain 'memory', got %q", memPath)
-	}
 
 	hubPath, err := HubRepoDirPath()
 	if err != nil {
@@ -375,7 +433,6 @@ func TestGlobalConfigOperations(t *testing.T) {
 		t.Errorf("expected test.key=value123, got %q (ok=%t)", val, ok)
 	}
 
-	// Unset key
 	err = UnsetGlobalConfigValue("test.key")
 	if err != nil {
 		t.Fatalf("failed to unset global config value: %v", err)
@@ -417,21 +474,38 @@ func TestGlobalConfigOperations(t *testing.T) {
 
 func TestResolveUrls(t *testing.T) {
 	// Save envs
-	origHubEnv := os.Getenv("GRAPHIT_HUB_REPO")
-	origMemEnv := os.Getenv("GRAPHIT_MEMORY_REPO")
+	origBucketEnv := os.Getenv("GRAPHIT_HUB_BUCKET")
 	defer func() {
-		_ = os.Setenv("GRAPHIT_HUB_REPO", origHubEnv)
-		_ = os.Setenv("GRAPHIT_MEMORY_REPO", origMemEnv)
+		_ = os.Setenv("GRAPHIT_HUB_BUCKET", origBucketEnv)
 	}()
 
-	_ = os.Setenv("GRAPHIT_HUB_REPO", "env-hub-repo")
-	_ = os.Setenv("GRAPHIT_MEMORY_REPO", "env-mem-repo")
+	_ = os.Setenv("GRAPHIT_HUB_BUCKET", "env-hub-bucket")
 
-	if HubRepoURL() != "env-hub-repo" {
-		t.Errorf("expected env-hub-repo, got %q", HubRepoURL())
+	if HubBucket() != "env-hub-bucket" {
+		t.Errorf("expected env-hub-bucket, got %q", HubBucket())
 	}
-	if MemoryRepoURL() != "env-mem-repo" {
-		t.Errorf("expected env-mem-repo, got %q", MemoryRepoURL())
+}
+
+// The prefix is joined into every key, so a value the user typed with slashes must not
+// produce a doubled separator.
+func TestHubPrefixIsNormalised(t *testing.T) {
+	orig := os.Getenv("GRAPHIT_HUB_PREFIX")
+	defer func() { _ = os.Setenv("GRAPHIT_HUB_PREFIX", orig) }()
+
+	_ = os.Setenv("GRAPHIT_HUB_PREFIX", "/team-a/hub/")
+	if got := HubPrefix(); got != "team-a/hub" {
+		t.Errorf("HubPrefix() = %q; want %q", got, "team-a/hub")
+	}
+}
+
+// Configured() is the single test for "the Hub has a remote", so a config carrying only a
+// region must not read as configured.
+func TestS3ConfigIsOnlyConfiguredWithABucket(t *testing.T) {
+	if (S3Config{Region: "us-east-1"}).Configured() {
+		t.Error("a config with only a region reported itself as configured")
+	}
+	if !(S3Config{Bucket: "b"}).Configured() {
+		t.Error("a config with a bucket reported itself as unconfigured")
 	}
 }
 
@@ -481,16 +555,10 @@ func TestAppDirHomeError(t *testing.T) {
 		t.Error("expected error in UnsetGlobalConfigValue when HOME is unset")
 	}
 
-	_, err = MemoryRepoDirPath()
-	if err == nil {
-		t.Error("expected error in MemoryRepoDirPath when HOME is unset")
-	}
-
 	_, err = HubRepoDirPath()
 	if err == nil {
 		t.Error("expected error in HubRepoDirPath when HOME is unset")
 	}
-
 
 }
 
@@ -586,7 +654,6 @@ func TestUncoveredBranches(t *testing.T) {
 	// 5. resolveAmbientIDE branch coverage: global config has it, and defaults has it
 	_ = os.Unsetenv("GRAPHIT_IDE")
 
-	// 5a. Global config has it
 	err = SetGlobalConfigValue("ide", "global_ide")
 	if err != nil {
 		t.Fatalf("failed to set global ide: %v", err)
@@ -622,7 +689,6 @@ func TestUncoveredBranches(t *testing.T) {
 		t.Errorf("expected fallback to claude, got %q", ide)
 	}
 
-	// 5d. ResolveConfig resolving from global config file
 	err = SetGlobalConfigValue("some.global.key", "resolved_global_val")
 	if err != nil {
 		t.Fatalf("failed to set global key: %v", err)
@@ -651,7 +717,6 @@ func TestIsSetupDone(t *testing.T) {
 		t.Error("expected IsSetupDone() to be false before config exists")
 	}
 
-	// Create config file
 	err := SetGlobalConfigValue("setup.done", "true")
 	if err != nil {
 		t.Fatalf("failed to set global config: %v", err)
@@ -687,7 +752,6 @@ func TestLoadGlobalConfigReadError(t *testing.T) {
 	tempDir := t.TempDir()
 	_ = os.Setenv("HOME", tempDir)
 
-	// Create the app dir
 	appDir := filepath.Join(tempDir, ".graphit")
 	err := os.MkdirAll(appDir, 0o700)
 	if err != nil {
@@ -752,3 +816,52 @@ func TestIsOptInModule(t *testing.T) {
 	}
 }
 
+func TestResolveProjectActivityWindow_Default(t *testing.T) {
+	if got := ResolveProjectActivityWindow(nil, nil); got != defaultProjectActivityWindow {
+		t.Errorf("ResolveProjectActivityWindow() = %v; want default %v", got, defaultProjectActivityWindow)
+	}
+}
+
+func TestResolveProjectActivityWindow_ProjectOverride(t *testing.T) {
+	projectCfg := ConfigMap{
+		"daemon": map[string]any{
+			"activity_window": "15m",
+		},
+	}
+	if got := ResolveProjectActivityWindow(nil, projectCfg); got != 15*time.Minute {
+		t.Errorf("ResolveProjectActivityWindow() = %v; want 15m", got)
+	}
+}
+
+func TestResolveProjectActivityWindow_EnvOverride(t *testing.T) {
+	envKey := "GRAPHIT_DAEMON_ACTIVITY_WINDOW"
+	origEnv := os.Getenv(envKey)
+	defer func() { _ = os.Setenv(envKey, origEnv) }()
+	_ = os.Setenv(envKey, "1h")
+
+	if got := ResolveProjectActivityWindow(nil, nil); got != time.Hour {
+		t.Errorf("ResolveProjectActivityWindow() = %v; want 1h", got)
+	}
+}
+
+func TestResolveProjectActivityWindow_ZeroDisables(t *testing.T) {
+	envKey := "GRAPHIT_DAEMON_ACTIVITY_WINDOW"
+	origEnv := os.Getenv(envKey)
+	defer func() { _ = os.Setenv(envKey, origEnv) }()
+	_ = os.Setenv(envKey, "0")
+
+	if got := ResolveProjectActivityWindow(nil, nil); got != 0 {
+		t.Errorf("ResolveProjectActivityWindow() = %v; want 0 (disabled)", got)
+	}
+}
+
+func TestResolveProjectActivityWindow_InvalidFallsBackToDefault(t *testing.T) {
+	envKey := "GRAPHIT_DAEMON_ACTIVITY_WINDOW"
+	origEnv := os.Getenv(envKey)
+	defer func() { _ = os.Setenv(envKey, origEnv) }()
+	_ = os.Setenv(envKey, "not-a-duration")
+
+	if got := ResolveProjectActivityWindow(nil, nil); got != defaultProjectActivityWindow {
+		t.Errorf("ResolveProjectActivityWindow() = %v; want default %v on invalid input", got, defaultProjectActivityWindow)
+	}
+}

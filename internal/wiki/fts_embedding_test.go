@@ -1,15 +1,15 @@
 package wiki
 
 import (
+	"context"
 	"math"
 	"testing"
 
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
 // The embedding half of fts.go was the part fts_db_test.go left uncovered:
-// PendingEmbeddings, InsertChunkVector, EmbeddingStats, SemanticSearch and
+// PendingEmbeddings, SetChunkVector, EmbeddingStats, SemanticSearch and
 // HybridSearch. It looked like it needed a model, and it does not — these
 // functions take and return vectors, so synthetic ones exercise every branch.
 // What is being tested is the storage and ranking, not the quality of an
@@ -47,15 +47,6 @@ func nudge(axis int) []float32 {
 	return v
 }
 
-func serialize(t *testing.T, v []float32) []byte {
-	t.Helper()
-	b, err := sqlite_vec.SerializeFloat32(v)
-	if err != nil {
-		t.Fatalf("serialize vector: %v", err)
-	}
-	return b
-}
-
 // slugAxis assigns each test chunk its own axis so a query aimed at one is
 // unambiguously nearer to it than to the others.
 var slugAxis = map[string]int{
@@ -69,7 +60,7 @@ func embeddedTestDB(t *testing.T) *WikiDB {
 	t.Helper()
 	db := rebuiltTestDB(t)
 
-	pending, err := db.PendingEmbeddings()
+	pending, err := db.PendingEmbeddings(context.Background())
 	if err != nil {
 		t.Fatalf("PendingEmbeddings: %v", err)
 	}
@@ -81,9 +72,8 @@ func embeddedTestDB(t *testing.T) *WikiDB {
 		if !ok {
 			continue
 		}
-		if err := db.InsertChunkVector(c.ID, c.Slug, c.Title, c.Summary,
-			serialize(t, unitVec(axis))); err != nil {
-			t.Fatalf("InsertChunkVector(%s): %v", c.Slug, err)
+		if err := db.SetChunkVector(context.Background(), c.Slug, unitVec(axis)); err != nil {
+			t.Fatalf("SetChunkVector(%s): %v", c.Slug, err)
 		}
 	}
 	return db
@@ -94,7 +84,7 @@ func embeddedTestDB(t *testing.T) *WikiDB {
 func TestWikiDBPendingEmbeddingsDrains(t *testing.T) {
 	db := rebuiltTestDB(t)
 
-	before, err := db.PendingEmbeddings()
+	before, err := db.PendingEmbeddings(context.Background())
 	if err != nil {
 		t.Fatalf("PendingEmbeddings: %v", err)
 	}
@@ -102,18 +92,17 @@ func TestWikiDBPendingEmbeddingsDrains(t *testing.T) {
 		t.Fatalf("%d chunks pending, want %d", len(before), len(testChunks()))
 	}
 
-	embedded, total := db.EmbeddingStats()
+	embedded, total := db.EmbeddingStats(context.Background())
 	if embedded != 0 || total != len(testChunks()) {
 		t.Errorf("stats before embedding: %d/%d, want 0/%d", embedded, total, len(testChunks()))
 	}
 
 	first := before[0]
-	if err := db.InsertChunkVector(first.ID, first.Slug, first.Title, first.Summary,
-		serialize(t, unitVec(0))); err != nil {
-		t.Fatalf("InsertChunkVector: %v", err)
+	if err := db.SetChunkVector(context.Background(), first.Slug, unitVec(0)); err != nil {
+		t.Fatalf("SetChunkVector: %v", err)
 	}
 
-	after, err := db.PendingEmbeddings()
+	after, err := db.PendingEmbeddings(context.Background())
 	if err != nil {
 		t.Fatalf("PendingEmbeddings after insert: %v", err)
 	}
@@ -121,12 +110,12 @@ func TestWikiDBPendingEmbeddingsDrains(t *testing.T) {
 		t.Errorf("%d pending after embedding one, want %d", len(after), len(before)-1)
 	}
 	for _, c := range after {
-		if c.ID == first.ID {
+		if c.Slug == first.Slug {
 			t.Errorf("chunk %s is still queued after being embedded", c.Slug)
 		}
 	}
 
-	embedded, total = db.EmbeddingStats()
+	embedded, total = db.EmbeddingStats(context.Background())
 	if embedded != 1 || total != len(testChunks()) {
 		t.Errorf("stats after embedding one: %d/%d, want 1/%d", embedded, total, len(testChunks()))
 	}
@@ -138,7 +127,7 @@ func TestWikiDBSemanticSearchRanksNearest(t *testing.T) {
 	db := embeddedTestDB(t)
 
 	for slug, axis := range slugAxis {
-		res, err := db.SemanticSearch(nudge(axis), 3)
+		res, err := db.SemanticSearch(context.Background(), nudge(axis), 3)
 		if err != nil {
 			t.Fatalf("SemanticSearch aimed at %s: %v", slug, err)
 		}
@@ -155,7 +144,7 @@ func TestWikiDBSemanticSearchRanksNearest(t *testing.T) {
 func TestWikiDBSemanticSearchRespectsTopK(t *testing.T) {
 	db := embeddedTestDB(t)
 
-	res, err := db.SemanticSearch(nudge(0), 1)
+	res, err := db.SemanticSearch(context.Background(), nudge(0), 1)
 	if err != nil {
 		t.Fatalf("SemanticSearch: %v", err)
 	}
@@ -169,16 +158,15 @@ func TestWikiDBSemanticSearchRespectsTopK(t *testing.T) {
 func TestWikiDBSemanticSearchIgnoresUnembedded(t *testing.T) {
 	db := rebuiltTestDB(t)
 
-	pending, err := db.PendingEmbeddings()
+	pending, err := db.PendingEmbeddings(context.Background())
 	if err != nil {
 		t.Fatalf("PendingEmbeddings: %v", err)
 	}
 	var embeddedSlug string
 	for _, c := range pending {
 		if c.Slug == "autenticacao" {
-			if err := db.InsertChunkVector(c.ID, c.Slug, c.Title, c.Summary,
-				serialize(t, unitVec(0))); err != nil {
-				t.Fatalf("InsertChunkVector: %v", err)
+			if err := db.SetChunkVector(context.Background(), c.Slug, unitVec(0)); err != nil {
+				t.Fatalf("SetChunkVector: %v", err)
 			}
 			embeddedSlug = c.Slug
 		}
@@ -187,7 +175,7 @@ func TestWikiDBSemanticSearchIgnoresUnembedded(t *testing.T) {
 		t.Fatal("fixture changed: autenticacao is not in the pending set")
 	}
 
-	res, err := db.SemanticSearch(nudge(1), 5)
+	res, err := db.SemanticSearch(context.Background(), nudge(1), 5)
 	if err != nil {
 		t.Fatalf("SemanticSearch: %v", err)
 	}
@@ -204,7 +192,7 @@ func TestWikiDBHybridSearchCombinesBothPasses(t *testing.T) {
 	db := embeddedTestDB(t)
 
 	t.Run("text only", func(t *testing.T) {
-		res, err := db.HybridSearch("credenciais", nil, 5)
+		res, err := db.HybridSearch(context.Background(), "credenciais", nil, 5)
 		if err != nil {
 			t.Fatalf("HybridSearch: %v", err)
 		}
@@ -214,7 +202,7 @@ func TestWikiDBHybridSearchCombinesBothPasses(t *testing.T) {
 	})
 
 	t.Run("vector only", func(t *testing.T) {
-		res, err := db.HybridSearch("", nudge(2), 5)
+		res, err := db.HybridSearch(context.Background(), "", nudge(2), 5)
 		if err != nil {
 			t.Fatalf("HybridSearch: %v", err)
 		}
@@ -224,7 +212,7 @@ func TestWikiDBHybridSearchCombinesBothPasses(t *testing.T) {
 	})
 
 	t.Run("both, agreeing", func(t *testing.T) {
-		res, err := db.HybridSearch("credenciais", nudge(0), 5)
+		res, err := db.HybridSearch(context.Background(), "credenciais", nudge(0), 5)
 		if err != nil {
 			t.Fatalf("HybridSearch: %v", err)
 		}
@@ -238,7 +226,7 @@ func TestWikiDBHybridSearchCombinesBothPasses(t *testing.T) {
 	})
 
 	t.Run("neither", func(t *testing.T) {
-		res, err := db.HybridSearch("", nil, 5)
+		res, err := db.HybridSearch(context.Background(), "", nil, 5)
 		if err != nil {
 			t.Errorf("empty query and no vector should be empty, not an error: %v", err)
 		}
@@ -252,22 +240,22 @@ func TestWikiDBHybridSearchCombinesBothPasses(t *testing.T) {
 func TestWikiDBRebuildResetsEmbeddingState(t *testing.T) {
 	db := embeddedTestDB(t)
 
-	embedded, _ := db.EmbeddingStats()
+	embedded, _ := db.EmbeddingStats(context.Background())
 	if embedded == 0 {
 		t.Fatal("precondition: chunks should be embedded")
 	}
 
 	kept := testChunks()[1:]
-	if err := db.Rebuild(kept, nil, nil, nil); err != nil {
+	if err := db.Rebuild(context.Background(), kept, nil, nil, nil); err != nil {
 		t.Fatalf("Rebuild: %v", err)
 	}
 
-	_, total := db.EmbeddingStats()
+	_, total := db.EmbeddingStats(context.Background())
 	if total != len(kept) {
 		t.Errorf("total after rebuild is %d, want %d", total, len(kept))
 	}
 
-	res, err := db.SemanticSearch(nudge(0), 5)
+	res, err := db.SemanticSearch(context.Background(), nudge(0), 5)
 	if err != nil {
 		t.Fatalf("SemanticSearch after rebuild: %v", err)
 	}
@@ -286,13 +274,13 @@ func TestWikiDBOptimizeRunsOnTheTenthRebuild(t *testing.T) {
 
 	// One rebuild already happened; nine more crosses the threshold.
 	for i := 0; i < 9; i++ {
-		if err := db.Rebuild(testChunks(), nil, nil, nil); err != nil {
+		if err := db.Rebuild(context.Background(), testChunks(), nil, nil, nil); err != nil {
 			t.Fatalf("rebuild %d: %v", i+2, err)
 		}
 	}
 
 	// The merge must leave the index usable, which is the whole risk here.
-	res, err := db.Search("credenciais", 5)
+	res, err := db.Search(context.Background(), "credenciais", 5)
 	if err != nil {
 		t.Fatalf("Search after the optimize pass: %v", err)
 	}
@@ -300,7 +288,7 @@ func TestWikiDBOptimizeRunsOnTheTenthRebuild(t *testing.T) {
 		t.Error("the FTS index returns nothing after segment optimization")
 	}
 
-	chunks, _, _, _, err := db.Stats()
+	chunks, _, _, _, err := db.Stats(context.Background())
 	if err != nil {
 		t.Fatalf("Stats: %v", err)
 	}

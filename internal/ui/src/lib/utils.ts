@@ -53,6 +53,14 @@ export function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: numb
   }) as T
 }
 
+// NOTE: doubles as the hide-filter key for nodes whose `lang` is empty (call-target
+// stubs, directories) — parentheses and spaces never occur in a real lang value.
+export const NO_LANG = '(no language)'
+
+export function langKey(lang: string): string {
+  return lang || NO_LANG
+}
+
 const colorCache = new Map<string, string>()
 const palette = [
   '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',

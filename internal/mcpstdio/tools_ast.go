@@ -13,13 +13,14 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/memory"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 type astIndexInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory to index (required)"`
 	Path        string `json:"path,omitempty" jsonschema:"Target path to index (defaults to project_dir)"`
 	Workers     int    `json:"workers,omitempty" jsonschema:"Number of parallel worker threads"`
-	Reset       bool   `json:"reset,omitempty" jsonschema:"Reset database before indexing"`
+	Reset       bool   `json:"reset,omitempty" jsonschema:"Delete the whole store before indexing — graph, search index and caches — discarding every embedding. Prefer reindex, which re-parses everything but keeps them"`
 	Reindex     bool   `json:"reindex,omitempty" jsonschema:"Force reindexing of unchanged files"`
 	Cluster     string `json:"cluster,omitempty" jsonschema:"Optional cluster label for grouping"`
 	NoSource    bool   `json:"no_source,omitempty" jsonschema:"Do not index file source contents"`
@@ -33,7 +34,6 @@ type astQueryInput struct {
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to query instead of the default project"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
-
 
 type astSchemaInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
@@ -73,7 +73,7 @@ type astSourceInput struct {
 	IsRegex     bool   `json:"regex,omitempty" jsonschema:"Treat pattern as a regular expression"`
 	Before      int    `json:"before,omitempty" jsonschema:"Number of context lines before each pattern match"`
 	After       int    `json:"after,omitempty" jsonschema:"Number of context lines after each pattern match"`
-	LineNumbers bool   `json:"line_numbers,omitempty" jsonschema:"Include line numbers in the output"`
+	LineNumbers bool   `json:"line_numbers,omitempty" jsonschema:"Include line numbers in the output (default: false)"`
 }
 
 type astExportInput struct {
@@ -100,11 +100,18 @@ type astSearchInput struct {
 func registerASTTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "index"),
-		Description: "Index files in the project to build the AST code graph database.",
+		Description: "Index files in the project to build the AST code graph database. Call this once at the end of a session in which you changed code, so the graph the next query reads is current.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astIndexInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
+		}
+
+		// Checked before anything else because `reset` deletes the store directory
+		// further down, and the structural guard in openASTDBReadWrite comes after
+		// that.
+		if store.IsEphemeralProject(projectDir) {
+			return errResult(errEphemeralHasNoGraph())
 		}
 
 		target := input.Path
@@ -132,15 +139,6 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 		defer func() { _ = db.Close() }()
-
-		if input.Reindex && !input.Reset {
-			// Surfaced rather than ignored: a reindex that could not drop the old
-			// graph would silently layer new nodes over stale ones.
-			writer := ast.NewGraphWriter(db, absPath, true)
-			if err := writer.DeleteRepository(ctx, absPath); err != nil {
-				return errResult(err)
-			}
-		}
 
 		workers := input.Workers
 		if workers <= 0 {
@@ -205,8 +203,6 @@ func registerASTTools(server *mcp.Server) {
 		return jsonResult(result.Records)
 	}))
 
-
-
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "schema"),
 		Description: "Return the AST graph database schema: node labels, properties, and relationship types.",
@@ -232,7 +228,7 @@ func registerASTTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "install"),
-		Description: "Import another local repository's code graph as a named context.",
+		Description: "Import another local repository's code graph as a named context. The graph is built once in the global store and shared; the project records that it may query it.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astInstallInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -244,7 +240,7 @@ func registerASTTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		ictx, err := ast.AddImportedContext(input.Context, absSource)
+		ictx, err := ast.AddImportedContext(projectDir, input.Context, absSource)
 		if err != nil {
 			return errResult(err)
 		}
@@ -278,7 +274,7 @@ func registerASTTools(server *mcp.Server) {
 		}
 
 		// Sync memory context
-		ms, msErr := memory.NewMemoryGitStore()
+		ms, msErr := memory.NewMemoryStore()
 		if msErr == nil {
 			memsvc := memory.NewMemoryServiceForContext(input.Context, ms)
 			_ = memsvc.SyncToLocal()
@@ -293,7 +289,7 @@ func registerASTTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "remove"),
-		Description: "Remove an imported context or clear the main project code graph.",
+		Description: "Remove an imported context or clear the main project code graph. Removing a context drops this project's claim on it; the shared store stays for whoever else imported it.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astRemoveInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -301,16 +297,8 @@ func registerASTTools(server *mcp.Server) {
 		}
 
 		if input.Context != "" {
-			if err := ast.RemoveImportedContext(input.Context); err != nil {
+			if err := ast.RemoveImportedContext(projectDir, input.Context); err != nil {
 				return errResult(err)
-			}
-			memDir := filepath.Join(projectDir, brand.DotDir(), "memory", input.Context)
-			if info, statErr := os.Lstat(memDir); statErr == nil {
-				if info.Mode()&os.ModeSymlink != 0 {
-					_ = os.Remove(memDir)
-				} else {
-					_ = os.RemoveAll(memDir)
-				}
 			}
 			return textResult(fmt.Sprintf("Imported context %q removed.", input.Context))
 		}
@@ -332,12 +320,15 @@ func registerASTTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("ast", "list"),
 		Description: "List all imported AST contexts and their repository paths.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astListInput) (*mcp.CallToolResult, any, error) {
-		_, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
 
-		contexts := ast.ListImportedContexts()
+		// Listed for projectDir, not for the working directory: this server serves
+		// whichever project the caller names, and a Hub context is only visible
+		// through that project's lockfile.
+		contexts := ast.ListImportedContextsIn(projectDir)
 		if aiOpt(input.AiOptimized) {
 			return toonResult(contexts)
 		}
@@ -346,7 +337,7 @@ func registerASTTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "source"),
-		Description: "Retrieve source code from the indexed code graph with support for head/tail, line ranges, entity extraction, and pattern search with context.",
+		Description: "Retrieve source code from the indexed code graph with support for head/tail, line ranges, entity extraction, and pattern search with context. This is the only way to read the source of an imported context or another project: the graph and its file text live in the global store, not in any project directory.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astSourceInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -359,7 +350,8 @@ func registerASTTools(server *mcp.Server) {
 		}
 		defer func() { _ = db.Close() }()
 
-		svc := ast.NewSourceService(db)
+		svc := ast.NewSourceService(db).
+			WithStore(astConfigForProject(projectDir, input.Context).DBPath)
 		result, err := svc.GetSource(ctx, ast.SourceRequest{
 			Path:        input.Path,
 			Entity:      input.Entity,
@@ -412,7 +404,11 @@ func registerASTTools(server *mcp.Server) {
 				return errResult(err)
 			}
 		case "bundle":
-			if err := ast.ExportBundle(ctx, db, projectDir, absDir, nil); err != nil {
+			opts := ast.BundleOptions{
+				StorePath: astConfigForProject(projectDir, "").DBPath,
+				NoSources: input.NoSources,
+			}
+			if err := ast.ExportBundle(ctx, db, projectDir, absDir, opts, nil); err != nil {
 				return errResult(err)
 			}
 		default:
@@ -436,9 +432,14 @@ func registerASTTools(server *mcp.Server) {
 			embCfg := ast.DefaultEmbeddingConfig()
 			var ladybugCfg ast.LadybugConfig
 			if input.Context != "" {
-				ladybugCfg = ast.LadybugConfigForContext(input.Context)
+				ladybugCfg = ast.LadybugConfigForContextIn(projectDir, input.Context)
+				// An imported context's tree is wherever it was imported FROM, and a
+				// Hub artifact has no local tree at all. An empty root simply means
+				// the source snippet is unavailable, which is the honest answer.
+				embCfg.RepoRoot = ast.ListImportedContextsIn(projectDir)[input.Context].SourcePath
 			} else {
-				ladybugCfg = ast.DefaultLadybugConfig()
+				ladybugCfg = ast.LadybugConfigFor(projectDir)
+				embCfg.RepoRoot = projectDir
 			}
 			cacheDir := filepath.Dir(ladybugCfg.DBPath)
 

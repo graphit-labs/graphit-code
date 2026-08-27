@@ -24,7 +24,19 @@ func SafeCopyDir(source, dest string) error {
 	return copyDirRecursive(source, dest)
 }
 
+// SyncCopyDir mirrors source onto dest, adding, overwriting and deleting so dest
+// ends up matching source.
 func SyncCopyDir(source, dest string) error {
+	return SyncCopyDirExcept(source, dest, nil)
+}
+
+// SyncCopyDirExcept is SyncCopyDir with entries the caller does not want mirrored.
+//
+// skip receives each entry's path relative to source, with forward slashes on every
+// platform so a caller's rule reads the same on Windows as on Unix. A skipped entry
+// is neither copied into dest nor deleted from it — it is simply not this mirror's
+// business.
+func SyncCopyDirExcept(source, dest string, skip func(rel string) bool) error {
 	srcInfo, err := os.Stat(source)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -38,11 +50,11 @@ func SyncCopyDir(source, dest string) error {
 
 	if isSymlink(dest) {
 		_ = os.Remove(dest)
-		return copyDirRecursive(source, dest)
+		return copyDirRecursiveExcept(source, dest, skip)
 	}
 
 	if _, err := os.Stat(dest); os.IsNotExist(err) {
-		return copyDirRecursive(source, dest)
+		return copyDirRecursiveExcept(source, dest, skip)
 	}
 
 	srcFiles := make(map[string]os.FileInfo)
@@ -52,6 +64,9 @@ func SyncCopyDir(source, dest string) error {
 		}
 		rel, _ := filepath.Rel(source, path)
 		if rel == "." {
+			return nil
+		}
+		if skip != nil && skip(filepath.ToSlash(rel)) {
 			return nil
 		}
 		srcFiles[rel] = info
@@ -66,6 +81,9 @@ func SyncCopyDir(source, dest string) error {
 		}
 		rel, _ := filepath.Rel(dest, path)
 		if rel == "." {
+			return nil
+		}
+		if skip != nil && skip(filepath.ToSlash(rel)) {
 			return nil
 		}
 		if _, exists := srcFiles[rel]; !exists {
@@ -106,11 +124,26 @@ func SyncCopyDir(source, dest string) error {
 }
 
 func copyDirRecursive(source, dest string) error {
+	return copyDirRecursiveExcept(source, dest, nil)
+}
+
+// copyDirRecursiveExcept copies a tree, honouring the caller's skip rule.
+//
+// The rule has to be applied HERE and not only in the mirroring walks: a missing
+// destination takes this path instead, so an exclusion enforced only by the mirror
+// was silently ignored on the very first copy — which is the common case.
+func copyDirRecursiveExcept(source, dest string, skip func(rel string) bool) error {
 	return filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
 		rel, _ := filepath.Rel(source, path)
+		if rel != "." && skip != nil && skip(filepath.ToSlash(rel)) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		target := filepath.Join(dest, rel)
 
 		if info.IsDir() {

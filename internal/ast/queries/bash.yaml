@@ -1,6 +1,11 @@
 language: bash
 grammar: tree-sitter-bash
 extensions: [".sh", ".bash", ".zsh", ".ksh"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -9,6 +14,14 @@ queries:
   - data_key: variables
     graph_label: Variable
     pattern: '(variable_assignment name: (variable_name) @name)'
+
+  # Declared literal values — the literal becomes a node contained by the name, so
+  # that "which script exports this endpoint" is reachable by search.
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(variable_assignment name: (variable_name) @name value: [(word) (number) (string) (raw_string) (ansi_c_string)] @value)'
+    value_capture: value
+    value_label: Value
 
   # === Relation queries ===
   - data_key: calls
@@ -43,37 +56,23 @@ declaration_types:
 comment_types:
   - comment
 
-# Entry point scoring rules for Bash
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "run*"
-      score: 60
-    - pattern: "setup*"
-      score: 40
-    - pattern: "init*"
-      score: 40
-    - pattern: "install*"
-      score: 40
-    - pattern: "cleanup*"
-      score: 30
-    - pattern: "start*"
-      score: 30
-    - pattern: "stop*"
-      score: 30
-    - pattern: "deploy*"
-      score: 30
-    - pattern: "build*"
-      score: 30
-    - pattern: "test*"
-      score: 50
-    - pattern: "usage*"
-      score: 20
-    - pattern: "help*"
-      score: 20
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. elif_clause is its own node (not nested inside
+# if_statement), and && / || are bare anonymous tokens.
+complexity:
+  node_types:
+    - if_statement
+    - elif_clause
+    - for_statement
+    - while_statement
+    - case_item
+  operators: ["&&", "||"]
 
-  exported_bonus: 0
-  max_score: 100
-
-  decorators: []
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Function
+  - Variable
+  - Comment

@@ -1,3 +1,11 @@
+/**
+ * Wiki page browsing.
+ *
+ * The live search moved to ./search.ts, along with its sessions and follow-up chat:
+ * it spans wikis and code graphs, so it was never a wiki-only concern and its
+ * endpoints are no longer under /api/wiki.
+ */
+
 const API = () => window.__API_BASE__ ?? ''
 
 export interface WikiModule {
@@ -42,89 +50,5 @@ export async function aiSearchWiki(dir: string, query: string): Promise<AISearch
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ dir, query }),
   })
-  return r.json()
-}
-
-export interface WikiDirRef {
-  id: string; label: string; dir: string
-}
-export interface HubKnowRef {
-  id: string; version: string
-}
-export interface MultiSearchResponse {
-  answer: string; session_id: string; turns: number; tokens: number
-  pages_consulted?: string[]; error?: string
-}
-export interface ChatResponse {
-  answer: string; session_id: string; error?: string
-}
-export interface SessionItem {
-  id: string; title: string; created_at: string; updated_at: string
-  message_count: number; wiki_sources: WikiDirRef[]
-}
-export interface HubKnowledgeItem {
-  id: string; name: string; description: string; version: string
-  versions: string[]; installed: boolean
-}
-
-export async function multiSearchWiki(
-  query: string, wikiDirs: WikiDirRef[], hubRefs: HubKnowRef[]
-): Promise<MultiSearchResponse> {
-  const r = await fetch(`${API()}/api/wiki/multi-search`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, wiki_dirs: wikiDirs, hub_refs: hubRefs }),
-  })
-  return r.json()
-}
-
-export async function chatWiki(sessionId: string, message: string): Promise<ChatResponse> {
-  const r = await fetch(`${API()}/api/wiki/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, message }),
-  })
-  return r.json()
-}
-
-export async function fetchSessions(projectDir?: string): Promise<SessionItem[]> {
-  const params = new URLSearchParams()
-  if (projectDir) params.set('project_dir', projectDir)
-  const qs = params.toString()
-  const r = await fetch(`${API()}/api/wiki/sessions${qs ? `?${qs}` : ''}`)
-  return r.json()
-}
-
-export async function deleteSession(id: string): Promise<void> {
-  await fetch(`${API()}/api/wiki/sessions?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
-}
-
-export async function fetchHubKnowledge(): Promise<HubKnowledgeItem[]> {
-  const r = await fetch(`${API()}/api/wiki/hub-knowledge`)
-  return r.json()
-}
-
-export interface MultiKeywordResult {
-  source_id: string; source_label: string
-  path: string; title: string; snippet: string; score: number
-}
-
-export async function multiKeywordSearchWiki(
-  query: string, wikiDirs: WikiDirRef[], hubRefs: HubKnowRef[]
-): Promise<MultiKeywordResult[]> {
-  const r = await fetch(`${API()}/api/wiki/multi-keyword-search`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, wiki_dirs: wikiDirs, hub_refs: hubRefs }),
-  })
-  return r.json()
-}
-
-export interface ChatMessage {
-  role: string; content: string; timestamp: string; tokens?: number
-}
-
-export async function loadSessionMessages(sessionId: string): Promise<ChatMessage[]> {
-  const r = await fetch(`${API()}/api/wiki/sessions/messages?id=${encodeURIComponent(sessionId)}`)
   return r.json()
 }

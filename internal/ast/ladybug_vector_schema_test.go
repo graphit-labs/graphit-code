@@ -64,7 +64,6 @@ func TestLadybugVectorSchemaConstraints(t *testing.T) {
 		t.Fatalf("schema: %v", err)
 	}
 
-	// (1) Vector index on an empty table.
 	emptyIndexOK := run("CALL CREATE_VECTOR_INDEX('E', 'e_vec', 'emb')") == nil
 	if emptyIndexOK {
 		t.Log("(1) CREATE_VECTOR_INDEX on an EMPTY table: accepted")

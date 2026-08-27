@@ -16,11 +16,11 @@ import (
 )
 
 type EventTracker struct {
-	gitStore *GitStore
+	store *S3Store
 }
 
-func NewEventTracker(gs *GitStore) *EventTracker {
-	return &EventTracker{gitStore: gs}
+func NewEventTracker(st *S3Store) *EventTracker {
+	return &EventTracker{store: st}
 }
 
 func (t *EventTracker) TrackEvent(
@@ -29,7 +29,7 @@ func (t *EventTracker) TrackEvent(
 	artifact map[string]string,
 	extraCtx map[string]string,
 ) {
-	if t == nil || t.gitStore == nil {
+	if t == nil || t.store == nil {
 		return
 	}
 
@@ -66,7 +66,7 @@ func (t *EventTracker) TrackEvent(
 	}
 
 	key := buildEventKey(action, artifact)
-	t.gitStore.WriteEventFile(key, body)
+	t.store.WriteEventFile(key, body)
 }
 
 func buildEventKey(action string, artifact map[string]string) string {
@@ -112,8 +112,6 @@ func generateULID() string {
 
 	return string(ts) + string(rnd)
 }
-
-
 
 var (
 	clientSecretOnce  sync.Once

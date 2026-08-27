@@ -4,5 +4,7 @@ internal/ast/antlr/
 !internal/ast/antlr/*/parser_sll_ll.go
 !internal/ast/antlr/*/preprocessor.go
 
+internal/ast/treesitter/**/*.h
 internal/ast/treesitter/**/*.c.inc
-internal/ast/treesitter/**/tree_sitter/*
+internal/ast/treesitter/**/*.js
+internal/ast/treesitter/**/*.json

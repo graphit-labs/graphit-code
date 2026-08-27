@@ -17,11 +17,32 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
-type WikiSource struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Dir   string `json:"dir"`
+// SourceKind distinguishes what a session consulted, because the two kinds answer
+// differently and a follow-up turn that conflates them misdescribes its own
+// grounding.
+type SourceKind string
+
+const (
+	// SourceWiki is a directory of Obsidian-compatible pages.
+	SourceWiki SourceKind = "wiki"
+	// SourceGraph is an indexed code graph. It has no directory: a follow-up turn
+	// re-grounds on the transcript rather than by reopening the graph.
+	SourceGraph SourceKind = "graph"
+)
+
+// Source is one thing a live search consulted.
+type Source struct {
+	ID    string     `json:"id"`
+	Label string     `json:"label"`
+	Kind  SourceKind `json:"kind,omitempty"`
+	Dir   string     `json:"dir,omitempty"`
 }
+
+// IsGraph reports whether this source is a code graph.
+//
+// The empty Kind reads as a wiki so that sessions written before Kind existed keep
+// describing themselves correctly — every one of them was wiki-only.
+func (s Source) IsGraph() bool { return s.Kind == SourceGraph }
 
 type ChatMessage struct {
 	Role      string    `json:"role"`
@@ -31,18 +52,18 @@ type ChatMessage struct {
 }
 
 type ChatSession struct {
-	ID           string       `json:"id"`
-	ProjectDir   string       `json:"project_dir"`
-	ProjectHash  string       `json:"project_hash"`
-	CreatedAt    time.Time    `json:"created_at"`
-	UpdatedAt    time.Time    `json:"updated_at"`
-	Title        string       `json:"title"`
-	WikiSources  []WikiSource `json:"wiki_sources"`
-	InitialQuery string       `json:"initial_query"`
-	MessageCount int          `json:"message_count"`
+	ID           string    `json:"id"`
+	ProjectDir   string    `json:"project_dir"`
+	ProjectHash  string    `json:"project_hash"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Title        string    `json:"title"`
+	Sources      []Source  `json:"sources"`
+	InitialQuery string    `json:"initial_query"`
+	MessageCount int       `json:"message_count"`
 }
 
-func NewSession(projectDir string, sources []WikiSource, query string) *ChatSession {
+func NewSession(projectDir string, sources []Source, query string) *ChatSession {
 	entropy := ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
 	id := ulid.MustNew(ulid.Timestamp(time.Now()), entropy).String()
 
@@ -59,7 +80,7 @@ func NewSession(projectDir string, sources []WikiSource, query string) *ChatSess
 		CreatedAt:    now,
 		UpdatedAt:    now,
 		Title:        title,
-		WikiSources:  sources,
+		Sources:      sources,
 		InitialQuery: query,
 	}
 }

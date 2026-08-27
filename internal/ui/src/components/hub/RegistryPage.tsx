@@ -9,7 +9,6 @@ import { ConfirmModal } from './modals/ConfirmModal'
 import { SubmitModal } from './modals/SubmitModal'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { cn } from '@/lib/utils'
 import { PackageOpen } from 'lucide-react'
 
 export default function RegistryPage() {
@@ -21,7 +20,7 @@ export default function RegistryPage() {
 
   const [entries, setEntries] = useState<RegistryEntry[]>([])
   const [installed, setInstalled] = useState<InstalledArtifact[]>([])
-  const [projects, setProjects] = useState<Array<{ name: string; remote_id: string }>>([])
+  const [, setProjects] = useState<Array<{ name: string; remote_id: string }>>([])
   const [gitAuthor, setGitAuthor] = useState('')
   const [loading, setLoading] = useState(true)
   const [projectDisplay, setProjectDisplay] = useState('')

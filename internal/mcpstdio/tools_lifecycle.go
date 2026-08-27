@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/improvements"
@@ -46,7 +48,7 @@ type removeInput struct {
 
 type configSetInput struct {
 	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. If global is true, this is ignored."`
-	Key        string `json:"key" jsonschema:"Configuration key (e.g. ide, cli, hub.repo)"`
+	Key        string `json:"key" jsonschema:"Configuration key (e.g. ide, cli, hub.bucket)"`
 	Value      string `json:"value" jsonschema:"Configuration value"`
 	Global     bool   `json:"global,omitempty" jsonschema:"Save to global configuration instead of project"`
 }
@@ -116,13 +118,12 @@ func registerLifecycleTools(server *mcp.Server) {
 
 		resolvedIDE := config.ResolveProjectIDE(input.IDE, nil, lf.Config, lf.IDEs)
 
-		if err := hub.OnInit(ctx, reg, resolvedIDE); err != nil {
+		if err := hub.OnInit(ctx, reg, resolvedIDE, projectDir); err != nil {
 			return errResult(fmt.Errorf("hub OnInit: %w", err))
 		}
 
 		gitignorePath := filepath.Join(projectDir, ".gitignore")
-		ignoreContent := brand.DotDir() + "/"
-		_ = git.InjectGitignore(gitignorePath, ignoreContent)
+		_ = git.InjectGitignore(gitignorePath, brand.GitignoreContent())
 
 		_ = memory.EnsureScopeDirs("project", projectDir)
 		_ = memory.EnsureScopeDirs("user", projectDir)
@@ -152,6 +153,10 @@ func registerLifecycleTools(server *mcp.Server) {
 
 		projectCfg, ides := loadProjectLockInfo(projectDir)
 
+		// Anything a step wants the caller to know. A sync that silently skipped half
+		// its work still said "completed successfully" before this.
+		var notes []string
+
 		var idesToSync []string
 		if input.IDE != "" {
 			idesToSync = []string{input.IDE}
@@ -176,21 +181,12 @@ func registerLifecycleTools(server *mcp.Server) {
 
 		// 2. Knowledge Indexing
 		if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
-			docsDir := filepath.Join(projectDir, config.ResolveDocsDir(nil, projectCfg))
 			wikiDir := resolveWikiDir("knowledge", projectDir, "")
-			_, _ = knowledge.RunIndexPipeline(ctx, docsDir, wikiDir, knowledge.IndexConfig{
-				Workers: 4,
+			_, _ = knowledge.RunIndexPipeline(ctx, projectDir, wikiDir, knowledge.IndexConfig{
+				Workers:    4,
+				ProjectCfg: projectCfg,
+				Scope:      knowledge.ScopeFor(projectDir, nil, projectCfg),
 			})
-		}
-
-		// 2.5 Wiki Embeddings (knowledge)
-		if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
-			if embClient, err := ai.NewEmbeddingClientFromConfig(); err == nil {
-				cfg := wiki.DefaultWikiEmbedConfig()
-				embedder := wiki.NewWikiEmbedder(embClient, cfg)
-				wikiDir := resolveWikiDir("knowledge", projectDir, "")
-				_, _ = embedder.RunCycle(ctx, wikiDir)
-			}
 		}
 
 		// 3. Memory Cycle
@@ -202,22 +198,37 @@ func registerLifecycleTools(server *mcp.Server) {
 			})
 		}
 
-		// 3.5 Wiki Embeddings (memory)
-		if !config.IsModuleDisabled("memory", nil, projectCfg) {
-			if embClient, err := ai.NewEmbeddingClientFromConfig(); err == nil {
-				cfg := wiki.DefaultWikiEmbedConfig()
-				embedder := wiki.NewWikiEmbedder(embClient, cfg)
-				for _, scope := range []string{"project", "user"} {
-					wikiDir := resolveWikiDir("memory", projectDir, scope)
-					_, _ = embedder.RunCycle(ctx, wikiDir)
+		// 3.5 Wiki Embeddings (knowledge + memory), on the authoritative directories.
+		//
+		// Failures are REPORTED. This step used to be wrapped in `if err == nil` with
+		// both results discarded, so an embedder that could not start, or one that
+		// failed on every chunk, was indistinguishable from a wiki that was already
+		// fully embedded — which is how every project ended up with zero vectors and
+		// a hybrid search quietly running on full-text alone.
+		if !config.IsModuleDisabled("knowledge", nil, projectCfg) {
+			embClient, embErr := ai.NewEmbeddingClientFromConfig()
+			if embErr != nil {
+				notes = append(notes, fmt.Sprintf("wiki embeddings skipped: %v", embErr))
+			} else {
+				embedder := wiki.NewWikiEmbedder(embClient, wiki.DefaultWikiEmbedConfig())
+				embedded := 0
+				for _, target := range daemon.WikiEmbedTargets(projectDir, nil) {
+					n, err := embedder.RunCycle(ctx, target.Dir)
+					if err != nil {
+						notes = append(notes, fmt.Sprintf("wiki embeddings failed for %s: %v", target.Dir, err))
+						continue
+					}
+					embedded += n
+				}
+				if embedded > 0 {
+					notes = append(notes, fmt.Sprintf("wiki embeddings: %d chunk(s)", embedded))
 				}
 			}
 		}
 
 		// 4. Hub Sync
-		gs, err := hub.NewGitStore(nil, projectCfg)
-		if err == nil {
-			_ = gs.Sync()
+		if st, err := hub.NewS3Store(ctx, nil, projectCfg); err == nil {
+			_ = st.SyncRegistry(ctx)
 		}
 
 		// 5. Install unified mandate + skills for all IDEs
@@ -236,10 +247,13 @@ func registerLifecycleTools(server *mcp.Server) {
 		// 6. Sync IDE adapters for all IDEs
 		if lf, err := hub.LoadLockfile(filepath.Join(projectDir, brand.LockFileName())); err == nil && lf != nil {
 			for _, targetIDE := range idesToSync {
-				_ = hub.SyncIDEAdapter(targetIDE, lf)
+				_ = hub.SyncIDEAdapter(targetIDE, projectDir, lf)
 			}
 		}
 
+		if len(notes) > 0 {
+			return textResult("Sync completed.\n\n" + strings.Join(notes, "\n"))
+		}
 		return textResult("Sync completed successfully.")
 	}))
 
@@ -260,7 +274,7 @@ func registerLifecycleTools(server *mcp.Server) {
 			return errResult(fmt.Errorf("registry unavailable: %w", err))
 		}
 
-		if err := hub.OnUpdate(ctx, reg, resolvedIDE); err != nil {
+		if err := hub.OnUpdate(ctx, reg, resolvedIDE, projectDir); err != nil {
 			return errResult(err)
 		}
 
@@ -289,13 +303,13 @@ func registerLifecycleTools(server *mcp.Server) {
 		projectCfg, ides := loadProjectLockInfo(projectDir)
 		resolvedIDE := config.ResolveProjectIDE(input.IDE, nil, projectCfg, ides)
 
-		hm := git.NewHookManager("")
+		hm := git.NewHookManager(projectDir)
 		_ = hm.Remove()
 
 		_, _ = git.RemoveGitignore(filepath.Join(projectDir, ".gitignore"))
 
 		reg, _ := hub.NewRegistryManager(ctx)
-		_ = hub.OnRemove(ctx, reg, resolvedIDE)
+		_ = hub.OnRemove(ctx, reg, resolvedIDE, projectDir)
 
 		for _, r := range []func(string, string) error{
 			knowledge.RemoveRule,

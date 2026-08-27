@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"os"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
@@ -9,26 +10,91 @@ import (
 // TestBoundedDBBufferPool checks the contract rather than an exact number: the
 // pool is derived from the machine's effective memory limit (which varies by
 // host and container), so the guarantees are that it stays inside
-// [floor, ceil] and never inflates a default that is already tiny.
+// [floor, ceil] for its role and never inflates a default that is already tiny.
 func TestBoundedDBBufferPool(t *testing.T) {
 	const gib = uint64(1) << 30
 
 	t.Run("stays within floor and ceiling", func(t *testing.T) {
 		for _, def := range []uint64{16 * gib, gib + 512<<20, 400 << 20} {
-			got := boundedDBBufferPool(def)
-			if got < dbBufferPoolFloor || got > dbBufferPoolCeil {
-				t.Errorf("boundedDBBufferPool(%d) = %d, want within [%d,%d]",
-					def, got, dbBufferPoolFloor, dbBufferPoolCeil)
+			for _, readOnly := range []bool{false, true} {
+				ceil := dbBufferPoolCeilWrite
+				if readOnly {
+					ceil = dbBufferPoolCeilRead
+				}
+				got := boundedDBBufferPool(def, readOnly)
+				if got < dbBufferPoolFloor || got > ceil {
+					t.Errorf("boundedDBBufferPool(%d, readOnly=%v) = %d, want within [%d,%d]",
+						def, readOnly, got, dbBufferPoolFloor, ceil)
+				}
 			}
 		}
 	})
 
 	t.Run("tiny default not inflated", func(t *testing.T) {
 		const tiny = 128 << 20 // already below the floor
-		if got := boundedDBBufferPool(tiny); got != tiny {
-			t.Errorf("boundedDBBufferPool(%d) = %d, want it left alone", uint64(tiny), got)
+		for _, readOnly := range []bool{false, true} {
+			if got := boundedDBBufferPool(tiny, readOnly); got != tiny {
+				t.Errorf("boundedDBBufferPool(%d, readOnly=%v) = %d, want it left alone",
+					uint64(tiny), readOnly, got)
+			}
 		}
 	})
+
+	// The regression this pins: the ceiling used to be a flat 1 GiB for every
+	// handle, so a 61 GiB machine indexed a 2.5M-entity corpus with 1 GiB of
+	// buffer pool and died inside CREATE_FTS_INDEX with "the buffer pool is full
+	// and no memory could be freed" while 24 GiB sat free. Measured requirement is
+	// ~3 GiB of pool per million entities, so the writer on a machine with room
+	// must be given several GiB — a big host getting ~1 GiB is the bug, not a
+	// conservative choice.
+	t.Run("a large machine gives the writer a large pool", func(t *testing.T) {
+		requireDerivedBufferPool(t)
+		limit := sysutil.MemoryLimitBytes()
+		if limit < 16*gib {
+			t.Skipf("machine reports %d MiB, needs >= 16 GiB to assert this", limit>>20)
+		}
+		def := uint64(float64(limit) * 0.8)
+		got := boundedDBBufferPool(def, false)
+		t.Logf("limit %d MiB -> write pool %d MiB", limit>>20, got>>20)
+		if got < 4*gib {
+			t.Errorf("write pool = %d MiB on a %d MiB machine, want >= 4 GiB",
+				got>>20, limit>>20)
+		}
+	})
+
+	// And the reason the raise is safe for the daemon and the MCP server: they
+	// hold a READ handle for hours, and a buffer pool never gives memory back, so
+	// their ceiling is deliberately left where it was.
+	t.Run("a read handle stays bounded even on a large machine", func(t *testing.T) {
+		requireDerivedBufferPool(t)
+		limit := sysutil.MemoryLimitBytes()
+		if limit < 16*gib {
+			t.Skipf("machine reports %d MiB, needs >= 16 GiB to assert this", limit>>20)
+		}
+		def := uint64(float64(limit) * 0.8)
+		got := boundedDBBufferPool(def, true)
+		t.Logf("limit %d MiB -> read pool %d MiB", limit>>20, got>>20)
+		if got > dbBufferPoolCeilRead {
+			t.Errorf("read pool = %d MiB, want <= %d MiB",
+				got>>20, dbBufferPoolCeilRead>>20)
+		}
+		if got >= boundedDBBufferPool(def, false) {
+			t.Errorf("read pool %d MiB is not smaller than the write pool %d MiB",
+				got>>20, boundedDBBufferPool(def, false)>>20)
+		}
+	})
+}
+
+// requireDerivedBufferPool skips a subtest that asserts the DERIVED pool when the
+// environment has replaced it. GRAPHIT_DB_BUFFER_MB is a legitimate thing for a
+// developer or CI runner to set — it is what the buffer-pool error tells operators
+// to use — and it defeats the fraction, the ceiling and the read/write split alike,
+// so an assertion about any of those has nothing left to measure.
+func requireDerivedBufferPool(t *testing.T) {
+	t.Helper()
+	if v := os.Getenv("GRAPHIT_DB_BUFFER_MB"); v != "" {
+		t.Skipf("GRAPHIT_DB_BUFFER_MB=%s overrides the derived pool", v)
+	}
 }
 
 // TestAntlrHeapBudget checks the ANTLR cache budget scales with the machine and
@@ -48,10 +114,15 @@ func TestAntlrHeapBudgetEnvOverride(t *testing.T) {
 	}
 }
 
+// TestBoundedDBBufferPoolEnvOverride: the override wins for BOTH roles, because it
+// is the escape hatch the buffer-pool error message tells the operator to use.
 func TestBoundedDBBufferPoolEnvOverride(t *testing.T) {
 	t.Setenv("GRAPHIT_DB_BUFFER_MB", "128")
-	if got := boundedDBBufferPool(16 << 30); got != 128<<20 {
-		t.Errorf("env override = %d, want %d", got, uint64(128)<<20)
+	for _, readOnly := range []bool{false, true} {
+		if got := boundedDBBufferPool(16<<30, readOnly); got != 128<<20 {
+			t.Errorf("env override (readOnly=%v) = %d, want %d",
+				readOnly, got, uint64(128)<<20)
+		}
 	}
 }
 

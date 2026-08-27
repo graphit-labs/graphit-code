@@ -13,10 +13,6 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// mock embedding client
-// ---------------------------------------------------------------------------
-
 type mockEmbeddingClient struct {
 	embedFn      func(ctx context.Context, text string) ([]float32, error)
 	embedBatchFn func(ctx context.Context, texts []string) ([][]float32, error)
@@ -62,9 +58,7 @@ func TestNewEmbedServer_SockFilePath(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // EmbedServer — Start and handlers (full integration)
-// ---------------------------------------------------------------------------
 
 func TestEmbedServer_StartAndShutdown(t *testing.T) {
 	tempHome := t.TempDir()

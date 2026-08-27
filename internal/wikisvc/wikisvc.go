@@ -8,9 +8,11 @@ import (
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
-	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/memory"
+	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
@@ -50,9 +52,15 @@ var (
 	deleteChatSession = chat.DeleteSession
 )
 
+// WikiSearchOpts is a multi-wiki search request.
+//
+// This service backs `graphit wiki search`, which searches documentation only. The
+// live search — wikis plus code graphs plus the framework's own tooling — is a
+// separate subsystem with its own session runtime; see internal/livesearch.
 type WikiSearchOpts struct {
-	Query   string
-	Wikis   []string
+	Query string
+	Wikis []string
+	// HubRefs are Hub knowledge artifacts, `id[@version]`.
 	HubRefs []string
 	TopK    int
 }
@@ -77,11 +85,11 @@ func (s *WikiService) ResolveWikiSource(name string) (wiki.WikiSource, error) {
 	switch name {
 	case "project":
 		return s.resolveLocalSource(name, filepath.Base(s.projectDir),
-			filepath.Join(s.projectDir, brand.DotDir(), "knowledge", "project"))
+			knowledge.WikiDirFor(s.projectDir))
 
 	case "memory":
 		return s.resolveLocalSource(name, "Memory (project)",
-			filepath.Join(s.projectDir, brand.DotDir(), "memory", "project"))
+			memory.WikiDirFor(s.projectDir, "project"))
 
 	default:
 		return s.resolveEcosystemSource(name)
@@ -116,13 +124,10 @@ func (s *WikiService) resolveEcosystemSource(projectID string) (wiki.WikiSource,
 		if p.ID != projectID {
 			continue
 		}
-		dir := filepath.Join(p.Dir, brand.DotDir(), "knowledge", "project")
-		if _, err := os.Stat(dir); err != nil {
-			wikiSub := filepath.Join(dir, "wiki")
-			if _, err := os.Stat(wikiSub); err == nil {
-				dir = wikiSub
-			}
-		}
+		// Keyed by the id the global lock already gave us rather than by re-reading
+		// that project's lockfile: same answer, one fewer file read, and it still
+		// resolves for a project whose directory this process cannot reach.
+		dir := store.KnowledgeProjectDirByID(p.ID)
 		if _, err := os.Stat(dir); err != nil {
 			return wiki.WikiSource{}, fmt.Errorf("wiki not found for project %s at %s", projectID, dir)
 		}
@@ -206,9 +211,11 @@ func (s *WikiService) SearchMultiWiki(ctx context.Context, opts WikiSearchOpts) 
 		return nil, err
 	}
 
-	chatSources := make([]chat.WikiSource, len(sources))
+	chatSources := make([]chat.Source, len(sources))
 	for i, src := range sources {
-		chatSources[i] = chat.WikiSource{ID: src.ID, Label: src.Label, Dir: src.Dir}
+		chatSources[i] = chat.Source{
+			ID: src.ID, Label: src.Label, Kind: chat.SourceWiki, Dir: src.Dir,
+		}
 	}
 	session := newChatSession(s.projectDir, chatSources, opts.Query)
 

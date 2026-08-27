@@ -1,29 +1,27 @@
-# Relatórios upstream pendentes
+# Pending Upstream Reports
 
-Cinco defeitos de dependências externas, encontrados durante o trabalho no indexador AST.
-**Nenhum foi enviado** — abrir issue em repositório de terceiro é ação externa e depende de
-decisão do Engenheiro.
+Five external-dependency defects found while working on the AST indexer.
+**None has been filed** — opening an issue on a third-party repository is an external action and requires an
+Engineer decision.
 
-Cada arquivo aqui é o corpo do report, pronto para colar, em inglês (público do projeto
-upstream).
+Each file here is the report body, ready to paste, in English (the upstream project's audience).
 
-| arquivo | projeto | severidade | efeito no Graphit |
+| file | project | severity | effect on Graphit |
 |---|---|---|---|
-| `antlr4-go-stdout.md` | antlr/antlr4 (Go runtime) v4.13.1 | alta | corrompia o protocolo stdout do MCP |
-| `grammars-v4-plsql-sll-blowup.md` | antlr/grammars-v4 | alta | OOM em arquivo de 1,7 KB |
-| `liblbug-fts-insert.md` | LadybugDB/liblbug 0.18.2 | alta | incremental O(corpus) em vez de O(1) |
-| `liblbug-close-and-unwind.md` | LadybugDB/liblbug 0.18.2 | média | `Close()` até 5s; crash em `UNWIND ... CREATE` |
-| `liblbug-string-corruption.md` | LadybugDB/liblbug 0.18.2 | alta | **perda silenciosa de dado** |
+| `antlr4-go-stdout.md` | antlr/antlr4 (Go runtime) v4.13.1 | high | corrupted the MCP stdout protocol |
+| `grammars-v4-plsql-sll-blowup.md` | antlr/grammars-v4 | high | OOM on a 1.7 KB file |
+| `liblbug-fts-insert.md` | LadybugDB/liblbug 0.18.2 | high | incremental cost O(corpus) instead of O(1) |
+| `liblbug-close-and-unwind.md` | LadybugDB/liblbug 0.18.2 | medium | `Close()` up to 5s; crash on `UNWIND ... CREATE` |
+| `liblbug-string-corruption.md` | LadybugDB/liblbug 0.18.2 | high | **silent data loss** |
 
-Quatro dos cinco têm repro mínimo. O quinto, `liblbug-string-corruption.md`, **não tem, e
-provavelmente não deve ser enviado como está** — a sonda em escala de campo (35358 linhas,
-866 MB, mesma composição de bytes, mesmo build de índice) não reproduz nada. Com volume
-eliminado junto com forma do dado, concorrência e ponteiro cgo, a suspeita passa a recair no
-caminho que as strings percorrem **antes** do banco: parser, cache de shard, ida e volta em
-JSON, várias goroutines. Nenhuma sonda cobre isso; todas entregam ao banco uma string montada
-ali mesmo. O arquivo fica pelo valor das eliminações registradas.
+Four of the five have a minimal repro. The fifth, `liblbug-string-corruption.md`, **has none and
+probably should not be filed as-is** — the field-scale probe (35,358 lines,
+866 MB, same byte composition, same index build) reproduces nothing. With volume
+eliminated alongside data shape, concurrency, and the cgo pointer, suspicion now falls on
+the path strings travel **before** the database: parser, shard cache, JSON round-trip, multiple goroutines. No probe covers that; all of them hand the database a string assembled
+right there. The file is kept for the value of the eliminations it records.
 
-O de maior valor para nós é `liblbug-fts-insert.md`: enquanto ele não for corrigido, cada
-atualização incremental do índice de busca recria sete índices FTS sobre o corpus inteiro.
-`TestLadybugFTSPerRowInsertIsReliable` está invertido de propósito — passa enquanto o bug
-existe e falha quando for consertado, avisando que a mitigação pode sair.
+The most valuable to us is `liblbug-fts-insert.md`: until it is fixed, every
+incremental search-index update recreates seven FTS indexes over the entire corpus.
+`TestLadybugFTSPerRowInsertIsReliable` is intentionally inverted — it passes while the bug
+exists and fails once fixed, signaling that the mitigation can be removed.

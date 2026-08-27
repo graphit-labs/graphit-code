@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -13,6 +12,8 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/daemon"
+	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
@@ -31,6 +32,7 @@ type wikiSearchInput struct {
 type wikiBrowseInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
+	Context     string `json:"context,omitempty" jsonschema:"Named imported context, or a memory scope other than project"`
 	DocType     string `json:"doc_type,omitempty" jsonschema:"Filter by document type (e.g., specification, architecture, decision)"`
 	Limit       int    `json:"limit,omitempty" jsonschema:"Max results (default: 100)"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
@@ -39,6 +41,7 @@ type wikiBrowseInput struct {
 type wikiLogInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
+	Context     string `json:"context,omitempty" jsonschema:"Named imported context, or a memory scope other than project"`
 	Limit       int    `json:"limit,omitempty" jsonschema:"Max log entries (default: 10)"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
@@ -47,6 +50,7 @@ type wikiXRefsInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Query       string `json:"query" jsonschema:"Entity slug or name to find cross-references for"`
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
+	Context     string `json:"context,omitempty" jsonschema:"Named imported context, or a memory scope other than project"`
 	Depth       int    `json:"depth,omitempty" jsonschema:"Depth of graph traversal (default: 1, max: 3)"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
@@ -69,49 +73,98 @@ type wikiSourceInput struct {
 	IsRegex     bool   `json:"regex,omitempty" jsonschema:"Treat pattern as a regular expression"`
 	Before      int    `json:"before,omitempty" jsonschema:"Number of context lines before each pattern match"`
 	After       int    `json:"after,omitempty" jsonschema:"Number of context lines after each pattern match"`
-	LineNumbers bool   `json:"line_numbers,omitempty" jsonschema:"Include line numbers in the output"`
+	LineNumbers bool   `json:"line_numbers,omitempty" jsonschema:"Include line numbers in the output (default: false)"`
 }
 
-// resolveWikiDBDir resolves the wiki scope to a directory containing (or for) wiki.db.
-func resolveWikiDBDir(projectDir, wikiScope string) (string, error) {
-	scope := wikiScope
-	if scope == "" {
-		scope = "project"
-	}
-
-	var wikiDir string
-	switch scope {
-	case "project":
-		wikiDir = filepath.Join(projectDir, brand.DotDir(), "knowledge", "project")
+// resolveWikiScopeDirContext is resolveWikiScopeDir for an imported context.
+//
+// A context is addressed differently by the two wikis, which is why the name is a
+// single parameter rather than two: for knowledge it names an imported documentation
+// set, and for memory it names the SCOPE — an imported memory context, or "project"
+// when unspecified.
+func resolveWikiScopeDirContext(projectDir, wikiScope, contextName string) (string, error) {
+	switch wikiScope {
+	case "", "project", "knowledge":
+		return resolveWikiDir("knowledge", projectDir, contextName), nil
 	case "memory":
-		wikiDir = filepath.Join(projectDir, brand.DotDir(), "memory", "project")
-	default:
-		return "", fmt.Errorf("unknown wiki scope %q — use 'project' or 'memory'", scope)
-	}
-
-	// Check for wiki.db in the directory or a wiki/ subdirectory.
-	dbPath := filepath.Join(wikiDir, "wiki.db")
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		subDir := filepath.Join(wikiDir, "wiki")
-		subDB := filepath.Join(subDir, "wiki.db")
-		if _, err := os.Stat(subDB); err == nil {
-			wikiDir = subDir
+		if contextName == "" {
+			contextName = "project"
 		}
+		return resolveWikiDir("memory", projectDir, contextName), nil
+	default:
+		return "", fmt.Errorf("unknown wiki scope %q — use 'project' or 'memory'", wikiScope)
 	}
-
-	return wikiDir, nil
 }
 
-// resolveWikiEmbedDir resolves a wiki scope to the wiki subdirectory path used by the embedder.
-func resolveWikiEmbedDir(projectDir, scope string) (string, error) {
-	switch scope {
-	case "project", "knowledge":
-		return filepath.Join(projectDir, brand.DotDir(), "knowledge", "project", "wiki"), nil
-	case "memory":
-		return filepath.Join(projectDir, brand.DotDir(), "memory", "project", "wiki"), nil
-	default:
-		return "", fmt.Errorf("unknown wiki scope: %q (use project or memory)", scope)
+// openWikiForRead opens a wiki index for querying and refuses one with no content.
+//
+// OpenWikiDB CREATES what it opens, so "opened fine" says nothing about whether
+// anything was ever indexed: a fresh project, or a page written in the seconds
+// before the daemon recompiles, yields a perfectly healthy EMPTY index whose every
+// answer is "no results" for a reason that has nothing to do with the query. The
+// markdown-backed search paths were taught this distinction after it cost a whole
+// session of silent no-recall; these tools had not been.
+func openWikiForRead(ctx context.Context, projectDir, wikiScope string) (*wiki.WikiDB, error) {
+	return openWikiForReadContext(ctx, projectDir, wikiScope, "")
+}
+
+func openWikiForReadContext(ctx context.Context, projectDir, wikiScope, contextName string) (*wiki.WikiDB, error) {
+	// A PUBLISHED CONTEXT IS READ WHERE IT LIVES. Nothing was downloaded for it, so there is no
+	// local directory to resolve — the engine queries the objects on S3 directly. Tried first,
+	// because a stale local copy from before the switch would otherwise win silently.
+	if db, mounted, err := openMountedWiki(ctx, projectDir, wikiScope, contextName); mounted {
+		return db, err
 	}
+
+	wikiDir, err := resolveWikiScopeDirContext(projectDir, wikiScope, contextName)
+	if err != nil {
+		return nil, err
+	}
+	db, err := wiki.OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening wiki db: %w", err)
+	}
+	if !db.HasContent(ctx) {
+		_ = db.Close()
+		return nil, fmt.Errorf("the %q wiki at %s has no indexed content yet — "+
+			"run graphit_knowledge_index (or graphit_sync) and retry; "+
+			"this is an empty index, not an empty answer", wikiScope, wikiDir)
+	}
+	return db, nil
+}
+
+// openMountedWiki opens a published knowledge context from object storage.
+//
+// The middle return says whether this context IS mounted, which is separate from whether opening
+// it worked: false means "not a published context, use the local path", and true with an error
+// means "it is published and the mount failed", which must surface rather than fall back to a
+// local directory that does not exist.
+//
+// Memory is never mounted: it is read-and-write and multi-writer, so it carries its source and is
+// compiled locally. Only knowledge is frozen by a version.
+func openMountedWiki(ctx context.Context, projectDir, wikiScope, contextName string) (*wiki.WikiDB, bool, error) {
+	switch wikiScope {
+	case "", "project", "knowledge":
+	default:
+		return nil, false, nil
+	}
+	if contextName == "" {
+		return nil, false, nil
+	}
+	st, err := hub.NewS3Store(ctx, nil, loadProjectConfig(projectDir))
+	if err != nil {
+		return nil, false, nil
+	}
+	mount, ok := st.MountedWikiFor(projectDir, contextName)
+	if !ok {
+		return nil, false, nil
+	}
+	db, err := wiki.OpenWikiDBAt(ctx, mount.Config)
+	if err != nil {
+		return nil, true, fmt.Errorf("opening the published wiki %s@%s at %s: %w",
+			mount.ArtifactID, mount.Version, mount.Config.URI, err)
+	}
+	return db, true, nil
 }
 
 func registerWikiTools(server *mcp.Server) {
@@ -142,20 +195,21 @@ func registerWikiTools(server *mcp.Server) {
 		switch mode {
 		case "fts":
 			var allResults []wiki.WikiSearchResult
+			var skipped []string
 			for _, scope := range wikis {
-				wikiDir, err := resolveWikiDBDir(projectDir, scope)
+				wikiDB, err := openWikiForRead(ctx, projectDir, scope)
 				if err != nil {
+					skipped = append(skipped, err.Error())
 					continue
 				}
-				wikiDB, err := wiki.OpenWikiDB(wikiDir)
-				if err != nil {
-					continue
-				}
-				results, err := wikiDB.Search(input.Query, topK)
+				results, err := wikiDB.Search(ctx, input.Query, topK)
 				_ = wikiDB.Close()
 				if err == nil {
 					allResults = append(allResults, results...)
 				}
+			}
+			if len(allResults) == 0 && len(skipped) > 0 {
+				return errResult(fmt.Errorf("%s", strings.Join(skipped, "; ")))
 			}
 			sort.Slice(allResults, func(i, j int) bool {
 				return allResults[i].Score > allResults[j].Score
@@ -178,20 +232,21 @@ func registerWikiTools(server *mcp.Server) {
 				return errResult(fmt.Errorf("embed query: %w", err))
 			}
 			var allResults []wiki.WikiSearchResult
+			var skipped []string
 			for _, scope := range wikis {
-				wikiDir, err := resolveWikiDBDir(projectDir, scope)
+				wikiDB, err := openWikiForRead(ctx, projectDir, scope)
 				if err != nil {
+					skipped = append(skipped, err.Error())
 					continue
 				}
-				wikiDB, err := wiki.OpenWikiDB(wikiDir)
-				if err != nil {
-					continue
-				}
-				results, err := wikiDB.SemanticSearch(queryVec, topK)
+				results, err := wikiDB.SemanticSearch(ctx, queryVec, topK)
 				_ = wikiDB.Close()
 				if err == nil {
 					allResults = append(allResults, results...)
 				}
+			}
+			if len(allResults) == 0 && len(skipped) > 0 {
+				return errResult(fmt.Errorf("%s", strings.Join(skipped, "; ")))
 			}
 			sort.Slice(allResults, func(i, j int) bool {
 				return allResults[i].Score > allResults[j].Score
@@ -206,33 +261,42 @@ func registerWikiTools(server *mcp.Server) {
 
 		default: // hybrid
 			// Try to get embedding client; fall back to FTS-only if unavailable.
+			//
+			// The fallback is deliberate, but it used to be SILENT: with no vectors,
+			// "hybrid" answered from the lexical index and said so nowhere, so a
+			// broken embedder read as a working hybrid search for as long as nobody
+			// checked. The reason is reported alongside the results instead.
 			var queryVec []float32
-			if embClient, embErr := ai.NewEmbeddingClientFromConfig(); embErr == nil {
-				if vec, err := embClient.Embed(ctx, input.Query); err == nil {
-					queryVec = vec
-				}
+			var degraded string
+			if embClient, embErr := ai.NewEmbeddingClientFromConfig(); embErr != nil {
+				degraded = fmt.Sprintf("embedding client unavailable (%v)", embErr)
+			} else if vec, err := embClient.Embed(ctx, input.Query); err != nil {
+				degraded = fmt.Sprintf("query could not be embedded (%v)", err)
+			} else {
+				queryVec = vec
 			}
 
 			var allResults []wiki.WikiSearchResult
+			var skipped []string
 			for _, scope := range wikis {
-				wikiDir, err := resolveWikiDBDir(projectDir, scope)
+				wikiDB, err := openWikiForRead(ctx, projectDir, scope)
 				if err != nil {
-					continue
-				}
-				wikiDB, err := wiki.OpenWikiDB(wikiDir)
-				if err != nil {
+					skipped = append(skipped, err.Error())
 					continue
 				}
 				var results []wiki.WikiSearchResult
 				if queryVec != nil {
-					results, err = wikiDB.HybridSearch(input.Query, queryVec, topK)
+					results, err = wikiDB.HybridSearch(ctx, input.Query, queryVec, topK)
 				} else {
-					results, err = wikiDB.Search(input.Query, topK)
+					results, err = wikiDB.Search(ctx, input.Query, topK)
 				}
 				_ = wikiDB.Close()
 				if err == nil {
 					allResults = append(allResults, results...)
 				}
+			}
+			if len(allResults) == 0 && len(skipped) > 0 {
+				return errResult(fmt.Errorf("%s", strings.Join(skipped, "; ")))
 			}
 
 			// Sort merged results by score descending and trim.
@@ -243,31 +307,34 @@ func registerWikiTools(server *mcp.Server) {
 				allResults = allResults[:topK]
 			}
 			if aiOpt(input.AiOptimized) {
-				return textResult(wiki.FormatSearchResultsTOON(allResults))
+				out := wiki.FormatSearchResultsTOON(allResults)
+				if degraded != "" {
+					out += fmt.Sprintf("\n\nNOTE: hybrid degraded to full-text only — %s. "+
+						"Semantic ranking contributed nothing to these results.\n", degraded)
+				}
+				return textResult(out)
+			}
+			if degraded != "" {
+				return jsonResult(map[string]any{"results": allResults, "degraded": degraded})
 			}
 			return jsonResult(allResults)
 		}
 	}))
 
-	// --- New WikiDB tools ---
+	// New WikiDB tools
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "browse"),
-		Description: "Browse wiki documents in a structured format. Lists chunks/documents from the WikiDB with optional filtering by type.",
+		Description: "Browse wiki documents in a structured format. Lists chunks/documents from the WikiDB with optional filtering by type. Pass context to browse an imported knowledge context or another memory scope.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiBrowseInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
 
-		wikiDir, err := resolveWikiDBDir(projectDir, input.Wiki)
+		db, err := openWikiForReadContext(ctx, projectDir, input.Wiki, input.Context)
 		if err != nil {
 			return errResult(err)
-		}
-
-		db, err := wiki.OpenWikiDB(wikiDir)
-		if err != nil {
-			return errResult(fmt.Errorf("opening wiki db: %w", err))
 		}
 		defer func() { _ = db.Close() }()
 
@@ -282,7 +349,7 @@ func registerWikiTools(server *mcp.Server) {
 			Limit:     limit,
 		}
 
-		entries, err := db.Browse(filter)
+		entries, err := db.Browse(ctx, filter)
 		if err != nil {
 			return errResult(fmt.Errorf("browsing wiki: %w", err))
 		}
@@ -319,21 +386,16 @@ func registerWikiTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "log"),
-		Description: "Show wiki sync history. Returns a timeline of sync operations showing what was added, updated, and deleted.",
+		Description: "Show wiki sync history. Returns a timeline of sync operations showing what was added, updated, and deleted. Pass context for an imported knowledge context or another memory scope.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiLogInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
 
-		wikiDir, err := resolveWikiDBDir(projectDir, input.Wiki)
+		db, err := openWikiForReadContext(ctx, projectDir, input.Wiki, input.Context)
 		if err != nil {
 			return errResult(err)
-		}
-
-		db, err := wiki.OpenWikiDB(wikiDir)
-		if err != nil {
-			return errResult(fmt.Errorf("opening wiki db: %w", err))
 		}
 		defer func() { _ = db.Close() }()
 
@@ -342,7 +404,7 @@ func registerWikiTools(server *mcp.Server) {
 			limit = 10
 		}
 
-		entries, err := db.QuerySyncLog(limit)
+		entries, err := db.QuerySyncLog(ctx, limit)
 		if err != nil {
 			return errResult(fmt.Errorf("querying sync log: %w", err))
 		}
@@ -380,7 +442,7 @@ func registerWikiTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "xrefs"),
-		Description: "Show cross-references for a wiki entity. Returns inbound and outbound references with configurable graph traversal depth.",
+		Description: "Show cross-references for a wiki entity. Returns inbound and outbound references with configurable graph traversal depth. Pass context for an imported knowledge context or another memory scope.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiXRefsInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -391,14 +453,9 @@ func registerWikiTools(server *mcp.Server) {
 			return errResult(fmt.Errorf("query is required"))
 		}
 
-		wikiDir, err := resolveWikiDBDir(projectDir, input.Wiki)
+		db, err := openWikiForReadContext(ctx, projectDir, input.Wiki, input.Context)
 		if err != nil {
 			return errResult(err)
-		}
-
-		db, err := wiki.OpenWikiDB(wikiDir)
-		if err != nil {
-			return errResult(fmt.Errorf("opening wiki db: %w", err))
 		}
 		defer func() { _ = db.Close() }()
 
@@ -410,7 +467,7 @@ func registerWikiTools(server *mcp.Server) {
 			depth = 3
 		}
 
-		refs, err := db.FindXRefs(input.Query, depth)
+		refs, err := db.FindXRefs(ctx, input.Query, depth)
 		if err != nil {
 			return errResult(fmt.Errorf("finding xrefs: %w", err))
 		}
@@ -462,35 +519,45 @@ func registerWikiTools(server *mcp.Server) {
 			return errResult(err)
 		}
 
-		scope := input.Wiki
-		if scope == "" {
-			scope = "project"
-		}
-		wikiDir, err := resolveWikiEmbedDir(projectDir, scope)
-		if err != nil {
-			return errResult(err)
-		}
-
 		embClient, err := ai.NewEmbeddingClientFromConfig()
 		if err != nil {
 			return errResult(err)
 		}
+		embedder := wiki.NewWikiEmbedder(embClient, wiki.DefaultWikiEmbedConfig())
 
-		cfg := wiki.DefaultWikiEmbedConfig()
-		embedder := wiki.NewWikiEmbedder(embClient, cfg)
-
-		count, err := embedder.RunCycle(ctx, wikiDir)
-		if err != nil {
-			return errResult(err)
+		// The same targets the daemon embeds, so a manual run and the background loop
+		// cannot disagree about which copy of a wiki is the one worth embedding.
+		targets := daemon.WikiEmbedTargets(projectDir, nil)
+		if input.Wiki != "" {
+			filtered := targets[:0]
+			for _, t := range targets {
+				if wikiScopeMatchesTarget(input.Wiki, t.Dir) {
+					filtered = append(filtered, t)
+				}
+			}
+			targets = filtered
+		}
+		if len(targets) == 0 {
+			return errResult(fmt.Errorf("no wiki to embed for scope %q", input.Wiki))
 		}
 
-		return textResult(fmt.Sprintf("%d wiki chunks embedded.", count))
+		total := 0
+		for _, target := range targets {
+			count, err := embedder.RunCycle(ctx, target.Dir)
+			if err != nil {
+				return errResult(fmt.Errorf("embedding %s: %w", target.Dir, err))
+			}
+			total += count
+		}
+
+		return textResult(fmt.Sprintf("%d wiki chunks embedded.", total))
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: brand.MCPToolName("wiki", "source"),
 		Description: "Read the content of a wiki page, with head/tail, line ranges and pattern search with context — the same slicing as the code-source tool. " +
-			"Use this instead of reading the page file directly: it takes the project as a parameter, so it reads pages belonging to any project in the ecosystem, including ones outside your own workspace.",
+			"This is the ONLY way to read a page: wikis are stored once, in the global directory, so there is no page file inside the project to open. " +
+			"It takes the project as a parameter, so it also reads pages belonging to any other project in the ecosystem.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiSourceInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -509,6 +576,49 @@ func registerWikiTools(server *mcp.Server) {
 			}
 		default:
 			return errResult(fmt.Errorf("unknown wiki scope %q — use 'project' or 'memory'", input.Wiki))
+		}
+
+		slice := textslice.Request{
+			Head:        input.Head,
+			Tail:        input.Tail,
+			StartLine:   input.StartLine,
+			EndLine:     input.EndLine,
+			Pattern:     input.Pattern,
+			IsRegex:     input.IsRegex,
+			Before:      input.Before,
+			After:       input.After,
+			LineNumbers: input.LineNumbers,
+		}
+
+		// A PUBLISHED CONTEXT HAS NO PAGE FILES. Nothing was downloaded, so the text comes out of
+		// the index — the same text, because the wiki compiles one chunk per document, so
+		// `chunks.body` is the page rather than a slice of it.
+		if module == "knowledge" {
+			if db, mounted, mErr := openMountedWiki(ctx, projectDir, "knowledge", contextName); mounted {
+				if mErr != nil {
+					return errResult(mErr)
+				}
+				defer func() { _ = db.Close() }()
+				result, rErr := wiki.ReadPageFrom(ctx, db, input.Path, slice)
+				if rErr != nil {
+					if pages := wiki.ListPagesFrom(ctx, db); errors.Is(rErr, wiki.ErrPageNotFound) && len(pages) > 0 {
+						shown := pages
+						suffix := ""
+						if len(shown) > 40 {
+							shown = shown[:40]
+							suffix = fmt.Sprintf("\n… and %d more", len(pages)-40)
+						}
+						return errResult(fmt.Errorf("%w\n\nPages in this wiki:\n%s%s",
+							rErr, strings.Join(shown, "\n"), suffix))
+					}
+					return errResult(rErr)
+				}
+				if result.Source == "" && len(result.Matches) == 0 {
+					return textResult(fmt.Sprintf("No matches found for pattern %q in wiki page %s",
+						input.Pattern, result.Page))
+				}
+				return textResult(result.Source)
+			}
 		}
 
 		wikiDir := resolveWikiDir(module, projectDir, contextName)
@@ -546,4 +656,17 @@ func registerWikiTools(server *mcp.Server) {
 		}
 		return textResult(result.Source)
 	}))
+}
+
+// wikiScopeMatchesTarget maps a user-facing scope name onto one of the embed targets.
+func wikiScopeMatchesTarget(scope, dir string) bool {
+	slashed := filepath.ToSlash(dir)
+	switch scope {
+	case "project", "knowledge":
+		return strings.Contains(slashed, "/knowledge/")
+	case "memory":
+		return strings.Contains(slashed, "/memory/")
+	default:
+		return false
+	}
 }

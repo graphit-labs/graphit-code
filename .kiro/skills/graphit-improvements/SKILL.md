@@ -1,6 +1,6 @@
 ---
 name: graphit-improvements
-description: Autonomous code improvement, audit, review, refactoring methodology, and dream subjects. Use when: user asks to improve, audit, review, or refactor the codebase; user requests quality assessment or code smell detection; after completing any significant task for reflection and knowledge generation; you notice improvement patterns out of scope for the current task; you want to schedule work for later autonomous processing; you need to create, update, or codify recurring patterns as Hub artifacts.
+description: 'Autonomous code improvement, audit, review, refactoring methodology, and the improvement backlog. Use when: user asks to improve, audit, review, or refactor the codebase; user requests quality assessment or code smell detection; after completing any significant task for reflection and knowledge generation; you notice improvement patterns out of scope for the current task; you want to schedule work for later autonomous processing; you need to create, update, or codify recurring patterns as Hub artifacts.'
 ---
 
 # Code Improvement Methodology Rule
@@ -472,25 +472,29 @@ answer from what is actually here; a search engine answers from what is usually 
 - **Workspace Hygiene**: ALWAYS remove any temporary files, scratch scripts, or experimental code created to test a hypothesis, validate an idea, or assist during the task. Do not leave unversioned artifacts behind that are not part of the final system.
 - Prioritize fixes by severity: **security > concurrency > 12-factor > observability > correctness > quality > style**
 
-## Work You Are Not Going to Do Now — Dream Subjects
+## Work You Are Not Going to Do Now — The Improvement Backlog
 
 Every review turns up more than the current change should carry. Today that finding has
 two exits, and both are bad: widen the change until it is unreviewable, or mention it once
 in prose and lose it. **There is a third.**
 
-The daemon runs an autonomous session — a *dream* — when the project has been idle long
-enough. Subjects are the instructions waiting for it. Leaving one costs a single call and
-keeps the current change focused:
+The **improvement backlog** is where deferred work is written down instead of dropped. It
+lives in the documentation tree — `docs/tasks/backlog/` by default,
+overridable with `improvements.backlog_dir` — so an item is versioned with the project and
+visible in review rather than sitting in a gitignored directory on one machine. The daemon
+runs an autonomous session — a *dream* — when the project has been idle long enough, and
+that session picks up the oldest pending item. Leaving one costs a single call and keeps the
+current change focused:
 
 ```
-graphit_dream_subject_add(project_dir: "/path/to/project", title: "<the finding, in one line>", body: "<the full brief>")
+graphit_improvements_backlog_add(project_dir: "/path/to/project", title: "<the finding, in one line>", body: "<the full brief>")
 ```
 
-**Write `body` for a reader with no conversation history.** The dream agent does not
-inherit this session: not the files you were in, not what the user said, not why it matters.
-A subject that says "fix the duplication we discussed" is a subject that gets nothing done.
-Name the paths, the symptom, what you already ruled out, and how to tell it worked — the
-same standard as the task logs in the documentation skill.
+**Write `body` for a reader with no conversation history.** Whoever picks the item up does
+not inherit this session: not the files you were in, not what the user said, not why it
+matters. An item that says "fix the duplication we discussed" is an item that gets nothing
+done. Name the paths, the symptom, what you already ruled out, and how to tell it worked —
+the same standard as the task logs in the documentation skill.
 
 ### When to leave one
 
@@ -505,22 +509,25 @@ same standard as the task logs in the documentation skill.
 
 ```
 graphit_dream_status(project_dir: "/path/to/project")
-graphit_dream_subject_list(project_dir: "/path/to/project")
-graphit_dream_subject_remove(project_dir: "/path/to/project", slug: "<slug>")
+graphit_improvements_backlog_list(project_dir: "/path/to/project")
+graphit_improvements_backlog_remove(project_dir: "/path/to/project", slug: "<slug>")
 ```
 
-**Dream is opt-in and it needs the daemon.** `graphit_dream_status` returns `enabled`,
-`daemon_running`, a `status` of `dreaming` / `deep sleep` / `standby` / `inactive`, the
-configured `idle_timeout`, and the `pending_subjects` already queued.
+**Recording an item always works — but the session that would act on it is opt-in and
+needs the daemon.** `graphit_dream_status` returns `enabled`, `daemon_running`, a `status` of
+`dreaming` / `deep sleep` / `standby` / `inactive`, the configured `idle_timeout`, and the
+`pending_backlog` already queued.
 
 So do not tell the user "this will be handled tonight" without looking. With
 `enabled: false` — the default, since the module is opt-in — or `daemon_running: false`,
-the subject sits there forever and the finding is lost exactly as if you had said nothing.
-Report what you left **and** whether anything is going to pick it up.
+nothing will pick the item up on its own. The item is still worth writing: it is committed
+with the project, so a human finds it in review even when no session ever runs. What is not
+acceptable is implying it will be actioned automatically. Report what you left **and**
+whether anything is going to pick it up.
 
-Check `graphit_dream_subject_list` before adding: a queue with the same subject three times
-is three sessions spent on one problem. `graphit_dream_subject_remove` takes the `slug` from
-that listing — use it when you have just fixed what a subject asked for.
+Check `graphit_improvements_backlog_list` before adding: a backlog with the same item three times
+is three sessions spent on one problem. `graphit_improvements_backlog_remove` takes the `slug` from
+that listing — use it when you have just fixed what an item asked for.
 
 ### Reading what a dream did
 
@@ -535,7 +542,7 @@ graphit_dream_reports(project_dir: "/path/to/project", all: true)   # every repo
 > first time rather than assuming you can come back to it.
 
 Each entry carries `id`, `path` to the report file, `title`, `created`, and
-`has_deep_sleep` — the last meaning that session exhausted its subject queue.
+`has_deep_sleep` — the last meaning that session emptied the backlog.
 
 ## Post-Task Reflection & Knowledge Generation
 
@@ -630,9 +637,16 @@ Never import the database package directly from handlers or services.
 ...
 ```
 
-For **folder-based types** (skill) — create `<returned-path>/SKILL.md` with your file tools:
+For **folder-based types** (skill) — create `<returned-path>/SKILL.md` with your file tools. It opens with YAML frontmatter: `name` equal to the folder name (lowercase letters, digits and single separating hyphens, at most 64 characters) and a `description` of at most 1024 characters, which is what the IDE matches a request against.
+
+**Quote the description.** It is prose, so it almost certainly contains `: `, and a plain YAML scalar may not: a strict parser reads the colon as a nested mapping and rejects the whole frontmatter. The skill is then not degraded, it is invisible — the IDE discovers no metadata and never offers it, with nothing logged to say why.
 
 ```markdown
+---
+name: error-handling-patterns
+description: "Use when: wrapping or returning errors in this project. Codifies the wrapped error pattern with context enrichment."
+---
+
 # Error Handling Patterns
 
 ## Purpose
@@ -706,7 +720,7 @@ At the end of your response, include a **Reflection Summary** section:
   - [<type>] <name> — <what changed>
 
 ### Deferred
-- Dream subjects left: <count>
+- Backlog items left: <count>
   - "<title>" — <why it was out of scope here>
 - Will anything pick them up? <from `graphit_dream_status`: enabled + daemon_running>
 

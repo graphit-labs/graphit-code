@@ -385,10 +385,11 @@
         <h3>AST Graph Explorer</h3>
         <p>Built for blazing fast <strong>Go performance</strong>. Parses every file using Tree-sitter into LadybugDB. Query deterministic code structures with Cypher. <strong>Eliminates hallucinations</strong> by grounding answers in exact structural truths, and drastically <strong>reduces LLM token usage</strong> by passing only precise nodes instead of massive files.</p>
         <div style="margin-top: 0.5rem;">
-          <h4 style="font-size: 1rem; margin-bottom: 0.75rem; color: var(--fg-muted);">23 Supported Languages</h4>
+          <h4 style="font-size: 1rem; margin-bottom: 0.75rem; color: var(--fg-muted);">45 Supported Languages</h4>
           <div style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
             <span class="tag">Go</span>
             <span class="tag">TypeScript</span>
+            <span class="tag">TSX</span>
             <span class="tag">JavaScript</span>
             <span class="tag">Python</span>
             <span class="tag">Java</span>
@@ -403,13 +404,34 @@
             <span class="tag">Ruby</span>
             <span class="tag">SQL</span>
             <span class="tag">XML</span>
-            <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">TSX</span>
             <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">PL/SQL</span>
             <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">PostgreSQL</span>
-            <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">T-SQL</span>
             <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">DB2</span>
+            <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">T-SQL</span>
             <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">COBOL 85</span>
             <span class="tag">HTML</span>
+            <span class="tag">CSS</span>
+            <span class="tag">Vue</span>
+            <span class="tag">Svelte</span>
+            <span class="tag">Bash</span>
+            <span class="tag">Clojure</span>
+            <span class="tag">Dockerfile</span>
+            <span class="tag">Elixir</span>
+            <span class="tag">GraphQL</span>
+            <span class="tag">Groovy</span>
+            <span class="tag">Haskell</span>
+            <span class="tag">HCL</span>
+            <span class="tag">JSON</span>
+            <span class="tag">Julia</span>
+            <span class="tag">Lua</span>
+            <span class="tag">Markdown</span>
+            <span class="tag">Objective-C</span>
+            <span class="tag">Protocol Buffers</span>
+            <span class="tag">R</span>
+            <span class="tag">Scala</span>
+            <span class="tag">TOML</span>
+            <span class="tag">YAML</span>
+            <span class="tag">Zig</span>
           </div>
         </div>
         <div style="margin-top: 1rem; display: flex; gap: 2rem; flex-wrap: wrap; font-size: 0.9rem; color: var(--fg-muted);">
@@ -435,7 +457,7 @@
       <div class="glass-panel bento-item bento-span-4 bg-memory reveal">
         <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="16" height="16" x="4" y="4" rx="2"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M20 15h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg></div>
         <h3>Continuous Memory</h3>
-        <p>Your corrections and decisions persist automatically. Git-backed storage ensures full history. The <strong>Improvements Module</strong> works autonomously during your idle time to refine this memory.</p>
+        <p>Your corrections and decisions persist automatically. Raw Markdown remains the source of truth, with optional S3-backed team sync and per-memory revision history. The <strong>Improvements Module</strong> works autonomously during your idle time to refine this memory.</p>
         <div class="bento-visual"><img src="assets/memory-explorer.png" alt="Memory Explorer"></div>
       </div>
 
@@ -445,7 +467,7 @@
           <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg></div>
           <div>
             <h3>The Enterprise Hub</h3>
-            <p style="margin: 0;">A decentralized, Git-based artifact registry. Import what your team knows, publish what you discover. Point these to your own private Git repository URLs (e.g. self-hosted GitLab/GitHub Enterprise) during CLI setup to foster secure <strong>progressive knowledge</strong> across your entire IT team.</p>
+            <p style="margin: 0;">An S3-backed artifact registry. Import what your team knows, publish what you discover. Point setup to AWS S3 or a private S3-compatible endpoint to foster secure <strong>progressive knowledge</strong> across your entire IT team.</p>
           </div>
         </div>
         <div class="hub-grid">
@@ -579,7 +601,7 @@
       <div class="glass-panel feature-card" style="padding: 2rem;">
         <div class="icon" style="color: var(--primary); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
         <h4>Private Knowledge Ecosystems</h4>
-        <p>Whether you're a solo developer or a full team — point Hub registries and Memory sync to your own Git repositories during CLI setup to build a persistent, private knowledge backbone that grows smarter over time.</p>
+        <p>Whether you're a solo developer or a full team — point the Hub and shared memory to your own S3-compatible bucket during CLI setup to build a persistent, private knowledge backbone that grows smarter over time.</p>
       </div>
       <div class="glass-panel feature-card" style="padding: 2rem;">
         <div class="icon" style="color: var(--accent-4); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
@@ -606,17 +628,17 @@
         <span class="dot" style="background: var(--accent-3);"></span>Game-Changer
       </div>
       <h2>Private Knowledge Ecosystems</h2>
-      <p>The feature that sets Graphit Code apart. Configure <strong>Git repositories</strong> as your Hub and Memory backend — whether for personal use or shared across an entire organization — and unlock a fully private, self-hosted ecosystem where AI agents <strong>share knowledge, learn from corrections, and enforce standards automatically</strong>.</p>
+      <p>The feature that sets Graphit Code apart. Configure a private <strong>S3-compatible bucket</strong> for Hub artifacts and shared memory — whether for personal use or an entire organization — and unlock a self-hosted ecosystem where AI agents <strong>share knowledge, learn from corrections, and enforce standards automatically</strong>.</p>
     </div>
 
     <div class="bento-grid reveal">
-      <!-- Hub Repository -->
+      <!-- Hub Bucket -->
       <div class="glass-panel bento-item bento-span-6 bg-hub" style="border: 2px solid rgba(16, 185, 129, 0.25);">
         <div class="bento-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-3);">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
         </div>
-        <h3>🔗 Hub Repository<br><small style="font-size: 0.55em; color: var(--fg-muted); font-weight: 400;">Your Artifact Center</small></h3>
-        <p>Point the Hub to <strong>any Git repository</strong> — personal or shared (GitLab, Bitbucket, GitHub Enterprise) — during <code style="background: var(--border); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em;">graphit setup</code>. It becomes the <strong>centralized registry</strong> for everything you share:</p>
+        <h3>🔗 Hub Bucket<br><small style="font-size: 0.55em; color: var(--fg-muted); font-weight: 400;">Your Artifact Center</small></h3>
+        <p>Point the Hub to <strong>AWS S3 or a private S3-compatible endpoint</strong> during <code style="background: var(--border); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em;">graphit setup</code>. It becomes the <strong>centralized registry</strong> for everything you share:</p>
         <ul style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.75rem;">
           <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-3); font-weight: 900;">✓</span><strong>Coding Rules</strong> — Company-wide standards auto-injected into every IDE</li>
           <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-3); font-weight: 900;">✓</span><strong>Team Skills</strong> — Codified workflows every agent discovers</li>
@@ -624,24 +646,24 @@
           <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-3); font-weight: 900;">✓</span><strong>MCP Servers & Agent Profiles</strong> — Shared automation</li>
         </ul>
         <div class="tag-container">
-          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">Git-Versioned</span>
-          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">PR-Reviewed</span>
-          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">SSH/SSO Auth</span>
+          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">Versioned Prefixes</span>
+          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">Private Bucket</span>
+          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">AWS-Compatible Auth</span>
         </div>
       </div>
 
-      <!-- Memory Repository -->
+      <!-- Memory Prefix -->
       <div class="glass-panel bento-item bento-span-6 bg-memory" style="border: 2px solid rgba(244, 63, 94, 0.25);">
         <div class="bento-icon" style="background: rgba(244, 63, 94, 0.15); color: var(--accent-4);">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Z"/><path d="M12 6v6l4 2"/></svg>
         </div>
-        <h3>🧠 Memory Repository<br><small style="font-size: 0.55em; color: var(--fg-muted); font-weight: 400;">Persistent Intelligence</small></h3>
-        <p>Point the Memory sync to a <strong>separate Git repository</strong>. Your ecosystem gains <strong>shared persistent memory</strong> that compounds across every project and developer:</p>
+        <h3>🧠 Memory Prefix<br><small style="font-size: 0.55em; color: var(--fg-muted); font-weight: 400;">Persistent Intelligence</small></h3>
+        <p>The same bucket carries project and user scopes under a dedicated <strong>memory prefix</strong>. Your ecosystem gains <strong>shared persistent memory</strong> that compounds across every project and developer:</p>
         <ul style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.75rem;">
           <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Corrections propagate</strong> — Fix once, the entire team learns</li>
           <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Conventions are learned once</strong> — Automatic consistency</li>
           <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Institutional knowledge persists</strong> — Zero onboarding friction</li>
-          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Full Git history</strong> — Tracked, auditable, reversible</li>
+          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Revision history</strong> — Tracked in memory metadata and archives</li>
         </ul>
         <div class="tag-container">
           <span class="tag" style="background: rgba(244, 63, 94, 0.1); color: var(--accent-4); border-color: rgba(244, 63, 94, 0.3);">Progressive</span>
@@ -653,14 +675,15 @@
       <!-- Full-width collaboration flow -->
       <div class="glass-panel bento-item bento-span-12" style="background: linear-gradient(135deg, var(--card), rgba(16, 185, 129, 0.08)); border: 2px solid rgba(16, 185, 129, 0.2); text-align: center;">
         <h3 style="font-size: 1.5rem;">The Collaboration Flow</h3>
-        <p style="max-width: 700px; margin: 0 auto;">One-time setup. After that, every <code style="background: var(--border); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em;">graphit sync</code> automatically propagates knowledge. <strong>Zero cloud dependencies. Zero SaaS subscriptions. Zero data leaving your network.</strong></p>
+        <p style="max-width: 700px; margin: 0 auto;">One-time setup. After that, every <code style="background: var(--border); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em;">graphit sync</code> propagates knowledge through the object store you control. Use a self-hosted S3-compatible endpoint when data must remain inside your network.</p>
         <div class="terminal" style="margin-top: 1.5rem; max-width: 800px; margin-left: auto; margin-right: auto;">
           <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
           <div class="terminal-body" style="text-align: left;">
-            <span class="c"># One-time setup — point to your own repos (personal or team)</span><br>
+            <span class="c"># One-time setup — configure your private object store</span><br>
             <span class="cmd">graphit</span> <span class="arg">setup</span><br>
-            <span class="c"># → Hub Git URL:    git@gitlab.company.com:team/graphit-hub.git</span><br>
-            <span class="c"># → Memory Git URL: git@gitlab.company.com:team/graphit-memory.git</span><br><br>
+            <span class="c"># → Hub bucket: graphit-team</span><br>
+            <span class="c"># → Endpoint: https://s3.company.internal</span><br>
+            <span class="c"># → Credentials: complete pair, or blank for the AWS provider chain</span><br><br>
             <span class="c"># That's it. Every sync propagates team knowledge automatically.</span><br>
             <span class="cmd">graphit</span> <span class="arg">sync</span>
           </div>
@@ -700,11 +723,11 @@
         <div class="arch-grid" style="margin-bottom: 1rem;">
           <div class="arch-item"><strong>AST Graph</strong>LadybugDB + Tree-sitter</div>
           <div class="arch-item"><strong>LLM Wiki</strong>Agents Search</div>
-          <div class="arch-item"><strong>Memory</strong>Git-Backed Persistence</div>
+          <div class="arch-item"><strong>Memory</strong>Local Raw + S3 Sync</div>
         </div>
         
         <div class="arch-grid" style="margin-bottom: 1.5rem;">
-          <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>Hub Registry</strong>Git-Backed Persistence</div>
+          <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>Hub Registry</strong>S3-Backed Persistence</div>
           <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>Cluster</strong>Ecosystem Discovery</div>
           <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>MCP Server</strong>Primary Interface (Stdio/HTTP + Tunnels)</div>
         </div>

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
@@ -93,9 +92,30 @@ func copyFile(src, dst string, info os.FileInfo) error {
 	return out.Close()
 }
 
+// IncrementalRebuild applies a delta to the store by copying production, mutating the
+// copy, and publishing it with rename(2).
+//
+// There is no in-place variant. Writing to production while readers hold it was measured
+// against one fresh read-only open per subprocess — the shape of a stdio MCP call —
+// against a writer behaving like the daemon:
+//
+//	writer model                                     reads ok  open failed  crashed
+//	in place, commit + CHECKPOINT                      43/60        11         6
+//	copy+swap, production never held by the writer     60/60         0         0
+//
+// No run produced torn rows; the failures are opens, not reads. They are not the writer's
+// lock either — an idle read-write holder is harmless. They are the CHECKPOINT, which
+// rewrites pages under a reader that is opening the same file. The engine reports that as
+// an opaque status code and sometimes faults inside the open itself, and a SIGSEGV in cgo
+// cannot be retried away: it takes the reader process with it.
+//
+// The search tables ride along, because they live in the same database. That is what lets
+// the FTS indexes be dropped and recreated on every write — O(corpus) work the engine
+// forces, since it does not maintain an FTS index on insert — without any of it touching
+// the file readers have open.
 func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCache,
 	embCache *ShardEmbCache, changedFiles []string, deletedFiles []string,
-	cluster, rootPath string, searchIdx *SearchIndex, logger *slog.Logger) error {
+	cluster, rootPath string, logger *slog.Logger) error {
 
 	log := slogutil.Resolve(logger)
 
@@ -114,7 +134,7 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 
 	if _, err := os.Stat(prodPath); os.IsNotExist(err) {
 		log.Warn("no production DB, falling back to full rebuild")
-		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx, logger)
+		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, logger)
 	}
 
 	cmsThreshold := cache.Count() * 20 / 100
@@ -124,32 +144,16 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 	if len(allAffected) > cmsThreshold {
 		log.Info("threshold exceeded, using full rebuild",
 			"affected", len(allAffected), "threshold", cmsThreshold)
-		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx, logger)
+		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, logger)
 	}
 
 	totalStart := time.Now()
-
-	// In-place path: mutate the live database inside a transaction instead of
-	// copying it, mutating the copy and swapping it in. Readers on sibling
-	// connections of the same *lbug.Database keep serving the pre-commit snapshot
-	// and flip atomically at COMMIT (TestLadybugSharedDatabaseMVCC), so the
-	// lock-free-read property the swap provided is preserved for in-process
-	// readers. This removes the copy, the second database open and — dominant and
-	// wildly variable at 0.2–5.0 s — closing the mutated copy.
-	if inPlaceIncrementalEnabled() {
-		if err := incrementalInPlace(ctx, lb, cache, embCache, changedFiles, deletedFiles,
-			allAffected, cluster, rootPath, searchIdx, totalStart, logger); err == nil {
-			return nil
-		} else {
-			log.Warn("in-place incremental failed, falling back to copy+swap", "error", err)
-		}
-	}
 
 	t1 := time.Now()
 	workingPath := prodPath + "." + shortHex()
 	if err := CopyDBDir(prodPath, workingPath); err != nil {
 		log.Warn("copy prod failed, falling back to full rebuild")
-		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx, logger)
+		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, logger)
 	}
 	copyTime := time.Since(t1)
 
@@ -167,25 +171,11 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 	if err := workingBackend.connect(); err != nil {
 		_ = workingBackend.Close()
 		log.Warn("open working DB failed, falling back to full rebuild")
-		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx, logger)
+		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, logger)
 	}
 	_ = workingBackend.execQuery("INSTALL json")
 	_ = workingBackend.execQuery("LOAD EXTENSION json")
 	openTime := time.Since(t2)
-
-	var searchWg sync.WaitGroup
-	if searchIdx != nil {
-		embLookup := BuildEmbLookup(cache, embCache)
-		searchWg.Add(1)
-		go func() {
-			defer searchWg.Done()
-			if err := searchIdx.UpdateIncremental(cache, changedFiles, deletedFiles, embLookup); err != nil {
-				// Not fatal for the graph, but never silent: a failed update leaves search
-				// answering from stale rows, which is indistinguishable from working.
-				log.Error("search index update failed; search results are stale", "error", err)
-			}
-		}()
-	}
 
 	t3 := time.Now()
 	deleteFileData(ctx, workingBackend, allAffected)
@@ -194,7 +184,7 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 	t4 := time.Now()
 	var insertErrors int64
 	if len(changedFiles) > 0 {
-		insertErrors = insertChangedFiles(ctx, workingBackend, cache, embCache, changedFiles, cluster, logger)
+		insertErrors = insertChangedFiles(ctx, workingBackend, cache, embCache, changedFiles, cluster, rootPath, logger)
 	}
 	insertTime := time.Since(t4)
 
@@ -208,13 +198,49 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 			"errors", insertErrors, "changed", len(changedFiles))
 		_ = workingBackend.Shutdown()
 		_ = workingBackend.Close()
-		searchWg.Wait() // the incremental search update must finish before it is rebuilt
-		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, searchIdx, logger)
+		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, logger)
 	}
 
+	// The search index is a separate SQLite file, updated IN PLACE — not copied into the
+	// working directory and not published by the rename below.
+	//
+	// That is the trade this whole arrangement is built on, and it is worth stating where
+	// it is paid rather than where it is enjoyed. Riding the swap would mean copying the
+	// index too, which is O(corpus) per edit; and the alternative that avoided the copy —
+	// keeping the index inside the graph database — cost O(corpus) anyway, because that
+	// engine does not maintain a full-text index on insert and every write had to rebuild
+	// all seven. Measured there: 1,178 s for a one-file incremental at 39,429 files, worse
+	// than rebuilding the whole thing. SQLite maintains its index through the triggers, so
+	// the same delta is milliseconds.
+	//
+	// What that buys is bounded and known: for the width of this update, a reader can see
+	// the new index against the old graph, or — if the swap below fails — the new index
+	// against a graph that never changed. Neither is corruption; both are corrected by the
+	// next incremental. Ordered before the swap rather than after only because a failure
+	// here should still reach the full-rebuild fallback with the old graph intact.
 	t5 := time.Now()
-	RunEnrichment(ctx, workingBackend, rootPath, changedFiles, logger)
-	enrichTime := time.Since(t5)
+	searchIdx, err := OpenSearchIndex(ctx, lb.cfg.DBPath)
+	if err != nil {
+		log.Error("opening the search index failed; falling back to full rebuild", "error", err)
+		_ = workingBackend.Shutdown()
+		_ = workingBackend.Close()
+		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, logger)
+	}
+	searchIdx.Logger = logger
+	updateErr := searchIdx.UpdateIncremental(ctx, cache, changedFiles, deletedFiles,
+		BuildEmbLookup(cache, embCache))
+	_ = searchIdx.Close()
+	if updateErr != nil {
+		// Fatal for the incremental, not merely logged: files.source is the only
+		// queryable copy of file text, so an index that failed to update leaves search
+		// answering from stale rows AND `ast source` unable to read the changed files —
+		// both indistinguishable from working.
+		log.Error("search index update failed; falling back to full rebuild", "error", updateErr)
+		_ = workingBackend.Shutdown()
+		_ = workingBackend.Close()
+		return fullRebuildWithSearch(ctx, lb, cache, embCache, cluster, rootPath, logger)
+	}
+	searchTime := time.Since(t5)
 
 	t6 := time.Now()
 	// Closing the mutated working copy is the dominant and most variable cost of
@@ -242,32 +268,27 @@ func IncrementalRebuild(ctx context.Context, lb *LadybugBackend, cache *ShardCac
 		"open_ms", openTime.Seconds()*1000,
 		"delete_ms", deleteTime.Seconds()*1000,
 		"insert_ms", insertTime.Seconds()*1000,
-		"enrich_ms", enrichTime.Seconds()*1000,
+		"search_ms", searchTime.Seconds()*1000,
 		"shutdown_ms", shutdownTime.Seconds()*1000,
 		"swap_ms", swapTime.Seconds()*1000,
 		"errors", insertErrors)
 
-	searchWg.Wait()
-
 	log.Info("total incremental", "duration_s", time.Since(totalStart).Seconds())
-
 	return nil
 }
 
 func fullRebuildWithSearch(ctx context.Context, lb *LadybugBackend, cache *ShardCache,
-	embCache *ShardEmbCache, cluster, rootPath string, searchIdx *SearchIndex, logger *slog.Logger) error {
+	embCache *ShardEmbCache, cluster, rootPath string, logger *slog.Logger) error {
 
-	if err := RebuildFromJSON(ctx, lb, cache, embCache, cluster, rootPath, logger); err != nil {
-		return err
-	}
-	if searchIdx != nil {
-		embLookup := BuildEmbLookup(cache, embCache)
-		if err := searchIdx.RebuildFromCache(cache, embLookup); err != nil {
-			slogutil.Resolve(logger).Error("search index rebuild failed; search results are stale",
-				"error", err)
-		}
-	}
-	return nil
+	// The search tables are built INSIDE the rebuild's temporary database, so one rename
+	// publishes the graph and the index together. Building them afterwards, through the
+	// production handle, leaves the live store without an FTS index for the length of the
+	// build — and every search answering empty while it lasts.
+	//
+	// Returned, not swallowed: SearchFile.source is the only queryable copy of file text,
+	// so a failure here costs every ast source read in the project, not just search
+	// freshness.
+	return RebuildFromJSONWithSearch(ctx, lb, cache, embCache, cluster, rootPath, logger, nil)
 }
 
 func BuildEmbLookup(cache *ShardCache, embCache *ShardEmbCache) func(relPath, uid string) []float32 {
@@ -296,7 +317,7 @@ func deleteFileData(ctx context.Context, db GraphDB, paths []string) {
 }
 
 func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
-	embCache *ShardEmbCache, changedFiles []string, cluster string, logger *slog.Logger) int64 {
+	embCache *ShardEmbCache, changedFiles []string, cluster, rootPath string, logger *slog.Logger) int64 {
 
 	log := slogutil.Resolve(logger)
 
@@ -310,7 +331,7 @@ func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
 		return 0
 	}
 
-	ri := newRebuildIndex(changedEntries)
+	ri := newRebuildIndex(changedEntries, targetRulesFor(rootPath))
 	lb := db.(*LadybugBackend)
 
 	var insertErrors int64
@@ -331,9 +352,14 @@ func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
 			props[i] = fmt.Sprintf("`%s`: row.`%s`", k, k)
 		}
 		q := fmt.Sprintf("UNWIND $batch AS row CREATE (n:`%s` {%s})", table, strings.Join(props, ", "))
-		if _, err := db.Execute(ctx, q, map[string]any{"batch": data}); err != nil {
-			log.Error("insert node", "table", table, "error", err)
-			insertErrors++
+		// Bounded the same way as the full rebuild's COPY: a File row carries the
+		// file's entire source, and a single large file is enough to make one
+		// UNWIND parameter hundreds of megabytes.
+		for _, batch := range batchRows(data, copyBatchBytes) {
+			if _, err := db.Execute(ctx, q, map[string]any{"batch": batch}); err != nil {
+				log.Error("insert node", "table", table, "rows", len(batch), "error", err)
+				insertErrors++
+			}
 		}
 	}
 
@@ -390,7 +416,7 @@ func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
 
 	edgeProps := []string{"source_file", "line_number"}
 
-	insertNodes("File", ri.fileNodeJSON(cluster))
+	insertNodes("File", ri.fileNodeJSON())
 	for _, label := range ri.labels {
 		if label == "Module" {
 			continue
@@ -405,6 +431,12 @@ func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
 	}
 	for _, pt := range ri.labels {
 		insertEdges("HAS_FIELD", pt, "Field", "parent_uid", "uid", edgeProps, ri.fieldEdgeJSON(pt))
+	}
+	// The incremental path wrote no field access at all, not even where the full one
+	// did: a file reindexed by the watcher lost its READS_FIELD/WRITES_FIELD.
+	for _, src := range ri.fieldAccessSourceLabels {
+		insertEdges("READS_FIELD", src, "Field", "source_uid", "field_uid", edgeProps, ri.fieldAccessEdgeJSON(false, src))
+		insertEdges("WRITES_FIELD", src, "Field", "source_uid", "field_uid", edgeProps, ri.fieldAccessEdgeJSON(true, src))
 	}
 	for _, kind := range ri.annotationKinds {
 		edgeName := "HAS_" + strings.ToUpper(kind)
@@ -424,9 +456,11 @@ func insertChangedFiles(ctx context.Context, db GraphDB, cache *ShardCache,
 		if !ri.labelSet[cl] {
 			continue
 		}
-		insertEdges("CALLS", cl, "Function", "caller_uid", "callee_uid",
-			[]string{"source_file", "line_number", "full_call_name", "receiver_type"},
-			ri.callEdgeJSON(cl))
+		for _, tl := range ri.calleeLabels {
+			insertEdges("CALLS", cl, tl, "caller_uid", "callee_uid",
+				[]string{"source_file", "line_number", "full_call_name", "receiver_type"},
+				ri.callEdgeJSON(cl, tl))
+		}
 	}
 	for _, label := range ri.labels {
 		insertEdges("CONTAINS", "File", label, "path", "uid", nil, ri.containsFileEntityJSON(label))
@@ -449,124 +483,4 @@ func primaryKeyFor(label string) string {
 	default:
 		return "uid"
 	}
-}
-
-// inPlaceIncrementalEnabled reports whether the in-place incremental write path
-// should be used. It is the default: measured on a 35k-file repository it cut a
-// single-file incremental from 0.6–5.6 s (12x spread, dominated by closing the
-// mutated copy) to 304–355 ms (1.17x spread), with zero fallbacks and verified
-// graph content across every run.
-//
-// Readers on sibling connections of the same *lbug.Database keep full snapshot
-// isolation. A reader that opens its OWN handle — the stdio MCP server, a
-// separate process — sees a stale but consistent snapshot instead of the swap's
-// whole-file flip; it never sees torn data. GRAPHIT_INPLACE_INCREMENTAL=0
-// restores copy+swap.
-func inPlaceIncrementalEnabled() bool {
-	return os.Getenv("GRAPHIT_INPLACE_INCREMENTAL") != "0"
-}
-
-// incrementalInPlace applies the delta directly to the production database
-// inside a single transaction. On any error it rolls back and returns, leaving
-// the database untouched so the caller can fall back to copy+swap.
-func incrementalInPlace(ctx context.Context, lb *LadybugBackend, cache *ShardCache,
-	embCache *ShardEmbCache, changedFiles, deletedFiles, allAffected []string,
-	cluster, rootPath string, searchIdx *SearchIndex, totalStart time.Time,
-	logger *slog.Logger) error {
-
-	log := slogutil.Resolve(logger)
-
-	if err := lb.ensureConnectedLocked(); err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
-
-	var searchWg sync.WaitGroup
-	if searchIdx != nil {
-		embLookup := BuildEmbLookup(cache, embCache)
-		searchWg.Add(1)
-		go func() {
-			defer searchWg.Done()
-			if err := searchIdx.UpdateIncremental(cache, changedFiles, deletedFiles, embLookup); err != nil {
-				// Not fatal for the graph, but never silent: a failed update leaves search
-				// answering from stale rows, which is indistinguishable from working.
-				log.Error("search index update failed; search results are stale", "error", err)
-			}
-		}()
-	}
-	defer searchWg.Wait()
-
-	t0 := time.Now()
-	if err := lb.execQuery("BEGIN TRANSACTION"); err != nil {
-		return fmt.Errorf("begin: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			// Readers never saw the partial state; drop it.
-			_ = lb.execQuery("ROLLBACK")
-		}
-	}()
-
-	t1 := time.Now()
-	// Inside a transaction an ignored error is fatal: LadybugDB aborts the
-	// transaction, so the later COMMIT fails with "No active transaction".
-	// Surface delete errors instead of swallowing them as the copy+swap path can.
-	if err := deleteFileDataChecked(ctx, lb, allAffected); err != nil {
-		return fmt.Errorf("delete: %w", err)
-	}
-	deleteTime := time.Since(t1)
-
-	t2 := time.Now()
-	var insertErrors int64
-	if len(changedFiles) > 0 {
-		insertErrors = insertChangedFiles(ctx, lb, cache, embCache, changedFiles, cluster, logger)
-	}
-	insertTime := time.Since(t2)
-	if insertErrors > 0 {
-		// Roll back rather than commit a partial graph; the caller falls back.
-		return fmt.Errorf("insert reported %d errors", insertErrors)
-	}
-
-	t4 := time.Now()
-	if err := lb.execQuery("COMMIT"); err != nil {
-		return fmt.Errorf("commit: %w", err)
-	}
-	committed = true
-	commitTime := time.Since(t4)
-
-	// Enrichment runs AFTER the commit, deliberately. It recomputes derived
-	// properties (entry-point scores, detected frameworks) and is idempotent, so
-	// it does not need to be atomic with the delta; running it inside the
-	// transaction aborts that transaction, and keeping the transaction to just
-	// delete+insert also shortens the window readers spend on the old snapshot.
-	t3 := time.Now()
-	RunEnrichment(ctx, lb, rootPath, changedFiles, logger)
-	enrichTime := time.Since(t3)
-
-	log.Info("production updated in place",
-		"total_s", time.Since(totalStart).Seconds(),
-		"begin_ms", t1.Sub(t0).Seconds()*1000,
-		"delete_ms", deleteTime.Seconds()*1000,
-		"insert_ms", insertTime.Seconds()*1000,
-		"enrich_ms", enrichTime.Seconds()*1000,
-		"commit_ms", commitTime.Seconds()*1000)
-	return nil
-}
-
-// deleteFileDataChecked removes each affected file's subgraph and returns the
-// first error. deleteFileData deliberately ignores errors, which is safe when
-// mutating a throwaway copy but not inside a transaction, where any error aborts
-// it and makes the subsequent COMMIT fail.
-func deleteFileDataChecked(ctx context.Context, db GraphDB, paths []string) error {
-	if len(paths) == 0 {
-		return nil
-	}
-	params := map[string]any{"paths": paths}
-	if _, err := db.Execute(ctx, `UNWIND $paths AS p MATCH (f:File {path: p})-[:CONTAINS]->(e) DETACH DELETE e`, params); err != nil {
-		return fmt.Errorf("delete contained entities: %w", err)
-	}
-	if _, err := db.Execute(ctx, `UNWIND $paths AS p MATCH (f:File {path: p}) DETACH DELETE f`, params); err != nil {
-		return fmt.Errorf("delete file nodes: %w", err)
-	}
-	return nil
 }

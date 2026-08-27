@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"context"
 	"fmt"
 	"os"
@@ -9,11 +8,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// ---------------------------------------------------------------------------
 // helpers: IsImportantMemory, ImportantFileName, NormalFileName
-// ---------------------------------------------------------------------------
 
 func TestIsImportantMemory(t *testing.T) {
 	tests := []struct {
@@ -23,8 +22,8 @@ func TestIsImportantMemory(t *testing.T) {
 		{"abc_important_.md", true},
 		{"01J123_important_.md", true},
 		{"abc.md", false},
-		{"abc_important.md", false},   // missing trailing underscore
-		{"_important_.md", true},      // edge: no id prefix
+		{"abc_important.md", false}, // missing trailing underscore
+		{"_important_.md", true},    // edge: no id prefix
 		{"dir/nested_important_.md", true},
 		{"abc.txt", false},
 		{"", false},
@@ -77,10 +76,6 @@ func TestNormalFileName(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ValidMemoryType
-// ---------------------------------------------------------------------------
-
 func TestValidMemoryType(t *testing.T) {
 	tests := []struct {
 		typ  string
@@ -106,10 +101,6 @@ func TestValidMemoryType(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// extractBodyAfterFrontmatter
-// ---------------------------------------------------------------------------
 
 func TestExtractBodyAfterFrontmatter(t *testing.T) {
 	tests := []struct {
@@ -191,10 +182,6 @@ More content.`,
 	}
 }
 
-// ---------------------------------------------------------------------------
-// parseMemoryMeta (via ParseMemoryMetaPublic)
-// ---------------------------------------------------------------------------
-
 func TestParseMemoryMeta(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -273,10 +260,6 @@ func TestParseMemoryMeta_NonExistentFile(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// firstLine (from wiki.go)
-// ---------------------------------------------------------------------------
-
 func TestFirstLine(t *testing.T) {
 	tests := []struct {
 		name string
@@ -302,10 +285,6 @@ func TestFirstLine(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// firstLineFromContent (from important.go)
-// ---------------------------------------------------------------------------
-
 func TestFirstLineFromContent(t *testing.T) {
 	tests := []struct {
 		name string
@@ -327,10 +306,6 @@ func TestFirstLineFromContent(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// safeMemFilename
-// ---------------------------------------------------------------------------
 
 func TestSafeMemFilename(t *testing.T) {
 	tests := []struct {
@@ -359,10 +334,6 @@ func TestSafeMemFilename(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// uniqueMemSlug
-// ---------------------------------------------------------------------------
-
 func TestUniqueMemSlug(t *testing.T) {
 	used := make(map[string]bool)
 
@@ -390,10 +361,6 @@ func TestUniqueMemSlug(t *testing.T) {
 		t.Errorf("expected 'test_3', got %q", slug3)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ParseTags
-// ---------------------------------------------------------------------------
 
 func TestParseTags(t *testing.T) {
 	tests := []struct {
@@ -428,10 +395,6 @@ func TestParseTags(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// buildMemoryFile
-// ---------------------------------------------------------------------------
 
 func TestBuildMemoryFile(t *testing.T) {
 	content := buildMemoryFile(
@@ -501,10 +464,6 @@ func TestBuildMemoryFile_BodyTrailingNewline(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ConsolidationReport
-// ---------------------------------------------------------------------------
-
 func TestConsolidationReport_HasActions(t *testing.T) {
 	tests := []struct {
 		name string
@@ -539,36 +498,6 @@ func TestConsolidationReport_TotalActions(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// parseConsolidationType
-// ---------------------------------------------------------------------------
-
-func TestParseConsolidationType(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{"convention", "---\ntype: convention\n---\n", "convention"},
-		{"skill", "---\ntype: skill\n---\n# Title\n", "skill"},
-		{"no type", "---\ntitle: Something\n---\n", ""},
-		{"empty", "", ""},
-		{"type with spaces", "---\ntype:   decision  \n---\n", "decision"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := parseConsolidationType(tc.content)
-			if got != tc.want {
-				t.Errorf("parseConsolidationType() = %q; want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// parseMemoryType (from wiki.go)
-// ---------------------------------------------------------------------------
-
 func TestParseMemoryType(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -590,142 +519,11 @@ func TestParseMemoryType(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// extractBracketedIDs
-// ---------------------------------------------------------------------------
-
-func TestExtractBracketedIDs(t *testing.T) {
-	tests := []struct {
-		name string
-		in   string
-		want []string
-	}{
-		{
-			"two IDs",
-			"MERGE [01J5XABC123] and [01J5XDEF456]: reason here",
-			[]string{"01J5XABC123", "01J5XDEF456"},
-		},
-		{
-			"single ID",
-			"PROMOTE [01J5XGHIJKL]: promote this",
-			[]string{"01J5XGHIJKL"},
-		},
-		{
-			"no IDs",
-			"No bracketed IDs here at all",
-			nil,
-		},
-		{
-			"short ID excluded",
-			"[ABC] is too short",
-			nil,
-		},
-		{
-			"lowercase excluded",
-			"[abcdefghijkl] is lowercase",
-			nil,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := extractBracketedIDs(tc.in)
-			if len(got) != len(tc.want) {
-				t.Fatalf("extractBracketedIDs(%q) = %v; want %v", tc.in, got, tc.want)
-			}
-			for i := range tc.want {
-				if got[i] != tc.want[i] {
-					t.Errorf("[%d] = %q; want %q", i, got[i], tc.want[i])
-				}
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// parseConsolidationSection
-// ---------------------------------------------------------------------------
-
-func TestParseConsolidationSection(t *testing.T) {
-	response := `## DUPLICATES
-- MERGE [01J5XABC1234567890] and [01J5XDEF1234567890]: Same content
-
-## CONTRADICTIONS
-None found
-
-## SUGGESTIONS
-- PROMOTE [01J5XGHI1234567890]: should be important`
-
-	dups := parseConsolidationSection(response, "DUPLICATES", "merge")
-	if len(dups) != 1 {
-		t.Fatalf("expected 1 duplicate, got %d", len(dups))
-	}
-	if dups[0].Type != "merge" {
-		t.Errorf("type = %q; want 'merge'", dups[0].Type)
-	}
-	if len(dups[0].MemoryIDs) != 2 {
-		t.Errorf("expected 2 memory IDs, got %d", len(dups[0].MemoryIDs))
-	}
-
-	contras := parseConsolidationSection(response, "CONTRADICTIONS", "conflict")
-	if len(contras) != 0 {
-		t.Errorf("expected 0 contradictions (none found), got %d", len(contras))
-	}
-
-	// Section that doesn't exist
-	missing := parseConsolidationSection(response, "NONEXISTENT", "test")
-	if len(missing) != 0 {
-		t.Errorf("expected 0 for missing section, got %d", len(missing))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// parseSuggestionSection
-// ---------------------------------------------------------------------------
-
-func TestParseSuggestionSection(t *testing.T) {
-	response := `## SUGGESTIONS
-- PROMOTE [01J5XABC1234567890]: should be important
-- DEMOTE [01J5XDEF1234567890]: too specific
-- DELETE [01J5XGHI1234567890]: no longer relevant
-- UPDATE [01J5XJKL1234567890]: vague content`
-
-	actions := parseSuggestionSection(response)
-	if len(actions) != 4 {
-		t.Fatalf("expected 4 suggestions, got %d", len(actions))
-	}
-
-	expectedTypes := []string{"promote", "demote", "delete", "update"}
-	for i, expected := range expectedTypes {
-		if actions[i].Type != expected {
-			t.Errorf("actions[%d].Type = %q; want %q", i, actions[i].Type, expected)
-		}
-	}
-}
-
-func TestParseSuggestionSection_NoneFound(t *testing.T) {
-	response := "## SUGGESTIONS\nNone found"
-	actions := parseSuggestionSection(response)
-	if len(actions) != 0 {
-		t.Errorf("expected 0 suggestions, got %d", len(actions))
-	}
-}
-
-func TestParseSuggestionSection_Missing(t *testing.T) {
-	response := "## DUPLICATES\n- something"
-	actions := parseSuggestionSection(response)
-	if len(actions) != 0 {
-		t.Errorf("expected 0 suggestions, got %d", len(actions))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// detectStaleMemories
-// ---------------------------------------------------------------------------
-
 func TestDetectStaleMemories(t *testing.T) {
 	now := time.Now().UTC()
-	oldDate := now.Add(-45 * 24 * time.Hour).Format(time.RFC3339)   // 45 days old
-	freshDate := now.Add(-10 * 24 * time.Hour).Format(time.RFC3339) // 10 days old
+	// Past staleAfter (90 days), and comfortably inside it, respectively.
+	oldDate := now.Add(-120 * 24 * time.Hour).Format(time.RFC3339)
+	freshDate := now.Add(-10 * 24 * time.Hour).Format(time.RFC3339)
 
 	memories := []memorySnapshot{
 		{ID: "old-1", Title: "Old Memory", CreatedAt: oldDate, Important: false},
@@ -743,8 +541,12 @@ func TestDetectStaleMemories(t *testing.T) {
 	if stale[0].MemoryIDs[0] != "old-1" {
 		t.Errorf("expected stale ID 'old-1', got %q", stale[0].MemoryIDs[0])
 	}
-	if !strings.Contains(stale[0].Reason, "45 days old") {
+	if !strings.Contains(stale[0].Reason, "120 days old") {
 		t.Errorf("expected reason to mention age, got %q", stale[0].Reason)
+	}
+	// Staleness proposes review, never deletion: age means "not revised", not "wrong".
+	if stale[0].Type != ActionUpdate {
+		t.Errorf("stale action type = %q; want %q", stale[0].Type, ActionUpdate)
 	}
 }
 
@@ -769,285 +571,11 @@ func TestDetectStaleMemories_Empty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// RunGC (filesystem-based)
-// ---------------------------------------------------------------------------
-
-func TestRunGC_EmptyDir(t *testing.T) {
-	dir := t.TempDir()
-	report, err := runGCInDir(dir, 90)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if report.TotalMemories != 0 {
-		t.Errorf("expected 0 total, got %d", report.TotalMemories)
-	}
-	if len(report.Candidates) != 0 {
-		t.Errorf("expected 0 candidates, got %d", len(report.Candidates))
-	}
-}
-
-func TestRunGC_NonExistentDir(t *testing.T) {
-	report, err := runGCInDir("/nonexistent/path/that/does/not/exist", 90)
-	if err != nil {
-		t.Fatalf("expected nil error for non-existent dir, got %v", err)
-	}
-	if report.TotalMemories != 0 {
-		t.Errorf("expected 0 total, got %d", report.TotalMemories)
-	}
-}
-
-func TestRunGC_ShortBody(t *testing.T) {
-	dir := t.TempDir()
-	// A normal memory with very short body (< 20 chars after extracting)
-	content := `---
-id: SHORT1
-title: Short Body Memory
-type: fact
-created_at: ` + time.Now().UTC().Format(time.RFC3339) + `
----
-
-# Short Body Memory
-
-tiny`
-	writeMemFile(t, dir, "SHORT1.md", content)
-
-	report, err := runGCInDir(dir, 90)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if report.TotalMemories != 1 {
-		t.Fatalf("expected 1 total, got %d", report.TotalMemories)
-	}
-	if len(report.Candidates) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(report.Candidates))
-	}
-	if !strings.Contains(report.Candidates[0].Reason, "Empty or near-empty body") {
-		t.Errorf("unexpected reason: %q", report.Candidates[0].Reason)
-	}
-}
-
-func TestRunGC_OldUnclassified(t *testing.T) {
-	dir := t.TempDir()
-	oldDate := time.Now().Add(-100 * 24 * time.Hour).Format(time.RFC3339)
-	content := `---
-id: OLD1
-title: Old Unclassified Memory
-created_at: ` + oldDate + `
----
-
-# Old Unclassified Memory
-
-This body is long enough to pass the short body check.`
-	writeMemFile(t, dir, "OLD1.md", content)
-
-	report, err := runGCInDir(dir, 90)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(report.Candidates) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(report.Candidates))
-	}
-	if !strings.Contains(report.Candidates[0].Reason, "Unclassified memory") {
-		t.Errorf("unexpected reason: %q", report.Candidates[0].Reason)
-	}
-}
-
-func TestRunGC_OldClassified(t *testing.T) {
-	dir := t.TempDir()
-	oldDate := time.Now().Add(-100 * 24 * time.Hour).Format(time.RFC3339)
-	content := `---
-id: OLD2
-title: Old Classified Memory
-type: fact
-created_at: ` + oldDate + `
----
-
-# Old Classified Memory
-
-This body is long enough to pass the short body check.`
-	writeMemFile(t, dir, "OLD2.md", content)
-
-	report, err := runGCInDir(dir, 90)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Classified + > threshold → not candidate at 1x threshold, only at 2x
-	if len(report.Candidates) != 0 {
-		t.Errorf("expected 0 candidates for classified at 1x threshold, got %d", len(report.Candidates))
-	}
-}
-
-func TestRunGC_VeryOldClassified(t *testing.T) {
-	dir := t.TempDir()
-	veryOldDate := time.Now().Add(-200 * 24 * time.Hour).Format(time.RFC3339)
-	content := `---
-id: VOLD1
-title: Very Old Classified Memory
-type: fact
-created_at: ` + veryOldDate + `
----
-
-# Very Old Classified Memory
-
-This body is long enough to pass the short body check.`
-	writeMemFile(t, dir, "VOLD1.md", content)
-
-	report, err := runGCInDir(dir, 90)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// 200 days > 2*90 = 180 → should be a candidate
-	if len(report.Candidates) != 1 {
-		t.Fatalf("expected 1 candidate for 2x threshold, got %d", len(report.Candidates))
-	}
-	if !strings.Contains(report.Candidates[0].Reason, "Very old memory") {
-		t.Errorf("unexpected reason: %q", report.Candidates[0].Reason)
-	}
-}
-
-func TestRunGC_ImportantSkipped(t *testing.T) {
-	dir := t.TempDir()
-	oldDate := time.Now().Add(-200 * 24 * time.Hour).Format(time.RFC3339)
-	content := `---
-id: IMP1
-title: Important Old Memory
-type: fact
-created_at: ` + oldDate + `
-important: true
----
-
-# Important Old Memory
-
-This body is sufficient for checking.`
-	writeMemFile(t, dir, "IMP1_important_.md", content)
-
-	report, err := runGCInDir(dir, 90)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(report.Candidates) != 0 {
-		t.Errorf("expected 0 candidates for important memories, got %d", len(report.Candidates))
-	}
-}
-
-func TestRunGC_DefaultStaleDays(t *testing.T) {
-	dir := t.TempDir()
-	// 95 days old, with staleDays=0 → default 90
-	oldDate := time.Now().Add(-95 * 24 * time.Hour).Format(time.RFC3339)
-	content := `---
-id: DEF1
-title: Default Threshold Test
-created_at: ` + oldDate + `
----
-
-# Default Threshold Test
-
-This body is long enough to pass the short body check.`
-	writeMemFile(t, dir, "DEF1.md", content)
-
-	report, err := runGCInDir(dir, 0) // 0 → default 90
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(report.Candidates) != 1 {
-		t.Fatalf("expected 1 candidate with default staleDays, got %d", len(report.Candidates))
-	}
-}
-
-// runGCInDir is a test helper that runs GC logic directly on a directory,
-// bypassing the scope resolution (which depends on global state).
-func runGCInDir(dir string, staleDays int) (*GCReport, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &GCReport{}, nil
-		}
-		return nil, err
-	}
-
-	if staleDays <= 0 {
-		staleDays = 90
-	}
-	threshold := time.Duration(staleDays) * 24 * time.Hour
-
-	report := &GCReport{}
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-		name := e.Name()
-		absPath := filepath.Join(dir, name)
-		important := IsImportantMemory(name)
-		report.TotalMemories++
-
-		if important {
-			continue
-		}
-
-		data, readErr := os.ReadFile(absPath)
-		if readErr != nil {
-			continue
-		}
-
-		var id string
-		if important {
-			id = strings.TrimSuffix(name, ImportantMemorySuffix+".md")
-		} else {
-			id = strings.TrimSuffix(name, ".md")
-		}
-
-		title, createdAt := ParseMemoryMetaPublic(absPath)
-		body := strings.TrimSpace(extractBodyAfterFrontmatter(string(data)))
-		memType := parseConsolidationType(string(data))
-
-		if len(body) < 20 {
-			report.Candidates = append(report.Candidates, GCCandidate{
-				ID:     id,
-				Title:  title,
-				Reason: fmt.Sprintf("Empty or near-empty body (%d chars)", len(body)),
-			})
-			continue
-		}
-
-		if createdAt != "" {
-			t, err := time.Parse(time.RFC3339, createdAt)
-			if err == nil {
-				age := time.Since(t)
-				days := int(age.Hours() / 24)
-
-				if age > threshold && memType == "" {
-					report.Candidates = append(report.Candidates, GCCandidate{
-						ID:     id,
-						Title:  title,
-						Reason: fmt.Sprintf("Unclassified memory, %d days old (threshold: %d days)", days, staleDays),
-						Age:    days,
-					})
-					continue
-				}
-
-				if age > 2*threshold {
-					report.Candidates = append(report.Candidates, GCCandidate{
-						ID:     id,
-						Title:  title,
-						Reason: fmt.Sprintf("Very old memory, %d days old (2× threshold: %d days)", days, 2*staleDays),
-						Age:    days,
-					})
-				}
-			}
-		}
-	}
-	return report, nil
-}
-
-// ---------------------------------------------------------------------------
 // ListMemories (filesystem-based via MemoryService)
-// ---------------------------------------------------------------------------
 
 func TestListMemories(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create an important memory file
 	impContent := `---
 title: Important Memory
 created_at: 2026-05-20T00:00:00Z
@@ -1058,7 +586,6 @@ created_at: 2026-05-20T00:00:00Z
 Details.`
 	writeMemFile(t, dir, "ABC_important_.md", impContent)
 
-	// Create a normal memory file
 	normContent := `---
 title: Normal Memory
 created_at: 2026-05-21T00:00:00Z
@@ -1132,10 +659,6 @@ func TestListMemories_NonExistentDir(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// listImportantInDir
-// ---------------------------------------------------------------------------
-
 func TestListImportantInDir(t *testing.T) {
 	dir := t.TempDir()
 
@@ -1196,15 +719,10 @@ func TestListImportantInDir_NonExistent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GenerateMemoryWiki
-// ---------------------------------------------------------------------------
-
 func TestGenerateMemoryWiki(t *testing.T) {
 	rawDir := t.TempDir()
 	wikiDir := t.TempDir()
 
-	// Create two memories
 	mem1 := `---
 title: Convention Alpha
 type: convention
@@ -1296,9 +814,7 @@ func TestGenerateMemoryWiki_SkipsIndexAndLog(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // RunCycle (filesystem-based)
-// ---------------------------------------------------------------------------
 
 func TestRunCycle_NonExistentRawDir(t *testing.T) {
 	ctx := context.Background()
@@ -1339,10 +855,6 @@ Content for testing.`
 	}
 }
 
-// ---------------------------------------------------------------------------
-// memoryBranch
-// ---------------------------------------------------------------------------
-
 func TestMemoryBranch(t *testing.T) {
 	tests := []struct {
 		scope   string
@@ -1363,11 +875,7 @@ func TestMemoryBranch(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// HubBranch
-// ---------------------------------------------------------------------------
-
-func TestHubBranch(t *testing.T) {
+func TestScopePrefix(t *testing.T) {
 	tests := []struct {
 		scope   MemoryScope
 		scopeID string
@@ -1380,17 +888,13 @@ func TestHubBranch(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(string(tc.scope), func(t *testing.T) {
 			svc := &MemoryService{scope: tc.scope, scopeID: tc.scopeID}
-			got := svc.HubBranch()
+			got := svc.ScopePrefix()
 			if got != tc.want {
-				t.Errorf("HubBranch() = %q; want %q", got, tc.want)
+				t.Errorf("ScopePrefix() = %q; want %q", got, tc.want)
 			}
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// memoryEntityPage
-// ---------------------------------------------------------------------------
 
 func TestMemoryEntityPage(t *testing.T) {
 	page := memoryEntityPageWithHash("ID1", "Test Memory", "2026-05-20T00:00:00Z", true, "Content here.", "convention", "")
@@ -1403,8 +907,10 @@ func TestMemoryEntityPage(t *testing.T) {
 		{"H1 heading", "# Test Memory"},
 		{"body", "Content here."},
 		{"important note", "⭐ **Important memory**"},
-		{"type badge", "**Type:** convention"},
-		{"tags", "memory, important, convention"},
+		{"type frontmatter", "type: convention"},
+		{"tags memory", "- memory"},
+		{"tags important", "- important"},
+		{"tags convention", "- convention"},
 	}
 	for _, c := range checks {
 		if !strings.Contains(page, c.substr) {
@@ -1423,9 +929,7 @@ func TestMemoryEntityPage_NotImportant(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // RenderImportantBlock (filesystem-based with listImportantInDir)
-// ---------------------------------------------------------------------------
 
 func TestRenderImportantBlock_Inline(t *testing.T) {
 	dir := t.TempDir()
@@ -1468,20 +972,12 @@ Always follow this rule.`
 	}
 }
 
-// ---------------------------------------------------------------------------
-// MemoryService.Close
-// ---------------------------------------------------------------------------
-
 func TestMemoryService_Close(t *testing.T) {
 	svc := &MemoryService{}
 	if err := svc.Close(); err != nil {
 		t.Errorf("Close() should return nil, got: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// MemoryService without gitStore returns errors
-// ---------------------------------------------------------------------------
 
 func TestMemoryService_NoGitStore_Errors(t *testing.T) {
 	svc := &MemoryService{
@@ -1520,10 +1016,6 @@ func TestMemoryService_NoGitStore_Errors(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// appendMemLog
-// ---------------------------------------------------------------------------
-
 func TestAppendMemLog_NewFile(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "log.md")
@@ -1550,9 +1042,7 @@ func TestAppendMemLog_ExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "log.md")
 
-	// Write initial log
 	appendMemLog(logPath, 3, 2, nil)
-	// Append another entry
 	appendMemLog(logPath, 5, 4, nil)
 
 	data, err := os.ReadFile(logPath)
@@ -1567,10 +1057,6 @@ func TestAppendMemLog_ExistingFile(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// CycleResult
-// ---------------------------------------------------------------------------
-
 func TestCycleResult_Fields(t *testing.T) {
 	cr := &CycleResult{
 		Scope:     "project",
@@ -1584,10 +1070,6 @@ func TestCycleResult_Fields(t *testing.T) {
 		t.Errorf("WikiFiles = %d; want 5", cr.WikiFiles)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// MemoryEntry
-// ---------------------------------------------------------------------------
 
 func TestMemoryEntry_Fields(t *testing.T) {
 	e := MemoryEntry{
@@ -1608,24 +1090,16 @@ func TestMemoryEntry_Fields(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// WorktreeRawDir
-// ---------------------------------------------------------------------------
-
-func TestWorktreeRawDir(t *testing.T) {
-	got := WorktreeRawDir("project", "abc123")
-	// Should contain "memory-wt" and sanitized branch name
-	if !strings.Contains(got, "memory-wt") {
+func TestRawDirFor(t *testing.T) {
+	got := RawDirFor("project", "abc123")
+	// Should contain "memory-raw" and sanitized branch name
+	if !strings.Contains(got, "memory-raw") {
 		t.Errorf("expected path to contain 'memory-wt', got %q", got)
 	}
 	if !strings.Contains(got, "memory-project-abc123") {
 		t.Errorf("expected path to contain 'memory-project-abc123', got %q", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// MemoryScope constants
-// ---------------------------------------------------------------------------
 
 func TestMemoryScopeConstants(t *testing.T) {
 	if MemoryScopeProject != "project" {
@@ -1638,10 +1112,6 @@ func TestMemoryScopeConstants(t *testing.T) {
 		t.Errorf("MemoryScopeContext = %q", MemoryScopeContext)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// MemoryType constants
-// ---------------------------------------------------------------------------
 
 func TestMemoryTypeConstants(t *testing.T) {
 	expected := map[MemoryType]string{
@@ -1658,37 +1128,6 @@ func TestMemoryTypeConstants(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// GCCandidate / GCReport types
-// ---------------------------------------------------------------------------
-
-func TestGCReportTypes(t *testing.T) {
-	c := GCCandidate{
-		ID:     "TEST",
-		Title:  "Test Candidate",
-		Reason: "Too old",
-		Age:    90,
-	}
-	if c.Age != 90 {
-		t.Errorf("Age = %d; want 90", c.Age)
-	}
-
-	r := GCReport{
-		TotalMemories: 10,
-		Candidates:    []GCCandidate{c},
-	}
-	if r.TotalMemories != 10 {
-		t.Errorf("TotalMemories = %d; want 10", r.TotalMemories)
-	}
-	if len(r.Candidates) != 1 {
-		t.Errorf("Candidates len = %d; want 1", len(r.Candidates))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// ConsolidationAction type
-// ---------------------------------------------------------------------------
 
 func TestConsolidationAction_Fields(t *testing.T) {
 	a := ConsolidationAction{
@@ -1707,15 +1146,10 @@ func TestConsolidationAction_Fields(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// copyDirRecursive (filesystem test)
-// ---------------------------------------------------------------------------
-
 func TestCopyDirRecursive(t *testing.T) {
 	srcDir := t.TempDir()
 	dstDir := t.TempDir()
 
-	// Create files in src
 	writeMemFile(t, srcDir, "file1.txt", "content1")
 	subdir := filepath.Join(srcDir, "sub")
 	if err := os.MkdirAll(subdir, 0o755); err != nil {
@@ -1723,7 +1157,6 @@ func TestCopyDirRecursive(t *testing.T) {
 	}
 	writeMemFile(t, subdir, "file2.txt", "content2")
 
-	// Copy
 	if err := copyDirRecursive(srcDir, dstDir); err != nil {
 		t.Fatalf("copyDirRecursive: %v", err)
 	}
@@ -1745,10 +1178,6 @@ func TestCopyDirRecursive(t *testing.T) {
 		t.Errorf("file2 content = %q", string(data2))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// copyFileData
-// ---------------------------------------------------------------------------
 
 func TestCopyFileData(t *testing.T) {
 	srcDir := t.TempDir()
@@ -1782,10 +1211,6 @@ func TestCopyFileData_NonExistentSource(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// MemoryInsertOpts, MemoryAppService (DTOs)
-// ---------------------------------------------------------------------------
-
 func TestMemoryInsertOpts_DTO(t *testing.T) {
 	opts := MemoryInsertOpts{
 		Title:     "Test",
@@ -1800,17 +1225,12 @@ func TestMemoryInsertOpts_DTO(t *testing.T) {
 	}
 }
 
-
 func TestNewMemoryAppService(t *testing.T) {
 	svc := NewMemoryAppService("/some/project")
 	if svc == nil {
 		t.Fatal("expected non-nil service")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// EnsureScopeDirs
-// ---------------------------------------------------------------------------
 
 func TestEnsureScopeDirs(t *testing.T) {
 	dir := t.TempDir()
@@ -1827,19 +1247,11 @@ func TestEnsureScopeDirs_EmptyProjectDir(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ImportantMemorySuffix constant
-// ---------------------------------------------------------------------------
-
 func TestImportantMemorySuffix(t *testing.T) {
 	if ImportantMemorySuffix != "_important_" {
 		t.Errorf("ImportantMemorySuffix = %q; want '_important_'", ImportantMemorySuffix)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// helper: writeMemFile
-// ---------------------------------------------------------------------------
 
 func writeMemFile(t *testing.T, dir, name, content string) {
 	t.Helper()

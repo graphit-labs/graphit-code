@@ -33,32 +33,44 @@ func RunCycle(ctx context.Context, scope, rawDir, wikiDir string) *CycleResult {
 }
 
 func RunProjectCycle(ctx context.Context) *CycleResult {
-	rawDir := RawDir("project")
-	return RunCycle(ctx, "project", rawDir, WikiDir("project"))
+	return runScopeCycle(ctx, "project")
 }
 
 func RunUserCycle(ctx context.Context) *CycleResult {
-	rawDir := RawDir("user")
-	return RunCycle(ctx, "user", rawDir, WikiDir("user"))
+	return runScopeCycle(ctx, "user")
+}
+
+// runScopeCycle compiles a scope's raw directory into its wiki.
+//
+// There is one compile and one destination. Two earlier arrangements are gone: it
+// used to compile straight into a project-local replica while the daemon compiled
+// into the global wiki — two files, two inodes, and whichever ran last decided what
+// a project could recall — and then it compiled globally and copied outward, which
+// still meant a copy per reader and a fan-out that could silently fall behind.
+func runScopeCycle(ctx context.Context, scope string) *CycleResult {
+	scopeID := resolveScopeID(scope)
+	if scopeID == "" {
+		return &CycleResult{Scope: scope}
+	}
+	return RunCycle(ctx, scope, RawDirFor(scope, scopeID), MemoryWikiGlobalDir(scope, scopeID))
 }
 
 type MemoryStoreProvider interface {
-	ExtractBranchDir(branch, relDir, targetDir string) error
+	ExtractScopeDir(scopePath, relDir, targetDir string) error
 }
 
-func SyncContextFromMemoryRepo(ctx context.Context, contextName, projectDir string, store MemoryStoreProvider, logger *slog.Logger) *CycleResult {
+func SyncContextFromMemoryRepo(ctx context.Context, contextName, _ string, provider MemoryStoreProvider, logger *slog.Logger) *CycleResult {
 	log := slogutil.Resolve(logger)
-	EnsureContextCopy(contextName, projectDir, logger)
-	rawDir := RawDir(contextName)
-	branch := fmt.Sprintf("memory/project/%s", contextName)
+	rawDir := RawDirFor(contextName, contextName)
+	scopePath := fmt.Sprintf("memory/project/%s", contextName)
 
-	if store != nil {
-		if err := store.ExtractBranchDir(branch, ".", rawDir); err != nil {
-			log.Warn("sync context: extract branch failed", "context", contextName, "branch", branch, "error", err)
+	if provider != nil {
+		if err := provider.ExtractScopeDir(scopePath, ".", rawDir); err != nil {
+			log.Warn("sync context: extract scope failed", "context", contextName, "scope", scopePath, "error", err)
 		}
 	}
 
-	return RunCycle(ctx, contextName, rawDir, WikiDir(contextName))
+	return RunCycle(ctx, contextName, rawDir, contextWikiDir(contextName))
 }
 
 func OnHubImport(ctx context.Context, contextName, projectDir string, store MemoryStoreProvider, logger *slog.Logger) {

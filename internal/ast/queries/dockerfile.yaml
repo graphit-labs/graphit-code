@@ -38,6 +38,24 @@ queries:
     graph_label: EnvVar
     pattern: '(env_instruction (env_pair (unquoted_string) @name))'
 
+  # ENV, ARG and LABEL are key/value pairs, and the value was dropped entirely:
+  # APP_ENV was known to exist, but not that it is `production`.
+  - data_key: variables
+    graph_label: EnvVar
+    pattern: '(env_instruction (env_pair name: (unquoted_string) @name value: [(unquoted_string) (double_quoted_string) (single_quoted_string)] @value))'
+    value_capture: value
+    value_label: Value
+  - data_key: args
+    graph_label: Arg
+    pattern: '(arg_instruction name: (unquoted_string) @name default: [(unquoted_string) (double_quoted_string) (single_quoted_string)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: labels
+    graph_label: Label
+    pattern: '(label_instruction (label_pair key: (unquoted_string) @name value: [(unquoted_string) (double_quoted_string) (single_quoted_string)] @value))'
+    value_capture: value
+    value_label: Value
+
 # Dockerfile is a config format — no export concept
 exports:
   strategy: none
@@ -60,9 +78,16 @@ declaration_types:
 comment_types:
   - comment
 
-# Dockerfile has no entry points — it's a build configuration format
-entry_points:
-  names: []
-  exported_bonus: 0
-  max_score: 0
-  decorators: []
+# No cyclomatic complexity: a Dockerfile has no control flow of its own —
+# RUN's shell command is opaque text to this grammar, not parsed as bash.
+
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Stage
+  - Instruction
+  - Arg
+  - EnvVar
+  - Comment

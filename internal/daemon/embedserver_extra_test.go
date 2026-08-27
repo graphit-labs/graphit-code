@@ -9,9 +9,7 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
 // EmbedServer.Start — listen error (port already in use)
-// ---------------------------------------------------------------------------
 
 func TestEmbedServer_Start_ListenError(t *testing.T) {
 	tempHome := t.TempDir()
@@ -50,10 +48,6 @@ func TestEmbedServer_Start_ListenError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// EmbedServer.Start — sock file write error
-// ---------------------------------------------------------------------------
-
 func TestEmbedServer_Start_SockFileWriteError(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -81,10 +75,6 @@ func TestEmbedServer_Start_SockFileWriteError(t *testing.T) {
 		t.Error("expected error when sock file write fails")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// NewEmbedServer — sets default fields
-// ---------------------------------------------------------------------------
 
 func TestNewEmbedServer_Fields(t *testing.T) {
 	tempHome := t.TempDir()

@@ -28,13 +28,11 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 		os.Setenv("HOME", origHome) //nolint:errcheck
 	})
 
-	// Setup: create the global dir structure
 	globalDir := filepath.Join(tmp, "."+brand.Brand)
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create an ecosystem project directory
 	ecoProjectDir := filepath.Join(tmp, "eco-proj")
 	if err := os.MkdirAll(ecoProjectDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -42,17 +40,16 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 
 	// Create the lock file for the eco project (ListActiveProjects checks for this)
 	lockFilePath := filepath.Join(ecoProjectDir, brand.LockFileName())
-	if err := os.WriteFile(lockFilePath, []byte("{}"), 0o644); err != nil {
+	if err := os.WriteFile(lockFilePath, []byte(`{"project":{"id":"eco-proj"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	// Create the wiki directory for the ecosystem project
-	wikiDir := filepath.Join(ecoProjectDir, brand.DotDir(), "knowledge", "project")
+	wikiDir := knowledgeWikiDirFor(t, ecoProjectDir)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Write global.lock.json with the project registered
 	lockData := hub.GlobalHubLock{
 		Version: hub.GlobalLockVersion,
 		Projects: map[string]*hub.ProjectEntry{
@@ -103,7 +100,7 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		lockFilePath2 := filepath.Join(ecoProject2Dir, brand.LockFileName())
-		if err := os.WriteFile(lockFilePath2, []byte("{}"), 0o644); err != nil {
+		if err := os.WriteFile(lockFilePath2, []byte(`{"project":{"id":"eco-proj2"}}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -154,18 +151,16 @@ func TestResolveEcosystemSource_FullIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		lockFilePath3 := filepath.Join(ecoProject3Dir, brand.LockFileName())
-		if err := os.WriteFile(lockFilePath3, []byte("{}"), 0o644); err != nil {
+		if err := os.WriteFile(lockFilePath3, []byte(`{"project":{"id":"eco-proj3"}}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
-		// Create the wiki subdirectory
-		knowledgeProject := filepath.Join(ecoProject3Dir, brand.DotDir(), "knowledge", "project")
+		knowledgeProject := knowledgeWikiDirFor(t, ecoProject3Dir)
 		wikiSub := filepath.Join(knowledgeProject, "wiki")
 		if err := os.MkdirAll(wikiSub, 0o755); err != nil {
 			t.Fatal(err)
 		}
 
-		// Update global lock
 		lockData3 := hub.GlobalHubLock{
 			Version: hub.GlobalLockVersion,
 			Projects: map[string]*hub.ProjectEntry{
@@ -334,10 +329,10 @@ func TestResolveWikiSource_EcosystemViaResolveWikiSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	lockFile := filepath.Join(ecoDir, brand.LockFileName())
-	if err := os.WriteFile(lockFile, []byte("{}"), 0o644); err != nil {
+	if err := os.WriteFile(lockFile, []byte(`{"project":{"id":"my-eco"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	wikiDir := filepath.Join(ecoDir, brand.DotDir(), "knowledge", "project")
+	wikiDir := knowledgeWikiDirFor(t, ecoDir)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +393,7 @@ func TestSearchMultiWiki_WithHubRefs(t *testing.T) {
 	searchMultiWiki = func(_ context.Context, _ ai.Client, _ string, _ wiki.MultiWikiSearchConfig) (*wiki.SearchResult, error) {
 		return &wiki.SearchResult{Answer: "hub answer", Turns: 1}, nil
 	}
-	newChatSession = func(projectDir string, sources []chat.WikiSource, query string) *chat.ChatSession {
+	newChatSession = func(projectDir string, sources []chat.Source, query string) *chat.ChatSession {
 		return &chat.ChatSession{
 			ID:         "hub-session",
 			ProjectDir: projectDir,

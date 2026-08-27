@@ -1,11 +1,12 @@
 package knowledge
 
 import (
-	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
@@ -21,37 +22,46 @@ func TestKnowledgePathsAndIgnore(t *testing.T) {
 	_ = os.Setenv("HOME", tempHome)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// 1. WikiDir checks
-	projWiki := WikiDir()
-	expectedProjWiki := filepath.Join(brand.DotDir(), "knowledge", "project")
-	if projWiki != expectedProjWiki {
-		t.Errorf("expected %s, got %s", expectedProjWiki, projWiki)
+	// 1. Every wiki resolves into the global directory, never into the project.
+	projectDir := t.TempDir()
+	global := filepath.Join(tempHome, brand.DotDir())
+
+	projWiki := WikiDirFor(projectDir)
+	if !strings.HasPrefix(projWiki, global) {
+		t.Errorf("project wiki %s is not under the global dir %s", projWiki, global)
+	}
+	if strings.HasPrefix(projWiki, projectDir) {
+		t.Errorf("project wiki %s leaked into the project directory", projWiki)
 	}
 
-	wikiCtxProj := WikiDirForContext("")
-	if wikiCtxProj != projWiki {
-		t.Errorf("expected Project Wiki, got %s", wikiCtxProj)
+	if got := WikiDirForContextIn(projectDir, ""); got != projWiki {
+		t.Errorf("empty context should resolve to the project wiki, got %s", got)
+	}
+	if got := WikiDirForContextIn(projectDir, "__project__"); got != projWiki {
+		t.Errorf("__project__ should resolve to the project wiki, got %s", got)
 	}
 
-	wikiCtxOther := WikiDirForContext("context-abc")
-	expectedOther := filepath.Join(tempHome, "."+brand.Brand, "knowledge", "context-abc")
+	wikiCtxOther := WikiDirForContextIn(projectDir, "context-abc")
+	expectedOther := filepath.Join(global, "wiki", "knowledge", "context", "context-abc")
 	if wikiCtxOther != expectedOther {
 		t.Errorf("expected %s, got %s", expectedOther, wikiCtxOther)
 	}
 
-	// 2. EnsureContextCopy
-	EnsureContextCopy("context-abc")
-	linkDir := filepath.Join(brand.DotDir(), "knowledge", "context-abc")
-	info, err := os.Lstat(linkDir)
-	if err != nil {
-		t.Errorf("expected directory at %s, got error: %v", linkDir, err)
-	} else if info.Mode()&os.ModeSymlink != 0 {
-		t.Errorf("expected real directory at %s, got symlink", linkDir)
-	} else if !info.IsDir() {
-		t.Errorf("expected directory at %s, got file", linkDir)
+	// 2. There is ONE shape for a context now: every install path places the compiled
+	// wiki AT the context directory. A `wiki/` subdirectory left inside it is part of
+	// the payload, not an alternative location to be probed for — which is what this
+	// used to have to do, because the branch and the artifact paths disagreed.
+	sub := filepath.Join(wikiCtxOther, "wiki")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "index.md"), []byte("# Wiki\n"), 0o644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if got := WikiDirForContextIn(projectDir, "context-abc"); got != wikiCtxOther {
+		t.Errorf("expected the context directory %s, got %s", wikiCtxOther, got)
 	}
 
-	// 3. NewKnowledgeIgnoreChecker
 	checker := NewKnowledgeIgnoreChecker(tempHome)
 	if checker == nil {
 		t.Fatal("expected non-nil IgnoreChecker")
@@ -72,7 +82,7 @@ func TestAutoLinking(t *testing.T) {
 	// 1. Basic auto-linking
 	content := "This is a document about Daemon Service and how AST Indexer behaves."
 	linked, refs := wiki.AutoLinkContent(content, compiledTargets, "Some_Other_Page")
-	expectedLinked := "This is a document about [[Daemon_Service|Daemon Service]] and how [[AST_Indexer|AST Indexer]] behaves."
+	expectedLinked := "This is a document about [Daemon Service](Daemon_Service.md) and how [AST Indexer](AST_Indexer.md) behaves."
 	if linked != expectedLinked {
 		t.Errorf("expected %q, got %q", expectedLinked, linked)
 	}
@@ -83,7 +93,7 @@ func TestAutoLinking(t *testing.T) {
 	// 2. Do not link self
 	contentSelf := "Daemon Service talks to AST Indexer."
 	linkedSelf, refsSelf := wiki.AutoLinkContent(contentSelf, compiledTargets, "Daemon_Service")
-	expectedSelf := "Daemon Service talks to [[AST_Indexer|AST Indexer]]."
+	expectedSelf := "Daemon Service talks to [AST Indexer](AST_Indexer.md)."
 	if linkedSelf != expectedSelf {
 		t.Errorf("expected %q, got %q", expectedSelf, linkedSelf)
 	}
@@ -92,92 +102,22 @@ func TestAutoLinking(t *testing.T) {
 	}
 
 	// 3. Ignore code blocks and inline code and existing links
-	contentIgnored := "Use `Daemon Service` and block:\n```go\nvar d = Daemon Service\n```\nAnd existing link [[Daemon_Service|Daemon Service]]."
+	contentIgnored := "Use `Daemon Service` and block:\n```go\nvar d = Daemon Service\n```\nAnd existing link [Daemon Service](Daemon_Service.md)."
 	linkedIgnored, _ := wiki.AutoLinkContent(contentIgnored, compiledTargets, "Some_Other_Page")
 	if linkedIgnored != contentIgnored {
 		t.Errorf("expected no auto-linking for code blocks or existing links, got %q", linkedIgnored)
 	}
 }
-
-func TestSplitDocByHeaders(t *testing.T) {
-	longContent := strings.Repeat("word ", 160)
-	doc := knowledgeDoc{
-		title:   "Test Document",
-		docType: "guide",
-		path:    "test.md",
-		body: `---
-title: Test Document
----
-This is the parent introduction.
-
-## Section One
-` + longContent + `
-
-## Section Two
-Short section content.
-
-## Empty Section
-
-`,
-	}
-
-	splits := splitByH2HeadersTestCompat(doc)
-	// We expect 3 documents: parent (keeps Empty Section) + Section One + Section Two (all H2 with content are split)
-	if len(splits) != 3 {
-		t.Fatalf("expected 3 split docs, got %d", len(splits))
-	}
-
-	parent := splits[0]
-	if parent.title != "Test Document" {
-		t.Errorf("expected parent title Test Document, got %q", parent.title)
-	}
-	if !strings.Contains(parent.body, "## Section One\nSee: [[Test Document - Section One]]") {
-		t.Errorf("parent body missing link to Section One: %q", parent.body)
-	}
-	if !strings.Contains(parent.body, "## Section Two\nSee: [[Test Document - Section Two]]") {
-		t.Errorf("parent body missing link to Section Two: %q", parent.body)
-	}
-	if !strings.Contains(parent.body, "## Empty Section") {
-		t.Errorf("parent body should retain Empty Section: %q", parent.body)
-	}
-	// Parent should have a ToC
-	if !strings.Contains(parent.body, "## 📋 Table of Contents") {
-		t.Errorf("parent body missing Table of Contents: %q", parent.body)
-	}
-
-	s1 := splits[1]
-	if s1.title != "Test Document - Section One" {
-		t.Errorf("unexpected title for section one: %q", s1.title)
-	}
-	if s1.body != strings.TrimSpace(longContent) {
-		t.Errorf("unexpected body for section one: %q", s1.body)
-	}
-	if s1.parentTitle != "Test Document" {
-		t.Errorf("expected parentTitle Test Document, got %q", s1.parentTitle)
-	}
-	if s1.breadcrumb != "Test Document > Section One" {
-		t.Errorf("expected breadcrumb 'Test Document > Section One', got %q", s1.breadcrumb)
-	}
-
-	s2 := splits[2]
-	if s2.title != "Test Document - Section Two" {
-		t.Errorf("unexpected title for section two: %q", s2.title)
-	}
-	if s2.breadcrumb != "Test Document > Section Two" {
-		t.Errorf("expected breadcrumb 'Test Document > Section Two', got %q", s2.breadcrumb)
-	}
-}
-
 func TestResolveWikiLinksInBody(t *testing.T) {
 	titlesMap := map[string]string{
-		"Test Document":              "Test_Document",
+		"Test Document":               "Test_Document",
 		"Test Document - Section One": "Test_Document_-_Section_One",
 	}
 
 	// 1. Exact matches and labels
 	body := "Read [[Test Document - Section One]] or look at [[Test Document|Custom Label]]."
 	resolved := wiki.ResolveWikiLinksInBody(body, titlesMap)
-	expected := "Read [[Test_Document_-_Section_One]] or look at [[Test_Document|Custom Label]]."
+	expected := "Read [Test Document - Section One](Test_Document_-_Section_One.md) or look at [Custom Label](Test_Document.md)."
 	if resolved != expected {
 		t.Errorf("expected %q, got %q", expected, resolved)
 	}
@@ -185,7 +125,7 @@ func TestResolveWikiLinksInBody(t *testing.T) {
 	// 2. Case-insensitive matches
 	bodyCI := "Read [[test document - section one]] or [[TEST DOCUMENT]]."
 	resolvedCI := wiki.ResolveWikiLinksInBody(bodyCI, titlesMap)
-	expectedCI := "Read [[Test_Document_-_Section_One]] or [[Test_Document]]."
+	expectedCI := "Read [test document - section one](Test_Document_-_Section_One.md) or [TEST DOCUMENT](Test_Document.md)."
 	if resolvedCI != expectedCI {
 		t.Errorf("expected %q, got %q", expectedCI, resolvedCI)
 	}
@@ -193,7 +133,7 @@ func TestResolveWikiLinksInBody(t *testing.T) {
 	// 3. Trigram fuzzy matches (typos)
 	bodyFuzzy := "Read [[Test Docment]] or [[Test Document - Sectin One]]."
 	resolvedFuzzy := wiki.ResolveWikiLinksInBody(bodyFuzzy, titlesMap)
-	expectedFuzzy := "Read [[Test_Document]] or [[Test_Document_-_Section_One]]."
+	expectedFuzzy := "Read [Test Docment](Test_Document.md) or [Test Document - Sectin One](Test_Document_-_Section_One.md)."
 	if resolvedFuzzy != expectedFuzzy {
 		t.Errorf("expected %q, got %q", expectedFuzzy, resolvedFuzzy)
 	}
@@ -219,5 +159,3 @@ func TestSafeFilenameEmojis(t *testing.T) {
 		}
 	}
 }
-
-

@@ -11,6 +11,8 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/dream"
+	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 )
 
@@ -36,6 +38,15 @@ type Config struct {
 	DisableEmbedding bool
 
 	DisableDream bool
+
+	// ProjectActivityWindow bounds how long a registered project may go
+	// without a filesystem change before its supervisor is parked (fs watch,
+	// embedding loop and dream runner all stopped). Zero disables parking —
+	// every registered project stays supervised for as long as it stays
+	// registered. Resolved from daemon.activity_window by the CLI layer;
+	// left at zero here so a Daemon built directly (as tests do) keeps the
+	// pre-parking behavior.
+	ProjectActivityWindow time.Duration
 
 	OnEvent func(level string, msg string)
 }
@@ -64,10 +75,15 @@ type Daemon struct {
 	pid         *PIDFile
 	builder     ProjectModuleBuilder
 	supervisors map[string]*ProjectSupervisor
-	logFile     *os.File
-	mu          sync.RWMutex // protects supervisors map
-	logMu       sync.Mutex   // protects logFile writes (separate to avoid deadlock)
-	bootStamp   string
+	// parked holds registered projects that are not currently supervised —
+	// either newly discovered but quiet, or demoted after their supervisor's
+	// IdleFor() exceeded cfg.ProjectActivityWindow. Only populated when that
+	// window is non-zero. Guarded by mu, same as supervisors.
+	parked    map[string]ProjectInfo
+	logFile   *os.File
+	mu        sync.RWMutex // protects supervisors and parked maps
+	logMu     sync.Mutex   // protects logFile writes (separate to avoid deadlock)
+	bootStamp string
 
 	// grammarSigs records what each grammar directory looked like when this
 	// process last accepted it: "" for the global pair, one entry per supervised
@@ -87,6 +103,7 @@ func New(cfg Config, builder ProjectModuleBuilder) *Daemon {
 		pid:         NewPIDFile(),
 		builder:     builder,
 		supervisors: make(map[string]*ProjectSupervisor),
+		parked:      make(map[string]ProjectInfo),
 	}
 }
 
@@ -97,6 +114,7 @@ func (d *Daemon) event(level string, format string, args ...any) {
 }
 
 func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, error), onReady ...func()) error {
+	chdirToStableDir()
 
 	if err := d.pid.Acquire(); err != nil {
 		if errors.Is(err, ErrAlreadyRunning) {
@@ -196,14 +214,55 @@ func (d *Daemon) reconcileProjects(ctx context.Context, discoverFn func() ([]Pro
 			delete(d.supervisors, id)
 		}
 	}
+	for id := range d.parked {
+		if _, ok := discovered[id]; !ok {
+			delete(d.parked, id)
+		}
+	}
+
+	window := d.cfg.ProjectActivityWindow
+	if window > 0 && d.parked == nil {
+		d.parked = make(map[string]ProjectInfo)
+	}
+
+	// A supervised project that has gone quiet for longer than the activity
+	// window is parked: its fs watch, embedding loop and dream runner all
+	// stop, and it falls back to the periodic mtime probe below until it has
+	// something to reindex again.
+	if window > 0 {
+		for id, sup := range d.supervisors {
+			if idle := sup.IdleFor(); idle < window {
+				continue
+			}
+			d.log("[%s] idle for %s (window %s) — parking supervisor: %s",
+				id, sup.IdleFor().Round(time.Second), window, sup.projectDir)
+			d.event("step_warn", "Project idle, parking: %s", sup.projectDir)
+			sup.Stop()
+			delete(d.supervisors, id)
+			d.parked[id] = discovered[id]
+		}
+	}
 
 	for id, proj := range discovered {
 		if _, ok := d.supervisors[id]; ok {
 			continue
 		}
 
-		d.log("[%s] new project discovered: %s", id, proj.Dir)
-		d.event("step_ok", "New project: %s", proj.Dir)
+		_, wasParked := d.parked[id]
+
+		if window > 0 && !d.projectRecentlyActive(proj.Dir, window) {
+			d.parked[id] = proj
+			continue
+		}
+		delete(d.parked, id)
+
+		if wasParked {
+			d.log("[%s] activity detected — resuming supervision: %s", id, proj.Dir)
+			d.event("step_ok", "Project active again: %s", proj.Dir)
+		} else {
+			d.log("[%s] new project discovered: %s", id, proj.Dir)
+			d.event("step_ok", "New project: %s", proj.Dir)
+		}
 
 		modules, closerFns, err := d.builder(proj.Dir)
 		if err != nil {
@@ -218,6 +277,11 @@ func (d *Daemon) reconcileProjects(ctx context.Context, discoverFn func() ([]Pro
 		}
 
 		sup := newProjectSupervisor(id, proj.Dir, modules)
+		for _, mod := range modules {
+			if ar, ok := mod.(ActivityReporter); ok {
+				ar.SetActivityCallback(sup.Touch)
+			}
+		}
 		for _, fn := range closerFns {
 			sup.AddCloser(closerFunc(fn))
 		}
@@ -230,6 +294,18 @@ func (d *Daemon) reconcileProjects(ctx context.Context, discoverFn func() ([]Pro
 
 		d.log("[%s] supervisor launched with %d module(s)", id, len(modules))
 	}
+}
+
+// projectRecentlyActive reports whether dir has had a file touched (skipping
+// .git and the brand directory — see dream.LastModifiedTime) within window.
+// A walk failure — an inaccessible or momentarily empty tree — defaults to
+// true, so a project is never parked on account of the probe itself failing.
+func (d *Daemon) projectRecentlyActive(dir string, window time.Duration) bool {
+	last, err := dream.LastModifiedTime(dir)
+	if err != nil {
+		return true
+	}
+	return time.Since(last) < window
 }
 
 func (d *Daemon) shutdown() {
@@ -269,6 +345,7 @@ func (d *Daemon) shutdown() {
 	d.event("success", "Daemon stopped")
 
 	memory.WaitForPendingPushes()
+	hub.WaitForPendingEvents()
 
 	d.log("daemon stopped")
 }
@@ -341,3 +418,29 @@ func (d *Daemon) log(format string, args ...any) {
 type closerFunc func() error
 
 func (f closerFunc) Close() error { return f() }
+
+// chdirToStableDir moves the daemon off whatever directory spawned it.
+//
+// The daemon serves many projects and must depend on none of their directories, but it
+// inherits the cwd of whoever started it — a CLI invocation from a checkout, or a test
+// that chdir'd into its own t.TempDir(). Nothing brings that cwd back when the
+// directory is deleted, and the daemon outlives the thing that spawned it by design.
+//
+// The failure that follows is nasty because it is partial: only handlers that call
+// os.Getwd() break, with "getwd: no such file or directory", while every handler that
+// resolves from an explicit project_dir keeps working. That makes the breakage look
+// like it belongs to whichever module happened to use one. It was observed after a
+// full test run, with the daemon's cwd pointing at a removed t.TempDir().
+//
+// Best effort on purpose: a daemon that cannot chdir is still a working daemon, and
+// refusing to start over it would turn a latent problem into an outage.
+func chdirToStableDir() {
+	dir := brand.GlobalDir()
+	if dir == "" {
+		return
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	_ = os.Chdir(dir)
+}

@@ -1,6 +1,11 @@
 language: ruby
 grammar: tree-sitter-ruby
 extensions: [".rb"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -16,14 +21,21 @@ queries:
     graph_label: Module
     pattern: '(module name: (constant) @name)'
   - data_key: imports
-    graph_label: Module
+    graph_label: Import
     pattern: '(call method: (identifier) @_method arguments: (argument_list (string (string_content) @name)) (#eq? @_method "require"))'
   - data_key: imports
-    graph_label: Module
+    graph_label: Import
     pattern: '(call method: (identifier) @_method arguments: (argument_list (string (string_content) @name)) (#eq? @_method "require_relative"))'
   - data_key: variables
     graph_label: Variable
     pattern: '(assignment left: (constant) @name)'
+
+  # Declared literal values — the literal becomes a node contained by the name.
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment left: (constant) @name right: [(integer) (float) (true) (false) (nil) (string) (simple_symbol) (delimited_symbol)] @value)'
+    value_capture: value
+    value_label: Value
   - data_key: parameters
     graph_label: Parameter
     pattern: '(method_parameters (identifier) @name)'
@@ -86,51 +98,27 @@ declaration_types:
 comment_types:
   - comment
 
-# Entry point scoring rules for Ruby
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "Test*"
-      score: 60
-    - pattern: "test_*"
-      score: 60
-    - pattern: initialize
-      score: 40
-    - pattern: setup
-      score: 40
-    - pattern: configure
-      score: 40
-    - pattern: "*Handler"
-      score: 30
-    - pattern: "*Controller"
-      score: 30
-    - pattern: "cmd*"
-      score: 20
-    - pattern: "run*"
-      score: 20
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. elsif/when/rescue are each their own node, not
+# nested inside the primary if/case/begin — they need explicit entries.
+complexity:
+  node_types:
+    - if
+    - elsif
+    - while
+    - when
+    - rescue
+    - conditional
+  operators: ["&&", "||"]
 
-  exported_bonus: 10
-  max_score: 100
-
-  # Ruby has no decorators/annotations — this section is intentionally empty
-  decorators: []
-
-# Import detection (language-level framework detection)
-import_detection:
-  - pattern: rails
-    match: prefix
-    framework: rails
-    category: web
-  - pattern: sinatra
-    match: prefix
-    framework: sinatra
-    category: web
-  - pattern: rspec
-    match: prefix
-    framework: rspec
-    category: test
-  - pattern: sidekiq
-    match: prefix
-    framework: sidekiq
-    category: async
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Class
+  - Module
+  - Function
+  - Field
+  - Variable
+  - Comment

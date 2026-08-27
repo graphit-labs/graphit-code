@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"context"
 	"fmt"
 	"os"
@@ -9,18 +8,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// ===========================================================================
 // important.go — ListImportantMemories, RenderImportantBlock,
-//   ListRecentMemories, RenderRecentBlock, firstLineFromContent,
-//   extractBodyAfterFrontmatter
-// ===========================================================================
+// ListRecentMemories, RenderRecentBlock, firstLineFromContent,
+// extractBodyAfterFrontmatter
 
 func TestListImportantInDir_WithEntries(t *testing.T) {
 	dir := t.TempDir()
 
-	// Important memory
 	writeMemFile(t, dir, "MEM1_important_.md", `---
 title: Important Convention
 created_at: 2026-01-01T00:00:00Z
@@ -86,10 +84,6 @@ func TestListImportantInDir_NonExistentReturnsNil(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// RenderImportantBlock: renders from dir with important entries
-// ---------------------------------------------------------------------------
-
 func TestRenderImportantBlock_ViaDir(t *testing.T) {
 	dir := t.TempDir()
 
@@ -138,9 +132,7 @@ title: Another Important
 	}
 }
 
-// ---------------------------------------------------------------------------
 // ListRecentMemories and RenderRecentBlock — filesystem-based
-// ---------------------------------------------------------------------------
 
 func TestListRecentInDir_WithMixedContent(t *testing.T) {
 	dir := t.TempDir()
@@ -239,10 +231,6 @@ title: No Content Memory
 	}
 }
 
-// ===========================================================================
-// important.go — extractBodyAfterFrontmatter edge cases
-// ===========================================================================
-
 func TestExtractBodyAfterFrontmatter_AllCases(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -300,36 +288,7 @@ func TestExtractBodyAfterFrontmatter_AllCases(t *testing.T) {
 	}
 }
 
-
-
-// ===========================================================================
-// consolidate.go — parseConsolidationType
-// ===========================================================================
-
-func TestParseConsolidationType_Boost(t *testing.T) {
-	tests := []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{"no type", "---\ntitle: Test\n---\nbody", ""},
-		{"has type", "---\ntitle: Test\ntype: convention\n---\nbody", "convention"},
-		{"type with spaces", "---\ntype:   skill  \n---\n", "skill"},
-		{"type in body (no frontmatter)", "type: fact\nbody text", "fact"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := parseConsolidationType(tc.content)
-			if got != tc.want {
-				t.Errorf("parseConsolidationType = %q; want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-// ===========================================================================
 // consolidate.go — ConsolidationReport methods
-// ===========================================================================
 
 func TestConsolidationReport_HasActions_Boost(t *testing.T) {
 	r := &ConsolidationReport{}
@@ -356,20 +315,16 @@ func TestConsolidationReport_HasActions_Boost(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// consolidate.go — detectStaleMemories
-// ===========================================================================
-
 func TestDetectStaleMemories_AllBranches(t *testing.T) {
-	oldDate := time.Now().Add(-45 * 24 * time.Hour).Format(time.RFC3339)
+	oldDate := time.Now().Add(-120 * 24 * time.Hour).Format(time.RFC3339)
 	recentDate := time.Now().Add(-5 * 24 * time.Hour).Format(time.RFC3339)
 
 	memories := []memorySnapshot{
-		{ID: "old", Title: "Old One", CreatedAt: oldDate, Important: false},      // stale
-		{ID: "recent", Title: "Recent One", CreatedAt: recentDate, Important: false}, // not stale
+		{ID: "old", Title: "Old One", CreatedAt: oldDate, Important: false},            // stale
+		{ID: "recent", Title: "Recent One", CreatedAt: recentDate, Important: false},   // not stale
 		{ID: "important", Title: "Important Old", CreatedAt: oldDate, Important: true}, // skipped (important)
-		{ID: "nodate", Title: "No Date", CreatedAt: "", Important: false},            // skipped (no date)
-		{ID: "baddate", Title: "Bad Date", CreatedAt: "invalid", Important: false},    // skipped (bad date format)
+		{ID: "nodate", Title: "No Date", CreatedAt: "", Important: false},              // skipped (no date)
+		{ID: "baddate", Title: "Bad Date", CreatedAt: "invalid", Important: false},     // skipped (bad date format)
 	}
 
 	stale := detectStaleMemories(memories)
@@ -383,334 +338,6 @@ func TestDetectStaleMemories_AllBranches(t *testing.T) {
 		t.Errorf("Reason should mention days old, got %q", stale[0].Reason)
 	}
 }
-
-// ===========================================================================
-// consolidate.go — extractBracketedIDs
-// ===========================================================================
-
-func TestExtractBracketedIDs_Boost(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  int
-	}{
-		{"no brackets", "just text", 0},
-		{"one ID", "MERGE [01J5XABC1234567890]: reason", 1},
-		{"two IDs", "MERGE [01J5XABC1234567890] and [01J5XDEF1234567890]: reason", 2},
-		{"short ID (less than 10 chars)", "[ABCDEFGH]: too short", 0},
-		{"exactly 10 uppercase", "[ABCDEFGHIJ]: ok", 1},
-		{"lowercase skipped", "[abcdefghij]: lowercase", 0},
-		{"mixed content", "text [01J5XABC1234567890] more text [01J5XDEF1234567890] end", 2},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := extractBracketedIDs(tc.input)
-			if len(got) != tc.want {
-				t.Errorf("extractBracketedIDs(%q) returned %d IDs; want %d", tc.input, len(got), tc.want)
-			}
-		})
-	}
-}
-
-// ===========================================================================
-// consolidate.go — parseConsolidationSection edge cases
-// ===========================================================================
-
-func TestParseConsolidationSection_NoSection(t *testing.T) {
-	actions := parseConsolidationSection("no section here", "DUPLICATES", "merge")
-	if len(actions) != 0 {
-		t.Errorf("expected 0 actions, got %d", len(actions))
-	}
-}
-
-func TestParseConsolidationSection_NoneFound(t *testing.T) {
-	response := "## DUPLICATES\nNone found\n"
-	actions := parseConsolidationSection(response, "DUPLICATES", "merge")
-	if len(actions) != 0 {
-		t.Errorf("expected 0 actions for 'None found', got %d", len(actions))
-	}
-}
-
-func TestParseConsolidationSection_LineWithoutDash(t *testing.T) {
-	response := "## DUPLICATES\nSome text without dash\n- MERGE [01J5XABC1234567890]: reason\n"
-	actions := parseConsolidationSection(response, "DUPLICATES", "merge")
-	if len(actions) != 1 {
-		t.Errorf("expected 1 action (skip non-dash lines), got %d", len(actions))
-	}
-}
-
-// ===========================================================================
-// consolidate.go — parseSuggestionSection edge cases
-// ===========================================================================
-
-func TestParseSuggestionSection_NoSection(t *testing.T) {
-	actions := parseSuggestionSection("no section here")
-	if len(actions) != 0 {
-		t.Errorf("expected 0, got %d", len(actions))
-	}
-}
-
-func TestParseSuggestionSection_NoneFound_Boost(t *testing.T) {
-	actions := parseSuggestionSection("## SUGGESTIONS\nNone found\n")
-	if len(actions) != 0 {
-		t.Errorf("expected 0, got %d", len(actions))
-	}
-}
-
-func TestParseSuggestionSection_AllActionTypes(t *testing.T) {
-	response := `## SUGGESTIONS
-- PROMOTE [01J5XABC1234567890]: should be important
-- DEMOTE [01J5XDEF1234567890]: too specific
-- DELETE [01J5XGHI1234567890]: outdated
-- UPDATE [01J5XJKL1234567890]: needs detail
-- SOMETHING ELSE [01J5XMNO1234567890]: unknown defaults to update
-`
-	actions := parseSuggestionSection(response)
-	if len(actions) != 5 {
-		t.Fatalf("expected 5 actions, got %d", len(actions))
-	}
-
-	expected := []string{"promote", "demote", "delete", "update", "update"}
-	for i, want := range expected {
-		if actions[i].Type != want {
-			t.Errorf("action[%d].Type = %q; want %q", i, actions[i].Type, want)
-		}
-	}
-}
-
-func TestParseSuggestionSection_WithNextSection(t *testing.T) {
-	response := `## SUGGESTIONS
-- PROMOTE [01J5XABC1234567890]: should be important
-
-## SOMETHING_ELSE
-- unrelated content
-`
-	actions := parseSuggestionSection(response)
-	if len(actions) != 1 {
-		t.Errorf("expected 1 action, got %d", len(actions))
-	}
-}
-
-// ===========================================================================
-// consolidate.go — RunGC
-// ===========================================================================
-
-func TestRunGC_NonExistentDir_Boost(t *testing.T) {
-	// RunGC uses RawDir which depends on global scope dirs
-	// Test directly the internal logic with a temp dir
-	report, err := runGCInDirBoost(t.TempDir()+"nonexistent", 90)
-	if err != nil {
-		t.Fatalf("expected nil error for non-existent, got: %v", err)
-	}
-	if report.TotalMemories != 0 {
-		t.Errorf("expected 0, got %d", report.TotalMemories)
-	}
-}
-
-func TestRunGC_EmptyDir_Boost(t *testing.T) {
-	report, err := runGCInDirBoost(t.TempDir(), 90)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if report.TotalMemories != 0 {
-		t.Errorf("expected 0, got %d", report.TotalMemories)
-	}
-}
-
-func TestRunGC_WithVariousMemories(t *testing.T) {
-	dir := t.TempDir()
-
-	veryOldDate := time.Now().Add(-200 * 24 * time.Hour).Format(time.RFC3339)
-	oldDate := time.Now().Add(-100 * 24 * time.Hour).Format(time.RFC3339)
-	recentDate := time.Now().Add(-5 * 24 * time.Hour).Format(time.RFC3339)
-
-	// Empty body (GC candidate)
-	writeMemFile(t, dir, "MEM_EMPTY.md", `---
-title: Empty Memory
-created_at: `+recentDate+`
----
-
-# Empty Memory
-`)
-
-	// Old untyped memory (GC candidate — stale unclassified)
-	writeMemFile(t, dir, "MEM_OLD_UNTYPED.md", `---
-title: Old Untyped
-created_at: `+oldDate+`
----
-
-# Old Untyped
-
-This is some content that is old and untyped.`)
-
-	// Very old typed memory (GC candidate — 2x threshold)
-	writeMemFile(t, dir, "MEM_VERY_OLD.md", `---
-title: Very Old Typed
-created_at: `+veryOldDate+`
-type: fact
----
-
-# Very Old Typed
-
-This is very old content with a type.`)
-
-	// Recent typed memory (not a GC candidate)
-	writeMemFile(t, dir, "MEM_RECENT.md", `---
-title: Recent Typed
-created_at: `+recentDate+`
-type: convention
----
-
-# Recent Typed
-
-This is recent and typed content here.`)
-
-	// Important memory (always skipped)
-	writeMemFile(t, dir, "MEM_IMP_important_.md", `---
-title: Important Memory
-created_at: `+veryOldDate+`
----
-
-# Important Memory
-
-This is important.`)
-
-	// Non-md file (skipped)
-	writeMemFile(t, dir, "notes.txt", "not a memory")
-
-	// Directory (skipped)
-	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	report, err := runGCInDirBoost(dir, 90)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-
-	if report.TotalMemories != 5 {
-		t.Errorf("TotalMemories = %d; want 5", report.TotalMemories)
-	}
-
-	// Should have candidates: empty body, old untyped, very old typed
-	if len(report.Candidates) < 2 {
-		t.Errorf("expected at least 2 GC candidates, got %d", len(report.Candidates))
-	}
-
-	// Verify candidate reasons
-	reasons := make(map[string]bool)
-	for _, c := range report.Candidates {
-		reasons[c.Reason] = true
-	}
-	hasEmpty := false
-	hasOld := false
-	for reason := range reasons {
-		if strings.Contains(reason, "Empty") || strings.Contains(reason, "empty") {
-			hasEmpty = true
-		}
-		if strings.Contains(reason, "days old") {
-			hasOld = true
-		}
-	}
-	if !hasEmpty {
-		t.Error("expected at least one empty-body candidate")
-	}
-	if !hasOld {
-		t.Error("expected at least one stale candidate")
-	}
-}
-
-func TestRunGC_DefaultStaleDays_Boost(t *testing.T) {
-	dir := t.TempDir()
-	// When staleDays <= 0, should default to 90
-	report, err := runGCInDirBoost(dir, 0)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if report.TotalMemories != 0 {
-		t.Errorf("expected 0, got %d", report.TotalMemories)
-	}
-}
-
-// runGCInDirBoost replicates RunGC logic on a specific directory for testing
-func runGCInDirBoost(dir string, staleDays int) (*GCReport, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &GCReport{}, nil
-		}
-		return nil, err
-	}
-
-	if staleDays <= 0 {
-		staleDays = 90
-	}
-	threshold := time.Duration(staleDays) * 24 * time.Hour
-
-	report := &GCReport{}
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-		name := e.Name()
-		absPath := filepath.Join(dir, name)
-		important := IsImportantMemory(name)
-		report.TotalMemories++
-
-		if important {
-			continue
-		}
-
-		data, readErr := os.ReadFile(absPath)
-		if readErr != nil {
-			continue
-		}
-
-		id := strings.TrimSuffix(name, ".md")
-
-		title, createdAt := parseMemoryMeta(absPath)
-		body := strings.TrimSpace(extractBodyAfterFrontmatter(string(data)))
-		memType := parseConsolidationType(string(data))
-
-		if len(body) < 20 {
-			report.Candidates = append(report.Candidates, GCCandidate{
-				ID: id, Title: title,
-				Reason: fmt.Sprintf("Empty or near-empty body (%d chars)", len(body)),
-			})
-			continue
-		}
-
-		if createdAt != "" {
-			t, err := time.Parse(time.RFC3339, createdAt)
-			if err == nil {
-				age := time.Since(t)
-				days := int(age.Hours() / 24)
-
-				if age > threshold && memType == "" {
-					report.Candidates = append(report.Candidates, GCCandidate{
-						ID: id, Title: title,
-						Reason: fmt.Sprintf("Unclassified memory, %d days old (threshold: %d days)", days, staleDays),
-						Age:    days,
-					})
-					continue
-				}
-
-				if age > 2*threshold {
-					report.Candidates = append(report.Candidates, GCCandidate{
-						ID: id, Title: title,
-						Reason: fmt.Sprintf("Very old memory, %d days old (2× threshold: %d days)", days, 2*staleDays),
-						Age:    days,
-					})
-				}
-			}
-		}
-	}
-	return report, nil
-}
-
-// ===========================================================================
-// memory.go — ValidMemoryType
-// ===========================================================================
 
 func TestValidMemoryType_AllTypes(t *testing.T) {
 	validTypes := []string{"convention", "correction", "decision", "tension", "fact", "skill"}
@@ -728,11 +355,7 @@ func TestValidMemoryType_AllTypes(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// memory.go — HubBranch
-// ===========================================================================
-
-func TestMemoryService_HubBranch(t *testing.T) {
+func TestMemoryService_ScopePrefix(t *testing.T) {
 	tests := []struct {
 		scope   MemoryScope
 		scopeID string
@@ -745,18 +368,16 @@ func TestMemoryService_HubBranch(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(string(tc.scope)+"/"+tc.scopeID, func(t *testing.T) {
 			svc := &MemoryService{scope: tc.scope, scopeID: tc.scopeID}
-			got := svc.HubBranch()
+			got := svc.ScopePrefix()
 			if got != tc.want {
-				t.Errorf("HubBranch() = %q; want %q", got, tc.want)
+				t.Errorf("ScopePrefix() = %q; want %q", got, tc.want)
 			}
 		})
 	}
 }
 
-// ===========================================================================
 // memory.go — AddMemory / UpdateMemory / RemoveMemory / changeRelevance
-//   (nil gitStore error paths)
-// ===========================================================================
+// (nil gitStore error paths)
 
 func TestMemoryService_AddMemory_NilStore(t *testing.T) {
 	svc := &MemoryService{scope: MemoryScopeProject, scopeID: "test"}
@@ -806,10 +427,6 @@ func TestMemoryService_DemoteMemory_NilStore(t *testing.T) {
 		t.Error("expected error with nil gitStore")
 	}
 }
-
-// ===========================================================================
-// memory.go — ListMemories (filesystem-based)
-// ===========================================================================
 
 func TestMemoryService_ListMemories_WithDir(t *testing.T) {
 	dir := t.TempDir()
@@ -904,10 +521,6 @@ func TestMemoryService_ListMemories_EmptyDir(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// memory.go — buildMemoryFile
-// ===========================================================================
-
 func TestBuildMemoryFile_Boost(t *testing.T) {
 	content := buildMemoryFile(
 		"TEST-ID", "Test Title", "Test body content",
@@ -988,10 +601,6 @@ func TestBuildMemoryFile_BodyWithTrailingNewline(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// memory.go — parseMemoryMeta
-// ===========================================================================
-
 func TestParseMemoryMeta_WithTitle(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.md")
@@ -1068,20 +677,12 @@ created_at: 2026-05-01T00:00:00Z
 	}
 }
 
-// ===========================================================================
-// memory.go — MemoryService.Close
-// ===========================================================================
-
 func TestMemoryService_Close_Boost(t *testing.T) {
 	svc := &MemoryService{}
 	if err := svc.Close(); err != nil {
 		t.Errorf("Close: %v", err)
 	}
 }
-
-// ===========================================================================
-// wiki.go — safeMemFilename
-// ===========================================================================
 
 func TestSafeMemFilename_Boost(t *testing.T) {
 	tests := []struct {
@@ -1110,10 +711,6 @@ func TestSafeMemFilename_Boost(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// wiki.go — uniqueMemSlug
-// ===========================================================================
-
 func TestUniqueMemSlug_Boost(t *testing.T) {
 	used := make(map[string]bool)
 
@@ -1139,10 +736,6 @@ func TestUniqueMemSlug_Boost(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// wiki.go — firstLine
-// ===========================================================================
-
 func TestFirstLine_Boost(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -1167,10 +760,6 @@ func TestFirstLine_Boost(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// wiki.go — parseMemoryType
-// ===========================================================================
-
 func TestParseMemoryType_Boost(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1190,10 +779,6 @@ func TestParseMemoryType_Boost(t *testing.T) {
 		})
 	}
 }
-
-// ===========================================================================
-// wiki.go — memoryEntityPage full rendering
-// ===========================================================================
 
 func TestMemoryEntityPage_FullRendering(t *testing.T) {
 	// Recent date (no stale warning)
@@ -1251,16 +836,11 @@ func TestMemoryEntityPage_NoType(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// wiki.go — GenerateMemoryWiki full test
-// ===========================================================================
-
 func TestGenerateMemoryWiki_FullCycle(t *testing.T) {
 	rawDir := t.TempDir()
 	wikiDir := t.TempDir()
 	ctx := context.Background()
 
-	// Create various memory files
 	writeMemFile(t, rawDir, "MEM1.md", `---
 title: Convention One
 type: convention
@@ -1386,10 +966,6 @@ Body.`)
 	}
 }
 
-// ===========================================================================
-// wiki.go — appendMemLog
-// ===========================================================================
-
 func TestAppendMemLog_NewFile_Boost(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "log.md")
@@ -1412,10 +988,6 @@ func TestAppendMemLog_NewFile_Boost(t *testing.T) {
 		t.Error("should contain articles count")
 	}
 }
-
-// ===========================================================================
-// cycle.go — RunCycle
-// ===========================================================================
 
 func TestRunCycle_WithRawDir(t *testing.T) {
 	rawDir := t.TempDir()
@@ -1459,10 +1031,6 @@ func TestRunCycle_NonExistentRawDir_Boost(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// cycle.go — memoryBranch
-// ===========================================================================
-
 func TestMemoryBranch_Boost(t *testing.T) {
 	tests := []struct {
 		scope   string
@@ -1483,10 +1051,6 @@ func TestMemoryBranch_Boost(t *testing.T) {
 		})
 	}
 }
-
-// ===========================================================================
-// appsvc.go — ParseTags
-// ===========================================================================
 
 func TestParseTags_Boost(t *testing.T) {
 	tests := []struct {
@@ -1522,10 +1086,6 @@ func TestParseTags_Boost(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// appsvc.go — MemoryAppService
-// ===========================================================================
-
 func TestNewMemoryAppService_Boost(t *testing.T) {
 	svc := NewMemoryAppService("/test/project")
 	if svc == nil {
@@ -1551,16 +1111,12 @@ func TestMemoryAppService_InsertValidated_InvalidType(t *testing.T) {
 	}
 }
 
-
-// ===========================================================================
 // memory_git_store.go — copyDirRecursive with files
-// ===========================================================================
 
 func TestCopyDirRecursive_WithFiles(t *testing.T) {
 	src := t.TempDir()
 	dst := t.TempDir()
 
-	// Create file structure
 	writeMemFile(t, src, "file1.txt", "content1")
 	if err := os.Mkdir(filepath.Join(src, "subdir"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1616,10 +1172,6 @@ func TestCopyFileData_NonExistentDestDir(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// memory.go — MemoryScope and MemoryType constants
-// ===========================================================================
-
 func TestMemoryScopeConstants_Boost(t *testing.T) {
 	if MemoryScopeProject != "project" {
 		t.Errorf("MemoryScopeProject = %q", MemoryScopeProject)
@@ -1647,10 +1199,6 @@ func TestMemoryTypeConstants_Boost(t *testing.T) {
 		}
 	}
 }
-
-// ===========================================================================
-// wiki.go — memoryIndexPage comprehensive test
-// ===========================================================================
 
 func TestMemoryIndexPage_AllTypesSections(t *testing.T) {
 	docs := []memDoc{
@@ -1696,9 +1244,7 @@ func TestMemoryIndexPage_Empty(t *testing.T) {
 	}
 }
 
-// ===========================================================================
 // paths.go — EnsureScopeDirs error paths
-// ===========================================================================
 
 func TestEnsureScopeDirs_WithValidProjectDir(t *testing.T) {
 	dir := t.TempDir()
@@ -1707,25 +1253,21 @@ func TestEnsureScopeDirs_WithValidProjectDir(t *testing.T) {
 		t.Fatalf("EnsureScopeDirs: %v", err)
 	}
 
-	// Verify the parent directory structure was created
-	linkPath := filepath.Join(dir, ProjectLinkDir("project"))
-	parentDir := filepath.Dir(linkPath)
-	if _, err := os.Stat(parentDir); err != nil {
-		t.Errorf("parent dir should exist: %v", err)
+	// A project without a lockfile has no project scope, so there is nothing to
+	// create and nothing to fail — the wiki lives under the global dir keyed by the
+	// project id, not under the project.
+	if got := WikiDirFor(dir, "project"); got != "" {
+		t.Errorf("expected no project scope without a lockfile, got %q", got)
 	}
 }
-
-// ===========================================================================
-// memory_branch_lock.go — saveMemLock error path
-// ===========================================================================
 
 func TestSaveMemLock_Success(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	lf := &memoryBranchLockFile{
-		Version:  1,
-		Branches: map[string]*memoryBranchMeta{"test": {Refs: []string{"ref1"}, LastUsed: "now"}},
+	lf := &scopeLockFile{
+		Version: 1,
+		Scopes:  map[string]*scopeMeta{"test": {Refs: []string{"ref1"}, LastUsed: "now"}},
 	}
 	err := saveMemLock(lf)
 	if err != nil {
@@ -1733,7 +1275,7 @@ func TestSaveMemLock_Success(t *testing.T) {
 	}
 
 	// Verify file was written
-	data, err := os.ReadFile(memoryBranchLockPath())
+	data, err := os.ReadFile(scopeLockPath())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1742,19 +1284,11 @@ func TestSaveMemLock_Success(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// important.go — ImportantMemorySuffix constant
-// ===========================================================================
-
 func TestImportantMemorySuffix_Boost(t *testing.T) {
 	if ImportantMemorySuffix != "_important_" {
 		t.Errorf("ImportantMemorySuffix = %q; want '_important_'", ImportantMemorySuffix)
 	}
 }
-
-// ===========================================================================
-// memory.go — syncToLocalInternal nil store
-// ===========================================================================
 
 func TestMemoryService_SyncToLocalFast_NilStore(t *testing.T) {
 	svc := &MemoryService{}
@@ -1766,10 +1300,6 @@ func TestMemoryService_SyncToLocalFast_NilStore(t *testing.T) {
 		t.Errorf("error = %v", err)
 	}
 }
-
-// ===========================================================================
-// wiki.go — GenerateMemoryWiki with unreadable file
-// ===========================================================================
 
 func TestGenerateMemoryWiki_UnreadableFile(t *testing.T) {
 	rawDir := t.TempDir()
@@ -1785,7 +1315,6 @@ type: fact
 
 Body.`)
 
-	// Create unreadable file
 	unreadable := filepath.Join(rawDir, "MEM2.md")
 	if err := os.WriteFile(unreadable, []byte("content"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1803,9 +1332,7 @@ Body.`)
 	}
 }
 
-// ===========================================================================
 // consolidate.go — RunConsolidation with memories that have no created_at
-// ===========================================================================
 
 func TestDetectStaleMemories_EmptyCreatedAt(t *testing.T) {
 	memories := []memorySnapshot{
@@ -1828,24 +1355,17 @@ func TestDetectStaleMemories_RecentDate(t *testing.T) {
 	}
 }
 
-
-// ===========================================================================
 // memory.go — MemoryService creation edge cases
-// ===========================================================================
 
 func TestNewMemorySvcInternal_NilStore(t *testing.T) {
-	svc := newMemorySvcInternal(MemoryScopeProject, "id", "/local", "/link", nil)
+	svc := newMemorySvcInternal(MemoryScopeProject, "id", "/local", nil)
 	if svc == nil {
 		t.Fatal("expected non-nil svc")
 	}
-	if svc.gitStore != nil {
+	if svc.store != nil {
 		t.Error("gitStore should be nil")
 	}
 }
-
-// ===========================================================================
-// appsvc.go — MemoryInsertOpts type
-// ===========================================================================
 
 func TestMemoryInsertOpts_Fields(t *testing.T) {
 	opts := MemoryInsertOpts{
@@ -1866,11 +1386,6 @@ func TestMemoryInsertOpts_Fields(t *testing.T) {
 		t.Error("unexpected field values")
 	}
 }
-
-
-// ===========================================================================
-// memory.go — MemoryOpts
-// ===========================================================================
 
 func TestMemoryOpts_Fields(t *testing.T) {
 	opts := MemoryOpts{

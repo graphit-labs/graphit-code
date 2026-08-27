@@ -9,10 +9,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// ModelManager tests
-// ---------------------------------------------------------------------------
-
 func TestModelManager_IsValid(t *testing.T) {
 	t.Parallel()
 	mm := &ModelManager{cacheDir: t.TempDir()}
@@ -177,10 +173,6 @@ func TestNewModelManager_Coverage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// LocalEmbeddingClient edge cases
-// ---------------------------------------------------------------------------
-
 func TestLocalEmbeddingClient_Close_NilSession(t *testing.T) {
 	t.Parallel()
 	c := &localEmbeddingClient{}
@@ -197,10 +189,6 @@ func TestLocalEmbeddingClient_ModelName_Coverage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// InitONNXRuntime
-// ---------------------------------------------------------------------------
-
 func TestInitONNXRuntime_NoLibrary(t *testing.T) {
 	t.Parallel()
 	// In test env without ORT library, this should fail gracefully
@@ -210,12 +198,12 @@ func TestInitONNXRuntime_NoLibrary(t *testing.T) {
 	_ = err
 }
 
-// ---------------------------------------------------------------------------
-// NewEmbeddingClientFromConfig fallback
-// ---------------------------------------------------------------------------
-
 func TestNewEmbeddingClientFromConfig_NoProxy(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// The no-proxy branch is the subject; the seeded cache keeps EnsureModel off
+	// the network on the way to it.
+	seedModelCache(t, home)
 
 	client, err := NewEmbeddingClientFromConfig()
 	// Without a proxy or ONNX, this may return either a lazy client or an error

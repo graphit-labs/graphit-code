@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -13,10 +14,11 @@ import (
 
 // Coverage for truncated queries.
 //
-// The index reaches them two ways: FTS5's prefix index (prefix='2 3 4' plus a `token*`
-// pass) and the trigram bag. They cover different things — the prefix pass needs the query
-// to be a prefix of a real token, the bag needs three characters — and this measures the
-// union, so a regression in either shows up here.
+// ONE MECHANISM NOW, NOT TWO. The SQLite index reached these two ways: FTS5's prefix index
+// (prefix='2 3 4' plus a `token*` pass) and the trigram bag. LanceDB's BM25 has no prefix pass, so
+// the gram bag carries all of it — which is why the bag was kept as the one thing Go pre-computes
+// that the engine could have, and why the tuning sweep measured it against the engine's own n-gram
+// tokenizer before choosing.
 
 // prefixCorpus merges the two corpora already in use so the probes cover both
 // spelled-out and abbreviated naming, and adds Oracle-style names where truncation
@@ -43,7 +45,6 @@ func TestTruncatedQueryCoverage(t *testing.T) {
 		// "valid" is deliberately absent: it is a prefix of both "validate" and
 		// "validacao", so whichever of validateSchema and PKG_VALIDACAO_PAGAMENTO wins is
 		// tie-breaking, not coverage. A probe with no defensible answer measures nothing.
-		{"valida", "PKG_VALIDACAO_PAGAMENTO"},
 		{"compu", "computeChecksum"},
 		{"checks", "computeChecksum"},
 		{"retr", "retryPolicy"},
@@ -61,12 +62,27 @@ func TestTruncatedQueryCoverage(t *testing.T) {
 		// connectDatabase and closeDatabase equally.
 	}
 
+	// recallOnly holds probes with MORE THAN ONE defensible answer, where the requirement is that
+	// the expected entity is reachable rather than that it wins.
+	//
+	// "valida" moved here when the prefix pass went away, and the move is the test's own rule
+	// applied rather than a floor lowered. Under FTS5 a prefix query disambiguated it to the
+	// Portuguese PKG_VALIDACAO_PAGAMENTO; under BM25 over a gram bag it overlaps SchemaValidator
+	// just as well, and "valida" -> "Validator" is not a wrong answer for anyone. The exclusions
+	// above ("valid", "db") were made for exactly this reason, before the engine changed.
+	recallOnly := []struct {
+		query   string
+		wantAny string
+	}{
+		{"valida", "PKG_VALIDACAO_PAGAMENTO"},
+	}
+
 	t.Logf("%-10s | %-30s | %s", "query", "expected top-1", "got")
 	t.Logf("%s", strings.Repeat("-", 76))
 
 	var hits, empty int
 	for _, cs := range cases {
-		res, err := si.Search(cs.query, 5)
+		res, err := si.Search(context.Background(), cs.query, 5)
 		if err != nil {
 			t.Errorf("search %q: %v", cs.query, err)
 			continue
@@ -93,8 +109,29 @@ func TestTruncatedQueryCoverage(t *testing.T) {
 	t.Logf("%s", strings.Repeat("-", 76))
 	t.Logf("expected top-1: %d/%d, empty: %d", hits, len(cases), empty)
 
-	// Every remaining probe has one defensible answer, so the floor is all of them.
-	const floor = 9
+	// The recall probes: reachable in the top 5, not necessarily first.
+	for _, cs := range recallOnly {
+		res, err := si.Search(context.Background(), cs.query, 5)
+		if err != nil {
+			t.Errorf("search %q: %v", cs.query, err)
+			continue
+		}
+		names := entityNames(res, 5)
+		found := false
+		for _, n := range names {
+			if n == cs.wantAny {
+				found = true
+			}
+		}
+		t.Logf("%-10s | %-30s | recall: %v (%v)", cs.query, cs.wantAny, found, names)
+		if !found {
+			t.Errorf("the truncated query %q does not reach %q at all, in any position: %v",
+				cs.query, cs.wantAny, names)
+		}
+	}
+
+	// Every remaining strict probe has one defensible answer, so the floor is all of them.
+	const floor = 8
 	if hits < floor {
 		t.Errorf("truncated queries reached the expected entity %d/%d times, below the measured %d — "+
 			"the trigram bag or the prefix pass has regressed", hits, len(cases), floor)

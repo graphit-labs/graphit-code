@@ -1,45 +1,47 @@
 # Task: Native Grammar Compilation
 
-## Objetivo
-Compilar todas as 37 grammars tree-sitter e 5 ANTLR grammars diretamente no binário core, eliminando:
-- Compilação C separada de shared libraries (.so/.dylib/.dll)
-- Bundle + gzip + embed no launcher
-- Extração em runtime (extractRuntime)
-- dlopen/dlsym (DynGrammarLoader)
-- Subprocessos sidecar (SidecarDriver)
+Objective:
+Compile all 37 Tree-Sitter grammars and 5 ANTLR grammars directly into the core binary, eliminating:
 
-## Mudanças
+- Separate compilation of C code with shared libraries (.so/.dylib/.dll)
+- Bundle + gzip + embed in the launcher
+- Runtime extraction (extractRuntime)
+- dlopen/dlsym (DynGrammarLoader) 
+- Sidecar processes (SidecarDriver)
 
-### Novos arquivos
-- `internal/ast/treesitter_native.go` — registro de 39 grammars nativos com mapa `string → GetLanguage()`
-- `internal/ast/treesitter/json/binding.go` — binding local para tree-sitter-json
-- `internal/ast/treesitter/xml/binding.go` — binding local para tree-sitter-xml
-- `internal/ast/treesitter/zig/binding.go` — binding local para tree-sitter-zig
-- `internal/ast/treesitter/haskell/binding.go` — binding local para tree-sitter-haskell
-- `internal/ast/treesitter/julia/binding.go` — binding local para tree-sitter-julia
+Changes
 
-### Arquivos modificados
-- `internal/ast/treesitter_adapter.go` — `parseWithConfig()` agora chama `NativeLanguage()` primeiro, fallback para `DynGrammarLoader` (Hub custom grammars)
-- `internal/ast/antlr_adapter.go` — substituiu SidecarDriver por drivers in-process (`plsql.Driver{}`, etc.)
-- `Makefile` — removido grammar compilation/bundling dos build targets
-- `go.mod` — adicionadas deps: tree-sitter-json, tree-sitter-xml, tree-sitter-zig, tree-sitter-haskell, tree-sitter-julia
+### New Files
+- `internal/ast/treesitter_native.go` — record of 39 native grammars with map `string → GetLanguage()`
+- `internal/ast/treesitter/json/binding.go` — binding for tree-sitter-json
+- `internal/ast/treesitter/xml/binding.go` — binding for tree-sitter-xml
+- `internal/ast/treesitter/zig/binding.go` — binding for tree-sitter-zig
+- `internal/ast/treesitter/haskell/binding.go` — binding for tree-sitter-haskell
+- `internal/ast/treesitter/julia/binding.go` — binding for tree-sitter-julia
 
-## Resultados de benchmark
+Modified files:
+- `internal/ast/treesitter_adapter.go` — `parseWithConfig()` now calls `NativeLanguage()` first, falling back to `DynGrammarLoader` (custom grammars hub)
+- `internal/ast/antlr_adapter.go` — replaced SidecarDriver with in-process drivers (`plsql.Driver{}`, etc.)
+- `Makefile` — removed grammar compilation/bundling from build targets
+- `go.mod` — added deps: tree-sitter-json, tree-sitter-xml, tree-sitter-zig, tree-sitter-haskell, tree-sitter-julia
 
-### Tree-sitter: LangLookup Native vs Dynamic (cached)
+Results of benchmark
+
+Tree-sitter: LangLookup Native vs Dynamic (cached) - 
 - **Native**: ~50ns/op (CGO call)
 - **Dynamic**: ~14ns/op (sync.Map cache hit)
-- Diferença irrelevante no parse total (~800μs)
+- Irrelevant difference in the parse total (~800μs)
 
-### Tree-sitter: Full Parse (com pool, via nativo)
-- Go (~200 LOC): ~855μs, 5.34 MB/s
-- Python (~200 LOC): ~995μs, 5.53 MB/s
-- JavaScript (~200 LOC): ~872μs, 5.03 MB/s
+### Tree-sitter: Full Parse (with pool, via native)
+- Go (~200 LOC): ~855 microseconds, 5.34 megabytes per second
+- Python (~200 LOC): ~995 microseconds, 5.53 megabytes per second
+- JavaScript (~200 LOC): ~872 microseconds, 5.03 megabytes per second
 
-### ANTLR: In-process (sem sidecar)
-- PL/SQL (~100 LOC): ~1.05ms, 2.49 MB/s
-- PostgreSQL (~80 LOC): ~829μs, 2.82 MB/s
+ANTLR: In-process (without sidecar)
+- PL/SQL (~100 LOC): ~1.05 milliseconds, 2.49 megabytes per second
+- PostgreSQL (~80 LOC): ~829 microseconds, 2.82 megabytes per second
 
-### Launcher size
-- Core binary: 239MB (todas as grammars compiladas)
-- Launcher: **3.2MB** (sem grammars embarcados)
+Launcher Size
+
+- Core Binary: 239MB (all grammars compiled)
+- Launcher: **3.2MB** (no embedded grammars)

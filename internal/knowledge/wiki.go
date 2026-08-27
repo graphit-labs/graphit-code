@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -27,7 +29,144 @@ type WikiResult struct {
 	LintFindings    int
 }
 
-func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedExts map[string]bool) (*WikiResult, error) {
+const maxKnowledgeDocBytes = 1024 * 1024
+
+// knowledgeSourceFile reports whether a file found under absRoot is a document
+// the wiki indexes, returning its cache key and extension.
+func knowledgeSourceFile(absRoot, path string, info os.FileInfo, exts map[string]bool, ic *ignorer.IgnoreChecker) (relPath, ext string, ok bool) {
+	ext = strings.ToLower(filepath.Ext(path))
+	if !exts[ext] {
+		return "", "", false
+	}
+	relPath, err := filepath.Rel(absRoot, path)
+	if err != nil || ic.IsIgnored(relPath, false) {
+		return "", "", false
+	}
+	if info.Size() > maxKnowledgeDocBytes {
+		return "", "", false
+	}
+	return relPath, ext, true
+}
+
+// knowledgeSource is a document the wiki indexes, as found on disk.
+type knowledgeSource struct {
+	relPath string
+	ext     string
+	mtime   int64
+	size    int64
+}
+
+// WikiScope narrows a build to part of the tree under the root without changing
+// what the root is.
+//
+// The distinction matters because every path the wiki reports — the `source:`
+// field on a page, the manifest, the process-cache key — is relative to the
+// root. Handing the docs directory in as the root instead would report a spec as
+// `specs/config_module.md`, a path that resolves from nowhere the reader is
+// standing, and would resolve `.gitignore`/`.wikiignore` from inside the docs
+// tree, where a root-level pattern lands in a domain one level above itself and
+// silently matches nothing.
+//
+// A zero WikiScope walks the whole root, which is what an imported context wants:
+// its docs tree already *is* the root.
+type WikiScope struct {
+	// Subdir is the only directory walked, relative to the root. Empty or "."
+	// walks everything. A Subdir that does not exist is not an error — it yields
+	// no sources, and ExtraFiles are still indexed.
+	Subdir string
+
+	// ExtraFiles are single documents outside Subdir that are indexed anyway, as
+	// paths relative to the root. Missing ones are skipped. This is how the
+	// project's README stays in the wiki once the walk is scoped to docs/.
+	ExtraFiles []string
+}
+
+// walkRoot returns the directory the walk starts from.
+func (s WikiScope) walkRoot(absRoot string) string {
+	sub := strings.TrimSpace(s.Subdir)
+	if sub == "" || sub == "." {
+		return absRoot
+	}
+	return filepath.Join(absRoot, filepath.FromSlash(sub))
+}
+
+// walkRoots returns every directory the walk starts from.
+//
+// There is one. The whitelist that used to make this a set existed for a single
+// caller — the live search compiling several selected documentation sets into one
+// wiki — and that compile is gone: a context now arrives already compiled and is
+// searched where it lives. The plural shape is kept because the walk consumes a
+// slice, not because a scope can name more than one tree.
+func (s WikiScope) walkRoots(absRoot string) []string {
+	return []string{s.walkRoot(absRoot)}
+}
+
+// enumerateKnowledgeSources walks the scope once. Both the added-document check
+// in StatPreCheck and the generation pass read from this single result — walking
+// twice per index is what this exists to avoid.
+func enumerateKnowledgeSources(absRoot string, scope WikiScope, exts map[string]bool, ic *ignorer.IgnoreChecker) ([]knowledgeSource, error) {
+	var sources []knowledgeSource
+	seen := make(map[string]bool)
+
+	add := func(path string, info os.FileInfo) {
+		relPath, ext, ok := knowledgeSourceFile(absRoot, path, info, exts, ic)
+		if !ok || seen[relPath] {
+			return
+		}
+		seen[relPath] = true
+		sources = append(sources, knowledgeSource{
+			relPath: relPath,
+			ext:     ext,
+			mtime:   info.ModTime().UnixNano(),
+			size:    info.Size(),
+		})
+	}
+
+	for _, walkFrom := range scope.walkRoots(absRoot) {
+		err := filepath.Walk(walkFrom, func(path string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return nil
+			}
+			if info.IsDir() {
+				relDir, _ := filepath.Rel(absRoot, path)
+				if relDir != "." && ic.IsIgnored(relDir, true) && !ic.ShouldDescend(relDir) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			add(path, info)
+			return nil
+		})
+		if err != nil {
+			return sources, err
+		}
+	}
+
+	// After the walk, so a document the walk already found keeps the mtime the
+	// walk read rather than being stat'ed a second time.
+	for _, extra := range scope.ExtraFiles {
+		abs := filepath.Join(absRoot, filepath.FromSlash(extra))
+		info, statErr := os.Stat(abs)
+		if statErr != nil || info.IsDir() {
+			continue
+		}
+		add(abs, info)
+	}
+
+	return sources, nil
+}
+
+func knowledgeSourceRelPaths(sources []knowledgeSource) []string {
+	names := make([]string, len(sources))
+	for i, s := range sources {
+		names[i] = s.relPath
+	}
+	return names
+}
+
+// GenerateKnowledgeWiki compiles the documents under rootPath into the wiki at
+// wikiDir. scope narrows which of them are read; see WikiScope.
+func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowedExts map[string]bool, scope WikiScope) (*WikiResult, error) {
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating wiki dir: %w", err)
 	}
@@ -37,7 +176,11 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		return nil, fmt.Errorf("resolving root path: %w", err)
 	}
 
-	ic := NewKnowledgeIgnoreChecker(absRoot)
+	// Patterns resolve against the project, but they are collected from the docs
+	// tree upward, so a .wikiignore kept inside the docs tree is read as well as
+	// the one at the root.
+	walkRoot := scope.walkRoot(absRoot)
+	ic := NewKnowledgeIgnoreCheckerIn(absRoot, walkRoot)
 
 	exts := allowedExts
 	if len(exts) == 0 {
@@ -47,10 +190,24 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	// Load process cache (JSON shards) for incremental rebuilds.
 	processCache, _ := wiki.NewWikiProcessCache(wikiDir)
 
-	// --- STAT PRE-CHECK (shared AST pattern via wiki.StatPreCheck) ---
-	// If all cached source files are stat-unchanged and wiki.db exists,
-	// skip the Walk and full rebuild entirely.
-	if wiki.StatPreCheck(absRoot, wikiDir, processCache, KnowledgeIgnoreFile) {
+	candidates, err := enumerateKnowledgeSources(absRoot, scope, exts, ic)
+	if err != nil {
+		return nil, fmt.Errorf("walking docs: %w", err)
+	}
+
+	// STAT PRE-CHECK (shared AST pattern via wiki.StatPreCheck)
+	// If all cached source files are stat-unchanged, no document was added and
+	// wiki.db exists, skip the full rebuild entirely.
+	// Both ignore files are watched: editing either changes what is in scope, and
+	// a stat-unchanged tree would otherwise skip the rebuild that has to notice.
+	watchFiles := []string{KnowledgeIgnoreFile}
+	if rel, relErr := filepath.Rel(absRoot, walkRoot); relErr == nil && rel != "." {
+		watchFiles = append(watchFiles, filepath.Join(rel, KnowledgeIgnoreFile))
+	}
+	if wiki.StatPreCheck(absRoot, wikiDir, processCache, wiki.StatPreCheckOpts{
+		WatchFiles:         watchFiles,
+		CurrentSourceFiles: func() []string { return knowledgeSourceRelPaths(candidates) },
+	}) {
 		return &WikiResult{OutputDir: wikiDir}, nil
 	}
 
@@ -65,91 +222,47 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		mtime       int64
 		size        int64
 	}
-	var sources []sourceFile
+	sources := make([]sourceFile, 0, len(candidates))
 
-	// Track mtime/size for fast-path on next run.
-	var docsFileCount int
-	var maxDocsFileTime int64
-
-	err = filepath.Walk(absRoot, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return nil
-		}
-		if info.IsDir() {
-			relDir, _ := filepath.Rel(absRoot, path)
-			if relDir != "." && ic.IsIgnored(relDir, true) && !ic.ShouldDescend(relDir) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(path))
-		if !exts[ext] {
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(absRoot, path)
-		if ic.IsIgnored(relPath, false) {
-			return nil
-		}
-
-		if info.Size() > 1024*1024 {
-			return nil
-		}
-
-		mtime := info.ModTime().UnixNano()
-		size := info.Size()
-		docsFileCount++
-		if mtime > maxDocsFileTime {
-			maxDocsFileTime = mtime
-		}
-
-		var data []byte
-		var contentHash string
-
+	for _, c := range candidates {
 		// Stat-cache fast-path: if mtime+size match the processCache, the
 		// content hasn't changed. Skip ReadFile and use the cached hash.
 		// This is the same technique as git's index stat caching.
 		if processCache != nil {
-			if cachedHash, ok := processCache.StatMatch(relPath, mtime, size); ok {
-				contentHash = cachedHash
-				validPaths[relPath] = true
+			if cachedHash, ok := processCache.StatMatch(c.relPath, c.mtime, c.size); ok {
+				validPaths[c.relPath] = true
 				sources = append(sources, sourceFile{
-					relPath:     relPath,
-					contentHash: contentHash,
-					ext:         ext,
-					mtime:       mtime,
-					size:        size,
+					relPath:     c.relPath,
+					contentHash: cachedHash,
+					ext:         c.ext,
+					mtime:       c.mtime,
+					size:        c.size,
 				})
-				return nil
+				continue
 			}
 		}
 
 		// Stat didn't match (or no cache): read the file and hash it.
-		data, readErr := os.ReadFile(path)
+		data, readErr := os.ReadFile(filepath.Join(absRoot, c.relPath))
 		if readErr != nil {
-			return nil
+			continue
 		}
 
-		contentHash = fmt.Sprintf("%x", sha256.Sum256(data))[:16]
-		validPaths[relPath] = true
+		contentHash := fmt.Sprintf("%x", sha256.Sum256(data))[:16]
+		validPaths[c.relPath] = true
 		sources = append(sources, sourceFile{
-			relPath:     relPath,
+			relPath:     c.relPath,
 			data:        data,
 			contentHash: contentHash,
-			ext:         ext,
-			mtime:       mtime,
-			size:        size,
+			ext:         c.ext,
+			mtime:       c.mtime,
+			size:        c.size,
 		})
 		// If hash matches cache, record the new mtime so next sync can skip
 		// ReadFile entirely via StatMatch (same as AST's StoreMtime pattern).
-		if processCache != nil && !processCache.HasChanged(relPath, contentHash) {
-			processCache.StoreMtime(relPath, mtime, size)
+		if processCache != nil && !processCache.HasChanged(c.relPath, contentHash) {
+			processCache.StoreMtime(c.relPath, c.mtime, c.size)
 		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("walking docs: %w", err)
 	}
 
 	// Before pruning: identify deleted keys that had outgoing cross-refs.
@@ -164,127 +277,97 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		processCache.Prune(validPaths)
 	}
 
-	// Process sources: use cache for unchanged files, re-parse changed ones.
+	// Process sources: one wiki document per source file, cached when unchanged.
 	// Track changed keys and their cross-refs for incremental graph detection.
 	// oldOutRefs is captured BEFORE WikiProcessCache.Store resets the entry.
+	//
+	// THE DOCUMENT IS THE UNIT. A source file is never split into per-heading
+	// pieces. Splitting produced one page per heading, and a heading whose whole
+	// content was subsections produced an EMPTY page — measured at 11,4% of the
+	// index — which still carried a title into the ranking and outranked the
+	// prose it was supposed to introduce. It also made a document's own page the
+	// empty one whenever the document opened with a single H1.
 	var changedKeys []string
 	oldOutRefs := make(map[string][]string)
 	newOutRefs := make(map[string][]string)
 	var docs []knowledgeDoc
 	for _, src := range sources {
-		isMarkdown := src.ext == ".md" || src.ext == ".markdown" || src.ext == ".mdx"
-		content := string(src.data)
+		updatedAt := time.Unix(0, src.mtime).UTC().Format("2006-01-02")
 
 		// Try cache first.
 		if processCache != nil && !processCache.HasChanged(src.relPath, src.contentHash) {
-			cached := processCache.Get(src.relPath, src.contentHash)
-			if cached != nil {
-				for _, cc := range cached {
-					docs = append(docs, knowledgeDoc{
-						title:       cc.Title,
-						path:        src.relPath,
-						summary:     cc.Summary,
-						docType:     cc.DocType,
-						body:        cc.Body,
-						breadcrumb:  cc.Breadcrumb,
-						parentTitle: cc.ParentTitle,
-						contentHash: cc.ContentHash,
-						crossRefs:   cc.CrossRefs,
-						isMarkdown:  cc.IsMarkdown,
-					})
-				}
+			if cached := processCache.Get(src.relPath, src.contentHash); len(cached) > 0 {
+				cc := cached[0]
+				docs = append(docs, knowledgeDoc{
+					title:       cc.Title,
+					path:        src.relPath,
+					summary:     cc.Summary,
+					docType:     cc.DocType,
+					body:        cc.Body,
+					breadcrumb:  cc.Breadcrumb,
+					contentHash: cc.ContentHash,
+					crossRefs:   cc.CrossRefs,
+					isMarkdown:  cc.IsMarkdown,
+					updatedAt:   updatedAt,
+				})
 				continue
 			}
 		}
 
 		// Cache miss or changed — process from source.
-		title := wiki.ExtractTitle(content, src.relPath)
-		summary := wiki.ExtractSummary(content)
-		docType := classifyDocType(src.relPath, content)
-		crossRefs := wiki.ExtractCrossRefs(content)
-
-		var processedDocs []knowledgeDoc
-		if isMarkdown {
-			chunks, chunkErr := wiki.ChunkMarkdown(content, wiki.ChunkOpts{
-				MaxTokens: 512,
-				MinTokens: 32,
-				DocTitle:  title,
-				DocSlug:   wiki.SafeSlug(title),
-			})
-			if chunkErr != nil || len(chunks) == 0 {
-				processedDocs = append(processedDocs, knowledgeDoc{
-					title: title, path: src.relPath, summary: summary,
-					docType: docType, body: content, contentHash: src.contentHash,
-					crossRefs: crossRefs, isMarkdown: isMarkdown,
-				})
-			} else {
-				for i, chunk := range chunks {
-					chunkDoc := knowledgeDoc{
-						title:       chunk.Title,
-						path:        src.relPath,
-						summary:     chunk.Summary,
-						docType:     docType,
-						body:        chunk.Body,
-						breadcrumb:  chunk.Breadcrumb,
-						contentHash: fmt.Sprintf("%x", sha256.Sum256([]byte(chunk.Body)))[:16],
-						crossRefs:   chunk.CrossRefs,
-						isMarkdown:  true,
-					}
-					if chunk.ParentIdx >= 0 && chunk.ParentIdx < len(chunks) {
-						chunkDoc.parentTitle = chunks[chunk.ParentIdx].Title
-					}
-					if i == 0 && chunk.NodeType == "intro" {
-						chunkDoc.title = title
-					}
-					processedDocs = append(processedDocs, chunkDoc)
-				}
+		//
+		// The stat fast-path above leaves data nil when it trusted mtime+size, so
+		// the content has to be read HERE rather than assumed present: reaching
+		// this point with a stat hit and a cache miss would otherwise index the
+		// document as empty, which reads as "the document says nothing" instead
+		// of as a cache fault.
+		if src.data == nil {
+			data, readErr := os.ReadFile(filepath.Join(absRoot, src.relPath))
+			if readErr != nil {
+				continue
 			}
-		} else {
-			processedDocs = append(processedDocs, knowledgeDoc{
-				title: title, path: src.relPath, summary: summary,
-				docType: docType, body: content, contentHash: src.contentHash,
-				crossRefs: crossRefs, isMarkdown: isMarkdown,
-			})
+			src.data = data
 		}
+		content := string(src.data)
+
+		doc := knowledgeDoc{
+			title:   wiki.ExtractTitle(content, src.relPath),
+			path:    src.relPath,
+			summary: wiki.ExtractSummary(content),
+			docType: classifyDocType(src.relPath, content),
+			body:    content,
+			// The source path, so a query naming a file or a directory reaches the
+			// page: `source` is not one of the indexed FTS columns and breadcrumb
+			// no longer has a heading hierarchy to carry.
+			breadcrumb:  filepath.ToSlash(src.relPath),
+			contentHash: src.contentHash,
+			crossRefs:   wiki.ExtractCrossRefs(content),
+			isMarkdown:  src.ext == ".md" || src.ext == ".markdown" || src.ext == ".mdx",
+			updatedAt:   updatedAt,
+		}
+		docs = append(docs, doc)
 
 		// Store in cache.
 		if processCache != nil {
 			// Save old cross-refs BEFORE Store() resets the manifest entry.
 			oldOutRefs[src.relPath] = processCache.GetOutRefs(src.relPath)
 
-			cachedChunks := make([]wiki.CachedChunk, len(processedDocs))
-			for i, d := range processedDocs {
-				cachedChunks[i] = wiki.CachedChunk{
-					Title:       d.title,
-					Body:        d.body,
-					Summary:     d.summary,
-					DocType:     d.docType,
-					Breadcrumb:  d.breadcrumb,
-					ParentTitle: d.parentTitle,
-					ContentHash: d.contentHash,
-					CrossRefs:   d.crossRefs,
-					IsMarkdown:  d.isMarkdown,
-				}
-			}
-			processCache.Store(src.relPath, src.contentHash, cachedChunks)
+			processCache.Store(src.relPath, src.contentHash, []wiki.CachedChunk{{
+				Title:       doc.title,
+				Body:        doc.body,
+				Summary:     doc.summary,
+				DocType:     doc.docType,
+				Breadcrumb:  doc.breadcrumb,
+				ContentHash: doc.contentHash,
+				CrossRefs:   doc.crossRefs,
+				IsMarkdown:  doc.isMarkdown,
+			}})
 			// Record mtime+size so the next sync can skip ReadFile via StatMatch.
 			processCache.StoreMtime(src.relPath, src.mtime, src.size)
 			// Collect new cross-refs (stored to processCache after CrossRefsUnchanged).
-			var fileRefs []string
-			seen := make(map[string]bool)
-			for _, d := range processedDocs {
-				for _, ref := range d.crossRefs {
-					if !seen[ref] {
-						seen[ref] = true
-						fileRefs = append(fileRefs, ref)
-					}
-				}
-			}
-			newOutRefs[src.relPath] = fileRefs
+			newOutRefs[src.relPath] = doc.crossRefs
 		}
 		changedKeys = append(changedKeys, src.relPath)
-
-		docs = append(docs, processedDocs...)
 	}
 
 	// Save process cache to disk.
@@ -292,11 +375,17 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		_ = processCache.Save()
 	}
 
+	// The path breaks ties, which makes the order TOTAL: sort.Slice is not stable,
+	// so two documents sharing a type and a title would otherwise swap places
+	// between builds, and slug assignment below reads this order.
 	sort.Slice(docs, func(i, j int) bool {
 		if docs[i].docType != docs[j].docType {
 			return docs[i].docType < docs[j].docType
 		}
-		return docs[i].title < docs[j].title
+		if docs[i].title != docs[j].title {
+			return docs[i].title < docs[j].title
+		}
+		return docs[i].path < docs[j].path
 	})
 
 	result := &WikiResult{OutputDir: wikiDir}
@@ -314,16 +403,37 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	}
 
 	// First pass: resolve slugs and map titles (cheap — no I/O).
+	//
+	// A slug must not depend on how many documents happen to precede it. The old
+	// scheme numbered every collision _2, _3, … in iteration order, so adding one
+	// document renumbered the rest and silently repointed the stored [[wikilinks]]
+	// and xrefs of unrelated pages at different content — no error, no log. Here a
+	// title that is unique in the corpus names its own page, and an ambiguous or
+	// unusable one falls back to the source path, which is unique per document and
+	// stable across builds by construction.
+	titleCount := make(map[string]int, len(docs))
+	for _, doc := range docs {
+		titleCount[wiki.SafeSlug(doc.title)]++
+	}
 	docSlugs := make([]string, len(docs))
 	titlesMap := make(map[string]string)
-	tempUsedSlugs := make(map[string]bool)
+	usedSlugs := make(map[string]bool, len(docs))
 	for i, doc := range docs {
-		slug := wiki.UniqueSlug(wiki.SafeSlug(doc.title), tempUsedSlugs)
+		base := wiki.SafeSlug(doc.title)
+		if base == "" || titleCount[base] > 1 {
+			// ToSlash first, explicitly: doc.path comes from filepath.Rel and carries
+			// backslashes on Windows. A slug that depended on the separator would give
+			// the same document a different page name per platform, renaming every
+			// page of a repository checked out on the other one.
+			relSlash := filepath.ToSlash(doc.path)
+			base = wiki.SafeSlug(strings.TrimSuffix(relSlash, path.Ext(relSlash)))
+		}
+		slug := wiki.UniqueSlug(base, usedSlugs)
 		docSlugs[i] = slug
 		titlesMap[doc.title] = slug
-		base := strings.TrimSuffix(filepath.Base(doc.path), filepath.Ext(doc.path))
-		if base != "" && base != doc.title {
-			titlesMap[base] = slug
+		fileBase := strings.TrimSuffix(filepath.Base(doc.path), filepath.Ext(doc.path))
+		if fileBase != "" && fileBase != doc.title {
+			titlesMap[fileBase] = slug
 		}
 	}
 
@@ -338,11 +448,10 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			Slug:        docSlugs[i],
 		}
 	}
-	if wiki.FastPathCheck(wikiDir, fastEntries, processCache) {
-		// Nothing changed — skip ALL expensive phases.
-		// Always persist the current maxDocsFileTime so the mtime pre-scan
-		// can skip the ReadFile Walk entirely on the NEXT run.
-		if maxDocsFileTime > 0 && docsFileCount > 0 {
+	if wiki.FastPathCheck(ctx, wikiDir, fastEntries, processCache) {
+		// Nothing changed — skip ALL expensive phases, but keep the manifest
+		// current so DetectStalePages has a baseline on the NEXT run.
+		if len(candidates) > 0 {
 			m := LoadManifest(wikiDir)
 			m.SourceHashes = make(map[string]string, len(docs))
 			m.PageSources = make(map[string]string, len(docs))
@@ -350,8 +459,6 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 				m.SourceHashes[doc.path] = doc.contentHash
 				m.PageSources[docSlugs[i]] = doc.path
 			}
-			m.DocsModTime = maxDocsFileTime
-			m.DocsFileCount = docsFileCount
 			SaveManifest(wikiDir, m)
 		}
 		return result, nil
@@ -405,14 +512,6 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			Summary: docs[i].summary,
 		}
 
-		// Prepend parent link for child documents
-		if docs[i].parentTitle != "" {
-			parentSlug := titlesMap[docs[i].parentTitle]
-			if parentSlug != "" {
-				docs[i].body = fmt.Sprintf("**Parent:** [[%s]]\n\n%s", parentSlug, docs[i].body)
-			}
-		}
-
 		// Auto-link body content using the titlesMap
 		autoLinkedBody, autoRefs := wiki.AutoLinkContent(docs[i].body, compiledTargets, slug)
 		docs[i].body = autoLinkedBody
@@ -432,30 +531,14 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		// Resolve manual/child wikilinks in the body to their resolved slugs
 		docs[i].body = wiki.ResolveWikiLinksInBody(docs[i].body, titlesMap)
 
-		page := knowledgeEntityPage(docs[i])
-		path := filepath.Join(wikiDir, slug+".md")
-
-		exists := func() bool { _, err := os.Stat(path); return err == nil }()
-
-		if docs[i].contentHash != "" {
-			if existingHash := wiki.ReadFrontmatterField(path, "content_hash"); existingHash == docs[i].contentHash {
-				continue
-			}
-		} else {
-			existingData, readErr := os.ReadFile(path)
-			if readErr == nil && string(existingData) == page {
-				continue
-			}
+		written, existed := writePageIfChanged(filepath.Join(wikiDir, slug+".md"), knowledgeEntityPage(docs[i]))
+		if !written {
+			continue
 		}
-
-		if exists {
+		if existed {
 			updated = append(updated, slug)
 		} else {
 			added = append(added, slug)
-		}
-
-		if err := os.WriteFile(path, []byte(page), 0o644); err != nil {
-			continue
 		}
 		result.ArticlesWritten++
 	}
@@ -477,7 +560,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		return result, nil
 	}
 
-	// --- Phase 1: Cross-ref graph + backlink injection ---
+	// Phase 1: Cross-ref graph + backlink injection
 	// Skip if cross-refs haven't changed: no file gained/lost/changed any
 	// wikilink reference, so backlinks are already correct on disk.
 	crossRefsOK := processCache != nil &&
@@ -492,7 +575,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		}
 		_ = processCache.Save()
 	}
-	indexContent := knowledgeIndexPage(docs, nil)
+	indexContent := knowledgeIndexPage(docs, docSlugs, nil)
 	if err := os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(indexContent), 0o644); err != nil {
 		return result, err
 	}
@@ -511,7 +594,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		}
 	}
 
-	// --- Phase 2: Community detection ---
+	// Phase 2: Community detection
 	var communities []KnowledgeCommunity
 	if crossRefsOK {
 		// Cross-refs identical to last run → graph is the same → reuse cached
@@ -553,18 +636,16 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 				if docs[i].cluster < 0 {
 					continue
 				}
-				page := knowledgeEntityPage(docs[i])
-				path := filepath.Join(wikiDir, slug+".md")
-				_ = os.WriteFile(path, []byte(page), 0o644)
+				writePageIfChanged(filepath.Join(wikiDir, slug+".md"), knowledgeEntityPage(docs[i]))
 			}
 
 			// Re-generate index with clusters
-			indexContent = knowledgeIndexPage(docs, communities)
+			indexContent = knowledgeIndexPage(docs, docSlugs, communities)
 			_ = os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(indexContent), 0o644)
 		}
 	}
 
-	// --- Phase 3: Staleness tracking ---
+	// Phase 3: Staleness tracking
 	oldManifest := LoadManifest(wikiDir)
 	newManifest := &Manifest{
 		SourceHashes: make(map[string]string),
@@ -573,13 +654,6 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	for i, doc := range docs {
 		newManifest.SourceHashes[doc.path] = doc.contentHash
 		newManifest.PageSources[docSlugs[i]] = doc.path
-	}
-
-	// Save mtime fast-path data: store max-mtime of all docs files so the
-	// mtime pre-scan can detect any file modification, not just creates/deletes.
-	if docsFileCount > 0 {
-		newManifest.DocsModTime = maxDocsFileTime
-		newManifest.DocsFileCount = docsFileCount
 	}
 
 	stalePages := DetectStalePages(oldManifest, newManifest, graph)
@@ -591,18 +665,16 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			if info, ok := stalePages[slug]; ok {
 				docs[i].staleSince = info.Since
 				docs[i].staleReason = info.Reason
-				page := knowledgeEntityPage(docs[i])
-				path := filepath.Join(wikiDir, slug+".md")
-				_ = os.WriteFile(path, []byte(page), 0o644)
+				writePageIfChanged(filepath.Join(wikiDir, slug+".md"), knowledgeEntityPage(docs[i]))
 			}
 		}
 		// Re-generate index with stale info
-		indexContent = knowledgeIndexPage(docs, communities)
+		indexContent = knowledgeIndexPage(docs, docSlugs, communities)
 		_ = os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(indexContent), 0o644)
 	}
 	SaveManifest(wikiDir, newManifest)
 
-	// --- Phase 4: Lint ---
+	// Phase 4: Lint
 	var sourcePaths []string
 	for _, doc := range docs {
 		sourcePaths = append(sourcePaths, doc.path)
@@ -618,7 +690,7 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	sort.Strings(updated)
 	sort.Strings(deleted)
 
-	// --- Phase 5: Build WikiDB for FTS5 search ---
+	// Phase 5: Build WikiDB for FTS5 search
 	wikiChunks := make([]wiki.WikiChunk, 0, len(docs))
 	xrefs := make(map[string][]string)
 	for i, doc := range docs {
@@ -626,7 +698,6 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 		confidence := computeDocConfidence(doc)
 		important := confidence >= 0.8
 		wc := len(strings.Fields(doc.body))
-		now := time.Now().UTC().Format("2006-01-02")
 
 		wikiChunks = append(wikiChunks, wiki.WikiChunk{
 			Slug:        slug,
@@ -636,14 +707,15 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			DocType:     doc.docType,
 			Source:      doc.path,
 			Breadcrumb:  doc.breadcrumb,
-			ParentSlug:  wiki.SafeSlug(doc.parentTitle),
 			ClusterID:   doc.cluster,
 			ClusterName: doc.clusterName,
 			Confidence:  confidence,
 			ContentHash: doc.contentHash,
 			WordCount:   wc,
-			Updated:     now,
-			Important:   important,
+			// The source's date, matching the page's frontmatter. Stamping "today"
+			// here made every row claim it was updated on the day of the last sync.
+			Updated:   doc.updatedAt,
+			Important: important,
 		})
 
 		if len(doc.crossRefs) > 0 {
@@ -653,17 +725,38 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			}
 			xrefs[slug] = slugRefs
 		}
+
+		// The corpus-level fields go into the cache here, and only here, because
+		// this is the first point at which they all exist: the slug was assigned
+		// after collision resolution, and the community after the whole graph was
+		// built. Without them a shard is not a complete chunk, and a consumer that
+		// installs this wiki without its sources — which is how a published
+		// knowledge context arrives — would lose them.
+		if processCache != nil {
+			processCache.StoreDerived(doc.path, wiki.DerivedChunkFields{
+				Slug:        slug,
+				ClusterID:   doc.cluster,
+				ClusterName: doc.clusterName,
+				Confidence:  confidence,
+				Updated:     doc.updatedAt,
+				Important:   important,
+			})
+		}
+	}
+
+	// Details cover the pages this sync TOUCHED, not the whole corpus. Recording
+	// every document made each log entry carry a title and summary for all of them,
+	// and sync_log is append-only and re-copied on every rebuild: it had grown to
+	// 99 MB of a 116 MB index, against 1,4 MB of actual indexed text.
+	touchedDetails := make(map[string]wiki.LogDocDetails, len(added)+len(updated))
+	for _, slug := range append(append([]string{}, added...), updated...) {
+		if dd, ok := docDetails[slug]; ok {
+			touchedDetails[slug] = dd
+		}
 	}
 
 	var syncLogEntry *wiki.SyncLogEntry
 	if len(added) > 0 || len(updated) > 0 || len(deleted) > 0 {
-		details := make(map[string]wiki.LogDocDetails)
-		for slug, dd := range docDetails {
-			details[slug] = wiki.LogDocDetails{
-				Title:   dd.Title,
-				Summary: dd.Summary,
-			}
-		}
 		syncLogEntry = &wiki.SyncLogEntry{
 			Timestamp:       time.Now().UTC().Format(time.RFC3339),
 			TotalDocs:       len(docs),
@@ -672,11 +765,11 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 			Added:           added,
 			Updated:         updated,
 			Deleted:         deleted,
-			Details:         details,
+			Details:         touchedDetails,
 		}
 	}
 
-	_ = wiki.RebuildDB(wikiDir, wikiChunks, xrefs, syncLogEntry, processCache)
+	_ = wiki.RebuildDB(ctx, wikiDir, wikiChunks, xrefs, syncLogEntry, processCache)
 
 	// Record ignore file mtime so StatPreCheck detects changes next run.
 	if processCache != nil {
@@ -688,25 +781,64 @@ func GenerateKnowledgeWiki(_ context.Context, rootPath, wikiDir string, allowedE
 	}
 
 	if len(added) > 0 || len(updated) > 0 || len(deleted) > 0 {
-		appendKnowledgeLog(filepath.Join(wikiDir, "log.md"), len(docs), result.ArticlesWritten, result.BacklinksAdded, added, updated, deleted, docDetails)
+		appendKnowledgeLog(filepath.Join(wikiDir, "log.md"), len(docs), result.ArticlesWritten, result.BacklinksAdded, added, updated, deleted, touchedDetails)
 	}
 
 	return result, nil
 }
 
+// writePageIfChanged writes page to path only when the bytes differ from what is
+// already there, and reports whether it wrote and whether the file existed.
+//
+// The comparison is against the RENDERED page, not against the source document's
+// content hash, and that difference is the point. A page carries more than its
+// source: autolinks resolved against every other document's title, injected
+// backlinks, cluster and staleness annotations. Deciding by source hash left a
+// page un-rewritten when a SIBLING document was added — the source was untouched,
+// so the hash matched — while the database row was rebuilt from the fresh body.
+// The file and the index then disagreed, and since backlinks are computed by
+// reading the files, the stale side was the one feeding the graph.
+//
+// This only works because the page is a deterministic function of its inputs;
+// `updated:` comes from the source file's mtime, never from time.Now().
+func writePageIfChanged(path, page string) (written, existed bool) {
+	existing, readErr := os.ReadFile(path)
+	existed = readErr == nil
+	if existed && string(existing) == page {
+		return false, true
+	}
+	if err := os.WriteFile(path, []byte(page), 0o644); err != nil {
+		return false, existed
+	}
+	return true, existed
+}
+
 func knowledgeEntityPage(doc knowledgeDoc) string {
 	var b strings.Builder
-	now := time.Now().UTC().Format("2006-01-02")
+	now := doc.updatedAt
+	if now == "" {
+		now = time.Now().UTC().Format("2006-01-02")
+	}
 	confidence := computeDocConfidence(doc)
+	slug := wiki.SafeSlug(doc.title)
+	if slug == "" {
+		slug = wiki.SafeSlug(doc.path)
+	}
 
 	b.WriteString("---\n")
-	_, _ = fmt.Fprintf(&b, "title: %s\n", doc.title)
 	_, _ = fmt.Fprintf(&b, "type: %s\n", doc.docType)
-	_, _ = fmt.Fprintf(&b, "source: %s\n", doc.path)
-	_, _ = fmt.Fprintf(&b, "updated: %s\n", now)
+	_, _ = fmt.Fprintf(&b, "title: %s\n", doc.title)
+	_, _ = fmt.Fprintf(&b, "generated.at: %s\n", now)
+	b.WriteString("sources:\n")
+	_, _ = fmt.Fprintf(&b, "  - %s\n", doc.path)
+	if doc.summary != "" {
+		summaryEscaped := strings.ReplaceAll(doc.summary, "\n", " ")
+		_, _ = fmt.Fprintf(&b, "description: %s\n", summaryEscaped)
+	}
+	_, _ = fmt.Fprintf(&b, "tags:\n  - knowledge\n  - %s\n", doc.docType)
+	_, _ = fmt.Fprintf(&b, "id: %s\n", slug)
 	_, _ = fmt.Fprintf(&b, "confidence: %.2f\n", confidence)
 	_, _ = fmt.Fprintf(&b, "content_hash: %s\n", doc.contentHash)
-	_, _ = fmt.Fprintf(&b, "tags: [knowledge, %s]\n", doc.docType)
 	if doc.breadcrumb != "" {
 		_, _ = fmt.Fprintf(&b, "breadcrumb: %s\n", doc.breadcrumb)
 	}
@@ -733,12 +865,13 @@ func knowledgeEntityPage(doc knowledgeDoc) string {
 	_, _ = fmt.Fprintf(&b, "**Type:** %s  \n", doc.docType)
 	_, _ = fmt.Fprintf(&b, "**Confidence:** %.0f%%\n\n", confidence*100)
 
-	_, _ = fmt.Fprintf(&b, "*Provenance: ^[%s]*\n\n", doc.path)
+	_, _ = fmt.Fprintf(&b, "*Provenance: [%s](%s)*\n\n", doc.path, doc.path)
 
 	if len(doc.crossRefs) > 0 {
 		b.WriteString("## Cross-References\n\n")
 		for _, ref := range doc.crossRefs {
-			_, _ = fmt.Fprintf(&b, "- [[%s]]\n", wiki.SafeSlug(ref))
+			s := wiki.SafeSlug(ref)
+			_, _ = fmt.Fprintf(&b, "- [%s](%s.md)\n", ref, s)
 		}
 		b.WriteString("\n")
 	}
@@ -795,19 +928,21 @@ func computeDocConfidence(doc knowledgeDoc) float64 {
 	return score
 }
 
-func knowledgeIndexPage(docs []knowledgeDoc, communities []KnowledgeCommunity) string {
+func knowledgeIndexPage(docs []knowledgeDoc, slugs []string, communities []KnowledgeCommunity) string {
 	var b strings.Builder
 	now := time.Now().UTC().Format("2006-01-02")
 	b.WriteString("---\n")
-	b.WriteString("title: Knowledge Wiki\n")
-	_, _ = fmt.Fprintf(&b, "updated: %s\n", now)
-	b.WriteString("tags: [knowledge, index]\n")
+	b.WriteString("type: navigation\n")
+	b.WriteString("title: Knowledge Wiki Index\n")
+	_, _ = fmt.Fprintf(&b, "generated.at: %s\n", now)
+	b.WriteString("description: Navigation catalog for the Knowledge Wiki.\n")
+	b.WriteString("tags:\n  - knowledge\n  - index\n")
+	b.WriteString("id: index\n")
 	b.WriteString("---\n\n")
-	b.WriteString("# Knowledge Wiki\n\n")
-	_, _ = fmt.Fprintf(&b, "> %s knowledge wiki. **Start here.** Scan the catalog below, then follow [[wikilinks]] to drill into specific pages.\n", brand.DisplayName)
-	_, _ = fmt.Fprintf(&b, "> Check [[log]] for the timeline of updates. Last updated: %s\n\n", now)
+	b.WriteString("# Knowledge Wiki Index\n\n")
+	_, _ = fmt.Fprintf(&b, "> %s knowledge wiki. **Start here.** Scan the catalog below, then follow Markdown links to drill into specific pages.\n", brand.DisplayName)
+	_, _ = fmt.Fprintf(&b, "> Check [log](log.md) for the timeline of updates. Last updated: %s\n\n", now)
 
-	// Count stale pages
 	staleCount := 0
 	for _, doc := range docs {
 		if doc.staleSince != "" {
@@ -825,14 +960,25 @@ func knowledgeIndexPage(docs []knowledgeDoc, communities []KnowledgeCommunity) s
 	}
 	b.WriteString("\n\n---\n\n")
 
-	// Build doc lookup by slug
-	docBySlug := make(map[string]knowledgeDoc)
-	for _, doc := range docs {
-		docBySlug[wiki.SafeSlug(doc.title)] = doc
+	// Build doc lookup by slug, and the reverse for rendering entries.
+	docBySlug := make(map[string]knowledgeDoc, len(docs))
+	slugByPath := make(map[string]string, len(docs))
+	for i, doc := range docs {
+		slug := wiki.SafeSlug(doc.title)
+		if i < len(slugs) && slugs[i] != "" {
+			slug = slugs[i]
+		}
+		docBySlug[slug] = doc
+		slugByPath[doc.path] = slug
 	}
 
 	writeDocEntry := func(doc knowledgeDoc) {
-		link := fmt.Sprintf("[[%s]]", wiki.SafeSlug(doc.title))
+		s := slugByPath[doc.path]
+		linkTitle := doc.title
+		if linkTitle == "" {
+			linkTitle = s
+		}
+		link := fmt.Sprintf("[%s](%s.md)", linkTitle, s)
 		badge := fmt.Sprintf("`%s`", doc.docType)
 		staleMarker := ""
 		if doc.staleSince != "" {
@@ -862,7 +1008,7 @@ func knowledgeIndexPage(docs []knowledgeDoc, communities []KnowledgeCommunity) s
 				if doc, ok := docBySlug[slug]; ok {
 					writeDocEntry(doc)
 				} else {
-					_, _ = fmt.Fprintf(&b, "- [[%s]]\n", slug)
+					_, _ = fmt.Fprintf(&b, "- [%s](%s.md)\n", slug, slug)
 				}
 			}
 			b.WriteString("\n")
@@ -871,8 +1017,7 @@ func knowledgeIndexPage(docs []knowledgeDoc, communities []KnowledgeCommunity) s
 		// Unclustered docs
 		var unclustered []knowledgeDoc
 		for _, doc := range docs {
-			slug := wiki.SafeSlug(doc.title)
-			if !clusteredSlugs[slug] {
+			if !clusteredSlugs[slugByPath[doc.path]] {
 				unclustered = append(unclustered, doc)
 			}
 		}
@@ -908,9 +1053,9 @@ func knowledgeIndexPage(docs []knowledgeDoc, communities []KnowledgeCommunity) s
 
 	b.WriteString("## How to Navigate\n\n")
 	b.WriteString("1. **Start here** — scan the catalog above for the topic you need.\n")
-	b.WriteString("2. **Follow links** — each page has [[wikilinks]] to related pages.\n")
+	b.WriteString("2. **Follow links** — each page has Markdown links to related pages.\n")
 	b.WriteString("3. **Check backlinks** — each page lists what links *to* it (inbound references).\n")
-	b.WriteString("4. **Check the log** — [[log]] shows the timeline of wiki updates.\n\n")
+	b.WriteString("4. **Check the log** — [log](log.md) shows the timeline of wiki updates.\n\n")
 	b.WriteString("---\n")
 	_, _ = fmt.Fprintf(&b, "*Generated by %s · %s*\n", brand.DisplayName, now)
 	return b.String()
@@ -918,6 +1063,7 @@ func knowledgeIndexPage(docs []knowledgeDoc, communities []KnowledgeCommunity) s
 
 func appendKnowledgeLog(logPath string, totalDocs, articlesWritten, backlinksAdded int, added, updated, deleted []string, details map[string]wiki.LogDocDetails) {
 	timestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
+	dateNow := time.Now().UTC().Format("2006-01-02")
 	totalChanges := len(added) + len(updated) + len(deleted)
 
 	var b strings.Builder
@@ -927,36 +1073,46 @@ func appendKnowledgeLog(logPath string, totalDocs, articlesWritten, backlinksAdd
 	if len(added) > 0 {
 		b.WriteString("- Added pages:\n")
 		for _, slug := range added {
+			title := slug
 			if d, ok := details[slug]; ok && d.Title != "" {
+				title = d.Title
+			}
+			link := fmt.Sprintf("[%s](%s.md)", title, slug)
+			if d, ok := details[slug]; ok {
 				summary := d.Summary
 				if len(summary) > 120 {
 					summary = summary[:120] + "…"
 				}
 				if summary != "" {
-					_, _ = fmt.Fprintf(&b, "  - [[%s]] (%s) — %s\n", slug, d.Title, summary)
+					_, _ = fmt.Fprintf(&b, "  - %s — %s\n", link, summary)
 				} else {
-					_, _ = fmt.Fprintf(&b, "  - [[%s]] (%s)\n", slug, d.Title)
+					_, _ = fmt.Fprintf(&b, "  - %s\n", link)
 				}
 			} else {
-				_, _ = fmt.Fprintf(&b, "  - [[%s]]\n", slug)
+				_, _ = fmt.Fprintf(&b, "  - %s\n", link)
 			}
 		}
 	}
 	if len(updated) > 0 {
 		b.WriteString("- Updated pages:\n")
 		for _, slug := range updated {
+			title := slug
 			if d, ok := details[slug]; ok && d.Title != "" {
+				title = d.Title
+			}
+			link := fmt.Sprintf("[%s](%s.md)", title, slug)
+			if d, ok := details[slug]; ok {
 				summary := d.Summary
 				if len(summary) > 120 {
 					summary = summary[:120] + "…"
 				}
 				if summary != "" {
-					_, _ = fmt.Fprintf(&b, "  - [[%s]] (%s) — %s\n", slug, d.Title, summary)
+					_, _ = fmt.Fprintf(&b, "  - %s — %s\n", link, summary)
 				} else {
-					_, _ = fmt.Fprintf(&b, "  - [[%s]] (%s)\n", slug, d.Title)
+					_, _ = fmt.Fprintf(&b, "  - %s\n", link)
 				}
 			} else {
-				_, _ = fmt.Fprintf(&b, "  - [[%s]]\n", slug)
+				_, _ = fmt.Fprintf(&b, "  - %s\n", link)
 			}
 		}
 	}
@@ -973,8 +1129,7 @@ func appendKnowledgeLog(logPath string, totalDocs, articlesWritten, backlinksAdd
 	existing, _ := os.ReadFile(logPath)
 	var content string
 	if len(existing) == 0 {
-		content = "---\ntitle: Knowledge Wiki Log\ntags: [knowledge, log]\n---\n\n# Knowledge Wiki Log\n\n" +
-			"> Append-only chronological record. Parse with: `grep '^## \\[' log.md | tail -5`\n\n"
+		content = fmt.Sprintf("---\ntype: log\ntitle: Knowledge Wiki Log\ngenerated.at: %s\ndescription: Append-only chronological record of wiki compilation events.\ntags:\n  - knowledge\n  - log\nid: log\n---\n\n# Knowledge Wiki Log\n\n> Append-only chronological record. Parse with: `grep '^## \\[' log.md | tail -5`\n\n", dateNow)
 	} else {
 		content = string(existing)
 	}
@@ -988,6 +1143,7 @@ func appendKnowledgeLog(logPath string, totalDocs, articlesWritten, backlinksAdd
 	_ = os.WriteFile(logPath, []byte(content), 0o644)
 }
 
+// knowledgeDoc is one source document — the whole file, never a slice of one.
 type knowledgeDoc struct {
 	title       string
 	path        string
@@ -996,13 +1152,13 @@ type knowledgeDoc struct {
 	body        string
 	contentHash string
 	crossRefs   []string
-	parentTitle string
-	breadcrumb  string // "Parent > Section" hierarchy path
+	breadcrumb  string // source path, so a path query reaches the page
 	cluster     int    // community ID from Louvain (-1 = unassigned)
 	clusterName string // label of the community
 	staleSince  string // ISO date if page is stale, empty otherwise
 	staleReason string // why it's stale
-	isMarkdown  bool   // true for .md/.markdown/.mdx — eligible for header splitting
+	isMarkdown  bool   // true for .md/.markdown/.mdx — rendered as prose, not fenced
+	updatedAt   string // source mtime as YYYY-MM-DD; keeps the page byte-stable
 }
 
 func classifyDocType(relPath, content string) string {

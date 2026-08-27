@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/graphit-labs/graphit-code/internal/brand"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -42,7 +43,6 @@ func (l *DynGrammarLoader) Load(lang string) (*sitter.Language, error) {
 		return cached.(*sitter.Language), nil
 	}
 
-	// Find the shared library.
 	libPath, err := l.findLibrary(lang)
 	if err != nil {
 		return nil, fmt.Errorf("dynload: grammar %q: %w", lang, err)
@@ -94,11 +94,11 @@ func (l *DynGrammarLoader) searchDirs() []string {
 	var dirs []string
 
 	if l.projectDir != "" {
-		dirs = append(dirs, filepath.Join(l.projectDir, ".graphit", "grammars", "treesitter"))
+		dirs = append(dirs, filepath.Join(l.projectDir, brand.DotDir(), "grammars", "treesitter"))
 	}
 
-	if home, err := os.UserHomeDir(); err == nil {
-		dirs = append(dirs, filepath.Join(home, ".graphit", "grammars", "treesitter"))
+	if global := brand.GlobalDir(); global != "" {
+		dirs = append(dirs, filepath.Join(global, "grammars", "treesitter"))
 	}
 
 	return dirs

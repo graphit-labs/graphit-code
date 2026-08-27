@@ -21,9 +21,9 @@ func TestNOP(t *testing.T) {
 
 func TestResolve(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    *slog.Logger
-		wantNOP  bool
+		name    string
+		input   *slog.Logger
+		wantNOP bool
 	}{
 		{
 			name:    "nil returns NOP logger",

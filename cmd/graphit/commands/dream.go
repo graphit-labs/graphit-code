@@ -1,14 +1,13 @@
 package commands
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
@@ -25,26 +24,24 @@ func newDreamCmd() *cobra.Command {
 		Long: brand.DisplayName + ` Dream — autonomous reflection & improvement module.
 
 The Dream module runs during idle periods, analyzing and improving the codebase.
-Reports are stored in ` + brand.DotDir() + `/dream/.
+By default, reports are stored in ` + brand.ProjectRuntimePath(".", "dream") + `.
+Set dream.reports_dir to publish them elsewhere.
+
+Each session picks up the oldest pending item from the improvement backlog —
+manage that with ` + brand.BinName() + ` improvements backlog.
 
 Commands:
-  status        Show current dream state (active, idle, last dream, config)
-  reports       List dream session reports
-  subject list  List dream subjects (instructions for future sessions)
-  subject add   Add a new subject for a future dream session
-  subject rm    Remove a subject
+  status   Show current dream state (active, idle, last dream, config)
+  reports  List dream session reports
 
 Examples:
   ` + brand.BinName() + ` dream status
-  ` + brand.BinName() + ` dream reports
-  ` + brand.BinName() + ` dream subject add "Refactor the auth module"
-  ` + brand.BinName() + ` dream subject list`,
+  ` + brand.BinName() + ` dream reports`,
 	}
 
 	cmd.AddCommand(
 		newDreamStatusCmd(),
 		newDreamReportsCmd(),
-		newDreamSubjectCmd(),
 	)
 
 	return cmd
@@ -61,7 +58,7 @@ Displays:
   • Whether the daemon is running
   • Whether a dream session is currently active
   • When the last dream session completed
-  • Current session ULID and exhaustion state
+  • Current session id and exhaustion state
   • Configured idle timeout and max duration
 
 Examples:
@@ -88,7 +85,7 @@ func runDreamStatus() error {
 
 	cfg := dream.ResolveDreamConfig(projectCfg)
 
-	currentULID, lastUserMod, lastDreamAt, dreamStartedAt, sleepingSince, exhausted, dreaming := dream.LoadStateFromDir(projectDir)
+	currentSessionID, lastUserMod, lastDreamAt, dreamStartedAt, sleepingSince, exhausted, dreaming := dream.LoadStateFromDir(projectDir)
 
 	pid := daemon.NewPIDFile()
 	daemonAlive := pid.IsAlive()
@@ -139,8 +136,8 @@ func runDreamStatus() error {
 		p.KeyValue("Status", "inactive")
 	}
 
-	if currentULID != "" {
-		p.KeyValue("Session", currentULID)
+	if currentSessionID != "" {
+		p.KeyValue("Session", currentSessionID)
 	}
 
 	if !lastDreamAt.IsZero() {
@@ -148,12 +145,9 @@ func runDreamStatus() error {
 		p.KeyValue("Last dream", fmt.Sprintf("%s (%s ago)", lastDreamAt.Format("2006-01-02 15:04:05"), ago))
 	} else {
 
-		dreamDir := filepath.Join(projectDir, brand.DotDir(), "dream")
-		if entries, err := scanDreamReports(dreamDir); err == nil && len(entries) > 0 {
-			sort.Slice(entries, func(i, j int) bool {
-				return entries[i].Created.After(entries[j].Created)
-			})
-			latest := entries[0]
+		// ListReports is newest-first, so the head is the most recent session.
+		if reports, err := dream.ListReports(projectDir); err == nil && len(reports) > 0 {
+			latest := reports[0]
 			ago := time.Since(latest.Created).Truncate(time.Second)
 			p.KeyValue("Last dream", fmt.Sprintf("%s (%s ago)", latest.Created.Format("2006-01-02 15:04:05"), ago))
 		} else {
@@ -174,15 +168,14 @@ func runDreamStatus() error {
 		p.KeyValue("Max duration", "unlimited")
 	}
 
-	dreamDir := filepath.Join(projectDir, brand.DotDir(), "dream")
-	if entries, err := scanDreamReports(dreamDir); err == nil && len(entries) > 0 {
-		p.KeyValue("Total reports", fmt.Sprintf("%d", len(entries)))
+	if reports, err := dream.ListReports(projectDir); err == nil && len(reports) > 0 {
+		p.KeyValue("Total reports", fmt.Sprintf("%d", len(reports)))
 	}
 
-	if pending, err := dream.PendingSubjects(projectDir); err == nil && len(pending) > 0 {
-		p.KeyValue("Pending subjects", fmt.Sprintf("%d", len(pending)))
-		for _, s := range pending {
-			p.Step("%s", s.Title)
+	if pending, err := backlog.Pending(projectDir); err == nil && len(pending) > 0 {
+		p.KeyValue("Pending backlog", fmt.Sprintf("%d", len(pending)))
+		for _, item := range pending {
+			p.Step("%s", item.Title)
 		}
 	}
 
@@ -220,19 +213,6 @@ func formatDuration(d time.Duration) string {
 	}
 }
 
-type dreamReportEntry struct {
-	ID           string
-	Path         string
-	Created      time.Time
-	Title        string
-	Size         int64
-	HasDeepSleep bool
-}
-
-type dreamLastSeen struct {
-	LastViewed time.Time `json:"last_viewed"`
-}
-
 func newDreamReportsCmd() *cobra.Command {
 	var showAll bool
 
@@ -244,7 +224,8 @@ func newDreamReportsCmd() *cobra.Command {
 By default, only reports created since the last time this command was run
 are shown. Use --all to show all reports.
 
-Each report is a markdown file in ` + brand.DotDir() + `/dream/<id>.md.
+Each report is a markdown file in ` + filepath.Join(brand.ProjectRuntimePath(".", "dream"), "<id>.md") + ` by default.
+Set dream.reports_dir to use another directory.
 
 Examples:
   ` + brand.BinName() + ` dream reports          # new reports since last check
@@ -266,7 +247,7 @@ func runDreamReports(showAll bool) error {
 		return fmt.Errorf("resolving project directory: %w", err)
 	}
 
-	dreamDir := filepath.Join(projectDir, brand.DotDir(), "dream")
+	dreamDir := dream.ReportsDir(projectDir)
 
 	info, err := os.Stat(dreamDir)
 	if err != nil || !info.IsDir() {
@@ -275,9 +256,9 @@ func runDreamReports(showAll bool) error {
 		return nil
 	}
 
-	lastSeen := loadDreamLastSeen(projectDir)
+	lastSeen := dream.LoadLastSeen(projectDir)
 
-	entries, err := scanDreamReports(dreamDir)
+	entries, err := dream.ListReports(projectDir)
 	if err != nil {
 		return fmt.Errorf("scanning dream reports: %w", err)
 	}
@@ -287,20 +268,10 @@ func runDreamReports(showAll bool) error {
 		return nil
 	}
 
-	var display []dreamReportEntry
-	if showAll {
-		display = entries
-	} else {
-		for _, e := range entries {
-			if e.Created.After(lastSeen.LastViewed) {
-				display = append(display, e)
-			}
-		}
+	display := entries
+	if !showAll {
+		display = dream.ReportsSince(entries, lastSeen.LastViewed)
 	}
-
-	sort.Slice(display, func(i, j int) bool {
-		return display[i].Created.After(display[j].Created)
-	})
 
 	if len(display) == 0 {
 		p.Success("No new dream reports since last check (%s)", lastSeen.LastViewed.Format("2006-01-02 15:04"))
@@ -342,109 +313,9 @@ func runDreamReports(showAll bool) error {
 		p.Blank()
 	}
 
-	saveDreamLastSeen(projectDir)
+	dream.MarkReportsSeen(projectDir)
 
 	return nil
-}
-
-func scanDreamReports(dreamDir string) ([]dreamReportEntry, error) {
-	dirEntries, err := os.ReadDir(dreamDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var reports []dreamReportEntry
-	for _, de := range dirEntries {
-		name := de.Name()
-
-		if de.IsDir() || !strings.HasSuffix(name, ".md") {
-			continue
-		}
-
-		id := strings.TrimSuffix(name, ".md")
-		path := filepath.Join(dreamDir, name)
-
-		info, err := de.Info()
-		if err != nil {
-			continue
-		}
-
-		entry := dreamReportEntry{
-			ID:      id,
-			Path:    path,
-			Created: info.ModTime(),
-			Size:    info.Size(),
-		}
-
-		entry.Title = extractFrontmatterTitle(path)
-
-		sentinelPath := filepath.Join(dreamDir, id+".exhausted")
-		if _, err := os.Stat(sentinelPath); err == nil {
-			entry.HasDeepSleep = true
-		}
-
-		reports = append(reports, entry)
-	}
-
-	return reports, nil
-}
-
-func extractFrontmatterTitle(path string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-
-	content := string(data)
-	if !strings.HasPrefix(content, "---\n") {
-		return ""
-	}
-
-	endIdx := strings.Index(content[4:], "\n---")
-	if endIdx < 0 {
-		return ""
-	}
-
-	frontmatter := content[4 : 4+endIdx]
-	for _, line := range strings.Split(frontmatter, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "title:") {
-			title := strings.TrimPrefix(line, "title:")
-			title = strings.TrimSpace(title)
-
-			title = strings.Trim(title, "\"'")
-			return title
-		}
-	}
-
-	return ""
-}
-
-const dreamLastSeenFile = "dream_last_seen.json"
-
-func dreamLastSeenPath(projectDir string) string {
-	return filepath.Join(projectDir, brand.DotDir(), "dream", dreamLastSeenFile)
-}
-
-func loadDreamLastSeen(projectDir string) dreamLastSeen {
-	var ls dreamLastSeen
-	data, err := os.ReadFile(dreamLastSeenPath(projectDir))
-	if err != nil {
-		return ls
-	}
-	_ = json.Unmarshal(data, &ls)
-	return ls
-}
-
-func saveDreamLastSeen(projectDir string) {
-	ls := dreamLastSeen{LastViewed: time.Now()}
-	data, err := json.MarshalIndent(ls, "", "  ")
-	if err != nil {
-		return
-	}
-	fullPath := dreamLastSeenPath(projectDir)
-	_ = os.MkdirAll(filepath.Dir(fullPath), 0o755)
-	_ = os.WriteFile(fullPath, data, 0o644)
 }
 
 func humanSize(bytes int64) string {
@@ -456,200 +327,4 @@ func humanSize(bytes int64) string {
 	default:
 		return fmt.Sprintf("%d B", bytes)
 	}
-}
-
-func newDreamSubjectListCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "list",
-		Short: "List dream subjects",
-		Long: `List all dream subjects — instructions left for future dream sessions.
-
-Each subject is a markdown file in ` + brand.DotDir() + `/dream/subjects/.
-Pending subjects are picked up automatically by the next dream session.
-
-Examples:
-  ` + brand.BinName() + ` dream subject list`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDreamSubjects()
-		},
-	}
-}
-
-func runDreamSubjects() error {
-	p := output.NewPrinter("")
-
-	projectDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("resolving project directory: %w", err)
-	}
-
-	subjects, err := dream.ListSubjects(projectDir)
-	if err != nil {
-		return fmt.Errorf("listing subjects: %w", err)
-	}
-
-	if len(subjects) == 0 {
-		p.Info("No dream subjects found.")
-		p.Step("Add one with: %s dream subject add \"Title of your subject\"", brand.BinName())
-		return nil
-	}
-
-	var pending, done int
-	for _, s := range subjects {
-		if s.Done {
-			done++
-		} else {
-			pending++
-		}
-	}
-
-	p.Header("Dream Subjects")
-	p.Info("%d total (%d pending, %d done)", len(subjects), pending, done)
-	p.Blank()
-
-	for _, s := range subjects {
-		statusLabel := "pending"
-		if s.Done {
-			statusLabel = "done"
-		}
-
-		p.Step("[%s] %s", strings.ToUpper(statusLabel), s.Title)
-		p.Detail("Slug", s.Slug)
-		p.Detail("Created", s.CreatedAt.Format("2006-01-02 15:04:05"))
-
-		relPath := s.Path
-		if rel, err := filepath.Rel(projectDir, s.Path); err == nil {
-			relPath = rel
-		}
-		p.Detail("File", relPath)
-
-		if s.Done {
-			relRes := s.ResultPath
-			if rel, err := filepath.Rel(projectDir, s.ResultPath); err == nil {
-				relRes = rel
-			}
-			p.Detail("Result", relRes)
-		}
-	}
-	p.Blank()
-
-	return nil
-}
-
-func newDreamSubjectCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "subject",
-		Short: "Manage dream subjects",
-		Long: `Manage dream subjects — instructions for future dream sessions.
-
-Subjects are picked up automatically by the dream module during idle periods.
-Each dream session picks the oldest pending subject and works on it.
-
-When the dream agent completes a subject, it creates a corresponding .done.md
-file with the results. Pending subjects are those without a .done.md counterpart.
-
-Subcommands:
-  list  List all subjects
-  add   Create a new subject
-  rm    Remove a subject
-
-Examples:
-  ` + brand.BinName() + ` dream subject list
-  ` + brand.BinName() + ` dream subject add "Refactor the auth module"
-  ` + brand.BinName() + ` dream subject add "Add error handling to API" --body "Focus on the /api/v2 endpoints"
-  ` + brand.BinName() + ` dream subject rm refactor-the-auth-module`,
-	}
-
-	cmd.AddCommand(
-		newDreamSubjectListCmd(),
-		newDreamSubjectAddCmd(),
-		newDreamSubjectRmCmd(),
-	)
-
-	return cmd
-}
-
-func newDreamSubjectAddCmd() *cobra.Command {
-	var body string
-
-	cmd := &cobra.Command{
-		Use:   "add [title]",
-		Short: "Add a new dream subject",
-		Long: `Add a new subject for a future dream session.
-
-The title becomes the filename (slugified). You can optionally provide a body
-with detailed instructions using the --body flag.
-
-Examples:
-  ` + brand.BinName() + ` dream subject add "Refactor the auth module"
-  ` + brand.BinName() + ` dream subject add "Fix API error handling" --body "Focus on /api/v2 endpoints, add proper HTTP status codes"`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDreamSubjectAdd(args[0], body)
-		},
-	}
-
-	cmd.Flags().StringVar(&body, "body", "", "Detailed instructions for the dream agent")
-	return cmd
-}
-
-func runDreamSubjectAdd(title, body string) error {
-	p := output.NewPrinter("")
-
-	projectDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("resolving project directory: %w", err)
-	}
-
-	subj, err := dream.AddSubject(projectDir, title, body)
-	if err != nil {
-		return fmt.Errorf("adding subject: %w", err)
-	}
-
-	p.Success("Subject added: %s", subj.Title)
-	p.KeyValue("Slug", subj.Slug)
-	if rel, err := filepath.Rel(projectDir, subj.Path); err == nil {
-		p.KeyValue("File", rel)
-	} else {
-		p.KeyValue("File", subj.Path)
-	}
-	p.Step("The next dream session will pick this up automatically.")
-	p.Step("Edit the file to add more details if needed.")
-
-	return nil
-}
-
-func newDreamSubjectRmCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "rm [slug]",
-		Short: "Remove a dream subject",
-		Long: `Remove a subject by its slug (filename without extension).
-
-Use '` + brand.BinName() + ` dream subjects' to see available slugs.
-
-Examples:
-  ` + brand.BinName() + ` dream subject rm refactor-the-auth-module`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDreamSubjectRm(args[0])
-		},
-	}
-	cmd.ValidArgsFunction = completionDreamSubjectSlugs()
-	return cmd
-}
-
-func runDreamSubjectRm(slug string) error {
-	p := output.NewPrinter("")
-
-	projectDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("resolving project directory: %w", err)
-	}
-
-	if err := dream.RemoveSubject(projectDir, slug); err != nil {
-		return fmt.Errorf("removing subject: %w", err)
-	}
-
-	p.Success("Subject removed: %s", slug)
-	return nil
 }

@@ -2,19 +2,6 @@ package ast
 
 import "context"
 
-type NodeRecord struct {
-	ID         string
-	Labels     []string
-	Properties map[string]any
-}
-
-type RelRecord struct {
-	Type       string
-	SrcID      string
-	DstID      string
-	Properties map[string]any
-}
-
 type QueryRecord map[string]any
 
 type QueryResult struct {
@@ -39,10 +26,6 @@ type GraphDB interface {
 	Close() error
 }
 
-type Releaser interface {
-	Release()
-}
-
 type BatchQuery struct {
 	Cypher string
 	Params map[string]any
@@ -52,6 +35,8 @@ const (
 	LabelFile       = "File"
 	LabelDirectory  = "Directory"
 	LabelModule     = "Module"
+	LabelImport     = "Import"
+	LabelInclude    = "Include"
 	LabelFunction   = "Function"
 	LabelClass      = "Class"
 	LabelVariable   = "Variable"

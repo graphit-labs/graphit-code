@@ -58,9 +58,11 @@ func (f *fakeEmbClient) ModelName() string { return "fake" }
 
 // TestEmbedderStreamingRunCycle exercises the single-pass streaming scan end to
 // end against an on-disk shard cache: it verifies pending counting, that every
-// embeddable entity gets a vector, that a warm cache reports zero pending, and
-// (crucially) that the precomputed source snippet reaches the embedding text
-// byte-identically to the old inline slicing.
+// embeddable entity gets a vector — comments included, since their text is the
+// prose semantic search exists for — that a warm cache reports zero pending, that
+// the precomputed source snippet reaches the embedding text byte-identically to
+// the old inline slicing, and that a comment is the one label that gets NO
+// snippet, because its snippet is its own name a second time.
 func TestEmbedderStreamingRunCycle(t *testing.T) {
 	dir := t.TempDir()
 	pc, err := NewShardCache(dir)
@@ -68,16 +70,19 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	src := "package x\nfunc Foo() {\n\treturn\n}\nfunc Bar() {}\n"
+	lang := embedLabelsTestLang
+	projectDir := stageEmbedLabelsGrammar(t, "Function", "Variable", LabelComment)
+
+	src := "package x\n// documents Foo\nfunc Foo() {\n\treturn\n}\nfunc Bar() {}\n"
 	entry := &parseCacheEntry{
 		RelPath:  "a.go",
-		Language: "go",
+		Language: lang,
 		Source:   src,
 		Entities: []cachedEntity{
-			{Label: "Function", UID: "uid-foo", Name: "Foo", Path: "a.go", Line: 2, EndLine: 4},
-			{Label: "Function", UID: "uid-bar", Name: "Bar", Path: "a.go", Line: 5, EndLine: 5},
-			{Label: "Variable", UID: "uid-v", Name: "v", Path: "a.go", Line: 1, EndLine: 1},
-			{Label: "Comment", UID: "uid-c", Name: "c", Path: "a.go", Line: 1, EndLine: 1}, // not embeddable
+			{Label: "Function", Lang: lang, UID: "uid-foo", Name: "Foo", Path: "a.go", Line: 3, EndLine: 5},
+			{Label: "Function", Lang: lang, UID: "uid-bar", Name: "Bar", Path: "a.go", Line: 6, EndLine: 6},
+			{Label: "Variable", Lang: lang, UID: "uid-v", Name: "v", Path: "a.go", Line: 1, EndLine: 1},
+			{Label: "Comment", Lang: lang, UID: "uid-c", Name: "documents Foo", Path: "a.go", Line: 2, EndLine: 2},
 		},
 	}
 	if err := pc.Store("a.go", "hash1", entry); err != nil {
@@ -98,30 +103,28 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 	cfg := DefaultEmbeddingConfig()
 	cfg.ParseCache = pc
 	cfg.EmbCache = ec
+	cfg.ProjectDir = projectDir
 	e := NewEmbedder(fc, cfg)
 
 	ctx := context.Background()
 
-	// 3 embeddable entities pending (Comment is excluded).
-	if got := e.CountPending(ctx); got != 3 {
-		t.Fatalf("CountPending = %d, want 3", got)
+	// All 4 entities are embeddable — the comment among them.
+	if got := e.CountPending(ctx); got != 4 {
+		t.Fatalf("CountPending = %d, want 4", got)
 	}
 
 	n, err := e.RunCycle(ctx)
 	if err != nil {
 		t.Fatalf("RunCycle: %v", err)
 	}
-	if n != 3 {
-		t.Errorf("RunCycle embedded %d, want 3", n)
+	if n != 4 {
+		t.Errorf("RunCycle embedded %d, want 4", n)
 	}
 
-	for _, uid := range []string{"uid-foo", "uid-bar", "uid-v"} {
+	for _, uid := range []string{"uid-foo", "uid-bar", "uid-v", "uid-c"} {
 		if vec := ec.Get("a.go", uid, "hash1"); vec == nil {
 			t.Errorf("no vector stored for %s", uid)
 		}
-	}
-	if vec := ec.Get("a.go", "uid-c", "hash1"); vec != nil {
-		t.Errorf("Comment entity should not have been embedded")
 	}
 
 	// Warm cache -> nothing pending.
@@ -129,7 +132,7 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 		t.Errorf("CountPending after embedding = %d, want 0", got)
 	}
 
-	// The precomputed snippet (lines 2..4 of src) must appear in an embedding text.
+	// The precomputed snippet (lines 3..5 of src) must appear in an embedding text.
 	wantSnippet := "func Foo() {\n\treturn\n}"
 	found := false
 	for _, txt := range fc.texts {
@@ -141,13 +144,36 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 	if !found {
 		t.Errorf("expected an embedding text containing Foo's source snippet %q; got %q", wantSnippet, fc.texts)
 	}
+
+	// The comment is embedded by its text, and ONLY by its text: the raw source
+	// line ("// documents Foo") must not be appended on top of the name.
+	commentText := ""
+	for _, txt := range fc.texts {
+		if strings.HasPrefix(txt, "["+LabelComment+"]") {
+			commentText = txt
+			break
+		}
+	}
+	if commentText == "" {
+		t.Fatalf("no embedding text for the comment; got %q", fc.texts)
+	}
+	if !strings.Contains(commentText, "documents Foo") {
+		t.Errorf("comment embedding text lost its text: %q", commentText)
+	}
+	if strings.Contains(commentText, "// documents Foo") {
+		t.Errorf("comment embedding text repeats its own source line: %q", commentText)
+	}
 }
 
 // TestEmbedderDuplicateUIDFirstLabelWins guards the behavior that when one UID
 // appears under two embeddable labels (the embedding cache is keyed on Path+UID
-// without the label), the label earliest in embeddableLabels order wins — as the
-// old per-label interleaved Get/Set flow did. "Class" precedes "Interface".
+// without the label), the label its GRAMMAR listed first in embed_labels wins — as
+// the old per-label interleaved Get/Set flow did. Here the grammar says Class,
+// then Interface, so Class keeps the entity.
 func TestEmbedderDuplicateUIDFirstLabelWins(t *testing.T) {
+	lang := embedLabelsTestLang
+	projectDir := stageEmbedLabelsGrammar(t, "Class", "Interface")
+
 	dir := t.TempDir()
 	pc, err := NewShardCache(dir)
 	if err != nil {
@@ -156,13 +182,13 @@ func TestEmbedderDuplicateUIDFirstLabelWins(t *testing.T) {
 	src := "class Point {}\n// merge\ninterface Point {}\n"
 	entry := &parseCacheEntry{
 		RelPath:  "a.ts",
-		Language: "typescript",
+		Language: lang,
 		Source:   src,
 		Entities: []cachedEntity{
-			// Deliberately list Interface first to prove ordering follows
-			// embeddableLabels, not slice/file order.
-			{Label: "Interface", UID: "a.ts::Point", Name: "Point", Path: "a.ts", Line: 3, EndLine: 3},
-			{Label: "Class", UID: "a.ts::Point", Name: "Point", Path: "a.ts", Line: 1, EndLine: 1},
+			// Deliberately list Interface first to prove ordering follows the
+			// grammar's embed_labels, not slice/file order.
+			{Label: "Interface", Lang: lang, UID: "a.ts::Point", Name: "Point", Path: "a.ts", Line: 3, EndLine: 3},
+			{Label: "Class", Lang: lang, UID: "a.ts::Point", Name: "Point", Path: "a.ts", Line: 1, EndLine: 1},
 		},
 	}
 	if err := pc.Store("a.ts", "h", entry); err != nil {
@@ -179,6 +205,7 @@ func TestEmbedderDuplicateUIDFirstLabelWins(t *testing.T) {
 	cfg := DefaultEmbeddingConfig()
 	cfg.ParseCache = pc
 	cfg.EmbCache = ec
+	cfg.ProjectDir = projectDir
 	e := NewEmbedder(fc, cfg)
 	ctx := context.Background()
 

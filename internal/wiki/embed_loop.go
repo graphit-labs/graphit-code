@@ -4,18 +4,41 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
-	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
-// RunWikiEmbeddingLoop continuously generates wiki embeddings in the background.
-// It processes both knowledge and memory wikis.
-func RunWikiEmbeddingLoop(ctx context.Context, interval time.Duration, projectDir string, logger *slog.Logger) error {
+// EmbedTarget is a wiki to keep embedded.
+//
+// It carried an OnEmbedded callback until every wiki became read where it is
+// written: the fresh vectors used to have to be pushed into each project's copy or
+// those copies stayed lexical. With one copy there is nothing to push.
+type EmbedTarget struct {
+	Dir string
+}
+
+// RunWikiEmbeddingLoop continuously generates embeddings for the given wiki
+// targets in the background.
+//
+// The directories are a PARAMETER, and that is the whole point of this signature.
+// This function used to derive them itself as
+// "<project>/.<brand>/knowledge/project/wiki" — a path that does not exist, since
+// the index lives one level above it. And because OpenWikiDB creates whatever it
+// opens, every cycle built an empty database at the wrong path, found nothing
+// pending there, and returned success. Three separate call sites had copied the
+// same wrong layout.
+//
+// Only the caller can know where a wiki really is: the memory wiki is addressed by
+// scope and exists in more than one place. So the layout is not this package's
+// business — it is a leaf, and it takes what it is told to embed.
+func RunWikiEmbeddingLoop(ctx context.Context, interval time.Duration, targets []EmbedTarget, logger *slog.Logger) error {
 	log := slogutil.Resolve(logger)
+
+	if len(targets) == 0 {
+		return fmt.Errorf("wiki embedding: no wiki directories given")
+	}
 
 	client, err := ai.NewEmbeddingClientFromConfig()
 	if err != nil {
@@ -27,17 +50,25 @@ func RunWikiEmbeddingLoop(ctx context.Context, interval time.Duration, projectDi
 	embedder := NewWikiEmbedder(client, cfg)
 	embedder.Logger = logger
 
-	// Resolve wiki directories.
-	wikiDirs := resolveWikiDirs(projectDir)
-
-	// Initial cycle.
-	for _, dir := range wikiDirs {
-		if n, err := embedder.RunCycle(ctx, dir); err != nil {
-			log.Warn("wiki embedding initial cycle error", "dir", dir, "error", err)
-		} else if n > 0 {
-			log.Info("wiki embedding initial cycle", "dir", dir, "embedded", n)
+	runAll := func() {
+		for _, target := range targets {
+			if ctx.Err() != nil {
+				return
+			}
+			if target.Dir == "" {
+				continue
+			}
+			n, err := embedder.RunCycle(ctx, target.Dir)
+			switch {
+			case err != nil:
+				log.Warn("wiki embedding cycle error", "dir", target.Dir, "error", err)
+			case n > 0:
+				log.Info("wiki embedding cycle", "dir", target.Dir, "embedded", n)
+			}
 		}
 	}
+
+	runAll()
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -47,31 +78,7 @@ func RunWikiEmbeddingLoop(ctx context.Context, interval time.Duration, projectDi
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			for _, dir := range wikiDirs {
-				if ctx.Err() != nil {
-					return nil
-				}
-				if n, err := embedder.RunCycle(ctx, dir); err != nil {
-					log.Warn("wiki embedding cycle error", "dir", dir, "error", err)
-				} else if n > 0 {
-					log.Info("wiki embedding cycle", "dir", dir, "embedded", n)
-				}
-			}
+			runAll()
 		}
 	}
-}
-
-// resolveWikiDirs returns the wiki directories for the project (knowledge + memory).
-func resolveWikiDirs(projectDir string) []string {
-	var dirs []string
-
-	// Knowledge wiki.
-	knowledgeWiki := filepath.Join(projectDir, brand.DotDir(), "knowledge", "project", "wiki")
-	dirs = append(dirs, knowledgeWiki)
-
-	// Memory wiki.
-	memoryWiki := filepath.Join(projectDir, brand.DotDir(), "memory", "project", "wiki")
-	dirs = append(dirs, memoryWiki)
-
-	return dirs
 }

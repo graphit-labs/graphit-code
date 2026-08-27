@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
@@ -20,8 +19,14 @@ type WikiEmbedConfig struct {
 
 func DefaultWikiEmbedConfig() WikiEmbedConfig {
 	return WikiEmbedConfig{
-		BatchSize:      64,
-		MaxSourceChars: 800,
+		BatchSize: 64,
+		// A chunk is a whole document now, and 800 characters of it was roughly 200
+		// tokens against a 512-token model window — the rest of the window sat unused
+		// while three quarters of every document went unrepresented. This fills it:
+		// ~1600 characters plus the breadcrumb, title and summary that precede the
+		// body in the embedded text. The tokenizer truncates anything over the limit,
+		// so overshooting costs nothing but wasted characters.
+		MaxSourceChars: 1600,
 	}
 }
 
@@ -41,7 +46,10 @@ func NewWikiEmbedder(client ai.EmbeddingClient, cfg WikiEmbedConfig) *WikiEmbedd
 
 // chunkRow is a chunk needing an embedding.
 type chunkRow struct {
-	ID         int
+	// NO ID FIELD, deliberately. It used to be the chunk's SQLite rowid, and when the store
+	// changed there was nothing stable to put there — the first port filled it with the loop
+	// index, which LOOKS like an identifier and is not: embed one chunk, and the next call
+	// hands that same number to a different chunk. A test caught it. The slug is the identity.
 	Slug       string
 	Title      string
 	Summary    string
@@ -54,13 +62,13 @@ type chunkRow struct {
 // RunCycle opens the wiki DB, finds chunks without embeddings, generates them,
 // and stores them. Returns the count of newly embedded chunks.
 func (e *WikiEmbedder) RunCycle(ctx context.Context, wikiDir string) (int, error) {
-	db, err := OpenWikiDB(wikiDir)
+	db, err := OpenWikiDB(ctx, wikiDir)
 	if err != nil {
 		return 0, fmt.Errorf("open wiki db: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
-	pending, err := db.PendingEmbeddings()
+	pending, err := db.PendingEmbeddings(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("pending embeddings: %w", err)
 	}
@@ -108,14 +116,12 @@ func (e *WikiEmbedder) RunCycle(ctx context.Context, wikiDir string) (int, error
 				vec = padded
 			}
 
-			blob, bErr := sqlite_vec.SerializeFloat32(vec)
-			if bErr != nil {
-				e.log().Warn("serialize vector", "chunk_id", row.ID, "error", bErr)
-				continue
-			}
-
-			if err := db.InsertChunkVector(row.ID, row.Slug, row.Title, row.Summary, blob); err != nil {
-				e.log().Warn("insert vector", "chunk_id", row.ID, "error", err)
+			// Keyed by SLUG, not by a row id. The id used to be the chunk's SQLite rowid,
+			// which only means something inside one build — so a rebuild between the read
+			// and the write attached the vector to whatever now held that number. The slug
+			// identifies the page itself.
+			if err := db.SetChunkVector(ctx, row.Slug, vec); err != nil {
+				e.log().Warn("attach vector", "slug", row.Slug, "error", err)
 				continue
 			}
 			done++
@@ -128,10 +134,17 @@ func (e *WikiEmbedder) RunCycle(ctx context.Context, wikiDir string) (int, error
 
 	e.log().Info("wiki embedding cycle", "embedded", done)
 
+	// Vectors were written in WAL mode. Replication copies the database file and
+	// deliberately not its log, so fold the log in now or every replica of this wiki
+	// gets the chunks without their embeddings.
+	if done > 0 {
+		db.Checkpoint()
+	}
+
 	// Auto-export embeddings to per-file shards for cache persistence.
 	if done > 0 {
 		if pc, err := NewWikiProcessCache(wikiDir); err == nil {
-			exported := pc.ExportAllEmbeddingsFromDB(db)
+			exported := pc.ExportAllEmbeddingsFromDB(ctx, db)
 			if saveErr := pc.Save(); saveErr != nil {
 				e.log().Warn("save embedding shards", "error", saveErr)
 			} else if exported > 0 {
@@ -144,14 +157,14 @@ func (e *WikiEmbedder) RunCycle(ctx context.Context, wikiDir string) (int, error
 }
 
 // CountPending returns the number of chunks without embeddings.
-func (e *WikiEmbedder) CountPending(wikiDir string) int {
-	db, err := OpenWikiDB(wikiDir)
+func (e *WikiEmbedder) CountPending(ctx context.Context, wikiDir string) int {
+	db, err := OpenWikiDB(ctx, wikiDir)
 	if err != nil {
 		return 0
 	}
 	defer func() { _ = db.Close() }()
 
-	pending, err := db.PendingEmbeddings()
+	pending, err := db.PendingEmbeddings(ctx)
 	if err != nil {
 		return 0
 	}

@@ -1,6 +1,11 @@
 language: haskell
 grammar: tree-sitter-haskell
 extensions: [".hs", ".lhs"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function, Constructor] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -67,28 +72,25 @@ comment_types:
   - comment
   - haddock
 
-# Entry point scoring rules for Haskell
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "run*"
-      score: 40
-    - pattern: "spec*"
-      score: 60
-    - pattern: "test*"
-      score: 60
-    - pattern: "prop_*"
-      score: 50
-    - pattern: "bench*"
-      score: 50
-    - pattern: defaultMain
-      score: 70
-    - pattern: hspec
-      score: 60
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. && / || are ordinary infix functions here, not
+# syntax of their own, so they are left out — unlike the other languages
+# here, there is no dedicated node to check.
+complexity:
+  node_types:
+    - conditional
+    - case
 
-  exported_bonus: 10
-  max_score: 100
-
-  # Haskell has no decorators/annotations
-  decorators: []
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Module
+  - DataType
+  - TypeClass
+  - Instance
+  - Function
+  - TypeSignature
+  - Constructor
+  - Comment

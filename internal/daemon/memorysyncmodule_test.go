@@ -9,9 +9,7 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
 // MemorySyncModule — Start returns error when git unavailable
-// ---------------------------------------------------------------------------
 
 func TestMemorySyncModule_Start_ContextCancelled(t *testing.T) {
 	m := NewMemorySyncModule()
@@ -34,9 +32,7 @@ func TestMemorySyncModule_Start_ContextCancelled(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // MemorySyncModule — poll with no active memory branches
-// ---------------------------------------------------------------------------
 
 func TestSyncModule_Start_ContextCancelledImmediately(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -51,10 +47,6 @@ func TestSyncModule_Start_ContextCancelledImmediately(t *testing.T) {
 		t.Logf("SyncModule.Start returned: %v (may require git)", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// SyncModule — Start with delayed cancel
-// ---------------------------------------------------------------------------
 
 func TestSyncModule_Start_RunsBriefly(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -86,7 +78,6 @@ func initGitRepo(t *testing.T, dir string) {
 	if err := os.MkdirAll(gitDir, 0o755); err != nil {
 		t.Fatalf("mkdir .git: %v", err)
 	}
-	// Write a minimal HEAD file
 	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
 		t.Fatalf("write HEAD: %v", err)
 	}

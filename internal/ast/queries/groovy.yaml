@@ -1,6 +1,11 @@
 language: groovy
 grammar: tree-sitter-groovy
 extensions: [".groovy", ".gvy", ".gy", ".gsh", ".gradle"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Method] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -18,6 +23,13 @@ queries:
   - data_key: variables
     graph_label: Variable
     pattern: '(declaration (identifier) @name)'
+
+  # Declared literal values — the literal becomes a node contained by the name.
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(declaration name: (identifier) @name value: [(number_literal) (string) (boolean_literal) (null)] @value)'
+    value_capture: value
+    value_label: Value
   - data_key: parameters
     graph_label: Parameter
     pattern: '(parameter (identifier) @name)'
@@ -73,100 +85,26 @@ comment_types:
   - comment
   - groovy_doc
 
-# Entry point scoring rules for Groovy
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "run*"
-      score: 60
-    - pattern: pipeline
-      score: 70
-    - pattern: stage
-      score: 60
-    - pattern: node
-      score: 50
-    - pattern: "build*"
-      score: 50
-    - pattern: "test*"
-      score: 50
-    - pattern: "Test*"
-      score: 50
-    - pattern: setup
-      score: 40
-    - pattern: configure
-      score: 40
-    - pattern: "deploy*"
-      score: 40
-    - pattern: "*Handler"
-      score: 30
-    - pattern: "*Controller"
-      score: 30
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. "else if" needs no entry of its own — it
+# re-nests as another if_statement in the else branch. catch is left out:
+# it did not surface as its own node kind in the grammar checked.
+complexity:
+  node_types:
+    - if_statement
+    - for_loop
+    - while_loop
+    - case
+    - ternary_op
+  operators: ["&&", "||"]
 
-  exported_bonus: 10
-  max_score: 100
-
-  decorators:
-    # Testing annotations
-    - name: Test
-      score: 60
-    - name: Before
-      score: 40
-    - name: After
-      score: 40
-    - name: BeforeClass
-      score: 40
-    - name: AfterClass
-      score: 40
-    # Spring annotations
-    - name: Controller
-      score: 50
-    - name: RestController
-      score: 50
-    - name: Service
-      score: 40
-    - name: Component
-      score: 30
-    - name: RequestMapping
-      score: 70
-    - name: GetMapping
-      score: 70
-    - name: PostMapping
-      score: 70
-    # Gradle task annotations
-    - name: TaskAction
-      score: 60
-    # Spock test annotations
-    - name: Unroll
-      score: 50
-
-# Import detection (Groovy framework detection)
-import_detection:
-  - pattern: "org.springframework"
-    match: prefix
-    framework: spring
-    category: web
-  - pattern: "org.junit"
-    match: prefix
-    framework: junit
-    category: test
-  - pattern: spock
-    match: prefix
-    framework: spock
-    category: test
-  - pattern: groovy.transform
-    match: prefix
-    framework: groovy-transform
-    category: codegen
-  - pattern: "org.gradle"
-    match: prefix
-    framework: gradle
-    category: build
-  - pattern: grails
-    match: prefix
-    framework: grails
-    category: web
-  - pattern: "com.fasterxml.jackson"
-    match: prefix
-    framework: jackson
-    category: serialization
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Class
+  - Method
+  - Closure
+  - Variable
+  - Comment

@@ -152,9 +152,7 @@ func TestL2Normalize(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // proxyEmbeddingClient — Unix domain socket tests
-// ---------------------------------------------------------------------------
 
 func startMockEmbedSocket(t *testing.T, sockPath string, handler func(req embedRequest) embedResponse) net.Listener {
 	t.Helper()
@@ -318,10 +316,6 @@ func TestProxyEmbeddingClient_ModelName(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// LazyEmbeddingClient
-// ---------------------------------------------------------------------------
-
 func TestLazyEmbeddingClient_ModelName_NilClient(t *testing.T) {
 	t.Parallel()
 	lazy := NewLazyEmbeddingClient()
@@ -341,10 +335,6 @@ func TestLazyEmbeddingClient_ModelName_WithClient(t *testing.T) {
 		t.Errorf("ModelName = %q; want %q", name, localModelName)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// NewEmbeddingClientFromConfig — factory logic
-// ---------------------------------------------------------------------------
 
 func TestNewEmbeddingClientFromConfig_WithSocket(t *testing.T) {
 	tmpHome := t.TempDir()
@@ -374,11 +364,31 @@ func TestNewEmbeddingClientFromConfig_WithSocket(t *testing.T) {
 }
 
 func TestNewEmbeddingClientFromConfig_FallsBackToLocal(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// What is under test is the fallback from proxy to local, not the download.
+	// A seeded cache makes EnsureModel return immediately; without it this went
+	// to huggingface.co for 132 MB before reaching the assertion.
+	seedModelCache(t, home)
 
 	client, err := NewEmbeddingClientFromConfig()
 	if err != nil {
-		if !strings.Contains(err.Error(), "model manager") && !strings.Contains(err.Error(), "ONNX") && !strings.Contains(err.Error(), "ensure model") {
+		// Any of these proves the LOCAL branch was taken, which is the whole assertion — the
+		// seeded cache is a stub, so the local client cannot finish building and is not meant to.
+		//
+		// "load tokenizer" is here because the reachable failure moved. This test used to stop at
+		// "init ONNX Runtime" on any machine without the runtime on its loader path, which was
+		// every machine outside the launcher payload; `make test` now puts it there, so
+		// construction gets one step further and trips on the stub tokenizer instead.
+		reached := []string{"model manager", "ONNX", "ensure model", "load tokenizer"}
+		ok := false
+		for _, s := range reached {
+			if strings.Contains(err.Error(), s) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
 			t.Errorf("unexpected error type: %v", err)
 		}
 		return
@@ -387,10 +397,6 @@ func TestNewEmbeddingClientFromConfig_FallsBackToLocal(t *testing.T) {
 		t.Fatal("expected non-nil client")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// newProxyEmbeddingClient — edge cases
-// ---------------------------------------------------------------------------
 
 func TestNewProxyEmbeddingClient_NoSocket(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
@@ -424,21 +430,15 @@ func TestNewProxyEmbeddingClient_SocketExists(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ModelManager — EnsureModel additional paths
-// ---------------------------------------------------------------------------
-
 func TestModelManager_EnsureModel_CreateCacheDir(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
 	deepCacheDir := filepath.Join(tmpDir, "a", "b", "c", "cache")
 
-	mgr := &ModelManager{cacheDir: deepCacheDir}
-	_, _, err := mgr.EnsureModel(context.Background())
-	if err == nil {
-		t.Log("EnsureModel succeeded unexpectedly")
-		return
+	mgr := modelServer(t, deepCacheDir)
+	if _, _, err := mgr.EnsureModel(context.Background()); err != nil {
+		t.Fatalf("EnsureModel: %v", err)
 	}
 
 	if _, statErr := os.Stat(deepCacheDir); statErr != nil {
@@ -478,10 +478,6 @@ func TestModelManager_Download_CancelledContext(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// findORTLibrary
-// ---------------------------------------------------------------------------
-
 func TestFindORTLibrary_MultipleEnvPaths(t *testing.T) {
 	dir1 := t.TempDir()
 	dir2 := t.TempDir()
@@ -507,19 +503,13 @@ func TestFindORTLibrary_EmptyEnv(t *testing.T) {
 	_ = findORTLibrary()
 }
 
-// ---------------------------------------------------------------------------
-// localEmbeddingClient — Close edge case
-// ---------------------------------------------------------------------------
-
 func TestLocalEmbeddingClient_Close_WithNilSession(t *testing.T) {
 	t.Parallel()
 	c := &localEmbeddingClient{session: nil}
 	c.Close()
 }
 
-// ---------------------------------------------------------------------------
 // Constants verification
-// ---------------------------------------------------------------------------
 
 func TestEmbeddingDimensionsConstant(t *testing.T) {
 	t.Parallel()

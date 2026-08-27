@@ -1,6 +1,11 @@
 language: python
 grammar: tree-sitter-python
 extensions: [".py"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -10,14 +15,23 @@ queries:
     graph_label: Class
     pattern: '(class_definition name: (identifier) @name)'
   - data_key: imports
-    graph_label: Module
+    graph_label: Import
     pattern: '(import_statement name: (dotted_name) @name)'
   - data_key: imports
-    graph_label: Module
+    graph_label: Import
     pattern: '(import_from_statement module_name: (dotted_name) @name)'
   - data_key: variables
     graph_label: Variable
     pattern: '(assignment left: (identifier) @name)'
+
+  # Declared literal values — the literal becomes a node contained by the name, so
+  # that "who holds this URL" is reachable by search. Literals only: an arbitrary
+  # expression is nobody's name.
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment left: (identifier) @name right: [(integer) (float) (true) (false) (none) (string) (concatenated_string)] @value)'
+    value_capture: value
+    value_label: Value
   - data_key: parameters
     graph_label: Parameter
     pattern: '(parameters (identifier) @name)'
@@ -88,112 +102,25 @@ declaration_types:
 comment_types:
   - comment
 
-# Entry point scoring rules for Python
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: __main__
-      score: 80              # Python-specific: if __name__ == "__main__"
-    - pattern: "Test*"
-      score: 60
-    - pattern: "test_*"
-      score: 60
-    - pattern: init
-      score: 40
-    - pattern: __init__
-      score: 40
-    - pattern: setup
-      score: 40
-    - pattern: configure
-      score: 40
-    - pattern: "*Handler"
-      score: 30
-    - pattern: "*Controller"
-      score: 30
-    - pattern: "cmd*"
-      score: 20
-    - pattern: "run*"
-      score: 20
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. elif_clause is its own node (not a nested
+# if_statement), so it needs its own entry unlike the C-family languages.
+complexity:
+  node_types:
+    - if_statement
+    - elif_clause
+    - for_statement
+    - while_statement
+    - except_clause
+    - boolean_operator
+    - conditional_expression
 
-  exported_bonus: 10
-  max_score: 100
-
-  # Python-specific decorators only (Flask, FastAPI, Django, pytest)
-  decorators:
-    # Flask/FastAPI HTTP route decorators
-    - name: "app.route"
-      score: 70
-    - name: "app.get"
-      score: 70
-    - name: "app.post"
-      score: 70
-    - name: "app.put"
-      score: 70
-    - name: "app.delete"
-      score: 70
-    - name: route
-      score: 70
-    - name: Route
-      score: 70
-    # Test decorators
-    - name: "pytest.fixture"
-      score: 60
-    - name: "pytest.mark.parametrize"
-      score: 60
-    # Django decorators
-    - name: "login_required"
-      score: 50
-    - name: "api_view"
-      score: 50
-
-# Import detection (language-level framework detection)
-import_detection:
-  - pattern: django
-    match: prefix
-    framework: django
-    category: web
-  - pattern: flask
-    match: prefix
-    framework: flask
-    category: web
-  - pattern: fastapi
-    match: prefix
-    framework: fastapi
-    category: web
-  - pattern: sqlalchemy
-    match: prefix
-    framework: sqlalchemy
-    category: orm
-  - pattern: celery
-    match: prefix
-    framework: celery
-    category: async
-  - pattern: pytest
-    match: prefix
-    framework: pytest
-    category: test
-  - pattern: pydantic
-    match: prefix
-    framework: pydantic
-    category: validation
-  - pattern: numpy
-    match: prefix
-    framework: numpy
-    category: data
-  - pattern: pandas
-    match: prefix
-    framework: pandas
-    category: data
-  - pattern: torch
-    match: prefix
-    framework: pytorch
-    category: ml
-  - pattern: tensorflow
-    match: prefix
-    framework: tensorflow
-    category: ml
-  - pattern: scrapy
-    match: prefix
-    framework: scrapy
-    category: scraping
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Class
+  - Function
+  - Variable
+  - Comment

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 )
 
@@ -462,12 +463,16 @@ func HubRuleContent() string {
 		"",
 		"| What you observe | The key that explains it |",
 		"|---|---|",
-		"| The docs tree is not `docs/`, or the wiki indexes files you did not expect | `knowledge.docs_dir` — **defaults to `.`, the whole project**, not `docs/` |",
+		"| The wiki is empty, or it is missing documentation you know exists | `knowledge.docs_dir` — **defaults to `docs`**, so documentation kept anywhere else is not indexed until this says where |",
+		"| A page came from the root `README.md` even though it is outside the docs tree | `knowledge.include_readme` — on by default; `false` indexes the docs tree alone |",
+		"| The code graph has no `File` node for a document under the docs tree | `ast.index_docs` — off by default, because the docs tree belongs to the wiki; `true` puts it in both |",
 		"| A module's tools return nothing and nothing looks broken | `modules.<name>` — the module may be switched off |",
 		"| "+brand.MCPToolRef("ast", "source")+" has no source for an indexed file | `ast.index_source` — with `false`, the graph stores structure but not text |",
 		"| A file is parsed by the wrong grammar | `ast.grammar` overrides, per extension |",
+		"| A grammar YAML the project committed has no effect | `ast.queries_dir` — the project's grammar directory, **`"+brand.DotDir()+"/ast/queries` by default**, which IS tracked by git; check the key has not been pointed elsewhere, since a configured directory replaces the default rather than adding to it |",
 		"| Nothing ever happens overnight | `modules.dream` — dream is **opt-in**, off unless explicitly `true` |",
-		"| Hub operations fail before reaching the network | `hub.repo` |",
+		"| The improvement backlog is not where you expected it | `improvements.backlog_dir` — **defaults to `"+config.DefaultBacklogDir(nil, nil)+"`**, inside the docs tree so items are versioned; it follows `knowledge.docs_dir` |",
+		"| Hub operations fail before reaching the network | `hub.bucket` |",
 		"| An artifact installed into the wrong IDE's directory | `ide` |",
 		"",
 		"### The precedence, because it is where the confusion actually is",
@@ -570,7 +575,10 @@ func InstallSkill(projectDir, ideName string) error {
 	}
 
 	skillContent := brand.ResolveModuleSkill("hub", HubRuleContent())
-	frontmatter := "---\nname: " + hubSkillName + "\ndescription: Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, powers, and languages. Use when: working with external libraries, APIs, or frameworks; needing documentation or code examples for a dependency; looking for reusable rules, skills, commands, or MCP servers; setting up a new project or adding dependencies; AST query returns no results for an external library. Check the hub BEFORE implementing integrations with unfamiliar systems. Also use to install/update artifacts, discover reusable components, and find sibling projects in the ecosystem.\n---\n\n"
+	frontmatter, err := ide.SkillFrontmatter(hubSkillName, "Centralized registry of knowledge, AST, rules, skills, commands, agents, MCPs, powers, and languages. Use when: working with external libraries, APIs, or frameworks; needing documentation or code examples for a dependency; looking for reusable rules, skills, commands, or MCP servers; setting up a new project or adding dependencies; AST query returns no results for an external library. Check the hub BEFORE implementing integrations with unfamiliar systems. Also use to install/update artifacts, discover reusable components, and find sibling projects in the ecosystem.")
+	if err != nil {
+		return err
+	}
 	return ide.InstallManagedSkill(projectDir, ideName, hubSkillName, frontmatter+skillContent)
 }
 

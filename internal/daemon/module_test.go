@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
-// ---------------------------------------------------------------------------
 // moduleEntry — construction and initial state
-// ---------------------------------------------------------------------------
 
 type fakeModule struct {
 	name    string
@@ -35,10 +34,6 @@ func TestNewModuleEntry(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// moduleEntry — setState
-// ---------------------------------------------------------------------------
-
 func TestModuleEntry_SetState(t *testing.T) {
 	mod := &fakeModule{name: "test"}
 	entry := newModuleEntry(mod)
@@ -53,10 +48,6 @@ func TestModuleEntry_SetState(t *testing.T) {
 		t.Errorf("expected Crashed, got %v", entry.state)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// moduleEntry — setError
-// ---------------------------------------------------------------------------
 
 func TestModuleEntry_SetError(t *testing.T) {
 	mod := &fakeModule{name: "test"}
@@ -74,10 +65,6 @@ func TestModuleEntry_SetError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// moduleEntry — setStarted
-// ---------------------------------------------------------------------------
-
 func TestModuleEntry_SetStarted(t *testing.T) {
 	mod := &fakeModule{name: "test"}
 	entry := newModuleEntry(mod)
@@ -93,10 +80,6 @@ func TestModuleEntry_SetStarted(t *testing.T) {
 		t.Errorf("startedAt %v not in range [%v, %v]", entry.startedAt, before, after)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// moduleEntry — incRestarts / resetRestarts
-// ---------------------------------------------------------------------------
 
 func TestModuleEntry_Restarts(t *testing.T) {
 	mod := &fakeModule{name: "test"}
@@ -119,9 +102,7 @@ func TestModuleEntry_Restarts(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // moduleEntry — thread safety
-// ---------------------------------------------------------------------------
 
 func TestModuleEntry_ConcurrentAccess(t *testing.T) {
 	mod := &fakeModule{name: "concurrent"}
@@ -146,9 +127,7 @@ func TestModuleEntry_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 }
 
-// ---------------------------------------------------------------------------
 // runProtected — catches panics
-// ---------------------------------------------------------------------------
 
 func TestRunProtected_NormalReturn(t *testing.T) {
 	mod := &fakeModule{
@@ -186,8 +165,14 @@ func TestRunProtected_Panic(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from panic")
 	}
-	if got := err.Error(); got != "panic: boom!" {
-		t.Errorf("expected 'panic: boom!', got %q", got)
+	got := err.Error()
+	if !strings.HasPrefix(got, "panic: boom!") {
+		t.Errorf("expected the error to lead with 'panic: boom!', got %q", got)
+	}
+	// The stack is the point: without it a crash-looping module writes one line per
+	// restart naming no file and no function.
+	if !strings.Contains(got, "runProtected") {
+		t.Errorf("expected the panic error to carry a stack trace, got %q", got)
 	}
 }
 
@@ -203,8 +188,11 @@ func TestRunProtected_PanicWithError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from panic")
 	}
-	expected := "panic: formatted panic"
-	if err.Error() != expected {
-		t.Errorf("expected %q, got %q", expected, err.Error())
+	got := err.Error()
+	if !strings.HasPrefix(got, "panic: formatted panic") {
+		t.Errorf("expected the error to lead with 'panic: formatted panic', got %q", got)
+	}
+	if !strings.Contains(got, "runProtected") {
+		t.Errorf("expected the panic error to carry a stack trace, got %q", got)
 	}
 }

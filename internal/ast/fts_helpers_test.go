@@ -1,13 +1,13 @@
 package ast
 
 import (
+	"context"
+
 	"strings"
 	"testing"
-)
 
-// ---------------------------------------------------------------------------
-// tokenizeQuery
-// ---------------------------------------------------------------------------
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
+)
 
 func TestTokenizeQuery(t *testing.T) {
 	tests := []struct {
@@ -102,11 +102,7 @@ func TestTokenizeQuery(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// stripFTSSpecialChars
-// ---------------------------------------------------------------------------
-
-func TestStripFTSSpecialChars(t *testing.T) {
+func TestStripQuerySpecialChars(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
@@ -121,188 +117,20 @@ func TestStripFTSSpecialChars(t *testing.T) {
 		{`clean`, `clean`},
 		{``, ``},
 		{`"*^(){}:"`, ``},
+		// Added with the engine change: a quote or a hyphen reaching LadybugDB's
+		// query parser is a syntax error rather than a search for the literal.
+		{`it's`, `its`},
+		{`well-known`, `wellknown`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := stripFTSSpecialChars(tt.input)
+			got := stripQuerySpecialChars(tt.input)
 			if got != tt.want {
-				t.Errorf("stripFTSSpecialChars(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("stripQuerySpecialChars(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// quoteToken
-// ---------------------------------------------------------------------------
-
-func TestQuoteToken(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"hello", `"hello"`},
-		{`say "hi"`, `"say hi"`},
-		{"", `""`},
-		{`"already"`, `"already"`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := quoteToken(tt.input)
-			if got != tt.want {
-				t.Errorf("quoteToken(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// buildPhraseQuery
-// ---------------------------------------------------------------------------
-
-func TestBuildPhraseQuery(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"hello world", `"hello world"`},
-		{`"already quoted"`, `"already quoted"`},
-		{"", ""},
-		{"   ", ""},
-		{"single", `"single"`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := buildPhraseQuery(tt.input)
-			if got != tt.want {
-				t.Errorf("buildPhraseQuery(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// buildANDQuery
-// ---------------------------------------------------------------------------
-
-func TestBuildANDQuery(t *testing.T) {
-	tests := []struct {
-		name   string
-		tokens []string
-		want   string
-	}{
-		{"empty", nil, ""},
-		{"single", []string{"foo"}, `"foo"`},
-		{"multiple", []string{"a", "b", "c"}, `"a" "b" "c"`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := buildANDQuery(tt.tokens)
-			if got != tt.want {
-				t.Errorf("buildANDQuery(%v) = %q, want %q", tt.tokens, got, tt.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// buildORQuery
-// ---------------------------------------------------------------------------
-
-func TestBuildORQuery(t *testing.T) {
-	tests := []struct {
-		name   string
-		tokens []string
-		want   string
-	}{
-		{"empty", nil, ""},
-		{"single", []string{"foo"}, `"foo"`},
-		{"multiple", []string{"x", "y"}, `"x" OR "y"`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := buildORQuery(tt.tokens)
-			if got != tt.want {
-				t.Errorf("buildORQuery(%v) = %q, want %q", tt.tokens, got, tt.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// buildPrefixQuery
-// ---------------------------------------------------------------------------
-
-func TestBuildPrefixQuery(t *testing.T) {
-	tests := []struct {
-		name   string
-		tokens []string
-		want   string
-	}{
-		{"empty", nil, ""},
-		{"single", []string{"foo"}, `"foo"*`},
-		{"multiple", []string{"a", "b"}, `"a"* OR "b"*`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := buildPrefixQuery(tt.tokens)
-			if got != tt.want {
-				t.Errorf("buildPrefixQuery(%v) = %q, want %q", tt.tokens, got, tt.want)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// buildSearchPasses
-// ---------------------------------------------------------------------------
-
-func TestBuildSearchPasses(t *testing.T) {
-	t.Run("single_token", func(t *testing.T) {
-		passes := buildSearchPasses([]string{"test"}, "test")
-		// Single token: should have OR and prefix passes (no phrase/AND)
-		if len(passes) < 2 {
-			t.Fatalf("expected at least 2 passes, got %d", len(passes))
-		}
-		names := make(map[string]bool)
-		for _, p := range passes {
-			names[p.name] = true
-		}
-		if names["phrase"] || names["and"] {
-			t.Error("single token should not have phrase or AND passes")
-		}
-		if !names["or"] || !names["prefix"] {
-			t.Error("expected or and prefix passes")
-		}
-	})
-
-	t.Run("multiple_tokens", func(t *testing.T) {
-		passes := buildSearchPasses([]string{"hello", "world"}, "hello world")
-		if len(passes) < 4 {
-			t.Fatalf("expected at least 4 passes, got %d", len(passes))
-		}
-		names := make(map[string]bool)
-		for _, p := range passes {
-			names[p.name] = true
-		}
-		if !names["phrase"] || !names["and"] || !names["or"] || !names["prefix"] {
-			t.Error("expected all four pass types for multi-token query")
-		}
-	})
-
-	t.Run("phrase_has_highest_weight", func(t *testing.T) {
-		passes := buildSearchPasses([]string{"a", "b"}, "a b")
-		for _, p := range passes {
-			if p.name == "phrase" && p.weight < 2.0 {
-				t.Errorf("phrase weight should be >= 2.0, got %f", p.weight)
-			}
-		}
-	})
-}
-
-// ---------------------------------------------------------------------------
-// deduplicationKey
-// ---------------------------------------------------------------------------
 
 func TestDeduplicationKey(t *testing.T) {
 	r1 := SearchResult{Path: "a.go", Name: "Func", Line: 10}
@@ -321,9 +149,7 @@ func TestDeduplicationKey(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // test helpers
-// ---------------------------------------------------------------------------
 
 func assertContains(t *testing.T, tokens []string, expected string) {
 	t.Helper()
@@ -342,5 +168,22 @@ func assertNotContains(t *testing.T, tokens []string, unexpected string) {
 			t.Errorf("expected tokens %v to NOT contain %q", tokens, unexpected)
 			return
 		}
+	}
+}
+
+// putFileRow writes one file row straight into the index, without going through a parse cache.
+//
+// Several tests need nothing but "an index that has this file's text in it" — the source service,
+// the file handler, the bundle writer — and building a ShardCache to say so would put the thing
+// under test behind a second thing under test. It goes through the SAME row constructor production
+// uses, so what these tests get is a real index row and not a fixture that only looks like one.
+func putFileRow(t *testing.T, idx *SearchIndex, relPath, source string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := idx.ensureTables(ctx); err != nil {
+		t.Fatalf("ensure tables: %v", err)
+	}
+	if err := idx.files.Append(ctx, []lancestore.Row{buildFileRow(relPath, source)}); err != nil {
+		t.Fatalf("write file row %s: %v", relPath, err)
 	}
 }

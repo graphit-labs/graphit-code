@@ -5,12 +5,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/version"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	"gopkg.in/yaml.v3"
@@ -18,28 +20,289 @@ import (
 
 // ExternalQueryFile represents a YAML file with extraction queries and
 // language configuration. Supports both tree-sitter and ANTLR v4 parsers.
-// Files are loaded from .graphit/ast/queries/.
+// Files are loaded from the project's queries directory (ast.queries_dir,
+// by default .graphit/ast/queries/), the user's own, and the runtime's.
 type ExternalQueryFile struct {
 	Language   string             `yaml:"language"`
 	Extensions []string           `yaml:"extensions,omitempty"`
 	Parser     string             `yaml:"parser,omitempty"`     // "tree-sitter" (default) or "antlr4"
 	Grammar    string             `yaml:"grammar,omitempty"`    // Binary name for ANTLR (e.g. "antlr-plsql")
 	StartRule  string             `yaml:"start_rule,omitempty"` // ANTLR start rule (required when parser=antlr4)
-	Replace    bool               `yaml:"replace"`
 	Queries    []ExternalQueryDef `yaml:"queries"`
 
+	// Merge says what this file does to the same language declared at a lower
+	// level — the user's directory over the runtime's, the project's over both.
+	//
+	// Absent, it REPLACES it, which is what every level has always done: the file
+	// is the whole language, and anything the level below said about it is gone.
+	// `merge: true` merges into it instead.
+	//
+	// Opt-in and stated in the affirmative, so the file says what it does rather
+	// than which behaviour it is switching off — and so a plain bool is enough:
+	// there is no third state to encode.
+	//
+	// Merging is what makes a partial file possible. Replacement means a project
+	// that wants one more query, or one different pattern, has to copy the whole
+	// shipped file and then own every future fix to it; the copy also silently
+	// takes over `extensions`, `grammar` and every language-level setting, so
+	// omitting one of those in the copy breaks the language rather than leaving
+	// it alone. See mergeQueryFile for what merging does field by field.
+	Merge bool `yaml:"merge,omitempty"`
+
 	// Language-level configuration (all optional — engine uses sensible defaults)
-	Exports          *ExportConfig     `yaml:"exports,omitempty"`
-	SelfKeywords     []string          `yaml:"self_keywords,omitempty"`
-	ContextTypes     map[string]string `yaml:"context_types,omitempty"`
+	Exports      *ExportConfig     `yaml:"exports,omitempty"`
+	SelfKeywords []string          `yaml:"self_keywords,omitempty"`
+	ContextTypes map[string]string `yaml:"context_types,omitempty"`
+	// ContextNamePaths says how to read a context node's name when it is not in
+	// a "name" field: a `/`-separated path of field names or child kinds, from
+	// the context node down to the node holding the text. Data-format grammars
+	// need this — xml's `element` keeps its name at STag/Name, json's `pair` at
+	// key/string_content — and without it every entity fell back to the File.
+	ContextNamePaths map[string]string `yaml:"context_name_paths,omitempty"`
 	AnonFuncTypes    []string          `yaml:"anon_func_types,omitempty"`
 	DeclarationTypes []string          `yaml:"declaration_types,omitempty"`
 	CommentTypes     []string          `yaml:"comment_types,omitempty"`
 
-	// Entry point scoring — language-level base rules (merged with framework rules)
-	EntryPoints *EntryPointConfig `yaml:"entry_points,omitempty"`
-	// Import detection — language-level import patterns for framework detection
-	ImportDetection []ImportRule `yaml:"import_detection,omitempty"`
+	// EmbedLabels names the graph labels of THIS language that get a vector, and
+	// so are reachable by semantic search rather than by keyword alone.
+	//
+	// It is declared per grammar because only the grammar knows what it produces.
+	// A hardcoded list in Go answers for languages the binary has never seen — a
+	// grammar installed from the Hub, or written into `ast.queries_dir` — and
+	// answers wrongly by construction: its labels are absent from the list, so
+	// nothing it indexes is ever embedded, silently. Every other language-shaped
+	// decision here already lives in the YAML (comment_types, context_types,
+	// declaration_types, target_rules); this is the same rule applied to embedding.
+	//
+	// ORDER IS MEANINGFUL. One (path, uid) can carry two labels — a TypeScript
+	// `class Foo` beside `interface Foo`, a Table beside a View of the same name —
+	// and the embedding cache is keyed without the label, so the two collide on one
+	// entry. The label listed EARLIER wins, which makes this list the grammar's own
+	// statement of which reading of a name is the primary one.
+	//
+	// A label naming CONTENT rather than an identifier belongs here as readily as a
+	// declaration: Comment's name is the comment's prose, which is exactly what
+	// semantic search is for. Omit the label and its entities stay keyword-only —
+	// they are always in entity_fts, because that indexes every entity by name.
+	//
+	// Empty means this language embeds nothing. That is a real answer for a
+	// grammar with no prose and no bodies, but it is rarely the intended one, so
+	// TestEveryShippedGrammarDeclaresEmbedLabels fails when a shipped grammar is
+	// simply silent about it.
+	EmbedLabels []string `yaml:"embed_labels,omitempty"`
+
+	// TargetRules declares, per relation type, how this language resolves a target
+	// captured by name. See ExternalQueryDef.TargetLabels for what is being decided.
+	//
+	// Stating it once per relation beats repeating it on every query: the SQL family
+	// declares forty-one DML queries whose targets are all schema objects.
+	//
+	// The rule is per RELATION TYPE, not per query, because that is all a cached
+	// reference carries — so the labels declared here and on every query of that
+	// relation are unioned. A wider set only ever rejects more, never resolves
+	// wrongly: resolution demands a single match inside the set.
+	//
+	//	target_rules:
+	//	  SELECTS: { labels: [Table, View], fallback: Table }
+	TargetRules map[string]TargetRuleDecl `yaml:"target_rules,omitempty"`
+
+	// Embedded declares the regions of a file written in another language — the
+	// body of a single-file component's <script> and <style>, which the outer
+	// grammar hands over as one opaque text node. See EmbeddedBlock.
+	Embedded []EmbeddedBlock `yaml:"embedded,omitempty"`
+
+	// TextNormalizers are this language's named ways of turning escaped text back
+	// into what it represents, for an embedded block to name. See TextNormalizer.
+	TextNormalizers map[string]TextNormalizer `yaml:"text_normalizers,omitempty"`
+
+	// Complexity declares which parsed node kinds count as a branch when scoring
+	// cyclomatic complexity by walking the entity's own syntax subtree. Absent
+	// (nil), the entity's complexity is the base 1 — this language has no
+	// complexity signal yet, not a guessed one. See ComplexityConfig.
+	Complexity *ComplexityConfig `yaml:"complexity,omitempty"`
+}
+
+// ComplexityConfig lists the real syntax-tree shapes that count as a decision
+// point for this language, so complexity is scored by walking the parsed
+// entity subtree instead of scanning its text for keywords.
+//
+// NodeTypes are NAMED node kinds — if_statement, for_statement, a switch's
+// case clause, and so on — each occurrence anywhere in the entity's subtree
+// (except inside a nested declaration, which is scored on its own) adds one.
+// A chained "else if" does not need its own entry: every grammar checked here
+// re-emits it as another if node nested in the else branch, so counting the
+// if kind already counts each link in the chain.
+//
+// Operators are ANONYMOUS token kinds — the literal text of a short-circuit
+// operator, e.g. "&&" and "||" — matched wherever that token appears as a
+// leaf, however deep. Only list an operator here when the grammar has no
+// named node of its own for the boolean combination (Go, C, Java, JavaScript,
+// TypeScript, Rust, Ruby, PHP all spell && / || as bare tokens). A grammar
+// that already wraps && / || in a named node — Kotlin's conjunction_expression
+// and disjunction_expression, Swift's, Dart's logical_and_expression and
+// logical_or_expression — belongs in NodeTypes instead: listing it in both
+// would count the same operator twice.
+// HeadCalls covers grammars where every control form — if, when, cond, case —
+// parses as the SAME node kind, distinguished only by the text of its own
+// first named child: Clojure's `(if ...)`/`(when ...)`/`(cond ...)` are all a
+// bare list_lit whose first named child is a sym_lit reading "if"/"when"/
+// "cond", and Elixir's `if`/`case`/`cond`/`for` are all a call whose first
+// named child is an identifier reading the macro's name. NodeTypes cannot
+// express this — it counts a kind on sight, with no way to ask what its
+// child says — so this is a second, narrower check: NodeType names the
+// wrapping kind, and a match on the child's own text is what actually counts
+// as a branch.
+type HeadCallConfig struct {
+	NodeType string   `yaml:"node_type"`
+	Names    []string `yaml:"names"`
+
+	// PairNames and SubjectPairNames count once per CLAUSE instead of once
+	// per form, for head names whose clauses are plain alternating children
+	// rather than a node of their own — Clojure's `(cond t1 r1 t2 r2 ...)`
+	// and `(case x t1 r1 t2 r2 ... default)`. Every other language checked
+	// here has a real per-clause node (switch_case, case_when_part_statement,
+	// ...) and belongs in NodeTypes instead; this exists because Clojure's
+	// grammar does not have one.
+	//
+	// PairNames counts floor(n/2) — cond has no subject, so every child
+	// after the head is part of a test/result pair.
+	//
+	// SubjectPairNames counts floor((n-1)/2) — case's first child after the
+	// head is the value being matched, not a clause, and integer division
+	// already drops a trailing default with no test of its own; there is
+	// nothing left to subtract for it.
+	PairNames        []string `yaml:"pair_names,omitempty"`
+	SubjectPairNames []string `yaml:"subject_pair_names,omitempty"`
+}
+
+type ComplexityConfig struct {
+	NodeTypes []string        `yaml:"node_types,omitempty"`
+	Operators []string        `yaml:"operators,omitempty"`
+	HeadCalls *HeadCallConfig `yaml:"head_calls,omitempty"`
+}
+
+// EmbeddedBlock declares a region of a file written in a different language.
+//
+// A single-file component is several languages in one file, and the outer grammar
+// does not look inside: tree-sitter-vue, tree-sitter-svelte and tree-sitter-html all
+// hand the body of <script> and <style> over as a single `raw_text` node. The
+// configuration is the LANGUAGE's, not the engine's — the same reasoning as
+// context_types and exports.
+//
+// The selector is a TREE-SITTER PATTERN, the same language every `queries[].pattern`
+// is written in, and it is the only selector: the `<script>` of a Vue component and
+// the `<execute>` of some project's XML are the same question — "which node is this
+// block" — and only a query answers it generally. A node kind cannot say "this
+// element and not its siblings", which is what an XML needs, and it brings `#eq?`,
+// `#match?` with regex, sibling anchors and nesting for free.
+//
+// Because the pattern also LOCATES the language value, no attribute node kind has to
+// be hardcoded or configured: tree-sitter-xml writes an attribute as
+// `Attribute` → `Name` / `AttValue` and the HTML-shaped grammars as
+// `attribute` → `attribute_name` / `attribute_value`, and a pattern expresses either.
+//
+// An OPTIONAL selector attribute — `<script lang="ts">` and `<script>` are both
+// valid — is expressed as two blocks, the specific one first. The first block whose
+// pattern matches a given body node claims it, so the generic one acts as the
+// fallback. The claim is taken at the match, before the language resolves, which is
+// what makes `lang="scss"` skip instead of falling through to the generic block.
+type EmbeddedBlock struct {
+	// Pattern is the tree-sitter query that selects the blocks.
+	Pattern string `yaml:"pattern"`
+	// TextCapture names the capture in Pattern whose node's text IS the body.
+	TextCapture string `yaml:"text_capture"`
+	// LangCapture names the capture holding the value that selects the language.
+	// Absent means the block is always Default.
+	LangCapture string `yaml:"lang_capture,omitempty"`
+	// Default is the language of a matched body when LangCapture is not declared or
+	// resolves empty.
+	Default string `yaml:"default,omitempty"`
+	// Languages maps a LangCapture value to a Graphit language name. It is an
+	// ALLOWLIST: a value that is not a key here is skipped in silence — `lang="scss"`
+	// has no grammar, and a warning per block would be a log line per file in a
+	// project full of them. Keys are lowercased at load time.
+	Languages map[string]string `yaml:"languages,omitempty"`
+
+	// HostLabels names the graph labels that may be the SOURCE of what this block
+	// contains — the unit this block belongs to, in the host format's own terms.
+	//
+	// Absent, the host is the innermost entity that strictly contains the block (see
+	// hostEntityAt), which is right when the block is the CONTENT of something: the
+	// element carrying a value is a wrapper, and the unit is an ancestor of it.
+	//
+	// It is wrong when the block is an ATTRIBUTE of the very element that names the
+	// unit — an XML-exported screen's `<Trigger Name="POST-QUERY" TriggerText="…"/>`. There the unit
+	// and the block occupy the same line, so "strictly contains" excludes exactly the
+	// entity that should answer, and every enclosing entity is coarser than it. Naming
+	// the labels says which entities are units, so the choice stops depending on
+	// whether a span happens to be wider.
+	//
+	// Declared, containment is still required but no longer has to be strict, and only
+	// these labels are considered. Innermost still wins among them, so a nested unit
+	// beats the one around it.
+	HostLabels []string `yaml:"host_labels,omitempty"`
+
+	// WrapPrefix and WrapSuffix make a FRAGMENT into something its language can parse.
+	//
+	// A block does not have to hold a compilation unit. A screen's program unit carries
+	// `PROCEDURE x(…) IS … END;` — which in PL/SQL is a DECLARATION, valid only inside a
+	// declarative section, so on its own it parses as nothing. Measured: that body
+	// yielded zero entities, zero calls and zero DML, and the only thing it did produce
+	// was the word `PROCEDURE` as a call target. Wrapped in `DECLARE … BEGIN NULL; END;`
+	// the same body yields the procedure and the calls inside it.
+	//
+	// Which wrapping a fragment needs is knowledge of the POSITION, not of the language:
+	// the same PL/SQL in a `.sql` file arrives with `CREATE OR REPLACE` in front of it
+	// and needs nothing. That is why this is declared on the block, by the grammar that
+	// knows what that attribute holds, and not per language.
+	//
+	// NEITHER MAY CONTAIN A LINE BREAK, and a declaration that does is dropped at load
+	// time. Same rule as text_normalizers, same reason: every line the sub-parse reports
+	// is shifted by the block's start row, so changing the newline count moves every
+	// entity after it. A prefix on the first line and a suffix after the last cost
+	// columns, which nothing records, and not lines.
+	WrapPrefix string `yaml:"wrap_prefix,omitempty"`
+	WrapSuffix string `yaml:"wrap_suffix,omitempty"`
+
+	// Normalize names one of the host language's `text_normalizers` to run on the
+	// body before the sub-parse.
+	//
+	// A block embedded in XML is almost never plain text: `<` and `&` are markup, so
+	// `WHERE qt > 0` reaches the file as `qt &gt; 0` and the host grammar splits the
+	// content into CharData / EntityRef / CharData. Capturing the whole `content`
+	// keeps the body intact; the normalizer makes it parseable again.
+	//
+	// It names a normalizer rather than declaring one, and the ENGINE knows no
+	// escaping scheme at all: how a language escapes its text is a fact about that
+	// language, so it lives in that language's YAML — the same reasoning as
+	// context_types and embedded itself.
+	//
+	// Opt-in per block, because escaping is a property of the position, not of the
+	// language alone: an XML element's content is escaped, but an HTML `<script>`'s
+	// raw_text is not, even though both hosts have entities.
+	Normalize string `yaml:"normalize,omitempty"`
+}
+
+// TextNormalizer is a declared, named way to turn a language's escaped text back
+// into the text it represents.
+//
+// The engine applies it and knows nothing else: there is no built-in entity table,
+// no "xml mode". A grammar that escapes differently — or a future one nobody has
+// met — declares its own and an embedded block names it.
+//
+// THE INVARIANT the engine does enforce: a normalizer may not change the NUMBER OF
+// NEWLINES. Every line the sub-parse reports is shifted by the block's start row in
+// the host file, so a replacement that produced a line break would move every entity
+// after it inside the block — trading a visible syntax error for a wrong line
+// number, which is the failure mode this whole module exists to avoid. A pair whose
+// replacement contains a line break is dropped at load time; a numeric reference
+// that would decode to one is left as written.
+type TextNormalizer struct {
+	// Replace maps literal text to its replacement, applied left to right.
+	Replace map[string]string `yaml:"replace,omitempty"`
+	// NumericCharRefs decodes `&#62;` and `&#x3E;` — the open-ended half of the same
+	// scheme, which a fixed table cannot express.
+	NumericCharRefs bool `yaml:"numeric_char_refs,omitempty"`
 }
 
 // ExportConfig defines how the engine determines export/visibility for a language.
@@ -58,101 +321,164 @@ type ExternalQueryDef struct {
 	NameCapture  string `yaml:"name_capture,omitempty"`
 	Type         string `yaml:"type,omitempty"`          // "entity" (default) or "relation"
 	RelationType string `yaml:"relation_type,omitempty"` // e.g. CALLS, INHERITS, READS_FIELD
+
+	// ValueCapture names the capture holding the value that belongs to the
+	// entity named by NameCapture, and ValueLabel the node table that value
+	// lands in.
+	//
+	// Data formats are key/value languages, and a key on its own is half the
+	// content: an XML attribute node named "env" says nothing about "prod".
+	// Storing the value only as a property does not help either — the search
+	// index reads name and docstring, never value — so the value becomes a node
+	// in its own right, named after itself, CONTAINed by the key. It is also
+	// written to the key's `value` property so `RETURN n.name, n.value` works
+	// without a traversal.
+	ValueCapture string `yaml:"value_capture,omitempty"`
+	ValueLabel   string `yaml:"value_label,omitempty"`
+
+	// NameReject is a regular expression the captured NAME must NOT match. A match is
+	// dropped: no entity, no edge, nothing recorded.
+	//
+	// It exists because a capture position is not a guarantee about what lands in it.
+	// The case that forced it: PL/SQL's `call_statement` is
+	// `CALL? routine_name function_argument?` with BOTH optionals allowed absent, so a
+	// bare identifier in statement position IS a call — and `routine_name` resolves
+	// through `regular_id`, whose `non_reserved_keywords_pre12c` list holds 1753 words
+	// including BEGIN, DECLARE, FUNCTION, IF, PROCEDURE and RETURN. The parse is CLEAN,
+	// with no error recovery involved: by the grammar's own rules, `IF` in statement
+	// position is a call to something named IF. Measured on a real corpus: 25 thousand
+	// such edges, and 9 thousand of them resolved onto a real database trigger whose
+	// name is the quoted identifier "BEGIN".
+	//
+	// Why it belongs in the grammar and not in the engine: which words can never be a
+	// name is a fact about the LANGUAGE. A list in Go would answer for languages the
+	// binary has never seen, and answer wrongly — `end` is a keyword in PL/SQL and a
+	// perfectly good function name in Ruby. Same reasoning as comment_types,
+	// declaration_types and target_rules.
+	//
+	// Anchor it. `^(?i)(if|then)$` rejects those two words; `if` unanchored rejects
+	// every name containing them, which is most of a codebase. A pattern that does not
+	// compile is dropped at load time with a warning, because a silently ignored filter
+	// reads like protection and is not.
+	NameReject string `yaml:"name_reject,omitempty"`
+
+	// SpanCapture names the capture whose node DELIMITS the entity, when the
+	// entity is wider than the declaration its name sits in.
+	//
+	// Absent, an entity spans from the name node to the end of that node's PARENT,
+	// which is right for a language where the name is written inside the thing it
+	// names: a Go `func` declaration, a class, a procedure body. It is wrong for a
+	// data format, where the name is inside the START TAG — `(STag (Name) @name)`
+	// makes every XML Element span one line, ending before its own content begins.
+	//
+	// What that costs is not cosmetic. An embedded block is attributed to the
+	// innermost entity CONTAINING it (see hostEntityAt), so a grammar whose
+	// entities end at their start tag has no host to offer: the SQL inside a
+	// configuration element could only ever be attributed to the file. And the
+	// unit worth attributing to is frequently named by a CHILD that appears AFTER
+	// the block — a flow's `<name>` written past the `<config>` that holds the
+	// statement — so neither end of the unit is derivable from the name's position.
+	// Naming the capture states the extent the pattern already matched.
+	//
+	// It decides the LINE RANGE and nothing else. The export verdict reads the
+	// declaration's own text and complexity is scored over the declaration's own
+	// subtree; both stay on the name's parent, because widening them is a separate
+	// question that no grammar has asked.
+	SpanCapture string `yaml:"span_capture,omitempty"`
+
+	// NameIsData says this entity's NAME is a data value rather than an identifier, so
+	// it is normalised the way a value is: matched surrounding quotes come off, and
+	// blank, multi-line or over-long text is dropped instead of indexed as a name.
+	//
+	// A data format needs it because an attribute value IS quoted at the source, and an
+	// entity whose name keeps its delimiters answers no query anyone writes —
+	// `WHERE n.name = 'POST-QUERY'` does not match `"POST-QUERY"` — and resolves against
+	// no reference captured from an identifier.
+	//
+	// It has to be DECLARED rather than inferred from the captured node, because a
+	// quoted literal deliberately does not collapse into the identifier of the same
+	// spelling: `:prop="foo"` binds the variable `foo` and `:prop='"foo"'` passes the
+	// string, and unquoting the second would index it as a reference to the first.
+	// A query that declares `value_capture` or `parent_capture` is already describing
+	// data and needs nothing extra.
+	NameIsData bool `yaml:"name_is_data,omitempty"`
+
+	// ParentCapture names the capture holding the enclosing entity's name, and
+	// ParentLabel the node table that entity lives in. Both are needed because
+	// context_types cannot express these grammars: it walks up the tree and
+	// reads the ancestor's `name` field, and tree-sitter-xml `element`,
+	// tree-sitter-json `pair` and tree-sitter-html `start_tag` have no field by
+	// that name. Naming the capture states the containment the pattern already
+	// matched instead of re-deriving it.
+	ParentCapture string `yaml:"parent_capture,omitempty"`
+	ParentLabel   string `yaml:"parent_label,omitempty"`
+
+	// TargetLabels names the graph labels the target of this relation may resolve
+	// to. A relation query captures its target by NAME — the callee of a call, the
+	// table of a SELECT — and the name alone does not say what kind of thing it is.
+	//
+	// Absent, the target may resolve to any label THIS grammar declares, which is
+	// the default that makes a new grammar work with nothing but its own yaml.
+	// Narrow it when the language distinguishes: a Go call reaches a Function or a
+	// Method, never a Parameter that happens to share the name.
+	//
+	// Ambiguity is judged inside this set, so narrowing also resolves names that a
+	// wider set would reject: with `[Function, Method]`, a call to `Rule` still
+	// resolves when the only other `Rule` is a Struct.
+	//
+	// Unioned with the language-level target_rules and with every other query of the
+	// same relation type — see ExternalQueryFile.TargetRules for why the rule cannot
+	// be per query. Use target_rules for the language's default and this for a
+	// grammar that declares nothing at the language level.
+	TargetLabels []string `yaml:"target_labels,omitempty"`
+
+	// QualifierCapture names what a captured target belongs to, so the target is
+	// resolved as `QUALIFIER.NAME` instead of by the bare name.
+	//
+	// It exists because a bare name is not an identity when the language allows the
+	// same one in many scopes. A column is the case that forces it: `ORDER_ID` lives
+	// in dozens of tables, so `UPDATE PEDIDO SET ORDER_ID = …` captured as `ORDER_ID`
+	// either resolves to nothing (the engine refuses to pick one of many candidates,
+	// correctly) or, worse, lands on a single shared node that then answers "who
+	// writes this column" with every table's writers at once.
+	//
+	// The qualifier is almost never a descendant of the captured node — the table of
+	// an UPDATE is a SIBLING subtree of its SET clause — so the path is anchored at an
+	// ANCESTOR: the first segment names the enclosing rule to climb to, and the rest
+	// walks down from there. `update_statement/general_table_ref` reads as "from the
+	// update statement around me, take the table".
+	//
+	// Qualifying also makes the unresolved case safe: a stub named `PEDIDO.ORDER_ID`
+	// records one missing column of one table, where a stub named `ORDER_ID` silently
+	// merges every table's.
+	QualifierCapture string `yaml:"qualifier_capture,omitempty"`
+
+	// TargetFallback says what the target becomes when the name resolves to nothing
+	// here — a call into a dependency, a table whose DDL is not in the corpus.
+	//
+	//	stub          keep a placeholder node named after the target (the default).
+	//	              It records "something outside this corpus is used here", which
+	//	              is always true and never invents a relationship.
+	//	file          point at the file that holds the reference. For a relation
+	//	              whose target is only meaningful as a declaration — a comment
+	//	              documenting something, a url() — the file is the honest answer.
+	//	<Label>       a stub carrying that label, for a relation whose target is a
+	//	              known kind of thing even when undeclared: `SELECT ... FROM
+	//	              PEDIDO` depends on a table whether or not its DDL is indexed.
+	//
+	// This is why the engine no longer hardcodes `Table`: it was the fallback for
+	// EVERY unresolved reference, which turned Go methods and .go filenames into
+	// 1637 "tables" in a repository with no database at all.
+	TargetFallback string `yaml:"target_fallback,omitempty"`
 }
 
-// ---------------------------------------------------------------------------
-// Framework definitions
-// ---------------------------------------------------------------------------
-
-// FrameworkFile represents a YAML file with framework detection rules
-// and entry point scoring overrides. Files are loaded from .graphit/ast/frameworks/.
-type FrameworkFile struct {
-	Framework string   `yaml:"framework"`
-	Languages []string `yaml:"languages,omitempty"`
-
-	DecoratorDetection []DecoratorRule   `yaml:"decorator_detection,omitempty"`
-	HeritageDetection  []HeritageRule    `yaml:"heritage_detection,omitempty"`
-	ImportDetection    []ImportRule      `yaml:"import_detection,omitempty"`
-	EntryPoints        *EntryPointConfig `yaml:"entry_points,omitempty"`
+// TargetRuleDecl is a language-level resolution rule for one relation type.
+type TargetRuleDecl struct {
+	Labels   []string `yaml:"labels,omitempty"`
+	Fallback string   `yaml:"fallback,omitempty"`
 }
 
-// DecoratorRule maps a decorator name to a framework category.
-type DecoratorRule struct {
-	Name     string `yaml:"name"`
-	Category string `yaml:"category"`
-	// FrameworkName overrides the parent FrameworkFile.Framework name.
-	FrameworkName string `yaml:"framework,omitempty"`
-}
-
-// HeritageRule maps a parent class/interface name to a framework category.
-type HeritageRule struct {
-	Parent   string `yaml:"parent"`
-	Category string `yaml:"category"`
-	// FrameworkName overrides the parent FrameworkFile.Framework name.
-	FrameworkName string `yaml:"framework,omitempty"`
-}
-
-// ImportRule matches import paths to detect framework usage.
-type ImportRule struct {
-	Pattern  string `yaml:"pattern"`
-	Match    string `yaml:"match"`
-	Category string `yaml:"category"`
-	// FrameworkName overrides the parent FrameworkFile.Framework name.
-	FrameworkName string `yaml:"framework,omitempty"`
-}
-
-// EntryPointConfig defines entry point scoring rules for a framework.
-type EntryPointConfig struct {
-	// Name-based scoring (glob patterns: "main", "Test*", "*Handler")
-	Names []NameScoreRule `yaml:"names,omitempty"`
-	// Decorator-based scoring
-	Decorators []DecoratorScoreRule `yaml:"decorators,omitempty"`
-	// Bonus for exported functions
-	ExportedBonus int `yaml:"exported_bonus,omitempty"`
-	// Maximum score cap
-	MaxScore int `yaml:"max_score,omitempty"`
-}
-
-// NameScoreRule scores functions by name pattern.
-type NameScoreRule struct {
-	Pattern string `yaml:"pattern"`
-	Score   int    `yaml:"score"`
-}
-
-// DecoratorScoreRule scores functions by decorator name.
-type DecoratorScoreRule struct {
-	Name  string `yaml:"name"`
-	Score int    `yaml:"score"`
-}
-
-// ---------------------------------------------------------------------------
-// Ecosystem definitions
-// ---------------------------------------------------------------------------
-
-// EcosystemFile represents the ecosystems.yaml configuration.
-type EcosystemFile struct {
-	ConfigFiles []EcosystemEntry `yaml:"config_files"`
-}
-
-// EcosystemEntry maps a config filename to a language and ecosystem.
-type EcosystemEntry struct {
-	Filename  string `yaml:"filename"`
-	Language  string `yaml:"language"`
-	Ecosystem string `yaml:"ecosystem"`
-	Glob      bool   `yaml:"glob,omitempty"`
-	// Extract allows extracting metadata from file content.
-	Extract []EcosystemExtract `yaml:"extract,omitempty"`
-}
-
-// EcosystemExtract defines a field to extract from a config file.
-type EcosystemExtract struct {
-	Field string `yaml:"field"` // JSON field path
-	Store string `yaml:"store"` // key to store in detected map
-}
-
-// ---------------------------------------------------------------------------
 // Directory paths
-// ---------------------------------------------------------------------------
 
 // userASTDir returns the user-editable global AST directory: ~/.graphit/ast/
 func userASTDir() string {
@@ -172,11 +498,6 @@ func runtimeASTDir() string {
 	return filepath.Join(d, "ast")
 }
 
-// projectASTDir returns the project-level AST directory.
-func projectASTDir(projectDir string) string {
-	return filepath.Join(projectDir, brand.DotDir(), "ast")
-}
-
 func userQueriesDir() string {
 	d := userASTDir()
 	if d == "" {
@@ -193,33 +514,28 @@ func runtimeQueriesDir() string {
 	return filepath.Join(d, "queries")
 }
 
+// projectQueriesDir returns the project's own queries directory: ast.queries_dir
+// resolved against the project root, and .graphit/ast/queries when the key says
+// nothing.
+//
+// It reads the project lockfile, so it is not free. Nothing on the per-file path
+// may call it directly — queryDirState.get evaluates it behind the same rate
+// limit as the directory signature, which is also what makes a config change
+// take effect on a running daemon without a restart.
 func projectQueriesDir(projectDir string) string {
-	return filepath.Join(projectASTDir(projectDir), "queries")
-}
-
-func userFrameworksDir() string {
-	d := userASTDir()
-	if d == "" {
+	if projectDir == "" {
 		return ""
 	}
-	return filepath.Join(d, "frameworks")
+	rel := config.ResolveASTQueriesDir(nil, config.LoadProjectConfig(projectDir))
+	return filepath.Join(projectDir, rel)
 }
 
-func runtimeFrameworksDir() string {
-	d := runtimeASTDir()
-	if d == "" {
-		return ""
-	}
-	return filepath.Join(d, "frameworks")
+// ProjectQueriesDir is projectQueriesDir for callers outside this package —
+// the Hub, which packages a project's grammar files into a language artifact
+// and has to look where that project actually keeps them.
+func ProjectQueriesDir(projectDir string) string {
+	return projectQueriesDir(projectDir)
 }
-
-func projectFrameworksDir(projectDir string) string {
-	return filepath.Join(projectASTDir(projectDir), "frameworks")
-}
-
-// ---------------------------------------------------------------------------
-// Loading
-// ---------------------------------------------------------------------------
 
 func loadQueriesFromDir(dir string) ([]ExternalQueryFile, error) {
 	entries, err := os.ReadDir(dir)
@@ -282,9 +598,54 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 		if q.NameCapture == "" {
 			q.NameCapture = "name"
 		}
+		// A value or parent capture without a label has nowhere to write to: the
+		// entity would fall back to the data key as its label and silently join
+		// the key's node table. Drop the half-declaration rather than guess.
+		if q.ValueCapture != "" && q.ValueLabel == "" {
+			slog.Warn("ignore value_capture: missing 'value_label'",
+				"path", sourcePath, "index", i, "data_key", q.DataKey)
+			q.ValueCapture = ""
+		}
+		if q.ParentCapture != "" && q.ParentLabel == "" {
+			slog.Warn("ignore parent_capture: missing 'parent_label'",
+				"path", sourcePath, "index", i, "data_key", q.DataKey)
+			q.ParentCapture = ""
+		}
+		// A filter that does not compile is worse than no filter: it reads like
+		// protection and lets everything through. Dropped here, once, instead of
+		// failing per file on the parse path.
+		if q.NameReject != "" {
+			if _, err := regexp.Compile(q.NameReject); err != nil {
+				slog.Warn("ignore name_reject: pattern does not compile",
+					"path", sourcePath, "index", i, "data_key", q.DataKey,
+					"name_reject", q.NameReject, "error", err)
+				q.NameReject = ""
+			}
+		}
+		// A relation query produces edges, not nodes — processRelations deletes
+		// its entities — so a value node would have no key to hang off.
+		if q.ValueCapture != "" && q.Type == "relation" {
+			slog.Warn("ignore value_capture: not supported on relation queries",
+				"path", sourcePath, "index", i, "data_key", q.DataKey)
+			q.ValueCapture = ""
+		}
 		valid = append(valid, q)
 	}
 	qf.Queries = valid
+	// Written BACK, not just used to validate: the engine reads these at parse time,
+	// so a declaration that survived only in the raw map would defeat the newline
+	// invariant exactly where it matters.
+	normalizers := validTextNormalizers(qf.TextNormalizers, sourcePath)
+	if len(normalizers) == 0 {
+		qf.TextNormalizers = nil
+	} else {
+		clean := make(map[string]TextNormalizer, len(normalizers))
+		for name, n := range normalizers {
+			clean[name] = *n
+		}
+		qf.TextNormalizers = clean
+	}
+	qf.Embedded = validEmbeddedBlocks(qf.Embedded, normalizers, sourcePath)
 
 	if len(qf.Queries) == 0 && !hasLangConfig(&qf) {
 		return qf, false
@@ -293,9 +654,145 @@ func parseQueryFile(data []byte, sourcePath string) (ExternalQueryFile, bool) {
 	return qf, true
 }
 
-// LoadExternalQueries scans .graphit/ast/queries/*.yaml in the given project
-// directory and returns all valid external query files. This is the project-level
-// loader. For the full resolution chain, use resolveQueries.
+// validTextNormalizers keeps only the declarations that cannot break the line
+// offset, and returns them keyed for lookup.
+//
+// The rule it enforces is the one the engine cannot recover from: a replacement
+// that introduces a line break would shift every entity after it inside the block.
+// Dropping the pair at load time is the only place that check can be cheap and
+// total — at parse time it would be one scan per body.
+func validTextNormalizers(decl map[string]TextNormalizer, sourcePath string) map[string]*TextNormalizer {
+	if len(decl) == 0 {
+		return nil
+	}
+	out := make(map[string]*TextNormalizer, len(decl))
+	for name, n := range decl {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			slog.Warn("skip text_normalizer: blank name", "path", sourcePath)
+			continue
+		}
+		clean := TextNormalizer{NumericCharRefs: n.NumericCharRefs}
+		for from, to := range n.Replace {
+			if from == "" {
+				slog.Warn("ignore text_normalizer pair: blank key",
+					"path", sourcePath, "normalizer", name)
+				continue
+			}
+			if strings.ContainsAny(to, "\n\r") {
+				slog.Warn("ignore text_normalizer pair: replacement contains a line break, which would shift every line after it",
+					"path", sourcePath, "normalizer", name, "from", from)
+				continue
+			}
+			if clean.Replace == nil {
+				clean.Replace = make(map[string]string, len(n.Replace))
+			}
+			clean.Replace[from] = to
+		}
+		if len(clean.Replace) == 0 && !clean.NumericCharRefs {
+			slog.Warn("skip text_normalizer: nothing to do",
+				"path", sourcePath, "normalizer", name)
+			continue
+		}
+		c := clean
+		out[name] = &c
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// validEmbeddedBlocks drops the embedded declarations that could never fire.
+//
+// This config fails OPEN: a pattern that does not compile, or a capture that is not
+// in it, selects nothing in silence — exactly like a broken `queries[].pattern`. A
+// half-written block is therefore rejected here rather than carried as a promise the
+// engine cannot keep, which is the lesson parsePathSegment taught, where a malformed
+// segment degraded to the WRONG node instead of to no node.
+//
+// What this cannot check is whether the pattern compiles: the grammar is not loaded
+// at this point. TestEveryShippedEmbeddedPatternCompiles does that for the files we
+// ship, and the engine warns once when a pattern fails to compile at parse time.
+func validEmbeddedBlocks(blocks []EmbeddedBlock, normalizers map[string]*TextNormalizer, sourcePath string) []EmbeddedBlock {
+	if len(blocks) == 0 {
+		return nil
+	}
+	var valid []EmbeddedBlock
+	for i, blk := range blocks {
+		blk.Pattern = strings.TrimSpace(blk.Pattern)
+		blk.TextCapture = strings.TrimSpace(strings.TrimPrefix(blk.TextCapture, "@"))
+		blk.LangCapture = strings.TrimSpace(strings.TrimPrefix(blk.LangCapture, "@"))
+		blk.Default = strings.TrimSpace(blk.Default)
+
+		if blk.Pattern == "" {
+			slog.Warn("skip embedded block: missing 'pattern'", "path", sourcePath, "index", i)
+			continue
+		}
+		if blk.TextCapture == "" {
+			slog.Warn("skip embedded block: missing 'text_capture', so no body can be found",
+				"path", sourcePath, "index", i)
+			continue
+		}
+		// With no capture to read, `languages` is a table nothing indexes into.
+		if blk.LangCapture == "" && blk.Languages != nil {
+			slog.Warn("ignore embedded languages: missing 'lang_capture'",
+				"path", sourcePath, "index", i)
+			blk.Languages = nil
+		}
+		// An EXPLICIT `languages: {}` is a real declaration, not an omission: it says
+		// "match these bodies, claim them, and map none of their values to a
+		// language". That is exactly how a `<style lang="...">` block refuses every
+		// preprocessor — the claim is what stops the generic block behind it from
+		// picking the body up and parsing SCSS as CSS. YAML distinguishes `{}` from
+		// absent, so the engine can too.
+		if blk.Default == "" && blk.Languages == nil {
+			slog.Warn("skip embedded block: no 'default' and no 'languages', so no language can ever resolve",
+				"path", sourcePath, "index", i, "pattern", blk.Pattern)
+			continue
+		}
+		// The wrapping may not change the NUMBER OF LINES — see EmbeddedBlock.WrapPrefix.
+		// Dropped here rather than honoured, because a wrapping that shifts lines trades
+		// a syntax error the sub-parse would report for wrong line numbers it would not.
+		if strings.ContainsAny(blk.WrapPrefix, "\n\r") ||
+			strings.ContainsAny(blk.WrapSuffix, "\n\r") {
+			slog.Warn("ignore embedded wrap: prefix or suffix contains a line break, "+
+				"which would shift every line the sub-parse reports",
+				"path", sourcePath, "index", i, "pattern", blk.Pattern)
+			blk.WrapPrefix, blk.WrapSuffix = "", ""
+		}
+		blk.Normalize = strings.TrimSpace(blk.Normalize)
+		if blk.Normalize != "" && normalizers[blk.Normalize] == nil {
+			// A normalizer that does not exist is a body that goes through
+			// untouched, which for an escaped body means a truncated sub-parse.
+			slog.Warn("ignore embedded normalize: no such text_normalizer in this language",
+				"path", sourcePath, "index", i, "normalize", blk.Normalize)
+			blk.Normalize = ""
+		}
+		if len(blk.Languages) > 0 {
+			// Lowercased once here rather than at every lookup: `lang="TS"` and
+			// `lang="ts"` are the same block.
+			lc := make(map[string]string, len(blk.Languages))
+			for k, v := range blk.Languages {
+				k, v = strings.ToLower(strings.TrimSpace(k)), strings.TrimSpace(v)
+				if k == "" || v == "" {
+					slog.Warn("ignore embedded language mapping: blank key or value",
+						"path", sourcePath, "index", i)
+					continue
+				}
+				lc[k] = v
+			}
+			blk.Languages = lc
+		}
+		valid = append(valid, blk)
+	}
+	return valid
+}
+
+// LoadExternalQueries scans the project's queries directory — ast.queries_dir,
+// by default .graphit/ast/queries — and returns all valid external query files.
+// This is the project-level loader. For the full resolution chain, use
+// resolveQueriesForLang.
 func LoadExternalQueries(projectDir string) ([]ExternalQueryFile, error) {
 	return loadQueriesFromDir(projectQueriesDir(projectDir))
 }
@@ -320,13 +817,7 @@ func LoadRuntimeQueries() ([]ExternalQueryFile, error) {
 	return loadQueriesFromDir(dir)
 }
 
-// ---------------------------------------------------------------------------
 // Caching & Resolution
-// ---------------------------------------------------------------------------
-
-// externalQueryCache caches loaded external queries per project directory
-// to avoid re-reading YAML files on every parse call.
-var externalQueryCache sync.Map // map[string][]ExternalQueryFile
 
 // mergedQueryCache caches the merged queries per (projectDir, lang, ext) key.
 var mergedQueryCache sync.Map // map[string][]tsQueryDef
@@ -338,6 +829,69 @@ var compiledQueryCache sync.Map // map[string][]compiledQueryEntry
 type compiledQueryEntry struct {
 	Def   tsQueryDef
 	Query *sitter.Query
+	// Capture indices for Def's name, value and parent captures, resolved once
+	// at compile time; -1 when the pattern has no such capture. The executor
+	// compares these against QueryCapture.Index, which is a uint32 read —
+	// resolving the names per match would be a string compare per capture on
+	// the hot path.
+	NameIdx   int
+	ValueIdx  int
+	ParentIdx int
+	// SpanIdx is the capture whose node delimits the entity — see
+	// ExternalQueryDef.SpanCapture.
+	SpanIdx int
+	// QualifierIdx is the capture whose text qualifies the target — see
+	// ExternalQueryDef.QualifierCapture. A tree-sitter pattern is structural and
+	// matches the whole shape at once, so the qualifier is simply another capture
+	// beside the name; the ANTLR backend has to climb to an ancestor for the same
+	// thing because its patterns match one node.
+	QualifierIdx int
+}
+
+// nameRejectCache memoises the compiled `name_reject` expressions.
+//
+// Keyed by the pattern text and shared by both backends: a query is matched once per
+// file, and compiling the same expression per file would cost a regexp compile per
+// query per file. Compiled ONCE here rather than stored on the query, because
+// ExternalQueryDef is converted to tsQueryDef by a positional cast — a field the two
+// do not share breaks that conversion at compile time.
+var nameRejectCache sync.Map // map[string]*regexp.Regexp
+
+// nameRejectMatcher returns the compiled expression for a query's `name_reject`, or nil
+// when the query declares none or the expression does not compile.
+//
+// nil for a broken expression is safe because the load-time validation already dropped
+// it with a warning; this is the second reader of the same field, and it must not turn a
+// bad pattern into a panic on the parse path.
+func nameRejectMatcher(pattern string) *regexp.Regexp {
+	if pattern == "" {
+		return nil
+	}
+	if re, ok := nameRejectCache.Load(pattern); ok {
+		if re == nil {
+			return nil
+		}
+		return re.(*regexp.Regexp)
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		nameRejectCache.Store(pattern, (*regexp.Regexp)(nil))
+		return nil
+	}
+	nameRejectCache.Store(pattern, re)
+	return re
+}
+
+// captureIndex resolves a capture name to its index within a compiled query,
+// returning -1 when the pattern does not use it.
+func captureIndex(q *sitter.Query, name string) int {
+	if name == "" {
+		return -1
+	}
+	if idx, ok := q.CaptureIndexForName(name); ok {
+		return int(idx)
+	}
+	return -1
 }
 
 // Query files used to be read once and kept for the life of the process. That is
@@ -365,7 +919,14 @@ type queryDirState struct {
 // get returns the directory's query files, reloading them when the directory has
 // changed since the last look. It reports whether the contents changed, so the
 // caller can drop whatever it derived from them.
-func (s *queryDirState) get(dir string, load func() ([]ExternalQueryFile, error)) ([]ExternalQueryFile, bool) {
+//
+// The directory arrives as a function, not a string, because the project's one
+// is configurable: resolving it reads the lockfile, and this is called once per
+// file parsed. Evaluating it here — inside the lock, past the rate limit — keeps
+// that read as rare as the signature sweep it feeds, and folding the path into
+// the signature is what makes a change to ast.queries_dir land like an edit to
+// the directory itself.
+func (s *queryDirState) get(dirOf func() string, load func() ([]ExternalQueryFile, error)) ([]ExternalQueryFile, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -375,7 +936,8 @@ func (s *queryDirState) get(dir string, load func() ([]ExternalQueryFile, error)
 	}
 	s.lastCheck = now
 
-	sig := queryDirSignature(dir)
+	dir := dirOf()
+	sig := dir + "\x00" + queryDirSignature(dir)
 	if s.loaded && sig == s.signature {
 		return s.files, false
 	}
@@ -436,7 +998,7 @@ var runtimeQueryState queryDirState
 var userQueryState queryDirState
 
 func loadRuntimeCached() []ExternalQueryFile {
-	files, changed := runtimeQueryState.get(runtimeQueriesDir(), LoadRuntimeQueries)
+	files, changed := runtimeQueryState.get(runtimeQueriesDir, LoadRuntimeQueries)
 	if changed {
 		invalidateDerivedQueryCaches()
 	}
@@ -444,7 +1006,7 @@ func loadRuntimeCached() []ExternalQueryFile {
 }
 
 func loadUserCached() []ExternalQueryFile {
-	files, changed := userQueryState.get(userQueriesDir(), LoadUserQueries)
+	files, changed := userQueryState.get(userQueriesDir, LoadUserQueries)
 	if changed {
 		invalidateDerivedQueryCaches()
 	}
@@ -456,13 +1018,322 @@ var projectQueryStates sync.Map // map[string]*queryDirState
 func loadProjectCached(projectDir string) []ExternalQueryFile {
 	v, _ := projectQueryStates.LoadOrStore(projectDir, &queryDirState{})
 	st := v.(*queryDirState)
-	files, changed := st.get(projectQueriesDir(projectDir), func() ([]ExternalQueryFile, error) {
-		return LoadExternalQueries(projectDir)
-	})
+	files, changed := st.get(
+		func() string { return projectQueriesDir(projectDir) },
+		func() ([]ExternalQueryFile, error) { return LoadExternalQueries(projectDir) },
+	)
 	if changed {
 		invalidateDerivedQueryCaches()
 	}
 	return files
+}
+
+// Folding the levels
+
+// mergesOnto reports whether this file adds to the same language at the level
+// below instead of replacing it: `merge: true`, written explicitly.
+func (qf *ExternalQueryFile) mergesOnto() bool {
+	return qf.Merge
+}
+
+// mergeOnto folds one level of query files onto the level below it, matching by
+// language name, and returns the upper level as it effectively stands.
+//
+// The result is the UPPER level, not the union of the two: which level answers
+// for a language is still resolveQueriesForLang's decision, and a language the
+// upper level says nothing about must stay unanswered here so that decision can
+// fall through to the level below. What merging changes is what the upper
+// level's own files contain.
+//
+// A file that does not ask to merge is returned untouched, and a level in which
+// no file asks to merge is returned as the same slice — the common case costs
+// one pass over a handful of structs and no allocation.
+func mergeOnto(base, over []ExternalQueryFile) []ExternalQueryFile {
+	if len(base) == 0 || len(over) == 0 {
+		return over
+	}
+	merges := false
+	for i := range over {
+		if over[i].mergesOnto() {
+			merges = true
+			break
+		}
+	}
+	if !merges {
+		return over
+	}
+
+	byLang := make(map[string]*ExternalQueryFile, len(base))
+	for i := range base {
+		key := strings.ToLower(base[i].Language)
+		if _, seen := byLang[key]; !seen {
+			byLang[key] = &base[i]
+		}
+	}
+
+	out := make([]ExternalQueryFile, len(over))
+	for i := range over {
+		out[i] = over[i]
+		if !over[i].mergesOnto() {
+			continue
+		}
+		if b := byLang[strings.ToLower(over[i].Language)]; b != nil {
+			out[i] = mergeQueryFile(*b, over[i])
+		}
+	}
+	return out
+}
+
+// mergeQueryFile is what `merge: true` means, field by field. Three rules,
+// because the fields are three different kinds of statement:
+//
+//   - A SCALAR or a LIST is a complete statement about its field: declared, it
+//     replaces the one below; omitted, the one below stands. This is what lets a
+//     partial file inherit `extensions` and `grammar` — the two whose absence
+//     used to break the language rather than leave it alone — and it is also
+//     what lets a project shorten a list, which a union could not express.
+//   - A MAP merges key by key, the upper level winning per key. `context_types`
+//     and `text_normalizers` are catalogues, not statements: adding one entry
+//     should not mean restating forty.
+//   - `queries` merge by `data_key`, and `embedded` by position. See
+//     mergeQueryDefs and mergeEmbedded.
+func mergeQueryFile(base, over ExternalQueryFile) ExternalQueryFile {
+	merged := over
+
+	if len(merged.Extensions) == 0 {
+		merged.Extensions = base.Extensions
+	}
+	if merged.Parser == "" {
+		merged.Parser = base.Parser
+	}
+	if merged.Grammar == "" {
+		merged.Grammar = base.Grammar
+	}
+	if merged.StartRule == "" {
+		merged.StartRule = base.StartRule
+	}
+
+	merged.Queries = mergeQueryDefs(base.Queries, over.Queries)
+
+	if merged.Exports == nil {
+		merged.Exports = base.Exports
+	}
+	if len(merged.SelfKeywords) == 0 {
+		merged.SelfKeywords = base.SelfKeywords
+	}
+	if len(merged.AnonFuncTypes) == 0 {
+		merged.AnonFuncTypes = base.AnonFuncTypes
+	}
+	if len(merged.DeclarationTypes) == 0 {
+		merged.DeclarationTypes = base.DeclarationTypes
+	}
+	if len(merged.CommentTypes) == 0 {
+		merged.CommentTypes = base.CommentTypes
+	}
+	if len(merged.EmbedLabels) == 0 {
+		merged.EmbedLabels = base.EmbedLabels
+	}
+
+	merged.TargetRules = mergeStringKeyed(base.TargetRules, over.TargetRules)
+	merged.ContextTypes = mergeStringKeyed(base.ContextTypes, over.ContextTypes)
+	merged.ContextNamePaths = mergeStringKeyed(base.ContextNamePaths, over.ContextNamePaths)
+	merged.TextNormalizers = mergeStringKeyed(base.TextNormalizers, over.TextNormalizers)
+	merged.Embedded = mergeEmbedded(base.Embedded, over.Embedded)
+	merged.Complexity = mergeComplexity(base.Complexity, over.Complexity)
+
+	return merged
+}
+
+// mergeQueryDefs keeps the queries the upper level did not speak about and lets
+// it replace the ones it did, keyed by `data_key`.
+//
+// The key is the data key rather than the position because position means
+// nothing across two files, and rather than the pattern because replacing a
+// pattern is the whole point. A data key can appear more than once in a file —
+// go.yaml captures `calls` with two patterns — and redeclaring it replaces the
+// whole group: the key names one kind of entity, and half of a definition of
+// "how calls are found" is not a thing a language can have.
+func mergeQueryDefs(base, over []ExternalQueryDef) []ExternalQueryDef {
+	if len(base) == 0 {
+		return over
+	}
+	if len(over) == 0 {
+		return base
+	}
+	redeclared := make(map[string]bool, len(over))
+	for _, q := range over {
+		redeclared[q.DataKey] = true
+	}
+	merged := make([]ExternalQueryDef, 0, len(base)+len(over))
+	for _, q := range base {
+		if !redeclared[q.DataKey] {
+			merged = append(merged, q)
+		}
+	}
+	return append(merged, over...)
+}
+
+// mergeEmbedded puts the upper level's blocks in front of the lower level's.
+//
+// Order is meaning here — the first block whose pattern matches a body claims it
+// — so the level that overrides has to come first, or its `<script lang="ts">`
+// would never be reached past the generic `<script>` it was written to precede.
+// Nothing is dropped: a project adding one block keeps every block the language
+// shipped with, behind its own.
+func mergeEmbedded(base, over []EmbeddedBlock) []EmbeddedBlock {
+	if len(base) == 0 {
+		return over
+	}
+	if len(over) == 0 {
+		return base
+	}
+	merged := make([]EmbeddedBlock, 0, len(base)+len(over))
+	merged = append(merged, over...)
+	return append(merged, base...)
+}
+
+// mergeComplexity applies the same declared-replaces-omitted rule one level
+// down, so `complexity: {node_types: [...]}` restates the node kinds without
+// silently dropping the operators and head calls it said nothing about.
+func mergeComplexity(base, over *ComplexityConfig) *ComplexityConfig {
+	if over == nil {
+		return base
+	}
+	if base == nil {
+		return over
+	}
+	merged := *over
+	if len(merged.NodeTypes) == 0 {
+		merged.NodeTypes = base.NodeTypes
+	}
+	if len(merged.Operators) == 0 {
+		merged.Operators = base.Operators
+	}
+	if merged.HeadCalls == nil {
+		merged.HeadCalls = base.HeadCalls
+	}
+	return &merged
+}
+
+// mergeStringKeyed merges two catalogues key by key, the upper level winning.
+// Neither input is written to: a level's parsed files are shared by every
+// project and every parse.
+func mergeStringKeyed[V any](base, over map[string]V) map[string]V {
+	if len(over) == 0 {
+		return base
+	}
+	if len(base) == 0 {
+		return over
+	}
+	merged := make(map[string]V, len(base)+len(over))
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range over {
+		merged[k] = v
+	}
+	return merged
+}
+
+// overlayByLang is the union of two levels keyed by language, the upper level
+// answering for the languages it declares and the lower one for the rest.
+//
+// This is not what a level IS — see mergeOnto — it is what everything below a
+// level amounts to when that level asks to merge. A project file merging onto
+// "the user level" means merging onto the grammar as it stands beneath it, which
+// for almost every language is the runtime's file, because the user directory is
+// usually empty.
+func overlayByLang(base, over []ExternalQueryFile) []ExternalQueryFile {
+	if len(base) == 0 {
+		return over
+	}
+	if len(over) == 0 {
+		return base
+	}
+	declared := make(map[string]bool, len(over))
+	for i := range over {
+		declared[strings.ToLower(over[i].Language)] = true
+	}
+	// The upper level first, so mergeOnto's first-wins lookup finds it.
+	all := make([]ExternalQueryFile, 0, len(base)+len(over))
+	all = append(all, over...)
+	for i := range base {
+		if !declared[strings.ToLower(base[i].Language)] {
+			all = append(all, base[i])
+		}
+	}
+	return all
+}
+
+// belowProjectCacheKey is the single key belowProjectQueryFiles files its result
+// under. A sync.Map for one entry buys the same clearSyncMap the other derived
+// caches use, rather than a second invalidation path.
+const belowProjectCacheKey = ""
+
+var belowProjectCache sync.Map // map[string][]ExternalQueryFile
+
+// projectEffectiveCache memoizes the project level as it stands after merging,
+// keyed by project directory. The merge itself is cheap; what it is not is free
+// once per file indexed, which is how often the resolution below runs.
+var projectEffectiveCache sync.Map // map[string][]ExternalQueryFile
+
+// userLevelQueryFiles is the user's global directory as it effectively stands:
+// its own files, each merged onto the runtime's file for the same language when
+// it asks to be. Languages the user says nothing about are not in here — that is
+// what makes resolveQueriesForLang fall through to the runtime.
+func userLevelQueryFiles() []ExternalQueryFile {
+	return mergeOnto(loadRuntimeCached(), loadUserCached())
+}
+
+// belowProjectQueryFiles is every language a project inherits, one effective
+// file each: the user level where it speaks, the runtime everywhere else.
+func belowProjectQueryFiles() []ExternalQueryFile {
+	runtimeQ := loadRuntimeCached()
+	userLevel := userLevelQueryFiles()
+	// Loaded FIRST, read after: either load may have noticed a directory change
+	// and dropped this cache, so checking it earlier could hand back a fold of
+	// files that are no longer current.
+	if v, ok := belowProjectCache.Load(belowProjectCacheKey); ok {
+		return v.([]ExternalQueryFile)
+	}
+	inherited := overlayByLang(runtimeQ, userLevel)
+	belowProjectCache.Store(belowProjectCacheKey, inherited)
+	return inherited
+}
+
+// allEffectiveQueryFiles is every language this project can parse, one effective file
+// each: the project's own where it declares one, the user's and the runtime's elsewhere.
+//
+// effectiveProjectQueryFiles is NOT this, and the difference is a trap. That one answers
+// for the project LEVEL, so a project shipping no grammar of its own answers with
+// NOTHING — its callers resolve that by falling through per language. A consumer that
+// needs the whole set at once, as the target rules do, has to overlay the levels itself;
+// asking the project level instead yields zero files and every rule silently degrades to
+// its permissive default.
+func allEffectiveQueryFiles(projectDir string) []ExternalQueryFile {
+	return overlayByLang(belowProjectQueryFiles(), loadProjectCached(projectDir))
+}
+
+// effectiveProjectQueryFiles is the project level as it effectively stands: the
+// project's own files, each merged onto whatever the levels above answer for the
+// same language.
+//
+// Every consumer of project-level files goes through here rather than through
+// loadProjectCached, because a partial file is not a usable language on its own:
+// the extension tables would register it with no extensions and the wrong
+// grammar name, and the language config would come back empty.
+func effectiveProjectQueryFiles(projectDir string) []ExternalQueryFile {
+	if projectDir == "" {
+		return nil
+	}
+	projectQ := loadProjectCached(projectDir)
+	inherited := belowProjectQueryFiles()
+	if v, ok := projectEffectiveCache.Load(projectDir); ok {
+		return v.([]ExternalQueryFile)
+	}
+	merged := mergeOnto(inherited, projectQ)
+	projectEffectiveCache.Store(projectDir, merged)
+	return merged
 }
 
 // invalidateDerivedQueryCaches drops everything computed from query files.
@@ -476,7 +1347,11 @@ func loadProjectCached(projectDir string) []ExternalQueryFile {
 func invalidateDerivedQueryCaches() {
 	clearSyncMap(&mergedQueryCache)
 	clearSyncMap(&compiledQueryCache)
+	clearSyncMap(&embedLabelCache)
 	clearSyncMap(&projectTsExtCache)
+	clearSyncMap(&projectTsLangCache)
+	clearSyncMap(&belowProjectCache)
+	clearSyncMap(&projectEffectiveCache)
 	rebuildExtTables()
 }
 
@@ -507,6 +1382,8 @@ func InvalidateQueryCaches() {
 		return true
 	})
 
+	invalidateGrammarFilters()
+
 	invalidateDerivedQueryCaches()
 }
 
@@ -516,28 +1393,40 @@ func InvalidateQueryCaches() {
 //	project > user global > runtime
 //
 // For each language+extension pair, the highest-priority source that provides
-// queries wins. This is per-language override, not merge.
+// queries answers — and what it answers is that level after folding, so a file
+// declaring `merge: true` carries the level below it rather than replacing it.
+// Without that declaration this is what it always was: the winning level
+// replaces the others outright.
 func resolveQueriesForLang(projectDir, lang, ext string) []ExternalQueryFile {
-	projectQ := loadProjectCached(projectDir)
-	projectMatch := filterByLangExt(projectQ, lang, ext)
-	if len(projectMatch) > 0 {
+	// A language the project disabled resolves to nothing at every level, so a
+	// parse that reached it anyway extracts nothing rather than falling through.
+	filter := grammarFilterFor(projectDir)
+
+	if projectMatch := filter.keepFiles(filterByLangExt(effectiveProjectQueryFiles(projectDir), lang, ext)); len(projectMatch) > 0 {
 		return projectMatch
 	}
 
-	userQ := loadUserCached()
-	userMatch := filterByLangExt(userQ, lang, ext)
-	if len(userMatch) > 0 {
+	if userMatch := filter.keepFiles(filterByLangExt(userLevelQueryFiles(), lang, ext)); len(userMatch) > 0 {
 		return userMatch
 	}
 
-	runtimeQ := loadRuntimeCached()
-	return filterByLangExt(runtimeQ, lang, ext)
+	return filter.keepFiles(filterByLangExt(loadRuntimeCached(), lang, ext))
 }
 
+// filterByLangExt selects the files of one level that answer for a language and
+// extension. A file declaring no extensions answers for any of them.
+//
+// The language is matched case-insensitively, like the extension beside it and
+// like every other place a language name is used as a key: mergeOnto folds by
+// `strings.ToLower(Language)`, and projectTsLangMap and rebuildExtTables key
+// their tables the same way. This used to be the one exact comparison in the
+// chain, which meant a file spelling the language differently from the level it
+// overrides could merge onto that level and then not be selected — two
+// normalizations for one key, and no reason for either to be the odd one out.
 func filterByLangExt(files []ExternalQueryFile, lang, ext string) []ExternalQueryFile {
 	var result []ExternalQueryFile
 	for _, f := range files {
-		if f.Language != lang {
+		if !strings.EqualFold(f.Language, lang) {
 			continue
 		}
 		if len(f.Extensions) > 0 {
@@ -588,7 +1477,15 @@ func mergedQueriesFor(projectDir, lang, ext string, tsLang *sitter.Language) []t
 						"language", lang, "data_key", qd.DataKey, "error", qErr)
 					continue
 				}
-				compiled = append(compiled, compiledQueryEntry{Def: qd, Query: q})
+				compiled = append(compiled, compiledQueryEntry{
+					Def:          qd,
+					Query:        q,
+					NameIdx:      captureIndex(q, qd.NameCapture),
+					ValueIdx:     captureIndex(q, qd.ValueCapture),
+					ParentIdx:    captureIndex(q, qd.ParentCapture),
+					SpanIdx:      captureIndex(q, qd.SpanCapture),
+					QualifierIdx: captureIndex(q, qd.QualifierCapture),
+				})
 			}
 			result = append(result, qd)
 		}
@@ -625,13 +1522,11 @@ func hasLangConfig(qf *ExternalQueryFile) bool {
 		len(qf.AnonFuncTypes) > 0 ||
 		len(qf.DeclarationTypes) > 0 ||
 		len(qf.CommentTypes) > 0 ||
-		qf.EntryPoints != nil ||
-		len(qf.ImportDetection) > 0
+		len(qf.EmbedLabels) > 0 ||
+		len(qf.Embedded) > 0 ||
+		len(qf.TextNormalizers) > 0 ||
+		qf.Complexity != nil
 }
-
-// ---------------------------------------------------------------------------
-// Language Config Resolution
-// ---------------------------------------------------------------------------
 
 func resolvedLangConfigFor(projectDir, lang, ext string) *ExternalQueryFile {
 	resolved := resolveQueriesForLang(projectDir, lang, ext)
@@ -643,195 +1538,57 @@ func resolvedLangConfigFor(projectDir, lang, ext string) *ExternalQueryFile {
 	return nil
 }
 
-// ResolveAllLangConfigs returns all language configurations from every level of the
-// resolution chain. It collects unique language configs, one per language, using the
-// same precedence as queries (project > user > runtime).
-func ResolveAllLangConfigs(projectDir string) []*ExternalQueryFile {
-	seen := make(map[string]bool)
-	var result []*ExternalQueryFile
+var embedLabelCache sync.Map // projectDir|lang -> []string
 
-	sources := [][]ExternalQueryFile{
+// EmbedLabelsForLang answers which graph labels of one language get a vector, in
+// the order that language declared them. See ExternalQueryFile.EmbedLabels.
+//
+// It resolves by language ALONE, with no extension, because its caller is the
+// embedder — which reads entities out of the parse cache, where an entity carries
+// the language that produced it and never the extension of the file it came from.
+// (An entity from an embedded block carries the INNER language, so the <style> of
+// a .vue file is answered for by css.yaml, which is the correct answer and one an
+// extension-keyed lookup would get wrong.)
+//
+// Level precedence is the same as everywhere else — project, then user, then
+// runtime — and the first level that declares the language answers for it.
+func EmbedLabelsForLang(projectDir, lang string) []string {
+	if lang == "" {
+		return nil
+	}
+	cacheKey := projectDir + "|" + strings.ToLower(lang)
+	if cached, ok := embedLabelCache.Load(cacheKey); ok {
+		return cached.([]string)
+	}
+
+	labels := firstDeclaredEmbedLabels(
+		effectiveProjectQueryFiles(projectDir),
+		userLevelQueryFiles(),
 		loadRuntimeCached(),
-		loadUserCached(),
-	}
-	if projectDir != "" {
-		sources = append(sources, loadProjectCached(projectDir))
-	}
+	)(lang)
 
-	for _, files := range sources {
-		for _, f := range files {
-			if f.Language != "" && !seen[f.Language] {
-				seen[f.Language] = true
+	embedLabelCache.Store(cacheKey, labels)
+	return labels
+}
 
-				ext := ""
-				if len(f.Extensions) > 0 {
-					ext = f.Extensions[0]
+// firstDeclaredEmbedLabels returns a lookup that walks the levels in order and
+// stops at the first one whose file for this language declares embed_labels.
+//
+// Stopping at "declares" rather than at "matches the language" is deliberate: a
+// project file that overrides one pattern of a language, and says nothing about
+// embedding, should not turn embedding off for it.
+func firstDeclaredEmbedLabels(levels ...[]ExternalQueryFile) func(string) []string {
+	return func(lang string) []string {
+		for _, files := range levels {
+			for i := range files {
+				if !strings.EqualFold(files[i].Language, lang) {
+					continue
 				}
-				cfg := resolvedLangConfigFor(projectDir, f.Language, ext)
-				if cfg != nil {
-					result = append(result, cfg)
+				if len(files[i].EmbedLabels) > 0 {
+					return append([]string(nil), files[i].EmbedLabels...)
 				}
 			}
 		}
+		return nil
 	}
-
-	return result
-}
-
-// ---------------------------------------------------------------------------
-// Framework Loading
-// ---------------------------------------------------------------------------
-
-func loadFrameworksFromDir(dir string) ([]FrameworkFile, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read frameworks dir: %w", err)
-	}
-
-	var result []FrameworkFile
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if ext != ".yaml" && ext != ".yml" {
-			continue
-		}
-
-		path := filepath.Join(dir, name)
-		data, err := os.ReadFile(path)
-		if err != nil {
-			slog.Warn("skip framework file: read error", "path", path, "error", err)
-			continue
-		}
-
-		var ff FrameworkFile
-		if err := yaml.Unmarshal(data, &ff); err != nil {
-			slog.Warn("skip framework file: YAML parse error", "path", path, "error", err)
-			continue
-		}
-		if ff.Framework == "" {
-			slog.Warn("skip framework file: missing 'framework' field", "path", path)
-			continue
-		}
-		result = append(result, ff)
-	}
-
-	return result, nil
-}
-
-var frameworkCache sync.Map // map[string][]FrameworkFile (projectDir -> frameworks)
-var userFrameworksOnce sync.Once
-var userFrameworksCache []FrameworkFile
-var runtimeFrameworksOnce sync.Once
-var runtimeFrameworksCache []FrameworkFile
-
-func loadRuntimeFrameworksCached() []FrameworkFile {
-	runtimeFrameworksOnce.Do(func() {
-		dir := runtimeFrameworksDir()
-		if dir != "" {
-			ff, err := loadFrameworksFromDir(dir)
-			if err != nil {
-				slog.Warn("runtime framework load error", "error", err)
-			}
-			runtimeFrameworksCache = ff
-		}
-	})
-	return runtimeFrameworksCache
-}
-
-func loadUserFrameworksCached() []FrameworkFile {
-	userFrameworksOnce.Do(func() {
-		dir := userFrameworksDir()
-		if dir != "" {
-			ff, err := loadFrameworksFromDir(dir)
-			if err != nil {
-				slog.Warn("user framework load error", "error", err)
-			}
-			userFrameworksCache = ff
-		}
-	})
-	return userFrameworksCache
-}
-
-func loadProjectFrameworksCached(projectDir string) []FrameworkFile {
-	if cached, ok := frameworkCache.Load(projectDir); ok {
-		return cached.([]FrameworkFile)
-	}
-
-	ff, err := loadFrameworksFromDir(projectFrameworksDir(projectDir))
-	if err != nil {
-		slog.Warn("project framework load error", "dir", projectDir, "error", err)
-		ff = nil
-	}
-
-	frameworkCache.Store(projectDir, ff)
-	return ff
-}
-
-// ResolveFrameworks returns all applicable framework files for a project,
-// merging from all levels. Unlike queries (which use precedence override),
-// frameworks MERGE from all levels — project frameworks extend runtime+user ones.
-func ResolveFrameworks(projectDir string) []FrameworkFile {
-	var all []FrameworkFile
-
-	all = append(all, loadRuntimeFrameworksCached()...)
-
-	all = append(all, loadUserFrameworksCached()...)
-
-	if projectDir != "" {
-		all = append(all, loadProjectFrameworksCached(projectDir)...)
-	}
-
-	return all
-}
-
-// ---------------------------------------------------------------------------
-// Ecosystem Loading
-// ---------------------------------------------------------------------------
-
-func loadEcosystemFile(path string) (*EcosystemFile, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var ef EcosystemFile
-	if err := yaml.Unmarshal(data, &ef); err != nil {
-		return nil, fmt.Errorf("YAML parse error: %w", err)
-	}
-	return &ef, nil
-}
-
-// ResolveEcosystems returns the merged ecosystem entries from all levels.
-// Like frameworks, ecosystems MERGE from all levels.
-func ResolveEcosystems(projectDir string) []EcosystemEntry {
-	var all []EcosystemEntry
-
-	if dir := runtimeASTDir(); dir != "" {
-		if ef, err := loadEcosystemFile(filepath.Join(dir, "ecosystems.yaml")); err == nil && ef != nil {
-			all = append(all, ef.ConfigFiles...)
-		}
-	}
-
-	if dir := userASTDir(); dir != "" {
-		if ef, err := loadEcosystemFile(filepath.Join(dir, "ecosystems.yaml")); err == nil && ef != nil {
-			all = append(all, ef.ConfigFiles...)
-		}
-	}
-
-	if projectDir != "" {
-		if ef, err := loadEcosystemFile(filepath.Join(projectASTDir(projectDir), "ecosystems.yaml")); err == nil && ef != nil {
-			all = append(all, ef.ConfigFiles...)
-		}
-	}
-
-	return all
 }

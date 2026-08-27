@@ -52,9 +52,9 @@ func buildPaths(ide, projectDir string) *ProjectPaths {
 		ide = "antigravity"
 	}
 
-	home, _ := os.UserHomeDir()
-	frameworksDir := filepath.Join(home, brand.DotDir(), "frameworks")
-	resourcesDir := filepath.Join(home, brand.DotDir(), "artifacts")
+	globalDir := brand.GlobalDir()
+	frameworksDir := filepath.Join(globalDir, "frameworks")
+	resourcesDir := filepath.Join(globalDir, "artifacts")
 
 	repoHooksDir := filepath.Join(resolveGitDir(projectDir), "hooks")
 	if hooksPath := gitConfig(projectDir, "core.hooksPath"); hooksPath != "" {
@@ -78,7 +78,7 @@ func buildPaths(ide, projectDir string) *ProjectPaths {
 		ModulesDir:       filepath.Join(resourcesDir, "modules"),
 		GitignorePath:    filepath.Join(projectDir, ".gitignore"),
 		RepoHooksDir:     repoHooksDir,
-		GlobalAgentsMD:   filepath.Join(home, brand.DotDir(), "AGENTS.md"),
+		GlobalAgentsMD:   filepath.Join(globalDir, "AGENTS.md"),
 		LocalAgentsMD:    localAgentsMD,
 		LocalAgentsMDRel: localAgentsMDRel,
 		LocalRulesFile:   filepath.Join(projectDir, brand.DotDir(), "rules", "session.md"),

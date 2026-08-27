@@ -42,9 +42,9 @@ When a module's rule or skill content is resolved, the system checks the followi
 │     ~/.graphit/rules/<module>.md                    │
 │     ~/.graphit/rules/<module>_skill.md              │
 ├─────────────────────────────────────────────────────┤
-│  3. Hub Main Branch Override                        │
-│     rules/<module>.md  on the Hub Git repo          │
-│     rules/<module>_skill.md  on the Hub Git repo    │
+│  3. Hub Bucket Override                             │
+│     rules/<module>.md  in the Hub bucket            │
+│     rules/<module>_skill.md  in the Hub bucket      │
 ├─────────────────────────────────────────────────────┤
 │  4. Compiled-In Default          (lowest priority)  │
 │     Hardcoded in Go source code per module          │
@@ -72,14 +72,14 @@ When a module's rule or skill content is resolved, the system checks the followi
   graphit <module> rule --unset
   ```
 
-### 3. Hub Main Branch Override
+### 3. Hub Bucket Override
 
-- **Source**: The `main` branch of the Hub Git repository (the shared, team-wide registry configured via `graphit setup` or `hub.repo`).
-- **Location**: Rule and skill files are placed inside the `rules/` directory on the `main` branch of the Hub repository (e.g., `rules/ast.md`, `rules/memory_skill.md`).
-- **Scope**: Applies to all projects for all team members who share the same Hub repository. This is the **team-wide** override mechanism.
+- **Source**: The `rules/` prefix of the shared S3-backed Hub configured by `graphit setup`.
+- **Location**: Rule and skill objects use keys such as `rules/ast.md` and `rules/memory_skill.md`.
+- **Scope**: Applies to all projects for all team members who share the same Hub bucket/prefix. This is the **team-wide** override mechanism.
 - **Use case**: An organization wants to enforce standard coding conventions, security policies, or analysis rules across all developers and all projects — without requiring each developer to manually configure global rules.
-- **How it works**: The Hub is backed by a Git repository that all team members clone and sync. The `main` branch of this repository holds the registry metadata, artifact index, and shared configuration. If a rule or skill file (following the same naming convention used by the CLI global overrides) exists inside the `rules/` directory on the `main` branch, it is picked up during resolution. This applies across **all modules** — any module whose rule or skill file is present will use that override.
-- **How to set**: Commit rule and/or skill files to `rules/` on the `main` branch of the Hub Git repository and push. All team members will receive the override automatically on the next `graphit sync` or `graphit update`, when the Hub repository is pulled.
+- **How it works**: The S3-backed Hub stores registry data and shared rule objects under distinct prefixes. If a matching rule or skill object exists under `rules/`, resolution uses it for that module.
+- **How to set**: Publish the rule/skill objects to the Hub `rules/` prefix. Team members receive them on the next `graphit sync` or `graphit update`.
 
 ### 4. Compiled-In Default
 
@@ -95,7 +95,7 @@ When a module's rule or skill content is resolved, the system checks the followi
 |---|---|---|
 | Project-level | `.graphit/rules/<module>.md` | `.graphit/rules/<module>_skill.md` |
 | Global CLI | `~/.graphit/rules/<module>.md` | `~/.graphit/rules/<module>_skill.md` |
-| Hub main branch | `rules/<module>.md` on the Hub repo | `rules/<module>_skill.md` on the Hub repo |
+| Hub bucket | `rules/<module>.md` in the Hub bucket | `rules/<module>_skill.md` in the Hub bucket |
 
 Where `<module>` is one of: `ast`, `knowledge`, `memory`, `hub`, `improvements`.
 
@@ -207,20 +207,20 @@ Where `<module>` is one of: `ast`, `knowledge`, `memory`, `hub`, `improvements`.
 
 When `--unset` is used:
 1. The file at `~/.graphit/rules/<module>.md` is deleted.
-2. The next resolution will fall through to the Hub main branch override (if it exists) or the compiled-in default.
+2. The next resolution will fall through to the Hub bucket override (if it exists) or the compiled-in default.
 3. If a project-level override exists, it remains unaffected.
 
 ---
 
 ## Hub-Based Rule Distribution
 
-The `main` branch of the Hub Git repository serves as the **team-wide rule distribution** mechanism. This is distinct from Hub `rule` type artifacts (which are installable packages). The main branch rule files are **implicit overrides** — they apply automatically to all team members without explicit installation.
+The `rules/` prefix of the Hub bucket serves as the **team-wide rule distribution** mechanism. This is distinct from Hub `rule` type artifacts (which are installable packages). Prefix rule files are **implicit overrides** — they apply automatically without explicit installation.
 
 ### How it works
 
-1. An admin commits rule files (e.g., `improvements.md`, `ast.md`) to the `main` branch of the Hub Git repository and pushes.
-2. Each developer's local Hub clone is synced on `graphit sync` or `graphit update`, pulling the latest `main` branch.
-3. During rule resolution, if no project-level or global CLI override exists, the system checks the `main` branch for a matching rule file.
+1. An admin publishes rule objects (e.g., `rules/improvements.md`, `rules/ast.md`) to the Hub bucket.
+2. Each developer refreshes Hub data on `graphit sync` or `graphit update`.
+3. During rule resolution, if no project-level or global CLI override exists, the system checks the Hub `rules/` prefix for a matching file.
 4. If found, that file is used (with placeholder substitution).
 5. If not found, the compiled-in default is used.
 
@@ -230,7 +230,7 @@ The `main` branch of the Hub Git repository serves as the **team-wide rule distr
 |---|---|
 | Project has `.graphit/rules/ast.md` | Project file wins |
 | No project file, user has `~/.graphit/rules/ast.md` | User global file wins |
-| No project or user file, Hub main has `ast.md` | Hub file wins |
+| No project or user file, Hub has `rules/ast.md` | Hub file wins |
 | No override at any level | Compiled-in default is used |
 | Project file contains `{{_GRAPHIT_DEFAULT_RULE_CONTENT_}}` | Project file with default content embedded |
 | Hub file contains `{{_GRAPHIT_DEFAULT_RULE_CONTENT_}}` | Hub file with default content embedded |
@@ -238,10 +238,10 @@ The `main` branch of the Hub Git repository serves as the **team-wide rule distr
 ### Relationship to Hub `rule` type artifacts
 
 Hub `rule` type artifacts are a **different mechanism**:
-- **Hub `main` branch rule files** are implicit overrides committed directly to the `main` branch of the Hub Git repository. They customize the behavior of Graphit Code's own modules (ast, knowledge, memory, hub, improvements) and are distributed to all team members via git pull.
-- **Hub `rule` type artifacts** are installable packages stored on dedicated artifact branches in the Hub Git repository. They inject additional rule blocks into the IDE rules file (e.g., coding conventions for a specific framework) and are installed explicitly via `graphit hub install`.
+- **Hub `rules/` prefix files** are implicit overrides. They customize the behavior of Graphit Code's own modules (ast, knowledge, memory, hub, improvements) and are distributed to all team members through Hub synchronization.
+- **Hub `rule` type artifacts** are versioned installable packages stored under artifact prefixes. They inject additional rule blocks into the IDE rules file and are installed explicitly via `graphit hub install`.
 
-Both can coexist. The `main` branch rule files control how the framework's modules behave, while `rule` artifacts add supplementary content.
+Both can coexist. The prefix rule files control how the framework's modules behave, while `rule` artifacts add supplementary content.
 
 ---
 
@@ -278,6 +278,44 @@ The skill override system follows the **exact same hierarchy** as rules, but use
 | `improvements` | `improvements.md` | `improvements_skill.md` |
 
 Skills are the detailed instruction files that agents read on-demand (stored in the IDE's skills directory). Rules are the compact summaries injected into the global rules file (e.g., `AGENTS.md`).
+
+### Skill Frontmatter
+
+Every managed `SKILL.md` opens with a YAML frontmatter block carrying exactly two fields, built
+by `ide.SkillFrontmatter` (`internal/hub/adapters/ide/adapters.go`) and prepended to the
+resolved skill content:
+
+| Field | Contract |
+|---|---|
+| `name` | must equal the skill's directory name: lowercase letters, digits and single separating hyphens, at most `ide.MaxSkillNameLength` (64) characters |
+| `description` | non-empty, at most `ide.MaxSkillDescriptionLength` (1024) characters, counted in runes |
+
+The block is produced by **`yaml.Marshal`, never by string concatenation**, and this is a
+correctness requirement rather than a style preference. Module descriptions are prose written
+for a model — "Use when: …", "MANDATORY: …" — and a plain YAML scalar may not contain `": "`: a
+strict parser reads the colon as a nested mapping and rejects the entire block. A skill whose
+frontmatter does not parse is not degraded, it is **invisible**: the IDE discovers no metadata,
+never offers the skill, and logs nothing. Kiro's loader is strict and skipped all five skills
+this way while Claude Code's lenient one loaded the very same files.
+
+Both fields are validated before marshalling, and a violation is returned as an error that
+fails the sync, because every value outside these limits is dropped by the IDE in the same
+silent way. One consequence is worth naming: a white-label build whose `brand.Brand` is not
+already a valid name fragment (`MyCorp` → `MyCorp-ast`) now fails loudly at skill installation
+instead of shipping skills no strict IDE will load.
+
+`internal/hub/adapters/ide/frontmatter_test.go` locks the serialization down with values a
+hand-written quoter gets wrong (`: `, quotes, backslashes, leading `%`/`#`/`-`/`?`/`&`/`*`,
+scalars that resolve to bool/null/number/date, leading and trailing whitespace, tabs, newlines,
+non-ASCII), asserting the value round-trips byte-identical.
+`cmd/graphit/commands/managed_skills_frontmatter_test.go` then installs all five skills for
+every supported IDE and reads them back the way an IDE would, and additionally asserts that the
+descriptions still contain `": "` — otherwise valid frontmatter would only prove the content had
+become bland, not that quoting works.
+
+Agents also write skill frontmatter by hand, so the same contract is stated where they are
+instructed to: the dream module's skill-crystallization prompt (`internal/dream/prompt.go`) and
+Step 3b of the improvements methodology (`internal/improvements/rules.go`).
 
 ---
 

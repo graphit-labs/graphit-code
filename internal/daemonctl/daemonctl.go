@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
@@ -21,6 +20,38 @@ func PortFilePath() string { return filepath.Join(DaemonDir(), "mcp.port") }
 func KeyFilePath() string  { return filepath.Join(DaemonDir(), "mcp.key") }
 
 func spawnLockPath() string { return filepath.Join(DaemonDir(), ".spawn.lock") }
+
+// LogFilePath returns the daemon log.
+func LogFilePath() string { return filepath.Join(DaemonDir(), "daemon.log") }
+
+// AttachStderrToFile points a spawned process's stderr at path, appending, and
+// returns a closer for the parent's copy of the descriptor: the child inherits it,
+// so the parent closes after Start.
+//
+// Spawning used to set Stderr = nil, which discards it. The Go runtime writes
+// panics and SIGQUIT stack dumps to stderr, NOT through the logger, so throwing
+// stderr away made every crash and every hang of the spawned process
+// indiagnosable -- the log showed the last event it had chosen to record and then
+// nothing, with no way to tell a deadlock from an idle process.
+//
+// Best effort by design: if the file cannot be opened the process is still
+// spawned, because losing the daemon is worse than losing its stderr.
+func AttachStderrToFile(cmd *exec.Cmd, path string) func() {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return func() {}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return func() {}
+	}
+	cmd.Stderr = f
+	return func() { _ = f.Close() }
+}
+
+// AttachLogStderr sends a spawned daemon's stderr to the daemon log.
+func AttachLogStderr(cmd *exec.Cmd) func() {
+	return AttachStderrToFile(cmd, LogFilePath())
+}
 
 func EnsureRunning() (bool, error) {
 	if err := os.MkdirAll(DaemonDir(), 0o755); err != nil {
@@ -53,7 +84,8 @@ func EnsureRunning() (bool, error) {
 	cmd := exec.Command(exe, "daemon")
 	cmd.Stdin = nil
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	closeLog := AttachLogStderr(cmd)
+	defer closeLog()
 	sysutil.DetachProcess(cmd)
 
 	if err := cmd.Start(); err != nil {
@@ -92,19 +124,4 @@ func ResolveExe() string {
 		return ""
 	}
 	return exe
-}
-
-// LauncherStampPath returns the path to the launcher stamp file.
-func LauncherStampPath() string {
-	return filepath.Join(DaemonDir(), "launcher.stamp")
-}
-
-// ReadLauncherStamp reads the current launcher stamp (SHA256 of the core
-// executable). Returns an empty string if the file does not exist or is blank.
-func ReadLauncherStamp() string {
-	data, err := os.ReadFile(LauncherStampPath())
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
 }

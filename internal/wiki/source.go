@@ -1,6 +1,7 @@
 package wiki
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -193,4 +194,64 @@ func firstHeading(content string) string {
 		}
 	}
 	return ""
+}
+
+// ---------- reading a page out of the index ----------
+
+// A MOUNTED WIKI HAS NO FILES, which is the whole reason these exist.
+//
+// A knowledge artifact published to the Hub is read where it lives — the engine queries the
+// objects on S3 and nothing is downloaded. So there is no directory to walk and no `.md` to open,
+// and the page has to come from the index.
+//
+// It is the same text. The wiki compiles ONE chunk per document, so `chunks.body` is the page
+// body, not a slice of it — which is what makes this a faithful read rather than an approximation.
+// If that ever becomes many chunks per page, this returns the first and is wrong; the invariant is
+// asserted by TestReadPageFromIndexReturnsTheWholePage.
+
+// ReadPageFrom reads a page out of an open index, applying the same slicing as ReadPage.
+func ReadPageFrom(ctx context.Context, db *WikiDB, page string, req textslice.Request) (*PageResult, error) {
+	if db == nil {
+		return nil, fmt.Errorf("wiki index not open")
+	}
+	if strings.TrimSpace(page) == "" {
+		return nil, fmt.Errorf("page is required")
+	}
+	slug := strings.TrimSuffix(strings.TrimSpace(page), ".md")
+
+	body, title, err := db.PageBody(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+
+	sliced, err := textslice.Apply(body, req)
+	if err != nil {
+		return nil, err
+	}
+	if title == "" {
+		title = firstHeading(body)
+	}
+	return &PageResult{
+		Page:       slug,
+		File:       slug + ".md",
+		Title:      title,
+		Source:     sliced.Source,
+		TotalLines: sliced.TotalLines,
+		StartLine:  sliced.StartLine,
+		EndLine:    sliced.EndLine,
+		Matches:    sliced.Matches,
+	}, nil
+}
+
+// ListPagesFrom returns the slugs an open index holds, so a caller that guessed wrong can be told
+// what does exist. Same purpose as ListPages, different source.
+func ListPagesFrom(ctx context.Context, db *WikiDB) []string {
+	if db == nil {
+		return nil
+	}
+	slugs, err := db.Slugs(ctx)
+	if err != nil {
+		return nil
+	}
+	return slugs
 }

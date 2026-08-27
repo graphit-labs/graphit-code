@@ -3,8 +3,97 @@ package ast
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 )
+
+// NoLangGroup names the group holding nodes that carry no `lang` — call-target stubs,
+// directories, and anything else the parsers create without attributing it to a file.
+// It is deliberately not a valid language name, so it can never collide with one.
+const NoLangGroup = "(no language)"
+
+// SchemaLabelCount is one node label and how many nodes of it a single language produced.
+type SchemaLabelCount struct {
+	Label string
+	Count int
+}
+
+// SchemaLangGroup is a language together with the node labels its files actually produced.
+type SchemaLangGroup struct {
+	Lang   string
+	Count  int
+	Labels []SchemaLabelCount
+}
+
+// DisplayLang is the group's name as a human or an agent should read it, which for the
+// language-less group is a label rather than an empty string.
+// schemaSharedShapeMin is how many labels must share a property set before they are
+// printed as a group. Two is a wash — the grouped form is as long as two plain lines —
+// so grouping starts paying at three.
+const schemaSharedShapeMin = 3
+
+func (g SchemaLangGroup) DisplayLang() string {
+	if g.Lang == "" {
+		return NoLangGroup
+	}
+	return g.Lang
+}
+
+// SchemaLangGroups groups the graph's node labels by the language that produced them,
+// so a caller can tell which labels belong to Go and which to CSS instead of reading one
+// flat run of every label in the database.
+//
+// The counts are live: a label with no nodes does not appear here at all, and the same
+// label appears under every language that produced it — the grouping splits the flat
+// count, it does not pick one owner per label.
+//
+// NOTE: best-effort on purpose — `n.lang` only binds while a label that carries it is
+// in the schema, so a rebuild-time partial schema degrades to an empty grouping instead
+// of failing the caller.
+func SchemaLangGroups(ctx context.Context, db GraphDB) []SchemaLangGroup {
+	q := `MATCH (n) RETURN DISTINCT n.lang AS lang, label(n) AS label, count(n) AS count ORDER BY count DESC`
+	res, err := db.Query(ctx, q, nil)
+	if err != nil {
+		return []SchemaLangGroup{}
+	}
+
+	byLang := make(map[string]*SchemaLangGroup)
+	order := make([]string, 0, len(res.Records))
+
+	for _, rec := range res.Records {
+		label, ok := rec["label"].(string)
+		if !ok || label == "" {
+			continue
+		}
+		lang, _ := rec["lang"].(string)
+		count := toInt(rec["count"])
+
+		g := byLang[lang]
+		if g == nil {
+			g = &SchemaLangGroup{Lang: lang}
+			byLang[lang] = g
+			order = append(order, lang)
+		}
+		g.Count += count
+		g.Labels = append(g.Labels, SchemaLabelCount{Label: label, Count: count})
+	}
+
+	// Biggest language first, but the language-less group is never a language, so it
+	// sorts last regardless of how many nodes it holds.
+	sort.SliceStable(order, func(i, j int) bool {
+		a, b := order[i], order[j]
+		if (a == "") != (b == "") {
+			return b == ""
+		}
+		return byLang[a].Count > byLang[b].Count
+	})
+
+	out := make([]SchemaLangGroup, 0, len(order))
+	for _, lang := range order {
+		out = append(out, *byLang[lang])
+	}
+	return out
+}
 
 func ActiveNodeLabels(ctx context.Context, db GraphDB) []string {
 	res, err := db.Query(ctx, "CALL show_tables() RETURN *", nil)
@@ -23,34 +112,30 @@ func ActiveNodeLabels(ctx context.Context, db GraphDB) []string {
 	return labels
 }
 
-func CreateGraphSchema(ctx context.Context, db GraphDB, labels ...string) error {
-	for _, label := range labels {
-		q := fmt.Sprintf(`CREATE CONSTRAINT %s_unique IF NOT EXISTS FOR (n:%s) REQUIRE n.name IS UNIQUE`, label, label)
-		if _, err := db.Execute(ctx, q, nil); err != nil {
-			q2 := fmt.Sprintf(`CREATE INDEX FOR (n:%s) ON (n.name)`, label)
-			_, _ = db.Execute(ctx, q2, nil)
-		}
-
-		q = fmt.Sprintf(`CREATE INDEX %s_lang IF NOT EXISTS FOR (n:%s) ON (n.lang)`, label, label)
-		if _, err := db.Execute(ctx, q, nil); err != nil {
-			q2 := fmt.Sprintf(`CREATE INDEX FOR (n:%s) ON (n.lang)`, label)
-			_, _ = db.Execute(ctx, q2, nil)
-		}
-
-		qn := fmt.Sprintf(`CREATE INDEX %s_name IF NOT EXISTS FOR (n:%s) ON (n.name)`, label, label)
-		if _, err := db.Execute(ctx, qn, nil); err != nil {
-			qn2 := fmt.Sprintf(`CREATE INDEX FOR (n:%s) ON (n.name)`, label)
-			_, _ = db.Execute(ctx, qn2, nil)
-		}
-
-		qc := fmt.Sprintf(`CREATE INDEX %s_cluster IF NOT EXISTS FOR (n:%s) ON (n.cluster)`, label, label)
-		if _, err := db.Execute(ctx, qc, nil); err != nil {
-			qc2 := fmt.Sprintf(`CREATE INDEX FOR (n:%s) ON (n.cluster)`, label)
-			_, _ = db.Execute(ctx, qc2, nil)
-		}
+// writeSchemaLangSection renders the per-language grouping that opens the schema, so a
+// reader sees which labels belong to which language before meeting the flat property
+// reference below it.
+//
+// An empty grouping writes nothing at all: a graph mid-rebuild, or one with no nodes yet,
+// should fall through to the property reference rather than show an empty heading.
+func writeSchemaLangSection(buf *strings.Builder, groups []SchemaLangGroup) {
+	if len(groups) == 0 {
+		return
 	}
 
-	return nil
+	buf.WriteString("Node labels by language (live node counts):\n")
+	for _, g := range groups {
+		parts := make([]string, 0, len(g.Labels))
+		for _, l := range g.Labels {
+			parts = append(parts, fmt.Sprintf("%s(%d)", l.Label, l.Count))
+		}
+		fmt.Fprintf(buf, "- %s [%d]: %s\n", g.DisplayLang(), g.Count, strings.Join(parts, ", "))
+	}
+
+	buf.WriteString("\nHow to read the grouping above:\n")
+	buf.WriteString("- A label is listed under every language that produced it, so the same label can appear more than once; the grouping splits the total, it does not assign one owner per label.\n")
+	fmt.Fprintf(buf, "- %q holds nodes whose label carries no `lang` at all, such as Directory — not nodes whose language is unknown. An unresolved call target keeps the language of the file that called it.\n", NoLangGroup)
+	buf.WriteString("- A label absent from this grouping has no nodes in the graph, so matching it returns nothing even though its table exists below.\n\n")
 }
 
 func SchemaText(ctx context.Context, db GraphDB) (string, error) {
@@ -89,8 +174,21 @@ func SchemaText(ctx context.Context, db GraphDB) (string, error) {
 	sortStrs(relTables)
 
 	var buf strings.Builder
+
+	writeSchemaLangSection(&buf, SchemaLangGroups(ctx, db))
+
 	buf.WriteString("Node labels and key properties:\n")
 
+	// Labels are grouped by their property set instead of one line each.
+	//
+	// Almost every label in this schema is an ENTITY label, and they all carry the
+	// identical 16-property row — only File, Directory and Module differ. Printed one
+	// per line that is ~25 repetitions of the same list, which an agent pays for in
+	// context on every session while learning nothing after the first one. Grouping
+	// loses no information: a label's properties are still stated exactly, once.
+	sigOrder := make([]string, 0, len(nodeTables))
+	byLabel := make(map[string]string, len(nodeTables))
+	labelsBySig := make(map[string][]string, len(nodeTables))
 	for _, t := range nodeTables {
 		info, err := db.Query(ctx, fmt.Sprintf("CALL table_info('%s') RETURN *", t), nil)
 		if err != nil {
@@ -104,7 +202,29 @@ func SchemaText(ctx context.Context, db GraphDB) (string, error) {
 				props = append(props, pname)
 			}
 		}
-		fmt.Fprintf(&buf, "- %s(%s)\n", t, strings.Join(props, ", "))
+		sig := strings.Join(props, ", ")
+		if _, seen := labelsBySig[sig]; !seen {
+			sigOrder = append(sigOrder, sig)
+		}
+		byLabel[t] = sig
+		labelsBySig[sig] = append(labelsBySig[sig], t)
+	}
+
+	// Unique shapes first and one per line, because those are the ones worth reading
+	// individually — File.path vs an entity's path is exactly the distinction that
+	// makes a query crash with "Cannot find property".
+	for _, t := range nodeTables {
+		if sig, ok := byLabel[t]; ok && len(labelsBySig[sig]) < schemaSharedShapeMin {
+			fmt.Fprintf(&buf, "- %s(%s)\n", t, sig)
+		}
+	}
+	for _, sig := range sigOrder {
+		shared := labelsBySig[sig]
+		if len(shared) < schemaSharedShapeMin {
+			continue
+		}
+		fmt.Fprintf(&buf, "- These %d labels all carry the SAME properties: %s\n  (%s)\n",
+			len(shared), strings.Join(shared, ", "), sig)
 	}
 
 	buf.WriteString("\nRelationships:\n")

@@ -4,10 +4,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// ParsedFile methods
-// ---------------------------------------------------------------------------
-
 func TestParsedFile_AddEntity(t *testing.T) {
 	pf := &ParsedFile{}
 	pf.AddEntity("functions", Entity{Name: "Foo", Line: 1})

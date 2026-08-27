@@ -4,10 +4,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// formatMatches
-// ---------------------------------------------------------------------------
-
 func TestFormatMatches_Basic(t *testing.T) {
 	matches := []SourceMatch{
 		{LineNumber: 1, Line: "package main", IsMatch: true},
@@ -61,10 +57,6 @@ func TestFormatMatches_Empty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// formatWithLineNumbers
-// ---------------------------------------------------------------------------
-
 func TestFormatWithLineNumbers(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -104,9 +96,7 @@ func TestFormatWithLineNumbers(t *testing.T) {
 // The hand-rolled insertion sort this file used to carry is gone: the index
 // sorting moved to textslice, which uses sort.Ints. Nothing here to test.
 
-// ---------------------------------------------------------------------------
 // SourceRequest / SourceResult types sanity
-// ---------------------------------------------------------------------------
 
 func TestSourceRequestDefaults(t *testing.T) {
 	req := SourceRequest{}
@@ -118,9 +108,7 @@ func TestSourceRequestDefaults(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // helpers
-// ---------------------------------------------------------------------------
 
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchSubstring(s, substr)

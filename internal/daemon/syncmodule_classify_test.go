@@ -14,14 +14,21 @@ import (
 // us a file changed" and "the index reflects it". Both of its rules are easy to
 // get subtly wrong:
 //
-//   - knowledge.docs_dir defaults to ".", so "is this path inside the docs
-//     directory?" answers yes for every file in the project. Location alone
+//   - knowledge.docs_dir can be set to ".", and then "is this path inside the
+//     docs directory?" answers yes for every file in the project. Location alone
 //     cannot decide what is documentation.
+//   - the docs directory is not the whole of the wiki's scope: the root README is
+//     indexed from outside it, so a path can be documentation without being
+//     under docs/.
 //   - the two destinations are not exclusive. The AST pipeline has parsers for
-//     .md, .yaml, .json and .xml, and a full scan indexes those files even when
-//     they live under docs/. An incremental update has to agree with a full scan.
-// requireParsers skips when no parser is registered for the extensions these
-// tests route on.
+//     .yaml, .json, .xml and .proto, and a full scan indexes those files even
+//     when they live under docs/. An incremental update has to agree with a full
+//     scan. Markdown is deliberately not in that overlap: no shipped query file
+//     claims .md, so a document routes to the wiki alone — unless the project opts
+//     markdown back in, which is why the guard below checks the live table.
+//
+// requireParsers skips when the extension table does not match the one these
+// tests route against.
 //
 // ast.HasParserForExtension answers from a table that initTsExtMap builds at
 // package init out of the installed runtime query files alone. On a machine where
@@ -29,13 +36,22 @@ import (
 // that was cleared — that table is empty, every extension looks unparseable, and
 // these tests fail with an empty astChanged that says nothing about the routing
 // logic they exist to cover.
+//
+// The .md check is the same problem from the other side: no query file claims .md
+// any more, and the cases below expect a document to route to the wiki alone. A
+// runtime unpacked before markdown.yaml was dropped still registers .md, which
+// would fail those cases for a reason that has nothing to do with routing.
 func requireParsers(t *testing.T) {
 	t.Helper()
-	for _, ext := range []string{".sql", ".go", ".md"} {
+	for _, ext := range []string{".sql", ".go", ".yaml"} {
 		if !ast.HasParserForExtension(ext) {
 			t.Skipf("no parser registered for %s — the runtime query files are not "+
 				"installed, so extension routing cannot be judged from here", ext)
 		}
+	}
+	if ast.HasParserForExtension(".md") {
+		t.Skip("the installed runtime still registers .md — it predates the removal of " +
+			"markdown.yaml, so document routing cannot be judged from here")
 	}
 }
 
@@ -51,6 +67,7 @@ func TestClassifyBatch(t *testing.T) {
 	tests := []struct {
 		name       string
 		docsDir    string
+		extraDocs  []string
 		changed    []string
 		removed    []string
 		wantAstCh  []string
@@ -67,10 +84,12 @@ func TestClassifyBatch(t *testing.T) {
 			wantAstCh: []string{abs("criada.sql")},
 		},
 		{
-			name:       "markdown under docs reaches both indexers",
+			// The overlap: a structured document has a grammar as well as a wiki
+			// extension, and a full scan indexes it under docs/ too.
+			name:       "a structured document under docs reaches both indexers",
 			docsDir:    "docs",
-			changed:    []string{"docs/guia.md"},
-			wantAstCh:  []string{abs("docs/guia.md")},
+			changed:    []string{"docs/openapi.yaml"},
+			wantAstCh:  []string{abs("docs/openapi.yaml")},
 			wantKnowdg: true,
 		},
 		{
@@ -81,11 +100,30 @@ func TestClassifyBatch(t *testing.T) {
 			wantKnowdg: true,
 		},
 		{
-			// Same extension, outside the docs dir: code, not documentation.
-			name:      "markdown outside the docs dir is not documentation",
+			// Same extension, outside the docs dir and not named by the scope. It is
+			// not documentation, and no query file claims .md for it to be code
+			// either, so nobody is woken up.
+			name:    "markdown outside the docs dir reaches neither indexer",
+			docsDir: "docs",
+			changed: []string{"CONTRIBUTING.md"},
+		},
+		{
+			// The root README is in the wiki's scope without being under docs/, so an
+			// edit to it has to rebuild the wiki. Before extraDocs existed, editing
+			// the README changed nothing the reader could see.
+			name:       "the root README is documentation even from outside the docs dir",
+			docsDir:    "docs",
+			extraDocs:  []string{"README.md"},
+			changed:    []string{"README.md"},
+			wantKnowdg: true,
+		},
+		{
+			// Only the exact paths the scope names — a README one directory down is
+			// somebody else's file, and it is not code either.
+			name:      "a nested README is not the project README",
 			docsDir:   "docs",
-			changed:   []string{"README.md"},
-			wantAstCh: []string{abs("README.md")},
+			extraDocs: []string{"README.md"},
+			changed:   []string{"internal/x/README.md"},
 		},
 		{
 			// The parse cache is keyed by repo-relative slash paths.
@@ -145,7 +183,7 @@ func TestClassifyBatch(t *testing.T) {
 			batch := fswatch.Batch{Changed: toAbs(tc.changed), Removed: toAbs(tc.removed)}
 			docsPath := filepath.Join(projectDir, tc.docsDir)
 
-			got := classifyBatch(batch, projectDir, docsPath, knowledgeExts, nil, nil)
+			got := classifyBatch(batch, projectDir, docsPath, knowledgeExts, nil, nil, tc.extraDocs)
 
 			if !reflect.DeepEqual(got.astChanged, tc.wantAstCh) {
 				t.Errorf("astChanged = %v, want %v", got.astChanged, tc.wantAstCh)

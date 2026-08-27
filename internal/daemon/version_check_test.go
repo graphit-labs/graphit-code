@@ -8,10 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// ---------------------------------------------------------------------------
-// version_check.go — readLauncherStamp with multiline content
-// ---------------------------------------------------------------------------
-
 func TestReadLauncherStamp_MultilineContent(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -33,9 +29,7 @@ func TestReadLauncherStamp_MultilineContent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // version_check.go — launcherStampPath components
-// ---------------------------------------------------------------------------
 
 func TestLauncherStampPath_ContainsBrandDir(t *testing.T) {
 	tempHome := t.TempDir()
@@ -56,10 +50,6 @@ func TestLauncherStampPath_ContainsBrandDir(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// scheduler.go — cronMarker
-// ---------------------------------------------------------------------------
-
 func TestCronMarker_Format(t *testing.T) {
 	t.Parallel()
 	marker := cronMarker()
@@ -76,10 +66,6 @@ func TestCronMarker_Format(t *testing.T) {
 		}
 	}
 }
-
-// ---------------------------------------------------------------------------
-// scheduler.go — IsSchedulerInstalled result
-// ---------------------------------------------------------------------------
 
 func TestIsSchedulerInstalled_ReturnsBool(t *testing.T) {
 	// Should not panic and should return a boolean.

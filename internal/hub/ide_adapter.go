@@ -34,4 +34,3 @@ func FilterSupportedIDEs(ides []string) []string {
 	}
 	return result
 }
-

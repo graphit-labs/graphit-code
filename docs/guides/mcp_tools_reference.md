@@ -32,14 +32,14 @@ The platform provides multiple retrieval tools across three tiers. Use this matr
 |------|---------|-----|-------------|----------|
 | `graphit_memory_search` | Text match on raw `.md` files | No | `scope` (project/user) | Quick keyword match in memories — instant, lightweight |
 | `graphit_knowledge_search` | BM25 on wiki `.md` pages | No | `context` (empty=project, named=hub import) | Keyword search in project docs |
-| `graphit_wiki_search` | FTS5 + semantic on `wiki.db` | Semantic mode | `wikis[]` (project, memory), `hub_refs[]` | Multi-source search, semantic search |
-| `graphit_wiki_browse` | SQLite `wiki.db` catalog | No | `wiki` (project/memory) | Listing all documents with filters |
+| `graphit_wiki_search` | BM25 + semantic on `index.lance/` | Semantic mode | `wikis[]` (project, memory), `hub_refs[]` | Multi-source search, semantic search |
+| `graphit_wiki_browse` | LanceDB `index.lance/` catalog | No | `wiki` (project/memory), `context` | Listing all documents with filters |
 | `graphit_knowledge_query` | AI + BM25 multi-turn | Yes | `context` | Deep AI-synthesized answer from project docs |
 | `graphit_memory_query` | AI + compiled wiki | Yes | `scope`, `context` | AI-synthesized answer from memories |
 
 **Key parameter differences:**
 - **`scope`** (Memory tools): `"project"` (default) = project-specific memories, `"user"` = personal cross-project memories
-- **`context`** (Knowledge/Memory tools): empty = local project, `"<name>"` = hub-imported context at `.graphit/knowledge/<name>/`
+- **`context`** (Knowledge/Memory tools): empty = local project, `"<name>"` = an imported context, whose wiki lives at `~/.graphit/wiki/knowledge/context/<name>/` — see [Storage Layout](../architecture/storage_layout.md)
 - **`wikis`** (Wiki search): `["project"]` = knowledge wiki, `["memory"]` = memory wiki, both for multi-source
 - **`hub_refs`** (Wiki search): `["artifact-id@version"]` to include hub knowledge artifacts
 
@@ -296,7 +296,12 @@ Tools for building, querying, and managing the AST code graph database.
 | `regex` | boolean | | Treat pattern as a regular expression |
 | `before` | integer | | Number of context lines before each pattern match |
 | `after` | integer | | Number of context lines after each pattern match |
-| `line_numbers` | boolean | | Include line numbers in the output |
+| `line_numbers` | boolean | | Include line numbers in the output (default: `false`) |
+
+`line_numbers` is off by default and worth leaving there: the numbers serve a human
+reading the output, and every line they are prefixed to gets wider. Pattern matches
+always carry their line number, because a match without its location is not an
+answer.
 
 ---
 
@@ -585,30 +590,23 @@ Tools for managing the project and user persistent memory store.
 
 ---
 
-### `graphit_memory_consolidate`
-
-**Description:** Analyze memory wiki for staleness, duplicates, contradictions, and suggestions.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `apply` | boolean | | Apply proposed changes |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_memory_gc`
-
-**Description:** Garbage collect inactive or stale memories.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `scope` | string | | Scope: `project` (default) or `user` |
-| `dry_run` | boolean | | Only scan, do not delete |
-| `stale_days` | integer | | Days of inactivity before memory is stale |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
+> **There is no memory garbage-collection or consolidation tool, by design.**
+>
+> `graphit_memory_gc` existed and was removed. Collecting memories by age answers the
+> wrong question: age says a memory has not been revised, not that it is wrong, and the
+> memories that sit unread for months are exactly the conventions and corrections that
+> later stop a repeated mistake.
+>
+> `graphit_memory_consolidate` never existed, and is not being added. An agent reading
+> memories has the task context that makes each judgement correct — which memory
+> matched, which misled it, which the code has outgrown. It resolves duplicates and
+> contradictions with `graphit_memory_update` and `graphit_memory_delete` as it finds
+> them, carrying content into the surviving memory first. A tool would let it trade
+> that judgement for a batch job's caution.
+>
+> The whole-store pass exists outside MCP: on idle in the
+> [dream module](../specs/dream_module.md), and on demand as `graphit memory
+> consolidate` for a developer at a terminal.
 
 ---
 
@@ -834,6 +832,7 @@ Tools for multi-source wiki search with AI-powered retrieval and chat sessions.
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `wiki` | string | | Wiki scope: `project`, `memory` (default: `project`) |
+| `context` | string | | Named imported knowledge context, or a memory scope other than `project` |
 | `doc_type` | string | | Filter by document type (e.g., `specification`, `architecture`, `decision`) |
 | `limit` | integer | | Max results (default: 100) |
 | `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
@@ -851,6 +850,7 @@ Tools for multi-source wiki search with AI-powered retrieval and chat sessions.
 | `project_dir` | string | ✅ | Project directory |
 | `query` | string | ✅ | Entity slug or name to find cross-references for |
 | `wiki` | string | | Wiki scope: `project`, `memory` (default: `project`) |
+| `context` | string | | Named imported knowledge context, or a memory scope other than `project` |
 | `depth` | integer | | Depth of graph traversal (default: 1, max: 3) |
 | `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
 
@@ -866,6 +866,7 @@ Tools for multi-source wiki search with AI-powered retrieval and chat sessions.
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `wiki` | string | | Wiki scope: `project`, `memory` (default: `project`) |
+| `context` | string | | Named imported knowledge context, or a memory scope other than `project` |
 | `limit` | integer | | Max log entries (default: 10) |
 | `ai_optimized` | boolean | | Optimize output for AI context — returns compact, token-efficient format (TOON) instead of raw JSON |
 
@@ -879,6 +880,43 @@ Tools for multi-source wiki search with AI-powered retrieval and chat sessions.
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 | `wiki` | string | | Wiki scope: `project`, `memory` (default: `project`) |
+
+---
+
+### `graphit_wiki_source`
+
+**Description:** Read the content of a wiki page, with head/tail, line ranges and
+pattern search with context — the same slicing as `graphit_ast_source`.
+
+This is the **only** way to read a page. Every wiki lives once, in the global brand
+directory (see [Storage Layout](../architecture/storage_layout.md)), so there is no
+page file inside a project to open — and because the tool takes the project as a
+parameter, it also reads pages belonging to any other project in the ecosystem.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory — may be another project in the ecosystem |
+| `path` | string | ✅ | The slug returned by search/browse/xrefs, that slug with `.md`, or a path relative to the wiki directory |
+| `wiki` | string | | Wiki scope: `project` (default) or `memory` |
+| `context` | string | | Named imported knowledge context, or a memory scope other than `project` |
+| `head` | integer | | Show only the first N lines |
+| `tail` | integer | | Show only the last N lines |
+| `start_line` | integer | | Start line number (1-indexed) |
+| `end_line` | integer | | End line number (1-indexed, inclusive) |
+| `pattern` | string | | Search for a pattern (literal text or regex if `regex=true`) |
+| `regex` | boolean | | Treat pattern as a regular expression |
+| `before` | integer | | Number of context lines before each pattern match |
+| `after` | integer | | Number of context lines after each pattern match |
+| `line_numbers` | boolean | | Include line numbers in the output (default: `false`) |
+
+`line_numbers` defaults to `false` here for the same reason as in
+[`graphit_ast_source`](#graphit_ast_source): the numbers are for a human, and a wiki
+page read for its content does not need them.
+
+Page lookup is case-insensitive, because a slug generated from a title rarely matches
+the file name exactly. A slug that resolves to nothing comes back with the list of
+pages that do exist; a reference that escapes the wiki directory is refused with its
+own reason and deliberately **without** that list, so the reason is not buried.
 
 ---
 
@@ -924,7 +962,7 @@ Tools for managing the autonomous dream module — skill generation and knowledg
 - `status` — current status: `dreaming`, `deep sleep`, `standby`, or `inactive`
 - `idle_timeout` / `max_duration` — dream timing configuration
 - `total_reports` — number of dream session reports
-- `pending_subjects` — queued dream subjects
+- `pending_backlog` — titles of the pending improvement backlog items a session would pick up
 
 ---
 
@@ -937,41 +975,6 @@ Tools for managing the autonomous dream module — skill generation and knowledg
 | `project_dir` | string | ✅ | Project directory |
 | `all` | boolean | | Show all reports (not just new ones) |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_dream_subject_list`
-
-**Description:** List dream subjects — instructions left for future dream sessions.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_dream_subject_add`
-
-**Description:** Add a new dream subject for a future dream session.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `title` | string | ✅ | Subject title/description |
-| `body` | string | | Detailed instructions for the dream agent |
-| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
-
----
-
-### `graphit_dream_subject_remove`
-
-**Description:** Remove a dream subject by slug.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `slug` | string | ✅ | Subject slug to remove |
 
 ---
 
@@ -1069,6 +1072,47 @@ Tools for code improvement analysis and methodology rules.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `default` | boolean | | Return compiled-in default rules ignoring any customization |
+
+---
+
+### `graphit_improvements_backlog_list`
+
+**Description:** List the improvement backlog — work identified but deliberately deferred.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
+
+**Returns:** an array of items, each with `slug`, `title`, `body`, `path`, `created_at`, `done`, and `result_path`.
+
+---
+
+### `graphit_improvements_backlog_add`
+
+**Description:** Add an item to the improvement backlog for a later autonomous session to pick up.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory |
+| `title` | string | ✅ | One-line description of the deferred work |
+| `body` | string | | The full brief, written for a reader with no conversation history |
+| `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
+
+Items are written to `improvements.backlog_dir` (default `docs/tasks/backlog`). Adding an item
+always succeeds; whether anything picks it up depends on `modules.dream` and the daemon — check
+`graphit_dream_status`. See [Improvement Backlog](../specs/backlog.md).
+
+---
+
+### `graphit_improvements_backlog_remove`
+
+**Description:** Remove an item from the improvement backlog by slug.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | ✅ | Project directory |
+| `slug` | string | ✅ | Slug of the backlog item to remove |
 
 ---
 

@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -101,43 +100,6 @@ func e2eGrammarOverrides() map[string]string {
 		}
 	}
 	return out
-}
-
-// rssSampler polls RSS continuously so short-lived spikes (e.g. an ANTLR
-// full-context LL parse of a pathological file, which coarse per-N-files
-// sampling would miss entirely) cannot hide between samples.
-type rssSampler struct {
-	stop chan struct{}
-	done chan struct{}
-	max  atomic.Int64
-}
-
-func startRSSSampler(every time.Duration) *rssSampler {
-	s := &rssSampler{stop: make(chan struct{}), done: make(chan struct{})}
-	go func() {
-		defer close(s.done)
-		t := time.NewTicker(every)
-		defer t.Stop()
-		for {
-			select {
-			case <-s.stop:
-				return
-			case <-t.C:
-				if v := currentRSSMB(); v > s.max.Load() {
-					s.max.Store(v)
-				}
-			}
-		}
-	}()
-	return s
-}
-
-func (s *rssSampler) Max() int64 { return s.max.Load() }
-
-func (s *rssSampler) Stop() int64 {
-	close(s.stop)
-	<-s.done
-	return s.max.Load()
 }
 
 // currentRSSMB reads the process's current RSS (Linux) in MiB.
@@ -292,7 +254,7 @@ func TestE2EIndex(t *testing.T) {
 		},
 	}
 
-	// ---- FULL ----
+	// FULL
 	t0 := time.Now()
 	res, err := RunPipeline(ctx, db, work, opts)
 	if err != nil {
@@ -305,7 +267,7 @@ func TestE2EIndex(t *testing.T) {
 		res.ParseTime.Round(time.Millisecond), res.WriteTime.Round(time.Millisecond),
 		full.Round(time.Millisecond), peakRSSMB())
 
-	// ---- INCREMENTAL (single changed file) ----
+	// INCREMENTAL (single changed file)
 	var one string
 	_ = filepath.WalkDir(work, func(p string, d fs.DirEntry, e error) error {
 		if e == nil && one == "" && !d.IsDir() && strings.HasSuffix(strings.ToLower(p), ".sql") {

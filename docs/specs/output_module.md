@@ -58,12 +58,17 @@ graph TD
 type Printer struct {
     prefix string
     w      io.Writer
+
+    mu       sync.Mutex
+    progress bool
 }
 ```
 
 The central output abstraction. Created via `NewPrinter(prefix)` where `prefix` is a module-scoped label (e.g., `"ast"`, `"hub"`, `"memory"`). The prefix is rendered as a dim tag `[prefix]` before each line.
 
 If `muted` is `true` at creation time, the writer is set to `io.Discard`, silencing all output.
+
+`progress` records that the cursor is parked at the end of a transient line — a `StepProgress` line or a task spinner — that no newline has terminated. Every printing method writes through `println`/`printf`, which erase that line first; otherwise the next line would land on top of it. `WithWriter` returns a fresh `Printer`, so the flag never travels between writers.
 
 ### `Task`
 
@@ -142,6 +147,19 @@ On package initialization, `term.IsTerminal(os.Stdout.Fd())` determines if stdou
 | `Count(label, n)` | Pluralized count (e.g., `3 files`) |
 | `ListItem(msg, args...)` | Bulleted list item with `•` |
 
+### Progress Lines
+
+| Method | Description |
+|---|---|
+| `StepProgress(msg, args...)` | A `Step` line that consecutive calls overwrite instead of stacking |
+| `EndProgress()` | Erases the progress line when nothing else will be printed after it |
+
+`StepProgress` writes `\r\033[K` and no newline, so the counter stays on one physical row for the whole operation. It truncates to the terminal width (runes, not bytes): a line that wraps cannot be erased by `\r`, which only returns to the start of the last physical row.
+
+**Without a TTY it degrades to `Step`** — one appended line per call. There is no cursor to move in a file or a pipe, and the log's only value is the history. Callers are therefore expected to throttle much harder off a terminal; `ast index` does exactly this via `progressInterval(tty bool)` in `cmd/graphit/commands/runners.go`: 200ms with a cursor, 10s without.
+
+Any ordinary print erases the progress line on its own. `EndProgress` is for the case where nothing prints after it — notably an error path that returns before the summary.
+
 ### Layout
 
 | Method | Description |
@@ -173,18 +191,23 @@ Starts an animated spinner for long-running operations:
 - **TTY mode**: Spawns a background goroutine that cycles through Braille spinner frames (`⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏`) at 80ms intervals, overwriting the current line via `\r\033[K`.
 - **Non-TTY mode**: Prints a single static `Running` line immediately (no animation).
 
+The spinner writes through `Printer.overwrite`, the same primitive as `StepProgress`, so a `Step` or `Success` printed while a task is running erases the spinner line first instead of landing on top of it.
+
 ### `Update(msg string, args ...any)`
 
 Updates the spinner message while the task is running. Thread-safe.
+
+> ⚠️ **Without a TTY, `Update` prints nothing at all** — the message is only stored, and the spinner that would have rendered it does not exist. A task is therefore the wrong shape for progress that must also reach a log or the daemon's output; that is what `StepProgress` is for.
+
+Lock order between the two types is always `Task.mu` → `Printer.mu`, in the spinner goroutine and in `Done`/`Fail` alike.
 
 ### `Done(msg string, args ...any)`
 
 Marks the task as completed:
 1. Acquires the mutex and sets `done = true`.
 2. Closes `stopCh` to terminate the spinner goroutine.
-3. Clears the spinner line (TTY only).
-4. Prints a green `✓` success line.
-5. Subsequent calls are no-ops.
+3. Prints a green `✓` success line, erasing the spinner line first if one is on screen.
+4. Subsequent calls are no-ops.
 
 ### `Fail(msg string, args ...any)`
 

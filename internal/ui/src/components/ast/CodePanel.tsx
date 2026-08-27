@@ -2,20 +2,25 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import hljs from 'highlight.js'
 import { Copy, Search, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { showToast } from '@/hooks/useToast'
+import { cn } from '@/lib/utils'
 
 interface CodePanelProps {
   content: string
   filename: string
+  /** 1-based line to jump to and mark. Null when the panel was opened on a file
+   *  rather than on an entity, in which case the file opens at the top. */
+  highlightLine?: number | null
   onClose?: () => void
 }
 
-export function CodePanel({ content, filename, onClose }: CodePanelProps) {
+export function CodePanel({ content, filename, highlightLine, onClose }: CodePanelProps) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [matchCount, setMatchCount] = useState(0)
   const [currentMatch, setCurrentMatch] = useState(0)
   const bodyRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const targetRef = useRef<HTMLDivElement>(null)
 
   const lang = (() => {
     const ext = filename.split('.').pop()?.toLowerCase() ?? ''
@@ -91,6 +96,16 @@ export function CodePanel({ content, filename, onClose }: CodePanelProps) {
       matchLines[0].scrollIntoView({ behavior: 'smooth', block: 'center' })
     }
   }, [searchTerm])
+
+  // The panel opens before the file arrives, so the jump cannot happen on click —
+  // it has to wait for the content that the line is a position INTO. Hence the
+  // dependency on content as well as on the line itself: clicking a second entity
+  // in the same file changes only the line, and clicking one in another file
+  // changes only the content, and both have to scroll.
+  useEffect(() => {
+    if (!highlightLine || !content) return
+    targetRef.current?.scrollIntoView({ block: 'center' })
+  }, [highlightLine, content])
 
   const navigate = (dir: 1 | -1) => {
     if (!bodyRef.current || matchCount === 0) return
@@ -186,6 +201,8 @@ export function CodePanel({ content, filename, onClose }: CodePanelProps) {
         .code-line { display: flex; }
         .search-match { background: rgba(234,179,8,0.12); }
         .search-match-active { background: rgba(234,179,8,0.28); }
+        .target-line { background: color-mix(in srgb, var(--primary, #3b82f6) 14%, transparent); box-shadow: inset 3px 0 0 var(--primary, #3b82f6); }
+        .target-line .code-gutter { color: var(--primary, #3b82f6); font-weight: 700; }
         
         
         .hljs-keyword { color: var(--primary, #3b82f6); font-weight: 600; }
@@ -205,9 +222,15 @@ export function CodePanel({ content, filename, onClose }: CodePanelProps) {
         id="codeBody"
         style={{ overflowX: 'auto', overflowY: 'auto' }}
       >
-        {hl.map((lineHtml, i) => (
-          <div key={i} className="code-line hover:bg-accent/25 transition-colors group">
-            <span className="select-none w-12 shrink-0 text-right pr-4 text-muted-foreground/35 group-hover:text-muted-foreground/70 border-r border-border/30 mr-4 text-[10px] font-mono">
+        {hl.map((lineHtml, i) => {
+          const isTarget = highlightLine === i + 1
+          return (
+          <div
+            key={i}
+            ref={isTarget ? targetRef : undefined}
+            className={cn('code-line hover:bg-accent/25 transition-colors group', isTarget && 'target-line')}
+          >
+            <span className="code-gutter select-none w-12 shrink-0 text-right pr-4 text-muted-foreground/35 group-hover:text-muted-foreground/70 border-r border-border/30 mr-4 text-[10px] font-mono">
               {i + 1}
             </span>
             <span
@@ -215,7 +238,8 @@ export function CodePanel({ content, filename, onClose }: CodePanelProps) {
               dangerouslySetInnerHTML={{ __html: lineHtml || ' ' }}
             />
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

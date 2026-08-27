@@ -31,6 +31,7 @@ func (d *Driver) Parse(src []byte) (*antlrcommon.TreeNode, error) {
 	// Comments live on the hidden channel and never reach the tree.
 	if converted != nil {
 		converted.Comments = antlrcommon.CollectComments(tokens, p.SymbolicNames)
+		spliceCreateFunctionBodies(converted)
 	}
 	return converted, nil
 }

@@ -5,6 +5,7 @@ type parseCacheEntry struct {
 	Language string
 	IsDepend bool
 	Source   string
+	Cluster  string
 
 	FileRow       []string
 	DirPaths      []string
@@ -45,6 +46,10 @@ type cachedCall struct {
 	Line         int
 	Path         string
 	ReceiverType string
+	// Lang is the language that produced the call, which differs from the file's
+	// when an embedded block was parsed by another grammar. Name resolution is
+	// language-scoped, so this is what decides which declarations it can reach.
+	Lang string
 }
 
 type cachedImport struct {
@@ -81,6 +86,10 @@ type cachedReference struct {
 	RelType   string
 	Path      string
 	Line      int
+	// Lang is the language that produced the reference — see cachedCall.Lang. It
+	// also selects the TargetRule, so the DML of an embedded SQL block resolves by
+	// the SQL grammar's rules rather than by the host format's.
+	Lang string
 }
 
 type cachedParameter struct {

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
-	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 // The daemon writes its index into .graphit, which sits inside the directory it
@@ -60,7 +60,7 @@ func TestSyncModuleDoesNotTriggerItself(t *testing.T) {
 	}
 	time.Sleep(500 * time.Millisecond)
 
-	mod := NewSyncModule(projectDir, filepath.Join(projectDir, brand.DotDir(), "ast", "project"))
+	mod := NewSyncModule(projectDir, store.ASTProjectDir(projectDir))
 
 	// One external write, then the tree is left alone. Everything that happens
 	// from here on is the daemon reacting to itself.
@@ -93,8 +93,8 @@ func TestSyncModuleDoesNotTriggerItself(t *testing.T) {
 				t.Error("no feedback loop, but the change never reached the index either")
 			}
 			// And no shard-of-a-shard may exist.
-			shards, _ := filepath.Glob(filepath.Join(projectDir, brand.DotDir(),
-				"ast", "project", "shards", "*.json.nodes.json"))
+			shards, _ := filepath.Glob(filepath.Join(store.ASTProjectDir(projectDir),
+				"shards", "*.json.nodes.json"))
 			for _, s := range shards {
 				t.Errorf("the indexer indexed its own output: %s", filepath.Base(s))
 			}

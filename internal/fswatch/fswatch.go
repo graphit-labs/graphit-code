@@ -269,6 +269,15 @@ func (w *Watcher) loop(ctx context.Context, out chan<- Batch) {
 		if len(batch.Changed) == 0 && len(batch.Removed) == 0 && !batch.Rescan {
 			return
 		}
+		// Checked before the select: with a reader ready AND the context already
+		// cancelled, both cases are ready and Go picks one at random, so a watcher
+		// being shut down still handed a batch downstream about half the time.
+		// Same shape that let sysutil.AcquireHeavy grant a slot to a cancelled
+		// caller — there it started a full reindex, here it only queues work that
+		// is about to be dropped, but the fix is the same and costs one branch.
+		if ctx.Err() != nil {
+			return
+		}
 		select {
 		case out <- batch:
 		case <-ctx.Done():

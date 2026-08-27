@@ -33,6 +33,7 @@ func newASTCmd() *cobra.Command {
 		newASTExportCmd(),
 		newASTListCmd(),
 		newASTSourceCmd(),
+		newASTVerifyCmd(),
 		newModuleRuleCmd("ast"),
 	)
 
@@ -44,24 +45,29 @@ func newASTIndexCmd() *cobra.Command {
 	var reset bool
 	var reindex bool
 	var cluster string
+	var clusterPaths []string
 	var noSource bool
 	var grammar string
 
 	cmd := &cobra.Command{
-		Use:   "index [path]",
+		Use:   "index [path...]",
 		Short: "Parse source code and build the AST knowledge graph",
 		Long: `Index source code into the knowledge graph.
 
 Default mode: Tree-sitter auto-detection for all supported languages.
 
 Cluster tagging:
-  --cluster <name>  Tag all indexed nodes with a logical cluster name.
-                    Enables filtered queries: MATCH (n:Class {cluster: '<name>'}) RETURN n
+  --cluster <name>         Tag all indexed nodes with a logical cluster name.
+  --cluster-path <path=cluster>  Tag nodes under <path> with <cluster> (repeatable).
+                     Paths are directory prefixes; most specific match wins.
+                     Enables filtered queries: MATCH (n:Class {cluster: '<name>'}) RETURN n
 
 Examples:
   ` + brand.BinName() + ` ast index
   ` + brand.BinName() + ` ast index ./src --cluster backend
   ` + brand.BinName() + ` ast index . --cluster my-module --reindex
+  ` + brand.BinName() + ` ast index backend/ frontend/ shared/ --cluster-path backend/=python --cluster-path frontend/=javascript --cluster-path shared/=typescript
+  ` + brand.BinName() + ` ast index backend/ frontend/ shared/ --cluster-path backend/=python --cluster-path frontend/=javascript --cluster-path shared/=typescript --cluster default
 
   # Then query by cluster:
   ` + brand.BinName() + ` ast query "MATCH (n:Function {cluster: 'backend'}) RETURN n.name, n.path LIMIT 20"
@@ -69,22 +75,26 @@ Examples:
   ` + brand.BinName() + ` ast query "MATCH (n {cluster: 'my-module'}) RETURN label(n), n.name LIMIT 50"
 
 Flags:
-  --reset     Wipe the entire database before indexing
-  --reindex   Remove only this repository's data before re-indexing`,
-		Args: cobra.MaximumNArgs(1),
+  --reindex   Re-parse every file, ignoring the parse cache, and rebuild the graph
+              and the search index from the result. Keeps the cache directory, so
+              embeddings of unchanged files are reused.
+  --reset     Delete the whole store first — graph, search index AND caches — then
+              index from scratch. Every embedding is recomputed.`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			targetPath := "."
+			targetPaths := []string{"."}
 			if len(args) > 0 {
-				targetPath = args[0]
+				targetPaths = args
 			}
 
-			return runASTIndex(targetPath, workers, reset, reindex, cluster, noSource, grammar)
+			return runASTIndex(targetPaths, workers, reset, reindex, cluster, clusterPaths, noSource, grammar)
 		},
 	}
 	cmd.Flags().IntVar(&workers, "workers", 0, "Parallel worker count (default: all CPUs)")
-	cmd.Flags().BoolVar(&reset, "reset", false, "Wipe entire database before indexing")
-	cmd.Flags().BoolVar(&reindex, "reindex", false, "Remove only this repository before re-indexing")
-	cmd.Flags().StringVar(&cluster, "cluster", "", "Tag all indexed nodes with a logical cluster name for filtered queries")
+	cmd.Flags().BoolVar(&reset, "reset", false, "Delete the whole store first — graph, search index and caches — discarding every embedding")
+	cmd.Flags().BoolVar(&reindex, "reindex", false, "Re-parse every file, ignoring the parse cache, keeping the cached embeddings")
+	cmd.Flags().StringVar(&cluster, "cluster", "", "Tag all indexed nodes with a logical cluster name for filtered queries (fallback)")
+	cmd.Flags().StringArrayVar(&clusterPaths, "cluster-path", nil, "Path-to-cluster mapping (repeatable), format: path=cluster (e.g., backend/=python)")
 	cmd.Flags().BoolVar(&noSource, "no-source", false, "Skip storing source code in graph nodes (lighter index, no FTS/source retrieval)")
 	cmd.Flags().StringVar(&grammar, "grammar", "", "Override grammar per extension (comma-separated: .ext=grammar-name, e.g. .sql=antlr-plsql,.pks=antlr-plsql)")
 	return cmd
@@ -93,6 +103,7 @@ Flags:
 func newASTWatchCmd() *cobra.Command {
 	var workers int
 	var cluster string
+	var clusterPaths []string
 
 	cmd := &cobra.Command{
 		Use:   "watch [path]",
@@ -101,20 +112,27 @@ func newASTWatchCmd() *cobra.Command {
 
 Default mode: Tree-sitter (best for incremental single-file re-parsing).
 
+Cluster tagging:
+  --cluster <name>         Tag all indexed nodes with a logical cluster name.
+  --cluster-path <path=cluster>  Tag nodes under <path> with <cluster> (repeatable).
+                     Paths are directory prefixes; most specific match wins.
+
 Examples:
   ` + brand.BinName() + ` ast watch
-  ` + brand.BinName() + ` ast watch --cluster my-cluster`,
+  ` + brand.BinName() + ` ast watch --cluster my-cluster
+  ` + brand.BinName() + ` ast watch --cluster-path backend/=python --cluster-path frontend/=javascript`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			targetPath := "."
 			if len(args) > 0 {
 				targetPath = args[0]
 			}
-			return runASTWatch(targetPath, workers, cluster)
+			return runASTWatch(targetPath, workers, cluster, clusterPaths)
 		},
 	}
 	cmd.Flags().IntVar(&workers, "workers", 0, "Parallel worker count (default: 2)")
-	cmd.Flags().StringVar(&cluster, "cluster", "", "Tag all indexed nodes with a logical cluster name")
+	cmd.Flags().StringVar(&cluster, "cluster", "", "Tag all indexed nodes with a logical cluster name (fallback)")
+	cmd.Flags().StringArrayVar(&clusterPaths, "cluster-path", nil, "Path-to-cluster mapping (repeatable), format: path=cluster (e.g., backend/=python)")
 	return cmd
 }
 
@@ -189,6 +207,37 @@ Examples:
 		},
 	}
 	cmd.Flags().StringVar(&contextName, "context", "", "Show schema for an imported context")
+	_ = cmd.RegisterFlagCompletionFunc("context", completionASTContexts())
+	return cmd
+}
+
+func newASTVerifyCmd() *cobra.Command {
+	var contextName string
+
+	cmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Check that the text in the graph is the text on disk",
+		Long: `Compare every indexed node's text against the file it came from.
+
+This exists for a failure nothing else here can see. LadybugDB's string corruption has
+a SILENT form — a wrong (offset, length) landing on the valid text of another row — and
+the value that comes back is well-formed, internally consistent, and simply wrong. The
+usual scan finds invalid UTF-8 only, so it passes clean over a graph corrupted this way.
+
+It DETECTS; it cannot repair. The defect is upstream, and sync will not fix it either:
+the shard cache is keyed by content hash, so it reports the intact file as up to date
+and never rewrites the row. A full reindex is what rewrites it.
+
+Exit status is 1 when a divergence is found, so this can gate a pipeline.
+
+Examples:
+  ` + brand.BinName() + ` ast verify
+  ` + brand.BinName() + ` ast verify --context oracle-schema`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runASTVerify(contextName)
+		},
+	}
+	cmd.Flags().StringVar(&contextName, "context", "", "Verify an imported context instead of this project")
 	_ = cmd.RegisterFlagCompletionFunc("context", completionASTContexts())
 	return cmd
 }
@@ -285,7 +334,7 @@ func newASTExportCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "obsidian", "Export format (obsidian, bundle)")
-	cmd.Flags().StringVar(&outputDir, "output", "./"+brand.DotDir()+"/ast/export", "Output path")
+	cmd.Flags().StringVar(&outputDir, "output", brand.ProjectRuntimePath(".", "ast", "export"), "Output path")
 	cmd.Flags().BoolVar(&noSources, "no-sources", false, "Exclude file source content from bundle export")
 	return cmd
 }
@@ -373,6 +422,8 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 			task := p.StartTask("Checking pending embeddings...")
 
 			cfg := ast.DefaultEmbeddingConfig()
+			cfg.RepoRoot, _ = os.Getwd()
+			cfg.ProjectDir = cfg.RepoRoot
 			ladybugCfg := ast.DefaultLadybugConfig()
 			cacheDir := filepath.Dir(ladybugCfg.DBPath)
 
@@ -390,15 +441,18 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 
 			probe := ast.NewEmbedder(nil, cfg)
 			pending := probe.CountPending(ctx)
-			idxPath := ladybugCfg.DBPath + ast.SearchIndexSuffix
+			idxPath := ladybugCfg.DBPath
 			if pending == 0 {
-				// Even if all embeddings are cached, the search index may have been
-				// deleted. Rebuild it from cache so search works without re-embedding.
-				if _, statErr := os.Stat(idxPath); os.IsNotExist(statErr) {
+				// Even if all embeddings are cached, the search tables may be empty —
+				// a graph rebuilt without them, or a store restored from a partial
+				// build. Rebuild from cache so search works without re-embedding.
+				// Emptiness has to be queried now that the index is not a file of its
+				// own; a stat only proves the graph is there.
+				if !ast.SearchIndexBuilt(ctx, idxPath) {
 					task.Update("Rebuilding search index...")
-					if searchIdx, idxErr := ast.OpenSearchIndex(idxPath); idxErr == nil {
+					if searchIdx, idxErr := ast.OpenSearchIndex(ctx, idxPath); idxErr == nil {
 						embLookup := ast.BuildEmbLookup(parseCache, cfg.EmbCache)
-						if rbErr := searchIdx.RebuildFromCache(parseCache, embLookup); rbErr != nil {
+						if rbErr := searchIdx.RebuildFromCache(ctx, parseCache, embLookup); rbErr != nil {
 							p.StepWarn("Search index rebuild: %v", rbErr)
 						}
 						_ = searchIdx.Close()
@@ -428,9 +482,9 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 			}
 
 			task.Update("Rebuilding search index...")
-			if searchIdx, idxErr := ast.OpenSearchIndex(idxPath); idxErr == nil {
+			if searchIdx, idxErr := ast.OpenSearchIndex(ctx, idxPath); idxErr == nil {
 				embLookup := ast.BuildEmbLookup(parseCache, cfg.EmbCache)
-				if rbErr := searchIdx.RebuildFromCache(parseCache, embLookup); rbErr != nil {
+				if rbErr := searchIdx.RebuildFromCache(ctx, parseCache, embLookup); rbErr != nil {
 					p.StepWarn("Search index rebuild: %v", rbErr)
 				}
 				_ = searchIdx.Close()

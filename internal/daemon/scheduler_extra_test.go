@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// removeCronEntry — entry present
-// ---------------------------------------------------------------------------
-
 func TestRemoveCronEntry_Present(t *testing.T) {
 	t.Parallel()
 	marker := "# MY_MARKER"
@@ -28,10 +24,6 @@ func TestRemoveCronEntry_Present(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// removeCronEntry — entry absent
-// ---------------------------------------------------------------------------
-
 func TestRemoveCronEntry_Absent(t *testing.T) {
 	t.Parallel()
 	crontab := "* * * * * /bin/other\n"
@@ -41,10 +33,6 @@ func TestRemoveCronEntry_Absent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// removeCronEntry — empty crontab
-// ---------------------------------------------------------------------------
-
 func TestRemoveCronEntry_Empty(t *testing.T) {
 	t.Parallel()
 	result := removeCronEntry("", "# MARKER")
@@ -52,10 +40,6 @@ func TestRemoveCronEntry_Empty(t *testing.T) {
 		t.Errorf("expected empty, got %q", result)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// removeCronEntry — multiple markers
-// ---------------------------------------------------------------------------
 
 func TestRemoveCronEntry_MultipleMarkers(t *testing.T) {
 	t.Parallel()
@@ -73,9 +57,7 @@ func TestRemoveCronEntry_MultipleMarkers(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // removeCronEntry — marker at end of crontab (no following line)
-// ---------------------------------------------------------------------------
 
 func TestRemoveCronEntry_MarkerAtEndNoCronLine(t *testing.T) {
 	t.Parallel()
@@ -89,10 +71,6 @@ func TestRemoveCronEntry_MarkerAtEndNoCronLine(t *testing.T) {
 		t.Error("other line should remain")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// resolveExePath — returns valid path
-// ---------------------------------------------------------------------------
 
 func TestResolveExePath_ReturnsValid(t *testing.T) {
 	exe, err := resolveExePath()

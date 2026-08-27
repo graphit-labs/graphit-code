@@ -10,14 +10,17 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
 // antlrCacheCheckInterval is how many files are parsed between memory checks.
-// Each check is a barrier (all workers drained), which is also the only point
-// where the shared ANTLR caches may safely be reset.
+// A check costs a runtime.ReadMemStats (a brief stop-the-world), so it is
+// amortized over this many files rather than run after every parse. It is no
+// longer a barrier: the reset is made safe by antlrcommon's RWMutex, not by
+// draining the pool.
 var antlrCacheCheckInterval = func() int {
 	if n := envUint("GRAPHIT_ANTLR_RESET_FILES"); n > 0 {
 		return int(n)
@@ -53,6 +56,7 @@ type PipelineOptions struct {
 	ExcludeExts      map[string]bool
 	GrammarOverrides map[string]string
 	Cluster          string
+	ClusterPathMap   map[string]string
 	ForceRebuild     bool
 	Logger           *slog.Logger
 	OnProgress       func(phase string, current, total, errors int)
@@ -76,6 +80,11 @@ type PipelineResult struct {
 	WriteTime    time.Duration
 	TotalTime    time.Duration
 
+	// SearchIndexRebuilt reports that nothing was reparsed and nothing was written to the
+	// graph, but the search index was replayed from the shard cache because it was missing
+	// or empty. Distinguished from a graph rebuild so the CLI can say which half it repaired.
+	SearchIndexRebuilt bool
+
 	ErrorCount      int
 	TimeoutCount    int
 	EmptyCount      int
@@ -85,6 +94,39 @@ type PipelineResult struct {
 	WriteErrorFiles []string
 
 	EngineStats map[string]int
+}
+
+// resolveClusterForPath returns the cluster name for a given file path based on the
+// cluster path map. It finds the most specific (longest) matching prefix.
+// If no match is found, returns the default cluster (may be empty).
+func resolveClusterForPath(filePath, rootPath string, clusterPathMap map[string]string, defaultCluster string) string {
+	if len(clusterPathMap) == 0 {
+		return defaultCluster
+	}
+	// Get relative path from root for prefix matching
+	relPath, err := filepath.Rel(rootPath, filePath)
+	if err != nil {
+		relPath = filePath
+	}
+	relPath = filepath.ToSlash(relPath)
+	if !strings.HasSuffix(relPath, "/") {
+		relPath += "/"
+	}
+	
+	bestMatch := ""
+	bestCluster := ""
+	for prefix, cluster := range clusterPathMap {
+		if strings.HasPrefix(relPath, prefix) {
+			if len(prefix) > len(bestMatch) {
+				bestMatch = prefix
+				bestCluster = cluster
+			}
+		}
+	}
+	if bestCluster != "" {
+		return bestCluster
+	}
+	return defaultCluster
 }
 
 func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts PipelineOptions) (*PipelineResult, error) {
@@ -97,7 +139,6 @@ func RunPipeline(ctx context.Context, db GraphDB, rootPath string, opts Pipeline
 	abs, _ := filepath.Abs(rootPath)
 
 	writer := NewGraphWriter(db, abs, opts.IndexSource)
-	writer.cluster = opts.Cluster
 
 	parser := NewCompositeParser(abs, opts.GrammarOverrides)
 	return runFileWorkerPool(ctx, db, writer, abs, parser, t0, opts)
@@ -120,24 +161,30 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	// the stat-every-file pass are unnecessary.
 	scoped := len(opts.ChangedPaths) > 0 || len(opts.DeletedPaths) > 0
 
+	discover := func() ([]string, error) {
+		found, err := collectFiles(abs)
+		if err != nil {
+			return nil, fmt.Errorf("discover files: %w", err)
+		}
+		if len(opts.ExcludeExts) == 0 {
+			return found, nil
+		}
+		var filtered []string
+		for _, f := range found {
+			ext := strings.ToLower(filepath.Ext(f))
+			if !opts.ExcludeExts[ext] {
+				filtered = append(filtered, f)
+			}
+		}
+		return filtered, nil
+	}
+
 	tDiscover := time.Now()
 	var files []string
 	if !scoped {
 		var err error
-		files, err = collectFiles(abs)
-		if err != nil {
-			return nil, fmt.Errorf("discover files: %w", err)
-		}
-
-		if len(opts.ExcludeExts) > 0 {
-			var filtered []string
-			for _, f := range files {
-				ext := strings.ToLower(filepath.Ext(f))
-				if !opts.ExcludeExts[ext] {
-					filtered = append(filtered, f)
-				}
-			}
-			files = filtered
+		if files, err = discover(); err != nil {
+			return nil, err
 		}
 	}
 	discoverTime := time.Since(tDiscover)
@@ -151,6 +198,34 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		if err != nil {
 			logger.Warn("json cache fallback", "error", err)
 		}
+	}
+
+	// A scoped run indexes the files a watcher named and trusts the cache to hold the
+	// rest of the project. An empty cache voids that premise, and the consequence is
+	// not a slow run — it is data loss: the rebuild below builds the WHOLE graph from
+	// the cache, so one changed file becomes a one-file graph, and the swap publishes
+	// it over a complete one. Observed on this repository, in the daemon log:
+	//
+	//	strategy selected type=full-rebuild files=1
+	//	cache loaded files=1
+	//	COPY complete nodes=1 edges=0
+	//	swapping DB mode=atomic
+	//
+	// A bump of shardCacheVersion is the ordinary way to arrive here — it discards the
+	// manifest by design — and a deleted cache directory or a fresh clone does the same.
+	// Discovery costs one slow pass; publishing a one-file graph costs the graph.
+	if scoped && jsonCache != nil && jsonCache.Count() == 0 {
+		logger.Warn("scoped run with an empty parse cache — falling back to full discovery, "+
+			"because rebuilding from it would publish a graph holding only the named files",
+			"changed", len(opts.ChangedPaths), "deleted", len(opts.DeletedPaths))
+		found, err := discover()
+		if err != nil {
+			return nil, err
+		}
+		files = found
+		scoped = false
+		opts.ChangedPaths = nil
+		opts.DeletedPaths = nil
 	}
 
 	tHash := time.Now()
@@ -254,13 +329,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			)
 		}
 
-		// Detect deleted files (in cache but not on disk).
-		for _, cached := range jsonCache.AllPaths() {
-			if !liveFiles[cached] {
-				deletedFiles = append(deletedFiles, cached)
-				jsonCache.Remove(cached)
-			}
-		}
+		deletedFiles = append(deletedFiles, pruneVanished(jsonCache, liveFiles)...)
 
 		// mtimeUnchanged files: add their paths to fileHashes using cached hash.
 		for _, fi := range mtimeUnchanged {
@@ -269,6 +338,13 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	} else {
 		// Full rebuild or no cache: skip hashing, treat all files as changed.
 		changedFiles = files
+
+		// The prune runs here too, and it is the only thing that removes a file that
+		// left the disk: both the graph and the search index are rebuilt from this
+		// cache, so a shard left in it is republished into both.
+		if jsonCache != nil {
+			deletedFiles = append(deletedFiles, pruneVanished(jsonCache, relSet(writer, files))...)
+		}
 	}
 	hashTime := time.Since(tHash)
 
@@ -279,7 +355,64 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		totalFiles = jsonCache.Count()
 	}
 
-	if len(changedFiles) == 0 && len(deletedFiles) == 0 && jsonCache != nil && jsonCache.Count() > 0 && !opts.ForceRebuild {
+	// graphPresent gates the shortcut below. "Nothing changed" is only a reason
+	// to skip the write when there is something to skip TO: with the graph gone
+	// and the parse cache current, this returned "N files up to date (no changes
+	// detected)" and exited, leaving no database behind and reporting success
+	// over it. Verified by moving the database aside and re-running.
+	//
+	// It is also the cheap way to ask for a rebuild from cache: delete the
+	// database, keep the shards, and the write below replays them — 8.3 s here
+	// against a full reparse, and ~95 s against 16 minutes on a 36k-file repo.
+	graphPresent := true
+	dbPath := ""
+	if lb, ok := db.(*LadybugBackend); ok {
+		dbPath = lb.cfg.DBPath
+		if _, statErr := os.Stat(dbPath); statErr != nil {
+			graphPresent = false
+		}
+	}
+
+	if graphPresent && len(changedFiles) == 0 && len(deletedFiles) == 0 && jsonCache != nil && jsonCache.Count() > 0 && !opts.ForceRebuild {
+
+		// The SEARCH index gets the same question the graph just got, and for the same
+		// reason: skipping the write is only safe when both halves of the store are there
+		// to skip to. A store indexed by an older build has a search directory that
+		// exists and holds nothing, and until this check it took the shortcut above and
+		// reported "N files up to date" over a search that answered nothing at all.
+		//
+		// os.Stat cannot answer it — OpenSearchIndex CREATES what it opens, so the
+		// directory's existence is evidence of nothing. SearchIndexBuilt counts rows.
+		//
+		// The repair replays the shards rather than reparsing: the parse cache is current
+		// by definition here, which is what made this branch reachable.
+		if dbPath != "" && !SearchIndexBuilt(ctx, dbPath) {
+			var embCache *ShardEmbCache
+			if ec, err := NewShardEmbCache(opts.CacheDir, jsonCache); err == nil {
+				embCache = ec
+				defer func() { _ = ec.Close() }()
+			}
+			t1 := time.Now()
+			if err := BuildSearchIndexFor(ctx, dbPath, jsonCache, embCache); err != nil {
+				_ = jsonCache.Save()
+				_ = jsonCache.Close()
+				return nil, fmt.Errorf("rebuild search index from cache: %w", err)
+			}
+			writeTime := time.Since(t1)
+
+			_ = jsonCache.Save()
+			_ = jsonCache.Close()
+			return &PipelineResult{
+				TotalFiles:         totalFiles,
+				ParsedFiles:        0,
+				DiscoverTime:       discoverTime,
+				HashTime:           hashTime,
+				WriteTime:          writeTime,
+				TotalTime:          time.Since(t0),
+				SearchIndexRebuilt: true,
+				EngineStats:        make(map[string]int),
+			}, nil
+		}
 
 		_ = jsonCache.Save()
 		_ = jsonCache.Close()
@@ -295,7 +428,27 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}
 
 	t1 := time.Now()
-	parseOpts := ParseOptions{IndexSource: opts.IndexSource}
+
+	// Mirrored into an atomic because the parsers poll this from inside a cgo
+	// callback, many times per file: context.cancelCtx.Err takes a mutex on
+	// every call, which is the wrong thing to put on that path. The watcher is
+	// stopped on return so a long-lived daemon does not accumulate one goroutine
+	// per pipeline run.
+	var cancelled atomic.Bool
+	stopWatch := make(chan struct{})
+	defer close(stopWatch)
+	go func() {
+		select {
+		case <-ctx.Done():
+			cancelled.Store(true)
+		case <-stopWatch:
+		}
+	}()
+
+	parseOpts := ParseOptions{
+		IndexSource: opts.IndexSource,
+		Cancelled:   cancelled.Load,
+	}
 
 	dryRun := os.Getenv("AST_DRY_RUN") == "1"
 
@@ -306,53 +459,84 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}
 	results := make(chan result, 64)
 
-	// Parse in chunks so that between chunks every worker has drained — a
-	// barrier where no parse is in flight. ANTLR's package-level DFA /
-	// prediction-context caches grow with every newly seen input pattern and
-	// are never evicted (~2 MB per PL/SQL file measured), so without a
-	// periodic reset a large repository exhausts RAM. Resetting only at the
-	// barrier keeps the parse hot path lock-free.
+	// One continuous worker pool over every file. ANTLR's package-level DFA /
+	// prediction-context caches grow with every newly seen input pattern and are
+	// never evicted (~2 MB per PL/SQL file measured), so a large repository still
+	// needs a periodic reset — but the reset no longer needs a barrier to be safe.
+	// ResetAntlrCaches takes antlrcommon's exclusive lock, and every native
+	// grammar driver already holds the matching read lock for the duration of a
+	// parse, so the mutex alone excludes in-flight parses.
+	//
+	// This used to run in chunks of antlrCacheCheckInterval files with a
+	// wg.Wait() between them, which made every chunk cost its SLOWEST FILE while
+	// the other workers sat idle. On a corpus whose file sizes span three orders
+	// of magnitude that tail dominates: measured here, one 704 KB PL/SQL
+	// procedure takes 24.3 s to parse on its own, and the handful of files that
+	// size are adjacent in walk order, so they landed in the same chunk and
+	// stalled it with N-1 workers doing nothing.
 	go func() {
 		defer close(results)
 
-		for start := 0; start < len(changedFiles); start += antlrCacheCheckInterval {
-			end := start + antlrCacheCheckInterval
-			if end > len(changedFiles) {
-				end = len(changedFiles)
-			}
-			chunk := changedFiles[start:end]
-
-			paths := make(chan string)
-			go func(files []string) {
-				for _, f := range files {
-					paths <- f
+		paths := make(chan string)
+		go func() {
+			defer close(paths)
+			for _, f := range changedFiles {
+				// Unbuffered: without the ctx arm this blocks forever once the
+				// workers stop reading, and the cancellation deadlocks instead
+				// of completing.
+				select {
+				case paths <- f:
+				case <-ctx.Done():
+					return
 				}
-				close(paths)
-			}(chunk)
+			}
+		}()
 
-			var wg sync.WaitGroup
-			for i := 0; i < opts.Workers; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					wp := NewCompositeParser(abs, opts.GrammarOverrides)
-					for path := range paths {
-						pf, err := wp.Parse(path, opts.IsDepend, parseOpts)
-						results <- result{path, pf, err}
+		// Files parsed since the last heap check. Checking costs a
+		// runtime.ReadMemStats (a brief stop-the-world), so it is amortized over
+		// antlrCacheCheckInterval files rather than run per file.
+		var sinceCheck atomic.Int64
+
+		var wg sync.WaitGroup
+		for i := 0; i < opts.Workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				wp := NewCompositeParser(abs, opts.GrammarOverrides)
+				for path := range paths {
+					if ctx.Err() != nil {
+						return
 					}
-				}()
-			}
-			wg.Wait() // barrier: no parse in flight
+					pf, err := wp.Parse(path, opts.IsDepend, parseOpts)
+					select {
+					case results <- result{path, pf, err}:
+					case <-ctx.Done():
+						return
+					}
 
-			// Only reset when the heap is actually under pressure — a warm
-			// DFA is worth keeping. This also runs after the final chunk:
-			// the caches are package-level and stay LIVE (not garbage), so a
-			// long-lived daemon would otherwise hold the whole budget until
-			// the process exits.
-			if heap, over := antlrCachePressure(); over {
-				ResetAntlrCaches()
-				logger.Debug("antlr caches reset", "heap_mb", heap>>20, "parsed", end)
-			}
+					// Safe here and not mid-parse: Parse has returned, so this
+					// goroutine holds no read lock and cannot deadlock against
+					// the write lock it is about to ask for.
+					if sinceCheck.Add(1) >= int64(antlrCacheCheckInterval) {
+						sinceCheck.Store(0)
+						// Only reset under real pressure — a warm DFA is worth
+						// keeping, and each reset costs a partial re-warm.
+						if heap, over := antlrCachePressure(); over {
+							ResetAntlrCaches()
+							logger.Debug("antlr caches reset", "heap_mb", heap>>20)
+						}
+					}
+				}
+			}()
+		}
+		wg.Wait()
+
+		// The caches are package-level and stay LIVE (not garbage), so a
+		// long-lived daemon would otherwise hold the whole budget until the
+		// process exits.
+		if heap, over := antlrCachePressure(); over {
+			ResetAntlrCaches()
+			logger.Debug("antlr caches reset", "heap_mb", heap>>20, "final", true)
 		}
 	}()
 
@@ -398,7 +582,9 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		engineStats[langKey]++
 
 		if jsonCache != nil && !dryRun {
-			entry := ConvertToCache(r.pf, abs, opts.IndexSource, opts.Cluster)
+			// Resolve cluster for this specific file
+			fileCluster := resolveClusterForPath(r.pf.Path, abs, opts.ClusterPathMap, opts.Cluster)
+			entry := ConvertToCache(r.pf, abs, opts.IndexSource, fileCluster)
 			if entry != nil {
 				fAbs, _ := filepath.Abs(r.pf.Path)
 				relPath := writer.rel(fAbs)
@@ -444,6 +630,29 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	if !dryRun && jsonCache != nil && jsonCache.Count() > 0 {
 		tw0 := time.Now()
 
+		// The write is a single call into the rebuild and reports nothing from
+		// inside it — on a 36k-file repository that was 424 s of silence after
+		// the last parse line, which reads as a hang. At minimum, say that the
+		// phase changed and how much work it has.
+		if opts.OnProgress != nil {
+			opts.OnProgress("writing", 0, jsonCache.Count(), parseErrors+writeErrors)
+		}
+
+		// Both write paths build into a `<db>.<hex>` copy and rename it over
+		// production, so NEITHER opens production read-write — and that open was
+		// the only caller of CleanupInterruptedSwap, which made the collector
+		// dead code in exactly the mode that produces the garbage. A copy
+		// outlives its process whenever that process is killed between the copy
+		// and the rename, because the deferred removal does not run: 369 MB of
+		// orphans beside an 81 MB database here.
+		//
+		// Here is where it belongs. This is the point where this process is
+		// about to become the writer, which is the condition the collector
+		// documents; connect() only ever approximated it.
+		if lb, ok := db.(*LadybugBackend); ok {
+			CleanupInterruptedSwap(lb.cfg.DBPath)
+		}
+
 		var embCache *ShardEmbCache
 		if opts.CacheDir != "" {
 			if ec, err := NewShardEmbCache(opts.CacheDir, jsonCache); err == nil {
@@ -462,15 +671,11 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		useIncremental := isLB && productionDBExists && !opts.ForceRebuild &&
 			(len(changedFiles)+len(deletedFiles)) < jsonCache.Count()
 
-		var searchIdx *SearchIndex
-		if isLB {
-			idxPath := lb.cfg.DBPath + searchIndexSuffix
-			if si, err := OpenSearchIndex(idxPath); err == nil {
-				searchIdx = si
-				defer func() { _ = searchIdx.Close() }()
-			}
-		}
-
+		// No search index is opened here. Both branches below open the sidecar
+		// themselves, and they open it at different moments — the incremental before
+		// the swap, so a failure can still fall back with the old graph intact; the
+		// full rebuild after it, so the published graph is never the older of the two.
+		// A handle taken here would have to be held across both.
 		var err error
 		if useIncremental {
 
@@ -485,16 +690,23 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 
 			logger.Info("strategy selected", "type", "incremental",
 				"changed", len(changedRels), "deleted", len(deletedFiles), "total", jsonCache.Count())
-			err = IncrementalRebuild(ctx, lb, jsonCache, embCache, changedRels, deletedFiles, opts.Cluster, abs, searchIdx, opts.Logger)
+			err = IncrementalRebuild(ctx, lb, jsonCache, embCache, changedRels, deletedFiles, opts.Cluster, abs, opts.Logger)
 		} else {
 			logger.Info("strategy selected", "type", "full-rebuild", "files", jsonCache.Count())
-			err = RebuildFromJSON(ctx, db, jsonCache, embCache, opts.Cluster, abs, opts.Logger)
-			if err == nil && searchIdx != nil {
-				embLookup := BuildEmbLookup(jsonCache, embCache)
-				if err := searchIdx.RebuildFromCache(jsonCache, embLookup); err != nil {
-					logger.Error("search index rebuild failed; search results are stale", "error", err)
-				}
-			}
+			writeErrs := parseErrors + writeErrors
+			// WithSearch, not WithProgress: a full rebuild republishes the whole
+			// corpus, and an index left describing the previous one is worse than no
+			// index — it answers, and it answers wrongly.
+			//
+			// Failing it is a write error, not a warning: files.source is the only
+			// queryable copy of file text, so a broken index leaves `ast source` with
+			// nothing to read for every path in the project, which reads as missing code.
+			err = RebuildFromJSONWithSearch(ctx, db, jsonCache, embCache, opts.Cluster, abs, opts.Logger,
+				func(rows int) {
+					if opts.OnProgress != nil {
+						opts.OnProgress("writing", rows, jsonCache.Count(), writeErrs)
+					}
+				})
 		}
 		if err != nil {
 			writeErrors++
@@ -528,11 +740,47 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}, nil
 }
 
+// pruneVanished drops every cached shard whose file is no longer among the live
+// ones and returns their repo-relative paths.
+//
+// NOTE: only safe when live covers the whole corpus. In scoped mode the tree is
+// never walked, so the caller names the deletions instead.
+func pruneVanished(cache *ShardCache, live map[string]bool) []string {
+	var gone []string
+	for _, cached := range cache.AllPaths() {
+		if !live[cached] {
+			gone = append(gone, cached)
+			cache.Remove(cached)
+		}
+	}
+	return gone
+}
+
+func relSet(writer *GraphWriter, files []string) map[string]bool {
+	live := make(map[string]bool, len(files))
+	for _, path := range files {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			continue
+		}
+		if rel := writer.rel(abs); rel != "" {
+			live[rel] = true
+		}
+	}
+	return live
+}
+
 func fileContentHash(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
+	return contentHashOf(data)
+}
+
+// contentHashOf is the hash a shard is keyed by, taken from bytes already in hand so a
+// caller that needs both the hash and the content does not read the file twice.
+func contentHashOf(data []byte) string {
 	h := sha256.Sum256(data)
 	return fmt.Sprintf("%x", h)
 }

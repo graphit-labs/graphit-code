@@ -18,5 +18,3 @@ func (p *Printer) StepError(msg string, args ...any) {
 func (p *Printer) Divider() {
 	_, _ = fmt.Fprintln(p.w, dim.Sprint(strings.Repeat(SymbolDivider, 40)))
 }
-
-func IsTTY() bool { return isTTY }

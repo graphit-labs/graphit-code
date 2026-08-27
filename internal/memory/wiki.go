@@ -20,18 +20,58 @@ type WikiResult struct {
 	ArticlesWritten int
 }
 
-func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*slog.Logger) (*WikiResult, error) {
+// isMemorySourceFile reports whether a filename in the memory store is a
+// memory page rather than a generated artifact of the wiki itself.
+func isMemorySourceFile(name string) bool {
+	if filepath.Ext(name) != ".md" {
+		return false
+	}
+	return name != "index.md" && name != "log.md" && !strings.HasPrefix(name, "Memory_Wiki")
+}
+
+// memorySourceFileNames lists the cache keys of the memories currently on disk.
+func memorySourceFileNames(rawDir string) []string {
+	entries, err := os.ReadDir(rawDir)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || !isMemorySourceFile(e.Name()) {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func GenerateMemoryWiki(ctx context.Context, rawDir, wikiDir string, logger ...*slog.Logger) (*WikiResult, error) {
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating wiki dir: %w", err)
+	}
+
+	// The prefix carries shards beside the raw markdown, so a memory somebody else
+	// wrote arrives with its embedding vector already computed. Importing before the
+	// cache is opened is what lets this build find it instead of running the model
+	// again; a shard whose hash does not match its local source is inert, so it cannot
+	// mislead the build. Exported again at the end — see shardsync.go.
+	//
+	// Hooked here rather than in RunCycle because this is the real funnel: the memory
+	// service compiles through IndexMemories, which does not go through a cycle.
+	if _, err := ImportShards(rawDir, wikiDir); err != nil {
+		slogutil.Resolve(firstLogger(logger)).Warn("memory shard import",
+			"raw", rawDir, "wiki", wikiDir, "error", err)
 	}
 
 	// Load process cache for incremental builds.
 	processCache, _ := wiki.NewWikiProcessCache(wikiDir)
 	validPaths := make(map[string]bool)
 
-	// --- STAT PRE-CHECK (shared AST pattern via wiki.StatPreCheck) ---
+	// STAT PRE-CHECK (shared AST pattern via wiki.StatPreCheck)
 	// Memory files live in rawDir; use it as baseDir for relPath resolution.
-	if wiki.StatPreCheck(rawDir, wikiDir, processCache) {
+	if wiki.StatPreCheck(rawDir, wikiDir, processCache, wiki.StatPreCheckOpts{
+		CurrentSourceFiles: func() []string { return memorySourceFileNames(rawDir) },
+	}) {
 		return &WikiResult{}, nil
 	}
 
@@ -45,14 +85,10 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 
 	var docs []memDoc
 	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
+		if e.IsDir() || !isMemorySourceFile(e.Name()) {
 			continue
 		}
 		name := e.Name()
-
-		if name == "index.md" || name == "log.md" || strings.HasPrefix(name, "Memory_Wiki") {
-			continue
-		}
 		absPath := filepath.Join(rawDir, name)
 
 		important := IsImportantMemory(name)
@@ -136,27 +172,32 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 	})
 
 	result := &WikiResult{}
-	usedSlugs := make(map[string]bool)
+
+	// SAFETY: resolve each slug ONCE. Recomputing it per consumer let the page
+	// and the DB chunk disagree whenever two memories share a title.
+	slugs := make([]string, len(docs))
+	usedSlugs := make(map[string]bool, len(docs))
+	for i, doc := range docs {
+		slugs[i] = wiki.UniqueSlug(wiki.SafeSlug(doc.title), usedSlugs)
+	}
 
 	// FAST PATH: use wiki.FastPathCheck — checks processCache (O(1) per entry,
 	// no disk I/O) and a single ReadDir to detect deletions.
-	fastSlugs := make(map[string]bool, len(docs))
-	fastEntries := make([]wiki.DocHashEntry, 0, len(docs))
-	for _, doc := range docs {
-		slug := wiki.UniqueSlug(wiki.SafeSlug(doc.title), fastSlugs)
-		fastEntries = append(fastEntries, wiki.DocHashEntry{
+	fastEntries := make([]wiki.DocHashEntry, len(docs))
+	for i, doc := range docs {
+		fastEntries[i] = wiki.DocHashEntry{
 			CacheKey:    doc.filename,
 			ContentHash: doc.contentHash,
-			Slug:        slug,
-		})
+			Slug:        slugs[i],
+		}
 	}
-	if wiki.FastPathCheck(wikiDir, fastEntries, processCache) {
+	if wiki.FastPathCheck(ctx, wikiDir, fastEntries, processCache) {
 		_ = processCache.Save()
 		return result, nil
 	}
 
-	for _, doc := range docs {
-		slug := wiki.UniqueSlug(wiki.SafeSlug(doc.title), usedSlugs)
+	for i, doc := range docs {
+		slug := slugs[i]
 		path := filepath.Join(wikiDir, slug+".md")
 		// Only write if content hash changed — avoids I/O when wiki is up to date.
 		// We read the existing file's content_hash from frontmatter.
@@ -190,13 +231,12 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 
 	// Build WikiDB for FTS5 search
 	wikiChunks := make([]wiki.WikiChunk, 0, len(docs))
-	for _, doc := range docs {
-		slug := wiki.SafeSlug(doc.title)
+	for i, doc := range docs {
 		now := time.Now().UTC().Format("2006-01-02")
 		wc := len(strings.Fields(doc.body))
 
 		wikiChunks = append(wikiChunks, wiki.WikiChunk{
-			Slug:        slug,
+			Slug:        slugs[i],
 			Title:       doc.title,
 			Body:        doc.body,
 			Summary:     wiki.ExtractSummary(doc.body),
@@ -221,35 +261,103 @@ func GenerateMemoryWiki(_ context.Context, rawDir, wikiDir string, logger ...*sl
 		}
 	}
 
-	_ = wiki.RebuildDB(wikiDir, wikiChunks, nil, logEntry, processCache)
+	// The error is REPORTED — and reported somewhere a person will actually see it.
+	//
+	// It used to be `_ =`, and that turned every failure of the index build into a silent
+	// success: pages and shards were written, "Memory index complete" was printed, and the
+	// store stayed empty. Search still answered — it falls back to a BM25 scan over the
+	// .md files — so nothing looked broken while every query re-read the whole directory.
+	//
+	// Replacing `_ =` with a log line was only half of it, because the line went to
+	// `slogutil.Resolve(nil)` — which is the NOP handler. The report was written and
+	// discarded, so the failure stayed exactly as invisible as it had been, and the next
+	// session read "RebuildDB returns no error" off an empty log and looked elsewhere for
+	// a bug that was announcing itself into /dev/null. errLogger is the fix: a caller's
+	// logger when there is one, the default logger when there is not, never the NOP.
+	//
+	// Measured on the machine this was written on: 152 pages and 152 shards beside a 16 KB
+	// database, surviving a full `memory index --reset`, with no error anywhere.
+	//
+	// It is a warning rather than a returned error because the pages ARE written and the
+	// shard export below still has to run: a failed index is a degraded wiki, not a
+	// lost memory.
+	if err := wiki.RebuildDB(ctx, wikiDir, wikiChunks, nil, logEntry, processCache); err != nil {
+		errLogger(logger).Error("memory wiki index build failed; search will fall back "+
+			"to scanning the pages", "dir", wikiDir, "error", err)
+	}
+
+	// Back out into the raw directory, so the next publish carries what this build
+	// computed. Only here, on the full-build path: the cache now covers exactly the
+	// memories the prefix holds, which is what makes mirroring — and therefore
+	// dropping a deleted memory's shard — safe. The fast paths above changed nothing,
+	// so they have nothing to publish.
+	if err := ExportShards(rawDir, wikiDir); err != nil {
+		slogutil.Resolve(firstLogger(logger)).Warn("memory shard export",
+			"raw", rawDir, "wiki", wikiDir, "error", err)
+	}
 
 	return result, nil
+}
+
+// firstLogger picks the optional logger a caller passed, if any.
+func firstLogger(logger []*slog.Logger) *slog.Logger {
+	if len(logger) > 0 {
+		return logger[0]
+	}
+	return nil
+}
+
+// errLogger resolves the logger for a failure that must not be swallowed.
+//
+// It exists because `slogutil.Resolve` answers a nil logger with the NOP handler, which is
+// the right default for chatter and the wrong one for the report that says the index is not
+// there. IndexMemories — the funnel every `memory index` goes through — passes no logger, so
+// resolving to NOP means the one caller that matters is precisely the one that reports into
+// nothing.
+func errLogger(logger []*slog.Logger) *slog.Logger {
+	if l := firstLogger(logger); l != nil {
+		return l
+	}
+	return slog.Default()
 }
 
 func memoryEntityPageWithHash(id, title, createdAt string, important bool, body, memType, contentHash string) string {
 	var b strings.Builder
 	now := time.Now().UTC().Format("2006-01-02")
+	docType := memType
+	if docType == "" {
+		docType = "memory"
+	}
+
 	b.WriteString("---\n")
+	_, _ = fmt.Fprintf(&b, "type: %s\n", docType)
 	_, _ = fmt.Fprintf(&b, "title: %s\n", title)
 	_, _ = fmt.Fprintf(&b, "id: %s\n", id)
-	_, _ = fmt.Fprintf(&b, "updated: %s\n", now)
+	_, _ = fmt.Fprintf(&b, "generated.at: %s\n", now)
+	b.WriteString("sources:\n")
+	_, _ = fmt.Fprintf(&b, "  - memory/%s.md\n", id)
+	summary := wiki.ExtractSummary(body)
+	if summary != "" {
+		summaryEscaped := strings.ReplaceAll(summary, "\n", " ")
+		_, _ = fmt.Fprintf(&b, "description: %s\n", summaryEscaped)
+	}
 	if contentHash != "" {
 		_, _ = fmt.Fprintf(&b, "content_hash: %s\n", contentHash)
 	}
 	if createdAt != "" {
 		_, _ = fmt.Fprintf(&b, "created: %s\n", createdAt)
 	}
-	if memType != "" {
-		_, _ = fmt.Fprintf(&b, "type: %s\n", memType)
-	}
-	tags := "memory"
+	tags := []string{"memory"}
 	if important {
-		tags += ", important"
+		tags = append(tags, "important")
 	}
-	if memType != "" {
-		tags += ", " + memType
+	if memType != "" && memType != "memory" {
+		tags = append(tags, memType)
 	}
-	_, _ = fmt.Fprintf(&b, "tags: [%s]\n", tags)
+	b.WriteString("tags:\n")
+	for _, t := range tags {
+		_, _ = fmt.Fprintf(&b, "  - %s\n", t)
+	}
 	b.WriteString("---\n\n")
 	_, _ = fmt.Fprintf(&b, "# %s\n\n", title)
 

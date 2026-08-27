@@ -20,8 +20,7 @@ func TestNewWikiService(t *testing.T) {
 func TestResolveWikiSource_Project(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Create the knowledge/project wiki directory
-	wikiDir := filepath.Join(tmp, ".graphit", "knowledge", "project")
+	wikiDir := knowledgeWikiDirFor(t, tmp)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -42,8 +41,7 @@ func TestResolveWikiSource_Project(t *testing.T) {
 func TestResolveWikiSource_Memory(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Create the memory/project wiki directory
-	wikiDir := filepath.Join(tmp, ".graphit", "memory", "project")
+	wikiDir := memoryWikiDirFor(t, tmp)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +82,7 @@ func TestResolveLocalSource_FallbackToWikiSubdir(t *testing.T) {
 	tmp := t.TempDir()
 
 	// Create dir/wiki subdirectory (but not dir itself as a valid wiki)
-	baseDir := filepath.Join(tmp, ".graphit", "knowledge", "project")
+	baseDir := knowledgeWikiDirFor(t, tmp)
 	wikiSub := filepath.Join(baseDir, "wiki")
 	if err := os.MkdirAll(wikiSub, 0o755); err != nil {
 		t.Fatal(err)
@@ -105,14 +103,12 @@ func TestResolveSources_ValidWikis(t *testing.T) {
 	tmp := t.TempDir()
 	ctx := context.Background()
 
-	// Create project wiki dir
-	wikiDir := filepath.Join(tmp, ".graphit", "knowledge", "project")
+	wikiDir := knowledgeWikiDirFor(t, tmp)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create memory wiki dir
-	memDir := filepath.Join(tmp, ".graphit", "memory", "project")
+	memDir := memoryWikiDirFor(t, tmp)
 	if err := os.MkdirAll(memDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +130,7 @@ func TestResolveSources_MixedResults(t *testing.T) {
 	ctx := context.Background()
 
 	// Create only the project wiki dir (nonexistent will fail as ecosystem lookup)
-	wikiDir := filepath.Join(tmp, ".graphit", "knowledge", "project")
+	wikiDir := knowledgeWikiDirFor(t, tmp)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -234,4 +230,3 @@ func TestResolveWikiSource_Ecosystem_NotInLock(t *testing.T) {
 		t.Error("expected error for ecosystem project not in lock file")
 	}
 }
-

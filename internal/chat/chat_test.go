@@ -42,7 +42,7 @@ func setupChatTestHome(t *testing.T) string {
 func TestChatEngineAndSession(t *testing.T) {
 	_ = setupChatTestHome(t)
 
-	sources := []WikiSource{
+	sources := []Source{
 		{ID: "wiki-1", Label: "Wiki One", Dir: "/dir/wiki1"},
 	}
 
@@ -98,7 +98,6 @@ func TestChatEngineAndSession(t *testing.T) {
 		t.Errorf("unexpected response: %q", respSearch)
 	}
 
-	// 5. Load and verify history
 	history, err := session.LoadHistory()
 	if err != nil {
 		t.Fatalf("failed to load history: %v", err)
@@ -111,7 +110,6 @@ func TestChatEngineAndSession(t *testing.T) {
 		t.Errorf("unexpected history roles: %v", history)
 	}
 
-	// 6. Build Context
 	ctxStr, err := session.BuildContext(2)
 	if err != nil {
 		t.Fatalf("failed to build context: %v", err)
@@ -120,7 +118,6 @@ func TestChatEngineAndSession(t *testing.T) {
 		t.Errorf("expected last 2 messages in context output, got: %s", ctxStr)
 	}
 
-	// 7. List sessions
 	sessions, err := ListSessions("/project/dir")
 	if err != nil {
 		t.Fatalf("failed to list sessions: %v", err)
@@ -129,7 +126,6 @@ func TestChatEngineAndSession(t *testing.T) {
 		t.Errorf("expected 1 session with ID %s, got %v", session.ID, sessions)
 	}
 
-	// 8. Latest Session
 	latest, err := LatestSession("/project/dir")
 	if err != nil {
 		t.Fatalf("failed to get latest session: %v", err)
@@ -138,7 +134,6 @@ func TestChatEngineAndSession(t *testing.T) {
 		t.Errorf("expected latest session ID %s, got %s", session.ID, latest.ID)
 	}
 
-	// 9. Load Session
 	loaded, err := LoadSession(session.ID)
 	if err != nil {
 		t.Fatalf("failed to load session by ID: %v", err)
@@ -147,7 +142,6 @@ func TestChatEngineAndSession(t *testing.T) {
 		t.Errorf("expected loaded session ID %s, got %s", session.ID, loaded.ID)
 	}
 
-	// 10. Delete session
 	err = DeleteSession(session.ID)
 	if err != nil {
 		t.Fatalf("failed to delete session: %v", err)
@@ -179,13 +173,11 @@ func TestChatSessionEdgeCases(t *testing.T) {
 		t.Errorf("expected 0 sessions, got %d", len(list))
 	}
 
-	// LatestSession error for empty sessions
 	_, err = LatestSession("/nonexistent")
 	if err == nil {
 		t.Error("expected error getting latest session for nonexistent project")
 	}
 
-	// Append with manual timestamp and tokens
 	msg := ChatMessage{
 		Role:      "user",
 		Content:   "msg",
@@ -268,11 +260,11 @@ func TestSendWithSearchEmptyAnswer(t *testing.T) {
 }
 
 func TestBuildWikiSourceContextEmpty(t *testing.T) {
-	result := buildWikiSourceContext(nil)
+	result := buildSourceContext(nil)
 	if result != "" {
 		t.Errorf("expected empty string for nil sources, got %q", result)
 	}
-	result2 := buildWikiSourceContext([]WikiSource{})
+	result2 := buildSourceContext([]Source{})
 	if result2 != "" {
 		t.Errorf("expected empty string for empty sources, got %q", result2)
 	}
@@ -280,8 +272,14 @@ func TestBuildWikiSourceContextEmpty(t *testing.T) {
 
 func TestBuildChatSystemPromptNoSources(t *testing.T) {
 	prompt := buildChatSystemPrompt(nil)
-	if !strings.Contains(prompt, "0 wiki sources") {
-		t.Errorf("expected '0 wiki sources' in prompt, got %q", prompt)
+	// "no sources" rather than "0 wiki sources": the prompt now enumerates only the
+	// kinds actually present, so a session with neither says so plainly instead of
+	// claiming an empty set of one particular kind.
+	if !strings.Contains(prompt, "no sources") {
+		t.Errorf("expected 'no sources' in prompt, got %q", prompt)
+	}
+	if strings.Contains(prompt, "CODE GRAPH RULES") {
+		t.Error("expected no code graph rules for a session with no sources")
 	}
 }
 
@@ -369,10 +367,8 @@ func TestListSessionsWithNonJSONFiles(t *testing.T) {
 	metaDir := filepath.Join(home, ".graphit", "chat", "sessions", h, "meta")
 	_ = os.MkdirAll(metaDir, 0755)
 
-	// Write a non-JSON file
 	_ = os.WriteFile(filepath.Join(metaDir, "readme.txt"), []byte("not json"), 0644)
 
-	// Write an invalid JSON file
 	_ = os.WriteFile(filepath.Join(metaDir, "bad.json"), []byte("invalid json"), 0644)
 
 	sessions, err := ListSessions(projectDir)
@@ -651,5 +647,71 @@ func TestListSessionsSortOrder(t *testing.T) {
 	}
 	if sessions[0].ID != "s2" {
 		t.Errorf("expected most recent session first (s2), got %s", sessions[0].ID)
+	}
+}
+
+// A follow-up turn answers from the transcript; it cannot re-open a graph. The prompt
+// has to say so, because a model told it "has access to" code will describe calls it
+// never saw, and an unverified claim about code reads exactly like a verified one.
+func TestBuildChatSystemPrompt_NamesGraphsAndTheirLimits(t *testing.T) {
+	t.Parallel()
+	prompt := buildChatSystemPrompt([]Source{
+		{ID: "knowledge", Label: "Docs", Kind: SourceWiki},
+		{ID: "ast/__project__", Label: "Acme", Kind: SourceGraph},
+	})
+
+	for _, want := range []string{
+		"1 wiki source(s)", "Docs (knowledge)",
+		"1 indexed code graph(s)", "Acme (ast/__project__)",
+		"CODE GRAPH RULES", "CANNOT run new graph queries",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("expected %q in prompt, got:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestBuildChatSystemPrompt_NoGraphRulesWithoutGraphs(t *testing.T) {
+	t.Parallel()
+	prompt := buildChatSystemPrompt([]Source{{ID: "knowledge", Label: "Docs"}})
+
+	// The rules cost prompt budget and describe a capability that is not present.
+	if strings.Contains(prompt, "CODE GRAPH RULES") {
+		t.Error("expected no code graph rules for a wiki-only session")
+	}
+	if !strings.Contains(prompt, "1 wiki source(s)") {
+		t.Errorf("expected the wiki source described, got:\n%s", prompt)
+	}
+}
+
+// A session written before Kind existed has an empty Kind on every source, and every
+// one of those sessions was wiki-only — so the zero value must read as a wiki.
+func TestSourceIsGraph_EmptyKindIsWiki(t *testing.T) {
+	t.Parallel()
+	if (Source{ID: "knowledge", Label: "Docs"}).IsGraph() {
+		t.Error("a source with no Kind must be treated as a wiki")
+	}
+	if !(Source{ID: "ast/x", Label: "X", Kind: SourceGraph}).IsGraph() {
+		t.Error("a graph source must report itself as one")
+	}
+}
+
+func TestBuildSourceContext_SeparatesKinds(t *testing.T) {
+	t.Parallel()
+	got := buildSourceContext([]Source{
+		{ID: "knowledge", Label: "Docs", Kind: SourceWiki},
+		{ID: "ast/x", Label: "X", Kind: SourceGraph},
+	})
+
+	if !strings.Contains(got, "Active Wiki Sources") {
+		t.Error("expected the wiki heading")
+	}
+	if !strings.Contains(got, "Code Graphs Consulted") {
+		t.Error("expected the graph heading")
+	}
+	wikiAt := strings.Index(got, "[knowledge]")
+	graphAt := strings.Index(got, "[ast/x]")
+	if wikiAt < 0 || graphAt < 0 || wikiAt > graphAt {
+		t.Errorf("expected wikis listed before graphs, got:\n%s", got)
 	}
 }

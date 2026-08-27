@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/paths"
-	"gopkg.in/yaml.v3"
+	"github.com/graphit-labs/graphit-code/internal/projectlock"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 func envOr(key, fallback string) string {
@@ -28,107 +26,42 @@ type ImportedContext struct {
 	ImportedAt string `yaml:"imported_at" json:"imported_at"`
 }
 
-type Config struct {
-	LadybugPath      string                     `yaml:"ladybug_path" json:"ladybug_path"`
-	ActiveContext    string                     `yaml:"active_context" json:"active_context"`
-	Contexts         map[string]string          `yaml:"contexts" json:"contexts"`
-	ImportedContexts map[string]ImportedContext `yaml:"imported_contexts" json:"imported_contexts"`
-	OpenAIKey        string                     `yaml:"openai_key,omitempty" json:"-"`
-	OpenAIModel      string                     `yaml:"openai_model" json:"openai_model"`
+func sanitizeContextName(name string) string { return store.SanitizeName(name) }
+
+// ContextDBPathIn resolves a context name to its graph store for one project.
+//
+// Every store is global; what differs is which record says this project may query
+// it, and three answer in this order:
+//
+//  1. a Hub-installed context — a shared, version-scoped store under
+//     HubContextsRoot(), claimed by the project's lockfile;
+//  2. a context in the project's registry with an explicit DBPath — what `hub link`
+//     records when it points at a sibling project's own store;
+//  3. the global context store, ~/.<brand>/ast/context/<name>/ladybugdb, which is
+//     where `ast install` indexes and where an ordinary registry entry resolves to.
+//
+// Case 3 answers whether or not the project registered the context. That is
+// deliberate: resolution is not authorisation, and a caller that asks for a context
+// by name gets the one store that name can mean. Membership decides what `ast list`
+// reports, not what a direct request can reach.
+func ContextDBPathIn(projectDir, name string) string {
+	return store.ASTContextDBPathIn(projectDir, name)
 }
 
-var configDir = filepath.Join(brand.DotDir(), "ast")
-var configFile = filepath.Join(configDir, "config.yaml")
-
-func DefaultConfig() *Config {
-	return &Config{
-		LadybugPath:      filepath.Join(configDir, "ladybug_db"),
-		Contexts:         make(map[string]string),
-		ImportedContexts: make(map[string]ImportedContext),
-		OpenAIModel:      "gpt-4o-mini",
-	}
-}
-
-func LoadConfig() *Config {
-	cfg := DefaultConfig()
-
-	data, err := os.ReadFile(configFile)
-	if err == nil {
-		_ = yaml.Unmarshal(data, cfg)
-	}
-
-	if cfg.Contexts == nil {
-		cfg.Contexts = make(map[string]string)
-	}
-	if cfg.ImportedContexts == nil {
-		cfg.ImportedContexts = make(map[string]ImportedContext)
-	}
-
-	if v := os.Getenv("LADYBUGDB_PATH"); v != "" {
-		cfg.LadybugPath = v
-	}
-	if v := os.Getenv("OPENAI_API_KEY"); v != "" {
-		cfg.OpenAIKey = v
-	}
-	if v := os.Getenv("OPENAI_MODEL"); v != "" {
-		cfg.OpenAIModel = v
-	}
-
-	return cfg
-}
-
-func SaveConfig(cfg *Config) error {
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return err
-	}
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(configFile, data, 0o600)
-}
-
-func sanitizeContextName(name string) string {
-	name = strings.ToLower(strings.TrimSpace(name))
-	name = strings.ReplaceAll(name, " ", "-")
-	re := regexp.MustCompile(`[^a-z0-9_-]`)
-	name = re.ReplaceAllString(name, "")
-	if name == "" {
-		name = "unnamed"
-	}
-	return name
-}
-
-func globalASTContextDir(sanitized string) string {
-	d := brand.GlobalDir()
-	if d == "" {
-
-		return filepath.Join(configDir, sanitized)
-	}
-	return filepath.Join(d, "ast", sanitized)
-}
-
-func astContextProjectLinkDir(sanitized string) string {
-	return filepath.Join(configDir, sanitized)
-}
-
-func ContextDBPath(name string) string {
-	sanitized := sanitizeContextName(name)
-	return filepath.Join(globalASTContextDir(sanitized), "ladybugdb")
-}
-
-func AddImportedContext(name, sourcePath string) (ImportedContext, error) {
-	sanitized := sanitizeContextName(name)
-	globalDir := globalASTContextDir(sanitized)
-	dbPath := filepath.Join(globalDir, "ladybugdb")
+// AddImportedContext records a locally imported graph against a project and returns
+// where its store lives.
+//
+// It creates the store directory and the project's registry entry, and nothing else.
+// It used to also symlink the global directory into `<project>/<dotdir>/ast/<name>`,
+// which existed only so that a directory scan could rediscover the import — a second
+// record of a fact the registry states directly, and one that made `ast list` depend
+// on the working directory.
+func AddImportedContext(projectDir, name, sourcePath string) (ImportedContext, error) {
+	globalDir := store.ASTContextDir(name)
+	dbPath := filepath.Join(globalDir, store.DBFileName)
 
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		return ImportedContext{}, fmt.Errorf("create global context dir: %w", err)
-	}
-
-	linkDir := astContextProjectLinkDir(sanitized)
-	if err := os.MkdirAll(filepath.Dir(linkDir), 0o755); err == nil {
-		_ = paths.SafeSymlink(globalDir, linkDir)
 	}
 
 	ictx := ImportedContext{
@@ -138,78 +71,76 @@ func AddImportedContext(name, sourcePath string) (ImportedContext, error) {
 		ImportedAt: time.Now().Format(time.RFC3339),
 	}
 
-	cfg := LoadConfig()
-	if cfg.ImportedContexts == nil {
-		cfg.ImportedContexts = make(map[string]ImportedContext)
-	}
-	cfg.ImportedContexts[sanitized] = ictx
-	if err := SaveConfig(cfg); err != nil {
+	if err := store.AddContext(projectDir, store.KindAST, store.ContextRecord{
+		Name:       name,
+		SourcePath: sourcePath,
+		Origin:     projectlock.OriginLocal,
+	}); err != nil {
 		return ImportedContext{}, err
 	}
 	return ictx, nil
 }
 
-func RemoveImportedContext(name string) error {
-	sanitized := sanitizeContextName(name)
-	cfg := LoadConfig()
-
-	if _, ok := cfg.ImportedContexts[sanitized]; !ok {
-		return fmt.Errorf("imported context %q not found", name)
-	}
-
-	linkDir := astContextProjectLinkDir(sanitized)
-	if info, err := os.Lstat(linkDir); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
-			_ = os.Remove(linkDir)
-		} else {
-
-			_ = os.RemoveAll(linkDir)
-		}
-	}
-
-	delete(cfg.ImportedContexts, sanitized)
-	return SaveConfig(cfg)
+// LinkImportedContext records a context whose store belongs to someone else — a
+// sibling project's graph, reached in place.
+//
+// What is recorded is the SIBLING'S DIRECTORY, not its store: the store location is
+// derived from it on every read, so the link follows the sibling if it reindexes or
+// runs `init` and re-keys. Recording the store path froze it at link time.
+func LinkImportedContext(projectDir, name, siblingDir string) error {
+	return store.AddContext(projectDir, store.KindAST, store.ContextRecord{
+		Name:       name,
+		SourcePath: siblingDir,
+		Origin:     projectlock.OriginLink,
+	})
 }
 
+// RemoveImportedContext drops a project's claim on a context.
+//
+// The store is left alone. It is global and another project may have imported the
+// same one; `ast install --reset` is how a store itself is discarded.
+func RemoveImportedContext(projectDir, name string) error {
+	return store.RemoveContext(projectDir, store.KindAST, name)
+}
+
+// ListImportedContexts enumerates the contexts available to the project in the
+// current working directory. Prefer ListImportedContextsIn where the project is
+// known.
 func ListImportedContexts() map[string]ImportedContext {
+	wd, _ := os.Getwd()
+	return ListImportedContextsIn(wd)
+}
+
+// ListImportedContextsIn enumerates every context projectDir can query.
+//
+// Two records are merged, and neither is a directory scan. A Hub-installed context
+// is claimed by the project's lockfile; a locally imported or linked one is claimed
+// by the project's context registry. Both stores are global, so walking the project
+// would find nothing — which is the point: there is one copy of each graph, and the
+// project holds only the list of which ones are its own.
+func ListImportedContextsIn(projectDir string) map[string]ImportedContext {
 	result := map[string]ImportedContext{}
-
-	astDir := filepath.Join(brand.DotDir(), "ast")
-	entries, err := os.ReadDir(astDir)
-	if err != nil {
-		return result
-	}
-
 	projectNames := loadProjectIDNamesFromRegistry()
-
-	for _, entry := range entries {
-		name := entry.Name()
-		if name == "project" || name == "imports" || name == "export" || strings.HasPrefix(name, ".") || name == "config.yaml" {
-			continue
-		}
-
-		fullPath := filepath.Join(astDir, name)
-		info, err := os.Stat(fullPath)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-
-		dbPath := filepath.Join(fullPath, "ladybugdb")
+	// One source. This used to merge the lockfile's Hub artifacts with a separate
+	// per-project registry, and the merge needed a rule for which won a name clash.
+	// Membership is one record now, so a clash cannot arise.
+	for name, rec := range store.ListContexts(projectDir, store.KindAST) {
+		dbPath := store.ASTContextDBPathIn(projectDir, name)
 		if _, err := os.Stat(dbPath); err != nil {
+			// Claimed but never built, or collected after the last project using it
+			// dropped it. Reporting it would offer a graph that cannot be opened.
 			continue
 		}
-
-		displayName := name
+		displayName := rec.Name
 		if readable, ok := projectNames[name]; ok {
 			displayName = readable
 		}
-
 		result[name] = ImportedContext{
-			Name:   displayName,
-			DBPath: dbPath,
+			Name:       displayName,
+			SourcePath: rec.SourcePath,
+			DBPath:     dbPath,
 		}
 	}
-
 	return result
 }
 

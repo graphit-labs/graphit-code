@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, isValidElement } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -113,9 +113,12 @@ export function WikiMarkdown({ content, onLink }: WikiMarkdownProps) {
             if (href) {
               const isExternal = /^https?:\/\//i.test(href) || href.startsWith('mailto:') || href.startsWith('tel:')
               if (href.startsWith('wiki://') || !isExternal) {
-                const target = href.startsWith('wiki://')
+                let target = href.startsWith('wiki://')
                   ? decodeURIComponent(href.slice(7))
                   : decodeURIComponent(href)
+                if (target.toLowerCase().endsWith('.md')) {
+                  target = target.slice(0, -3)
+                }
                 return (
                   <button
                     onClick={() => onLink && onLink(target)}
@@ -147,7 +150,9 @@ export function WikiMarkdown({ content, onLink }: WikiMarkdownProps) {
             )
           },
           pre: ({ children }) => {
-            const codeEl = (children as any)?.props ?? {}
+            const codeEl = (isValidElement(children)
+              ? (children.props as { className?: string; children?: unknown })
+              : {}) as { className?: string; children?: unknown }
             const className = codeEl.className || ''
             const match = /language-(\w+)/.exec(className)
             const lang = match?.[1] ?? ''

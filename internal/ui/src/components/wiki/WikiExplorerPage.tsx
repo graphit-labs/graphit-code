@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import {
-  fetchModules, fetchPages, fetchPage, searchWiki, aiSearchWiki, chatWiki, loadSessionMessages,
-  WikiModule, WikiPageMeta, WikiPageContent, SearchResult, AISearchResponse, MultiKeywordResult,
+  fetchModules, fetchPages, fetchPage, searchWiki, aiSearchWiki,
+  WikiModule, WikiPageMeta, WikiPageContent, SearchResult, AISearchResponse,
 } from '@/api/wiki'
+// The explorer browses pages and runs the single-wiki AI search that lives with the
+// wiki routes. Agentic search over several sources — with its own sessions, its own
+// streaming and follow-up turns — is the live search, on its own page.
 import {
   BookOpen, FileText, BarChart3, Hash, Search, ChevronRight, ChevronLeft,
   RefreshCw, ExternalLink, Clock, Layers, Users, Zap, GitBranch, ArrowLeft, ArrowRight,
-  Wand2, Loader2, Send, X, Copy, Check
+  Wand2, Loader2, Send, X
 } from 'lucide-react'
 import { cn, wikiLinkFriendlyName } from '@/lib/utils'
 import { useAppStore } from '@/store/appStore'
@@ -94,10 +97,9 @@ function preprocessContent(raw: string, title: string, type?: string): string {
   }
 
   const preambleRe = /^(#{1,2}\s|>\s|\*\*Source:\*\*|\*\*Type:\*\*|\*\*Confidence:\*\*|\*Provenance:|\*Navigate:|---$|$)/
-  let foundContent = false
   while (i < lines.length) {
     const line = lines[i].trim()
-    if (line === '## Content') { i++; foundContent = true; break }
+    if (line === '## Content') { i++; break }
     if (line === '## Cross-References') { i++; continue }
     if (preambleRe.test(line)) { i++; continue }
     if (line.startsWith('- [[')) { i++; continue }
@@ -375,17 +377,15 @@ interface WikiExplorerProps {
 }
 
 export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: WikiExplorerProps = {}) {
-  const { moduleId: moduleIdFromURL, sessionId } = useParams<{ moduleId?: string; sessionId?: string }>()
+  const { moduleId: moduleIdFromURL } = useParams<{ moduleId?: string }>()
   const navigate = useNavigate()
   const location = useLocation()
   const externalState = location.state as {
-    aiResponse?: AISearchResponse; searchQuery?: string; sessionId?: string;
-    keywordResults?: MultiKeywordResult[];
-    history?: Array<{ role: string; content: string }>;
+    aiResponse?: AISearchResponse; searchQuery?: string;
   } | null
   const cameFromExternalSearch = useRef(false)
   useEffect(() => {
-    if (externalState?.aiResponse || externalState?.keywordResults) {
+    if (externalState?.aiResponse) {
       cameFromExternalSearch.current = true
     }
   }, [externalState])
@@ -399,8 +399,7 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
   const [searchQ, setSearchQ] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null)
   const [aiResponse, setAiResponse] = useState<AISearchResponse | null>(null)
-  const [aiSessionId, setAiSessionId] = useState<string | null>(null)
-  const [aiHistory, setAiHistory] = useState<Array<{ role: string; content: string }>>([])
+
   const [loading, setLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [view, setView] = useState<'browse' | 'search' | 'ai-search'>('browse')
@@ -445,93 +444,11 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
         setNavHistory([{ path: '__search__', title: `AI: ${externalState.searchQuery ?? ''}` }])
         setNavIndex(0)
         setSelectedPage(null)
-        if (externalState.sessionId) setAiSessionId(externalState.sessionId)
-        if (externalState.history) setAiHistory(externalState.history)
-        navigate(location.pathname, { replace: true, state: null })
-      } else if (externalState?.keywordResults) {
-        const results: SearchResult[] = externalState.keywordResults.map(r => ({
-          path: r.path,
-          title: `[${r.source_label}] ${r.title}`,
-          snippet: r.snippet,
-          score: r.score,
-        }))
-        setSearchResults(results)
-        setSearchQ(externalState.searchQuery ?? '')
-        setSearchMode('keyword')
-        setView('search')
-        setNavHistory([{ path: '__search__', title: `Search: ${externalState.searchQuery ?? ''}` }])
-        setNavIndex(0)
-        setSelectedPage(null)
         navigate(location.pathname, { replace: true, state: null })
       }
     }
     applyExternalState()
   }, [externalState])  // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!sessionId || externalState?.aiResponse) return
-    
-    const loadSession = async () => {
-      setAiLoading(true)
-      setView('ai-search')
-      setSearchMode('ai')
-      setSelectedPage(null)
-      
-      try {
-        const messages = await loadSessionMessages(sessionId)
-        const firstAssistantIdx = messages.findIndex(m => m.role === 'assistant')
-        
-        let history: Array<{ role: string; content: string }> = []
-        let queryText = 'AI Query'
-        let answer: string
-        
-        if (firstAssistantIdx !== -1) {
-          answer = messages[firstAssistantIdx].content
-          history = messages.slice(firstAssistantIdx + 1).map(m => ({
-            role: m.role,
-            content: m.content
-          }))
-          if (firstAssistantIdx > 0 && messages[firstAssistantIdx - 1].role === 'user') {
-            queryText = messages[firstAssistantIdx - 1].content
-          }
-        } else {
-          answer = `Session loaded.\n\nSend a follow-up to continue.`
-        }
-
-        const wikiLinkRegex = /\[\[([^\]]+)\]\]/g
-        const refs: Array<{ path: string; title: string; relevance: string; score: number }> = []
-        const seen = new Set<string>()
-        let match: RegExpExecArray | null
-        while ((match = wikiLinkRegex.exec(answer)) !== null) {
-          const title = match[1]
-          if (!seen.has(title)) {
-            seen.add(title)
-            refs.push({ path: title.replace(/\s+/g, '_') + '.md', title, relevance: 'Referenced in answer', score: 80 })
-          }
-        }
-
-        setAiResponse({
-          answer,
-          results: refs,
-          session_id: sessionId,
-        })
-        setSearchQ(queryText)
-        setAiSessionId(sessionId)
-        setAiHistory(history)
-        setNavHistory([{ path: '__search__', title: `AI: ${queryText}` }])
-        setNavIndex(0)
-      } catch (_err) {
-        setAiResponse({
-          answer: '',
-          results: [],
-          error: 'Failed to load session history.',
-        })
-      } finally {
-        setAiLoading(false)
-      }
-    }
-    loadSession()
-  }, [sessionId, externalState])
 
   useEffect(() => {
     fetchModules(activeProjectDir || undefined).then(raw => {
@@ -604,14 +521,12 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
     setNavHistory([{ path: '__search__', title: searchTitle }])
     setNavIndex(0)
     setSelectedPage(null)
-    setAiHistory([])
     if (searchMode === 'ai') {
       setAiLoading(true)
       setView('ai-search')
       try {
         const resp = await aiSearchWiki(selectedModule.path, searchQ)
         setAiResponse(resp)
-        if (resp.session_id) setAiSessionId(resp.session_id)
       } catch {
         setAiResponse({ answer: '', results: [], error: 'AI search failed. Check AI configuration.' })
       } finally {
@@ -621,7 +536,7 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
       const rs = await searchWiki(selectedModule.path, searchQ)
       setSearchResults(rs); setView('search')
     }
-  }, [selectedModule, searchQ, searchMode, setAiHistory])
+  }, [selectedModule, searchQ, searchMode])
 
   const handleRefresh = useCallback(async () => {
     if (!selectedModule) return
@@ -643,58 +558,10 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
       } finally {
         setLoading(false)
       }
-    } else if (view === 'ai-search' && sessionId) {
-      setAiLoading(true)
-      try {
-        const messages = await loadSessionMessages(sessionId)
-        const firstAssistantIdx = messages.findIndex(m => m.role === 'assistant')
-        
-        let answer = ''
-        let history: Array<{ role: string; content: string }> = []
-        let queryText = 'AI Query'
-        
-        if (firstAssistantIdx !== -1) {
-          answer = messages[firstAssistantIdx].content
-          history = messages.slice(firstAssistantIdx + 1).map(m => ({
-            role: m.role,
-            content: m.content
-          }))
-          if (firstAssistantIdx > 0 && messages[firstAssistantIdx - 1].role === 'user') {
-            queryText = messages[firstAssistantIdx - 1].content
-          }
-        } else {
-          answer = `Session loaded.\n\nSend a follow-up to continue.`
-        }
-
-        const wikiLinkRegex = /\[\[([^\]]+)\]\]/g
-        const refs: Array<{ path: string; title: string; relevance: string; score: number }> = []
-        const seen = new Set<string>()
-        let match: RegExpExecArray | null
-        while ((match = wikiLinkRegex.exec(answer)) !== null) {
-          const title = match[1]
-          if (!seen.has(title)) {
-            seen.add(title)
-            refs.push({ path: title.replace(/\s+/g, '_') + '.md', title, relevance: 'Referenced in answer', score: 80 })
-          }
-        }
-
-        setAiResponse({
-          answer,
-          results: refs,
-          session_id: sessionId,
-        })
-        setSearchQ(queryText)
-        setAiSessionId(sessionId)
-        setAiHistory(history)
-      } catch (e) {
-        console.error('Failed to refresh session:', e)
-      } finally {
-        setAiLoading(false)
-      }
     } else if ((view === 'search' || view === 'ai-search') && searchQ.trim()) {
       runSearch()
     }
-  }, [selectedModule, view, selectedPage, searchQ, sessionId, runSearch])
+  }, [selectedModule, view, selectedPage, searchQ, runSearch])
 
   const navigateTo = useCallback((path: string, title: string, resetHistory = false) => {
     if (resetHistory) {
@@ -823,10 +690,10 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
           {!leftCollapsed ? (
             <button
               onClick={() => {
-                if (cameFromExternalSearch.current) navigate('/wiki/search')
+                if (cameFromExternalSearch.current) navigate('/live')
                 else if (moduleFilter === 'knowledge') navigate('/knowledge/contexts')
                 else if (moduleFilter === 'memory') navigate(-1)
-                else navigate('/wiki/search')
+                else navigate('/live')
               }}
               className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors group"
             >
@@ -836,10 +703,10 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
           ) : (
             <button
               onClick={() => {
-                if (cameFromExternalSearch.current) navigate('/wiki/search')
+                if (cameFromExternalSearch.current) navigate('/live')
                 else if (moduleFilter === 'knowledge') navigate('/knowledge/contexts')
                 else if (moduleFilter === 'memory') navigate(-1)
-                else navigate('/wiki/search')
+                else navigate('/live')
               }}
               className="p-1.5 rounded-lg border border-border/30 hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-all flex items-center justify-center mx-auto"
               title={moduleFilter === 'memory' ? 'Back' : 'Back to Contexts'}
@@ -1020,7 +887,7 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
               <div className="absolute right-3 bottom-3 flex items-center gap-2">
                 {(view === 'search' || view === 'ai-search') && (
                   <button
-                    onClick={() => { setView('browse'); setSearchResults(null); setAiResponse(null); setAiHistory([]); setSearchQ(''); setNavHistory([]); setNavIndex(-1) }}
+                    onClick={() => { setView('browse'); setSearchResults(null); setAiResponse(null); setSearchQ(''); setNavHistory([]); setNavIndex(-1) }}
                     className="text-xs font-semibold px-2.5 py-1.5 rounded-xl bg-accent hover:bg-accent/80 text-muted-foreground hover:text-foreground transition-all"
                   >
                     Clear
@@ -1054,19 +921,8 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
             <AISearchResultsView
               response={aiResponse}
               loading={aiLoading}
-              sessionId={aiSessionId}
-              initialHistory={aiHistory}
-              onChat={async (msg) => {
-                if (!aiSessionId) return
-                const resp = await chatWiki(aiSessionId, msg)
-                if (resp.error) return resp
-                return resp
-              }}
               onSelect={onWikiLink}
               onWikiLink={onWikiLink}
-              pages={pages}
-              allModulePages={allModulePages}
-              selectedModule={selectedModule}
             />
           ) : view === 'search' && searchResults ? (
             <SearchResultsView
@@ -1236,140 +1092,13 @@ function SearchResultsView({ results, onSelect }: { results: SearchResult[]; onS
   )
 }
 
-function extractConsultedDocs(
-  content: string,
-  allModulePages: Record<string, WikiPageMeta[]>,
-  currentModule: WikiModule | null
-): Array<{ path: string; title: string; target: string; score?: number }> {
-  const seen = new Set<string>()
-  const docs: Array<{ path: string; title: string; target: string; score?: number }> = []
-
-  const currentPages = currentModule ? (allModulePages[currentModule.id] ?? []) : []
-
-  const findPageInList = (pageList: WikiPageMeta[], normTarget: string) => {
-    if (!normTarget) return undefined
-    return pageList.find(p => {
-      const normTitle = p.title.toLowerCase().replace(/[^a-z0-9]/g, '')
-      const normPath = p.path.toLowerCase().replace(/[^a-z0-9]/g, '')
-      const normSource = (p.source ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
-      return (
-        (normTitle && normTitle === normTarget) ||
-        (normPath && normPath.includes(normTarget)) ||
-        (normSource && normSource.includes(normTarget))
-      )
-    })
-  }
-
-  const resolveTarget = (targetName: string) => {
-    const normTarget = targetName.toLowerCase().replace(/[^a-z0-9]/g, '')
-    
-    if (currentModule) {
-      const found = findPageInList(currentPages, normTarget)
-      if (found) {
-        return {
-          path: found.path,
-          title: found.title,
-          target: found.path,
-          score: found.confidence ? Math.round(found.confidence * 100) : 80
-        }
-      }
-    }
-
-    for (const [modId, modPages] of Object.entries(allModulePages)) {
-      if (currentModule && modId === currentModule.id) continue
-      const found = findPageInList(modPages, normTarget)
-      if (found) {
-        return {
-          path: found.path,
-          title: found.title,
-          target: modId + '/' + found.path,
-          score: found.confidence ? Math.round(found.confidence * 100) : 80
-        }
-      }
-    }
-
-    return {
-      path: targetName.replace(/\s+/g, '_') + '.md',
-      title: wikiLinkFriendlyName(targetName),
-      target: targetName,
-      score: 80
-    }
-  }
-
-  const wikiLinkRegex = /\[\[([^\]]+)\]\]/g
-  let match: RegExpExecArray | null
-  while ((match = wikiLinkRegex.exec(content)) !== null) {
-    const target = match[1]
-    const resolved = resolveTarget(target)
-    const key = resolved.target
-    if (!seen.has(key)) {
-      seen.add(key)
-      docs.push(resolved)
-    }
-  }
-
-  const wikiUrlRegex = /wiki:\/\/([^\s)]+)/g;
-  wikiUrlRegex.lastIndex = 0;
-  while ((match = wikiUrlRegex.exec(content)) !== null) {
-    let target = decodeURIComponent(match[1])
-    if (target.includes('/')) {
-      const parts = target.split('/')
-      target = parts.slice(1).join('/')
-    }
-    const resolved = resolveTarget(target)
-    const key = resolved.target
-    if (!seen.has(key)) {
-      seen.add(key)
-      docs.push(resolved)
-    }
-  }
-
-  return docs
-}
-
-function AISearchResultsView({ response, loading, sessionId, onChat, onSelect, onWikiLink, initialHistory, pages, allModulePages, selectedModule }: {
+// Follow-up turns belong to the live search, which has sessions, streaming and a
+// transcript. This view shows one single-wiki answer and the pages behind it.
+function AISearchResultsView({ response, loading, onSelect, onWikiLink }: {
   response: AISearchResponse | null; loading: boolean
-  sessionId?: string | null
-  onChat?: (message: string) => Promise<{ answer: string; error?: string } | undefined>
   onSelect: (path: string) => void; onWikiLink: (target: string) => void
-  initialHistory?: Array<{ role: string; content: string }>
-  pages: WikiPageMeta[]
-  allModulePages: Record<string, WikiPageMeta[]>
-  selectedModule: WikiModule | null
 }) {
-  const [chatMessages, setChatMessages] = useState<Array<{ role: string; content: string }>>(() => initialHistory ?? [])
 
-  useEffect(() => {
-    setChatMessages(initialHistory ?? [])
-  }, [initialHistory])
-  const [chatInput, setChatInput] = useState('')
-  const [chatLoading, setChatLoading] = useState(false)
-  const chatEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages, chatLoading])
-
-  const handleSendChat = useCallback(async () => {
-    if (!chatInput.trim() || !onChat || chatLoading) return
-    const msg = chatInput.trim()
-    setChatInput('')
-    setChatMessages(prev => [...prev, { role: 'user', content: msg }])
-    setChatLoading(true)
-    try {
-      const resp = await onChat(msg)
-      if (resp?.answer) {
-        setChatMessages(prev => [...prev, { role: 'assistant', content: resp.answer }])
-      } else if (resp?.error) {
-        setChatMessages(prev => [...prev, { role: 'error', content: resp.error! }])
-      }
-    } catch (e: unknown) {
-      setChatMessages(prev => [...prev, { role: 'error', content: e instanceof Error ? e.message : String(e) }])
-    } finally {
-      setChatLoading(false)
-    }
-  }, [chatInput, onChat, chatLoading])
 
   if (loading) {
     return (
@@ -1438,123 +1167,17 @@ function AISearchResultsView({ response, loading, sessionId, onChat, onSelect, o
           )}
 
           
-          {chatMessages.length > 0 && (
-            <div className="mt-8 pt-6 border-t border-border/40 space-y-6">
-              {chatMessages.map((msg, i) => (
-                <div key={i} className={cn(
-                  'animate-in fade-in slide-in-from-bottom-2 duration-300',
-                  msg.role === 'user' ? 'flex justify-end' : ''
-                )}>
-                  {msg.role === 'user' ? (
-                    <div className="max-w-[80%] bg-primary/10 border border-primary/20 rounded-2xl rounded-tr-md px-4 py-3">
-                      <p className="text-sm text-foreground whitespace-pre-wrap">{msg.content}</p>
-                    </div>
-                  ) : msg.role === 'error' ? (
-                    <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-4">
-                      <p className="text-xs text-red-500">{msg.content}</p>
-                    </div>
-                  ) : (
-                    <article className="prose-wiki">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Wand2 className="w-4 h-4 text-primary" />
-                        <span className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider">Follow-up Response</span>
-                      </div>
-                      <WikiMarkdown content={msg.content} onLink={onWikiLink} />
-                      {(() => {
-                        const consulted = extractConsultedDocs(msg.content, allModulePages, selectedModule)
-                        if (consulted.length === 0) return null
-                        return (
-                          <div className="mt-4 pt-4 border-t border-border/20">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mb-3">
-                              Source documents consulted ({consulted.length})
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {consulted.map(r => (
-                                <button key={r.path} onClick={() => onWikiLink(r.target)}
-                                  title="Referenced in follow-up answer"
-                                  className="inline-flex items-center gap-1.5 text-xs bg-muted/40 hover:bg-accent/40 border border-border hover:border-accent/60 px-2.5 py-1.5 rounded-lg transition-colors text-foreground/70 hover:text-foreground group">
-                                  <FileText className="w-3 h-3 shrink-0 text-muted-foreground group-hover:text-accent" />
-                                  <span className="truncate max-w-[200px]">{r.title}</span>
-                                  {r.score !== undefined && (
-                                    <span className="text-[9px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-semibold">{r.score}%</span>
-                                  )}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )
-                      })()}
-                    </article>
-                  )}
-                </div>
-              ))}
-
-              
-              {chatLoading && (
-                <div className="flex items-center gap-3 py-4 animate-in fade-in duration-200">
-                  <div className="w-5 h-5 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
-                  <p className="text-xs font-semibold text-muted-foreground animate-pulse">Thinking...</p>
-                </div>
-              )}
-            </div>
-          )}
 
           
-          {chatMessages.length === 0 && chatLoading && (
-            <div className="mt-8 pt-6 border-t border-border/40">
-              <div className="flex items-center gap-3 py-4 animate-in fade-in duration-200">
-                <div className="w-5 h-5 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
-                <p className="text-xs font-semibold text-muted-foreground animate-pulse">Thinking...</p>
-              </div>
-            </div>
-          )}
 
           {(response.results ?? []).length === 0 && !response.answer && (
             <p className="text-sm text-muted-foreground text-center py-8">No relevant pages found.</p>
           )}
 
-          <div ref={chatEndRef} />
         </div>
       </div>
 
       
-      {sessionId && onChat && (
-        <div className="shrink-0 border-t border-border/40 bg-card/60 backdrop-blur-xl px-8 py-4">
-          <div className="max-w-4xl mx-auto">
-            <div className="relative">
-              <textarea
-                ref={inputRef}
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault()
-                    handleSendChat()
-                  }
-                }}
-                placeholder="Ask a follow-up question..."
-                rows={1}
-                className="w-full pl-4 pr-14 py-3 rounded-2xl border border-border/40 bg-background text-sm outline-none transition-all focus:border-primary/45 focus:ring-1 focus:ring-primary/20 resize-none"
-              />
-              <button
-                onClick={handleSendChat}
-                disabled={!chatInput.trim() || chatLoading}
-                className={cn(
-                  "absolute right-2 bottom-2 p-2 rounded-xl transition-all",
-                  chatInput.trim() && !chatLoading
-                    ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-                    : "bg-accent text-muted-foreground cursor-not-allowed"
-                )}
-              >
-                {chatLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              </button>
-            </div>
-            <p className="text-[10px] text-muted-foreground/50 mt-1.5 flex items-center gap-1">
-              <kbd className="px-1 py-0.5 rounded bg-accent/40 font-mono text-[9px]">Ctrl+Enter</kbd> to send
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

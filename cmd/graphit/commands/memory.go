@@ -12,7 +12,7 @@ func newMemoryCmd() *cobra.Command {
 		Short:   "Memory wiki — insert, delete, query, and manage persistent agent memories.",
 		Long: brand.DisplayName + ` Memory — LLM wiki for persistent agent memories.
 
-Memories are stored in the dedicated memory git repository on isolated branches,
+Memories are stored in the shared memory bucket under one prefix per scope,
 and exposed as a navigable LLM wiki.
 
 Scopes:
@@ -58,7 +58,6 @@ Examples:
 		newMemoryPromoteCmd(),
 		newMemoryDemoteCmd(),
 		newMemoryConsolidateCmd(),
-		newMemoryGCCmd(),
 		newModuleRuleCmd("memory"),
 	)
 
@@ -66,31 +65,35 @@ Examples:
 }
 
 func newMemoryIndexCmd() *cobra.Command {
-	var (
-		userScope  bool
-		useLouvain bool
-		context    string
-	)
+	var userScope bool
+	var reset bool
 	cmd := &cobra.Command{
 		Use:   "index",
 		Short: "Index memory files into the graph and regenerate the wiki",
 		Long: `Index all local memory .md files and regenerate the
 navigable wiki under ` + brand.DotDir() + `/memory/{project,user}/wiki/.
 
-Use --context <name> to re-index a specific imported context.
+--reset clears the wiki first and rebuilds every page, chunk and vector from the
+memories themselves. Prefer it whenever the index looks stale in a way a normal
+run does not fix: an ordinary index skips work whose source hash is unchanged, so
+an index that is empty or wrong for a reason OTHER than a changed memory is
+exactly what it cannot repair.
+
+Discarding the wiki is safe because none of it is source. The memories live in
+their own git worktree; the wiki is derived from them.
+
+To re-index an imported context, use '` + brand.BinName() + ` memory sync --context <name>'.
 
 Examples:
   ` + brand.BinName() + ` memory index
   ` + brand.BinName() + ` memory index --user
-  ` + brand.BinName() + ` memory index --louvain
-  ` + brand.BinName() + ` memory index --context team-api`,
+  ` + brand.BinName() + ` memory index --reset`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMemoryIndex(userScope)
+			return runMemoryIndex(userScope, reset)
 		},
 	}
 	cmd.Flags().BoolVar(&userScope, "user", false, "Index user-scope memories (cross-project)")
-	cmd.Flags().BoolVar(&useLouvain, "louvain", false, "Use Louvain community detection")
-	cmd.Flags().StringVar(&context, "context", "", "Re-index a specific imported context by name")
+	cmd.Flags().BoolVar(&reset, "reset", false, "Clear the wiki and rebuild it from the memories")
 	return cmd
 }
 
@@ -261,19 +264,17 @@ func newMemoryInsertCmd() *cobra.Command {
 		userScope   bool
 		linkProject bool
 		important   bool
-		context     string
 		memType     string
 		tags        string
 	)
 	cmd := &cobra.Command{
 		Use:   "insert <title>",
 		Short: "Add a new memory entry",
-		Long: `Create a new persistent memory file in the memory repository.
+		Long: `Create a new persistent memory file in the memory store.
 
 Without --user: scoped to the current project (default).
 With --user: global user memory (cross-project).
 With --user --project: user memory explicitly linked to the current project.
-With --context: insert into a specific imported context.
 With --important: mark as important (surfaced in IDE rule).
 With --type: classify the memory (convention, correction, decision, tension, fact, skill).
 With --tags: add cross-cutting tags (comma-separated).
@@ -293,7 +294,6 @@ Examples:
 	cmd.Flags().BoolVar(&userScope, "user", false, "User scope (cross-project)")
 	cmd.Flags().BoolVar(&linkProject, "project", false, "Associate user memory with the current project (requires --user)")
 	cmd.Flags().BoolVar(&important, "important", false, "Mark as important (surfaced in IDE rule)")
-	cmd.Flags().StringVar(&context, "context", "", "Insert into a specific imported context")
 	cmd.Flags().StringVar(&memType, "type", "", "Memory type: convention, correction, decision, tension, fact, skill")
 	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tags for cross-cutting grouping")
 	registerMemoryTypeFlagCompletion(cmd)
@@ -330,9 +330,14 @@ func newMemorySearchCmd() *cobra.Command {
 	var userScope bool
 	cmd := &cobra.Command{
 		Use:   "search <term>",
-		Short: "Search memories by keyword (lightweight, no AI)",
-		Long: `Search all memory files for a keyword match in title or content.
-Returns matching memory IDs and titles. No AI is needed — this is a fast grep-like search.
+		Short: "Search the memory wiki by keyword (BM25, no AI)",
+		Long: `Search the compiled memory wiki with BM25 ranking. No AI is involved.
+
+Returns the matching wiki pages with their score and title — page slugs, not memory
+IDs. It reads the compiled wiki rather than the raw memory files, which is what makes
+it ranked and cheap. It is also why a memory written moments ago may not appear yet:
+it is in the store, but the wiki has not recompiled. Use '` + brand.BinName() + ` memory list' to see
+the store itself, or '` + brand.BinName() + ` memory index' to force the rebuild.
 
 Examples:
   ` + brand.BinName() + ` memory search "authentication"
@@ -347,30 +352,26 @@ Examples:
 }
 
 func newMemoryDeleteCmd() *cobra.Command {
-	var (
-		userScope bool
-		context   string
-	)
+	var userScope bool
 	cmd := &cobra.Command{
-		Use:   "delete <slug>",
-		Short: "Delete a memory entry by slug",
-		Long: `Remove a memory file from the memory repository by its slug.
+		Use:   "delete <id>",
+		Short: "Delete a memory entry by ID",
+		Long: `Remove a memory from the store by its ID — the ULID shown by ` + brand.BinName() + ` memory list.
+
+Not a slug: memory files are named by ID, so a slug finds nothing.
 
 Without --user: removes from the project scope.
 With --user: removes from the user scope.
-With --context: removes from a specific imported context.
 
 Examples:
-  ` + brand.BinName() + ` memory delete api-keys-in-env
-  ` + brand.BinName() + ` memory delete functional-style --user
-  ` + brand.BinName() + ` memory delete rate-limit --context partner-api`,
+  ` + brand.BinName() + ` memory delete 01KZYN42E0VHB2MC98PKECAN15
+  ` + brand.BinName() + ` memory delete 01KZYN42E0VHB2MC98PKECAN15 --user`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMemoryRemove(args[0], userScope)
 		},
 	}
 	cmd.Flags().BoolVar(&userScope, "user", false, "Delete from user scope")
-	cmd.Flags().StringVar(&context, "context", "", "Delete from a specific imported context")
 	return cmd
 }
 
@@ -439,60 +440,43 @@ Examples:
 func newMemoryConsolidateCmd() *cobra.Command {
 	var (
 		userScope bool
-		apply     bool
+		dryRun    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "consolidate",
-		Short: "AI-driven memory analysis: find duplicates, contradictions, and improvements",
-		Long: `Analyze all memories using AI to identify:
-- Duplicates: memories that say the same thing in different words
-- Contradictions: memories that conflict with each other
-- Suggestions: memories that could be promoted, demoted, updated, or deleted
+		Short: "Find and resolve duplicate, contradicting and stale memories",
+		Long: `Consolidate the memory store: fold duplicates into one memory, resolve
+contradictions in favour of what is true now, and flag entries that have gone a long
+time without revision.
 
-By default, only prints a report. Use --apply to execute suggested deletions/promotions/demotions.
+The analysis runs on the agent CLI configured in 'ai.cli' — it decides which memories
+duplicate or contradict which. Every change is then applied here, in Go, under
+invariants the analysis cannot override:
+
+  • content is never dropped — a memory is only removed by an action that carried
+    its content into a surviving memory
+  • importance is never lost — if any memory in a group was important, the survivor is
+  • classification is never lost — the survivor keeps the most specific type
+  • an important memory is never deleted outright
+  • the last remaining memory in a scope is never deleted
+  • everything refused is reported, with the reason
+
+Without an AI CLI, only the deterministic staleness check runs.
+
+This is the same consolidation the dream module performs on idle. Run it here when you
+want it now instead of waiting, or when the dream module is off.
+
+By default nothing is applied. Use --dry-run=false to apply.
 
 Examples:
   ` + brand.BinName() + ` memory consolidate
-  ` + brand.BinName() + ` memory consolidate --user
-  ` + brand.BinName() + ` memory consolidate --apply`,
+  ` + brand.BinName() + ` memory consolidate --dry-run=false
+  ` + brand.BinName() + ` memory consolidate --user --dry-run=false`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMemoryConsolidate(userScope, apply)
+			return runMemoryConsolidate(userScope, dryRun)
 		},
 	}
 	cmd.Flags().BoolVar(&userScope, "user", false, "Consolidate user-scope memories")
-	cmd.Flags().BoolVar(&apply, "apply", false, "Apply safe suggestions (promote/demote/delete)")
-	return cmd
-}
-
-func newMemoryGCCmd() *cobra.Command {
-	var (
-		userScope bool
-		dryRun    bool
-		staleDays int
-	)
-	cmd := &cobra.Command{
-		Use:   "gc",
-		Short: "Garbage collect stale and empty memories",
-		Long: `Identify and optionally remove memories that are:
-- Empty or near-empty (body <20 characters)
-- Unclassified and older than the stale threshold (default: 90 days)
-- Very old (>2× threshold) regardless of type
-
-Important memories are never candidates for GC.
-
-By default, runs in dry-run mode (report only). Use --dry-run=false to apply deletions.
-
-Examples:
-  ` + brand.BinName() + ` memory gc
-  ` + brand.BinName() + ` memory gc --dry-run=false
-  ` + brand.BinName() + ` memory gc --stale-days 60
-  ` + brand.BinName() + ` memory gc --user`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMemoryGC(userScope, dryRun, staleDays)
-		},
-	}
-	cmd.Flags().BoolVar(&userScope, "user", false, "GC user-scope memories")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", true, "Only report candidates, don't delete")
-	cmd.Flags().IntVar(&staleDays, "stale-days", 90, "Age threshold in days for stale detection")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", true, "Only show the plan, change nothing")
 	return cmd
 }

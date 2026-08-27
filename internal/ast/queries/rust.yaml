@@ -1,6 +1,12 @@
 language: rust
 grammar: tree-sitter-rust
 extensions: [".rs"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function] }
+  READS_FIELD: { labels: [Field] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -24,11 +30,23 @@ queries:
   - data_key: variables
     graph_label: Variable
     pattern: '(static_item name: (identifier) @name)'
+
+  # Declared literal values — the literal becomes a node contained by the name.
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_item name: (identifier) @name value: [(integer_literal) (float_literal) (boolean_literal) (char_literal) (string_literal) (raw_string_literal)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(static_item name: (identifier) @name value: [(integer_literal) (float_literal) (boolean_literal) (char_literal) (string_literal) (raw_string_literal)] @value)'
+    value_capture: value
+    value_label: Value
   - data_key: imports
-    graph_label: Module
+    graph_label: Import
     pattern: '(use_declaration argument: (scoped_identifier) @name)'
   - data_key: imports
-    graph_label: Module
+    graph_label: Import
     pattern: '(use_declaration argument: (identifier) @name)'
   - data_key: parameters
     graph_label: Parameter
@@ -104,44 +122,28 @@ comment_types:
   - line_comment
   - block_comment
 
-# Entry point scoring rules for Rust
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "test_*"
-      score: 60
-    - pattern: init
-      score: 40
-    - pattern: setup
-      score: 40
-    - pattern: configure
-      score: 40
-    - pattern: "*handler"
-      score: 30
-    - pattern: "run*"
-      score: 20
-    - pattern: "cmd*"
-      score: 20
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. Rust has no ternary — `if cond { a } else { b }`
+# used as an expression is the same if_expression node, already counted.
+complexity:
+  node_types:
+    - if_expression
+    - for_expression
+    - while_expression
+    - match_arm
+  operators: ["&&", "||"]
 
-  exported_bonus: 10
-  max_score: 100
-
-  # Rust attribute-based decorators
-  decorators:
-    # Test attributes
-    - name: test
-      score: 60
-    - name: bench
-      score: 50
-    # Web framework route attributes (actix-web, axum, rocket)
-    - name: get
-      score: 70
-    - name: post
-      score: 70
-    - name: put
-      score: 70
-    - name: delete
-      score: 70
-    - name: route
-      score: 70
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Struct
+  - Enum
+  - Trait
+  - Type
+  - Function
+  - Constant
+  - Field
+  - Variable
+  - Comment

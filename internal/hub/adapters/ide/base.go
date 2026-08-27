@@ -311,18 +311,26 @@ func getGraphitExecutable() string {
 	return brand.BinName()
 }
 
-func (a *FolderBasedAdapter) syncAllMCP(mcpTarget, projectID string, installed map[string]map[string]string) error {
+// DesiredMCPServers is the set of MCP servers a project should declare: the graphit
+// server, plus every server contributed by an installed MCP artifact.
+//
+// Exported because the adapters are not the only writer of MCP configuration. The
+// live search's ephemeral project writes its own, project-local, because every path
+// an adapter knows is under the home directory and a throwaway project has no
+// business in the user's real configuration. Sharing this function is what keeps the
+// two writers describing the same servers — including the artifact-contributed ones,
+// which a second implementation would almost certainly forget.
+func DesiredMCPServers(installed map[string]map[string]string) map[string]any {
 	desiredServers := map[string]any{}
 
-	coreServerKey := brand.MCPServerName("code-stdio")
 	mcpExe, mcpArgs, mcpEnv := getMCPProxyConfig()
-	desiredServers[coreServerKey] = map[string]any{
+	desiredServers[brand.MCPServerName("code-stdio")] = map[string]any{
 		"command": mcpExe,
 		"args":    mcpArgs,
 		"env":     mcpEnv,
 	}
 
-	for eid, edata := range installed {
+	for _, edata := range installed {
 		if edata["type"] != "mcp" {
 			continue
 		}
@@ -338,13 +346,16 @@ func (a *FolderBasedAdapter) syncAllMCP(mcpTarget, projectID string, installed m
 		if err := json.Unmarshal(data, &conf); err != nil {
 			continue
 		}
-		_ = eid
 		for k, v := range conf {
 			desiredServers[k] = v
 		}
 	}
 
-	return reconcileMCPFile(mcpTarget, projectID, desiredServers)
+	return desiredServers
+}
+
+func (a *FolderBasedAdapter) syncAllMCP(mcpTarget, projectID string, installed map[string]map[string]string) error {
+	return reconcileMCPFile(mcpTarget, projectID, DesiredMCPServers(installed))
 }
 
 func (a *FolderBasedAdapter) syncMCP(eid, sourcePath, mcpTarget, projectID string, installed map[string]map[string]string) error {
@@ -496,7 +507,7 @@ func (a *FolderBasedAdapter) findCanonicalSource(artType, sourcePath string) str
 // artifact type. Mirrors skillHashCachePath but covers rule/command/agent/skill.
 func artifactHashCachePath(projectDir, rootDirName, artType, localName string) string {
 	adapterKey := strings.TrimPrefix(rootDirName, ".")
-	return filepath.Join(projectDir, brand.DotDir(), "cache", "artifacts", adapterKey, artType, localName)
+	return brand.ProjectRuntimePath(projectDir, "cache", "artifacts", adapterKey, artType, localName)
 }
 
 // computeSourceHash computes a deterministic SHA-256 fingerprint of the
@@ -663,57 +674,6 @@ func copyFile(src, dst string) error {
 	defer func() { _ = out.Close() }()
 	_, err = io.Copy(out, in)
 	return err
-}
-
-func dirContentsEqual(src, dst string) bool {
-	srcInfo, err := os.Stat(src)
-	if err != nil || !srcInfo.IsDir() {
-		return false
-	}
-	dstInfo, err := os.Stat(dst)
-	if err != nil || !dstInfo.IsDir() {
-		return false
-	}
-
-	equal := true
-	err = filepath.Walk(src, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil || info.IsDir() {
-			return walkErr
-		}
-		rel, _ := filepath.Rel(src, path)
-		dstPath := filepath.Join(dst, rel)
-		dstFi, statErr := os.Stat(dstPath)
-		if statErr != nil || dstFi.Size() != info.Size() {
-			equal = false
-			return filepath.SkipAll
-		}
-		srcData, serr := os.ReadFile(path)
-		dstData, derr := os.ReadFile(dstPath)
-		if serr != nil || derr != nil || string(srcData) != string(dstData) {
-			equal = false
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	if err != nil || !equal {
-		return false
-	}
-
-	dstCount := 0
-	srcCount := 0
-	_ = filepath.Walk(dst, func(_ string, info os.FileInfo, e error) error {
-		if e == nil && !info.IsDir() {
-			dstCount++
-		}
-		return e
-	})
-	_ = filepath.Walk(src, func(_ string, info os.FileInfo, e error) error {
-		if e == nil && !info.IsDir() {
-			srcCount++
-		}
-		return e
-	})
-	return srcCount == dstCount
 }
 
 func copyDirAll(src, dst string) error {

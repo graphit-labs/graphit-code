@@ -11,6 +11,11 @@ grammar: antlr-cobol85
 start_rule: startRule
 extensions: [".cob", ".cbl", ".cpy", ".cobol"]
 
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Paragraph, Program, Section] }
 queries:
 
   # ═══════════════════════════════════════════════════════════════════════════
@@ -201,6 +206,16 @@ queries:
   # ═══════════════════════════════════════════════════════════════════════════
 
   # Format 1: level-number data-name (WORKING-STORAGE, LINKAGE, FILE, LOCAL-STORAGE)
+  # The VALUE clause is how COBOL declares a constant, and it was dropped entirely:
+  # WS-STATUS was known to exist, but not that it holds 'ABERTO'.
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//dataDescriptionEntryFormat1"
+    name_capture: dataName
+    value_capture: "dataValueClause/dataValueInterval/dataValueIntervalFrom/literal"
+    value_label: Value
+    type: entity
+
   - data_key: variables
     graph_label: Variable
     pattern: "//dataDescriptionEntryFormat1/dataName"
@@ -1255,42 +1270,28 @@ declaration_types:
   - libraryDescriptionEntryFormat1
   - libraryDescriptionEntryFormat2
 
-# Entry point scoring
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "MAIN-*"
-      score: 80
-    - pattern: "MAIN*"
-      score: 70
-    - pattern: "PROCESS*"
-      score: 60
-    - pattern: "RUN*"
-      score: 60
-    - pattern: "START*"
-      score: 50
-    - pattern: "INIT*"
-      score: 50
-    - pattern: "SETUP*"
-      score: 40
-    - pattern: "BEGIN*"
-      score: 40
-    - pattern: "DRIVER*"
-      score: 40
-    - pattern: "CONTROL*"
-      score: 30
-    - pattern: "DISPATCH*"
-      score: 30
-    - pattern: "EXEC*"
-      score: 30
-    - pattern: "*-MAIN"
-      score: 70
-    - pattern: "*-PROCESS"
-      score: 50
-    - pattern: "*-DRIVER"
-      score: 40
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the real ANTLR parse tree (rule names, not guessed). evaluateWhen
+# is counted per WHEN, not once for the whole EVALUATE — evaluateWhenOther
+# (the OTHER arm) is left out, matching the "default is not a branch"
+# convention taken elsewhere here. AND/OR combinableCondition exists in the
+# grammar but its per-occurrence counting was not verified, so it is left out
+# rather than guessed.
+complexity:
+  node_types:
+    - ifStatement
+    - performStatement
+    - evaluateWhen
 
-  exported_bonus: 0
-  max_score: 100
-  decorators: []
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Program
+  - Section
+  - Paragraph
+  - FileDescription
+  - Condition
+  - Variable
+  - Comment

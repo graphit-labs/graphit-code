@@ -9,8 +9,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
+	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/toon"
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
@@ -90,9 +90,22 @@ func toonResult(v any) (*mcp.CallToolResult, any, error) {
 	return textResult(toon.FormatAny(v))
 }
 
+// noticeResult is a payload with a sentence in front of it, for the cases where the
+// tool did something the caller needs to know about before reading the answer —
+// serving a scope other than the one that was asked for, for instance.
+func noticeResult(notice string, v any, useToon bool) (*mcp.CallToolResult, any, error) {
+	if useToon {
+		return textResult(notice + "\n" + toon.FormatAny(v))
+	}
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return errResult(fmt.Errorf("marshal result: %w", err))
+	}
+	return textResult(notice + "\n" + string(data))
+}
+
 // aiOpt returns true by default when v is nil (parameter not sent by caller).
 // MCP tools use compact TOON format unless the caller explicitly passes false.
 func aiOpt(v *bool) bool {
 	return v == nil || *v
 }
-

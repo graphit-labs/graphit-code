@@ -42,7 +42,6 @@ func TestLoadExternalQueries_ValidFile(t *testing.T) {
 
 	yamlContent := `language: go
 extensions: [".go"]
-replace: false
 queries:
   - data_key: functions
     graph_label: Function
@@ -68,8 +67,10 @@ queries:
 	if qf.Language != "go" {
 		t.Errorf("expected language 'go', got %q", qf.Language)
 	}
-	if qf.Replace {
-		t.Error("expected replace=false")
+	// No `merge` declared is the historical behaviour: this file replaces the
+	// levels below it.
+	if qf.mergesOnto() {
+		t.Error("a file that does not declare merge must replace, not merge")
 	}
 	if len(qf.Queries) != 2 {
 		t.Fatalf("expected 2 queries, got %d", len(qf.Queries))
@@ -168,8 +169,13 @@ queries:
 }
 
 func TestProjectQueriesDir(t *testing.T) {
-	dir := projectQueriesDir("/home/user/project")
-	expected := filepath.Join("/home/user/project", ".graphit", "ast", "queries")
+	// No ast.queries_dir anywhere: an empty project directory has no lockfile, and
+	// HOME is redirected so no global config of the developer's own answers either.
+	t.Setenv("HOME", t.TempDir())
+	project := t.TempDir()
+
+	dir := projectQueriesDir(project)
+	expected := filepath.Join(project, ".graphit", "ast", "queries")
 	if dir != expected {
 		t.Errorf("expected %q, got %q", expected, dir)
 	}
@@ -184,7 +190,6 @@ func TestProjectQueriesDir(t *testing.T) {
 
 func TestResolveQueriesForLang_ProjectOverridesGlobal(t *testing.T) {
 	// Clear caches
-	externalQueryCache = sync.Map{}
 	mergedQueryCache = sync.Map{}
 	compiledQueryCache = sync.Map{}
 
@@ -241,6 +246,25 @@ func TestFilterByLangExt(t *testing.T) {
 	result = filterByLangExt(files, "go", ".go")
 	if len(result) != 2 {
 		t.Fatalf("expected 2 (one with ext, one without), got %d", len(result))
+	}
+}
+
+// The language name is a key, and every other place that uses it as one folds
+// case — mergeOnto, projectTsLangMap, rebuildExtTables. This was the one exact
+// comparison, which let a file merge onto a level and then not be selected.
+func TestFilterByLangExtFoldsCase(t *testing.T) {
+	files := []ExternalQueryFile{
+		{Language: "TypeScript", Extensions: []string{".TS"}},
+	}
+
+	if got := filterByLangExt(files, "typescript", ".ts"); len(got) != 1 {
+		t.Errorf("lowercase query against a capitalized declaration matched %d files, want 1", len(got))
+	}
+	if got := filterByLangExt(files, "TYPESCRIPT", ".ts"); len(got) != 1 {
+		t.Errorf("uppercase query matched %d files, want 1", len(got))
+	}
+	if got := filterByLangExt(files, "typescriptx", ".ts"); len(got) != 0 {
+		t.Errorf("folding case must not make it a prefix match: matched %d files, want 0", len(got))
 	}
 }
 

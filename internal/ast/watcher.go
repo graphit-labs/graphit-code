@@ -19,6 +19,8 @@ type WatcherConfig struct {
 
 	Cluster string
 
+	ClusterPathMap map[string]string
+
 	// MaxDebounce caps how long a busy tree may defer a reindex.
 	MaxDebounce time.Duration
 
@@ -96,6 +98,7 @@ func (w *Watcher) reindex(ctx context.Context, batch fswatch.Batch) {
 		Workers:          SafeWorkers(w.cfg.Workers),
 		IndexSource:      w.cfg.IndexSource,
 		Cluster:          w.cfg.Cluster,
+		ClusterPathMap:   w.cfg.ClusterPathMap,
 		GrammarOverrides: w.cfg.GrammarOverrides,
 	}
 

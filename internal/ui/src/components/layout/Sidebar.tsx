@@ -80,6 +80,50 @@ function NavSection({ title, children }: { title: string; children: React.ReactN
   )
 }
 
+/**
+ * A single, visually louder entry that sits at the root of the navigation rather
+ * than inside a section.
+ *
+ * Live Search runs an agent over any artifacts the user selects — documentation,
+ * code graphs, rules, whatever the Hub carries — so filing it under one of them
+ * misrepresented what it does and buried the entry point most sessions start from.
+ */
+function PrimaryNavItem({
+  to, icon, label, hint, onClick,
+}: {
+  to: string
+  icon: React.ReactNode
+  label: string
+  hint?: string
+  onClick?: () => void
+}) {
+  return (
+    <NavLink
+      to={to}
+      onClick={onClick}
+      className={({ isActive }) =>
+        cn(
+          'group relative flex items-center gap-3 px-3.5 py-3 rounded-xl border transition-all duration-300 overflow-hidden',
+          isActive
+            ? 'bg-gradient-to-r from-primary/20 to-purple-500/15 border-primary/40 text-foreground shadow-[0_2px_12px_-4px_rgba(59,130,246,0.4)]'
+            : 'bg-gradient-to-r from-primary/10 to-purple-500/[0.06] border-primary/20 text-foreground hover:border-primary/40 hover:from-primary/15 hover:to-purple-500/10',
+        )
+      }
+    >
+      <span className="absolute -top-6 -right-6 w-16 h-16 bg-primary/10 rounded-full blur-2xl pointer-events-none" />
+      <span className="w-8 h-8 shrink-0 rounded-lg bg-gradient-to-br from-primary/25 to-purple-500/20 border border-primary/25 flex items-center justify-center text-primary transition-transform duration-300 group-hover:scale-105">
+        {icon}
+      </span>
+      <span className="flex flex-col min-w-0 relative z-10">
+        <span className="text-sm font-bold tracking-tight truncate">{label}</span>
+        {hint && (
+          <span className="text-[10px] text-muted-foreground/70 truncate leading-tight">{hint}</span>
+        )}
+      </span>
+    </NavLink>
+  )
+}
+
 const TYPE_FILTERS = [
   { label: 'Any Type', value: 'all', icon: <Layers className="w-3.5 h-3.5" /> },
   { label: 'Knowledge', value: 'knowledge', icon: <BookOpen className="w-3.5 h-3.5" /> },
@@ -150,6 +194,17 @@ export function Sidebar({ onClose }: SidebarProps) {
 
       <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-2 scrollbar-none relative z-10">
         {}
+        <div className="mb-6">
+          <PrimaryNavItem
+            to="/live"
+            icon={<Search className="w-4 h-4" />}
+            label="Live Search"
+            hint="Any hub artifact, streamed"
+            onClick={close}
+          />
+        </div>
+
+        {}
         <NavSection title="Hub">
           <NavItem
             to="/hub/registry"
@@ -185,12 +240,6 @@ export function Sidebar({ onClose }: SidebarProps) {
             to="/knowledge/explorer"
             icon={<BookOpen className="w-3.5 h-3.5" />}
             label={pName}
-            onClick={close}
-          />
-          <NavItem
-            to="/wiki/search"
-            icon={<Search className="w-3.5 h-3.5" />}
-            label="Wiki Search"
             onClick={close}
           />
         </NavSection>

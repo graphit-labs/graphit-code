@@ -18,15 +18,25 @@ import (
 // TestHybridSearchQualityFloor answers whether the semantic pass closes the gap the lexical
 // one leaves, running the SAME probes as TestSearchIndexQualityFloor through both paths.
 //
-// Five of the sixteen probes are TIES, marked below: the corpus holds two entities with an
-// equally good claim, so whichever comes first is tie-breaking, not quality. "config" matches
-// Config exactly while the probe expects configLoader; "conf" is an exact token of both
-// CONF_MGR and coreConf. Scoring those is meaningless, so parity is required only on the
-// eleven probes that have one defensible answer — and the ties are still reported, because a
-// change that flips several of them at once is worth seeing.
+// Five of the sixteen probes are AMBIGUOUS, marked below: the corpus holds more than one entity
+// with an equally good claim, so whichever comes first is tie-breaking, not quality. "config"
+// matches Config exactly while the probe expects configLoader; "conf" is an exact token of both
+// CONF_MGR and coreConf. Scoring those is meaningless, so top-1 is required only on the eleven
+// probes that have one defensible answer. The ambiguous ones only have to return ONE OF the
+// defensible answers — which rejects an unrelated entity at rank one without pretending to know
+// which of several equals should win.
 //
-// This is also why 16/16 is not a target: reaching it would mean tuning the engine to prefer
-// one arbitrary side of five coin flips.
+// This is also why 16/16 is not a target: reaching it would mean tuning the engine to prefer one
+// arbitrary side of five coin flips.
+//
+// WHAT THIS GATE MEASURED THE FIRST TIME IT ACTUALLY RAN (2026-08-24). It had been skipping
+// silently, because ORT was only reachable from inside the launcher payload — so a whole channel
+// went unmeasured. Against the commit before the score-column fix it scored **0 of 11 decisive
+// probes**: "cf" returned parseConfig, "connect" returned CFG_LOAD, "audit" returned
+// computeChecksum. Not weak ranking — no ranking, because lancestore was reading the hybrid score
+// out of whichever of two columns Go's map iteration reached last. With that fixed it is 11 of 11,
+// one better than the lexical pass. A skipping gate cost more than a missing one would have: it
+// reported success over a search channel that was returning noise.
 func TestHybridSearchQualityFloor(t *testing.T) {
 	client, err := ai.NewEmbeddingClientFromConfig()
 	if err != nil {
@@ -67,33 +77,46 @@ func TestHybridSearchQualityFloor(t *testing.T) {
 
 	cases := []struct {
 		query, wantTop string
-		tie            string // non-empty: the equally defensible alternative
+		// ambiguous names the OTHER entities in this corpus with an equally defensible claim
+		// on the query. Non-empty means the probe cannot assert WHICH answer wins, only that
+		// the winner is one of them — the reason being the one written down in
+		// truncated_query_test.go: a probe whose top-1 is a tie-break measures nothing.
+		//
+		// It was a single string, which could name only ONE alternative and so understated
+		// how ambiguous some of these are — and that is the whole reason this gate failed the
+		// first time it ran. "configuration" is carried by SEVEN entities in this corpus, one
+		// of them (Config) with the docstring "Configuration for the parser." — at least as
+		// defensible as the expected parseConfig, and not expressible in one string.
+		ambiguous []string
 	}{
-		{"parseConfig", "parseConfig", ""},
-		{"configuration", "parseConfig", "initConfiguration"},
-		{"schema", "validateSchema", "SchemaValidator"},
-		{"checksum", "computeChecksum", ""},
-		{"retry backoff", "retryPolicy", ""},
-		{"parse sql", "parseSQL", ""},
-		{"config", "configLoader", "Config"},
-		{"conf", "CONF_MGR", "coreConf"},
-		{"valid", "validateSchema", "SchemaValidator"},
-		{"valida", "PKG_VALIDACAO_PAGAMENTO", ""},
-		{"compu", "computeChecksum", ""},
-		{"retr", "retryPolicy", ""},
-		{"connect", "connectDatabase", ""},
-		{"audit", "TRG_AUDITORIA_CLIENTE", ""},
-		{"extrair", "XPTO_EXTRAIR_ABCD01_DOC_LOTE", ""},
-		{"cf", "CFG_LOAD", ""},
+		{"parseConfig", "parseConfig", nil},
+		// Seven entities carry "configuration", in the name or the docstring.
+		{"configuration", "parseConfig", []string{
+			"Config", "configLoader", "initConfiguration", "loadUserConfig", "coreConf", "CONF_MGR",
+		}},
+		{"schema", "validateSchema", []string{"SchemaValidator"}},
+		{"checksum", "computeChecksum", nil},
+		{"retry backoff", "retryPolicy", nil},
+		{"parse sql", "parseSQL", nil},
+		{"config", "configLoader", []string{"Config", "parseConfig", "loadUserConfig"}},
+		{"conf", "CONF_MGR", []string{"coreConf"}},
+		{"valid", "validateSchema", []string{"SchemaValidator"}},
+		{"valida", "PKG_VALIDACAO_PAGAMENTO", nil},
+		{"compu", "computeChecksum", nil},
+		{"retr", "retryPolicy", nil},
+		{"connect", "connectDatabase", nil},
+		{"audit", "TRG_AUDITORIA_CLIENTE", nil},
+		{"extrair", "XPTO_EXTRAIR_ABCD01_DOC_LOTE", nil},
+		{"cf", "CFG_LOAD", nil},
 	}
 
-	t.Logf("%-16s | %-28s | %-24s | %-24s | %s", "query", "expected", "lexical", "hybrid", "tie with")
+	t.Logf("%-16s | %-28s | %-24s | %-24s | %s", "query", "expected", "lexical", "hybrid", "equally defensible")
 	t.Logf("%s", strings.Repeat("-", 116))
 
 	var decisive, lexDecisive, hybDecisive, hybLostDecisive int
 	lexHits, hybHits := 0, 0
 	for _, c := range cases {
-		lexRes, err := si.Search(c.query, 5)
+		lexRes, err := si.Search(context.Background(), c.query, 5)
 		if err != nil {
 			t.Fatalf("lexical %q: %v", c.query, err)
 		}
@@ -101,7 +124,7 @@ func TestHybridSearchQualityFloor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("embed %q: %v", c.query, err)
 		}
-		hybRes, err := si.HybridSearch(c.query, qv, 5)
+		hybRes, err := si.HybridSearch(context.Background(), c.query, qv, 5)
 		if err != nil {
 			t.Fatalf("hybrid %q: %v", c.query, err)
 		}
@@ -122,9 +145,17 @@ func TestHybridSearchQualityFloor(t *testing.T) {
 			hybHits++
 		}
 
-		// A tie is answered acceptably by either side; only the rest is decisive.
-		accepts := func(got string) bool { return got == c.wantTop || (c.tie != "" && got == c.tie) }
-		if c.tie == "" {
+		// Only an unambiguous probe can assert WHICH entity wins. An ambiguous one asserts
+		// that whatever won is one of the defensible answers — which still rejects an
+		// unrelated entity at rank one, and still refuses to pick a winner among equals.
+		//
+		// Requiring the expected entity inside a recall window was tried and is WRONG here:
+		// "configuration" has seven defensible answers and the window is five, so the
+		// requirement just moves the tie-break from position 1 to position 5. Measured, it
+		// failed on a hybrid answer set of five configuration entities — a good answer that
+		// happened not to include the one the row names first.
+		defensible := append([]string{c.wantTop}, c.ambiguous...)
+		if len(c.ambiguous) == 0 {
 			decisive++
 			if lexOK {
 				lexDecisive++
@@ -134,9 +165,9 @@ func TestHybridSearchQualityFloor(t *testing.T) {
 			} else if lexOK {
 				hybLostDecisive++
 			}
-		} else if !accepts(hyb) {
-			t.Errorf("query %q returned %q, which is neither the expected %q nor the tie %q",
-				c.query, hyb, c.wantTop, c.tie)
+		} else if !hasName(defensible, hyb) {
+			t.Errorf("query %q returned %q, which is none of the defensible answers %v",
+				c.query, hyb, defensible)
 		}
 
 		mark := func(s string, ok bool) string {
@@ -149,7 +180,7 @@ func TestHybridSearchQualityFloor(t *testing.T) {
 			return s
 		}
 		t.Logf("%-16s | %-28s | %-24s | %-24s | %s",
-			c.query, c.wantTop, mark(lex, lexOK), mark(hyb, hybOK), c.tie)
+			c.query, c.wantTop, mark(lex, lexOK), mark(hyb, hybOK), strings.Join(c.ambiguous, " "))
 	}
 
 	t.Logf("%s", strings.Repeat("-", 116))

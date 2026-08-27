@@ -1,18 +1,15 @@
 package hub
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
@@ -539,84 +536,4 @@ func (m *GlobalLockManager) findOrCreateInstance(lock *GlobalHubLock, projectID,
 
 func artifactKey(id, version string, artType ArtifactType) string {
 	return string(artType) + "/" + id + "@" + version
-}
-
-type InstalledArtifactInfo struct {
-	ID          string
-	Name        string
-	Type        ArtifactType
-	Description string
-	Version     string
-	ProjectID   string
-}
-
-func LoadInstalledArtifacts() []InstalledArtifactInfo {
-	pp := paths.GetPaths("", false)
-	lf, err := LoadLockfile(pp.LockFilePath)
-	if err != nil || lf == nil {
-		return nil
-	}
-
-	var globalArts map[string]*GlobalArtifact
-	if mgr, err := NewGlobalLockManager(); err == nil {
-		if glock, err := mgr.Load(); err == nil {
-			globalArts = glock.Artifacts
-		}
-	}
-
-	var registry *RegistryManager
-	registry, _ = NewRegistryManager(context.Background())
-
-	var result []InstalledArtifactInfo
-	for artType, typeMap := range lf.Artifacts {
-		for id, meta := range typeMap {
-			if !meta.IsHubInstalled() {
-				continue
-			}
-
-			name := meta.Alias
-			if name == "" {
-				name = id
-			}
-			var description string
-
-			if globalArts != nil {
-				key := artifactKey(id, meta.Version, artType)
-				if ga, ok := globalArts[key]; ok {
-					if ga.Name != "" {
-						name = ga.Name
-					}
-					description = ga.Description
-				}
-			}
-
-			if description == "" && registry != nil && registry.IsReady() {
-				if entry := registry.GetEntry(id, artType); entry != nil {
-					if entry.Description != "" {
-						description = entry.Description
-					}
-					if name == id && entry.Name != "" {
-						name = entry.Name
-					}
-				}
-			}
-
-			result = append(result, InstalledArtifactInfo{
-				ID:          id,
-				Name:        name,
-				Type:        artType,
-				Description: description,
-				Version:     meta.Version,
-				ProjectID:   meta.ProjectID,
-			})
-		}
-	}
-
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Type != result[j].Type {
-			return result[i].Type < result[j].Type
-		}
-		return result[i].ID < result[j].ID
-	})
-	return result
 }

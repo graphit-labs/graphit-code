@@ -6,31 +6,42 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
+	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/livesearch"
+	"github.com/graphit-labs/graphit-code/internal/livesearch/prep"
 	"github.com/graphit-labs/graphit-code/internal/netutil"
 	graphitui "github.com/graphit-labs/graphit-code/internal/ui"
 )
 
 type UnifiedServer struct {
-	port        int
-	projectName string
-	mux         *http.ServeMux
+	port           int
+	host           string
+	allowedOrigins []string
+	projectName    string
+	mux            *http.ServeMux
+	live           *LiveHandler
 }
 
 func NewUnifiedServer(
 	hubSvc *hub.HubService,
 	ide string,
 	astDB ast.GraphDB,
-	astJobs *ast.JobManager,
 	repoPath string,
 	projectName string,
 ) (*UnifiedServer, error) {
 
-	port, err := netutil.FindFreePort(8080)
+	projectCfg := config.LoadProjectConfig(repoPath)
+	host := config.ResolveUIHost(nil, projectCfg)
+	allowedOrigins := config.ResolveUIAllowedOrigins(nil, projectCfg)
+
+	port, err := netutil.FindFreePortOnHost(host, 8080)
 	if err != nil {
 		return nil, fmt.Errorf("no free port: %w", err)
 	}
@@ -41,7 +52,7 @@ func NewUnifiedServer(
 	if err != nil {
 		return nil, fmt.Errorf("hub handler init: %w", err)
 	}
-	astSrv, err := ast.NewServerOnPort(astDB, astJobs, repoPath, port)
+	astSrv, err := ast.NewServerOnPort(astDB, repoPath, port)
 	if err != nil {
 		return nil, fmt.Errorf("ast handler init: %w", err)
 	}
@@ -49,13 +60,26 @@ func NewUnifiedServer(
 	hubSrv.RegisterAPIRoutes(mux)
 	astSrv.RegisterAPIRoutes(mux)
 
+	// Wiki page browsing. The live search is a separate subsystem with its own
+	// session runtime and SSE transport; see internal/livesearch.
 	wikiHandler := NewWikiHandler(hubSvc)
 	wikiHandler.RegisterAPIRoutes(mux)
+
+	// Each session runs inside an ephemeral project that prep builds for it: a
+	// lockfile, the framework's rules and skills, the MCP server, and the chosen
+	// artifacts indexed and ready to query.
+	liveMgr := livesearch.NewManagerFromConfig("", prep.Prepare)
+	liveMgr.SetReclaim(prep.Reclaim)
+	liveHandler := NewLiveHandler(liveMgr)
+	liveHandler.RegisterAPIRoutes(mux)
 
 	daemonDreamHandler := NewDaemonDreamHandler(hubSvc)
 	daemonDreamHandler.RegisterAPIRoutes(mux)
 
-	s := &UnifiedServer{port: port, projectName: projectName, mux: mux}
+	s := &UnifiedServer{
+		port: port, host: host, allowedOrigins: allowedOrigins,
+		projectName: projectName, mux: mux, live: liveHandler,
+	}
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -76,15 +100,17 @@ func NewUnifiedServer(
 
 func (s *UnifiedServer) Port() int { return s.port }
 
+func (s *UnifiedServer) Host() string { return s.host }
+
 func (s *UnifiedServer) Start(ctx context.Context) error {
-	ln, _, err := netutil.ListenOnFreePort(s.port)
+	ln, _, err := netutil.ListenOnFreePortOnHost(s.host, s.port)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
 
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", s.port),
-		Handler: hub.CorsWrap(s.mux),
+		Addr:    net.JoinHostPort(s.host, strconv.Itoa(s.port)),
+		Handler: hub.CorsWrapWithAllowedOrigins(s.mux, s.allowedOrigins),
 	}
 
 	errCh := make(chan error, 1)
@@ -94,6 +120,13 @@ func (s *UnifiedServer) Start(ctx context.Context) error {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutCtx)
+
+	// After the listener, because a session outliving its stream is normal and only
+	// the process going away ends one. This stops the agent processes and closes
+	// each event log, which the sessions cannot do for themselves once we exit.
+	if s.live != nil {
+		s.live.Manager().CloseAll()
+	}
 
 	select {
 	case e := <-errCh:
@@ -114,12 +147,10 @@ func (s *UnifiedServer) handleUI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "UI not found: "+err.Error(), 500)
 		return
 	}
-	apiBase := fmt.Sprintf("http://localhost:%d", s.port)
 	injection := fmt.Sprintf(`<script>
-  window.__API_BASE__ = %q;
   window.__APP_MODE__ = "unified";
   window.__PROJECT_NAME__ = %q;
-</script>`, apiBase, s.projectName)
+</script>`, s.projectName)
 	data = bytes.Replace(data, []byte("</head>"), []byte(injection+"</head>"), 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(data)

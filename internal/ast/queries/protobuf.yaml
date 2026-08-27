@@ -30,6 +30,19 @@ queries:
   - data_key: enum_values
     graph_label: EnumValue
     pattern: '(enum_field (identifier) @name)'
+
+  # A field's number and an enum's value ARE the wire contract: they are what the two
+  # sides of an RPC agree on, and neither was indexed.
+  - data_key: fields
+    graph_label: MessageField
+    pattern: '(field (identifier) @name (field_number (int_lit) @value))'
+    value_capture: value
+    value_label: Value
+  - data_key: enum_values
+    graph_label: EnumValue
+    pattern: '(enum_field (identifier) @name (int_lit) @value)'
+    value_capture: value
+    value_label: Value
   - data_key: options
     graph_label: Option
     pattern: '(option (identifier) @name)'
@@ -53,6 +66,15 @@ context_types:
   message: Message
   enum: Enum
 
+# Without these all three contexts above are INERT: tree-sitter-proto defines no field
+# called "name" anywhere, so the default field lookup finds nothing, nameNodeOf returns
+# nil and the container is skipped. Measured before this: an `rpc` inside
+# `service Payments` came out with context "" — and so did every field of every message.
+context_name_paths:
+  service: service_name
+  message: message_name
+  enum: enum_name
+
 # Protobuf has no anonymous function types
 anon_func_types: []
 
@@ -67,9 +89,20 @@ declaration_types:
 comment_types:
   - comment
 
-# Entry points not applicable for Protobuf schema files
-entry_points:
-  names: []
-  exported_bonus: 0
-  max_score: 0
-  decorators: []
+# No cyclomatic complexity: Protocol Buffers is a schema format with no
+# control flow.
+
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Service
+  - RPC
+  - Message
+  - MessageField
+  - Enum
+  - EnumValue
+  - Oneof
+  - Package
+  - Comment

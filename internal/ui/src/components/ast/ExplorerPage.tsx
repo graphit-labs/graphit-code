@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { astApi, type GraphNode, type GraphEdge, type SchemaNodeStat, type SchemaEdgeStat } from '@/api/ast'
+import { astApi, type GraphNode, type GraphEdge, type SchemaNodeStat, type SchemaEdgeStat, type SchemaLangGroup } from '@/api/ast'
 import { showToast } from '@/hooks/useToast'
 import { GraphCanvas, type GraphCanvasRef } from './GraphCanvas'
 import { QueryBar, QueryBarCollapsed, QueryBarCollapseButton } from './QueryBar'
@@ -83,6 +83,7 @@ export default function ExplorerPage() {
   const [links, setLinks] = useState<GraphEdge[]>([])
   const [schemaNodes, setSchemaNodes] = useState<SchemaNodeStat[]>([])
   const [schemaEdges, setSchemaEdges] = useState<SchemaEdgeStat[]>([])
+  const [schemaLangs, setSchemaLangs] = useState<SchemaLangGroup[]>([])
   const [hiddenLabels, setHiddenLabels] = useState<Set<string>>(
     () => new Set<string>(LS.get<string[]>('graphit_hidden_labels', []))
   )
@@ -94,6 +95,9 @@ export default function ExplorerPage() {
   )
   const [hiddenLangs, setHiddenLangs] = useState<Set<string>>(
     () => new Set<string>(LS.get<string[]>('graphit_hidden_langs', []))
+  )
+  const [collapsedLangs, setCollapsedLangs] = useState<Set<string>>(
+    () => new Set<string>(LS.get<string[]>('graphit_collapsed_langs', []))
   )
   const [nodeColors, setNodeColors] = useState<Record<string, string>>(
     () => LS.get<Record<string, string>>('graphit_node_colors', {})
@@ -107,6 +111,7 @@ export default function ExplorerPage() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
   const [sourceFile, setSourceFile] = useState<string | null>(null)
   const [sourceContent, setSourceContent] = useState('')
+  const [sourceLine, setSourceLine] = useState<number | null>(null)
   const [tabularData, setTabularData] = useState<{ columns: string[]; rows: unknown[][] } | null>(null)
   const [leftTab, setLeftTab] = useState<LeftTab>('schema')
   const [leftCollapsed, setLeftCollapsed] = useState(
@@ -157,6 +162,7 @@ export default function ExplorerPage() {
         setLinks(graphData.links ?? [])
         setSchemaNodes(schema.nodes ?? [])
         setSchemaEdges(schema.edges ?? [])
+        setSchemaLangs(schema.langs ?? [])
         
         const defaults: Record<string, string> = {}
         schema.node_labels?.forEach((l) => { defaults[l] = labelColor(l) })
@@ -191,8 +197,9 @@ export default function ExplorerPage() {
     }
   }, [])
 
-  const handleFileClick = useCallback(async (path: string) => {
+  const handleFileClick = useCallback(async (path: string, line?: number) => {
     setSourceFile(path)
+    setSourceLine(line ?? null)
     setRightVisible(true)
     try {
       const data = await astApi.getFile(path, decodedContextId, activeProjectDir || undefined)
@@ -218,7 +225,7 @@ export default function ExplorerPage() {
     setLeftTab('tree')
     if (leftCollapsedRef.current) setLeftCollapsed(false)
     
-    if (node.file) handleFileClickRef.current(node.file)
+    if (node.file) handleFileClickRef.current(node.file, node.line)
   }, [])
 
   const handleZoom = (dir: 1 | -1) => {
@@ -245,6 +252,7 @@ export default function ExplorerPage() {
   useEffect(() => { LS.set('graphit_hidden_edges', [...hiddenEdgeTypes]) }, [hiddenEdgeTypes])
   useEffect(() => { LS.set('graphit_hidden_clusters', [...hiddenClusters]) }, [hiddenClusters])
   useEffect(() => { LS.set('graphit_hidden_langs', [...hiddenLangs]) }, [hiddenLangs])
+  useEffect(() => { LS.set('graphit_collapsed_langs', [...collapsedLangs]) }, [collapsedLangs])
   useEffect(() => { LS.set('graphit_cluster_colors', clusterColors) }, [clusterColors])
   useEffect(() => { LS.set('graphit_lang_colors', langColors) }, [langColors])
   useEffect(() => { LS.set('graphit_left_collapsed', leftCollapsed) }, [leftCollapsed])
@@ -348,11 +356,13 @@ export default function ExplorerPage() {
                   <SchemaPanel
                     nodes={schemaNodes}
                     edges={schemaEdges}
+                    langs={schemaLangs}
                     graphNodes={nodes}
                     hiddenLabels={hiddenLabels}
                     hiddenEdgeTypes={hiddenEdgeTypes}
                     hiddenClusters={hiddenClusters}
                     hiddenLangs={hiddenLangs}
+                    collapsedLangs={collapsedLangs}
                     nodeColors={nodeColors}
                     clusterColors={clusterColors}
                     langColors={langColors}
@@ -379,6 +389,13 @@ export default function ExplorerPage() {
                     }
                     onToggleLang={(l) =>
                       setHiddenLangs((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(l)) { next.delete(l) } else { next.add(l) }
+                        return next
+                      })
+                    }
+                    onToggleLangCollapse={(l) =>
+                      setCollapsedLangs((prev) => {
                         const next = new Set(prev)
                         if (next.has(l)) { next.delete(l) } else { next.add(l) }
                         return next
@@ -559,7 +576,7 @@ export default function ExplorerPage() {
                 )}
                 {selectedNode.file && (
                   <button
-                    onClick={() => handleFileClick(selectedNode.file!)}
+                    onClick={() => handleFileClick(selectedNode.file!, selectedNode.line)}
                     className="flex items-center justify-center gap-2 text-xs font-bold bg-primary text-primary-foreground hover:bg-primary/90 shadow-md hover:shadow-lg transition-all rounded-xl py-2.5 mt-4 w-full group active:scale-[0.98]"
                   >
                     <Code2 className="w-4 h-4 group-hover:rotate-6 transition-transform" />
@@ -657,7 +674,8 @@ export default function ExplorerPage() {
             <CodePanel
               content={sourceContent}
               filename={sourceFile}
-              onClose={() => { setRightVisible(false); setSourceFile(null) }}
+              highlightLine={sourceLine}
+              onClose={() => { setRightVisible(false); setSourceFile(null); setSourceLine(null) }}
             />
           </div>
         </div>

@@ -1,6 +1,12 @@
 language: swift
 grammar: tree-sitter-swift
 extensions: [".swift"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function] }
+  READS_FIELD: { labels: [Field] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -21,6 +27,13 @@ queries:
   - data_key: variables
     graph_label: Variable
     pattern: '(property_declaration (pattern (simple_identifier) @name))'
+
+  # Declared literal values — the literal becomes a node contained by the name.
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(property_declaration name: (pattern bound_identifier: (simple_identifier) @name) value: [(integer_literal) (real_literal) (hex_literal) (oct_literal) (bin_literal) (boolean_literal) (line_string_literal) (nil_literal)] @value)'
+    value_capture: value
+    value_label: Value
   - data_key: parameters
     graph_label: Parameter
     pattern: '(parameter name: (simple_identifier) @name)'
@@ -80,31 +93,32 @@ comment_types:
   - comment
   - multiline_comment
 
-# Entry point scoring rules for Swift
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "Test*"
-      score: 60
-    - pattern: "test*"
-      score: 60
-    - pattern: init
-      score: 40
-    - pattern: setup
-      score: 40
-    - pattern: configure
-      score: 40
-    - pattern: "*Handler"
-      score: 30
-    - pattern: "*Controller"
-      score: 30
-    - pattern: "run*"
-      score: 20
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. && / || are wrapped in conjunction_expression /
+# disjunction_expression here, not bare tokens — do not also list them as
+# operators, or every one would be counted twice. switch_entry fires for the
+# default case too, so a bare switch with no other entry still adds one.
+complexity:
+  node_types:
+    - if_statement
+    - for_statement
+    - while_statement
+    - switch_entry
+    - catch_block
+    - ternary_expression
+    - conjunction_expression
+    - disjunction_expression
 
-  exported_bonus: 10
-  max_score: 100
-
-  # Swift has no annotations/decorators in the same sense — this section is intentionally empty
-  # Swift @attributes exist but are language builtins, not user-defined route decorators
-  decorators: []
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Class
+  - Struct
+  - Protocol
+  - Enum
+  - Function
+  - Field
+  - Variable
+  - Comment

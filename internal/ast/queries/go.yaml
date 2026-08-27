@@ -1,6 +1,13 @@
 language: go
 grammar: tree-sitter-go
 extensions: [".go"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function, Method] }
+  READS_FIELD: { labels: [Field] }
+  WRITES_FIELD: { labels: [Field] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -24,6 +31,20 @@ queries:
   - data_key: variables
     graph_label: Variable
     pattern: '(var_spec name: (identifier) @name)'
+
+  # Declared literal values. The literal becomes a node contained by the name, so
+  # "who holds this URL / this magic number" is a question search
+  # responde. Only literals are captured — an arbitrary expression is not a name.
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_spec name: (identifier) @name value: (expression_list [(int_literal) (float_literal) (true) (false) (nil) (rune_literal) (interpreted_string_literal) (raw_string_literal)] @value))'
+    value_capture: value
+    value_label: Value
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(var_spec name: (identifier) @name value: (expression_list [(int_literal) (float_literal) (true) (false) (nil) (rune_literal) (interpreted_string_literal) (raw_string_literal)] @value))'
+    value_capture: value
+    value_label: Value
   - data_key: imports
     graph_label: Import
     pattern: '(import_spec path: (interpreted_string_literal) @name)'
@@ -86,121 +107,28 @@ declaration_types:
 comment_types:
   - comment
 
-# Entry point scoring rules for Go
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: init
-      score: 70
-    - pattern: "Test*"
-      score: 60
-    - pattern: "Benchmark*"
-      score: 50
-    - pattern: "Example*"
-      score: 40
-    - pattern: "Fuzz*"
-      score: 50
-    - pattern: setup
-      score: 40
-    - pattern: configure
-      score: 40
-    - pattern: "*Handler"
-      score: 30
-    - pattern: "*Controller"
-      score: 30
-    - pattern: "Handle*"
-      score: 30
-    - pattern: "Serve*"
-      score: 30
-    - pattern: "Run*"
-      score: 20
-    - pattern: "Start*"
-      score: 20
-    - pattern: "cmd*"
-      score: 20
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar (see docs/tasks/ for how). "else if" needs no
+# entry of its own — Go re-nests it as another if_statement in the else block.
+complexity:
+  node_types:
+    - if_statement
+    - for_statement
+    - expression_case
+    - communication_case
+  operators: ["&&", "||"]
 
-  exported_bonus: 10
-  max_score: 100
-
-  # Go has no decorators/annotations — this section is intentionally empty
-  decorators: []
-
-# Import detection (language-level framework detection)
-import_detection:
-  - pattern: "github.com/gin-gonic/gin"
-    match: prefix
-    framework: gin
-    category: web
-  - pattern: "github.com/labstack/echo"
-    match: prefix
-    framework: echo
-    category: web
-  - pattern: "github.com/gofiber/fiber"
-    match: prefix
-    framework: fiber
-    category: web
-  - pattern: "github.com/gorilla/mux"
-    match: prefix
-    framework: gorilla
-    category: web
-  - pattern: "github.com/go-chi/chi"
-    match: prefix
-    framework: chi
-    category: web
-  - pattern: "net/http"
-    match: prefix
-    framework: stdlib
-    category: web
-  - pattern: "google.golang.org/grpc"
-    match: prefix
-    framework: grpc
-    category: rpc
-  - pattern: "google.golang.org/protobuf"
-    match: prefix
-    framework: protobuf
-    category: serialization
-  - pattern: "gorm.io/gorm"
-    match: prefix
-    framework: gorm
-    category: orm
-  - pattern: "github.com/jmoiron/sqlx"
-    match: prefix
-    framework: sqlx
-    category: orm
-  - pattern: "go.uber.org/zap"
-    match: prefix
-    framework: zap
-    category: logging
-  - pattern: "github.com/stretchr/testify"
-    match: prefix
-    framework: testify
-    category: test
-  - pattern: "github.com/spf13/cobra"
-    match: prefix
-    framework: cobra
-    category: cli
-  - pattern: "github.com/spf13/viper"
-    match: prefix
-    framework: viper
-    category: config
-  - pattern: "database/sql"
-    match: prefix
-    framework: database-sql
-    category: database
-  - pattern: "github.com/redis/go-redis"
-    match: prefix
-    framework: go-redis
-    category: cache
-  - pattern: "github.com/nats-io/nats.go"
-    match: prefix
-    framework: nats
-    category: messaging
-  - pattern: "github.com/segmentio/kafka-go"
-    match: prefix
-    framework: kafka-go
-    category: messaging
-  - pattern: "github.com/prometheus/client_golang"
-    match: prefix
-    framework: prometheus
-    category: observability
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Function
+  - Method
+  - Struct
+  - Interface
+  - Type
+  - Constant
+  - Variable
+  - Field
+  - Comment

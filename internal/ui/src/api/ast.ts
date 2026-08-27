@@ -24,6 +24,8 @@ export interface GraphNode {
   label: string
   type: string
   file?: string
+  /** 1-based declaration line. Absent on files, directories and call-target stubs. */
+  line?: number
   properties?: Record<string, unknown>
 }
 
@@ -56,9 +58,16 @@ export interface SchemaEdgeStat {
   count: number
 }
 
+export interface SchemaLangGroup {
+  lang: string
+  count: number
+  labels: SchemaNodeStat[]
+}
+
 export interface SchemaResponse {
   nodes: SchemaNodeStat[]
   edges: SchemaEdgeStat[]
+  langs?: SchemaLangGroup[]
   node_labels: string[]
   edge_types: string[]
   backend: string

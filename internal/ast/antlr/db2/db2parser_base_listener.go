@@ -3522,6 +3522,26 @@ func (s *BaseDb2ParserListener) EnterCompound_sql_inlined(ctx *Compound_sql_inli
 // ExitCompound_sql_inlined is called when production compound_sql_inlined is exited.
 func (s *BaseDb2ParserListener) ExitCompound_sql_inlined(ctx *Compound_sql_inlinedContext) {}
 
+// EnterDeclare_variable_statement is called when production declare_variable_statement is entered.
+func (s *BaseDb2ParserListener) EnterDeclare_variable_statement(ctx *Declare_variable_statementContext) {
+}
+
+// ExitDeclare_variable_statement is called when production declare_variable_statement is exited.
+func (s *BaseDb2ParserListener) ExitDeclare_variable_statement(ctx *Declare_variable_statementContext) {
+}
+
+// EnterAssignment_statement is called when production assignment_statement is entered.
+func (s *BaseDb2ParserListener) EnterAssignment_statement(ctx *Assignment_statementContext) {}
+
+// ExitAssignment_statement is called when production assignment_statement is exited.
+func (s *BaseDb2ParserListener) ExitAssignment_statement(ctx *Assignment_statementContext) {}
+
+// EnterCompound_body_statement is called when production compound_body_statement is entered.
+func (s *BaseDb2ParserListener) EnterCompound_body_statement(ctx *Compound_body_statementContext) {}
+
+// ExitCompound_body_statement is called when production compound_body_statement is exited.
+func (s *BaseDb2ParserListener) ExitCompound_body_statement(ctx *Compound_body_statementContext) {}
+
 // EnterSql_statement_inlined is called when production sql_statement_inlined is entered.
 func (s *BaseDb2ParserListener) EnterSql_statement_inlined(ctx *Sql_statement_inlinedContext) {}
 

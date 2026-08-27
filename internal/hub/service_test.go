@@ -55,8 +55,6 @@ func TestHubService_ListEntries(t *testing.T) {
 	})
 }
 
-
-
 func TestHubService_Uninstall(t *testing.T) {
 	t.Parallel()
 	m := &RegistryManager{
@@ -709,4 +707,3 @@ func TestHubService_EnsureKnowledgeAvailable(t *testing.T) {
 		}
 	})
 }
-

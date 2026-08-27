@@ -9,10 +9,6 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// EmbeddingModule — Name
-// ---------------------------------------------------------------------------
-
 func TestEmbeddingModule_Name(t *testing.T) {
 	t.Parallel()
 	m := NewEmbeddingModule("/tmp", time.Second, "/cache")
@@ -20,10 +16,6 @@ func TestEmbeddingModule_Name(t *testing.T) {
 		t.Errorf("expected 'embedding', got %q", m.Name())
 	}
 }
-
-// ---------------------------------------------------------------------------
-// EmbeddingModule — NewEmbeddingModule default interval
-// ---------------------------------------------------------------------------
 
 func TestNewEmbeddingModule_DefaultInterval(t *testing.T) {
 	t.Parallel()
@@ -60,10 +52,6 @@ func TestNewEmbeddingModule_Fields(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// DreamModule — Name
-// ---------------------------------------------------------------------------
-
 func TestDreamModule_Name(t *testing.T) {
 	t.Parallel()
 	m := NewDreamModule("/tmp", "vscode")
@@ -71,10 +59,6 @@ func TestDreamModule_Name(t *testing.T) {
 		t.Errorf("expected 'dream', got %q", m.Name())
 	}
 }
-
-// ---------------------------------------------------------------------------
-// DreamModule — NewDreamModule
-// ---------------------------------------------------------------------------
 
 func TestNewDreamModule_Fields(t *testing.T) {
 	t.Parallel()
@@ -87,9 +71,7 @@ func TestNewDreamModule_Fields(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // EmbeddingModule.Start — returns error from context (ast.RunEmbeddingLoop)
-// ---------------------------------------------------------------------------
 
 func TestEmbeddingModule_Start_ReturnsOnCancel(t *testing.T) {
 	tmpDir := t.TempDir()

@@ -29,18 +29,22 @@ Dream module (autonomous) and the IDE agent (on-demand). It covers:
 Commands:
   rules     Output the resolved improvement analysis rules
   rule      Manage or display the IDE rule for the improvements module
+  backlog   Manage the improvement backlog (work identified but deferred)
 
 Examples:
   ` + binName + ` improvements rules
   ` + binName + ` improvements rules --default
   ` + binName + ` improvements rule
   ` + binName + ` improvements rule --default
-  ` + binName + ` improvements rule --unset`,
+  ` + binName + ` improvements rule --unset
+  ` + binName + ` improvements backlog list
+  ` + binName + ` improvements backlog add "Refactor the auth module"`,
 	}
 
 	cmd.AddCommand(
 		newImprovementsRulesCmd(),
 		newModuleRuleCmd("improvements"),
+		newBacklogCmd(),
 	)
 
 	return cmd

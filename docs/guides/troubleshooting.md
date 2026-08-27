@@ -22,6 +22,18 @@ related:
 
 This guide covers common issues you may encounter when using Graphit Code and how to resolve them. Issues are organized by module — jump to the relevant section for your problem.
 
+> **Everywhere this guide writes `~/.graphit`, read the value of `GRAPHIT_GLOBAL_DIR`
+> instead if you have set it.** That variable overrides the location of the global
+> directory, and everything below — the config file, the daemon PID and log, the model
+> cache, the extracted runtime — moves with it. Check it first when a path in these
+> instructions does not exist:
+>
+> ```bash
+> echo "${GRAPHIT_GLOBAL_DIR:-$HOME/.graphit}"
+> ```
+>
+> See [Storage Layout](../architecture/storage_layout.md#moving-it-graphit_global_dir).
+
 ---
 
 ## Table of Contents
@@ -53,16 +65,18 @@ graphit version
 graphit daemon status
 
 # Check if the project is initialized
-ls -la .graphit-lock.json
+ls -la graphit.lock.json
 
 # Check global configuration
-graphit config list --global
+graphit config --list --global
 
 # Check project configuration
-graphit config list
+graphit config --list
 
-# Verify git is available (required for memory/hub)
-git --version
+# Inspect S3 and UI network settings
+graphit config --get --global hub.bucket
+graphit config --get --global hub.endpoint
+graphit config --get ui.host
 
 # Run a full sync to detect issues
 graphit sync
@@ -121,7 +135,7 @@ cgo: C compiler "gcc" not found: exec: "gcc": executable file not found in $PATH
   ```bash
   xcode-select --install
   ```
-- CGO is required for the FTS5 SQLite extension used by the AST graph database.
+- CGO is required for the graph engine, and the `lancedb` build tag for the search engine. A binary built without the tag links stubs whose error names the tag and the fix.
 
 ### Project not initialized
 
@@ -179,14 +193,14 @@ reading global config: ...
 **Diagnosis:**
 ```bash
 # Check effective project config
-graphit config list
+graphit config --list
 
 # Check global config
-graphit config list --global
+graphit config --list --global
 
 # Verify a specific key
-graphit config get <key>
-graphit config get <key> --global
+graphit config --get <key>
+graphit config --get <key> --global
 ```
 
 ### IDE adapter not detected
@@ -196,8 +210,8 @@ graphit config get <key> --global
 **Solutions:**
 1. Set the IDE explicitly:
    ```bash
-   graphit config set ide claude          # Project-level
-   graphit config set ide cursor --global # Global default
+   graphit config ide claude          # Project-level
+   graphit config ide cursor --global # Global default
    ```
 2. Re-run sync to apply:
    ```bash
@@ -324,7 +338,7 @@ graphit daemon status
    ```
 2. Check if the `ast` module is disabled in config:
    ```bash
-   graphit config get ast.disabled
+   graphit config --get ast.disabled
    ```
 3. Force a full reindex:
    ```bash
@@ -335,9 +349,16 @@ graphit daemon status
 
 **Cause:** The AST parser uses Tree-sitter and ANTLR v4 grammars. Languages without an installed grammar will be skipped during indexing.
 
-**Currently supported languages (42):**
-- **Tree-sitter (37):** Bash, C, C++, C#, Clojure, Dart, Dockerfile, Elixir, Go, GraphQL, Groovy, Haskell, HCL, HTML, Java, JavaScript, JSON, Julia, Kotlin, Lua, Markdown, Objective-C, PHP, Protocol Buffers, Python, R, Ruby, Rust, Scala, SQL, Swift, TOML, TSX, TypeScript, XML, YAML, Zig
+**Currently supported languages (44):**
+- **Tree-sitter (39):** Bash, C, C++, C#, Clojure, CSS, Dart, Dockerfile, Elixir, Go, GraphQL, Groovy, Haskell, HCL, HTML, Java, JavaScript, JSON, Julia, Kotlin, Lua, Objective-C, PHP, Protocol Buffers, Python, R, Ruby, Rust, Scala, SQL, Svelte, Swift, TOML, TSX, TypeScript, Vue, XML, YAML, Zig
 - **ANTLR (5):** PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85
+
+Markdown is not on the list: no shipped query file claims `.md`, `.markdown` or
+`.mdx`, so documents are never indexed into the code graph. They are the knowledge
+wiki's — search them with `graphit knowledge search`, not with a Cypher query. The
+`tree-sitter-markdown` grammar is still compiled in, so a project that wants
+markdown structure in the graph adds its own `markdown.yaml` under
+`ast.queries_dir`.
 
 **Diagnosis:** Check the indexing output for skipped files or run with verbose logging.
 
@@ -365,7 +386,7 @@ graphit daemon status
 database is locked
 ```
 
-**Cause:** Multiple processes attempting to write to the SQLite database simultaneously, or an unclean shutdown.
+**Cause:** Multiple processes attempting to write the same store simultaneously, or an unclean shutdown. The graph engine allows one read-write handle per database.
 
 **Solutions:**
 1. Stop any running daemon or MCP server instances.
@@ -397,13 +418,23 @@ init ONNX Runtime: ...
 
 **Symptoms:**
 ```
-download model: ...
+Embedding model not ready: download model: ...
 download tokenizer: ...
 HTTP <status> from https://huggingface.co/...
 incomplete download: wrote <N> of <M> bytes
 ```
 
-**Cause:** The embedding model or tokenizer file could not be downloaded from Hugging Face.
+**Cause:** The embedding model or tokenizer could not be downloaded from Hugging Face.
+The model is **not** shipped inside the binary — `graphit setup` fetches it once into
+`~/.graphit/models/coderankembed/`.
+
+**This fails the setup**, with a non-zero exit status. Without the model nothing can
+be embedded, so semantic search cannot answer at all, and a setup that reported success
+would hide that until a later search came back on keywords alone with no explanation.
+
+Everything setup collected before this step — S3 location, optional credential pair,
+IDE, and CLI — is already saved. Re-running `setup` after fixing the cause picks up
+where it left off and costs one pass through the prompts.
 
 **Solutions:**
 1. Check your internet connection.
@@ -412,12 +443,46 @@ incomplete download: wrote <N> of <M> bytes
    curl -I https://huggingface.co
    ```
 3. If behind a corporate proxy, configure `HTTP_PROXY` / `HTTPS_PROXY` environment variables.
-4. Check disk space — the model requires approximately 90 MB.
-5. Clear the model cache and retry:
+4. Check disk space — the model needs approximately 132 MB, plus the same again
+   transiently for the `.tmp` file it downloads into.
+5. Re-run setup:
+   ```bash
+   graphit setup          # retries the download, with a progress bar on a terminal
+   ```
+6. Or clear the cache and let it start over:
    ```bash
    rm -rf ~/.graphit/models/
-   graphit sync
+   graphit setup
    ```
+7. With no route to Hugging Face at all, supply the files by hand — setup then finds
+   them and succeeds. See [Air-gapped machines](#air-gapped-machines) below.
+
+### The model downloads again after an upgrade
+
+It should not. The cache lives at `~/.graphit/models/coderankembed/`, which is
+outside the per-version runtime directory that the launcher wipes on upgrade
+(`~/.graphit/runtime/<version>/`). If a download starts on every upgrade, check
+that nothing is cleaning `~/.graphit/models/`.
+
+### Air-gapped machines
+
+Since setup will not finish without the model, a machine with no route to Hugging Face
+needs the weights placed by hand first. Copy them into the cache:
+
+```bash
+mkdir -p ~/.graphit/models/coderankembed
+cp model.onnx tokenizer.json ~/.graphit/models/coderankembed/
+graphit setup            # finds them, reports "already present", succeeds
+```
+
+`EnsureModel` also checks a `models/` directory next to the core binary before it looks
+at the cache, but the cache is the simpler of the two and survives upgrades — the
+launcher wipes the per-version runtime directory on every version bump. Full detail in
+[Air-Gapped Deployments](private_brand_customization.md#-air-gapped-deployments).
+
+The files must clear the minimum sizes (`modelONNXMinSize`, `tokenizerJSONMinSize`) or
+they are treated as a failed download and fetched again — which on this machine means
+setup fails.
 
 ### Downloaded model is corrupt
 
@@ -521,7 +586,7 @@ git config --global user.name "Your Name"
 project not initialised
 ```
 
-**Cause:** Memory operations require the project to have a ULID in `.graphit-lock.json`.
+**Cause:** Memory operations require the project to have a ULID in `graphit.lock.json`.
 
 **Solutions:**
 ```bash
@@ -539,24 +604,27 @@ invalid memory type "<type>"
 
 **Solutions:** Check your tool call and use one of the valid types listed above.
 
-### Memory git store errors
+### Memory S3 synchronization errors
 
-**Cause:** Memory persistence uses a git repository for sync. Issues arise when git authentication fails or the repository is unreachable.
+**Cause:** A Hub bucket is configured but the endpoint is unreachable, the bucket policy
+denies the operation, or neither the configured pair nor AWS provider chain supplies valid
+credentials. With no bucket, memory is intentionally local-only and this is not an error.
 
 **Solutions:**
-1. Check hub configuration:
+1. Check effective global S3 configuration (the secret is redacted):
    ```bash
-   graphit config get hub.repo
-   graphit config get hub.repo --global
+   graphit config --get --global hub.bucket
+   graphit config --get --global hub.region
+   graphit config --get --global hub.endpoint
+   graphit config --get --global hub.access_key_id
+   graphit config --get --global hub.secret_access_key
    ```
-2. Test git credentials:
-   ```bash
-   git ls-remote <hub-repo-url>
-   ```
-3. If using SSH, verify your SSH key is configured:
-   ```bash
-   ssh -T git@github.com
-   ```
+2. If Graphit credentials are blank, inspect the active AWS profile, environment,
+   container credentials, or workload role.
+3. Re-run `graphit setup`; enter a complete pair or leave either credential blank to
+   remove both explicit values and return to the provider chain.
+4. For MinIO/S3-compatible services, verify endpoint DNS/TLS, region, bucket policy, and
+   path-style compatibility.
 
 ---
 
@@ -582,8 +650,78 @@ knowledge wiki not found
    ```
 3. If using a custom docs directory, check the configuration:
    ```bash
-   graphit config get docs.dir
+   graphit config --get knowledge.docs_dir
    ```
+
+### A document exists but is not in the wiki
+
+**Symptoms:** `knowledge search` and `wiki browse` never return a page you know you wrote, and reindexing changes nothing.
+
+**Cause:** It is outside the wiki's scope, which is `knowledge.docs_dir` (default `docs/`) plus the project root's README — and nothing else. This is not a stale index: the file was never read. Earlier versions defaulted this key to `.`, the whole project, so a document anywhere used to be picked up.
+
+**Solutions:**
+1. Check where the wiki is looking:
+   ```bash
+   graphit config --get knowledge.docs_dir
+   ```
+2. Move the document under that directory — the usual answer, since that is where documentation belongs.
+3. Or point the key at where your documentation actually lives:
+   ```bash
+   graphit config knowledge.docs_dir documentation
+   ```
+4. Or restore the old whole-project behaviour:
+   ```bash
+   graphit config knowledge.docs_dir .
+   ```
+5. Missing the **root README** specifically? It is indexed by default; check that it has not been switched off:
+   ```bash
+   graphit config --get knowledge.include_readme
+   ```
+   Only the root README is in scope. A `README.md` in a subdirectory is an ordinary file.
+6. Still nothing? Then it *is* a scope-independent problem — check `.wikiignore`, and that the extension is in `knowledge.extensions`.
+
+### Documentation files are missing from the AST code graph
+
+**Symptoms:** `ast query` returns no `File` node for a path under `docs/`, and `ast source` reports it is not indexed.
+
+**Cause:** Intentional. The documentation tree belongs to the knowledge wiki, so the AST pipeline excludes `knowledge.docs_dir` by default (`ast.index_docs=false`). Query the wiki for those documents instead — it chunks and cross-links prose in ways the code graph cannot.
+
+**Solutions:**
+1. Search the wiki rather than the graph — `knowledge search`, `wiki browse`, `wiki source`.
+2. If you genuinely need structural queries over files in the docs tree — `.proto` or `.graphql` schemas kept there, for instance:
+   ```bash
+   graphit config ast.index_docs true
+   graphit ast index --reindex
+   ```
+3. `!docs/` in `.astignore` will **not** work: built-in default patterns are applied last, and gitignore semantics are last-match-wins, so they outrank the project's own patterns. Use the config key.
+4. One-off, without changing configuration — an explicit path is taken literally:
+   ```bash
+   graphit ast index --path docs
+   ```
+
+### A whole language is missing from the AST code graph
+
+**Symptoms:** `ast query` returns no node at all for a language you know is in the repository — `MATCH (f:File) RETURN f.lang, count(f)` simply does not list it — and no ignore pattern explains it. Or `ParseWithGrammar` fails with `grammar disabled by configuration: <name>`.
+
+**Cause:** most likely a grammar switched off by configuration. `ast.grammars_blacklist` disables the grammars it names; `ast.grammars_whitelist`, when non-empty, disables everything it does *not* name. Both are inherited from the global config, so the answer may not be in this project's lockfile at all.
+
+**Solutions:**
+1. Read both keys, at both levels — the project's, then the machine's:
+   ```bash
+   graphit config --get ast.grammars_blacklist
+   graphit config --get ast.grammars_whitelist
+   graphit config --list --global
+   ```
+   Check the environment too: `GRAPHIT_AST_GRAMMARS_BLACKLIST` and `GRAPHIT_AST_GRAMMARS_WHITELIST` outrank both files.
+2. Clear the one that is wrong, then reindex so the files are discovered again:
+   ```bash
+   graphit config --unset ast.grammars_blacklist
+   graphit ast index
+   ```
+3. **A typo in either key is silent.** An entry matching no known grammar is deliberately inert — the lists are read in processes that may not have a grammar pack installed yet — so `ast.grammars_blacklst` (or `pyton`) disables nothing and reports nothing. Verify the key name letter by letter against `graphit config --list`; a value you set that does not appear there went to a different key.
+4. The name has to match the language, the grammar, or the grammar without its `tree-sitter-` / `antlr-` prefix. `yaml`, `yaml_lang` and `tree-sitter-yaml` are the same language; `yml` is none of them.
+5. Neither key set and the language still absent? Then it is one of the other two axes — no query file claims the extension, or a path pattern excludes it. See [ignore_files](ignore_files.md#excluding-a-language-rather-than-a-path).
+6. Nodes from before the key was set survive a **scoped** index (`--path`), because the tree is never walked and nothing can be pruned. A full `graphit ast index` removes them.
 
 ### Knowledge export fails
 
@@ -593,16 +731,17 @@ hub not configured: ...
 project not initialised
 ```
 
-**Cause:** Knowledge export pushes to the hub git repository, which must be configured.
+**Cause:** Knowledge export publishes to the S3-backed Hub, which needs a configured bucket
+and working authentication.
 
 **Solutions:**
 1. Initialize the project if needed:
    ```bash
    graphit init
    ```
-2. Configure the hub repository:
+2. Configure the Hub bucket and authentication:
    ```bash
-   graphit config set hub.repo <git-url>
+   graphit setup
    ```
 
 ---
@@ -616,26 +755,18 @@ project not initialised
 registry unavailable: ...
 ```
 
-**Cause:** The hub registry (remote git repository) cannot be accessed.
+**Cause:** The S3-backed Hub registry cannot be accessed.
 
 **Solutions:**
-1. Check the hub repository URL:
+1. Check the bucket location:
    ```bash
-   graphit config get hub.repo --global
+   graphit config --get --global hub.bucket
+   graphit config --get --global hub.region
+   graphit config --get --global hub.endpoint
    ```
-2. Test connectivity:
-   ```bash
-   git ls-remote <hub-repo-url>
-   ```
-3. If the hub repo is private, configure authentication:
-   - **SSH:** Ensure your SSH key is added to the agent:
-     ```bash
-     ssh-add ~/.ssh/id_ed25519
-     ```
-   - **HTTPS:** Use a credential helper:
-     ```bash
-     git config --global credential.helper store
-     ```
+2. Verify endpoint DNS/TLS and that the bucket exists.
+3. Verify the configured complete pair or AWS provider chain can list/read/write the
+   required prefixes. Re-run `graphit setup` to switch authentication modes.
 
 ### Artifact not found
 
@@ -663,7 +794,7 @@ artifact "<id>" not found
 cannot load lockfile: ...
 ```
 
-**Cause:** The `.graphit-lock.json` file is missing or corrupted.
+**Cause:** The `graphit.lock.json` file is missing or corrupted.
 
 **Solutions:**
 1. Re-initialize the project:
@@ -672,8 +803,30 @@ cannot load lockfile: ...
    ```
 2. If the file exists but is corrupt, check JSON validity:
    ```bash
-   python3 -m json.tool .graphit-lock.json
+   python3 -m json.tool graphit.lock.json
    ```
+
+---
+
+## UI Network Issues
+
+### Remote browser cannot connect
+
+Check `graphit config --get ui.host`. `127.0.0.1` accepts only local connections;
+`0.0.0.0` accepts reachable IPv4 interfaces, subject to firewall rules. The port is
+selected automatically, so use the URL printed by `graphit ui`.
+
+### Browser reports a CORS error
+
+The page's exact origin, including scheme and non-default port, must appear in the
+comma-separated `ui.allowed_origins`. A configured list replaces the localhost default.
+The embedded UI itself uses same-origin `/api` and normally needs no entry. `*` allows
+every browser origin and is unsafe for most deployments.
+
+The UI has no authentication. A curl request can succeed even when browser CORS blocks a
+page, because CORS is browser enforcement rather than server authorization. Protect remote
+access with a firewall, VPN, or authenticated TLS reverse proxy. See
+[S3 Credentials and UI Network Configuration](s3-and-ui-network.md).
 
 ---
 
@@ -730,32 +883,43 @@ This is logged to stderr and does not block the tool call. The tool will continu
 ### Dream status shows "inactive"
 
 **Cause:** The dream module requires both:
-1. The `dream.enabled` config set to `true`
+1. `modules.dream` set to `true` — dream is **opt-in**, so an absent value means off
 2. The background daemon to be running
 
 **Solutions:**
 ```bash
-graphit config set dream.enabled true
+graphit config modules.dream true
 graphit sync  # Ensures daemon is running
 ```
 
 ### Dream reports not generated
 
-**Cause:** The dream module only activates after an idle timeout (configurable, default varies). Reports contain skill generation findings, conversation analysis results, and newly created memories or skills. The project must have pending subjects or discoverable conversation patterns.
+**Cause:** The dream module only activates after an idle timeout (configurable, default varies). Reports contain skill generation findings, conversation analysis results, and newly created memories or skills. The project must have a pending improvement backlog item or discoverable conversation patterns.
 
 **Solutions:**
-1. Check for pending subjects:
+1. Check the improvement backlog:
    ```bash
-   graphit dream subject list
+   graphit improvements backlog list
    ```
-2. Add a dream subject manually:
+2. Add an item manually:
    ```bash
-   graphit dream subject add --title "Review recent changes" --body "Detailed instructions..."
+   graphit improvements backlog add "Review recent changes" --body "Detailed instructions..."
    ```
 3. Check dream status for timing:
    ```bash
    graphit dream status
    ```
+
+### A backlog item is not where you expected it
+
+**Cause:** The backlog defaults to `docs/tasks/backlog/`, inside the documentation tree, and that default is composed from `knowledge.docs_dir` — so moving where docs live moves the backlog too.
+
+**Solutions:**
+```bash
+graphit config --get improvements.backlog_dir   # the explicit override, if any
+graphit config --get knowledge.docs_dir         # what the default is composed from
+```
+An environment variable outranks both config files and appears in neither, so also check `GRAPHIT_IMPROVEMENTS_BACKLOG_DIR`.
 
 ---
 

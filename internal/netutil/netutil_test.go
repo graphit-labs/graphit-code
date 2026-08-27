@@ -35,6 +35,22 @@ func TestListenOnFreePortSuccess(t *testing.T) {
 	}
 }
 
+func TestListenOnFreePortOnHostUsesTheConfiguredHost(t *testing.T) {
+	ln, _, err := ListenOnFreePortOnHost("127.0.0.1", 14000)
+	if err != nil {
+		t.Fatalf("ListenOnFreePortOnHost: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	host, _, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("SplitHostPort: %v", err)
+	}
+	if host != "127.0.0.1" {
+		t.Fatalf("listener host = %q; want 127.0.0.1", host)
+	}
+}
+
 func TestFindFreePortFailure(t *testing.T) {
 	// Use an invalid port range (> 65535) to force net.Listen to fail for all attempts
 	_, err := FindFreePort(999999)

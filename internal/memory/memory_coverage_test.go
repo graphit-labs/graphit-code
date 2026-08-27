@@ -9,33 +9,30 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
 	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// ---------------------------------------------------------------------------
-// MemoryWorktree (filesystem-only, no real git)
-// ---------------------------------------------------------------------------
+// ScopeStore (filesystem-only, no real git)
 
-func TestMemoryWorktree_WriteReadRemoveListDir(t *testing.T) {
+func TestScopeStore_WriteReadRemoveListDir(t *testing.T) {
 	dir := t.TempDir()
-	wt := &MemoryWorktree{dir: dir, branch: "test-branch"}
+	wt := &ScopeStore{dir: dir, scopePath: "memory/project/test"}
 
-	// Dir
 	if wt.Dir() != dir {
 		t.Errorf("Dir() = %q; want %q", wt.Dir(), dir)
 	}
 
-	// WriteFile
 	if err := wt.WriteFile("hello.md", []byte("content")); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	// WriteFile with nested directory
 	if err := wt.WriteFile("sub/nested.md", []byte("nested")); err != nil {
 		t.Fatalf("WriteFile nested: %v", err)
 	}
 
-	// ReadFile
 	data, err := wt.ReadFile("hello.md")
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
@@ -44,13 +41,11 @@ func TestMemoryWorktree_WriteReadRemoveListDir(t *testing.T) {
 		t.Errorf("ReadFile content = %q; want 'content'", string(data))
 	}
 
-	// ReadFile non-existent
 	_, err = wt.ReadFile("nonexistent.md")
 	if err == nil {
 		t.Error("expected error for non-existent file")
 	}
 
-	// ListDir
 	entries, err := wt.ListDir(".")
 	if err != nil {
 		t.Fatalf("ListDir: %v", err)
@@ -59,7 +54,6 @@ func TestMemoryWorktree_WriteReadRemoveListDir(t *testing.T) {
 		t.Errorf("expected at least 2 entries, got %d", len(entries))
 	}
 
-	// RemoveFile
 	if err := wt.RemoveFile("hello.md"); err != nil {
 		t.Fatalf("RemoveFile: %v", err)
 	}
@@ -68,19 +62,16 @@ func TestMemoryWorktree_WriteReadRemoveListDir(t *testing.T) {
 		t.Error("expected error after removing file")
 	}
 
-	// RemoveFile non-existent
 	err = wt.RemoveFile("nonexistent.md")
 	if err == nil {
 		t.Error("expected error when removing non-existent file")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// MemoryGitStore helpers (filesystem parts)
-// ---------------------------------------------------------------------------
+// MemoryStore helpers (filesystem parts)
 
-func TestWorktreeDirForBranch(t *testing.T) {
-	store := &MemoryGitStore{repoDir: "/repo", wtBase: "/wt-base"}
+func TestScopeDir(t *testing.T) {
+	store := &MemoryStore{rawBase: "/wt-base"}
 	tests := []struct {
 		branch string
 		want   string
@@ -91,24 +82,22 @@ func TestWorktreeDirForBranch(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.branch, func(t *testing.T) {
-			got := store.worktreeDirForBranch(tc.branch)
+			got := store.scopeDir(tc.branch)
 			if got != tc.want {
-				t.Errorf("worktreeDirForBranch(%q) = %q; want %q", tc.branch, got, tc.want)
+				t.Errorf("scopeDir(%q) = %q; want %q", tc.branch, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestMemoryGitStore_Dir(t *testing.T) {
-	store := &MemoryGitStore{repoDir: "/test/repo"}
+func TestMemoryStore_Dir(t *testing.T) {
+	store := &MemoryStore{rawBase: "/test/repo"}
 	if store.Dir() != "/test/repo" {
 		t.Errorf("Dir() = %q; want '/test/repo'", store.Dir())
 	}
 }
 
-// ---------------------------------------------------------------------------
 // copyDirRecursive: error on filepath.Walk (missing rel path)
-// ---------------------------------------------------------------------------
 
 func TestCopyDirRecursive_EmptyDir(t *testing.T) {
 	src := t.TempDir()
@@ -142,10 +131,6 @@ func TestCopyFileData_CreateSubDir(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// MemoryBranch lock file operations
-// ---------------------------------------------------------------------------
-
 func TestMemoryBranchLockFileOps(t *testing.T) {
 	// Override globalDir so all paths resolve to our temp dir
 	dir := t.TempDir()
@@ -153,63 +138,56 @@ func TestMemoryBranchLockFileOps(t *testing.T) {
 	t.Setenv("HOME", dir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	store := &MemoryGitStore{repoDir: filepath.Join(dir, "repo"), wtBase: filepath.Join(dir, "wt")}
+	store := &MemoryStore{rawBase: filepath.Join(dir, "wt")}
 
-	// RegisterBranch
-	if err := store.RegisterBranch("test-branch", "ref1"); err != nil {
-		t.Fatalf("RegisterBranch: %v", err)
+	if err := store.RegisterScope("memory/project/test", "ref1"); err != nil {
+		t.Fatalf("RegisterScope: %v", err)
 	}
 
 	// Register same ref again (idempotent)
-	if err := store.RegisterBranch("test-branch", "ref1"); err != nil {
-		t.Fatalf("RegisterBranch duplicate: %v", err)
+	if err := store.RegisterScope("memory/project/test", "ref1"); err != nil {
+		t.Fatalf("RegisterScope duplicate: %v", err)
 	}
 
-	// Register different ref
-	if err := store.RegisterBranch("test-branch", "ref2"); err != nil {
-		t.Fatalf("RegisterBranch ref2: %v", err)
+	if err := store.RegisterScope("memory/project/test", "ref2"); err != nil {
+		t.Fatalf("RegisterScope ref2: %v", err)
 	}
 
-	// ActiveMemoryBranches
-	branches, err := store.ActiveMemoryBranches()
+	branches, err := store.ActiveScopes()
 	if err != nil {
-		t.Fatalf("ActiveMemoryBranches: %v", err)
+		t.Fatalf("ActiveScopes: %v", err)
 	}
 	if len(branches) != 1 {
 		t.Errorf("expected 1 active branch, got %d", len(branches))
 	}
 
-	// MemoryBranchSummary
-	summary, err := store.MemoryBranchSummary()
+	summary, err := store.ScopeSummary()
 	if err != nil {
-		t.Fatalf("MemoryBranchSummary: %v", err)
+		t.Fatalf("ScopeSummary: %v", err)
 	}
-	if len(summary["test-branch"]) != 2 {
-		t.Errorf("expected 2 refs, got %d", len(summary["test-branch"]))
+	if len(summary["memory/project/test"]) != 2 {
+		t.Errorf("expected 2 refs, got %d", len(summary["memory/project/test"]))
 	}
 
-	// DeregisterBranch (remove one ref)
-	unused, err := store.DeregisterBranch("test-branch", "ref1")
+	unused, err := store.DeregisterScope("memory/project/test", "ref1")
 	if err != nil {
-		t.Fatalf("DeregisterBranch: %v", err)
+		t.Fatalf("DeregisterScope: %v", err)
 	}
 	if unused {
 		t.Error("expected branch not to be unused yet")
 	}
 
-	// DeregisterBranch (remove second ref → unused)
-	unused, err = store.DeregisterBranch("test-branch", "ref2")
+	unused, err = store.DeregisterScope("memory/project/test", "ref2")
 	if err != nil {
-		t.Fatalf("DeregisterBranch: %v", err)
+		t.Fatalf("DeregisterScope: %v", err)
 	}
 	if !unused {
 		t.Error("expected branch to be unused after removing all refs")
 	}
 
-	// DeregisterBranch non-existent
-	unused, err = store.DeregisterBranch("nonexistent", "ref")
+	unused, err = store.DeregisterScope("nonexistent", "ref")
 	if err != nil {
-		t.Fatalf("DeregisterBranch nonexistent: %v", err)
+		t.Fatalf("DeregisterScope nonexistent: %v", err)
 	}
 	if unused {
 		t.Error("expected false for non-existent branch")
@@ -221,7 +199,7 @@ func TestLoadMemLock_BadJSON(t *testing.T) {
 	t.Setenv("HOME", dir)
 
 	// Create malformed lock file
-	lockPath := memoryBranchLockPath()
+	lockPath := scopeLockPath()
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +211,7 @@ func TestLoadMemLock_BadJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMemLock should not error for bad JSON, got: %v", err)
 	}
-	if lf == nil || lf.Branches == nil {
+	if lf == nil || lf.Scopes == nil {
 		t.Fatal("expected initialized lock file")
 	}
 }
@@ -242,12 +220,12 @@ func TestLoadMemLock_NilBranches(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	lockPath := memoryBranchLockPath()
+	lockPath := scopeLockPath()
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// Write valid JSON but with null branches
-	data, _ := json.Marshal(memoryBranchLockFile{Version: 1, Branches: nil})
+	data, _ := json.Marshal(scopeLockFile{Version: 1, Scopes: nil})
 	if err := os.WriteFile(lockPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +234,7 @@ func TestLoadMemLock_NilBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMemLock: %v", err)
 	}
-	if lf.Branches == nil {
+	if lf.Scopes == nil {
 		t.Error("Branches should be initialised even when nil in JSON")
 	}
 }
@@ -265,8 +243,8 @@ func TestActiveBranches_Empty(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	store := &MemoryGitStore{repoDir: filepath.Join(dir, "repo"), wtBase: filepath.Join(dir, "wt")}
-	branches, err := store.activeBranches()
+	store := &MemoryStore{rawBase: filepath.Join(dir, "wt")}
+	branches, err := store.activeScopes()
 	if err != nil {
 		t.Fatalf("activeBranches: %v", err)
 	}
@@ -275,14 +253,14 @@ func TestActiveBranches_Empty(t *testing.T) {
 	}
 }
 
-func TestValidateMemBranchRefs(t *testing.T) {
+func TestValidateScopeRefs(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	store := &MemoryGitStore{repoDir: filepath.Join(dir, "repo"), wtBase: filepath.Join(dir, "wt")}
+	store := &MemoryStore{rawBase: filepath.Join(dir, "wt")}
 
 	// Register a branch with "user" ref (always alive)
-	if err := store.RegisterBranch("branch-user", "user"); err != nil {
+	if err := store.RegisterScope("branch-user", "user"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -292,47 +270,45 @@ func TestValidateMemBranchRefs(t *testing.T) {
 	if err := os.WriteFile(lockFile, []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RegisterBranch("branch-alive", lockDir); err != nil {
+	if err := store.RegisterScope("branch-alive", lockDir); err != nil {
 		t.Fatal(err)
 	}
 
 	// Register a branch with a ref that does NOT exist (stale)
-	if err := store.RegisterBranch("branch-stale", "/nonexistent/stale/ref"); err != nil {
+	if err := store.RegisterScope("branch-stale", "/nonexistent/stale/ref"); err != nil {
 		t.Fatal(err)
 	}
 
-	cleaned, err := store.ValidateMemBranchRefs()
+	cleaned, err := store.ValidateScopeRefs()
 	if err != nil {
-		t.Fatalf("ValidateMemBranchRefs: %v", err)
+		t.Fatalf("ValidateScopeRefs: %v", err)
 	}
 	if cleaned != 1 {
 		t.Errorf("cleaned = %d; want 1", cleaned)
 	}
 }
 
-func TestValidateMemBranchRefs_NoCleaning(t *testing.T) {
+func TestValidateScopeRefs_NoCleaning(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	store := &MemoryGitStore{repoDir: filepath.Join(dir, "repo"), wtBase: filepath.Join(dir, "wt")}
+	store := &MemoryStore{rawBase: filepath.Join(dir, "wt")}
 
 	// Register with "user" ref only (never cleaned)
-	if err := store.RegisterBranch("branch-user", "user"); err != nil {
+	if err := store.RegisterScope("branch-user", "user"); err != nil {
 		t.Fatal(err)
 	}
 
-	cleaned, err := store.ValidateMemBranchRefs()
+	cleaned, err := store.ValidateScopeRefs()
 	if err != nil {
-		t.Fatalf("ValidateMemBranchRefs: %v", err)
+		t.Fatalf("ValidateScopeRefs: %v", err)
 	}
 	if cleaned != 0 {
 		t.Errorf("cleaned = %d; want 0", cleaned)
 	}
 }
 
-// ---------------------------------------------------------------------------
 // MemoryService helpers (non-git operations)
-// ---------------------------------------------------------------------------
 
 func TestNewMemoryService(t *testing.T) {
 	svc := NewMemoryService(MemoryScopeProject, "test-id", nil)
@@ -425,47 +401,7 @@ func TestMemoryService_SyncToLocal_NilStore(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ensureProjectCopy
-// ---------------------------------------------------------------------------
-
-func TestEnsureProjectCopy_EmptyProjectLinkDir(t *testing.T) {
-	svc := &MemoryService{projectLinkDir: ""}
-	// Should return early without doing anything
-	svc.ensureProjectCopy(t.TempDir())
-}
-
-// ---------------------------------------------------------------------------
-// MemoryLocalDir / MemoryProjectLinkDir / MemoryGlobalContextDir / MemoryWikiGlobalDir
-// ---------------------------------------------------------------------------
-
-func TestMemoryLocalDir(t *testing.T) {
-	got := MemoryLocalDir("project")
-	if got == "" {
-		t.Error("MemoryLocalDir returned empty")
-	}
-	if !strings.Contains(got, "memory") || !strings.Contains(got, "project") {
-		t.Errorf("MemoryLocalDir('project') = %q; expected memory/project", got)
-	}
-}
-
-func TestMemoryProjectLinkDir(t *testing.T) {
-	got := MemoryProjectLinkDir("user")
-	if !strings.Contains(got, ".graphit") && !strings.Contains(got, "memory") {
-		t.Errorf("unexpected MemoryProjectLinkDir: %q", got)
-	}
-}
-
-func TestMemoryGlobalContextDir(t *testing.T) {
-	got := MemoryGlobalContextDir("my-context")
-	if got == "" {
-		t.Error("MemoryGlobalContextDir returned empty")
-	}
-	if !strings.Contains(got, "memory") || !strings.Contains(got, "my-context") {
-		t.Errorf("MemoryGlobalContextDir = %q", got)
-	}
-}
-
+// Store locations — one copy each, all global
 func TestMemoryWikiGlobalDir(t *testing.T) {
 	got := MemoryWikiGlobalDir("project", "abc123")
 	if got == "" {
@@ -476,128 +412,116 @@ func TestMemoryWikiGlobalDir(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// GlobalBaseDir, GlobalScopeDir, WikiDir, RawDir, WorktreeRawDirForScope
-// ---------------------------------------------------------------------------
+// A scope's wiki must resolve into the global directory and never into the project.
+// The project replica it used to resolve to is what made a project answer from a copy
+// nobody had refreshed.
+func TestWikiDirForIsGlobalAndNeverProjectLocal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, brand.LockFileName()),
+		[]byte(`{"project":{"id":"01ACME"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-func TestGlobalBaseDir(t *testing.T) {
-	got := GlobalBaseDir()
+	got := WikiDirFor(projectDir, "project")
 	if got == "" {
-		t.Error("GlobalBaseDir returned empty")
+		t.Fatal("WikiDirFor returned empty for an initialised project")
 	}
-	if !strings.Contains(got, "memory") {
-		t.Errorf("GlobalBaseDir = %q; expected 'memory' in path", got)
+	if !strings.HasPrefix(got, filepath.Join(home, brand.DotDir())) {
+		t.Errorf("WikiDirFor = %q, want it under the global dir", got)
 	}
-}
-
-func TestGlobalScopeDir_NonExistent(t *testing.T) {
-	// GlobalScopeDir looks for ProjectLinkDir which won't exist for a random scope
-	got := GlobalScopeDir("nonexistent-scope-" + fmt.Sprintf("%d", time.Now().UnixNano()))
-	if got != "" {
-		t.Errorf("expected empty for non-existent scope, got %q", got)
+	if strings.HasPrefix(got, projectDir) {
+		t.Errorf("WikiDirFor = %q leaked into the project directory", got)
 	}
 }
 
+// Without a lockfile there is no project id, so there is no project scope to name —
+// the only case that legitimately comes back empty.
+func TestWikiDirForEmptyWithoutAProjectID(t *testing.T) {
+	if got := WikiDirFor(t.TempDir(), "project"); got != "" {
+		t.Errorf("expected empty without a project id, got %q", got)
+	}
+}
 func TestWikiDirFunc(t *testing.T) {
-	// WikiDir delegates to GlobalScopeDir
-	got := WikiDir("nonexistent-scope-" + fmt.Sprintf("%d", time.Now().UnixNano()))
-	if got != "" {
-		t.Errorf("expected empty for non-existent scope, got %q", got)
+	// A context scope is named by itself, so it resolves without any project.
+	got := WikiDir("some-context")
+	if got == "" {
+		t.Error("a context scope must resolve to a wiki path")
+	}
+	if !strings.Contains(filepath.ToSlash(got), "wiki/memory/some-context") {
+		t.Errorf("unexpected context wiki dir %q", got)
 	}
 }
-
 func TestRawDirFunc(t *testing.T) {
-	// RawDir delegates to WorktreeRawDirForScope
+	// An unrecognised scope name IS a context name, so it resolves to a worktree
+	// path. What must not happen is the old behaviour: returning "" because the
+	// project had no replica yet, which made the raw store — the source of truth —
+	// unreachable until something had already compiled from it.
 	got := RawDir("nonexistent-scope-" + fmt.Sprintf("%d", time.Now().UnixNano()))
-	if got != "" {
-		t.Errorf("expected empty for non-existent scope, got %q", got)
+	if got == "" {
+		t.Error("a context scope must resolve to a worktree path without a replica")
+	}
+	if !strings.Contains(got, "memory-raw") {
+		t.Errorf("expected a worktree path, got %q", got)
 	}
 }
-
-func TestWorktreeRawDirForScope_ReturnsEmpty(t *testing.T) {
-	got := WorktreeRawDirForScope("nonexistent-scope-" + fmt.Sprintf("%d", time.Now().UnixNano()))
-	if got != "" {
-		t.Errorf("expected empty, got %q", got)
+func TestRawDirForScope_EmptyWhenScopeIDUnresolvable(t *testing.T) {
+	// "project" reads its id from the lockfile in the working directory. Without one
+	// there is no scope, and no scope means no path — that is the real guard, and the
+	// only case that should come back empty.
+	t.Chdir(t.TempDir())
+	if got := RawDirForScope("project"); got != "" {
+		t.Errorf("expected empty without a resolvable project id, got %q", got)
 	}
 }
-
-func TestWorktreeRawDir_EmptyGlobalDir(t *testing.T) {
+func TestRawDirFor_EmptyGlobalDir(t *testing.T) {
 	// With HOME set, GlobalDir returns a path so this always has a value
-	got := WorktreeRawDir("project", "abc")
+	got := RawDirFor("project", "abc")
 	if got == "" {
 		t.Error("expected non-empty")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// AllContextDirs
-// ---------------------------------------------------------------------------
-
+// AllContextDirs — the worktree set IS the record of imported memory contexts
 func TestAllContextDirs(t *testing.T) {
-	// AllContextDirs reads from the memory directory under .graphit
-	// Create a temp structure
-	dir := t.TempDir()
-	memDir := filepath.Join(dir, ".graphit", "memory")
-	if err := os.MkdirAll(filepath.Join(memDir, "project"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(memDir, "user"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(memDir, "my-context"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(memDir, ".hidden"), 0o755); err != nil {
-		t.Fatal(err)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	wtRoot := filepath.Dir(RawDirFor("project", "x"))
+	for _, name := range []string{
+		"memory-project-01ACME", "memory-user-abc123", "memory-my-context-my-context", "stray",
+	} {
+		if err := os.MkdirAll(filepath.Join(wtRoot, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	// We can't easily override the CWD for AllContextDirs since it uses
-	// filepath.Dir(ProjectLinkDir("project")), but let's test the function doesn't panic
-	result := AllContextDirs()
-	// The result depends on the CWD, so just verify it returns without error
-	_ = result
+	got := AllContextDirs()
+	if len(got) != 1 || got[0] != "my-context" {
+		// A context's worktree carries its name twice — memory-<name>-<name> — and
+		// that doubling is both how the name survives a hyphen and how a context is
+		// told apart from the project and user scopes.
+		t.Errorf("AllContextDirs = %v, want [my-context]", got)
+	}
 }
-
-// ---------------------------------------------------------------------------
-// EnsureContextCopy
-// ---------------------------------------------------------------------------
-
-func TestEnsureContextCopy_EmptyProjectDir(t *testing.T) {
-	// Should return early
-	EnsureContextCopy("test-context", "", nil)
-}
-
-func TestEnsureContextCopy_WithProjectDir(t *testing.T) {
-	dir := t.TempDir()
-	EnsureContextCopy("test-context", dir, nil)
-	// Should not panic — creates directories
-}
-
-// ---------------------------------------------------------------------------
-// EnsureWikiIndexExists
-// ---------------------------------------------------------------------------
 
 func TestEnsureWikiIndexExists_AlreadyExists(t *testing.T) {
 	dir := t.TempDir()
-	// Create a wiki directory with an index
 	wikiDir := filepath.Join(dir, ".graphit", "memory", "project")
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Create dummy index
 	if err := os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte("existing"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// This test exercises the early return when index already exists
-	// The function uses GlobalScopeDir which may not find our temp dir,
-	// so we test the function directly by checking it doesn't panic
+	// An unknown scope resolves to a wiki dir that does not exist, which is the
+	// early-return path: nothing is written and nothing panics.
 	EnsureWikiIndexExists("nonexistent-scope", nil)
 }
-
-// ---------------------------------------------------------------------------
-// RunConsolidation
-// ---------------------------------------------------------------------------
 
 func TestRunConsolidation_NonExistentDir(t *testing.T) {
 	ctx := context.Background()
@@ -615,7 +539,7 @@ func TestRunConsolidation_EmptyDir(t *testing.T) {
 	// Create a "scope" dir that RawDir would point to
 	// We need to test via a local wrapper since RunConsolidation uses RawDir(scope)
 	ctx := context.Background()
-	report, err := runConsolidationInDir(ctx, dir, nil)
+	report, err := consolidateDir(ctx, dir, nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -624,57 +548,11 @@ func TestRunConsolidation_EmptyDir(t *testing.T) {
 	}
 }
 
-// runConsolidationInDir is a local test helper that replicates RunConsolidation logic
-// but operates on a specified directory.
-func runConsolidationInDir(ctx context.Context, dir string, aiClient interface{ Complete(context.Context, string, string) (string, error) }) (*ConsolidationReport, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &ConsolidationReport{}, nil
-		}
-		return nil, err
-	}
-
-	var memories []memorySnapshot
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-		name := e.Name()
-		absPath := filepath.Join(dir, name)
-		data, readErr := os.ReadFile(absPath)
-		if readErr != nil {
-			continue
-		}
-		important := IsImportantMemory(name)
-		var id string
-		if important {
-			id = strings.TrimSuffix(name, ImportantMemorySuffix+".md")
-		} else {
-			id = strings.TrimSuffix(name, ".md")
-		}
-		title, createdAt := parseMemoryMeta(absPath)
-		body := extractBodyAfterFrontmatter(string(data))
-		memType := parseConsolidationType(string(data))
-		memories = append(memories, memorySnapshot{
-			ID: id, Title: title, Body: strings.TrimSpace(body),
-			Type: memType, CreatedAt: createdAt, Important: important,
-		})
-	}
-
-	report := &ConsolidationReport{TotalMemories: len(memories)}
-	if len(memories) == 0 {
-		return report, nil
-	}
-	report.Stale = detectStaleMemories(memories)
-	return report, nil
-}
-
 func TestRunConsolidation_WithMemories(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
-	oldDate := time.Now().Add(-45 * 24 * time.Hour).Format(time.RFC3339)
+	oldDate := time.Now().Add(-120 * 24 * time.Hour).Format(time.RFC3339)
 
 	// Normal memory
 	writeMemFile(t, dir, "MEM1.md", fmt.Sprintf(`---
@@ -704,7 +582,7 @@ Important body.`, oldDate))
 		t.Fatal(err)
 	}
 
-	report, err := runConsolidationInDir(ctx, dir, nil)
+	report, err := consolidateDir(ctx, dir, nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -715,10 +593,6 @@ Important body.`, oldDate))
 		t.Errorf("Stale count = %d; want 1", len(report.Stale))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// aiConsolidation (with mock AI client)
-// ---------------------------------------------------------------------------
 
 type mockAIClient struct {
 	response string
@@ -736,20 +610,22 @@ func TestAiConsolidation_Success(t *testing.T) {
 		{ID: "01J5XDEF1234567890", Title: "Memory 2", Body: "Body 2", Type: "fact", CreatedAt: "2026-01-02T00:00:00Z"},
 	}
 
-	mockResp := `## DUPLICATES
-- MERGE [01J5XABC1234567890] and [01J5XDEF1234567890]: Same thing
-
-## CONTRADICTIONS
-None found
-
-## SUGGESTIONS
-- PROMOTE [01J5XABC1234567890]: Should be important
-- DEMOTE [01J5XDEF1234567890]: Too specific
-- DELETE [01J5XABC1234567890]: Outdated
-- UPDATE [01J5XDEF1234567890]: Needs more detail`
+	mockResp := `{
+  "duplicates": [
+    {"ids": ["01J5XABC1234567890", "01J5XDEF1234567890"], "keep_id": "01J5XABC1234567890",
+     "merged_title": "Merged", "merged_content": "Body 1 and Body 2", "reason": "Same thing"}
+  ],
+  "contradictions": [],
+  "suggestions": [
+    {"action": "promote", "id": "01J5XABC1234567890", "reason": "Should be important"},
+    {"action": "demote", "id": "01J5XDEF1234567890", "reason": "Too specific"},
+    {"action": "delete", "id": "01J5XABC1234567890", "reason": "Outdated"},
+    {"action": "update", "id": "01J5XDEF1234567890", "new_content": "fuller", "reason": "Needs more detail"}
+  ]
+}`
 
 	client := &mockAIClient{response: mockResp}
-	report, err := aiConsolidation(ctx, client, memories)
+	report, err := aiConsolidation(ctx, client, memories, nil)
 	if err != nil {
 		t.Fatalf("aiConsolidation: %v", err)
 	}
@@ -764,6 +640,23 @@ None found
 	}
 }
 
+// JSON is the only accepted contract. An answer in the old sectioned format — or any
+// other prose — is an error, not a partial success: a second, looser parser would
+// turn a malformed answer into a partially-understood plan applied against real
+// memories, and an unparseable analysis would be indistinguishable from a clean
+// corpus.
+func TestAiConsolidation_RejectsNonJSON(t *testing.T) {
+	memories := []memorySnapshot{
+		{ID: "01J5XABC1234567890", Title: "M1", Body: "b1"},
+		{ID: "01J5XDEF1234567890", Title: "M2", Body: "b2"},
+	}
+	client := &mockAIClient{response: "## DUPLICATES\n- MERGE [01J5XABC1234567890] and [01J5XDEF1234567890]: same"}
+
+	if _, err := aiConsolidation(context.Background(), client, memories, nil); err == nil {
+		t.Fatal("expected an error for a non-JSON analysis")
+	}
+}
+
 func TestAiConsolidation_Error(t *testing.T) {
 	ctx := context.Background()
 	memories := []memorySnapshot{
@@ -771,7 +664,7 @@ func TestAiConsolidation_Error(t *testing.T) {
 		{ID: "ID2", Title: "M2"},
 	}
 	client := &mockAIClient{err: fmt.Errorf("AI error")}
-	_, err := aiConsolidation(ctx, client, memories)
+	_, err := aiConsolidation(ctx, client, memories, nil)
 	if err == nil {
 		t.Error("expected error from AI client")
 	}
@@ -784,8 +677,8 @@ func TestAiConsolidation_BodyNotEmpty(t *testing.T) {
 		{ID: "ID1", Title: "M1", Body: ""},
 		{ID: "ID2", Title: "M2", Body: "Some body content"},
 	}
-	client := &mockAIClient{response: "## DUPLICATES\nNone found\n## CONTRADICTIONS\nNone found\n## SUGGESTIONS\nNone found"}
-	report, err := aiConsolidation(ctx, client, memories)
+	client := &mockAIClient{response: `{"duplicates": [], "contradictions": [], "suggestions": []}`}
+	report, err := aiConsolidation(ctx, client, memories, nil)
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
@@ -794,43 +687,13 @@ func TestAiConsolidation_BodyNotEmpty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ApplyGC
-// ---------------------------------------------------------------------------
-
-func TestApplyGC(t *testing.T) {
-	ctx := context.Background()
-
-	// Create a mock MemoryService - since we can't actually remove memories
-	// without gitStore, test that errors are handled gracefully
-	svc := &MemoryService{scope: MemoryScopeProject, scopeID: "test"}
-
-	candidates := []GCCandidate{
-		{ID: "id1", Title: "Memory 1", Reason: "old"},
-		{ID: "id2", Title: "Memory 2", Reason: "empty"},
-	}
-
-	// Without gitStore, RemoveMemory will error, so deleted should be 0
-	deleted, err := ApplyGC(ctx, "project", candidates, svc)
-	if err != nil {
-		t.Fatalf("ApplyGC: %v", err)
-	}
-	if deleted != 0 {
-		t.Errorf("deleted = %d; want 0 (no gitStore)", deleted)
-	}
-}
-
 type mockStoreProvider struct {
 	extractErr error
 }
 
-func (m *mockStoreProvider) ExtractBranchDir(_, _, _ string) error {
+func (m *mockStoreProvider) ExtractScopeDir(_, _, _ string) error {
 	return m.extractErr
 }
-
-// ---------------------------------------------------------------------------
-// SyncContextFromMemoryRepo
-// ---------------------------------------------------------------------------
 
 func TestSyncContextFromMemoryRepo_NilStore(t *testing.T) {
 	ctx := context.Background()
@@ -858,10 +721,6 @@ func TestSyncContextFromMemoryRepo_WithStoreError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// RuleContent, MemoryRouterContent
-// ---------------------------------------------------------------------------
-
 func TestRuleContent(t *testing.T) {
 	content := RuleContent(nil)
 	if content == "" {
@@ -872,12 +731,7 @@ func TestRuleContent(t *testing.T) {
 	}
 }
 
-
-
-
-// ---------------------------------------------------------------------------
 // InstallRule, InstallSkill, RemoveRule, RemoveSkill
-// ---------------------------------------------------------------------------
 
 func TestInstallRule(t *testing.T) {
 	dir := t.TempDir()
@@ -926,10 +780,6 @@ func TestRemoveSkill_EmptyProjectDir(t *testing.T) {
 	err := RemoveSkill(t.TempDir(), "gemini")
 	_ = err
 }
-
-// ---------------------------------------------------------------------------
-// ListRecentMemories
-// ---------------------------------------------------------------------------
 
 func TestListRecentMemories(t *testing.T) {
 	dir := t.TempDir()
@@ -1068,12 +918,6 @@ func listRecentInDir(dir string, limit int) ([]ImportantEntry, error) {
 	return all, nil
 }
 
-
-
-// ---------------------------------------------------------------------------
-// memoryEntityPage: stale warning and unknown type emoji
-// ---------------------------------------------------------------------------
-
 func TestMemoryEntityPage_StaleWarning(t *testing.T) {
 	oldDate := time.Now().Add(-60 * 24 * time.Hour).Format(time.RFC3339)
 	page := memoryEntityPageWithHash("ID", "Old Memory", oldDate, false, "Body.", "fact", "")
@@ -1103,9 +947,7 @@ func TestMemoryEntityPage_NoCreatedAt(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // memoryIndexPage: untyped memories, important prefix, empty/no-body summaries
-// ---------------------------------------------------------------------------
 
 func TestMemoryIndexPage_WithUntypedMemories(t *testing.T) {
 	docs := []memDoc{
@@ -1170,15 +1012,12 @@ func TestMemoryIndexPage_ImportantWithNoBody(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // appendMemLog: with existing content that has separator
-// ---------------------------------------------------------------------------
 
 func TestAppendMemLog_WithSeparator(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "log.md")
 
-	// Create file with separator
 	initialContent := "---\ntitle: Memory Wiki Log\ntags: [memory, log]\n---\n\n# Memory Wiki Log\n\n> Append-only\n\n---\nOld entry here.\n"
 	if err := os.WriteFile(logPath, []byte(initialContent), 0o644); err != nil {
 		t.Fatal(err)
@@ -1220,9 +1059,7 @@ func TestAppendMemLog_NoSeparator(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // GenerateMemoryWiki: with logger, with write error (readonly dir)
-// ---------------------------------------------------------------------------
 
 func TestGenerateMemoryWiki_WithLogger(t *testing.T) {
 	rawDir := t.TempDir()
@@ -1244,10 +1081,6 @@ Body.`)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// RunProjectCycle / RunUserCycle / RunContextCycle / RunAllContextCycles
-// ---------------------------------------------------------------------------
-
 func TestRunProjectCycle(t *testing.T) {
 	result := RunProjectCycle(context.Background())
 	// Result depends on CWD, just verify no panic
@@ -1263,11 +1096,6 @@ func TestRunUserCycle(t *testing.T) {
 	}
 }
 
-
-// ---------------------------------------------------------------------------
-// OnHubImport
-// ---------------------------------------------------------------------------
-
 func TestOnHubImport(t *testing.T) {
 	ctx := context.Background()
 	store := &mockStoreProvider{}
@@ -1276,45 +1104,6 @@ func TestOnHubImport(t *testing.T) {
 	// Give goroutine time to finish
 	time.Sleep(50 * time.Millisecond)
 }
-
-// ---------------------------------------------------------------------------
-// parseSuggestionSection: edge cases
-// ---------------------------------------------------------------------------
-
-func TestParseSuggestionSection_DefaultType(t *testing.T) {
-	response := `## SUGGESTIONS
-- SOMETHING [01J5XABC1234567890]: unknown action type`
-
-	actions := parseSuggestionSection(response)
-	if len(actions) != 1 {
-		t.Fatalf("expected 1 action, got %d", len(actions))
-	}
-	if actions[0].Type != "update" {
-		t.Errorf("default type should be 'update', got %q", actions[0].Type)
-	}
-}
-
-func TestParseConsolidationSection_WithNextSection(t *testing.T) {
-	response := `## DUPLICATES
-- MERGE [01J5XABC1234567890] and [01J5XDEF1234567890]: Same content
-
-## CONTRADICTIONS
-- CONFLICT [01J5XGHI1234567890] vs [01J5XJKL1234567890]: Contradicting`
-
-	dups := parseConsolidationSection(response, "DUPLICATES", "merge")
-	if len(dups) != 1 {
-		t.Errorf("expected 1 duplicate, got %d", len(dups))
-	}
-
-	contras := parseConsolidationSection(response, "CONTRADICTIONS", "conflict")
-	if len(contras) != 1 {
-		t.Errorf("expected 1 contradiction, got %d", len(contras))
-	}
-}
-
-// ---------------------------------------------------------------------------
-// parseMemoryMeta: title fallback to filename
-// ---------------------------------------------------------------------------
 
 func TestParseMemoryMeta_EmptyContentFallbackToFilename(t *testing.T) {
 	dir := t.TempDir()
@@ -1328,10 +1117,6 @@ func TestParseMemoryMeta_EmptyContentFallbackToFilename(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// detectStaleMemories: bad date format
-// ---------------------------------------------------------------------------
-
 func TestDetectStaleMemories_BadDateFormat(t *testing.T) {
 	memories := []memorySnapshot{
 		{ID: "1", Title: "Bad Date", CreatedAt: "not-a-date", Important: false},
@@ -1342,38 +1127,16 @@ func TestDetectStaleMemories_BadDateFormat(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // SelectiveFetch (no-op tests)
-// ---------------------------------------------------------------------------
-
-func TestSelectiveFetch_NoRemote(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-
-	store := &MemoryGitStore{repoDir: filepath.Join(dir, "repo"), wtBase: filepath.Join(dir, "wt")}
-	// config.MemoryRepoURL() will return "" since no config is set
-	err := store.SelectiveFetch("branch")
-	if err != nil {
-		t.Errorf("expected nil error, got: %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// WaitForPendingPushes
-// ---------------------------------------------------------------------------
 
 func TestWaitForPendingPushes(t *testing.T) {
 	// Should return immediately when no pushes are pending
 	WaitForPendingPushes()
 }
 
-// ---------------------------------------------------------------------------
-// newMemorySvcInternal with non-nil store
-// ---------------------------------------------------------------------------
-
 func TestNewMemorySvcInternal_WithStore(t *testing.T) {
-	store := &MemoryGitStore{repoDir: "/repo"}
-	svc := newMemorySvcInternal(MemoryScopeProject, "id", "/local", "/link", store)
+	store := &MemoryStore{rawBase: "/repo"}
+	svc := newMemorySvcInternal(MemoryScopeProject, "id", "/local", store)
 	if svc == nil {
 		t.Fatal("expected non-nil svc")
 	}
@@ -1383,10 +1146,6 @@ func TestNewMemorySvcInternal_WithStore(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// MemoryService.log()
-// ---------------------------------------------------------------------------
-
 func TestMemoryService_Log(t *testing.T) {
 	svc := &MemoryService{}
 	logger := svc.log()
@@ -1395,44 +1154,21 @@ func TestMemoryService_Log(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// MemoryGitStore.log()
-// ---------------------------------------------------------------------------
-
-func TestMemoryGitStore_Log(t *testing.T) {
-	store := &MemoryGitStore{}
+func TestMemoryStore_Log(t *testing.T) {
+	store := &MemoryStore{}
 	logger := store.log()
 	if logger == nil {
 		t.Error("expected non-nil logger from slogutil.Resolve")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// MemoryWorktree.log()
-// ---------------------------------------------------------------------------
-
-func TestMemoryWorktree_Log(t *testing.T) {
-	wt := &MemoryWorktree{}
+func TestScopeStore_Log(t *testing.T) {
+	wt := &ScopeStore{}
 	logger := wt.log()
 	if logger == nil {
 		t.Error("expected non-nil logger")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ProjectLinkDir
-// ---------------------------------------------------------------------------
-
-func TestProjectLinkDir(t *testing.T) {
-	got := ProjectLinkDir("project")
-	if !strings.Contains(got, "memory") || !strings.Contains(got, "project") {
-		t.Errorf("ProjectLinkDir = %q", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// firstLineFromContent
-// ---------------------------------------------------------------------------
 
 func TestFirstLineFromContent_Coverage(t *testing.T) {
 	tests := []struct {
@@ -1456,10 +1192,6 @@ func TestFirstLineFromContent_Coverage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// extractBodyAfterFrontmatter
-// ---------------------------------------------------------------------------
-
 func TestExtractBodyAfterFrontmatter_Coverage(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -1481,10 +1213,6 @@ func TestExtractBodyAfterFrontmatter_Coverage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// listImportantInDir — unreadable file
-// ---------------------------------------------------------------------------
-
 func TestListImportantInDir_UnreadableFile(t *testing.T) {
 	dir := t.TempDir()
 	fname := ImportantFileName("test-id")
@@ -1502,10 +1230,6 @@ func TestListImportantInDir_UnreadableFile(t *testing.T) {
 		t.Errorf("expected 0 entries for unreadable file, got %d", len(entries))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// listRecentInDir — empty dir, nonexistent dir
-// ---------------------------------------------------------------------------
 
 func TestListRecentInDir_NonexistentDir(t *testing.T) {
 	entries, err := listRecentInDir("/nonexistent/path/that/doesnt/exist", 10)
@@ -1527,10 +1251,6 @@ func TestListImportantInDir_NonexistentDir(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// AllContextDirs
-// ---------------------------------------------------------------------------
-
 func TestAllContextDirs_Coverage(t *testing.T) {
 	// With default paths, this will return whatever is in .graphit/memory
 	result := AllContextDirs()
@@ -1538,55 +1258,44 @@ func TestAllContextDirs_Coverage(t *testing.T) {
 	_ = result
 }
 
-// ---------------------------------------------------------------------------
-// GlobalBaseDir, GlobalScopeDir
-// ---------------------------------------------------------------------------
+// WikiDir, RawDirForScope, RawDirFor
 
-func TestGlobalBaseDir_Coverage(t *testing.T) {
-	dir := GlobalBaseDir()
-	if !strings.Contains(dir, "memory") {
-		t.Errorf("GlobalBaseDir = %q, should contain 'memory'", dir)
-	}
-}
-
-func TestGlobalScopeDir_NonexistentScope(t *testing.T) {
-	dir := GlobalScopeDir("nonexistent-scope-12345")
-	if dir != "" {
-		t.Errorf("expected empty dir for nonexistent scope, got %q", dir)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// WikiDir, WorktreeRawDirForScope, WorktreeRawDir
-// ---------------------------------------------------------------------------
-
-func TestWikiDir_NonexistentScope(t *testing.T) {
+// An unknown scope name IS a context name, so it resolves — the wiki dir is derived
+// from the name, not probed on disk. This used to return "" because it stat'ed a
+// project replica, which meant a context could not be compiled until it had already
+// been compiled.
+func TestWikiDir_UnknownScopeIsAContext(t *testing.T) {
 	dir := WikiDir("nonexistent-scope-12345")
-	if dir != "" {
-		t.Errorf("expected empty dir for nonexistent scope, got %q", dir)
+	if dir == "" {
+		t.Fatal("a context scope must resolve to a wiki path")
+	}
+	if !strings.Contains(filepath.ToSlash(dir), "wiki/memory/nonexistent-scope-12345") {
+		t.Errorf("unexpected wiki dir %q", dir)
 	}
 }
 
-func TestWorktreeRawDirForScope_NoScope(t *testing.T) {
-	dir := WorktreeRawDirForScope("nonexistent-scope-12345")
-	if dir != "" {
-		t.Errorf("expected empty dir, got %q", dir)
+func TestRawDirForScope_ContextNeedsNoReplica(t *testing.T) {
+	// Pinning the bootstrapping fix: a scope resolves to its worktree with nothing
+	// on disk in the project yet.
+	t.Chdir(t.TempDir())
+	dir := RawDirForScope("some-context")
+	if dir == "" {
+		t.Fatal("a context scope must resolve without a project replica")
+	}
+	if !strings.Contains(dir, "memory-raw") {
+		t.Errorf("expected a worktree path, got %q", dir)
 	}
 }
 
-func TestWorktreeRawDir_Coverage(t *testing.T) {
-	dir := WorktreeRawDir("project", "test-scope")
+func TestRawDirFor_Coverage(t *testing.T) {
+	dir := RawDirFor("project", "test-scope")
 	if dir == "" {
 		t.Error("expected non-empty dir")
 	}
-	if !strings.Contains(dir, "memory-wt") {
+	if !strings.Contains(dir, "memory-raw") {
 		t.Errorf("expected path to contain 'memory-wt', got %q", dir)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// EnsureScopeDirs
-// ---------------------------------------------------------------------------
 
 func TestEnsureScopeDirs_EmptyProjectDir_Coverage(t *testing.T) {
 	err := EnsureScopeDirs("project", "")
@@ -1603,20 +1312,14 @@ func TestEnsureScopeDirs_WithProjectDir_Coverage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// RawDir
-// ---------------------------------------------------------------------------
-
-func TestRawDir_NonexistentScope(t *testing.T) {
+func TestRawDir_ContextScopeResolves(t *testing.T) {
 	dir := RawDir("nonexistent-scope-12345")
-	if dir != "" {
-		t.Errorf("expected empty dir for nonexistent scope, got %q", dir)
+	if dir == "" {
+		t.Error("a context scope resolves to a worktree path")
 	}
 }
 
-// ---------------------------------------------------------------------------
 // IsImportantMemory, ImportantFileName, NormalFileName
-// ---------------------------------------------------------------------------
 
 func TestIsImportantMemory_Coverage(t *testing.T) {
 	if !IsImportantMemory("test_important_.md") {
@@ -1640,7 +1343,3 @@ func TestNormalFileName_Coverage(t *testing.T) {
 		t.Errorf("NormalFileName = %q", got)
 	}
 }
-
-
-
-

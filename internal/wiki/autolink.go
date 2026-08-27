@@ -149,7 +149,7 @@ func AutoLinkLine(line string, targets []CompiledTarget, currentSlug string, aut
 		}
 		line = target.re.ReplaceAllStringFunc(line, func(match string) string {
 			autoLinkedRefs[target.Slug] = true
-			replacement := fmt.Sprintf("[[%s|%s]]", target.Slug, match)
+			replacement := fmt.Sprintf("[%s](%s.md)", match, target.Slug)
 			autoWlPlaceholders = append(autoWlPlaceholders, replacement)
 			return fmt.Sprintf("___AUTO_WL_PLACEHOLDER_%d___", len(autoWlPlaceholders)-1)
 		})

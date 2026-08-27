@@ -9,6 +9,16 @@ import (
 	gogitignore "github.com/go-git/go-git/v5/plumbing/format/gitignore"
 )
 
+// Ignore files, and why the go-git dependency is not a git dependency.
+//
+// gogitignore is a pure-Go implementation of gitignore PATTERN SEMANTICS — negation, anchoring,
+// directory-only patterns, per-file domains. It shells out to nothing and requires no repository.
+// Keeping it is what makes `.astignore` and `.wikiignore` behave the way anyone who has written a
+// `.gitignore` expects, which is the whole point of using that syntax.
+//
+// What DID depend on git was the boundary — how far up the tree ignore files are collected from was
+// answered by looking for a `.git`. It no longer is: see collectIgnoreFiles.
+
 type IgnoreChecker struct {
 	matcher          gogitignore.Matcher
 	negationPrefixes []string
@@ -18,10 +28,8 @@ type IgnoreChecker struct {
 func New(rootPath, startDir, customFileName string, defaultPatterns []string) *IgnoreChecker {
 	absRoot, _ := filepath.Abs(rootPath)
 
-	gitRoot := findGitRoot(absRoot)
-	if gitRoot == "" {
-		gitRoot = absRoot
-	}
+	// The project is the boundary, and nothing above it. See collectIgnoreFiles.
+	boundary := absRoot
 
 	if startDir == "" {
 		startDir = absRoot
@@ -32,7 +40,7 @@ func New(rootPath, startDir, customFileName string, defaultPatterns []string) *I
 	var allPatterns []gogitignore.Pattern
 	var negPrefixes []string
 
-	gitignoreFiles := collectIgnoreFiles(startDir, gitRoot, ".gitignore")
+	gitignoreFiles := collectIgnoreFiles(startDir, boundary, ".gitignore")
 	for _, gf := range gitignoreFiles {
 		domain := domainForFile(gf, absRoot)
 		allPatterns = append(allPatterns, readPatternsFromFile(gf, domain)...)
@@ -40,7 +48,7 @@ func New(rootPath, startDir, customFileName string, defaultPatterns []string) *I
 	}
 
 	if customFileName != "" {
-		customFiles := collectIgnoreFiles(startDir, gitRoot, customFileName)
+		customFiles := collectIgnoreFiles(startDir, boundary, customFileName)
 		for _, cf := range customFiles {
 			domain := domainForFile(cf, absRoot)
 			allPatterns = append(allPatterns, readPatternsFromFile(cf, domain)...)
@@ -101,20 +109,25 @@ func (ic *IgnoreChecker) ShouldDescend(dirRelPath string) bool {
 	return false
 }
 
-func findGitRoot(startDir string) string {
-	curr := startDir
-	for {
-		if fi, err := os.Stat(filepath.Join(curr, ".git")); err == nil && fi != nil {
-			return curr
-		}
-		parent := filepath.Dir(curr)
-		if parent == curr {
-			return ""
-		}
-		curr = parent
-	}
-}
-
+// collectIgnoreFiles gathers an ignore file from startDir up to rootDir, inclusive.
+//
+// rootDir is the PROJECT, and collection must never pass it. That is not a policy choice, it is
+// what the domain arithmetic allows: domainForFile computes a pattern's domain with
+// filepath.Rel(project, dir), so a file above the project yields a domain of ".." segments, and
+// gogitignore can never match a real path against that. Such a file was collected and silently
+// inert.
+//
+// This is also where the last git dependency was. The boundary used to be found by walking up for a
+// `.git`, which meant three things, all bad: a project without a repository fell back to itself
+// anyway, a project INSIDE a repository collected the repository's ignore files as inert patterns,
+// and a project under a directory that happened to be a repository — a dotfiles $HOME, say —
+// reached up into it. Every test in this package created a `.git` purely to give that walk
+// something to find.
+//
+// KNOWN LIMITATION, and it predates this: in a monorepo, patterns in the repository-root
+// .gitignore (node_modules/, dist/) do NOT apply to a sub-project. Making them apply needs domains
+// computed against the collection root rather than the project, which is a larger change than
+// removing git was.
 func collectIgnoreFiles(startDir, rootDir, filename string) []string {
 	var files []string
 	curr := startDir

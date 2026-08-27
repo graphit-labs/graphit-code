@@ -7,18 +7,14 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
-
-// ---------------------------------------------------------------------------
-// block_manager.go tests
-// ---------------------------------------------------------------------------
 
 func TestBlockManager(t *testing.T) {
 	tempDir := t.TempDir()
 
 	filePath := filepath.Join(tempDir, "test.sh")
 
-	// 1. Inject block to non-existent file
 	err := InjectBlock(filePath, "echo 'hello'", "M1", "#!/bin/sh")
 	if err != nil {
 		t.Fatalf("InjectBlock failed: %v", err)
@@ -46,7 +42,6 @@ func TestBlockManager(t *testing.T) {
 		t.Errorf("expected:\n%q\ngot:\n%q", expectedUpdate, string(data))
 	}
 
-	// 3. Remove block
 	removed, err := RemoveBlock(filePath, "M1", false)
 	if err != nil {
 		t.Fatalf("RemoveBlock failed: %v", err)
@@ -125,7 +120,6 @@ func TestGitCLIBackend(t *testing.T) {
 		t.Fatal("expected non-nil default Git instance")
 	}
 
-	// 1. RunGlobalOutput
 	versionStr, err := g.RunGlobalOutput("version")
 	if err != nil {
 		t.Fatalf("RunGlobalOutput failed: %v", err)
@@ -134,13 +128,11 @@ func TestGitCLIBackend(t *testing.T) {
 		t.Errorf("expected 'git version', got %q", versionStr)
 	}
 
-	// 2. Initialize a repository inside tempDir
 	err = g.Run(tempDir, "init")
 	if err != nil {
 		t.Fatalf("git init failed: %v", err)
 	}
 
-	// 3. Configure local user for test commits
 	_ = g.Run(tempDir, "config", "local", "user.name", "Test User")
 	_ = g.Run(tempDir, "config", "local", "user.email", "test@example.com")
 
@@ -158,7 +150,6 @@ func TestGitCLIBackend(t *testing.T) {
 		t.Fatalf("git commit failed: %v", err)
 	}
 
-	// 5. RunOutput
 	logOut, err := g.RunOutput(tempDir, "log", "-n", "1", "--oneline")
 	if err != nil {
 		t.Fatalf("git log failed: %v", err)
@@ -167,13 +158,11 @@ func TestGitCLIBackend(t *testing.T) {
 		t.Errorf("log output missing message: %s", logOut)
 	}
 
-	// 6. RunSilent
 	res := g.RunSilent(tempDir, "status")
 	if !strings.Contains(res, "nothing to commit") {
 		t.Errorf("RunSilent status unexpected: %q", res)
 	}
 
-	// 7. RunWithStdin
 	patchStr, err := g.RunWithStdin(tempDir, []byte("line of content"), "hash-object", "-w", "--stdin")
 	if err != nil {
 		t.Fatalf("RunWithStdin failed: %v", err)
@@ -182,7 +171,6 @@ func TestGitCLIBackend(t *testing.T) {
 		t.Error("expected non-empty blob hash")
 	}
 
-	// 8. RunOutputWithEnv
 	outEnv, err := g.RunOutputWithEnv(tempDir, map[string]string{"GIT_AUTHOR_NAME": "Override Author", "GIT_AUTHOR_EMAIL": "override@example.com"}, "var", "GIT_AUTHOR_IDENT")
 	if err != nil {
 		t.Fatalf("RunOutputWithEnv failed: %v", err)
@@ -191,22 +179,16 @@ func TestGitCLIBackend(t *testing.T) {
 		t.Errorf("expected 'Override Author' in GIT_AUTHOR_IDENT, got %q", outEnv)
 	}
 
-	// 9. RunWithEnv
 	err = g.RunWithEnv(tempDir, map[string]string{"GIT_AUTHOR_NAME": "Override Env", "GIT_AUTHOR_EMAIL": "override@example.com"}, "commit", "--allow-empty", "-m", "env commit")
 	if err != nil {
 		t.Fatalf("RunWithEnv failed: %v", err)
 	}
 
-	// 10. RunGlobal
 	err = g.RunGlobal("version")
 	if err != nil {
 		t.Errorf("RunGlobal failed: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// DefaultErr tests
-// ---------------------------------------------------------------------------
 
 func TestDefaultErr(t *testing.T) {
 	g, err := DefaultErr()
@@ -264,9 +246,7 @@ func TestDefaultGitNotFound(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // cli_backend.go error-path tests
-// ---------------------------------------------------------------------------
 
 func TestRunOutputError(t *testing.T) {
 	g := Default()
@@ -297,24 +277,19 @@ func TestRunOutputWithEnvError(t *testing.T) {
 	if g == nil {
 		t.Skip("git not available")
 	}
-	// RunOutputWithEnv: trigger error path
 	_, err := g.RunOutputWithEnv("", nil, "this-subcommand-does-not-exist")
 	if err == nil {
 		t.Error("expected error from RunOutputWithEnv with bad subcommand")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// wrapSSHError / extractHost tests
-// ---------------------------------------------------------------------------
-
 func TestWrapSSHError(t *testing.T) {
 	tests := []struct {
-		name      string
-		inputErr  error
-		stderr    string
-		wantNil   bool
-		wantHint  string
+		name     string
+		inputErr error
+		stderr   string
+		wantNil  bool
+		wantHint string
 	}{
 		{
 			name:     "nil error passthrough",
@@ -416,10 +391,6 @@ type simpleError string
 func (e simpleError) Error() string { return string(e) }
 
 func errForTest(msg string) error { return simpleError(msg) }
-
-// ---------------------------------------------------------------------------
-// stderr.go tests
-// ---------------------------------------------------------------------------
 
 func TestCleanStderr(t *testing.T) {
 	tests := []struct {
@@ -557,10 +528,6 @@ func TestMapToEnv(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// hooks.go tests
-// ---------------------------------------------------------------------------
-
 func TestHookBlockMarker(t *testing.T) {
 	marker := hookBlockMarker()
 	if marker == "" {
@@ -605,7 +572,6 @@ func TestHookManagerInstallNoGitDir(t *testing.T) {
 
 func TestHookManagerInstallAndRemove(t *testing.T) {
 	dir := t.TempDir()
-	// Create .git directory
 	gitDir := filepath.Join(dir, ".git")
 	if err := os.MkdirAll(gitDir, 0o755); err != nil {
 		t.Fatalf("failed to create .git dir: %v", err)
@@ -665,6 +631,15 @@ func TestHookScript(t *testing.T) {
 	}
 	if !strings.Contains(script, "sync") {
 		t.Error("hookScript should contain sync command")
+	}
+	// post-commit, pre-push and post-merge all run this script and can fire within
+	// seconds of each other over a tree that changed once. Without the window each
+	// one paid for a full reindex.
+	if !strings.Contains(script, "--debounce "+hookDebounce) {
+		t.Errorf("hookScript should debounce the sync, got: %q", script)
+	}
+	if _, err := time.ParseDuration(hookDebounce); err != nil {
+		t.Errorf("hookDebounce %q is not a duration the sync command can parse: %v", hookDebounce, err)
 	}
 }
 
@@ -791,9 +766,7 @@ func TestResolveGitDir(t *testing.T) {
 	})
 }
 
-// ---------------------------------------------------------------------------
 // block_manager.go — additional edge-case tests
-// ---------------------------------------------------------------------------
 
 func TestIsShellShebangOnly(t *testing.T) {
 	tests := []struct {
@@ -805,8 +778,8 @@ func TestIsShellShebangOnly(t *testing.T) {
 		{"#!/bin/bash", true},
 		{"#!/usr/bin/env sh", true},
 		{"#!/usr/bin/env bash", true},
-		{"  #!/bin/sh  ", true},           // trimmed
-		{"#!/bin/sh\necho hi", false},      // has extra content
+		{"  #!/bin/sh  ", true},       // trimmed
+		{"#!/bin/sh\necho hi", false}, // has extra content
 		{"#!/usr/bin/env python", false},
 		{"something else", false},
 	}
@@ -1087,10 +1060,6 @@ func TestRemoveBlockStyledEmptyResultWithDeleteIfEmpty(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// resolveGitDir — unreadable .git file
-// ---------------------------------------------------------------------------
-
 func TestResolveGitDirUnreadableFile(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("chmod not effective on Windows")
@@ -1108,10 +1077,6 @@ func TestResolveGitDirUnreadableFile(t *testing.T) {
 		t.Errorf("expected fallback %q, got %q", dotGit, result)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Install — MkdirAll error
-// ---------------------------------------------------------------------------
 
 func TestHookManagerInstallMkdirAllError(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -1135,10 +1100,6 @@ func TestHookManagerInstallMkdirAllError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Install — InjectBlock error
-// ---------------------------------------------------------------------------
-
 func TestHookManagerInstallInjectBlockError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("chmod not effective on Windows")
@@ -1161,10 +1122,6 @@ func TestHookManagerInstallInjectBlockError(t *testing.T) {
 		t.Errorf("expected 'hooks: inject' error, got: %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// Remove — RemoveBlock error
-// ---------------------------------------------------------------------------
 
 func TestHookManagerRemoveBlockError(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -1197,9 +1154,7 @@ func TestHookManagerRemoveBlockError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // binPath — test the non-Windows branch is always returned on Linux
-// ---------------------------------------------------------------------------
 
 func TestBinPathNonWindows(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -1210,4 +1165,3 @@ func TestBinPathNonWindows(t *testing.T) {
 		t.Errorf("binPath on non-windows should not end with .exe, got %q", p)
 	}
 }
-

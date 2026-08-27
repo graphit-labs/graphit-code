@@ -68,8 +68,6 @@ func NOP() *slog.Logger {
 	return slog.New(discardHandler{})
 }
 
-
-
 func Resolve(l *slog.Logger) *slog.Logger {
 	if l != nil {
 		return l
@@ -82,5 +80,4 @@ type discardHandler struct{}
 func (discardHandler) Enabled(context.Context, slog.Level) bool  { return false }
 func (discardHandler) Handle(context.Context, slog.Record) error { return nil }
 func (d discardHandler) WithAttrs([]slog.Attr) slog.Handler      { return d }
-func (d discardHandler) WithGroup(string) slog.Handler            { return d }
-
+func (d discardHandler) WithGroup(string) slog.Handler           { return d }

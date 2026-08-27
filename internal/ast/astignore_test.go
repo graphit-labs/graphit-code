@@ -36,10 +36,135 @@ func TestAstIgnoreCheckerExcludesBrandDirByDefault(t *testing.T) {
 	}
 
 	// The default must not be so broad that it swallows real source.
-	for _, keep := range []string{"a.sql", "src/b.go", "docs/guia.md", ".hidden.sql"} {
+	for _, keep := range []string{"a.sql", "src/b.go", ".hidden.sql"} {
 		if ic.IsIgnored(keep, false) {
 			t.Errorf("%s should not be ignored", keep)
 		}
+	}
+}
+
+// The lockfile is the same output as a shard, written outside the brand directory
+// where that default cannot reach it. It is .json, .json has a parser, and it is
+// rewritten on every install, sync and config change — so it churned the graph with
+// Pair and Value nodes describing the indexer to itself.
+//
+// The pattern is anchored, and that is the half worth pinning: an unanchored
+// gitignore entry matches at any depth, which would have swallowed the lockfile of
+// a fixture project or a nested checkout — files that belong to whatever is being
+// indexed, not to the framework.
+func TestAstIgnoreCheckerExcludesTheFrameworkLockfileByDefault(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ic := NewAstIgnoreChecker(root)
+	lock := brand.LockFileName()
+
+	if !ic.IsIgnored(lock, false) {
+		t.Errorf("%s is indexed — the framework's own state churns the graph on every "+
+			"sync and config write", lock)
+	}
+	if ic.IsIgnored("internal/hub/testdata/proj/"+lock, false) {
+		t.Errorf("a nested %s was excluded — the pattern is not anchored to the project "+
+			"root, so it reaches lockfiles that are not ours", lock)
+	}
+	// A directory of that name is not the lockfile, and neither is a longer name
+	// that merely starts with it.
+	for _, keep := range []string{lock + ".bak", "graphit.lock.json.tmpl"} {
+		if ic.IsIgnored(keep, false) {
+			t.Errorf("%s should not be ignored", keep)
+		}
+	}
+}
+
+// The documentation tree belongs to the knowledge wiki, which chunks, links and
+// ranks prose in ways a code graph cannot. Indexing it on both sides bought a
+// Heading node per section and noise in every structural query, so the AST side
+// leaves knowledge.docs_dir alone unless ast.index_docs asks for it.
+func TestAstIgnoreCheckerExcludesTheDocsTreeByDefault(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	ic := NewAstIgnoreChecker(root)
+
+	if !ic.IsIgnored("docs", true) {
+		t.Error("docs/ is indexed by the AST pipeline — the wiki already owns it")
+	}
+	if !ic.IsIgnored("docs/guia.md", false) {
+		t.Error("a document under docs/ is indexed by the AST pipeline")
+	}
+
+	// Anchored to the project root: a "docs" directory nested inside real source is
+	// somebody else's, and a bare gitignore "docs/" would have swallowed it too.
+	if ic.IsIgnored("internal/x/docs/nota.md", false) {
+		t.Error("a nested docs/ directory was excluded — the pattern is not anchored")
+	}
+	// dirOnly: a *file* called docs is not the docs tree.
+	if ic.IsIgnored("docs", false) {
+		t.Error("a file named docs was excluded as if it were the directory")
+	}
+}
+
+// ast.index_docs is the documented way back in, and it has to be the config key
+// rather than a "!docs/" line in .astignore: the defaults are applied last, which
+// makes them the highest-priority patterns, so a negation cannot outrank them.
+func TestAstIndexDocsPutsTheDocsTreeBack(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	lockfile := `{"config":{"ast":{"index_docs":"true"}}}`
+	if err := os.WriteFile(filepath.Join(root, brand.LockFileName()), []byte(lockfile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ic := NewAstIgnoreChecker(root)
+	if ic.IsIgnored("docs/guia.md", false) {
+		t.Error("ast.index_docs=true did not put the docs tree back in the graph")
+	}
+}
+
+// A docs dir of "." is the whole project. Excluding it would exclude everything,
+// so the exclusion has to stand down rather than empty the graph.
+func TestDocsDirOfDotExcludesNothing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	lockfile := `{"config":{"knowledge":{"docs_dir":"."}}}`
+	if err := os.WriteFile(filepath.Join(root, brand.LockFileName()), []byte(lockfile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if p := DocsIgnorePatternFor(root); p != "" {
+		t.Errorf("docs_dir=%q produced the pattern %q — it would exclude the whole project", ".", p)
+	}
+
+	ic := NewAstIgnoreChecker(root)
+	for _, keep := range []string{"a.sql", "src/b.go", "docs/guia.md"} {
+		if ic.IsIgnored(keep, false) {
+			t.Errorf("%s should not be ignored when the docs dir is the project root", keep)
+		}
+	}
+}
+
+// A configured docs dir that is not "docs" is the one that gets excluded, nested
+// path included — and "docs" then stops being special.
+func TestCustomDocsDirIsWhatGetsExcluded(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	lockfile := `{"config":{"knowledge":{"docs_dir":"documentation/wiki"}}}`
+	if err := os.WriteFile(filepath.Join(root, brand.LockFileName()), []byte(lockfile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ic := NewAstIgnoreChecker(root)
+	if !ic.IsIgnored("documentation/wiki/guia.md", false) {
+		t.Error("the configured docs dir was not excluded")
+	}
+	if ic.IsIgnored("documentation/outra.md", false) {
+		t.Error("a sibling of the configured docs dir was excluded too")
+	}
+	if ic.IsIgnored("docs/guia.md", false) {
+		t.Error("docs/ was excluded even though the project keeps its documentation elsewhere")
 	}
 }
 

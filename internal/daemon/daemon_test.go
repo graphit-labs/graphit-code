@@ -14,9 +14,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// ---------------------------------------------------------------------------
 // version_check.go
-// ---------------------------------------------------------------------------
 
 func TestLauncherStampPath(t *testing.T) {
 	tempHome := t.TempDir()
@@ -78,10 +76,6 @@ func TestReadLauncherStamp_EmptyContent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// daemon.go — DefaultConfig
-// ---------------------------------------------------------------------------
-
 func TestDefaultConfig(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -110,10 +104,6 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// daemon.go — GlobalDaemonDir
-// ---------------------------------------------------------------------------
-
 func TestGlobalDaemonDir(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -126,10 +116,6 @@ func TestGlobalDaemonDir(t *testing.T) {
 		t.Errorf("expected %s, got %s", expected, got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// daemon.go — New
-// ---------------------------------------------------------------------------
 
 func TestNewDaemon_DefaultIntervals(t *testing.T) {
 	d := New(Config{}, func(string) ([]WatchModule, []func() error, error) {
@@ -177,10 +163,6 @@ func TestNewDaemon_NegativeIntervals(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// daemon.go — event helper
-// ---------------------------------------------------------------------------
-
 func TestDaemon_Event_WithCallback(t *testing.T) {
 	var gotLevel, gotMsg string
 	d := &Daemon{
@@ -205,10 +187,6 @@ func TestDaemon_Event_NilCallback(t *testing.T) {
 	// Should not panic
 	d.event("info", "message")
 }
-
-// ---------------------------------------------------------------------------
-// daemon.go — stampChanged
-// ---------------------------------------------------------------------------
 
 func TestDaemon_StampChanged_EmptyBoot(t *testing.T) {
 	d := &Daemon{bootStamp: ""}
@@ -268,10 +246,6 @@ func TestDaemon_StampChanged_DifferentStamp(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// daemon.go — log
-// ---------------------------------------------------------------------------
-
 func TestDaemon_Log_NilLogFile(t *testing.T) {
 	d := &Daemon{logFile: nil}
 	// Should not panic
@@ -304,10 +278,6 @@ func TestDaemon_Log_WritesToFile(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// daemon.go — closerFunc
-// ---------------------------------------------------------------------------
-
 func TestCloserFunc(t *testing.T) {
 	called := false
 	fn := closerFunc(func() error {
@@ -330,10 +300,6 @@ func TestCloserFunc_ReturnsError(t *testing.T) {
 		t.Errorf("expected os.ErrClosed, got %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// daemon.go — reconcileProjects
-// ---------------------------------------------------------------------------
 
 func TestDaemon_ReconcileProjects_DiscoveryError(t *testing.T) {
 	tmp := t.TempDir()
@@ -577,10 +543,6 @@ func TestDaemon_ReconcileProjects_WithClosers(t *testing.T) {
 	_ = atomic.LoadInt32(&closerCalled)
 }
 
-// ---------------------------------------------------------------------------
-// daemon.go — shutdown
-// ---------------------------------------------------------------------------
-
 func TestDaemon_Shutdown_NoSupervisors(t *testing.T) {
 	tmp := t.TempDir()
 	logPath := filepath.Join(tmp, "test.log")
@@ -631,10 +593,6 @@ func TestDaemon_Shutdown_WithSupervisors(t *testing.T) {
 		t.Error("supervisor should be stopped after shutdown")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// daemon.go — Start (integration tests)
-// ---------------------------------------------------------------------------
 
 func TestDaemon_Start_ContextCancelled(t *testing.T) {
 	tempHome := t.TempDir()

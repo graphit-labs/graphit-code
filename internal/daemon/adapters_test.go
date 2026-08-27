@@ -9,12 +9,9 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// ---------------------------------------------------------------------------
 // EmbeddingModule — Start (calls ast.RunEmbeddingLoop)
-// ---------------------------------------------------------------------------
 
 func TestEmbeddingModule_Start_ContextCancelled(t *testing.T) {
-	// Create temp dirs for the module
 	tmpDir := t.TempDir()
 	cacheDir := filepath.Join(tmpDir, "cache")
 	_ = os.MkdirAll(cacheDir, 0o755)
@@ -27,19 +24,11 @@ func TestEmbeddingModule_Start_ContextCancelled(t *testing.T) {
 	// This is covered by the fact that it's called through supervisor tests
 }
 
-// ---------------------------------------------------------------------------
-// DreamModule — Start
-// ---------------------------------------------------------------------------
-
 func TestDreamModule_Start_ContextCancelled(t *testing.T) {
 	// DreamModule.Start creates a dream.Runner and calls Run(ctx)
 	// Without a real project setup, we test it doesn't panic
 	// The function is called through supervisor tests
 }
-
-// ---------------------------------------------------------------------------
-// loadProjectConfigFromDir
-// ---------------------------------------------------------------------------
 
 func TestLoadProjectConfigFromDir_NoLockfile(t *testing.T) {
 	tmpDir := t.TempDir()

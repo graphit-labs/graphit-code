@@ -1594,6 +1594,15 @@ type Db2ParserVisitor interface {
 	// Visit a parse tree produced by Db2Parser#compound_sql_inlined.
 	VisitCompound_sql_inlined(ctx *Compound_sql_inlinedContext) interface{}
 
+	// Visit a parse tree produced by Db2Parser#declare_variable_statement.
+	VisitDeclare_variable_statement(ctx *Declare_variable_statementContext) interface{}
+
+	// Visit a parse tree produced by Db2Parser#assignment_statement.
+	VisitAssignment_statement(ctx *Assignment_statementContext) interface{}
+
+	// Visit a parse tree produced by Db2Parser#compound_body_statement.
+	VisitCompound_body_statement(ctx *Compound_body_statementContext) interface{}
+
 	// Visit a parse tree produced by Db2Parser#sql_statement_inlined.
 	VisitSql_statement_inlined(ctx *Sql_statement_inlinedContext) interface{}
 

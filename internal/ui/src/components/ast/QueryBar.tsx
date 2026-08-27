@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { astApi } from '@/api/ast'
 import { showToast } from '@/hooks/useToast'
 import { cn } from '@/lib/utils'
-import { Code2, Wand2, Loader2, Send, ChevronUp, ChevronDown, Sparkles } from 'lucide-react'
+import { Code2, Loader2, Send, ChevronUp, ChevronDown, Sparkles } from 'lucide-react'
 
 type Mode = 'cypher' | 'nl'
 
@@ -25,7 +25,7 @@ const EXAMPLE_QUERIES = [
   "MATCH (n:Function {cluster: 'backend'}) RETURN n.name LIMIT 20",
 ]
 
-export function QueryBar({ contextId, projectDir, onQueryResult, loading, setLoading, collapsed, onCollapsedClick }: QueryBarProps) {
+export function QueryBar({ contextId, projectDir, onQueryResult, loading, setLoading, collapsed, onCollapsedClick: _onCollapsedClick }: QueryBarProps) {
   const [mode, setMode] = useState<Mode>('cypher')
   const [query, setQuery] = useState('')
   const [generating, setGenerating] = useState(false)

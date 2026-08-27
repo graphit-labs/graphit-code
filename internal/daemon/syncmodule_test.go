@@ -6,46 +6,36 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
-// ---------------------------------------------------------------------------
-// mockGit for syncmodule tests
-// ---------------------------------------------------------------------------
-
-type mockGit struct {
-	runOutputFn func(repoDir string, args ...string) (string, error)
-}
-
-func (m *mockGit) Run(repoDir string, args ...string) error { return nil }
-func (m *mockGit) RunOutput(repoDir string, args ...string) (string, error) {
-	if m.runOutputFn != nil {
-		return m.runOutputFn(repoDir, args...)
-	}
-	return "", nil
-}
-func (m *mockGit) RunSilent(repoDir string, args ...string) string { return "" }
-func (m *mockGit) RunWithStdin(repoDir string, data []byte, args ...string) (string, error) {
-	return "", nil
-}
-func (m *mockGit) RunWithEnv(repoDir string, env map[string]string, args ...string) error {
-	return nil
-}
-func (m *mockGit) RunOutputWithEnv(repoDir string, env map[string]string, args ...string) (string, error) {
-	return "", nil
-}
-func (m *mockGit) RunGlobal(args ...string) error                 { return nil }
-func (m *mockGit) RunGlobalOutput(args ...string) (string, error) { return "", nil }
-
-// ---------------------------------------------------------------------------
 // SyncModule — Name
-// ---------------------------------------------------------------------------
+
+// wikiSources returns the source paths the project's wiki was built from. The wiki
+// itself lives in the global store, keyed by the project's identity.
+func wikiSources(t *testing.T, projectDir string) map[string]bool {
+	t.Helper()
+	m := knowledge.LoadManifest(store.KnowledgeProjectDir(projectDir))
+	out := make(map[string]bool, len(m.SourceHashes))
+	for path := range m.SourceHashes {
+		out[path] = true
+	}
+	return out
+}
 
 func TestSyncModule_ReindexKnowledge_NoDocs(t *testing.T) {
 	tmpDir := t.TempDir()
 	m := NewSyncModule(tmpDir, "")
 	ctx := context.Background()
-	// When no docs directory exists, this should return early
+	// No docs directory and no README: nothing to index, so this returns without
+	// running the pipeline at all.
 	m.reindexKnowledge(ctx, nil)
+
+	if got := wikiSources(t, tmpDir); len(got) != 0 {
+		t.Errorf("a project with no documentation produced a wiki from %v", got)
+	}
 }
 
 func TestSyncModule_ReindexKnowledge_WithDocs(t *testing.T) {
@@ -54,31 +44,78 @@ func TestSyncModule_ReindexKnowledge_WithDocs(t *testing.T) {
 	if err := os.MkdirAll(docsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(docsDir, "test.md"), []byte("# Test"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(docsDir, "test.md"), []byte("# Test\n\nCorpo.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Outside the docs tree: in scope as the root README, and only as that.
+	if err := os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("# Projeto\n\nPorta.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "NOTAS.md"), []byte("# Notas\n\nSoltas.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	m := NewSyncModule(tmpDir, "")
-	ctx := context.Background()
-	m.reindexKnowledge(ctx, nil)
+	m.reindexKnowledge(context.Background(), nil)
+
+	got := wikiSources(t, tmpDir)
+	// Source paths are relative to the project, not to the docs directory — the
+	// daemon hands the pipeline the project root and narrows it with a scope.
+	for _, want := range []string{filepath.Join("docs", "test.md"), "README.md"} {
+		if !got[want] {
+			t.Errorf("%s is not in the wiki; indexed: %v", want, got)
+		}
+	}
+	if got["NOTAS.md"] {
+		t.Error("a root document that is not the README was indexed")
+	}
+}
+
+// A project that has not created its docs tree yet still has a front page, and the
+// daemon has to build a wiki containing it rather than returning early.
+func TestSyncModule_ReindexKnowledge_ReadmeWithoutDocsTree(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("# Projeto\n\nSem docs.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewSyncModule(tmpDir, "")
+	m.reindexKnowledge(context.Background(), nil)
+
+	if got := wikiSources(t, tmpDir); !got["README.md"] {
+		t.Errorf("README.md is not in the wiki; indexed: %v", got)
+	}
 }
 
 func TestSyncModule_ReindexAST(t *testing.T) {
 	tmpDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(tmpDir, ".graphit", "ast", "project"), 0o755); err != nil {
+	storeDir := store.ASTProjectDir(tmpDir)
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	m := NewSyncModule(tmpDir, filepath.Join(tmpDir, ".graphit", "ast", "project"))
+	m := NewSyncModule(tmpDir, storeDir)
 	ctx := context.Background()
 	m.reindexAST(ctx, nil, nil, nil) // nil scope = full scan
 }
 
-// ---------------------------------------------------------------------------
-// worktreeDirForBranch
-// ---------------------------------------------------------------------------
+func TestSyncModule_ImplementsActivityReporter(t *testing.T) {
+	var _ ActivityReporter = (*SyncModule)(nil)
 
-func TestWorktreeDirForBranch(t *testing.T) {
+	m := NewSyncModule(t.TempDir(), "")
+	called := false
+	m.SetActivityCallback(func() { called = true })
+
+	if m.onActivity == nil {
+		t.Fatal("expected onActivity to be set")
+	}
+	m.onActivity()
+	if !called {
+		t.Error("expected the wired callback to run")
+	}
+}
+
+func TestScopeDir(t *testing.T) {
 	tests := []struct {
 		name     string
 		wtBase   string
@@ -106,7 +143,7 @@ func TestWorktreeDirForBranch(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := worktreeDirForBranch(tc.wtBase, tc.branch)
+			got := scopeDir(tc.wtBase, tc.branch)
 			if !strings.Contains(got, tc.contains) {
 				t.Errorf("expected path to contain %q, got %q", tc.contains, got)
 			}
@@ -117,6 +154,4 @@ func TestWorktreeDirForBranch(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // parseBranch
-// ---------------------------------------------------------------------------

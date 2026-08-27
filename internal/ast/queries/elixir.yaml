@@ -1,7 +1,16 @@
 language: elixir
 grammar: tree-sitter-elixir
 extensions: [".ex", ".exs"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function] }
 queries:
+  # Every declaration in elixir is a `call`, so a pattern without a predicate on the
+  # target matches ordinary calls too. Without the guards below, `def charge(amount,
+  # currency)` produced Function entities named `amount` and `currency` — the arguments
+  # of the inner call — and any `alias Foo.Bar` produced a Module.
   # === Entity queries ===
   # Elixir uses call nodes for definitions: def, defp, defmodule, defprotocol, etc.
   # tree-sitter-elixir represents `def foo(args)` as (call target: (identifier) arguments: ...)
@@ -11,15 +20,15 @@ queries:
   # Public functions (def)
   - data_key: functions
     graph_label: Function
-    pattern: '(call target: (identifier) @_fn (arguments (call target: (identifier) @name)))'
+    pattern: '(call target: (identifier) @_fn (arguments (call target: (identifier) @name)) (#match? @_fn "^(def|defp|defmacro|defmacrop)$"))'
   - data_key: functions
     graph_label: Function
-    pattern: '(call target: (identifier) @_fn (arguments (identifier) @name))'
+    pattern: '(call target: (identifier) @_fn (arguments (identifier) @name) (#match? @_fn "^(def|defp|defmacro|defmacrop)$"))'
 
   # Modules (defmodule)
   - data_key: modules
     graph_label: Module
-    pattern: '(call target: (identifier) @_fn (arguments (alias) @name))'
+    pattern: '(call target: (identifier) @_fn (arguments (alias) @name) (#eq? @_fn "defmodule"))'
 
   # Variables
   - data_key: variables
@@ -29,12 +38,14 @@ queries:
   # Parameters — function argument identifiers
   - data_key: parameters
     graph_label: Parameter
-    pattern: '(call target: (identifier) @_fn (arguments (call target: (identifier) @_name (arguments (identifier) @name))))'
+    pattern: '(call target: (identifier) @_fn (arguments (call target: (identifier) @parent (arguments (identifier) @name))) (#match? @_fn "^(def|defp|defmacro|defmacrop)$"))'
+    parent_capture: parent
+    parent_label: Function
 
   # Fields — keyword list entries in defstruct, schema, etc.
   - data_key: fields
     graph_label: Field
-    pattern: '(call target: (identifier) @_fn (arguments (list (atom) @name)))'
+    pattern: '(call target: (identifier) @_fn (arguments (list (atom) @name)) (#eq? @_fn "defstruct"))'
 
   # Module attributes (@moduledoc, @doc, @type, @spec, @callback, @behaviour)
   - data_key: attributes
@@ -68,6 +79,16 @@ self_keywords: []
 context_types:
   call: Module
 
+# Everything in elixir is a `call`, so the context can only be named when that call is a
+# defmodule — its argument is an `alias`. A `def` has a `call` argument instead, no alias,
+# so nameNodeOf returns nil and the context is transparent: the walk continues up to the
+# enclosing defmodule, which is the right answer for anything that is not a parameter.
+# Parameters name their own owner via parent_capture above.
+#
+# Without this path NOTHING could be named and every entity fell back to the File.
+context_name_paths:
+  call: arguments/alias
+
 # Elixir has anonymous functions (fn -> end)
 anon_func_types:
   - anonymous_function
@@ -82,72 +103,39 @@ declaration_types:
 comment_types:
   - comment
 
-# Entry point scoring rules for Elixir
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "run*"
-      score: 60
-    - pattern: "start*"
-      score: 60
-    - pattern: "start_link*"
-      score: 70
-    - pattern: "init*"
-      score: 40
-    - pattern: "handle_*"
-      score: 40
-    - pattern: mount
-      score: 50
-    - pattern: "test*"
-      score: 50
-    - pattern: setup
-      score: 40
-    - pattern: "render*"
-      score: 30
-    - pattern: "call*"
-      score: 30
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar's SHAPE, not just its node kinds: if/case/cond/
+# for/unless/with are macros, so every one of them parses as an ordinary
+# `call` node whose first named child is an identifier reading the macro's
+# own name (see head_calls) — indistinguishable from any other function call
+# by kind alone.
+#
+# case/cond count once per form, not once per clause, unlike Clojure's
+# cond/case (see clojure.yaml) — deliberately, not a gap. Their clauses ARE
+# their own node here, stab_clause, which looks like the fix Clojure got.
+# It is not: stab_clause is also how a multi-head function definition
+# spells its clauses, AND how a single anonymous function spells its one
+# and only clause (`fn x -> x end`, no branch there at all). Counting
+# stab_clause directly would add a branch to every closure passed to
+# Enum.map/reduce/etc — a far more common pattern than case/cond — which is
+# a worse error than the one it would fix.
+#
+# && / || / and / or are genuine operators here, not calls — a leaf token,
+# matched by text like Ruby's.
+complexity:
+  head_calls:
+    node_type: call
+    names: [if, unless, "case", cond, for, with]
+  operators: ["&&", "||", "and", "or"]
 
-  exported_bonus: 10
-  max_score: 100
-
-  decorators: []
-
-# Import detection (Elixir framework detection)
-import_detection:
-  - pattern: Phoenix
-    match: prefix
-    framework: phoenix
-    category: web
-  - pattern: Ecto
-    match: prefix
-    framework: ecto
-    category: orm
-  - pattern: ExUnit
-    match: prefix
-    framework: exunit
-    category: test
-  - pattern: Plug
-    match: prefix
-    framework: plug
-    category: web
-  - pattern: Absinthe
-    match: prefix
-    framework: absinthe
-    category: graphql
-  - pattern: GenServer
-    match: prefix
-    framework: otp
-    category: concurrency
-  - pattern: LiveView
-    match: prefix
-    framework: phoenix-liveview
-    category: web
-  - pattern: Tesla
-    match: prefix
-    framework: tesla
-    category: http
-  - pattern: Nx
-    match: prefix
-    framework: nx
-    category: ml
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Module
+  - Function
+  - Attribute
+  - Field
+  - Variable
+  - Comment

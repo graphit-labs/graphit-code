@@ -8,11 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-)
 
-// ---------------------------------------------------------------------------
-// ProjectSupervisor — Start creates project log directory
-// ---------------------------------------------------------------------------
+	"github.com/graphit-labs/graphit-code/internal/brand"
+)
 
 func TestProjectSupervisor_Start_CreatesLogDir(t *testing.T) {
 	projectDir := t.TempDir()
@@ -39,8 +37,9 @@ func TestProjectSupervisor_Start_CreatesLogDir(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	// Verify the project log dir was created.
-	logDir := filepath.Join(projectDir, ".graphit", "daemon")
+	// Verify the project log dir was created, inside the runtime directory — the
+	// one part of the brand directory the generated .gitignore covers.
+	logDir := brand.ProjectRuntimePath(projectDir, "daemon")
 	if _, err := os.Stat(logDir); os.IsNotExist(err) {
 		t.Error("expected daemon log dir to be created")
 	}
@@ -49,9 +48,7 @@ func TestProjectSupervisor_Start_CreatesLogDir(t *testing.T) {
 	<-doneCh
 }
 
-// ---------------------------------------------------------------------------
 // ProjectSupervisor — Start: logDir creation fail doesn't crash
-// ---------------------------------------------------------------------------
 
 func TestProjectSupervisor_Start_LogDirFailDoesNotCrash(t *testing.T) {
 	// Create a project dir where .graphit is a file, blocking MkdirAll.
@@ -83,10 +80,6 @@ func TestProjectSupervisor_Start_LogDirFailDoesNotCrash(t *testing.T) {
 	<-doneCh
 	// Test passes if no panic occurs.
 }
-
-// ---------------------------------------------------------------------------
-// supervise — stable module resets restart counter
-// ---------------------------------------------------------------------------
 
 func TestSupervise_StableModuleResetsRestarts(t *testing.T) {
 	projectDir := t.TempDir()
@@ -121,10 +114,6 @@ func TestSupervise_StableModuleResetsRestarts(t *testing.T) {
 		t.Error("expected at least 1 crash")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// supervise — backoff capping
-// ---------------------------------------------------------------------------
 
 func TestSupervise_BackoffIsCapped(t *testing.T) {
 	// Verify that the backoff calculation caps at maxBackoff.
@@ -164,10 +153,6 @@ func TestSupervise_BackoffIsCapped(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ProjectSupervisor — Stop idempotency
-// ---------------------------------------------------------------------------
-
 func TestProjectSupervisor_Stop_Idempotent(t *testing.T) {
 	ps := newProjectSupervisor("test", "/tmp", nil)
 	_, cancel := context.WithCancel(context.Background())
@@ -182,9 +167,7 @@ func TestProjectSupervisor_Stop_Idempotent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // ProjectSupervisor — projectLog with both file and global fn
-// ---------------------------------------------------------------------------
 
 func TestProjectSupervisor_ProjectLog_BothFileAndGlobal(t *testing.T) {
 	tmp := t.TempDir()
@@ -209,10 +192,6 @@ func TestProjectSupervisor_ProjectLog_BothFileAndGlobal(t *testing.T) {
 		t.Errorf("expected 1 global log line, got %d", len(globalLines))
 	}
 }
-
-// ---------------------------------------------------------------------------
-// ProjectSupervisor — AddCloser multiple closers
-// ---------------------------------------------------------------------------
 
 func TestProjectSupervisor_AddCloser_Multiple(t *testing.T) {
 	t.Parallel()

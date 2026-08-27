@@ -1,0 +1,112 @@
+package hub
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
+)
+
+// The mount is what makes "installing stops downloading" possible, so what these tests pin is the
+// URI it resolves to and the conditions under which it refuses to resolve at all.
+
+func TestMountedWikiURIPointsAtThePublishedIndex(t *testing.T) {
+	st, _ := newTestS3Store(t)
+
+	mount, ok := st.MountedWikiAt("acme-docs", "1.4.0", "acme")
+	if !ok {
+		t.Fatal("a configured store did not produce a mount")
+	}
+
+	// The URI must end at the index directory, not at the artifact root: the engine opens a
+	// dataset, and pointing it one level up makes it fail with a message about a missing manifest
+	// that names neither the artifact nor the reason.
+	if !strings.HasSuffix(mount.Config.URI, "/"+wiki.BundleDir) {
+		t.Errorf("the mount URI does not end at the index directory %q: %s",
+			wiki.BundleDir, mount.Config.URI)
+	}
+	if !strings.HasPrefix(mount.Config.URI, "s3://") {
+		t.Errorf("the mount URI is not an s3:// location: %s", mount.Config.URI)
+	}
+	// The version has to be IN the location. Two projects pinned to different versions of the
+	// same artifact read different objects, and a URI without the version would silently give
+	// both whatever was published last.
+	if !strings.Contains(mount.Config.URI, "1.4.0") {
+		t.Errorf("the mount URI does not carry the version: %s", mount.Config.URI)
+	}
+	if mount.Config.S3.Bucket == "" {
+		t.Error("the mount carries no bucket configuration, so the engine cannot reach it")
+	}
+}
+
+// The URI is DERIVED from the record, never stored, so it has to be reproducible. If it were not,
+// nothing would notice until a read failed against a location that had drifted.
+func TestMountedWikiURIIsStable(t *testing.T) {
+	st, _ := newTestS3Store(t)
+
+	first, ok1 := st.MountedWikiAt("acme-docs", "1.4.0", "acme")
+	second, ok2 := st.MountedWikiAt("acme-docs", "1.4.0", "acme")
+	if !ok1 || !ok2 {
+		t.Fatal("the mount did not resolve")
+	}
+	if first.Config.URI != second.Config.URI {
+		t.Errorf("the derived URI is not stable: %q then %q", first.Config.URI, second.Config.URI)
+	}
+}
+
+// A version is not optional. An artifact prefix without one is the shared root, and reading a
+// dataset from there would either fail or — worse — succeed against whatever else lives under it.
+func TestMountedWikiRefusesAnEmptyVersion(t *testing.T) {
+	st, _ := newTestS3Store(t)
+
+	if _, ok := st.MountedWikiAt("acme-docs", "", "acme"); ok {
+		t.Error("a mount resolved for an artifact with no version")
+	}
+}
+
+// An unconfigured store cannot mount anything, and saying otherwise would leave an install with no
+// bytes transferred and no location to read them from.
+func TestMountedWikiRefusesWhenTheHubIsNotConfigured(t *testing.T) {
+	var st *S3Store
+	if _, ok := st.MountedWikiAt("acme-docs", "1.4.0", "acme"); ok {
+		t.Error("a nil store produced a mount")
+	}
+
+	empty := &S3Store{}
+	if empty.Configured() {
+		t.Fatal("an empty store reports itself configured; this test proves nothing")
+	}
+	if _, ok := empty.MountedWikiAt("acme-docs", "1.4.0", "acme"); ok {
+		t.Error("an unconfigured store produced a mount")
+	}
+}
+
+// MountsKnowledge is the gate the install path consults, and it has to answer for BOTH conditions:
+// a bucket to read from and an engine that can read it. A build without the search engine linked
+// in must keep downloading — answering yes there installs a context with no bytes and no way to
+// open them.
+func TestMountsKnowledgeNeedsBothTheBucketAndTheEngine(t *testing.T) {
+	st, _ := newTestS3Store(t)
+
+	withStore := &RegistryManager{store: st}
+	withoutStore := &RegistryManager{}
+
+	if withoutStore.MountsKnowledge() {
+		t.Error("a manager with no store says it can mount")
+	}
+
+	// With a store, the answer follows the engine. Asserted against the same predicate the
+	// production code uses rather than a hardcoded expectation, because this test runs in both
+	// builds and the correct answer differs between them.
+	got := withStore.MountsKnowledge()
+	if got != lancestoreAvailableForTest() {
+		t.Errorf("MountsKnowledge = %v with a configured store, but the engine's availability "+
+			"is %v — the two must agree", got, lancestoreAvailableForTest())
+	}
+}
+
+// lancestoreAvailableForTest mirrors the production predicate, so the test above compares the gate
+// against the same fact rather than against a constant that would be wrong in one of the two
+// builds.
+func lancestoreAvailableForTest() bool { return lancestore.Available() }

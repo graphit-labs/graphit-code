@@ -1,156 +1,176 @@
----
-title: "Hub Collaboration Specification"
-description: "Technical specification of the Collaboration Hub module, registry managers, git store backends, and lockfiles."
-content-type: reference
-audience: developers
-keywords:
-  - hub
-  - registry
-  - git store
-  - lockfile
-  - artifacts
-prerequisites:
-  - "docs/architecture/architecture_overview.md"
-related:
-  - "docs/specs/memory_module.md"
-  - "docs/specs/daemon_module.md"
----
-
 # Hub Collaboration Specification
 
-The Hub module provides a decentralized registry for sharing developer environment rules, custom skills, background commands, and AI agent prompt configurations across team members.
+The Hub is the S3-backed registry used to share rules, skills, commands, agents,
+MCP definitions, language queries, AST graphs, and knowledge contexts. It also owns
+the bucket namespace used by project and user memories. No Git checkout or Hub
+repository is involved in the current persistence model.
 
----
+## Backend and configuration
 
-## 🗃️ Registry Management & Git Store
+The location is resolved from `hub.bucket`, `hub.region`, `hub.endpoint`, and
+`hub.prefix`. An empty bucket enables local-only behavior where supported. S3
+authentication uses a complete `hub.access_key_id` / `hub.secret_access_key` pair
+when one is configured; otherwise every consumer keeps using the AWS SDK provider
+chain.
 
-The Hub registry is backed by a standard, private or public **Git Repository** (defaulting to the URL configured during `graphit setup`).
-There are no dedicated database servers; adding, modifying, or removing a registry artifact is recorded as a standard Git transaction.
+AST publication also resolves `hub.icebug.reverse_edges` through the standard
+inline → environment → project → global → default chain. Its default is `true`, and
+only an explicit `false` disables it. The environment spelling is
+`GRAPHIT_HUB_ICEBUG_REVERSE_EDGES`. Because `ConfigMap` nests only the first dotted
+section, the project lockfile representation is:
 
-### Git Store Layout
-
-A typical Hub repository uses the following structure:
-
-```
-hub-repository/
-├── registry.json             # Registry index manifest
-├── languages/                # Language extraction query definitions (.yaml)
-├── frameworks/               # Framework detection definitions (.yaml)
-├── rules/                    # System rules templates
-│   ├── golang_conventions.md
-│   └── react_styling.md
-├── skills/                   # Custom agent skill sets
-│   ├── k8s-debugger/
-│   │   ├── SKILL.md
-│   │   └── scripts/
-│   └── pg-optimizer/
-├── agents/                   # Agent profile configurations
-├── commands/                 # Executable agent shortcuts
-├── knowledge/                # LLM Wiki documentation artifacts
-├── ast/                      # Code graph artifacts
-├── mcp-servers/              # IDE bridge MCP server configs
-└── powers/                   # Bundled multi-artifact packages
+```json
+{"config":{"hub":{"icebug.reverse_edges":"false"}}}
 ```
 
-### Artifact Operations
+The exact object prefixes, registry documents, publication ordering, and error
+contract are defined in [Hub S3 Object Layout](hub-s3-object-layout.md). Operator
+configuration and security guidance are in
+[S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md).
 
-`internal/hub/git_store.go` manages transactions:
-- **`Sync()`**: Pulls down the latest updates from the central repository and reconciles local catalogs.
-- **`Submit()`**: Stages local rules, commits them to the temporary workspace, and pushes modifications to the remote registry.
-- **`Install()`**: Links rules and skills from the registry into a project workspace, auto-updating local rules configs.
+## Registry and artifact operations
 
----
+The registry is a set of JSON objects below `registry/`; artifact payloads are
+stored below `artifacts/`. Operations use object-store semantics:
 
-## 🔒 Project Lockfile: `graphit.lock.json`
+- `Sync` refreshes the registry catalog and reconciles the project's installed
+  artifacts against `graphit.lock.json`.
+- `Submit` publishes a versioned payload first and writes its registry pointer
+  last, so a visible entry does not name incomplete data.
+- `Install` downloads file-based artifacts or mounts the immutable remote stores
+  used by AST and knowledge artifacts.
+- `Update` resolves newer registry versions and reapplies installation.
+- `Uninstall` removes the current project's claim and deletes shared local data
+  only when no project still references it.
 
-Every project managed by Graphit Code includes a `graphit.lock.json` file in the repository root.
-This lockfile tracks configuration overrides and locks artifact versions:
+S3 object writes replace the old commit/push/fetch workflow. Independent artifact
+versions use disjoint prefixes. Concurrent writes to the same registry entry are
+last-writer-wins; publication ordering prevents consumers from observing a pointer
+before its payload exists.
+
+## Where installed artifacts live
+
+| Type | Local placement | Claim |
+|---|---|---|
+| `rule`, `skill`, `command`, `agent`, `mcp` | IDE/project files | `graphit.lock.json` |
+| `knowledge` | global knowledge context store, once per machine | project lockfile and context registry |
+| `ast` | global Hub AST store, once per version | project lockfile |
+| `language` | global grammar query directory | project lockfile |
+
+AST and knowledge artifacts publish immutable remote graph/search data. The
+consumer creates only the local catalog needed to mount that data; it does not
+copy one full store per project. File-based artifacts are written into the target
+IDE/project and remain version-locked.
+
+Every AST relationship is exported as two independent Icebug CSR tables by default:
+`TYPE` contains exactly the directed graph, while `TYPE_REVERSE` contains the mirror
+of every non-self-loop edge with the same properties. Keeping them separate lets
+agent queries use the reverse adjacency for inbound or direction-agnostic traversal
+without making a directed `-[:TYPE]->` pattern invent edges. Reverse rows are derived
+and therefore do not increase the manifest's logical edge count.
+
+Every Icebug Parquet file contains exactly one row group. This is a correctness
+constraint, not a tuning default: the current reader can silently return incorrect
+bound-endpoint results on large graphs when a file has multiple row groups. The
+writer emits one Arrow record with one `Write` per file, and
+`TestIcebugWritesOneRowGroupPerFile` protects that container contract. Consequently,
+row-group pruning is intentionally unavailable; node-label filtering may scan the
+folded `Entity` file.
+
+AST artifacts are published in the CANONICAL icebug layout: one node table
+per label over its own columns and primary key, and one rel table per
+(type, from, to) pair declared over the real endpoints —
+`calls__function_function(FROM Function TO Function)` — plus optional
+`<member>_reverse` mirrors for inbound and undirected reachability.
+Self-loops live once, in the forward member CSR. The v2 `icebug.json`
+manifest maps each logical TYPE to its member tables, records the
+invariants (indptr single row group, self-loop policy), and travels
+beside schema.cypher; the installer stages it next to the mounted
+catalog so the backend adopts it at connect.
+
+On a canonical catalog every multi-hop query belongs to this project's
+planner, which resolves the logical TYPE against the manifest and runs
+UNBOUNDED breadth-first frontiers — termination comes from visited
+saturation and the caller's deadline, never a hop ceiling — expanding
+only members whose both endpoint tables carry `uid`. It answers
+`RETURN DISTINCT reached.prop [AS alias]` projections (materialized per
+uid when more than the uid itself is projected, because batched
+bound-node lookup is not reliable on large Parquet files) and
+`count([DISTINCT] reached.uid)` over the reached set. Anything richer
+fails CLOSED naming the plannable types. Bare single-hop patterns are
+exactly-one-hop traversals through the same mechanism. `X.uid = 'lit'`
+is rewritten to an IN list before anything else runs, because MEASURED
+equality against an icebug-disk primary key answers zero rows.
+
+The folded layout (one Entity table plus a label column) remains readable
+by the same backend when no v2 manifest is present, for bundles published
+before this change.
+`graphit hub link --type ast|knowledge <path>` records a sibling-project pointer
+instead of copying its compiled store. Reads resolve that sibling's global store
+from the source project identity.
+
+## Project lockfile
+
+Every initialized project carries `graphit.lock.json`. Its `project` section holds
+identity, `ides` lists adapters, `config` stores project-scoped layered values, and
+`artifacts` records installed versions and origins.
+
+Configuration values mirror dotted CLI names as one nested level and are strings:
 
 ```json
 {
-  "project": {
-    "id": "01JM6B7T3B...",
-    "name": "graphit-code",
-    "description": "Enterprise AI Harness"
-  },
-  "ides": ["cursor", "claude"],
+  "project": {"id": "01JM6B7T3B...", "name": "billing"},
+  "ides": ["codex"],
   "config": {
-    "ide": "cursor",
-    "docs_dir": "docs",
-    "modules": {
-      "ast": { "disabled": false }
+    "ui": {
+      "host": "127.0.0.1",
+      "allowed_origins": "http://localhost:8080"
     }
   },
   "artifacts": {
     "language": {
-      "elixir": {
-        "version": "1.0.0",
-        "origin": "hub"
-      }
-    },
-    "framework": {
-      "phoenix": {
-        "version": "1.0.0",
-        "origin": "hub"
-      }
-    },
-    "rules": {
-      "golang_conventions": {
-        "version": "1.4.2",
-        "installed_at": "2026-05-29T20:12:00Z"
-      }
+      "elixir": {"version": "1.0.0", "origin": "hub"}
     }
   }
 }
 ```
 
-### Reconcile Loop
+See [Configuration Module](config_module.md) for precedence and the full key list.
 
-On `graphit sync`, the engine reads the lockfile and executes a reconciliation loop:
-1. **Verification**: Compares installed artifacts against version locked entries.
-2. **Re-injection**: If rule blocks have been deleted from files like `.cursorrules`, the registry re-injects them inside the sentinel blocks.
-3. **IDE Sync**: Applies rulesets across all listed IDE targets (`ides` array).
-4. **Global Lock Registration**: Registers the project ULID and directory path under the global daemon registry, enabling cluster microservices discovery.
+## Reconciliation
 
----
+On `graphit sync`, the Hub:
 
-## 📦 Language and Framework Artifacts
+1. resolves the current S3 registry and installed versions;
+2. verifies payloads and re-installs missing or changed files;
+3. reinjects managed rule blocks into configured IDE targets;
+4. maintains project claims in the global lock; and
+5. refreshes team rule overrides from the bucket's `rules/` prefix.
 
-In addition to rules, skills, and commands, the Hub supports two artifact types dedicated to the AST module's language and framework detection pipeline.
+The team-wide `rules/<module>.md` and `rules/<module>_skill.md` objects form the Hub
+layer of the rule hierarchy. Project rules win over global CLI rules, which win
+over Hub rules, which win over compiled defaults.
 
-### Language Artifacts
+## Collaboration channels
 
-A **language** artifact packages extraction query YAML files (`.yaml`) that customize how entities are extracted from the built-in languages. These can override default extraction patterns, export strategies, context types, and other language configuration. Tree-sitter and ANTLR grammars are compiled natively into the binary and cannot be installed at runtime.
+There are two distribution channels:
 
-Content structure:
+- The artifact channel (`hub submit` / `hub install`) publishes a named,
+  versioned, discoverable artifact.
+- The project-identity channel (`knowledge export` / `knowledge install`) publishes
+  the project's compiled documentation context and synchronizes the matching
+  memory scope by project ID.
 
-```
-languages/
-└── go-custom/
-    └── go.yaml                   # Custom extraction queries, export strategy, context types
-```
+Memory is mutable and multi-writer, so it is not a versioned Hub artifact. It uses
+the bucket's `memory/<scope>/<id>/` namespace and the merge/publish semantics in
+[Memory Module](memory_module.md).
 
-When installed, the query YAML is placed into `<project>/.graphit/ast/queries/`. The engine discovers it on the next `graphit sync` without recompilation.
+## Security and failure behavior
 
-### Framework Artifacts
-
-A **framework** artifact packages a framework detection YAML file defining decorator, heritage, and import detection rules for a framework not included in the built-in defaults.
-
-Content structure:
-
-```
-frameworks/
-└── phoenix/
-    └── phoenix.yaml              # Decorator, heritage, and import detection rules
-```
-
-When installed, the YAML file is placed into `<project>/.graphit/ast/frameworks/`. Detection rules merge with built-in defaults on the next `graphit sync`.
-
----
-
-## 📐 Hub-Based Rule Overrides
-
-The `main` branch of the Hub Git repository also serves as a **team-wide rule distribution** mechanism. When global rule files (e.g., `ast.md`, `improvements.md`, `memory.md`) are committed to the `main` branch of the Hub Git repository, they act as implicit overrides for all team members — distributed via git pull and applied automatically across all modules without requiring explicit installation.
-
-This is part of the **multi-layer rule override system**. The `main` branch of the Hub Git repository sits at the third priority level, below project-level and global CLI overrides, but above the compiled-in defaults. For the complete specification of the override hierarchy, placeholder substitution, and CLI commands, see [docs/specs/rule_override.md](docs/specs/rule_override.md).
-
+- Bucket policy and endpoint/network controls are the authorization boundary.
+- Explicit Graphit credentials are optional and stored globally as plain text in
+  an owner-only file; provider-chain roles are preferred.
+- A missing object is normally first-run state. A registry entry whose payload is
+  missing is a hard integrity error.
+- A missing bucket leaves memory local-only and disables remote Hub operations;
+  it is not interpreted as a Git fallback.

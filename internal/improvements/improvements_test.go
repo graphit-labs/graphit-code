@@ -158,7 +158,6 @@ func TestGetwdErrorBranches(t *testing.T) {
 	}
 }
 
-
 func TestImprovementsRuleUsesMCPNotCLI(t *testing.T) {
 	content := ImprovementsRuleContent()
 

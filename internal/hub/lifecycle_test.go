@@ -1,7 +1,6 @@
 package hub
 
 import (
-	"os"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/paths"
@@ -102,50 +101,4 @@ func TestGetIDEAdapter(t *testing.T) {
 			t.Error("expected non-nil adapter")
 		}
 	})
-}
-
-func TestHubAppService_ResolveIDE(t *testing.T) {
-	t.Parallel()
-	svc := NewHubAppService("/tmp")
-
-	t.Run("with input", func(t *testing.T) {
-		t.Parallel()
-		result := svc.ResolveIDE("vscode")
-		if result != "vscode" {
-			t.Errorf("expected 'vscode', got %q", result)
-		}
-	})
-
-	t.Run("empty input with env", func(t *testing.T) {
-		// Not parallel because we modify env
-		old := os.Getenv("GRAPHIT_IDE")
-		os.Setenv("GRAPHIT_IDE", "cursor")
-		defer os.Setenv("GRAPHIT_IDE", old)
-
-		result := svc.ResolveIDE("")
-		// May return "cursor" or "claude" depending on the brand env var name
-		if result == "" {
-			t.Error("expected non-empty IDE")
-		}
-	})
-
-	t.Run("empty input no env", func(t *testing.T) {
-		t.Parallel()
-		result := svc.ResolveIDE("")
-		// Should default to "claude" or get from env
-		if result == "" {
-			t.Error("expected non-empty IDE")
-		}
-	})
-}
-
-func TestNewHubAppService(t *testing.T) {
-	t.Parallel()
-	svc := NewHubAppService("/tmp/test")
-	if svc == nil {
-		t.Fatal("expected non-nil service")
-	}
-	if svc.projectDir != "/tmp/test" {
-		t.Errorf("expected '/tmp/test', got %q", svc.projectDir)
-	}
 }

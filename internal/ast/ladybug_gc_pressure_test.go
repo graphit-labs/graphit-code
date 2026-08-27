@@ -42,7 +42,7 @@ import (
 // Building with GOEXPERIMENT=cgocheck2 makes the same test check every pointer
 // crossing into C, which would name the offending call directly:
 //
-//	GOEXPERIMENT=cgocheck2 go test -tags fts5 -run TestLadybugStringIntegrityUnderGCPressure ./internal/ast/
+//	GOEXPERIMENT=cgocheck2 go test -tags lancedb -run TestLadybugStringIntegrityUnderGCPressure ./internal/ast/
 func TestLadybugStringIntegrityUnderGCPressure(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hammers the allocator while writing to disk")

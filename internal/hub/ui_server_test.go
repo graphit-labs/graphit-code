@@ -178,7 +178,6 @@ func TestExtractZip(t *testing.T) {
 
 		var buf bytes.Buffer
 		w := zip.NewWriter(&buf)
-		// Create directory entry with proper permissions
 		dh := &zip.FileHeader{Name: "dir/"}
 		dh.SetMode(0o755 | os.ModeDir)
 		_, _ = w.CreateHeader(dh)
@@ -276,6 +275,42 @@ func TestCorsWrap(t *testing.T) {
 			t.Error("expected CORS origin header for same-origin")
 		}
 	})
+}
+
+func TestCorsWrapWithAllowedOriginsReplacesTheLocalhostDefault(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	for _, tc := range []struct {
+		origin string
+		want   string
+	}{
+		{"https://ui.example.test", "https://ui.example.test"},
+		{"http://localhost:3000", ""},
+		{"https://evil.example.test", ""},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		req.Header.Set("Origin", tc.origin)
+		w := httptest.NewRecorder()
+		CorsWrapWithAllowedOrigins(handler, []string{"https://ui.example.test"}).ServeHTTP(w, req)
+		if got := w.Header().Get("Access-Control-Allow-Origin"); got != tc.want {
+			t.Errorf("origin %q reflected as %q; want %q", tc.origin, got, tc.want)
+		}
+	}
+}
+
+func TestCorsWrapWithExplicitWildcardAllowsAnyOrigin(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("Origin", "https://ui.example.test")
+	w := httptest.NewRecorder()
+	CorsWrapWithAllowedOrigins(handler, []string{"*"}).ServeHTTP(w, req)
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "https://ui.example.test" {
+		t.Fatalf("wildcard reflected %q", got)
+	}
 }
 
 func TestUIServer_resolveProjectDir(t *testing.T) {

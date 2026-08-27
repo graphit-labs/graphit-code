@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	"github.com/graphit-labs/graphit-code/internal/store"
+	"github.com/graphit-labs/graphit-code/internal/sysutil"
 )
 
 const (
@@ -27,6 +30,7 @@ const (
 type SyncModule struct {
 	projectDir string
 	cacheDir   string
+	onActivity func()
 }
 
 func NewSyncModule(projectDir, cacheDir string) *SyncModule {
@@ -34,6 +38,11 @@ func NewSyncModule(projectDir, cacheDir string) *SyncModule {
 }
 
 func (m *SyncModule) Name() string { return "sync" }
+
+// SetActivityCallback implements ActivityReporter. cb is invoked whenever a
+// batch of filesystem events arrives, even if nothing in it is reindexable —
+// any change under the watched tree counts as the project being worked on.
+func (m *SyncModule) SetActivityCallback(cb func()) { m.onActivity = cb }
 
 func (m *SyncModule) Start(ctx context.Context) error {
 	// Filesystem notifications replace the previous `git status` poll: the poll
@@ -82,6 +91,9 @@ func (m *SyncModule) Start(ctx context.Context) error {
 			if !ok {
 				return ctx.Err()
 			}
+			if m.onActivity != nil {
+				m.onActivity()
+			}
 			m.handleBatch(ctx, batch, astIgnore, wikiIgnore)
 		}
 	}
@@ -114,8 +126,10 @@ func (u ignoreUnion) ShouldDescend(dirRelPath string) bool {
 }
 
 // batchTargets names the indexers a batch has to reach. The two are
-// independent, not alternatives: .md, .yaml, .json and .xml are indexed by both
-// the AST pipeline and the knowledge wiki, so one path can set both.
+// independent, not alternatives: .yaml, .json, .xml and .proto are indexed by
+// both the AST pipeline and the knowledge wiki, so one path can set both.
+// Markdown is not among them — no shipped query file claims .md, so a document
+// reaches the wiki and nothing else.
 type batchTargets struct {
 	astChanged []string
 	astRemoved []string
@@ -125,17 +139,27 @@ type batchTargets struct {
 // classifyBatch routes each path in a batch to the indexers that own it.
 //
 // AST ownership follows the extension and nothing else, which is exactly how a
-// full pipeline scan decides it: a scan indexes docs/guia.md, so an incremental
-// update of that same file has to as well, or full and incremental runs
-// disagree about what is in the index.
+// full pipeline scan decides it: a scan indexes docs/schema.proto, so an
+// incremental update of that same file has to as well, or full and incremental
+// runs disagree about what is in the index.
 //
-// Knowledge ownership needs the path to be under the docs directory *and* to
-// carry an extension the wiki indexes. Location on its own cannot decide it —
-// knowledge.docs_dir defaults to ".", which makes every file in the project
-// "under docs".
+// Knowledge ownership needs the path to be under the docs directory — or to be
+// one of the documents the scope names explicitly, which is how the root README
+// reaches the wiki when docs_dir is docs/ — *and* to carry an extension the wiki
+// indexes. Location on its own cannot decide it: knowledge.docs_dir can be set to
+// ".", which makes every file in the project "under docs".
 func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeExts map[string]bool,
-	astIgnore, wikiIgnore fswatch.Ignorer) batchTargets {
+	astIgnore, wikiIgnore fswatch.Ignorer, extraDocs []string) batchTargets {
 	var t batchTargets
+
+	isExtraDoc := func(slashRel string) bool {
+		for _, extra := range extraDocs {
+			if filepath.ToSlash(extra) == slashRel {
+				return true
+			}
+		}
+		return false
+	}
 
 	classify := func(paths []string, removed bool) {
 		for _, p := range paths {
@@ -149,7 +173,7 @@ func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeEx
 			// Each consumer applies its own ignore file. The watch is the union
 			// of what they want, so a path can arrive that only one of them
 			// claims.
-			if knowledgeExts[ext] && isUnder(p, docsPath) &&
+			if knowledgeExts[ext] && (isUnder(p, docsPath) || isExtraDoc(slashRel)) &&
 				!ignores(wikiIgnore, slashRel) {
 				t.knowledge = true
 			}
@@ -181,23 +205,52 @@ func (m *SyncModule) handleBatch(ctx context.Context, batch fswatch.Batch,
 	astIgnore, wikiIgnore fswatch.Ignorer) {
 	projectCfg := loadProjectConfigFromDir(m.projectDir)
 
-	docsPath := filepath.Join(m.projectDir, config.ResolveDocsDir(nil, projectCfg))
+	scope := knowledge.ScopeFor(m.projectDir, nil, projectCfg)
+	docsPath := filepath.Join(m.projectDir, scope.Subdir)
 	targets := classifyBatch(batch, m.projectDir, docsPath,
-		config.ResolveKnowledgeExtensions(nil, projectCfg), astIgnore, wikiIgnore)
+		config.ResolveKnowledgeExtensions(nil, projectCfg), astIgnore, wikiIgnore, scope.ExtraFiles)
 
-	if !config.IsModuleDisabled("ast", nil, projectCfg) {
-		switch {
-		case batch.Rescan:
-			// Events were dropped by the kernel; only a full scan restores a
-			// consistent picture.
+	// Events dropped by the kernel leave the index inconsistent with the tree, and
+	// only a full scan restores the picture — so a rescan is work for both indexers
+	// no matter what the batch happens to name.
+	astWork := !config.IsModuleDisabled("ast", nil, projectCfg) &&
+		(batch.Rescan || len(targets.astChanged) > 0 || len(targets.astRemoved) > 0)
+	knowledgeWork := (targets.knowledge || batch.Rescan) &&
+		!config.IsModuleDisabled("knowledge", nil, projectCfg)
+	if !astWork && !knowledgeWork {
+		return
+	}
+
+	// Both reindexers size their pools from the shared CPU budget, which is a budget
+	// for one pipeline — and this process runs one supervisor per active project, so
+	// without the gate N active projects claimed N times the machine. The slot is
+	// taken once for the whole batch rather than once per reindexer: a batch that
+	// touches code and docs should not go back to the end of the queue halfway
+	// through work it already holds a slot to do.
+	askedAt := time.Now()
+	release, err := sysutil.AcquireHeavy(ctx)
+	if err != nil {
+		// Shutting down or being parked. The next batch redoes this, and a rescan
+		// is what a restarted watcher issues anyway.
+		return
+	}
+	defer release()
+
+	if waited := time.Since(askedAt); waited > time.Second {
+		slog.Info("daemon: waited for the indexing slot",
+			"project", m.projectDir, "waited", waited.Round(time.Millisecond))
+	}
+
+	if astWork {
+		if batch.Rescan {
 			slog.Warn("daemon: watcher lost events, running a full AST scan", "project", m.projectDir)
 			m.reindexAST(ctx, projectCfg, nil, nil)
-		case len(targets.astChanged) > 0 || len(targets.astRemoved) > 0:
+		} else {
 			m.reindexAST(ctx, projectCfg, targets.astChanged, targets.astRemoved)
 		}
 	}
 
-	if (targets.knowledge || batch.Rescan) && !config.IsModuleDisabled("knowledge", nil, projectCfg) {
+	if knowledgeWork {
 		m.reindexKnowledge(ctx, projectCfg)
 	}
 }
@@ -245,21 +298,19 @@ func isUnder(path, dir string) bool {
 // pipeline skips discovery and touches only those paths; passing nil for both
 // runs a full scan.
 func (m *SyncModule) reindexAST(ctx context.Context, projectCfg config.ConfigMap, changed, removed []string) {
-	cfg := ast.LadybugConfig{
-		DBPath: filepath.Join(m.projectDir, brand.DotDir(), "ast", "project", "ladybugdb"),
-	}
+	cfg := ast.LadybugConfigFor(m.projectDir)
 	db := ast.NewLadybugDB(cfg)
 	defer func() { _ = db.Close() }()
 
-	if err := ast.CreateGraphSchema(ctx, db); err != nil {
-		slog.Error("daemon: failed to create graph schema", "path", cfg.DBPath, "error", err)
-	}
+	rebuildLog, closeLog := projectRebuildLogger(m.projectDir)
+	defer closeLog()
 
 	pipeOpts := ast.PipelineOptions{
 		Workers:          ast.SafeWorkers(0),
 		IndexSource:      config.ResolveIndexSource(nil, projectCfg),
 		CacheDir:         filepath.Dir(cfg.DBPath),
 		GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
+		Logger:           rebuildLog,
 	}
 	var perr error
 	if len(changed) > 0 || len(removed) > 0 {
@@ -273,14 +324,43 @@ func (m *SyncModule) reindexAST(ctx context.Context, projectCfg config.ConfigMap
 }
 
 func (m *SyncModule) reindexKnowledge(ctx context.Context, projectCfg config.ConfigMap) {
-	docsDir := config.ResolveDocsDir(nil, projectCfg)
-	docsPath := filepath.Join(m.projectDir, docsDir)
+	scope := knowledge.ScopeFor(m.projectDir, nil, projectCfg)
 
-	if _, err := os.Stat(docsPath); err != nil {
+	// Nothing to index is not the same as an empty docs tree: a project can have
+	// no docs/ yet and still have a README, which the wiki carries. Bail only when
+	// neither exists, so the pipeline is not run to discover that.
+	if _, err := os.Stat(filepath.Join(m.projectDir, scope.Subdir)); err != nil && len(scope.ExtraFiles) == 0 {
 		return
 	}
 
-	wikiDir := filepath.Join(m.projectDir, brand.DotDir(), "knowledge", "project")
-	kCfg := knowledge.IndexConfig{UseLouvain: false}
-	_, _ = knowledge.RunIndexPipeline(ctx, docsPath, wikiDir, kCfg)
+	wikiDir := store.KnowledgeProjectDir(m.projectDir)
+	kCfg := knowledge.IndexConfig{UseLouvain: false, ProjectCfg: projectCfg, Scope: scope}
+	_, _ = knowledge.RunIndexPipeline(ctx, m.projectDir, wikiDir, kCfg)
+}
+
+// projectRebuildLogger writes to the project's own daemon.log, the file the supervisor
+// already appends its lifecycle lines to.
+//
+// Without it PipelineOptions.Logger stayed nil, and slogutil.Resolve(nil) returns a NOP
+// handler that DISCARDS every record. That is why a rebuild that failed its File COPY —
+// leaving a graph with no File nodes and no source for any path — left no trace
+// anywhere: the error was logged to a logger that threw it away. The lifecycle lines in
+// daemon.log came from the supervisor, not from the pipeline, which is what made the log
+// look like it was working.
+//
+// Returns a NOP logger and a no-op closer when the file cannot be opened: losing logs is
+// not a reason to skip the reindex.
+func projectRebuildLogger(projectDir string) (*slog.Logger, func()) {
+	dir := brand.ProjectRuntimePath(projectDir, "daemon")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return slog.New(slog.NewTextHandler(io.Discard, nil)), func() {}
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "daemon.log"),
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return slog.New(slog.NewTextHandler(io.Discard, nil)), func() {}
+	}
+	logger := slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelInfo})).
+		With("module", "ast")
+	return logger, func() { _ = f.Close() }
 }

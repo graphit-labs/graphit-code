@@ -1,8 +1,10 @@
 package commands
 
 import (
+	"os"
+
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/spf13/cobra"
 )
 
@@ -61,8 +63,15 @@ func newKnowledgeIndexCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "index [path]",
-		Short: "Index docs/ into the knowledge graph and regenerate the wiki",
-		Long: `Scan docs/ and build a persistent knowledge graph wiki.
+		Short: "Index the docs tree into the knowledge graph and regenerate the wiki",
+		Long: `Scan the documentation tree and build a persistent knowledge graph wiki.
+
+Without a path, this indexes knowledge.docs_dir (default: docs/) plus the
+project's root README. Override the tree with --config knowledge.docs_dir=<dir>,
+and drop the README with --config knowledge.include_readme=false.
+
+Passing a path indexes that directory wholesale instead, README rule included or
+not — it is an explicit request, so it is taken literally.
 
 Project flags (--reset, --louvain) apply to the local project index.
 Use --context <name> to re-index a specific imported context.
@@ -70,14 +79,19 @@ Use --context <name> to re-index a specific imported context.
 Examples:
   ` + brand.BinName() + ` knowledge index
   ` + brand.BinName() + ` knowledge index --reset --louvain
+  ` + brand.BinName() + ` knowledge index documentation/
   ` + brand.BinName() + ` knowledge index --context team-platform`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := config.ResolveDocsDir(parseInlineConfig(cmd), loadProjectConfig())
 			if len(args) > 0 {
-				path = args[0]
+				return runKnowledgeIndex(args[0], knowledge.WikiScope{}, workers, reset, useLouvain)
 			}
-			return runKnowledgeIndex(path, workers, reset, useLouvain)
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			scope := knowledge.ScopeFor(wd, parseInlineConfig(cmd), loadProjectConfig())
+			return runKnowledgeIndex(wd, scope, workers, reset, useLouvain)
 		},
 	}
 	cmd.Flags().BoolVar(&reset, "reset", false, "Clear graph and re-index from scratch (project only)")
@@ -216,22 +230,30 @@ func newKnowledgeWatchCmd() *cobra.Command {
 	var useLouvain bool
 	cmd := &cobra.Command{
 		Use:   "watch [path]",
-		Short: "Watch docs/ for changes and re-index + regenerate wiki incrementally",
-		Long: `Watch a directory for file changes and incrementally re-index modified files,
-then regenerate the knowledge wiki. Delegates to the wiki engine's watch mode.
+		Short: "Watch the docs tree for changes and re-index + regenerate wiki incrementally",
+		Long: `Watch for file changes and incrementally re-index modified files, then
+regenerate the knowledge wiki. Delegates to the wiki engine's watch mode.
+
+Without a path, this watches the project and rebuilds from knowledge.docs_dir
+(default: docs/) plus the root README. Passing a path watches and indexes that
+directory wholesale.
 
 Only project scope is supported for watch (not imported contexts).
 
 Examples:
   ` + brand.BinName() + ` knowledge watch
-  ` + brand.BinName() + ` knowledge watch docs/ --louvain`,
+  ` + brand.BinName() + ` knowledge watch documentation/ --louvain`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := config.ResolveDocsDir(parseInlineConfig(cmd), loadProjectConfig())
 			if len(args) > 0 {
-				path = args[0]
+				return runKnowledgeWatch(args[0], knowledge.WikiScope{}, useLouvain)
 			}
-			return runKnowledgeWatch(path, useLouvain)
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			scope := knowledge.ScopeFor(wd, parseInlineConfig(cmd), loadProjectConfig())
+			return runKnowledgeWatch(wd, scope, useLouvain)
 		},
 	}
 	cmd.Flags().BoolVar(&useLouvain, "louvain", false, "Use Louvain community detection on wiki regeneration")

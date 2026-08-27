@@ -16,7 +16,6 @@ function WikiContextCard({
 }) {
   const isProject = module.context === 'project' || module.context === 'user'
   const gradient = isProject ? "from-emerald-500 to-teal-500" : "from-blue-500 to-cyan-500"
-  const iconColor = isProject ? "text-emerald-500" : "text-blue-500"
 
   return (
     <div className="glass-panel rounded-2xl p-5 flex flex-col gap-4 relative overflow-hidden group transition-all duration-300 hover:border-primary/45 hover:shadow-xl hover:-translate-y-0.5">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useAppStore } from '@/store/appStore'
 import { hubApi, type GlobalProject } from '@/api/hub'
 import {
@@ -48,7 +48,7 @@ export default function EcosystemDashboard() {
     if (!silent) setLoading(true)
     try {
       await loadProjects()
-    } catch (err) {
+    } catch {
       showToast('Failed to refresh projects list', 'error')
     } finally {
       if (!silent) setLoading(false)
@@ -85,7 +85,7 @@ export default function EcosystemDashboard() {
       } else {
         showToast(res.error || 'Failed to unregister project', 'error')
       }
-    } catch (err) {
+    } catch {
       showToast('Error unregistering project', 'error')
     } finally {
       setLoading(false)
@@ -114,7 +114,7 @@ export default function EcosystemDashboard() {
       } else {
         showToast(res.error || 'Failed to add cluster label', 'error')
       }
-    } catch (err) {
+    } catch {
       showToast('Error adding cluster label', 'error')
     }
   }
@@ -132,7 +132,7 @@ export default function EcosystemDashboard() {
       } else {
         showToast(res.error || 'Failed to remove cluster label', 'error')
       }
-    } catch (err) {
+    } catch {
       showToast('Error removing cluster label', 'error')
     }
   }

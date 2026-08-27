@@ -38,11 +38,14 @@ Graphit uses two parsing backends — **Tree-sitter** and **ANTLR v4** — to su
 
 Both YAML query files and grammar binaries use the same priority:
 
+Portuguese:
 | Priority | YAML Queries | TS Grammars | ANTLR Grammars |
-|:---|:---|:---|:---|
-| 1. Projeto | `.graphit/ast/queries/` | `.graphit/grammars/treesitter/` | `.graphit/grammars/antlr/` |
+| --- | :--- | :--- | :--- |
+| 1. Project | `.graphit/ast/queries/` | `.graphit/grammars/treesitter/` | `.graphit/grammars/antlr/` |
 | 2. Global | `~/.graphit/ast/queries/` | `~/.graphit/grammars/treesitter/` | `~/.graphit/grammars/antlr/` |
 | 3. Runtime | `~/.graphit/runtime/<v>/ast/queries/` | `~/.graphit/runtime/<v>/grammars/treesitter/` | `~/.graphit/runtime/<v>/grammars/antlr/` |
+
+English:
 
 ---
 
@@ -50,29 +53,42 @@ Both YAML query files and grammar binaries use the same priority:
 
 ### `make grammars`
 
-Compila todas as 42 gramáticas (37 tree-sitter + 5 ANTLR).
+Compile all 42 grammars (37 Tree-Sitter + 5 ANTLR).
 
 ### `make grammars-treesitter`
 
-Compila as 37 gramáticas tree-sitter como shared libraries (`.so`).
+Compile the 37 grammars into shared libraries (__INLINE_11__).
 
-Saída: `.build/grammars/treesitter/tree-sitter-<lang>.so`
+Output: __INLINE__ 12___
 
-As gramáticas estão organizadas em 3 categorias:
+The grammars are organized into three categories:
 
-| Categoria | Fonte | Variáveis |
-|:---|:---|:---|
-| **A: smacker** | `go-tree-sitter` module (27 langs) | `TS_GRAMMARS_SMACKER_*` |
-| **B: External** | Go modules separados (6 langs) | `TS_GRAMMARS_EXTERNAL` |
-| **C: Local** | `internal/ast/treesitter/<lang>/` (4 langs) | `TS_GRAMMARS_LOCAL` |
+Portuguese:
+| Category | Source | Variables |
+| :--- | :--- | :--- |
+| **A: smacker** | Inline 13 module (27 languages) | Inline 14 |
+| **B: External** | Go modules separated (6 languages) | Inline 15 |
+| **C: Local** | `internal/ast/treesitter/<lang>/` (4 languages) | `TS_GRAMMARS_LOCAL` |
+
+English:
+A: smacker
+- Inline 13 module (27 languages)
+- Inline 14
+
+B: External
+- Go modules separated (6 languages)
+
+C: Local
+- `internal/ast/treesitter/<lang>/` (4 languages)
+- `TS_GRAMMARS_LOCAL`
 
 ### `make grammars-antlr`
 
-Compila os 5 sidecars ANTLR como binários Go standalone.
+Compile the five Sidecars of ANTLR into standalone Go binaries.
 
-Saída: `.build/grammars/antlr/antlr-sidecar-<grammar>`
+Output: _INLINE_ 19___
 
-Cada sidecar inclui apenas UMA gramática, selecionada por build tag (`grammar_<name>`).
+Each sidecar includes only ONE grammar, selected by build tag (__INLINE_20__).
 
 ### `make grammars-clean`
 
@@ -84,73 +100,73 @@ Remove `.build/grammars/`.
 
 O artifact type `language` no Hub distribui **YAML + .grammar** juntos.
 
-### Estrutura de um language artifact no Hub
+Structure of a Language Artifact in a Hub
 
 ```
 artifact/languages/<project-id>/<lang-name>/<version>/
-  plsql.yaml              # Definição de queries
-  antlr-plsql.grammar     # Fat archive com binários cross-platform
+PlSQL.yaml # Definition of Queries
+ANTLR-PL/SQL. Grammar - Fat Archive with Cross-Platform Binaries
 ```
 
-### Fluxo de Install
+Flow of Installation
 
 ```bash
 graphit hub install plsql-lang
 ```
 
-1. Hub baixa o artifact (YAML + .grammar)
-2. `plsql.yaml` → `<project>/.graphit/ast/queries/plsql.yaml`
-3. `antlr-plsql.grammar` → extrai binário da plataforma atual → `<project>/.graphit/grammars/antlr/antlr-sidecar-plsql`
-4. DynGrammarLoader/SidecarDriver encontram diretamente — sem cache
+1. Hub downloads the artifact (YAML + .grammar)
+2. Inline 24 → Inline 25
+3. Inline 26 → extracts binary from the current platform → Inline 27
+4. DynGrammarLoader/SidecarDriver find directly — without cache
 
-### Fluxo de Uninstall
+Uninstallation Flow
 
 ```bash
 graphit hub uninstall plsql-lang
 ```
 
-1. Remove `plsql.yaml` de `<project>/.graphit/ast/queries/`
-2. Remove `antlr-sidecar-plsql` de `<project>/.graphit/grammars/antlr/`
+Remove 28 from INLINE_29
+Remove 30 from INLINE_31
 
-### Código
+Code
 
-- Install: `internal/hub/service.go` — `case TypeLanguage`
-- Extração: `internal/hub/grammar_install.go` — `installGrammarArchive()`
-- Uninstall: `internal/hub/service.go` — `preUninstallHook()` + `uninstallGrammarFiles()`
+Install: __inline 32__ — __inline 33__
+Extraction: __inline 34__ — __inline 35__
+Uninstallation: __inline 36__ — __inline 37__ + __inline 38__
 
 ---
 
 ## Launcher (Defaults)
 
-O launcher embute apenas **~16 gramáticas tree-sitter** mais comuns como defaults. ANTLR não é default — instala via Hub.
+The launcher embeds only **about 16 grammatical Tree-Sitter rules by default**. ANTLR is not the default; it must be installed through the Hub.
 
 ### Defaults embutidos
 
-Definidos em `DEFAULT_TS_GRAMMARS` no Makefile:
+Defined in `DEFAULT_TS_GRAMMARS` of the Makefile:
 
 ```
 golang python javascript typescript tsx java kotlin
 rust csharp cpp c ruby php swift dart sql
 ```
 
-### Como funciona
+How it works
 
-1. `make build-linux` chama `$(call bundle_grammars)` que copia os `.so` defaults de `.build/grammars/treesitter/` para `cmd/launcher/runtime/grammars/treesitter/`
-2. Go `embed.FS` inclui tudo em `cmd/launcher/runtime/`
-3. Na primeira execução, `extractRuntime()` extrai para `~/.graphit/runtime/<version>/grammars/treesitter/`
-4. `DynGrammarLoader.searchDirs()` encontra os `.so` no runtime dir
+1. The `make build-linux` INLINE_41___ class calls the `.so` DEFAULTS of the `.build/grammars/treesitter/` class to the `cmd/launcher/runtime/grammars/treesitter/` class.
+2. Go `embed.FS` includes everything in `cmd/launcher/runtime/`.
+3. In the first execution, `extractRuntime()` extracts to `~/.graphit/runtime/<version>/grammars/treesitter/`.
+4. `DynGrammarLoader.searchDirs()` finds the `.so` at runtime dir
 
 ---
 
 ## .grammar Archive Format (GRMT v1)
 
-Fat archive binário cross-platform com compressão zstd.
+Binary fat archive with platform-independent compression using ZSTD.
 
 ```
 Header (16 bytes):
   Magic:    "GRMT" (4 bytes)
   Version:  uint32 LE (1)
-  Count:    uint32 LE (número de plataformas)
+Count:   uint32 LE (number of platforms)
   Reserved: uint32 LE
 
 Entry Table (120 bytes × count):
@@ -165,7 +181,7 @@ Data Section:
   [zstd-compressed binary data for each platform]
 ```
 
-### Código
+Code
 
 - Read/Write: `internal/ast/grammar_archive.go`
 - Hub extraction: `internal/hub/grammar_install.go`
@@ -176,7 +192,7 @@ Data Section:
 
 ### Tree-sitter: `DynGrammarLoader`
 
-Usa CGO `dlopen`/`dlsym` para carregar `.so` dinâmicos.
+Use CGO _INLINE_54/_INLINE_55 to load _INLINE_56 dynamically.
 
 ```go
 loader := ast.NewDynGrammarLoader()
@@ -184,22 +200,22 @@ lang, err := loader.Load("go")  // busca tree-sitter-golang.so nos search dirs
 parser.SetLanguage(lang)
 ```
 
-- Busca candidatos: `tree-sitter-<lang>-<os>-<arch>.so`, `tree-sitter-<lang>-<os>.so`, `tree-sitter-<lang>.so`
-- Cache em `sync.Map` — zero allocations após primeiro load
-- Código: `internal/ast/treesitter_dynload.go`
+Search for candidates: `tree-sitter-<lang>-<os>-<arch>.so`, `tree-sitter-<lang>-<os>.so`, `tree-sitter-<lang>.so`
+Cache in `sync.Map` — no allocations after the first load
+Code: `internal/ast/treesitter_dynload.go`
 
 ### ANTLR: `SidecarDriver`
 
-Usa subprocessos (IPC via stdin/stdout com protocol buffers).
+Use subprocesses (via IPC through stdin/stdout with Protocol Buffers).
 
 ```go
 driver := ast.NewSidecarDriver("antlr-sidecar-plsql")
 tree, err := driver.Parse(source)
 ```
 
-- Pool de processos reutilizáveis
-- Isolamento de memória (gramáticas ANTLR são pesadas)
-- Código: `internal/ast/antlr_sidecar.go`, `internal/ast/antlr_adapter.go`
+Pool of reusable processes
+Isolation of memory (ANTLR grammars are heavy)
+Code: `internal/ast/antlr_sidecar.go`, `internal/ast/antlr_adapter.go`
 
 ---
 
@@ -207,28 +223,24 @@ tree, err := driver.Parse(source)
 
 ### Tree-sitter (CGO dlopen vs Native)
 
-| Métrica | Native CGO | dlopen SharedLib | Overhead |
-|:---|---:|---:|:---|
-| Parse ~1KB Go | 26,387 ns | 30,223 ns | +14% |
-| Grammar lookup | 46 ns | 14 ns | 3x mais rápido |
-| Allocations | 6 allocs | 6 allocs | Idêntico |
+Parse ~1KB Go: 26,387 ns; Grammar lookup: 46 ns; Overhead: +14%.
+
+Grammar lookup: 14 ns; Allocations: 6 allocs; Identical.
 
 ### ANTLR (Sidecar pooled vs In-process)
 
-| Métrica | In-process | Sidecar pooled | Melhoria |
-|:---|---:|---:|:---|
-| Parse PL/SQL | 1.44ms | 232μs | 6.2x mais rápido |
-| Allocations | 54 allocs | 6 allocs | 8.9x menos |
+Parse PL/SQL: 1.44 milliseconds, 232 microseconds faster.
+Allocations: 54 allocations, 6 fewer allocations.
 
 ---
 
-## Como Adicionar uma Nova Gramática
+How to Add a New Grammar
 
 ### Tree-sitter — smacker/go-tree-sitter
 
-Se a gramática já está no módulo `smacker/go-tree-sitter`:
+If grammar is already in module `smacker/go-tree-sitter`:
 
-1. Adicionar à variável correta no `Makefile`:
+Add to the correct variable in __INLINE__ 66:
 
 ```makefile
 # Sem scanner ou scanner.c simples:
@@ -241,12 +253,12 @@ TS_GRAMMARS_SMACKER_ALLOC := ... nova_lang
 TS_GRAMMARS_SMACKER_CXX := ... nova_lang
 ```
 
-2. Criar `internal/ast/queries/nova_lang.yaml` com queries Tree-sitter S-expression
-3. Rodar: `make grammars-treesitter`
+2. Create inline 67 with Tree-sitter S-expression queries.
+3. Run: inline 68
 
 ### Tree-sitter — External Go module
 
-Se a gramática está em um Go module separado:
+If the grammar is in its own Go module:
 
 1. Adicionar ao `go.mod`:
 ```bash
@@ -260,7 +272,7 @@ TS_GRAMMARS_EXTERNAL := \
     newlang:github.com/tree-sitter/tree-sitter-newlang@v1.0.0
 ```
 
-3. Se tem subdir (ex: `xml/src/`):
+3. If there is a subdirectory (e.g., _INLINE_71__):
 ```makefile
     newlang:github.com/org/tree-sitter-newlang@v1.0.0/sublang
 ```
@@ -269,10 +281,9 @@ TS_GRAMMARS_EXTERNAL := \
 
 ### Tree-sitter — Local vendored
 
-Se a gramática tem código C local:
+If grammar has local C code:
 
-1. Criar `internal/ast/treesitter/nova_lang/` com `parser.c` (e opcionalmente `scanner.c`)
-2. Adicionar ao `Makefile`:
+Create ___INLINE_73__ with ___INLINE_74__ (optionally ___INLINE_75__)
 ```makefile
 TS_GRAMMARS_LOCAL := ... nova_lang
 ```
@@ -280,8 +291,8 @@ TS_GRAMMARS_LOCAL := ... nova_lang
 
 ### ANTLR v4
 
-1. Gerar parser Go com ANTLR e colocar em `internal/ast/antlr/nova_lang/`
-2. Criar driver com build tag em `cmd/graphit-antlr-sidecar/driver_nova_lang.go`:
+1. Generate a Go parser with ANTLR and place it in `internal/ast/antlr/nova_lang/`.
+2. Create a driver with a build tag in `cmd/graphit-antlr-sidecar/driver_nova_lang.go`:
 ```go
 //go:build grammar_nova_lang
 package main
@@ -291,12 +302,12 @@ package main
 ```makefile
 ANTLR_GRAMMARS := ... nova_lang
 ```
-4. Criar `internal/ast/queries/nova_lang.yaml` com `parser: antlr4`
-5. Rodar: `make grammars-antlr`
+4. Create `internal/ast/queries/nova_lang.yaml` with `parser: antlr4`
+5. Run: `make grammars-antlr`
 
 ### Tornar Default no Launcher
 
-Adicionar à lista `DEFAULT_TS_GRAMMARS` no `Makefile`:
+Add to list `DEFAULT_TS_GRAMMARS` in `Makefile`:
 
 ```makefile
 DEFAULT_TS_GRAMMARS := ... nova_lang
@@ -304,12 +315,12 @@ DEFAULT_TS_GRAMMARS := ... nova_lang
 
 ### Publicar no Hub
 
-Incluir o `.grammar` archive junto com o YAML no artifact `language`:
+Include the `.grammar` archive along with the YAML in the artifact `language`:
 
 ```bash
 graphit hub submit nova-lang --type language
 ```
 
-O diretório do artifact deve conter:
+The artifact directory should contain:
 - `nova_lang.yaml`
-- `tree-sitter-nova_lang.grammar` (ou `antlr-nova_lang.grammar`)
+- `tree-sitter-nova_lang.grammar` (or `antlr-nova_lang.grammar`)

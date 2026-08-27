@@ -11,10 +11,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
-
-	"io/fs"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/ast"
@@ -22,12 +21,15 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/improvements"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/paths"
+	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"github.com/graphit-labs/graphit-code/internal/uiserver"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
@@ -201,25 +203,114 @@ func getModuleResolvedRule(module string) string {
 	}
 }
 
-func runASTIndex(targetPath string, workers int, reset bool, reindex bool, cluster string, noSource bool, grammar string) error {
+// progressThrottle decides when a progress callback is allowed to print.
+type progressThrottle struct {
+	every time.Duration
+	last  time.Time
+	phase string
+}
+
+// allow reports whether this callback should print. A phase change always
+// prints, however recently the last line went out: that is the part carrying
+// information — the silence has a new reason.
+func (t *progressThrottle) allow(phase string, now time.Time) bool {
+	if phase == t.phase && now.Sub(t.last) < t.every {
+		return false
+	}
+	t.phase, t.last = phase, now
+	return true
+}
+
+// progressInterval says how often the reporter may speak.
+//
+// On a terminal the line is rewritten in place, so refreshing it costs nothing
+// but a redraw and the counter can move like a counter. Redirected to a file,
+// a pipe, or the daemon log there is no cursor to move: every refresh is
+// another line, and 36k files at this rate would be a log of nothing else. So
+// the coarse interval stays exactly where it was for that case.
+func progressInterval(tty bool) time.Duration {
+	if tty {
+		return 200 * time.Millisecond
+	}
+	return 10 * time.Second
+}
+
+// indexProgressReporter turns the pipeline's per-file callback into a progress
+// line — one that is overwritten on a terminal, and appended anywhere else.
+//
+// The pipeline has emitted progress for a long time and nothing consumed it, so
+// `ast index` printed the grammar overrides and then nothing at all until it
+// finished — 16 minutes of silence on a 36k-file repository, indistinguishable
+// from a hang, which is exactly how a real one was missed.
+//
+// Throttled by time rather than by file count: file cost varies by four orders
+// of magnitude here (a 200-line PL/SQL package against a 1.3 M-line XML), so
+// "every N files" is silent for minutes on the slow ones and a flood on the
+// fast ones. A phase change always prints, however recently the last line went
+// out, because that is the part that says the silence has a new reason.
+func indexProgressReporter(p *output.Printer) func(string, int, int, int) {
+	var (
+		mu sync.Mutex
+		th = progressThrottle{every: progressInterval(output.IsTTY())}
+	)
+	return func(ph string, current, total, errors int) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !th.allow(ph, time.Now()) {
+			return
+		}
+		switch ph {
+		case "writing":
+			// current is rows already copied into the graph; it is 0 on the single
+			// line emitted before the phase starts.
+			if current > 0 {
+				p.StepProgress("Writing graph: %d row(s) from %d file(s)", current, total)
+				return
+			}
+			p.StepProgress("Writing graph: %d file(s)", total)
+		default:
+			if errors > 0 {
+				p.StepProgress("Parsing: %d/%d file(s), %d error(s)", current, total, errors)
+				return
+			}
+			p.StepProgress("Parsing: %d/%d file(s)", current, total)
+		}
+	}
+}
+
+func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cluster string, clusterPaths []string, noSource bool, grammar string) error {
 	p := output.NewPrinter("")
 
-	absPath, err := filepath.Abs(targetPath)
-	if err != nil {
-		return fmt.Errorf("invalid path: %w", err)
+	// Parse cluster-path mappings
+	clusterPathMap := make(map[string]string)
+	for _, cp := range clusterPaths {
+		parts := strings.SplitN(cp, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid --cluster-path format: %q (expected path=cluster)", cp)
+		}
+		path := strings.TrimRight(parts[0], "/") + "/"
+		clusterPathMap[path] = parts[1]
+	}
+
+	// Resolve absolute paths
+	absPaths := make([]string, len(targetPaths))
+	for i, tp := range targetPaths {
+		abs, err := filepath.Abs(tp)
+		if err != nil {
+			return fmt.Errorf("invalid path %q: %w", tp, err)
+		}
+		absPaths[i] = abs
 	}
 
 	if reset {
 		p.Step("Resetting entire database...")
-		ladybugCfg := ast.DefaultLadybugConfig()
-		projectDir := filepath.Dir(ladybugCfg.DBPath)
-		_ = os.RemoveAll(projectDir)
+		storeDir := filepath.Dir(ast.DefaultLadybugConfig().DBPath)
+		_ = os.RemoveAll(storeDir)
 		p.StepOK("Database reset complete")
 	}
 
 	db, err := newASTBackend()
 	if err != nil {
-
 		return fmt.Errorf("backend init: %w", err)
 	}
 	defer func() { _ = db.Close() }()
@@ -235,28 +326,6 @@ func runASTIndex(targetPath string, workers int, reset bool, reindex bool, clust
 		cancel()
 	}()
 
-	if reindex && !reset {
-		p.Step("Removing previous index for %s...", absPath)
-		writer := ast.NewGraphWriter(db, absPath, true)
-		if err := writer.DeleteRepository(ctx, absPath); err != nil {
-			p.StepWarn("Reindex cleanup: %v", err)
-		}
-		p.StepOK("Repository data removed")
-	}
-
-	if cluster != "" {
-		p.Running("Indexing %s (cluster: %s)", absPath, cluster)
-	} else {
-		p.Running("Indexing %s", absPath)
-	}
-
-	ladybugCfg := ast.DefaultLadybugConfig()
-
-	indexSource := config.ResolveIndexSource(nil, nil)
-	if noSource {
-		indexSource = false
-	}
-
 	// Resolve grammar overrides: config (base) + flag (higher priority)
 	projectCfg := loadProjectConfig()
 	grammarOverrides := config.ResolveGrammarOverrides(nil, projectCfg)
@@ -268,83 +337,333 @@ func runASTIndex(targetPath string, workers int, reset bool, reindex bool, clust
 		p.Step("Grammar overrides: %v", grammarOverrides)
 	}
 
+	// Load cluster map from config if not provided via CLI
+	if len(clusterPathMap) == 0 {
+		configClusterMap := config.ResolveClusterPathMap(nil, projectCfg)
+		for path, cl := range configClusterMap {
+			clusterPathMap[path] = cl
+		}
+	}
+
+	// Build display string for cluster info (after loading from config)
+	var clusterInfo strings.Builder
+	if len(clusterPathMap) > 0 {
+		clusterInfo.WriteString(" (clusters: ")
+		first := true
+		for path, cl := range clusterPathMap {
+			if !first {
+				clusterInfo.WriteString(", ")
+			}
+			clusterInfo.WriteString(fmt.Sprintf("%s=%s", path, cl))
+			first = false
+		}
+		if cluster != "" {
+			clusterInfo.WriteString(fmt.Sprintf(", default=%s", cluster))
+		}
+		clusterInfo.WriteString(")")
+	} else if cluster != "" {
+		clusterInfo.WriteString(fmt.Sprintf(" (cluster: %s)", cluster))
+	}
+
+	if len(absPaths) == 1 {
+		p.Running("Indexing %s%s", absPaths[0], clusterInfo.String())
+	} else {
+		p.Running("Indexing %d paths%s", len(absPaths), clusterInfo.String())
+	}
+
+	ladybugCfg := ast.DefaultLadybugConfig()
+
+	indexSource := config.ResolveIndexSource(nil, nil)
+	if noSource {
+		indexSource = false
+	}
+
+	// Persist cluster settings to config if provided via CLI
+	if len(clusterPaths) > 0 || cluster != "" {
+		if err := persistClusterConfig(clusterPathMap, cluster); err != nil {
+			p.StepWarn("Failed to persist cluster config: %v", err)
+		}
+	}
+
 	pipeOpts := ast.PipelineOptions{
 		Workers:          workers,
 		IndexSource:      indexSource,
 		CacheDir:         filepath.Dir(ladybugCfg.DBPath),
 		Cluster:          cluster,
+		ClusterPathMap:   clusterPathMap,
 		ForceRebuild:     reindex,
 		GrammarOverrides: grammarOverrides,
+		OnProgress:       indexProgressReporter(p),
 	}
 
-	result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)
+	// Determine if this is an incremental add (existing DB, no --reset, no --reindex)
+	// vs a full index (--reset or --reindex or no existing DB)
+	isIncremental := !reset && !reindex
+	if isIncremental {
+		if _, err := os.Stat(ladybugCfg.DBPath); os.IsNotExist(err) {
+			isIncremental = false
+		}
+	}
+
+	var finalResult *ast.PipelineResult
+
+	if isIncremental && len(absPaths) > 0 {
+		// Incremental add: only index the specified new paths
+		// Use project root as pipeline root so cache keys match
+		wd, _ := os.Getwd()
+		projectRoot := wd
+
+		var allFiles []string
+		for _, absPath := range absPaths {
+			files, e := collectFilesForPath(absPath)
+			if e != nil {
+				return fmt.Errorf("collecting files for %s: %w", absPath, e)
+			}
+			allFiles = append(allFiles, files...)
+		}
+
+		pipeOpts.ChangedPaths = make([]string, len(allFiles))
+		for i, f := range allFiles {
+			rel, _ := filepath.Rel(projectRoot, f)
+			pipeOpts.ChangedPaths[i] = rel
+		}
+		pipeOpts.DeletedPaths = []string{}
+
+		finalResult, err = ast.RunPipelineForPaths(ctx, db, projectRoot, pipeOpts.ChangedPaths, pipeOpts.DeletedPaths, pipeOpts)
+	} else {
+		// Full index (reset/reindex or first time): use RunPipeline for each path
+		// This does full discovery from the specified path
+		for _, absPath := range absPaths {
+			finalResult, err = ast.RunPipeline(ctx, db, absPath, pipeOpts)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	if err != nil {
 		return err
 	}
 
-	totalErrors := result.ErrorCount + result.WriteErrorCount
+	// The last progress line is transient and nothing after an error path
+	// would erase it.
+	p.EndProgress()
+	if err != nil {
+		return err
+	}
+
+	totalErrors := finalResult.ErrorCount + finalResult.WriteErrorCount
 	if totalErrors > 0 {
-		p.Warn("Completed with %d error(s) out of %d files", totalErrors, result.TotalFiles)
-	} else if result.ParsedFiles == 0 && result.TotalFiles > 0 && result.WriteTime == 0 {
-		p.Success("%d files up to date (no changes detected)", result.TotalFiles)
-	} else if result.ParsedFiles == 0 && result.WriteTime > 0 {
+		p.Warn("Completed with %d error(s) out of %d files", totalErrors, finalResult.TotalFiles)
+	} else if finalResult.SearchIndexRebuilt {
+		p.Success("%d files up to date; search index was empty and was rebuilt from cache (%.1fs)",
+			finalResult.TotalFiles, finalResult.WriteTime.Seconds())
+	} else if finalResult.ParsedFiles == 0 && finalResult.TotalFiles > 0 && finalResult.WriteTime == 0 {
+		p.Success("%d files up to date (no changes detected)", finalResult.TotalFiles)
+	} else if finalResult.ParsedFiles == 0 && finalResult.WriteTime > 0 {
 		p.Success("DB rebuilt from cache (%d files, %.1fs write, %.1fs total)",
-			result.TotalFiles, result.WriteTime.Seconds(), result.TotalTime.Seconds())
+			finalResult.TotalFiles, finalResult.WriteTime.Seconds(), finalResult.TotalTime.Seconds())
 	} else {
 		p.Success("%d files indexed (%.1fs parse, %.1fs write, %.1fs total)",
-			result.ParsedFiles, result.ParseTime.Seconds(), result.WriteTime.Seconds(), result.TotalTime.Seconds())
+			finalResult.ParsedFiles, finalResult.ParseTime.Seconds(), finalResult.WriteTime.Seconds(), finalResult.TotalTime.Seconds())
 	}
 
-	if result.DiscoverTime > 0 || result.HashTime > 0 {
+	if finalResult.DiscoverTime > 0 || finalResult.HashTime > 0 {
 		p.Step("Timing: discover %.2fs, hash %.2fs, parse %.2fs, write %.2fs",
-			result.DiscoverTime.Seconds(), result.HashTime.Seconds(),
-			result.ParseTime.Seconds(), result.WriteTime.Seconds())
+			finalResult.DiscoverTime.Seconds(), finalResult.HashTime.Seconds(),
+			finalResult.ParseTime.Seconds(), finalResult.WriteTime.Seconds())
 	}
 
-	if result.TimeoutCount > 0 {
-		p.StepWarn("Timeouts: %d file(s)", result.TimeoutCount)
+	if finalResult.TimeoutCount > 0 {
+		p.StepWarn("Timeouts: %d file(s)", finalResult.TimeoutCount)
 	}
-	if result.ErrorCount > 0 {
-		p.StepWarn("Parse errors: %d file(s)", result.ErrorCount)
-		for i := 0; i < len(result.ErrorFiles); i++ {
-			p.ListItem("%s", result.ErrorFiles[i])
+	if finalResult.ErrorCount > 0 {
+		p.StepWarn("Parse errors: %d file(s)", finalResult.ErrorCount)
+		for i := 0; i < len(finalResult.ErrorFiles); i++ {
+			p.ListItem("%s", finalResult.ErrorFiles[i])
 		}
 	}
-	if result.WriteErrorCount > 0 {
-		p.StepWarn("Write errors: %d chunk(s)", result.WriteErrorCount)
-		for i := 0; i < len(result.WriteErrorFiles); i++ {
-			p.ListItem("%s", result.WriteErrorFiles[i])
+	if finalResult.WriteErrorCount > 0 {
+		p.StepWarn("Write errors: %d chunk(s)", finalResult.WriteErrorCount)
+		for i := 0; i < len(finalResult.WriteErrorFiles); i++ {
+			p.ListItem("%s", finalResult.WriteErrorFiles[i])
 		}
 	}
-	if result.EmptyCount > 0 {
-		p.Step("Empty (0 entities): %d file(s)", result.EmptyCount)
-		for i := 0; i < len(result.EmptyFiles); i++ {
-			p.ListItem("%s", result.EmptyFiles[i])
+	if finalResult.EmptyCount > 0 {
+		p.Step("Empty (0 entities): %d file(s)", finalResult.EmptyCount)
+		for i := 0; i < len(finalResult.EmptyFiles); i++ {
+			p.ListItem("%s", finalResult.EmptyFiles[i])
 		}
 	}
 
-	if len(result.EngineStats) > 0 {
+	if len(finalResult.EngineStats) > 0 {
 		p.Step("Breakdown:")
 
-		keys := make([]string, 0, len(result.EngineStats))
-		for k := range result.EngineStats {
+		keys := make([]string, 0, len(finalResult.EngineStats))
+		for k := range finalResult.EngineStats {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			p.ListItem("%s — %d file(s)", k, result.EngineStats[k])
+			p.ListItem("%s — %d file(s)", k, finalResult.EngineStats[k])
 		}
 	}
 
 	return nil
 }
 
-func runASTWatch(targetPath string, workers int, cluster string) error {
+// findCommonRoot finds the common parent directory of all paths.
+func findCommonRoot(paths []string) string {
+	if len(paths) == 0 {
+		return "."
+	}
+	if len(paths) == 1 {
+		// Return parent of the path if it's a file, or the path itself if dir
+		info, err := os.Stat(paths[0])
+		if err != nil || !info.IsDir() {
+			return filepath.Dir(paths[0])
+		}
+		return paths[0]
+	}
+	// Find common prefix
+	common := paths[0]
+	for i := 1; i < len(paths); i++ {
+		common = commonPrefix(common, paths[i])
+		if common == "" {
+			break
+		}
+	}
+	if common == "" {
+		return "."
+	}
+	// Ensure it's a directory
+	info, err := os.Stat(common)
+	if err != nil || !info.IsDir() {
+		return filepath.Dir(common)
+	}
+	return common
+}
+
+// persistClusterConfig saves the cluster and cluster-path settings to the project config.
+func persistClusterConfig(clusterPathMap map[string]string, defaultCluster string) error {
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getwd: %w", err)
+	}
+	lockPath := filepath.Join(wd, "graphit.lock.json")
+	
+	lf, err := hub.LoadLockfile(lockPath)
+	if err != nil {
+		return fmt.Errorf("load lockfile: %w", err)
+	}
+	if lf == nil {
+		return nil // no lockfile, nothing to persist
+	}
+	
+	if lf.Config == nil {
+		lf.Config = make(map[string]any)
+	}
+	
+	// Use nested structure for config
+	astConfig, ok := lf.Config["ast"].(map[string]any)
+	if !ok {
+		astConfig = make(map[string]any)
+	}
+	
+	if len(clusterPathMap) > 0 {
+		// Build comma-separated string
+		var pairs []string
+		for path, cluster := range clusterPathMap {
+			pairs = append(pairs, fmt.Sprintf("%s=%s", path, cluster))
+		}
+		astConfig["cluster_map"] = strings.Join(pairs, ",")
+	}
+	
+	if defaultCluster != "" {
+		astConfig["cluster"] = defaultCluster
+	}
+	
+	lf.Config["ast"] = astConfig
+	
+	if err := hub.SaveLockfile(lockPath, lf); err != nil {
+		return fmt.Errorf("save lockfile: %w", err)
+	}
+	return nil
+}
+
+func commonPrefix(a, b string) string {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	// Split into components
+	aParts := strings.Split(a, string(filepath.Separator))
+	bParts := strings.Split(b, string(filepath.Separator))
+	
+	var common []string
+	for i := 0; i < len(aParts) && i < len(bParts); i++ {
+		if aParts[i] == bParts[i] {
+			common = append(common, aParts[i])
+		} else {
+			break
+		}
+	}
+	if len(common) == 0 {
+		return ""
+	}
+	return filepath.Join(common...)
+}
+
+// collectFilesForPath collects all parseable files under a path.
+func collectFilesForPath(rootPath string) ([]string, error) {
+	var files []string
+	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // skip errors
+		}
+		if info.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(path))
+		// Check if we have a parser for this extension
+		if ast.HasParserForExtensionIn(rootPath, ext) {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
+}
+
+func runASTWatch(targetPath string, workers int, cluster string, clusterPaths []string) error {
 	p := output.NewPrinter("")
 
 	absPath, err := filepath.Abs(targetPath)
 	if err != nil {
 		return fmt.Errorf("invalid path: %w", err)
+	}
+
+	// Parse cluster-path mappings
+	clusterPathMap := make(map[string]string)
+	for _, cp := range clusterPaths {
+		parts := strings.SplitN(cp, "=", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid --cluster-path format: %q (expected path=cluster)", cp)
+		}
+		path := strings.TrimRight(parts[0], "/") + "/"
+		clusterPathMap[path] = parts[1]
+	}
+
+	// Load cluster map from config if not provided via CLI
+	if len(clusterPathMap) == 0 {
+		projectCfg := loadProjectConfig()
+		configClusterMap := config.ResolveClusterPathMap(nil, projectCfg)
+		for path, cl := range configClusterMap {
+			clusterPathMap[path] = cl
+		}
+	}
+
+	// Persist cluster settings to config if provided via CLI
+	if len(clusterPaths) > 0 || cluster != "" {
+		if err := persistClusterConfig(clusterPathMap, cluster); err != nil {
+			p.StepWarn("Failed to persist cluster config: %v", err)
+		}
 	}
 
 	db, err := newASTBackend()
@@ -353,8 +672,6 @@ func runASTWatch(targetPath string, workers int, cluster string) error {
 	}
 	defer func() { _ = db.Close() }()
 
-	_ = ast.CreateGraphSchema(context.Background(), db)
-
 	projectCfg := loadProjectConfig()
 
 	cfg := ast.DefaultWatcherConfig()
@@ -362,6 +679,7 @@ func runASTWatch(targetPath string, workers int, cluster string) error {
 		cfg.Workers = workers
 	}
 	cfg.Cluster = cluster
+	cfg.ClusterPathMap = clusterPathMap
 	cfg.GrammarOverrides = config.ResolveGrammarOverrides(nil, projectCfg)
 
 	watcher, err := ast.NewWatcher(db, absPath, cfg)
@@ -369,7 +687,27 @@ func runASTWatch(targetPath string, workers int, cluster string) error {
 		return fmt.Errorf("watcher init: %w", err)
 	}
 
-	p.Info("Watching %s for changes... [tree-sitter]", absPath)
+	// Build display string for cluster info
+	var clusterInfo strings.Builder
+	if len(clusterPathMap) > 0 {
+		clusterInfo.WriteString(" (clusters: ")
+		first := true
+		for path, cl := range clusterPathMap {
+			if !first {
+				clusterInfo.WriteString(", ")
+			}
+			clusterInfo.WriteString(fmt.Sprintf("%s=%s", path, cl))
+			first = false
+		}
+		if cluster != "" {
+			clusterInfo.WriteString(fmt.Sprintf(", default=%s", cluster))
+		}
+		clusterInfo.WriteString(")")
+	} else if cluster != "" {
+		clusterInfo.WriteString(fmt.Sprintf(" (cluster: %s)", cluster))
+	}
+
+	p.Info("Watching %s for changes... [tree-sitter]%s", absPath, clusterInfo.String())
 	p.Step("Press Ctrl+C to stop")
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -407,8 +745,6 @@ func runUnifiedServe(repoPath string) error {
 	}
 	defer func() { _ = astDB.Close() }()
 
-	astJobs := ast.NewJobManager()
-
 	projectName := filepath.Base(repoPath)
 	lockPath := filepath.Join(repoPath, brand.LockFileName())
 	if data, err := os.ReadFile(lockPath); err == nil {
@@ -422,7 +758,7 @@ func runUnifiedServe(repoPath string) error {
 		}
 	}
 
-	srv, err := uiserver.NewUnifiedServer(hubSvc, ide, astDB, astJobs, repoPath, projectName)
+	srv, err := uiserver.NewUnifiedServer(hubSvc, ide, astDB, repoPath, projectName)
 	if err != nil {
 		return err
 	}
@@ -624,7 +960,8 @@ func runASTImport(sourcePath, name string, reset bool, workers int) error {
 		return fmt.Errorf("invalid path: %w", err)
 	}
 
-	ictx, err := ast.AddImportedContext(name, absPath)
+	wd, _ := os.Getwd()
+	ictx, err := ast.AddImportedContext(wd, name, absPath)
 	if err != nil {
 		return fmt.Errorf("register context: %w", err)
 	}
@@ -691,7 +1028,7 @@ func runASTImport(sourcePath, name string, reset bool, workers int) error {
 	}
 
 	{
-		ms, msErr := memory.NewMemoryGitStore()
+		ms, msErr := memory.NewMemoryStore()
 		if msErr == nil {
 			memsvc := memory.NewMemoryServiceForContext(name, ms)
 			if err := memsvc.SyncToLocal(); err != nil {
@@ -727,10 +1064,18 @@ func runASTExport(format, outputDir string, noSources bool) error {
 		p.Success("Exported to %s", absDir)
 	case "bundle":
 		p.Info("Exporting .ast bundle → %s", absDir)
-		if err := ast.ExportBundle(context.Background(), db, repoPath, absDir, nil); err != nil {
+		opts := ast.BundleOptions{
+			StorePath: ast.DefaultLadybugConfig().DBPath,
+			NoSources: noSources,
+		}
+		if err := ast.ExportBundle(context.Background(), db, repoPath, absDir, opts, nil); err != nil {
 			return err
 		}
-		p.Success("Exported to %s (with sources)", absDir)
+		if noSources {
+			p.Success("Exported to %s (structure only, --no-sources)", absDir)
+		} else {
+			p.Success("Exported to %s (with sources)", absDir)
+		}
 	default:
 		return fmt.Errorf("unsupported format %q (supported: obsidian, bundle)", format)
 	}
@@ -742,26 +1087,11 @@ func runASTClean(contextName string) error {
 
 	if contextName != "" {
 		p.Info("Removing imported context: %s", contextName)
-		if err := ast.RemoveImportedContext(contextName); err != nil {
+		wd, _ := os.Getwd()
+		if err := ast.RemoveImportedContext(wd, contextName); err != nil {
 			return err
 		}
 		p.Success("Context %q removed", contextName)
-
-		wd, _ := os.Getwd()
-		memDir := filepath.Join(wd, brand.DotDir(), "memory", contextName)
-		if info, statErr := os.Lstat(memDir); statErr == nil {
-			var removeErr error
-			if info.Mode()&os.ModeSymlink != 0 {
-				removeErr = os.Remove(memDir)
-			} else {
-				removeErr = os.RemoveAll(memDir)
-			}
-			if removeErr != nil {
-				p.StepWarn("Memory context cleanup %q: %v", contextName, removeErr)
-			} else {
-				p.Step("Memory context removed: %s", memDir)
-			}
-		}
 		return nil
 	}
 
@@ -794,7 +1124,7 @@ func runASTSource(relPath, contextName, entity, entityType string, head, tail, s
 	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
-	svc := ast.NewSourceService(db)
+	svc := ast.NewSourceService(db).WithStore(cfg.DBPath)
 	result, err := svc.GetSource(ctx, ast.SourceRequest{
 		Path:        relPath,
 		Entity:      entity,
@@ -835,9 +1165,14 @@ func runKnowledgeSync(contextName string) error {
 		return runKnowledgeImport(contextName, false, false)
 	}
 
-	docsDir := config.ResolveDocsDir(nil, loadProjectConfig())
-	p.Running("Re-indexing knowledge wiki from %s/…", docsDir)
-	return runKnowledgeIndex(docsDir, 0, false, false)
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	projectCfg := loadProjectConfig()
+	scope := knowledge.ScopeFor(wd, nil, projectCfg)
+	p.Running("Re-indexing knowledge wiki from %s/…", scope.Subdir)
+	return runKnowledgeIndex(wd, scope, 0, false, false)
 }
 
 func runKnowledgeList() error {
@@ -868,6 +1203,7 @@ func runKnowledgeList() error {
 }
 
 func runKnowledgeSearch(term string, contextName string) error {
+	ctx := context.Background()
 	p := output.NewPrinter("")
 
 	wikiDir := knowledge.WikiDir()
@@ -875,7 +1211,7 @@ func runKnowledgeSearch(term string, contextName string) error {
 		wikiDir = knowledge.WikiDirForContext(contextName)
 	}
 
-	results := wiki.BM25Search(wikiDir, term, 0)
+	results := wiki.BM25Search(ctx, wikiDir, term, 0)
 	if len(results) == 0 {
 		p.Info("No knowledge matching %q.", term)
 		return nil
@@ -918,11 +1254,18 @@ func runKnowledgeQuery(query string, contextName string) error {
 	return nil
 }
 
-func runKnowledgeIndex(path string, workers int, reset, useLouvain bool) error {
+// runKnowledgeIndex builds the wiki for root. scope names what under root is
+// read — the configured docs tree plus the root README for a project index, and
+// nothing (meaning "all of it") when the caller pointed at a directory directly.
+func runKnowledgeIndex(root string, scope knowledge.WikiScope, workers int, reset, useLouvain bool) error {
 	p := output.NewPrinter("")
 	ctx := context.Background()
 
-	task := p.StartTask("Indexing %s into knowledge wiki...", path)
+	target := root
+	if scope.Subdir != "" && scope.Subdir != "." {
+		target = filepath.Join(root, scope.Subdir)
+	}
+	task := p.StartTask("Indexing %s into knowledge wiki...", target)
 
 	wikiDir := knowledge.WikiDir()
 	cfg := knowledge.IndexConfig{
@@ -930,9 +1273,10 @@ func runKnowledgeIndex(path string, workers int, reset, useLouvain bool) error {
 		Reset:      reset,
 		BatchSize:  100,
 		UseLouvain: useLouvain,
+		Scope:      scope,
 	}
 
-	result, err := knowledge.RunIndexPipeline(ctx, path, wikiDir, cfg)
+	result, err := knowledge.RunIndexPipeline(ctx, root, wikiDir, cfg)
 	if err != nil {
 		task.Fail("Indexing failed: %v", err)
 		return fmt.Errorf("index failed: %w", err)
@@ -947,44 +1291,47 @@ func runKnowledgeImport(name string, reset, useLouvain bool) error {
 	p := output.NewPrinter("")
 	ctx := context.Background()
 
-	gs, err := hub.NewGitStore(nil, loadProjectConfig())
-	if err != nil {
+	st, err := hub.NewS3Store(ctx, nil, loadProjectConfig())
+	if err != nil || !st.Configured() {
 		return fmt.Errorf("hub not configured — run '%s setup' first", brand.BinName())
 	}
 
-	branch := fmt.Sprintf("knowledge/project/%s", name)
-
-	knowledge.EnsureContextCopy(name)
-
-	wikiDir := knowledge.WikiDirForContext(name)
-	globalCtxBase := filepath.Dir(wikiDir)
-	localDocsDir := filepath.Join(globalCtxBase, "docs")
-
 	task := p.StartTask("Importing knowledge context %q...", name)
 
-	task.Update("Fetching knowledge from hub branch %s...", branch)
-	if err := gs.ExtractBranchDir(branch, "docs", localDocsDir); err != nil {
+	// What the context carries is the COMPILED wiki, so nothing is generated here:
+	// the pages and the embedding vectors arrive together and only the search index
+	// has to be built from them.
+	task.Update("Fetching compiled wiki from %s...", hub.ContextPrefix("knowledge", name))
+	dir, err := knowledge.ResetContextWiki(name)
+	if err != nil {
+		task.Fail("%v", err)
+		return err
+	}
+	if err := st.FetchContextDir(ctx, "knowledge", name, "wiki", dir); err != nil {
 		task.Fail("Fetch failed: %v", err)
 		return fmt.Errorf("fetching knowledge from hub: %w", err)
 	}
-	p.Step("Docs synced → %s", localDocsDir)
+	p.Step("Wiki synced → %s", dir)
 
-	task.Update("Generating wiki...")
-	cfg := knowledge.IndexConfig{
-		Workers:    0,
-		Reset:      reset,
-		BatchSize:  100,
-		UseLouvain: useLouvain,
-	}
-	result, err := knowledge.RunIndexPipeline(ctx, localDocsDir, wikiDir, cfg)
+	task.Update("Indexing...")
+	chunks, err := knowledge.IndexContextWiki(ctx, name)
 	if err != nil {
 		task.Fail("Indexing failed: %v", err)
 		return fmt.Errorf("indexing: %w", err)
 	}
-	task.Done("Wiki generated: %d articles", result.IndexedFiles)
+	if chunks == 0 {
+		task.Done("Nothing indexed")
+		p.Warn("Context %q published no compiled wiki — ask its publisher to run 'knowledge export'", name)
+	} else {
+		task.Done("Indexed %d chunks", chunks)
+	}
 
-	memStore, _ := memory.NewMemoryGitStore()
 	wd, _ := os.Getwd()
+	if err := store.AddContext(wd, store.KindKnowledge, store.ContextRecord{Name: name}); err != nil {
+		p.StepWarn("Registering context %q: %v", name, err)
+	}
+
+	memStore, _ := memory.NewMemoryStore()
 	memory.OnHubImport(ctx, name, wd, memStore, nil)
 	p.Step("Memory auto-cycle triggered for context %q (background)", name)
 
@@ -1075,6 +1422,40 @@ func runKnowledgeLint(contextName string, deep, fix bool, staleDays int) error {
 	return nil
 }
 
+func runASTVerify(contextName string) error {
+	p := output.NewPrinter("")
+
+	repoPath, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	var db ast.GraphDB
+	if contextName != "" {
+		db, err = newASTBackendForContext(contextName)
+		p.Info("Verifying context: %s", contextName)
+	} else {
+		db, err = newASTBackend()
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+
+	report, err := ast.VerifyGraphAgainstDisk(context.Background(), db, repoPath)
+	if err != nil {
+		return err
+	}
+
+	p.Data(ast.FormatVerifyReport(report))
+	if !report.Clean() {
+		// A non-zero status so this can gate a pipeline. The message already said
+		// what to do, so the error stays short.
+		return fmt.Errorf("%d node(s) hold text their file does not contain", len(report.Divergences))
+	}
+	return nil
+}
+
 func runASTSchema(contextName string) error {
 	p := output.NewPrinter("")
 
@@ -1107,7 +1488,7 @@ func newMemorySvc(userScope bool) (*memory.MemoryService, string, error) {
 
 	if userScope {
 		scope = memory.MemoryScopeUser
-		hash, err := memory.UserHashFromGit()
+		hash, err := memory.UserScopeID()
 		if err != nil {
 			return nil, "", err
 		}
@@ -1126,7 +1507,7 @@ func newMemorySvc(userScope bool) (*memory.MemoryService, string, error) {
 		projectID = lf.Project.ID
 	}
 
-	ms, _ := memory.NewMemoryGitStore()
+	ms, _ := memory.NewMemoryStore()
 
 	svc := memory.NewMemoryService(scope, scopeID, ms)
 
@@ -1139,7 +1520,7 @@ func newMemorySvc(userScope bool) (*memory.MemoryService, string, error) {
 }
 
 func newMemorySvcForContext(contextName string) (*memory.MemoryService, error) {
-	ms, err := memory.NewMemoryGitStore()
+	ms, err := memory.NewMemoryStore()
 	if err != nil {
 		return nil, fmt.Errorf("memory store not available: %w", err)
 	}
@@ -1227,6 +1608,7 @@ func runMemoryUpdate(id, content, title string, userScope bool) error {
 }
 
 func runMemorySearch(term string, userScope bool) error {
+	ctx := context.Background()
 	p := output.NewPrinter("")
 
 	scope := "project"
@@ -1240,7 +1622,7 @@ func runMemorySearch(term string, userScope bool) error {
 		return nil
 	}
 
-	results := wiki.BM25Search(wikiDir, term, 0)
+	results := wiki.BM25Search(ctx, wikiDir, term, 0)
 	if len(results) == 0 {
 		p.Info("No memories matching %q in %s scope.", term, scope)
 		return nil
@@ -1303,7 +1685,7 @@ func runMemoryList(userScope bool) error {
 	return nil
 }
 
-func runMemoryIndex(userScope bool) error {
+func runMemoryIndex(userScope, reset bool) error {
 	p := output.NewPrinter("")
 	ctx := context.Background()
 
@@ -1312,6 +1694,23 @@ func runMemoryIndex(userScope bool) error {
 		return err
 	}
 	defer func() { _ = svc.Close() }()
+
+	// --reset clears the wiki before indexing, matching `ast index --reset` and
+	// `knowledge index --reset`.
+	//
+	// It exists because an ordinary index cannot repair an index that is wrong for a
+	// reason other than a changed memory: generation skips any source whose content hash
+	// is unchanged, so a wiki that is empty while its pages and shards are present and
+	// current is precisely the state a re-run reports "completed" over without touching.
+	//
+	// Nothing discarded here is source. The memories are in their own git worktree; pages,
+	// chunks and vectors are all derived from them.
+	if reset {
+		if _, rerr := wiki.ResetDir(svc.WikiDir()); rerr != nil {
+			return fmt.Errorf("clearing the memory wiki: %w", rerr)
+		}
+		p.Step("Cleared %s", svc.WikiDir())
+	}
 
 	task := p.StartTask("Indexing memories → %s...", svc.LocalDir())
 	if err := svc.IndexMemories(ctx); err != nil {
@@ -1496,12 +1895,18 @@ func runMemoryExport() error {
 
 func runMemoryRemoveContext(contextName string) error {
 	p := output.NewPrinter("")
-	linkDir := filepath.Join(brand.DotDir(), "memory", contextName)
-	if err := os.RemoveAll(linkDir); err != nil {
-		return fmt.Errorf("removing context symlink: %w", err)
+	// An imported memory context is a branch of the shared memory repository, so
+	// what is dropped is this machine's copy of it: its worktree and its compiled
+	// wiki, both global. There is no project-local copy left to remove.
+	if err := os.RemoveAll(memory.RawDirFor(contextName, contextName)); err != nil {
+		return fmt.Errorf("removing memory context worktree: %w", err)
+	}
+	if err := os.RemoveAll(memory.MemoryWikiGlobalDir(contextName, contextName)); err != nil {
+		return fmt.Errorf("removing memory context wiki: %w", err)
 	}
 	p.Success("Removed memory context %q", contextName)
-	refreshModuleRule("memory", "", "")
+	wd, _ := os.Getwd()
+	refreshModuleRule("memory", wd, "")
 	return nil
 }
 
@@ -1540,7 +1945,7 @@ func runMemoryWatch(rootPath string, useLouvain bool) error {
 	})
 }
 
-func runMemoryConsolidate(userScope, apply bool) error {
+func runMemoryConsolidate(userScope, dryRun bool) error {
 	p := output.NewPrinter("")
 	ctx := context.Background()
 
@@ -1549,135 +1954,41 @@ func runMemoryConsolidate(userScope, apply bool) error {
 		scope = "user"
 	}
 
+	// The same agent CLI the dream module uses. Consolidation only needs judgement
+	// back as text — which memories duplicate or contradict which — so the
+	// analytical client is the right one; every mutation is applied by Go under the
+	// invariants in ApplyConsolidation.
 	aiClient, aiErr := ai.NewClientFromConfig()
 	if aiErr != nil {
-		p.Warn("AI not configured — only staleness detection will run (no duplicate/contradiction analysis)")
+		p.Warn("No AI CLI found — only the deterministic staleness check will run.")
+		p.Info("Set one with '%s config ai.cli <binary>' to get duplicate and contradiction analysis.", brand.BinName())
 	}
 
-	task := p.StartTask("Consolidating %s memories...", scope)
+	task := p.StartTask("Analysing %s memories...", scope)
 	report, err := memory.RunConsolidation(ctx, scope, aiClient)
 	if err != nil {
-		task.Fail("Consolidation failed: %v", err)
+		task.Fail("Analysis failed: %v", err)
 		return err
 	}
+	task.Done("Analysed %d memories", report.TotalMemories)
 
-	task.Done("Analyzed %d memories", report.TotalMemories)
+	if report.AIFailed {
+		p.Warn("The analysis step failed, so only the deterministic checks ran.")
+		if report.AIAnalysis != "" {
+			p.Info("%s", report.AIAnalysis)
+		}
+	}
 
 	if !report.HasActions() {
-		p.Success("No issues found — memory store is clean")
+		p.Success("Nothing to consolidate — no duplicates, contradictions or stale entries found")
 		return nil
 	}
 
-	if len(report.Duplicates) > 0 {
-		p.Header("Duplicates (%d)", len(report.Duplicates))
-		for _, a := range report.Duplicates {
-			p.ListItem("%s", a.Reason)
-		}
-	}
-
-	if len(report.Contradictions) > 0 {
-		p.Header("Contradictions (%d)", len(report.Contradictions))
-		for _, a := range report.Contradictions {
-			p.ListItem("%s", a.Reason)
-		}
-	}
-
-	if len(report.Stale) > 0 {
-		p.Header("Stale (%d)", len(report.Stale))
-		for _, a := range report.Stale {
-			p.ListItem("[%s] %s — %s", a.MemoryIDs[0], a.Title, a.Reason)
-		}
-	}
-
-	if len(report.Suggestions) > 0 {
-		p.Header("Suggestions (%d)", len(report.Suggestions))
-		for _, a := range report.Suggestions {
-			p.ListItem("[%s] %s", a.Type, a.Reason)
-		}
-	}
-
-	p.Blank()
-	p.Step("Total: %d actions proposed", report.TotalActions())
-
-	if apply {
-		svc, _, svcErr := newMemorySvc(userScope)
-		if svcErr != nil {
-			return svcErr
-		}
-		defer func() { _ = svc.Close() }()
-
-		applied := 0
-		for _, a := range report.Suggestions {
-			if len(a.MemoryIDs) == 0 {
-				continue
-			}
-			id := a.MemoryIDs[0]
-			switch a.Type {
-			case "promote":
-				if err := svc.PromoteMemory(id); err == nil {
-					p.Step("Promoted: %s", id)
-					applied++
-				}
-			case "demote":
-				if err := svc.DemoteMemory(id); err == nil {
-					p.Step("Demoted: %s", id)
-					applied++
-				}
-			case "delete":
-				if err := svc.RemoveMemory(id); err == nil {
-					p.Step("Deleted: %s", id)
-					applied++
-				}
-			}
-		}
-		if applied > 0 {
-			p.Success("Applied %d action(s)", applied)
-			refreshModuleRule("memory", "", "")
-		} else {
-			p.Info("No auto-applicable actions found (merges/updates require manual review)")
-		}
-	} else {
-		p.Info("Run with --apply to execute safe suggestions (promote/demote/delete)")
-	}
-
-	return nil
-}
-
-func runMemoryGC(userScope, dryRun bool, staleDays int) error {
-	p := output.NewPrinter("")
-	ctx := context.Background()
-
-	scope := "project"
-	if userScope {
-		scope = "user"
-	}
-
-	task := p.StartTask("Scanning %s memories for GC candidates (threshold: %d days)...", scope, staleDays)
-	report, err := memory.RunGC(scope, staleDays)
-	if err != nil {
-		task.Fail("GC scan failed: %v", err)
-		return err
-	}
-
-	task.Done("Scanned %d memories", report.TotalMemories)
-
-	if len(report.Candidates) == 0 {
-		p.Success("No GC candidates — memory store is healthy")
-		return nil
-	}
-
-	p.Header("GC Candidates (%d)", len(report.Candidates))
-	for _, c := range report.Candidates {
-		ageStr := ""
-		if c.Age > 0 {
-			ageStr = fmt.Sprintf(" (%d days)", c.Age)
-		}
-		p.ListItem("[%s] %s%s — %s", c.ID, c.Title, ageStr, c.Reason)
-	}
+	printConsolidationPlan(p, report)
 
 	if dryRun {
 		p.Blank()
-		p.Info("Dry run — no memories deleted. Use --dry-run=false to apply.")
+		p.Info("Dry run — nothing was changed. Re-run with --dry-run=false to apply.")
 		return nil
 	}
 
@@ -1687,12 +1998,69 @@ func runMemoryGC(userScope, dryRun bool, staleDays int) error {
 	}
 	defer func() { _ = svc.Close() }()
 
-	deleted, _ := memory.ApplyGC(ctx, scope, report.Candidates, svc)
-	p.Success("Deleted %d/%d candidates", deleted, len(report.Candidates))
-	if deleted > 0 {
+	outcome, err := memory.ApplyConsolidation(scope, report, svc)
+	if err != nil {
+		return err
+	}
+
+	p.Blank()
+	p.Header("Applied (%d)", len(outcome.Applied))
+	for _, a := range outcome.Applied {
+		if len(a.Removed) > 0 {
+			p.ListItem("%s → kept %s, folded in %s", a.Type, a.Kept, strings.Join(a.Removed, ", "))
+			continue
+		}
+		p.ListItem("%s → %s", a.Type, a.Kept)
+	}
+
+	// Refusals are the interesting output: they are where the invariants stopped a
+	// proposal, and each one is work for a human or an agent with more context.
+	if len(outcome.Skipped) > 0 {
+		p.Blank()
+		p.Header("Refused (%d)", len(outcome.Skipped))
+		for _, a := range outcome.Skipped {
+			p.ListItem("%s [%s] — %s", a.Type, a.Kept, a.Skipped)
+		}
+	}
+	if len(outcome.Failed) > 0 {
+		p.Blank()
+		p.Header("Failed (%d)", len(outcome.Failed))
+		for _, a := range outcome.Failed {
+			p.ListItem("%s [%s] — %s", a.Type, a.Kept, a.Err)
+		}
+	}
+
+	p.Blank()
+	p.Success("%d applied, %d refused, %d failed", len(outcome.Applied), len(outcome.Skipped), len(outcome.Failed))
+	if len(outcome.Applied) > 0 {
 		refreshModuleRule("memory", "", "")
 	}
 	return nil
+}
+
+func printConsolidationPlan(p *output.Printer, report *memory.ConsolidationReport) {
+	section := func(title string, actions []memory.ConsolidationAction) {
+		if len(actions) == 0 {
+			return
+		}
+		p.Header("%s (%d)", title, len(actions))
+		for _, a := range actions {
+			ids := strings.Join(a.MemoryIDs, ", ")
+			if a.KeepID != "" && len(a.MemoryIDs) > 1 {
+				p.ListItem("keep %s of [%s] — %s", a.KeepID, ids, a.Reason)
+				continue
+			}
+			p.ListItem("[%s] %s", ids, a.Reason)
+		}
+	}
+
+	section("Duplicates", report.Duplicates)
+	section("Contradictions", report.Contradictions)
+	section("Suggestions", report.Suggestions)
+	section("Stale", report.Stale)
+
+	p.Blank()
+	p.Step("%d action(s) proposed", report.TotalActions())
 }
 
 func watchAndReindex(rootPath string, useLouvain bool, reindex func() error) error {
@@ -1796,21 +2164,24 @@ func runASTSync(contextName string) error {
 
 func runKnowledgeRemoveContext(contextName string) error {
 	p := output.NewPrinter("")
-	linkDir := filepath.Join(brand.DotDir(), "knowledge", contextName)
-	if err := os.RemoveAll(linkDir); err != nil {
-		return fmt.Errorf("removing context symlink: %w", err)
+	wd, _ := os.Getwd()
+	// Only this project's claim. The wiki is global and another project may have
+	// imported the same context.
+	if err := store.RemoveContext(wd, store.KindKnowledge, contextName); err != nil {
+		return fmt.Errorf("removing knowledge context: %w", err)
 	}
 	p.Success("Removed knowledge context %q", contextName)
-	refreshModuleRule("knowledge", "", "")
+	refreshModuleRule("knowledge", wd, "")
 	return nil
 }
 
 func runKnowledgeExport() error {
 	p := output.NewPrinter("")
 
-	wd, _ := os.Getwd()
-	gs, err := hub.NewGitStore(nil, loadProjectConfig())
-	if err != nil {
+	ctx := context.Background()
+
+	st, err := hub.NewS3Store(ctx, nil, loadProjectConfig())
+	if err != nil || !st.Configured() {
 		return fmt.Errorf("hub not configured — run '%s setup' first", brand.BinName())
 	}
 
@@ -1819,55 +2190,52 @@ func runKnowledgeExport() error {
 		return fmt.Errorf("project not initialised — run '%s init' first", brand.BinName())
 	}
 
-	branch := fmt.Sprintf("knowledge/project/%s", lf.Project.ID)
-	wt, err := gs.MemoryWorktree(branch)
-	if err != nil {
-		return fmt.Errorf("opening export branch: %w", err)
-	}
-
-	docsDir := config.ResolveDocsDir(nil, loadProjectConfig())
-	docsSrc := filepath.Join(wd, docsDir)
-	if _, err := os.Stat(docsSrc); err != nil {
-		return fmt.Errorf("no %s/ directory found at %s", docsDir, wd)
-	}
-
-	p.Running("Exporting knowledge to hub branch %s…", branch)
-
-	destDocs := filepath.Join(wt.Dir(), "docs")
-	_ = os.RemoveAll(destDocs)
-	if err := copyDirRecursive(docsSrc, destDocs); err != nil {
-		return fmt.Errorf("copying %s: %w", docsDir, err)
-	}
-	p.Step("%s/ → %s", docsDir, destDocs)
-
+	// The documentation tree is NOT published: it lives in this project's own
+	// repository, and the consumer never compiles it. What travels is the compiled
+	// wiki plus its shards, so the consumer indexes rather than re-derives — and
+	// never pays for the embedding model over text whose vectors shipped with it.
 	wikiDir := knowledge.WikiDir()
-	if _, err := os.Stat(wikiDir); err == nil {
-		destWiki := filepath.Join(wt.Dir(), "wiki")
-		_ = os.RemoveAll(destWiki)
-		if err := copyDirRecursive(wikiDir, destWiki); err != nil {
-			p.Warn("Wiki copy: %v", err)
-		} else {
-			p.Step("wiki/ → %s", destWiki)
-		}
+	if _, err := os.Stat(wikiDir); err != nil {
+		return fmt.Errorf("no compiled wiki at %s — run '%s knowledge index' first",
+			wikiDir, brand.BinName())
 	}
 
-	if err := wt.CommitAndPush("export knowledge"); err != nil {
-		return fmt.Errorf("pushing to hub: %w", err)
-	}
+	prefix := hub.ContextPrefix("knowledge", lf.Project.ID)
+	p.Running("Exporting knowledge to %s…", prefix)
 
-	p.Success("Knowledge exported to branch %s", branch)
+	// The rebuildable database is left behind: wiki.db is derived, it is the largest thing
+	// in the directory, and a consumer rebuilds it from the shards in seconds. Staging into
+	// a temporary directory is what lets that exclusion happen before anything is uploaded.
+	staged, err := os.MkdirTemp("", brand.TempDirPrefix("knowledge-export"))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(staged) }()
+
+	if err := paths.SyncCopyDirExcept(wikiDir, staged, wiki.IsDerivedFile); err != nil {
+		return fmt.Errorf("staging wiki: %w", err)
+	}
+	if err := st.PublishContextDir(ctx, "knowledge", lf.Project.ID, "wiki", staged); err != nil {
+		return fmt.Errorf("publishing wiki: %w", err)
+	}
+	p.Step("wiki/ → %s/wiki (pages + shards, without the rebuildable database)", prefix)
+
+	p.Success("Knowledge exported to %s", prefix)
 	p.Step("Other projects can import with: %s knowledge install %s", brand.BinName(), lf.Project.ID)
 	return nil
 }
 
-func runKnowledgeWatch(rootPath string, useLouvain bool) error {
+// runKnowledgeWatch watches root and rebuilds the wiki on change. The watch
+// covers all of root — the README lives outside the docs tree, and an edit to it
+// has to rebuild too — while scope still decides what each rebuild reads.
+func runKnowledgeWatch(root string, scope knowledge.WikiScope, useLouvain bool) error {
 	p := output.NewPrinter("")
-	p.Running("Watching %s for changes…", rootPath)
-	return watchAndReindex(rootPath, useLouvain, func() error {
+	p.Running("Watching %s for changes…", root)
+	return watchAndReindex(root, useLouvain, func() error {
 		ctx := context.Background()
 		wikiDir := knowledge.WikiDir()
-		cfg := knowledge.IndexConfig{UseLouvain: useLouvain}
-		_, err := knowledge.RunIndexPipeline(ctx, rootPath, wikiDir, cfg)
+		cfg := knowledge.IndexConfig{UseLouvain: useLouvain, Scope: scope}
+		_, err := knowledge.RunIndexPipeline(ctx, root, wikiDir, cfg)
 		return err
 	})
 }
@@ -1878,27 +2246,6 @@ func runKnowledgeSchema(contextName string) error {
 	p.Info("Wiki directory: %s", knowledge.WikiDir())
 	p.Info("Architecture: file-based wiki (no graph database)")
 	return nil
-}
-
-func copyDirRecursive(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(src, path)
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		return os.WriteFile(target, data, 0o644)
-	})
 }
 
 func runWikiSearch(query string, wikiRefs, hubRefs []string, sessionName string, continueSession bool, topK int, mode string, aiOptimized bool) error {
@@ -1930,11 +2277,12 @@ func runWikiSearch(query string, wikiRefs, hubRefs []string, sessionName string,
 	}
 	if session == nil {
 
-		chatSources := make([]chat.WikiSource, len(wikiSources))
+		chatSources := make([]chat.Source, len(wikiSources))
 		for i, ws := range wikiSources {
-			chatSources[i] = chat.WikiSource{
+			chatSources[i] = chat.Source{
 				ID:    ws.ID,
 				Label: ws.Label,
+				Kind:  chat.SourceWiki,
 				Dir:   ws.Dir,
 			}
 		}
@@ -2095,9 +2443,9 @@ func runWikiSessions(deleteID string) error {
 		p.Step("%s (%s)", title, s.ID)
 		p.Detail("Last Active", s.UpdatedAt.Format("2006-01-02 15:04:05"))
 		p.Detail("Messages", fmt.Sprintf("%d", s.MessageCount))
-		if len(s.WikiSources) > 0 {
-			ids := make([]string, len(s.WikiSources))
-			for i, ws := range s.WikiSources {
+		if len(s.Sources) > 0 {
+			ids := make([]string, len(s.Sources))
+			for i, ws := range s.Sources {
 				ids[i] = ws.ID
 			}
 			p.Detail("Sources", strings.Join(ids, ", "))
@@ -2107,54 +2455,31 @@ func runWikiSessions(deleteID string) error {
 }
 
 // openWikiDBForScope resolves the wiki scope to a directory and opens the WikiDB.
-func openWikiDBForScope(wikiScope, projectDir string) (*wiki.WikiDB, error) {
-	var wikiDir string
-	switch wikiScope {
-	case "project", "":
-		wikiDir = filepath.Join(projectDir, brand.DotDir(), "knowledge", "project")
-	case "memory":
-		wikiDir = filepath.Join(projectDir, brand.DotDir(), "memory", "project")
-	default:
-		return nil, fmt.Errorf("unknown wiki scope %q — use 'project' or 'memory'", wikiScope)
+func openWikiDBForScope(ctx context.Context, wikiScope, projectDir string) (*wiki.WikiDB, error) {
+	wikiDir, err := wikiDirForScope(wikiScope, "", projectDir)
+	if err != nil {
+		return nil, err
 	}
-
-	// Check for wiki.db in the directory or a wiki/ subdirectory.
-	dbPath := filepath.Join(wikiDir, "wiki.db")
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		subDir := filepath.Join(wikiDir, "wiki")
-		subDB := filepath.Join(subDir, "wiki.db")
-		if _, err := os.Stat(subDB); err == nil {
-			wikiDir = subDir
-		}
+	if wikiDir == "" {
+		return nil, fmt.Errorf("no %s wiki for %s — it has not been built yet", wikiScope, projectDir)
 	}
-
-	return wiki.OpenWikiDB(wikiDir)
+	return wiki.OpenWikiDB(ctx, wikiDir)
 }
 
-// wikiDirForScope resolves the directory holding a wiki's markdown pages.
+// wikiDirForScope resolves the directory holding a wiki's pages and index.
 //
-// It is deliberately separate from openWikiDBForScope: that one hunts for the
-// wiki.db file and may descend into a wiki/ subdirectory to find it, while the
-// pages themselves live wherever the generator wrote them.
+// No chdir. Every resolver now takes the project explicitly, because the stores are
+// global and keyed by identity rather than found by walking the working directory.
 func wikiDirForScope(wikiScope, contextName, projectDir string) (string, error) {
-	origWd, _ := os.Getwd()
-	if err := os.Chdir(projectDir); err != nil {
-		return "", fmt.Errorf("cannot enter %s: %w", projectDir, err)
-	}
-	defer func() { _ = os.Chdir(origWd) }()
-
 	switch wikiScope {
 	case "project", "knowledge", "":
-		if contextName != "" {
-			return knowledge.WikiDirForContext(contextName), nil
-		}
-		return knowledge.WikiDir(), nil
+		return knowledge.WikiDirForContextIn(projectDir, contextName), nil
 	case "memory":
 		scope := contextName
 		if scope == "" {
 			scope = "project"
 		}
-		return memory.WikiDir(scope), nil
+		return memory.WikiDirFor(projectDir, scope), nil
 	default:
 		return "", fmt.Errorf("unknown wiki scope %q — use 'project' or 'memory'", wikiScope)
 	}
@@ -2207,6 +2532,7 @@ func runWikiSource(page, wikiScope, contextName, projectDir string, req textslic
 }
 
 func runWikiBrowse(wikiScope, docType string, limit int, aiOptimized bool) error {
+	ctx := context.Background()
 	p := output.NewPrinter("")
 
 	wd, err := os.Getwd()
@@ -2214,7 +2540,7 @@ func runWikiBrowse(wikiScope, docType string, limit int, aiOptimized bool) error
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	db, err := openWikiDBForScope(wikiScope, wd)
+	db, err := openWikiDBForScope(ctx, wikiScope, wd)
 	if err != nil {
 		return fmt.Errorf("opening wiki db: %w", err)
 	}
@@ -2226,7 +2552,7 @@ func runWikiBrowse(wikiScope, docType string, limit int, aiOptimized bool) error
 		Limit:     limit,
 	}
 
-	entries, err := db.Browse(filter)
+	entries, err := db.Browse(ctx, filter)
 	if err != nil {
 		return fmt.Errorf("browsing wiki: %w", err)
 	}
@@ -2271,6 +2597,7 @@ func runWikiBrowse(wikiScope, docType string, limit int, aiOptimized bool) error
 }
 
 func runWikiLog(wikiScope string, limit int, aiOptimized bool) error {
+	ctx := context.Background()
 	p := output.NewPrinter("")
 
 	wd, err := os.Getwd()
@@ -2278,13 +2605,13 @@ func runWikiLog(wikiScope string, limit int, aiOptimized bool) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	db, err := openWikiDBForScope(wikiScope, wd)
+	db, err := openWikiDBForScope(ctx, wikiScope, wd)
 	if err != nil {
 		return fmt.Errorf("opening wiki db: %w", err)
 	}
 	defer func() { _ = db.Close() }()
 
-	entries, err := db.QuerySyncLog(limit)
+	entries, err := db.QuerySyncLog(ctx, limit)
 	if err != nil {
 		return fmt.Errorf("querying sync log: %w", err)
 	}
@@ -2321,6 +2648,7 @@ func runWikiLog(wikiScope string, limit int, aiOptimized bool) error {
 }
 
 func runWikiXRefs(query, wikiScope string, depth int, aiOptimized bool) error {
+	ctx := context.Background()
 	p := output.NewPrinter("")
 
 	wd, err := os.Getwd()
@@ -2328,7 +2656,7 @@ func runWikiXRefs(query, wikiScope string, depth int, aiOptimized bool) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	db, err := openWikiDBForScope(wikiScope, wd)
+	db, err := openWikiDBForScope(ctx, wikiScope, wd)
 	if err != nil {
 		return fmt.Errorf("opening wiki db: %w", err)
 	}
@@ -2341,7 +2669,7 @@ func runWikiXRefs(query, wikiScope string, depth int, aiOptimized bool) error {
 		depth = 3
 	}
 
-	refs, err := db.FindXRefs(query, depth)
+	refs, err := db.FindXRefs(ctx, query, depth)
 	if err != nil {
 		return fmt.Errorf("finding xrefs: %w", err)
 	}
@@ -2394,14 +2722,33 @@ func runWikiEmbed(wikiScope string) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	var wikiDir string
-	switch wikiScope {
-	case "project", "":
-		wikiDir = filepath.Join(wd, brand.DotDir(), "knowledge", "project", "wiki")
-	case "memory":
-		wikiDir = filepath.Join(wd, brand.DotDir(), "memory", "project", "wiki")
-	default:
-		return fmt.Errorf("unknown wiki scope %q — use 'project' or 'memory'", wikiScope)
+	// The same targets the daemon and the MCP tool embed. This used to build its own
+	// path with a "wiki" subdirectory that does not exist, and since OpenWikiDB
+	// creates what it opens, it embedded an empty database it had just created and
+	// then printed "All wiki chunks already have embeddings" — a success message
+	// about a file with nothing in it.
+	targets := daemon.WikiEmbedTargets(wd, nil)
+	if wikiScope != "" {
+		filtered := targets[:0]
+		for _, t := range targets {
+			slashed := filepath.ToSlash(t.Dir)
+			switch wikiScope {
+			case "project", "knowledge":
+				if strings.Contains(slashed, "/knowledge/") {
+					filtered = append(filtered, t)
+				}
+			case "memory":
+				if strings.Contains(slashed, "/memory/") {
+					filtered = append(filtered, t)
+				}
+			default:
+				return fmt.Errorf("unknown wiki scope %q — use 'project' or 'memory'", wikiScope)
+			}
+		}
+		targets = filtered
+	}
+	if len(targets) == 0 {
+		return fmt.Errorf("no wiki to embed for scope %q", wikiScope)
 	}
 
 	p.Running("Generating embeddings for %s wiki…", wikiScope)
@@ -2412,15 +2759,19 @@ func runWikiEmbed(wikiScope string) error {
 	}
 
 	embedder := wiki.NewWikiEmbedder(client, wiki.DefaultWikiEmbedConfig())
-	count, err := embedder.RunCycle(ctx, wikiDir)
-	if err != nil {
-		return fmt.Errorf("embedding cycle: %w", err)
+	total := 0
+	for _, target := range targets {
+		count, err := embedder.RunCycle(ctx, target.Dir)
+		if err != nil {
+			return fmt.Errorf("embedding cycle (%s): %w", target.Dir, err)
+		}
+		total += count
 	}
 
-	if count == 0 {
+	if total == 0 {
 		p.Success("All wiki chunks already have embeddings")
 	} else {
-		p.Success("Embedded %d wiki chunk(s)", count)
+		p.Success("Embedded %d wiki chunk(s)", total)
 	}
 
 	return nil

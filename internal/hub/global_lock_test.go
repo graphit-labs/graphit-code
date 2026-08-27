@@ -129,10 +129,8 @@ func TestGlobalLockManager_RegisterUninstall(t *testing.T) {
 	dir := t.TempDir()
 	mgr := &GlobalLockManager{lockPath: filepath.Join(dir, "global.lock.json")}
 
-	// Install
 	_, _ = mgr.RegisterInstall("my-rule", "1.0.0", TypeRule, "My Rule", "", "", "", "proj1", "", "")
 
-	// Uninstall
 	orphaned, err := mgr.RegisterUninstall("my-rule", "1.0.0", TypeRule, "proj1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -141,7 +139,6 @@ func TestGlobalLockManager_RegisterUninstall(t *testing.T) {
 		t.Error("expected orphaned=true")
 	}
 
-	// Uninstall non-existent
 	orphaned, err = mgr.RegisterUninstall("non-existent", "1.0.0", TypeRule, "proj1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -156,7 +153,6 @@ func TestGlobalLockManager_GCOrphans(t *testing.T) {
 	dir := t.TempDir()
 	mgr := &GlobalLockManager{lockPath: filepath.Join(dir, "global.lock.json")}
 
-	// Create a cache dir
 	cacheDir := filepath.Join(dir, "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -216,7 +212,6 @@ func TestGlobalLockManager_RegisterProject(t *testing.T) {
 	dir := t.TempDir()
 	mgr := &GlobalLockManager{lockPath: filepath.Join(dir, "global.lock.json")}
 
-	// Register new project
 	err := mgr.RegisterProject("proj1", dir, WithProjectName("My Project"), WithProjectDescription("desc"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -306,7 +301,6 @@ func TestGlobalLockManager_SetCluster(t *testing.T) {
 		t.Errorf("expected 1 value, got %d", len(vals))
 	}
 
-	// Set another value
 	err = mgr.SetCluster("proj1", dir, "team", "frontend")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -359,7 +353,6 @@ func TestGlobalLockManager_GetAllClusterLabels(t *testing.T) {
 		t.Errorf("expected 2 labels, got %d", len(labels))
 	}
 
-	// Non-existent project
 	labels, err = mgr.GetAllClusterLabels("nonexistent", dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -374,7 +367,6 @@ func TestGlobalLockManager_ValidateProjectDirs(t *testing.T) {
 	dir := t.TempDir()
 	mgr := &GlobalLockManager{lockPath: filepath.Join(dir, "global.lock.json")}
 
-	// Register project with non-existent dir
 	_ = mgr.RegisterProject("proj1", "/nonexistent/dir")
 	_ = mgr.RegisterProject("proj2", dir)
 
@@ -400,7 +392,6 @@ func TestGlobalLockManager_ListActiveProjects(t *testing.T) {
 	dir := t.TempDir()
 	mgr := &GlobalLockManager{lockPath: filepath.Join(dir, "global.lock.json")}
 
-	// Create lockfile
 	lf := &Lockfile{
 		Project:   ProjectIdentity{ID: "proj1", Name: "test"},
 		Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta),

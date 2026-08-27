@@ -12,6 +12,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 // sanitizeContextName validates a user-supplied context name to prevent
@@ -46,15 +47,24 @@ func resolveProjectDir(projectDir string) (string, error) {
 	return abs, nil
 }
 
+// withProjectDir runs fn with the process sitting in projectDir.
+//
+// A working directory that cannot be read is NOT a reason to refuse: this function
+// exists to move INTO projectDir, and the old directory only matters for putting it
+// back afterwards. Returning an error there took down every memory tool on a server
+// whose working directory had been deleted from under it — a directory the server
+// never needed, and one it inherited rather than chose. Restoring to projectDir in
+// that case leaves the process somewhere that exists, which is strictly better than
+// where it was.
 func withProjectDir(projectDir string, fn func() error) error {
-	origWd, err := os.Getwd()
+	restoreTo, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
+		restoreTo = projectDir
 	}
 	if err := os.Chdir(projectDir); err != nil {
 		return fmt.Errorf("failed to chdir to %s: %w", projectDir, err)
 	}
-	defer func() { _ = os.Chdir(origWd) }()
+	defer func() { _ = os.Chdir(restoreTo) }()
 	return fn()
 }
 
@@ -75,21 +85,19 @@ func anchorToProject(projectDir, path string) string {
 }
 
 // astConfigForProject builds the Ladybug config for projectDir with a DBPath that
-// no longer depends on the working directory.
+// does not depend on the working directory.
 //
-// Anchoring here rather than chdir'ing around the constructors is what makes the
-// path correct: the backend connects lazily, on its first query, long after any
-// chdir would have been undone — so a DBPath left relative resolved against
-// whichever project the server happened to sit in, and one project's nodes landed
-// in another project's graph while indexing reported success. The constructors
-// themselves never read the working directory; they only return relative strings.
+// Everything here is resolved against projectDir, and that is the whole point. The
+// project's own graph is keyed by the project's identity, and a context — Hub or
+// locally imported — is claimed by the project's lockfile and registry, so neither
+// is discoverable without knowing which project is asking. Resolving either from the
+// working directory answers for whichever project the server was started in, and it
+// answers silently: a graph opens, it is simply not the one that was requested.
+//
+// The backend connects lazily, on its first query, so a wrong path here is invisible
+// until a write lands in another project's graph and reports success.
 func astConfigForProject(projectDir, contextName string) ast.LadybugConfig {
-	var cfg ast.LadybugConfig
-	if contextName != "" {
-		cfg = ast.LadybugConfigForContext(contextName)
-	} else {
-		cfg = ast.DefaultLadybugConfig()
-	}
+	cfg := ast.LadybugConfigForContextIn(projectDir, contextName)
 	cfg.DBPath = anchorToProject(projectDir, cfg.DBPath)
 	return cfg
 }
@@ -104,32 +112,80 @@ func openASTDB(projectDir, contextName string) (ast.GraphDB, error) {
 	return ast.NewLadybugDBReadOnly(cfg), nil
 }
 
+// errEphemeralHasNoGraph is what a write to an ephemeral session's own code graph
+// gets. Imported contexts are unaffected — reading and installing those is most of
+// what a live search does.
+func errEphemeralHasNoGraph() error {
+	return fmt.Errorf("a live search session has no code graph of its own: its workspace holds no source, and the graphs it can query are the imported contexts — pass one as 'context'")
+}
+
 func openASTDBReadWrite(projectDir, contextName string) (ast.GraphDB, error) {
+	// Opening read-write CREATES the store, so this is the structural guard: an
+	// ephemeral workspace must not acquire a graph keyed by its session ID, and the
+	// end-of-session index the AST skill mandates would otherwise do exactly that.
+	if contextName == "" && store.IsEphemeralProject(projectDir) {
+		return nil, errEphemeralHasNoGraph()
+	}
 	return ast.NewLadybugDB(astConfigForProject(projectDir, contextName)), nil
 }
 
-func newMemorySvc(userScope bool, projectDir string) (*memory.MemoryService, error) {
-	var scope memory.MemoryScope
-	var scopeID string
-
-	if userScope {
-		scope = memory.MemoryScopeUser
-		hash, err := memory.UserHashFromGit()
-		if err != nil {
-			return nil, fmt.Errorf("cannot determine user identity: %w", err)
-		}
-		scopeID = hash
-	} else {
-		scope = memory.MemoryScopeProject
-		lockPath := filepath.Join(projectDir, brand.LockFileName())
-		lf, err := hub.LoadLockfile(lockPath)
-		if err != nil || lf == nil {
-			return nil, fmt.Errorf("project not initialised at %s — run '%s init' first", projectDir, brand.BinName())
-		}
-		scopeID = lf.Project.ID
+// memoryScopeFor decides which memory scope a request actually gets, which is not
+// always the one it asked for.
+//
+// An ephemeral workspace never gets a project scope. Asking for one is not a caller
+// error — the mandate tells an agent to search project memory before its first
+// response, so every live search session asks — but opening it is destructive in a way
+// that is easy to miss: the scope is created on first use, and creating it means an
+// orphan branch and a worktree in the SHARED memory repository, named after a session
+// that exists for one search. Nothing reclaims them.
+//
+// So the request is redirected to the user scope, and the caller is told. The user's
+// memory is the only memory such a session legitimately has: it is about the user,
+// applies everywhere, and is frequently the only place a constraint was written down.
+// Refusing outright would be more literal and less useful — it would fail the first
+// call of every session and lose any memory the search was about to record.
+//
+// The bool reports the redirect so a tool can say so rather than quietly answering a
+// different question.
+func memoryScopeFor(userScope bool, projectDir string) (memory.MemoryScope, string, bool, error) {
+	redirected := false
+	if !userScope && store.IsEphemeralProject(projectDir) {
+		userScope = true
+		redirected = true
 	}
 
-	ms, _ := memory.NewMemoryGitStore()
+	if userScope {
+		hash, err := memory.UserScopeID()
+		if err != nil {
+			return "", "", redirected, fmt.Errorf("cannot determine user identity: %w", err)
+		}
+		return memory.MemoryScopeUser, hash, redirected, nil
+	}
+
+	lockPath := filepath.Join(projectDir, brand.LockFileName())
+	lf, err := hub.LoadLockfile(lockPath)
+	if err != nil || lf == nil {
+		return "", "", false, fmt.Errorf("project not initialised at %s — run '%s init' first", projectDir, brand.BinName())
+	}
+	return memory.MemoryScopeProject, lf.Project.ID, false, nil
+}
+
+// memoryScopeNotice is the sentence a tool adds when the scope it served was not the
+// scope it was asked for, and "" when it was.
+func memoryScopeNotice(userScope bool, projectDir string) string {
+	if userScope || !store.IsEphemeralProject(projectDir) {
+		return ""
+	}
+	return "note: this is an ephemeral live search session, which has no project memory of its own — your user memory was used instead"
+}
+
+func newMemorySvc(userScope bool, projectDir string) (*memory.MemoryService, error) {
+	scope, scopeID, _, err := memoryScopeFor(userScope, projectDir)
+	if err != nil {
+		return nil, err
+	}
+
+	ms, _ := memory.NewMemoryStore()
 	svc := memory.NewMemoryService(scope, scopeID, ms)
 	if err := svc.EnsureInitialised(); err != nil {
 		_ = err
@@ -137,36 +193,39 @@ func newMemorySvc(userScope bool, projectDir string) (*memory.MemoryService, err
 	return svc, nil
 }
 
-// resolveWikiDir returns an absolute wiki directory for the module.
+// resolveWikiDir returns the absolute wiki directory of a module for one project.
 //
-// The chdir stays because memory.WikiDir stats the project link directory to
-// decide whether it exists, and that probe has to run against projectDir. Only
-// the resolved path escapes the block, so it is anchored before returning:
-// otherwise the caller received ".graphit/knowledge/project" and read whichever
-// project the server was started in.
+// No chdir, and no anchoring. Both used to be necessary: the resolvers returned
+// ".graphit/knowledge/project" relative to the working directory, and one of them
+// stat'ed a project-local replica to decide whether it existed — so a server serving
+// one project while sitting in another read the wrong project's wiki unless it moved
+// itself first. Every wiki is now global and keyed by identity, so the project is
+// simply an argument.
 func resolveWikiDir(module, projectDir, contextName string) string {
-	origWd, _ := os.Getwd()
-	_ = os.Chdir(projectDir)
-	defer func() { _ = os.Chdir(origWd) }()
-
-	var dir string
 	switch module {
 	case "knowledge":
-		if contextName != "" {
-			dir = knowledge.WikiDirForContext(contextName)
-		} else {
-			dir = knowledge.WikiDir()
-		}
+		// ReadDirIn, not WikiDirForContextIn, because an ephemeral session has no
+		// documentation wiki of its own — the sets it can read are the ones it
+		// selected, reached by name. Putting the rule here rather than in each tool
+		// means every knowledge and wiki tool inherits it.
+		return knowledge.ReadDirIn(projectDir, contextName)
 	case "memory":
-		if contextName != "" {
-			dir = memory.WikiDir(contextName)
-		} else {
-			dir = memory.WikiDir("project")
+		scope := contextName
+		if scope == "" {
+			scope = "project"
 		}
+		// An ephemeral session has no project memory, so a request for one is served
+		// from the user scope — the same redirect memoryScopeFor performs. It has to
+		// happen here too, or the two disagree: a search would return user memory
+		// slugs and reading one of them back would resolve to a directory that does
+		// not exist.
+		if scope == "project" && store.IsEphemeralProject(projectDir) {
+			scope = "user"
+		}
+		return memory.WikiDirFor(projectDir, scope)
 	default:
 		return ""
 	}
-	return anchorToProject(projectDir, dir)
 }
 
 func loadProjectConfig(projectDir string) config.ConfigMap {

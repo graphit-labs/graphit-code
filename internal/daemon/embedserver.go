@@ -114,4 +114,3 @@ func (s *EmbedServer) sendError(conn net.Conn, errMsg string) {
 	respBytes, _ := json.Marshal(embedResponse{Error: errMsg})
 	_, _ = conn.Write(append(respBytes, '\n'))
 }
-

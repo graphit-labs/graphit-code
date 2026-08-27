@@ -15,6 +15,10 @@ import (
 type cliClient struct {
 	executablePath string
 	binaryName     string
+	// agentArgs are operator-configured arguments added only to agentic runs,
+	// typically the flag that lets the CLI edit files without prompting.
+	// See agentArgsFromConfig for the keys.
+	agentArgs []string
 }
 
 // inputMode determines how the prompt is delivered to the CLI.
@@ -302,9 +306,36 @@ func tryFallbackCLI(provider string, userCLI string) Client {
 			return &cliClient{
 				executablePath: path,
 				binaryName:     bin,
+				agentArgs:      agentArgsFromConfig(bin),
 			}
 		}
 	}
 
+	return nil
+}
+
+// agentArgsFromConfig resolves the extra arguments for agentic runs, most
+// specific key first:
+//
+//	ai.agent_args.<binary>   e.g. ai.agent_args.claude
+//	ai.agent_args            applies to whichever CLI is selected
+//
+// The value is split on whitespace. This is deliberately operator-configured
+// rather than a built-in table: the flag that grants workspace write differs per
+// CLI, changes between releases, and carries real blast radius — a wrong guess
+// either fails to parse or hands the agent more authority than intended.
+func agentArgsFromConfig(binary string) []string {
+	cfg, err := config.LoadGlobalConfig()
+	if err != nil {
+		return nil
+	}
+	if binary != "" {
+		if v, _ := config.GetConfigValue(cfg, "ai.agent_args."+binary); strings.TrimSpace(v) != "" {
+			return strings.Fields(v)
+		}
+	}
+	if v, _ := config.GetConfigValue(cfg, "ai.agent_args"); strings.TrimSpace(v) != "" {
+		return strings.Fields(v)
+	}
 	return nil
 }

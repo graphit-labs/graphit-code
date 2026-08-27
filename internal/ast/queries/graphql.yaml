@@ -66,6 +66,15 @@ context_types:
   enum_type_definition: EnumType
   input_object_type_definition: InputType
 
+# tree-sitter-graphql keeps a definition's name in a child of KIND `name`, not in a field
+# by that name — and the grammar defines no "name" field at all, so every context here was
+# transparent and each field_definition fell back to the File.
+context_name_paths:
+  object_type_definition: name
+  interface_type_definition: name
+  enum_type_definition: name
+  input_object_type_definition: name
+
 anon_func_types: []
 
 declaration_types:
@@ -83,9 +92,25 @@ declaration_types:
 comment_types:
   - comment
 
-# GraphQL has no entry points — it's a schema/query language
-entry_points:
-  names: []
-  exported_bonus: 0
-  max_score: 0
-  decorators: []
+# No cyclomatic complexity: GraphQL is a schema/query language with no
+# control flow of its own.
+
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - ObjectType
+  - InterfaceType
+  - InputType
+  - EnumType
+  - UnionType
+  - ScalarType
+  - Query
+  - Mutation
+  - Subscription
+  - Fragment
+  - Directive
+  - SchemaDefinition
+  - GraphQLField
+  - Comment

@@ -52,7 +52,7 @@ No more "grep and guess". Built in Go for blazing-fast performance, Graphit Code
 The agent doesn't just see the current folder. It automatically discovers all managed projects within the ecosystem. It can query sibling codebases, read their shared knowledge, and generate cross-service integrations using real routes and DTOs. Zero hallucinations.
 
 **3. Enterprise Collaboration Hub**  
-Share knowledge, personal and shared memories, skills, rules, and MCP servers across your entire team. Fosters **progressive knowledge** across the entire enterprise ecosystem, ensuring that every project benefits from shared intelligence. All Hub artifact management events are tracked via a Git repo.
+Share knowledge, personal and shared memories, skills, rules, and MCP servers across your entire team. Fosters **progressive knowledge** across the entire enterprise ecosystem, ensuring that every project benefits from shared intelligence. Hub artifacts, events, and shared memories live in your S3-compatible object store.
 
 **4. 100% Private, Zero Cost, No API Keys**  
 Everything stays in your possession. Data is 100% private and anonymous. Git provides persistence for all memories and knowledge. There is **zero additional cost** and no LLM API key required, because Graphit operates via your existing local IDE and CLI agents.
@@ -152,9 +152,10 @@ make install-windows # installs to C:\Program Files\graphit\ (may need admin)
 ## Quick Start
 
 ```bash
-# 1. Setup global hub and memory repos. During this interactive setup, you can point to 
-# your organization's private Git repositories (e.g., self-hosted GitLab or GitHub 
-# Enterprise) to establish a secure, collaborative environment for your IT team.
+# 1. Configure the global Hub bucket. Setup optionally accepts a complete S3 access/secret
+# pair; leave either blank to use the AWS credential-provider chain already available on
+# the machine. Explicit secrets are stored in the owner-only global config as plain text.
+# This also downloads the local embedding model (~132 MB), once per machine.
 graphit setup
 
 # 2. Initialize your project (Auto-configures IDE rules, indexes AST + Wiki)
@@ -169,41 +170,40 @@ graphit ui
 
 ## 🏆 The Ultimate Advantage: Private Knowledge Ecosystems
 
-> **This is the game-changer.** Whether you're a solo developer managing multiple projects or an enterprise team scaling across dozens of engineers — Graphit Code turns your Git infrastructure into a **persistent knowledge backbone** that grows smarter over time.
+> **This is the game-changer.** Whether you're a solo developer managing multiple projects or an enterprise team scaling across dozens of engineers — Graphit Code turns your private object storage into a **persistent knowledge backbone** that grows smarter over time.
 
 For **individual developers**, it means your agent knows every project you work on, remembers past decisions, and carries context across your entire ecosystem. For **teams**, knowledge compounds: corrections, conventions, and skills propagate automatically to every member. Either way, context is never lost.
 
 ### 🔗 Private Hub Registry — Your Team's Artifact Center
 
-During the interactive `graphit setup`, you can point the **Hub** to any Git repository — a personal repo for solo use, or a shared private repo (self-hosted GitLab, Bitbucket, GitHub Enterprise, or any SSH/HTTPS accessible repo) for teams. This repository becomes the **centralized artifact registry** for your entire ecosystem:
+During interactive `graphit setup`, point the **Hub** to an AWS S3 or S3-compatible bucket (including private MinIO-style endpoints). The bucket becomes the centralized artifact registry for your ecosystem:
 
 - **Shared Coding Rules** — Enforce company-wide standards automatically across every developer's IDE.
 - **Team Skills** — Codify complex workflows (k8s debugging, internal API patterns, deployment checklists) so every agent on the team knows the procedures.
 - **Knowledge Artifacts** — Publish documentation about frameworks, APIs, and integration specs that every developer's agent can discover and install.
 - **Language Queries** — Share Tree-sitter and ANTLR extraction `.yaml` query files for customizing how entities are extracted from the built-in languages. Drop-in AST query customization without recompilation.
-- **Framework Configs** — Distribute framework detection `.yaml` rules (decorators, heritage, imports) for internal or niche frameworks across the team.
 - **MCP Servers, Commands, Agent Profiles** — Share reusable automation across the entire organization.
 
-Every artifact is versioned via Git, published directly, and distributed securely through your existing authentication infrastructure (SSH keys, SSO, access tokens).
+Every artifact has a versioned object prefix and registry entry and is distributed through your bucket policy and AWS-compatible authentication.
 
-### 🧠 Shared Memory Repository — Collective Team Intelligence
+### 🧠 Shared Memory Prefix — Collective Team Intelligence
 
-Point the **Memory** sync to a separate Git repository and your ecosystem gains **shared persistent memory**:
+The same bucket carries project and user memory scopes under the `memory/` prefix, so your ecosystem gains **shared persistent memory** without a second repository setting:
 
 - **Corrections compound across the team** — When one developer corrects their agent ("we don't use that library anymore"), the correction propagates to everyone.
 - **Conventions are learned once** — Architecture decisions, API patterns, and coding standards are stored as team-wide memories that every agent follows automatically.
 - **Institutional knowledge persists** — New team members' agents immediately benefit from the collective learning of the entire team. No more onboarding friction.
-- **Full Git history** — Every memory change is tracked, auditable, and reversible.
+- **Per-memory history** — Revision metadata and archived predecessors preserve the audit trail without relying on Git commits.
 
 ### 🚀 The Result: A Private, Self-Hosted Collaboration Loop
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   Your Private Git Server                   │
-│  (GitLab / Bitbucket / GitHub Enterprise / Any Git Host)    │
+│              Your Private S3-Compatible Bucket              │
+│       (AWS S3 / MinIO / private object-store service)       │
 │                                                             │
 │   ┌───────────────────┐      ┌──────────────────────────┐   │
-│   │  Hub Repository   │      │  Memory Repository       │   │
+│   │  Hub Prefixes     │      │  Memory Prefixes         │   │
 │   │  (Team Artifacts) │      │  (Shared Learning)       │   │
 │   │                   │      │                          │   │
 │   │  • Rules          │      │  • Corrections           │   │
@@ -213,18 +213,18 @@ Point the **Memory** sync to a separate Git repository and your ecosystem gains 
 │   └────────┬──────────┘      └────────────┬─────────────┘   │
 │            │                              │                 │
 └────────────┼──────────────────────────────┼─────────────────┘
-             │        git push/pull         │
+             │      object publish/sync     │
      ┌───────┴──────────────────────────────┴───────┐
      │   Solo Developer or Entire Team              │
      │                                              │
-     │   graphit setup  →  configure your repos     │
-     │   graphit sync   →  push/pull knowledge      │
+     │   graphit setup  →  configure bucket/auth    │
+     │   graphit sync   →  publish/sync knowledge   │
      │   graphit init   →  inject rules into IDE    │
      └──────────────────────────────────────────────┘
 ```
 
-**Zero cloud dependencies. Zero SaaS subscriptions. Zero data leaving your network.**  
-Your knowledge stays 100% private, versioned in Git, and shared securely through your existing infrastructure.
+Use a self-hosted S3-compatible service when data must remain entirely inside your network.
+Privacy is enforced by your endpoint, bucket policy, network boundary, and credential strategy.
 
 ---
 
@@ -233,8 +233,10 @@ Your knowledge stays 100% private, versioned in Git, and shared securely through
 ### 1. Unified Graphical UI
 Manage the entire Hub and search knowledge across your own code or multiple projects simultaneously. The dashboard facilitates interactions and lets you chat about the total knowledge of your project.
 ```bash
-graphit ui  # Opens http://localhost:8080
+graphit ui  # Opens the automatically selected free port
 ```
+- **Network:** binds to `0.0.0.0` by default; CORS remains localhost-only until explicitly overridden.
+- **Security:** the UI has no authentication, so restrict the bind address or use a firewall/VPN/authenticated proxy.
 - **AST Explorer:** 3D interactive graph with Cypher queries.
 - **Wiki Explorer:** FTS, semantic search, and documentation routing.
 - **Hub Manager:** Decentralized registry interface.
@@ -247,9 +249,9 @@ graphit ui  # Opens http://localhost:8080
 ### 2. AST Graph Explorer — Instant & Deterministic
 Query the AST across the ecosystem instantly. Auto-incremental indexing ensures your agent always knows exactly where a function is defined or called. **Eliminates hallucinations** by grounding answers in exact structural truths, and drastically **reduces LLM token usage** by passing only precise nodes instead of massive files.
 
-Two parser backends: **Tree-sitter** and **ANTLR v4**. The launcher ships with 42 default grammars.
+Two parser backends: **Tree-sitter** and **ANTLR v4**, covering 44 languages out of the box.
 
-**Tree-sitter (37):** Go · TypeScript · TSX · JavaScript · Python · Java · Rust · C · C++ · C# · Kotlin · Swift · Dart · PHP · Ruby · SQL · XML · HTML · Bash · Clojure · Dockerfile · Elixir · GraphQL · Groovy · Haskell · HCL · JSON · Julia · Lua · Markdown · Objective-C · Protocol Buffers · R · Scala · TOML · YAML · Zig
+**Tree-sitter (39):** Go · TypeScript · TSX · JavaScript · Python · Java · Rust · C · C++ · C# · Kotlin · Swift · Dart · PHP · Ruby · SQL · XML · HTML · CSS · Vue · Svelte · Bash · Clojure · Dockerfile · Elixir · GraphQL · Groovy · Haskell · HCL · JSON · Julia · Lua · Objective-C · Protocol Buffers · R · Scala · TOML · YAML · Zig
 
 **ANTLR v4 (5):** PL/SQL · PostgreSQL · DB2 · T-SQL · COBOL 85
 
@@ -317,18 +319,20 @@ Visit the **[Documentation Hub](docs/README.md)** for a complete index of all gu
 - **[CLI Command Reference](docs/guides/cli_reference.md)**: Manual detailing every command and flag.
 - **[User Manual](docs/guides/user_manual.md)**: Interactive canvas, memories, and autonomous skill generation.
 - **[Private Branding & Customization](docs/guides/private_brand_customization.md)**: White-labeling build parameters, private hubs, and secure networks.
+- **[S3 Credentials & UI Network](docs/guides/s3-and-ui-network.md)**: Authentication fallback, credential storage, bind address, CORS, and deployment security.
 
 ### Technical Specifications
 - **[System Architecture](docs/architecture/architecture_overview.md)**: Layer design and process wrapper.
 - **[AST Module Spec](docs/specs/ast_module.md)**: Graph database LadybugDB, Cypher builder, and parser.
 - **[Wiki Module Spec](docs/specs/wiki_module.md)**: Obsidian wiki, LPA, fuzzy match, and search engine.
-- **[Memory Module Spec](docs/specs/memory_module.md)**: Scope partitioning and consolidation.
-- **[Hub Collaboration Spec](docs/specs/hub_collaboration.md)**: Registry git-store and locks.
+- **[Memory Module Spec](docs/specs/memory_module.md)**: Scope partitioning, local raw storage, S3 publication, and consolidation.
+- **[Hub Collaboration Spec](docs/specs/hub_collaboration.md)**: S3-backed registry, artifact operations, and lockfiles.
 - **[Daemon Module Spec](docs/specs/daemon_module.md)**: Supervisors, schedulers, and servers.
 - **[Dream Module Spec](docs/specs/dream_module.md)**: Autonomous skill generation, conversation mining, and knowledge extraction.
 - **[Improvements Module Spec](docs/specs/improvements_module.md)**: Rules resolved order and Clean Code.
+- **[Improvement Backlog Spec](docs/specs/backlog.md)**: Deferred work versioned in the docs tree.
 - **[UI Dashboard Spec](docs/specs/ui_dashboard.md)**: React force-directed canvas and uiserver handlers.
-- **[AI Engine Spec](docs/specs/ai_engine.md)**: ONNX models, embedding providers, and prompt completions.
+- **[AI Engine Spec](docs/specs/ai_engine.md)**: the local ONNX embedding stack, the model manager, and prompt completions.
 - **[Cluster Discovery Spec](docs/specs/cluster_microservices.md)**: Projects registry and cross-project delegated queries.
 
 ---

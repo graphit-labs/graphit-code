@@ -7,10 +7,12 @@
   "ides": [
     "antigravity",
     "kiro",
-    "claude"
+    "claude",
+    "codex",
+    "opencode"
   ],
   "artifacts": {},
   "config": {
-    "get": "knowledge.docs_dir"
+    "get": "hub.bucket"
   }
 }

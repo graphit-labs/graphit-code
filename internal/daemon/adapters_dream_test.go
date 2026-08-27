@@ -8,10 +8,6 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// DreamModule — Start returns on context cancel
-// ---------------------------------------------------------------------------
-
 func TestDreamModule_Start_ReturnsOnCancel(t *testing.T) {
 	tmpDir := t.TempDir()
 	m := NewDreamModule(tmpDir, "vscode")
@@ -32,9 +28,7 @@ func TestDreamModule_Start_ReturnsOnCancel(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // EmbeddingModule — Start with rootPath pointing to non-existent path
-// ---------------------------------------------------------------------------
 
 func TestEmbeddingModule_Start_NonExistentPath(t *testing.T) {
 	m := NewEmbeddingModule("/nonexistent/path", 50*time.Millisecond, "/nonexistent/cache")
@@ -51,10 +45,6 @@ func TestEmbeddingModule_Start_NonExistentPath(t *testing.T) {
 	<-errCh
 }
 
-// ---------------------------------------------------------------------------
-// loadProjectConfigFromDir — with actual lockfile
-// ---------------------------------------------------------------------------
-
 func TestLoadProjectConfigFromDir_WithLockfile(t *testing.T) {
 	tmpDir := t.TempDir()
 	// Create an empty lockfile — should return nil config
@@ -63,10 +53,6 @@ func TestLoadProjectConfigFromDir_WithLockfile(t *testing.T) {
 		t.Logf("config from empty dir: %v (may be nil or empty)", config)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// loadProjectConfigFromDir — with proper lockfile
-// ---------------------------------------------------------------------------
 
 func TestLoadProjectConfigFromDir_WithValidLockfile(t *testing.T) {
 	t.Parallel()

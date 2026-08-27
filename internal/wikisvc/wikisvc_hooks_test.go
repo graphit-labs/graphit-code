@@ -71,8 +71,6 @@ func (m *mockHubService) EnsureKnowledgeAvailable(_ context.Context, _ string) (
 	return m.dir, m.err
 }
 
-// --- resolveEcosystemSource tests ---
-
 func TestResolveEcosystemSource_LockManagerError(t *testing.T) {
 	saveAndRestoreHooks(t)
 
@@ -94,9 +92,8 @@ func TestResolveEcosystemSource_ProjectFound_WithWikiDir(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
 
-	// Create the ecosystem project wiki directory
 	projDir := filepath.Join(tmp, "eco-project")
-	wikiDir := filepath.Join(projDir, brand.DotDir(), "knowledge", "project")
+	wikiDir := knowledgeWikiDirFor(t, projDir)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +111,6 @@ func TestResolveEcosystemSource_ProjectFound_WithWikiDir(t *testing.T) {
 	}
 	lockPath := filepath.Join(globalDir, hub.GlobalHubLockFile)
 
-	// Write the global.lock.json with the project registered
 	lockJSON := `{
 		"version": 2,
 		"projects": {
@@ -161,8 +157,6 @@ func TestResolveEcosystemSource_ProjectNotFound(t *testing.T) {
 	// Since GlobalLockManager.ListActiveProjects() is a method, not a hook,
 	// and we can't easily mock it, we rely on the existing test.
 }
-
-// --- ResolveHubKnowledgeSource tests ---
 
 func TestResolveHubKnowledgeSource_RegistryError(t *testing.T) {
 	saveAndRestoreHooks(t)
@@ -269,8 +263,6 @@ func TestResolveHubKnowledgeSource_Success_WithoutVersion(t *testing.T) {
 	}
 }
 
-// --- ResolveSources with hub refs success path ---
-
 func TestResolveSources_WithValidHubRef(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
@@ -305,8 +297,7 @@ func TestResolveSources_WikiAndHubMixed(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
 
-	// Create project wiki dir
-	projWikiDir := filepath.Join(tmp, brand.DotDir(), "knowledge", "project")
+	projWikiDir := knowledgeWikiDirFor(t, tmp)
 	if err := os.MkdirAll(projWikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -337,14 +328,12 @@ func TestResolveSources_WikiAndHubMixed(t *testing.T) {
 	}
 }
 
-// --- SearchMultiWiki tests ---
-
 func TestSearchMultiWiki_AIClientError(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
 
 	// Create project wiki dir so source resolves
-	wikiDir := filepath.Join(tmp, brand.DotDir(), "knowledge", "project")
+	wikiDir := knowledgeWikiDirFor(t, tmp)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +360,7 @@ func TestSearchMultiWiki_SearchError(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
 
-	wikiDir := filepath.Join(tmp, brand.DotDir(), "knowledge", "project")
+	wikiDir := knowledgeWikiDirFor(t, tmp)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +392,7 @@ func TestSearchMultiWiki_Success(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
 
-	wikiDir := filepath.Join(tmp, brand.DotDir(), "knowledge", "project")
+	wikiDir := knowledgeWikiDirFor(t, tmp)
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -419,11 +408,11 @@ func TestSearchMultiWiki_Success(t *testing.T) {
 		}, nil
 	}
 
-	newChatSession = func(projectDir string, sources []chat.WikiSource, query string) *chat.ChatSession {
+	newChatSession = func(projectDir string, sources []chat.Source, query string) *chat.ChatSession {
 		return &chat.ChatSession{
-			ID:          "test-session-123",
-			ProjectDir:  projectDir,
-			WikiSources: sources,
+			ID:         "test-session-123",
+			ProjectDir: projectDir,
+			Sources:    sources,
 		}
 	}
 
@@ -464,8 +453,6 @@ func TestSearchMultiWiki_NoSources_AllFail(t *testing.T) {
 		t.Errorf("error = %q; want 'no valid wiki sources found'", got)
 	}
 }
-
-// --- ContinueChat tests ---
 
 func TestContinueChat_LoadSessionError(t *testing.T) {
 	saveAndRestoreHooks(t)
@@ -559,8 +546,6 @@ func TestContinueChat_Success(t *testing.T) {
 	}
 }
 
-// --- ListSessions via hook ---
-
 func TestListSessions_ViaHook_Success(t *testing.T) {
 	saveAndRestoreHooks(t)
 
@@ -597,8 +582,6 @@ func TestListSessions_ViaHook_Error(t *testing.T) {
 	}
 }
 
-// --- DeleteSession via hook ---
-
 func TestDeleteSession_ViaHook_Success(t *testing.T) {
 	saveAndRestoreHooks(t)
 
@@ -627,7 +610,7 @@ func TestDeleteSession_ViaHook_Error(t *testing.T) {
 	}
 }
 
-// --- resolveLocalSource edge case: dir doesn't exist, wiki/ subdir doesn't exist either ---
+// resolveLocalSource edge case: dir doesn't exist, wiki/ subdir doesn't exist either
 
 func TestResolveLocalSource_NeitherDirNorWikiSubExist(t *testing.T) {
 	tmp := t.TempDir()
@@ -661,20 +644,16 @@ func TestResolveLocalSource_DirExistsDirectly(t *testing.T) {
 	}
 }
 
-// --- SearchMultiWiki with multiple sources ---
-
 func TestSearchMultiWiki_MultipleSources(t *testing.T) {
 	saveAndRestoreHooks(t)
 	tmp := t.TempDir()
 
-	// Create project wiki dir
-	projDir := filepath.Join(tmp, brand.DotDir(), "knowledge", "project")
+	projDir := knowledgeWikiDirFor(t, tmp)
 	if err := os.MkdirAll(projDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create memory wiki dir
-	memDir := filepath.Join(tmp, brand.DotDir(), "memory", "project")
+	memDir := memoryWikiDirFor(t, tmp)
 	if err := os.MkdirAll(memDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -690,11 +669,11 @@ func TestSearchMultiWiki_MultipleSources(t *testing.T) {
 		return &wiki.SearchResult{Answer: "combined answer", Turns: 2}, nil
 	}
 
-	newChatSession = func(projectDir string, sources []chat.WikiSource, query string) *chat.ChatSession {
+	newChatSession = func(projectDir string, sources []chat.Source, query string) *chat.ChatSession {
 		return &chat.ChatSession{
-			ID:          "multi-session",
-			ProjectDir:  projectDir,
-			WikiSources: sources,
+			ID:         "multi-session",
+			ProjectDir: projectDir,
+			Sources:    sources,
 		}
 	}
 
@@ -711,8 +690,6 @@ func TestSearchMultiWiki_MultipleSources(t *testing.T) {
 		t.Errorf("Answer = %q; want %q", result.Answer, "combined answer")
 	}
 }
-
-// --- WikiSearchOpts and WikiSearchResult struct tests ---
 
 func TestWikiSearchOpts_Fields(t *testing.T) {
 	opts := WikiSearchOpts{
@@ -752,7 +729,7 @@ func TestWikiSearchResult_Fields(t *testing.T) {
 	}
 }
 
-// --- Default hook closure tests ---
+// Default hook closure tests
 // These tests verify that the default hook closures (which wrap real implementations)
 // are exercisable. They will fail with expected errors since real services aren't
 // available in the test environment, but the closure code itself gets executed.
@@ -812,5 +789,3 @@ func jsonEscape(s string) string {
 	}
 	return result
 }
-
-

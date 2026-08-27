@@ -7,7 +7,43 @@ grammar: antlr-tsql
 start_rule: tsql_file
 extensions: [".sql", ".tsql"]
 
+# Target resolution: a DML/DDL relation captures its object by NAME, and the name
+# alone does not say what kind of thing it is. A target this corpus never declares is
+# still a table — whoever reads a schema they do not own depends on it for real — and
+# that is why `fallback: Table` is declared here instead of being the engine's default
+# for every reference of every language.
+target_rules:
+  CALLS: { labels: [Function, StoredProcedure, Trigger] }
+  SELECTS: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  INSERTS: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  UPDATES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  DELETES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  ALTERS: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  DROPS: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  CREATES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  TRUNCATES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  REFERENCES: { labels: [Table, View, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema], fallback: Table }
+  # COLUMN grain — types of their own, and a target that is always QUALIFIED
+  # (`TABLE.COLUMN`). A bare column name lives in dozens of tables and resolves to
+  # none; qualified it resolves to one, and the qualified stub records ONE column of
+  # ONE table instead of merging every table's.
+  READS_COLUMN: { labels: [Column], fallback: Column }
+  WRITES_COLUMN: { labels: [Column], fallback: Column }
 queries:
+  - data_key: column_writes_update
+    pattern: "//update_elem/full_column_name"
+    name_capture: name
+    qualifier_capture: "update_statement/ddl_object/full_table_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+
+  - data_key: column_writes_insert
+    pattern: "//insert_column_name_list/insert_column_id"
+    name_capture: name
+    qualifier_capture: "insert_statement/ddl_object/full_table_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+
   # ═══════════════════════════════════════════════════════════════════════════
   # STORED PROCEDURES & FUNCTIONS
   # ═══════════════════════════════════════════════════════════════════════════
@@ -71,9 +107,34 @@ queries:
     type: entity
 
   # Indexes
+  # The shape of an index: its TABLE (an edge), the COLUMNS it covers in order
+  # (semantic in a composite index) and UNIQUENESS, which answers "does the database
+  # enforce this, or only the application?". Without them an index is a name and the
+  # question has no answer in the graph.
+  #
+  # Uniqueness comes from `value_capture` and needs NO guard: the capture returns empty
+  # when the marker is absent, so a non-unique index simply keeps an empty `value`.
+  # Where the marker is a TOKEN, the capture reaches it because ChildByRule falls back
+  # to the token when no rule matches.
   - data_key: indexes
     graph_label: Index
-    pattern: "//create_index/id_"
+    pattern: "//create_index"
+    name_capture: id_
+    value_capture: "UNIQUE"
+    value_label: Value
+    type: entity
+
+  # The table the index is on.
+  - data_key: index_table
+    pattern: "//create_index/table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  # As colunas cobertas.
+  - data_key: columns
+    graph_label: Column
+    pattern: "//create_index/column_name_list_with_order/id_"
     name_capture: name
     type: entity
 
@@ -103,6 +164,18 @@ queries:
   # ═══════════════════════════════════════════════════════════════════════════
 
   # Column definitions (inside CREATE TABLE)
+  # Declared DEFAULT. The value becomes a node contained by the column, so "qual
+  # column is born with this value" a traversal. The path goes through
+  # column_definition_element on purpose: a computed column's `AS expression` is a
+  # direct child of column_definition and is not a default.
+  - data_key: columns
+    graph_label: Column
+    pattern: "//column_definition"
+    name_capture: id_
+    value_capture: "column_definition_element/expression"
+    value_label: Value
+    type: entity
+
   - data_key: columns
     graph_label: Column
     pattern: "//column_definition/id_"
@@ -319,14 +392,22 @@ exports:
 
 # T-SQL parent context types
 context_types:
-  create_or_alter_procedure: StoredProcedure
   create_or_alter_function: Function
-  create_or_alter_dml_trigger: Trigger
-  create_or_alter_ddl_trigger: Trigger
+  create_or_alter_procedure: StoredProcedure
+  create_schema: Schema
   create_table: Table
   create_view: View
+  create_or_alter_ddl_trigger: Trigger
+  create_or_alter_dml_trigger: Trigger
   create_type: Type
-  create_schema: Schema
+  create_index: Index
+
+# Where a context's name is NOT the statement's first terminal — that would be CREATE.
+context_name_paths:
+  create_or_alter_function: func_proc_name_schema
+  create_or_alter_procedure: func_proc_name_schema
+  create_schema: id_
+  create_index: id_
 
 # ANTLR comment token types
 comment_types:
@@ -346,42 +427,35 @@ declaration_types:
   - create_type
   - create_schema
 
-# Entry point scoring
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "run*"
-      score: 60
-    - pattern: "process*"
-      score: 60
-    - pattern: "execute*"
-      score: 50
-    - pattern: "sp_*"
-      score: 50
-    - pattern: "usp_*"
-      score: 50
-    - pattern: "load*"
-      score: 40
-    - pattern: "init*"
-      score: 40
-    - pattern: "setup*"
-      score: 40
-    - pattern: "migrate*"
-      score: 40
-    - pattern: "sync*"
-      score: 30
-    - pattern: "refresh*"
-      score: 30
-    - pattern: "purge*"
-      score: 30
-    - pattern: "cleanup*"
-      score: 30
-    - pattern: "batch*"
-      score: 30
-    - pattern: "job_*"
-      score: 30
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the real ANTLR parse tree (rule names, not guessed). T-SQL has no
+# FOR statement (only WHILE) and try_catch_statement fires once for the
+# TRY/CATCH pair, not twice. switch_section is counted per WHEN, not once for
+# the whole CASE. AND/OR are real keyword tokens ('AND', 'OR' in the grammar,
+# text "AND"/"OR"), matched like every other ANTLR operator here — by the
+# terminal's own text.
+complexity:
+  node_types:
+    - if_statement
+    - while_statement
+    - try_catch_statement
+    - switch_section
+  operators: ["AND", "OR"]
 
-  exported_bonus: 0
-  max_score: 100
-  decorators: []
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - StoredProcedure
+  - Function
+  - Trigger
+  - Type
+  - Table
+  - View
+  - Schema
+  - Sequence
+  - Column
+  - Index
+  - Variable
+  - Comment

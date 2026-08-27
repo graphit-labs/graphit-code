@@ -209,7 +209,6 @@ func (a *GrammarArchive) ExtractForCurrentPlatform(archivePath, cacheDir string)
 			len(decompressed), entry.originalSize)
 	}
 
-	// Write to cache dir.
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		return "", fmt.Errorf("grammar archive: create cache dir: %w", err)
 	}
@@ -234,7 +233,6 @@ func WriteGrammarArchive(path string, platforms []GrammarPlatform) error {
 	}
 	defer f.Close()
 
-	// Create zstd encoder.
 	encoder, err := zstd.NewWriter(nil, zstd.WithEncoderLevel(zstd.SpeedDefault))
 	if err != nil {
 		return fmt.Errorf("grammar archive: create zstd encoder: %w", err)
@@ -283,7 +281,6 @@ func WriteGrammarArchive(path string, platforms []GrammarPlatform) error {
 		return fmt.Errorf("grammar archive: write flags: %w", err)
 	}
 
-	// Write platform entries.
 	for i, p := range platforms {
 		var osBytes [16]byte
 		var archBytes [16]byte
@@ -313,7 +310,6 @@ func WriteGrammarArchive(path string, platforms []GrammarPlatform) error {
 		}
 	}
 
-	// Write compressed data sections.
 	for i, ce := range compressed {
 		if _, err := f.Write(ce.data); err != nil {
 			return fmt.Errorf("grammar archive: write data[%d]: %w", i, err)

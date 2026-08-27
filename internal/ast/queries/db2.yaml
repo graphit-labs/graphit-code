@@ -7,7 +7,36 @@ grammar: antlr-db2
 start_rule: db2_file
 extensions: [".sql", ".db2"]
 
+# Target resolution: a DML/DDL relation captures its object by NAME, and the name
+# alone does not say what kind of thing it is. A target this corpus never declares is
+# still a table — whoever reads a schema they do not own depends on it for real — and
+# that is why `fallback: Table` is declared here instead of being the engine's default
+# for every reference of every language.
+target_rules:
+  CALLS: { labels: [Function, StoredProcedure, Trigger] }
+  SELECTS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  INSERTS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  UPDATES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  DELETES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  ALTERS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  DROPS: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  CREATES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  TRUNCATES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  REFERENCES: { labels: [Table, View, Alias, Sequence, StoredProcedure, Function, Trigger, Type, Index, Schema, Tablespace], fallback: Table }
+  # COLUMN grain — types of their own, and a target that is always QUALIFIED
+  # (`TABLE.COLUMN`). A bare column name lives in dozens of tables and resolves to
+  # none; qualified it resolves to one, and the qualified stub records ONE column of
+  # ONE table instead of merging every table's.
+  READS_COLUMN: { labels: [Column], fallback: Column }
+  WRITES_COLUMN: { labels: [Column], fallback: Column }
 queries:
+  - data_key: column_writes_update
+    pattern: "//assignment_clause/assignment_item/column_name"
+    name_capture: name
+    qualifier_capture: "update_statement/update_statement_searched_update/table_or_view_name/table_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+
   # ═══════════════════════════════════════════════════════════════════════════
   # FUNCTIONS & PROCEDURES
   # ═══════════════════════════════════════════════════════════════════════════
@@ -63,9 +92,34 @@ queries:
     type: entity
 
   # Indexes
+  # The shape of an index: its TABLE (an edge), the COLUMNS it covers in order
+  # (semantic in a composite index) and UNIQUENESS, which answers "does the database
+  # enforce this, or only the application?". Without them an index is a name and the
+  # question has no answer in the graph.
+  #
+  # Uniqueness comes from `value_capture` and needs NO guard: the capture returns empty
+  # when the marker is absent, so a non-unique index simply keeps an empty `value`.
+  # Where the marker is a TOKEN, the capture reaches it because ChildByRule falls back
+  # to the token when no rule matches.
   - data_key: indexes
     graph_label: Index
-    pattern: "//create_index_statement/index_name"
+    pattern: "//create_index_statement"
+    name_capture: index_name
+    value_capture: "UNIQUE"
+    value_label: Value
+    type: entity
+
+  # The table the index is on.
+  - data_key: index_table
+    pattern: "//create_index_statement/table_name"
+    name_capture: name
+    type: relation
+    relation_type: REFERENCES
+
+  # As colunas cobertas.
+  - data_key: columns
+    graph_label: Column
+    pattern: "//create_index_statement/index_col_opts/index_col_opts_item/column_name"
     name_capture: name
     type: entity
 
@@ -109,6 +163,12 @@ queries:
   # ═══════════════════════════════════════════════════════════════════════════
 
   # Column definitions (inside CREATE TABLE)
+  # NOTE: this query matches nothing on a plain `CREATE TABLE T (C VARCHAR(10)
+  # WITH DEFAULT 'X')`. The DB2 grammar's create_table_statement does not build a
+  # column_definition subtree for that input — the column list comes through as
+  # flat terminals — so DB2 columns are not extracted at all, and there is nothing
+  # for a value_capture to hang off. Fixing that is a grammar problem, not a query
+  # one. See docs/tasks/declared-values-as-nodes.md.
   - data_key: columns
     graph_label: Column
     pattern: "//column_definition/column_name"
@@ -279,6 +339,7 @@ exports:
 
 # DB2 parent context types
 context_types:
+  create_index_statement: Index
   create_function_statement: Function
   create_procedure_statement: StoredProcedure
   create_trigger_statement: Trigger
@@ -304,38 +365,46 @@ declaration_types:
   - create_type_statement
   - create_schema_statement
 
-# Entry point scoring
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "run*"
-      score: 60
-    - pattern: "process*"
-      score: 60
-    - pattern: "execute*"
-      score: 50
-    - pattern: "load*"
-      score: 40
-    - pattern: "init*"
-      score: 40
-    - pattern: "setup*"
-      score: 40
-    - pattern: "migrate*"
-      score: 40
-    - pattern: "sync*"
-      score: 30
-    - pattern: "refresh*"
-      score: 30
-    - pattern: "purge*"
-      score: 30
-    - pattern: "cleanup*"
-      score: 30
-    - pattern: "batch*"
-      score: 30
-    - pattern: "schedule*"
-      score: 30
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the real ANTLR parse tree — and the grammar itself needed a real
+# fix, not just a config, to get here: `sql_procedure_body` reached
+# `sql_procedure_statement`, which was `CALL | FOR | IF | todo` — four bare
+# keywords, none carrying a body, so IF/WHILE/CASE inside a CREATE PROCEDURE
+# were reachable only by accident through error recovery. Db2Parser.g4 was
+# fixed to complete `compound_sql_inlined` (was `BEGIN todo END`, `todo`
+# being this grammar's own placeholder for unwritten sections) with a real
+# statement sequence, add `declare_variable_statement` (local variable
+# declarations had no rule at all) and `assignment_statement` (`SET var =
+# expr` — the single most common statement in a procedure body — likewise
+# had none), and redefine `sql_procedure_statement` around them instead of
+# the four-keyword stub. A further ambiguity in `sql_schema_statement` —
+# `create_procedure_statement` and its own three branches were listed as
+# separate alternatives to the same rule — silently dropped the procedure
+# body under full LL(*) once IF, WHILE and CASE all appeared together in one
+# body (no pair of the three triggered it; bisected in
+# TestDb2FullProcedure); removing the duplicate alternative fixed it.
+# case_statement is counted once per CASE, not once per WHEN — DB2's WHEN
+# clauses repeat within the same rule instance, not as a child of their own.
+complexity:
+  node_types:
+    - if_statement
+    - while_statement
+    - case_statement
+  operators: ["AND", "OR"]
 
-  exported_bonus: 0
-  max_score: 100
-  decorators: []
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Table
+  - View
+  - StoredProcedure
+  - Function
+  - Trigger
+  - Type
+  - Schema
+  - Sequence
+  - Column
+  - Index
+  - Comment

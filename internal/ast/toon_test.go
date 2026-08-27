@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
-// FormatRecordsTOON
-// ---------------------------------------------------------------------------
-
 func TestFormatRecordsTOON_Escaping(t *testing.T) {
 	t.Run("pipe_escaped", func(t *testing.T) {
 		records := []QueryRecord{
@@ -118,10 +114,6 @@ func TestFormatRecordsTOON(t *testing.T) {
 		}
 	})
 }
-
-// ---------------------------------------------------------------------------
-// formatTOONValue
-// ---------------------------------------------------------------------------
 
 func TestFormatTOONValue(t *testing.T) {
 	tests := []struct {

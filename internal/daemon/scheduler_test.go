@@ -8,10 +8,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// ---------------------------------------------------------------------------
-// cronMarker
-// ---------------------------------------------------------------------------
-
 func TestCronMarker(t *testing.T) {
 	expected := "# " + strings.ToUpper(brand.Brand) + "_DAEMON_SCHEDULER"
 	got := cronMarker()
@@ -22,10 +18,6 @@ func TestCronMarker(t *testing.T) {
 		t.Errorf("cronMarker should start with '# ', got %q", got)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// resolveExePath
-// ---------------------------------------------------------------------------
 
 func TestResolveExePath(t *testing.T) {
 	exe, err := resolveExePath()
@@ -40,17 +32,9 @@ func TestResolveExePath(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// IsSchedulerInstalled
-// ---------------------------------------------------------------------------
-
 func TestIsSchedulerInstalled_NoPanic(t *testing.T) {
 	_ = IsSchedulerInstalled()
 }
-
-// ---------------------------------------------------------------------------
-// removeCronEntry
-// ---------------------------------------------------------------------------
 
 func TestRemoveCronEntry_NoMarker(t *testing.T) {
 	crontab := "0 * * * * /usr/bin/command\n5 * * * * /usr/bin/other\n"
@@ -130,10 +114,6 @@ func TestRemoveCronEntry_MultipleOccurrences(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// SchedulerStatus
-// ---------------------------------------------------------------------------
-
 func TestSchedulerStatus_NoCrontab(t *testing.T) {
 	status := SchedulerStatus()
 	// On systems without crontab, this should return a "not installed" message
@@ -141,10 +121,6 @@ func TestSchedulerStatus_NoCrontab(t *testing.T) {
 		t.Error("expected non-empty status")
 	}
 }
-
-// ---------------------------------------------------------------------------
-// InstallScheduler / RemoveScheduler  — requires crontab
-// ---------------------------------------------------------------------------
 
 func TestInstallScheduler_RequiresCrontab(t *testing.T) {
 	// Skip if crontab is not available
@@ -161,7 +137,6 @@ func TestInstallScheduler_RequiresCrontab(t *testing.T) {
 		_ = cmd.Run()
 	}()
 
-	// Install
 	if err := InstallScheduler(); err != nil {
 		t.Fatalf("InstallScheduler: %v", err)
 	}
@@ -172,7 +147,6 @@ func TestInstallScheduler_RequiresCrontab(t *testing.T) {
 		t.Errorf("expected 'installed' in status after install, got %q", status)
 	}
 
-	// Remove
 	if err := RemoveScheduler(); err != nil {
 		t.Fatalf("RemoveScheduler: %v", err)
 	}

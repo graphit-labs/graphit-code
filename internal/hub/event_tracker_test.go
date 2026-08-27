@@ -68,8 +68,8 @@ func TestEventTrackerTrackEvent_NilHandling(t *testing.T) {
 	var tracker *EventTracker
 	tracker.TrackEvent("test", "", nil, nil)
 
-	// tracker with nil git store should not panic
-	tracker2 := &EventTracker{gitStore: nil}
+	// tracker with no store should not panic
+	tracker2 := &EventTracker{store: nil}
 	tracker2.TrackEvent("test", "", nil, nil)
 }
 

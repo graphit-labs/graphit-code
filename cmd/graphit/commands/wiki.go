@@ -133,6 +133,10 @@ func newWikiSearchCmd() *cobra.Command {
 AI consultation cycles. Each wiki source is searched independently and
 results are merged for the AI to synthesize a unified answer.
 
+This searches DOCUMENTATION. To search a system's documentation, its code graph
+and the framework's own tooling together, in a streaming session, use
+` + brand.BinName() + ` live instead.
+
 Wiki sources (--wiki):
   project    — the project's knowledge wiki (docs/)
   memory     — the project's memory wiki

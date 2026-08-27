@@ -93,7 +93,6 @@ func TestArtifactExistsForIDE(t *testing.T) {
 	t.Run("exists on disk", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
-		// Create the artifact directory structure
 		artDir := filepath.Join(dir, ".claude", "rules", "test-rule")
 		if err := os.MkdirAll(artDir, 0o755); err != nil {
 			t.Fatal(err)
@@ -207,7 +206,6 @@ func TestReconcileManagedArtifacts(t *testing.T) {
 func TestReconcileManagedArtifactsFromDir(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	// Create a lockfile with a project ID
 	lockPath := filepath.Join(dir, brand.LockFileName())
 	lf := &Lockfile{
 		Project:   ProjectIdentity{ID: "test-id", Name: "test"},

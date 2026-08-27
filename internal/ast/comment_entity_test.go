@@ -87,18 +87,18 @@ func TestCommentsAreEntitiesInEveryLanguage(t *testing.T) {
 			lang: "go", ext: ".go", queryFile: "go.yaml", file: "a.go",
 			source: `package p
 
-// Licença deste arquivo.
+// This file's licence.
 
-// Alfa faz alfa.
+// Alfa does alfa.
 func Alfa() {
-	// nota solta no corpo
+	// a loose note in the body
 	_ = 1
 }
 `,
 			want: map[string]string{
-				"Licença deste arquivo.": "a.go",
-				"Alfa faz alfa.":         "Alfa",
-				"nota solta no corpo":    "a.go",
+				"This file's licence.":     "a.go",
+				"Alfa does alfa.":          "Alfa",
+				"a loose note in the body": "a.go",
 			},
 		},
 		{

@@ -16,6 +16,12 @@ type IndexConfig struct {
 	UseLouvain bool
 	InlineCfg  config.ConfigMap
 	ProjectCfg config.ConfigMap
+
+	// Scope narrows the build to part of rootPath — normally the documentation
+	// tree plus the root README, which ScopeFor assembles from configuration. The
+	// zero value indexes everything under rootPath, which is what an imported
+	// context needs: its extracted docs tree is the root.
+	Scope WikiScope
 }
 
 type IndexResult struct {
@@ -55,7 +61,7 @@ func RunIndexPipeline(ctx context.Context, rootPath, wikiDir string, cfg IndexCo
 
 	allowedExts := config.ResolveKnowledgeExtensions(cfg.InlineCfg, cfg.ProjectCfg)
 
-	wikiResult, err := GenerateKnowledgeWiki(ctx, rootPath, wikiDir, allowedExts)
+	wikiResult, err := GenerateKnowledgeWiki(ctx, rootPath, wikiDir, allowedExts, cfg.Scope)
 	if err != nil {
 		return nil, fmt.Errorf("knowledge wiki generation: %w", err)
 	}

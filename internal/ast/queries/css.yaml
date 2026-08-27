@@ -1,0 +1,174 @@
+# CSS — Tree-sitter grammar for CSS
+#
+# The grammar was registered in treesitter_native.go and no query file existed, so
+# every .css file in every indexed project resolved a parser and produced nothing.
+#
+# Labels carry a Css prefix where the plain word already means something else in
+# the graph: a CSS class is not a Java class, and a CSS property is not a C#
+# property. GraphQLField sets the precedent.
+language: css
+grammar: tree-sitter-css
+extensions: [".css", ".pcss", ".postcss"]
+
+queries:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SELECTORS — what a rule targets
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # `.card` — anchored on class_selector because a pseudo-class writes its name
+  # under class_name too: `:root` is (pseudo_class_selector (class_name …)).
+  - data_key: css_classes
+    graph_label: CssClass
+    pattern: '(class_selector (class_name (identifier) @name))'
+
+  # `#main`
+  - data_key: css_ids
+    graph_label: CssId
+    pattern: '(id_selector (id_name) @name)'
+
+  # `a`, `div` — the element a rule styles. The second pattern is `a:hover`, where
+  # the element sits under the pseudo-class rather than under selectors.
+  - data_key: css_elements
+    graph_label: CssElement
+    pattern: '(selectors (tag_name) @name)'
+  - data_key: css_elements
+    graph_label: CssElement
+    pattern: '(pseudo_class_selector (tag_name) @name)'
+
+  # `:hover`, `:root`, `:not(...)`
+  - data_key: css_pseudo_classes
+    graph_label: CssPseudoClass
+    pattern: '(pseudo_class_selector (class_name (identifier) @name))'
+
+  # `::after`, `::before`
+  - data_key: css_pseudo_elements
+    graph_label: CssPseudoElement
+    pattern: '(pseudo_element_selector (tag_name) @name)'
+
+  # `[data-state="open"]`
+  - data_key: css_attributes
+    graph_label: Attribute
+    pattern: '(attribute_selector (attribute_name) @name)'
+  - data_key: css_attributes
+    graph_label: Attribute
+    pattern: '(attribute_selector (attribute_name) @name (string_value) @value)'
+    value_capture: value
+    value_label: AttributeValue
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DECLARATIONS — property/value, the content of a stylesheet
+  # ═══════════════════════════════════════════════════════════════════════════
+  #
+  # A declaration is a key/value pair like any other, so both halves are nodes and
+  # the pair survives as a CONTAINS edge:
+  #   CssProperty "color" → Value "#ff6600"
+  # Custom properties are excluded here and carry their own label below: without
+  # the guard `--brand-color` lands in both tables, and the value ends up
+  # contained by whichever query the engine reached first.
+  - data_key: css_properties
+    graph_label: CssProperty
+    pattern: '(declaration (property_name) @name (#not-match? @name "^--"))'
+  - data_key: css_properties
+    graph_label: CssProperty
+    pattern: '(declaration (property_name) @name [(plain_value) (color_value) (string_value) (integer_value) (float_value)] @value (#not-match? @name "^--"))'
+    value_capture: value
+    value_label: Value
+
+  # Custom properties — `--brand-color: #ff6600` — are CSS's variables, and the
+  # value is the point of declaring one.
+  - data_key: css_variables
+    graph_label: CssVariable
+    pattern: '(declaration (property_name) @name (#match? @name "^--"))'
+  - data_key: css_variables
+    graph_label: CssVariable
+    pattern: '(declaration (property_name) @name [(plain_value) (color_value) (string_value) (integer_value) (float_value)] @value (#match? @name "^--"))'
+    value_capture: value
+    value_label: Value
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # AT-RULES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # `@keyframes fade`
+  - data_key: css_keyframes
+    graph_label: Keyframes
+    pattern: '(keyframes_statement (keyframes_name) @name)'
+
+  # `@media (max-width: 600px)` — the feature and the breakpoint it is set to.
+  - data_key: css_media_features
+    graph_label: MediaFeature
+    pattern: '(feature_query (feature_name) @name)'
+  - data_key: css_media_features
+    graph_label: MediaFeature
+    pattern: '(feature_query (feature_name) @name [(plain_value) (integer_value) (float_value)] @value)'
+    value_capture: value
+    value_label: Value
+
+  # `@font-face`, `@supports`, `@charset` — anything the grammar does not give a
+  # statement rule of its own.
+  - data_key: css_at_rules
+    graph_label: AtRule
+    pattern: '(at_rule (at_keyword) @name)'
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # RELATIONS
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # `@import url("reset.css")` and `@import "reset.css"` are real dependency
+  # edges. The data key is `imports` and the type is entity, not relation: the
+  # cache turns an `imports` entity into a Module node plus an IMPORTS edge, the
+  # same route javascript.yaml and python.yaml take.
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_statement (call_expression (function_name) @_fn (arguments (string_value (string_content) @name))) (#eq? @_fn "url"))'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_statement (string_value (string_content) @name))'
+
+  # `color: var(--brand-color)` points at a custom property declared elsewhere.
+  - data_key: css_var_refs
+    graph_label: ""
+    pattern: '(call_expression (function_name) @_fn (arguments (plain_value) @name) (#eq? @_fn "var"))'
+    type: relation
+    relation_type: REFERENCES
+
+  # `url("acme.woff2")` outside @import — a font, an image, a background.
+  - data_key: css_urls
+    graph_label: ""
+    pattern: '(call_expression (function_name) @_fn (arguments (string_value (string_content) @name)) (#eq? @_fn "url"))'
+    type: relation
+    relation_type: REFERENCES
+
+# CSS has no export concept
+exports:
+  strategy: none
+
+self_keywords: []
+
+# A declaration belongs to the rule that contains it, and a rule to the at-rule
+# around it. tree-sitter-css gives neither rule_set nor media_statement a `name`
+# field, so the tree walk has nothing to read and the map stays empty — the
+# containment that matters here is expressed by value_capture instead.
+context_types: {}
+
+anon_func_types: []
+
+declaration_types: []
+
+comment_types:
+  - comment
+
+# No cyclomatic complexity: CSS is a styling format with no control flow.
+
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - CssClass
+  - CssId
+  - CssElement
+  - CssVariable
+  - Keyframes
+  - AtRule
+  - Comment

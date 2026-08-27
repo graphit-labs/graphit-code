@@ -1,6 +1,13 @@
 language: objc
 grammar: tree-sitter-objc
 extensions: [".m", ".mm"]
+# Target resolution: a relation captures its target by NAME, and the name alone does
+# not say what kind of thing it is. Without this the target could match any label the
+# grammar declares — a Parameter sharing the called function's name.
+target_rules:
+  CALLS: { labels: [Function, Method] }
+  READS_FIELD: { labels: [Field] }
+  WRITES_FIELD: { labels: [Field] }
 queries:
   # === Entity queries ===
   - data_key: functions
@@ -28,10 +35,10 @@ queries:
     graph_label: Implementation
     pattern: '(class_implementation (identifier) @name)'
   - data_key: imports
-    graph_label: Import
+    graph_label: Include
     pattern: '(preproc_include (string_literal) @name)'
   - data_key: imports
-    graph_label: Import
+    graph_label: Include
     pattern: '(preproc_include (system_lib_string) @name)'
   - data_key: imports
     graph_label: Import
@@ -101,6 +108,11 @@ context_types:
   class_interface: Class
   class_implementation: Implementation
   protocol_declaration: Protocol
+  # Without these, every parameter of every method resolves to the class or
+  # protocol instead of the method that declares it.
+  function_definition: Function
+  method_declaration: Method
+  method_definition: Method
 
 anon_func_types:
   - block_expression
@@ -119,34 +131,30 @@ declaration_types:
 comment_types:
   - comment
 
-# Entry point scoring rules for Objective-C
-entry_points:
-  names:
-    - pattern: main
-      score: 80
-    - pattern: "init*"
-      score: 50
-    - pattern: viewDidLoad
-      score: 60
-    - pattern: "applicationDidFinishLaunching*"
-      score: 60
-    - pattern: "awakeFromNib"
-      score: 50
-    - pattern: "viewWillAppear*"
-      score: 40
-    - pattern: "didReceiveMemoryWarning"
-      score: 30
-    - pattern: "dealloc"
-      score: 30
-    - pattern: "test*"
-      score: 60
-    - pattern: "setUp"
-      score: 40
-    - pattern: "tearDown"
-      score: 40
+# Cyclomatic complexity: real syntax-tree branches, not a text scan. Verified
+# against the actual grammar. case_statement is shared with `default`, so a
+# bare default with no case labels still adds one — a minor, accepted
+# deviation also taken for C/C++/Java.
+complexity:
+  node_types:
+    - if_statement
+    - for_statement
+    - while_statement
+    - case_statement
+    - catch_clause
+    - conditional_expression
+  operators: ["&&", "||"]
 
-  exported_bonus: 10
-  max_score: 100
-
-  # Objective-C has no decorator system — this section is intentionally empty
-  decorators: []
+# Labels of this language that get a vector, so semantic search reaches them and
+# not only keyword search. Order decides which label keeps a (path, uid) that two
+# of them claim -- earlier wins. Every entity is in the keyword index regardless;
+# this list is only about meaning. See docs/specs/ast_module.md.
+embed_labels:
+  - Class
+  - Protocol
+  - Implementation
+  - Method
+  - Function
+  - Property
+  - Field
+  - Comment

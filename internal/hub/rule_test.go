@@ -83,7 +83,6 @@ func TestMandateTriggerNamesTheSearchAndEcosystemTools(t *testing.T) {
 	}
 }
 
-
 func TestInstallRule(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

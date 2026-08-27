@@ -34,7 +34,7 @@ func (s *MemoryAppService) NewMemorySvc(userScope bool) (*MemoryService, error) 
 
 	if userScope {
 		scope = MemoryScopeUser
-		hash, err := UserHashFromGit()
+		hash, err := UserScopeID()
 		if err != nil {
 			return nil, fmt.Errorf("cannot determine user identity: %w", err)
 		}
@@ -49,7 +49,7 @@ func (s *MemoryAppService) NewMemorySvc(userScope bool) (*MemoryService, error) 
 		scopeID = lf.Project.ID
 	}
 
-	ms, _ := NewMemoryGitStore()
+	ms, _ := NewMemoryStore()
 	svc := NewMemoryService(scope, scopeID, ms)
 	if err := svc.EnsureInitialised(); err != nil {
 		_ = err
@@ -82,7 +82,6 @@ func (s *MemoryAppService) InsertValidated(opts MemoryInsertOpts) (string, error
 
 	return slug, nil
 }
-
 
 func ParseTags(tagsCSV string) []string {
 	if tagsCSV == "" {

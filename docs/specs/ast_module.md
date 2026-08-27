@@ -21,11 +21,17 @@ related:
 The AST (Abstract Syntax Tree) module provides the structural foundation of Graphit Code.
 It parses source files into an in-memory graph database, enabling AI agents to trace call graphs, locate definitions, and assess modification impacts using Cypher queries.
 
+The graph is stored once per project, in the global brand directory and keyed by the
+project's identity — never inside the project. Imported and Hub contexts are stored the
+same way and shared between the projects that claim them. See
+[Storage Layout](../architecture/storage_layout.md) for the paths and the reasoning;
+`internal/store` is the only place they are composed.
+
 ---
 
 ## 🌐 Supported Languages
 
-Graphit Code supports **42 programming languages via 37 Tree-sitter grammars and 5 ANTLR v4 parsers**. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires installing its grammar shared library via Hub; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
+Graphit Code indexes **44 programming languages: 39 through Tree-sitter and 5 through ANTLR v4 parsers**. Each language is fully defined by an **external YAML file** — queries, export detection, self-keywords, context types, entry point scoring, and comment handling are all configurable without recompilation. Adding support for a new language requires installing its grammar shared library via Hub; see [External YAML Configuration](#-external-yaml-configuration) for the full schema.
 
 | # | Language | Parser | Extensions | Key Extracted Entities |
 |---|---|---|---|---|
@@ -44,14 +50,14 @@ Graphit Code supports **42 programming languages via 37 Tree-sitter grammars and
 | 13 | **Dart** | Tree-sitter | `.dart` | Function, Method, Class, Enum, Mixin, Extension, Field, Parameter |
 | 14 | **PHP** | Tree-sitter | `.php` | Function, Method, Class, Interface, Trait, Enum, Constant, Package, Field, Parameter |
 | 15 | **Ruby** | Tree-sitter | `.rb` | Function, Class, Module, Variable, Field, Parameter |
-| 16 | **SQL** | Tree-sitter | `.sql` | Function, Table, View |
+| 16 | **SQL** | Tree-sitter | `.sql` | Function, Table, Column, View, Index — plus `SELECTS` / `INSERTS` / `UPDATES` / `DELETES` / `ALTERS` edges to the tables each statement touches. **Default parser for `.sql`**; an Oracle/T-SQL project opts into its dialect with `ast.grammar` (`.sql=antlr-plsql`) |
 | 17 | **XML** | Tree-sitter | `.xml`, `.xsl`, `.xslt`, `.xsd`, `.svg`, `.wsdl`, `.plist`, `.xhtml` | Element |
 | 18 | **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Function, Procedure, Package, Table, View, MaterializedView, Trigger, Type, Index, Sequence, Synonym, DBLink, Column, Parameter, Variable, Constant, Cursor, Exception, Constraint, Savepoint |
 | 19 | **PostgreSQL** | ANTLR v4 | `.sql`, `.pgsql`, `.plpgsql`, `.pg` | Function, Procedure, Table, View, MaterializedView, Schema, Trigger, Sequence, Index, Extension, Type (domain/composite/enum/range), Column, Parameter, Constraint, Variable |
 | 20 | **DB2** | ANTLR v4 | `.sql`, `.db2` | Function, StoredProcedure, Table, View, Trigger, Index, Sequence, Type, Schema, Alias, Tablespace, Column, Parameter, Variable |
 | 21 | **T-SQL** | ANTLR v4 | `.sql`, `.tsql` | StoredProcedure, Function, Table, View, Trigger, Index, Sequence, Type, Schema, Column, Parameter, Variable |
 | 22 | **COBOL 85** | ANTLR v4 | `.cob`, `.cbl`, `.cpy`, `.cobol` | Program, Section, Paragraph, DataItem, FileDescription, ConditionName |
-| 23 | **HTML** | Tree-sitter | `.html`, `.htm` | Element |
+| 23 | **HTML** | Tree-sitter | `.html`, `.htm` | Element, Attribute, AttributeValue, Doctype, Text — plus everything the inline `<script>` and `<style>` bodies declare (see [Embedded Language Parsing](embedded_language_parsing.md)) |
 | 24 | **Bash** | Tree-sitter | `.sh`, `.bash` | Function, Variable |
 | 25 | **Clojure** | Tree-sitter | `.clj`, `.cljs`, `.cljc`, `.edn` | Function, Variable, Namespace |
 | 26 | **Dockerfile** | Tree-sitter | `Dockerfile`, `.dockerfile` | Stage, Instruction |
@@ -63,14 +69,51 @@ Graphit Code supports **42 programming languages via 37 Tree-sitter grammars and
 | 32 | **JSON** | Tree-sitter | `.json`, `.jsonc` | Object, Array |
 | 33 | **Julia** | Tree-sitter | `.jl` | Function, Struct, Module, Variable |
 | 34 | **Lua** | Tree-sitter | `.lua` | Function, Variable |
-| 35 | **Markdown** | Tree-sitter | `.md`, `.markdown` | Heading, Link |
-| 36 | **Objective-C** | Tree-sitter | `.m`, `.mm` | Function, Class, Method, Protocol, Property |
-| 37 | **Protocol Buffers** | Tree-sitter | `.proto` | Message, Enum, Service, RPC |
-| 38 | **R** | Tree-sitter | `.r`, `.R` | Function, Variable |
-| 39 | **Scala** | Tree-sitter | `.scala`, `.sc` | Function, Class, Object, Trait, Variable |
-| 40 | **TOML** | Tree-sitter | `.toml` | Table, Key |
-| 41 | **YAML** | Tree-sitter | `.yaml`, `.yml` | Mapping, Sequence |
-| 42 | **Zig** | Tree-sitter | `.zig` | Function, Struct, Enum, Variable |
+| 35 | **Objective-C** | Tree-sitter | `.m`, `.mm` | Function, Class, Method, Protocol, Property |
+| 36 | **Protocol Buffers** | Tree-sitter | `.proto` | Message, Enum, Service, RPC |
+| 37 | **R** | Tree-sitter | `.r`, `.R` | Function, Variable |
+| 38 | **Scala** | Tree-sitter | `.scala`, `.sc` | Function, Class, Object, Trait, Variable |
+| 39 | **TOML** | Tree-sitter | `.toml` | Table, Key |
+| 40 | **YAML** | Tree-sitter | `.yaml`, `.yml` | Mapping, Sequence |
+| 41 | **Zig** | Tree-sitter | `.zig` | Function, Struct, Enum, Variable |
+| 42 | **CSS** | Tree-sitter | `.css` | CssClass, CssId, CssElement, CssPseudoClass, CssPseudoElement, CssProperty, CssVariable, Keyframes, MediaFeature, AtRule, Attribute, Value |
+| 43 | **Svelte** | Tree-sitter | `.svelte` | Element, Attribute, AttributeValue, Condition, Text, Value — plus everything `<script>` and `<style>` declare: Import/Export, Function, Class, Variable, Constant, Interface, Parameter, CssClass, CssProperty, … (see [Embedded Language Parsing](embedded_language_parsing.md)) |
+| 44 | **Vue** | Tree-sitter | `.vue` | Element, Attribute, AttributeValue, Directive, Prop, EventHandler, Slot, Condition, Loop, Text, Value — plus everything `<script>` and `<style>` declare: Import/Export, Function, Class, Variable, Constant, Interface, Parameter, CssClass, CssProperty, … (see [Embedded Language Parsing](embedded_language_parsing.md)) |
+
+> **Markdown is not on this list, and that is deliberate — but the grammar is still
+> here.** No shipped query file claims `.md`, `.markdown` or `.mdx`, and extensions
+> are what a query file grants, so no markdown file is discovered by the pipeline:
+> not in the docs tree, and not at the root either, where `README.md`,
+> `CONTRIBUTING.md` and `AGENTS.md` used to arrive as a `File` node plus a `Heading`
+> node per section. Prose belongs to the knowledge wiki, which chunks, links and
+> ranks it; in a code graph it is noise in every structural query.
+>
+> `tree-sitter-markdown` remains compiled in and registered in `nativeGrammars`, so
+> it stays available to the rest of the framework and a project that *does* want
+> markdown structure opts in by writing its own `markdown.yaml` into
+> `ast.queries_dir` — see [External Query Customization](#-external-query-customization).
+> `ast.index_docs=true` is not that switch: it puts the *directory* back, and what
+> returns is the structured files kept under it.
+>
+> **The inverse of that opt-in is a configuration key, not a deletion.** Any language
+> on this list can be taken out of one project's index — or out of every index on the
+> machine — with `ast.grammars_blacklist`, and a project that wants only a few of them
+> names those in `ast.grammars_whitelist`. See
+> [Turning a grammar off by configuration](#turning-a-grammar-off-by-configuration).
+
+> **PL/pgSQL, a splice rather than a 45th row.** PostgreSQL's ANTLR grammar parses
+> `CREATE FUNCTION ... AS $$ ... $$` at the DDL level only — the dollar-quoted body is one
+> opaque string constant, the same way it is opaque to PostgreSQL's own SQL parser, because the
+> body's language is a run-time property named by the sibling `LANGUAGE` clause, not syntax the
+> DDL grammar owns. When that clause says `plpgsql`, `internal/ast/antlr/postgresql/plpgsql_splice.go`
+> re-parses the body with a real PL/pgSQL Tree-sitter grammar (`github.com/gmr/tree-sitter-postgres`,
+> vendored at `internal/ast/treesitter/plpgsql/`) and splices the resulting subtree directly into
+> the ANTLR `anysconst` node it came from — no separate entity, no line/name merge. Cyclomatic
+> complexity for the function then walks straight into the spliced subtree, the same as any other
+> nested declaration boundary. This is why `plpgsql` also appears in `nativeGrammars` and has its
+> own `queries/plpgsql.yaml`: not as a language end users index directly (real PL/pgSQL is almost
+> always inline inside a `.sql` file, not its own `.plpgsql` file), but so the splice has a real
+> grammar and query file to route through the same machinery every other language uses.
 
 ### Cross-Language Extraction Capabilities
 
@@ -78,15 +121,15 @@ For every supported language, the parser extracts the following relationship dat
 
 | Capability | Description | Languages |
 |---|---|---|
-| **Function Calls** | Traces which functions/methods call which others | All 42 |
+| **Function Calls** | Traces which functions/methods call which others | All 45 |
 | **Import Resolution** | Maps module dependencies and import chains | All except SQL dialects |
 | **Class Inheritance** | `extends` / superclass relationships | JS, TS, Python, Java, C#, C++, Kotlin, Swift, Dart, PHP, Ruby |
 | **Interface Implementation** | `implements` / protocol conformance | TS, Java, C#, Kotlin, PHP, Rust |
 | **Field Access Tracking** | Reads and writes to class/struct fields | Go, JS, TS, Java, C#, C, C++, Kotlin, Swift, Python, Rust, PHP, Ruby |
 | **Decorator / Annotation** | Attribute / annotation extraction | TS, Python, Java, C#, Kotlin, Swift, Rust, PHP |
 | **Object Instantiation** | `new` expression tracking | JS, TS, Java, C#, C++, PHP |
-| **Cyclomatic Complexity** | Computed for every function/method | All 42 |
-| **Export Visibility** | `is_exported` flag per entity — detection strategy is configurable via the `exports` field in language YAML (see [Export Strategies](#export-strategies)) | All 42 (strategy varies by language) |
+| **Cyclomatic Complexity** | Computed for every function/method | All 45 |
+| **Export Visibility** | `is_exported` flag per entity — detection strategy is configurable via the `exports` field in language YAML (see [Export Strategies](#export-strategies)) | All 45 (strategy varies by language) |
 | **DML Tracking** | `SELECTS`, `INSERTS`, `UPDATES`, `DELETES`, `ALTERS`, `DROPS`, `REFERENCES` edges for SQL statements | SQL, PL/SQL, PostgreSQL, T-SQL, DB2, COBOL 85 |
 
 ---
@@ -102,11 +145,11 @@ The database initializes node tables with the following attributes:
 
 | Node Label | Key Properties | Purpose |
 |------------|----------------|---------|
-| `File` | `path` (PK), `name`, `relative_path`, `is_dependency`, `lang`, `cluster`, `source` | Source file metadata and full raw source. |
+| `File` | `path` (PK), `name`, `relative_path`, `is_dependency`, `lang`, `cluster` | Source file metadata. File text lives in the search index, not on this node. |
 | `Directory` | `path` (PK), `name`, `cluster` | File system directories. |
 | `Module` | `uid` (PK), `name`, `lang`, `full_import_name`, `path`, `line_number`, `end_line` | Importable library modules. |
 | `Class` / `Struct` / `Record` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported` | Complex data structures and object types. `Record` = Java records. |
-| `Function` / `Method` / `Constructor` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported`, `entry_point_score` | Executable code blocks, member functions, and constructors. |
+| `Function` / `Method` / `Constructor` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `cyclomatic_complexity`, `is_exported` | Executable code blocks, member functions, and constructors. |
 | `Procedure` / `StoredProcedure` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `is_exported` | SQL stored procedures (PL/SQL, PostgreSQL, T-SQL, DB2). |
 | `Interface` / `Protocol` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `is_exported` | Abstract contracts. `Protocol` = Swift protocols. |
 | `Trait` / `Mixin` | `uid` (PK), `name`, `path`, `line_number`, `end_line`, `is_exported` | Behavioral mixins. `Trait` = Rust/PHP. `Mixin` = Dart. |
@@ -207,7 +250,7 @@ The AST module resolves grammar binaries and language configurations using a cas
 
 | Priority | Path | Managed By |
 |----------|------|------------|
-| 1 | `.graphit/ast/queries/` | Project |
+| 1 | `ast.queries_dir` — `.graphit/ast/queries/` by default | Project |
 | 2 | `~/.graphit/ast/queries/` | User |
 | 3 | `~/.graphit/runtime/<version>/ast/queries/` | Framework |
 
@@ -218,6 +261,12 @@ The AST module resolves grammar binaries and language configurations using a cas
 | 1 | `.graphit/grammars/treesitter/` or `.graphit/grammars/antlr/` | Project (Hub install) |
 | 2 | `~/.graphit/grammars/treesitter/` or `~/.graphit/grammars/antlr/` | User |
 | 3 | `~/.graphit/runtime/<version>/grammars/treesitter/` or `grammars/antlr/` | Framework (Launcher defaults) |
+
+The project grammar-binary tier remains fully supported, but `graphit init` ignores
+`**/.graphit/grammars/` because these libraries are specific to an operating system and
+architecture. Do not confuse it with `.graphit/ast/queries/`: query YAMLs are textual
+repository configuration and remain versionable. A grammar that must reach every checkout
+should be distributed as a Hub language artifact rather than committed as a local binary.
 
 **Key types:**
 
@@ -277,7 +326,7 @@ Each language has a dedicated YAML file defining the query patterns used during 
 # --- Tree-sitter example (default parser) ---
 language: go                    # Language name (required)
 extensions: [".go"]             # File extensions to match (optional — if omitted, applies to all extensions of the language)
-replace: false                  # false = append to lower-priority queries; true = completely replace them
+merge: true                     # optional: merge into the same language at the level below instead of replacing it
 queries:
   - data_key: functions         # Internal category (functions, classes, imports, calls, etc.)
     graph_label: Function       # LadybugDB node label (empty = relational data like calls/heritage)
@@ -295,6 +344,45 @@ queries:
     pattern: '(go_statement (call_expression function: (identifier) @fn))'
     name_capture: fn
 ```
+
+Only the capture named by `name_capture` becomes an entity. Every other capture in the pattern exists for a predicate to test, which is what the `@_`-prefixed convention signals.
+
+```yaml
+# --- Key/value example (data formats) ---
+language: xml
+grammar: tree-sitter-xml
+extensions: [".xml"]
+queries:
+  - data_key: attributes
+    graph_label: Attribute      # label of the key node
+    pattern: '(STag (Name) @element (Attribute (Name) @name (AttValue) @value))'
+    parent_capture: element     # who contains the key
+    parent_label: Element
+    value_capture: value        # what the key is set to
+    value_label: AttributeValue
+```
+
+This yields `Element "config"` → `Attribute "env"` → `AttributeValue "prod"`, three nodes joined by two `CONTAINS` edges, plus `value: "prod"` on the `Attribute` node.
+
+An entity spans from its name node to the end of that node's **parent**, which in a data
+format is the start tag — so an XML `Element` ends before its own content begins.
+`span_capture` names the capture that DELIMITS the entity instead, for a grammar whose
+unit is wider than the declaration its name sits in:
+
+```yaml
+# The unit of a configuration document: named by a child, spanning the whole element.
+queries:
+  - data_key: steps
+    graph_label: Step
+    pattern: '(element (STag (Name) @_s) (content (element (STag (Name) @_n) (content (CharData) @name))) (#eq? @_s "step") (#eq? @_n "name")) @scope'
+    span_capture: scope
+```
+
+Why it matters beyond the line numbers: an embedded block is attributed to the innermost
+entity that **contains** it (see `docs/specs/embedded_language_parsing.md`), so a grammar
+whose entities all end at their start tag has no host to offer and the SQL inside a
+configuration value can only ever belong to the file. It decides the line range only —
+the export verdict and the complexity score stay on the declaration itself.
 
 ```yaml
 # --- ANTLR v4 example ---
@@ -314,7 +402,30 @@ queries:
     relation_type: SELECTS
     graph_label: ""
     pattern: '//select_statement//table_ref_aux'
+
+  # Keyword guard — one grammar rule spelling two different things.
+  # Oracle has no constant_declaration: a constant is a variable_declaration
+  # carrying the CONSTANT keyword.
+  - data_key: constants
+    graph_label: Constant
+    pattern: '//variable_declaration[CONSTANT]'
+    name_capture: identifier
+  - data_key: variables
+    graph_label: Variable
+    pattern: '//variable_declaration[!CONSTANT]'
+    name_capture: identifier
 ```
+
+**ANTLR pattern syntax:**
+
+| Form | Meaning |
+|---|---|
+| `//rule` | any descendant with this rule name |
+| `/rule` | direct child with this rule name |
+| `//a/b` | `b` that is a direct child of any `a` descendant |
+| `//a//b` | `b` anywhere under any `a` descendant |
+| `//a[KEYWORD]` | `a`, only when it has `KEYWORD` as a direct terminal (case-insensitive) |
+| `//a[!KEYWORD]` | `a`, only when it does not |
 
 **Query Fields:**
 
@@ -325,13 +436,22 @@ queries:
 | `grammar` | ⚠️ | Required for ANTLR. Maps to the native grammar identifier (e.g., `antlr-plsql`) |
 | `start_rule` | ⚠️ | Required for ANTLR. The grammar's start rule (e.g., `sql_script`) |
 | `extensions` | ❌ | File extensions filter. If omitted, applies to all extensions registered for the language |
-| `replace` | ❌ | When `true`, replaces all lower-priority queries for this language. Default: `false` (append) |
+| `merge` | ❌ | When `true`, this file merges into the same language declared at the level below instead of replacing it. Default: absent, which **replaces** — the file is the whole language. See [`merge: true`](#merge-true--merging-instead-of-replacing). (This key replaced `replace`, which was parsed and never honoured, and whose documented meaning here was the reverse of the actual behaviour.) |
 | `queries[].data_key` | ✅ | Internal entity category. Standard keys: `functions`, `methods`, `classes`, `structs`, `interfaces`, `enums`, `types`, `traits`, `imports`, `exports`, `variables`, `constants`, `calls`, `instantiations`, `parameters`, `fields`, `field_reads`, `field_writes`, `heritage`, `implements`, `decorators`, `namespaces`, `packages`, `modules`, `tables`, `views`, `dml_selects`, `dml_inserts`, `dml_updates`, `dml_deletes` |
 | `queries[].type` | ❌ | `"entity"` (default) or `"relation"`. Determines how the engine processes the extracted data. Entities become graph nodes; relations become edges (CallSites or References) |
 | `queries[].relation_type` | ⚠️ | Required when `type: "relation"`. Defines how the relation is routed: `CALLS` and `INSTANTIATES` → CallSites, `DECORATOR` and `EXPORT` → special internal processing, `SELECTS` / `INSERTS` / `UPDATES` / `DELETES` / `ALTERS` / `DROPS` / `REFERENCES` → DML/DDL edges, all others (e.g. `INHERITS`, `IMPLEMENTS`, `READS_FIELD`, `WRITES_FIELD`) → References. See [Relation Routing](#relation-routing) |
 | `queries[].graph_label` | ❌ | LadybugDB node label. If empty, the data is used for relationship extraction only (e.g., calls, heritage) |
 | `queries[].pattern` | ✅ | Tree-sitter S-expression pattern or ANTLR XPath expression, depending on the `parser` field |
-| `queries[].name_capture` | ❌ | For Tree-sitter: name of the capture group (defaults to `name`). For ANTLR: XPath expression to extract the entity name from the parse tree |
+| `queries[].name_capture` | ❌ | For Tree-sitter: name of the capture group (defaults to `name`). Captures other than this one are not turned into entities. For ANTLR: a slash-separated rule path walked from the matched node, resolved exactly like `value_capture` (e.g. `identifier`, `default_value_part/expression`, `**/literal`) |
+| `queries[].value_capture` | ❌ | The value the entity is set to. For Tree-sitter: a capture name. For ANTLR: a slash-separated rule path walked from the matched node, where each segment is a direct child and a `**` segment means "nearest descendant" (e.g. `default_value_part/expression`). The value becomes a node of its own — named after itself, so the search index reaches it — contained by the key, and is also written to the key's `value` property. Requires `value_label`. Ignored on `type: relation` queries |
+| `queries[].value_label` | ⚠️ | Required when `value_capture` is set. Node label for the value (e.g. `AttributeValue`, `Value`, `Text`) |
+| `queries[].name_reject` | ❌ | A regular expression the captured NAME must NOT match; a match records nothing — no entity, no edge. A capture position is not a guarantee about what lands in it: PL/SQL's `call_statement` is `CALL? routine_name function_argument?` with both optionals allowed absent, so a bare identifier in statement position IS a call, and `routine_name` resolves through a non-reserved keyword list of 1753 words including BEGIN, DECLARE, IF and PROCEDURE — a CLEAN parse then reads `IF` as a call to something named IF (measured: 25 thousand such edges on a real corpus). Which words can never be a name is a fact about the LANGUAGE, so it is declared here and not in Go — `end` is a keyword in PL/SQL and a fine function name in Ruby. ANCHOR IT: `^(?i)(if)$` rejects the word, `if` unanchored rejects every name containing it. A pattern that does not compile is dropped at load time with a warning |
+| `queries[].span_capture` | ❌ | Tree-sitter only. Capture whose node delimits the entity, replacing the default span (name node → end of its parent). Use it when the unit is wider than the declaration holding its name: an XML element's name lives in the start tag, so without it the entity ends before its content. Decides the LINE RANGE only — export and complexity stay on the declaration. An unknown capture name resolves to nothing and the default span applies |
+| `queries[].name_is_data` | ❌ | The entity's NAME is a data value, not an identifier: matched surrounding quotes come off, and blank, multi-line or over-long text is dropped instead of indexed as a name. A data format needs it because an attribute value is quoted at the source — without it the entity is called `"POST-QUERY"`, quotes included, and no query finds it. It must be declared rather than inferred, because a quoted literal deliberately does not collapse into the identifier of the same spelling. A query that declares `value_capture` or `parent_capture` already describes data and needs nothing extra |
+| `queries[].parent_capture` | ❌ | Tree-sitter only. Capture holding the name of the entity that contains this one, producing a `CONTAINS` edge. Use it when `context_types` cannot resolve the parent — tree-sitter-xml `element`, tree-sitter-json `pair` and tree-sitter-html `start_tag` have no `name` field for the tree walk to read. Requires `parent_label` |
+| `queries[].parent_label` | ⚠️ | Required when `parent_capture` is set. Node label of the containing entity |
+
+A query that declares `value_capture` or `parent_capture` is describing data rather than identifiers, so its captured text is normalised: surrounding quotes are stripped (tree-sitter-xml's `AttValue`, tree-sitter-toml's `string` and tree-sitter-hcl's `string_lit` all span their delimiters), and text that is blank, multi-line or longer than 256 characters is dropped rather than indexed as a name.
 
 ### Relation Routing
 
@@ -375,6 +495,12 @@ context_types:
   class_definition: Class
   function_definition: Function
 
+# Only for grammars whose container node keeps its name somewhere other than a
+# `name` field — see the field table below.
+context_name_paths:
+  element: STag/Name
+  pair: key/string_content
+
 anon_func_types:
   - arrow_function
   - function_expression
@@ -386,6 +512,42 @@ declaration_types:
 comment_types:
   - comment
   - block_comment
+
+# Which of this language's graph labels get a vector, so semantic search reaches
+# them. Order decides which label keeps a (path, uid) that two of them claim.
+embed_labels:
+  - Class
+  - Function
+  - Variable
+  - Comment
+
+# What counts as a decision point when scoring cyclomatic_complexity. Absent, the
+# entity's complexity is the base 1 — no signal rather than a guessed one.
+complexity:
+  node_types: ["if_statement", "for_statement", "while_statement", "case_clause"]
+  operators: ["&&", "||"]
+
+# Named ways this language turns escaped text back into what it represents, for an
+# `embedded` block to name via `normalize`.
+text_normalizers:
+  xml_entities:
+    replace:
+      "&lt;": "<"
+      "&gt;": ">"
+      "&amp;": "&"
+    numeric_char_refs: true       # &#62; and &#x3E;
+
+# Regions of the file written in another language. Only single-file-component
+# grammars declare these — see Embedded Language Parsing.
+embedded:
+  - pattern: '(script_element (start_tag (attribute (attribute_name) @_a (quoted_attribute_value (attribute_value) @lang))) (raw_text) @body (#eq? @_a "lang"))'
+    text_capture: body
+    lang_capture: lang
+    languages:
+      ts: typescript
+  - pattern: '(script_element (raw_text) @body)'
+    text_capture: body
+    default: javascript
 ```
 
 **Language Configuration Fields:**
@@ -395,9 +557,67 @@ comment_types:
 | `exports` | Object | Export detection strategy configuration. Controls how the engine sets `is_exported` on each entity. See [Export Strategies](#export-strategies) |
 | `self_keywords` | `string[]` | Array of self-reference keywords used for receiver type resolution during call tracking. Examples: `["this."]` for Java/JS/TS, `["self."]` for Python/Rust/Swift. Empty array for languages without self-references (Go, C) |
 | `context_types` | `map[string]string` | Maps Tree-sitter node type names to graph labels for parent context resolution. Determines which AST containers provide the `context` and `context_type` properties for nested entities. Example: `class_definition: Class` causes functions inside a `class_definition` node to receive `context_type: Class` |
+| `context_name_paths` | `map[string]string` | How to read a context node's name when it is **not** in a `name` field: a `/`-separated path of field names or child kinds, walked from the context node down to the node holding the text. Data-format grammars need it — tree-sitter-xml keeps an `element`'s name at `STag/Name` and tree-sitter-json a `pair`'s at `key/string_content` — and without it every entity in those languages fell back to the `File` as its context. Only keys also present in `context_types` are consulted |
+| `complexity` | Object | Which parsed node kinds count as a branch when scoring `cyclomatic_complexity`, by walking the entity's own syntax subtree. **Absent means the entity's complexity is the base 1** — this language has no complexity signal yet, rather than a guessed one. See [Complexity Scoring](#complexity-scoring) |
 | `anon_func_types` | `string[]` | Array of Tree-sitter node types that represent anonymous functions. Used to resolve `variable_declarator` assignments to function entities (e.g., `const fn = () => {}` becomes a Function node). Example: `["arrow_function", "function_expression"]` for JavaScript |
 | `declaration_types` | `string[]` | Array of Tree-sitter node types that can have docstrings attached. The engine looks for comment nodes immediately before these declaration types and extracts the text as the entity's `docstring` property |
 | `comment_types` | `string[]` | Array of Tree-sitter node types recognized as comments. Used by the docstring extraction engine. Common values: `["comment", "block_comment", "line_comment"]` |
+| `embed_labels` | `string[]` | Which of **this language's** graph labels get a vector, and so are reachable by semantic search. Every entity is in the keyword index regardless — `entity_fts` indexes them all by name — so this list is only about meaning. **Order is meaningful**: one `(path, uid)` can carry two labels (a TypeScript `class Foo` beside `interface Foo`, a Table beside a same-named View) and the embedding cache is keyed without the label, so the two collide on one entry; the label listed **earlier** wins. A label naming content rather than an identifier belongs here as readily as a declaration — `Comment`'s name *is* the comment's prose, which is what semantic search is for. **Omitted means this language embeds nothing**, which is a real answer for a grammar with no prose and no bodies and rarely the intended one; `TestEveryShippedGrammarDeclaresEmbedLabels` fails when a shipped grammar is silent about it, and `TestEmbedLabelsAreLabelsTheGrammarProduces` fails when it names a label none of its queries can emit. See [Semantic Vector Search](#3-semantic-vector-search) |
+| `text_normalizers` | `map[string]object` | Named ways this language turns escaped text back into what it represents, for an `embedded` block to name via `normalize`. Each: `replace` (literal → replacement) and `numeric_char_refs`. The engine knows no escaping scheme of its own; a replacement containing a line break is dropped at load time, because changing the newline count would shift every line the sub-parse reports. See [Embedded Language Parsing](embedded_language_parsing.md) |
+| `embedded` | Object array | Regions of a file written in another language — the body of a single-file component's `<script>` and `<style>`, which the outer grammar hands over as one opaque text node. A block is selected by a **tree-sitter query**, the same language as `queries[].pattern`. Each entry: `pattern` (the query), `text_capture` (the capture whose node's text IS the body), `lang_capture` (the capture holding the value that selects the language), `default` (the language when `lang_capture` is absent), `languages` (captured value → language name; an allowlist — a value not listed is skipped in silence, and an explicit `{}` means "claim these bodies and map none"), and `normalize` (the name of one of this language's `text_normalizers`, run on the body before the sub-parse), and `host_labels` (the labels that count as the UNIT this block belongs to — see below), and `wrap_prefix` / `wrap_suffix` (the text a FRAGMENT needs around it to be parseable at all — see below). Blocks are tried in order and the first to match a body node claims it, which is how an optional attribute is expressed as two patterns. A block missing `pattern` or `text_capture`, or having neither `default` nor `languages`, is dropped at load time with a warning — this config fails open, so a half-written block would select nothing in silence. Declared by `vue.yaml`, `svelte.yaml` and `html.yaml`. See [Embedded Language Parsing](embedded_language_parsing.md) |
+
+
+**Predicates go INSIDE the pattern's parentheses.** `(node) @cap (#eq? @cap "x")` compiles as
+TWO patterns and the predicate then constrains the second one, which captures nothing — so it
+filters nothing, in silence. The failure mode is an `embedded` block handing every candidate
+body to the inner parser: measured on an XML tag, all three attribute values reached the
+PL/SQL parser, including one planted as a decoy. Written inside — `(node @cap (#eq? @cap "x"))`
+— the same predicate keeps only the intended match.
+
+**`host_labels` says which of the host's entities are units.** An embedded block's statements
+are attributed to the innermost entity that strictly contains the block, which is right when
+the block is the CONTENT of something: the element carrying a value is a wrapper and the unit
+is an ancestor. It is wrong when the block is an ATTRIBUTE of the very element that names the
+unit — an XML-exported screen's `<Trigger Name="POST-QUERY" TriggerText="…"/>`, whose statement text has its
+newlines encoded and therefore sits on the unit's own line. There "strictly contains" excludes
+exactly the entity that should answer. Declaring the labels makes containment enough, and only
+those labels are considered:
+
+```yaml
+embedded:
+  - pattern: '(Attribute (Name) @_a (AttValue) @body (#eq? @_a "TriggerText"))'
+    text_capture: body
+    normalize: attr_text
+    host_labels: [FormTrigger]
+    default: plsql
+```
+
+
+**`wrap_prefix` / `wrap_suffix` make a fragment parseable.** A block does not have to hold
+a compilation unit. An XML-exported screen keeps a program unit as
+`PROCEDURE x(…) IS … END;`, which in PL/SQL is a DECLARATION — valid only inside a
+declarative section — so on its own it parses as nothing: measured, those bodies yielded
+zero entities, zero calls and zero DML, and the only thing they produced was the word
+`PROCEDURE` as a call target. Wrapped, the same body yields the procedure and everything
+it calls:
+
+```yaml
+embedded:
+  - pattern: '(Attribute (Name) @_a (AttValue) @body (#eq? @_a "ProgramUnitText"))'
+    text_capture: body
+    normalize: attr_text
+    wrap_prefix: 'DECLARE '
+    wrap_suffix: ' BEGIN NULL; END;'
+    host_labels: [FormProgramUnit]
+    default: plsql
+```
+
+Which wrapping a fragment needs is knowledge of the POSITION, not of the language — the
+same PL/SQL in a `.sql` file arrives with `CREATE OR REPLACE` in front and needs nothing —
+which is why it is declared on the block. **Neither side may contain a line break**, and a
+declaration that does is dropped at load time: every line the sub-parse reports is shifted
+by the block's start row, so changing the newline count would move every entity after it.
+A prefix on the first line and a suffix after the last cost columns, which nothing records.
 
 #### Export Strategies
 
@@ -455,14 +675,98 @@ exports:
   strategy: none
 ```
 
+#### Complexity Scoring
+
+`complexity` declares the real syntax-tree shapes that count as a decision point for a
+language, so `cyclomatic_complexity` is scored by walking the entity's parsed subtree
+instead of scanning its text for keywords. A nested declaration is scored on its own and
+does not inflate its parent.
+
+| Sub-field | Type | What it matches |
+|---|---|---|
+| `node_types` | `string[]` | **Named** node kinds — `if_statement`, `for_statement`, a switch's case clause. Each occurrence anywhere in the subtree adds one |
+| `operators` | `string[]` | **Anonymous** token kinds — the literal text of a short-circuit operator, `"&&"` and `"\|\|"` — matched wherever the token appears as a leaf, however deep |
+| `head_calls` | Object | For grammars where every control form is the *same* node kind, told apart only by the text of its own first named child. See below |
+
+Two rules that decide which of the first two a boolean operator belongs in, and they are
+mutually exclusive:
+
+- List it under `operators` when the grammar spells `&&` / `||` as bare tokens — Go, C,
+  Java, JavaScript, TypeScript, Rust, Ruby and PHP all do.
+- List the **named node** under `node_types` when the grammar wraps the combination in one
+  — Kotlin's `conjunction_expression` / `disjunction_expression`, Swift's, Dart's
+  `logical_and_expression` / `logical_or_expression`. Listing it in both counts the same
+  operator twice.
+
+A chained `else if` needs no entry of its own: every grammar checked here re-emits it as
+another `if` node nested in the else branch, so counting the `if` kind already counts each
+link in the chain.
+
+**`head_calls`** exists because `node_types` counts a kind on sight and has no way to ask
+what its child says. In Clojure, `(if ...)`, `(when ...)` and `(cond ...)` are all a bare
+`list_lit` whose first named child is a `sym_lit` reading the macro's name; in Elixir,
+`if`, `case`, `cond` and `for` are all a `call`. So the node kind names the wrapper, and a
+match on the child's own text is what actually counts as a branch:
+
+```yaml
+complexity:
+  head_calls:
+    node_type: list_lit
+    names: ["if", "when", "when-not", "if-not", "and", "or"]
+    pair_names: ["cond"]                # counts floor(n/2) — every child after the head is a test/result pair
+    subject_pair_names: ["case"]        # counts floor((n-1)/2) — the first child is the value being matched
+```
+
+| Sub-field | Type | Description |
+|---|---|---|
+| `node_type` | `string` | The wrapping node kind every control form parses as |
+| `names` | `string[]` | Head names that count as **one** branch each |
+| `pair_names` | `string[]` | Head names counted **once per clause**, as `floor(n/2)` of the children after the head — for forms whose clauses are plain alternating children rather than a node of their own, like Clojure's `(cond t1 r1 t2 r2 …)` |
+| `subject_pair_names` | `string[]` | Same, as `floor((n-1)/2)` — the first child after the head is the subject being matched, not a clause, and integer division already drops a trailing default with no test of its own |
+
+`pair_names` and `subject_pair_names` exist only for grammars with no per-clause node.
+Every other language checked here has a real one — `switch_case`,
+`case_when_part_statement` — and belongs in `node_types` instead.
+
+#### Text Normalizers
+
+`text_normalizers` are named, declared ways to turn a language's escaped text back into the
+text it represents. An `embedded` block names one via `normalize`, and **the engine knows no
+escaping scheme at all** — there is no built-in entity table and no "XML mode". A grammar
+that escapes differently, or a future one nobody has met, declares its own.
+
+They exist because a block embedded in XML is almost never plain text: `<` and `&` are
+markup, so `WHERE qt > 0` reaches the file as `qt &gt; 0`, and the host grammar splits the
+content into `CharData` / `EntityRef` / `CharData`. Capturing the whole `content` keeps the
+body intact; the normalizer makes it parseable again.
+
+| Sub-field | Type | Description |
+|---|---|---|
+| `replace` | `map[string]string` | Literal text → its replacement, applied left to right |
+| `numeric_char_refs` | `bool` | Decodes `&#62;` and `&#x3E;` — the open-ended half of the same scheme, which a fixed table cannot express |
+
+**The one invariant the engine enforces: a normalizer may not change the number of
+newlines.** Every line the sub-parse reports is shifted by the block's start row in the host
+file, so a replacement containing a line break would move every entity after it inside the
+block — trading a visible syntax error for a wrong line number, which is the failure this
+whole mechanism exists to avoid. A pair whose replacement contains `\n` or `\r` is **dropped
+at load time** with a warning; a numeric reference that would decode to one is left as
+written. A normalizer that ends up with nothing to do, or a `normalize` naming one this
+language does not declare, is dropped the same way.
+
+Normalizing is **opt-in per block**, not per language, because escaping is a property of the
+position rather than of the language alone: an XML element's content is escaped, but an HTML
+`<script>`'s `raw_text` is not, even though both hosts have entities.
+
 ### Resolution Chain (3 Levels)
 
-Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins — lower sources are not merged in. The resolution order is **project → user global → runtime** — all levels are YAML-only. Everything — parser selection, extensions, queries, exports, context types — is externalized and customizable without recompilation.
+Query files are resolved using a cascading priority system. For each language, the **highest-priority source** that provides queries wins. The resolution order is **project → user global → runtime** — all levels are YAML-only. Everything — parser selection, extensions, queries, exports, context types — is externalized and customizable without recompilation.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  Priority 1 — Project Override                                             │
-│  .graphit/ast/queries/<language>.yaml                                      │
+│  <ast.queries_dir>/<language>.yaml                                         │
+│  .graphit/ast/queries/ unless the key says otherwise.                      │
 │  Applies only to this project. Highest priority.                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Priority 2 — User Global                                                  │
@@ -477,64 +781,209 @@ Query files are resolved using a cascading priority system. For each language, t
 ```
 
 **Key behaviors:**
-- The launcher automatically extracts all 42 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
+- The launcher automatically extracts all 44 default YAML files during binary setup to `~/.graphit/runtime/<version>/ast/queries/`.
 - The **runtime directory is version-scoped** — each binary version gets its own clean set of defaults, so upgrades never conflict with previous versions.
 - The **user global directory** (`~/.graphit/ast/queries/`) is never touched by the framework. Only the user creates/edits files there.
+- The **project query directory is tracked by git** — the `.gitignore` block written by `graphit init` ignores `.graphit/runtime/` and `.graphit/grammars/`, not `.graphit/ast/queries/`, so a query override committed where it defaults reaches every other checkout. Project parser binaries under `.graphit/grammars/` remain local. See [storage_layout](../architecture/storage_layout.md#inside-a-projects-brand-directory).
+- The **project directory is also configurable** — `ast.queries_dir`, relative to the project root — for a project that would rather keep its grammars beside its other tooling. See [config_module](config_module.md#the-projects-grammars-astqueries_dir).
 - If a **project** has a `go.yaml`, only Go queries come from the project level; other languages still resolve normally through user → runtime.
+
+### Turning a grammar off by configuration
+
+The resolution chain above answers *how* a language is parsed. Two configuration
+keys answer *whether* it is parsed at all:
+
+| Key | Meaning |
+|---|---|
+| `ast.grammars_blacklist` | comma-separated; every grammar named here is disabled |
+| `ast.grammars_whitelist` | comma-separated; when non-empty, **only** these are enabled, and the blacklist still subtracts from them |
+
+Full semantics, precedence and the name-matching rule are in
+[config_module](config_module.md#turning-grammars-off-astgrammars_blacklist-and-astgrammars_whitelist).
+What matters here is where the decision is taken and what it means for the graph.
+
+**Why a config key and not a deleted query file.** Extensions are granted by the
+query file, not by the grammar — `rebuildExtTables` builds `tsExtMap` from each
+resolved YAML's `extensions:` field — so removing a query file has always been the
+way to take a language out of the index. That works for *this* repository, which
+owns `internal/ast/queries/*.yaml`. It does not work for a consumer: the files it
+would have to delete live in `~/.graphit/runtime/<version>/ast/queries/`, which the
+launcher regenerates on every install. The markdown note in
+[Supported Languages](#-supported-languages) is the deleted-file case; these keys
+are the same decision made from the outside.
+
+**Where it is enforced.** The extension tables (`tsExtMap`, `antlrExtMap`,
+`tsGrammarMap`, `antlrGrammarMap`, `tsLangNameMap`) are process-wide and built from
+the runtime and user directories with no project in the picture — one daemon
+supervises many projects, so a per-project filter cannot live inside them. It lives
+instead in the functions that receive a `projectDir` and answer "what parses this",
+which is the set every other path already goes through:
+
+| Function | File |
+|---|---|
+| `tsLangConfigFor`, `tsLangConfigByName`, `TreeSitterParser.ParseWithGrammar` | `internal/ast/treesitter_adapter.go` |
+| `HasAntlrForExtensionIn`, `enabledAntlrConfigsFor`, `AntlrParser.Parse`, `AntlrParser.ParseWithGrammar` | `internal/ast/antlr_adapter.go` |
+| `antlrLangConfigByName` | `internal/ast/treesitter_embedded.go` |
+| `resolveQueriesForLang` | `internal/ast/query_loader.go` |
+
+So discovery (`collectFiles`), the watcher (`internal/ast/watcher.go`) and the
+daemon's batch router (`classifyBatch`) inherit the decision without knowing about
+it: all three ask `HasParserForExtensionIn`, which resolves through the first two
+rows. The filter itself is `internal/ast/grammar_filter.go`, cached per project
+directory behind the same rate limit and staleness signature as the query
+directories — so writing the key lands on a running daemon within a couple of
+seconds, with no restart.
+
+**An ANTLR extension narrows rather than disappearing.** `antlrExtMap` maps an
+extension to a *list*: `.sql` is claimed by `plsql`, `postgresql` and `tsql`, each
+tried in turn. Blacklisting one dialect removes it from the candidate list and
+leaves `.sql` claimed by the others — which is also the cheap way to keep the PL/SQL
+prediction stage out of a repository whose SQL is not Oracle.
+
+**An explicit `--grammar` override does not win against it.** A disabled grammar is
+not usable, full stop, and `ParseWithGrammar` says so:
+`grammar disabled by configuration: <name>`. Layering it the other way was
+considered and rejected — discovery would have dropped the files before the flag
+was ever consulted, so the override would produce "no files matched" rather than
+the parse it asked for.
+
+**Files already in the graph are removed on the next full index.** The live set
+comes from `collectFiles`, and `pruneVanished` drops every cached shard whose file
+is no longer live, deleting it from both the graph and the search index. No
+`--reset` is needed. In *scoped* mode (`graphit ast index --path`) the tree is
+never walked, so the prune does not run and the old nodes survive until a full
+index.
+
+### `merge: true` — merging instead of replacing
+
+By default a level **replaces** the one below it: the winning file is the whole
+language, and everything the level below said about it is gone. That is why a
+project wanting one extra query had to copy the entire shipped file — and why
+omitting `extensions` or `grammar` from the copy broke the language rather than
+leaving it alone.
+
+A file declaring `merge: true` at its root **merges** onto the same language at
+the level below instead. It applies at every level: the user's directory over the
+runtime's, the project's over both, folded in that order.
+
+**What pairs two files is the `language` field, and nothing else** — matched
+case-insensitively, like every other place a language name is used as a key.
+`extensions` is *not* part of the pairing: it is one of the things inherited. So a
+project file declaring `language: sql` with `extensions: [".pks"]` merges onto the
+runtime's `sql` even though the two extension lists do not overlap, inheriting its
+queries and grammar while narrowing which files it claims. A file whose language no
+lower level declares has nothing to pair with and stands on its own — which is how a
+project introduces a new language, with or without the flag.
+
+If a single level somehow declares the same language twice, the first file wins as
+the merge base, "first" being the directory's read order — alphabetical by filename.
+The 46 shipped grammars are one language per file, so this is a defined outcome
+rather than a situation that arises.
+
+```yaml
+# <ast.queries_dir>/go.yaml — adds one query, changes one, keeps the rest
+language: go
+merge: true
+queries:
+  - data_key: calls          # replaces the shipped `calls` group
+    graph_label: Function
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: build_tags     # a new kind of entity
+    graph_label: Constant
+    pattern: '((comment) @name (#match? @name "go:build"))'
+```
+
+What merging does, field by field:
+
+| Field | Rule |
+|---|---|
+| `extensions`, `parser`, `grammar`, `start_rule` | declared wins; **omitted inherits** — this is what makes a partial file a working language |
+| `queries` | merged by `data_key`: a redeclared key replaces that whole group, new keys are added, untouched keys are inherited |
+| `context_types`, `context_name_paths`, `text_normalizers` | merged key by key, the upper level winning per key |
+| `self_keywords`, `declaration_types`, `comment_types`, `anon_func_types`, `embed_labels`, `exports` | declared replaces, omitted inherits — a list is a complete statement, which is also the only way to *shorten* one |
+| `embedded` | the upper level's blocks go **first**, then the lower level's — order is precedence there, since the first matching block claims a body |
+| `complexity` | same rule one level down: `node_types`, `operators` and `head_calls` each replace-if-declared |
+
+A data key can legitimately appear more than once in a file — `go.yaml` captures
+`calls` with two patterns — and redeclaring it replaces the whole group: the key
+names one kind of entity, and half a definition of "how calls are found" is not a
+thing a language can have.
+
+`merge` itself is not inherited: each file states what it does to the level under
+it, so a merging project file on top of a merging user file folds twice and the
+runtime's values still reach the top.
+
+The pairing of `embedded` and `text_normalizers` is the case this was written for,
+and the two rules combine as they must — a project that embeds SQL in its own XML
+dialect declares both, and the merged file is the shipped XML language plus the
+dialect:
+
+```yaml
+# <ast.queries_dir>/xml.yaml
+language: xml
+merge: true
+text_normalizers:                 # added to the language's own normalizers, by name
+  mybatis_entities:
+    replace: { "&lt;": "<", "&gt;": ">", "&amp;": "&" }
+    numeric_char_refs: true
+embedded:                         # tried BEFORE the shipped blocks
+  - pattern: '(element (STag (Name) @_tag) (content) @body (#match? @_tag "^(select|insert|update|delete)$"))'
+    text_capture: body
+    default: sql
+    normalize: mybatis_entities
+```
+
+Every XML query, `context_types`, `context_name_paths` and `complexity` entry from
+the runtime file survives, because this file said nothing about them.
 
 ### Directory Structure
 
 ```
 ~/.graphit/
 ├── ast/
-│   ├── queries/                    ← User Global (Priority 2) — user-editable
-│   │   └── go.yaml                 ← Custom Go queries for all projects
-│   ├── frameworks/                 ← User Global frameworks (see Framework YAML section)
-│   └── ecosystems.yaml             ← User Global ecosystem overrides
+│   └── queries/                    ← User Global (Priority 2) — user-editable
+│       └── go.yaml                 ← Custom Go queries for all projects
 │
 └── runtime/
     └── v1.2.3/
         └── ast/
-            ├── queries/            ← Runtime Defaults (Priority 3) — framework-managed
-            │   ├── c.yaml
-            │   ├── cpp.yaml
-            │   ├── csharp.yaml
-            │   ├── dart.yaml
-            │   ├── go.yaml
-            │   ├── java.yaml
-            │   ├── javascript.yaml
-            │   ├── kotlin.yaml
-            │   ├── php.yaml
-            │   ├── python.yaml
-            │   ├── ruby.yaml
-            │   ├── plsql.yaml
-            │   ├── postgresql.yaml
-            │   ├── tsql.yaml
-            │   ├── db2.yaml
-            │   ├── cobol85.yaml
-            │   ├── html.yaml
-            │   ├── rust.yaml
-            │   ├── sql.yaml
-            │   ├── swift.yaml
-            │   ├── tsx.yaml
-            │   ├── typescript.yaml
-            │   └── xml.yaml
-            ├── frameworks/         ← Runtime Default frameworks
-            │   ├── _go_lang.yaml
-            │   ├── _python_lang.yaml
-            │   ├── spring.yaml
-            │   ├── django.yaml
-            │   └── ... (59 framework files)
-            └── ecosystems.yaml     ← Runtime Default ecosystem mappings
+            └── queries/            ← Runtime Defaults (Priority 3) — framework-managed
+                ├── c.yaml
+                ├── cpp.yaml
+                ├── csharp.yaml
+                ├── dart.yaml
+                ├── go.yaml
+                ├── java.yaml
+                ├── javascript.yaml
+                ├── kotlin.yaml
+                ├── php.yaml
+                ├── python.yaml
+                ├── ruby.yaml
+                ├── plsql.yaml
+                ├── postgresql.yaml
+                ├── tsql.yaml
+                ├── db2.yaml
+                ├── cobol85.yaml
+                ├── html.yaml
+                ├── rust.yaml
+                ├── sql.yaml
+                ├── swift.yaml
+                ├── tsx.yaml
+                ├── typescript.yaml
+                └── xml.yaml
 
 your-project/
-└── .graphit/
-    └── ast/
-        ├── queries/                ← Project Override (Priority 1)
-        │   └── go.yaml             ← Custom Go queries for this project only
-        ├── frameworks/             ← Project-level framework rules
-        │   └── my_framework.yaml
-        └── ecosystems.yaml         ← Project-level ecosystem entries
+├── .graphit/
+│   ├── ast/
+│   │   └── queries/                ← Project Override (Priority 1), by default.
+│   │       └── go.yaml               Tracked by git — runtime/ and grammars/ are
+│   │                                 ignored — so the whole team gets the query
+│   └── runtime/                    ← machine state, gitignored
+│
+└── tooling/grammars/               ← where ast.queries_dir can point instead,
+    └── go.yaml                       for grammars kept beside other tooling
 ```
 
 ### Implementation Details
@@ -543,255 +992,6 @@ your-project/
 - **Launcher Extraction:** YAML files are extracted by the launcher to `~/.graphit/runtime/<version>/ast/` during binary setup — no embedded FS in the binary.
 - **Thread Safety:** All caches use `sync.Map` and `sync.Once` for safe concurrent access during parallel file parsing.
 - **Runtime Dir:** `brand.RuntimeDir(version)` returns `~/.graphit/runtime/<version>/` — version-scoped to avoid conflicts across upgrades.
-
----
-
-## 🏗️ Framework YAML Configuration
-
-Framework YAML files provide **YAML-driven framework and library detection** — recognizing frameworks through decorators, class inheritance, and import paths — and define **entry point scoring rules** that assign importance scores to functions based on their names, decorators, and export status.
-
-### Purpose
-
-When the engine indexes a project, framework YAML files allow it to:
-- **Detect frameworks** by matching decorator names (e.g., `@RestController` → Spring), parent class/interface names (e.g., `JpaRepository` → Spring Data), and import paths (e.g., `github.com/gin-gonic/gin` → Gin)
-- **Score entry points** by assigning importance scores to functions based on name patterns (glob-style), decorator presence, and export visibility — used by the `entry_point_score` property on Function/Method nodes
-
-### Framework YAML Schema
-
-```yaml
-framework: spring                # Framework identifier (required)
-languages: [java, kotlin]        # Languages this framework applies to (optional — all if omitted)
-
-decorator_detection:             # Detect framework via decorator/annotation names
-  - name: RestController
-    category: web
-  - name: Service
-    category: di
-    framework_name: spring_di    # Override parent framework name (optional)
-
-heritage_detection:              # Detect framework via class inheritance / interface implementation
-  - parent: JpaRepository
-    category: orm
-    framework_name: spring_data  # Override parent framework name (optional)
-
-import_detection:                # Detect framework via import paths
-  - pattern: "org.springframework"
-    match: prefix                # "prefix" (default), "exact", "contains", "suffix", or "regex"
-    category: web
-    framework_name: spring       # Override parent framework name (optional)
-
-entry_points:                    # Entry point scoring rules
-  names:                         # Score by function name (glob patterns)
-    - pattern: main
-      score: 80
-    - pattern: "Test*"
-      score: 60
-    - pattern: "*Handler"
-      score: 30
-
-  decorators:                    # Score by decorator presence
-    - name: GetMapping
-      score: 70
-    - name: Controller
-      score: 50
-
-  exported_bonus: 10             # Bonus score for exported functions
-  max_score: 100                 # Score cap (prevents runaway accumulation)
-```
-
-**Top-Level Fields:**
-
-| Field | Required | Type | Description |
-|---|---|---|---|
-| `framework` | ✅ | `string` | Framework identifier (e.g., `spring`, `django`, `react`). Used as the default framework name in detection results |
-| `languages` | ❌ | `string[]` | Languages this framework applies to. If omitted, applies to all languages. Language names match those in query YAML files |
-| `decorator_detection` | ❌ | `DecoratorRule[]` | Rules to detect framework usage via decorator/annotation names |
-| `heritage_detection` | ❌ | `HeritageRule[]` | Rules to detect framework usage via parent class or interface names |
-| `import_detection` | ❌ | `ImportRule[]` | Rules to detect framework usage via import path patterns |
-| `entry_points` | ❌ | `EntryPointConfig` | Entry point scoring configuration |
-
-**Detection Rule Sub-Schemas:**
-
-| Field | Type | Description |
-|---|---|---|
-| `decorator_detection[].name` | `string` | Decorator/annotation name to match (e.g., `RestController`, `pytest.fixture`) |
-| `decorator_detection[].category` | `string` | Framework category (e.g., `web`, `di`, `orm`, `test`, `config`) |
-| `decorator_detection[].framework_name` | `string` | Optional override for the parent `framework` name |
-| `heritage_detection[].parent` | `string` | Parent class or interface name to match |
-| `heritage_detection[].category` | `string` | Framework category |
-| `heritage_detection[].framework_name` | `string` | Optional override for the parent `framework` name |
-| `import_detection[].pattern` | `string` | Import path pattern to match against |
-| `import_detection[].match` | `string` | Match mode: `"prefix"` (default, path starts with pattern), `"exact"` (full match), `"contains"` (pattern appears anywhere in the path), `"suffix"` (path ends with pattern), or `"regex"` (pattern is a Go regexp) |
-| `import_detection[].category` | `string` | Framework category |
-| `import_detection[].framework_name` | `string` | Optional override for the parent `framework` name |
-
-**Entry Point Sub-Schema:**
-
-| Field | Type | Description |
-|---|---|---|
-| `entry_points.names[]` | `NameScoreRule[]` | Name-based scoring rules. `pattern` supports glob syntax: `*` matches any characters, `?` matches a single character. Examples: `"main"` (exact), `"Test*"` (prefix), `"*Handler"` (suffix), `"cmd*"` (prefix) |
-| `entry_points.names[].pattern` | `string` | Glob pattern to match against the function/method name |
-| `entry_points.names[].score` | `int` | Score to assign when the pattern matches |
-| `entry_points.decorators[]` | `DecoratorScoreRule[]` | Decorator-based scoring rules |
-| `entry_points.decorators[].name` | `string` | Decorator name to match |
-| `entry_points.decorators[].score` | `int` | Score to assign when the decorator is present |
-| `entry_points.exported_bonus` | `int` | Bonus score added for exported functions (combines with name/decorator scores) |
-| `entry_points.max_score` | `int` | Maximum score cap — final score is clamped to this value |
-
-### Resolution: Additive Merge (3 Levels)
-
-Unlike query files (which use **precedence override** — highest-priority source wins per language), framework files use **additive merging** — frameworks from all 3 levels are combined:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  Level 3 — Project Level (highest priority, extends all below)             │
-│  .graphit/ast/frameworks/*.yaml                                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Level 2 — User Global (extends runtime)                                    │
-│  ~/.graphit/ast/frameworks/*.yaml                                          │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Level 1 — Runtime Defaults (base)                                         │
-│  ~/.graphit/runtime/<version>/ast/frameworks/*.yaml                        │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-This means a project can add custom framework rules **without losing** any of the 59 built-in framework definitions (Spring, Django, FastAPI, React, NestJS, Rails, Flutter, SwiftUI, etc.). Language-specific base rules (entry point defaults, import detection) are also included as `_<lang>_lang.yaml` framework files.
-
-### Example: Creating a Custom Framework YAML
-
-To add detection for a custom internal framework, create a YAML file at the project or user-global level:
-
-```yaml
-# .graphit/ast/frameworks/mycompany_rpc.yaml
-framework: mycompany_rpc
-languages: [go]
-
-decorator_detection:
-  - name: RPCEndpoint
-    category: rpc
-  - name: RPCMiddleware
-    category: middleware
-
-import_detection:
-  - pattern: "github.com/mycompany/rpc"
-    match: prefix
-    category: rpc
-
-entry_points:
-  decorators:
-    - name: RPCEndpoint
-      score: 70
-  names:
-    - pattern: "*Handler"
-      score: 40
-```
-
----
-
-## 🌍 Ecosystem YAML Configuration
-
-Ecosystem YAML files map **configuration filenames** to **language and ecosystem identifiers**, enabling automatic project type detection. When the engine scans a project's root directory, it matches filenames against these entries to determine which languages and ecosystems (build tools, package managers, test frameworks) are present.
-
-### Purpose
-
-The ecosystem configuration is used by `DetectProjectConfig()` to build a project profile — identifying the primary language, package manager, build system, and toolchain without parsing source files. This information is used for framework resolution, dependency analysis, and intelligent indexing.
-
-### Schema
-
-Ecosystem entries are defined in a single `ecosystems.yaml` file:
-
-```yaml
-config_files:
-  - filename: go.mod
-    language: go
-    ecosystem: go
-
-  - filename: package.json
-    language: javascript
-    ecosystem: node
-
-  - filename: "*.csproj"           # Glob pattern matching
-    language: csharp
-    ecosystem: dotnet
-    glob: true                     # Enable glob matching
-
-  - filename: pyproject.toml
-    language: python
-    ecosystem: python
-    extract:                       # Optional: extract metadata from file content
-      - field: "project.name"     # JSON/TOML field path
-        store: "project_name"     # Key to store in detected map
-```
-
-**Fields:**
-
-| Field | Required | Type | Description |
-|---|---|---|---|
-| `config_files[].filename` | ✅ | `string` | Config filename to match in the project root. Can be a glob pattern if `glob: true` |
-| `config_files[].language` | ✅ | `string` | Language identifier (matches the `language` field in query YAML files) |
-| `config_files[].ecosystem` | ✅ | `string` | Ecosystem identifier (e.g., `node`, `cargo`, `gradle`, `pip`, `bundler`) |
-| `config_files[].glob` | ❌ | `bool` | When `true`, treats `filename` as a glob pattern (e.g., `"*.csproj"`). Default: `false` |
-| `config_files[].extract` | ❌ | `ExtractRule[]` | Rules for extracting metadata from the config file's content |
-| `config_files[].extract[].field` | ✅ | `string` | JSON/TOML field path to extract (e.g., `"project.name"`) |
-| `config_files[].extract[].store` | ✅ | `string` | Key under which to store the extracted value |
-
-### Resolution: Additive Merge (3 Levels)
-
-Like frameworks, ecosystem files use **additive merging** — entries from all 3 levels are combined:
-
-| Level | Path | Behavior |
-|---|---|---|
-| Runtime | `~/.graphit/runtime/<version>/ast/ecosystems.yaml` | Base — factory defaults (120+ entries covering 21 languages) |
-| User Global | `~/.graphit/ast/ecosystems.yaml` | Extends runtime — user-editable, never modified by framework |
-| Project | `.graphit/ast/ecosystems.yaml` | Extends all — project-specific overrides |
-
-This allows projects to add detection for custom config files without losing any of the built-in mappings.
-
-### Example Entries
-
-Below are representative entries from the built-in `ecosystems.yaml`:
-
-```yaml
-config_files:
-  # JavaScript / TypeScript
-  - filename: package.json
-    language: javascript
-    ecosystem: node
-  - filename: tsconfig.json
-    language: typescript
-    ecosystem: node
-  - filename: vite.config.ts
-    language: typescript
-    ecosystem: vite
-
-  # Go
-  - filename: go.mod
-    language: go
-    ecosystem: go
-
-  # Python
-  - filename: pyproject.toml
-    language: python
-    ecosystem: python
-  - filename: manage.py
-    language: python
-    ecosystem: django
-
-  # Rust
-  - filename: Cargo.toml
-    language: rust
-    ecosystem: cargo
-
-  # C# (.NET) — glob patterns
-  - filename: "*.csproj"
-    language: csharp
-    ecosystem: dotnet
-    glob: true
-  - filename: "*.sln"
-    language: csharp
-    ecosystem: dotnet
-    glob: true
-```
 
 ---
 
@@ -804,16 +1004,16 @@ The AST module supports two indexing modes to balance completeness with performa
 Triggered on first `graphit init` or when the database is missing/corrupted. The complete pipeline:
 
 ```
-Source Files → File Discovery → Parse (Tree-sitter / ANTLR) → Entity Extraction → Graph Write → FTS5 Index → Trigram Index → Vector Embedding
+Source Files → File Discovery → Parse (Tree-sitter / ANTLR) → Entity Extraction → Graph Write → Search Tables → FTS Indexes → Vector Embedding
 ```
 
-1. **File Discovery**: Walks the project directory, respecting `.gitignore` and `.astignore` rules. Detects language via file extension.
+1. **File Discovery**: Walks the project directory, respecting `.gitignore` and `.astignore` rules plus three built-in exclusions — the `.graphit/` state directory, the project's own `graphit.lock.json`, and the knowledge module's documentation tree (`knowledge.docs_dir`, default `docs/`). The first two are the framework's own output; a `.json` file with a parser in front of it, describing the indexer to itself. The docs tree belongs to the wiki; set `ast.index_docs=true` to index it here as well. Because built-in patterns are applied last and gitignore semantics are last-match-wins, a `!docs/` negation in `.astignore` cannot override that — the config key is the override. Detects language via file extension, so a markdown file is out of scope before any pattern is consulted: no shipped query file claims `.md`. See [ignore_files](../guides/ignore_files.md).
 2. **Parse**: Each file is parsed into a concrete syntax tree using the appropriate language grammar — Tree-sitter for most languages, ANTLR v4 for languages configured with `parser: antlr4`. The parser backend is determined by the language YAML; see [`--grammar`](#--grammar-cli-flag) for per-extension override.
 3. **Entity Extraction**: YAML-defined queries (S-expressions for Tree-sitter, XPath for ANTLR) extract structured entities (functions, classes, imports, calls, fields, DML statements, etc.) from the syntax tree.
 4. **Graph Write**: Extracted entities are written as nodes and relationships into LadybugDB. Each entity gets a unique `uid` and is linked to its parent file via `CONTAINS` edges.
-5. **FTS5 Index**: Entity names are split (camelCase, snake_case) and indexed in SQLite FTS5 for multi-pass full-text search.
+5. **Search Tables**: Entity names are split (camelCase, snake_case) and gram-expanded into `entities`, in the LanceDB sidecar beside the graph. On a full rebuild the indexes are built AFTER the bulk load, in one pass over the finished tables; on an incremental nothing is rebuilt — an appended row is searchable before it is folded into the index, which is the property this storage engine was chosen for.
 6. **Trigram Index**: Entity names are decomposed into 3-character trigrams for fuzzy matching and typo tolerance.
-7. **Vector Embedding**: When enabled, entity contexts are embedded via the local ONNX model (CodeRankEmbed-137M) and stored in SQLite-vec for semantic search.
+7. **Vector Embedding**: When enabled, entity contexts are embedded via the local ONNX model (CodeRankEmbed-137M) and written to `entity_emb`, then indexed into the `vec0` table `entity_vec` keyed by the same row id.
 
 ### Incremental Indexing Pipeline
 
@@ -825,9 +1025,35 @@ Triggered on every subsequent `graphit sync` or by the file watcher. Only proces
    - Removes all existing nodes and edges belonging to that file from LadybugDB.
    - Re-parses the file via Tree-sitter.
    - Re-writes the extracted entities and relationships.
-   - Updates the FTS5, trigram, and vector indices for affected entities.
-4. **Parallel Workers**: Files are distributed to concurrent Go worker goroutines via a shared channel. Each worker allocates its own thread-local parser instances, enabling lock-free parallel parsing. Results flow to a single-threaded SQLite writer to avoid database write contention.
+   - Rewrites the affected `files` and `entities` rows IN PLACE, in the LanceDB sidecar: delete by path, append, and fold the new rows into the indexes afterwards. Nothing here is O(corpus), and the fold is for LATENCY rather than correctness — measured, an appended row is found by full-text search before any fold. The sidecar is deliberately outside the graph's copy+swap: that is what buys a ~300 ms incremental, at the cost of a window where the index and the graph describe corpora one edit apart.
+4. **Parallel Workers**: Files are distributed to concurrent Go worker goroutines via a shared channel. Each worker allocates its own thread-local parser instances, enabling lock-free parallel parsing. Results flow to a single-threaded writer, because the engine allows one read-write handle per database.
 5. **Shard Cache (`internal/ast/shard_cache.go`)**: Parsed AST results are cached as JSON shards on disk, enabling fast rebuilds without re-parsing unchanged files.
+
+### "Nothing changed" is checked against BOTH halves of the store
+
+When no file hash moved, the pipeline skips the write and reports `N files up to date`. That
+shortcut is only safe when there is something to skip **to**, and the store has two halves — the
+graph (`ladybugdb`) and the search index (`search.lance/`). Each is checked before the shortcut is
+taken, and each has its own repair, which replays the shard cache instead of reparsing:
+
+| what is missing | how it is detected | what happens |
+|---|---|---|
+| the graph | `os.Stat` on the database path | falls through to the write, which replays the shards |
+| the search index | `SearchIndexBuilt` — **counts rows** | rebuilds it from the shard cache, then returns |
+
+**`os.Stat` cannot answer the second one.** `OpenSearchIndex` *creates* the directory it opens, so
+the directory exists in exactly the broken case: a store indexed by a build that predates the
+current search engine has a `search.lance/` that is present and holds nothing. Before this check,
+`ast index` compared hashes, found no change, and reported success over a search that answered
+nothing at all — the guard existed, but in `ast embed` rather than here, so anyone who ran only
+`ast index` after changing versions got silence with no warning.
+
+A repair reports itself rather than hiding inside the up-to-date message:
+`N files up to date; search index was empty and was rebuilt from cache (0.1s)`. It is carried on
+`PipelineResult.SearchIndexRebuilt` so the CLI can say which half it repaired.
+
+This is also the cheap way to ask for either rebuild by hand: delete the graph or the index, keep
+the shards, and the next `ast index` replays them.
 
 ### Performance Characteristics
 
@@ -841,41 +1067,290 @@ Triggered on every subsequent `graphit sync` or by the file watcher. Only proces
 
 ---
 
+## 🏷️ Cluster Tagging for Multi-Domain Monorepos
+
+The AST module supports **logical cluster tagging** to enable filtered queries across different domains within a monorepo (e.g., Oracle SQL, XML export, Java backend, frontend TypeScript). Each indexed node receives a `cluster` property.
+
+### Configuration Methods
+
+#### 1. Via CLI Flags (repeatable)
+```bash
+# Tag entire paths with specific clusters
+graphit ast index schema/ xml/ src/ \
+  --cluster-path backend/=python \
+  --cluster-path frontend/=javascript \
+  --cluster-path shared/=typescript \
+  --cluster default
+```
+
+#### 2. Via Project Config (persisted to `graphit.lock.json`)
+```bash
+# Set cluster map (comma-separated path=cluster pairs)
+graphit config ast.cluster_map "backend/=python,frontend/=javascript,shared/=typescript"
+
+# Set default cluster for unmatched paths
+graphit config ast.cluster default-cluster
+```
+
+When using `--cluster-path` or `--cluster` flags, the mapping is **automatically persisted** to the project config for subsequent runs (including daemon watches).
+
+### How It Works
+
+1. **Path Resolution**: Each file's relative path from the project root is matched against the cluster path map prefixes.
+2. **Most Specific Match Wins**: Longer prefixes take precedence (e.g., `src/backend/` beats `src/`).
+3. **Fallback**: Files not matching any prefix use the default cluster (from `--cluster` or `ast.cluster` config).
+4. **Inheritance**: All entities within a file (Functions, Classes, Tables, etc.) inherit the file's cluster. Stubs (unresolved call targets) also receive the cluster.
+
+### Querying by Cluster
+
+```cypher
+// All Oracle SQL tables
+MATCH (n:Table {cluster: 'oracle'}) RETURN n.name, n.path
+
+// All functions in the backend cluster
+MATCH (n:Function {cluster: 'backend'}) RETURN n.name, n.path
+
+// Cross-cluster analysis
+MATCH (f:Function {cluster: 'backend'})-[:CALLS]->(s:Function {cluster: 'oracle'})
+RETURN f.name, s.name
+```
+
+### Watcher Integration
+
+The file watcher (`ast watch`) respects the same cluster configuration:
+```bash
+# Uses config from graphit.lock.json automatically
+graphit ast watch
+
+# Or override via CLI
+graphit ast watch --cluster-path backend/=python --cluster-path frontend/=javascript
+```
+
+### Implementation Details
+
+- **Pipeline Option**: `ClusterPathMap map[string]string` in `PipelineOptions`
+- **Resolution Function**: `resolveClusterForPath(filePath, rootPath, clusterPathMap, defaultCluster)`
+- **Cache Storage**: Cluster is stored in `parseCacheEntry.Cluster` and propagated to `FileRow[6]`
+- **Graph Write**: All node types (`File`, `Directory`, entities, stubs, modules, annotations) include `cluster` column
+- **Config Keys**: `ast.cluster_map` (comma-separated path=cluster), `ast.cluster` (default fallback)
+
+---
+
 ## 👁️ File Watcher (`internal/ast/watcher.go`)
 
-The AST watcher monitors source file changes to trigger automatic reindexing. It uses **git-based polling** instead of filesystem notifications (`fsnotify`):
+The AST watcher monitors source file changes to trigger automatic reindexing. It is built on `internal/fswatch`, which reports changes from the operating system's own notification API:
 
-- **Polling**: Runs `git status --porcelain -unormal` + `git rev-parse HEAD` every 2 seconds
-- **Combined state hash**: `SHA256(HEAD_commit + status_output)` — detects both uncommitted edits and committed changes between polls
-- **Filtering**: Applies `.gitignore` (via git) and `.astignore` (via `ignorer.IgnoreChecker`)
-- **Debounce**: 500ms after last detected change before triggering reindex
-- **Zero file descriptors**: No inotify/kqueue watches needed, avoiding resource exhaustion on large projects
+- **Notification-driven**: One recursive watch over the project tree; idle until something happens
+- **Named paths**: A batch says exactly which files changed, so the reindex runs `RunPipelineForPaths` and skips discovery entirely
+- **Filtering**: `.astignore` via `ignorer.IgnoreChecker`, applied both when registering watches and when events arrive
+- **Debounce**: 500 ms of quiet before reindexing, capped at 5 s for a continuously busy tree (`DefaultWatcherConfig`)
+- **Lost events**: A kernel queue overflow sets `Batch.Rescan`, and the watcher falls back to a full scan
 
-## 🔍 Search Engines: Hybrid RRF & Trigram FTS
+This replaced a `git status --porcelain` poll that ran every two seconds. That poll walked the whole worktree per tick and reported a change up to ~6 s late; it also could not name the changed paths, so every detection triggered a full discovery pass. See `docs/specs/daemon_module.md` § *Filesystem Change Detection* for the mechanism and the trade-off accepted.
 
-The AST query engine features a multi-pass hybrid retrieval pipeline (`internal/ast/fts_sqlite.go` / `internal/ast/query.go`) to resolve natural language and code identifiers to exact structural entities and files:
+## 🔍 Retrieval
 
-### 1. Multi-Pass FTS5 Search
-For lexical matching, the search index splits complex code identifiers (e.g., camelCase, PascalCase, snake_case) into separate words and executes multiple query passes using SQLite's FTS5 engine:
-- **Phrase Pass**: Searches for the exact raw query string in quotes.
-- **AND Pass**: Requires all query tokens to be present.
-- **OR Pass**: Matches documents containing any query tokens.
-- **Prefix Pass**: Appends a wildcard (`*`) to all query tokens to match partial prefixes.
+The search index is a **LanceDB sibling of the graph store**, the `search.lance/` directory beside
+`ladybugdb`, written and read by `internal/ast/search_lance.go`. The graph database holds the graph
+and nothing else; see [Storage Layout](../architecture/storage_layout.md) for which engine owns
+what, and why.
 
-### 2. SQLite Trigram Matching
-To resolve typos and support robust substring matching in entity names, the engine leverages a SQLite trigram index:
-- Splits code identifiers into three-character sequences.
-- Performs fast trigram lookups on the `entity_trigram` table.
+**`files.source` is the only queryable copy of a file's text.** The graph's `File` table does not
+carry it, so `ast source` reads from here — which is why a rebuild that fails takes source reads
+down with it, and why the rebuild path returns that error instead of logging it.
 
-### 3. Semantic Vector Search
-When vector embeddings are enabled and synchronized, the engine performs a semantic vector search:
-- Computes high-dimensional embeddings for queries using the model manager.
-- Performs cosine similarity lookup using the SQLite-vec extension on the `entity_vec` table.
+Two tables, `files` and `entities`, because a file match and an entity match are different answers
+and ranking them in one pile buries the entities.
 
-### 4. Reciprocal Rank Fusion (RRF)
-To unify rankings across all lexical passes, trigram lookups, and semantic search streams, the engine fuses scores using Reciprocal Rank Fusion:
-```go
-RRF_Score(d) = sum( weight / (k + rank_i(d)) )
+### Precedence between the two passes — entities first, files after
+
+**The two passes are ordered separately and concatenated. They are never sorted together.** A
+query runs the entity pass, sorts it by its own scores, then runs the file pass, sorts that by its
+own scores, and appends it. `topK` trims the result of that concatenation, so the cap is spent on
+entities before any file gets it.
+
+This is not a preference; the two scores are not on one scale. On a hybrid query the entity pass
+returns the engine's **fused** score — an RRF sum of roughly `1/(60+rank)`, so hundredths — while
+the file pass has to drop the vector channel, because the `files` table has no embedding column,
+and returns **raw BM25 in the tens**. One sort over the concatenation puts every file above every
+entity.
+
+Measured on this project's own index (61,446 entities, 770 files), the CLI answered
+`ast query --hybrid "evictOldestStaged"` with nothing but files, for a method that is indexed.
+Two details are worth keeping, because both were counter-intuitive:
+
+- **It is not an IDF effect, and the corpus sizes are a red herring.** On the keyword channel the
+  same query scores the method at 156.4 and its own file at 29.6 — the entity leads by 5x. The
+  scales only diverge once a vector is in play, which is a difference of KIND, not of corpus size.
+- **`--top` defaults to 0, meaning "no limit"**, and the file pass runs whenever
+  `len(entities) < topK || topK <= 0`. So the default CLI invocation is exactly the one that always
+  runs both passes.
+
+Normalising the two into one scale is not an option: that is the weighted fusion in Go this module
+deleted, and it is the same decision as [the one text column](#one-text-column-not-seven-weighted-fields)
+below. Precedence between two different kinds of answer is not a ranking policy.
+
+`internal/ast/search_scale_test.go` holds the guards, and its fixture is five files — the
+discriminator is the **vector channel**, not a large corpus.
+
+### One text column, not seven weighted fields
+
+The SQLite index queried seven fields separately — `name_split` 10, `docstring` 3, `etype` 2,
+`path` 1 on entities; `name_split` 8, `path` 2, `source` 1 on files — and fused the passes in Go.
+That does not port: the engine's full-text query takes ONE column, and rebuilding the fusion in Go
+would be the Go-side search this project ruled out.
+
+So the fields are concatenated into one `body` column and BM25 ranks it. BM25 already weights by
+term rarity, which is what the manual weights approximated.
+
+What goes into the document, and in this order: the identifier, its split form, the lowercased
+variants, the entity type, the docstring, a **2+3-gram bag**, and the path last. The path is
+deliberately unexpanded — it is the weakest evidence of relevance, and expanding it into grams
+floods the document with directory names that match everything.
+
+### The gram bag is the one thing Go pre-computes
+
+Everything the engine's tokenizer can do, it does. The gram bag is the exception, and it EARNED
+that by measurement: `TestSearchTuningSweep` in `internal/lancestore` measured Go's 2+3-gram
+expansion against the engine's own n-gram tokenizer at several widths, and the Go expansion won.
+
+It exists so a truncated query reaches the identifier it was cut from — `resolv` →
+`resolveHubArtifact` — which BM25 over whole terms cannot do. **There is no prefix pass any more:**
+LanceDB's BM25 has no wildcard operator, so the bag carries all of it. The query is expanded the
+same way the document was, because a gram in the document the query never produces is dead weight
+that only dilutes term statistics.
+
+### Semantic and hybrid
+
+The embedding is a **column of the entity**, not a separate table. So deleting the entity deletes
+its vector, and the class of bug where a stale vector answers for an entity that no longer exists
+cannot be expressed.
+
+**A pure vector query carries a DISTANCE and no score.** The engine returns `_distance` and neither
+score column, so `SemanticSearch` derives the similarity itself before anything reads it:
+
 ```
-(where `k` is a constant, default 60, and each pass uses a custom weight).
-This ensures exact lexical hits rank highly, while semantic and fuzzy matches boost relevant candidates when the exact name isn't matched.
+cosine = 1 - distance/2
+```
+
+The engine's default vector metric is **squared L2**, measured against unit vectors whose cosine to
+the query is known exactly — cosine 1.0 → distance 0.0, 0.707 → 0.586, 0.5 → 1.0, 0.0 → 2.0. The
+conversion is exact rather than approximate because the embedder L2-normalises every vector it
+returns. No metric is configured on the index, so this is the engine's choice and not this
+project's: `TestVectorMetricIsSquaredL2OnUnitVectors` exists to fail if a version bump changes it.
+
+Until that derivation existed, **`SemanticSearch` returned nothing at all** — for every query, on
+every corpus, since the port off SQLite. The confidence floor below compares against the relevance
+field; a vector-only hit left that field at zero; zero is below any floor, so the first result
+truncated the list to empty. The SQLite index had computed the cosine in Go and written it there,
+and the port moved the query without moving the calculation. It went unnoticed because the tests
+that would have caught it all skip when the ONNX runtime is unreachable, which it was for every
+binary outside the launcher payload — see *Running the tests that need an embedder* below.
+
+A hybrid query sets both channels and **the engine fuses them** with its own reciprocal-rank
+fusion. Nothing is fused in Go. That is the entire reason this engine was chosen: the SQLite index
+had 331 lines of Go doing RRF across seven weighted passes, and every one of them was a ranking
+decision made outside the thing that owns ranking.
+
+With no query vector the hybrid form degrades to the keyword half rather than failing — a project
+whose embeddings have not been generated yet still has to be searchable.
+
+**`_score` and `_relevance_score` are two different columns, and a hybrid row carries both.**
+`_score` is the text channel's own BM25 value; `_relevance_score` is what the engine's reranker
+produced from fusing the two channels. Only the second is monotone with the order the engine
+returned, so only the second may be ranked by. `lancestore` exposes them as `Hit.RawScore` and
+`Hit.RelevanceScore`, with `Hit.Score` carrying whichever ranks the query at hand — fused when
+there was a fusion, raw otherwise.
+
+They used to share one branch in the hit assembly, both assigning to `Hit.Score` from inside a
+`for k, v := range row`. Go randomises map iteration, so the surviving value was drawn per row per
+call: twenty identical queries against one unchanged index returned **two distinct scores for every
+row**. Because callers sort by that field, the symptom was not a wobbly number but a wrong order —
+the entity a query named by name landed anywhere in the list. `internal/lancestore/hybrid_score_columns_test.go`
+pins both the stability and the agreement with the engine's order.
+
+**One residual, deliberately not fixed.** `sortResultsDeterministic` breaks *equal* scores by
+identity, which is what makes the keyword channel reproducible across rebuilds. On a hybrid query
+the engine gives tied rows *distinct* RRF values — differing in the fourth decimal only because it
+had to put them in some order — so the tie-break never engages, and rows that are tied on both
+channels can permute between rebuilds. The top result and the result set are stable; the internal
+order of indistinguishable rows is not. Recovering it would mean deciding in Go that two engine
+ranks are close enough to be a tie, which is ranking policy this module does not own.
+
+### The quality floor, and what it actually measures
+
+`TestSearchIndexQualityFloor` is **11/11 strict plus 5/5 recall** over sixteen probes, and the
+shape of that number is the point.
+
+It used to be a flat 13/16, and that floor was **measuring tie-breaks**. Five of the sixteen probes
+have no single defensible answer by the rule this project already wrote down — `config` returning
+an entity literally named `Config` is at least as good as `configLoader`, and `valid` cannot choose
+between `validateSchema` and `SchemaValidator`. Those five encoded which of two right answers the
+old engine happened to prefer.
+
+A session read the resulting 11/16 as a quality deficit and was one step from building a
+cross-encoder to close a gap that was not there. So the ambiguous probes became recall probes —
+the expected entity has to be REACHABLE — and the strict floor became all eleven of the probes
+that have one answer. Truncation stays at 9/9.
+
+### Reranking is opt-in and off by default
+
+A cross-encoder stage exists behind `search.rerank`, with `bge-reranker-base` (MIT). It is OFF, and
+the number is why: measured with real inference over real entities of this repository, it moves
+**one query of sixteen** — +0.032 MRR, +0.023 nDCG@10 — for 1.04 GiB of model and 720 ms per query.
+
+The same measurement rejected the two obvious alternatives. `ms-marco-MiniLM` is a tenth of the
+size and eight times faster and made the ranking WORSE, because it is trained on natural-language
+passages and an identifier with a docstring is not a passage. `jina-reranker-v2` was the first
+choice on published code-retrieval benchmarks and is licensed `cc-by-nc-4.0` — non-commercial,
+which disqualifies it here regardless of how it scores.
+
+The model is fetched only when reranking was turned on AND it is not already present. See
+`internal/ai/rerank_model.go`.
+
+**The bigger finding was not about reranking at all:** fourteen of sixteen queries do not move, and
+the one real gap is an answer that falls outside the candidate window, which no reranker can reach.
+Widening the window is cheaper than a gigabyte of model, and it is in the backlog.
+
+### Running the tests that need an embedder
+
+Every test that measures the semantic or hybrid channel begins with
+`ai.NewEmbeddingClientFromConfig()` and calls `t.Skip` when it fails. Two things had to be true for
+it to fail, and both were true for years:
+
+1. **The ONNX runtime was unreachable.** `findORTLibrary` looked beside the executable and on the
+   loader path. The library only ever sits beside the executable *inside the launcher payload*, so a
+   `go test` binary — which the toolchain puts in a temporary directory — never found it, and
+   nothing set the loader path. It now also looks in the extracted payload
+   (`brand.RuntimeDir(version.Version)`), which is what makes a locally built core work, and
+   `make test` puts the Makefile's ORT cache on the loader path, which is what makes the tests run.
+2. **The model was not there.** The cache is derived from `HOME`, and every test binary gets its own
+   throwaway `HOME`. `make test` sets `<BRAND>_MODEL_CACHE` to one shared directory so the ~132 MB
+   model is fetched once instead of once per package.
+
+**What the silence was costing.** These gates were reporting success without running:
+
+| gate | measured the first time it ran |
+|---|---|
+| `TestHybridSearchQualityFloor` | **0 of 11** decisive probes — the hybrid channel was returning noise |
+| `TestSearchIndexSemantic` | `SemanticSearch` returned nothing, always |
+
+Both are now green, and the hybrid channel answers 11 of 11.
+
+A related cost that was pure waste: `NewLocalEmbeddingClient` used to call `EnsureModel` **before**
+`initONNXRuntime`, so a machine without the runtime downloaded 132 MB and only then discovered it
+could not use it — and nothing caches a failure, so it paid again on the next call. Measured on one
+developer machine: 29 abandoned throwaway homes holding 4.3 GB, on a tmpfs. The two are now in the
+other order, so the cheap local check runs first.
+
+> **A skipping gate is worse than a missing one.** A missing test is visible in a coverage review; a
+> skipping one reports `ok` and is counted as protection. If a test here needs an external
+> capability, make its absence loud in CI rather than silent.
+
+### A published context is read where it lives
+
+A Hub AST context is **mounted**, not downloaded. The graph is icebug on object storage and the
+search index is a LanceDB directory beside it; installing writes a local catalog and a `search.uri`,
+and neither carries data. See `internal/ast/icebug_transfer.go` for the mechanism and for the two
+format gaps that were accepted — multi-hop traversal, and the label fold that makes
+`MATCH (n:Function)` into `MATCH (n:Entity {label:'Function'})` against a mounted context.

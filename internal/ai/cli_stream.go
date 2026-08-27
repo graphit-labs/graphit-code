@@ -1,0 +1,437 @@
+package ai
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+	"sync"
+	"time"
+)
+
+// streamSpec declares how a CLI can be asked for a structured event stream.
+//
+// A CLI with no entry is not excluded from streaming — it gets incremental stdout,
+// which is what every one of them supports by virtue of writing to stdout. What an
+// entry buys is tool-call visibility and the CLI's own session ID.
+type streamSpec struct {
+	// args are inserted before the input arguments to request structured output.
+	args []string
+	// parse turns one line of structured output into events. It returns the events
+	// to emit, the assistant text to accumulate, and any session ID learned.
+	//
+	// A line it does not recognise must be ignored rather than reported: these
+	// formats gain event types between releases, and a stream that errors on an
+	// unknown line breaks on upgrade.
+	parse func(line []byte) (events []Event, text string, sessionID string)
+}
+
+// structuredStreams maps binary names to their structured mode.
+//
+// Deliberately small. Each entry is a claim about another tool's output format,
+// which is a thing that changes without warning — so the bar for adding one is that
+// the format is documented and the parser degrades to silence when it changes.
+var structuredStreams = map[string]streamSpec{
+	// claude -p --output-format stream-json emits one JSON object per line: an init
+	// event carrying session_id, assistant messages whose content blocks are text or
+	// tool_use, user messages carrying tool_result, and a final result event.
+	//
+	// --verbose is required: --output-format stream-json is rejected without it.
+	"claude": {
+		args:  []string{"--output-format", "stream-json", "--verbose", "--include-partial-messages"},
+		parse: parseClaudeStreamLine,
+	},
+}
+
+func streamSpecFor(name string) (streamSpec, bool) {
+	spec, ok := structuredStreams[name]
+	return spec, ok
+}
+
+func (c *cliClient) SupportsStructuredStream() bool {
+	_, ok := streamSpecFor(c.binaryName)
+	return ok
+}
+
+// CompleteStream runs one turn, reporting progress as it happens.
+//
+// The contract holds for every CLI: text arrives incrementally, EventDone is always
+// the last event, and StreamResult.Text is the whole answer whether or not the caller
+// looked at a single event. What varies is only how much detail the middle has.
+func (c *cliClient) CompleteStream(ctx context.Context, req StreamRequest, emit EventFunc) (*StreamResult, error) {
+	if emit == nil {
+		emit = func(Event) {}
+	}
+	// One mutex around emit: stdout and stderr are read by separate goroutines, and
+	// an EventFunc that writes to a session log or an SSE connection is not
+	// necessarily safe for concurrent use. Serialising here means no caller has to
+	// think about it.
+	var emitMu sync.Mutex
+	send := func(ev Event) {
+		ev.At = time.Now().UTC()
+		emitMu.Lock()
+		defer emitMu.Unlock()
+		emit(ev)
+	}
+
+	spec := specForBinary(c.binaryName)
+	stream, structured := streamSpecFor(c.binaryName)
+
+	var promptBuilder strings.Builder
+	promptBuilder.WriteString(preambleFor(req.AllowTools))
+	if req.SystemPrompt != "" {
+		promptBuilder.WriteString(req.SystemPrompt)
+		promptBuilder.WriteString("\n\n")
+	}
+	promptBuilder.WriteString(req.UserPrompt)
+	prompt := promptBuilder.String()
+
+	var args []string
+	if req.SessionID != "" && spec.sessionFlag != "" {
+		args = append(args, spec.sessionFlag, req.SessionID)
+	}
+	if structured {
+		args = append(args, stream.args...)
+	}
+	// Permitting the tools in the prompt is necessary but not always sufficient:
+	// several CLIs also require a flag before they will edit a file unattended.
+	// That flag is operator-configured (ai.agent_args) rather than a built-in
+	// table, because it differs per CLI, changes between releases, and grants
+	// real authority — a wrong guess either fails to parse or hands the agent
+	// more than the operator meant to give.
+	if req.AllowTools {
+		args = append(args, c.agentArgs...)
+	}
+
+	var cleanup func()
+	switch spec.mode {
+	case inputStdin:
+		args = append(args, spec.stdinArgs...)
+	case inputFile:
+		tmpFile, err := writeTempPrompt(prompt)
+		if err != nil {
+			return nil, fmt.Errorf("writing temp prompt for %q: %w", c.binaryName, err)
+		}
+		cleanup = func() { _ = os.Remove(tmpFile) }
+		args = append(args, spec.fileArgs...)
+		args = append(args, spec.fileFlag, tmpFile)
+	case inputArg:
+		args = append(args, spec.argArgs...)
+		args = append(args, prompt)
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
+	cmd := exec.CommandContext(ctx, c.executablePath, args...)
+
+	// The working directory is why this method exists as much as the streaming is.
+	// An agent CLI reads its rules, skills and MCP servers from here.
+	cmd.Dir = req.WorkDir
+
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb")
+	for k, v := range req.Env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+
+	switch spec.mode {
+	case inputStdin:
+		cmd.Stdin = strings.NewReader(prompt)
+	case inputArg, inputFile:
+		// No stdin needed; an empty reader prevents a deadlock on a CLI that reads
+		// stdin anyway.
+		cmd.Stdin = strings.NewReader("")
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stdout pipe for %q: %w", c.binaryName, err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stderr pipe for %q: %w", c.binaryName, err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("starting %q: %w", c.binaryName, err)
+	}
+
+	result := &StreamResult{
+		SessionID:           req.SessionID,
+		Structured:          structured,
+		Binary:              c.binaryName,
+		AgentArgsConfigured: len(c.agentArgs) > 0,
+	}
+
+	var wg sync.WaitGroup
+	var textBuf strings.Builder
+	var stderrBuf strings.Builder
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if structured {
+			if !readStructured(stdout, stream, send, &textBuf, &result.SessionID) {
+				// The stream was not the structured format we asked for. Reported by
+				// the reader rather than assumed impossible: a CLI version that
+				// predates the flag, or a wrapper script, prints ordinary text and
+				// every line fails to parse — which used to yield a confidently
+				// EMPTY answer and no error at all. Degrading to text keeps the
+				// answer; Structured says the tool detail was not observable.
+				result.Structured = false
+			}
+			return
+		}
+		readIncrementalText(stdout, send, &textBuf)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// Kept for the error message as well as forwarded: a CLI that fails usually
+		// explains itself here, and that explanation used to be discarded.
+		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 0, 64*1024), maxStreamLine)
+		for scanner.Scan() {
+			line := scanner.Text()
+			stderrBuf.WriteString(line)
+			stderrBuf.WriteString("\n")
+			if strings.TrimSpace(line) != "" {
+				send(Event{Kind: EventStderr, Text: line})
+			}
+		}
+	}()
+
+	wg.Wait()
+	runErr := cmd.Wait()
+
+	result.Text = strings.TrimSpace(textBuf.String())
+
+	if runErr != nil {
+		err := fmt.Errorf("CLI %q failed: %w (stderr: %s)",
+			c.binaryName, runErr, strings.TrimSpace(stderrBuf.String()))
+		send(Event{Kind: EventError, Text: err.Error()})
+		send(Event{Kind: EventDone})
+		return result, err
+	}
+
+	if result.SessionID != req.SessionID && result.SessionID != "" {
+		send(Event{Kind: EventSession, SessionID: result.SessionID})
+	}
+	send(Event{Kind: EventDone})
+	return result, nil
+}
+
+// maxStreamLine caps a single line. Structured formats put a whole message on one
+// line, and a large tool result can be very long; the default scanner limit of 64 KB
+// truncates those into invalid JSON, which reads as a parser bug rather than a limit.
+const maxStreamLine = 8 * 1024 * 1024
+
+// readIncrementalText is the universal path: whatever the CLI prints is the answer,
+// forwarded as it arrives.
+//
+// It reads runes rather than lines. A line-based reader shows nothing until a newline,
+// and an agent's final paragraph can be one very long line — which is precisely the
+// part a reader is waiting on.
+func readIncrementalText(r io.Reader, send EventFunc, textBuf *strings.Builder) {
+	buf := make([]byte, 4096)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			chunk := string(buf[:n])
+			textBuf.WriteString(chunk)
+			send(Event{Kind: EventText, Text: chunk})
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// readStructured parses a CLI's own event stream, reporting whether the stream
+// actually was that format.
+//
+// An individual unparseable line is skipped in silence: these formats grow event types
+// between releases, and erroring on an unrecognised line turns somebody else's minor
+// version bump into an outage here.
+//
+// A stream where NOTHING parsed is a different matter, and the distinction is what the
+// return value carries. It means the CLI is not speaking the format we asked for at
+// all, and the lines it did print are the answer — so they are emitted as text instead
+// of being dropped. Without this a CLI too old for the flag produced an empty answer
+// and no error, which is the worst of the available outcomes.
+func readStructured(
+	r io.Reader,
+	spec streamSpec,
+	send EventFunc,
+	textBuf *strings.Builder,
+	sessionID *string,
+) (wasStructured bool) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxStreamLine)
+
+	parsedAny := false
+	var unparsed []string
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if strings.TrimSpace(string(line)) == "" {
+			continue
+		}
+		events, text, sid := spec.parse(line)
+		if events == nil && text == "" && sid == "" {
+			// Hold it: it is either a future event type (ignorable) or evidence that
+			// this is not the format at all, and only the whole stream tells which.
+			unparsed = append(unparsed, string(line))
+			continue
+		}
+		parsedAny = true
+		if text != "" {
+			textBuf.WriteString(text)
+		}
+		if sid != "" {
+			*sessionID = sid
+		}
+		for _, ev := range events {
+			send(ev)
+		}
+	}
+
+	if parsedAny {
+		return true
+	}
+	for _, line := range unparsed {
+		textBuf.WriteString(line)
+		textBuf.WriteString("\n")
+		send(Event{Kind: EventText, Text: line + "\n"})
+	}
+	return false
+}
+
+type claudeStreamLine struct {
+	Type      string `json:"type"`
+	Subtype   string `json:"subtype"`
+	SessionID string `json:"session_id"`
+	Message   struct {
+		Content []struct {
+			Type  string          `json:"type"`
+			Text  string          `json:"text"`
+			Name  string          `json:"name"`
+			Input json.RawMessage `json:"input"`
+			// tool_result blocks carry content that is either a string or an array
+			// of blocks, so it stays raw and is rendered by renderToolPayload.
+			Content json.RawMessage `json:"content"`
+		} `json:"content"`
+	} `json:"message"`
+	// Partial-message deltas, emitted with --include-partial-messages.
+	Delta struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"delta"`
+	Result string `json:"result"`
+}
+
+func parseClaudeStreamLine(line []byte) ([]Event, string, string) {
+	var l claudeStreamLine
+	if json.Unmarshal(line, &l) != nil {
+		return nil, "", ""
+	}
+
+	var events []Event
+	var text string
+
+	switch l.Type {
+	case "system":
+		// The init event is where the session ID arrives. Capturing it is what makes
+		// a resumable conversation possible at all: the previous implementation
+		// echoed back whatever ID it was given, so a first turn could never learn
+		// one, and --resume had nothing to resume.
+		return nil, "", l.SessionID
+
+	case "stream_event":
+		// Incremental text within an assistant message.
+		if l.Delta.Type == "text_delta" && l.Delta.Text != "" {
+			return []Event{{Kind: EventText, Text: l.Delta.Text}}, l.Delta.Text, l.SessionID
+		}
+		return nil, "", l.SessionID
+
+	case "assistant":
+		for _, block := range l.Message.Content {
+			switch block.Type {
+			case "text":
+				// Whole-message text arrives here as well as in deltas. It is not
+				// accumulated: with --include-partial-messages the deltas already
+				// carried it, and counting both duplicates the answer.
+				if block.Text != "" && !hasPartialDeltas {
+					events = append(events, Event{Kind: EventText, Text: block.Text})
+					text += block.Text
+				}
+			case "thinking":
+				if block.Text != "" {
+					events = append(events, Event{Kind: EventThinking, Text: block.Text})
+				}
+			case "tool_use":
+				events = append(events, Event{
+					Kind:   EventToolUse,
+					Tool:   block.Name,
+					Detail: renderToolPayload(block.Input),
+				})
+			}
+		}
+		return events, text, l.SessionID
+
+	case "user":
+		for _, block := range l.Message.Content {
+			if block.Type == "tool_result" {
+				events = append(events, Event{
+					Kind:   EventToolResult,
+					Detail: renderToolPayload(block.Content),
+				})
+			}
+		}
+		return events, "", l.SessionID
+
+	case "result":
+		// The terminal event. Its `result` field repeats the final text, which is
+		// already accumulated — so it is used only as a fallback for a stream that
+		// produced no text events at all.
+		if l.Subtype != "success" && l.Result != "" {
+			return []Event{{Kind: EventError, Text: l.Result}}, "", l.SessionID
+		}
+		return nil, "", l.SessionID
+	}
+
+	return nil, "", l.SessionID
+}
+
+// hasPartialDeltas records that the claude spec requests partial messages, so
+// whole-message text blocks are display duplicates rather than new content.
+//
+// A constant rather than a field because it is a property of the args above; if those
+// change, this has to change with them, and having it here is what makes that visible.
+const hasPartialDeltas = true
+
+// renderToolPayload turns a tool's input or output into something short enough to
+// show and truthful about having been shortened.
+func renderToolPayload(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	s := strings.TrimSpace(string(raw))
+
+	// A plain JSON string renders without its quotes and escapes.
+	var asString string
+	if json.Unmarshal(raw, &asString) == nil {
+		s = asString
+	}
+
+	const max = 2000
+	if len(s) > max {
+		return s[:max] + "… (truncated)"
+	}
+	return s
+}

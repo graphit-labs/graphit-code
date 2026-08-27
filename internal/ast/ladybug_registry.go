@@ -88,13 +88,3 @@ func releaseDatabase(path string, db *lbug.Database) {
 	dbRegistry.mu.Unlock()
 	sh.db.Close()
 }
-
-// sharedDatabaseOpen reports whether a read-write handle for path is already
-// open in this process. In-place writes are only safe to prefer when the
-// readers that matter share that handle.
-func sharedDatabaseOpen(path string) bool {
-	dbRegistry.mu.Lock()
-	defer dbRegistry.mu.Unlock()
-	sh, ok := dbRegistry.m[path]
-	return ok && !sh.readOnly
-}

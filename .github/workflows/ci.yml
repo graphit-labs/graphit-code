@@ -33,6 +33,23 @@ jobs:
       - name: Create UI dist placeholder
         run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 
+      # `make vet`, `make lint` and `make test` all build with -tags lancedb now, which needs the
+      # native. It is built from Rust source here rather than downloaded: there is no published
+      # prebuilt for it, and it cannot be cross-compiled.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache LanceDB native build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/lancedb-native-cache
+          key: lancedb-linux-amd64-${{ hashFiles('Makefile') }}
+          restore-keys: |
+            lancedb-linux-amd64-
+
       - name: Vet
         run: make vet
 
@@ -70,6 +87,23 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
+      # `make vet`, `make lint` and `make test` all build with -tags lancedb now, which needs the
+      # native. It is built from Rust source here rather than downloaded: there is no published
+      # prebuilt for it, and it cannot be cross-compiled.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache LanceDB native build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/lancedb-native-cache
+          key: lancedb-linux-amd64-${{ hashFiles('Makefile') }}
+          restore-keys: |
+            lancedb-linux-amd64-
+
       - name: Run tests
         run: make test
 
@@ -96,11 +130,19 @@ jobs:
   # executed on Linux — the Tests job above is ubuntu-only, and the macOS and
   # Windows runners in this repository build releases without running tests.
   #
+  # The store resolver is the second: it decides where every graph, wiki and
+  # worktree on the machine lives, and every one of its decisions is
+  # platform-dependent. Windows and macOS treat two paths differing only in letter
+  # case as the same directory, so a store id must fold case there and must not fold
+  # it on Linux; Windows refuses device names like `nul` as directory names, and
+  # forbids characters that Linux accepts. Asserting that from Linux alone tests one
+  # of the two behaviours.
+  #
   # Only the packages that need no CGO, no ICU and no LadybugDB are run here, so
   # the job needs no platform-specific dependency setup and stays fast. That is
-  # exactly the watcher and the ignore rules it consults.
-  watcher-cross-platform:
-    name: Watcher (${{ matrix.os }})
+  # exactly the watcher, the ignore rules it consults, and the store resolver.
+  platform-semantics:
+    name: Platform semantics (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -122,6 +164,8 @@ jobs:
       # cache so a green result means it actually ran on this platform.
       - name: Watcher and ignore rules
         run: go test -race -count=1 -timeout 10m ./internal/fswatch/... ./internal/ignorer/...
+      - name: Store path resolution
+        run: go test -race -count=1 -timeout 5m ./internal/store/...
 
   # ── Security ──────────────────────────────────────────────────────────────
   security:
@@ -180,18 +224,17 @@ jobs:
           curl -sSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" | tar -xJ -C /tmp
           echo "/tmp/zig-x86_64-linux-${ZIG_VERSION}" >> $GITHUB_PATH
 
-      # The build pulls a 132 MB model, the ONNX Runtime and liblbug from three
-      # different external hosts. None of that changes between runs, and one CDN
+      # The build pulls the ONNX Runtime and liblbug from two different
+      # external hosts. None of that changes between runs, and one CDN
       # timing out failed the whole job — which is exactly what happened. Cached,
       # the usual run touches none of them.
       #
-      # The key carries the versions the Makefile pins, so bumping ORT or the
-      # model repository invalidates it instead of serving a stale artifact.
-      - name: Cache model, ONNX Runtime and liblbug
+      # The key carries the versions the Makefile pins, so bumping ORT or
+      # liblbug invalidates it instead of serving a stale artifact.
+      - name: Cache ONNX Runtime and liblbug
         uses: actions/cache@v4
         with:
           path: |
-            /tmp/coderankembed-cache
             /tmp/onnxruntime-cache
             /tmp/lbug-cache
           key: build-deps-${{ runner.os }}-${{ hashFiles('Makefile') }}

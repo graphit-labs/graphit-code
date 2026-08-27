@@ -38,5 +38,19 @@ var DefaultKnowledgeIgnorePatterns = []string{
 }
 
 func NewKnowledgeIgnoreChecker(rootPath string) *ignorer.IgnoreChecker {
-	return ignorer.New(rootPath, rootPath, KnowledgeIgnoreFile, DefaultKnowledgeIgnorePatterns)
+	return NewKnowledgeIgnoreCheckerIn(rootPath, rootPath)
+}
+
+// NewKnowledgeIgnoreCheckerIn builds a checker whose patterns are resolved
+// against rootPath but collected starting from startDir.
+//
+// The two differ whenever the build is scoped: rootPath is the project, startDir
+// is the documentation tree. Ignore files are collected by walking *up* from
+// startDir, so passing the project for both — which is what the plain
+// constructor does — silently stops reading a .wikiignore or .gitignore that
+// lives inside the docs tree. Passing the docs tree as startDir reads both, and
+// each still gets its domain relative to rootPath, so a root-level pattern
+// applies from the root and a docs-level one applies from docs/.
+func NewKnowledgeIgnoreCheckerIn(rootPath, startDir string) *ignorer.IgnoreChecker {
+	return ignorer.New(rootPath, startDir, KnowledgeIgnoreFile, DefaultKnowledgeIgnorePatterns)
 }

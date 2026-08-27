@@ -371,7 +371,6 @@ func TestResolveGitDirWithFile(t *testing.T) {
 		t.Errorf("expected %q, got %q", gitDir, result)
 	}
 
-	// Relative gitdir reference
 	relGitDir := filepath.Join(tmp, "rel-test")
 	_ = os.MkdirAll(relGitDir, 0755)
 	relGitActual := filepath.Join(relGitDir, "actual-git")
@@ -462,14 +461,12 @@ func TestIsSymlink(t *testing.T) {
 		t.Error("regular file should not be symlink")
 	}
 
-	// Symlink
 	link := filepath.Join(tmp, "link")
 	_ = os.Symlink(f, link)
 	if !isSymlink(link) {
 		t.Error("symlink should be detected as symlink")
 	}
 
-	// Nonexistent
 	if isSymlink(filepath.Join(tmp, "nonexistent")) {
 		t.Error("nonexistent path should not be symlink")
 	}
@@ -579,7 +576,6 @@ func TestSyncCopyDir_WalkSourceError(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(src, "sub"), 0o755)
 	_ = os.WriteFile(filepath.Join(src, "good.txt"), []byte("ok"), 0o644)
 
-	// Create dest already existing
 	dst := filepath.Join(tmp, "dst")
 	_ = os.MkdirAll(dst, 0o755)
 

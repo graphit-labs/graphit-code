@@ -11,23 +11,23 @@ func TestSimpleBrandFunctions(t *testing.T) {
 	origBrand := Brand
 	origDisplayName := DisplayName
 	origGitHubRepo := GitHubRepo
-	origDefaultHubRepoURL := DefaultHubRepoURL
-	origDefaultMemoryRepoURL := DefaultMemoryRepoURL
+	origDefaultHubBucket := DefaultHubBucket
+	origDefaultHubRegion := DefaultHubRegion
 	origSelfUpdateURL := SelfUpdateURL
 	defer func() {
 		Brand = origBrand
 		DisplayName = origDisplayName
 		GitHubRepo = origGitHubRepo
-		DefaultHubRepoURL = origDefaultHubRepoURL
-		DefaultMemoryRepoURL = origDefaultMemoryRepoURL
+		DefaultHubBucket = origDefaultHubBucket
+		DefaultHubRegion = origDefaultHubRegion
 		SelfUpdateURL = origSelfUpdateURL
 	}()
 
 	Brand = "testbrand"
 	DisplayName = "Test Display Name"
 	GitHubRepo = "test/repo"
-	DefaultHubRepoURL = "git@github.com:test/repo.git"
-	DefaultMemoryRepoURL = "git@github.com:test/memory.git"
+	DefaultHubBucket = "test-hub-bucket"
+	DefaultHubRegion = "us-east-1"
 	SelfUpdateURL = "https://my-server.example.com/releases/latest"
 
 	if DotDir() != ".testbrand" {
@@ -99,16 +99,20 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	// Create temp directory for testing
 	tempDir, err := os.MkdirTemp("", "brand-test-home")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
-	// Set HOME to tempDir
 	_ = os.Setenv("HOME", tempDir)
 
+	// Restored, unlike every other Brand reassignment in this file, which all defer it.
+	// Leaving it set leaks "testbrand2" into every test that runs after this one, and
+	// anything deriving a path from Brand then computes it against a brand that does not
+	// exist — silently, because the value is still a valid string.
+	origBrand := Brand
+	defer func() { Brand = origBrand }()
 	Brand = "testbrand2"
 
 	expectedGlobalDir := filepath.Join(tempDir, ".testbrand2")
@@ -126,7 +130,6 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 		t.Errorf("HubRulesDir() = %q; want %q", HubRulesDir(), expectedHubRulesDir)
 	}
 
-	// Test ResolveModuleRule and ResolveModuleSkill: fallback to defaultContent
 	res := ResolveModuleRule("mymod", "default-val")
 	if res != "default-val" {
 		t.Errorf("ResolveModuleRule fallback = %q; want %q", res, "default-val")
@@ -150,7 +153,6 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(filepath.Join(wd, ".testbrand2")) }()
 
-	// Create local rule file
 	localRuleFile := filepath.Join(localRulesDir, "mymod.md")
 	ruleContent := "local-rule-content: {{_TESTBRAND2_DEFAULT_RULE_CONTENT_}}"
 	err = os.WriteFile(localRuleFile, []byte(ruleContent), 0644)
@@ -158,7 +160,6 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 		t.Fatalf("failed to write local rule: %v", err)
 	}
 
-	// Create local skill file
 	localSkillFile := filepath.Join(localRulesDir, "myskill_skill.md")
 	skillContent := "local-skill-content: {{_TESTBRAND2_DEFAULT_SKILL_CONTENT_}}"
 	err = os.WriteFile(localSkillFile, []byte(skillContent), 0644)
@@ -166,7 +167,6 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 		t.Fatalf("failed to write local skill: %v", err)
 	}
 
-	// Test ResolveModuleRule from local rules dir
 	res = ResolveModuleRule("mymod", "default-val")
 	expectedRule := "local-rule-content: default-val"
 	if res != expectedRule {
@@ -183,27 +183,23 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 	// Clean up local rules file to test global fallback
 	_ = os.RemoveAll(filepath.Join(wd, ".testbrand2"))
 
-	// Set up global rules dir
 	err = os.MkdirAll(expectedGlobalRulesDir, 0755)
 	if err != nil {
 		t.Fatalf("failed to create global rules dir: %v", err)
 	}
 
-	// Create global rule file
 	globalRuleFile := filepath.Join(expectedGlobalRulesDir, "mymod.md")
 	err = os.WriteFile(globalRuleFile, []byte(ruleContent), 0644)
 	if err != nil {
 		t.Fatalf("failed to write global rule: %v", err)
 	}
 
-	// Create global skill file
 	globalSkillFile := filepath.Join(expectedGlobalRulesDir, "myskill_skill.md")
 	err = os.WriteFile(globalSkillFile, []byte(skillContent), 0644)
 	if err != nil {
 		t.Fatalf("failed to write global skill: %v", err)
 	}
 
-	// Test ResolveModuleRule from global rules dir
 	res = ResolveModuleRule("mymod", "default-val")
 	if res != expectedRule {
 		t.Errorf("ResolveModuleRule global = %q; want %q", res, expectedRule)
@@ -238,7 +234,6 @@ func TestGlobalDirsAndResolvers(t *testing.T) {
 		t.Fatalf("failed to write hub skill: %v", err)
 	}
 
-	// Test ResolveModuleRule from Hub rules dir
 	res = ResolveModuleRule("mymod", "default-val")
 	expectedHubRule := "hub-rule-content: default-val"
 	if res != expectedHubRule {
@@ -314,24 +309,20 @@ func TestMCPToolNameAndRef(t *testing.T) {
 
 	Brand = "testbrand"
 
-	// MCPToolName with single part
 	if got := MCPToolName("ast"); got != "testbrand_ast" {
 		t.Errorf("MCPToolName(ast) = %q; want %q", got, "testbrand_ast")
 	}
 
-	// MCPToolName with multiple parts
-	if got := MCPToolName("dream", "subject_add"); got != "testbrand_dream_subject_add" {
-		t.Errorf("MCPToolName(dream, subject_add) = %q; want %q", got, "testbrand_dream_subject_add")
+	if got := MCPToolName("improvements", "backlog_add"); got != "testbrand_improvements_backlog_add" {
+		t.Errorf("MCPToolName(improvements, backlog_add) = %q; want %q", got, "testbrand_improvements_backlog_add")
 	}
 
-	// MCPToolRef with single part
 	if got := MCPToolRef("ast"); got != "`testbrand_ast`" {
 		t.Errorf("MCPToolRef(ast) = %q; want %q", got, "`testbrand_ast`")
 	}
 
-	// MCPToolRef with multiple parts
-	if got := MCPToolRef("dream", "subject_add"); got != "`testbrand_dream_subject_add`" {
-		t.Errorf("MCPToolRef(dream, subject_add) = %q; want %q", got, "`testbrand_dream_subject_add`")
+	if got := MCPToolRef("improvements", "backlog_add"); got != "`testbrand_improvements_backlog_add`" {
+		t.Errorf("MCPToolRef(improvements, backlog_add) = %q; want %q", got, "`testbrand_improvements_backlog_add`")
 	}
 }
 
@@ -379,4 +370,3 @@ func TestCoreSkillIDs(t *testing.T) {
 		t.Errorf("CoreSkillIDs() has %d entries; want %d", len(ids), len(expectedIDs))
 	}
 }
-

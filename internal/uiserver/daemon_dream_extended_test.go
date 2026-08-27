@@ -11,11 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/dream"
 )
-
-// ─── handleDaemonStatus extended tests ──────────────────────────────────────
 
 func TestHandleDaemonStatus_WithRunningDaemon(t *testing.T) {
 	// Set HOME to a temp dir so daemon.NewPIDFile() picks up our fake PID file
@@ -119,8 +118,6 @@ func TestHandleDaemonStatus_WithStalePID(t *testing.T) {
 	}
 }
 
-// ─── handleDaemonStop extended tests ────────────────────────────────────────
-
 func TestHandleDaemonStop_StalePIDFile(t *testing.T) {
 	// Write a PID file with a non-existent PID, then try to stop
 	tmpHome := t.TempDir()
@@ -188,12 +185,9 @@ func TestHandleDaemonStop_NoPIDFile(t *testing.T) {
 	}
 }
 
-// ─── handleDreamStatus extended tests ───────────────────────────────────────
-
 func TestHandleDreamStatus_WithDreamConfig(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Create lockfile with dream disabled
 	lockContent := []byte(`{
 		"project": {
 			"id": "test-id",
@@ -244,16 +238,16 @@ func TestHandleDreamStatus_WithDreamConfig(t *testing.T) {
 	}
 }
 
-func TestHandleDreamStatus_WithPendingSubjects(t *testing.T) {
+func TestHandleDreamStatus_WithPendingBacklog(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Create dream subjects
-	subj, err := dream.AddSubject(tmp, "Test Subject", "Test body content")
+	// Queue a backlog item so the status handler has something pending to report
+	subj, err := backlog.Add(tmp, "Test Subject", "Test body content")
 	if err != nil {
-		t.Fatalf("AddSubject: %v", err)
+		t.Fatalf("backlog.Add: %v", err)
 	}
 	if subj == nil {
-		t.Fatal("AddSubject returned nil")
+		t.Fatal("backlog.Add returned nil")
 	}
 
 	h := NewDaemonDreamHandler(nil)
@@ -269,25 +263,24 @@ func TestHandleDreamStatus_WithPendingSubjects(t *testing.T) {
 	}
 
 	var res struct {
-		PendingSubjects []string `json:"pending_subjects"`
+		PendingBacklog []string `json:"pending_backlog"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 
-	if len(res.PendingSubjects) != 1 {
-		t.Errorf("PendingSubjects count = %d; want 1", len(res.PendingSubjects))
+	if len(res.PendingBacklog) != 1 {
+		t.Errorf("PendingBacklog count = %d; want 1", len(res.PendingBacklog))
 	}
-	if len(res.PendingSubjects) > 0 && res.PendingSubjects[0] != "Test Subject" {
-		t.Errorf("PendingSubjects[0] = %q; want %q", res.PendingSubjects[0], "Test Subject")
+	if len(res.PendingBacklog) > 0 && res.PendingBacklog[0] != "Test Subject" {
+		t.Errorf("PendingBacklog[0] = %q; want %q", res.PendingBacklog[0], "Test Subject")
 	}
 }
 
 func TestHandleDreamStatus_WithDreamReportsCount(t *testing.T) {
 	tmp := t.TempDir()
 
-	// Create dream dir with multiple reports
-	dreamDir := filepath.Join(tmp, brand.DotDir(), "dream")
+	dreamDir := dream.ReportsDir(tmp)
 	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -323,17 +316,14 @@ func TestHandleDreamStatus_WithDreamReportsCount(t *testing.T) {
 	}
 }
 
-// ─── handleDreamSubjects extended tests ─────────────────────────────────────
-
-func TestHandleDreamSubjects_WithSubjects(t *testing.T) {
+func TestHandleBacklogList_WithSubjects(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 
-	// Add multiple subjects
 	for i := 0; i < 3; i++ {
-		_, err := dream.AddSubject(tmp, fmt.Sprintf("Subject %d", i), fmt.Sprintf("Body %d", i))
+		_, err := backlog.Add(tmp, fmt.Sprintf("Subject %d", i), fmt.Sprintf("Body %d", i))
 		if err != nil {
-			t.Fatalf("AddSubject %d: %v", i, err)
+			t.Fatalf("backlog.Add %d: %v", i, err)
 		}
 	}
 
@@ -341,7 +331,7 @@ func TestHandleDreamSubjects_WithSubjects(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/dream/subjects?project_dir="+tmp, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/backlog?project_dir="+tmp, nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -358,9 +348,7 @@ func TestHandleDreamSubjects_WithSubjects(t *testing.T) {
 	}
 }
 
-// ─── handleDreamSubjectAdd extended tests ───────────────────────────────────
-
-func TestHandleDreamSubjectAdd_LongTitle(t *testing.T) {
+func TestHandleBacklogAdd_LongTitle(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 
@@ -368,10 +356,9 @@ func TestHandleDreamSubjectAdd_LongTitle(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
-	// Very long title
 	longTitle := strings.Repeat("A very long title ", 20)
 	body := fmt.Sprintf(`{"title":%q,"body":"content"}`, longTitle)
-	req := httptest.NewRequest(http.MethodPost, "/api/dream/subject?project_dir="+tmp, strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/backlog/item?project_dir="+tmp, strings.NewReader(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -380,7 +367,7 @@ func TestHandleDreamSubjectAdd_LongTitle(t *testing.T) {
 	}
 }
 
-func TestHandleDreamSubjectAdd_NoBody(t *testing.T) {
+func TestHandleBacklogAdd_NoBody(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 
@@ -390,7 +377,7 @@ func TestHandleDreamSubjectAdd_NoBody(t *testing.T) {
 
 	// Title present but no body field (should still work since body is optional)
 	body := `{"title":"Title Only"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/dream/subject?project_dir="+tmp, strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/backlog/item?project_dir="+tmp, strings.NewReader(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -399,14 +386,12 @@ func TestHandleDreamSubjectAdd_NoBody(t *testing.T) {
 	}
 }
 
-// ─── handleDreamSubjectRemove extended tests ────────────────────────────────
-
-func TestHandleDreamSubjectRemove_EmptySlug(t *testing.T) {
+func TestHandleBacklogRemove_EmptySlug(t *testing.T) {
 	t.Parallel()
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
 	// Register without pattern to test slug validation
-	mux.HandleFunc("/test/dream/subject/{slug}", corsJSON(h.handleDreamSubjectRemove))
+	mux.HandleFunc("/test/dream/subject/{slug}", corsJSON(h.handleBacklogRemove))
 
 	// Empty slug path param
 	req := httptest.NewRequest(http.MethodDelete, "/test/dream/subject/?project_dir=/tmp", nil)
@@ -419,12 +404,10 @@ func TestHandleDreamSubjectRemove_EmptySlug(t *testing.T) {
 	}
 }
 
-// ─── handleDreamReports extended tests ──────────────────────────────────────
-
 func TestHandleDreamReports_SortedByDate(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	dreamDir := filepath.Join(tmp, brand.DotDir(), "dream")
+	dreamDir := dream.ReportsDir(tmp)
 	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +436,7 @@ func TestHandleDreamReports_SortedByDate(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	var reports []dreamReportEntry
+	var reports []dream.Report
 	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -472,7 +455,7 @@ func TestHandleDreamReports_SortedByDate(t *testing.T) {
 func TestHandleDreamReports_MixedContentTypes(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	dreamDir := filepath.Join(tmp, brand.DotDir(), "dream")
+	dreamDir := dream.ReportsDir(tmp)
 	if err := os.MkdirAll(dreamDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +479,7 @@ func TestHandleDreamReports_MixedContentTypes(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	var reports []dreamReportEntry
+	var reports []dream.Report
 	if err := json.NewDecoder(w.Body).Decode(&reports); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -513,8 +496,6 @@ func TestHandleDreamReports_MixedContentTypes(t *testing.T) {
 		t.Error("expected report with title 'Titled'")
 	}
 }
-
-// ─── splitLastNLocal extended tests ─────────────────────────────────────────
 
 func TestSplitLastNLocal_ZeroN(t *testing.T) {
 	t.Parallel()
@@ -540,8 +521,6 @@ func TestSplitLastNLocal_LargeN(t *testing.T) {
 		t.Errorf("expected 3 lines, got %d", len(res))
 	}
 }
-
-// ─── loadProjectIDNames extended test ───────────────────────────────────────
 
 func TestLoadProjectIDNames_MalformedJSON(t *testing.T) {
 	tmpHome := t.TempDir()
@@ -579,4 +558,3 @@ func TestLoadProjectIDNames_EmptyProjects(t *testing.T) {
 		t.Errorf("expected empty map for empty projects, got %d entries", len(names))
 	}
 }
-

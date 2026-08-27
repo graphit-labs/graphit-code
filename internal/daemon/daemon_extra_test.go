@@ -10,10 +10,6 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------------
-// daemon.go — Start: PID write failure
-// ---------------------------------------------------------------------------
-
 func TestDaemon_Start_PIDWriteError(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -43,10 +39,6 @@ func TestDaemon_Start_PIDWriteError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// daemon.go — Start: log file open error
-// ---------------------------------------------------------------------------
-
 func TestDaemon_Start_LogFileOpenError(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -75,9 +67,7 @@ func TestDaemon_Start_LogFileOpenError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // daemon.go — Start truncates (but keeps) PID file on exit (no handoff)
-// ---------------------------------------------------------------------------
 
 func TestDaemon_Start_RemovesPIDOnExit(t *testing.T) {
 	tempHome := t.TempDir()
@@ -129,10 +119,6 @@ func TestDaemon_Start_RemovesPIDOnExit(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// daemon.go — Start: events are emitted
-// ---------------------------------------------------------------------------
-
 func TestDaemon_Start_EmitsEvents(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")
@@ -182,10 +168,6 @@ func TestDaemon_Start_EmitsEvents(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// daemon.go — log writes timestamp
-// ---------------------------------------------------------------------------
-
 func TestDaemon_Log_WritesTimestamp(t *testing.T) {
 	tmp := t.TempDir()
 	logPath := filepath.Join(tmp, "test.log")
@@ -209,9 +191,7 @@ func TestDaemon_Log_WritesTimestamp(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // daemon.go — reconcileProjects with closers (verify closer registration)
-// ---------------------------------------------------------------------------
 
 func TestDaemon_ReconcileProjects_MultipleClosers(t *testing.T) {
 	tmp := t.TempDir()
@@ -260,10 +240,6 @@ func TestDaemon_ReconcileProjects_MultipleClosers(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 }
 
-// ---------------------------------------------------------------------------
-// daemon.go — closerFunc with nil function
-// ---------------------------------------------------------------------------
-
 func TestCloserFunc_NilError(t *testing.T) {
 	t.Parallel()
 	fn := closerFunc(func() error { return nil })
@@ -285,10 +261,6 @@ func TestCloserFunc_WithWrappedError(t *testing.T) {
 		t.Errorf("expected wrapped error, got %v", err)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// daemon.go — log concurrent writes
-// ---------------------------------------------------------------------------
 
 func TestDaemon_Log_ConcurrentWrites(t *testing.T) {
 	tmp := t.TempDir()

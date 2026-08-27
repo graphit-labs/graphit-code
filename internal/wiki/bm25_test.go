@@ -1,6 +1,7 @@
 package wiki
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -261,7 +262,7 @@ func TestBM25SearchFunc(t *testing.T) {
 	writeFile(t, dir, "memory.md", "# Memory Management\nMemory management involves allocation and deallocation.")
 	writeFile(t, dir, "cpu.md", "# CPU Architecture\nCPU design and instruction sets.")
 
-	results := BM25Search(dir, "memory management", 5)
+	results := BM25Search(context.Background(), dir, "memory management", 5)
 	if len(results) == 0 {
 		t.Fatal("expected BM25Search to return results")
 	}
@@ -272,7 +273,7 @@ func TestBM25SearchFunc(t *testing.T) {
 
 func TestBM25SearchFunc_InvalidDir(t *testing.T) {
 	t.Parallel()
-	results := BM25Search(filepath.Join(t.TempDir(), "nonexistent"), "query", 5)
+	results := BM25Search(context.Background(), filepath.Join(t.TempDir(), "nonexistent"), "query", 5)
 	if results != nil {
 		t.Errorf("expected nil for invalid dir, got %v", results)
 	}
@@ -283,7 +284,7 @@ func TestBM25SearchFunc_WithSnippets(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "doc.md", "# Doc\nThis document discusses memory allocation strategies for modern systems.")
 
-	results := BM25Search(dir, "memory allocation", 5)
+	results := BM25Search(context.Background(), dir, "memory allocation", 5)
 	if len(results) == 0 {
 		t.Fatal("expected results")
 	}
@@ -298,7 +299,7 @@ func TestBm25PreFilter(t *testing.T) {
 	writeFile(t, dir, "alpha.md", "# Alpha\nAlpha content with specific keywords.")
 	writeFile(t, dir, "beta.md", "# Beta\nBeta content unrelated.")
 
-	result := bm25PreFilter(dir, "alpha keywords", 5)
+	result := bm25PreFilter(context.Background(), dir, "alpha keywords", 5)
 	if result == "" {
 		t.Fatal("expected non-empty pre-filter result")
 	}
@@ -313,7 +314,7 @@ func TestBm25PreFilter(t *testing.T) {
 func TestBm25PreFilter_EmptyDir(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	result := bm25PreFilter(dir, "query", 5)
+	result := bm25PreFilter(context.Background(), dir, "query", 5)
 	if result != "" {
 		t.Errorf("expected empty result for empty dir, got %q", result)
 	}
@@ -323,7 +324,7 @@ func TestBm25PreFilter_NoMatch(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, dir, "doc.md", "# Doc\nalpha beta gamma")
-	result := bm25PreFilter(dir, "zzzzxyzzy", 5)
+	result := bm25PreFilter(context.Background(), dir, "zzzzxyzzy", 5)
 	if result != "" {
 		t.Errorf("expected empty result for no-match query, got %q", result)
 	}
@@ -334,7 +335,7 @@ func TestBm25PreFilter_WithTitle(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "doc.md", "# My Great Title\nSome specific searchterm content.")
 
-	result := bm25PreFilter(dir, "searchterm", 5)
+	result := bm25PreFilter(context.Background(), dir, "searchterm", 5)
 	if !strings.Contains(result, "My Great Title") {
 		t.Error("expected title in pre-filter output")
 	}

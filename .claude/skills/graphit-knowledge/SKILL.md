@@ -1,6 +1,6 @@
 ---
 name: graphit-knowledge
-description: Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, create/update the task log in ./tasks/ — reindexing is automatic, the daemon watches the docs tree. Search the knowledge wiki BEFORE grepping documentation files. Use when: understanding project features, architecture, decisions, or specifications; creating or updating documentation; working with external system integrations or API specs; searching for project knowledge, backlinks, or provenance; discovering or documenting undocumented integrations.
+description: 'Manages project documentation, knowledge wiki, and integration specs. MANDATORY: After ANY code change, create/update the task log in docs/tasks/ — reindexing is automatic, the daemon watches the docs tree. Search the knowledge wiki BEFORE grepping documentation files. Use when: understanding project features, architecture, decisions, or specifications; creating or updating documentation; working with external system integrations or API specs; searching for project knowledge, backlinks, or provenance; discovering or documenting undocumented integrations.'
 ---
 
 # Knowledge Maintenance Rule
@@ -23,7 +23,7 @@ No exceptions. No shortcuts. If the documentation is missing, the task is NOT do
 - **Document EVERYTHING you do** — even when the user does NOT explicitly ask.
   Documentation is implicit in every task. It is never optional.
 - **Every code change, architectural decision, new feature, bug fix, refactor,
-  or behavioral change MUST be reflected in the `./` directory** before
+  or behavioral change MUST be reflected in the `docs/` directory** before
   you report the task as complete.
 - **The definition of done is: code + documentation.** If you wrote code but
   did not update the relevant docs, you are not finished.
@@ -36,15 +36,15 @@ No exceptions. No shortcuts. If the documentation is missing, the task is NOT do
 
 | What you did | Where to document |
 |---|---|
-| Changed system architecture or module structure | `./architecture/` |
-| Made a non-trivial architectural or design decision | `./decisions/` (ADR) |
-| Added or modified a feature | `./specs/<feature>.md` |
-| Changed how a module, function, or service behaves | `./` (relevant section) |
-| Fixed a bug with root cause worth remembering | `./` or project memory |
-| Discovered undocumented behavior during investigation | `./` (create new doc) |
-| Added, removed, or changed a dependency | `./architecture/` |
-| Completed ANY task (code, fix, refactor, investigation) | `./tasks/<task-name>.md` |
-| Changed configuration, environment, or deployment | `./` (relevant section) |
+| Changed system architecture or module structure | `docs/architecture/` |
+| Made a non-trivial architectural or design decision | `docs/decisions/` (ADR) |
+| Added or modified a feature | `docs/specs/<feature>.md` |
+| Changed how a module, function, or service behaves | `docs/` (relevant section) |
+| Fixed a bug with root cause worth remembering | `docs/` or project memory |
+| Discovered undocumented behavior during investigation | `docs/` (create new doc) |
+| Added, removed, or changed a dependency | `docs/architecture/` |
+| Completed ANY task (code, fix, refactor, investigation) | `docs/tasks/<task-name>.md` |
+| Changed configuration, environment, or deployment | `docs/` (relevant section) |
 
 ### Workflow
 
@@ -58,23 +58,23 @@ change. The completion requirement is the **record**, not its index.
 
 ### 🔒 MANDATORY: Clean Code Documentation Policy
 
-> **Code documentation lives in `./`, NOT in code comments.**
+> **Code documentation lives in `docs/`, NOT in code comments.**
 > The code itself MUST be clean, readable, and self-explanatory.
 > All knowledge, explanations,
 > architecture descriptions, usage guides, and behavioral documentation
-> belong in `./` — never cluttering the source code.
+> belong in `docs/` — never cluttering the source code.
 
-**What MUST go in `./` (never in code comments):**
+**What MUST go in `docs/` (never in code comments):**
 
 | Documentation type | Where it goes |
 |---|---|
-| How a module/feature works | `./specs/<feature>.md` or `./architecture/` |
-| Why a design decision was made | `./decisions/<adr>.md` |
-| API contracts, endpoints, schemas | `./` (OpenAPI, AsyncAPI, etc.) |
-| Usage examples and guides | `./` or project README |
-| Function/method behavior descriptions | `./specs/` (not docstrings for explanation) |
-| Module relationships and dependencies | `./architecture/` |
-| Task implementation details | `./tasks/<task>.md` |
+| How a module/feature works | `docs/specs/<feature>.md` or `docs/architecture/` |
+| Why a design decision was made | `docs/decisions/<adr>.md` |
+| API contracts, endpoints, schemas | `docs/` (OpenAPI, AsyncAPI, etc.) |
+| Usage examples and guides | `docs/` or project README |
+| Function/method behavior descriptions | `docs/specs/` (not docstrings for explanation) |
+| Module relationships and dependencies | `docs/architecture/` |
+| Task implementation details | `docs/tasks/<task>.md` |
 
 **What is ALLOWED in code (critical comments only):**
 
@@ -85,20 +85,20 @@ change. The completion requirement is the **record**, not its index.
 | **Legal / license headers** | `// Copyright 2026 ...` |
 | **Compiler/linter directives** | `//go:generate`, `//nolint:...` |
 | **TODO/FIXME with ticket reference** | `// TODO(#123): remove after migration` |
-| **Intentional deviation markers** | `// DECISION: see ./decisions/003-...` |
+| **Intentional deviation markers** | `// DECISION: see docs/decisions/003-...` |
 
 **Anti-patterns (NEVER do these):**
 
 - ❌ Writing multi-line comments explaining what a function does — make the function self-explanatory instead
-- ❌ Documenting module architecture in file headers — that belongs in `./architecture/`
-- ❌ Explaining business logic in comments — document it in `./specs/`
-- ❌ Writing usage guides or examples in code comments — put them in `./`
+- ❌ Documenting module architecture in file headers — that belongs in `docs/architecture/`
+- ❌ Explaining business logic in comments — document it in `docs/specs/`
+- ❌ Writing usage guides or examples in code comments — put them in `docs/`
 - ❌ Leaving verbose docstrings that describe implementation details — the code should speak for itself
 - ❌ Using comments as a substitute for readable code — refactor the code instead
 
 **The golden rule:** If you feel the need to write a comment explaining *what* the code does,
 rewrite the code to be self-explanatory. If you need to explain *why* a non-obvious choice
-was made, add a one-line critical comment pointing to the relevant `./` file.
+was made, add a one-line critical comment pointing to the relevant `docs/` file.
 
 ## 🔒 MANDATORY: Wiki-First Knowledge Retrieval — Replaces Your Tools
 
@@ -119,23 +119,24 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 
 | Your tool | Wiki equivalent | Why wiki wins |
 |---|---|---|
-| `grep -r "auth" ./` | Call `graphit_knowledge_search` → find auth entity → read page | Wiki: 1 search. Grep: reads ALL files |
-| Semantic search across ./ | Call `graphit_knowledge_search` → scan results | Wiki: structured search. Semantic: noisy, expensive |
-| Reading every .md in ./ | Call `graphit_wiki_browse` (~2000 tokens for 80 pages) | Wiki: 40% fewer tokens, pre-summarized |
+| `grep -r "auth" docs/` | Call `graphit_knowledge_search` → find auth entity → read page | Wiki: 1 search. Grep: reads ALL files |
+| Semantic search across docs/ | Call `graphit_knowledge_search` → scan results | Wiki: structured search. Semantic: noisy, expensive |
+| Reading every .md in docs/ | Call `graphit_wiki_browse` (~2000 tokens for 80 pages) | Wiki: 40% fewer tokens, pre-summarized |
 | `grep` for reverse references | Check `## Backlinks` section on entity page | Wiki: instant, pre-computed. Grep: O(n) scan |
+| Opening a wiki page with your file-read tool | Call `graphit_wiki_source` | Takes the project as a parameter, so it reaches pages outside your workspace — and slices, so a long page costs only the part you asked for |
 
 ### 🔒 When you MUST use the wiki (MANDATORY — no exceptions)
 
 | Scenario | What to do | What NOT to do |
 |---|---|---|
-| **Understanding a feature** | Call `graphit_knowledge_search` → find the spec → read it | ❌ Don't grep ./ for keywords |
-| **Finding an ADR / decision** | Call `graphit_knowledge_search` → find decision → read page | ❌ Don't scan ./decisions/ file by file |
-| **Checking if something is documented** | Call `graphit_wiki_browse` → scan the catalog | ❌ Don't use `find` or `ls` on ./ |
+| **Understanding a feature** | Call `graphit_knowledge_search` → find the spec → read it | ❌ Don't grep docs/ for keywords |
+| **Finding an ADR / decision** | Call `graphit_knowledge_search` → find decision → read page | ❌ Don't scan docs/decisions/ file by file |
+| **Checking if something is documented** | Call `graphit_wiki_browse` → scan the catalog | ❌ Don't use `find` or `ls` on docs/ |
 | **Understanding module relationships** | Read community pages and god nodes | ❌ Don't grep for import statements |
 | **Finding all mentions of a concept** | Call `graphit_wiki_xrefs` → get cross-references | ❌ Don't grep across all wiki files |
 | **Checking conventions or patterns** | Call `graphit_knowledge_search` → find the guide/spec | ❌ Don't rely on memory or guessing |
 | **Verifying a fact before coding** | Read the entity page → check `confidence` score | ❌ Don't assume you know the answer |
-| **Tracing a decision's rationale** | Read the ADR page → follow provenance link to raw source | ❌ Don't read raw ./ without wiki context first |
+| **Tracing a decision's rationale** | Read the ADR page → follow provenance link to raw source | ❌ Don't read raw docs/ without wiki context first |
 
 ### When you should NOT use the wiki
 
@@ -148,6 +149,9 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 | Editing source or docs files (writing, not reading) | File edit tools |
 | Running tests or build commands | Terminal commands |
 
+> **Reading a wiki page is not on this list.** That is `graphit_wiki_source`, not a file read —
+> see Step 1b. Your file tools come in for *writing* documentation, never for retrieving it.
+
 > Note what this table does **not** say: "the wiki is not for code, so use grep". Leaving the
 > wiki hands you to the **AST skill**, not to text search. Each of the two indexes covers what
 > the other does not, and grep is below both.
@@ -157,9 +161,47 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 **Step 1 — Search the wiki (ALWAYS start here)**
   Call `graphit_knowledge_search` with your query. This uses BM25 full-text and optional semantic search to find the most relevant pages.
   Alternatively, call `graphit_wiki_browse` for a structured catalog of all entities.
-  The search returns entity summaries, cross-references, and confidence scores.
+  The search returns ranked hits with their cross-references and confidence scores.
+  > ⚠️ **The body that comes back is a preview, not the page.** Each hit carries at most
+  > ~200 characters of the chunk, cut at a word boundary, and a trailing `…` is the tell
+  > that it was cut. Use it to decide WHICH page to read — never as the answer itself.
+  > Step 1b is how you read the page.
   For deep consultation, search with `graphit_knowledge_search`, read the returned pages, follow [[wikilinks]] to expand context, call `graphit_wiki_xrefs` for cross-references, and synthesize the answer yourself — you ARE the AI.
   For multi-source search (knowledge + memory), call `graphit_wiki_search` with `wikis: ["project", "memory"]`.
+
+**Step 1b — Read the page with `graphit_wiki_source`, not with a file read**
+  Search hands you a slug. `graphit_wiki_source` turns that slug into content:
+  ```
+  graphit_wiki_source(project_dir: "/path/to/project", path: "<slug from search>")
+  ```
+  Two reasons it comes before your own file tools, and the first one is not about taste:
+
+  - **It takes the project as a parameter.** You are frequently confined to your own
+    workspace, and a page you need may belong to another project in the ecosystem. A file read
+    cannot leave your sandbox; this tool reads on your behalf, so a sibling's page is the same
+    one call with a different `project_dir`.
+  - **It slices.** Same options as `graphit_ast_source`: `head`, `tail`,
+    `start_line`/`end_line`, `line_numbers`, and `pattern` with `before`/`after` context. A
+    long page costs you the part you asked for instead of all of it.
+
+  ```
+  # the summary at the top, and nothing else
+  graphit_wiki_source(project_dir: "/path/to/project", path: "auth-flow", head: 40)
+
+  # everywhere the page mentions a term, with surrounding lines
+  graphit_wiki_source(project_dir: "/path/to/project", path: "auth-flow", pattern: "refresh token", before: 2, after: 4)
+
+  # a page in the memory wiki instead of the project wiki
+  graphit_wiki_source(project_dir: "/path/to/project", path: "<slug>", wiki: "memory")
+
+  # a page belonging to a sibling project — impossible with a file read from here
+  graphit_wiki_source(project_dir: "<sibling dir>", path: "<slug>")
+  ```
+
+  `path` accepts what the other tools return: the slug, the slug with `.md`, or a path
+  relative to the wiki directory — matched case-insensitively, because a slug built from a
+  title rarely matches the file name exactly. Guessed wrong? The error lists the pages that
+  do exist, which is your answer, not a reason to go back to reading files.
 
 **Step 2 — Read the frontmatter FIRST (before the body)**
   Every entity page starts with YAML frontmatter. Read it before the body content:
@@ -197,7 +239,7 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 | Anti-pattern | Why it is a violation |
 |---|---|
 | `grep -r "keyword" .graphit/knowledge/` | Brute-force scan on a compiled database; ignores all structure |
-| Reading ./ files directly without searching wiki first | Skips the pre-compiled summary, wastes tokens on raw content |
+| Reading docs/ files directly without searching wiki first | Skips the pre-compiled summary, wastes tokens on raw content |
 | Using semantic search to find project docs | Wiki search is faster and more precise than embedding search |
 | Reading all .md files in wiki/ sequentially | Token bomb; wiki search returns only relevant results |
 | Skipping frontmatter and reading body only | Misses confidence, provenance, type, and freshness metadata |
@@ -224,20 +266,95 @@ Your tools are allowed ONLY when ALL of these conditions are true:
 Examples of valid fallback:
 - Wiki has no entity for a newly added module → grep source code for it
 - Wiki entity exists but `confidence < 0.3` and content is empty → read raw source via provenance
-- Topic is not in ./ at all (e.g., searching inside test files) → grep is appropriate
+- Topic is not in docs/ at all (e.g., searching inside test files) → grep is appropriate
 
 Examples of INVALID fallback (protocol violations):
 - Skipping the wiki because "grep is faster" → ❌ wiki is pre-compiled and always faster
 - Using semantic search without searching wiki first → ❌ wiki search costs ~500 tokens
-- Grepping ./ because you "didn't find it quickly" in the wiki → ❌ you must complete all 6 steps first
+- Grepping docs/ because you "didn't find it quickly" in the wiki → ❌ you must complete all 6 steps first
 
 ### Wiki Paths
 
 | Scope | How to search |
 |---|---|
 | **project** (this project) | Call `graphit_knowledge_search` or `graphit_wiki_browse` |
+| **a sibling project in the ecosystem** | Call `graphit_knowledge_search` or `graphit_wiki_search` with **that project's `dir` as `project_dir`** — it has its own compiled wiki |
 | **imported context** (hub artifact) | Call `graphit_knowledge_search` (context: "<name>") |
 | **multi-source** (project + memory) | Call `graphit_wiki_search` (wikis: ["project", "memory"]) |
+
+### 🔒 There is no wiki inside the project — the page file is not yours to open
+
+Every wiki on this machine is stored **once**, in the global brand directory, keyed by whose
+it is:
+
+```
+<global>/wiki/knowledge/project/<project-id>/   this project's documentation wiki
+<global>/wiki/knowledge/context/<name>/         an imported documentation set
+<global>/wiki/memory/<scope>/<scope-id>/        a memory wiki
+```
+
+There is no `.graphit/knowledge` in a project any more, and nothing is copied
+into one. A project used to carry a replica of its own wiki plus a full copy of every
+imported context, which cost a copy per project and needed resync logic whose only job was to
+stop the copies from disagreeing — and when it lost, the project answered from a stale copy
+and looked perfectly healthy while doing it.
+
+What this means for you, concretely:
+
+- **`graphit_wiki_source` is the ONLY way to read a page.** Not the preferred way — the only
+  one. There is no file under the project to open, and the global directory is outside the
+  workspace you are allowed to read. The tool takes the project as a parameter and reads on
+  your behalf.
+- **It slices, so a long page costs only the part you asked for**: `head`, `tail`,
+  `start_line`/`end_line`, `line_numbers`, and `pattern` with `before`/`after` — the same
+  options as `graphit_ast_source`, for the same reason.
+- **Which contexts a project has is a record, not a directory.** It lives in the project's
+  context registry, which is why `graphit_knowledge_list` and `graphit_wiki_browse` need a `project_dir` and
+  answer differently for two projects sharing one wiki.
+- **Writing documentation is unchanged.** You still create and edit markdown under the docs
+  tree with your own file tools; it is the *compiled wiki* that moved, not the source.
+
+### 🔒 Another project's documentation — the ecosystem first, never its files
+
+When the question is about a different project — *"how does the auth service issue tokens"* —
+**resolve it in the ecosystem before doing anything else**, then search its wiki with the same
+tools you use here:
+
+```
+# 1. resolve the project — never guess the path
+graphit_cluster_projects(project_dir: "/path/to/project")
+
+# 2. search ITS wiki, with its dir as project_dir
+graphit_knowledge_search(project_dir: "<sibling dir>", query: "token issuing")
+graphit_wiki_search(project_dir: "<sibling dir>", query: "how tokens are issued", wikis: ["project", "memory"])
+
+# 3. what documentation it even has, and what changed there lately
+graphit_wiki_browse(project_dir: "<sibling dir>")
+graphit_wiki_log(project_dir: "<sibling dir>")
+
+# 4. read the pages it found — with the tool, because a file read cannot leave your workspace
+graphit_wiki_source(project_dir: "<sibling dir>", path: "<slug from the search>")
+
+# 5. and read the source the wiki pointed you at through the graph, same reason
+graphit_ast_source(project_dir: "<sibling dir>", path: "<path from the wiki>")
+```
+
+**Nothing needs to be installed, linked or imported for this.** `project_dir` is a parameter:
+pointing these tools at another project is passing a different value, and that is the whole
+of it.
+
+A registered sibling has **its own compiled wiki and its own memories**, so you get ranked
+pages and recorded decisions instead of an unfamiliar docs tree to walk. Reading its files, or
+grepping them, throws all of that away — and its memories hold the *why* that its documents
+often do not state.
+
+`graphit_wiki_log` is the one to remember: it lists what that project's wiki added, updated and
+deleted per sync, so "what changed over there recently" is one call rather than a diff you
+have to reconstruct.
+
+The hub skill has the full protocol, including what to do when the project turns out not to be
+in the ecosystem. What matters here: **the lookup comes before the reading, and the wiki comes
+before the files.**
 
 ### The rest of the knowledge tools
 
@@ -294,15 +411,37 @@ To drop an imported context you no longer want, call `graphit_knowledge_remove` 
 Called **without** `context` it clears this project's own wiki instead, so always pass one
 unless wiping the local wiki is precisely the request.
 
+### What the wiki reads — and what to do when a document is missing from it
+
+The wiki is built from **`docs/` plus the project's root `README.md`**, and nothing
+else. A document outside those two is not in the wiki, which is not a bug and not a stale
+index: it was never in scope. Before concluding a page is missing, check where the page's
+source actually lives.
+
+| What you want | The key | Default |
+|---|---|---|
+| documentation kept somewhere other than `docs/` | `knowledge.docs_dir` | `docs` |
+| the whole project indexed, as it was before this default | `knowledge.docs_dir` = `.` | — |
+| the root README left out | `knowledge.include_readme` = `false` | on |
+| the docs tree in the **code** graph as well | `ast.index_docs` = `true` | off |
+
+So a document that belongs in the wiki goes **under `docs/`**. Writing it anywhere else
+and then reporting that the wiki did not pick it up is a scope error, not an indexing one.
+
 ### Reindexing is automatic — do not call sync in the normal flow
 
 The daemon watches the docs tree and rebuilds the wiki when a file changes. After
-you edit, create, rename, or delete anything under `./`, **there is nothing to
+you edit, create, rename, or delete anything under `docs/`, **there is nothing to
 call**. Reindexing costs a second or two and happens without you.
 
 Calling `graphit_sync` after every edit is the most common way this module gets
 misused: it duplicates work the watcher is already doing and, on a large docs tree,
 makes the agent wait on a rebuild it did not need.
+
+> The one exception is not mid-session and is not yours to decide: a session that changed
+> code ends with a single `graphit_sync`, which the AST skill makes mandatory. It rebuilds this
+> wiki along with the code graph and the memory wikis, so the task log you just wrote is
+> covered by that call. Everything below is about the situations that come up *before* it.
 
 **Call `graphit_sync` only when the watcher cannot have seen the change:**
 
@@ -311,6 +450,30 @@ makes the agent wait on a rebuild it did not need.
 | the daemon is not running | nothing is watching |
 | docs were changed by something outside this machine — a pull, a checkout, a restore | the daemon was down, or the change landed as one bulk event |
 | a search returns something you know is stale, minutes after the edit | the rebuild failed; sync surfaces the error |
+| **you need CERTAINTY that what you are about to read is current** | the rebuild is asynchronous and lands after the write — see below |
+
+### The rebuild lands AFTER the write — so certainty is a call, not an assumption
+
+"Automatic" is not "instant". The watcher notices the change, waits out its debounce, and
+only then rebuilds — so there is a window, short but real, in which the page you just wrote
+is on disk and not yet in the index. A search inside that window does not warn you: it
+answers from the previous state, with the same confidence it would have if it were current.
+That is the failure mode to guard against, because a stale answer and a fresh one are
+indistinguishable from where you are standing.
+
+The rule that follows is narrow, and it is not "sync after every edit":
+
+| you are about to | do this |
+|---|---|
+| keep editing, mid-task | nothing — the watcher will catch up while you work |
+| **decide something on the basis of what a tool returns**, right after a write | call `graphit_sync` and let it finish, then read |
+| **report the work as done** | call `graphit_sync` once — the AST skill already makes this mandatory |
+| read after a change that was not your own edit — a pull, a checkout, a rebase, a restore | call `graphit_sync` |
+
+When only this wiki is in question, `graphit_knowledge_sync` is the narrower call and reaches the
+same certainty for a fraction of the work; `graphit_sync` is what puts the knowledge index, the
+memory index and the AST graph at the same point, which is what you want before concluding
+anything that spans more than one of them.
 
 ### First check whether anything is watching at all
 
@@ -385,27 +548,27 @@ reindexing it.
 ## Documentation Requirements
 
 ### Architecture Documentation
-- Update ./architecture/ when changing system structure, adding modules, or modifying dependencies.
+- Update docs/architecture/ when changing system structure, adding modules, or modifying dependencies.
 - Maintain accurate component diagrams (PlantUML) showing current module relationships.
 - Document API boundaries and integration points.
 
 ### Decision Records
-- When making a non-trivial architectural decision, create an ADR in ./decisions/.
+- When making a non-trivial architectural decision, create an ADR in docs/decisions/.
 - ADR format: ## Status, ## Context, ## Decision, ## Consequences.
 
 ### Technical Documentation
-- Keep ./ files accurate when modifying the systems they describe.
+- Keep docs/ files accurate when modifying the systems they describe.
 - Update function/module descriptions when behavior changes.
 
 ### Feature Specifications
-- Create detailed spec files in `./specs/` for new features and maintain it updated with future evolution.
+- Create detailed spec files in `docs/specs/` for new features and maintain it updated with future evolution.
 - A spec can be a detailed markdown file describing: purpose, scope, inputs/outputs, and acceptance criteria.
 - Specs improve discoverability and serve as context for future sessions.
-- Use filenames like `./specs/<feature-name>.md`.
+- Use filenames like `docs/specs/<feature-name>.md`.
 
 ### 🔒 MANDATORY: Task Logs — Continuity for Multi-Agent & Multi-Session Work
 
-> **Every task you perform MUST be logged in `./tasks/`.** This is your
+> **Every task you perform MUST be logged in `docs/tasks/`.** This is your
 > institutional memory. Another agent — or you in a future session — MUST be able
 > to read your task log and continue exactly where you left off, resolve remaining
 > technical debts, or understand every trade-off you made.
@@ -421,21 +584,90 @@ any session. Without task logs, institutional knowledge is lost between sessions
 
 | Scenario | Action |
 |---|---|
-| Starting a new task (feature, bug fix, refactor, investigation) | Create `./tasks/<task-name>.md` |
+| **Before starting any task** — before the first edit, not after the last | Create `docs/tasks/<task-name>.md` with the objective, the reasoning, and the plan, at `status: in-progress` |
+| Finishing a step, or marking one item of the plan done | Tick the item, append to `## Progress Log`, bump `updated:` |
+| Changing course — a different approach, a dropped item, a new constraint | Rewrite the affected plan items and record WHY the old one was abandoned |
+| Being interrupted, corrected, or asked to redo work | Read the log, record the correction and the new direction, then continue |
 | Continuing a previously started task | Update the existing task log with new progress |
 | Finishing a task | Update status to `done`, document final state and remaining debts |
 | Discovering technical debt during any work | Add to the relevant task log's `## Technical Debt` section |
 | Making a trade-off or shortcut | Document it immediately in `## Trade-offs & Decisions` |
 
+> 🔒 **Every file path you write into a task log — in `## Files Changed` or anywhere
+> else — MUST be relative to the project root, never an absolute path on this machine.**
+> Write `internal/auth/handler.go`, not `/home/you/projects/app/internal/auth/handler.go`.
+> An absolute path is only true on the machine that wrote it — the next agent, session, or
+> teammate opens the same project from a different path, and the log becomes unreadable or,
+> worse, silently points at the wrong file.
+
+#### 🔒 The task log OPENS the task — it is not a report you write at the end
+
+**Your first action on any task is to write its log, before you edit a single file.** Not a
+placeholder: the log opens with everything the work is about to be based on, so that the
+decision to do it this way survives even if nothing else does.
+
+| At creation, the log carries | Concretely |
+|---|---|
+| The objective | what is being asked, in full, including the part the request only implies |
+| Your reasoning | how you read the request, what you already know from memory, the wiki and the graph, and what that ruled in |
+| The justification | why THIS approach — and which alternatives you considered and dropped, with the reason |
+| The plan, as tasks | `## Plan & Task Breakdown`: one checkbox per task, in the order you intend to do them |
+| A spec per task | for each one: what it touches, what "done" means for it, and the constraint or invariant it must respect |
+
+Writing it first is not ceremony — it is the only version of this document that can help
+anyone. A log written at the end describes work that already exists; a log written at the
+start is the thing that lets someone else finish it. If the session dies mid-task — and
+sessions do — the end-written log was never written at all.
+
+**Then keep it current as you go. The trigger to update is not the end of the task:**
+
+- a step finished — tick it, and say in `## Progress Log` what actually happened
+- the direction changed — record the new plan AND why the old one was wrong, not just the new one
+- you hit a blocker — write it down with what you tried, so the next agent does not retry it
+- you learned something non-obvious about the system — `## System Knowledge`, in the same turn
+- you took a shortcut — `## Technical Debt`, with enough context to resolve it later
+
+> **The standard the log has to meet, at every moment — not only at the end:** if your
+> session ended right now, without warning, could another agent open this file and continue
+> the work from it — knowing what is done, what is next, what was decided and what was
+> deliberately not done — with no access to your conversation? If the answer is no, the log
+> is behind the work, and bringing it up to date is the next thing you do, before more code.
+
+`## Progress Log` is append-only. Never delete an entry to make the trajectory look
+cleaner: an abandoned approach that is still recorded is what stops the next agent from
+trying it again.
+
+#### 🔒 Resuming after an interruption, a correction, or a change of course
+
+When you are interrupted, when the user asks for changes or fixes to work you already did,
+or when the direction changes mid-task, the resumption has its own protocol — and its first
+two steps are not about code:
+
+1. **Read the existing task log first.** It is the record of what was actually done, which
+   is not the same as what you remember doing — and after an interruption, memory is the
+   least reliable source available to you.
+2. **Re-open the skills and re-run the lookups.** A correction does not suspend this
+   framework's tool priority — it re-applies it in full. Memory, the wiki and the graph come
+   before your native tools on the resumed turn exactly as on the first one. Urgency is the
+   reason agents drop this, and urgency is not one of the fallback conditions.
+3. **Record the interruption in the log** — the correction, the reason, and what the plan is
+   now — before you continue, in `## Progress Log` and in the affected plan items.
+4. **Then continue the work.**
+
+A resumed task whose log still describes the pre-correction plan is worse than no log: it
+sends the next agent to do work the user already rejected.
+
 #### Quick Task Log (for minor changes)
 
 For minor fixes, small features, or routine changes, use this minimal format.
-This is the **minimum acceptable** documentation — never skip it.
+This is the **minimum acceptable** documentation — never skip it. It is still created
+BEFORE the change, at `status: in-progress`, and flipped to `done` once the change lands;
+a minor change is not an exemption from opening the log, only from planning it formally.
 
 ```markdown
 ---
 title: <Descriptive task title>
-status: done
+status: in-progress | done
 created: <YYYY-MM-DD>
 updated: <YYYY-MM-DD>
 ---
@@ -476,7 +708,21 @@ tags: [<relevant>, <tags>]
 
 ## Objective
 <What was the goal? What problem was being solved? Include full context so a new
-agent can understand the task without reading the original conversation.>
+agent can understand the task without reading the original conversation. Written at
+creation, before the work: the objective, your reasoning about it, and why this
+approach rather than the alternatives you dropped.>
+
+## Plan & Task Breakdown
+<Written BEFORE the work starts, and kept current as it proceeds. One checkbox per
+task, in the order you intend to execute them, each with its own spec: what it
+touches, what 'done' means for it, and the constraint or invariant it must respect.
+
+- [ ] **T1 — <task title>** — Spec: <files/entities it touches; the acceptance
+  condition; the constraint that makes it non-obvious>
+- [ ] **T2 — <task title>** — Spec: <...>
+
+Tick items as they land. When the plan changes, rewrite the affected item and record
+in the Progress Log WHY the previous one was abandoned — never silently delete it.>
 
 ## Implementation Details
 <What was done? Be extremely specific:
@@ -641,9 +887,17 @@ This enables a new agent to understand the full trajectory.>
   traceable to a use case (Ref: UC-XX), and use specific test data. Cover happy paths,
   error cases, and boundary conditions. Test cases MUST be updated whenever the
   implementation or use cases change.
+- **Written first, not last**: The log exists before the first edit — objective,
+  reasoning, justification and plan — because that is the version of it another agent
+  can act on. A log assembled at the end is a report, and if the session is cut short
+  it is a document that never existed.
+- **Currency**: The log is updated at every step that lands, every change of course,
+  and every blocker — not in one pass at the end. At any moment it must answer "where
+  did this stop and what is next" for someone who was never in the conversation.
 - **Continuity**: If a task spans multiple sessions, each session MUST append to
   the Progress Log and update the status, technical debt, use cases, test cases, and
-  implementation details.
+  implementation details. A session resumed after an interruption or a correction
+  records the correction and the resulting plan change before continuing the work.
 - **Debt tracking**: Every shortcut, TODO, FIXME, or known limitation MUST appear
   in the Technical Debt section with actionable context for resolution.
 - **System knowledge**: Discoveries about non-obvious system behavior MUST be
@@ -652,7 +906,7 @@ This enables a new agent to understand the full trajectory.>
 
 #### Naming convention
 
-- Use kebab-case: `./tasks/fix-memory-sync-race-condition.md`
+- Use kebab-case: `docs/tasks/fix-memory-sync-race-condition.md`
 - Be descriptive: prefer `migrate-hub-to-branch-per-artifact.md` over `hub-refactor.md`
 - Group related sub-tasks under a single task log when they share the same objective
 
@@ -661,7 +915,7 @@ This enables a new agent to understand the full trajectory.>
 - Task logs complement — not replace — architecture docs, ADRs, and specs.
 - If a task results in an architectural change, BOTH the task log AND the
   architecture doc must be updated.
-- If a task involves a design decision, create an ADR in `./decisions/` AND
+- If a task involves a design decision, create an ADR in `docs/decisions/` AND
   reference it from the task log's Trade-offs section.
 - Task logs are the "how it happened" — specs and ADRs are the "what it is",
 ---
@@ -679,9 +933,28 @@ This enables a new agent to understand the full trajectory.>
 > endpoints, error codes, authentication, or behavior.**
 > The hub is the single source of truth for all external integrations.
 
-### Before implementing ANY integration with an external system:
+> 🔒 **This protocol is not only for code you are about to write.** It applies the moment the
+> user names a system that is not this project's own code — "how does <system> handle X",
+> "does <system> have a feature for Y", "look at how <system> does Z". Answering that from
+> model memory is the same mistake as coding an integration from memory. Run the steps below
+> BEFORE you answer, not only before you implement.
 
-**Step 1 — Search the hub for an existing knowledge artifact using the `graphit_hub_search` tool:**
+### Before implementing an integration — or answering a question about one:
+
+**Step 0 — Check what this project already has installed from the Hub:**
+
+Knowledge contexts already installed here: none yet — nothing has been installed from the Hub into this project.
+
+If the named system is already in that list, skip straight to Step 3 — it is installed, there
+is nothing to search or install. Query it directly:
+```
+graphit_knowledge_search(project_dir: "/path/to/project", query: "<your question>", context: "<name from the list>")
+```
+That list is not exhaustive across every artifact type: the same system may also exist as an
+`ast` context (its source, not just its docs) — check `graphit_ast_list` too
+when the question is about behavior a doc page would not capture.
+
+**Step 1 — Not installed? Search the hub for an existing knowledge artifact using the `graphit_hub_search` tool:**
 
 ```
 graphit_hub_search(query: "<the system's name>", type: "knowledge")
@@ -700,7 +973,7 @@ graphit_knowledge_install(project_dir: "/path/to/project", name: "<artifact-name
 
 This installs the artifact at .graphit/knowledge/<name>/.
 
-**Step 3 — Read the installed wiki before writing a single line of code.**
+**Step 3 — Read the installed wiki before writing a single line of code, or answering the user.**
 
 **Step 4 — Use the installed knowledge integration documentation as the ONLY source of truth:**
 
@@ -715,7 +988,7 @@ This installs the artifact at .graphit/knowledge/<name>/.
 
 **Every interface, integration, or data exchange mechanism that this system
 provides or consumes — regardless of paradigm or transport — MUST have a
-complete, formal specification file in `./`.**
+complete, formal specification file in `docs/`.**
 
 There are **NO exceptions**. If the system communicates with the outside world
 (or between internal services) through ANY of the following mechanisms, it
@@ -773,10 +1046,10 @@ a compiled, cross-referenced wiki.
 
 | Your tool | Wiki equivalent | Why wiki wins |
 |---|---|---|
-| `grep -r "endpoint" ./` | Call `graphit_knowledge_search` → find endpoint → read page | Wiki: 1 search. Grep: scans all spec files |
+| `grep -r "endpoint" docs/` | Call `graphit_knowledge_search` → find endpoint → read page | Wiki: 1 search. Grep: scans all spec files |
 | Reading raw OpenAPI YAML directly | Read wiki entity page (pre-summarized) | Wiki: structured summary with confidence. YAML: verbose, noisy |
 | `grep` for "which APIs use this schema" | Call `graphit_wiki_xrefs` on schema entity | Wiki: instant reverse lookup. Grep: O(n) scan |
-| Listing ./ to find specs | Call `graphit_wiki_browse` → scan by paradigm type | Wiki: grouped catalog. ls: flat listing with no context |
+| Listing docs/ to find specs | Call `graphit_wiki_browse` → scan by paradigm type | Wiki: grouped catalog. ls: flat listing with no context |
 
 ### 🔒 When you MUST use the wiki (MANDATORY — no exceptions)
 
@@ -785,7 +1058,7 @@ a compiled, cross-referenced wiki.
 | **Finding an API endpoint** | Call `graphit_knowledge_search` → find the spec page → read it | ❌ Don't grep YAML files for path strings |
 | **Understanding a schema** | Call `graphit_knowledge_search` → find schema entity → read it | ❌ Don't open raw .yaml and search for `schemas:` |
 | **Finding which APIs use a model** | Call `graphit_wiki_xrefs` on entity → get cross-references | ❌ Don't grep for `$ref` across all YAML files |
-| **Checking if a integration exists** | Call `graphit_wiki_browse` → scan the catalog | ❌ Don't use `find` or `ls` on ./ |
+| **Checking if a integration exists** | Call `graphit_wiki_browse` → scan the catalog | ❌ Don't use `find` or `ls` on docs/ |
 | **Understanding auth for an API** | Read the spec entity page → check security section | ❌ Don't grep for "security" across all specs |
 | **Checking API versioning** | Read entity frontmatter → check `updated` and `source` | ❌ Don't read raw spec version fields |
 | **Verifying field names and types** | Read entity page → follow provenance to raw spec | ❌ Don't guess from model memory |
@@ -806,6 +1079,9 @@ a compiled, cross-referenced wiki.
 **Step 1 — Search the wiki (ALWAYS start here)**
   Call `graphit_knowledge_search` with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).
   Alternatively, call `graphit_wiki_browse` for a structured catalog.
+  > ⚠️ **Each hit carries a ~200-character preview of the chunk, not the spec.** Never read
+  > a field name, a type, an endpoint path or an error code off the preview — open the page
+  > with `graphit_wiki_source`, then follow its provenance to the raw spec when exactness matters.
   For deep consultation, search with `graphit_knowledge_search`, read the returned pages, follow [[wikilinks]] to expand context, call `graphit_wiki_xrefs` for cross-references, and synthesize the answer yourself — you ARE the AI.
   For multi-source search (knowledge + memory), call `graphit_wiki_search` with `wikis: ["project", "memory"]`.
 
@@ -828,7 +1104,7 @@ a compiled, cross-referenced wiki.
 
 | Anti-pattern | Why it is a violation |
 |---|---|
-| `grep -r "keyword" ./` | Brute-force on raw specs; ignores compiled wiki |
+| `grep -r "keyword" docs/` | Brute-force on raw specs; ignores compiled wiki |
 | Reading .yaml/.proto files directly without checking wiki first | Skips pre-compiled summary; wastes tokens on raw verbose content |
 | Using semantic search to find integration docs | Wiki search is faster and more precise |
 | Reading all .md files in wiki/ sequentially | Token bomb; wiki search returns only relevant results |
@@ -855,12 +1131,12 @@ Your tools are allowed ONLY when ALL of these conditions are true:
 Examples of valid fallback:
 - Wiki has no entity for a newly added external API → read the raw spec file directly
 - Wiki entity exists but `confidence < 0.3` → verify against raw spec via provenance link
-- Integration was never documented in ./ → ask the user to document it first
+- Integration was never documented in docs/ → ask the user to document it first
 
 Examples of INVALID fallback (protocol violations):
 - Grepping .yaml files because "the wiki was slow" → ❌ wiki is pre-compiled and always faster
 - Reading raw proto/graphql without checking wiki first → ❌ wiki has structured summaries
-- Using semantic search on ./ → ❌ wiki search gives structured results
+- Using semantic search on docs/ → ❌ wiki search gives structured results
 
 ## Documentation Requirements
 

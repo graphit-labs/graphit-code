@@ -34,12 +34,10 @@ func TestBuildCrossRefGraph(t *testing.T) {
 		t.Errorf("alpha outbound = %v, want [beta gamma]", outAlpha)
 	}
 
-	// beta has inbound from alpha
 	if len(graph.Inbound["beta"]) != 1 || graph.Inbound["beta"][0] != "alpha" {
 		t.Errorf("beta inbound = %v, want [alpha]", graph.Inbound["beta"])
 	}
 
-	// Titles
 	if graph.Titles["alpha"] != "Alpha" {
 		t.Errorf("alpha title = %q, want Alpha", graph.Titles["alpha"])
 	}
@@ -126,8 +124,8 @@ func TestInjectBacklinks(t *testing.T) {
 	if !strings.Contains(string(data), "## Backlinks") {
 		t.Error("expected backlinks section in beta.md")
 	}
-	if !strings.Contains(string(data), "[[alpha]]") {
-		t.Error("expected [[alpha]] in beta.md backlinks")
+	if !strings.Contains(string(data), "(alpha.md)") {
+		t.Error("expected alpha.md in beta.md backlinks")
 	}
 }
 
@@ -264,6 +262,7 @@ func TestFindWikiLinks(t *testing.T) {
 		{"inline_code", "This `[[ignored]]` and [[visible]].", []string{"visible"}},
 		{"no_links", "No wikilinks here.", nil},
 		{"dedup", "[[same]] and [[same]] again.", []string{"same"}},
+		{"md_links", "See [alpha](alpha.md) and [beta](beta.md).", []string{"alpha", "beta"}},
 	}
 
 	for _, tt := range tests {
@@ -293,6 +292,7 @@ func TestResolveSlug(t *testing.T) {
 		{"plain", "hello", "hello"},
 		{"with_pipe", "page|display name", "page"},
 		{"with_spaces", "Hello World", "Hello_World"},
+		{"with_md_ext", "hello.md", "hello"},
 		{"empty", "", ""},
 	}
 
@@ -351,7 +351,7 @@ func TestStripBacklinksSection(t *testing.T) {
 	}{
 		{
 			"with_backlinks",
-			"Main content\n## Backlinks\n\n- [[link1]]\n- [[link2]]",
+			"Main content\n## Backlinks\n\n- [link1](link1.md)\n- [link2](link2.md)",
 			"Main content",
 		},
 		{
@@ -361,7 +361,7 @@ func TestStripBacklinksSection(t *testing.T) {
 		},
 		{
 			"starts_with_backlinks",
-			"## Backlinks\n- [[link1]]",
+			"## Backlinks\n- [link1](link1.md)",
 			"",
 		},
 	}
@@ -389,29 +389,28 @@ func TestInjectBacklinksSection(t *testing.T) {
 	if !strings.Contains(result, "## Backlinks") {
 		t.Error("expected backlinks header")
 	}
-	if !strings.Contains(result, "[[source1]] — Source One") {
+	if !strings.Contains(result, "[Source One](source1.md) — Source One") {
 		t.Error("expected source1 with title")
 	}
-	if !strings.Contains(result, "[[source2]]") {
+	if !strings.Contains(result, "[source2](source2.md)") {
 		t.Error("expected source2")
 	}
-	// source2 has slug == title, so should NOT have " — " suffix
-	if strings.Contains(result, "[[source2]] — source2") {
+	if strings.Contains(result, "[source2](source2.md) — source2") {
 		t.Error("should not append title when title equals slug")
 	}
 }
 
 func TestInjectBacklinksSection_ReplacesExisting(t *testing.T) {
 	t.Parallel()
-	content := "# Page\nContent.\n## Backlinks\n\n- [[old]]"
+	content := "# Page\nContent.\n## Backlinks\n\n- [old](old.md)"
 	titles := map[string]string{"new": "New Page"}
 
 	result := injectBacklinksSection(content, []string{"new"}, titles)
 
-	if strings.Contains(result, "[[old]]") {
+	if strings.Contains(result, "[old](old.md)") {
 		t.Error("old backlinks should be replaced")
 	}
-	if !strings.Contains(result, "[[new]]") {
+	if !strings.Contains(result, "(new.md)") {
 		t.Error("new backlinks should be present")
 	}
 }

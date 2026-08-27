@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X, Plus, Trash2, Globe, Folder } from 'lucide-react'
 import { cn, bumpPatch } from '@/lib/utils'
 import type { InstalledArtifact } from '@/api/hub'
@@ -19,7 +19,7 @@ interface SubmitModalProps {
 export function SubmitModal({
   open,
   artifact,
-  activeProjectId,
+  activeProjectId: _activeProjectId,
   gitAuthor,
   onSubmit,
   onClose,
@@ -47,6 +47,10 @@ export function SubmitModal({
       setAuthor(artifact.registry_author || gitAuthor)
       setDeps((artifact.registry_dependencies || []).map((d) => ({ ...d })))
     })
+    // Deliberately keyed on open/artifact only: this seeds the form when the modal
+    // opens. Adding isUpdate/existingScope/gitAuthor would re-run it while the modal
+    // is open and overwrite whatever the user has typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, artifact])
 
   if (!open || !artifact) return null

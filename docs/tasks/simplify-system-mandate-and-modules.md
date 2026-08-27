@@ -1,25 +1,25 @@
-# task: simplificar mandato do sistema e regras dos módulos
+Task: Simplify System Mandate and Module Rules
 
 **Data:** 2026-07-15
 **Escopo:** `internal/hub/adapters/ide/mandate.go`, `internal/memory/rule.go`, `internal/ast/rule.go`, `internal/hub/rule.go`, `internal/knowledge/rule.go`, `internal/improvements/rule.go`, `internal/mcpstdio/server.go`, `internal/mcpstdio/tools_test.go`
 
 ## Problema
 
-O mandato do sistema (`AGENTS.md`) e as regras dos módulos possuíam instruções longas e redundantes. Além disso, o modelo era obrigado a emitir um bloco `<graphit>MEM:0|AST:0...</graphit>` e a saída de cada ferramenta MCP incluía um bloco de lembrete `_SYS_REMINDER` volumoso e redundante.
+The mandate of the system (`AGENTS.md`) and the rules of the modules had long, redundant instructions. Moreover, the model was obliged to emit a block `<graphit>MEM:0|AST:0...</graphit>` and each MCP output included a lengthy and redundant reminder block `_SYS_REMINDER`.
 
-## Solução
+Solution
 
-1. **Simplificação de Mandate Preamble:** Atualizado o preâmbulo do mandato em `internal/hub/adapters/ide/mandate.go` para remover a obrigatoriedade do bloco `<graphit>` e do dump do modelo, substituindo por uma instrução direta de ler e usar a skill correspondente em `.agents/skills/`.
-2. **Remoção de _SYS_REMINDER:** Alterado `SysReminder` para string vazia e modificado `server.go` para não incluir o bloco se estiver vazio.
-3. **Simplificação de MandateTriggers:** Cada um dos módulos (`ast`, `memory`, `hub`, `knowledge`, `improvements`) teve sua função `MandateTrigger()` simplificada para apenas retornar a instrução de leitura da skill correspondente.
-4. **Remoção de Variáveis Não Usadas:** Limpas todas as declarações de strings e funções auxiliares sem uso nas funções `MandateTrigger()`.
-5. **Atualização de Testes:** Ajustado `TestJsonResult` em `tools_test.go` para não exigir o bloco `_SYS_REMINDER` se `ide.SysReminder` estiver vazio.
+1. **Simplification of Mandate Preamble:** Updated the preamble of the mandate in `internal/hub/adapters/ide/mandate.go` to remove the requirement for block `<graphit>` and dump model, replacing it with a direct instruction to read and use the corresponding skill in `.agents/skills/`.
+2. **Removal of _SYS_REMINDER:** Modified `SysReminder` to an empty string and modified `server.go` to not include the block if it is empty.
+3. **Simplification of MandateTriggers:** Each module (`ast`, `memory`, `hub`, `knowledge`, `improvements`) had its function `MandateTrigger()` simplified to only return the instruction for reading the corresponding skill.
+4. **Removal of Unused Variables:** Cleaned up all string and auxiliary function declarations that are not used in functions `MandateTrigger()`.
+5. **Update of Tests:** Adjusted `TestJsonResult` in `tools_test.go` to not require block `_SYS_REMINDER` if `ide.SysReminder` is empty.
 
 ## Resultado
 
-- O arquivo `AGENTS.md` agora é conciso, contendo apenas instruções para ler as respectivas skills.
-- O modelo não precisa mais emitir blocos de depuração `<graphit>` e as respostas de ferramentas MCP não contêm mais o rodapé `_SYS_REMINDER`.
-- Os testes unitários compilam e passam com sucesso.
+The file `AGENTS.md` is now concise, containing only instructions for reading the respective skills.
+The model no longer needs to emit debug blocks `<graphit>` and the tool responses MCP do not contain any footnotes `_SYS_REMINDER`.
+Unit tests compile and pass successfully.
 
 ## Arquivos Modificados
 

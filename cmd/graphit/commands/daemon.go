@@ -28,6 +28,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
 	"github.com/graphit-labs/graphit-code/internal/mcpstdio"
 	"github.com/graphit-labs/graphit-code/internal/output"
+	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
 	"github.com/spf13/cobra"
 )
@@ -50,7 +51,10 @@ The daemon is auto-started by any CLI command and runs until explicitly stopped
 or until a binary update is detected.
 
 The daemon:
-  • Discovers all active projects from the global lock
+  • Discovers all registered projects from the global lock
+  • Parks projects that have gone quiet (daemon.activity_window, default 30m) —
+    their fs watch, embedding loop and dream runner all stop — and resumes
+    watching the moment a parked project changes again
   • Keeps the embedding model (CodeRankEmbed-137M) loaded — shared across projects
   • Periodically scans for new entities and computes embeddings in background
   • Runs the autonomous dream module during idle periods (per project)
@@ -118,7 +122,8 @@ func spawnDetachedDaemon(exe string, argv []string) error {
 	cmd := exec.Command(exe, argv...)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	closeLog := daemon.AttachLogStderr(cmd)
+	defer closeLog()
 	sysutil.DetachProcess(cmd)
 	return cmd.Start()
 }
@@ -154,6 +159,7 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	cfg := daemon.DefaultConfig()
 	cfg.DisableEmbedding = noEmbedding
 	cfg.DisableDream = noDream
+	cfg.ProjectActivityWindow = config.ResolveProjectActivityWindow(nil, nil)
 
 	if logPath != "" {
 		cfg.LogPath = logPath
@@ -185,13 +191,17 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 		disableEmbedding := cfg.DisableEmbedding || sharedEmbedClient == nil || config.IsModuleDisabled("embedding", nil, projectCfg)
 		disableDream := cfg.DisableDream || config.IsModuleDisabled("dream", nil, projectCfg)
 
-		cacheDir := filepath.Join(projectDir, brand.DotDir(), "ast", "project")
+		cacheDir := store.ASTProjectDir(projectDir)
 
 		if !disableSync {
 			modules = append(modules, daemon.NewSyncModule(projectDir, cacheDir))
 		}
 		if !disableEmbedding {
 			modules = append(modules, daemon.NewEmbeddingModule(projectDir, 2*time.Minute, cacheDir))
+			// Wiki chunks need embedding too, and nothing was doing it: the module
+			// existed but was never registered here, so semantic and hybrid wiki
+			// search had no vectors to search in any project.
+			modules = append(modules, daemon.NewWikiEmbeddingModule(projectDir, daemon.WikiEmbedTargets(projectDir, nil), 2*time.Minute))
 		}
 		if !disableDream {
 			var lockfileIDEs []string

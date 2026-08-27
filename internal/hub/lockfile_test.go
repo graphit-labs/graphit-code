@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -411,21 +410,5 @@ func TestLockfile_JSON_RoundTrip(t *testing.T) {
 	}
 	if len(lf2.IDEs) != 2 {
 		t.Error("IDEs mismatch")
-	}
-}
-
-func TestResolveProjectIdentity(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	identity := resolveProjectIdentity(dir)
-	if identity.ID == "" {
-		t.Error("expected non-empty ID")
-	}
-	if identity.Name == "" {
-		t.Error("expected non-empty Name")
-	}
-	// Name should be the base of the dir
-	if !strings.Contains(identity.Name, filepath.Base(dir)) {
-		t.Logf("Name %q from dir %q - may be from git remote", identity.Name, dir)
 	}
 }

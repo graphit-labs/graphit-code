@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -32,7 +33,7 @@ func TestSearchOrderIsDeterministic(t *testing.T) {
 	// map iteration order differs, which is what reproduces the cross-run flip
 	// inside a single test.
 	assertStableAcrossRebuilds(t, corpus, queries, func(si *SearchIndex, q string) ([]SearchResult, error) {
-		return si.Search(q, 10)
+		return si.Search(context.Background(), q, 10)
 	})
 }
 
@@ -88,6 +89,6 @@ func TestHybridSearchOrderIsDeterministic(t *testing.T) {
 	// defect present, so that form of the test passed vacuously.
 	assertStableAcrossRebuilds(t, prefixCorpus(), []string{"valid", "config", "database"},
 		func(si *SearchIndex, q string) ([]SearchResult, error) {
-			return si.HybridSearch(q, nil, 10)
+			return si.HybridSearch(context.Background(), q, nil, 10)
 		})
 }

@@ -16,8 +16,10 @@ import (
 )
 
 // mandateHashCacheFile is a JSON sidecar file that stores per-trigger SHA256
-// hashes to enable fast-path skipping in UpsertMandateTrigger.
-const mandateHashCacheFile = ".mandate.hash"
+// hashes to enable fast-path skipping in UpsertMandateTrigger. It lives in the
+// project's runtime directory, which is the only part of the brand directory the
+// generated .gitignore covers.
+const mandateHashCacheFile = "mandate.hash"
 
 // mandateHashCache is the JSON structure stored in mandateHashCacheFile.
 type mandateHashCache struct {
@@ -157,15 +159,15 @@ func ModuleMandateTrigger(heading, skillName, domain, alwaysClause string, trigg
 	b.WriteString("\n# ")
 	b.WriteString(heading)
 	b.WriteString("\n")
-	b.WriteString("MCP-FIRST — NON-NEGOTIABLE: for any ")
+	// The precedence rule, the CLI ban and the integrity clause are stated once in
+	// mandatePreamble and apply here in full — repeating them per module cost five
+	// copies of the same paragraph at the top of every session. What this line carries
+	// is what actually differs: the domain and the skill that covers it.
+	b.WriteString("MCP-FIRST for ")
 	b.WriteString(domain)
-	b.WriteString(" task the ")
-	b.WriteString(brand.Brand)
-	b.WriteString(" MCP tools take ABSOLUTE PRECEDENCE over your built-in/native tools. ")
-	b.WriteString("Use them via MCP ONLY — NEVER via the CLI, and NEVER substitute them with your own native tooling (grep, ripgrep, file search, native memory/recall, web search, code symbols) when an MCP tool exists for the job.\n")
-	b.WriteString("You MUST read and follow the `")
+	b.WriteString(": read the `")
 	b.WriteString(skillName)
-	b.WriteString("` skill BEFORE performing any ")
+	b.WriteString("` skill BEFORE any ")
 	b.WriteString(domain)
 	b.WriteString(" operation, and use exactly the MCP tools it prescribes.\n")
 
@@ -178,7 +180,6 @@ func ModuleMandateTrigger(heading, skillName, domain, alwaysClause string, trigg
 			b.WriteString(t)
 			b.WriteString("\n")
 		}
-		b.WriteString("If you are unsure whether one of these applies, it applies. Reading the skill costs one tool call; guessing costs a wrong answer.\n")
 	}
 
 	if len(tools) > 0 {
@@ -191,7 +192,7 @@ func ModuleMandateTrigger(heading, skillName, domain, alwaysClause string, trigg
 			b.WriteString(brand.MCPToolName(t))
 			b.WriteString("`")
 		}
-		b.WriteString(". The skill says when and how to call each; never invent arguments for them.\n")
+		b.WriteString(". The skill says when and how to call each.\n")
 	}
 
 	if alwaysClause != "" {
@@ -199,7 +200,6 @@ func ModuleMandateTrigger(heading, skillName, domain, alwaysClause string, trigg
 		b.WriteString(alwaysClause)
 		b.WriteString("\n")
 	}
-	b.WriteString("Bypassing, skipping, or short-circuiting these tools — or falling back to native tools without meeting the skill's explicit fallback conditions — is a framework integrity violation.\n")
 	return b.String()
 }
 
@@ -207,9 +207,33 @@ var MandateBlockName = strings.ToUpper(brand.Brand) + "_SYSTEM_MANDATE"
 
 var SysReminder = ""
 
+// mandatePreamble states the policy that is identical for every module, ONCE.
+//
+// It used to be repeated inside each module block: five copies of the precedence rule,
+// the CLI ban, the native-tool list, the "if unsure, it applies" line and the integrity
+// clause. That is a large, fixed cost paid at the top of every session before any work
+// begins, and the fifth copy teaches nothing the first did not. What genuinely varies
+// per module — its domain, its skill, its triggers, its tools — stays in the block.
 func mandatePreamble() string {
 	return "You are the " + brand.Capitalize(brand.Brand) + " autonomous agent.\n" +
-		"Whenever you are about to perform any action, you MUST first read and use the corresponding skill. Always read the corresponding skill before proceeding.\n"
+		"Whenever you are about to perform any action, you MUST first read and use the corresponding skill. Always read the corresponding skill before proceeding.\n" +
+		"\n" +
+		"## MCP-FIRST — NON-NEGOTIABLE (applies to EVERY module below, in full)\n" +
+		"For any task a module below covers, the " + brand.Brand + " MCP tools take ABSOLUTE PRECEDENCE over your built-in/native tools. " +
+		"Use them via MCP ONLY — NEVER via the CLI, and NEVER substitute them with your own native tooling (grep, ripgrep, file search, native memory/recall, web search, code symbols) when an MCP tool exists for the job.\n" +
+		"Read the module's skill BEFORE performing any operation in its domain, and use exactly the MCP tools it prescribes; never invent arguments for them.\n" +
+		"Each module lists the situations that must make you open its skill. If you are unsure whether one applies, it applies — reading the skill costs one tool call; guessing costs a wrong answer. " +
+		"Those lists re-apply to every request in this conversation, not only the first: the tenth edit the user asks for needs the same check as the first, especially once you are mid-task and already holding assumptions from earlier turns.\n" +
+		"Bypassing, skipping, or short-circuiting these tools — or falling back to native tools without meeting a skill's explicit fallback conditions — is a framework integrity violation.\n" +
+		"\n" +
+		"## AN INTERRUPTION IS NOT AN EXEMPTION (applies to every resume)\n" +
+		"Being interrupted, corrected, redirected, or asked to change, fix or redo work does not suspend anything above — it re-applies all of it. Before you touch the work again: re-open the skill for the domain you are re-entering, re-run its lookups, and keep the " + brand.Brand + " MCP tools ahead of your native ones exactly as on the first turn.\n" +
+		"This is where the rule is most often dropped, and not out of confusion: a correction feels like continuation and it arrives with urgency, so the native tool is the one that comes to hand. It is also the moment your assumptions are least reliable — the user just changed a premise the earlier work rested on, so what you were about to do next is a guess until the tools confirm it again. Resuming from memory of what you believed before the interruption is the same violation as never having read the skill.\n" +
+		"\n" +
+		"## AUTOMATIC INDEXING LAGS THE CHANGE — SYNC IS HOW YOU GET CERTAINTY\n" +
+		"The daemon reindexes on its own, but it does so AFTER the write and with a short delay. A tool called inside that window answers from an index that does not yet hold what was just written, and it answers with exactly the confidence it would have if it did: from where you are standing, a stale result and a current one look the same.\n" +
+		"So whenever you need to be CERTAIN that what these tools return reflects the current state — before deciding anything on the basis of a result, before reporting work as done, and after any change that did not come from your own edits (a pull, a checkout, a rebase, a restore) — call " + brand.MCPToolRef("sync") + " for the project and let it finish. That single call brings the knowledge index, the memory index and the AST index into step; when only one of the three is in doubt, the module skills name the narrower tool.\n" +
+		"What this does NOT mean is a sync after every edit: mid-session the watcher already covers that, and each skill says when the targeted tool is the better call.\n"
 }
 
 func mandateTag() string {
@@ -246,7 +270,7 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 		return err
 	}
 
-	hashCacheDir := filepath.Join(projectDir, ".graphit")
+	hashCacheDir := brand.ProjectRuntimePath(projectDir)
 	_ = os.MkdirAll(hashCacheDir, 0o755)
 	hashCache := loadMandateHashCache(hashCacheDir)
 	newHash := fmt.Sprintf("%x", sha256.Sum256([]byte(triggerContent)))

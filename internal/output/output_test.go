@@ -16,7 +16,6 @@ func TestPrinterBasic(t *testing.T) {
 	defer func() { muted = mutedOrig }()
 	muted = false
 
-	// New printer with prefix
 	p := NewPrinter("TEST")
 	var buf bytes.Buffer
 	p = p.WithWriter(&buf)
@@ -297,7 +296,6 @@ func TestFatalAndInterrupted(t *testing.T) {
 		return
 	}
 
-	// Run Fatal subcommand
 	cmd := exec.Command(os.Args[0], "-test.run=TestFatalAndInterrupted")
 	cmd.Env = append(os.Environ(), "BE_CRASHER=fatal")
 	var stdout, stderr bytes.Buffer
@@ -315,7 +313,6 @@ func TestFatalAndInterrupted(t *testing.T) {
 		t.Errorf("expected Fatal exit code 1, got error: %v", err)
 	}
 
-	// Run Interrupted subcommand
 	cmd2 := exec.Command(os.Args[0], "-test.run=TestFatalAndInterrupted")
 	cmd2.Env = append(os.Environ(), "BE_CRASHER=interrupted")
 	var stdout2, stderr2 bytes.Buffer
@@ -336,7 +333,6 @@ func TestFatalAndInterrupted(t *testing.T) {
 		t.Errorf("expected Interrupted exit code 130, got error: %v", err2)
 	}
 
-	// Run muted Interrupted subcommand
 	cmd3 := exec.Command(os.Args[0], "-test.run=TestFatalAndInterrupted")
 	cmd3.Env = append(os.Environ(), "BE_CRASHER=interrupted_muted")
 	var stdout3, stderr3 bytes.Buffer
@@ -390,7 +386,6 @@ func TestTaskTTYDoneWhileSpinnerRunning(t *testing.T) {
 	close(task.stopCh)
 }
 
-
 func TestTaskNonTTYFail(t *testing.T) {
 	isTTYOrig := isTTY
 	defer func() { isTTY = isTTYOrig }()
@@ -428,4 +423,3 @@ func TestTaskDoubleFailNonTTY(t *testing.T) {
 		t.Errorf("expected no output after double fail/done, got %q", out)
 	}
 }
-

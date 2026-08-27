@@ -67,7 +67,7 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 	context_ := contextBuilder.String()
 
 	if cfg.UseBM25 {
-		bm25Ctx := bm25PreFilterMulti(cfg.Sources, query, cfg.BM25TopNPerSource)
+		bm25Ctx := bm25PreFilterMulti(ctx, cfg.Sources, query, cfg.BM25TopNPerSource)
 		if bm25Ctx != "" {
 			context_ += "\n" + bm25Ctx
 			result.TokensSent += len(bm25Ctx) / 4
@@ -202,11 +202,11 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 	return result, nil
 }
 
-func BM25SearchMulti(sources []WikiSource, query string, topNPerSource int) []BM25ResultWithSource {
+func BM25SearchMulti(ctx context.Context, sources []WikiSource, query string, topNPerSource int) []BM25ResultWithSource {
 
 	var allResults []BM25ResultWithSource
 	for _, src := range sources {
-		results := BM25Search(src.Dir, query, topNPerSource)
+		results := BM25Search(ctx, src.Dir, query, topNPerSource)
 		for _, r := range results {
 			allResults = append(allResults, BM25ResultWithSource{
 				BM25Result:  r,
@@ -219,8 +219,8 @@ func BM25SearchMulti(sources []WikiSource, query string, topNPerSource int) []BM
 	return allResults
 }
 
-func bm25PreFilterMulti(sources []WikiSource, query string, topNPerSource int) string {
-	allResults := BM25SearchMulti(sources, query, topNPerSource)
+func bm25PreFilterMulti(ctx context.Context, sources []WikiSource, query string, topNPerSource int) string {
+	allResults := BM25SearchMulti(ctx, sources, query, topNPerSource)
 	if len(allResults) == 0 {
 		return ""
 	}

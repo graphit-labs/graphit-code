@@ -12,13 +12,11 @@ func TestAstIgnoreAndThrottle(t *testing.T) {
 	}
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
-	// 1. NewAstIgnoreChecker
 	checker := NewAstIgnoreChecker(tempDir)
 	if checker == nil {
 		t.Fatal("expected non-nil IgnoreChecker")
 	}
 
-	// 2. SafeWorkers
 	workersZero := SafeWorkers(0)
 	if workersZero < 2 {
 		t.Errorf("expected SafeWorkers(0) to be >= 2, got %d", workersZero)

@@ -1,12 +1,27 @@
 package wiki
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 )
+
+// StatPreCheckOpts configures StatPreCheck.
+type StatPreCheckOpts struct {
+	// WatchFiles are extra files whose mtime+size invalidate the pre-check.
+	// Relative paths are resolved against baseDir.
+	WatchFiles []string
+
+	// CurrentSourceFiles enumerates the cache keys of every source file that
+	// exists right now. StatPreCheck only ever walks the cache, so a file the
+	// cache has never seen is invisible to it — this is how added files are
+	// detected. When nil, additions are NOT detected and the caller is
+	// responsible for having another change signal.
+	CurrentSourceFiles func() []string
+}
 
 // StatPreCheck is the AST-style mtime+size pre-check for wiki generators.
 // It is the shared implementation used by both knowledge and memory wikis.
@@ -24,6 +39,9 @@ import (
 //   - If every file is unchanged and wiki.db exists: return true.
 //     The caller can return early without rebuilding anything.
 //
+// Deletions are caught by Phase B (the ReadFile of a vanished file fails).
+// Additions are caught only via opts.CurrentSourceFiles.
+//
 // Parameters:
 //   - baseDir: directory from which cache RelPaths are resolved
 //     (project root for knowledge, rawDir for memory).
@@ -31,7 +49,7 @@ import (
 //   - cache:   the WikiProcessCache for this wiki.
 //
 // Returns true when the caller can safely skip the full rebuild.
-func StatPreCheck(baseDir, wikiDir string, cache *WikiProcessCache, watchFiles ...string) bool {
+func StatPreCheck(baseDir, wikiDir string, cache *WikiProcessCache, opts StatPreCheckOpts) bool {
 	if cache == nil {
 		return false
 	}
@@ -41,7 +59,7 @@ func StatPreCheck(baseDir, wikiDir string, cache *WikiProcessCache, watchFiles .
 		return false
 	}
 
-	for _, wf := range watchFiles {
+	for _, wf := range opts.WatchFiles {
 		absWf := wf
 		if !filepath.IsAbs(absWf) {
 			absWf = filepath.Join(baseDir, wf)
@@ -52,6 +70,24 @@ func StatPreCheck(baseDir, wikiDir string, cache *WikiProcessCache, watchFiles .
 		}
 		if cache.WatchFileChanged(wf, info.ModTime().UnixNano(), info.Size()) {
 			return false
+		}
+	}
+
+	// A source file the cache has never heard of means the wiki is incomplete,
+	// no matter how unchanged every cached file is.
+	if opts.CurrentSourceFiles != nil {
+		cachedKeys := make(map[string]bool, len(cachedEntries))
+		for _, ce := range cachedEntries {
+			cachedKeys[ce.RelPath] = true
+		}
+		current := opts.CurrentSourceFiles()
+		if len(current) != len(cachedKeys) {
+			return false
+		}
+		for _, key := range current {
+			if !cachedKeys[key] {
+				return false
+			}
 		}
 	}
 
@@ -105,7 +141,7 @@ func StatPreCheck(baseDir, wikiDir string, cache *WikiProcessCache, watchFiles .
 		}
 	}
 
-	// AST pattern: if no source file changed and the wiki DB exists, done.
-	_, dbErr := os.Stat(filepath.Join(wikiDir, "wiki.db"))
-	return dbErr == nil
+	// AST pattern: if no source file changed and the index HAS CONTENT, done.
+	// Existence alone is not enough — see IndexHasContent.
+	return IndexHasContent(context.Background(), wikiDir)
 }

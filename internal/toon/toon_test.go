@@ -119,8 +119,6 @@ func TestFormatAny_NewlineInString(t *testing.T) {
 	}
 }
 
-
-
 func TestFormatAny_TimeField(t *testing.T) {
 	ts := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 	s := sampleStatus{

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
@@ -95,36 +94,6 @@ func TestDetectStalePagesTransitive(t *testing.T) {
 	}
 	if info, ok := stale["page_b"]; ok && !strings.Contains(info.Reason, "page_a") {
 		t.Errorf("page_b reason should mention dependency page_a, got %q", info.Reason)
-	}
-}
-
-func TestInstalledContextsMixed(t *testing.T) {
-	origDir, _ := os.Getwd()
-	tempDir := t.TempDir()
-	_ = os.Chdir(tempDir)
-	defer func() { _ = os.Chdir(origDir) }()
-
-	parentDir := filepath.Join(brand.DotDir(), "knowledge")
-	_ = os.MkdirAll(parentDir, 0o755)
-
-	// Regular file (not a dir) — should be skipped
-	_ = os.WriteFile(filepath.Join(parentDir, "stray-file.txt"), []byte("x"), 0o644)
-
-	// Dir without index.md — should be skipped
-	_ = os.MkdirAll(filepath.Join(parentDir, "no-index-ctx"), 0o755)
-	_ = os.WriteFile(filepath.Join(parentDir, "no-index-ctx", "other.md"), []byte("x"), 0o644)
-
-	// Dir with index.md — should be included
-	_ = os.MkdirAll(filepath.Join(parentDir, "valid-ctx"), 0o755)
-	_ = os.WriteFile(filepath.Join(parentDir, "valid-ctx", "index.md"), []byte("# Index"), 0o644)
-
-	// "project" dir — always skipped
-	_ = os.MkdirAll(filepath.Join(parentDir, "project"), 0o755)
-	_ = os.WriteFile(filepath.Join(parentDir, "project", "index.md"), []byte("# Proj"), 0o644)
-
-	names := InstalledContexts()
-	if len(names) != 1 || names[0] != "valid-ctx" {
-		t.Errorf("expected [valid-ctx], got %v", names)
 	}
 }
 

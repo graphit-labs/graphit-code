@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
@@ -15,11 +16,10 @@ import (
 type ConfigMap = map[string]any
 
 func AppDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	dir := brand.GlobalDir()
+	if dir == "" {
+		return "", fmt.Errorf("cannot resolve the global %s directory: no home directory", brand.Brand)
 	}
-	dir := filepath.Join(home, brand.DotDir())
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -355,14 +355,6 @@ func CLIForIDE(ide string) string {
 	}
 }
 
-func ResolveHubRepo(inlineCfg, projectCfg ConfigMap) string {
-	return ResolveConfig("hub.repo", inlineCfg, projectCfg)
-}
-
-func HubRepoURL() string {
-	return ResolveHubRepo(nil, nil)
-}
-
 func IsSetupDone() bool {
 	path, err := globalConfigPath()
 	if err != nil {
@@ -372,28 +364,203 @@ func IsSetupDone() bool {
 	return err == nil
 }
 
-func ResolveMemoryRepo(inlineCfg, projectCfg ConfigMap) string {
-	return ResolveConfig("memory.repo", inlineCfg, projectCfg)
+// ResolveSearchRerank reads whether the cross-encoder reranking stage is enabled.
+//
+// DEFAULT FALSE, and the default is what gates a 1.04 GiB download: the reranker's model is fetched
+// only when this is true AND it is not already on disk. Nothing downloads it at `setup`, and a
+// user who leaves this off never pays for it.
+//
+// What it buys, and why it is not on: retrieval already fuses the dense and the BM25 channel with
+// the engine's own reciprocal-rank-fusion. A cross-encoder is the other family of reranker — it
+// reads each (query, candidate) pair and judges relevance directly, which is what LanceDB's
+// documentation points to for quality beyond fusion. It costs a second model and inference on the
+// query path, so it is a decision rather than a default.
+func ResolveSearchRerank(inlineCfg, projectCfg ConfigMap) bool {
+	// Absent means false, which is the same convention ast.index_docs uses: a boolean module
+	// switch that is off unless the operator wrote "true".
+	return strings.EqualFold(ResolveConfig("search.rerank", inlineCfg, projectCfg), "true")
 }
 
-func MemoryRepoURL() string {
-	return ResolveMemoryRepo(nil, nil)
-}
+// SearchRerank is ResolveSearchRerank with no inline or project configuration.
+func SearchRerank() bool { return ResolveSearchRerank(nil, nil) }
 
-func MemoryRepoDirPath() (string, error) {
-	dir, err := AppDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "memory"), nil
-}
+// DefaultDocsDir is the documentation tree the knowledge module indexes when
+// knowledge.docs_dir says nothing.
+//
+// This used to be "." — the whole project — which made the wiki index every
+// indexable file in the repository: vendored markdown, generated JSON, IDE
+// adapter directories, node_modules leftovers the ignore file did not name. The
+// wiki is documentation, and documentation lives in a directory; a project whose
+// docs are elsewhere says so with knowledge.docs_dir.
+const DefaultDocsDir = "docs"
 
+// ResolveDocsDir returns the documentation tree, relative to the project root.
+// Override it with knowledge.docs_dir — inline, GRAPHIT_KNOWLEDGE_DOCS_DIR,
+// project lockfile, global config, in that order of precedence. Set it to "."
+// to restore the pre-default behaviour of indexing the whole project.
 func ResolveDocsDir(inlineCfg, projectCfg ConfigMap) string {
 	val := ResolveConfig("knowledge.docs_dir", inlineCfg, projectCfg)
 	if val != "" {
 		return val
 	}
-	return "."
+	return DefaultDocsDir
+}
+
+// ResolveKnowledgeIncludeReadme reports whether the project root's README is
+// indexed into the knowledge wiki on top of whatever ResolveDocsDir returns.
+//
+// It is on by default: the README is the one document every repository has and
+// the one a reader reaches for first, and scoping the wiki to docs/ would
+// otherwise have dropped it. Set knowledge.include_readme to "false" to index
+// only the docs tree.
+func ResolveKnowledgeIncludeReadme(inlineCfg, projectCfg ConfigMap) bool {
+	val := ResolveConfig("knowledge.include_readme", inlineCfg, projectCfg)
+	return !strings.EqualFold(val, "false")
+}
+
+// ResolveHubIcebugReverseEdges reports whether Hub AST publications include the
+// reverse CSR. Only an explicit false disables the default.
+func ResolveHubIcebugReverseEdges(inlineCfg, projectCfg ConfigMap) bool {
+	val := ResolveConfig("hub.icebug.reverse_edges", inlineCfg, projectCfg)
+	return !strings.EqualFold(val, "false")
+}
+
+// DefaultASTQueriesDir is the project-level grammar directory when
+// ast.queries_dir says nothing: where it has always been, inside the brand
+// directory.
+//
+// It is a tracked location. Only brand.RuntimeSubdir is gitignored, so a grammar
+// override committed here reaches every other checkout without configuring
+// anything. The key remains for a project that would rather keep its grammars
+// beside its other tooling.
+func DefaultASTQueriesDir() string {
+	return filepath.Join(brand.DotDir(), "ast", "queries")
+}
+
+// ResolveASTQueriesDir returns the directory holding the project's own grammar
+// query files, relative to the project root. Override it with ast.queries_dir —
+// inline, GRAPHIT_AST_QUERIES_DIR, project lockfile, global config, in that
+// order of precedence.
+//
+// The value is a path, not a list: a project has one grammar directory, and the
+// levels above it (~/.graphit/ast/queries and the runtime's) are unaffected.
+func ResolveASTQueriesDir(inlineCfg, projectCfg ConfigMap) string {
+	val := strings.TrimSpace(ResolveConfig("ast.queries_dir", inlineCfg, projectCfg))
+	if val == "" {
+		return DefaultASTQueriesDir()
+	}
+	return filepath.Clean(filepath.FromSlash(val))
+}
+
+// ResolveASTGrammarsBlacklist returns the raw value of ast.grammars_blacklist:
+// a comma-separated list of grammars the AST index must not use. Resolved
+// inline, GRAPHIT_AST_GRAMMARS_BLACKLIST, project lockfile, global config, in
+// that order of precedence.
+//
+// The value is returned unparsed. Splitting it belongs to the AST package, which
+// also uses the raw string as the staleness signature of its per-project filter
+// cache — a parsed form would have to be re-serialised to serve as one.
+func ResolveASTGrammarsBlacklist(inlineCfg, projectCfg ConfigMap) string {
+	return strings.TrimSpace(ResolveConfig("ast.grammars_blacklist", inlineCfg, projectCfg))
+}
+
+// ResolveASTGrammarsWhitelist returns the raw value of ast.grammars_whitelist:
+// a comma-separated list of the only grammars the AST index may use. Empty —
+// the default — means every grammar, not none.
+//
+// See ResolveASTGrammarsBlacklist for the precedence and for why the value is
+// returned unparsed.
+func ResolveASTGrammarsWhitelist(inlineCfg, projectCfg ConfigMap) string {
+	return strings.TrimSpace(ResolveConfig("ast.grammars_whitelist", inlineCfg, projectCfg))
+}
+
+// ResolveAstIndexDocs reports whether the AST pipeline indexes the knowledge
+// module's documentation tree.
+//
+// It is off by default: the docs tree belongs to the knowledge wiki, which
+// chunks, links and ranks prose far better than a code graph can, and indexing
+// it twice buys nothing but a Heading node per section. Set ast.index_docs to
+// "true" when the documentation is code-shaped enough to want structural
+// queries over it — .proto or .graphql schemas kept under docs/, say.
+func ResolveAstIndexDocs(inlineCfg, projectCfg ConfigMap) bool {
+	val := ResolveConfig("ast.index_docs", inlineCfg, projectCfg)
+	return strings.EqualFold(val, "true")
+}
+
+// backlogDirName and backlogParentDirName compose the default backlog location
+// underneath the documentation tree: <docs_dir>/tasks/backlog.
+const (
+	backlogParentDirName = "tasks"
+	backlogDirName       = "backlog"
+)
+
+// DefaultBacklogDir is where the improvement backlog lives when
+// improvements.backlog_dir says nothing: inside the documentation tree, beside
+// the task logs.
+//
+// It used to be under the brand directory, which `graphit init` gitignores —
+// so the work a review deliberately deferred was invisible to every other
+// checkout, to code review, and to anyone who was not sitting at the machine
+// that recorded it. A backlog item is a project artifact, not machine state:
+// it belongs in the repository, next to the task logs that close it.
+//
+// The default follows ResolveDocsDir rather than hardcoding "docs", so a
+// project that keeps its documentation elsewhere gets its backlog there too.
+func DefaultBacklogDir(inlineCfg, projectCfg ConfigMap) string {
+	return filepath.Join(ResolveDocsDir(inlineCfg, projectCfg), backlogParentDirName, backlogDirName)
+}
+
+// ResolveBacklogDir returns the directory holding the improvement backlog,
+// relative to the project root. Override it with improvements.backlog_dir —
+// inline, GRAPHIT_IMPROVEMENTS_BACKLOG_DIR, project lockfile, global config, in
+// that order of precedence.
+func ResolveBacklogDir(inlineCfg, projectCfg ConfigMap) string {
+	val := strings.TrimSpace(ResolveConfig("improvements.backlog_dir", inlineCfg, projectCfg))
+	if val == "" {
+		return DefaultBacklogDir(inlineCfg, projectCfg)
+	}
+	return filepath.Clean(filepath.FromSlash(val))
+}
+
+// ResolveDreamReportsDir returns the directory holding dream session reports,
+// relative to the project root. Override it with dream.reports_dir — inline,
+// GRAPHIT_DREAM_REPORTS_DIR, project lockfile, global config, in that order of
+// precedence.
+//
+// The default lives under the project's ignored runtime tree. A backlog item is
+// intent and belongs in the repository, while dream reports, sentinels and the
+// per-developer read marker are generated output. This key lets a project move the
+// whole vault to a versionable location such as docs/ when publication is explicit.
+// An empty return means "unset": the caller applies the default, which lives in
+// the dream package because it depends on the brand directory and this package
+// stays below brand deliberately.
+func ResolveDreamReportsDir(inlineCfg, projectCfg ConfigMap) string {
+	val := strings.TrimSpace(ResolveConfig("dream.reports_dir", inlineCfg, projectCfg))
+	if val == "" {
+		return ""
+	}
+	return filepath.Clean(filepath.FromSlash(val))
+}
+
+// LoadProjectConfig reads the `config` object out of a project's lockfile.
+//
+// It duplicates a sliver of hub.LoadLockfile on purpose: hub imports ast, so ast
+// cannot import hub, and the AST side needs project configuration to decide
+// whether the docs tree is its business. Anything richer about a lockfile still
+// belongs to the hub package. A missing or malformed lockfile resolves to nil,
+// which ResolveConfig treats as "nothing set here" and falls through.
+func LoadProjectConfig(projectDir string) ConfigMap {
+	data, err := os.ReadFile(filepath.Join(projectDir, brand.LockFileName()))
+	if err != nil {
+		return nil
+	}
+	var lf struct {
+		Config ConfigMap `json:"config"`
+	}
+	if err := json.Unmarshal(data, &lf); err != nil {
+		return nil
+	}
+	return lf.Config
 }
 
 var defaultKnowledgeExtensions = []string{
@@ -436,10 +603,6 @@ func ResolveKnowledgeExtensions(inlineCfg, projectCfg ConfigMap) map[string]bool
 	return m
 }
 
-var AllModuleNames = []string{
-	"knowledge", "ast", "hub", "memory", "improvements",
-}
-
 var OptInModules = []string{
 	"dream",
 }
@@ -465,6 +628,30 @@ func IsModuleDisabled(module string, inlineCfg, projectCfg ConfigMap) bool {
 func ResolveIndexSource(inlineCfg, projectCfg ConfigMap) bool {
 	val := ResolveConfig("ast.index_source", inlineCfg, projectCfg)
 	return !strings.EqualFold(val, "false")
+}
+
+// defaultProjectActivityWindow is how long a registered project may stay
+// touched-recently before the daemon parks it: stops its filesystem watch,
+// embedding loop and dream runner rather than keeping them alive for a
+// project nobody is working on.
+const defaultProjectActivityWindow = 30 * time.Minute
+
+// ResolveProjectActivityWindow returns how recently a project must have
+// changed to remain — or become — fully supervised by the daemon.
+// Configurable via daemon.activity_window (a Go duration string, e.g. "15m").
+// Set to "0" to disable parking entirely: every registered project stays
+// supervised for as long as it stays registered, which is the pre-parking
+// behavior. An unset or invalid value falls back to the 30-minute default.
+func ResolveProjectActivityWindow(inlineCfg, projectCfg ConfigMap) time.Duration {
+	val := ResolveConfig("daemon.activity_window", inlineCfg, projectCfg)
+	if val == "" {
+		return defaultProjectActivityWindow
+	}
+	d, err := time.ParseDuration(val)
+	if err != nil || d < 0 {
+		return defaultProjectActivityWindow
+	}
+	return d
 }
 
 // ParseGrammarOverrides parses a comma-separated grammar override string
@@ -528,6 +715,65 @@ func MergeGrammarOverrides(base, priority map[string]string) map[string]string {
 	return merged
 }
 
+// ParseClusterPathMap parses a comma-separated cluster path map string
+// into a map[string]string. Format: "path1=cluster1,path2=cluster2".
+// Paths are directory prefixes (trailing slash added if missing).
+// Returns nil if s is empty or contains no valid pairs.
+func ParseClusterPathMap(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	m := make(map[string]string)
+	for _, pair := range strings.Split(s, ",") {
+		parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		path := strings.TrimSpace(parts[0])
+		cluster := strings.TrimSpace(parts[1])
+		if path == "" || cluster == "" {
+			continue
+		}
+		// Normalize path: ensure trailing slash for prefix matching
+		path = strings.TrimRight(path, "/") + "/"
+		m[path] = cluster
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
+// ResolveClusterPathMap returns the cluster path map from config.
+// Configurable via ast.cluster_map (comma-separated path=cluster pairs).
+// Returns nil if no cluster map is configured.
+func ResolveClusterPathMap(inlineCfg, projectCfg ConfigMap) map[string]string {
+	val := ResolveConfig("ast.cluster_map", inlineCfg, projectCfg)
+	return ParseClusterPathMap(val)
+}
+
+// MergeClusterPathMap merges base cluster path map with higher-priority map.
+// Priority entries overwrite base entries for the same path prefix.
+// Returns nil if both inputs are nil.
+func MergeClusterPathMap(base, priority map[string]string) map[string]string {
+	if base == nil && priority == nil {
+		return nil
+	}
+	if base == nil {
+		return priority
+	}
+	if priority == nil {
+		return base
+	}
+	merged := make(map[string]string, len(base)+len(priority))
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range priority {
+		merged[k] = v
+	}
+	return merged
+}
 
 func HubRepoDirPath() (string, error) {
 	dir, err := AppDir()
@@ -536,8 +782,6 @@ func HubRepoDirPath() (string, error) {
 	}
 	return filepath.Join(dir, "hub"), nil
 }
-
-
 
 func splitKey(dotKey string) (section, key string, nested bool) {
 	parts := strings.SplitN(dotKey, ".", 2)
