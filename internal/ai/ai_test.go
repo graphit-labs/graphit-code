@@ -1092,6 +1092,9 @@ func TestModelManager_EnsureModel_CachedModels(t *testing.T) {
 // build exactly that server and then never point EnsureModel at it, so what was
 // really being measured was huggingface.co.
 func TestModelManager_EnsureModel_DownloadModel(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heavy model download in -short mode")
+	}
 	tmpDir := t.TempDir()
 
 	tooSmall := make([]byte, 50)
@@ -1116,6 +1119,9 @@ func TestModelManager_EnsureModel_DownloadModel(t *testing.T) {
 }
 
 func TestModelManager_EnsureModel_DownloadSuccess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heavy model download in -short mode")
+	}
 	tmpDir := t.TempDir()
 
 	modelContent := make([]byte, modelONNXMinSize+1)
@@ -1167,6 +1173,9 @@ func TestModelManager_EnsureModel_DownloadSuccess(t *testing.T) {
 // re-fetched. The tokenizer's mtime is the evidence: an untouched file means the
 // second download branch was correctly skipped.
 func TestModelManager_EnsureModel_NeedDownloadModelTooSmall(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heavy model download in -short mode")
+	}
 	tmpDir := t.TempDir()
 
 	if err := os.WriteFile(filepath.Join(tmpDir, modelFileName), []byte("tiny"), 0o644); err != nil {

@@ -431,6 +431,9 @@ func TestNewProxyEmbeddingClient_SocketExists(t *testing.T) {
 }
 
 func TestModelManager_EnsureModel_CreateCacheDir(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heavy model download in -short mode")
+	}
 	t.Parallel()
 
 	tmpDir := t.TempDir()

@@ -200,6 +200,8 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		}
 	}
 
+	
+
 	// A scoped run indexes the files a watcher named and trusts the cache to hold the
 	// rest of the project. An empty cache voids that premise, and the consequence is
 	// not a slow run — it is data loss: the rebuild below builds the WHOLE graph from
@@ -215,17 +217,28 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	// manifest by design — and a deleted cache directory or a fresh clone does the same.
 	// Discovery costs one slow pass; publishing a one-file graph costs the graph.
 	if scoped && jsonCache != nil && jsonCache.Count() == 0 {
-		logger.Warn("scoped run with an empty parse cache — falling back to full discovery, "+
-			"because rebuilding from it would publish a graph holding only the named files",
-			"changed", len(opts.ChangedPaths), "deleted", len(opts.DeletedPaths))
-		found, err := discover()
-		if err != nil {
-			return nil, err
+		// Only fall back to full discovery for true incremental runs where the cache
+		// should have the rest of the project. Don't fall back for full index (reset/reindex)
+		// or when the DB doesn't exist (fresh index).
+		dbExists := false
+		if lb, ok := db.(*LadybugBackend); ok {
+			if _, err := os.Stat(lb.cfg.DBPath); err == nil {
+				dbExists = true
+			}
 		}
-		files = found
-		scoped = false
-		opts.ChangedPaths = nil
-		opts.DeletedPaths = nil
+		if !opts.ForceRebuild && dbExists {
+			logger.Warn("scoped run with an empty parse cache — falling back to full discovery, "+
+				"because rebuilding from it would publish a graph holding only the named files",
+				"changed", len(opts.ChangedPaths), "deleted", len(opts.DeletedPaths))
+			found, err := discover()
+			if err != nil {
+				return nil, err
+			}
+			files = found
+			scoped = false
+			opts.ChangedPaths = nil
+			opts.DeletedPaths = nil
+		}
 	}
 
 	tHash := time.Now()

@@ -797,6 +797,29 @@ test: setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	fi; \
 	exit $$status
 
+test-short: setup-lbug lancedb-native $(ORT_HOST_FETCH)
+	@LBUG_LIB="$(LBUG_MOD)/lib"; \
+	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
+		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \
+	fi; \
+	rm -rf "$${TMPDIR:-/tmp}/$(BRAND)-test-homes"; \
+	status=0; \
+	echo "  → Running tests with race detector (-short, skips heavy model/LanceDB)…"; \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
+	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
+	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -short -race -tags "$(LOCAL_TAGS)" -coverprofile=coverage.out -covermode=atomic -p 4 \
+		$$(go list ./... | grep -Ev "$(GO_PKGS_SKIP)") || status=1; \
+	echo "  → Running tests without race detector (generated parsers, -short)…"; \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
+	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
+	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -short -tags "$(LOCAL_TAGS)" -coverprofile=coverage-parsers.out -covermode=atomic -p 4 \
+		$$(go list ./... | grep -E "$(GO_PKGS_PARSERS)" | grep -v "/node_modules/") || status=1; \
+	if [ -f coverage-parsers.out ]; then \
+		tail -n +2 coverage-parsers.out >> coverage.out; \
+		rm -f coverage-parsers.out; \
+	fi; \
+	exit $$status
+
 lint: lancedb-native
 	golangci-lint run --build-tags "$(LOCAL_TAGS)" ./...
 
@@ -831,8 +854,16 @@ fmt:
 vet: lancedb-native
 	go vet -tags "$(LOCAL_TAGS)" -unreachable=false $$(go list -tags "$(LOCAL_TAGS)" ./... | grep -Ev "$(GO_PKGS_SKIP)")
 
+# ci-fast is the PR gate: vet/lint/ui-lint in parallel and tests with -short (skips model download and heavy LanceDB paths).
+ci-fast: lancedb-native
+	@echo "  → Running vet, lint, ui-lint in parallel (vulncheck and full test are ci-full)…"
+	@$(MAKE) -j3 vet lint ui-lint
+	@$(MAKE) test-short
 
-ci: ui vet lint vulncheck test ui-lint
+ci: lancedb-native
+	@echo "  → Running ui, vet, lint, vulncheck, ui-lint in parallel, then full test…"
+	@$(MAKE) -j5 ui vet lint vulncheck ui-lint
+	@$(MAKE) test
 	@echo ""
 	@echo "  ✅ All CI checks passed."
 	@echo ""

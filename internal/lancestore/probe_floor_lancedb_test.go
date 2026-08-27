@@ -340,6 +340,9 @@ func boolp(v bool) *bool    { return &v }
 // THE GATE. Retrieval and scoring are the engine's; the only Go-side work is expanding the
 // document and the query at write and read time, which is preprocessing rather than ranking.
 func TestSearchQualityGate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heavy LanceDB quality gate in -short mode")
+	}
 	tbl := buildProbeTable(t, chosenTuning())
 	strict, strictN, recall, recallN, empty := score(t, tbl)
 
@@ -403,6 +406,9 @@ func chosenTuning() indexTuning {
 // nothing that duplicates it. A Go-side expansion has to EARN its place by a measured gap, and
 // then it is a documented workaround rather than a design choice.
 func TestSearchTuningSweep(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heavy LanceDB quality gate in -short mode")
+	}
 	candidates := []indexTuning{
 		// Engine only: no Go expansion at all.
 		{label: "engine default"},

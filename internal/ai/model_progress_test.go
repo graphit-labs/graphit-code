@@ -129,6 +129,9 @@ func TestDownloadWithoutAProgressHookStillWritesTheFile(t *testing.T) {
 // EnsureModel is the whole reason the hook exists, and it downloads two files.
 // Both have to be named, or a progress line cannot say which one is moving.
 func TestEnsureModelReportsBothFilesByName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heavy model download in -short mode")
+	}
 	cacheDir := t.TempDir()
 	m := modelServer(t, cacheDir)
 
@@ -149,6 +152,9 @@ func TestEnsureModelReportsBothFilesByName(t *testing.T) {
 // A cache hit reports nothing, which is how the setup step tells "downloaded"
 // apart from "was already there" without a second question.
 func TestEnsureModelReportsNothingWhenTheCacheIsAlreadyValid(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping heavy model download in -short mode")
+	}
 	cacheDir := t.TempDir()
 	sparseFile(t, filepath.Join(cacheDir, modelFileName), modelONNXMinSize+1)
 	sparseFile(t, filepath.Join(cacheDir, tokenizerFileName), tokenizerJSONMinSize+1)
