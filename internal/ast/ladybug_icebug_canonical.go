@@ -147,7 +147,7 @@ func (k *LadybugBackend) finishCanonicalTraversal(ctx context.Context, plan cano
 	}
 	reachedProps := append(append([]string{}, plan.reached.properties...), plan.reachedPreds...)
 	reachedProps = append(reachedProps, plan.returnClause)
-	labels = canonicalTablesFor(k.canonical, plan.reached.label,
+	resolvedLabels := canonicalTablesFor(k.canonical, plan.reached.label,
 		plan.reached.variable, reachedProps)
 	result := &QueryResult{}
 	seen := map[string]bool{}
@@ -155,7 +155,7 @@ func (k *LadybugBackend) finishCanonicalTraversal(ctx context.Context, plan cano
 		if err := ctx.Err(); err != nil {
 			return nil, true, err
 		}
-		for _, label := range labels {
+		for _, label := range resolvedLabels {
 			conds := append(canonicalConditions(plan.reached, plan.reachedPreds),
 				fmt.Sprintf("%s.uid IN [%s]", plan.reached.variable, icebugStringList([]string{uid})))
 			q := fmt.Sprintf("MATCH (%s:%s) WHERE %s RETURN DISTINCT %s",

@@ -354,15 +354,15 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 			if !first {
 				clusterInfo.WriteString(", ")
 			}
-			clusterInfo.WriteString(fmt.Sprintf("%s=%s", path, cl))
+			fmt.Fprintf(&clusterInfo, "%s=%s", path, cl)
 			first = false
 		}
 		if cluster != "" {
-			clusterInfo.WriteString(fmt.Sprintf(", default=%s", cluster))
+			fmt.Fprintf(&clusterInfo, ", default=%s", cluster)
 		}
 		clusterInfo.WriteString(")")
 	} else if cluster != "" {
-		clusterInfo.WriteString(fmt.Sprintf(" (cluster: %s)", cluster))
+		fmt.Fprintf(&clusterInfo, " (cluster: %s)", cluster)
 	}
 
 	if len(absPaths) == 1 {
@@ -511,37 +511,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 	return nil
 }
 
-// findCommonRoot finds the common parent directory of all paths.
-func findCommonRoot(paths []string) string {
-	if len(paths) == 0 {
-		return "."
-	}
-	if len(paths) == 1 {
-		// Return parent of the path if it's a file, or the path itself if dir
-		info, err := os.Stat(paths[0])
-		if err != nil || !info.IsDir() {
-			return filepath.Dir(paths[0])
-		}
-		return paths[0]
-	}
-	// Find common prefix
-	common := paths[0]
-	for i := 1; i < len(paths); i++ {
-		common = commonPrefix(common, paths[i])
-		if common == "" {
-			break
-		}
-	}
-	if common == "" {
-		return "."
-	}
-	// Ensure it's a directory
-	info, err := os.Stat(common)
-	if err != nil || !info.IsDir() {
-		return filepath.Dir(common)
-	}
-	return common
-}
 
 // persistClusterConfig saves the cluster and cluster-path settings to the project config.
 func persistClusterConfig(clusterPathMap map[string]string, defaultCluster string) error {
@@ -590,26 +559,6 @@ func persistClusterConfig(clusterPathMap map[string]string, defaultCluster strin
 	return nil
 }
 
-func commonPrefix(a, b string) string {
-	a = filepath.Clean(a)
-	b = filepath.Clean(b)
-	// Split into components
-	aParts := strings.Split(a, string(filepath.Separator))
-	bParts := strings.Split(b, string(filepath.Separator))
-	
-	var common []string
-	for i := 0; i < len(aParts) && i < len(bParts); i++ {
-		if aParts[i] == bParts[i] {
-			common = append(common, aParts[i])
-		} else {
-			break
-		}
-	}
-	if len(common) == 0 {
-		return ""
-	}
-	return filepath.Join(common...)
-}
 
 // collectFilesForPath collects all parseable files under a path.
 func collectFilesForPath(rootPath string) ([]string, error) {
@@ -696,15 +645,15 @@ func runASTWatch(targetPath string, workers int, cluster string, clusterPaths []
 			if !first {
 				clusterInfo.WriteString(", ")
 			}
-			clusterInfo.WriteString(fmt.Sprintf("%s=%s", path, cl))
+			fmt.Fprintf(&clusterInfo, "%s=%s", path, cl)
 			first = false
 		}
 		if cluster != "" {
-			clusterInfo.WriteString(fmt.Sprintf(", default=%s", cluster))
+			fmt.Fprintf(&clusterInfo, ", default=%s", cluster)
 		}
 		clusterInfo.WriteString(")")
 	} else if cluster != "" {
-		clusterInfo.WriteString(fmt.Sprintf(" (cluster: %s)", cluster))
+		fmt.Fprintf(&clusterInfo, " (cluster: %s)", cluster)
 	}
 
 	p.Info("Watching %s for changes... [tree-sitter]%s", absPath, clusterInfo.String())

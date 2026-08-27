@@ -78,14 +78,6 @@ type CanonicalManifest struct {
 	Invariants      CanonicalInvariants  `json:"invariants"`
 }
 
-func (m *CanonicalManifest) nodeTable(label string) *CanonicalNodeTable {
-	for i := range m.NodeTables {
-		if m.NodeTables[i].Label == label {
-			return &m.NodeTables[i]
-		}
-	}
-	return nil
-}
 
 // ExportIcebugCanonical writes the store as a CANONICAL icebug-disk directory: real node
 // tables per label, one rel table per (type, from, to) pair over the real endpoints,
