@@ -226,7 +226,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				dbExists = true
 			}
 		}
-		if !opts.ForceRebuild && dbExists {
+		if !opts.ForceRebuild && dbExists && len(opts.ChangedPaths) == 0 {
 			logger.Warn("scoped run with an empty parse cache — falling back to full discovery, "+
 				"because rebuilding from it would publish a graph holding only the named files",
 				"changed", len(opts.ChangedPaths), "deleted", len(opts.DeletedPaths))
@@ -245,6 +245,19 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	var changedFiles []string
 	var deletedFiles []string
 	fileHashes := make(map[string]string, len(files))
+
+	// Build maps for correct cache keys:
+	// 1. absolute path -> relative path (for exact matches)
+	// 2. basename -> relative path (fallback for when parser only gives basename)
+	absToRel := make(map[string]string)
+	baseToRel := make(map[string]string)
+	for _, rel := range opts.ChangedPaths {
+		if absPath, err := filepath.Abs(rel); err == nil {
+			absToRel[absPath] = rel
+		}
+		baseToRel[filepath.Base(rel)] = rel
+	}
+
 	if scoped {
 		// Only the named files are considered. Hash them (in parallel) so the
 		// parse cache stores the right content hash; everything else is untouched.
@@ -597,10 +610,25 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		if jsonCache != nil && !dryRun {
 			// Resolve cluster for this specific file
 			fileCluster := resolveClusterForPath(r.pf.Path, abs, opts.ClusterPathMap, opts.Cluster)
+			// Fix the Path on ParsedFile to use the correct relative path from ChangedPaths
+			// The parser may only set the basename; we need the correct relative path for cache keys
+			fAbs, _ := filepath.Abs(r.pf.Path)
+			correctRelPath := absToRel[fAbs]
+			if correctRelPath == "" {
+				correctRelPath = baseToRel[filepath.Base(fAbs)]
+			}
+			if correctRelPath != "" {
+				// Set the correct absolute path so ConvertToCache computes the right relPath
+				r.pf.Path = filepath.Join(abs, correctRelPath)
+			}
+			fileCluster = resolveClusterForPath(r.pf.Path, abs, opts.ClusterPathMap, opts.Cluster)
 			entry := ConvertToCache(r.pf, abs, opts.IndexSource, fileCluster)
 			if entry != nil {
-				fAbs, _ := filepath.Abs(r.pf.Path)
-				relPath := writer.rel(fAbs)
+				relPath := correctRelPath
+				if relPath == "" {
+					fAbs, _ := filepath.Abs(r.pf.Path)
+					relPath = writer.rel(fAbs)
+				}
 				hash := fileHashes[r.pf.Path]
 				if hash == "" {
 					hash = fileContentHash(r.pf.Path)
