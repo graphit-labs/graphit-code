@@ -861,8 +861,9 @@ ci-fast: lancedb-native
 	@$(MAKE) test-short
 
 ci: lancedb-native
-	@echo "  → Running ui, vet, lint, vulncheck, ui-lint in parallel, then full test…"
-	@$(MAKE) -j5 ui vet lint vulncheck ui-lint
+	@echo "  → Building UI then running vet/lint/vulncheck/ui-lint in parallel, then full test…"
+	@$(MAKE) ui
+	@$(MAKE) -j4 vet lint vulncheck ui-lint
 	@$(MAKE) test
 	@echo ""
 	@echo "  ✅ All CI checks passed."
