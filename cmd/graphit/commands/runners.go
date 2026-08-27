@@ -431,14 +431,28 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 
 		finalResult, err = ast.RunPipelineForPaths(ctx, db, projectRoot, pipeOpts.ChangedPaths, pipeOpts.DeletedPaths, pipeOpts)
 	} else {
-		// Full index (reset/reindex or first time): use RunPipeline for each path
-		// This does full discovery from the specified path
+		// Full index (reset/reindex or first time): use project root as pipeline root
+		// and specify paths via ChangedPaths so shard paths are relative to project root
+		wd, _ := os.Getwd()
+		projectRoot := wd
+
+		var allFiles []string
 		for _, absPath := range absPaths {
-			finalResult, err = ast.RunPipeline(ctx, db, absPath, pipeOpts)
-			if err != nil {
-				return err
+			files, e := collectFilesForPath(absPath)
+			if e != nil {
+				return fmt.Errorf("collecting files for %s: %w", absPath, e)
 			}
+			allFiles = append(allFiles, files...)
 		}
+
+		pipeOpts.ChangedPaths = make([]string, len(allFiles))
+		for i, f := range allFiles {
+			rel, _ := filepath.Rel(projectRoot, f)
+			pipeOpts.ChangedPaths[i] = rel
+		}
+		pipeOpts.DeletedPaths = []string{}
+
+		finalResult, err = ast.RunPipelineForPaths(ctx, db, projectRoot, pipeOpts.ChangedPaths, pipeOpts.DeletedPaths, pipeOpts)
 	}
 	if err != nil {
 		return err
