@@ -234,13 +234,6 @@ func canonicalNodeLabels(m *ladybug.CanonicalManifest) []string {
 	return out
 }
 
-func canonicalAnchorTables(m *ladybug.CanonicalManifest, label string) []string {
-	if label != "" {
-		return []string{label}
-	}
-	return canonicalNodeLabels(m)
-}
-
 func canonicalConditions(n icebugNodePattern, preds []string) []string {
 	conds := make([]string, 0, len(n.properties)+len(preds)+1)
 	conds = append(conds, n.properties...)

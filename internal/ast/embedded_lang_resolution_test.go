@@ -42,7 +42,7 @@ func TestEmbeddedSQLReferenceReachesTheDeclaredTable(t *testing.T) {
 
 	// The order is the real rebuild's: nodes before edges, or emittedIn rejects both
 	// ends and the return is empty with no error.
-	ri.fileNodeJSON("")
+	ri.fileNodeJSON()
 	ri.entityJSON(LabelTable)
 	ri.stubTableJSON()
 
@@ -83,7 +83,7 @@ func TestReferenceWithoutItsOwnLangStillResolvesAsTheHostFile(t *testing.T) {
 			}},
 		},
 	})
-	ri.fileNodeJSON("")
+	ri.fileNodeJSON()
 	ri.entityJSON(LabelTable)
 	ri.stubTableJSON()
 
@@ -241,7 +241,7 @@ func TestHostSourcedEmbeddedEdgeReachesTheGraph(t *testing.T) {
 		t.Fatalf("host label absent from dmlSourceLabels %v; the FROM-TO pair is never declared", ri.dmlSourceLabels)
 	}
 
-	ri.fileNodeJSON("")
+	ri.fileNodeJSON()
 	ri.entityJSON(LabelTable)
 	ri.entityJSON("Element")
 	ri.stubTableJSON()

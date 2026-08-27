@@ -9,7 +9,6 @@ import (
 type GraphWriter struct {
 	db          GraphDB
 	rootPath    string
-	cluster     string
 	indexSource bool
 }
 

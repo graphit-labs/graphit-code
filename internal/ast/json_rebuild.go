@@ -476,17 +476,3 @@ func shortHex() string {
 	rand.Read(b)
 	return hex.EncodeToString(b)[:7]
 }
-
-func countLiveFiles(path string) int {
-	if _, err := os.Stat(path); err != nil {
-		return 0
-	}
-	ro := NewLadybugDBReadOnly(LadybugConfig{DBPath: path})
-	defer func() { _ = ro.Close() }()
-
-	res, err := ro.Query(context.Background(), "MATCH (f:File) RETURN count(f) AS n", nil)
-	if err != nil || len(res.Records) == 0 {
-		return 0
-	}
-	return toInt(res.Records[0]["n"])
-}

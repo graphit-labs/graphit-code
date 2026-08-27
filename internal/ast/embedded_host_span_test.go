@@ -369,7 +369,7 @@ func TestCallFromAHostUnitReachesTheGraph(t *testing.T) {
 			"declared and the edge has nowhere to go", ri.callerLabels)
 	}
 
-	ri.fileNodeJSON("")
+	ri.fileNodeJSON()
 	ri.entityJSON("UnitTrigger")
 	ri.stubFunctionJSON()
 

@@ -79,7 +79,7 @@ func TestFileSourcedDMLEdgeReachesTheGraph(t *testing.T) {
 	// And the rows have to come out. Order matters and is the real rebuild's: nodes are
 	// emitted BEFORE edges, because dmlEdgeJSON only writes an edge whose two ends
 	// already exist.
-	ri.fileNodeJSON("")
+	ri.fileNodeJSON()
 	ri.stubTableJSON()
 	rows := ri.dmlEdgeJSON("INSERTS", "File", LabelTable)
 	if len(rows) != 1 {
@@ -105,7 +105,7 @@ func TestEntitySourcedEdgeIsUnchanged(t *testing.T) {
 			},
 		},
 	})
-	ri.fileNodeJSON("")
+	ri.fileNodeJSON()
 	ri.entityJSON("Procedure")
 	ri.stubTableJSON()
 	if rows := ri.dmlEdgeJSON("SELECTS", "File", LabelTable); len(rows) != 0 {
@@ -189,7 +189,7 @@ func TestFileCalledEdgeReachesTheGraph(t *testing.T) {
 		t.Error("the writer would refuse the file-sourced CALLS group")
 	}
 
-	ri.fileNodeJSON("")
+	ri.fileNodeJSON()
 	ri.stubFunctionJSON()
 	rows := ri.callEdgeJSON(LabelFile, LabelFunction)
 	if len(rows) != 1 {

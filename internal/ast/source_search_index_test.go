@@ -78,7 +78,7 @@ func TestFileRowsCarryNoSource(t *testing.T) {
 		"a/b.go": {Language: "go", Source: "package main\n\nfunc main() {}\n"},
 	})
 
-	rows := ri.fileNodeJSON("")
+	rows := ri.fileNodeJSON()
 	if len(rows) != 1 {
 		t.Fatalf("got %d File rows, want 1", len(rows))
 	}

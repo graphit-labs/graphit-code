@@ -17,9 +17,8 @@ const (
 )
 
 var (
-	nodePattern             = regexp.MustCompile(`(?is)^\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*` + "`?" + `([A-Za-z_][A-Za-z0-9_]*)` + "`?" + `)?\s*(?:\{\s*(.*?)\s*\})?\s*\)$`)
-	propertyPattern         = regexp.MustCompile(`(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+?)\s*$`)
-	returnTailPattern       = regexp.MustCompile(`(?is)\s+(ORDER\s+BY|LIMIT|SKIP)\s+`)
+	nodePattern     = regexp.MustCompile(`(?is)^\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*` + "`?" + `([A-Za-z_][A-Za-z0-9_]*)` + "`?" + `)?\s*(?:\{\s*(.*?)\s*\})?\s*\)$`)
+	propertyPattern = regexp.MustCompile(`(?is)^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+?)\s*$`)
 )
 
 type icebugNodePattern struct {
