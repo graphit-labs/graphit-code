@@ -33,7 +33,7 @@ const maxKnowledgeDocBytes = 1024 * 1024
 
 // knowledgeSourceFile reports whether a file found under absRoot is a document
 // the wiki indexes, returning its cache key and extension.
-func knowledgeSourceFile(absRoot, path string, info os.FileInfo, exts map[string]bool, ic *ignorer.IgnoreChecker) (relPath, ext string, ok bool) {
+func knowledgeSourceFile(absRoot, path string, info os.FileInfo, exts map[string]bool, ic ignorer.DirScope) (relPath, ext string, ok bool) {
 	ext = strings.ToLower(filepath.Ext(path))
 	if !exts[ext] {
 		return "", "", false
@@ -104,7 +104,7 @@ func (s WikiScope) walkRoots(absRoot string) []string {
 // enumerateKnowledgeSources walks the scope once. Both the added-document check
 // in StatPreCheck and the generation pass read from this single result — walking
 // twice per index is what this exists to avoid.
-func enumerateKnowledgeSources(absRoot string, scope WikiScope, exts map[string]bool, ic *ignorer.IgnoreChecker) ([]knowledgeSource, error) {
+func enumerateKnowledgeSources(absRoot string, scope WikiScope, exts map[string]bool, ic ignorer.DirScope) ([]knowledgeSource, error) {
 	var sources []knowledgeSource
 	seen := make(map[string]bool)
 
@@ -131,6 +131,12 @@ func enumerateKnowledgeSources(absRoot string, scope WikiScope, exts map[string]
 				relDir, _ := filepath.Rel(absRoot, path)
 				if relDir != "." && ic.IsIgnored(relDir, true) && !ic.ShouldDescend(relDir) {
 					return filepath.SkipDir
+				}
+				// A directory's own .gitignore/.wikiignore scopes to it, exactly
+				// as git does; crossing into one before its children is what
+				// makes that true.
+				if relDir != "." {
+					ic = ic.At(relDir)
 				}
 				return nil
 			}
@@ -180,7 +186,7 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	// tree upward, so a .wikiignore kept inside the docs tree is read as well as
 	// the one at the root.
 	walkRoot := scope.walkRoot(absRoot)
-	ic := NewKnowledgeIgnoreCheckerIn(absRoot, walkRoot)
+	ic := ignorer.DirScope(NewKnowledgeIgnoreCheckerIn(absRoot, walkRoot))
 
 	exts := allowedExts
 	if len(exts) == 0 {

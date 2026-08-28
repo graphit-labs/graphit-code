@@ -245,3 +245,28 @@ func TestDebounceCoalesces(t *testing.T) {
 	}
 	t.Logf("coalesced %d files into one batch", len(b.Changed))
 }
+
+// A subdirectory's own ignore file scopes to that subdirectory while watching:
+// `.opencode/.gitignore` with `node_modules` must not deliver events from
+// `.opencode/node_modules/`, but events from `.opencode/keep.js` arrive.
+func TestSubdirectoryIgnoreFilesApplyWhileWatching(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, ".opencode", ".gitignore"), "node_modules\n")
+	write(t, filepath.Join(root, "src", "keep.go"), "package k\n")
+
+	ic := ignorer.New(root, root, ".astignore", nil)
+	ch := startWatcher(t, root, ic)
+
+	write(t, filepath.Join(root, ".opencode", "node_modules", "x.js"), "const x = 1;\n")
+	write(t, filepath.Join(root, ".opencode", "keep.js"), "const k = 1;\n")
+
+	b, ok := waitBatch(t, ch, 3*time.Second, func(b Batch) bool {
+		return contains(b.Changed, ".opencode/keep.js")
+	})
+	if !ok {
+		t.Fatal("did not observe the kept file inside .opencode")
+	}
+	if contains(b.Changed, ".opencode/node_modules/x.js") || contains(b.Removed, ".opencode/node_modules/x.js") {
+		t.Errorf("subdirectory-ignored path leaked into batch: %v (batch=%v)", b.Changed, b.Changed)
+	}
+}

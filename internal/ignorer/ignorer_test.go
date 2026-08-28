@@ -387,3 +387,47 @@ func TestProjectGitignorePlusCustomIgnoreBothApply(t *testing.T) {
 		}
 	}
 }
+
+// At is the walker hook: crossing into a directory picks up ITS ignore files,
+// with the same git scope. `.opencode/.gitignore` with `node_modules` must
+// exclude `.opencode/node_modules/` and nothing else.
+func TestAtAppliesSubdirectoryIgnoreFiles(t *testing.T) {
+	root := t.TempDir()
+	writeIgnoreFixture(t, filepath.Join(root, brand.LockFileName()), "{}")
+	writeIgnoreFixture(t, filepath.Join(root, ".opencode", ".gitignore"), "node_modules\n")
+	writeIgnoreFixture(t, filepath.Join(root, ".opencode", ".astignore"), "cache/\n")
+
+	atRoot := New(root, root, ".astignore", nil)
+
+	// Before crossing: the subdirectory's files are not known, so a child of it
+	// is not ignored yet.
+	if atRoot.IsIgnored(".opencode/node_modules/x.js", false) {
+		t.Error("subdirectory ignore files were read before At crossed into it")
+	}
+
+	inside := atRoot.At(".opencode")
+	if !inside.IsIgnored(".opencode/node_modules/x.js", false) {
+		t.Error("node_modules from .opencode/.gitignore was not applied after At(.opencode)")
+	}
+	if !inside.IsIgnored(".opencode/node_modules/@pkg/index.js", false) {
+		t.Error("a deep node_modules child was not applied after At(.opencode)")
+	}
+	if !inside.IsIgnored(".opencode/cache/dirs.zip", false) {
+		t.Error("cache from .opencode/.astignore was not applied after At(.opencode)")
+	}
+	if inside.IsIgnored(".opencode/src.js", false) {
+		t.Error("a kept file inside .opencode was ignored")
+	}
+	if inside.IsIgnored("keep/node_modules/x.js", false) {
+		t.Error("node_modules scope leaked outside .opencode")
+	}
+
+	// At deepens monotonically: crossing further adds, never removes.
+	deeper := inside.At(".opencode/node_modules")
+	if !deeper.IsIgnored(".opencode/node_modules/x.js", false) {
+		t.Error("crossing deeper lost the parent's rules")
+	}
+	if !deeper.IsIgnored(".opencode/node_modules/.gitignore", false) {
+		t.Error("crossing a nested dir must keep its own parent rules intact")
+	}
+}

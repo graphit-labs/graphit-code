@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/ignorer"
 )
 
 type GraphWriter struct {
@@ -36,7 +38,7 @@ func (w *GraphWriter) rel(path string) string {
 func collectFiles(rootPath string) ([]string, error) {
 	var files []string
 
-	ic := NewAstIgnoreChecker(rootPath)
+	ic := ignorer.DirScope(NewAstIgnoreChecker(rootPath))
 
 	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -50,13 +52,13 @@ func collectFiles(rootPath string) ([]string, error) {
 
 		if rel != "." {
 			if info.IsDir() {
-
-				if strings.HasPrefix(info.Name(), ".") {
-					return filepath.SkipDir
-				}
 				if ic.IsIgnored(rel, true) && !ic.ShouldDescend(rel) {
 					return filepath.SkipDir
 				}
+				// A directory's own .gitignore/.astignore scopes to it, exactly
+				// as git does; crossing into one before its children is what
+				// makes that true.
+				ic = ic.At(rel)
 				return nil
 			}
 

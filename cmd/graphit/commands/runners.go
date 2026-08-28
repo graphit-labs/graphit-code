@@ -17,6 +17,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/ast"
+	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	_ "github.com/graphit-labs/graphit-code/internal/ast/cypher" // registers AI Cypher generator
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
@@ -590,7 +591,7 @@ func persistClusterConfig(clusterPathMap map[string]string, defaultCluster strin
 // the project being indexed, which may be a parent of a scoped path like
 // `ast index internal/ui`. The scoped path is only where the walk starts.
 func collectFilesForPath(rootPath, projectRoot string) ([]string, error) {
-	ic := ast.NewAstIgnoreChecker(projectRoot)
+	ic := ignorer.DirScope(ast.NewAstIgnoreChecker(projectRoot))
 	var files []string
 	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -603,6 +604,12 @@ func collectFilesForPath(rootPath, projectRoot string) ([]string, error) {
 		if info.IsDir() {
 			if rel != "." && ic.IsIgnored(rel, true) && !ic.ShouldDescend(rel) {
 				return filepath.SkipDir
+			}
+			// The directory's own ignore files (.gitignore/.astignore in it)
+			// apply to whatever lives under it — git semantics, so a
+			// `.opencode/.gitignore` with `node_modules` scopes to .opencode.
+			if rel != "." {
+				ic = ic.At(rel)
 			}
 			return nil
 		}

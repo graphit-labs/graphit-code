@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
+	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
@@ -45,12 +47,12 @@ type Batch struct {
 }
 
 // Config configures a Watcher.
-// Ignorer is the subset of ignorer.IgnoreChecker a watcher needs.
-// *ignorer.IgnoreChecker satisfies it.
-type Ignorer interface {
-	IsIgnored(relPath string, isDir bool) bool
-	ShouldDescend(dirRelPath string) bool
-}
+// Ignorer is the share of ignorer's contract a watcher needs — in fact the same
+// contract: a directory's ignore files must be brought in as the tree is
+// crossed, which is exactly ignorer.DirScope. An alias, an interface with the
+// same methods, would need covariant method signatures to share At, which Go
+// does not do.
+type Ignorer = ignorer.DirScope
 
 type Config struct {
 	// Root is the directory tree to watch.
@@ -92,12 +94,13 @@ func (c *Config) applyDefaults() {
 
 // Watcher turns filesystem notifications into coalesced batches.
 type Watcher struct {
-	cfg     Config
-	log     *slog.Logger
-	fsw     *fsnotify.Watcher
-	root    string
-	watched map[string]bool
-	mu      sync.Mutex
+	cfg        Config
+	log        *slog.Logger
+	fsw        *fsnotify.Watcher
+	root       string
+	watched    map[string]bool
+	dirContext map[string]Ignorer
+	mu         sync.Mutex
 }
 
 // New creates a Watcher over cfg.Root without starting it.
@@ -138,6 +141,12 @@ func (w *Watcher) Start(ctx context.Context) (<-chan Batch, error) {
 }
 
 // addTree registers a watch on dir and every non-ignored directory beneath it.
+//
+// The ignore context deepens monotonically with each directory crossed: a
+// subdirectory's own .gitignore/.astignore applies to everything below it, which
+// is what git does — so the checker used for a child is the one At()'d into the
+// parent. Each watched directory's context is remembered for the accept() path,
+// which has no tree to walk.
 func (w *Watcher) addTree(dir string) error {
 	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -156,8 +165,40 @@ func (w *Watcher) addTree(dir string) error {
 		if err := w.addWatch(p); err != nil {
 			return err
 		}
+		if rel != "." && usableOK(w.cfg.Ignore) {
+			if sub, ok := usable(w.cfg.Ignore.At(rel)); ok {
+				w.mu.Lock()
+				if w.dirContext == nil {
+					w.dirContext = make(map[string]Ignorer)
+				}
+				w.dirContext[p] = sub
+				w.mu.Unlock()
+			}
+		}
 		return nil
 	})
+}
+
+// usableOK is usable's nil-interface form, for callers that only need to know
+// whether there are any rules at all.
+func usableOK(s Ignorer) bool {
+	_, ok := usable(s)
+	return ok
+}
+
+// usable unwraps the no-rules case that Go's interfaces make invisible: a nil
+// implemented as a nil *IgnoreChecker stored in the interface is NOT a nil
+// interface, so a plain `== nil` check misses it. Every IsIgnored on the
+// checker itself guards against the same receiver, but At does not — there is
+// no rule to descend into, so callers need the boolean.
+func usable(s Ignorer) (Ignorer, bool) {
+	if s == nil {
+		return nil, false
+	}
+	if c, ok := s.(*ignorer.IgnoreChecker); ok && c == nil {
+		return nil, false
+	}
+	return s, true
 }
 
 func (w *Watcher) isIgnoredDir(rel string) bool {
@@ -169,12 +210,21 @@ func (w *Watcher) isIgnoredDir(rel string) bool {
 	if base == ".git" {
 		return true
 	}
-	if w.cfg.Ignore == nil {
+	ctx, ok := usable(w.cfg.Ignore)
+	if !ok {
 		return false
 	}
-	// ShouldDescend re-includes a directory that ignore rules reject when a
-	// negation pattern ("!") targets something inside it.
-	return w.cfg.Ignore.IsIgnored(rel, true) && !w.cfg.Ignore.ShouldDescend(rel)
+	// The caller passes the context of the DIRECTORY'S PARENT (the walk has not
+	// crossed into rel yet); for the root's children there is no At yet and the
+	// root rules are exactly right.
+	if parentRel := path.Dir(rel); parentRel != "." {
+		sub, ok := usable(ctx.At(parentRel))
+		if !ok {
+			return false
+		}
+		ctx = sub
+	}
+	return ctx.IsIgnored(rel, true) && !ctx.ShouldDescend(rel)
 }
 
 func (w *Watcher) addWatch(dir string) error {
@@ -207,8 +257,25 @@ func (w *Watcher) accept(path string) bool {
 	if strings.HasPrefix(rel, ".git/") || rel == ".git" {
 		return false
 	}
-	if w.cfg.Ignore != nil && w.cfg.Ignore.IsIgnored(rel, false) {
-		return false
+	if w.cfg.Ignore != nil {
+		// The rules in force depend on WHERE the file is: a subdirectory's own
+		// .gitignore/.astignore applies to everything below it, so the event is
+		// judged by the context its directory was registered with — or, for a
+		// path whose directory we never watched (delayed event race), by the
+		// context computed from the tree we do know, the root rules.
+		if ctx, ok := usable(w.cfg.Ignore); ok {
+			if dirAbs := filepath.Dir(path); dirAbs != w.root {
+				w.mu.Lock()
+				cached := w.dirContext[dirAbs]
+				w.mu.Unlock()
+				if c, ok := usable(cached); ok {
+					ctx = c
+				}
+			}
+			if ctx.IsIgnored(rel, false) {
+				return false
+			}
+		}
 	}
 	if w.cfg.Accept != nil && !w.cfg.Accept(path) {
 		return false

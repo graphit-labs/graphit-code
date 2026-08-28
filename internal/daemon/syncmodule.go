@@ -125,6 +125,19 @@ func (u ignoreUnion) ShouldDescend(dirRelPath string) bool {
 	return false
 }
 
+// At deepens each member into the directory, keeping the union's semantics: a
+// path is skipped only when EVERY member says to skip it, with each member
+// carrying now the ignore files of the directories it crossed.
+func (u ignoreUnion) At(dirRelPath string) fswatch.Ignorer {
+	next := make(ignoreUnion, 0, len(u))
+	for _, ig := range u {
+		if ig != nil {
+			next = append(next, ig.At(dirRelPath))
+		}
+	}
+	return next
+}
+
 // batchTargets names the indexers a batch has to reach. The two are
 // independent, not alternatives: .yaml, .json, .xml and .proto are indexed by
 // both the AST pipeline and the knowledge wiki, so one path can set both.

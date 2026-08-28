@@ -156,6 +156,56 @@ func TestCollectFilesForPathScopedStaysInsideProjectBoundary(t *testing.T) {
 	}
 }
 
+// The reported regression: `.opencode/.gitignore` scopes its patterns to
+// `.opencode/`, so `node_modules` there must exclude `.opencode/node_modules/`
+// while leaving everything else alone.
+func TestCollectFilesForPathHonorsSubdirectoryGitignore(t *testing.T) {
+	root := t.TempDir()
+	if !ast.HasParserForExtensionIn(root, ".js") {
+		t.Skip("grammar unavailable on this machine")
+	}
+	mk := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk(".opencode/node_modules/@pkg/index.js", "const i = 1;")
+	mk(".opencode/node_modules/zod/v4/core/standard-schema.js", "const z = 1;")
+	mk(".opencode/keep.js", "const k = 1;")
+	mk("keep/a.js", "const a = 1;")
+	mk(".opencode/.gitignore", "node_modules\n")
+
+	files, err := collectFilesForPath(root, root)
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	paths := allPaths(files)
+	want := []string{
+		filepath.Join(root, "keep", "a.js"),
+		filepath.Join(root, ".opencode", "keep.js"),
+	}
+	if len(paths) != len(want) {
+		t.Errorf("subdirectory gitignore wrong count: got %v, want %v", paths, want)
+	}
+	for _, w := range want {
+		found := false
+		for _, p := range paths {
+			if p == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected %v to be indexed, got %v", w, paths)
+		}
+	}
+}
+
 func allPaths(files []string) []string {
 	out := make([]string, 0, len(files))
 	for _, f := range files {

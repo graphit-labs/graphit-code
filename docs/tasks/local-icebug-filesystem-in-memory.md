@@ -181,6 +181,17 @@ Then count igual ao nativo e existe nodes_*.parquet
   - Validado manualmente: `/tmp/itest` e `/tmp/itest2` (com `.gitignore internal/ui/node_modules/` e `.opencode/node_modules/zod`) → só `keep/`/`internal/ui/main.go` indexado.
   - **PENDENTE**: `make install` do binário novo e `graphit ast index --reset` no projeto real para expurgar os arquivos errôneos já indexados.
 
+### 2026-08-28 (continuação)
+- **FASE 2 — ignores em subdiretórios** (usuário: "tanto os gitignore quanto os ignores customizados de astignore e wikiignore precisam ser lidos nos subníveis e valer"):
+  - Descobierto: `.opencode/.gitignore` com `node_modules` não era lido — o checker só coletava ignore files do root até o boundary; um `.gitignore` num subdir (semântica git: scope de diretório) nunca entrava.
+  - `internal/ignorer`: novo `IgnoreChecker.At(dirRelPath) DirScope` — devolve o contexto do diretório com os ignore files de cada nível (`.gitignore` + custom `.astignore`/`.wikiignore`), cacheado por diretório; patterns são parseados com o domínio do diretório (gogitignore::domain, já validado: `node_modules` em `.opencode/` casa `.opencode/node_modules/...` e nada mais).
+  - `internal/fswatch`: `Ignorer` agora é ALIAS de `ignorer.DirScope` (a interface antiga não era compatível com o retorno covariante do At; explicado no comment); `addTree` atravessa com At e guarda o contexto por diretório; `accept` julga cada evento pelo contexto do seu diretório; helper `usable()` trata o `(*IgnoreChecker)(nil)` tipado como sem-regras (interface nil-typed).
+  - `internal/ast/writer.go` (collectFiles) e `internal/knowledge/wiki.go` (enumerateKnowledgeSources + knowledgeSourceFile): atravessam com At, então `.gitignore`/`.astignore`/`.wikiignore` de subdiretórios valem nos discoveries internos; dot-dirs não são mais pulados estruturalmente (regra: só os ignores excluem).
+  - `internal/daemon/syncmodule.go`: `ignoreUnion.At` (união AST+wiki) implementada.
+  - Testes: `TestAtAppliesSubdirectoryIgnoreFiles` (ignorer), `TestSubdirectoryIgnoreFilesApplyWhileWatching` (fswatch), `TestCollectFilesForPathHonorsSubdirectoryGitignore` (commands), dot-dirs regidos por ignores (commands).
+  - **Nota de integração**: `collectFilesForPath` (runners.go) é o discovery do CLI e segue At; o `collectFiles` interno (daemon full-scan/watcher fallback) também; watch via fswatch At.
+  - Observação máquina: `graphit-core daemon` (7.4GB RSS) rodando; a suíte `internal/ast` deu "signal: segmentation fault" na rodada 15:12 e passou isolada depois (testes 13s, Verify ok) — provável tensão de memória/execução nativa; ACOMPANHAR (se persistir, investigar liblbug/OOM).
+
 ## Handoff
 
 Para outro agente continuar:
