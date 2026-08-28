@@ -153,7 +153,7 @@ func Shout(s string) string { return strings.ToUpper(fmt.Sprint(s)) }
 
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "ladybugdb")
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	if _, err := RunPipeline(context.Background(), db, work, PipelineOptions{
 		CacheDir: filepath.Join(tmp, "cache"),
 	}); err != nil {
@@ -163,7 +163,7 @@ func Shout(s string) string { return strings.ToUpper(fmt.Sprint(s)) }
 	_ = db.Close()
 
 	// Reopened, because the pipeline swaps the database file underneath.
-	graph := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	graph := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	defer func() { _ = graph.Close() }()
 
 	ctx := context.Background()
@@ -178,7 +178,7 @@ func Shout(s string) string { return strings.ToUpper(fmt.Sprint(s)) }
 
 	// Reachable from the file that wrote it, which is what makes it navigable.
 	contained, err := graph.Query(ctx,
-		"MATCH (f:File)-[:CONTAINS]->(i:Import) RETURN f.path AS path, i.name AS name ORDER BY name", nil)
+		"MATCH (f:File {path: 'sample.go'})-[:CONTAINS]->(i:Import) RETURN DISTINCT i.name", nil)
 	if err != nil {
 		t.Fatalf("File-CONTAINS->Import: %v", err)
 	}
@@ -187,7 +187,7 @@ func Shout(s string) string { return strings.ToUpper(fmt.Sprint(s)) }
 	}
 
 	// And the edge side is untouched: the canonical Module is still there.
-	mods, err := graph.Query(ctx, "MATCH (f:File)-[:IMPORTS]->(m:Module) RETURN count(*) AS n", nil)
+	mods, err := graph.Query(ctx, "MATCH (f:File {path: 'sample.go'})-[:IMPORTS]->(m:Module) RETURN count(DISTINCT m.uid) AS n", nil)
 	if err != nil {
 		t.Fatalf("IMPORTS edges: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestPipelineWritesIncludeNodesForC(t *testing.T) {
 
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "ladybugdb")
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	if _, err := RunPipeline(context.Background(), db, work, PipelineOptions{
 		CacheDir: filepath.Join(tmp, "cache"),
 	}); err != nil {
@@ -346,7 +346,7 @@ func TestPipelineWritesIncludeNodesForC(t *testing.T) {
 	}
 	_ = db.Close()
 
-	graph := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	graph := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	defer func() { _ = graph.Close() }()
 
 	res, err := graph.Query(context.Background(),
@@ -363,7 +363,7 @@ func TestPipelineWritesIncludeNodesForC(t *testing.T) {
 		t.Error("a C file produced Import nodes; #include must land as Include")
 	}
 
-	mods, err := graph.Query(context.Background(), "MATCH (f:File)-[:IMPORTS]->(m:Module) RETURN count(*) AS n", nil)
+	mods, err := graph.Query(context.Background(), "MATCH (f:File {path: 'main.c'})-[:IMPORTS]->(m:Module) RETURN count(DISTINCT m.uid) AS n", nil)
 	if err != nil {
 		t.Fatalf("IMPORTS edges: %v", err)
 	}

@@ -511,54 +511,39 @@ func TestDataFormatGraphIsQueryable(t *testing.T) {
 		}
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "ladybugdb")
-	writer := NewLadybugDB(LadybugConfig{DBPath: dbPath})
-	if err := writer.connect(); err != nil {
-		t.Skipf("ladybug unavailable: %v", err)
-	}
+	db := rebuildTestStore(t, cache, proj)
 	ctx := context.Background()
-	if err := RebuildFromJSON(ctx, writer, cache, nil, "", proj, nil); err != nil {
-		_ = writer.Close()
-		t.Fatalf("rebuild: %v", err)
-	}
-	_ = writer.Close()
-
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
-	if err := db.connect(); err != nil {
-		t.Fatalf("reopen after swap: %v", err)
-	}
-	defer func() { _ = db.Close() }()
 
 	probes := []struct {
 		what, query, wantKey, wantValue string
 	}{
 		{
 			what:      "an XML attribute and its value",
-			query:     "MATCH (a:`Attribute`)-[:CONTAINS]->(v:`AttributeValue`) WHERE a.name = 'class' RETURN a.name AS k, v.name AS v",
+			query:     "MATCH (a:`Attribute` {name: 'class'})-[r:CONTAINS]->(v:`AttributeValue`) RETURN DISTINCT v.name",
 			wantKey:   "class",
 			wantValue: "com.acme.OrderServlet",
 		},
 		{
 			what:      "an XML element and its text",
-			query:     "MATCH (e:`Element`)-[:CONTAINS]->(t:`Text`) WHERE e.name = 'timeout' RETURN e.name AS k, t.name AS v",
+			query:     "MATCH (e:`Element` {name: 'timeout'})-[r:CONTAINS]->(t:`Text`) RETURN DISTINCT t.name",
 			wantKey:   "timeout",
 			wantValue: "30",
 		},
 		{
 			what:      "a JSON member and its value",
-			query:     "MATCH (p:`Pair`)-[:CONTAINS]->(v:`Value`) WHERE p.name = 'version' RETURN p.name AS k, v.name AS v",
+			query:     "MATCH (p:`Pair` {name: 'version'})-[r:CONTAINS]->(v:`Value`) RETURN DISTINCT v.name",
 			wantKey:   "version",
 			wantValue: "2.1.0",
 		},
 		{
 			what:      "a YAML mapping and its value",
-			query:     "MATCH (m:`Mapping`)-[:CONTAINS]->(v:`Value`) WHERE m.name = 'image' RETURN m.name AS k, v.name AS v",
+			query:     "MATCH (m:`Mapping` {name: 'image'})-[r:CONTAINS]->(v:`Value`) RETURN DISTINCT v.name",
 			wantKey:   "image",
 			wantValue: "acme/api:2.1.0",
 		},
 		{
 			what:      "a TOML pair and its value",
-			query:     "MATCH (p:`Pair`)-[:CONTAINS]->(v:`Value`) WHERE p.name = 'listen' RETURN p.name AS k, v.name AS v",
+			query:     "MATCH (p:`Pair` {name: 'listen'})-[r:CONTAINS]->(v:`Value`) RETURN DISTINCT v.name",
 			wantKey:   "listen",
 			wantValue: "0.0.0.0:8080",
 		},
@@ -575,9 +560,15 @@ func TestDataFormatGraphIsQueryable(t *testing.T) {
 			continue
 		}
 		rec := rows.Records[0]
-		if rec["k"] != probe.wantKey || rec["v"] != probe.wantValue {
-			t.Errorf("%s: got %v -> %v, want %q -> %q",
-				probe.what, rec["k"], rec["v"], probe.wantKey, probe.wantValue)
+		got := ""
+		for _, k := range []string{"v.name", "t.name"} {
+			if val, ok := rec[k].(string); ok {
+				got = val
+				break
+			}
+		}
+		if got != probe.wantValue {
+			t.Errorf("%s: got %v, want %q", probe.what, got, probe.wantValue)
 		}
 	}
 

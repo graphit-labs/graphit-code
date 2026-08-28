@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
@@ -253,7 +252,8 @@ func newASTInstallCmd() *cobra.Command {
 		Short: "Import an external project AST into a named context",
 		Long: `Import an external project's source code into a separate AST database.
 
-Each imported context gets its own LadybugDB at ~/` + brand.DotDir() + `/ast/<name>/ladybugdb.
+Each imported context gets its own icebug bundle at ~/` + brand.DotDir() + `/ast/<name>/graph.icebug,
+mounted in-memory by its schema.cypher — no catalog file is written.
 
 Examples:
   ` + brand.BinName() + ` ast install /path/to/project --context oracle-schema
@@ -425,7 +425,7 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 			cfg.RepoRoot, _ = os.Getwd()
 			cfg.ProjectDir = cfg.RepoRoot
 			ladybugCfg := ast.DefaultLadybugConfig()
-			cacheDir := filepath.Dir(ladybugCfg.DBPath)
+			cacheDir := ladybugCfg.StoreDir
 
 			parseCache, cacheErr := ast.NewShardCache(cacheDir)
 			if cacheErr != nil {
@@ -441,7 +441,7 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 
 			probe := ast.NewEmbedder(nil, cfg)
 			pending := probe.CountPending(ctx)
-			idxPath := ladybugCfg.DBPath
+			idxPath := ladybugCfg.StoreDir
 			if pending == 0 {
 				// Even if all embeddings are cached, the search tables may be empty —
 				// a graph rebuilt without them, or a store restored from a partial

@@ -17,7 +17,7 @@ import (
 func TestSchemaTextGroupsLabelsThatShareAPropertySet(t *testing.T) {
 	t.Parallel()
 
-	db := NewLadybugDB(LadybugConfig{DBPath: filepath.Join(t.TempDir(), "ladybugdb")})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), IcebugDir: filepath.Join(filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), "graph.icebug")})
 	if err := db.connect(); err != nil {
 		t.Skipf("ladybug unavailable: %v", err)
 	}

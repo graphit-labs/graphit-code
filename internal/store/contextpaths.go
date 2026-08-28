@@ -12,21 +12,35 @@ package store
 // longer stores one: a stored path froze at the moment it was written, and went wrong
 // the first time the sibling it pointed at ran `init` and re-keyed its store.
 
-// ASTContextDBPathIn resolves the graph that a context name points at for one project.
-func ASTContextDBPathIn(projectDir, name string) string {
+// ASTContextIcebugDirIn resolves the icebug bundle for a context (filesystem on-the-fly, :memory: catalog).
+func ASTContextIcebugDirIn(projectDir, name string) string {
 	rec, ok := LookupContext(projectDir, KindAST, name)
 	if !ok {
-		return ASTContextDBPath(name)
+		return ASTContextIcebugDir(name)
 	}
 	switch {
 	case rec.IsHub():
-		return ASTHubDBPath(rec.Name, rec.Version)
+		return ASTHubDir(rec.Name, rec.Version)
 	case rec.IsLink() && rec.SourcePath != "":
-		// The sibling's own project store, read in place. Derived from its path, so a
-		// reindex or a re-key over there is picked up rather than frozen here.
-		return ASTProjectDBPath(rec.SourcePath)
+		return ASTProjectIcebugDir(rec.SourcePath)
 	default:
-		return ASTContextDBPath(rec.Name)
+		return ASTContextIcebugDir(rec.Name)
+	}
+}
+
+// ASTContextDirIn resolves the store directory of a context for one project.
+func ASTContextDirIn(projectDir, name string) string {
+	rec, ok := LookupContext(projectDir, KindAST, name)
+	if !ok {
+		return ASTContextDir(name)
+	}
+	switch {
+	case rec.IsHub():
+		return ASTHubDir(rec.Name, rec.Version)
+	case rec.IsLink() && rec.SourcePath != "":
+		return ASTProjectDir(rec.SourcePath)
+	default:
+		return ASTContextDir(rec.Name)
 	}
 }
 

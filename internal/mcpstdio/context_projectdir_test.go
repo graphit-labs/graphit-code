@@ -41,31 +41,33 @@ func TestASTConfigForProjectResolvesTheNamedProjectsStore(t *testing.T) {
 	bystander := t.TempDir()
 	t.Chdir(bystander)
 
-	got := astConfigForProject(target, "").DBPath
-	if want := store.ASTProjectDBPath(target); got != want {
-		t.Errorf("DBPath = %q; want %q", got, want)
+	got := astConfigForProject(target, "").StoreDir
+	if want := store.ASTProjectDir(target); got != want {
+		t.Errorf("StoreDir = %q; want %q", got, want)
 	}
 	if !filepath.IsAbs(got) {
-		t.Errorf("DBPath = %q; want an absolute path", got)
+		t.Errorf("StoreDir = %q; want an absolute path", got)
 	}
-	if got == store.ASTProjectDBPath(bystander) {
+	if got == store.ASTProjectDir(bystander) {
 		t.Error("the request for one project resolved to the working-directory project's store")
 	}
 	// And nothing is placed in the project itself.
 	if strings.HasPrefix(got, target) {
-		t.Errorf("DBPath = %q; the store must live in the global directory", got)
+		t.Errorf("StoreDir = %q; the store must live in the global directory", got)
 	}
 }
 
 // TestASTConfigForProjectKeepsAbsolutePaths guards the environment override, which
 // names a store outright and must not be rewritten.
 func TestASTConfigForProjectKeepsAbsolutePaths(t *testing.T) {
-	absolute := filepath.Join(t.TempDir(), "gnaisse", "ladybugdb")
+	absolute := filepath.Join(t.TempDir(), "gnaisse", "graph.icebug")
 	t.Setenv("LADYBUGDB_PATH", absolute)
 
 	project := t.TempDir()
-	if got := astConfigForProject(project, "").DBPath; got != absolute {
-		t.Errorf("DBPath = %q; want the absolute override %q", got, absolute)
+	cfg := astConfigForProject(project, "")
+	if cfg.IcebugDir != absolute || cfg.StoreDir != filepath.Dir(absolute) {
+		t.Errorf("override not honored: IcebugDir=%q StoreDir=%q; want IcebugDir=%q StoreDir=%q",
+			cfg.IcebugDir, cfg.StoreDir, absolute, filepath.Dir(absolute))
 	}
 }
 
@@ -90,16 +92,16 @@ func TestOpenASTDBReadWriteWritesIntoTheRequestedProjectsStore(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	wantDB := store.ASTProjectDBPath(target)
-	pathed, ok := db.(interface{ DBPath() string })
+	wantDB := store.ASTProjectDir(target)
+	pathed, ok := db.(interface{ StoreDir() string })
 	if !ok {
-		t.Fatalf("backend %T does not expose DBPath", db)
+		t.Fatalf("backend %T does not expose StoreDir", db)
 	}
-	if got := pathed.DBPath(); got != wantDB {
-		t.Fatalf("DBPath = %q; want %q", got, wantDB)
+	if got := pathed.StoreDir(); got != wantDB {
+		t.Fatalf("StoreDir = %q; want %q", got, wantDB)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(wantDB), 0o755); err != nil {
+	if err := os.MkdirAll(wantDB, 0o755); err != nil {
 		t.Fatalf("store dir: %v", err)
 	}
 	if _, err := db.Execute(context.Background(),
@@ -128,8 +130,8 @@ func TestOpenASTDBReportsMissingDatabaseInRequestedProject(t *testing.T) {
 	target := t.TempDir()
 	bystander := t.TempDir()
 
-	if err := os.MkdirAll(store.ASTProjectDBPath(bystander), 0o755); err != nil {
-		t.Fatalf("seed bystander db: %v", err)
+	if err := os.MkdirAll(store.ASTProjectIcebugDir(bystander), 0o755); err != nil {
+		t.Fatalf("seed bystander bundle: %v", err)
 	}
 	t.Chdir(bystander)
 
@@ -137,8 +139,8 @@ func TestOpenASTDBReportsMissingDatabaseInRequestedProject(t *testing.T) {
 	if err == nil {
 		t.Fatal("openASTDB() succeeded; want a missing-database error for the target project")
 	}
-	if want := store.ASTProjectDBPath(target); !strings.Contains(err.Error(), want) {
-		t.Errorf("error = %q; want it to name the target database %q", err, want)
+	if want := store.ASTProjectIcebugDir(target); !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q; want it to name the target bundle %q", err, want)
 	}
 }
 

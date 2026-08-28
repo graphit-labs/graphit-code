@@ -26,7 +26,7 @@ func TestScopedRunWithAnEmptyCacheRediscoversTheProject(t *testing.T) {
 	dbPath := filepath.Join(tmp, "ladybugdb")
 	cacheDir := filepath.Join(tmp, "cache")
 
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	if _, err := RunPipeline(context.Background(), db, work, PipelineOptions{CacheDir: cacheDir}); err != nil {
 		_ = db.Close()
 		t.Fatalf("first index: %v", err)
@@ -44,7 +44,7 @@ func TestScopedRunWithAnEmptyCacheRediscoversTheProject(t *testing.T) {
 		t.Fatalf("touch: %v", err)
 	}
 
-	db2 := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db2 := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	res, err := RunPipelineForPaths(context.Background(), db2, work, []string{touched}, nil,
 		PipelineOptions{CacheDir: cacheDir})
 	if err != nil {
@@ -57,7 +57,7 @@ func TestScopedRunWithAnEmptyCacheRediscoversTheProject(t *testing.T) {
 		t.Errorf("the scoped run saw %d files; it should have rediscovered all %d", res.TotalFiles, total)
 	}
 
-	graph := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	graph := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	defer func() { _ = graph.Close() }()
 	count, err := graph.Query(context.Background(), "MATCH (f:File) RETURN count(f) AS n", nil)
 	if err != nil {

@@ -88,7 +88,7 @@ func TestParsePoolResetsAntlrCachesWithParsesInFlight(t *testing.T) {
 
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "ladybugdb")
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	res, err := RunPipeline(context.Background(), db, proj, PipelineOptions{
 		Workers:          4,
 		CacheDir:         filepath.Join(tmp, "cache"),
@@ -108,7 +108,7 @@ func TestParsePoolResetsAntlrCachesWithParsesInFlight(t *testing.T) {
 	}
 
 	// Reopened, because the pipeline swaps the database file underneath.
-	graph := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	graph := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	defer func() { _ = graph.Close() }()
 
 	got, err := graph.Query(context.Background(),

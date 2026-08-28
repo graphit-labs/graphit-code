@@ -40,7 +40,7 @@ func helper() {}
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	db := ast.NewLadybugDB(ast.LadybugConfig{DBPath: filepath.Join(storeDir, "ladybugdb")})
+	db := ast.NewLadybugDB(ast.LadybugConfig{StoreDir: filepath.Dir(filepath.Join(storeDir, "ladybugdb")), IcebugDir: filepath.Join(filepath.Dir(filepath.Join(storeDir, "ladybugdb")), "graph.icebug")})
 	// IndexSource is opt-in and OFF by default, so it has to be asked for here: the search index
 	// is the only queryable copy of file text, and without it the assertion below would be testing
 	// a store that was never told to keep any.
@@ -85,10 +85,9 @@ func helper() {}
 		t.Fatalf("published schema: %v", err)
 	}
 
-	// ---- mount: a FRESH catalog, and not one byte of graph copied ----
+	// ---- mount: a fresh mount cache, and not one byte of graph copied ----
 	mountDir := filepath.Join(tmp, "mounted")
-	mountDB := filepath.Join(mountDir, "ladybugdb")
-	if err := ast.MountIcebugGraph(ctx, mountDB, string(schema), nil); err != nil {
+	if err := ast.MountIcebugGraph(ctx, mountDir, string(schema), nil); err != nil {
 		t.Fatalf("mount: %v", err)
 	}
 
@@ -116,7 +115,7 @@ func helper() {}
 		treeSize(t, ast.IcebugBundlePath(published)), treeSize(t, mountDir))
 
 	// ---- query the mounted graph ----
-	mounted := ast.NewLadybugDBReadOnly(ast.LadybugConfig{DBPath: mountDB})
+	mounted := ast.NewLadybugDBReadOnly(ast.LadybugConfig{StoreDir: mountDir, IcebugDir: mountDir})
 	defer func() { _ = mounted.Close() }()
 
 	res, err := mounted.Query(ctx, "MATCH (n) RETURN count(n) AS n", nil)
@@ -143,16 +142,16 @@ func helper() {}
 	if err := copyTree(filepath.Join(staged, ast.SearchBundleDir), searchDir); err != nil {
 		t.Fatalf("staging the published search index: %v", err)
 	}
-	if err := ast.WriteSearchMount(mountDB, searchDir); err != nil {
+	if err := ast.WriteSearchMount(mountDir, searchDir); err != nil {
 		t.Fatalf("recording the search mount: %v", err)
 	}
-	// Nothing of the index is beside the catalog — the local directory the unmounted path would
+	// Nothing of the index is beside the store — the local directory the unmounted path would
 	// have used must not exist, or this test could pass on a local copy.
-	if _, err := os.Stat(ast.LanceIndexPath(mountDB)); err == nil {
+	if _, err := os.Stat(ast.LanceIndexPath(mountDir)); err == nil {
 		t.Fatal("a local search index exists beside the mounted catalog; this test would prove nothing")
 	}
 
-	idx, err := ast.OpenSearchIndex(ctx, mountDB)
+	idx, err := ast.OpenSearchIndex(ctx, mountDir)
 	if err != nil {
 		t.Fatalf("opening the mounted search index: %v", err)
 	}

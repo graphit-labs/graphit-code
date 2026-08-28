@@ -6,7 +6,6 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
-	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 func ASTRuleContent() string {
@@ -1296,9 +1295,9 @@ func ASTRuleContent() string {
 		"whose it is:",
 		"",
 		"```",
-		"<global>/ast/project/<project-id>/" + store.DBFileName + "        this project's graph",
-		"<global>/ast/context/<name>/" + store.DBFileName + "             a locally imported graph",
-		"<global>/ast/hub/<context-id>/<version>/" + store.DBFileName + " a Hub graph, shared per version",
+		"<global>/ast/project/<project-id>/graph.icebug/        this project's graph",
+		"<global>/ast/context/<name>/graph.icebug/             a locally imported graph",
+		"<global>/ast/hub/<context-id>/<version>/              a Hub graph, shared per version",
 		"```",
 		"",
 		"Nothing is copied into the project, and there is no `" + brand.DotDir() + "/ast/project` any",

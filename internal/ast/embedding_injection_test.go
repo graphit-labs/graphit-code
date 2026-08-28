@@ -81,20 +81,26 @@ func TestEmbeddingCycleInjectsVectorsIntoTheStore(t *testing.T) {
 	// Production order: the store is indexed FIRST, while no vector exists yet, and the
 	// embedding cycle rebuilds afterwards to inject them. Asserting on a single rebuild
 	// that already had the vectors in hand would exercise a different path.
-	dbPath := filepath.Join(tmp, "store", "ladybugdb")
-	first := NewLadybugDB(LadybugConfig{DBPath: dbPath})
-	if err := RebuildFromJSONWithSearch(context.Background(), first, cache, nil,
-		"", "", nil, nil); err != nil {
-		_ = first.Close()
+	storeDir := filepath.Join(tmp, "store")
+	bundleDir := filepath.Join(storeDir, "graph.icebug")
+	entries := make(map[string]*parseCacheEntry, cache.Count())
+	cache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
+		entries[relPath] = entry
+		return true
+	})
+	ri := newRebuildIndex(entries, nil)
+	if _, err := ExportDirectFromRebuildIndex(ri, bundleDir, bundleDir); err != nil {
 		t.Fatalf("initial index: %v", err)
 	}
-	_ = first.Close()
+	if err := BuildSearchIndexFor(context.Background(), storeDir, cache, nil); err != nil {
+		t.Fatalf("initial search index: %v", err)
+	}
 
 	// And this is the call under test — the one the embedding loop makes.
-	triggerEmbeddingRebuild(context.Background(), dbPath, cache, embCache, nil)
+	rebuildSearchIndexForEmbeddings(context.Background(), storeDir, cache, embCache, nil)
 
 	// A fresh handle, deliberately — see the doc comment.
-	idx, err := OpenSearchIndex(context.Background(), dbPath)
+	idx, err := OpenSearchIndex(context.Background(), storeDir)
 	if err != nil {
 		t.Fatalf("reopen search index: %v", err)
 	}

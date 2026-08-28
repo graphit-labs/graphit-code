@@ -517,12 +517,12 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, rep
 	embedder := NewEmbedder(client, cfg)
 	embedder.Logger = logger
 
-	dbPath := filepath.Join(cacheDir, "ladybugdb")
-
 	// One cycle, holding the process-wide heavy-work slot for its whole duration.
 	// The cycle drives an ONNX session sized to the entire CPU budget, and the
-	// rebuild that follows a productive one opens a second LadybugDB alongside the
-	// live database — so this is precisely the work the gate exists to serialize.
+	// search-index rebuild that follows a productive one is heavy too — so this is
+	// precisely the work the gate exists to serialize. The graph itself is not
+	// touched: vectors live in the search index + embedding shards, and the
+	// icebug bundle never carried them.
 	// The daemon runs one of these loops per active project inside a single process.
 	cycle := func(label string, reload bool) {
 		release, err := sysutil.AcquireHeavy(ctx)
@@ -539,7 +539,7 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, rep
 			log.Warn(label+" error", "error", err)
 		} else if n > 0 {
 			log.Info(label+" complete", "entities_embedded", n)
-			triggerEmbeddingRebuild(ctx, dbPath, cfg.ParseCache, cfg.EmbCache, logger)
+			rebuildSearchIndexForEmbeddings(ctx, cacheDir, cfg.ParseCache, cfg.EmbCache, logger)
 		}
 	}
 
@@ -558,28 +558,26 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, rep
 	}
 }
 
-func triggerEmbeddingRebuild(ctx context.Context, dbPath string, parseCache *ShardCache, embCache *ShardEmbCache, logger *slog.Logger) {
+// rebuildSearchIndexForEmbeddings rewrites the search index from the shards after an
+// embedding cycle produced new vectors. The icebug graph never holds vectors, so only
+// the LanceDB sidecar is rebuilt.
+func rebuildSearchIndexForEmbeddings(ctx context.Context, storeDir string, parseCache *ShardCache, embCache *ShardEmbCache, logger *slog.Logger) {
 	log := slogutil.Resolve(logger)
-
-	if parseCache == nil || embCache == nil {
+	if parseCache == nil || embCache == nil || parseCache.Count() == 0 {
 		return
 	}
-	if parseCache.Count() == 0 {
-		return
-	}
-
-	log.Info("rebuilding DB to inject embeddings")
+	log.Info("rebuilding search index to inject embeddings")
 	t0 := time.Now()
 
-	lb := NewLadybugDB(LadybugConfig{DBPath: dbPath})
-
-	// WithSearch, because the point of this rebuild is the embeddings, and the embeddings
-	// live in the search index. Rebuilding the graph alone would republish a store whose
-	// vectors are exactly as absent as they were before — the reason this function ran.
-	if err := RebuildFromJSONWithSearch(ctx, lb, parseCache, embCache, "", "", logger, nil); err != nil {
-		log.Error("rebuild error", "error", err)
+	idx, err := OpenSearchIndex(ctx, storeDir)
+	if err != nil {
+		log.Error("open search index", "error", err)
 		return
 	}
-
-	log.Info("rebuild complete", "duration_s", time.Since(t0).Seconds())
+	defer func() { _ = idx.Close() }()
+	if err := idx.RebuildFromCache(ctx, parseCache, BuildEmbLookup(parseCache, embCache)); err != nil {
+		log.Error("search index rebuild", "error", err)
+		return
+	}
+	log.Info("search index rebuild complete", "duration_s", time.Since(t0).Seconds())
 }

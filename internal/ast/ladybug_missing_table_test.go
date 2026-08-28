@@ -16,7 +16,7 @@ import (
 func TestQueryExplainsALabelThatHasNoTable(t *testing.T) {
 	t.Parallel()
 
-	db := NewLadybugDB(LadybugConfig{DBPath: filepath.Join(t.TempDir(), "ladybugdb")})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), IcebugDir: filepath.Join(filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), "graph.icebug")})
 	if err := db.connect(); err != nil {
 		t.Skipf("ladybug unavailable: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestQueryExplainsALabelThatHasNoTable(t *testing.T) {
 func TestQueryExplainsAMistypedRelationshipType(t *testing.T) {
 	t.Parallel()
 
-	db := NewLadybugDB(LadybugConfig{DBPath: filepath.Join(t.TempDir(), "ladybugdb")})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), IcebugDir: filepath.Join(filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), "graph.icebug")})
 	if err := db.connect(); err != nil {
 		t.Skipf("ladybug unavailable: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestQueryExplainsAMistypedRelationshipType(t *testing.T) {
 func TestQueryOnAPresentLabelWithNoRowsIsNotAnError(t *testing.T) {
 	t.Parallel()
 
-	db := NewLadybugDB(LadybugConfig{DBPath: filepath.Join(t.TempDir(), "ladybugdb")})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), IcebugDir: filepath.Join(filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), "graph.icebug")})
 	if err := db.connect(); err != nil {
 		t.Skipf("ladybug unavailable: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestMissingTableMessage(t *testing.T) {
 func TestQueryDistinguishesAWrongPropertyFromAPartialSchema(t *testing.T) {
 	t.Parallel()
 
-	db := NewLadybugDB(LadybugConfig{DBPath: filepath.Join(t.TempDir(), "ladybugdb")})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), IcebugDir: filepath.Join(filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), "graph.icebug")})
 	if err := db.connect(); err != nil {
 		t.Skipf("ladybug unavailable: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestQueryDistinguishesAWrongPropertyFromAPartialSchema(t *testing.T) {
 func TestQueryExplainsAPropertyMissingFromSomeLabels(t *testing.T) {
 	t.Parallel()
 
-	db := NewLadybugDB(LadybugConfig{DBPath: filepath.Join(t.TempDir(), "ladybugdb")})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), IcebugDir: filepath.Join(filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), "graph.icebug")})
 	if err := db.connect(); err != nil {
 		t.Skipf("ladybug unavailable: %v", err)
 	}

@@ -38,7 +38,7 @@ func NewQueryService(db GraphDB) *QueryService {
 		lacksFulltext: db.BackendType() != "neo4j",
 	}
 	if lb, ok := db.(*LadybugBackend); ok {
-		qs.dbPath = lb.cfg.DBPath
+		qs.dbPath = lb.StoreDir()
 		// A second store, and a second handle. Nothing here contends with the graph handle this
 		// service already holds: Lance is multi-version, so this reader sees a consistent
 		// snapshot while the daemon writes the same directory — which is what makes an in-place
@@ -47,7 +47,7 @@ func NewQueryService(db GraphDB) *QueryService {
 		// A failure is not fatal: a project with no index yet, or one whose index is mid-rebuild,
 		// still answers structural queries. searchIndex stays nil and the search entry points
 		// return nothing rather than an error.
-		if si, err := OpenSearchIndex(context.Background(), lb.cfg.DBPath); err == nil {
+		if si, err := OpenSearchIndex(context.Background(), lb.StoreDir()); err == nil {
 			qs.searchIndex = si
 		} else {
 			// Kept, so the search entry points can tell "no index yet" from "this binary

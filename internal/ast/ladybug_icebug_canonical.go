@@ -26,10 +26,14 @@ var (
 	canonicalTraversalPattern = regexp.MustCompile(`(?is)^\s*MATCH\s+(\([^)]*\))\s*-\s*\[\s*(?:([A-Za-z_][A-Za-z0-9_]*)\s*)?:\s*` +
 		"`?([A-Za-z_][A-Za-z0-9_]*)`?" +
 		`(?:\s*(\*)?\s*(?:(\d+)\s*)?(?:\.\.\s*(\d+))?)?\s*\]\s*(->|-)\s*(\([^)]*\))` +
-		`(?:\s+WHERE\s+(.+?))?\s+RETURN\s+(DISTINCT\s+)?(.+?)\s*;?\s*$`)
-	canonicalCountPattern      = regexp.MustCompile(`(?is)^count\s*\(\s*(distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\.uid\s*\)$`)
+		`(?:\s+WHERE\s+(.+?))?\s+RETURN\s+(DISTINCT\s+)?((?:.|\n)*?)(?:\s+(?:ORDER\s+BY|LIMIT)\b|\s*;\s*|\s*)$`)
+	canonicalCountPattern      = regexp.MustCompile(`(?is)^count\s*\(\s*(distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\.uid\s*\)(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?$`)
 	canonicalProjectionPattern = regexp.MustCompile(`(?is)^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)(\s+AS\s+([A-Za-z_][A-Za-z0-9_]*))?$`)
+	// canonicalTraversalTail strips trailing `ORDER BY ...` (and LIMIT) from the
+	// RETURN projection, because a traversal's ordering is applied by the caller
+	// over the materialized set, not by the engine over mounted object files.
 )
+
 
 type canonicalPlan struct {
 	anchor, reached  icebugNodePattern
@@ -66,9 +70,13 @@ func (k *LadybugBackend) tryCanonicalBoundedTraversal(
 	frontier := map[string]bool{}
 	for _, table := range anchorTables {
 		conds := anchorConds
-		q := fmt.Sprintf("MATCH (%s:%s) WHERE %s RETURN DISTINCT %s.uid AS %s",
+		pk := canonicalPKFor(k.canonical, table)
+		// Rewrite `=` against this table's primary key to IN, exactly as the engine
+		// requires — equality against an icebug-disk PK answers zero rows.
+		conds = sanitizeCondPK(conds, plan.anchor.variable, pk)
+		q := fmt.Sprintf("MATCH (%s:%s) WHERE %s RETURN DISTINCT %s.%s AS %s",
 			plan.anchor.variable, ladybug.QuoteIdent(table), strings.Join(conds, " AND "),
-			plan.anchor.variable, ladybug.QuoteIdent(icebugUIDColumn))
+			plan.anchor.variable, ladybug.QuoteIdent(pk), ladybug.QuoteIdent(icebugUIDColumn))
 		records, err := k.queryRecordsLocked(q, params)
 		if err != nil {
 			return nil, true, err
@@ -92,13 +100,16 @@ func (k *LadybugBackend) tryCanonicalBoundedTraversal(
 		}
 		next := map[string]bool{}
 		for _, m := range members {
+			pkFrom := canonicalPKFor(k.canonical, m.From)
+			pkTo := canonicalPKFor(k.canonical, m.To)
 			list := sortedUIDs(frontier)
 			for start := 0; start < len(list); start += icebugTraversalBatchSize {
 				end := min(start+icebugTraversalBatchSize, len(list))
 				q := fmt.Sprintf(
-					"MATCH (a:%s)-[:%s]->(b:%s) WHERE a.uid IN [%s] RETURN DISTINCT b.uid AS %s",
+					"MATCH (a:%s)-[:%s]->(b:%s) WHERE a.%s IN [%s] RETURN DISTINCT b.%s AS %s",
 					ladybug.QuoteIdent(m.From), ladybug.QuoteIdent(m.Table), ladybug.QuoteIdent(m.To),
-					icebugStringList(list[start:end]), ladybug.QuoteIdent(icebugUIDColumn))
+					ladybug.QuoteIdent(pkFrom), icebugStringList(list[start:end]),
+					ladybug.QuoteIdent(pkTo), ladybug.QuoteIdent(icebugUIDColumn))
 				records, qerr := k.queryRecordsLocked(q, nil)
 				if qerr != nil {
 					return nil, true, qerr
@@ -156,8 +167,9 @@ func (k *LadybugBackend) finishCanonicalTraversal(ctx context.Context, plan cano
 			return nil, true, err
 		}
 		for _, label := range resolvedLabels {
+			pk := canonicalPKFor(k.canonical, label)
 			conds := append(canonicalConditions(plan.reached, plan.reachedPreds),
-				fmt.Sprintf("%s.uid IN [%s]", plan.reached.variable, icebugStringList([]string{uid})))
+				fmt.Sprintf("%s.%s IN [%s]", plan.reached.variable, ladybug.QuoteIdent(pk), icebugStringList([]string{uid})))
 			q := fmt.Sprintf("MATCH (%s:%s) WHERE %s RETURN DISTINCT %s",
 				plan.reached.variable, ladybug.QuoteIdent(label), strings.Join(conds, " AND "), plan.returnClause)
 			records, err := k.queryRecordsLocked(q, params)
@@ -185,21 +197,33 @@ func (k *LadybugBackend) canonicalGroup(relType string) *ladybug.CanonicalRelGro
 	return nil
 }
 
-// canonicalUIDMembers keeps only the members whose BOTH endpoint tables carry a `uid`
-// column: uid-frontier traversal presumes a global uid identity that tables keyed by other
-// columns (File.path, Directory.path) do not have.
+// canonicalPKFor returns the PRIMARY KEY column of a node table. Every node table has
+// one by construction (the manifest records it); the common case is `uid`, the two
+// structural tables use `path`.
+func canonicalPKFor(m *ladybug.CanonicalManifest, label string) string {
+	for _, n := range m.NodeTables {
+		if n.Label == label {
+			if n.PrimaryKey != "" {
+				return n.PrimaryKey
+			}
+			if len(n.Columns) > 0 {
+				return n.Columns[0].Name
+			}
+		}
+	}
+	return "uid"
+}
+
+// canonicalUIDMembers keeps only the members whose BOTH endpoint tables carry a
+// primary key: frontier traversal presumes a global identity that tables keyed by
+// other columns (File.path, Directory.path) share — which is exactly what the PK is.
 func canonicalUIDMembers(m *ladybug.CanonicalManifest,
 	g *ladybug.CanonicalRelGroup, reverse, directionless bool) []ladybug.CanonicalMember {
 
-	hasUID := func(label string) bool {
+	hasKey := func(label string) bool {
 		for _, n := range m.NodeTables {
 			if n.Label == label {
-				for _, c := range n.Columns {
-					if strings.EqualFold(c.Name, "uid") {
-						return true
-					}
-				}
-				return false
+				return n.PrimaryKey != "" || len(n.Columns) > 0
 			}
 		}
 		return false
@@ -207,7 +231,7 @@ func canonicalUIDMembers(m *ladybug.CanonicalManifest,
 	keep := func(in []ladybug.CanonicalMember) []ladybug.CanonicalMember {
 		out := make([]ladybug.CanonicalMember, 0, len(in))
 		for _, mm := range in {
-			if hasUID(mm.From) && hasUID(mm.To) {
+			if hasKey(mm.From) && hasKey(mm.To) {
 				out = append(out, mm)
 			}
 		}
@@ -265,9 +289,11 @@ func (p canonicalPlan) uidProjection() (string, bool) {
 // the reached set. Everything else fails closed.
 func parseCanonicalTraversal(cypher string) (canonicalPlan, bool) {
 	m := canonicalTraversalPattern.FindStringSubmatch(cypher)
-	if m == nil || m[2] != "" {
+	if m == nil {
 		return canonicalPlan{}, false
 	}
+	// m[2] is the relationship variable (`[r:CALLS]`); it is metadata for the
+	// planner, whose traversal does not need to bind the relationship itself.
 	left, okL := parseIcebugNodePattern(m[1])
 	right, okR := parseIcebugNodePattern(m[8])
 	if !okL || !okR || left.variable == right.variable {
@@ -459,6 +485,106 @@ func canonicalTablesFor(m *ladybug.CanonicalManifest, label, variable string, fr
 	}
 	if len(out) == 0 {
 		out = canonicalNodeLabels(m)
+	}
+	return out
+}
+
+// namesLogicalRel reports whether a Cypher query names a LOGICAL relationship type
+// (CALLS, CONTAINS, …) in a pattern position. Physical member tables — the ones the
+// engine actually knows — are never in the manifest types, so they pass through.
+func namesLogicalRel(man *ladybug.CanonicalManifest, cypher string) bool {
+	if man == nil {
+		return false
+	}
+	for _, g := range man.RelGroups {
+		// Pattern positions like -[r:CALLS]-> or -[:CALLS]->, plus the compact
+		// form used by tests. Anchored by the brackets AND the colon so an
+		// identifier merely mentioning the word elsewhere does not trip it.
+		if containsRelPattern(cypher, g.Type) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsRelPattern(cypher, relType string) bool {
+	idx := strings.Index(cypher, relType)
+	for idx >= 0 {
+		// The token must follow a colon: `:CALLS` or `r:CALLS` … and be preceded
+		// by an optional variable. `(n:Function)` is a NODE pattern, so ensure the
+		// colon is inside brackets immediately followed by the type.
+		before := cypher[:idx]
+		pos := idx - 1
+		for pos >= 0 && cypher[pos] == ' ' {
+			pos--
+		}
+		if pos >= 0 && cypher[pos] == ':' {
+			// find the bracket before the variable/colon
+			br := strings.LastIndex(before[:idx], "[")
+			if br >= 0 && strings.LastIndex(before[:idx], "(") < br {
+				return true
+			}
+		}
+		nxt := strings.Index(cypher[idx+1:], relType)
+		if nxt < 0 {
+			break
+		}
+		idx += 1 + nxt
+	}
+	return false
+}
+
+// sanitizeCanonicalPKEquality rewrites `X.<pk> = 'lit'` into `X.<pk> IN ['lit']` for
+// every node table's primary key. MEASURED, equality against an icebug-disk primary
+// key answers zero rows even when the row exists, while an IN list answers it.
+func sanitizeCanonicalPKEquality(man *ladybug.CanonicalManifest, cypher string) string {
+	for _, n := range man.NodeTables {
+		pk := n.PrimaryKey
+		if pk == "" && len(n.Columns) > 0 {
+			pk = n.Columns[0].Name
+		}
+		if pk == "" {
+			continue
+		}
+		cypher = rewritePKEqToIN(cypher, pk)
+	}
+	return cypher
+}
+
+func rewritePKEqToIN(cypher, pk string) string {
+	eq := regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\.` + regexp.QuoteMeta(pk) + `\s*=\s*('[^']*'|"[^"]*")`)
+	var b strings.Builder
+	inString := byte(0)
+	i := 0
+	for i < len(cypher) {
+		ch := cypher[i]
+		if inString == 0 && (ch == '\'' || ch == '"') {
+			inString = ch
+		} else if ch == inString {
+			inString = 0
+		}
+		if inString == 0 {
+			if loc := eq.FindStringSubmatchIndex(cypher[i:]); loc != nil {
+				m := eq.FindStringSubmatch(cypher[i:])
+				b.WriteString(cypher[i : i+loc[0]])
+				fmt.Fprintf(&b, "%s.%s IN [%s]", m[1], pk, m[2])
+				i += loc[1]
+				continue
+			}
+		}
+		b.WriteByte(ch)
+		i++
+	}
+	return b.String()
+}
+
+func sanitizeCondPK(conds []string, variable, pk string) []string {
+	if len(conds) == 0 || pk == "" {
+		return conds
+	}
+	out := make([]string, 0, len(conds))
+	for _, c := range conds {
+		out = append(out, rewritePKEqToIN(c, pk))
 	}
 	return out
 }

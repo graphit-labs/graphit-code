@@ -29,9 +29,9 @@ func TestHubContextDir_IsVersionScopedUnderGlobalDir(t *testing.T) {
 		t.Errorf("HubContextDir = %q, want %q", dir, want)
 	}
 
-	dbPath := HubContextDBPath("01ABCDEF", "1.2.3")
-	if dbPath != filepath.Join(want, "ladybugdb") {
-		t.Errorf("HubContextDBPath = %q, want %q", dbPath, filepath.Join(want, "ladybugdb"))
+	icebug := store.ASTHubIcebugDir("01ABCDEF", "1.2.3")
+	if icebug != filepath.Join(want, "graph.icebug") {
+		t.Errorf("Hub icebug bundle = %q, want %q", icebug, filepath.Join(want, "graph.icebug"))
 	}
 }
 
@@ -83,7 +83,7 @@ func TestHubContextID(t *testing.T) {
 	}
 }
 
-func TestContextDBPathIn_PrefersHubStoreOverLocalDirectory(t *testing.T) {
+func TestContextDirIn_PrefersHubStoreOverLocalDirectory(t *testing.T) {
 	withHome(t)
 	projectDir := t.TempDir()
 
@@ -99,37 +99,37 @@ func TestContextDBPathIn_PrefersHubStoreOverLocalDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := ContextDBPathIn(projectDir, "shared")
-	if want := HubContextDBPath("shared", "3.0.0"); got != want {
-		t.Errorf("ContextDBPathIn = %q, want the shared store %q", got, want)
+	got := ContextDirIn(projectDir, "shared")
+	if want := HubContextDir("shared", "3.0.0"); got != want {
+		t.Errorf("ContextDirIn = %q, want the shared store %q", got, want)
 	}
 }
 
-func TestContextDBPathIn_FallsBackToTheGlobalContextStore(t *testing.T) {
+func TestContextDirIn_FallsBackToTheGlobalContextStore(t *testing.T) {
 	withHome(t)
 	projectDir := t.TempDir()
 	// A name the lockfile does not claim resolves to the one store that name can
 	// mean. There is nothing project-local to look for: the store is global and the
 	// project's registry only decides what `ast list` reports.
-	got := ContextDBPathIn(projectDir, "sibling")
-	if want := store.ASTContextDBPath("sibling"); got != want {
-		t.Errorf("ContextDBPathIn = %q, want %q", got, want)
+	got := ContextDirIn(projectDir, "sibling")
+	if want := store.ASTContextDir("sibling"); got != want {
+		t.Errorf("ContextDirIn = %q, want %q", got, want)
 	}
 }
 
 // A linked context points at a store this project does not own. What is recorded is the
 // SIBLING'S DIRECTORY; the store is derived from it, so the link follows the sibling if
 // it reindexes or re-keys instead of freezing at link time.
-func TestContextDBPathIn_DerivesTheStoreOfALinkedSibling(t *testing.T) {
+func TestContextDirIn_DerivesTheStoreOfALinkedSibling(t *testing.T) {
 	withHome(t)
 	projectDir := t.TempDir()
 	siblingDir := t.TempDir()
 	if err := LinkImportedContext(projectDir, "sibling", siblingDir); err != nil {
 		t.Fatal(err)
 	}
-	want := store.ASTProjectDBPath(siblingDir)
-	if got := ContextDBPathIn(projectDir, "sibling"); got != want {
-		t.Errorf("ContextDBPathIn = %q, want the sibling's own store %q", got, want)
+	want := store.ASTProjectDir(siblingDir)
+	if got := ContextDirIn(projectDir, "sibling"); got != want {
+		t.Errorf("ContextDirIn = %q, want the sibling's own store %q", got, want)
 	}
 }
 
@@ -172,8 +172,12 @@ func TestListImportedContextsIn_IncludesBuiltHubStores(t *testing.T) {
 
 	// Only 01ACME has actually been built. 01GHOST is a claim with no store, which
 	// must not be offered as a queryable context.
-	built := HubContextDBPath("01ACME", "1.0.0")
+	built := HubContextDir("01ACME", "1.0.0")
 	if err := os.MkdirAll(built, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(built, "schema.cypher"),
+		[]byte("// mount schema"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -181,8 +185,8 @@ func TestListImportedContextsIn_IncludesBuiltHubStores(t *testing.T) {
 
 	if ictx, ok := contexts["01ACME"]; !ok {
 		t.Error("expected the built Hub store to be listed")
-	} else if ictx.DBPath != built {
-		t.Errorf("DBPath = %q, want %q", ictx.DBPath, built)
+	} else if ictx.StoreDir != built {
+		t.Errorf("StoreDir = %q, want %q", ictx.StoreDir, built)
 	}
 	if _, ok := contexts["01GHOST"]; ok {
 		t.Error("an unbuilt Hub store must not be listed")
@@ -202,7 +206,12 @@ func TestListImportedContextsIn_ListsRegisteredContextsWithABuiltStore(t *testin
 	if _, err := AddImportedContext(projectDir, "never-built", "/src/ghost"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(store.ASTContextDBPath("real-context"), 0o755); err != nil {
+	if err := os.MkdirAll(store.ASTContextDir("real-context"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A store counts as built only with the mount schema in place.
+	if err := os.WriteFile(filepath.Join(store.ASTContextDir("real-context"), "schema.cypher"),
+		[]byte("// placeholder mount"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,7 +237,7 @@ func TestListImportedContextsIn_ListsRegisteredContextsWithABuiltStore(t *testin
 	if _, ok := ListImportedContextsIn(projectDir)["real-context"]; ok {
 		t.Error("the context survived RemoveImportedContext")
 	}
-	if _, err := os.Stat(store.ASTContextDBPath("real-context")); err != nil {
+	if _, err := os.Stat(store.ASTContextDir("real-context")); err != nil {
 		t.Error("RemoveImportedContext deleted the shared store")
 	}
 }
@@ -271,9 +280,9 @@ func TestAHubContextResolvesToItsVersionedStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := HubContextDBPath("01ACME", "1.2.0")
-	if got := ContextDBPathIn(projectDir, "01ACME"); got != want {
-		t.Errorf("ContextDBPathIn = %q, want the version-keyed store %q", got, want)
+	want := HubContextDir("01ACME", "1.2.0")
+	if got := ContextDirIn(projectDir, "01ACME"); got != want {
+		t.Errorf("ContextDirIn = %q, want the version-keyed store %q", got, want)
 	}
 }
 

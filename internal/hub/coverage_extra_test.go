@@ -155,9 +155,11 @@ func TestHubService_Link_AST(t *testing.T) {
 	sourceDir := t.TempDir()
 
 	// Linking points at the source project's GLOBAL store, so that is what has to
-	// exist — there is nothing inside the source project to link to any more.
-	_ = os.MkdirAll(store.ASTProjectDir(sourceDir), 0o755)
-	_ = os.WriteFile(store.ASTProjectDBPath(sourceDir), []byte("graph"), 0o644)
+	// exist — there is nothing inside the source project to link to any more. A
+	// store counts as built with its mounted DDL (schema.cypher) present: the local
+	// graph is icebug filesystem in-memory, so there is no database file to check.
+	_ = os.MkdirAll(store.ASTProjectIcebugDir(sourceDir), 0o755)
+	_ = os.WriteFile(filepath.Join(store.ASTProjectIcebugDir(sourceDir), "schema.cypher"), []byte("// mount"), 0o644)
 
 	lf := &Lockfile{
 		Project:   ProjectIdentity{ID: "test-id", Name: "Test"},

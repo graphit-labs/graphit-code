@@ -95,23 +95,24 @@ func (e *emptyGraphDB) Ping(_ context.Context) error                         { r
 func (e *emptyGraphDB) BackendType() string                                  { return "empty" }
 func (e *emptyGraphDB) Close() error                                         { return nil }
 
-func (s *Server) getOrCreateCachedDB(dbPath string, readOnly bool) GraphDB {
+func (s *Server) getOrCreateCachedDB(projectDir, storeDir string, readOnly bool) GraphDB {
+	key := projectDir + "\x00" + storeDir
 	s.dbCacheMu.Lock()
 	defer s.dbCacheMu.Unlock()
 
-	if cached, ok := s.dbCache[dbPath]; ok {
+	if cached, ok := s.dbCache[key]; ok {
 		cached.lastUsed = time.Now()
 		return cached.db
 	}
 
 	var db GraphDB
-	cfg := LadybugConfig{DBPath: dbPath, ReadOnly: readOnly}
+	cfg := LadybugConfig{StoreDir: storeDir, IcebugDir: filepath.Join(storeDir, "graph.icebug"), ReadOnly: readOnly}
 	if readOnly {
 		db = NewLadybugDBReadOnly(cfg)
 	} else {
 		db = NewLadybugDB(cfg)
 	}
-	s.dbCache[dbPath] = &cachedDB{db: db, lastUsed: time.Now()}
+	s.dbCache[key] = &cachedDB{db: db, lastUsed: time.Now()}
 	return db
 }
 
@@ -140,16 +141,16 @@ func (s *Server) dbForContext(r *http.Request) GraphDB {
 
 		if ctxName != "" && ctxName != "__project__" {
 
-			importDBPath := ContextDBPathIn(root, ctxName)
-			if _, err := os.Stat(importDBPath); err == nil {
-				return s.getOrCreateCachedDB(importDBPath, true)
+			importDir := store.ASTContextDirIn(root, ctxName)
+			if _, err := os.Stat(importDir); err == nil {
+				return s.getOrCreateCachedDB(root, importDir, true)
 			}
 			return &emptyGraphDB{}
 		}
 
-		otherDBPath := store.ASTProjectDBPath(root)
-		if _, err := os.Stat(otherDBPath); err == nil {
-			return s.getOrCreateCachedDB(otherDBPath, true)
+		otherDir := store.ASTProjectDir(root)
+		if _, err := os.Stat(otherDir); err == nil {
+			return s.getOrCreateCachedDB(root, otherDir, true)
 		}
 
 		return &emptyGraphDB{}
@@ -160,7 +161,7 @@ func (s *Server) dbForContext(r *http.Request) GraphDB {
 	}
 
 	cfg := LadybugConfigForContextIn(root, ctxName)
-	return s.getOrCreateCachedDB(cfg.DBPath, false)
+	return s.getOrCreateCachedDB(root, cfg.StoreDir, false)
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
@@ -722,11 +723,11 @@ func (s *Server) handleFile(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotFound, "File source not found")
 }
 
-// storePathForRequest resolves the store this request is asking about — the same
+// storePathForRequest resolves the store dir this request is asking about — the same
 // answer dbForContext gives, as a path.
 //
 // The file handler needs the path and not the handle, because file text lives in
-// the search index beside the database rather than in the graph. It used to ask
+// the search index beside the icebug bundle rather than in the graph. It used to ask
 // storePathFor, which only ever knows about the project this server was started
 // in: with the UI pointed at another project, /api/graph answered from that
 // project's store and /api/file answered 404 from this one, for a file that is
@@ -737,28 +738,27 @@ func (s *Server) storePathForRequest(r *http.Request) string {
 	root, otherProject := s.requestedRoot(r)
 	if otherProject {
 		if ctxName != "" && ctxName != "__project__" {
-			return ContextDBPathIn(root, ctxName)
+			return store.ASTContextDirIn(root, ctxName)
 		}
-		return store.ASTProjectDBPath(root)
+		return store.ASTProjectDir(root)
 	}
 
-	dbPath := s.storePathFor(root, ctxName)
-	if dbPath != "" && !filepath.IsAbs(dbPath) {
-		// Every resolver in this package now returns an absolute path, so this is a
-		// guard rather than the normal case: a backend constructed by hand with a
-		// relative DBPath would otherwise resolve against the process working
-		// directory, which is the repo root only when the server was started from it.
-		dbPath = filepath.Join(root, dbPath)
+	dir := s.storePathFor(root, ctxName)
+	if dir != "" && !filepath.IsAbs(dir) {
+		// A backend built by hand with a relative StoreDir resolves against the
+		// request's project root — the same guard the DBPath version had, with
+		// the same reason: the server may be serving another project.
+		dir = filepath.Join(root, dir)
 	}
-	return dbPath
+	return dir
 }
 
 func (s *Server) storePathFor(projectDir, contextName string) string {
 	if contextName != "" && contextName != "__project__" {
-		return LadybugConfigForContextIn(projectDir, contextName).DBPath
+		return LadybugConfigForContextIn(projectDir, contextName).StoreDir
 	}
 	if lb, ok := s.db.(*LadybugBackend); ok {
-		return lb.DBPath()
+		return lb.StoreDir()
 	}
 	return ""
 }
@@ -794,8 +794,8 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 	contexts := []map[string]any{}
 	ctx := r.Context()
 
-	projectDBPath := store.ASTProjectDBPath(targetDir)
-	if _, err := os.Stat(projectDBPath); err == nil {
+	projectDir := store.ASTProjectDir(targetDir)
+	if _, err := os.Stat(projectDir); err == nil {
 		nodeCount, edgeCount := 0, 0
 		if !isDifferentProject {
 
@@ -811,7 +811,7 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 
-			otherDB := s.getOrCreateCachedDB(projectDBPath, true)
+			otherDB := s.getOrCreateCachedDB(targetDir, projectDir, true)
 			if res, err := otherDB.Query(ctx, "MATCH (n) RETURN count(n) AS c", nil); err == nil && len(res.Records) > 0 {
 				if c, ok := res.Records[0]["c"]; ok {
 					nodeCount = toInt(c)
@@ -831,7 +831,7 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 			"id": "__project__", "name": projectName, "type": "project",
 			"database": backend, "node_count": nodeCount,
 			"edge_count": edgeCount, "path": targetDir,
-			"db_path": projectDBPath,
+			"store_path": projectDir,
 		})
 	}
 
@@ -854,11 +854,11 @@ func (s *Server) handleContexts(w http.ResponseWriter, r *http.Request) {
 
 		ic := map[string]any{
 			"id": key, "name": displayName, "type": "import",
-			"database": "ladybugdb", "path": ictx.SourcePath,
-			"imported_at": ictx.ImportedAt, "db_path": ictx.DBPath,
+			"database": "ladybug", "path": ictx.SourcePath,
+			"imported_at": ictx.ImportedAt, "store_path": store.ASTContextDirIn(targetDir, key),
 		}
 
-		ctxDB := s.getOrCreateCachedDB(ictx.DBPath, true)
+		ctxDB := s.getOrCreateCachedDB(targetDir, store.ASTContextDirIn(targetDir, key), true)
 		if nRes, err := ctxDB.Query(ctx, "MATCH (n) RETURN count(n) AS c", nil); err == nil && len(nRes.Records) > 0 {
 			ic["node_count"] = toInt(nRes.Records[0]["c"])
 		}

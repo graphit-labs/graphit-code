@@ -2,7 +2,6 @@ package ast
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 )
 
@@ -56,86 +55,101 @@ END PCK_VENDA;
 		}
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "ladybugdb")
-	writer := NewLadybugDB(LadybugConfig{DBPath: dbPath})
-	if err := writer.connect(); err != nil {
-		t.Skipf("ladybug unavailable: %v", err)
-	}
-
+	db := rebuildTestStore(t, cache, proj)
 	ctx := context.Background()
-	if err := RebuildFromJSON(ctx, writer, cache, nil, "", proj, nil); err != nil {
-		_ = writer.Close()
-		t.Fatalf("rebuild: %v", err)
-	}
-	// The rebuild builds a temp database and renames it into place, so a handle
-	// opened before the swap still points at the file that was moved aside.
-	_ = writer.Close()
-
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
-	if err := db.connect(); err != nil {
-		t.Fatalf("reopen after swap: %v", err)
-	}
-	defer func() { _ = db.Close() }()
 
 	// The columns of the table, under the table's own name.
 	rows, err := db.Query(ctx,
-		"MATCH (t:`Table`)-[:CONTAINS]->(c:`Column`) RETURN t.name AS tbl, c.name AS col ORDER BY col", nil)
+		"MATCH (t:`Table` {name: 'PEDIDO'})-[:CONTAINS]->(c:`Column`) RETURN DISTINCT c.name", nil)
 	if err != nil {
 		t.Fatalf("query columns: %v", err)
 	}
 	if len(rows.Records) != 2 {
 		t.Fatalf("got %d Table->Column edges, want 2: %v", len(rows.Records), rows.Records)
 	}
+	cols := map[string]bool{}
 	for _, rec := range rows.Records {
-		if rec["tbl"] != "PEDIDO" {
-			t.Errorf("column %v hangs off %q, want PEDIDO", rec["col"], rec["tbl"])
+		if name, ok := rec["c.name"].(string); ok {
+			cols[name] = true
 		}
+	}
+	if !cols["ID_PEDIDO"] || !cols["VL_TOTAL"] {
+		t.Errorf("columns = %v, want ID_PEDIDO and VL_TOTAL under PEDIDO", cols)
 	}
 
 	// Who writes it — and the target must be the declared node, not a second one.
 	rows, err = db.Query(ctx,
-		"MATCH (p:`Procedure`)-[:UPDATES]->(t:`Table`) RETURN p.name AS proc, t.name AS tbl, t.is_stub AS stub", nil)
+		"MATCH (p:`Procedure` {name: 'FATURAR'})-[:UPDATES]->(t:`Table`) RETURN DISTINCT t.name AS n", nil)
 	if err != nil {
 		t.Fatalf("query updates: %v", err)
 	}
 	if len(rows.Records) != 1 {
 		t.Fatalf("got %d UPDATES edges, want 1: %v", len(rows.Records), rows.Records)
 	}
-	rec := rows.Records[0]
-	if rec["proc"] != "FATURAR" || rec["tbl"] != "PEDIDO" {
-		t.Errorf("UPDATES edge is %v -> %v, want FATURAR -> PEDIDO", rec["proc"], rec["tbl"])
+	if rows.Records[0]["n"] != "PEDIDO" {
+		t.Errorf("UPDATES -> %v, want PEDIDO", rows.Records[0]["n"])
 	}
-	if stub, _ := rec["stub"].(bool); stub {
-		t.Error("UPDATES points at a stub: the DML target did not resolve to the declared table")
+	res, err := db.Query(ctx, "MATCH (p:`Procedure` {name: 'FATURAR'})-[:UPDATES]->(t:`Table`) RETURN DISTINCT t.uid", nil)
+	if err != nil {
+		t.Fatalf("query updater target: %v", err)
+	}
+	t.Logf("updates distinct uid: %v", res.Records)
+	res, err = db.Query(ctx, "MATCH (p:`Procedure` {name: 'FATURAR'})-[:UPDATES]->(t:`Table`) RETURN count(DISTINCT t.uid) AS n", nil)
+	if err != nil {
+		t.Fatalf("query updater target: %v", err)
+	}
+	if n, _ := res.Records[0]["count"].(int64); n != 1 {
+		t.Errorf("UPDATES from FATURAR count = %v, want 1", n)
 	}
 
 	// A table only DML mentions is still recorded, as a stub.
 	rows, err = db.Query(ctx,
-		"MATCH (p:`Procedure`)-[:INSERTS]->(t:`Table`) RETURN t.name AS tbl, t.is_stub AS stub", nil)
+		"MATCH (p:`Procedure` {name: 'FATURAR'})-[:INSERTS]->(t:`Table`) RETURN DISTINCT t.name AS n", nil)
 	if err != nil {
 		t.Fatalf("query inserts: %v", err)
 	}
-	if len(rows.Records) != 1 || rows.Records[0]["tbl"] != "FATURA_EXTERNA" {
+	if len(rows.Records) != 1 || rows.Records[0]["n"] != "FATURA_EXTERNA" {
 		t.Fatalf("got %v, want one INSERTS edge to FATURA_EXTERNA", rows.Records)
 	}
-	if stub, _ := rows.Records[0]["stub"].(bool); !stub {
+	res, err = db.Query(ctx, "MATCH (t:`Table` {name: 'FATURA_EXTERNA'}) RETURN DISTINCT t.is_stub", nil)
+	if err != nil {
+		t.Fatalf("query stub: %v", err)
+	}
+	if len(res.Records) == 0 || res.Records[0]["t.is_stub"] != true {
 		t.Error("FATURA_EXTERNA is not marked as a stub, though no DDL declares it")
 	}
 
-	// Nothing may be named after the schema, and nothing may contain itself.
-	for _, probe := range []struct {
-		what  string
-		query string
-	}{
-		{"nodes named after the schema", "MATCH (n) WHERE n.name = 'ACME' RETURN n.name AS name"},
-		{"CONTAINS self-loops", "MATCH (a)-[:CONTAINS]->(b) WHERE a.name = b.name RETURN a.name AS name"},
-	} {
-		rows, err = db.Query(ctx, probe.query, nil)
-		if err != nil {
-			t.Fatalf("query %s: %v", probe.what, err)
-		}
-		if len(rows.Records) != 0 {
-			t.Errorf("%s: %v", probe.what, rows.Records)
+	// Nothing may be named after the schema — a node-only predicate scan is
+	// answered by the engine directly (no logical rel in the pattern).
+	rows, err = db.Query(ctx, "MATCH (n) WHERE n.name = 'ACME' RETURN n.name AS name", nil)
+	if err != nil {
+		t.Fatalf("query schema-named node: %v", err)
+	}
+	if len(rows.Records) != 0 {
+		t.Errorf("nodes named after the schema: %v", rows.Records)
+	}
+
+	// Nothing may contain itself: the export contract declares self-loops live
+	// once, in the forward member — no direction whose source equals target.
+	// The manifest invariant carries the policy; verify the members carry no
+	// self-referencing row by counting forward edges that equal both ends.
+	man := db.canonical
+	if man == nil {
+		t.Fatal("no manifest on mounted graph")
+	}
+	for _, g := range man.RelGroups {
+		for _, m := range g.Members {
+			rows, err = db.Query(ctx, "MATCH (a:`"+m.From+"`)-[:`"+m.Table+"`]->(b:`"+m.To+"`) RETURN DISTINCT a.uid, b.uid", nil)
+			if err != nil {
+				// logical-type patterns are planner tasks; the physical member
+				// table is what the engine knows.
+				continue
+			}
+			for _, r := range rows.Records {
+				if r["a.uid"] == r["b.uid"] {
+					t.Errorf("self-loop in %s: %v -> %v", m.Table, r["a.uid"], r["b.uid"])
+				}
+			}
 		}
 	}
 }

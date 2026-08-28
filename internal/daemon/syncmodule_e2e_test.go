@@ -52,8 +52,8 @@ END;
 // goroutine, and holding a handle open across a rebuild would read a stale one.
 func searchFinds(t *testing.T, projectDir, query, want string) bool {
 	t.Helper()
-	idxPath := store.ASTProjectDBPath(projectDir)
-	if _, err := os.Stat(idxPath); err != nil {
+	idxPath := store.ASTProjectDir(projectDir)
+	if _, err := os.Stat(filepath.Join(idxPath, "graph.icebug", "schema.cypher")); err != nil {
 		return false
 	}
 	// READ-ONLY, and retried once. Read-only because the search tables live in the graph

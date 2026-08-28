@@ -134,10 +134,10 @@ For every supported language, the parser extracts the following relationship dat
 
 ---
 
-## 🗄️ Database Architecture: LadybugDB
+## 🗄️ Database Architecture: LadybugDB (Icebug filesystem on-the-fly, :memory: catalog)
 
-The AST database is backed by **LadybugDB**, an embedded graph database from the `github.com/LadybugDB/go-ladybug` library.
-It stores files, folders, and language entities as graph nodes, and import/calls/parent-child relations as edges.
+The AST database is backed by **LadybugDB** (`github.com/LadybugDB/go-ladybug`) with **icebug-disk** storage.
+The graph lives as Parquet CSR bundles at `graph.icebug/` (`nodes_*.parquet`, `indices_*.parquet`, `indptr_*.parquet`) whose `schema.cypher` declares `storage='<abs>/graph.icebug', format='icebug-disk'` (filesystem, `s3://` for Hub). The Ladybug catalog is `:memory:` and rebuilt per connection from `schema.cypher`; no `ladybugdb` file, no `.wal`/`.shadow`, no `CHECKPOINT`, no `AtomicSwapDB`. Local and Hub share the same canonical format – publish is just `cp graph.icebug/` + rewrite `storage` URI.
 
 ### Node Schemas
 

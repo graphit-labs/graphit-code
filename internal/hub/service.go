@@ -865,7 +865,7 @@ func (s *HubService) Link(
 		// sibling's store is global and already built, so this project records where
 		// it is and queries it in place. Nothing is copied and nothing is linked,
 		// which also means the link never goes stale when the sibling reindexes.
-		sourceAST := store.ASTProjectDBPath(absSource)
+		sourceAST := filepath.Join(store.ASTProjectIcebugDir(absSource), ast.IcebugSchemaFile)
 		if _, err := os.Stat(sourceAST); err != nil {
 			return nil, fmt.Errorf("source AST not found at %s — index the source project first", sourceAST)
 		}

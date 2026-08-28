@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 // antlrCacheCheckInterval is how many files are parsed between memory checks.
@@ -58,6 +59,12 @@ type PipelineOptions struct {
 	Cluster          string
 	ClusterPathMap   map[string]string
 	ForceRebuild     bool
+	// ReverseEdges controls whether the local bundle carries <TYPE>_REVERSE
+	// CSRs, mirroring hub.icebug.reverse_edges — the bundle is the published
+	// artifact, so the local build is what the config decides. The zero value
+	// means "the config default", which is ON (the config default), so a caller
+	// wanting them off passes false after resolving the config.
+	ReverseEdges     *bool
 	Logger           *slog.Logger
 	OnProgress       func(phase string, current, total, errors int)
 
@@ -217,16 +224,17 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	// manifest by design — and a deleted cache directory or a fresh clone does the same.
 	// Discovery costs one slow pass; publishing a one-file graph costs the graph.
 	if scoped && jsonCache != nil && jsonCache.Count() == 0 {
-		// Only fall back to full discovery for true incremental runs where the cache
-		// should have the rest of the project. Don't fall back for full index (reset/reindex)
-		// or when the DB doesn't exist (fresh index).
+		// Only fall back to full discovery for incremental runs of a store that
+		// ALREADY EXISTS: the cache being empty is the anomaly, not the touched
+		// files. Don't fall back for a full index (reset/reindex) or a fresh
+		// store, where "unknown files" is genuinely the answer.
 		dbExists := false
 		if lb, ok := db.(*LadybugBackend); ok {
-			if _, err := os.Stat(lb.cfg.DBPath); err == nil {
+			if _, err := os.Stat(lb.cfg.IcebugDir); err == nil {
 				dbExists = true
 			}
 		}
-		if !opts.ForceRebuild && dbExists && len(opts.ChangedPaths) == 0 {
+		if !opts.ForceRebuild && dbExists {
 			logger.Warn("scoped run with an empty parse cache — falling back to full discovery, "+
 				"because rebuilding from it would publish a graph holding only the named files",
 				"changed", len(opts.ChangedPaths), "deleted", len(opts.DeletedPaths))
@@ -391,10 +399,10 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	// database, keep the shards, and the write below replays them — 8.3 s here
 	// against a full reparse, and ~95 s against 16 minutes on a 36k-file repo.
 	graphPresent := true
-	dbPath := ""
+	storeDir := ""
 	if lb, ok := db.(*LadybugBackend); ok {
-		dbPath = lb.cfg.DBPath
-		if _, statErr := os.Stat(dbPath); statErr != nil {
+		storeDir = lb.cfg.StoreDir
+		if _, statErr := os.Stat(lb.cfg.IcebugDir); statErr != nil {
 			graphPresent = false
 		}
 	}
@@ -412,14 +420,14 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		//
 		// The repair replays the shards rather than reparsing: the parse cache is current
 		// by definition here, which is what made this branch reachable.
-		if dbPath != "" && !SearchIndexBuilt(ctx, dbPath) {
+		if storeDir != "" && !SearchIndexBuilt(ctx, storeDir) {
 			var embCache *ShardEmbCache
 			if ec, err := NewShardEmbCache(opts.CacheDir, jsonCache); err == nil {
 				embCache = ec
 				defer func() { _ = ec.Close() }()
 			}
 			t1 := time.Now()
-			if err := BuildSearchIndexFor(ctx, dbPath, jsonCache, embCache); err != nil {
+			if err := BuildSearchIndexFor(ctx, storeDir, jsonCache, embCache); err != nil {
 				_ = jsonCache.Save()
 				_ = jsonCache.Close()
 				return nil, fmt.Errorf("rebuild search index from cache: %w", err)
@@ -679,21 +687,6 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			opts.OnProgress("writing", 0, jsonCache.Count(), parseErrors+writeErrors)
 		}
 
-		// Both write paths build into a `<db>.<hex>` copy and rename it over
-		// production, so NEITHER opens production read-write — and that open was
-		// the only caller of CleanupInterruptedSwap, which made the collector
-		// dead code in exactly the mode that produces the garbage. A copy
-		// outlives its process whenever that process is killed between the copy
-		// and the rename, because the deferred removal does not run: 369 MB of
-		// orphans beside an 81 MB database here.
-		//
-		// Here is where it belongs. This is the point where this process is
-		// about to become the writer, which is the condition the collector
-		// documents; connect() only ever approximated it.
-		if lb, ok := db.(*LadybugBackend); ok {
-			CleanupInterruptedSwap(lb.cfg.DBPath)
-		}
-
 		var embCache *ShardEmbCache
 		if opts.CacheDir != "" {
 			if ec, err := NewShardEmbCache(opts.CacheDir, jsonCache); err == nil {
@@ -701,53 +694,61 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			}
 		}
 
-		lb, isLB := db.(*LadybugBackend)
-		productionDBExists := false
-		if isLB {
-			if _, statErr := os.Stat(lb.cfg.DBPath); statErr == nil {
-				productionDBExists = true
+		// Local graph is icebug filesystem in-memory – no file DB, no swap. A small delta
+		// rewrites only the affected Parquets; otherwise the bundle is rebuilt in full.
+		changedRels := make([]string, 0, len(changedFiles))
+		for _, f := range changedFiles {
+			fAbs, _ := filepath.Abs(f)
+			if rel := writer.rel(fAbs); rel != "" {
+				changedRels = append(changedRels, rel)
 			}
 		}
-
-		useIncremental := isLB && productionDBExists && !opts.ForceRebuild &&
-			(len(changedFiles)+len(deletedFiles)) < jsonCache.Count()
-
-		// No search index is opened here. Both branches below open the sidecar
-		// themselves, and they open it at different moments — the incremental before
-		// the swap, so a failure can still fall back with the old graph intact; the
-		// full rebuild after it, so the published graph is never the older of the two.
-		// A handle taken here would have to be held across both.
+		bundleDir := store.ASTProjectIcebugDir(abs)
+		if lb, ok := db.(*LadybugBackend); ok && lb.cfg.IcebugDir != "" {
+			bundleDir = lb.cfg.IcebugDir
+		}
+		// ForceRebuild deliberately distrusts the cache: it must never take the
+		// delta path, because a delta's premise is that the untouched shards are
+		// current — exactly what ForceRebuild refuses to assume.
+		doIncremental := !opts.ForceRebuild &&
+			(len(changedRels)+len(deletedFiles) > 0) &&
+			(len(changedRels)+len(deletedFiles) < jsonCache.Count()/5)
+		if doIncremental {
+			if _, statErr := os.Stat(bundleDir); statErr != nil {
+				doIncremental = false
+			}
+		}
+		logger.Info("strategy selected", "type", "icebug-rebuild",
+			"incremental", doIncremental, "changed", len(changedRels),
+			"deleted", len(deletedFiles), "files", jsonCache.Count())
+		reverseEdges := true
+		if opts.ReverseEdges != nil {
+			reverseEdges = *opts.ReverseEdges
+		}
 		var err error
-		if useIncremental {
-
-			changedRels := make([]string, 0, len(changedFiles))
-			for _, f := range changedFiles {
-				fAbs, _ := filepath.Abs(f)
-				rel := writer.rel(fAbs)
-				if rel != "" {
-					changedRels = append(changedRels, rel)
+		if doIncremental {
+			err = rebuildIcebugFromCacheWithDelta(ctx, jsonCache, changedRels, deletedFiles, opts.Cluster, abs, opts.Logger, true, bundleDir, reverseEdges)
+		} else {
+			err = RebuildIcebugFromCacheWithReverse(ctx, jsonCache, embCache, opts.Cluster, abs, opts.Logger, bundleDir, reverseEdges)
+		}
+		if err == nil {
+			// Search sidecar (LanceDB): incremental where small, full otherwise.
+			if lb, ok := db.(*LadybugBackend); ok {
+				idx, oerr := OpenSearchIndex(ctx, lb.cfg.StoreDir)
+				if oerr != nil {
+					err = fmt.Errorf("open search index: %w", oerr)
+				} else {
+					idx.Logger = opts.Logger
+					if doIncremental {
+						if serr := idx.UpdateIncremental(ctx, jsonCache, changedRels, deletedFiles, BuildEmbLookup(jsonCache, embCache)); serr != nil {
+							err = fmt.Errorf("search index incremental: %w", serr)
+						}
+					} else if serr := idx.RebuildFromCache(ctx, jsonCache, BuildEmbLookup(jsonCache, embCache)); serr != nil {
+						err = fmt.Errorf("search index rebuild: %w", serr)
+					}
+					_ = idx.Close()
 				}
 			}
-
-			logger.Info("strategy selected", "type", "incremental",
-				"changed", len(changedRels), "deleted", len(deletedFiles), "total", jsonCache.Count())
-			err = IncrementalRebuild(ctx, lb, jsonCache, embCache, changedRels, deletedFiles, opts.Cluster, abs, opts.Logger)
-		} else {
-			logger.Info("strategy selected", "type", "full-rebuild", "files", jsonCache.Count())
-			writeErrs := parseErrors + writeErrors
-			// WithSearch, not WithProgress: a full rebuild republishes the whole
-			// corpus, and an index left describing the previous one is worse than no
-			// index — it answers, and it answers wrongly.
-			//
-			// Failing it is a write error, not a warning: files.source is the only
-			// queryable copy of file text, so a broken index leaves `ast source` with
-			// nothing to read for every path in the project, which reads as missing code.
-			err = RebuildFromJSONWithSearch(ctx, db, jsonCache, embCache, opts.Cluster, abs, opts.Logger,
-				func(rows int) {
-					if opts.OnProgress != nil {
-						opts.OnProgress("writing", rows, jsonCache.Count(), writeErrs)
-					}
-				})
 		}
 		if err != nil {
 			writeErrors++

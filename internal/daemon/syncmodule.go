@@ -305,10 +305,12 @@ func (m *SyncModule) reindexAST(ctx context.Context, projectCfg config.ConfigMap
 	rebuildLog, closeLog := projectRebuildLogger(m.projectDir)
 	defer closeLog()
 
+	revEdges := config.ResolveHubIcebugReverseEdges(nil, projectCfg)
 	pipeOpts := ast.PipelineOptions{
 		Workers:          ast.SafeWorkers(0),
 		IndexSource:      config.ResolveIndexSource(nil, projectCfg),
-		CacheDir:         filepath.Dir(cfg.DBPath),
+		CacheDir:         cfg.StoreDir,
+		ReverseEdges:     &revEdges,
 		GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
 		Logger:           rebuildLog,
 	}
@@ -319,7 +321,7 @@ func (m *SyncModule) reindexAST(ctx context.Context, projectCfg config.ConfigMap
 		_, perr = ast.RunPipeline(ctx, db, m.projectDir, pipeOpts)
 	}
 	if perr != nil {
-		slog.Error("daemon: AST pipeline failed", "path", cfg.DBPath, "error", perr)
+		slog.Error("daemon: AST pipeline failed", "store", cfg.StoreDir, "error", perr)
 	}
 }
 

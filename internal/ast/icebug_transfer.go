@@ -4,12 +4,10 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	ladybug "github.com/graphit-labs/graphit-code/internal/ladybugstore"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
@@ -70,97 +68,32 @@ func HasIcebugBundle(dir string) bool {
 // IcebugBundlePath is the mounted-graph directory inside an artifact root.
 func IcebugBundlePath(root string) string { return filepath.Join(root, IcebugBundleDir) }
 
-// ExportGraphToIcebug writes the graph at dbPath as an icebug directory under outDir, and copies
-// the search index beside it.
-//
-// storageURI is what every table will declare as its `storage`, so it must be the location the
-// CONSUMER will read from — the artifact's own prefix on object storage — not the directory being
-// written now. Getting that wrong produces an artifact that mounts against the publisher's local
-// disk and fails everywhere else, which is why it is a required argument rather than derived here.
-func ExportGraphToIcebug(dbPath, outDir, searchDir, storageURI string, reverseEdges bool, logger *slog.Logger) (*ladybug.CanonicalManifest, error) {
-	log := slogutil.Resolve(logger)
-	if strings.TrimSpace(storageURI) == "" {
-		return nil, fmt.Errorf("icebug export: no storage URI — the artifact would mount against " +
-			"the publisher's disk")
-	}
-
-	be := NewLadybugDBReadOnly(LadybugConfig{DBPath: dbPath})
-	if err := be.connect(); err != nil {
-		return nil, fmt.Errorf("icebug export: open store: %w", err)
-	}
-	defer func() { _ = be.Close() }()
-
-	start := time.Now()
-	man, err := ladybug.ExportIcebugCanonical(backendConn{be}, outDir, ladybug.IcebugOptions{
-		StorageURI:          storageURI,
-		DisableReverseEdges: !reverseEdges,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("icebug export: %w", err)
-	}
-
-	searchBytes := int64(0)
-	if searchDir != "" {
-		n, cErr := copyLanceIndex(LanceIndexPath(dbPath), searchDir)
-		switch {
-		case cErr != nil:
-			log.Warn("icebug export: the search index could not be copied; the artifact will be "+
-				"traversable but neither searchable nor readable", "error", cErr)
-		case n == 0:
-			log.Warn("icebug export: no search index beside the graph; the artifact will be " +
-				"traversable but neither searchable nor readable")
-		default:
-			searchBytes = n
-		}
-	}
-
-	log.Info("icebug export complete",
-		"nodes", len(man.NodeTables), "edges", man.EdgeCount, "rel_tables", len(man.RelGroups),
-		"search_bytes", searchBytes, "storage", storageURI,
-		"duration_s", time.Since(start).Seconds())
-	return man, nil
-}
-
-// MountIcebugGraph creates the local catalog for a published graph by running its DDL.
+// MountIcebugGraph prepares the mount cache for a published graph by staging its DDL.
 //
 // NOTHING OF THE GRAPH IS READ HERE. The statements name an `s3://` location and the engine
 // resolves it lazily, on the first traversal — so this is fast and stays fast as the graph grows,
-// which is the entire point.
+// which is the entire point. The catalog itself is built IN-MEMORY, per connection, from the
+// staged schema.cypher; no ladybugdb file ever exists.
 //
 // schemaCypher is the published `schema.cypher`, verbatim. It is not rewritten: the publisher
 // already wrote the consumer's location into it, because the publisher is the only party that
 // knows where it put the objects.
-func MountIcebugGraph(ctx context.Context, dbPath, schemaCypher string, logger *slog.Logger) error {
+func MountIcebugGraph(ctx context.Context, storeDir, schemaCypher string, logger *slog.Logger) error {
 	log := slogutil.Resolve(logger)
 	stmts := splitCypherStatements(schemaCypher)
 	if len(stmts) == 0 {
 		return fmt.Errorf("mounting the graph: the published schema has no statements")
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		return fmt.Errorf("mounting the graph: %w", err)
 	}
-
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
-	if err := db.connect(); err != nil {
-		return fmt.Errorf("mounting the graph: open local catalog: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	conn := backendConn{db}
-	start := time.Now()
-	for i, stmt := range stmts {
-		if err := conn.Exec(stmt, nil); err != nil {
-			// The statement is named in the error because a DDL failure here is almost always one
-			// table's column type, and without it the message says only that mounting failed.
-			return fmt.Errorf("mounting the graph: statement %d of %d failed: %w\n  %s",
-				i+1, len(stmts), err, firstDDLLine(stmt))
-		}
+	if err := os.WriteFile(filepath.Join(storeDir, IcebugSchemaFile), []byte(schemaCypher), 0o644); err != nil {
+		return fmt.Errorf("mounting the graph: staging schema: %w", err)
 	}
 
-	log.Info("graph mounted from object storage",
-		"statements", len(stmts), "bytes_transferred", 0,
-		"duration_ms", time.Since(start).Seconds()*1000)
+	log.Info("graph mount staged for in-memory build",
+		"statements", len(stmts), "bytes_transferred", 0)
 	return nil
 }
 
@@ -207,8 +140,6 @@ func firstDDLLine(s string) string {
 	return s
 }
 
-// ---------- the pieces the transfer needs ----------
-
 // backendConn adapts a LadybugBackend to the transfer package's Conn.
 //
 // It exists so the export can run on a handle the caller already holds: the engine allows
@@ -234,50 +165,4 @@ func (c backendConn) Query(cypher string, params map[string]any) ([]map[string]a
 		out = append(out, map[string]any(rec))
 	}
 	return out, nil
-}
-
-// copyLanceIndex copies a Lance directory into the artifact, returning the bytes written.
-//
-// A plain recursive copy is correct here in a way it would not be for a live database file: a
-// Lance directory is immutable data files plus a manifest, so a copy taken while nothing is
-// writing is a valid dataset, and the publisher holds the store closed for exactly that reason.
-func copyLanceIndex(srcDir, dstDir string) (int64, error) {
-	info, err := os.Stat(srcDir)
-	if err != nil || !info.IsDir() {
-		return 0, nil
-	}
-	var written int64
-	err = filepath.Walk(srcDir, func(path string, fi os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(srcDir, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dstDir, rel)
-		if fi.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		if !fi.Mode().IsRegular() {
-			return nil
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		in, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = in.Close() }()
-		out, err := os.Create(target)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = out.Close() }()
-		n, err := io.Copy(out, in)
-		written += n
-		return err
-	})
-	return written, err
 }

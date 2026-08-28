@@ -41,7 +41,7 @@ func TestForceRebuildDropsAFileThatLeftTheDisk(t *testing.T) {
 	cacheDir := filepath.Join(tmp, "cache")
 	opts := PipelineOptions{CacheDir: cacheDir}
 
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	if _, err := RunPipeline(context.Background(), db, work, opts); err != nil {
 		_ = db.Close()
 		t.Fatalf("first index: %v", err)
@@ -66,7 +66,7 @@ func TestForceRebuildDropsAFileThatLeftTheDisk(t *testing.T) {
 	forced := opts
 	forced.ForceRebuild = true
 
-	db2 := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db2 := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	if _, err := RunPipeline(context.Background(), db2, work, forced); err != nil {
 		_ = db2.Close()
 		t.Fatalf("reindex: %v", err)
@@ -92,8 +92,9 @@ func TestForceRebuildDropsAFileThatLeftTheDisk(t *testing.T) {
 
 func countGraphEntities(t *testing.T, dbPath, name string) int {
 	t.Helper()
+	storeDir := filepath.Dir(dbPath)
 
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db := NewLadybugDB(LadybugConfig{StoreDir: storeDir, IcebugDir: filepath.Join(storeDir, "graph.icebug")})
 	defer func() { _ = db.Close() }()
 
 	res, err := db.Query(context.Background(),
@@ -108,7 +109,7 @@ func countGraphEntities(t *testing.T, dbPath, name string) int {
 func countIndexedEntities(t *testing.T, dbPath, relPath string) int {
 	t.Helper()
 
-	idx, err := OpenSearchIndex(context.Background(), dbPath)
+	idx, err := OpenSearchIndex(context.Background(), filepath.Dir(dbPath))
 	if err != nil {
 		t.Fatalf("open search index: %v", err)
 	}
@@ -121,7 +122,7 @@ func countIndexedEntities(t *testing.T, dbPath, relPath string) int {
 func countIndexedFiles(t *testing.T, dbPath, relPath string) int {
 	t.Helper()
 
-	idx, err := OpenSearchIndex(context.Background(), dbPath)
+	idx, err := OpenSearchIndex(context.Background(), filepath.Dir(dbPath))
 	if err != nil {
 		t.Fatalf("open search index: %v", err)
 	}

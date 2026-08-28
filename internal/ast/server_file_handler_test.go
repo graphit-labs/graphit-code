@@ -28,7 +28,7 @@ func writeProjectSearchIndex(t *testing.T, relPath, src string) string {
 		t.Fatalf("mkdir store: %v", err)
 	}
 
-	idx, err := OpenSearchIndex(context.Background(), store.ASTProjectDBPath(root))
+	idx, err := OpenSearchIndex(context.Background(), store.ASTProjectDir(root))
 	if err != nil {
 		t.Fatalf("open search index: %v", err)
 	}
@@ -47,8 +47,9 @@ func serverRootedAt(t *testing.T, root string) *Server {
 	t.Helper()
 
 	db := NewLadybugDBReadOnly(LadybugConfig{
-		DBPath:   store.ASTProjectDBPath(root),
-		ReadOnly: true,
+		StoreDir:  store.ASTProjectDir(root),
+		IcebugDir: store.ASTProjectIcebugDir(root),
+		ReadOnly:  true,
 	})
 	srv, err := NewServerOnPort(db, root, 0)
 	if err != nil {
@@ -155,9 +156,9 @@ func TestHandleFileStillRefusesWhatIsNotIndexed(t *testing.T) {
 // from.
 func TestStorePathForRequestResolvesRelativeStoresAgainstTheRoot(t *testing.T) {
 	root := t.TempDir()
-	relStore := filepath.Join(".graphit", "ast", "project", "ladybugdb")
+	relStore := filepath.Join(".graphit", "ast", "project")
 
-	srv, err := NewServerOnPort(NewLadybugDBReadOnly(LadybugConfig{DBPath: relStore}), root, 0)
+	srv, err := NewServerOnPort(NewLadybugDBReadOnly(LadybugConfig{StoreDir: relStore, IcebugDir: filepath.Join(relStore, "graph.icebug")}), root, 0)
 	if err != nil {
 		t.Fatalf("NewServerOnPort: %v", err)
 	}

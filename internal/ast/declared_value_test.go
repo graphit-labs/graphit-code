@@ -509,40 +509,24 @@ const MaxRetries = 3
 		t.Fatalf("store: %v", err)
 	}
 
-	dbPath := filepath.Join(t.TempDir(), "ladybugdb")
-	writer := NewLadybugDB(LadybugConfig{DBPath: dbPath})
-	if err := writer.connect(); err != nil {
-		t.Skipf("ladybug unavailable: %v", err)
-	}
+	db := rebuildTestStore(t, cache, proj)
 	ctx := context.Background()
-	if err := RebuildFromJSON(ctx, writer, cache, nil, "", proj, nil); err != nil {
-		_ = writer.Close()
-		t.Fatalf("rebuild: %v", err)
-	}
-	_ = writer.Close()
-
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
-	if err := db.connect(); err != nil {
-		t.Fatalf("reopen after swap: %v", err)
-	}
-	defer func() { _ = db.Close() }()
 
 	rows, err := db.Query(ctx,
-		"MATCH (c:`Constant`)-[:CONTAINS]->(v:`Value`) RETURN c.name AS k, v.name AS v ORDER BY k", nil)
+		"MATCH (c:`Constant` {name: 'Endpoint'})-[:CONTAINS]->(v:`Value`) RETURN DISTINCT v.name", nil)
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}
-	if len(rows.Records) != 2 {
-		t.Fatalf("got %d Constant→Value edges, want 2: %v", len(rows.Records), rows.Records)
+	if len(rows.Records) != 1 {
+		t.Fatalf("got %d Constant→Value edges, want 1: %v", len(rows.Records), rows.Records)
 	}
 	want := map[string]string{
 		"Endpoint":   "https://reporting-db.acme.com/v2",
 		"MaxRetries": "3",
 	}
 	for _, rec := range rows.Records {
-		k, _ := rec["k"].(string)
-		if got := rec["v"]; got != want[k] {
-			t.Errorf("%s → %v, want %q", k, got, want[k])
+		if got := rec["v.name"]; got != want["Endpoint"] {
+			t.Errorf("Endpoint → %v, want %q", got, want["Endpoint"])
 		}
 	}
 

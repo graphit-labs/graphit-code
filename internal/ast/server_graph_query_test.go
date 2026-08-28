@@ -144,7 +144,7 @@ func TestBothSamplesReachTheDrawing(t *testing.T) {
 func TestGraphSamplesRunOnAGraphWithoutEntities(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "ladybugdb")
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	defer func() { _ = db.Close() }()
 
 	work := t.TempDir()
@@ -158,7 +158,7 @@ func TestGraphSamplesRunOnAGraphWithoutEntities(t *testing.T) {
 	}
 	_ = db.Close()
 
-	graph := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	graph := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	defer func() { _ = graph.Close() }()
 
 	if _, err := graph.Query(context.Background(), defaultGraphQueryText(), nil); err == nil {

@@ -98,15 +98,18 @@ func anchorToProject(projectDir, path string) string {
 // until a write lands in another project's graph and reports success.
 func astConfigForProject(projectDir, contextName string) ast.LadybugConfig {
 	cfg := ast.LadybugConfigForContextIn(projectDir, contextName)
-	cfg.DBPath = anchorToProject(projectDir, cfg.DBPath)
+	cfg.StoreDir = anchorToProject(projectDir, cfg.StoreDir)
+	if cfg.IcebugDir != "" {
+		cfg.IcebugDir = anchorToProject(projectDir, cfg.IcebugDir)
+	}
 	return cfg
 }
 
 func openASTDB(projectDir, contextName string) (ast.GraphDB, error) {
 	cfg := astConfigForProject(projectDir, contextName)
 
-	if _, err := os.Stat(cfg.DBPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("no AST database found at %s — index first with: %s ast index", cfg.DBPath, brand.BinName())
+	if _, err := os.Stat(cfg.IcebugDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("no AST database found at %s — index first with: %s ast index", cfg.IcebugDir, brand.BinName())
 	}
 
 	return ast.NewLadybugDBReadOnly(cfg), nil

@@ -62,6 +62,12 @@ consumer creates only the local catalog needed to mount that data; it does not
 copy one full store per project. File-based artifacts are written into the target
 IDE/project and remain version-locked.
 
+Local project graphs use the **same canonical icebug format** as Hub artifacts,
+but with `storage='<abs>/graph.icebug'` (filesystem) and a `:memory:` catalog
+rebuilt per connection from `graph.icebug/schema.cypher` – no `ladybugdb` file,
+no WAL, no swap. Publish to Hub is a filesystem-to-S3 copy plus `storage` URI
+rewrite (`/abs` → `s3://bucket/prefix/graph.icebug`); Parquets are identical.
+
 Every AST relationship is exported as two independent Icebug CSR tables by default:
 `TYPE` contains exactly the directed graph, while `TYPE_REVERSE` contains the mirror
 of every non-self-loop edge with the same properties. Keeping them separate lets

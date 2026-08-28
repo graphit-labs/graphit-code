@@ -26,45 +26,29 @@ func uidSetsEqual(a, b *QueryResult) bool {
 	return len(as) > 0 && len(bs) > 0 && sameStrings(as, bs)
 }
 
-// buildCanonicalFixture exports a small native graph as a CANONICAL bundle, mounts it, and
-// wires the manifest beside the catalog exactly the way the hub installer does, so the
-// backend adopts the member-aware planner.
-func buildCanonicalFixture(t *testing.T) (native *LadybugBackend, mounted *LadybugBackend) {
+// buildCanonicalFixture builds a small graph as a CANONICAL icebug bundle directly
+// from shards (the only way a store exists now), mounts it in-memory, and returns the
+// mounted backend. The "native" counterpart used to be a file LadybugDB; it is gone,
+// so tests that compare behavior compare against the engine's own physical member
+// tables instead.
+func buildCanonicalFixture(t *testing.T) (mounted *LadybugBackend) {
 	t.Helper()
-	srcPath := filepath.Join(t.TempDir(), "src.lbug")
-	native = NewLadybugDB(LadybugConfig{DBPath: srcPath})
-	if err := native.connect(); err != nil {
-		t.Skipf("ladybug unavailable: %v", err)
-	}
-	ctx := context.Background()
-	for _, stmt := range []string{
-		"CREATE NODE TABLE Function(uid STRING, name STRING, PRIMARY KEY(uid))",
-		"CREATE REL TABLE CALLS(FROM Function TO Function)",
-	} {
-		if _, err := native.Query(ctx, stmt, nil); err != nil {
-			t.Fatalf("ddl: %v", err)
-		}
-	}
 	names := []string{"a", "b", "c", "d", "e", "f"}
-	for i, n := range names {
-		if _, err := native.Query(ctx,
-			"CREATE (:Function {uid: $u, name: $n})",
-			map[string]any{"u": "fn_" + n, "n": n}); err != nil {
-			t.Fatalf("insert %s: %v", n, err)
-		}
-		_ = i
+	var ents []cachedEntity
+	var calls []cachedCall
+	for _, n := range names {
+		ents = append(ents, cachedEntity{Label: "Function", UID: "fn_" + n, Name: n, Path: "f.go", Line: 1, EndLine: 2})
 	}
-	for i := 0; i+1 < len(names); i++ { // a->b->c->d->e->f : a five-hop chain
-		if _, err := native.Query(ctx,
-			"MATCH (x:Function {uid:$a}), (y:Function {uid:$b}) CREATE (x)-[:CALLS]->(y)",
-			map[string]any{"a": "fn_" + names[i], "b": "fn_" + names[i+1]}); err != nil {
-			t.Fatalf("edge %d: %v", i, err)
-		}
+	for i := 0; i+1 < len(names); i++ {
+		calls = append(calls, cachedCall{CallerUID: "fn_" + names[i], CalleeUID: "fn_" + names[i+1], SourceType: "Function", Path: "f.go", Line: 1, Lang: "go"})
 	}
+	entry := &parseCacheEntry{RelPath: "f.go", Language: "go", Entities: ents, Calls: calls}
+	ctx := context.Background()
+	_ = ctx
 
 	bundle := filepath.Join(t.TempDir(), "bundle")
-	be := backendConn{native}
-	if _, err := ladybug.ExportIcebugCanonical(be, bundle, ladybug.IcebugOptions{StorageURI: bundle}); err != nil {
+	ri := newRebuildIndex(map[string]*parseCacheEntry{"f.go": entry}, targetRulesFor(""))
+	if _, err := ExportDirectFromRebuildIndex(ri, bundle, bundle); err != nil {
 		t.Fatalf("canonical export: %v", err)
 	}
 
@@ -73,8 +57,7 @@ func buildCanonicalFixture(t *testing.T) (native *LadybugBackend, mounted *Ladyb
 		t.Fatalf("schema: %v", err)
 	}
 	mountDir := t.TempDir()
-	mountPath := filepath.Join(mountDir, "mounted.lbug")
-	if err := MountIcebugGraph(ctx, mountPath, string(schemaRaw), nil); err != nil {
+	if err := MountIcebugGraph(ctx, mountDir, string(schemaRaw), nil); err != nil {
 		t.Fatalf("mount: %v", err)
 	}
 	manifestRaw, err := os.ReadFile(filepath.Join(bundle, ladybug.IcebugManifestFile))
@@ -85,48 +68,40 @@ func buildCanonicalFixture(t *testing.T) (native *LadybugBackend, mounted *Ladyb
 		t.Fatalf("stage manifest: %v", err)
 	}
 
-	mounted = NewLadybugDBReadOnly(LadybugConfig{DBPath: mountPath})
+	mounted = NewLadybugDBReadOnly(LadybugConfig{StoreDir: mountDir, IcebugDir: mountDir})
 	if err := mounted.connect(); err != nil {
 		t.Fatalf("open mounted: %v", err)
 	}
 	t.Cleanup(func() { _ = mounted.Close() })
-	return native, mounted
+	return mounted
 }
 
 func TestMountedCanonicalUnboundedTraversalMatchesNative(t *testing.T) {
-	native, mounted := buildCanonicalFixture(t)
+	mounted := buildCanonicalFixture(t)
 
 	publicQ := "MATCH (caller)-[:CALLS*]->(t) WHERE t.uid IN ['fn_f'] RETURN DISTINCT caller.uid AS uid"
-	want, err := native.Query(context.Background(), publicQ, nil)
-	if err != nil {
-		t.Fatalf("native control: %v", err)
-	}
 	got, err := mounted.Query(context.Background(), publicQ, nil)
 	if err != nil {
 		t.Fatalf("canonical planner: %v", err)
 	}
-	wantUIDs := recordStrings(want, "uid")
 	gotUIDs := recordStrings(got, "uid")
-	if len(gotUIDs) == 0 || len(gotUIDs) != len(wantUIDs) {
-		t.Fatalf("canonical=%v native=%v", gotUIDs, wantUIDs)
+	// Uncapped means the whole five-hop chain answers (a..e), not a prefix.
+	if len(gotUIDs) != 5 {
+		t.Fatalf("uncapped traversal returned %v, want the full 5-hop chain a..e", gotUIDs)
 	}
 	seen := map[string]bool{}
 	for _, u := range gotUIDs {
 		seen[u] = true
 	}
-	for _, u := range wantUIDs {
-		if !seen[u] {
-			t.Fatalf("missing caller %s (got %v)", u, gotUIDs)
+	for _, n := range []string{"a", "b", "c", "d", "e"} {
+		if !seen["fn_"+n] {
+			t.Fatalf("missing caller fn_%s (got %v)", n, gotUIDs)
 		}
-	}
-	// Uncapped means the whole five-hop chain answers, not a prefix of it.
-	if len(gotUIDs) < 5 {
-		t.Fatalf("uncapped traversal returned %d callers, want the full 5-hop chain", len(gotUIDs))
 	}
 }
 
 func TestMountedCanonicalCountDistinct(t *testing.T) {
-	_, mounted := buildCanonicalFixture(t)
+	mounted := buildCanonicalFixture(t)
 	res, err := mounted.Query(context.Background(),
 		"MATCH (caller)-[:CALLS*1..3]->(t) WHERE t.uid IN ['fn_f'] RETURN count(DISTINCT caller.uid)", nil)
 	if err != nil {
@@ -144,7 +119,7 @@ func TestMountedCanonicalCountDistinct(t *testing.T) {
 }
 
 func TestMountedCanonicalUnsupportedMultiHopFailsClosed(t *testing.T) {
-	_, mounted := buildCanonicalFixture(t)
+	mounted := buildCanonicalFixture(t)
 	_, err := mounted.Query(context.Background(),
 		"MATCH (caller)-[:CALLS*1..3]->(t) WHERE t.uid IN ['fn_f'] RETURN collect(caller.uid)", nil)
 	if err == nil || !stringsContains(err.Error(), "not supported remotely") {
@@ -177,24 +152,15 @@ func TestSanitizeCanonicalUIDEquality(t *testing.T) {
 }
 
 func TestMountedCanonicalBarePatternIsExactlyOneHop(t *testing.T) {
-	native, mounted := buildCanonicalFixture(t)
+	mounted := buildCanonicalFixture(t)
 	q := "MATCH (c)-[:CALLS]->(t) WHERE t.uid IN ['fn_b'] RETURN DISTINCT c.uid AS uid"
-	want, err := native.Query(context.Background(), q, nil)
-	if err != nil {
-		t.Fatalf("native: %v", err)
-	}
 	got, err := mounted.Query(context.Background(), q, nil)
 	if err != nil {
 		t.Fatalf("canonical bare pattern: %v", err)
 	}
 	gotUIDs := recordStrings(got, "uid")
-	if wantUIDs := recordStrings(want, "uid"); len(gotUIDs) != len(wantUIDs) {
-		t.Fatalf("bare single-hop canonical=%v native=%v", gotUIDs, wantUIDs)
-	}
-	for _, u := range gotUIDs {
-		if u != "fn_a" {
-			t.Fatalf("bare single-hop returned %v; want only the direct caller fn_a", gotUIDs)
-		}
+	if len(gotUIDs) != 1 || gotUIDs[0] != "fn_a" {
+		t.Fatalf("bare single-hop returned %v; want only the direct caller fn_a", gotUIDs)
 	}
 }
 
@@ -203,7 +169,7 @@ func TestMountedCanonicalRealGraphTraversalCost(t *testing.T) {
 	if storePath == "" {
 		t.Skip("set GRAPHIT_REAL_STORE to a populated ladybugdb")
 	}
-	native := NewLadybugDBReadOnly(LadybugConfig{DBPath: storePath})
+	native := NewLadybugDBReadOnly(LadybugConfig{StoreDir: filepath.Dir(storePath), IcebugDir: filepath.Join(filepath.Dir(storePath), "graph.icebug")})
 	if err := native.connect(); err != nil {
 		t.Fatalf("open native: %v", err)
 	}
@@ -235,7 +201,7 @@ func TestMountedCanonicalRealGraphTraversalCost(t *testing.T) {
 			t.Fatalf("stage manifest: %v", wErr)
 		}
 	}
-	mounted := NewLadybugDBReadOnly(LadybugConfig{DBPath: mountPath})
+	mounted := NewLadybugDBReadOnly(LadybugConfig{StoreDir: filepath.Dir(mountPath), IcebugDir: filepath.Join(filepath.Dir(mountPath), "graph.icebug")})
 	if err := mounted.connect(); err != nil {
 		t.Fatalf("open mounted: %v", err)
 	}
@@ -279,7 +245,7 @@ func TestMountedCanonicalRemoteRealGraphTraversalCost(t *testing.T) {
 		}
 	})
 
-	native := NewLadybugDBReadOnly(LadybugConfig{DBPath: os.Getenv("GRAPHIT_REAL_STORE")})
+	native := NewLadybugDBReadOnly(LadybugConfig{StoreDir: filepath.Dir(os.Getenv("GRAPHIT_REAL_STORE")), IcebugDir: filepath.Join(filepath.Dir(os.Getenv("GRAPHIT_REAL_STORE")), "graph.icebug")})
 	if err := native.connect(); err != nil {
 		t.Fatalf("open native: %v", err)
 	}
@@ -290,8 +256,8 @@ func TestMountedCanonicalRemoteRealGraphTraversalCost(t *testing.T) {
 	_ = native.Close()
 
 	bundle := filepath.Join(t.TempDir(), "graph.icebug")
-	if _, err := ExportGraphToIcebug(os.Getenv("GRAPHIT_REAL_STORE"), bundle,
-		"", objectStore.URI(prefix), true, nil); err != nil {
+	if _, err := exportGraphToIcebug(os.Getenv("GRAPHIT_REAL_STORE"), bundle,
+		"", objectStore.URI(prefix), nil); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	if err := objectStore.UploadDir(ctx, bundle, prefix); err != nil {
@@ -311,7 +277,7 @@ func TestMountedCanonicalRemoteRealGraphTraversalCost(t *testing.T) {
 			t.Fatalf("stage manifest: %v", wErr)
 		}
 	}
-	mounted := NewLadybugDBReadOnly(LadybugConfig{DBPath: mountPath})
+	mounted := NewLadybugDBReadOnly(LadybugConfig{StoreDir: filepath.Dir(mountPath), IcebugDir: filepath.Join(filepath.Dir(mountPath), "graph.icebug")})
 	if err := mounted.connect(); err != nil {
 		t.Fatalf("open mounted: %v", err)
 	}
@@ -359,7 +325,7 @@ func TestMountedCanonicalS3Battery(t *testing.T) {
 		fmt.Sprintf("t18-canonical-battery-%d", time.Now().UnixNano()))
 	t.Cleanup(func() {}) // KEEP: nothing is deleted
 
-	native := NewLadybugDBReadOnly(LadybugConfig{DBPath: storePath})
+	native := NewLadybugDBReadOnly(LadybugConfig{StoreDir: filepath.Dir(storePath), IcebugDir: filepath.Join(filepath.Dir(storePath), "graph.icebug")})
 	if err := native.connect(); err != nil {
 		t.Fatalf("native: %v", err)
 	}
@@ -376,7 +342,7 @@ func TestMountedCanonicalS3Battery(t *testing.T) {
 	t.Logf("LOCAL native x6 total=%s", time.Since(nativeStart))
 
 	bundle := filepath.Join(t.TempDir(), "graph.icebug")
-	if _, err := ExportGraphToIcebug(storePath, bundle, "", objectStore.URI(prefix), true, nil); err != nil {
+	if _, err := exportGraphToIcebug(storePath, bundle, "", objectStore.URI(prefix), nil); err != nil {
 		t.Fatalf("export canonical to S3: %v", err)
 	}
 	if err := objectStore.UploadDir(ctx, bundle, prefix); err != nil {
@@ -396,7 +362,7 @@ func TestMountedCanonicalS3Battery(t *testing.T) {
 			t.Fatalf("stage manifest: %v", wErr)
 		}
 	}
-	mounted := NewLadybugDBReadOnly(LadybugConfig{DBPath: mountPath})
+	mounted := NewLadybugDBReadOnly(LadybugConfig{StoreDir: filepath.Dir(mountPath), IcebugDir: filepath.Join(filepath.Dir(mountPath), "graph.icebug")})
 	if err := mounted.connect(); err != nil {
 		t.Fatalf("open mounted: %v", err)
 	}

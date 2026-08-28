@@ -40,7 +40,7 @@ func Flush() {}
 }
 `)
 
-	db := NewLadybugDB(LadybugConfig{DBPath: filepath.Join(t.TempDir(), "ladybugdb")})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), IcebugDir: filepath.Join(filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), "graph.icebug")})
 	if err := db.connect(); err != nil {
 		t.Skipf("ladybug unavailable: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestVerifyAcceptsTextThatSharesItsLineWithCode(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	db := NewLadybugDB(LadybugConfig{DBPath: filepath.Join(t.TempDir(), "ladybugdb")})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), IcebugDir: filepath.Join(filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), "graph.icebug")})
 	if err := db.connect(); err != nil {
 		t.Skipf("ladybug unavailable: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestVerifyAcceptsAMultiLineCommentAfterMarkerStripping(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	db := NewLadybugDB(LadybugConfig{DBPath: filepath.Join(t.TempDir(), "ladybugdb")})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), IcebugDir: filepath.Join(filepath.Dir(filepath.Join(t.TempDir(), "ladybugdb")), "graph.icebug")})
 	if err := db.connect(); err != nil {
 		t.Skipf("ladybug unavailable: %v", err)
 	}

@@ -2,6 +2,7 @@ package ast
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -71,14 +72,58 @@ type SearchIndex struct {
 	files    *lancestore.Table
 	entities *lancestore.Table
 
+	// vectorCount is how many entity rows carry an embedding, read from the embeds
+	// status file beside the index. When it is zero, hybrid and semantic queries
+	// cannot answer — the engine's RRF rank needs a _distance column no row can
+	// produce — so they degrade to keywords instead of failing.
+	vectorCount int64
+	// storeDir is the local store this index was opened from, when there is one.
+	// Remote indexes (S3) have none, and hold vectorCount zero by construction.
+	storeDir string
+
 	Logger *slog.Logger
 }
 
 func (s *SearchIndex) log() *slog.Logger { return slogutil.Resolve(s.Logger) }
 
-// LanceIndexPath is where the index of a graph store lives.
-func LanceIndexPath(dbPath string) string {
-	return filepath.Join(filepath.Dir(dbPath), LanceIndexDirName)
+// LanceIndexPath is where the search index of a store directory lives: a sibling
+// of graph.icebug under the same store dir.
+func LanceIndexPath(storeDir string) string {
+	return filepath.Join(storeDir, LanceIndexDirName)
+}
+
+// embedsStatusFile is the sidecar that records how many entity rows carry an embedding,
+// written by every rebuild. It is the only thing that tells a hybrid/semantic query whether
+// the vector channel can answer at all — the engine's RRF rank needs a `_distance` column
+// that no row can produce when every embedding is NULL, and the resulting error is one word
+// out of a C++ query planner rather than an actionable message.
+const embedsStatusFile = "embeds.json"
+
+type embedsStatus struct {
+	Vectors  int64 `json:"vectors"`
+	Entities int64 `json:"entities"`
+}
+
+func embedsStatusPath(storeDir string) string {
+	return filepath.Join(storeDir, embedsStatusFile)
+}
+
+func readEmbedsStatus(storeDir string) embedsStatus {
+	var st embedsStatus
+	raw, err := os.ReadFile(embedsStatusPath(storeDir))
+	if err != nil {
+		return st
+	}
+	_ = json.Unmarshal(raw, &st)
+	return st
+}
+
+func writeEmbedsStatus(storeDir string, vectors, entities int64) error {
+	raw, err := json.MarshalIndent(embedsStatus{Vectors: vectors, Entities: entities}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(embedsStatusPath(storeDir), raw, 0o644)
 }
 
 // OpenSearchIndex opens the search index of a graph store.
@@ -86,8 +131,20 @@ func LanceIndexPath(dbPath string) string {
 // It resolves to object storage when the store was MOUNTED and to a local directory otherwise, and
 // the caller does not have to know which — see searchConfigFor. That is what lets a query service
 // built the same way serve a local project and a Hub context.
-func OpenSearchIndex(ctx context.Context, dbPath string) (*SearchIndex, error) {
-	return openLanceIndex(ctx, searchConfigFor(dbPath))
+func OpenSearchIndex(ctx context.Context, storeDir string) (*SearchIndex, error) {
+	si, err := openLanceIndex(ctx, searchConfigFor(storeDir))
+	if err != nil {
+		return nil, err
+	}
+	si.storeDir = storeDir
+	si.vectorCount = readEmbedsStatus(storeDir).Vectors
+	return si, nil
+}
+
+// OpenSearchIndexForDir is OpenSearchIndex under its honest name: the argument is the
+// store directory, never a database file.
+func OpenSearchIndexForDir(ctx context.Context, storeDir string) (*SearchIndex, error) {
+	return OpenSearchIndex(ctx, storeDir)
 }
 
 // OpenSearchIndexAt opens an index by its own URI, which is how a PUBLISHED index on S3 is
@@ -454,6 +511,13 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 	s.log().Info("search index rebuild",
 		"files", fileCount, "entities", entCount, "vectors", vecCount,
 		"duration_ms", time.Since(t0).Seconds()*1000)
+
+	if s.storeDir != "" && entCount > 0 {
+		if err := writeEmbedsStatus(s.storeDir, int64(vecCount), int64(entCount)); err != nil {
+			return fmt.Errorf("writing embeds status: %w", err)
+		}
+	}
+	s.vectorCount = int64(vecCount)
 	return nil
 }
 
@@ -551,7 +615,51 @@ func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
 		"changed", len(changedFiles), "deleted", len(deletedFiles),
 		"entities", len(entRows), "vectors", vecCount,
 		"duration_ms", time.Since(t0).Seconds()*1000)
+
+	if s.storeDir != "" {
+		prev := readEmbedsStatus(s.storeDir)
+		vectors, entities := prev.Vectors, prev.Entities
+		switch {
+		case int64(vecCount) > 0:
+			// The delta carried vectors, so the population is now definitely
+			// non-empty; keep the larger count as an estimate.
+			if int64(vecCount) > vectors {
+				vectors = int64(vecCount)
+			}
+			if int64(len(entRows)) > entities {
+				entities = int64(len(entRows))
+			}
+		case len(deletedFiles) == 0:
+			// Nothing changed in the population: the new rows carry no vectors and
+			// nothing was removed, so the previous status still holds.
+		default:
+			// Deletes with no new vectors are the only case that can flip the
+			// binary question, so answer it with one cheap probe instead of a scan.
+			if !hasVectorRows(ctx, s.entities) {
+				vectors = 0
+			}
+		}
+		if err := writeEmbedsStatus(s.storeDir, vectors, entities); err != nil {
+			return fmt.Errorf("writing embeds status: %w", err)
+		}
+		s.vectorCount = vectors
+	}
 	return nil
+}
+
+// hasVectorRows reports whether any entity row carries an embedding, answering with
+// a filtered probe: WHERE embedding IS NOT NULL LIMIT 1 over a NULL-bearing column
+// is a scan the engine can abort at the first hit and which the null bitmap makes
+// cheap on the non-matching side.
+func hasVectorRows(ctx context.Context, entities *lancestore.Table) bool {
+	hits, err := entities.Search(ctx, lancestore.Query{
+		Filter: "embedding IS NOT NULL", Limit: 1,
+	})
+	if err != nil || len(hits) == 0 {
+		return false
+	}
+	_, ok := hits[0].Row[lanceVectorColumn]
+	return ok
 }
 
 // ensureTables opens the two tables, creating them if this is a first write.
@@ -589,6 +697,11 @@ func (s *SearchIndex) Search(ctx context.Context, query string, topK int) ([]Sea
 
 // SemanticSearch runs the vector half. Entities only: a file has no embedding of its own.
 func (s *SearchIndex) SemanticSearch(ctx context.Context, vec []float32, topK int) ([]SearchResult, error) {
+	if s.vectorCount == 0 {
+		s.log().Info("semantic search returned nothing: the index holds no embedding rows",
+			"hint", "run `graphit ast embed` to enable the semantic channel")
+		return nil, nil
+	}
 	if err := s.ensureTables(ctx); err != nil {
 		return nil, err
 	}
@@ -615,7 +728,11 @@ func (s *SearchIndex) SemanticSearch(ctx context.Context, vec []float32, topK in
 // With no query vector it degrades to the keyword half rather than failing: a project whose
 // embeddings have not been generated yet still has to be searchable.
 func (s *SearchIndex) HybridSearch(ctx context.Context, query string, vec []float32, topK int) ([]SearchResult, error) {
-	if len(vec) == 0 {
+	if len(vec) == 0 || s.vectorCount == 0 {
+		if len(vec) > 0 && s.vectorCount == 0 {
+			s.log().Info("hybrid search degraded to keywords: the index holds no embedding rows",
+				"hint", "run `graphit ast embed` to enable the semantic channel")
+		}
 		return s.Search(ctx, query, topK)
 	}
 	return s.search(ctx, lancestore.Query{
@@ -967,20 +1084,19 @@ const SearchMountFile = "search.uri"
 // index is opened, and that is not an oversight: writing them here would freeze them, so pointing
 // the framework at a different endpoint would leave every installed context reaching for the old
 // one. The bucket is part of the location and so belongs in the URI; the rest is how you connect.
-func WriteSearchMount(dbPath, uri string) error {
+func WriteSearchMount(storeDir, uri string) error {
 	if strings.TrimSpace(uri) == "" {
 		return fmt.Errorf("recording the search mount: no URI")
 	}
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, SearchMountFile), []byte(uri+"\n"), 0o644)
+	return os.WriteFile(filepath.Join(storeDir, SearchMountFile), []byte(uri+"\n"), 0o644)
 }
 
 // searchMountURI reads the recorded URI, or "" when this store's index is local.
-func searchMountURI(dbPath string) string {
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(dbPath), SearchMountFile))
+func searchMountURI(storeDir string) string {
+	data, err := os.ReadFile(filepath.Join(storeDir, SearchMountFile))
 	if err != nil {
 		return ""
 	}
@@ -988,9 +1104,9 @@ func searchMountURI(dbPath string) string {
 }
 
 // searchConfigFor decides where a store's search index is, local or mounted.
-func searchConfigFor(dbPath string) lancestore.Config {
-	if uri := searchMountURI(dbPath); uri != "" {
+func searchConfigFor(storeDir string) lancestore.Config {
+	if uri := searchMountURI(storeDir); uri != "" {
 		return lancestore.Config{URI: uri, S3: config.HubS3Config()}
 	}
-	return lancestore.Config{URI: LanceIndexPath(dbPath)}
+	return lancestore.Config{URI: LanceIndexPath(storeDir)}
 }

@@ -36,7 +36,8 @@ func TestPrepareASTPublishProducesOnlyIcebug(t *testing.T) {
 	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	db := ast.NewLadybugDB(ast.LadybugConfig{DBPath: filepath.Join(storeDir, "ladybugdb")})
+	icebugDir := filepath.Join(storeDir, "graph.icebug")
+	db := ast.NewLadybugDB(ast.LadybugConfig{StoreDir: storeDir, IcebugDir: icebugDir})
 	if _, err := ast.RunPipeline(context.Background(), db, work,
 		ast.PipelineOptions{CacheDir: storeDir}); err != nil {
 		_ = db.Close()
@@ -45,6 +46,9 @@ func TestPrepareASTPublishProducesOnlyIcebug(t *testing.T) {
 	_ = db.Close()
 
 	const storageURI = "s3://example-bucket/artifacts/ast/proj/1.0.0/" + ast.IcebugBundleDir
+	if raw, rerr := os.ReadFile(filepath.Join(storeDir, "graph.icebug", "schema.cypher")); rerr == nil {
+		t.Logf("local schema has reverse: %v", strings.Contains(string(raw), "reverse"))
+	}
 	staged, err := prepareASTPublish(storeDir, storageURI, nil, nil)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
@@ -87,7 +91,20 @@ func TestPrepareASTPublishProducesOnlyIcebug(t *testing.T) {
 		t.Errorf("the default publication omitted reverse relationship tables:\n%s", ddl)
 	}
 
-	withoutReverse, err := prepareASTPublish(storeDir, storageURI, config.ConfigMap{
+	// The reverse policy is a BUILD property now: the bundle is the artifact. A
+	// store built without reverses publishes none — nothing is regenerated.
+	storeDir2 := filepath.Join(tmp, "store2")
+	icebugDir2 := filepath.Join(storeDir2, "graph.icebug")
+	off := false
+	db2 := ast.NewLadybugDB(ast.LadybugConfig{StoreDir: storeDir2, IcebugDir: icebugDir2})
+	if _, err := ast.RunPipeline(context.Background(), db2, work,
+		ast.PipelineOptions{CacheDir: storeDir2, ReverseEdges: &off}); err != nil {
+		_ = db2.Close()
+		t.Fatalf("index without reverse: %v", err)
+	}
+	_ = db2.Close()
+
+	withoutReverse, err := prepareASTPublish(storeDir2, storageURI, config.ConfigMap{
 		"hub": map[string]any{"icebug.reverse_edges": "false"},
 	}, nil)
 	if err != nil {

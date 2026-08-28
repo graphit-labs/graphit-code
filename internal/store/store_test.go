@@ -130,9 +130,11 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 	global := filepath.Join(home, brand.DotDir())
 	cases := map[string]string{
 		"ast project":       ASTProjectDir(projectDir),
-		"ast project db":    ASTProjectDBPath(projectDir),
+		"ast project bundle": ASTProjectIcebugDir(projectDir),
 		"ast context":       ASTContextDir("other-repo"),
+		"ast context bundle": ASTContextIcebugDir("other-repo"),
 		"ast hub":           ASTHubDir("01PUB", "1.2.3"),
+		"ast hub bundle":    ASTHubIcebugDir("01PUB", "1.2.3"),
 		"knowledge project": KnowledgeProjectDir(projectDir),
 		"knowledge context": KnowledgeContextDir("some-docs"),
 		"memory wiki":       MemoryWikiDir("project", "01ACME"),
@@ -154,13 +156,13 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 	// The exact shapes, so a rename of the layout is a deliberate decision rather
 	// than a silent one that orphans every store on every machine.
 	want := map[string]string{
-		ASTProjectDBPath(projectDir):      filepath.Join(global, "ast", "project", "01ACME", DBFileName),
-		ASTContextDBPath("Other Repo"):    filepath.Join(global, "ast", "context", "other-repo", DBFileName),
-		ASTHubDBPath("01PUB", "1.2.3"):    filepath.Join(global, "ast", "hub", "01pub", "1.2.3", DBFileName),
-		KnowledgeProjectDir(projectDir):   filepath.Join(global, "wiki", "knowledge", "project", "01ACME"),
-		KnowledgeContextDir("Some Docs"):  filepath.Join(global, "wiki", "knowledge", "context", "some-docs"),
-		MemoryWikiDir("user", "abc123"):   filepath.Join(global, "wiki", "memory", "user", "abc123"),
-		MemoryRawDir("project", "01ACME"): filepath.Join(global, "memory-raw", "memory-project-01ACME"),
+		ASTProjectIcebugDir(projectDir):    filepath.Join(global, "ast", "project", "01ACME", "graph.icebug"),
+		ASTContextIcebugDir("Other Repo"):  filepath.Join(global, "ast", "context", "other-repo", "graph.icebug"),
+		ASTHubIcebugDir("01PUB", "1.2.3"):  filepath.Join(global, "ast", "hub", "01pub", "1.2.3", "graph.icebug"),
+		KnowledgeProjectDir(projectDir):    filepath.Join(global, "wiki", "knowledge", "project", "01ACME"),
+		KnowledgeContextDir("Some Docs"):   filepath.Join(global, "wiki", "knowledge", "context", "some-docs"),
+		MemoryWikiDir("user", "abc123"):    filepath.Join(global, "wiki", "memory", "user", "abc123"),
+		MemoryRawDir("project", "01ACME"):  filepath.Join(global, "memory-raw", "memory-project-01ACME"),
 	}
 	for got, expected := range want {
 		if got != expected {

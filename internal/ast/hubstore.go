@@ -9,7 +9,8 @@ import (
 
 // Hub-installed AST contexts live once per version in the global brand directory:
 //
-//	~/.<brand>/ast/hub/<project-id>/<version>/ladybugdb
+//	~/.<brand>/ast/hub/<project-id>/<version>/
+//	  graph.icebug/  …when materialized locally    schema.cypher  …the mounted DDL
 //
 // A published AST artifact is immutable at a given version — the graph was built
 // upstream and nothing in a consuming project can change it — so a copy per
@@ -29,12 +30,6 @@ func HubContextsRoot() string { return store.ASTHubRoot() }
 // HubContextDir is the shared directory holding one version of a Hub AST context.
 func HubContextDir(projectID, version string) string {
 	return store.ASTHubDir(projectID, version)
-}
-
-// HubContextDBPath is the graph store inside HubContextDir. The search index that
-// carries file text sits beside it, as SearchIndexSuffix on the same path.
-func HubContextDBPath(projectID, version string) string {
-	return store.ASTHubDBPath(projectID, version)
 }
 
 // HubContextID is the name a Hub AST context is known by: the publishing project's

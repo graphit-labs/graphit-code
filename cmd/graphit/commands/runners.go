@@ -43,7 +43,7 @@ func newASTBackend() (ast.GraphDB, error) {
 
 func newASTBackendReadOnly() (ast.GraphDB, error) {
 	cfg := ast.DefaultLadybugConfig()
-	if _, err := os.Stat(cfg.DBPath); os.IsNotExist(err) {
+	if _, err := os.Stat(cfg.IcebugDir); os.IsNotExist(err) {
 		return nil, fmt.Errorf("no AST database found — index first with: %s ast index", brand.BinName())
 	}
 	return ast.NewLadybugDBReadOnly(cfg), nil
@@ -304,7 +304,7 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 
 	if reset {
 		p.Step("Resetting entire database...")
-		storeDir := filepath.Dir(ast.DefaultLadybugConfig().DBPath)
+		storeDir := ast.DefaultLadybugConfig().StoreDir
 		_ = os.RemoveAll(storeDir)
 		p.StepOK("Database reset complete")
 	}
@@ -385,13 +385,15 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		}
 	}
 
+	revEdges := config.ResolveHubIcebugReverseEdges(nil, projectCfg)
 	pipeOpts := ast.PipelineOptions{
 		Workers:          workers,
 		IndexSource:      indexSource,
-		CacheDir:         filepath.Dir(ladybugCfg.DBPath),
+		CacheDir:         ladybugCfg.StoreDir,
 		Cluster:          cluster,
 		ClusterPathMap:   clusterPathMap,
 		ForceRebuild:     reindex,
+		ReverseEdges:     &revEdges,
 		GrammarOverrides: grammarOverrides,
 		OnProgress:       indexProgressReporter(p),
 	}
@@ -400,7 +402,7 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 	// vs a full index (--reset or --reindex or no existing DB)
 	isIncremental := !reset && !reindex
 	if isIncremental {
-		if _, err := os.Stat(ladybugCfg.DBPath); os.IsNotExist(err) {
+		if _, err := os.Stat(ladybugCfg.IcebugDir); os.IsNotExist(err) {
 			isIncremental = false
 		}
 	}
@@ -907,7 +909,7 @@ func runASTImportList() error {
 		}
 		detail := ictx.SourcePath
 		if detail == "" {
-			detail = ictx.DBPath
+			detail = ictx.StoreDir
 		}
 		p.Step("%s", label)
 		p.Detail("Source Path", detail)
@@ -930,13 +932,12 @@ func runASTImport(sourcePath, name string, reset bool, workers int) error {
 	}
 
 	task := p.StartTask("Importing %s as context %q...", absPath, name)
-	p.Step("Database: %s", ictx.DBPath)
+	p.Step("Store: %s", ictx.StoreDir)
 
 	if reset {
-		task.Update("Resetting context database...")
-		contextDir := filepath.Dir(ictx.DBPath)
-		_ = os.RemoveAll(contextDir)
-		p.StepOK("Context database reset")
+		task.Update("Resetting context store...")
+		_ = os.RemoveAll(ictx.StoreDir)
+		p.StepOK("Context store reset")
 	}
 
 	db, err := newASTBackendForContext(name)
@@ -958,10 +959,13 @@ func runASTImport(sourcePath, name string, reset bool, workers int) error {
 	}()
 
 	task.Update("Indexing files...")
+	pc := loadProjectConfig()
+	rev := config.ResolveHubIcebugReverseEdges(nil, pc)
 	pipeOpts := ast.PipelineOptions{
 		Workers:          workers,
 		IndexSource:      true,
-		CacheDir:         filepath.Dir(ictx.DBPath),
+		CacheDir:         ictx.StoreDir,
+		ReverseEdges:     &rev,
 		GrammarOverrides: config.ResolveGrammarOverrides(nil, loadProjectConfig()),
 	}
 
@@ -1028,7 +1032,7 @@ func runASTExport(format, outputDir string, noSources bool) error {
 	case "bundle":
 		p.Info("Exporting .ast bundle → %s", absDir)
 		opts := ast.BundleOptions{
-			StorePath: ast.DefaultLadybugConfig().DBPath,
+			StorePath: ast.DefaultLadybugConfig().StoreDir,
 			NoSources: noSources,
 		}
 		if err := ast.ExportBundle(context.Background(), db, repoPath, absDir, opts, nil); err != nil {
@@ -1087,7 +1091,7 @@ func runASTSource(relPath, contextName, entity, entityType string, head, tail, s
 	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
-	svc := ast.NewSourceService(db).WithStore(cfg.DBPath)
+	svc := ast.NewSourceService(db).WithStore(cfg.StoreDir)
 	result, err := svc.GetSource(ctx, ast.SourceRequest{
 		Path:        relPath,
 		Entity:      entity,
@@ -2111,7 +2115,7 @@ func runASTSync(contextName string) error {
 
 	pipeOpts := ast.PipelineOptions{
 		IndexSource:      true,
-		CacheDir:         filepath.Dir(ictx.DBPath),
+		CacheDir:         ictx.StoreDir,
 		GrammarOverrides: config.ResolveGrammarOverrides(nil, loadProjectConfig()),
 	}
 

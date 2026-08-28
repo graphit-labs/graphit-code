@@ -83,7 +83,7 @@ func TestOraclePipelineExtraction(t *testing.T) {
 
 	dbPath := filepath.Join(tmp, "ladybugdb")
 	cacheDir := filepath.Join(tmp, "cache")
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	defer func() { _ = db.Close() }()
 
 	res, err := RunPipeline(context.Background(), db, work, PipelineOptions{

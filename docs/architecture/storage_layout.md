@@ -84,15 +84,17 @@ Things worth knowing before you set it:
 ```
 ~/.graphit/
 ├── ast/
-│   ├── project/<project-id>/            a project's own code graph
-│   │   ├── ladybugdb                        the graph — structure only
+│   ├── project/<project-id>/            a project's own code graph — icebug filesystem, :memory: catalog
+│   │   ├── graph.icebug/                    the graph — Parquet CSR bundle (nodes_*.parquet, indices_*.parquet, indptr_*.parquet)
+│   │   │   ├── schema.cypher                    storage = '<abs>/graph.icebug', format='icebug-disk'
+│   │   │   └── icebug.json                      canonical manifest v2
 │   │   ├── search.lance/                    the search index — text, terms, vectors
 │   │   ├── manifest.json                    parse-shard manifest
 │   │   └── shards/…                         parse + embedding shards
-│   ├── context/<name>/                  a locally imported code graph
-│   │   └── ladybugdb + search.lance/ …
+│   ├── context/<name>/                  a locally imported code graph — same icebug filesystem layout
+│   │   └── graph.icebug/ + search.lance/ …
 │   ├── hub/<context-id>/<version>/      a Hub code graph, MOUNTED per version
-│   │   ├── ladybugdb                        the CATALOG only — the data is on S3
+│   │   ├── ladybugdb                        the CATALOG only — the data is on S3 (legacy file catalog; will migrate to :memory:)
 │   │   └── search.uri                       where the search index lives (an s3:// URI)
 │   └── queries/                         USER grammar query overrides (not a store)
 ├── wiki/
@@ -144,8 +146,8 @@ is by question, not by convenience:
 | the graph | LadybugDB | nodes, edges, and the properties a Cypher `MATCH` reads |
 | the search index | LanceDB | file text, the matchable fields, the gram bags, the vectors |
 
-So a code store is a file and a directory — `ladybugdb` and `search.lance/` — and a wiki is one
-directory, `index.lance/`. Nothing indexed for retrieval lives in the graph, and no
+So a code store is a **bundle directory** and a Lance index — `graph.icebug/` and `search.lance/` — and a wiki is one
+directory, `index.lance/`. The Ladybug catalog is `:memory:`, rebuilt per connection from `graph.icebug/schema.cypher` (`storage='<abs>'`, `format='icebug-disk'`); no `ladybugdb` file, no `.wal`/`.shadow`, no `CHECKPOINT`. Nothing indexed for retrieval lives in the graph, and no
 structure lives in the index.
 
 This was one engine for three days, with the search tables inside the graph database. What

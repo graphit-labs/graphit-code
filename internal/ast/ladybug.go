@@ -119,21 +119,31 @@ func mapOutsideStrings(q string, fn func(string) string) string {
 }
 
 type LadybugConfig struct {
-	DBPath string
+	// StoreDir is the global store directory of the graph — where graph.icebug/, search.lance/,
+	// manifests and shards live. The catalog itself is ALWAYS in-memory; there is no file-based
+	// mode anymore, so this is the only location a config needs.
+	StoreDir string
+
+	// IcebugDir is the directory holding the icebug bundle (graph.icebug) for a project, or
+	// the local catalog cache dir (schema.cypher + icebug.json) for a Hub context over S3.
+	// It is what the in-memory catalog is mounted from.
+	IcebugDir string
 
 	ReadOnly bool
 }
 
 // LadybugConfigFor is the graph store of one project.
 //
-// The path is ABSOLUTE and keyed by the project's identity, not by the working
-// directory. It used to be `.graphit/ast/project/ladybugdb` — relative — which meant
-// every caller serving a project other than the one it sat in had to anchor it
-// first, and a caller that forgot indexed one project's code into another project's
-// graph while reporting success.
+// The local graph is icebug filesystem on-the-fly, mounted in-memory. No ladybugdb file exists;
+// the bundle lives at ASTProjectIcebugDir and the catalog is :memory: built from schema.cypher.
+// See docs/architecture/storage_layout.md.
 func LadybugConfigFor(projectDir string) LadybugConfig {
+	if override := os.Getenv("LADYBUGDB_PATH"); override != "" {
+		return LadybugConfig{StoreDir: filepath.Dir(override), IcebugDir: override}
+	}
 	return LadybugConfig{
-		DBPath: envOr("LADYBUGDB_PATH", store.ASTProjectDBPath(projectDir)),
+		StoreDir:  store.ASTProjectDir(projectDir),
+		IcebugDir: store.ASTProjectIcebugDir(projectDir),
 	}
 }
 
@@ -152,16 +162,20 @@ func LadybugConfigForContext(name string) LadybugConfig {
 // LadybugConfigForContextIn resolves a context — or the project's own graph, for an
 // empty name — for a named project rather than the working directory.
 //
-// A Hub-installed context is only discoverable through the project's lockfile, and a
-// locally imported one through the project's context registry, so resolving either
-// without knowing the project resolves it against whichever project the process
-// happens to sit in.
+// Every context is mounted the same way a project is: an in-memory catalog over an
+// icebug bundle. For a Hub context the bundle lives on S3 and the local dir is the
+// mount cache holding schema.cypher + icebug.json; for a local or linked context it
+// is the filesystem bundle itself.
 func LadybugConfigForContextIn(projectDir, name string) LadybugConfig {
 	if name == "" || name == "__project__" {
 		return LadybugConfigFor(projectDir)
 	}
+	if override := os.Getenv("LADYBUGDB_PATH"); override != "" {
+		return LadybugConfig{StoreDir: filepath.Dir(override), IcebugDir: override}
+	}
 	return LadybugConfig{
-		DBPath: ContextDBPathIn(projectDir, name),
+		StoreDir:  store.ASTContextDirIn(projectDir, name),
+		IcebugDir: store.ASTContextIcebugDirIn(projectDir, name),
 	}
 }
 
@@ -227,7 +241,7 @@ func (k *LadybugBackend) connect() error {
 	return k.connectLocked()
 }
 
-// connectLocked opens the database, retrying a transient failure. The caller
+// connectLocked opens the in-memory catalog, retrying a transient failure. The caller
 // must hold k.mu.
 //
 // A failure is deliberately NOT remembered. This used to run inside a sync.Once
@@ -239,21 +253,12 @@ func (k *LadybugBackend) connectLocked() error {
 		return nil
 	}
 
-	// A read-only open of a database that is not there fails deterministically
-	// (the engine refuses to create one), so it must not spend the retry budget
-	// — and it deserves a message that says what is actually wrong.
-	if k.cfg.ReadOnly {
-		if _, err := os.Stat(k.cfg.DBPath); os.IsNotExist(err) {
-			return fmt.Errorf("ladybug open: no database at %s", k.cfg.DBPath)
-		}
-	}
-
 	var err error
 	for attempt := 1; attempt <= dbOpenAttempts; attempt++ {
 		if err = k.openOnce(); err == nil {
 			if attempt > 1 {
 				k.log().Debug("ladybug: opened after retry",
-					"path", k.cfg.DBPath, "readonly", k.cfg.ReadOnly, "attempts", attempt)
+					"catalog", k.cfg.IcebugDir, "readonly", k.cfg.ReadOnly, "attempts", attempt)
 			}
 			return nil
 		}
@@ -261,8 +266,8 @@ func (k *LadybugBackend) connectLocked() error {
 			time.Sleep(dbOpenBackoff << (attempt - 1))
 		}
 	}
-	k.log().Error("ladybug: failed to open database",
-		"path", k.cfg.DBPath, "readonly", k.cfg.ReadOnly, "attempts", dbOpenAttempts, "error", err)
+	k.log().Error("ladybug: failed to open in-memory catalog",
+		"icebug_dir", k.cfg.IcebugDir, "readonly", k.cfg.ReadOnly, "attempts", dbOpenAttempts, "error", err)
 	return err
 }
 
@@ -301,26 +306,31 @@ func (k *LadybugBackend) prepareRemoteAccessLocked() {
 	}
 }
 
-// loadCanonicalManifestLocked reads icebug.json beside the mounted database and adopts it
-// when it describes a CANONICAL catalog. Absent file -> native LadybugDB store.
-// Non-canonical icebug manifest -> error (no backward compatibility for folded layouts).
+// loadCanonicalManifestLocked reads icebug.json and adopts it
+// when it describes a CANONICAL catalog. Absent file -> no icebug manifest.
 func (k *LadybugBackend) loadCanonicalManifestLocked() error {
-	dir := filepath.Dir(k.cfg.DBPath)
-	raw, err := os.ReadFile(filepath.Join(dir, ladybug.IcebugManifestFile))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // native LadybugDB store, no icebug manifest
+	candidates := []string{
+		filepath.Join(k.cfg.IcebugDir, ladybug.IcebugManifestFile),
+		filepath.Join(k.cfg.IcebugDir, "graph.icebug", ladybug.IcebugManifestFile),
+	}
+	for _, p := range candidates {
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("icebug: read manifest: %w", err)
 		}
-		return fmt.Errorf("icebug: read manifest: %w", err)
+		var man ladybug.CanonicalManifest
+		if err := json.Unmarshal(raw, &man); err != nil {
+			return fmt.Errorf("icebug: parse manifest: %w", err)
+		}
+		if man.Format != "icebug-canonical" || !man.Finished {
+			return fmt.Errorf("icebug: unsupported manifest format %q (only icebug-canonical v2+ supported)", man.Format)
+		}
+		k.canonical = &man
+		return nil
 	}
-	var man ladybug.CanonicalManifest
-	if err := json.Unmarshal(raw, &man); err != nil {
-		return fmt.Errorf("icebug: parse manifest: %w", err)
-	}
-	if man.Format != "icebug-canonical" || !man.Finished {
-		return fmt.Errorf("icebug: unsupported manifest format %q (only icebug-canonical v2+ supported)", man.Format)
-	}
-	k.canonical = &man
 	return nil
 }
 
@@ -344,62 +354,75 @@ func resolvedLadybugS3Credentials(cfg config.S3Config) ladybug.S3Credentials {
 	return creds
 }
 
-// openOnce is a single open attempt. The caller must hold k.mu.
+// openOnce opens the in-memory catalog and mounts the icebug bundle. The caller must hold k.mu.
+//
+// The catalog is ALWAYS :memory: — there is no file-based mode. What differs per store is only
+// where the bundle lives: a local filesystem directory, or an S3 URI referenced from a mount
+// cache of schema.cypher + icebug.json for a Hub context. Both end in the same in-memory
+// catalog built from the same DDL.
 func (k *LadybugBackend) openOnce() error {
-	// Creating directories is a writer's job. A read-only backend must leave the
-	// filesystem exactly as it found it.
-	if !k.cfg.ReadOnly {
-		if err := os.MkdirAll(filepath.Dir(k.cfg.DBPath), 0o755); err != nil {
-			return fmt.Errorf("ladybug: create dir: %w", err)
-		}
-	}
-
 	sysCfg := lbug.DefaultSystemConfig()
-	// Bound the buffer pool (default ~80% RAM) and native thread pool
-	// (default NumCPU) so the indexer stays machine-friendly — especially
-	// during incremental rebuilds, when a working DB is open alongside the
-	// production DB. Overridable via GRAPHIT_DB_BUFFER_MB / GRAPHIT_DB_THREADS.
 	sysCfg.BufferPoolSize = boundedDBBufferPool(sysCfg.BufferPoolSize, k.cfg.ReadOnly)
 	sysCfg.MaxNumThreads = boundedDBThreads(sysCfg.MaxNumThreads)
 	k.bufferPool = sysCfg.BufferPoolSize
-	if k.cfg.ReadOnly {
-		sysCfg.ReadOnly = true
-	}
 
-	// Share one *lbug.Database per path across backends in this process so a
-	// reader gets snapshot isolation against an in-process writer (see
-	// ladybug_registry.go).
-	db, err := acquireDatabase(k.cfg.DBPath, sysCfg)
+	db, err := lbug.OpenInMemoryDatabase(sysCfg)
 	if err != nil {
-		return fmt.Errorf("ladybug open: %w", err)
+		return fmt.Errorf("ladybug open in-memory: %w", err)
 	}
 	conn, err := lbug.OpenConnection(db)
 	if err != nil {
-		releaseDatabase(k.cfg.DBPath, db) // drop our reference if the connection failed
+		db.Close()
 		return fmt.Errorf("ladybug connection: %w", err)
-	}
-
-	// Only here, holding the single writer slot, is clearing swap leftovers safe:
-	// no other process can be halfway through a swap while we hold the write
-	// lock. Readers never run it — see CleanupInterruptedSwap for what deleting
-	// the wrong sibling costs.
-	if !k.cfg.ReadOnly {
-		CleanupInterruptedSwap(k.cfg.DBPath)
 	}
 
 	k.db = db
 	k.conn = conn
 
-	// REMOTE ACCESS IS SET UP HERE OR IT IS SET UP NOWHERE, and it was nowhere: the extension
-	// machinery existed and no caller on the query path ever invoked it, so a MOUNTED context —
-	// whose every table names an `s3://` location — resolved the URI and then reported the object
-	// as "No such file or directory". The object was there; the engine had no filesystem that
-	// could reach it.
-	//
-	// Attempted for every store, not only mounted ones, because a backend cannot tell: the
-	// storage clause lives in the catalog it is about to read. Loading httpfs into a purely local
-	// store costs one statement and changes nothing about it.
 	k.prepareRemoteAccessLocked()
+	// Mount icebug bundle from schema.cypher (filesystem on-the-fly, :memory: catalog).
+	if err := k.mountLocalIcebugLocked(); err != nil {
+		// No bundle yet on first sync is not an error – caller will build it.
+		k.log().Debug("icebug mount skipped", "dir", k.cfg.IcebugDir, "error", err)
+	}
+	// Load canonical manifest after mount so traversal planner sees it.
+	if err := k.loadCanonicalManifestLocked(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// mountLocalIcebugLocked executes schema.cypher from IcebugDir when present.
+// It is idempotent and safe for :memory: catalogs rebuilt per connection.
+func (k *LadybugBackend) mountLocalIcebugLocked() error {
+	dir := k.cfg.IcebugDir
+	if dir == "" {
+		return nil
+	}
+	candidates := []string{
+		filepath.Join(dir, "schema.cypher"),
+		filepath.Join(dir, "graph.icebug", "schema.cypher"),
+	}
+	var schemaPath string
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			schemaPath = p
+			break
+		}
+	}
+	if schemaPath == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return err
+	}
+	stmts := splitCypherStatements(string(raw))
+	for i, s := range stmts {
+		if err := k.execQueryLocked(s); err != nil {
+			return fmt.Errorf("mount schema %s stmt %d: %w", schemaPath, i+1, err)
+		}
+	}
 	return nil
 }
 
@@ -703,7 +726,7 @@ func (k *LadybugBackend) ensureConnected() error {
 		return nil
 	}
 	if err := k.connectLocked(); err != nil {
-		k.log().Error("ladybug: connection unavailable", "path", k.cfg.DBPath, "error", err)
+		k.log().Error("ladybug: connection unavailable", "icebug_dir", k.cfg.IcebugDir, "error", err)
 		return err
 	}
 	return nil
@@ -738,18 +761,30 @@ func (k *LadybugBackend) Query(ctx context.Context, cypher string, params map[st
 	}
 	if k.canonical != nil {
 		cypher = sanitizeCanonicalUIDEquality(cypher)
+		cypher = sanitizeCanonicalPKEquality(k.canonical, cypher)
 		if res, handled, err := k.tryCanonicalBoundedTraversal(ctx, cypher, params); handled {
 			if err != nil {
 				return nil, fmt.Errorf("ladybug query: %w", err)
 			}
 			return res, nil
 		}
-		var members []string
-		for _, g := range k.canonical.RelGroups {
-			members = append(members, g.Type)
+		// A query the bounded planner did not recognize falls through to the engine
+		// WHEN it can: a node-only pattern (or one naming a PHYSICAL member table)
+		// runs on the mounted tables exactly as written — but equality against a
+		// PRIMARY KEY is still rewritten to IN, because the icebug engine answers
+		// `path = 'x'` with zero rows even when the row exists. What cannot run is
+		// a traversal that names a LOGICAL relationship type — CALLS, CONTAINS —
+		// whose real member tables the engine has no way to fuse into one type.
+		// That is the same fail-closed contract the Hub had; the planner is the
+		// only route.
+		if namesLogicalRel(k.canonical, cypher) {
+			var members []string
+			for _, g := range k.canonical.RelGroups {
+				members = append(members, g.Type)
+			}
+			return nil, fmt.Errorf("canonical catalog: only bounded reachability over %v is planned "+
+				"(RETURN DISTINCT <endpoint> | count([DISTINCT] endpoint.uid)); this multi-hop form is not supported remotely", members)
 		}
-		return nil, fmt.Errorf("canonical catalog: only bounded reachability over %v is planned "+
-			"(RETURN DISTINCT <endpoint> | count([DISTINCT] endpoint.uid)); this multi-hop form is not supported remotely", members)
 	}
 
 	res, err := k.runQuery(cypher, params)
@@ -1070,10 +1105,10 @@ func (k *LadybugBackend) Ping(ctx context.Context) error {
 
 func (k *LadybugBackend) BackendType() string { return "ladybug" }
 
-// DBPath returns the database location this backend will open. The backend
+// StoreDir returns the global store directory this backend serves. The backend
 // connects lazily, so this is the only way for a caller to check where a
 // configured backend actually points before it touches the disk.
-func (k *LadybugBackend) DBPath() string { return k.cfg.DBPath }
+func (k *LadybugBackend) StoreDir() string { return k.cfg.StoreDir }
 
 func (k *LadybugBackend) Shutdown() error {
 	k.mu.Lock()
@@ -1105,9 +1140,7 @@ func (k *LadybugBackend) Close() error {
 		k.conn = nil
 	}
 	if k.db != nil {
-		// The handle may be shared with other backends in this process; the
-		// registry closes it only when the last reference goes away.
-		releaseDatabase(k.cfg.DBPath, k.db)
+		k.db.Close()
 		k.db = nil
 	}
 
@@ -1246,107 +1279,4 @@ func translateLadybug(cypher string, params map[string]any) (string, map[string]
 	}
 
 	return q, cleanParams
-}
-
-func (k *LadybugBackend) AtomicSwapDB(newDBPath string) error {
-	currentPath := k.cfg.DBPath
-	oldPath := currentPath + ".old"
-
-	_ = os.RemoveAll(oldPath)
-
-	if err := os.Rename(currentPath, oldPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("atomic swap: rename current→old: %w", err)
-	}
-
-	if err := os.Rename(newDBPath, currentPath); err != nil {
-		if restoreErr := os.Rename(oldPath, currentPath); restoreErr != nil {
-			return fmt.Errorf("atomic swap CRITICAL: new→current failed (%w) AND restore failed (%w)", err, restoreErr)
-		}
-		return fmt.Errorf("atomic swap: rename new→current: %w", err)
-	}
-
-	_ = os.RemoveAll(oldPath)
-
-	// Every sidecar of the file that was just replaced has to go with it.
-	//
-	// The rename swaps the database file. The engine's sidecars are named after the PATH,
-	// not after the file's identity, so they survive it — and the next open finds
-	// <path>.shadow and <path>.wal.checkpoint describing the PREVIOUS incarnation and
-	// recovers from them, over the file that was just published.
-	//
-	// It went unnoticed for as long as it did because at this resolution nothing checked:
-	// stale recovery rolls graph pages back, and a graph that is one rebuild out of date
-	// answers every query without complaining. It became obvious the moment the search
-	// index lived inside the store — the daemon's end-to-end test saw rows present and
-	// every full-text search answering nothing, because the index metadata had been rolled
-	// back to the pre-swap state. The index has since moved back out to its own file; the
-	// defect this loop fixes belongs to the graph and did not move with it.
-	//
-	// Named rather than globbed, per the rule the interrupted-swap cleanup had to learn:
-	// a glob over "<path>.*" also matches the working copies, and — since the index is a
-	// sibling again — "<path>.search.sqlite" and the two files WAL mode keeps beside it.
-	// These are the engine's, from liblbug's storage_utils.h.
-	for _, suffix := range engineSidecarSuffixes {
-		_ = os.Remove(currentPath + suffix)
-		// The working copy carried its own set under its own name; the rename moved only
-		// the file, so its sidecars are still sitting at the old name.
-		_ = os.Remove(newDBPath + suffix)
-	}
-
-	return nil
-}
-
-// engineSidecarSuffixes are the files liblbug creates beside a database, named after the
-// database's path (src/include/storage/storage_utils.h and common/constants.h).
-var engineSidecarSuffixes = []string{
-	".wal",
-	".wal.checkpoint",
-	".shadow",
-	".tmp",
-	".checkpoint.intent.lock",
-	".checkpoint.apply.lock",
-}
-
-// reSwapWorkingCopy matches the suffix of a working copy this package builds
-// next to the live database: "." + shortHex() (7 lowercase hex characters),
-// optionally followed by that copy's own sidecars, e.g. ".a3f91c2.wal".
-var reSwapWorkingCopy = regexp.MustCompile(`^\.[0-9a-f]{7}(\..*)?$`)
-
-// CleanupInterruptedSwap removes what a copy+swap leaves behind when it dies
-// halfway: the ".old" backup AtomicSwapDB renames the live database to, and the
-// "<dbPath>.<shortHex>" working copies IncrementalRebuild and RebuildFromJSON
-// mutate before swapping in.
-//
-// It deletes ONLY those. The previous rule was the opposite — glob "<dbPath>.*"
-// and delete everything except an exact ".wal" and the search index — and that
-// is a trap, because the engine names its own sidecars "<dbPath>.<suffix>" too
-// (liblbug storage_utils.h):
-//
-//	<dbPath>.wal                     write-ahead log
-//	<dbPath>.wal.checkpoint          checkpoint WAL — the ".wal" exemption tested
-//	                                 for equality, so this one was NOT spared
-//	<dbPath>.shadow                  shadow file, live during a checkpoint
-//	<dbPath>.tmp
-//	<dbPath>.checkpoint.intent.lock
-//	<dbPath>.checkpoint.apply.lock
-//
-// Measured before this change: 80 read-only opens concurrent with a
-// checkpointing writer deleted <dbPath>.shadow 20 times and
-// <dbPath>.wal.checkpoint 21 times — a reader tearing the checkpoint state out
-// from under the writer. An allowlist cannot be kept in sync with a dependency's
-// file naming; naming what we create can.
-//
-// Call only while holding the write lock (see openOnce): a process that does not
-// hold it may be racing another that is mid-swap and legitimately owns the
-// working copy.
-func CleanupInterruptedSwap(dbPath string) {
-	_ = os.RemoveAll(dbPath + ".old")
-	_ = os.RemoveAll(dbPath + ".staging") // legacy name; nothing creates it anymore
-
-	matches, _ := filepath.Glob(dbPath + ".*")
-	for _, m := range matches {
-		if reSwapWorkingCopy.MatchString(strings.TrimPrefix(m, dbPath)) {
-			_ = os.RemoveAll(m)
-		}
-	}
 }

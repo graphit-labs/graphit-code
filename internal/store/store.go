@@ -3,9 +3,9 @@
 // There is exactly one location per artifact, and it is in the global brand
 // directory, keyed by an identifier:
 //
-//	<global>/ast/project/<project-id>/ladybugdb        the project's code graph
-//	<global>/ast/context/<name>/ladybugdb               a locally imported graph
-//	<global>/ast/hub/<context-id>/<version>/ladybugdb   a Hub graph, shared per version
+//	<global>/ast/project/<project-id>/graph.icebug/   the project's code graph (icebug bundle)
+//	<global>/ast/context/<name>/graph.icebug/          a locally imported graph
+//	<global>/ast/hub/<context-id>/<version>/           a Hub graph, shared per version
 //	<global>/wiki/knowledge/project/<project-id>/       the project's documentation wiki
 //	<global>/wiki/knowledge/context/<name>/             an imported documentation wiki
 //	<global>/wiki/memory/<scope>/<scope-id>/            a memory wiki
@@ -42,9 +42,6 @@ const (
 	// prefix in the memory bucket, and the set of local directories is its own record.
 	KindAST       = "ast"
 	KindKnowledge = "knowledge"
-
-	// DBFileName is the graph store inside an AST store directory.
-	DBFileName = "ladybugdb"
 
 	projectNamespace = "project"
 	contextNamespace = "context"
@@ -253,9 +250,20 @@ func ASTProjectDir(projectDir string) string {
 	return globalOr(projectDir, "ast", projectNamespace, ProjectStoreID(projectDir))
 }
 
-// ASTProjectDBPath is the graph file inside ASTProjectDir.
-func ASTProjectDBPath(projectDir string) string {
-	return filepath.Join(ASTProjectDir(projectDir), DBFileName)
+// ASTProjectIcebugDir is the icebug bundle for a project's own graph (filesystem on-the-fly).
+// See docs/icebug-disk.md: storage = '<abs-dir>', files resolved as <dir>/nodes_*.parquet etc.
+func ASTProjectIcebugDir(projectDir string) string {
+	return filepath.Join(ASTProjectDir(projectDir), "graph.icebug")
+}
+
+// ASTProjectIcebugSchema is the DDL that mounts the local icebug bundle.
+func ASTProjectIcebugSchema(projectDir string) string {
+	return filepath.Join(ASTProjectIcebugDir(projectDir), "schema.cypher")
+}
+
+// ASTProjectIcebugManifest is the canonical manifest beside the bundle.
+func ASTProjectIcebugManifest(projectDir string) string {
+	return filepath.Join(ASTProjectDir(projectDir), "icebug.json")
 }
 
 // ASTProjectDirByID is ASTProjectDir for a project whose id is already known — from
@@ -277,9 +285,9 @@ func ASTContextDir(name string) string {
 	return globalOr("", "ast", contextNamespace, SanitizeName(name))
 }
 
-// ASTContextDBPath is the graph file inside ASTContextDir.
-func ASTContextDBPath(name string) string {
-	return filepath.Join(ASTContextDir(name), DBFileName)
+// ASTContextIcebugDir is the icebug bundle for a locally imported context.
+func ASTContextIcebugDir(name string) string {
+	return filepath.Join(ASTContextDir(name), "graph.icebug")
 }
 
 // ASTHubRoot is the parent of every version-scoped Hub AST store.
@@ -295,9 +303,16 @@ func ASTHubDir(contextID, version string) string {
 	return filepath.Join(ASTHubRoot(), SanitizeName(contextID), SanitizeSegment(version))
 }
 
-// ASTHubDBPath is the graph file inside ASTHubDir.
-func ASTHubDBPath(contextID, version string) string {
-	return filepath.Join(ASTHubDir(contextID, version), DBFileName)
+
+
+// ASTHubIcebugDir is the cached icebug bundle for a Hub context (when materialized locally).
+func ASTHubIcebugDir(contextID, version string) string {
+	return filepath.Join(ASTHubDir(contextID, version), "graph.icebug")
+}
+
+// ASTHubIcebugSchema is the cached DDL for a Hub context.
+func ASTHubIcebugSchema(contextID, version string) string {
+	return filepath.Join(ASTHubDir(contextID, version), "schema.cypher")
 }
 
 // KnowledgeProjectDir is the compiled documentation wiki of one project.

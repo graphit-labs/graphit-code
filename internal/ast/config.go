@@ -22,30 +22,30 @@ func envOr(key, fallback string) string {
 type ImportedContext struct {
 	Name       string `yaml:"name" json:"name"`
 	SourcePath string `yaml:"source_path" json:"source_path"`
-	DBPath     string `yaml:"db_path" json:"db_path"`
+	StoreDir   string `yaml:"store_dir" json:"store_dir"`
 	ImportedAt string `yaml:"imported_at" json:"imported_at"`
 }
 
 func sanitizeContextName(name string) string { return store.SanitizeName(name) }
 
-// ContextDBPathIn resolves a context name to its graph store for one project.
+// ContextDirIn resolves a context name to its store directory for one project.
 //
 // Every store is global; what differs is which record says this project may query
-// it, and three answer in this order:
+// it. A context's dir answers in three ways:
 //
 //  1. a Hub-installed context — a shared, version-scoped store under
 //     HubContextsRoot(), claimed by the project's lockfile;
-//  2. a context in the project's registry with an explicit DBPath — what `hub link`
-//     records when it points at a sibling project's own store;
-//  3. the global context store, ~/.<brand>/ast/context/<name>/ladybugdb, which is
-//     where `ast install` indexes and where an ordinary registry entry resolves to.
+//  2. a context in the project's registry with an explicit source path — what
+//     `hub link` records when it points at a sibling project's own store;
+//  3. the global context store, ~/.<brand>/ast/context/<name>/graph.icebug, which
+//     is where `ast install` indexes and where an ordinary registry entry resolves to.
 //
 // Case 3 answers whether or not the project registered the context. That is
 // deliberate: resolution is not authorisation, and a caller that asks for a context
 // by name gets the one store that name can mean. Membership decides what `ast list`
 // reports, not what a direct request can reach.
-func ContextDBPathIn(projectDir, name string) string {
-	return store.ASTContextDBPathIn(projectDir, name)
+func ContextDirIn(projectDir, name string) string {
+	return store.ASTContextDirIn(projectDir, name)
 }
 
 // AddImportedContext records a locally imported graph against a project and returns
@@ -58,7 +58,6 @@ func ContextDBPathIn(projectDir, name string) string {
 // on the working directory.
 func AddImportedContext(projectDir, name, sourcePath string) (ImportedContext, error) {
 	globalDir := store.ASTContextDir(name)
-	dbPath := filepath.Join(globalDir, store.DBFileName)
 
 	if err := os.MkdirAll(globalDir, 0o755); err != nil {
 		return ImportedContext{}, fmt.Errorf("create global context dir: %w", err)
@@ -67,7 +66,7 @@ func AddImportedContext(projectDir, name, sourcePath string) (ImportedContext, e
 	ictx := ImportedContext{
 		Name:       name,
 		SourcePath: sourcePath,
-		DBPath:     dbPath,
+		StoreDir:   globalDir,
 		ImportedAt: time.Now().Format(time.RFC3339),
 	}
 
@@ -125,8 +124,13 @@ func ListImportedContextsIn(projectDir string) map[string]ImportedContext {
 	// per-project registry, and the merge needed a rule for which won a name clash.
 	// Membership is one record now, so a clash cannot arise.
 	for name, rec := range store.ListContexts(projectDir, store.KindAST) {
-		dbPath := store.ASTContextDBPathIn(projectDir, name)
-		if _, err := os.Stat(dbPath); err != nil {
+		storeDir := store.ASTContextDirIn(projectDir, name)
+		// A store is BUILT only once it holds a bundle: either the icebug schema
+		// directly (local contexts) or the mount cache (Hub contexts). The
+		// directory itself is created by registration, so its existence proves
+		// nothing — exactly why the old ladybugdb file check was dropped with the
+		// file-based store.
+		if !contextStoreBuilt(storeDir) {
 			// Claimed but never built, or collected after the last project using it
 			// dropped it. Reporting it would offer a graph that cannot be opened.
 			continue
@@ -138,10 +142,24 @@ func ListImportedContextsIn(projectDir string) map[string]ImportedContext {
 		result[name] = ImportedContext{
 			Name:       displayName,
 			SourcePath: rec.SourcePath,
-			DBPath:     dbPath,
+			StoreDir:   storeDir,
 		}
 	}
 	return result
+}
+
+// contextStoreBuilt reports whether a context store directory holds a mountable
+// bundle — schema.cypher + icebug.json, either directly or under graph.icebug/.
+func contextStoreBuilt(dir string) bool {
+	for _, p := range []string{
+		filepath.Join(dir, "graph.icebug", "schema.cypher"),
+		filepath.Join(dir, "schema.cypher"),
+	} {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func loadProjectIDNamesFromRegistry() map[string]string {

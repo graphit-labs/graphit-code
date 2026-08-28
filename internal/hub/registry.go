@@ -20,6 +20,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	paths_pkg "github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
+	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
@@ -651,33 +652,117 @@ func prepareASTPublish(srcDir, storageURI string, projectCfg config.ConfigMap, l
 	if err != nil {
 		return "", err
 	}
-
-	dbPath := filepath.Join(srcDir, "ladybugdb")
-	if _, statErr := os.Stat(dbPath); statErr != nil {
-		_ = os.RemoveAll(tmpDir)
-		return "", fmt.Errorf("preparing AST publish: no graph at %s", dbPath)
+	// New layout: local graph is icebug filesystem at <store>/graph.icebug (or project dir's store).
+	// Try to resolve the bundle from srcDir (could be project dir or store dir).
+	candidates := []string{
+		filepath.Join(srcDir, "graph.icebug"),
+		store.ASTProjectIcebugDir(srcDir),
+		srcDir,
+	}
+	var srcBundle string
+	for _, c := range candidates {
+		if info, err := os.Stat(filepath.Join(c, "schema.cypher")); err == nil && !info.IsDir() {
+			srcBundle = c
+			break
+		}
+	}
+	if srcBundle != "" {
+		dstBundle := ast.IcebugBundlePath(tmpDir)
+		if err := os.MkdirAll(dstBundle, 0o755); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return "", err
+		}
+		// Copy parquets and rewrite schema.cypher storage URI to s3://
+		entries, err := os.ReadDir(srcBundle)
+		if err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return "", fmt.Errorf("preparing AST publish: read bundle: %w", err)
+		}
+		for _, e := range entries {
+			srcPath := filepath.Join(srcBundle, e.Name())
+			dstPath := filepath.Join(dstBundle, e.Name())
+			if e.IsDir() {
+				continue
+			}
+			if e.Name() == "schema.cypher" {
+				raw, err := os.ReadFile(srcPath)
+				if err != nil {
+					_ = os.RemoveAll(tmpDir)
+					return "", err
+				}
+				// Replace filesystem storage URI with s3 URI – the bundle is otherwise identical.
+				// Schema contains storage = '<old>', we replace any quoted storage value with the s3 URI.
+				old := string(raw)
+				// Simple replacement: storage URI is the bundle dir path; replace it.
+				// The canonical schema uses storage = '<uri>' per statement, all equal.
+				// Replace first occurrence's quoted value with storageURI, then replace all.
+				rewritten := rewriteIcebugStorageURI(old, storageURI)
+				if err := os.WriteFile(dstPath, []byte(rewritten), 0o644); err != nil {
+					_ = os.RemoveAll(tmpDir)
+					return "", err
+				}
+			} else {
+				if err := copyFile(srcPath, dstPath); err != nil {
+					_ = os.RemoveAll(tmpDir)
+					return "", fmt.Errorf("copy bundle file %s: %w", e.Name(), err)
+				}
+			}
+		}
+		// Search index sidecar: copy Lance dir if present
+		srcSearch := filepath.Join(filepath.Dir(srcBundle), ast.SearchBundleDir)
+		if _, err := os.Stat(srcSearch); err == nil {
+			dstSearch := filepath.Join(tmpDir, ast.SearchBundleDir)
+			if err := copyDir(srcSearch, dstSearch); err != nil {
+				_ = os.RemoveAll(tmpDir)
+				return "", fmt.Errorf("copy search index: %w", err)
+			}
+		} else {
+			// Try project store search dir
+			altSearch := storeASTSearchDir(srcDir)
+			if _, err := os.Stat(altSearch); err == nil {
+				dstSearch := filepath.Join(tmpDir, ast.SearchBundleDir)
+				_ = copyDir(altSearch, dstSearch)
+			}
+		}
+		return tmpDir, nil
 	}
 
-	// ICEBUG IS THE ONLY MECHANISM NOW. Both fallbacks are gone, and deliberately:
-	//
-	//   - the Parquet bundle made the consumer LOAD the graph, so the bytes travelled and every
-	//     project pinned to a version kept its own copy of the same immutable data;
-	//   - publishing the parse shards made the consumer REBUILD it, paying per install for a
-	//     result the publisher had already frozen.
-	//
-	// Both also meant an artifact's behaviour depended on which path it happened to take, so a
-	// consumer could not know whether its context was mounted or copied. A failure here is now
-	// fatal rather than a fallback, because an artifact that cannot be mounted is one nobody can
-	// install the intended way, and finding that out at publish time is the cheap end.
-	reverseEdges := config.ResolveHubIcebugReverseEdges(nil, projectCfg)
-	if _, err := ast.ExportGraphToIcebug(dbPath,
-		ast.IcebugBundlePath(tmpDir),
-		filepath.Join(tmpDir, ast.SearchBundleDir),
-		storageURI, reverseEdges, logger); err != nil {
-		_ = os.RemoveAll(tmpDir)
-		return "", fmt.Errorf("preparing AST publish: %w", err)
+	_ = os.RemoveAll(tmpDir)
+	return "", fmt.Errorf("preparing AST publish: no graph at %s (expected graph.icebug/schema.cypher)", srcDir)
+}
+
+func rewriteIcebugStorageURI(schema, newURI string) string {
+	// Schema lines are CREATE ... WITH (storage = '<uri>', format = 'icebug-disk');
+	// Replace every storage = '...' with new URI.
+	// Use simple string replacement via regex-like scan for storage = '
+	prefix := "storage = '"
+	var out string
+	rest := schema
+	for {
+		idx := strings.Index(rest, prefix)
+		if idx < 0 {
+			out += rest
+			break
+		}
+		out += rest[:idx+len(prefix)]
+		rest = rest[idx+len(prefix):]
+		end := strings.Index(rest, "'")
+		if end < 0 {
+			out += rest
+			break
+		}
+		out += newURI
+		rest = rest[end:]
 	}
-	return tmpDir, nil
+	return out
+}
+
+func storeASTSearchDir(projectOrStore string) string {
+	// Try store dir first
+	if info, err := os.Stat(filepath.Join(projectOrStore, "graph.icebug")); err == nil && info.IsDir() {
+		return filepath.Join(projectOrStore, ast.SearchBundleDir)
+	}
+	return filepath.Join(store.ASTProjectDir(projectOrStore), ast.SearchBundleDir)
 }
 
 func (m *RegistryManager) IsReady() bool {

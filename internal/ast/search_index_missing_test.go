@@ -29,7 +29,7 @@ func TestEmptySearchIndexIsRebuiltFromCacheWithoutReparsing(t *testing.T) {
 	dbPath := filepath.Join(store, "ladybugdb")
 	opts := PipelineOptions{CacheDir: filepath.Join(store, "cache")}
 
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	first, err := RunPipeline(context.Background(), db, work, opts)
 	if err != nil {
 		t.Fatalf("first pipeline: %v", err)
@@ -53,7 +53,7 @@ func TestEmptySearchIndexIsRebuiltFromCacheWithoutReparsing(t *testing.T) {
 		t.Fatal("the index still reports as built after being removed")
 	}
 
-	db2 := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db2 := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	second, err := RunPipeline(ctx, db2, work, opts)
 	if err != nil {
 		t.Fatalf("second pipeline: %v", err)
@@ -99,7 +99,7 @@ func TestSearchIndexThatExistsButIsEmptyIsStillRebuilt(t *testing.T) {
 	dbPath := filepath.Join(store, "ladybugdb")
 	opts := PipelineOptions{CacheDir: filepath.Join(store, "cache")}
 
-	db := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	if _, err := RunPipeline(context.Background(), db, work, opts); err != nil {
 		t.Fatalf("first pipeline: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestSearchIndexThatExistsButIsEmptyIsStillRebuilt(t *testing.T) {
 		t.Fatalf("the directory is meant to exist for this test: %v", err)
 	}
 
-	db2 := NewLadybugDB(LadybugConfig{DBPath: dbPath})
+	db2 := NewLadybugDB(LadybugConfig{StoreDir: filepath.Dir(dbPath), IcebugDir: filepath.Join(filepath.Dir(dbPath), "graph.icebug")})
 	second, err := RunPipeline(ctx, db2, work, opts)
 	if err != nil {
 		t.Fatalf("second pipeline: %v", err)

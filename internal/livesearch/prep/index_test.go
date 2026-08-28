@@ -196,11 +196,14 @@ func TestCodeGraphsAreReportedByNameOnceAddressable(t *testing.T) {
 	}
 
 	// The store has to exist, or listing deliberately hides a context that cannot
-	// be opened.
+	// be opened. A store counts as built only with its mount schema in place.
 	contextID := ast.HubContextID(hubProject, artifactID)
-	dbPath := ast.HubContextDBPath(contextID, version)
-	if err := os.MkdirAll(dbPath, 0o755); err != nil {
+	storeDir := ast.HubContextDir(contextID, version)
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
 		t.Fatalf("setup: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(storeDir, "schema.cypher"), []byte("// mount"), 0o644); err != nil {
+		t.Fatalf("setup schema: %v", err)
 	}
 
 	var progress []string

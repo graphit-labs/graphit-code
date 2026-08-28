@@ -559,3 +559,45 @@ func TestSearchResultsCarryCleanNames(t *testing.T) {
 		}
 	}
 }
+
+// TestHybridSearchDelegatesToKeywordsWhenTheIndexHasNoEmbeddings guards the degrade.
+//
+// The engine's RRF rank consumes the vector channel's `_distance` column, which no row can
+// produce when every embedding is NULL — the failure surfaces as a query-planner error about
+// a missing column, not as an actionable message. So the binary question (has vectors, yes
+// or no) is recorded at build time, and a hybrid query against a vector-less index must
+// answer via keywords instead.
+func TestHybridSearchDelegatesToKeywordsWhenTheIndexHasNoEmbeddings(t *testing.T) {
+	dir := t.TempDir()
+	cache := hybridScaleFixture(t)
+	si := buildSearchIndex(t, dir, cache, nil)
+
+	vec := targetVector()
+	res, err := si.HybridSearch(context.Background(), "evictOldestStaged", vec, 10)
+	if err != nil {
+		t.Fatalf("hybrid search with no embeddings errored instead of degrading: %v", err)
+	}
+	if len(res) == 0 {
+		t.Fatal("degraded hybrid search returned nothing the keyword half would have found")
+	}
+	found := false
+	for _, r := range res {
+		if r.Name == "evictOldestStaged" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("degraded hybrid search did not return the sought entity: %+v", res)
+	}
+
+	// Same input against the keyword half alone must agree: degrade is Search, not luck.
+	keyword, err := si.Search(context.Background(), "evictOldestStaged", 10)
+	if err != nil {
+		t.Fatalf("keyword search: %v", err)
+	}
+	if len(res) != len(keyword) {
+		t.Errorf("hybrid-degraded had %d results, keyword-only %d — the degrade must reproduce Search",
+			len(res), len(keyword))
+	}
+}

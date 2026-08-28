@@ -131,7 +131,7 @@ func registerASTTools(server *mcp.Server) {
 		ladybugCfg := astConfigForProject(projectDir, "")
 
 		if input.Reset {
-			_ = os.RemoveAll(filepath.Dir(ladybugCfg.DBPath))
+			_ = os.RemoveAll(ladybugCfg.StoreDir)
 		}
 
 		db, err := openASTDBReadWrite(projectDir, "")
@@ -157,12 +157,14 @@ func registerASTTools(server *mcp.Server) {
 			grammarOverrides = config.MergeGrammarOverrides(grammarOverrides, flagOverrides)
 		}
 
+		revEdges := config.ResolveHubIcebugReverseEdges(nil, projectCfg)
 		pipeOpts := ast.PipelineOptions{
 			Workers:          workers,
 			IndexSource:      indexSource,
-			CacheDir:         filepath.Dir(ladybugCfg.DBPath),
+			CacheDir:         ladybugCfg.StoreDir,
 			Cluster:          input.Cluster,
 			ForceRebuild:     input.Reindex,
+			ReverseEdges:     &revEdges,
 			GrammarOverrides: grammarOverrides,
 		}
 
@@ -246,7 +248,7 @@ func registerASTTools(server *mcp.Server) {
 		}
 
 		if input.Reset {
-			_ = os.RemoveAll(filepath.Dir(ictx.DBPath))
+			_ = os.RemoveAll(ictx.StoreDir)
 		}
 
 		db, err := openASTDBReadWrite(projectDir, input.Context)
@@ -261,10 +263,12 @@ func registerASTTools(server *mcp.Server) {
 		}
 
 		projectCfg := loadProjectConfig(projectDir)
+		revEdges := config.ResolveHubIcebugReverseEdges(nil, projectCfg)
 		pipeOpts := ast.PipelineOptions{
 			Workers:          workers,
 			IndexSource:      true,
-			CacheDir:         filepath.Dir(ictx.DBPath),
+			CacheDir:         ictx.StoreDir,
+			ReverseEdges:     &revEdges,
 			GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
 		}
 
@@ -351,7 +355,7 @@ func registerASTTools(server *mcp.Server) {
 		defer func() { _ = db.Close() }()
 
 		svc := ast.NewSourceService(db).
-			WithStore(astConfigForProject(projectDir, input.Context).DBPath)
+			WithStore(astConfigForProject(projectDir, input.Context).StoreDir)
 		result, err := svc.GetSource(ctx, ast.SourceRequest{
 			Path:        input.Path,
 			Entity:      input.Entity,
@@ -405,7 +409,7 @@ func registerASTTools(server *mcp.Server) {
 			}
 		case "bundle":
 			opts := ast.BundleOptions{
-				StorePath: astConfigForProject(projectDir, "").DBPath,
+				StorePath: astConfigForProject(projectDir, "").StoreDir,
 				NoSources: input.NoSources,
 			}
 			if err := ast.ExportBundle(ctx, db, projectDir, absDir, opts, nil); err != nil {
@@ -441,7 +445,7 @@ func registerASTTools(server *mcp.Server) {
 				ladybugCfg = ast.LadybugConfigFor(projectDir)
 				embCfg.RepoRoot = projectDir
 			}
-			cacheDir := filepath.Dir(ladybugCfg.DBPath)
+			cacheDir := ladybugCfg.StoreDir
 
 			parseCache, cacheErr := ast.NewShardCache(cacheDir)
 			if cacheErr != nil {

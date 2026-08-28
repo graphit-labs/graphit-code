@@ -839,7 +839,7 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 			cfg := ast.DefaultEmbeddingConfig()
 			cfg.RepoRoot, _ = os.Getwd()
 			ladybugCfg := ast.DefaultLadybugConfig()
-			cacheDir := filepath.Dir(ladybugCfg.DBPath)
+			cacheDir := ladybugCfg.StoreDir
 			if parseCache, cacheErr := ast.NewShardCache(cacheDir); cacheErr == nil {
 				cfg.ParseCache = parseCache
 				if embCache, embErr := ast.NewShardEmbCache(cacheDir, parseCache); embErr == nil {
@@ -926,7 +926,7 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 			pipeOpts := ast.PipelineOptions{
 				Workers:          ast.SafeWorkers(0),
 				IndexSource:      config.ResolveIndexSource(nil, projectCfg),
-				CacheDir:         filepath.Dir(ladybugCfg.DBPath),
+				CacheDir:         ladybugCfg.StoreDir,
 				GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
 			}
 			result, err := ast.RunPipeline(ctx, db, absPath, pipeOpts)
