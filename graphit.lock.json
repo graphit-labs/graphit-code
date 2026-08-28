@@ -12,7 +12,5 @@
     "opencode"
   ],
   "artifacts": {},
-  "config": {
-    "get": "hub.bucket"
-  }
+  "config": {}
 }

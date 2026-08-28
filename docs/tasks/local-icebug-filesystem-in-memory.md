@@ -173,6 +173,14 @@ Then count igual ao nativo e existe nodes_*.parquet
 - Funções test-only movidas para `internal/ast/export_test.go`: `ExportGraphToIcebug`/`ExportDirectFromRebuildIndexFromStore` → `exportGraphToIcebug`/`exportDirectFromRebuildIndexFromStore` (+`parseCanonicalManifest`, `copyDirContents`, `rewriteSchemaStorageURI`, `copyLanceIndex`), parâmetro morto `reverseEdges bool` removido; nada exportado restante para produção.
 - **PENDENTE**: full suite pós-fix (rodando), embed final + validação hybrid real, commit.
 
+### 2026-08-28 (continuação)
+- **BUG REGRESSÃO — ignore rules ignoradas pelo `ast index`** (reportado pelo usuário antes: `node_modules` indexado):
+  - Causa: o comando passou a coletar via `collectFilesForPath` (runners.go) e alimentar o pipeline por `ChangedPaths` (scoped). Como o pipeline scoped **não roda** `collectFiles` (aplicador do ignore), `.gitignore`/`.astignore` e dot-dirs nunca eram checados — o `ast index` indexava `node_modules`, `.opencode/`, `graphit.lock.json`.
+  - Fix: `collectFilesForPath(rootPath, projectRoot)` agora aplica `ast.NewAstIgnoreChecker(projectRoot)` (boundary = projeto, para escopos como `ast index internal/ui` continuarem honrando a regra da raiz), skipa dot-dirs, e usa `ShouldDescend` para re-inclusões.
+  - Testes: `cmd/graphit/commands/collect_files_ignore_test.go` (gitignore, astignore+dot-dirs, scoped-boundary; skip quando grammar indisponível — padrão do repo).
+  - Validado manualmente: `/tmp/itest` e `/tmp/itest2` (com `.gitignore internal/ui/node_modules/` e `.opencode/node_modules/zod`) → só `keep/`/`internal/ui/main.go` indexado.
+  - **PENDENTE**: `make install` do binário novo e `graphit ast index --reset` no projeto real para expurgar os arquivos errôneos já indexados.
+
 ## Handoff
 
 Para outro agente continuar:

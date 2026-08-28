@@ -1286,9 +1286,9 @@ Every graph on this machine is stored **once**, in the global brand directory, k
 whose it is:
 
 ```
-<global>/ast/project/<project-id>/ladybugdb        this project's graph
-<global>/ast/context/<name>/ladybugdb             a locally imported graph
-<global>/ast/hub/<context-id>/<version>/ladybugdb a Hub graph, shared per version
+<global>/ast/project/<project-id>/graph.icebug/        this project's graph
+<global>/ast/context/<name>/graph.icebug/             a locally imported graph
+<global>/ast/hub/<context-id>/<version>/              a Hub graph, shared per version
 ```
 
 Nothing is copied into the project, and there is no `.graphit/ast/project` any

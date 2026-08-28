@@ -1,6 +1,6 @@
 # ── Go build artifacts ────────────────────────────────────────────────────────
 /.build/
-graphit
+/graphit
 
 # Test artifacts
 *.test

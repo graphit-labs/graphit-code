@@ -415,14 +415,14 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		wd, _ := os.Getwd()
 		projectRoot := wd
 
-		var allFiles []string
-		for _, absPath := range absPaths {
-			files, e := collectFilesForPath(absPath)
-			if e != nil {
-				return fmt.Errorf("collecting files for %s: %w", absPath, e)
-			}
-			allFiles = append(allFiles, files...)
+	var allFiles []string
+	for _, absPath := range absPaths {
+		files, e := collectFilesForPath(absPath, projectRoot)
+		if e != nil {
+			return fmt.Errorf("collecting files for %s: %w", absPath, e)
 		}
+		allFiles = append(allFiles, files...)
+	}
 
 		pipeOpts.ChangedPaths = make([]string, len(allFiles))
 		for i, f := range allFiles {
@@ -438,14 +438,14 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		wd, _ := os.Getwd()
 		projectRoot := wd
 
-		var allFiles []string
-		for _, absPath := range absPaths {
-			files, e := collectFilesForPath(absPath)
-			if e != nil {
-				return fmt.Errorf("collecting files for %s: %w", absPath, e)
-			}
-			allFiles = append(allFiles, files...)
+	var allFiles []string
+	for _, absPath := range absPaths {
+		files, e := collectFilesForPath(absPath, projectRoot)
+		if e != nil {
+			return fmt.Errorf("collecting files for %s: %w", absPath, e)
 		}
+		allFiles = append(allFiles, files...)
+	}
 
 		pipeOpts.ChangedPaths = make([]string, len(allFiles))
 		for i, f := range allFiles {
@@ -576,14 +576,37 @@ func persistClusterConfig(clusterPathMap map[string]string, defaultCluster strin
 }
 
 
-// collectFilesForPath collects all parseable files under a path.
-func collectFilesForPath(rootPath string) ([]string, error) {
+// collectFilesForPath collects all parseable files under a path, honouring the
+// project's ignore rules (.gitignore and .astignore).
+//
+// This is the CLI's own discovery pass, beyond the pipeline's: the command feeds the
+// pipeline a scoped ChangedPaths list, so the pipeline's desktop (collectFiles) never
+// runs — which means the ignore checker must be applied HERE or nothing is ignored.
+//
+// What a directory is excluded by is the ignore rules alone — including dot-directories,
+// which are listed there. No kind of path is skipped structurally.
+//
+// projectRoot is the boundary the ignore rules are anchored to and collected up to:
+// the project being indexed, which may be a parent of a scoped path like
+// `ast index internal/ui`. The scoped path is only where the walk starts.
+func collectFilesForPath(rootPath, projectRoot string) ([]string, error) {
+	ic := ast.NewAstIgnoreChecker(projectRoot)
 	var files []string
 	err := filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil // skip errors
 		}
+		rel, relErr := filepath.Rel(projectRoot, path)
+		if relErr != nil {
+			return nil
+		}
 		if info.IsDir() {
+			if rel != "." && ic.IsIgnored(rel, true) && !ic.ShouldDescend(rel) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if ic.IsIgnored(rel, false) {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
