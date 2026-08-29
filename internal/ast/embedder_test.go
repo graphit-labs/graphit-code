@@ -15,8 +15,8 @@ func TestDefaultEmbeddingConfig(t *testing.T) {
 	if cfg.OnProgress != nil {
 		t.Error("expected nil OnProgress callback")
 	}
-	if cfg.EmbCache != nil {
-		t.Error("expected nil EmbCache")
+	if cfg.Index != nil {
+		t.Error("expected nil Index")
 	}
 	if cfg.ParseCache != nil {
 		t.Error("expected nil ParseCache")

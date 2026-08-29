@@ -102,9 +102,11 @@ func hybridScaleFixture(t *testing.T) *ShardCache {
 func TestHybridSearchDoesNotLetFileScoresOutrankEntities(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
-	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t), entityVectors()); err != nil {
+	scaleCache := hybridScaleFixture(t)
+	if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
+	applyVectors(t, idx, scaleCache, entityVectors())
 
 	vec := targetVector()
 
@@ -136,9 +138,11 @@ func TestHybridSearchDoesNotLetFileScoresOutrankEntities(t *testing.T) {
 func TestHybridSearchStillReturnsFilesAfterEntities(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
-	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t), entityVectors()); err != nil {
+	scaleCache := hybridScaleFixture(t)
+	if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
+	applyVectors(t, idx, scaleCache, entityVectors())
 
 	vec := targetVector()
 	results, err := idx.HybridSearch(ctx, "evictOldestStaged", vec, 0)
@@ -171,9 +175,11 @@ func TestHybridSearchStillReturnsFilesAfterEntities(t *testing.T) {
 func TestBothListsStayOrderedByTheirOwnScore(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
-	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t), entityVectors()); err != nil {
+	scaleCache := hybridScaleFixture(t)
+	if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
+	applyVectors(t, idx, scaleCache, entityVectors())
 
 	results, err := idx.HybridSearch(ctx, "evictOldestStaged", targetVector(), 0)
 	if err != nil {
@@ -203,9 +209,11 @@ func TestBothListsStayOrderedByTheirOwnScore(t *testing.T) {
 func TestHybridKeepsTheEnginesOrderRatherThanItsScore(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
-	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t), entityVectors()); err != nil {
+	scaleCache := hybridScaleFixture(t)
+	if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
+	applyVectors(t, idx, scaleCache, entityVectors())
 
 	// What the engine itself returns, before this package touches it.
 	raw, err := idx.entities.Search(ctx, lancestore.Query{
@@ -246,9 +254,11 @@ func TestHybridKeepsTheEnginesOrderRatherThanItsScore(t *testing.T) {
 func TestHybridSearchTopKPrefersEntities(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
-	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t), entityVectors()); err != nil {
+	scaleCache := hybridScaleFixture(t)
+	if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
+	applyVectors(t, idx, scaleCache, entityVectors())
 
 	vec := targetVector()
 	results, err := idx.HybridSearch(ctx, "evictOldestStaged", vec, 2)
@@ -296,7 +306,8 @@ func TestHybridTopResultAndSetAreStableAcrossRebuilds(t *testing.T) {
 		// A fresh index and a fresh shard cache each time: the map iteration order of the cache
 		// is what shuffles insertion order, which is what the original defect rode on.
 		idx := newLanceIndexForTest(t)
-		if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t), entityVectors()); err != nil {
+		scaleCache := hybridScaleFixture(t)
+		if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
 			t.Fatalf("rebuild %d: %v", build, err)
 		}
 		results, err := idx.HybridSearch(ctx, "evictOldestStaged", targetVector(), 0)
@@ -334,7 +345,7 @@ func TestHybridTopResultAndSetAreStableAcrossRebuilds(t *testing.T) {
 func TestKeywordSearchStillRanksTheEntityFirst(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
-	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t), nil); err != nil {
+	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t)); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -357,7 +368,7 @@ func TestKeywordSearchStillRanksTheEntityFirst(t *testing.T) {
 func TestFilePassCarriesTheRerankConfig(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
-	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t), nil); err != nil {
+	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t)); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 

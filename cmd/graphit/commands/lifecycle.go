@@ -841,11 +841,12 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 			ladybugCfg := ast.DefaultLadybugConfig()
 			cacheDir := ladybugCfg.StoreDir
 			if parseCache, cacheErr := ast.NewShardCache(cacheDir); cacheErr == nil {
+				parseCache.SetRoot(cfg.RepoRoot)
 				cfg.ParseCache = parseCache
-				if embCache, embErr := ast.NewShardEmbCache(cacheDir, parseCache); embErr == nil {
-					cfg.EmbCache = embCache
-					defer func() { _ = embCache.Close() }()
-				}
+			}
+			if searchIdx, idxErr := ast.OpenSearchIndex(ctx, cacheDir); idxErr == nil {
+				cfg.Index = searchIdx
+				defer func() { _ = searchIdx.Close() }()
 			}
 			embedder := ast.NewEmbedder(embClient, cfg)
 			if _, err := embedder.RunCycle(ctx); err != nil {

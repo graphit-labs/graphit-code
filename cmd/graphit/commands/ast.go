@@ -432,16 +432,20 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 				task.Fail("Parse cache: %v", cacheErr)
 				return nil
 			}
+			parseCache.SetRoot(cfg.RepoRoot)
 			cfg.ParseCache = parseCache
 
-			if embCache, embErr := ast.NewShardEmbCache(cacheDir, parseCache); embErr == nil {
-				cfg.EmbCache = embCache
-				defer func() { _ = embCache.Close() }()
+			idxPath := ladybugCfg.StoreDir
+			searchIdx, idxErr := ast.OpenSearchIndex(ctx, idxPath)
+			if idxErr != nil {
+				task.Fail("Search index: %v", idxErr)
+				return nil
 			}
+			defer func() { _ = searchIdx.Close() }()
+			cfg.Index = searchIdx
 
 			probe := ast.NewEmbedder(nil, cfg)
 			pending := probe.CountPending(ctx)
-			idxPath := ladybugCfg.StoreDir
 			if pending == 0 {
 				// Even if all embeddings are cached, the search tables may be empty —
 				// a graph rebuilt without them, or a store restored from a partial
@@ -450,12 +454,8 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 				// own; a stat only proves the graph is there.
 				if !ast.SearchIndexBuilt(ctx, idxPath) {
 					task.Update("Rebuilding search index...")
-					if searchIdx, idxErr := ast.OpenSearchIndex(ctx, idxPath); idxErr == nil {
-						embLookup := ast.BuildEmbLookup(parseCache, cfg.EmbCache)
-						if rbErr := searchIdx.RebuildFromCache(ctx, parseCache, embLookup); rbErr != nil {
-							p.StepWarn("Search index rebuild: %v", rbErr)
-						}
-						_ = searchIdx.Close()
+					if rbErr := searchIdx.RebuildFromCache(ctx, parseCache); rbErr != nil {
+						p.StepWarn("Search index rebuild: %v", rbErr)
 					}
 					task.Done("Search index rebuilt")
 				} else {
@@ -479,15 +479,6 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 			if err != nil {
 				task.Fail("Embedding cycle: %v", err)
 				return nil
-			}
-
-			task.Update("Rebuilding search index...")
-			if searchIdx, idxErr := ast.OpenSearchIndex(ctx, idxPath); idxErr == nil {
-				embLookup := ast.BuildEmbLookup(parseCache, cfg.EmbCache)
-				if rbErr := searchIdx.RebuildFromCache(ctx, parseCache, embLookup); rbErr != nil {
-					p.StepWarn("Search index rebuild: %v", rbErr)
-				}
-				_ = searchIdx.Close()
 			}
 
 			task.Done("%d entities embedded", n)

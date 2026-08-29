@@ -1,7 +1,7 @@
 package ast
 
 import (
-	"encoding/json"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +32,7 @@ func noSourceFixture(t *testing.T, relPath, body string, ents []cachedEntity) (*
 	if err != nil {
 		t.Fatalf("shard cache: %v", err)
 	}
+	cache.SetRoot(repoRoot)
 	t.Cleanup(func() { _ = cache.Close() })
 
 	// Source deliberately empty — this is exactly what ConvertToCache stores when
@@ -46,15 +47,15 @@ func noSourceFixture(t *testing.T, relPath, body string, ents []cachedEntity) (*
 		t.Fatalf("flush shard: %v", err)
 	}
 
-	embCache, err := NewShardEmbCache(cacheDir, cache)
+	idx, err := OpenSearchIndex(context.Background(), cacheDir)
 	if err != nil {
-		t.Fatalf("emb cache: %v", err)
+		t.Fatalf("search index: %v", err)
 	}
-	t.Cleanup(func() { _ = embCache.Close() })
+	t.Cleanup(func() { _ = idx.Close() })
 
 	cfg := DefaultEmbeddingConfig()
 	cfg.ParseCache = cache
-	cfg.EmbCache = embCache
+	cfg.Index = idx
 	cfg.RepoRoot = repoRoot
 	cfg.ProjectDir = repoRoot
 
@@ -92,7 +93,7 @@ func noSourceEntities() []cachedEntity {
 func TestEmbeddingKeepsSourceSignalWithoutPersistingSource(t *testing.T) {
 	e, _ := noSourceFixture(t, "svc/pay.go", noSourceBody, noSourceEntities())
 
-	buckets := e.scanPending(true)
+	buckets := e.scanPending(context.Background(), true)
 	rows := buckets["Function"]
 	if len(rows) != 1 {
 		t.Fatalf("got %d pending Function rows, want 1", len(rows))
@@ -111,14 +112,15 @@ func TestEmbeddingKeepsSourceSignalWithoutPersistingSource(t *testing.T) {
 	}
 }
 
-// The point of the flag is that nothing persists the source, so reading the file for
-// an embedding must not write it back. Asserted against the shard ON DISK, which is
-// the artifact that would leak.
-func TestNoSourceIndexingLeavesTheShardTextFree(t *testing.T) {
+// A shard never carries file text — not only when index_source is off. The text is a
+// copy of a file that is already on disk, and its size is bounded by nothing but the
+// size of the corpus, so reading a file for an embedding must not write it back.
+// Asserted against the shard ON DISK, which is the artifact that would leak.
+func TestShardOnDiskNeverCarriesFileText(t *testing.T) {
 	const rel = "svc/pay.go"
 	e, _ := noSourceFixture(t, rel, noSourceBody, noSourceEntities())
 
-	if rows := e.scanPending(true)["Function"]; len(rows) != 1 || rows[0].Source == "" {
+	if rows := e.scanPending(context.Background(), true)["Function"]; len(rows) != 1 || rows[0].Source == "" {
 		t.Fatalf("the fixture did not produce an embedded snippet: %+v", rows)
 	}
 	if err := e.cfg.ParseCache.FlushDirty(); err != nil {
@@ -128,14 +130,6 @@ func TestNoSourceIndexingLeavesTheShardTextFree(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(e.cfg.ParseCache.dir, "shards", rel+".nodes.json"))
 	if err != nil {
 		t.Fatalf("read shard: %v", err)
-	}
-	var nodes shardNodes
-	if err := json.Unmarshal(raw, &nodes); err != nil {
-		t.Fatalf("decode shard: %v", err)
-	}
-	if nodes.Source != "" {
-		t.Errorf("the shard on disk holds text again (%d bytes) — index_source is false",
-			len(nodes.Source))
 	}
 	if strings.Contains(string(raw), "gateway.Authorize") {
 		t.Error("the file body leaked into the shard JSON")
@@ -153,7 +147,7 @@ func TestEmbeddingSkipsSnippetWhenTheFileNoLongerMatches(t *testing.T) {
 		t.Fatalf("rewrite file: %v", err)
 	}
 
-	rows := e.scanPending(true)["Function"]
+	rows := e.scanPending(context.Background(), true)["Function"]
 	if len(rows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(rows))
 	}
@@ -168,8 +162,9 @@ func TestEmbeddingSkipsSnippetWhenTheFileNoLongerMatches(t *testing.T) {
 func TestEmbeddingWithoutRepoRootStillEmbedsTheEntity(t *testing.T) {
 	e, _ := noSourceFixture(t, "svc/pay.go", noSourceBody, noSourceEntities())
 	e.cfg.RepoRoot = ""
+	e.cfg.ParseCache.SetRoot("")
 
-	rows := e.scanPending(true)["Function"]
+	rows := e.scanPending(context.Background(), true)["Function"]
 	if len(rows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(rows))
 	}
@@ -181,25 +176,29 @@ func TestEmbeddingWithoutRepoRootStillEmbedsTheEntity(t *testing.T) {
 	}
 }
 
-// A cache that DOES carry text must not touch the disk: the read is a fallback for the
-// flag, not a new cost on the default path.
-func TestEmbeddingPrefersCachedTextOverTheDisk(t *testing.T) {
+// The working tree is the ONLY source of the snippet. An in-memory entry that still
+// carries text — the parser sets it on the way through — must not be able to answer
+// with something the file does not say, because that text is never persisted and the
+// next session would embed the file's version of the same entity.
+func TestEmbeddingSnippetComesFromTheFileNotTheCachedEntry(t *testing.T) {
 	const rel = "svc/pay.go"
 	e, repoRoot := noSourceFixture(t, rel, noSourceBody, noSourceEntities())
 
-	cached := strings.Replace(noSourceBody, "gateway.Authorize", "CACHED_MARKER", 1)
+	stale := strings.Replace(noSourceBody, "gateway.Authorize", "CACHED_MARKER", 1)
 	if err := e.cfg.ParseCache.Store(rel, fileContentHash(filepath.Join(repoRoot, rel)),
-		&parseCacheEntry{RelPath: rel, Language: "go", Source: cached,
+		&parseCacheEntry{RelPath: rel, Language: embedLabelsTestLang, Source: stale,
 			Entities: noSourceEntities()}); err != nil {
 		t.Fatalf("store shard: %v", err)
 	}
 
-	rows := e.scanPending(true)["Function"]
+	rows := e.scanPending(context.Background(), true)["Function"]
 	if len(rows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(rows))
 	}
-	if !strings.Contains(rows[0].Source, "CACHED_MARKER") {
-		t.Errorf("the cached text should have been used without reading the file:\n%q",
-			rows[0].Source)
+	if strings.Contains(rows[0].Source, "CACHED_MARKER") {
+		t.Errorf("the snippet came from the entry's unpersisted text:\n%q", rows[0].Source)
+	}
+	if !strings.Contains(rows[0].Source, "gateway.Authorize") {
+		t.Errorf("the snippet should be what the file on disk says:\n%q", rows[0].Source)
 	}
 }

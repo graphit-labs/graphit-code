@@ -213,14 +213,27 @@ func TestBuildSearchIndexForMakesAContextSearchable(t *testing.T) {
 	}
 	defer func() { _ = cache.Close() }()
 
+	// A search index is only ever built from shards LOCALLY, where the tree the shards
+	// were parsed from is on disk — shards do not travel, and a store installed from
+	// elsewhere arrives with its index already built. So the fixture has a tree.
 	const rel = "svc/handler.go"
 	const body = "package svc\n\nfunc HandlePayment() {}\n"
-	if err := cache.Store(rel, "h1", &parseCacheEntry{Language: "go", Source: body}); err != nil {
+	repoRoot := t.TempDir()
+	full := filepath.Join(repoRoot, rel)
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	cache.SetRoot(repoRoot)
+	if err := cache.Store(rel, contentHashOf([]byte(body)),
+		&parseCacheEntry{Language: "go"}); err != nil {
 		t.Fatalf("store shard: %v", err)
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "ladybugdb")
-	if err := BuildSearchIndexFor(context.Background(), dbPath, cache, nil); err != nil {
+	if err := BuildSearchIndexFor(context.Background(), dbPath, cache); err != nil {
 		t.Fatalf("BuildSearchIndexFor: %v", err)
 	}
 

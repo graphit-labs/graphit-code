@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	arrow "github.com/apache/arrow/go/v17/arrow"
 	"github.com/apache/arrow/go/v17/arrow/array"
@@ -347,16 +348,74 @@ func (t *Table) FoldNewRowsIntoIndexes(ctx context.Context) error {
 // Compact merges the small fragments a burst of writes leaves behind, and reclaims the bytes of
 // deleted rows. Separate from FoldNewRowsIntoIndexes because it is about layout rather than
 // searchability: skipping it makes reads slower, skipping the other makes them WRONG.
-func (t *Table) Compact(ctx context.Context) error {
+func (t *Table) Compact(ctx context.Context) (CompactionResult, error) {
 	if t.store.remote {
-		return ErrReadOnly
+		return CompactionResult{}, ErrReadOnly
 	}
-	if _, err := t.tbl.OptimizeWithAction(ctx, contracts.OptimizeAction{
+	materialize := true
+	stats, err := t.tbl.OptimizeWithAction(ctx, contracts.OptimizeAction{
 		Kind: contracts.OptimizeCompact,
-	}); err != nil {
-		return fmt.Errorf("lancestore: compacting %s: %w", t.name, err)
+		// Without this, a deleted row leaves a tombstone and its bytes stay in the
+		// fragment. An incremental deletes by path on every change, so the tombstones are
+		// not an edge case here — they are the steady state.
+		Compaction: contracts.CompactionParams{MaterializeDeletions: &materialize},
+	})
+	if err != nil {
+		return CompactionResult{}, fmt.Errorf("lancestore: compacting %s: %w", t.name, err)
 	}
-	return nil
+	var out CompactionResult
+	if stats != nil && stats.Compaction != nil {
+		out = CompactionResult{
+			FragmentsRemoved: derefInt64(stats.Compaction.FragmentsRemoved),
+			FragmentsAdded:   derefInt64(stats.Compaction.FragmentsAdded),
+			FilesRemoved:     derefInt64(stats.Compaction.FilesRemoved),
+			FilesAdded:       derefInt64(stats.Compaction.FilesAdded),
+		}
+	}
+	return out, nil
+}
+
+func derefInt64(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+// PruneVersions drops dataset versions older than the given age and returns the disk they were
+// holding. Lance keeps them for time travel, which nothing here uses.
+//
+// SAFETY: olderThan MUST NOT be zero or near-zero. The engine is MVCC — a reader answers from
+// the snapshot it opened, so compaction never takes a query down, but pruning a version a live
+// reader is still holding does. The margin is what separates "reclaim what nobody is reading"
+// from "delete the ground a reader is standing on".
+//
+// DeleteUnverified is what lets a margin shorter than the backend's seven-day default apply at
+// all; the seven days exist for in-flight transactions, which is why the margin still has to
+// comfortably exceed the longest write this process performs.
+func (t *Table) PruneVersions(ctx context.Context, olderThan time.Duration) (PruneResult, error) {
+	if t.store.remote {
+		return PruneResult{}, ErrReadOnly
+	}
+	if olderThan <= 0 {
+		return PruneResult{}, fmt.Errorf("lancestore: pruning %s: olderThan must be positive, got %s", t.name, olderThan)
+	}
+	deleteUnverified := true
+	stats, err := t.tbl.OptimizeWithAction(ctx, contracts.OptimizeAction{
+		Kind:  contracts.OptimizePrune,
+		Prune: contracts.PruneParams{OlderThan: olderThan, DeleteUnverified: &deleteUnverified},
+	})
+	if err != nil {
+		return PruneResult{}, fmt.Errorf("lancestore: pruning %s: %w", t.name, err)
+	}
+	var out PruneResult
+	if stats != nil && stats.Prune != nil {
+		out = PruneResult{
+			BytesRemoved: derefInt64(stats.Prune.BytesRemoved),
+			OldVersions:  derefInt64(stats.Prune.OldVersions),
+		}
+	}
+	return out, nil
 }
 
 // EnsureIndexes builds the given indexes, skipping any that already exist.
@@ -462,6 +521,13 @@ func (t *Table) Search(ctx context.Context, q Query) ([]Hit, error) {
 	cfg := contracts.QueryConfig{Limit: &fetch}
 	if q.Filter != "" {
 		cfg.Where = q.Filter
+	}
+	if len(q.Columns) > 0 {
+		cfg.Columns = q.Columns
+	}
+	if q.Offset > 0 {
+		offset := q.Offset
+		cfg.Offset = &offset
 	}
 
 	switch mode {

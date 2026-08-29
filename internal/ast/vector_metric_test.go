@@ -53,17 +53,18 @@ func TestVectorMetricIsSquaredL2OnUnitVectors(t *testing.T) {
 	for name := range vectors {
 		entries = append(entries, entryWith(name+".go", "package p", cachedEntity{Name: name}))
 	}
-	if err := idx.RebuildFromCache(ctx, newShardCacheForTest(t, entries...),
-		func(_, uid string) []float32 {
-			for name, v := range vectors {
-				if len(uid) >= len(name) && uid[len(uid)-len(name):] == name {
-					return v
-				}
-			}
-			return nil
-		}); err != nil {
+	metricCache := newShardCacheForTest(t, entries...)
+	if err := idx.RebuildFromCache(ctx, metricCache); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
+	applyVectors(t, idx, metricCache, func(_, uid string) []float32 {
+		for name, v := range vectors {
+			if len(uid) >= len(name) && uid[len(uid)-len(name):] == name {
+				return v
+			}
+		}
+		return nil
+	})
 
 	hits, err := idx.entities.Search(ctx, lancestore.Query{
 		Vector: query, VectorColumn: lanceVectorColumn, Limit: 10,
@@ -111,17 +112,18 @@ func TestSemanticSearchReturnsItsNeighbours(t *testing.T) {
 	for name := range vectors {
 		entries = append(entries, entryWith(name+".go", "package p", cachedEntity{Name: name}))
 	}
-	if err := idx.RebuildFromCache(ctx, newShardCacheForTest(t, entries...),
-		func(_, uid string) []float32 {
-			for name, v := range vectors {
-				if len(uid) >= len(name) && uid[len(uid)-len(name):] == name {
-					return v
-				}
-			}
-			return nil
-		}); err != nil {
+	metricCache := newShardCacheForTest(t, entries...)
+	if err := idx.RebuildFromCache(ctx, metricCache); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
+	applyVectors(t, idx, metricCache, func(_, uid string) []float32 {
+		for name, v := range vectors {
+			if len(uid) >= len(name) && uid[len(uid)-len(name):] == name {
+				return v
+			}
+		}
+		return nil
+	})
 
 	res, err := idx.SemanticSearch(ctx, query, 10)
 	if err != nil {

@@ -94,8 +94,6 @@ func TestMountedIcebugBoundedTraversalPreservesGlobalDistinct(t *testing.T) {
 	}
 }
 
-
-
 func TestMountedIcebugRealGraphBoundedTraversalCost(t *testing.T) {
 	// Env-gated: the real-corpus timing is only meaningful with a populated store.
 	// Without GRAPHIT_REAL_STORE the test exercises the same bounded 3-hop plan on

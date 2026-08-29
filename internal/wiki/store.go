@@ -111,7 +111,59 @@ func (w *WikiDB) Compact(ctx context.Context) error {
 	if err := w.ensureTables(ctx); err != nil {
 		return err
 	}
-	return w.chunks.Compact(ctx)
+	_, err := w.chunks.Compact(ctx)
+	return err
+}
+
+// lanceWikiVersionRetention is how long a superseded dataset version survives before pruning.
+//
+// NOT zero. Lance is MVCC: a reader answers from the snapshot it opened, so compaction never
+// takes a query down, but pruning a version a live reader still holds does. Nothing here uses
+// time travel, so retention beyond a margin for in-flight reads buys nothing and costs the whole
+// superseded copy.
+const lanceWikiVersionRetention = 15 * time.Minute
+
+// Maintain reclaims the disk a rebuild leaves behind: dead rows still occupying their fragments,
+// and superseded versions kept for a time travel nobody performs.
+//
+// Best-effort by design — every failure here costs disk, not correctness — so it logs rather
+// than returning. A wiki rebuild replaces the whole chunk set, which is exactly the write that
+// leaves a full superseded copy behind.
+func (w *WikiDB) Maintain(ctx context.Context) {
+	if w.Remote() {
+		return
+	}
+	if err := w.ensureTables(ctx); err != nil {
+		w.log().Warn("wiki index maintenance skipped: tables unavailable", "error", err)
+		return
+	}
+	for _, t := range []struct {
+		name  string
+		table *lancestore.Table
+	}{
+		{lanceChunksTable, w.chunks},
+		{lanceXRefsTable, w.xrefs},
+		{lanceSyncLogTable, w.syncLog},
+		{lanceMetaTable, w.meta},
+	} {
+		if t.table == nil {
+			continue
+		}
+		t0 := time.Now()
+		if res, err := t.table.Compact(ctx); err != nil {
+			w.log().Warn("compacting the wiki index", "table", t.name, "error", err)
+		} else if res.FragmentsRemoved > 0 {
+			w.log().Info("wiki index compacted", "table", t.name,
+				"fragments_removed", res.FragmentsRemoved, "fragments_added", res.FragmentsAdded,
+				"duration_ms", time.Since(t0).Milliseconds())
+		}
+		if res, err := t.table.PruneVersions(ctx, lanceWikiVersionRetention); err != nil {
+			w.log().Warn("pruning superseded wiki index versions", "table", t.name, "error", err)
+		} else if res.OldVersions > 0 {
+			w.log().Info("superseded wiki index versions pruned", "table", t.name,
+				"versions", res.OldVersions, "bytes_reclaimed", res.BytesRemoved)
+		}
+	}
 }
 
 // Remote reports whether this is a published index, which is read-only.
@@ -417,6 +469,10 @@ func (w *WikiDB) Rebuild(ctx context.Context, chunks []WikiChunk, xrefs map[stri
 
 	w.log().Info("wiki index rebuild", "chunks", len(chunks), "vectors", vecCount,
 		"duration_ms", time.Since(t0).Seconds()*1000)
+
+	// A rebuild replaces the whole chunk set, leaving the superseded copy and the fragments
+	// behind it on disk. Nothing else reclaims them.
+	w.Maintain(ctx)
 	return nil
 }
 

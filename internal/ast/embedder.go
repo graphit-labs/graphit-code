@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -22,20 +20,24 @@ type EmbeddingConfig struct {
 
 	OnProgress func(done, total int)
 
-	EmbCache *ShardEmbCache
+	// Index is where a vector is read from and written to. There is no second copy:
+	// the embedding is a column of the entity row, so an entity that no longer exists
+	// cannot leave a vector behind, and nothing has to be kept in step.
+	Index *SearchIndex
 
 	ParseCache *ShardCache
 
-	// RepoRoot is the indexed tree, read only when the parse cache has no text for
-	// a file — which is what `ast.index_source: false` produces.
+	// RepoRoot is the indexed tree, and it is where the snippet in every embedding
+	// comes from: a shard no longer carries a copy of the file, so this is the only
+	// text there is. It is handed to the parse cache, which owns the hash check that
+	// makes reading it safe.
 	//
-	// That setting says "do not keep a copy of the source", not "do not look at the
-	// source": an embedding is a vector, not recoverable text, so it can be computed
-	// from the file and persisted while the text itself never is. Without this the
-	// flag silently degraded semantic search, since the snippet is the only part of
-	// the embedded text that describes what an entity DOES rather than what it is
-	// called. Empty disables the read, and the embedding falls back to name,
-	// docstring and context alone.
+	// This is also what makes `ast.index_source: false` work rather than silently
+	// degrade semantic search. That setting says "do not keep a copy of the source",
+	// not "do not look at the source": an embedding is a vector, not recoverable
+	// text, so it can be computed from the file while the text itself is never
+	// persisted. Empty disables the read — an imported context has no tree here — and
+	// the embedding falls back to name, docstring and context alone.
 	RepoRoot string
 
 	// ProjectDir is the project whose grammars decide which labels get a vector —
@@ -74,11 +76,11 @@ func NewEmbedder(client ai.EmbeddingClient, cfg EmbeddingConfig) *Embedder {
 }
 
 func (e *Embedder) CountPending(ctx context.Context) int {
-	if e.cfg.EmbCache == nil || e.cfg.ParseCache == nil {
+	if e.cfg.Index == nil || e.cfg.ParseCache == nil {
 		return 0
 	}
 	total := 0
-	for _, rows := range e.scanPending(false) {
+	for _, rows := range e.scanPending(ctx, false) {
 		total += len(rows)
 	}
 	return total
@@ -128,6 +130,7 @@ type entityRow struct {
 	Line      int
 	EndLine   int
 	Context   string
+	IsDep     bool
 	// Rank is this label's index in its language's embed_labels, carried on the
 	// row because the row is the only place that still knows which language
 	// answered for it. See embedRanker.
@@ -168,7 +171,7 @@ func labelOrder(buckets map[string][]entityRow) []string {
 }
 
 func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
-	if e.cfg.EmbCache == nil || e.cfg.ParseCache == nil {
+	if e.cfg.Index == nil || e.cfg.ParseCache == nil {
 		return 0, nil
 	}
 
@@ -176,7 +179,7 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 	// bucketed by label, with their source snippet precomputed. Replaces the old
 	// per-label AllEntries() scans (which pinned every shard in RAM and re-walked
 	// the full cache ~2x per label).
-	buckets := e.scanPending(true)
+	buckets := e.scanPending(ctx, true)
 	grandTotal := 0
 	for _, rows := range buckets {
 		grandTotal += len(rows)
@@ -205,6 +208,13 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 		}
 	}
 
+	// The vector index cannot exist before the vectors do — see FinalizeVectors.
+	if done > 0 {
+		if err := e.cfg.Index.FinalizeVectors(ctx); err != nil {
+			e.log().Warn("finalizing the vector index", "error", err)
+		}
+	}
+
 	return done, nil
 }
 
@@ -213,7 +223,17 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 // only entities that still need embedding, bucketed by label. When withSnippet
 // is true it also precomputes each row's source snippet from the loaded shard so
 // the embedding phase never reloads a shard just to fetch source text.
-func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
+func (e *Embedder) scanPending(ctx context.Context, withSnippet bool) map[string][]entityRow {
+	// One lookup answers for the whole corpus, where the .emb.json shards answered per
+	// file. A failure here is not fatal: an empty set means everything looks pending, so
+	// the cycle re-embeds rather than silently skipping work.
+	embedded, err := e.cfg.Index.EmbeddedUIDs(ctx)
+	if err != nil {
+		e.log().Warn("reading which entities already have a vector; "+
+			"this cycle will re-embed instead of skipping", "error", err)
+		embedded = map[string]struct{}{}
+	}
+
 	// Which labels are embeddable is a per-LANGUAGE answer, read from the grammar
 	// that produced the entity — so it is resolved per row, not once for the scan.
 	// The ranker memoises each language the first time it is asked.
@@ -228,14 +248,10 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 
 	buckets := make(map[string][]entityRow)
 	e.cfg.ParseCache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
-		// Split ONCE per shard, not once per entity, and resolved lazily so a cache
-		// that DOES carry text never touches the disk.
+		// Split ONCE per shard, not once per entity, and resolved lazily so a shard
+		// whose entities are all comments never touches the disk.
 		var fileLines []string
 		sourceResolved := false
-		if entry.Source != "" {
-			fileLines = strings.Split(entry.Source, "\n")
-			sourceResolved = true
-		}
 
 		for _, ent := range entry.Entities {
 			if ent.UID == "" || ent.Name == "" {
@@ -245,11 +261,7 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 			if !embeddable {
 				continue
 			}
-			hash := e.cfg.ParseCache.GetHash(ent.Path)
-			if hash == "" {
-				continue
-			}
-			if vec := e.cfg.EmbCache.Get(ent.Path, ent.UID, hash); vec != nil {
+			if _, done := embedded[ent.UID]; done {
 				continue
 			}
 			row := entityRow{
@@ -261,6 +273,7 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 				Line:      ent.Line,
 				EndLine:   ent.EndLine,
 				Context:   ent.Context,
+				IsDep:     ent.IsDep,
 				Rank:      rank,
 			}
 			// A comment's snippet is the comment itself, marker syntax included, so
@@ -268,7 +281,7 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 			// to do it. Every other label's snippet is a body its name does not carry.
 			if withSnippet && ent.Label != LabelComment {
 				if !sourceResolved {
-					fileLines = e.sourceFromDisk(relPath, hash)
+					fileLines = e.fileLinesFor(relPath)
 					sourceResolved = true
 					if len(fileLines) == 0 {
 						textless++
@@ -319,30 +332,20 @@ func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 	return buckets
 }
 
-// sourceFromDisk reads the indexed file so an entity can still be embedded with its
-// body when the parse cache holds no text.
+// fileLinesFor resolves the text an entity's snippet is sliced out of.
 //
-// The whole file is read because the hash covers the whole file — there is no way to
-// verify it from a line range. Memory is at parity with the default path, where the
-// shard being streamed carries the same text; the extra cost is one read per shard.
-//
-// SAFETY: the content hash must match the one the shard was built from. The embedding
-// cache is keyed on that hash, so embedding newer text under an older key would cache
-// a vector describing code that the graph does not contain — and it would survive
-// until the file changed again. A mismatch means the shard is stale and about to be
-// reparsed, so no snippet is better than the wrong one.
-func (e *Embedder) sourceFromDisk(relPath, shardHash string) []string {
-	if e.cfg.RepoRoot == "" || relPath == "" || shardHash == "" {
+// The parse cache owns the precedence — the working tree when there is one, the shard's
+// own copy for an imported context that has no tree — and it owns the hash check that
+// makes either safe. See ShardCache.SourceOf.
+func (e *Embedder) fileLinesFor(relPath string) []string {
+	if e.cfg.ParseCache == nil || relPath == "" {
 		return nil
 	}
-	data, err := os.ReadFile(filepath.Join(e.cfg.RepoRoot, relPath))
-	if err != nil {
+	source := e.cfg.ParseCache.SourceOf(relPath)
+	if source == "" {
 		return nil
 	}
-	if contentHashOf(data) != shardHash {
-		return nil
-	}
-	return strings.Split(string(data), "\n")
+	return strings.Split(source, "\n")
 }
 
 // sliceLines returns the [line, endLine] slice of an already-split file.
@@ -420,6 +423,9 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 			return total, fmt.Errorf("expected %d vectors, got %d", len(batch), len(vectors))
 		}
 
+		embedded := make([]cachedEntity, 0, len(batch))
+		embeddedVecs := make([][]float32, 0, len(batch))
+
 		for j, row := range batch {
 			vec := vectors[j]
 			if len(vec) == 0 {
@@ -440,17 +446,13 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 				vec = padded
 			}
 
-			if row.Path != "" {
-				hash := e.cfg.ParseCache.GetHash(row.Path)
-				if hash != "" {
-					e.cfg.EmbCache.Set(row.Path, row.UID, hash, vec)
-				}
-			}
+			embedded = append(embedded, row.entity())
+			embeddedVecs = append(embeddedVecs, vec)
 			total++
 		}
 
-		if err := e.cfg.EmbCache.Save(); err != nil {
-			e.log().Warn("embedding cache save", "error", err)
+		if err := e.cfg.Index.StoreEntityVectors(ctx, embedded, embeddedVecs); err != nil {
+			return total, fmt.Errorf("store vectors: %w", err)
 		}
 
 		if e.cfg.OnProgress != nil && grandTotal > 0 {
@@ -459,6 +461,20 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 	}
 
 	return total, nil
+}
+
+// entity rebuilds the cached entity a row came from, so the search row can be composed by
+// buildEntityRow — the single constructor — instead of a second, drifting one.
+func (r entityRow) entity() cachedEntity {
+	return cachedEntity{
+		UID:       r.UID,
+		Name:      r.Name,
+		Label:     r.Label,
+		Path:      r.Path,
+		Line:      r.Line,
+		Docstring: r.Docstring,
+		IsDep:     r.IsDep,
+	}
 }
 
 func (e *Embedder) buildEmbeddingText(row entityRow) string {
@@ -505,24 +521,29 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, rep
 
 	if cacheDir != "" {
 		if jc, err := NewShardCache(cacheDir); err == nil {
+			jc.SetRoot(cfg.RepoRoot)
 			cfg.ParseCache = jc
 			defer func() { _ = jc.Close() }()
 
-			if ec, err := NewShardEmbCache(cacheDir, jc); err == nil {
-				cfg.EmbCache = ec
-			}
 		}
 	}
+
+	idx, err := OpenSearchIndex(ctx, cacheDir)
+	if err != nil {
+		log.Error("open search index", "error", err)
+		return fmt.Errorf("open search index: %w", err)
+	}
+	defer func() { _ = idx.Close() }()
+	cfg.Index = idx
 
 	embedder := NewEmbedder(client, cfg)
 	embedder.Logger = logger
 
 	// One cycle, holding the process-wide heavy-work slot for its whole duration.
-	// The cycle drives an ONNX session sized to the entire CPU budget, and the
-	// search-index rebuild that follows a productive one is heavy too — so this is
+	// The cycle drives an ONNX session sized to the entire CPU budget, which is
 	// precisely the work the gate exists to serialize. The graph itself is not
-	// touched: vectors live in the search index + embedding shards, and the
-	// icebug bundle never carried them.
+	// touched: a vector lives in the search index, and the icebug bundle never
+	// carried one.
 	// The daemon runs one of these loops per active project inside a single process.
 	cycle := func(label string, reload bool) {
 		release, err := sysutil.AcquireHeavy(ctx)
@@ -539,7 +560,6 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, rep
 			log.Warn(label+" error", "error", err)
 		} else if n > 0 {
 			log.Info(label+" complete", "entities_embedded", n)
-			rebuildSearchIndexForEmbeddings(ctx, cacheDir, cfg.ParseCache, cfg.EmbCache, logger)
 		}
 	}
 
@@ -556,28 +576,4 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, rep
 			cycle("embedding cycle", true)
 		}
 	}
-}
-
-// rebuildSearchIndexForEmbeddings rewrites the search index from the shards after an
-// embedding cycle produced new vectors. The icebug graph never holds vectors, so only
-// the LanceDB sidecar is rebuilt.
-func rebuildSearchIndexForEmbeddings(ctx context.Context, storeDir string, parseCache *ShardCache, embCache *ShardEmbCache, logger *slog.Logger) {
-	log := slogutil.Resolve(logger)
-	if parseCache == nil || embCache == nil || parseCache.Count() == 0 {
-		return
-	}
-	log.Info("rebuilding search index to inject embeddings")
-	t0 := time.Now()
-
-	idx, err := OpenSearchIndex(ctx, storeDir)
-	if err != nil {
-		log.Error("open search index", "error", err)
-		return
-	}
-	defer func() { _ = idx.Close() }()
-	if err := idx.RebuildFromCache(ctx, parseCache, BuildEmbLookup(parseCache, embCache)); err != nil {
-		log.Error("search index rebuild", "error", err)
-		return
-	}
-	log.Info("search index rebuild complete", "duration_s", time.Since(t0).Seconds())
 }

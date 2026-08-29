@@ -2,6 +2,8 @@ package ast
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -74,10 +76,18 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 	projectDir := stageEmbedLabelsGrammar(t, "Function", "Variable", LabelComment)
 
 	src := "package x\n// documents Foo\nfunc Foo() {\n\treturn\n}\nfunc Bar() {}\n"
+	// The snippet is read from the working tree, so the fixture needs a real file —
+	// the shard no longer carries a copy of it.
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoRoot, "a.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srcHash := contentHashOf([]byte(src))
+	pc.SetRoot(repoRoot)
+
 	entry := &parseCacheEntry{
 		RelPath:  "a.go",
 		Language: lang,
-		Source:   src,
 		Entities: []cachedEntity{
 			{Label: "Function", Lang: lang, UID: "uid-foo", Name: "Foo", Path: "a.go", Line: 3, EndLine: 5},
 			{Label: "Function", Lang: lang, UID: "uid-bar", Name: "Bar", Path: "a.go", Line: 6, EndLine: 6},
@@ -85,7 +95,7 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 			{Label: "Comment", Lang: lang, UID: "uid-c", Name: "documents Foo", Path: "a.go", Line: 2, EndLine: 2},
 		},
 	}
-	if err := pc.Store("a.go", "hash1", entry); err != nil {
+	if err := pc.Store("a.go", srcHash, entry); err != nil {
 		t.Fatal(err)
 	}
 	// Persist so StreamEntries reloads from disk after eviction (mirrors the
@@ -94,16 +104,18 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ec, err := NewShardEmbCache(dir, pc)
+	idx, err := OpenSearchIndex(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = idx.Close() })
 
 	fc := &fakeEmbClient{}
 	cfg := DefaultEmbeddingConfig()
 	cfg.ParseCache = pc
-	cfg.EmbCache = ec
+	cfg.Index = idx
 	cfg.ProjectDir = projectDir
+	cfg.RepoRoot = repoRoot
 	e := NewEmbedder(fc, cfg)
 
 	ctx := context.Background()
@@ -121,8 +133,13 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 		t.Errorf("RunCycle embedded %d, want 4", n)
 	}
 
+	// The vector's only home is the entity's row in the search index.
+	embedded, err := idx.EmbeddedUIDs(ctx)
+	if err != nil {
+		t.Fatalf("EmbeddedUIDs: %v", err)
+	}
 	for _, uid := range []string{"uid-foo", "uid-bar", "uid-v", "uid-c"} {
-		if vec := ec.Get("a.go", uid, "hash1"); vec == nil {
+		if _, ok := embedded[uid]; !ok {
 			t.Errorf("no vector stored for %s", uid)
 		}
 	}
@@ -197,14 +214,15 @@ func TestEmbedderDuplicateUIDFirstLabelWins(t *testing.T) {
 	if err := pc.FlushDirty(); err != nil {
 		t.Fatal(err)
 	}
-	ec, err := NewShardEmbCache(dir, pc)
+	idx, err := OpenSearchIndex(context.Background(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = idx.Close() })
 	fc := &fakeEmbClient{}
 	cfg := DefaultEmbeddingConfig()
 	cfg.ParseCache = pc
-	cfg.EmbCache = ec
+	cfg.Index = idx
 	cfg.ProjectDir = projectDir
 	e := NewEmbedder(fc, cfg)
 	ctx := context.Background()

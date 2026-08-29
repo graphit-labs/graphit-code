@@ -451,12 +451,15 @@ func registerASTTools(server *mcp.Server) {
 			if cacheErr != nil {
 				return cacheErr
 			}
+			parseCache.SetRoot(embCfg.RepoRoot)
 			embCfg.ParseCache = parseCache
 
-			if embCache, embErr := ast.NewShardEmbCache(cacheDir, parseCache); embErr == nil {
-				embCfg.EmbCache = embCache
-				defer func() { _ = embCache.Close() }()
+			idx, idxErr := ast.OpenSearchIndex(ctx, cacheDir)
+			if idxErr != nil {
+				return idxErr
 			}
+			defer func() { _ = idx.Close() }()
+			embCfg.Index = idx
 
 			embClient, err := ai.NewEmbeddingClientFromConfig()
 			if err != nil {

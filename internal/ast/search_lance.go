@@ -408,8 +408,7 @@ const lanceWriteBatch = 2000
 // since changed. Then the rows stream in, and the indexes are built LAST — building them first
 // would pay index maintenance on every batch of a bulk load, which is the same reason the SQLite
 // version dropped its triggers and rebuilt afterwards.
-func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
-	embLookup func(relPath, uid string) []float32) error {
+func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache) error {
 	if cache == nil {
 		return fmt.Errorf("rebuild search index: no parse cache")
 	}
@@ -462,7 +461,7 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 	}
 
 	cache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
-		fileRows = append(fileRows, buildFileRow(relPath, entry.Source))
+		fileRows = append(fileRows, buildFileRow(relPath, cache.SourceOf(relPath)))
 		fileCount++
 		if len(fileRows) >= lanceWriteBatch && !flushFiles() {
 			return false
@@ -470,9 +469,6 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 
 		for _, e := range entry.Entities {
 			var emb []float32
-			if embLookup != nil {
-				emb = embLookup(relPath, e.UID)
-			}
 			row := buildEntityRow(e, emb)
 			if row[lanceVectorColumn] != nil {
 				vecCount++
@@ -545,7 +541,7 @@ func withoutColumn(in []lancestore.Index, column string) []lancestore.Index {
 // lancestore.TestFoldIsAboutLatencyNotVisibility — the intuition that an unfolded row is
 // invisible is wrong, and building the delete-then-read ordering around it would have been.
 func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
-	changedFiles, deletedFiles []string, embLookup func(relPath, uid string) []float32) error {
+	changedFiles, deletedFiles []string) error {
 	if s.Remote() {
 		return lancestore.ErrReadOnly
 	}
@@ -576,12 +572,9 @@ func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
 		if entry == nil {
 			continue
 		}
-		fileRows = append(fileRows, buildFileRow(p, entry.Source))
+		fileRows = append(fileRows, buildFileRow(p, cache.SourceOf(p)))
 		for _, e := range entry.Entities {
 			var emb []float32
-			if embLookup != nil {
-				emb = embLookup(p, e.UID)
-			}
 			row := buildEntityRow(e, emb)
 			if row[lanceVectorColumn] != nil {
 				vecCount++
@@ -858,7 +851,7 @@ func (s *SearchIndex) Counts(ctx context.Context) (entities, withVector int64, e
 		return 0, 0, err
 	}
 	hits, err := s.entities.Search(ctx, lancestore.Query{
-		Filter: lanceVectorColumn + " IS NOT NULL", Limit: 1_000_000,
+		Filter: lanceVectorColumn + " IS NOT NULL", Columns: []string{"uid"}, Limit: 1_000_000,
 	})
 	if err != nil {
 		return entities, 0, err
@@ -1055,7 +1048,7 @@ func astQuote(s string) string {
 // Hub download rather than beside the store, so nothing else can serve them and the index has to
 // be built before they go away. An installed context without it can be traversed but neither
 // searched nor read.
-func BuildSearchIndexFor(ctx context.Context, dbPath string, cache *ShardCache, embCache *ShardEmbCache) error {
+func BuildSearchIndexFor(ctx context.Context, dbPath string, cache *ShardCache) error {
 	if cache == nil {
 		return fmt.Errorf("build search index: no parse cache")
 	}
@@ -1064,7 +1057,7 @@ func BuildSearchIndexFor(ctx context.Context, dbPath string, cache *ShardCache, 
 		return fmt.Errorf("open search index: %w", err)
 	}
 	defer func() { _ = idx.Close() }()
-	return idx.RebuildFromCache(ctx, cache, BuildEmbLookup(cache, embCache))
+	return idx.RebuildFromCache(ctx, cache)
 }
 
 // ---------- a mounted store's search index ----------
@@ -1109,4 +1102,183 @@ func searchConfigFor(storeDir string) lancestore.Config {
 		return lancestore.Config{URI: uri, S3: config.HubS3Config()}
 	}
 	return lancestore.Config{URI: LanceIndexPath(storeDir)}
+}
+
+// ---------- embeddings live here and nowhere else ----------
+
+// lanceVectorPage bounds one page of an embedding bookkeeping walk.
+//
+// The walk projects a single string column, so a page is keys and nothing else — the row
+// payload it is deliberately not reading is a full-text body plus a 768-float vector, which is
+// what makes an unprojected read of this table a read of the whole store.
+const lanceVectorPage = 20000
+
+// EmbeddedUIDs reports which entities already carry a vector.
+//
+// This replaces the per-file .emb.json shards, which held a second copy of every vector — in
+// JSON decimal text, three times the size of the float32 it describes — purely to answer this
+// question. The engine can answer it from the column that already exists.
+func (s *SearchIndex) EmbeddedUIDs(ctx context.Context) (map[string]struct{}, error) {
+	if err := s.ensureTables(ctx); err != nil {
+		return nil, err
+	}
+	out := make(map[string]struct{})
+	for offset := 0; ; offset += lanceVectorPage {
+		hits, err := s.entities.Search(ctx, lancestore.Query{
+			Filter:  lanceVectorColumn + " IS NOT NULL",
+			Columns: []string{"uid"},
+			Limit:   lanceVectorPage,
+			Offset:  offset,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("reading embedded uids: %w", err)
+		}
+		for _, h := range hits {
+			if uid, _ := h.Row["uid"].(string); uid != "" {
+				out[uid] = struct{}{}
+			}
+		}
+		if len(hits) < lanceVectorPage {
+			return out, nil
+		}
+	}
+}
+
+// StoreEntityVectors writes a batch of freshly embedded entities back.
+//
+// It is an Upsert rather than an update of one column because a row is replaced whole here, so
+// the row has to be rebuilt — through buildEntityRow, the single constructor, so the body and
+// its trigrams stay exactly what a rebuild would have produced.
+func (s *SearchIndex) StoreEntityVectors(ctx context.Context, ents []cachedEntity, vecs [][]float32) error {
+	if len(ents) == 0 {
+		return nil
+	}
+	if s.Remote() {
+		return lancestore.ErrReadOnly
+	}
+	if len(ents) != len(vecs) {
+		return fmt.Errorf("storing vectors: %d entities, %d vectors", len(ents), len(vecs))
+	}
+	if err := s.ensureTables(ctx); err != nil {
+		return err
+	}
+	rows := make([]lancestore.Row, 0, len(ents))
+	for i, ent := range ents {
+		rows = append(rows, buildEntityRow(ent, vecs[i]))
+	}
+	if err := s.entities.Upsert(ctx, "uid", rows); err != nil {
+		return fmt.Errorf("storing %d vectors: %w", len(rows), err)
+	}
+	return nil
+}
+
+// FinalizeVectors is called once an embedding cycle has finished writing.
+//
+// A rebuild builds its indexes at the END, when it knows how many vectors it wrote. Vectors now
+// arrive AFTER that — the embedding cycle writes them into rows that already exist — so at
+// rebuild time the count is zero and the vector index is skipped as "too few to train on". If
+// nothing built it afterwards, it would never be built at all, and a hybrid query would fail
+// asking for a _distance column that no index produces.
+//
+// So this is where the vector index actually comes from. It is idempotent: EnsureIndexes leaves
+// an index that already exists alone, and below the training floor there is deliberately no
+// index — semantic search answers by scanning, which at that size is what an index degenerates
+// into anyway.
+func (s *SearchIndex) FinalizeVectors(ctx context.Context) error {
+	if s.Remote() {
+		return lancestore.ErrReadOnly
+	}
+	entCount, vecCount, err := s.Counts(ctx)
+	if err != nil {
+		return fmt.Errorf("counting vectors: %w", err)
+	}
+	idx := lanceEntityIndexes()
+	if vecCount < lanceMinRowsForVectorIndex {
+		idx = withoutColumn(idx, lanceVectorColumn)
+		s.log().Info("vector index not built: too few embeddings to train on",
+			"vectors", vecCount, "required", lanceMinRowsForVectorIndex,
+			"impact", "semantic search still answers, by scanning instead of by index")
+	}
+	if err := s.entities.EnsureIndexes(ctx, idx...); err != nil {
+		return fmt.Errorf("building indexes over new vectors: %w", err)
+	}
+	if err := s.entities.FoldNewRowsIntoIndexes(ctx); err != nil {
+		s.log().Warn("folding new vectors into the indexes", "error", err)
+	}
+	s.vectorCount = vecCount
+	if s.storeDir != "" && entCount > 0 {
+		if err := writeEmbedsStatus(s.storeDir, vecCount, entCount); err != nil {
+			return fmt.Errorf("writing embeds status: %w", err)
+		}
+	}
+	// An embedding cycle rewrites rows through Upsert — delete then append — so it leaves
+	// exactly the fragmentation and the superseded versions this reclaims.
+	s.Maintain(ctx)
+	return nil
+}
+
+// ---------- reclaiming disk ----------
+
+// lanceVersionRetention is how long a superseded dataset version is left alone before pruning.
+//
+// It is NOT zero, and the reason is the engine's concurrency model rather than caution. Lance is
+// MVCC: a reader answers from the snapshot it opened, so compaction never takes a query down —
+// but pruning a version a live reader still holds does. The margin has to exceed the longest
+// read this process can have in flight, and a search served through the MCP tools is orders of
+// magnitude shorter than this.
+//
+// Nothing here uses time travel, so retention beyond that margin buys nothing and costs the
+// whole superseded copy.
+const lanceVersionRetention = 15 * time.Minute
+
+// Maintain reclaims the disk a sequence of writes leaves behind: dead rows still occupying their
+// fragments, and superseded versions kept for a time travel nobody performs.
+//
+// COMPACTION AND PRUNING ARE A PAIR, and the order matters. Compacting writes one merged
+// fragment and leaves the ones it replaced on disk, because the superseded versions still
+// reference them — so compaction ALONE reclaims nothing. Pruning those versions is what drops
+// the files.
+//
+// There is no "is it fragmented enough" test before compacting, and the first version of this
+// had one: it counted the files under the table's data directory and compacted above a
+// threshold. That number is not a fragment count — it does not go down when compaction merges,
+// so the threshold stayed tripped forever and it would have compacted on every single write,
+// which is the cost it was written to avoid. The engine already answers the question correctly:
+// with nothing to merge it reports FragmentsRemoved: 0 and has only read manifest metadata.
+//
+// It is called after the index has been written, never before a read, and it is best-effort:
+// every failure here degrades disk usage, not correctness, so it is logged rather than returned.
+func (s *SearchIndex) Maintain(ctx context.Context) {
+	if s.Remote() {
+		return
+	}
+	if err := s.ensureTables(ctx); err != nil {
+		s.log().Warn("index maintenance skipped: tables unavailable", "error", err)
+		return
+	}
+	for _, t := range []struct {
+		name  string
+		table *lancestore.Table
+	}{
+		{lanceEntitiesTable, s.entities},
+		{lanceFilesTable, s.files},
+	} {
+		if t.table == nil {
+			continue
+		}
+		t0 := time.Now()
+		if res, err := t.table.Compact(ctx); err != nil {
+			s.log().Warn("compacting the search index", "table", t.name, "error", err)
+		} else if res.FragmentsRemoved > 0 {
+			s.log().Info("search index compacted", "table", t.name,
+				"fragments_removed", res.FragmentsRemoved, "fragments_added", res.FragmentsAdded,
+				"duration_ms", time.Since(t0).Milliseconds())
+		}
+		if res, err := t.table.PruneVersions(ctx, lanceVersionRetention); err != nil {
+			s.log().Warn("pruning superseded index versions", "table", t.name, "error", err)
+		} else if res.OldVersions > 0 {
+			s.log().Info("superseded index versions pruned", "table", t.name,
+				"versions", res.OldVersions, "bytes_reclaimed", res.BytesRemoved)
+		}
+	}
 }

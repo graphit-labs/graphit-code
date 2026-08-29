@@ -2,7 +2,10 @@
 
 package lancestore
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // The build WITHOUT the native library.
 //
@@ -58,4 +61,11 @@ func (t *Table) Search(_ context.Context, _ Query) ([]Hit, error)  { return nil,
 func (t *Table) FoldNewRowsIntoIndexes(context.Context) error { return ErrNotBuilt }
 
 // Compact is unavailable without the lancedb tag.
-func (t *Table) Compact(context.Context) error { return ErrNotBuilt }
+func (t *Table) Compact(context.Context) (CompactionResult, error) {
+	return CompactionResult{}, ErrNotBuilt
+}
+
+// PruneVersions is unavailable without the lancedb tag.
+func (t *Table) PruneVersions(context.Context, time.Duration) (PruneResult, error) {
+	return PruneResult{}, ErrNotBuilt
+}

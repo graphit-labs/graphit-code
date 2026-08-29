@@ -13,12 +13,11 @@ import (
 )
 
 // TestEmbeddingCycleInjectsVectorsIntoTheStore pins the end of the embedding pipeline: a
-// store is indexed before any vector exists, the embedding cycle computes them, and the
-// rebuild it triggers has to leave those vectors in the PUBLISHED store.
+// store is indexed before any vector exists, the embedding cycle computes them, and they
+// have to be readable from the PUBLISHED store afterwards.
 //
-// The assertion reads through a FRESH handle on purpose. The rebuild publishes by renaming a
-// temporary file over production, so anything that answered through the handle that did the
-// writing proves nothing about what the next reader will open.
+// The assertion reads through a FRESH handle on purpose: anything that answered through the
+// handle that did the writing proves nothing about what the next reader will open.
 //
 // This is the shape of the failure it exists to catch: entities present, vectors absent, and
 // nothing logged — semantic search with nothing to match against.
@@ -53,13 +52,10 @@ func TestEmbeddingCycleInjectsVectorsIntoTheStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	embCache, err := NewShardEmbCache(cacheDir, cache)
-	if err != nil {
-		t.Fatalf("emb cache: %v", err)
-	}
 	// A vector for SOME entities, not all — partial coverage is the normal case, since the
 	// grammar's embed_labels list decides who gets one.
-	wantVectors := 0
+	var embedded []cachedEntity
+	var vecs [][]float32
 	for f := 0; f < files; f++ {
 		rel := fmt.Sprintf("pkg/file%d.go", f)
 		for i := 0; i < perFile; i++ {
@@ -70,17 +66,19 @@ func TestEmbeddingCycleInjectsVectorsIntoTheStore(t *testing.T) {
 			for j := range vec {
 				vec[j] = float32((f*perFile+i+j)%211) / 211.0
 			}
-			embCache.Set(rel, fmt.Sprintf("%s::Fn%d", rel, i), fmt.Sprintf("h-%d", f), vec)
-			wantVectors++
+			embedded = append(embedded, cachedEntity{
+				Label: "Function", UID: fmt.Sprintf("%s::Fn%d", rel, i),
+				Name: fmt.Sprintf("handleRequest%d_%d", f, i), Path: rel,
+				Line: i + 1, Docstring: "Validates the incoming request payload.",
+			})
+			vecs = append(vecs, vec)
 		}
 	}
-	if err := embCache.Save(); err != nil {
-		t.Fatalf("save emb cache: %v", err)
-	}
+	wantVectors := len(embedded)
 
 	// Production order: the store is indexed FIRST, while no vector exists yet, and the
-	// embedding cycle rebuilds afterwards to inject them. Asserting on a single rebuild
-	// that already had the vectors in hand would exercise a different path.
+	// embedding cycle writes them afterwards. Asserting on a single rebuild that already
+	// had the vectors in hand would exercise a different path.
 	storeDir := filepath.Join(tmp, "store")
 	bundleDir := filepath.Join(storeDir, "graph.icebug")
 	entries := make(map[string]*parseCacheEntry, cache.Count())
@@ -92,12 +90,21 @@ func TestEmbeddingCycleInjectsVectorsIntoTheStore(t *testing.T) {
 	if _, err := ExportDirectFromRebuildIndex(ri, bundleDir, bundleDir); err != nil {
 		t.Fatalf("initial index: %v", err)
 	}
-	if err := BuildSearchIndexFor(context.Background(), storeDir, cache, nil); err != nil {
+	if err := BuildSearchIndexFor(context.Background(), storeDir, cache); err != nil {
 		t.Fatalf("initial search index: %v", err)
 	}
 
 	// And this is the call under test — the one the embedding loop makes.
-	rebuildSearchIndexForEmbeddings(context.Background(), storeDir, cache, embCache, nil)
+	writer, err := OpenSearchIndex(context.Background(), storeDir)
+	if err != nil {
+		t.Fatalf("open search index: %v", err)
+	}
+	if err := writer.StoreEntityVectors(context.Background(), embedded, vecs); err != nil {
+		t.Fatalf("store vectors: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
 
 	// A fresh handle, deliberately — see the doc comment.
 	idx, err := OpenSearchIndex(context.Background(), storeDir)

@@ -24,25 +24,6 @@ func shortHex() string {
 	return hex.EncodeToString(b)[:7]
 }
 
-// BuildEmbLookup is the func type the search index takes to pull embeddings out of
-// the shard caches for a specific entity.
-//
-// It returns nil when no hash is cached for the file (embeddings not computed yet),
-// which the index treats as "no vector": the row is still stored, searchable by
-// keyword, and a later embedding cycle rebuilds the index with the vector in place.
-func BuildEmbLookup(cache *ShardCache, embCache *ShardEmbCache) func(relPath, uid string) []float32 {
-	if embCache == nil {
-		return nil
-	}
-	return func(relPath, uid string) []float32 {
-		hash := cache.GetHash(relPath)
-		if hash == "" {
-			return nil
-		}
-		return embCache.Get(relPath, uid, hash)
-	}
-}
-
 // copyBatchBytes caps the payload of one COPY in paths that still batch rows into
 // documents. It is measured by bytes, not rows, because row sizes span six orders
 // of magnitude: an entity row is tens of bytes and a File row is its whole source.

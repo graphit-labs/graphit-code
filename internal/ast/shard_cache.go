@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // shardCacheVersion invalidates every cached shard when it changes: a manifest written
@@ -57,10 +59,18 @@ import (
 //	DECLARE, IF and PROCEDURE), a trigger is no longer a possible call target at all, and
 //	an embedded block may declare the wrapping a FRAGMENT needs to parse — which turns a
 //	program unit body from nothing into its procedure and everything it calls.
-const shardCacheVersion = 9
+//
+// 10: the file's text left the nodes shard. A shard is a LOCAL artifact — it exists to
+//
+//	build the Parquet bundle and the Lance tables, and it never travels — so a copy of
+//	text that is already in the working tree grows the store with the corpus and buys
+//	nothing. A project reads the text from the tree; a store installed from elsewhere
+//	reads it from its search index, which is what the text travels in.
+const shardCacheVersion = 10
 
 type ShardCache struct {
 	dir      string
+	root     string
 	manifest *shardManifest
 	mu       sync.Mutex
 	dirty    map[string]bool
@@ -85,7 +95,6 @@ type shardNodes struct {
 	Hash     string            `json:"h"`
 	Lang     string            `json:"lang,omitempty"`
 	Dep      bool              `json:"dep,omitempty"`
-	Source   string            `json:"src,omitempty"`
 	FileRow  []string          `json:"file_row,omitempty"`
 	DirPaths []string          `json:"dir_paths,omitempty"`
 	Entities []cachedEntity    `json:"entities,omitempty"`
@@ -122,6 +131,7 @@ func NewShardCache(cacheDir string) (*ShardCache, error) {
 
 	mPath := filepath.Join(cacheDir, "manifest.json")
 	raw, err := os.ReadFile(mPath)
+	usable := false
 	if err == nil && len(raw) > 0 {
 		var loaded shardManifest
 		if json.Unmarshal(raw, &loaded) == nil && loaded.Version == shardCacheVersion {
@@ -129,11 +139,76 @@ func NewShardCache(cacheDir string) (*ShardCache, error) {
 			if sc.manifest.Files == nil {
 				sc.manifest.Files = make(map[string]*shardManifestEntry)
 			}
+			usable = true
 		}
-
+	}
+	if !usable {
+		// The manifest is gone or was written under another version, so every shard
+		// beside it is about to be reparsed and none of them will be read again.
+		// Deleting the directory is what actually returns their bytes: a shard whose
+		// suffix no writer produces any more — `.emb.json`, once a second copy of every
+		// vector — is reachable by nothing and would otherwise sit there forever.
+		_ = os.RemoveAll(filepath.Join(cacheDir, "shards"))
 	}
 
 	return sc, nil
+}
+
+// SetRoot points the cache at the working tree its shards were parsed from, which is
+// where SourceOf reads file text.
+//
+// A cache with no root resolves no source. That is not a degraded mode to work around:
+// shards are a LOCAL artifact and never travel, so the only cache without a tree is one
+// serving a store whose text lives in its search index, which answers for source
+// directly. See SourceOf.
+func (sc *ShardCache) SetRoot(root string) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.root = root
+}
+
+// SourceOf returns the file's text read from the working tree, and "" when there is no
+// tree, or the file cannot be read, or it no longer hashes to what was parsed.
+//
+// A shard does not carry text and is not asked for it. Shards are a local artifact —
+// they build the Parquet bundle and the Lance tables and never leave this machine — so
+// the tree is the only place a text copy is worth keeping. The store that has no tree
+// is one installed from elsewhere, and its text lives in its search index, which is
+// what answers for source there (SearchIndex.FileSource / FileSourceAt).
+//
+// SAFETY: the manifest hash is the only thing establishing that the bytes on disk are
+// still the bytes the shard describes. Returning text that fails that check would pair
+// one file's entity offsets with another file's content.
+func (sc *ShardCache) SourceOf(relPath string) string {
+	sc.mu.Lock()
+	root, me := sc.root, sc.manifest.Files[relPath]
+	sc.mu.Unlock()
+	if root == "" || me == nil || me.Hash == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(root, relPath))
+	if err != nil || contentHashOf(data) != me.Hash {
+		return ""
+	}
+	return toValidUTF8(string(data))
+}
+
+// toValidUTF8 replaces malformed byte sequences the way encoding/json does.
+//
+// SAFETY: this is not cosmetic. The text goes into an Arrow string column, and Arrow REJECTS
+// a batch containing invalid UTF-8 — one bad byte fails the whole append, so a single file
+// takes down the index write for every file batched with it.
+//
+// It used to be handled by accident: the text reached the index through a JSON shard, and
+// Go's encoding/json substitutes U+FFFD on the way in. Reading the file directly removed the
+// round trip and with it the substitution, which surfaced as
+// `Invalid UTF8 sequence at string index 1` on a corpus of XML reports. Same substitution,
+// now on purpose.
+func toValidUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	return strings.ToValidUTF8(s, string(utf8.RuneError))
 }
 
 func (sc *ShardCache) HasChanged(relPath, contentHash string) bool {
@@ -484,7 +559,6 @@ func splitEntry(entry *parseCacheEntry, hash string) (*shardNodes, *shardEdges) 
 		Hash:     hash,
 		Lang:     entry.Language,
 		Dep:      entry.IsDepend,
-		Source:   entry.Source,
 		FileRow:  entry.FileRow,
 		DirPaths: entry.DirPaths,
 		Entities: entry.Entities,
@@ -513,7 +587,6 @@ func mergeShards(relPath string, n *shardNodes, e *shardEdges, lang string, isDe
 		RelPath:       relPath,
 		Language:      lang,
 		IsDepend:      isDep,
-		Source:        n.Source,
 		Cluster:       cluster,
 		FileRow:       n.FileRow,
 		DirPaths:      n.DirPaths,

@@ -64,9 +64,9 @@ type PipelineOptions struct {
 	// artifact, so the local build is what the config decides. The zero value
 	// means "the config default", which is ON (the config default), so a caller
 	// wanting them off passes false after resolving the config.
-	ReverseEdges     *bool
-	Logger           *slog.Logger
-	OnProgress       func(phase string, current, total, errors int)
+	ReverseEdges *bool
+	Logger       *slog.Logger
+	OnProgress   func(phase string, current, total, errors int)
 
 	// ChangedPaths / DeletedPaths let a caller that already knows exactly what
 	// changed (a filesystem watcher) skip discovery entirely. Without them every
@@ -119,7 +119,7 @@ func resolveClusterForPath(filePath, rootPath string, clusterPathMap map[string]
 	if !strings.HasSuffix(relPath, "/") {
 		relPath += "/"
 	}
-	
+
 	bestMatch := ""
 	bestCluster := ""
 	for prefix, cluster := range clusterPathMap {
@@ -204,10 +204,10 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		jsonCache, err = NewShardCache(opts.CacheDir)
 		if err != nil {
 			logger.Warn("json cache fallback", "error", err)
+		} else {
+			jsonCache.SetRoot(abs)
 		}
 	}
-
-	
 
 	// A scoped run indexes the files a watcher named and trusts the cache to hold the
 	// rest of the project. An empty cache voids that premise, and the consequence is
@@ -421,13 +421,8 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		// The repair replays the shards rather than reparsing: the parse cache is current
 		// by definition here, which is what made this branch reachable.
 		if storeDir != "" && !SearchIndexBuilt(ctx, storeDir) {
-			var embCache *ShardEmbCache
-			if ec, err := NewShardEmbCache(opts.CacheDir, jsonCache); err == nil {
-				embCache = ec
-				defer func() { _ = ec.Close() }()
-			}
 			t1 := time.Now()
-			if err := BuildSearchIndexFor(ctx, storeDir, jsonCache, embCache); err != nil {
+			if err := BuildSearchIndexFor(ctx, storeDir, jsonCache); err != nil {
 				_ = jsonCache.Save()
 				_ = jsonCache.Close()
 				return nil, fmt.Errorf("rebuild search index from cache: %w", err)
@@ -687,13 +682,6 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			opts.OnProgress("writing", 0, jsonCache.Count(), parseErrors+writeErrors)
 		}
 
-		var embCache *ShardEmbCache
-		if opts.CacheDir != "" {
-			if ec, err := NewShardEmbCache(opts.CacheDir, jsonCache); err == nil {
-				embCache = ec
-			}
-		}
-
 		// Local graph is icebug filesystem in-memory – no file DB, no swap. A small delta
 		// rewrites only the affected Parquets; otherwise the bundle is rebuilt in full.
 		changedRels := make([]string, 0, len(changedFiles))
@@ -729,7 +717,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		if doIncremental {
 			err = rebuildIcebugFromCacheWithDelta(ctx, jsonCache, changedRels, deletedFiles, opts.Cluster, abs, opts.Logger, true, bundleDir, reverseEdges)
 		} else {
-			err = RebuildIcebugFromCacheWithReverse(ctx, jsonCache, embCache, opts.Cluster, abs, opts.Logger, bundleDir, reverseEdges)
+			err = RebuildIcebugFromCacheWithReverse(ctx, jsonCache, opts.Cluster, abs, opts.Logger, bundleDir, reverseEdges)
 		}
 		if err == nil {
 			// Search sidecar (LanceDB): incremental where small, full otherwise.
@@ -740,11 +728,14 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				} else {
 					idx.Logger = opts.Logger
 					if doIncremental {
-						if serr := idx.UpdateIncremental(ctx, jsonCache, changedRels, deletedFiles, BuildEmbLookup(jsonCache, embCache)); serr != nil {
+						if serr := idx.UpdateIncremental(ctx, jsonCache, changedRels, deletedFiles); serr != nil {
 							err = fmt.Errorf("search index incremental: %w", serr)
 						}
-					} else if serr := idx.RebuildFromCache(ctx, jsonCache, BuildEmbLookup(jsonCache, embCache)); serr != nil {
+					} else if serr := idx.RebuildFromCache(ctx, jsonCache); serr != nil {
 						err = fmt.Errorf("search index rebuild: %w", serr)
+					}
+					if err == nil {
+						idx.Maintain(ctx)
 					}
 					_ = idx.Close()
 				}

@@ -243,8 +243,17 @@ type Query struct {
 	// Filter is a SQL predicate applied to the candidate set, e.g. `is_dependency = false`.
 	Filter string
 
+	// Columns projects the read down to the ones named. Empty reads every column, which on
+	// a table carrying an embedding and a full text body means the whole table: a lookup
+	// that only needs keys must say so or it pays for the payload it is not going to read.
+	Columns []string
+
 	// Limit caps the rows returned. Zero means DefaultLimit.
 	Limit int
+
+	// Offset skips rows before the limit is applied, so a lookup larger than one page can
+	// be walked. Only meaningful on a "filter" query, where the order is the table's.
+	Offset int
 
 	// RRFK is the reciprocal-rank-fusion constant for a hybrid query. Zero means the engine's
 	// default of 60. It has no effect on a single-mode query.
@@ -253,6 +262,23 @@ type Query struct {
 	// Rerank turns the cross-encoder stage on. The zero value leaves it OFF, which is the
 	// default and the shipped behaviour — see rerank.go for why.
 	Rerank RerankConfig
+}
+
+// CompactionResult is what the engine reports it actually did, which is the only honest answer
+// to "did compaction help". Counting data files cannot tell you: compaction writes the merged
+// fragment and leaves the ones it replaced on disk until the versions referencing them are
+// pruned, so the file count goes UP before it goes down.
+type CompactionResult struct {
+	FragmentsRemoved int64
+	FragmentsAdded   int64
+	FilesRemoved     int64
+	FilesAdded       int64
+}
+
+// PruneResult is what pruning reclaimed.
+type PruneResult struct {
+	BytesRemoved int64
+	OldVersions  int64
 }
 
 // DefaultLimit is used when a Query sets no Limit.
