@@ -3,8 +3,8 @@ package ast
 import (
 	"context"
 	"fmt"
-	"sort"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -33,7 +33,6 @@ var (
 	// RETURN projection, because a traversal's ordering is applied by the caller
 	// over the materialized set, not by the engine over mounted object files.
 )
-
 
 type canonicalPlan struct {
 	anchor, reached  icebugNodePattern

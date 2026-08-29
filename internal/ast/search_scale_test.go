@@ -103,7 +103,7 @@ func TestHybridSearchDoesNotLetFileScoresOutrankEntities(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
 	scaleCache := hybridScaleFixture(t)
-	if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
+	if err := idx.RebuildFromCache(ctx, scaleCache, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	applyVectors(t, idx, scaleCache, entityVectors())
@@ -139,7 +139,7 @@ func TestHybridSearchStillReturnsFilesAfterEntities(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
 	scaleCache := hybridScaleFixture(t)
-	if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
+	if err := idx.RebuildFromCache(ctx, scaleCache, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	applyVectors(t, idx, scaleCache, entityVectors())
@@ -176,7 +176,7 @@ func TestBothListsStayOrderedByTheirOwnScore(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
 	scaleCache := hybridScaleFixture(t)
-	if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
+	if err := idx.RebuildFromCache(ctx, scaleCache, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	applyVectors(t, idx, scaleCache, entityVectors())
@@ -210,7 +210,7 @@ func TestHybridKeepsTheEnginesOrderRatherThanItsScore(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
 	scaleCache := hybridScaleFixture(t)
-	if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
+	if err := idx.RebuildFromCache(ctx, scaleCache, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	applyVectors(t, idx, scaleCache, entityVectors())
@@ -255,7 +255,7 @@ func TestHybridSearchTopKPrefersEntities(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
 	scaleCache := hybridScaleFixture(t)
-	if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
+	if err := idx.RebuildFromCache(ctx, scaleCache, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	applyVectors(t, idx, scaleCache, entityVectors())
@@ -307,7 +307,7 @@ func TestHybridTopResultAndSetAreStableAcrossRebuilds(t *testing.T) {
 		// is what shuffles insertion order, which is what the original defect rode on.
 		idx := newLanceIndexForTest(t)
 		scaleCache := hybridScaleFixture(t)
-		if err := idx.RebuildFromCache(ctx, scaleCache); err != nil {
+		if err := idx.RebuildFromCache(ctx, scaleCache, nil); err != nil {
 			t.Fatalf("rebuild %d: %v", build, err)
 		}
 		results, err := idx.HybridSearch(ctx, "evictOldestStaged", targetVector(), 0)
@@ -345,7 +345,7 @@ func TestHybridTopResultAndSetAreStableAcrossRebuilds(t *testing.T) {
 func TestKeywordSearchStillRanksTheEntityFirst(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
-	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t)); err != nil {
+	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t), nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -368,7 +368,7 @@ func TestKeywordSearchStillRanksTheEntityFirst(t *testing.T) {
 func TestFilePassCarriesTheRerankConfig(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
-	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t)); err != nil {
+	if err := idx.RebuildFromCache(ctx, hybridScaleFixture(t), nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 

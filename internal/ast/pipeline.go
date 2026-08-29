@@ -421,8 +421,13 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		// The repair replays the shards rather than reparsing: the parse cache is current
 		// by definition here, which is what made this branch reachable.
 		if storeDir != "" && !SearchIndexBuilt(ctx, storeDir) {
+			var embCache *ShardEmbCache
+			if ec, err := NewShardEmbCache(opts.CacheDir, jsonCache); err == nil {
+				embCache = ec
+				defer func() { _ = ec.Close() }()
+			}
 			t1 := time.Now()
-			if err := BuildSearchIndexFor(ctx, storeDir, jsonCache); err != nil {
+			if err := BuildSearchIndexFor(ctx, storeDir, jsonCache, embCache); err != nil {
 				_ = jsonCache.Save()
 				_ = jsonCache.Close()
 				return nil, fmt.Errorf("rebuild search index from cache: %w", err)
@@ -721,6 +726,16 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		}
 		if err == nil {
 			// Search sidecar (LanceDB): incremental where small, full otherwise.
+			//
+			// The embedding cache is read here, never written: a rebuild drops the entity
+			// table, and without replaying the vectors it already holds every rebuild would
+			// re-run the model over the whole corpus.
+			var embCache *ShardEmbCache
+			if opts.CacheDir != "" {
+				if ec, ecErr := NewShardEmbCache(opts.CacheDir, jsonCache); ecErr == nil {
+					embCache = ec
+				}
+			}
 			if lb, ok := db.(*LadybugBackend); ok {
 				idx, oerr := OpenSearchIndex(ctx, lb.cfg.StoreDir)
 				if oerr != nil {
@@ -728,10 +743,10 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				} else {
 					idx.Logger = opts.Logger
 					if doIncremental {
-						if serr := idx.UpdateIncremental(ctx, jsonCache, changedRels, deletedFiles); serr != nil {
+						if serr := idx.UpdateIncremental(ctx, jsonCache, changedRels, deletedFiles, BuildEmbLookup(jsonCache, embCache)); serr != nil {
 							err = fmt.Errorf("search index incremental: %w", serr)
 						}
-					} else if serr := idx.RebuildFromCache(ctx, jsonCache); serr != nil {
+					} else if serr := idx.RebuildFromCache(ctx, jsonCache, BuildEmbLookup(jsonCache, embCache)); serr != nil {
 						err = fmt.Errorf("search index rebuild: %w", serr)
 					}
 					if err == nil {

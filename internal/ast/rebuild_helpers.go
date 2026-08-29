@@ -24,6 +24,27 @@ func shortHex() string {
 	return hex.EncodeToString(b)[:7]
 }
 
+// BuildEmbLookup is how a rebuild restores the vectors the model already produced.
+//
+// A rebuild DROPS the entity table, so without this every rebuild would re-run the embedding
+// model over the whole corpus. The vector is still read from the entity's row at query time —
+// this is the durable copy that survives the drop, nothing more.
+//
+// It returns nil when no hash is cached for the file, which the index treats as "no vector":
+// the row is still stored and searchable by keyword, and a later embedding cycle fills it in.
+func BuildEmbLookup(cache *ShardCache, embCache *ShardEmbCache) func(relPath, uid string) []float32 {
+	if embCache == nil || cache == nil {
+		return nil
+	}
+	return func(relPath, uid string) []float32 {
+		hash := cache.GetHash(relPath)
+		if hash == "" {
+			return nil
+		}
+		return embCache.Get(relPath, uid, hash)
+	}
+}
+
 // copyBatchBytes caps the payload of one COPY in paths that still batch rows into
 // documents. It is measured by bytes, not rows, because row sizes span six orders
 // of magnitude: an entity row is tens of bytes and a File row is its whole source.

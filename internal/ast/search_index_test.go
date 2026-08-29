@@ -59,7 +59,7 @@ func buildSearchIndex(t *testing.T, dir string, cache *ShardCache,
 		t.Fatalf("open search index: %v", err)
 	}
 	t.Cleanup(func() { _ = si.Close() })
-	if err := si.RebuildFromCache(context.Background(), cache); err != nil {
+	if err := si.RebuildFromCache(context.Background(), cache, nil); err != nil {
 		t.Fatalf("rebuild search index: %v", err)
 	}
 	applyVectors(t, si, cache, embLookup)
@@ -291,7 +291,7 @@ func TestSearchIndexRebuildIsIdempotent(t *testing.T) {
 	}
 
 	for i := 0; i < 3; i++ {
-		if err := lb.RebuildFromCache(context.Background(), cache); err != nil {
+		if err := lb.RebuildFromCache(context.Background(), cache, nil); err != nil {
 			t.Fatalf("rebuild %d: %v", i+2, err)
 		}
 		got, err := lb.Search(context.Background(), "config", 20)
@@ -358,7 +358,7 @@ func TestSearchIndexIncremental(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := lb.UpdateIncremental(context.Background(), cache, []string{"hash.go"}, []string{"db.go"}); err != nil {
+	if err := lb.UpdateIncremental(context.Background(), cache, []string{"hash.go"}, []string{"db.go"}, nil); err != nil {
 		t.Fatalf("incremental update: %v", err)
 	}
 
@@ -373,7 +373,7 @@ func TestSearchIndexIncremental(t *testing.T) {
 	}
 
 	// Re-running the same update must not duplicate anything.
-	if err := lb.UpdateIncremental(context.Background(), cache, []string{"hash.go"}, []string{"db.go"}); err != nil {
+	if err := lb.UpdateIncremental(context.Background(), cache, []string{"hash.go"}, []string{"db.go"}, nil); err != nil {
 		t.Fatalf("repeated incremental update: %v", err)
 	}
 	res, err := lb.Search(context.Background(), "digest", 20)
@@ -530,7 +530,7 @@ func TestSearchIndexIncrementalRepeated(t *testing.T) {
 			t.Fatalf("round %d flush: %v", round, err)
 		}
 
-		if err := lb.UpdateIncremental(context.Background(), cache, []string{"hash.go"}, nil); err != nil {
+		if err := lb.UpdateIncremental(context.Background(), cache, []string{"hash.go"}, nil, nil); err != nil {
 			t.Fatalf("round %d update: %v", round, err)
 		}
 

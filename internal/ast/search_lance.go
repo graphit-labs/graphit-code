@@ -408,7 +408,8 @@ const lanceWriteBatch = 2000
 // since changed. Then the rows stream in, and the indexes are built LAST — building them first
 // would pay index maintenance on every batch of a bulk load, which is the same reason the SQLite
 // version dropped its triggers and rebuilt afterwards.
-func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache) error {
+func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
+	embLookup func(relPath, uid string) []float32) error {
 	if cache == nil {
 		return fmt.Errorf("rebuild search index: no parse cache")
 	}
@@ -469,6 +470,9 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache) e
 
 		for _, e := range entry.Entities {
 			var emb []float32
+			if embLookup != nil {
+				emb = embLookup(relPath, e.UID)
+			}
 			row := buildEntityRow(e, emb)
 			if row[lanceVectorColumn] != nil {
 				vecCount++
@@ -541,7 +545,7 @@ func withoutColumn(in []lancestore.Index, column string) []lancestore.Index {
 // lancestore.TestFoldIsAboutLatencyNotVisibility — the intuition that an unfolded row is
 // invisible is wrong, and building the delete-then-read ordering around it would have been.
 func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
-	changedFiles, deletedFiles []string) error {
+	changedFiles, deletedFiles []string, embLookup func(relPath, uid string) []float32) error {
 	if s.Remote() {
 		return lancestore.ErrReadOnly
 	}
@@ -1048,7 +1052,7 @@ func astQuote(s string) string {
 // Hub download rather than beside the store, so nothing else can serve them and the index has to
 // be built before they go away. An installed context without it can be traversed but neither
 // searched nor read.
-func BuildSearchIndexFor(ctx context.Context, dbPath string, cache *ShardCache) error {
+func BuildSearchIndexFor(ctx context.Context, dbPath string, cache *ShardCache, embCache *ShardEmbCache) error {
 	if cache == nil {
 		return fmt.Errorf("build search index: no parse cache")
 	}
@@ -1057,7 +1061,7 @@ func BuildSearchIndexFor(ctx context.Context, dbPath string, cache *ShardCache) 
 		return fmt.Errorf("open search index: %w", err)
 	}
 	defer func() { _ = idx.Close() }()
-	return idx.RebuildFromCache(ctx, cache)
+	return idx.RebuildFromCache(ctx, cache, BuildEmbLookup(cache, embCache))
 }
 
 // ---------- a mounted store's search index ----------
@@ -1105,44 +1109,6 @@ func searchConfigFor(storeDir string) lancestore.Config {
 }
 
 // ---------- embeddings live here and nowhere else ----------
-
-// lanceVectorPage bounds one page of an embedding bookkeeping walk.
-//
-// The walk projects a single string column, so a page is keys and nothing else — the row
-// payload it is deliberately not reading is a full-text body plus a 768-float vector, which is
-// what makes an unprojected read of this table a read of the whole store.
-const lanceVectorPage = 20000
-
-// EmbeddedUIDs reports which entities already carry a vector.
-//
-// This replaces the per-file .emb.json shards, which held a second copy of every vector — in
-// JSON decimal text, three times the size of the float32 it describes — purely to answer this
-// question. The engine can answer it from the column that already exists.
-func (s *SearchIndex) EmbeddedUIDs(ctx context.Context) (map[string]struct{}, error) {
-	if err := s.ensureTables(ctx); err != nil {
-		return nil, err
-	}
-	out := make(map[string]struct{})
-	for offset := 0; ; offset += lanceVectorPage {
-		hits, err := s.entities.Search(ctx, lancestore.Query{
-			Filter:  lanceVectorColumn + " IS NOT NULL",
-			Columns: []string{"uid"},
-			Limit:   lanceVectorPage,
-			Offset:  offset,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("reading embedded uids: %w", err)
-		}
-		for _, h := range hits {
-			if uid, _ := h.Row["uid"].(string); uid != "" {
-				out[uid] = struct{}{}
-			}
-		}
-		if len(hits) < lanceVectorPage {
-			return out, nil
-		}
-	}
-}
 
 // StoreEntityVectors writes a batch of freshly embedded entities back.
 //

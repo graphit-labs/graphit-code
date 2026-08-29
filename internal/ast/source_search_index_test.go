@@ -233,7 +233,7 @@ func TestBuildSearchIndexForMakesAContextSearchable(t *testing.T) {
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "ladybugdb")
-	if err := BuildSearchIndexFor(context.Background(), dbPath, cache); err != nil {
+	if err := BuildSearchIndexFor(context.Background(), dbPath, cache, nil); err != nil {
 		t.Fatalf("BuildSearchIndexFor: %v", err)
 	}
 

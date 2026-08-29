@@ -109,11 +109,16 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = idx.Close() })
+	ec, err := NewShardEmbCache(dir, pc)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	fc := &fakeEmbClient{}
 	cfg := DefaultEmbeddingConfig()
 	cfg.ParseCache = pc
 	cfg.Index = idx
+	cfg.EmbCache = ec
 	cfg.ProjectDir = projectDir
 	cfg.RepoRoot = repoRoot
 	e := NewEmbedder(fc, cfg)
@@ -133,14 +138,16 @@ func TestEmbedderStreamingRunCycle(t *testing.T) {
 		t.Errorf("RunCycle embedded %d, want 4", n)
 	}
 
-	// The vector's only home is the entity's row in the search index.
-	embedded, err := idx.EmbeddedUIDs(ctx)
-	if err != nil {
-		t.Fatalf("EmbeddedUIDs: %v", err)
+	// A vector has to land in BOTH: the entity's row, which is what a query reads, and the
+	// cache, which is what a rebuild replays so the model is not run again.
+	if _, withVector, cErr := idx.Counts(ctx); cErr != nil {
+		t.Fatalf("counts: %v", cErr)
+	} else if withVector != 4 {
+		t.Errorf("the index holds %d vectors, want 4", withVector)
 	}
 	for _, uid := range []string{"uid-foo", "uid-bar", "uid-v", "uid-c"} {
-		if _, ok := embedded[uid]; !ok {
-			t.Errorf("no vector stored for %s", uid)
+		if vec := ec.Get("a.go", uid, srcHash); vec == nil {
+			t.Errorf("no cached vector for %s, so a rebuild would recompute it", uid)
 		}
 	}
 
@@ -219,10 +226,15 @@ func TestEmbedderDuplicateUIDFirstLabelWins(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = idx.Close() })
+	ec, err := NewShardEmbCache(dir, pc)
+	if err != nil {
+		t.Fatal(err)
+	}
 	fc := &fakeEmbClient{}
 	cfg := DefaultEmbeddingConfig()
 	cfg.ParseCache = pc
 	cfg.Index = idx
+	cfg.EmbCache = ec
 	cfg.ProjectDir = projectDir
 	e := NewEmbedder(fc, cfg)
 	ctx := context.Background()

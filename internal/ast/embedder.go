@@ -20,10 +20,15 @@ type EmbeddingConfig struct {
 
 	OnProgress func(done, total int)
 
-	// Index is where a vector is read from and written to. There is no second copy:
-	// the embedding is a column of the entity row, so an entity that no longer exists
-	// cannot leave a vector behind, and nothing has to be kept in step.
+	// Index is where a query reads a vector from: the embedding is a column of the
+	// entity row, so an entity that no longer exists cannot leave a vector behind.
 	Index *SearchIndex
+
+	// EmbCache is the durable copy, and it is not a second opinion about which vector is
+	// current — its entries are keyed on the file's content hash, so a changed file
+	// invalidates its own. It exists because a rebuild DROPS the entity table, and
+	// recomputing an embedding is expensive where re-reading one is not.
+	EmbCache *ShardEmbCache
 
 	ParseCache *ShardCache
 
@@ -76,11 +81,11 @@ func NewEmbedder(client ai.EmbeddingClient, cfg EmbeddingConfig) *Embedder {
 }
 
 func (e *Embedder) CountPending(ctx context.Context) int {
-	if e.cfg.Index == nil || e.cfg.ParseCache == nil {
+	if e.cfg.Index == nil || e.cfg.EmbCache == nil || e.cfg.ParseCache == nil {
 		return 0
 	}
 	total := 0
-	for _, rows := range e.scanPending(ctx, false) {
+	for _, rows := range e.scanPending(false) {
 		total += len(rows)
 	}
 	return total
@@ -171,7 +176,7 @@ func labelOrder(buckets map[string][]entityRow) []string {
 }
 
 func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
-	if e.cfg.Index == nil || e.cfg.ParseCache == nil {
+	if e.cfg.Index == nil || e.cfg.EmbCache == nil || e.cfg.ParseCache == nil {
 		return 0, nil
 	}
 
@@ -179,7 +184,7 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 	// bucketed by label, with their source snippet precomputed. Replaces the old
 	// per-label AllEntries() scans (which pinned every shard in RAM and re-walked
 	// the full cache ~2x per label).
-	buckets := e.scanPending(ctx, true)
+	buckets := e.scanPending(true)
 	grandTotal := 0
 	for _, rows := range buckets {
 		grandTotal += len(rows)
@@ -223,16 +228,7 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 // only entities that still need embedding, bucketed by label. When withSnippet
 // is true it also precomputes each row's source snippet from the loaded shard so
 // the embedding phase never reloads a shard just to fetch source text.
-func (e *Embedder) scanPending(ctx context.Context, withSnippet bool) map[string][]entityRow {
-	// One lookup answers for the whole corpus, where the .emb.json shards answered per
-	// file. A failure here is not fatal: an empty set means everything looks pending, so
-	// the cycle re-embeds rather than silently skipping work.
-	embedded, err := e.cfg.Index.EmbeddedUIDs(ctx)
-	if err != nil {
-		e.log().Warn("reading which entities already have a vector; "+
-			"this cycle will re-embed instead of skipping", "error", err)
-		embedded = map[string]struct{}{}
-	}
+func (e *Embedder) scanPending(withSnippet bool) map[string][]entityRow {
 
 	// Which labels are embeddable is a per-LANGUAGE answer, read from the grammar
 	// that produced the entity — so it is resolved per row, not once for the scan.
@@ -261,7 +257,14 @@ func (e *Embedder) scanPending(ctx context.Context, withSnippet bool) map[string
 			if !embeddable {
 				continue
 			}
-			if _, done := embedded[ent.UID]; done {
+			// The CACHE decides what is pending, not the index: it is the copy that
+			// survives a rebuild, so right after one the index is empty while the work is
+			// genuinely already done.
+			hash := e.cfg.ParseCache.GetHash(ent.Path)
+			if hash == "" {
+				continue
+			}
+			if vec := e.cfg.EmbCache.Get(ent.Path, ent.UID, hash); vec != nil {
 				continue
 			}
 			row := entityRow{
@@ -446,6 +449,11 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 				vec = padded
 			}
 
+			if row.Path != "" {
+				if hash := e.cfg.ParseCache.GetHash(row.Path); hash != "" {
+					e.cfg.EmbCache.Set(row.Path, row.UID, hash, vec)
+				}
+			}
 			embedded = append(embedded, row.entity())
 			embeddedVecs = append(embeddedVecs, vec)
 			total++
@@ -453,6 +461,9 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 
 		if err := e.cfg.Index.StoreEntityVectors(ctx, embedded, embeddedVecs); err != nil {
 			return total, fmt.Errorf("store vectors: %w", err)
+		}
+		if err := e.cfg.EmbCache.Save(); err != nil {
+			e.log().Warn("embedding cache save", "error", err)
 		}
 
 		if e.cfg.OnProgress != nil && grandTotal > 0 {
@@ -524,6 +535,11 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, rep
 			jc.SetRoot(cfg.RepoRoot)
 			cfg.ParseCache = jc
 			defer func() { _ = jc.Close() }()
+
+			if ec, ecErr := NewShardEmbCache(cacheDir, jc); ecErr == nil {
+				cfg.EmbCache = ec
+				defer func() { _ = ec.Close() }()
+			}
 
 		}
 	}

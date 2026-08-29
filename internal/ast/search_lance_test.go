@@ -111,7 +111,7 @@ func TestLanceRebuildIndexesFilesAndEntities(t *testing.T) {
 			cachedEntity{Name: "OpenScope", Docstring: "Opens a memory scope, pulling it if absent.", Line: 10}),
 	)
 
-	if err := idx.RebuildFromCache(ctx, cache); err != nil {
+	if err := idx.RebuildFromCache(ctx, cache, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -147,7 +147,7 @@ func TestLanceRebuildDropsWhatIsNoLongerInTheShards(t *testing.T) {
 
 	first := newShardCacheForTest(t,
 		entryWith("a.go", "package a", cachedEntity{Name: "willBeDeleted"}))
-	if err := idx.RebuildFromCache(ctx, first); err != nil {
+	if err := idx.RebuildFromCache(ctx, first, nil); err != nil {
 		t.Fatalf("first rebuild: %v", err)
 	}
 	if got := searchNames(t, idx, "willBeDeleted", 5); !hasName(got, "willBeDeleted") {
@@ -156,7 +156,7 @@ func TestLanceRebuildDropsWhatIsNoLongerInTheShards(t *testing.T) {
 
 	second := newShardCacheForTest(t,
 		entryWith("a.go", "package a", cachedEntity{Name: "survivor"}))
-	if err := idx.RebuildFromCache(ctx, second); err != nil {
+	if err := idx.RebuildFromCache(ctx, second, nil); err != nil {
 		t.Fatalf("second rebuild: %v", err)
 	}
 
@@ -180,13 +180,13 @@ func TestLanceBothWritePathsProduceTheSameDocument(t *testing.T) {
 
 	viaRebuild := newLanceIndexForTest(t)
 	if err := viaRebuild.RebuildFromCache(ctx,
-		newShardCacheForTest(t, entryWith("t.go", "package t", ent))); err != nil {
+		newShardCacheForTest(t, entryWith("t.go", "package t", ent)), nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
 	viaIncremental := newLanceIndexForTest(t)
 	cache := newShardCacheForTest(t, entryWith("t.go", "package t", ent))
-	if err := viaIncremental.UpdateIncremental(ctx, cache, []string{"t.go"}, nil); err != nil {
+	if err := viaIncremental.UpdateIncremental(ctx, cache, []string{"t.go"}, nil, nil); err != nil {
 		t.Fatalf("incremental: %v", err)
 	}
 
@@ -217,7 +217,7 @@ func TestLanceTruncatedQueryReachesTheIdentifier(t *testing.T) {
 		entryWith("a.go", "package a",
 			cachedEntity{Name: "resolveHubArtifact", Docstring: "Resolves an artifact."},
 			cachedEntity{Name: "unrelatedThing", Docstring: "Something else entirely."}),
-	)); err != nil {
+	), nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -235,14 +235,14 @@ func TestLanceIncrementalReplacesAFileWithoutDuplicating(t *testing.T) {
 	if err := idx.RebuildFromCache(ctx, newShardCacheForTest(t,
 		entryWith("a.go", "package a", cachedEntity{Name: "originalName"}),
 		entryWith("b.go", "package b", cachedEntity{Name: "untouched"}),
-	)); err != nil {
+	), nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
 	// a.go is reparsed and its entity renamed.
 	changed := newShardCacheForTest(t,
 		entryWith("a.go", "package a", cachedEntity{Name: "renamedEntity"}))
-	if err := idx.UpdateIncremental(ctx, changed, []string{"a.go"}, nil); err != nil {
+	if err := idx.UpdateIncremental(ctx, changed, []string{"a.go"}, nil, nil); err != nil {
 		t.Fatalf("incremental: %v", err)
 	}
 
@@ -275,12 +275,12 @@ func TestLanceIncrementalRemovesADeletedFileEntirely(t *testing.T) {
 	if err := idx.RebuildFromCache(ctx, newShardCacheForTest(t,
 		entryWith("gone.go", "package gone", cachedEntity{Name: "vanishingFunc"}),
 		entryWith("stays.go", "package stays", cachedEntity{Name: "stayingFunc"}),
-	)); err != nil {
+	), nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
 	// The cache no longer holds the deleted file, which is the real state after a removal.
-	if err := idx.UpdateIncremental(ctx, newShardCacheForTest(t), nil, []string{"gone.go"}); err != nil {
+	if err := idx.UpdateIncremental(ctx, newShardCacheForTest(t), nil, []string{"gone.go"}, nil); err != nil {
 		t.Fatalf("incremental: %v", err)
 	}
 
@@ -305,12 +305,12 @@ func TestLanceIncrementalWithNoDeltaIsANoOp(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
 	if err := idx.RebuildFromCache(ctx, newShardCacheForTest(t,
-		entryWith("a.go", "package a", cachedEntity{Name: "keepMe"}))); err != nil {
+		entryWith("a.go", "package a", cachedEntity{Name: "keepMe"})), nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	before, _ := idx.entities.Count(ctx)
 
-	if err := idx.UpdateIncremental(ctx, newShardCacheForTest(t), nil, nil); err != nil {
+	if err := idx.UpdateIncremental(ctx, newShardCacheForTest(t), nil, nil, nil); err != nil {
 		t.Fatalf("empty incremental: %v", err)
 	}
 
@@ -346,7 +346,7 @@ func TestLanceRebuildStoresEmbeddingsAndSearchesThemSemantically(t *testing.T) {
 		}
 		return nil
 	}
-	if err := idx.RebuildFromCache(ctx, cache); err != nil {
+	if err := idx.RebuildFromCache(ctx, cache, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	applyVectors(t, idx, cache, embLookup)
@@ -371,7 +371,7 @@ func TestLanceEntitiesWithoutEmbeddingsAreStillSearchable(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
 	if err := idx.RebuildFromCache(ctx, newShardCacheForTest(t,
-		entryWith("a.go", "package a", cachedEntity{Name: "noVectorHere"}))); err != nil {
+		entryWith("a.go", "package a", cachedEntity{Name: "noVectorHere"})), nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	if got := searchNames(t, idx, "noVectorHere", 5); !hasName(got, "noVectorHere") {
@@ -384,7 +384,7 @@ func TestLanceWritesAreRefusedOnAPublishedIndex(t *testing.T) {
 	ctx := context.Background()
 	idx := newLanceIndexForTest(t)
 	if err := idx.RebuildFromCache(ctx, newShardCacheForTest(t,
-		entryWith("a.go", "package a", cachedEntity{Name: "x"}))); err != nil {
+		entryWith("a.go", "package a", cachedEntity{Name: "x"})), nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 

@@ -90,7 +90,7 @@ func TestEmbeddingCycleInjectsVectorsIntoTheStore(t *testing.T) {
 	if _, err := ExportDirectFromRebuildIndex(ri, bundleDir, bundleDir); err != nil {
 		t.Fatalf("initial index: %v", err)
 	}
-	if err := BuildSearchIndexFor(context.Background(), storeDir, cache); err != nil {
+	if err := BuildSearchIndexFor(context.Background(), storeDir, cache, nil); err != nil {
 		t.Fatalf("initial search index: %v", err)
 	}
 

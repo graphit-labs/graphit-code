@@ -53,9 +53,16 @@ func noSourceFixture(t *testing.T, relPath, body string, ents []cachedEntity) (*
 	}
 	t.Cleanup(func() { _ = idx.Close() })
 
+	embCache, err := NewShardEmbCache(cacheDir, cache)
+	if err != nil {
+		t.Fatalf("emb cache: %v", err)
+	}
+	t.Cleanup(func() { _ = embCache.Close() })
+
 	cfg := DefaultEmbeddingConfig()
 	cfg.ParseCache = cache
 	cfg.Index = idx
+	cfg.EmbCache = embCache
 	cfg.RepoRoot = repoRoot
 	cfg.ProjectDir = repoRoot
 
@@ -93,7 +100,7 @@ func noSourceEntities() []cachedEntity {
 func TestEmbeddingKeepsSourceSignalWithoutPersistingSource(t *testing.T) {
 	e, _ := noSourceFixture(t, "svc/pay.go", noSourceBody, noSourceEntities())
 
-	buckets := e.scanPending(context.Background(), true)
+	buckets := e.scanPending(true)
 	rows := buckets["Function"]
 	if len(rows) != 1 {
 		t.Fatalf("got %d pending Function rows, want 1", len(rows))
@@ -120,7 +127,7 @@ func TestShardOnDiskNeverCarriesFileText(t *testing.T) {
 	const rel = "svc/pay.go"
 	e, _ := noSourceFixture(t, rel, noSourceBody, noSourceEntities())
 
-	if rows := e.scanPending(context.Background(), true)["Function"]; len(rows) != 1 || rows[0].Source == "" {
+	if rows := e.scanPending(true)["Function"]; len(rows) != 1 || rows[0].Source == "" {
 		t.Fatalf("the fixture did not produce an embedded snippet: %+v", rows)
 	}
 	if err := e.cfg.ParseCache.FlushDirty(); err != nil {
@@ -147,7 +154,7 @@ func TestEmbeddingSkipsSnippetWhenTheFileNoLongerMatches(t *testing.T) {
 		t.Fatalf("rewrite file: %v", err)
 	}
 
-	rows := e.scanPending(context.Background(), true)["Function"]
+	rows := e.scanPending(true)["Function"]
 	if len(rows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(rows))
 	}
@@ -164,7 +171,7 @@ func TestEmbeddingWithoutRepoRootStillEmbedsTheEntity(t *testing.T) {
 	e.cfg.RepoRoot = ""
 	e.cfg.ParseCache.SetRoot("")
 
-	rows := e.scanPending(context.Background(), true)["Function"]
+	rows := e.scanPending(true)["Function"]
 	if len(rows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(rows))
 	}
@@ -191,7 +198,7 @@ func TestEmbeddingSnippetComesFromTheFileNotTheCachedEntry(t *testing.T) {
 		t.Fatalf("store shard: %v", err)
 	}
 
-	rows := e.scanPending(context.Background(), true)["Function"]
+	rows := e.scanPending(true)["Function"]
 	if len(rows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(rows))
 	}

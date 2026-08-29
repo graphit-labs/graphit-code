@@ -54,7 +54,7 @@ func TestVectorMetricIsSquaredL2OnUnitVectors(t *testing.T) {
 		entries = append(entries, entryWith(name+".go", "package p", cachedEntity{Name: name}))
 	}
 	metricCache := newShardCacheForTest(t, entries...)
-	if err := idx.RebuildFromCache(ctx, metricCache); err != nil {
+	if err := idx.RebuildFromCache(ctx, metricCache, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	applyVectors(t, idx, metricCache, func(_, uid string) []float32 {
@@ -113,7 +113,7 @@ func TestSemanticSearchReturnsItsNeighbours(t *testing.T) {
 		entries = append(entries, entryWith(name+".go", "package p", cachedEntity{Name: name}))
 	}
 	metricCache := newShardCacheForTest(t, entries...)
-	if err := idx.RebuildFromCache(ctx, metricCache); err != nil {
+	if err := idx.RebuildFromCache(ctx, metricCache, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 	applyVectors(t, idx, metricCache, func(_, uid string) []float32 {

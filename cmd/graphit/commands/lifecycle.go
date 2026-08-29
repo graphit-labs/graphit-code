@@ -848,6 +848,12 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 				cfg.Index = searchIdx
 				defer func() { _ = searchIdx.Close() }()
 			}
+			if cfg.ParseCache != nil {
+				if embCache, embErr := ast.NewShardEmbCache(cacheDir, cfg.ParseCache); embErr == nil {
+					cfg.EmbCache = embCache
+					defer func() { _ = embCache.Close() }()
+				}
+			}
 			embedder := ast.NewEmbedder(embClient, cfg)
 			if _, err := embedder.RunCycle(ctx); err != nil {
 				syncLogError("embedding", "cycle: %v", err)

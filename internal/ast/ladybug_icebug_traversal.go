@@ -27,9 +27,6 @@ type icebugNodePattern struct {
 	properties []string
 }
 
-
-
-
 func (k *LadybugBackend) queryRecordsLocked(cypher string, params map[string]any) ([]QueryRecord, error) {
 	res, err := k.runQuery(cypher, params)
 	if err != nil {
@@ -42,7 +39,6 @@ func (k *LadybugBackend) queryRecordsLocked(cypher string, params map[string]any
 	}
 	return result.Records, nil
 }
-
 
 func parseIcebugNodePattern(raw string) (icebugNodePattern, bool) {
 	match := nodePattern.FindStringSubmatch(raw)
@@ -64,12 +60,9 @@ func parseIcebugNodePattern(raw string) (icebugNodePattern, bool) {
 	return node, true
 }
 
-
-
 func (n icebugNodePattern) selective(predicates []string) bool {
 	return len(n.properties) > 0 || len(predicates) > 0
 }
-
 
 func referencesVariable(expression, variable string) bool {
 	if variable == "" {
@@ -95,7 +88,6 @@ func referencesVariable(expression, variable string) bool {
 	}
 	return false
 }
-
 
 func splitTopLevel(expression, separator string) []string {
 	expression = trimOuterParentheses(strings.TrimSpace(expression))

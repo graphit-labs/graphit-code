@@ -29,7 +29,7 @@ func TestMaintainCompactsFragmentsAndPrunesVersions(t *testing.T) {
 			cachedEntity{Name: fmt.Sprintf("Fn%d", i)}))
 	}
 	cache := newShardCacheForTest(t, entries...)
-	if err := idx.RebuildFromCache(ctx, cache); err != nil {
+	if err := idx.RebuildFromCache(ctx, cache, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -37,7 +37,7 @@ func TestMaintainCompactsFragmentsAndPrunesVersions(t *testing.T) {
 	// accumulates fragments in production.
 	for i := 0; i < 40; i++ {
 		rel := fmt.Sprintf("pkg/f%d.go", i)
-		if err := idx.UpdateIncremental(ctx, cache, []string{rel}, nil); err != nil {
+		if err := idx.UpdateIncremental(ctx, cache, []string{rel}, nil, nil); err != nil {
 			t.Fatalf("incremental %s: %v", rel, err)
 		}
 	}
@@ -96,7 +96,7 @@ func TestMaintainOnAnAlreadyCompactStoreDoesNothing(t *testing.T) {
 	idx := newLanceIndexForTest(t)
 	cache := newShardCacheForTest(t,
 		entryWith("a.go", "package a", cachedEntity{Name: "onlyOne"}))
-	if err := idx.RebuildFromCache(ctx, cache); err != nil {
+	if err := idx.RebuildFromCache(ctx, cache, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 

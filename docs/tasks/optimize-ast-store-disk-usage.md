@@ -446,6 +446,42 @@ in flight touches its directory continuously.
 the fix is right regardless, but the 549 -> 175 was not reproduced locally. Re-running the same
 two commands is what would confirm it.
 
+### 2026-08-28 — the embedding cache comes back, in binary
+
+The Engineer reversed part of T1: losing a computed embedding to a rebuild is expensive, so the
+per-file cache returns — but stored for disk rather than for readability.
+
+**What changed from the version that was deleted:** the format. The same 39,762 vectors of 768
+float32 occupy **122 MB as raw little-endian float32 and 381 MB as the JSON decimal text** that
+was there before — a 3.1x inflation from serialisation alone, on what was 55% of the store.
+
+`internal/ast/shard_emb_cache.go` is back, writing `shards/<relPath>.emb`:
+
+```
+magic "GEMB" | version u16 | dim u16 | hash len u16 | hash | count u32
+then count records of: uid len u16 | uid | dim x float32 little-endian
+```
+
+The dimension lives in the header rather than per record, which is what makes a record exactly
+`len(uid) + 2 + dim*4` bytes. Writes go through a temp file and a rename.
+
+**Halving it again with float16 is available and deliberately not taken.** The cache is what a
+rebuild restores INTO the search index, so a lossy cache would make a store's vectors differ
+before and after a rebuild — a change to search behaviour, which needs a measurement rather than
+an assumption. `TestEmbShardRoundTripIsExact` pins the round trip as bit-identical.
+
+**What did NOT come back:** the O(corpus) rebuild per embedding cycle. The embedder writes to
+both — the entity's row in Lance, which is what a query reads, and the cache, which is what a
+rebuild replays. `rebuildSearchIndexForEmbeddings` stays deleted.
+
+**Which one decides what is pending is the CACHE, not the index**, and that is the whole point:
+right after a rebuild the index is empty while the work is genuinely already done.
+`SearchIndex.EmbeddedUIDs` was written for the other arrangement and is removed rather than left
+as an unused second answer to the same question.
+
+`TestRebuildRestoresVectorsFromTheCacheInsteadOfRecomputing` pins the reason all of this exists:
+a rebuild restores the vectors instead of re-running the model.
+
 ## Results — measured, not projected
 
 The store for this repository, before any of this work and after all of it:

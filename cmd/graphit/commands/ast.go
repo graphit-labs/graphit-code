@@ -444,6 +444,11 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 			defer func() { _ = searchIdx.Close() }()
 			cfg.Index = searchIdx
 
+			if embCache, embErr := ast.NewShardEmbCache(cacheDir, parseCache); embErr == nil {
+				cfg.EmbCache = embCache
+				defer func() { _ = embCache.Close() }()
+			}
+
 			probe := ast.NewEmbedder(nil, cfg)
 			pending := probe.CountPending(ctx)
 			if pending == 0 {
@@ -454,7 +459,7 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 				// own; a stat only proves the graph is there.
 				if !ast.SearchIndexBuilt(ctx, idxPath) {
 					task.Update("Rebuilding search index...")
-					if rbErr := searchIdx.RebuildFromCache(ctx, parseCache); rbErr != nil {
+					if rbErr := searchIdx.RebuildFromCache(ctx, parseCache, ast.BuildEmbLookup(parseCache, cfg.EmbCache)); rbErr != nil {
 						p.StepWarn("Search index rebuild: %v", rbErr)
 					}
 					task.Done("Search index rebuilt")

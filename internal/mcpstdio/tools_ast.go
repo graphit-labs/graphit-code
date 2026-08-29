@@ -461,6 +461,11 @@ func registerASTTools(server *mcp.Server) {
 			defer func() { _ = idx.Close() }()
 			embCfg.Index = idx
 
+			if embCache, embErr := ast.NewShardEmbCache(cacheDir, parseCache); embErr == nil {
+				embCfg.EmbCache = embCache
+				defer func() { _ = embCache.Close() }()
+			}
+
 			embClient, err := ai.NewEmbeddingClientFromConfig()
 			if err != nil {
 				return err
