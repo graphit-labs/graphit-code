@@ -363,7 +363,11 @@ func firstNonEmptyString(vals ...string) string {
 }
 
 // promptValue asks for one global setting, offering the current value or the compiled-in
-// default, and unsets the key when the user clears it.
+// default, and unsets the key when the user explicitly clears it with "-".
+//
+// Blank input always accepts the offered default outright — it does not re-ask, since the
+// default was already shown in the prompt itself and asking again is asking the same
+// question twice.
 func promptValue(p *output.Printer, reader *bufio.Reader, label, key, current, compiledDefault, blankHint string) string {
 	fallback := current
 	if fallback == "" {
@@ -372,14 +376,23 @@ func promptValue(p *output.Printer, reader *bufio.Reader, label, key, current, c
 	if current != "" {
 		p.Detail("Current "+label, current)
 	}
-	if fallback != "" {
+	switch {
+	case fallback != "" && current != "":
+		fmt.Printf("  Enter %s [%s] (- to clear): ", label, fallback)
+	case fallback != "":
 		fmt.Printf("  Enter %s [%s]: ", label, fallback)
-	} else {
+	default:
 		fmt.Printf("  Enter %s [%s]: ", label, blankHint)
 	}
 
 	input, _ := reader.ReadString('\n')
 	input = strings.TrimSpace(input)
+
+	if current != "" && input == "-" {
+		_ = config.UnsetGlobalConfigValue(key)
+		p.StepOK("Cleared %s", label)
+		return ""
+	}
 
 	if input == "" {
 		switch {
@@ -387,17 +400,7 @@ func promptValue(p *output.Printer, reader *bufio.Reader, label, key, current, c
 			input = compiledDefault
 			p.Step("Using default: %s", input)
 		case current != "":
-			fmt.Printf("  Keep current %s %q? [Y/n]: ", label, current)
-			keep, _ := reader.ReadString('\n')
-			keep = strings.TrimSpace(strings.ToLower(keep))
-			if keep == "" || keep == "y" || keep == "yes" {
-				input = current
-				p.Step("Keeping current: %s", input)
-			} else {
-				_ = config.UnsetGlobalConfigValue(key)
-				p.StepOK("Cleared %s", label)
-				return ""
-			}
+			input = current
 		default:
 			return ""
 		}
