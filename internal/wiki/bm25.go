@@ -40,6 +40,7 @@ type BM25Index struct {
 type BM25Result struct {
 	Path    string
 	Title   string
+	DocType string
 	Score   float64
 	Snippet string
 }

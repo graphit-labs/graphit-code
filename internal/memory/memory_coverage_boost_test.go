@@ -978,14 +978,18 @@ func TestAppendMemLog_NewFile_Boost(t *testing.T) {
 	}
 	content := string(data)
 
-	if !strings.Contains(content, "Memory Wiki Log") {
+	// OKF §9 shape: no frontmatter, an H1, `## YYYY-MM-DD` sections, prose entries.
+	if !strings.Contains(content, "# Memory Wiki Update Log") {
 		t.Error("should contain header for new file")
 	}
-	if !strings.Contains(content, "Memories: 5") {
-		t.Error("should contain memory count")
+	if strings.HasPrefix(strings.TrimSpace(content), "---") {
+		t.Error("log.md must not carry frontmatter (OKF §8/§9)")
 	}
-	if !strings.Contains(content, "Articles written: 3") {
-		t.Error("should contain articles count")
+	if !strings.Contains(content, "## "+time.Now().UTC().Format("2006-01-02")) {
+		t.Error("should group entries under an ISO 8601 date heading")
+	}
+	if !strings.Contains(content, "5 memories, 3 article(s) written") {
+		t.Error("should contain the counts")
 	}
 }
 

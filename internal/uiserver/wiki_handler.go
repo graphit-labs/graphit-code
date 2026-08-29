@@ -329,9 +329,78 @@ func contextLabel(name string, idNames map[string]string) string {
 }
 
 var reH1 = regexp.MustCompile(`(?m)^#\s+(.+)$`)
-var reFMTags = regexp.MustCompile(`(?m)^tags:\s*\[([^\]]+)\]`)
 var reFMConfidence = regexp.MustCompile(`(?m)^confidence:\s*([0-9.]+)`)
-var reFMSource = regexp.MustCompile(`(?m)^source:\s*(.+)$`)
+
+// Frontmatter readers for the shape OKF specifies.
+//
+// `tags` is a block sequence and provenance is `sources` (plural) whose entries carry a
+// REQUIRED `resource` (§5.1). The explorer used to read `tags: [a, b]` and a singular
+// `source:` — the pre-OKF shapes — which is why every page here showed no tags and no
+// source once the generator moved. Those readers are gone rather than kept alongside:
+// the wiki is a compiled artifact, regenerated from its sources, so there is no old page
+// left to read.
+var (
+	reFMTags     = regexp.MustCompile(`(?m)^tags:\s*$((?:\n[ \t]*-[ \t]*.+)+)`)
+	reFMType     = regexp.MustCompile(`(?m)^type:\s*(.+)$`)
+	reFMSources  = regexp.MustCompile(`(?m)^sources:\s*$((?:\n[ \t]*-[ \t]*.+|\n[ \t]{2,}\w[\w.-]*:.+)+)`)
+	reFMListItem = regexp.MustCompile(`(?m)^[ \t]*-[ \t]*(.+)$`)
+	reFMResource = regexp.MustCompile(`(?m)^[ \t]*-?[ \t]*resource:\s*(.+)$`)
+)
+
+// frontmatterBlock returns the leading YAML block, so a `type:` or `tags:` line inside the
+// page BODY — a code sample, a quoted example — cannot be mistaken for metadata.
+func frontmatterBlock(content string) string {
+	trimmed := strings.TrimLeft(content, "\ufeff \t\r\n")
+	if !strings.HasPrefix(trimmed, "---") {
+		return ""
+	}
+	rest := trimmed[3:]
+	if i := strings.Index(rest, "\n"); i >= 0 {
+		rest = rest[i+1:]
+	} else {
+		return ""
+	}
+	if end := strings.Index(rest, "\n---"); end >= 0 {
+		return rest[:end]
+	}
+	return rest
+}
+
+func parseFMTags(fm string) []string {
+	tags := make([]string, 0)
+	if m := reFMTags.FindStringSubmatch(fm); m != nil {
+		for _, item := range reFMListItem.FindAllStringSubmatch(m[1], -1) {
+			if tag := unquoteFMScalar(item[1]); tag != "" {
+				tags = append(tags, tag)
+			}
+		}
+	}
+	return tags
+}
+
+// unquoteFMScalar undoes the quoting the generator applies to free-text values so that the
+// frontmatter block always parses as YAML.
+func unquoteFMScalar(raw string) string {
+	v := strings.TrimSpace(raw)
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		if unquoted, err := strconv.Unquote(v); err == nil {
+			return unquoted
+		}
+	}
+	return strings.Trim(v, `"'`)
+}
+
+// parseFMSource returns the page's first provenance path, which is what the explorer shows.
+func parseFMSource(fm string) string {
+	m := reFMSources.FindStringSubmatch(fm)
+	if m == nil {
+		return ""
+	}
+	if r := reFMResource.FindStringSubmatch(m[1]); r != nil {
+		return unquoteFMScalar(r[1])
+	}
+	return ""
+}
 
 func listWikiPages(wikiDir string) ([]WikiPageMeta, error) {
 	var pages []WikiPageMeta
@@ -381,6 +450,13 @@ func extractPageMeta(relPath, content string) WikiPageMeta {
 	name := filepath.Base(relPath)
 	nameNoExt := strings.TrimSuffix(name, ".md")
 
+	fm := frontmatterBlock(content)
+
+	// The reserved filenames win over frontmatter: OKF §3.1 gives `index.md` and `log.md`
+	// their meaning by NAME, and §8 says an index carries no frontmatter to read anyway.
+	// For everything else the frontmatter `type` is the answer, because it is the one field
+	// OKF requires (§4.1) and the filename prefixes below are this project's own convention,
+	// which an imported bundle has no reason to follow.
 	pageType := "entity"
 	switch {
 	case name == "index.md":
@@ -391,6 +467,12 @@ func extractPageMeta(relPath, content string) WikiPageMeta {
 		pageType = "community"
 	case strings.HasPrefix(nameNoExt, "god-node-"):
 		pageType = "god-node"
+	default:
+		if m := reFMType.FindStringSubmatch(fm); m != nil {
+			if t := unquoteFMScalar(m[1]); t != "" {
+				pageType = t
+			}
+		}
 	}
 
 	title := nameNoExt
@@ -398,14 +480,7 @@ func extractPageMeta(relPath, content string) WikiPageMeta {
 		title = strings.TrimSpace(m[1])
 	}
 
-	tags := make([]string, 0)
-	if m := reFMTags.FindStringSubmatch(content); m != nil {
-		for _, t := range strings.Split(m[1], ",") {
-			if tag := strings.TrimSpace(t); tag != "" {
-				tags = append(tags, tag)
-			}
-		}
-	}
+	tags := parseFMTags(fm)
 
 	links := wiki.FindWikiLinks(content)
 
@@ -418,10 +493,7 @@ func extractPageMeta(relPath, content string) WikiPageMeta {
 		}
 	}
 
-	var source string
-	if m := reFMSource.FindStringSubmatch(content); m != nil {
-		source = strings.TrimSpace(m[1])
-	}
+	source := parseFMSource(fm)
 
 	return WikiPageMeta{
 		Path:       relPath,

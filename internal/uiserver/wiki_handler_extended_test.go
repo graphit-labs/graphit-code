@@ -310,7 +310,7 @@ func TestExtractPageMeta_MultipleH1(t *testing.T) {
 
 func TestExtractPageMeta_FrontmatterOnly(t *testing.T) {
 	t.Parallel()
-	content := "---\ntags: [a, b]\nconfidence: 0.7\nsource: automated\n---\nNo heading here but some body text."
+	content := "---\ntype: document\ntags:\n  - a\n  - b\nconfidence: 0.7\nsources:\n  - resource: automated\n---\nNo heading here but some body text."
 	meta := extractPageMeta("fm-only.md", content)
 	// Title should fall back to filename without extension
 	if meta.Title != "fm-only" {

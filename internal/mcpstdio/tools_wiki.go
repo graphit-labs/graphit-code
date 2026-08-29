@@ -26,6 +26,7 @@ type wikiSearchInput struct {
 	TopK        int      `json:"top_k,omitempty" jsonschema:"BM25 results per wiki source (0 = no limit)"`
 	ProjectDir  string   `json:"project_dir" jsonschema:"Project directory (required)"`
 	Mode        string   `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
+	Preview     *bool    `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the page is read with wiki_source when the agent decides it needs it"`
 	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
@@ -169,8 +170,10 @@ func openMountedWiki(ctx context.Context, projectDir, wikiScope, contextName str
 
 func registerWikiTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("wiki", "search"),
-		Description: "Search across multiple wiki sources using BM25 full-text and optional semantic search.",
+		Name: brand.MCPToolName("wiki", "search"),
+		Description: "Search across multiple wiki sources using BM25 full-text and optional semantic search. " +
+			"Answers with page titles and scores, not page text: pick the page from the titles, then read it with " +
+			brand.MCPToolName("wiki", "source") + ", which slices. Pass preview=true only when the titles are not enough to choose.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiSearchInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -218,7 +221,7 @@ func registerWikiTools(server *mcp.Server) {
 				allResults = allResults[:topK]
 			}
 			if aiOpt(input.AiOptimized) {
-				return textResult(wiki.FormatSearchResultsTOON(allResults))
+				return textResult(wiki.FormatSearchResultsTOON(allResults, wantPreview(input.Preview)))
 			}
 			return jsonResult(allResults)
 
@@ -255,7 +258,7 @@ func registerWikiTools(server *mcp.Server) {
 				allResults = allResults[:topK]
 			}
 			if aiOpt(input.AiOptimized) {
-				return textResult(wiki.FormatSearchResultsTOON(allResults))
+				return textResult(wiki.FormatSearchResultsTOON(allResults, wantPreview(input.Preview)))
 			}
 			return jsonResult(allResults)
 
@@ -307,7 +310,7 @@ func registerWikiTools(server *mcp.Server) {
 				allResults = allResults[:topK]
 			}
 			if aiOpt(input.AiOptimized) {
-				out := wiki.FormatSearchResultsTOON(allResults)
+				out := wiki.FormatSearchResultsTOON(allResults, wantPreview(input.Preview))
 				if degraded != "" {
 					out += fmt.Sprintf("\n\nNOTE: hybrid degraded to full-text only — %s. "+
 						"Semantic ranking contributed nothing to these results.\n", degraded)

@@ -33,6 +33,7 @@ type knowledgeSearchInput struct {
 	Query       string `json:"query" jsonschema:"Keywords to search for in the knowledge wiki using BM25"`
 	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to search"`
+	Preview     *bool  `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the page is read with wiki_source when the agent decides it needs it"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
@@ -125,8 +126,10 @@ func registerKnowledgeTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("knowledge", "search"),
-		Description: "Search the project knowledge wiki using BM25 keyword ranking.",
+		Name: brand.MCPToolName("knowledge", "search"),
+		Description: "Search the project knowledge wiki using BM25 keyword ranking. " +
+			"Answers with page titles and scores, not page text: pick the page from the titles, then read it with " +
+			brand.MCPToolName("wiki", "source") + ", which slices. Pass preview=true only when the titles are not enough to choose.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeSearchInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -147,7 +150,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 			return errResult(err)
 		}
 		if aiOpt(input.AiOptimized) {
-			return toonResult(results)
+			return textResult(wiki.FormatBM25ResultsTOON(results, wantPreview(input.Preview)))
 		}
 		return jsonResult(results)
 	}))

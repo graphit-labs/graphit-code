@@ -37,3 +37,40 @@ Refactor the Graphit wiki generator (for knowledge wiki, memory wiki, index.md, 
 - **OKF v0.2 Standard Compliance**: Adopted mandatory `type` field, `generated.at` (ISO 8601), `sources` array, `id`, and `description` in YAML frontmatter.
 - **Dual Link Resolution**: Generated standard Markdown links `[Title](slug.md)` while maintaining backward-compatible parsing for any legacy `[[wikilinks]]` in raw user source files.
 - **Full MCP Tool Support**: Kept `WikiDB` FTS indexing and MCP tools intact so AI agents can query and retrieve source exclusively via MCP tools.
+
+## Correction (2026-08-29)
+
+**This task did not achieve OKF compliance, and the claim above should not be trusted.**
+See `docs/tasks/okf-compliance-audit-and-search-frugality.md` for the audit against the
+actual specification (`GoogleCloudPlatform/knowledge-catalog`, `okf/SPEC.md`, v0.2) and for
+the work that finished it.
+
+What was wrong, in short:
+
+- `generated.at:` was emitted as a flat YAML key. OKF has no such key — `generated` is a
+  mapping `{ by, at }` and `by` is REQUIRED (§5.2). The dotted form is the spec's prose
+  path notation, transcribed as a field.
+- `sources:` was a list of bare strings. Each entry must be a mapping with a REQUIRED
+  `resource` (§5.1).
+- `index.md` carried a full frontmatter block. §8 allows none, except `okf_version` at the
+  bundle root, which was never declared (§12).
+- `log.md` kept a frontmatter block and `## [timestamp] sync | …` headings instead of the
+  date-grouped structure of §9.
+- **T2 was incomplete**: only `memoryEntityPageWithHash` was converted. The memory
+  `index.md` still emitted `[[wikilinks]]` and pre-OKF frontmatter, and the memory log was
+  never touched.
+- The frontmatter frequently did not PARSE at all — a folded-scalar description or a colon
+  in a title broke the block — which fails §11 conformance criterion 1 before any field
+  name is considered.
+- Three of our own consumers were left reading the pre-OKF shape: the linter (`updated`,
+  no `type` check), the cross-reference builder (every relative markdown link counted as a
+  wiki link), and the UI server (`tags: [a, b]`, singular `source:`).
+
+The measured cost of the last point: `graphit_knowledge_lint` reported 834 errors over 242
+pages — 240 false "stale", 241 false "missing frontmatter", 354 phantom broken links —
+none of which described a real defect in the wiki.
+
+**T6's "100% pass rate" is the lesson.** The tests were updated to match the new output,
+which proves the output did not change unexpectedly and proves nothing about the spec. The
+conformance tests added by the follow-up task parse the generated pages and assert the
+spec's own criteria instead.

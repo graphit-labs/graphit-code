@@ -1027,14 +1027,14 @@ func TestAppendMemLog_NewFile(t *testing.T) {
 		t.Fatalf("ReadFile: %v", err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "Memory Wiki Log") {
+	if !strings.Contains(content, "# Memory Wiki Update Log") {
 		t.Error("should contain header")
 	}
-	if !strings.Contains(content, "Memories: 5") {
-		t.Error("should contain memory count")
+	if strings.HasPrefix(strings.TrimSpace(content), "---") {
+		t.Error("log.md must not carry frontmatter (OKF §8/§9)")
 	}
-	if !strings.Contains(content, "Articles written: 3") {
-		t.Error("should contain articles count")
+	if !strings.Contains(content, "5 memories, 3 article(s) written") {
+		t.Error("should contain the counts")
 	}
 }
 
@@ -1051,9 +1051,15 @@ func TestAppendMemLog_ExistingFile(t *testing.T) {
 	}
 	content := string(data)
 
-	// Should contain both entries
-	if !strings.Contains(content, "Memories: 5") {
+	// Both compiles land under the same date heading, newest first.
+	if !strings.Contains(content, "5 memories, 4 article(s) written") {
 		t.Error("should contain latest entry")
+	}
+	if !strings.Contains(content, "3 memories, 2 article(s) written") {
+		t.Error("should keep the earlier entry")
+	}
+	if n := strings.Count(content, "## "+time.Now().UTC().Format("2006-01-02")); n != 1 {
+		t.Errorf("same-day entries must share one date heading; got %d", n)
 	}
 }
 

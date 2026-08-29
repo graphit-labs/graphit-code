@@ -69,6 +69,9 @@ func BuildCrossRefGraph(wikiDir string) (*CrossRefGraph, error) {
 
 		for _, m := range matchesWiki {
 			target := m[1]
+			if !isBundlePageLink(target) {
+				continue
+			}
 			resolvedTarget := ResolveSlug(target)
 			if resolvedTarget == "" || resolvedTarget == slug || seen[resolvedTarget] {
 				continue
@@ -79,7 +82,7 @@ func BuildCrossRefGraph(wikiDir string) (*CrossRefGraph, error) {
 
 		for _, m := range matchesMd {
 			rawTarget := m[2]
-			if strings.HasPrefix(rawTarget, "http://") || strings.HasPrefix(rawTarget, "https://") || strings.HasPrefix(rawTarget, "file://") || strings.HasPrefix(rawTarget, "#") {
+			if !isBundlePageLink(rawTarget) {
 				continue
 			}
 			resolvedTarget := ResolveSlug(rawTarget)
@@ -232,6 +235,9 @@ func FindWikiLinks(content string) []string {
 	var result []string
 
 	for _, m := range matchesWiki {
+		if !isBundlePageLink(m[1]) {
+			continue
+		}
 		target := ResolveSlug(m[1])
 		if target != "" && !seen[target] {
 			seen[target] = true
@@ -240,7 +246,7 @@ func FindWikiLinks(content string) []string {
 	}
 	for _, m := range matchesMd {
 		rawTarget := m[2]
-		if strings.HasPrefix(rawTarget, "http://") || strings.HasPrefix(rawTarget, "https://") || strings.HasPrefix(rawTarget, "file://") || strings.HasPrefix(rawTarget, "#") {
+		if !isBundlePageLink(rawTarget) {
 			continue
 		}
 		target := ResolveSlug(rawTarget)
@@ -251,6 +257,72 @@ func FindWikiLinks(content string) []string {
 	}
 	return result
 }
+
+// isBundlePageLink says whether a markdown link target names a page of THIS wiki.
+//
+// OKF §6.1 lets a concept link anywhere with a plain markdown link, and §6.2 lets
+// path-valued fields hold absolute URLs and relative paths. So after the move off
+// [[wikilinks]], "it is a markdown link" stopped being evidence of anything: the
+// Provenance line every generated page carries — `*Provenance: [docs/x.md](docs/x.md)*` —
+// is a link to a REPOSITORY file, and body links point at source files too.
+//
+// Treating those as cross-references is not a cosmetic mistake. ResolveSlug flattens a
+// path into a slug, so `../../internal/ast/pipeline.go` became the page
+// `..-..-internal-ast-pipeline.go`, which exists nowhere: 354 of this project's 354
+// "broken links" were this, the backlink graph gained an edge per page, and lint reported
+// a wiki that was in fact intact.
+//
+// The discriminator is the wiki's own shape rather than a list of schemes to exclude: a
+// compiled wiki is FLAT — one directory of `<slug>.md` — so a target that carries a path
+// separator, a directory hop, or a non-markdown extension cannot be a page in it. That
+// holds for anything the generator emits and for anything a human writes, which a
+// blocklist of URL schemes never did.
+//
+// It applies to [[wikilinks]] for the same reason. Source documents under the docs tree
+// contain hand-written `[[../architecture/storage_layout.md#section]]` links, and a page
+// body is copied into the wiki verbatim; those resolve to nothing here either.
+func isBundlePageLink(rawTarget string) bool {
+	target := strings.TrimSpace(rawTarget)
+	// [[target|label]] — the label is display text, only the target addresses a page.
+	if i := strings.Index(target, "|"); i >= 0 {
+		target = strings.TrimSpace(target[:i])
+	}
+	if target == "" {
+		return false
+	}
+	// A fragment, alone or appended, addresses a position rather than a page.
+	if i := strings.IndexAny(target, "#?"); i >= 0 {
+		target = target[:i]
+	}
+	if target == "" {
+		return false
+	}
+	// wiki:// is this project's own in-UI protocol and is stripped by ResolveSlug, so it is
+	// recognised before the scheme test below rejects everything that looks like a URL.
+	if after, ok := strings.CutPrefix(target, "wiki://"); ok {
+		target = after
+	} else if strings.Contains(target, "://") || strings.HasPrefix(target, "mailto:") || strings.HasPrefix(target, "tel:") {
+		return false
+	}
+	// A bundle-relative link (OKF §6.1, the RECOMMENDED form) is rooted at the bundle,
+	// and a compiled wiki IS the bundle root, so `/slug.md` addresses a page here.
+	target = strings.TrimPrefix(target, "/")
+	if strings.ContainsAny(target, "/\\") {
+		return false
+	}
+	// A trailing extension disqualifies the target only when it LOOKS like a file
+	// extension. Slugs are built from titles, and a title routinely carries a dot —
+	// `graphit.lock.json_handling` is a page, `pipeline.go` is not — so the test is the
+	// shape of the suffix rather than the presence of a dot.
+	if ext := filepath.Ext(target); ext != "" && !strings.EqualFold(ext, ".md") && looksLikeFileExt(ext) {
+		return false
+	}
+	return true
+}
+
+var reFileExt = regexp.MustCompile(`^\.[A-Za-z0-9]{1,5}$`)
+
+func looksLikeFileExt(ext string) bool { return reFileExt.MatchString(ext) }
 
 func ResolveSlug(rawLink string) string {
 	target := rawLink

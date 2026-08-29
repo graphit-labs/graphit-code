@@ -67,17 +67,17 @@ func TestExtractPageMeta(t *testing.T) {
 		{
 			name:      "with tags",
 			relPath:   "tagged.md",
-			content:   "---\ntags: [foo, bar, baz]\n---\n# Tagged\n\nContent",
+			content:   "---\ntype: document\ntags:\n  - foo\n  - bar\n  - baz\n---\n# Tagged\n\nContent",
 			wantTitle: "Tagged",
-			wantType:  "entity",
+			wantType:  "document",
 			wantTags:  3,
 		},
 		{
 			name:       "with source",
 			relPath:    "sourced.md",
-			content:    "---\nsource: manual\n---\n# Sourced\n\nContent",
+			content:    "---\ntype: document\nsources:\n  - resource: manual\n---\n# Sourced\n\nContent",
 			wantTitle:  "Sourced",
-			wantType:   "entity",
+			wantType:   "document",
 			wantSource: "manual",
 		},
 		{
@@ -732,7 +732,7 @@ func TestHandlePage_NotFound(t *testing.T) {
 
 func TestHandlePage_ReturnsMetaAndContent(t *testing.T) {
 	tmp := t.TempDir()
-	content := "---\ntags: [test, wiki]\nconfidence: 0.9\nsource: auto\n---\n# Rich Page\n\nSee [[Other Page]].\n\nMore content here with words."
+	content := "---\ntype: document\ntags:\n  - test\n  - wiki\nconfidence: 0.9\nsources:\n  - resource: auto\n---\n# Rich Page\n\nSee [Other Page](Other_Page.md).\n\nMore content here with words."
 	if err := os.WriteFile(filepath.Join(tmp, "rich.md"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

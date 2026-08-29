@@ -33,10 +33,12 @@ OPEN THE `graphit-memory` SKILL WHEN ANY OF THESE IS TRUE — this is the trigge
 - you are about to write to any IDE-native or model-native memory — do this instead, never that
 - you are about to open a memory page as a file — you cannot: the store is global and outside your workspace, so `graphit_wiki_source` with `wiki: "memory"` is the only way to read one
 - the question is about another project in the ecosystem — its memories hold why it is the way it is; pass its `project_dir` instead of re-deriving that from its code
+- a memory search came back and you are about to act on it — you cannot: `graphit_memory_search` answers with TITLES, so pick the one or two the titles justify and read them with `graphit_wiki_source` (`wiki: "memory"`) before you conclude anything
 
 MCP tools this module owns: `graphit_memory_search`, `graphit_memory_insert`, `graphit_memory_update`, `graphit_memory_list`, `graphit_memory_important`, `graphit_memory_promote`, `graphit_memory_demote`, `graphit_memory_delete`, `graphit_memory_index`, `graphit_memory_schema`, `graphit_memory_export`, `graphit_memory_sync`, `graphit_memory_remove`, `graphit_wiki_source`. The skill says when and how to call each.
 
 ALWAYS consult this skill: search memory at session start BEFORE your first response, and again before implementing changes, proposing an approach, or when stuck. This is unconditional — there is no "only if relevant" escape. This framework IS your memory; NEVER use IDE/model native memory.
+SEARCH ANSWERS WITH TITLES, NOT WITH MEMORIES. A search result is a slug, a title, a type and a score — it carries no memory text, deliberately, so that the tokens go on the one or two memories you actually decide to open rather than on twenty previews. Choosing is yours: read the titles, pick, then call `graphit_wiki_source` with `wiki: "memory"` on what you picked. Acting on a search result alone is acting on a title you never read. `preview: true` buys a short excerpt per hit when two titles genuinely do not separate — it is the exception.
 </mem_rule>
 <ast_rule>
 # AST Code Exploration
@@ -104,12 +106,14 @@ OPEN THE `graphit-knowledge` SKILL WHEN ANY OF THESE IS TRUE — this is the tri
 - you finished a change and have not yet recorded it
 - you need the provenance of a page — what links to it, what it came from
 - a search returned nothing and you cannot tell whether the page is missing or just ranked low
+- a search came back and you are about to act on it — you cannot: `graphit_knowledge_search` answers with TITLES, so pick the one or two the titles justify and read them with `graphit_wiki_source` before you conclude anything
 - an index looks stale, or a graph read failed to open the database — find out whether the daemon is alive before concluding anything
 - the documentation you need belongs to another project — resolve it in the ecosystem and search ITS wiki, never walk or grep its docs tree
 
 MCP tools this module owns: `graphit_knowledge_search`, `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`, `graphit_wiki_source`, `graphit_wiki_embed`, `graphit_knowledge_list`, `graphit_knowledge_lint`, `graphit_knowledge_schema`, `graphit_knowledge_export`, `graphit_knowledge_install`, `graphit_knowledge_remove`, `graphit_knowledge_sync`, `graphit_cluster_projects`, `graphit_daemon_status`, `graphit_daemon_stop`. The skill says when and how to call each.
 
 The task log OPENS the task and stays current through it: BEFORE you touch anything, create the task log under the docs tasks directory with the objective, your reasoning, the justification for the approach, and the plan broken into tasks — one entry per task, each with its spec. Then update it as each step lands, as the direction changes, and as debt appears, so that another agent can take the work over from the log alone, at any moment, without your conversation. After ANY code change the task log MUST be updated — a change without its record is not complete. Search the knowledge wiki via MCP tools BEFORE grepping or reading docs directly. Reindexing is NOT your job: the daemon watches the docs tree and rebuilds the wiki on its own — but it lags the write, so when you need certainty that an index is current, call `graphit_sync` and let it finish.
+SEARCH ANSWERS WITH TITLES, NOT WITH PAGES. A search result is a slug, a title, a type and a score — it carries no page text, deliberately, so that the tokens go on the one or two pages you actually decide to open rather than on twenty previews. Choosing is yours: read the titles, pick, then call `graphit_wiki_source` on what you picked, with `pattern` or a line range when the page is long. Acting on a search result alone is acting on a title you never read. `preview: true` buys a short excerpt per hit when two titles genuinely do not separate — it is the exception.
 </doc_rule>
 <imp_rule>
 # Code Improvement Methodology

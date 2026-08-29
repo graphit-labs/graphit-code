@@ -227,21 +227,28 @@ it, that is the explanation; `graphit_memory_index` forces the rebuild.
 
 | What you need | MCP tool | Why |
 |---|---|---|
-| Search memories by keyword/context | `graphit_memory_search` | FTS5 over the compiled wiki, ranked and cheap — but every hit is a ~200-char preview, never the full memory |
+| Search memories by keyword/context | `graphit_memory_search` | Ranked over the compiled wiki — and it answers with TITLES, not with memory text |
 | List all memories | `graphit_memory_list` | Structured catalog, grouped by type — reads the store, so it sees writes the wiki has not compiled yet |
 | List important memories only | `graphit_memory_important` | High-priority conventions, corrections |
 
 **Retrieval steps:**
 1. Call `graphit_memory_search` with query context — get ranked results
-   > ⚠️ **What comes back is a preview, not the memory.** Each hit carries at most ~200
-   > characters of the body, cut at a word boundary. A trailing `…` is the tell that it was
-   > cut, and most memories are long enough to be cut. The ranking and the titles are
-   > reliable; the content is not complete, and the sentence that answers your question is
-   > frequently past the cut. **Step 3 is part of retrieval, not an optional follow-up** —
-   > deciding anything from the preview alone is how you act on half a memory.
+   > ⚠️ **What comes back is a LIST OF TITLES, not memories.** Each hit is a slug, a title,
+   > a type and a score. There is no memory text in it, by design: a search exists so you
+   > can decide WHICH memory to open, and that decision is made on the title. Reading is
+   > step 3, and it is a decision you make per memory, not something the search does for
+   > you on all twenty hits at once.
+   > Two consequences, and neither is optional:
+   > **you cannot answer from a search result** — it contains no content to answer from; and
+   > **you should not open every hit** — pick the one or two the titles justify, read those,
+   > and search again with better words if they were the wrong ones.
+   > When the titles genuinely do not separate two candidates, pass `preview: true` for a
+   > short excerpt per hit. That is the exception, not the default, and it costs tokens on
+   > every hit including the ones you will never open.
 2. If results reference related memories, call `graphit_memory_search` again with refined query
-3. Read the page itself with `graphit_wiki_source` — `wiki: "memory"` — then follow its
-   `[[wikilinks]]` and synthesize the answer yourself:
+3. **Read the memory you picked** with `graphit_wiki_source` — `wiki: "memory"` — then follow its
+   links and synthesize the answer yourself. This step is not optional: it is where the
+   content comes from. It slices, so a long memory costs you the part you asked for:
    ```
    graphit_wiki_source(project_dir: "/path/to/project", path: "<slug from search>", wiki: "memory")
 

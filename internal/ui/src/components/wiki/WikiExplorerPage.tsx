@@ -102,7 +102,10 @@ function preprocessContent(raw: string, title: string, type?: string): string {
     if (line === '## Content') { i++; break }
     if (line === '## Cross-References') { i++; continue }
     if (preambleRe.test(line)) { i++; continue }
-    if (line.startsWith('- [[')) { i++; continue }
+    // The Cross-References list the generator writes above `## Content`. It was `- [[slug]]`
+    // before the OKF move and is `- [Title](slug.md)` after it (spec §6.1); matching only the
+    // old form let the whole list leak into the rendered body, duplicating the sidebar.
+    if (/^-\s+\[\[/.test(line) || /^-\s+\[[^\]]*\]\([^)]*\)/.test(line)) { i++; continue }
     break
   }
   while (i < lines.length && lines[i].trim() === '') i++
@@ -115,6 +118,10 @@ function preprocessContent(raw: string, title: string, type?: string): string {
   }
   return out.join('\n')
 }
+
+// The page types this explorer treats structurally rather than as concepts. Everything
+// else is a concept page carrying its own OKF `type` (spec §4.1), which is a free string.
+const SPECIAL_TYPES = new Set(['index', 'log', 'community', 'god-node'])
 
 const TYPE_META: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   index:     { label: 'Index',     color: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',   icon: <Layers className="w-3 h-3" /> },
@@ -338,9 +345,12 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
 
 function StatsBar({ pages }: { pages: WikiPageMeta[] }) {
   const total = pages.length
-  const entities = pages.filter(p => p.type === 'entity').length
   const communities = pages.filter(p => p.type === 'community').length
   const godNodes = pages.filter(p => p.type === 'god-node').length
+  // OKF makes `type` producer-defined (spec §4.1), so a concept page reports whatever the
+  // bundle called it — 'specification', 'decision', 'convention'. Counting `type === 'entity'`
+  // counted the pages nobody had classified.
+  const entities = pages.filter(p => !SPECIAL_TYPES.has(p.type)).length
   const uniqueLinks = new Set<string>()
   pages.forEach(p => {
     (p.links ?? []).forEach(l => uniqueLinks.add(l))

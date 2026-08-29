@@ -105,7 +105,7 @@ func TestLintWiki(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		writeFile(t, dir, "index.md", "# Index\n[[stale]]")
-		staleContent := "---\ntitle: Stale\ntags: [test]\nupdated: 2020-01-01\n---\n# Stale\nStale page content here with enough words to pass the empty page check."
+		staleContent := "---\ntype: document\ntitle: Stale\ngenerated: { by: process:graphit-knowledge-wiki, at: 2020-01-01 }\n---\n# Stale\nStale page content here with enough words to pass the empty page check."
 		writeFile(t, dir, "stale.md", staleContent)
 
 		report, err := LintWiki(dir, LintConfig{StaleDays: 30})
@@ -177,25 +177,33 @@ func TestLintWikiWithFix(t *testing.T) {
 
 func TestCheckFrontmatter(t *testing.T) {
 	t.Parallel()
+	// OKF v0.2 §11 requires exactly one field of a concept document: a non-empty `type`.
+	// Anything else is RECOMMENDED, and §11 forbids a consumer rejecting a document for
+	// missing an optional field — so `title`, `tags` and `updated` are not failures.
 	tests := []struct {
 		name    string
 		content string
 		wantLen int
 	}{
 		{
-			"all_fields_present",
-			"---\ntitle: Test\ntags: [a]\nupdated: 2024-01-01\n---\n# Body",
+			"okf_minimum_is_type_alone",
+			"---\ntype: specification\n---\n# Body",
 			0,
 		},
 		{
-			"missing_tags_and_updated",
-			"---\ntitle: Test\n---\n# Body",
-			2,
+			"generated_page_shape",
+			"---\ntype: document\ntitle: Test\ngenerated: { by: process:graphit-knowledge-wiki, at: 2026-08-29 }\ntags:\n  - knowledge\n---\n# Body",
+			0,
+		},
+		{
+			"recommended_fields_alone_are_not_conformant",
+			"---\ntitle: Test\ndescription: A page\n---\n# Body",
+			1,
 		},
 		{
 			"no_frontmatter",
 			"# Body\nNo frontmatter.",
-			3,
+			1,
 		},
 	}
 
@@ -264,31 +272,66 @@ func TestIsStale(t *testing.T) {
 	}{
 		{
 			"recent_not_stale",
-			fmt.Sprintf("---\ntitle: T\nupdated: %s\n---\nBody", today),
+			fmt.Sprintf("---\ntype: document\ngenerated: { by: process:x, at: %s }\n---\nBody", today),
 			30,
 			false,
 		},
 		{
 			"old_is_stale",
-			fmt.Sprintf("---\ntitle: T\nupdated: %s\n---\nBody", oldDate),
+			fmt.Sprintf("---\ntype: document\ngenerated: { by: process:x, at: %s }\n---\nBody", oldDate),
 			30,
 			true,
 		},
 		{
-			"no_date_is_stale",
-			"---\ntitle: T\n---\nBody",
+			// A page whose age is unknown is not a page known to be old. Reporting it as
+			// stale invents a fact, and §11 forbids rejecting a concept over a missing
+			// optional field — which `generated` is.
+			"no_date_is_not_stale",
+			"---\ntype: document\ntitle: T\n---\nBody",
 			30,
-			true,
+			false,
 		},
 		{
 			"invalid_date_format",
-			"---\ntitle: T\nupdated: not-a-date\n---\nBody",
+			"---\ntype: document\ngenerated: { by: process:x, at: not-a-date }\n---\nBody",
+			30,
+			false,
+		},
+		{
+			"okf_generated_inline_mapping_recent",
+			fmt.Sprintf("---\ntype: document\ngenerated: { by: process:graphit-knowledge-wiki, at: %s }\n---\nBody", today),
+			30,
+			false,
+		},
+		{
+			"okf_generated_inline_mapping_old",
+			fmt.Sprintf("---\ntype: document\ngenerated: { by: process:graphit-knowledge-wiki, at: %s }\n---\nBody", oldDate),
 			30,
 			true,
 		},
 		{
+			"okf_generated_block_mapping_old",
+			fmt.Sprintf("---\ntype: document\ngenerated:\n  by: process:graphit-knowledge-wiki\n  at: %s\n---\nBody", oldDate),
+			30,
+			true,
+		},
+		{
+			// §5.5: an absolute instant beats any window the caller passes in.
+			"stale_after_in_the_past_wins",
+			fmt.Sprintf("---\ntype: document\nstale_after: %s\ngenerated: { by: process:x, at: %s }\n---\nBody", oldDate, today),
+			30,
+			true,
+		},
+		{
+			"stale_after_in_the_future_wins",
+			fmt.Sprintf("---\ntype: document\nstale_after: %s\ngenerated: { by: process:x, at: %s }\n---\nBody",
+				time.Now().AddDate(1, 0, 0).Format("2006-01-02"), oldDate),
+			30,
+			false,
+		},
+		{
 			"quoted_date",
-			fmt.Sprintf("---\ntitle: T\nupdated: \"%s\"\n---\nBody", today),
+			fmt.Sprintf("---\ntype: document\ngenerated: { by: process:x, at: \"%s\" }\n---\nBody", today),
 			30,
 			false,
 		},
@@ -307,5 +350,5 @@ func TestIsStale(t *testing.T) {
 
 func fmPage(title, body string) string {
 	today := time.Now().Format("2006-01-02")
-	return fmt.Sprintf("---\ntitle: %s\ntags: [test]\nupdated: %s\n---\n# %s\n%s", title, today, title, body)
+	return fmt.Sprintf("---\ntype: document\ntitle: %s\ngenerated: { by: process:graphit-knowledge-wiki, at: %s }\ntags:\n  - test\n---\n# %s\n%s", title, today, title, body)
 }

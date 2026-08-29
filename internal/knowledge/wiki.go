@@ -832,29 +832,34 @@ func knowledgeEntityPage(doc knowledgeDoc) string {
 	}
 
 	b.WriteString("---\n")
-	_, _ = fmt.Fprintf(&b, "type: %s\n", doc.docType)
-	_, _ = fmt.Fprintf(&b, "title: %s\n", doc.title)
-	_, _ = fmt.Fprintf(&b, "generated.at: %s\n", now)
-	b.WriteString("sources:\n")
-	_, _ = fmt.Fprintf(&b, "  - %s\n", doc.path)
+	_, _ = fmt.Fprintf(&b, "type: %s\n", wiki.YAMLScalar(doc.docType))
+	_, _ = fmt.Fprintf(&b, "title: %s\n", wiki.YAMLScalar(doc.title))
+	wiki.WriteOKFGenerated(&b, wiki.OKFActor("knowledge"), now)
+	wiki.WriteOKFSources(&b, doc.path)
 	if doc.summary != "" {
 		summaryEscaped := strings.ReplaceAll(doc.summary, "\n", " ")
-		_, _ = fmt.Fprintf(&b, "description: %s\n", summaryEscaped)
+		_, _ = fmt.Fprintf(&b, "description: %s\n", wiki.YAMLScalar(summaryEscaped))
 	}
-	_, _ = fmt.Fprintf(&b, "tags:\n  - knowledge\n  - %s\n", doc.docType)
-	_, _ = fmt.Fprintf(&b, "id: %s\n", slug)
+	_, _ = fmt.Fprintf(&b, "tags:\n  - knowledge\n  - %s\n", wiki.YAMLScalar(doc.docType))
+	_, _ = fmt.Fprintf(&b, "id: %s\n", wiki.YAMLScalar(slug))
 	_, _ = fmt.Fprintf(&b, "confidence: %.2f\n", confidence)
 	_, _ = fmt.Fprintf(&b, "content_hash: %s\n", doc.contentHash)
 	if doc.breadcrumb != "" {
-		_, _ = fmt.Fprintf(&b, "breadcrumb: %s\n", doc.breadcrumb)
+		_, _ = fmt.Fprintf(&b, "breadcrumb: %s\n", wiki.YAMLScalar(doc.breadcrumb))
 	}
 	if doc.cluster >= 0 {
 		_, _ = fmt.Fprintf(&b, "cluster: %d\n", doc.cluster)
-		_, _ = fmt.Fprintf(&b, "cluster_name: %s\n", doc.clusterName)
+		_, _ = fmt.Fprintf(&b, "cluster_name: %s\n", wiki.YAMLScalar(doc.clusterName))
 	}
 	if doc.staleSince != "" {
-		_, _ = fmt.Fprintf(&b, "stale_since: %s\n", doc.staleSince)
-		_, _ = fmt.Fprintf(&b, "stale_reason: %s\n", doc.staleReason)
+		// stale_after is the lifecycle field OKF specifies (§5.5): an absolute instant, so
+		// staleness is `now >= stale_after` with no reference to when the page was read. The
+		// page is already stale when this branch runs, so the instant it became stale IS the
+		// threshold. stale_since and stale_reason stay as producer extensions (§4.1) because
+		// the reason has no OKF field and the UI already reads them.
+		_, _ = fmt.Fprintf(&b, "stale_after: %s\n", wiki.YAMLScalar(doc.staleSince))
+		_, _ = fmt.Fprintf(&b, "stale_since: %s\n", wiki.YAMLScalar(doc.staleSince))
+		_, _ = fmt.Fprintf(&b, "stale_reason: %s\n", wiki.YAMLScalar(doc.staleReason))
 	}
 	b.WriteString("---\n\n")
 	_, _ = fmt.Fprintf(&b, "# %s\n\n", doc.title)
@@ -937,14 +942,13 @@ func computeDocConfidence(doc knowledgeDoc) float64 {
 func knowledgeIndexPage(docs []knowledgeDoc, slugs []string, communities []KnowledgeCommunity) string {
 	var b strings.Builder
 	now := time.Now().UTC().Format("2006-01-02")
-	b.WriteString("---\n")
-	b.WriteString("type: navigation\n")
-	b.WriteString("title: Knowledge Wiki Index\n")
-	_, _ = fmt.Fprintf(&b, "generated.at: %s\n", now)
-	b.WriteString("description: Navigation catalog for the Knowledge Wiki.\n")
-	b.WriteString("tags:\n  - knowledge\n  - index\n")
-	b.WriteString("id: index\n")
-	b.WriteString("---\n\n")
+	// §8: an index file carries NO frontmatter, with exactly one exception — a bundle-root
+	// index.md MAY declare okf_version, and §12 makes that the only place a bundle may declare
+	// it at all. A compiled wiki is its own bundle root, so this index is that one file.
+	// The full metadata block that used to sit here (type/title/description/tags/id) was not
+	// merely unnecessary; it made index.md non-conformant, and nothing read it: the explorer
+	// takes the index title from the H1 and its type from the reserved filename.
+	_, _ = fmt.Fprintf(&b, "---\nokf_version: \"%s\"\n---\n\n", wiki.OKFVersion)
 	b.WriteString("# Knowledge Wiki Index\n\n")
 	_, _ = fmt.Fprintf(&b, "> %s knowledge wiki. **Start here.** Scan the catalog below, then follow Markdown links to drill into specific pages.\n", brand.DisplayName)
 	_, _ = fmt.Fprintf(&b, "> Check [log](log.md) for the timeline of updates. Last updated: %s\n\n", now)
@@ -1068,85 +1072,42 @@ func knowledgeIndexPage(docs []knowledgeDoc, slugs []string, communities []Knowl
 }
 
 func appendKnowledgeLog(logPath string, totalDocs, articlesWritten, backlinksAdded int, added, updated, deleted []string, details map[string]wiki.LogDocDetails) {
-	timestamp := time.Now().UTC().Format("2006-01-02 15:04:05")
-	dateNow := time.Now().UTC().Format("2006-01-02")
+	now := time.Now().UTC()
+	dateNow := now.Format("2006-01-02")
 	totalChanges := len(added) + len(updated) + len(deleted)
 
-	var b strings.Builder
-	_, _ = fmt.Fprintf(&b, "## [%s] sync | Compiled %d changes\n\n", timestamp, totalChanges)
-	_, _ = fmt.Fprintf(&b, "- Total Documents: %d\n- Articles written/updated: %d\n- Backlinks injected: %d\n", totalDocs, articlesWritten, backlinksAdded)
-
-	if len(added) > 0 {
-		b.WriteString("- Added pages:\n")
-		for _, slug := range added {
-			title := slug
-			if d, ok := details[slug]; ok && d.Title != "" {
-				title = d.Title
-			}
-			link := fmt.Sprintf("[%s](%s.md)", title, slug)
-			if d, ok := details[slug]; ok {
-				summary := d.Summary
-				if len(summary) > 120 {
-					summary = summary[:120] + "…"
-				}
-				if summary != "" {
-					_, _ = fmt.Fprintf(&b, "  - %s — %s\n", link, summary)
-				} else {
-					_, _ = fmt.Fprintf(&b, "  - %s\n", link)
-				}
-			} else {
-				_, _ = fmt.Fprintf(&b, "  - %s\n", link)
-			}
+	label := func(slug string) string {
+		title := slug
+		if d, ok := details[slug]; ok && d.Title != "" {
+			title = d.Title
 		}
-	}
-	if len(updated) > 0 {
-		b.WriteString("- Updated pages:\n")
-		for _, slug := range updated {
-			title := slug
-			if d, ok := details[slug]; ok && d.Title != "" {
-				title = d.Title
+		line := fmt.Sprintf("[%s](%s.md)", title, slug)
+		if d, ok := details[slug]; ok && d.Summary != "" {
+			summary := d.Summary
+			if len(summary) > 120 {
+				summary = summary[:120] + "…"
 			}
-			link := fmt.Sprintf("[%s](%s.md)", title, slug)
-			if d, ok := details[slug]; ok {
-				summary := d.Summary
-				if len(summary) > 120 {
-					summary = summary[:120] + "…"
-				}
-				if summary != "" {
-					_, _ = fmt.Fprintf(&b, "  - %s — %s\n", link, summary)
-				} else {
-					_, _ = fmt.Fprintf(&b, "  - %s\n", link)
-				}
-			} else {
-				_, _ = fmt.Fprintf(&b, "  - %s\n", link)
-			}
+			line += " — " + summary
 		}
-	}
-	if len(deleted) > 0 {
-		b.WriteString("- Removed pages:\n")
-		for _, slug := range deleted {
-			_, _ = fmt.Fprintf(&b, "  - %s\n", slug)
-		}
-	}
-	b.WriteString("\n")
-
-	entry := b.String()
-
-	existing, _ := os.ReadFile(logPath)
-	var content string
-	if len(existing) == 0 {
-		content = fmt.Sprintf("---\ntype: log\ntitle: Knowledge Wiki Log\ngenerated.at: %s\ndescription: Append-only chronological record of wiki compilation events.\ntags:\n  - knowledge\n  - log\nid: log\n---\n\n# Knowledge Wiki Log\n\n> Append-only chronological record. Parse with: `grep '^## \\[' log.md | tail -5`\n\n", dateNow)
-	} else {
-		content = string(existing)
+		return line
 	}
 
-	parts := strings.SplitN(content, "\n---\n", 2)
-	if len(parts) == 2 {
-		content = parts[0] + "\n---\n\n" + entry + parts[1]
-	} else {
-		content += "\n" + entry
+	entries := []wiki.LogEntry{{
+		Kind: wiki.LogUpdate,
+		Text: fmt.Sprintf("Compiled %d change(s) at %s UTC — %d document(s), %d page(s) written, %d backlink(s) injected.",
+			totalChanges, now.Format("15:04:05"), totalDocs, articlesWritten, backlinksAdded),
+	}}
+	for _, slug := range added {
+		entries = append(entries, wiki.LogEntry{Kind: wiki.LogCreation, Text: "Added " + label(slug)})
 	}
-	_ = os.WriteFile(logPath, []byte(content), 0o644)
+	for _, slug := range updated {
+		entries = append(entries, wiki.LogEntry{Kind: wiki.LogUpdate, Text: "Updated " + label(slug)})
+	}
+	for _, slug := range deleted {
+		entries = append(entries, wiki.LogEntry{Kind: wiki.LogDeprecation, Text: fmt.Sprintf("Removed `%s`.", slug)})
+	}
+
+	_ = wiki.AppendOKFLogEntries(logPath, "Knowledge Wiki Update Log", dateNow, entries)
 }
 
 // knowledgeDoc is one source document — the whole file, never a slice of one.

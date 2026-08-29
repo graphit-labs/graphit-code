@@ -1030,7 +1030,7 @@ func TestAppendMemLog_WithSeparator(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "Memories: 10") {
+	if !strings.Contains(content, "10 memories, 8 article(s) written") {
 		t.Error("should contain new entry")
 	}
 	if !strings.Contains(content, "Old entry here") {
@@ -1054,7 +1054,7 @@ func TestAppendMemLog_NoSeparator(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "Memories: 3") {
+	if !strings.Contains(content, "3 memories, 2 article(s) written") {
 		t.Error("should contain new entry")
 	}
 }

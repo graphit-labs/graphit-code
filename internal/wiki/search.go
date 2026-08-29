@@ -332,6 +332,7 @@ func wikiFTSToB25Results(ftsResults []WikiSearchResult) []BM25Result {
 		results = append(results, BM25Result{
 			Path:    r.Slug + ".md",
 			Title:   r.Title,
+			DocType: r.DocType,
 			Score:   r.Score,
 			Snippet: r.Snippet,
 		})

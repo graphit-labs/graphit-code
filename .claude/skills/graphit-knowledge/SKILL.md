@@ -161,11 +161,18 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 **Step 1 — Search the wiki (ALWAYS start here)**
   Call `graphit_knowledge_search` with your query. This uses BM25 full-text and optional semantic search to find the most relevant pages.
   Alternatively, call `graphit_wiki_browse` for a structured catalog of all entities.
-  The search returns ranked hits with their cross-references and confidence scores.
-  > ⚠️ **The body that comes back is a preview, not the page.** Each hit carries at most
-  > ~200 characters of the chunk, cut at a word boundary, and a trailing `…` is the tell
-  > that it was cut. Use it to decide WHICH page to read — never as the answer itself.
-  > Step 1b is how you read the page.
+  The search returns ranked hits: a slug, a title, a type and a score.
+  > ⚠️ **What comes back is a LIST OF TITLES, not pages.** There is no page text in a
+  > search result, by design. A search exists so you can decide WHICH page to open, and
+  > that decision is made on the title; reading is Step 1b, once, on the page you picked —
+  > not something the search does for you on all twenty hits in advance.
+  > Two consequences, and neither is optional:
+  > **you cannot answer from a search result** — it contains no content to answer from; and
+  > **you should not open every hit** — pick the one or two the titles justify, read those,
+  > and search again with better words if they were the wrong ones.
+  > When the titles genuinely do not separate two candidates, pass `preview: true` for a
+  > short excerpt per hit. That is the exception, not the default: it is paid on every hit,
+  > including the ones you will never open.
   For deep consultation, search with `graphit_knowledge_search`, read the returned pages, follow [[wikilinks]] to expand context, call `graphit_wiki_xrefs` for cross-references, and synthesize the answer yourself — you ARE the AI.
   For multi-source search (knowledge + memory), call `graphit_wiki_search` with `wikis: ["project", "memory"]`.
 
@@ -1079,8 +1086,8 @@ a compiled, cross-referenced wiki.
 **Step 1 — Search the wiki (ALWAYS start here)**
   Call `graphit_knowledge_search` with your query. The wiki catalogs are grouped by paradigm (REST, gRPC, messaging, etc.).
   Alternatively, call `graphit_wiki_browse` for a structured catalog.
-  > ⚠️ **Each hit carries a ~200-character preview of the chunk, not the spec.** Never read
-  > a field name, a type, an endpoint path or an error code off the preview — open the page
+  > ⚠️ **Each hit is a title, not the spec.** A search result carries no spec text at all,
+  > so a field name, a type, an endpoint path or an error code cannot come from it — open the page
   > with `graphit_wiki_source`, then follow its provenance to the raw spec when exactness matters.
   For deep consultation, search with `graphit_knowledge_search`, read the returned pages, follow [[wikilinks]] to expand context, call `graphit_wiki_xrefs` for cross-references, and synthesize the answer yourself — you ARE the AI.
   For multi-source search (knowledge + memory), call `graphit_wiki_search` with `wikis: ["project", "memory"]`.

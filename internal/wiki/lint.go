@@ -25,8 +25,12 @@ type LintReport struct {
 	StalePages    []string
 	EmptyPages    []string
 	MissingFields []FieldIssue
-	Errors        int
-	FixesApplied  int
+	// WeakFields lists pages missing a RECOMMENDED OKF field. It is reported and never
+	// counted in Errors: OKF v0.2 §11 forbids rejecting a concept over an optional field,
+	// so these are quality hints, not conformance failures.
+	WeakFields   []FieldIssue
+	Errors       int
+	FixesApplied int
 }
 
 type FieldIssue struct {
@@ -96,6 +100,13 @@ func LintWiki(wikiDir string, cfg LintConfig) (*LintReport, error) {
 			})
 			report.Errors++
 		}
+
+		if weak := missingRecommendedFields(content); len(weak) > 0 {
+			report.WeakFields = append(report.WeakFields, FieldIssue{
+				Page:          page,
+				MissingFields: weak,
+			})
+		}
 	}
 
 	sort.Strings(report.StalePages)
@@ -112,9 +123,28 @@ func LintWiki(wikiDir string, cfg LintConfig) (*LintReport, error) {
 	return report, nil
 }
 
-var reFMField = regexp.MustCompile(`(?m)^(\w+):`)
+// reFMField matches a top-level frontmatter key. The character class is not `\w`
+// because OKF keys are not all bare words: a producer may write `generated.at` or
+// `usage_window`, and `\w+` stops at the dot, so the key reads as absent rather than
+// as present-with-a-dotted-name. This project shipped exactly that: every page carried
+// a key the scanner could not see.
+var reFMField = regexp.MustCompile(`(?m)^([A-Za-z_][\w.-]*):`)
 
-var requiredFields = []string{"title", "tags", "updated"}
+// requiredFields is OKF's conformance contract, not this project's taste.
+//
+// OKF v0.2 §11 requires one thing of a concept document: a parseable frontmatter block
+// containing a non-empty `type`. Everything else — `title`, `description`, `tags`,
+// `sources`, `generated` — is RECOMMENDED, and §11 is explicit that a consumer MUST NOT
+// reject a document for missing an optional field.
+//
+// The list used to be {title, tags, updated}, which predates OKF and outlived it: after
+// the generator moved to `generated.at` no page carried `updated` any more, so the lint
+// reported 240 of 242 pages as malformed while the wiki was fine.
+var requiredFields = []string{"type"}
+
+// recommendedFields are reported separately: their absence is a quality signal, never a
+// conformance failure, so they must not be counted as errors.
+var recommendedFields = []string{"title", "description"}
 
 func checkFrontmatter(content string) []string {
 	fm := extractFrontmatter(content)
@@ -129,6 +159,24 @@ func checkFrontmatter(content string) []string {
 
 	var missing []string
 	for _, f := range requiredFields {
+		if !present[f] {
+			missing = append(missing, f)
+		}
+	}
+	return missing
+}
+
+func missingRecommendedFields(content string) []string {
+	fm := extractFrontmatter(content)
+	if fm == "" {
+		return recommendedFields
+	}
+	present := make(map[string]bool)
+	for _, m := range reFMField.FindAllStringSubmatch(fm, -1) {
+		present[strings.ToLower(m[1])] = true
+	}
+	var missing []string
+	for _, f := range recommendedFields {
 		if !present[f] {
 			missing = append(missing, f)
 		}
@@ -160,22 +208,59 @@ func extractFrontmatter(content string) string {
 	return strings.Join(fmLines, "\n")
 }
 
-var reFMUpdated = regexp.MustCompile(`(?m)^updated:\s*(.+)$`)
+// The two shapes OKF allows for the trust family's timestamp (§5.2): `generated` is a
+// mapping, written inline or as a block. There is no flat `generated.at` key and no
+// `updated` key — the first was this project's misreading of the spec's prose path
+// notation, the second predates OKF entirely. Neither is read: the wiki is regenerated
+// from its sources, so there is no old page to stay compatible with.
+var (
+	reFMGeneratedInline = regexp.MustCompile(`(?m)^generated:\s*\{[^}]*\bat:\s*([^,}]+)`)
+	reFMGeneratedBlock  = regexp.MustCompile(`(?m)^generated:\s*$[\s\S]*?^\s+at:\s*(.+)$`)
+)
+
+// generatedAt reads the instant a page's content last meaningfully changed (§5.2).
+func generatedAt(fm string) (time.Time, bool) {
+	for _, re := range []*regexp.Regexp{reFMGeneratedInline, reFMGeneratedBlock} {
+		m := re.FindStringSubmatch(fm)
+		if m == nil {
+			continue
+		}
+		if t, ok := parseFMInstant(m[1]); ok {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+var reFMStaleAfter = regexp.MustCompile(`(?m)^stale_after:\s*(.+)$`)
+
+func parseFMInstant(raw string) (time.Time, bool) {
+	s := strings.TrimSpace(raw)
+	s = strings.Trim(s, "\"'")
+	s = strings.TrimSpace(s)
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
 
 func isStale(content string, staleDays int) bool {
 	fm := extractFrontmatter(content)
-	m := reFMUpdated.FindStringSubmatch(fm)
-	if m == nil {
-		return true
+
+	if m := reFMStaleAfter.FindStringSubmatch(fm); m != nil {
+		if t, ok := parseFMInstant(m[1]); ok {
+			return !time.Now().Before(t)
+		}
 	}
 
-	dateStr := strings.TrimSpace(m[1])
-	dateStr = strings.Trim(dateStr, "\"'")
-
-	t, err := time.Parse("2006-01-02", dateStr)
-	if err != nil {
-		return true
+	t, ok := generatedAt(fm)
+	if !ok {
+		// No timestamp at all. OKF §11 forbids rejecting a concept for a missing
+		// optional field, and a page whose age is unknown is not a page known to be
+		// old — reporting it as stale is inventing a fact.
+		return false
 	}
-
 	return time.Since(t).Hours() > float64(staleDays*24)
 }

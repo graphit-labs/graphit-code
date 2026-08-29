@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 
@@ -311,17 +312,28 @@ func TestAppendKnowledgeLog(t *testing.T) {
 		t.Fatalf("failed to read log: %v", err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "# Knowledge Wiki Log") {
+	// OKF §9: a log is date-grouped under `## YYYY-MM-DD`, newest first, and its entries
+	// are prose led by a bold kind word. It carries no frontmatter — §11 exempts the
+	// reserved filenames, and the block the pre-OKF writer put here made log.md the one
+	// file in the bundle claiming to be a concept document.
+	if !strings.Contains(content, "# Knowledge Wiki Update Log") {
 		t.Error("missing log header")
 	}
-	if !strings.Contains(content, "Added pages:") {
-		t.Error("missing added pages section")
+	if strings.HasPrefix(strings.TrimSpace(content), "---") {
+		t.Error("log.md must not carry frontmatter (OKF §8/§9)")
 	}
-	if !strings.Contains(content, "Updated pages:") {
-		t.Error("missing updated pages section")
+	today := time.Now().UTC().Format("2006-01-02")
+	if !strings.Contains(content, "## "+today) {
+		t.Errorf("missing ISO 8601 date heading %q", "## "+today)
 	}
-	if !strings.Contains(content, "Removed pages:") {
-		t.Error("missing removed pages section")
+	if !strings.Contains(content, "* **Creation**: Added ") {
+		t.Error("missing Creation entry for an added page")
+	}
+	if !strings.Contains(content, "* **Update**: Updated ") {
+		t.Error("missing Update entry for an updated page")
+	}
+	if !strings.Contains(content, "* **Deprecation**: Removed ") {
+		t.Error("missing Deprecation entry for a removed page")
 	}
 	if !strings.Contains(content, "Page A") {
 		t.Error("missing page A title")
@@ -347,11 +359,16 @@ func TestAppendKnowledgeLog(t *testing.T) {
 	)
 	data2, _ := os.ReadFile(logPath)
 	content2 := string(data2)
-	if strings.Count(content2, "# Knowledge Wiki Log") != 1 {
+	if strings.Count(content2, "# Knowledge Wiki Update Log") != 1 {
 		t.Error("should not duplicate header")
 	}
-	if strings.Count(content2, "sync | Compiled") < 2 {
-		t.Error("should have two log entries")
+	// Two syncs on the same day share one date heading — a heading per compile is not a
+	// log anybody reads a month of.
+	if strings.Count(content2, "## "+today) != 1 {
+		t.Errorf("same-day entries must share one date heading; got %d", strings.Count(content2, "## "+today))
+	}
+	if strings.Count(content2, "* **Update**: Compiled ") < 2 {
+		t.Error("should have two compile entries")
 	}
 }
 
@@ -630,8 +647,8 @@ func TestGenerateKnowledgeWikiUpdatesAndDeletes(t *testing.T) {
 	// Log file should exist and mention updates and removals
 	logData, _ := os.ReadFile(filepath.Join(wikiDir, "log.md"))
 	logStr := string(logData)
-	if !strings.Contains(logStr, "sync | Compiled") {
-		t.Error("log should contain sync entries")
+	if !strings.Contains(logStr, "* **Update**: Compiled ") {
+		t.Error("log should contain a compile entry")
 	}
 }
 
@@ -1153,8 +1170,8 @@ func TestAppendKnowledgeLogUpdatedWithLongSummary(t *testing.T) {
 	)
 	data, _ := os.ReadFile(logPath)
 	content := string(data)
-	if !strings.Contains(content, "Updated pages:") {
-		t.Error("missing updated pages section")
+	if !strings.Contains(content, "* **Update**: Updated [Updated Page](upd_page.md)") {
+		t.Error("missing Update entry for the updated page")
 	}
 	if !strings.Contains(content, "…") {
 		t.Error("long summary should be truncated with ellipsis")

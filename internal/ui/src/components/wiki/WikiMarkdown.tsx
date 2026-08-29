@@ -42,6 +42,47 @@ function preprocessWikiLinks(md: string): string {
   return processed
 }
 
+/**
+ * wikiPageTarget returns the page slug a link addresses, or null when the link does not
+ * address a page of this wiki.
+ *
+ * Since the move to OKF, a link to another concept is an ordinary markdown link
+ * (spec 6.1) rather than a [[wikilink]]. "Not an http URL" therefore stopped being
+ * evidence that a link points at a wiki page: the Provenance line on every generated page
+ * links to a repository file, bodies link to source files, and headings link to fragments.
+ * All three used to be turned into page buttons that navigated nowhere.
+ *
+ * A compiled wiki is flat — one directory of <slug>.md — so a page target is a bare slug
+ * with no path separator and no extension other than .md. The bundle-relative form
+ * (spec 6.1, leading '/') resolves against the bundle root, which is that same directory.
+ */
+function wikiPageTarget(href: string): string | null {
+  let raw = href
+  if (raw.startsWith('wiki://')) raw = raw.slice(7)
+  else if (/^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.startsWith('#') || raw.startsWith('//')) return null
+
+  let target: string
+  try {
+    target = decodeURIComponent(raw)
+  } catch {
+    target = raw
+  }
+  const hash = target.search(/[#?]/)
+  if (hash >= 0) target = target.slice(0, hash)
+  target = target.replace(/^\//, '').trim()
+  if (!target) return null
+  if (/[/\\]/.test(target)) return null
+
+  const dot = target.lastIndexOf('.')
+  if (dot > 0) {
+    const ext = target.slice(dot).toLowerCase()
+    if (ext === '.md') return target.slice(0, dot)
+    // A dotted slug ("graphit.lock.json handling") is a page; a known file extension is not.
+    if (/^\.[a-z0-9]{1,5}$/.test(ext) && ext !== '.md') return null
+  }
+  return target
+}
+
 function CodeCopyButton({ code }: { code: string }) {
   const [copied, setCopied] = useState(false)
   const handleCopy = () => {
@@ -111,22 +152,38 @@ export function WikiMarkdown({ content, onLink }: WikiMarkdownProps) {
           ),
           a: ({ href, children }) => {
             if (href) {
-              const isExternal = /^https?:\/\//i.test(href) || href.startsWith('mailto:') || href.startsWith('tel:')
-              if (href.startsWith('wiki://') || !isExternal) {
-                let target = href.startsWith('wiki://')
-                  ? decodeURIComponent(href.slice(7))
-                  : decodeURIComponent(href)
-                if (target.toLowerCase().endsWith('.md')) {
-                  target = target.slice(0, -3)
-                }
+              const page = wikiPageTarget(href)
+              if (page !== null) {
                 return (
                   <button
-                    onClick={() => onLink && onLink(target)}
+                    onClick={() => onLink && onLink(page)}
                     className={onLink ? "text-primary hover:text-primary/80 hover:underline underline-offset-2 font-semibold transition-colors" : "text-foreground font-semibold cursor-default"}
                     type="button"
                   >
                     {children}
                   </button>
+                )
+              }
+              // An in-page fragment addresses a position, not a page.
+              if (href.startsWith('#')) {
+                return (
+                  <a href={href} className="text-primary hover:underline underline-offset-2">
+                    {children}
+                  </a>
+                )
+              }
+              const isExternal = /^[a-z][a-z0-9+.-]*:\/\//i.test(href) || href.startsWith('mailto:') || href.startsWith('tel:')
+              if (!isExternal) {
+                // A repository path — the Provenance line, a link into the source tree. It is
+                // real and worth showing, but the wiki server does not serve it, so making it
+                // a page button sent the reader to a page that was never generated.
+                return (
+                  <span
+                    title={`Source path: ${href}`}
+                    className="text-muted-foreground/90 font-mono text-[12px] underline decoration-dotted decoration-muted-foreground/40 underline-offset-2"
+                  >
+                    {children}
+                  </span>
                 )
               }
             }

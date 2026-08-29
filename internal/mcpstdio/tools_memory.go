@@ -49,6 +49,7 @@ type memorySearchInput struct {
 	Query       string `json:"query" jsonschema:"Keywords to search for in the memory wiki using BM25"`
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
+	Preview     *bool  `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the memory is read with wiki_source (wiki: memory) when the agent decides it needs it"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
@@ -232,8 +233,10 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("memory", "search"),
-		Description: "Search the memory wiki using BM25 keyword ranking.",
+		Name: brand.MCPToolName("memory", "search"),
+		Description: "Search the memory wiki using BM25 keyword ranking. " +
+			"Answers with memory titles and scores, not memory text: pick the memory from the titles, then read it with " +
+			brand.MCPToolName("wiki", "source") + " and wiki: \"memory\". Pass preview=true only when the titles are not enough to choose.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySearchInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -265,11 +268,15 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		if notice != "" {
-			return noticeResult(notice, results, aiOpt(input.AiOptimized))
-		}
 		if aiOpt(input.AiOptimized) {
-			return toonResult(results)
+			out := wiki.FormatBM25ResultsTOON(results, wantPreview(input.Preview))
+			if notice != "" {
+				return textResult(notice + "\n" + out)
+			}
+			return textResult(out)
+		}
+		if notice != "" {
+			return noticeResult(notice, results, false)
 		}
 		return jsonResult(results)
 	}))
