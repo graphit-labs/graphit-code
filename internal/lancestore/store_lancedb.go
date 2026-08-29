@@ -393,6 +393,10 @@ func derefInt64(p *int64) int64 {
 // DeleteUnverified is what lets a margin shorter than the backend's seven-day default apply at
 // all; the seven days exist for in-flight transactions, which is why the margin still has to
 // comfortably exceed the longest write this process performs.
+//
+// MEASURED: a SUB-SECOND olderThan prunes nothing at all — it reports OldVersions: 0 while the
+// versions plainly exist. One second reclaimed 126 versions and 97% of a table's bytes in the
+// same fixture. Anything below a second is not a small window, it is no window.
 func (t *Table) PruneVersions(ctx context.Context, olderThan time.Duration) (PruneResult, error) {
 	if t.store.remote {
 		return PruneResult{}, ErrReadOnly

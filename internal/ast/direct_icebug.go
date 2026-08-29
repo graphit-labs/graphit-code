@@ -438,11 +438,21 @@ func ExportDirectIncrementalWithReverse(ri *rebuildIndex, outDir, finalDir, stor
 
 	// Even when the deleted file is gone from the cache, any label the old
 	// manifest holds and the new export would drop must be rewritten too.
+	//
+	// SAFETY: labelInBatches builds the label's rows to see whether there are any, and
+	// building rows EMITS their uids — emitUID returns false the second time a uid is asked
+	// for. Probing here without undoing that left every probed label already emitted, so the
+	// real export below produced an EMPTY table for each one. That is the mechanism behind a
+	// bundle shrinking a little on every incremental: 549 Parquet files -> 175 -> 57 over
+	// three runs on a 38k-file corpus. The probe has to leave no trace.
+	emitted := ri.emittedUIDs
+	ri.emittedUIDs = make(map[string]map[string]bool)
 	for _, nt := range oldMan.NodeTables {
 		if _, ok := labelInBatches(ri, nt.Label); !ok {
 			affectedLabels[nt.Label] = true
 		}
 	}
+	ri.emittedUIDs = emitted
 
 	// Recompute affected rel types from the changed files' entry shapes.
 	affectedRels := map[string]bool{}
@@ -497,6 +507,12 @@ func exportDirectDelta(ri *rebuildIndex, outDir, finalDir, storageURI string, af
 	// one; for every rel member NOT affected we copy its old indices/indptr over
 	// the freshly generated ones. The manifest is derived from the union of old
 	// untouched entries and new affected entries.
+	// outDir is a name the caller derived, not a directory it created — and every publish
+	// below writes into it.
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return nil, fmt.Errorf("icebug delta: mkdir out: %w", err)
+	}
+
 	scratch := outDir + ".scratch"
 	_ = os.RemoveAll(scratch)
 	// Deferred, not just removed at the end: there are seven early returns between here and
@@ -530,9 +546,19 @@ func exportDirectDelta(ri *rebuildIndex, outDir, finalDir, storageURI string, af
 	}
 
 	// Decide which node tables survive.
+	//
+	// SAFETY: an affected table's Parquet is in SCRATCH, not in outDir. The fresh export
+	// writes everything there, and only the copies below put anything into outDir — so an
+	// affected table that is merely recorded in the manifest is a manifest entry pointing at
+	// a file the published bundle does not contain. That was silent and cumulative: each
+	// incremental dropped exactly the tables it had just regenerated, and a bundle observed
+	// on a 38k-file corpus went 549 Parquet files -> 175 -> 57 across three runs.
 	survivingNodes := []ladybug.CanonicalNodeTable{}
 	for _, nt := range fresh.NodeTables {
 		if affectedLabels[nt.Label] {
+			if err := copyIcebugFile(filepath.Join(scratch, nt.File), filepath.Join(outDir, nt.File)); err != nil {
+				return nil, fmt.Errorf("publishing regenerated table %s: %w", nt.Label, err)
+			}
 			survivingNodes = append(survivingNodes, nt)
 			continue
 		}
@@ -544,7 +570,10 @@ func exportDirectDelta(ri *rebuildIndex, outDir, finalDir, storageURI string, af
 			survivingNodes = append(survivingNodes, oldNT)
 			continue
 		}
-		// No old copy: keep fresh.
+		// No old copy: this label is new in this run, so its only Parquet is the fresh one.
+		if err := copyIcebugFile(filepath.Join(scratch, nt.File), filepath.Join(outDir, nt.File)); err != nil {
+			return nil, fmt.Errorf("publishing new table %s: %w", nt.Label, err)
+		}
 		survivingNodes = append(survivingNodes, nt)
 	}
 	// Labels in OLD but not fresh (e.g. label disappeared entirely).
@@ -569,7 +598,18 @@ func exportDirectDelta(ri *rebuildIndex, outDir, finalDir, storageURI string, af
 	for _, rg := range fresh.RelGroups {
 		out := ladybug.CanonicalRelGroup{Type: rg.Type}
 		if affectedRels[rg.Type] {
-			// Regenerated members: keep fresh (already our newest).
+			// Regenerated members: newest, and in SCRATCH — they have to be published into
+			// outDir like every other file. See the note on survivingNodes.
+			for _, m := range rg.Members {
+				if err := copyRelMember(scratch, outDir, m); err != nil {
+					return nil, fmt.Errorf("publishing regenerated %s member: %w", rg.Type, err)
+				}
+			}
+			for _, m := range rg.ReverseMembers {
+				if err := copyRelMember(scratch, outDir, m); err != nil {
+					return nil, fmt.Errorf("publishing regenerated %s reverse member: %w", rg.Type, err)
+				}
+			}
 			out.Members = rg.Members
 			out.ReverseMembers = rg.ReverseMembers
 		} else {
@@ -588,6 +628,16 @@ func exportDirectDelta(ri *rebuildIndex, outDir, finalDir, storageURI string, af
 					out.ReverseMembers = append(out.ReverseMembers, m)
 				}
 			} else {
+				for _, m := range rg.Members {
+					if err := copyRelMember(scratch, outDir, m); err != nil {
+						return nil, fmt.Errorf("publishing new %s member: %w", rg.Type, err)
+					}
+				}
+				for _, m := range rg.ReverseMembers {
+					if err := copyRelMember(scratch, outDir, m); err != nil {
+						return nil, fmt.Errorf("publishing new %s reverse member: %w", rg.Type, err)
+					}
+				}
 				out.Members = rg.Members
 				out.ReverseMembers = rg.ReverseMembers
 			}
@@ -618,9 +668,6 @@ func exportDirectDelta(ri *rebuildIndex, outDir, finalDir, storageURI string, af
 		}
 		survivingGroups = append(survivingGroups, out)
 	}
-
-	// Drop scratch.
-	_ = os.RemoveAll(scratch)
 
 	man := &ladybug.CanonicalManifest{
 		Version:  ladybug.CanonicalManifestVersion,
@@ -957,12 +1004,12 @@ func propShapeOfRelType(relType string) []ladybug.Field {
 	}
 }
 
-func copyRelMember(finalDir, outDir string, m ladybug.CanonicalMember) error {
+func copyRelMember(srcDir, outDir string, m ladybug.CanonicalMember) error {
 	for _, f := range []string{m.Indices, m.Indptr} {
 		if f == "" {
 			continue
 		}
-		if err := copyIcebugFile(filepath.Join(finalDir, f), filepath.Join(outDir, f)); err != nil {
+		if err := copyIcebugFile(filepath.Join(srcDir, f), filepath.Join(outDir, f)); err != nil {
 			return err
 		}
 	}

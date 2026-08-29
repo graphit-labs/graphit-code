@@ -385,7 +385,49 @@ for every file batched with it — which is why 388 files failed together.
 Fixed in `ShardCache.SourceOf`, which now applies the same substitution deliberately.
 `TestSourceOfReturnsValidUTF8ForAMalformedFile` pins it.
 
-#### 2. The bundle shrank from 549 Parquet files to 175 — cause identified, NOT reproduced
+#### 2. The bundle shrank from 549 Parquet files to 175 — TWO PRE-EXISTING BUGS, found and fixed
+
+My first diagnosis blamed the stale-temp sweep this task added. That was wrong: the real cause is
+two independent, pre-existing defects in `exportDirectDelta`, identical in `HEAD~1`. The
+shrinkage was progressive — 549 -> 175 -> 57 — which a race would not produce.
+
+**a. The regenerated tables were never published.** The function exports a full bundle into a
+SCRATCH directory, then copies the UNAFFECTED tables from the old bundle into `outDir`. Every
+`copyIcebugFile`/`copyRelMember` call went `finalDir -> outDir`; nothing ever copied
+`scratch -> outDir`. An affected table's freshly written Parquet stayed in scratch and was
+deleted with it, while the manifest still named the file. The published bundle held only the
+tables the run did NOT touch.
+
+**b. The emptiness probe emitted the UIDs it was probing.** `labelInBatches` calls `nodeRowsFor`
+purely to test whether a label has rows — but building rows calls `ri.emitUID`, which is
+STATEFUL and returns false the second time a uid is asked for. The probe loop runs over every old
+node table BEFORE the real export, so the export then produced EMPTY tables for all of them.
+
+Together: each incremental emptied the tables it touched and then failed to publish them.
+
+Fixed: affected and brand-new labels/rel members are copied out of `scratch`; `outDir` gets the
+`os.MkdirAll` it never had (it is a name the caller derived, not a directory it created); and the
+probe saves, clears and restores `ri.emittedUIDs` so it leaves no trace.
+`TestIncrementalExportPublishesTheTablesItRegenerated` pins both — every file the manifest names
+must exist, and the bundle must not shrink relative to its base.
+
+**Verified on the real corpus**: `graph.icebug` went 57 -> 777 items on the next incremental,
+with no error, and the graph answers with the PL/SQL schema and the XML reports together
+(302,933 AttributeValue, 186,002 Comment, 146,153 Column).
+
+The age guard on the stale-temp sweep stays regardless — sweeping by name prefix alone genuinely
+cannot tell a dead run's working directory from a live one's, and the daemon indexes the same
+store the CLI does.
+
+#### 3. Sub-second prune does nothing — measured
+
+`PruneVersions(ctx, time.Nanosecond)` reports `OldVersions: 0` and the table grows. The same
+table after a 1.1s wait and `PruneVersions(ctx, time.Second)`: `OldVersions: 126`,
+`BytesRemoved: 1289399`, and 1,284,448 bytes -> 35,119. Anything below a second is not a small
+window, it is no window. Production retention is 15 minutes, so this only bites a test trying to
+bypass the window.
+
+#### (superseded) the original suspicion
 
 `removeStaleBundleTemps`, which this task added to reclaim the leaked working directories, swept
 by name prefix alone. A run's working directory carries a random suffix, so a prefix sweep cannot
