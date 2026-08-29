@@ -510,9 +510,19 @@ Measured over 40,365 entities of this repository:
 | tensor cells, sorted within each label | 1,877,836 (1.1x) |
 
 `processBatch` now builds every text once into a `preparedRow{row, text}`, sorts by `len(text)`,
-and batches from there — **59% of the work**, a ~1.7x speedup. Nothing about a vector changes:
+and batches from there. **Timed against the real model on this repository's own texts: 2560 texts
+in batches of 128 took 2m46s in arrival order and 1m45s sorted by length — 63%, a 1.58x
+speedup.** The structural prediction from tensor cells alone was 59%; the gap is per-batch
+overhead that does not scale with tokens. Nothing about a vector changes:
 an entity is embedded from its own text, so only which entities share a tensor row-length moves.
 Dedup is unaffected, happening in `scanPending` before `processBatch`.
+
+**A caveat on every wall-clock number in this section**: the daemon runs its OWN embedding
+cycles and its own `sync --heavy`, and serialises against a manual run through
+`sysutil.AcquireHeavy`. The 1492s baseline was measured with that contention present, and so was
+the comparison above — which is why the comparison is a RATIO measured back to back rather than
+two absolute timings taken apart. An attempt to time a clean full cycle by hand produced 40
+seconds and no work, because the daemon already held the gate.
 
 Knobs checked and left alone: `SetIntraOpNumThreads(CPUBudget())` = 15 of 20 cores here,
 `SetInterOpNumThreads(1)`, `maxSeqLen` 512, `BatchSize` 128, `MaxSourceChars` 500.
