@@ -171,7 +171,10 @@ func (w *WikiDB) Remote() bool { return w.store != nil && w.store.Remote() }
 
 // ---------- schema ----------
 
-func lanceChunksSchema() lancestore.Schema {
+// lanceChunksSchema takes the vector width as a parameter rather than assuming
+// ai.EmbeddingDimensions — see the identical note on lanceEntitiesSchema in
+// internal/ast/search_lance.go, which this mirrors.
+func lanceChunksSchema(vectorDim int) lancestore.Schema {
 	return lancestore.Schema{Fields: []lancestore.Field{
 		{Name: "slug", Type: lancestore.FieldString},
 		{Name: "title", Type: lancestore.FieldString},
@@ -188,7 +191,7 @@ func lanceChunksSchema() lancestore.Schema {
 		{Name: "updated", Type: lancestore.FieldString, Nullable: true},
 		{Name: "important", Type: lancestore.FieldBool},
 		{Name: lanceWikiBody, Type: lancestore.FieldString},
-		{Name: lanceWikiVector, Type: lancestore.FieldVector, Dim: ai.EmbeddingDimensions, Nullable: true},
+		{Name: lanceWikiVector, Type: lancestore.FieldVector, Dim: vectorDim, Nullable: true},
 	}}
 }
 
@@ -333,7 +336,10 @@ func buildChunkRow(c WikiChunk, vec []float32) lancestore.Row {
 		lanceWikiBody:   wikiSearchBody(c),
 		lanceWikiVector: nil,
 	}
-	if len(vec) == ai.EmbeddingDimensions {
+	// See the identical comment on buildEntityRow in internal/ast/search_lance.go: a failed
+	// embed reports as empty, which is the only case to tell apart from a real vector — not a
+	// fixed width, or every provider except the local 768-dim one loses its vectors silently.
+	if len(vec) > 0 {
 		row[lanceWikiVector] = vec
 	}
 	return row
@@ -488,7 +494,7 @@ func withoutWikiColumn(in []lancestore.Index, column string) []lancestore.Index 
 
 func (w *WikiDB) createTables(ctx context.Context) error {
 	var err error
-	if w.chunks, err = w.store.CreateTable(ctx, lanceChunksTable, lanceChunksSchema()); err != nil {
+	if w.chunks, err = w.store.CreateTable(ctx, lanceChunksTable, lanceChunksSchema(ai.ResolveConfiguredEmbeddingDimensions())); err != nil {
 		return err
 	}
 	if w.xrefs, err = w.store.CreateTable(ctx, lanceXRefsTable, lanceXRefsSchema()); err != nil {
@@ -515,7 +521,7 @@ func (w *WikiDB) ensureTables(ctx context.Context) error {
 	}
 	var err error
 	if w.chunks == nil {
-		if w.chunks, err = w.store.EnsureTable(ctx, lanceChunksTable, lanceChunksSchema()); err != nil {
+		if w.chunks, err = w.store.EnsureTable(ctx, lanceChunksTable, lanceChunksSchema(ai.ResolveConfiguredEmbeddingDimensions())); err != nil {
 			return err
 		}
 	}
@@ -962,9 +968,9 @@ func (w *WikiDB) SetChunkVector(ctx context.Context, slug string, vec []float32)
 	if err := w.ensureTables(ctx); err != nil {
 		return err
 	}
-	if len(vec) != ai.EmbeddingDimensions {
+	if want := ai.ResolveConfiguredEmbeddingDimensions(); len(vec) != want {
 		return fmt.Errorf("wiki embedding for %s has %d dimensions, want %d",
-			slug, len(vec), ai.EmbeddingDimensions)
+			slug, len(vec), want)
 	}
 	hits, err := w.chunks.Search(ctx, lancestore.Query{
 		Filter: fmt.Sprintf("slug = %s", lanceQuote(slug)), Limit: 1,

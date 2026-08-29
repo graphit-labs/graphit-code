@@ -78,6 +78,15 @@ AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, ~/.aws/credentials, or an instance ro
 			}
 			p.StepOK("Default CLI: %s", cliInput)
 
+			embeddingProvider, err := promptEmbeddingProvider(p, reader)
+			if err != nil {
+				return err
+			}
+
+			if _, err := promptRerankProvider(p, reader); err != nil {
+				return err
+			}
+
 			p.Blank()
 
 			if bucket != "" {
@@ -110,28 +119,33 @@ AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, ~/.aws/credentials, or an instance ro
 				memTask.Done("Memory store ready at %s", memStore.Dir())
 			}
 
-			// The embedding model is not in the binary — it is downloaded once,
-			// here, into the shared cache. This step is FATAL: an installation
-			// without the model is a half installation, and letting setup
-			// report success would hide that until the first search came back
-			// on keywords alone with no explanation.
+			// The local embedding model is not in the binary — it is downloaded once, here,
+			// into the shared cache, and ONLY when ai.embedding.provider is (still) "local".
+			// A remote provider never downloads it: nothing local is ever needed to talk to
+			// an HTTP API. This step is FATAL for the local provider: an installation
+			// without the model is a half installation, and letting setup report success
+			// would hide that until the first search came back on keywords alone with no
+			// explanation.
 			//
-			// It is deliberately stricter than the local store initialisation
-			// above, which only warns — those retry on the next command,
-			// whereas this is a fixed asset the tool needs to do its job. It is
-			// also the last step on purpose: everything before it has already
-			// been written, so re-running setup after fixing the network costs
-			// one prompt pass and loses nothing.
-			if modelDir, downloaded, modelErr := ensureEmbeddingModel(cmd.Context(), p); modelErr != nil {
-				p.Error("Embedding model download failed: %v", modelErr)
-				p.Detail("Model cache", modelDir)
-				p.Step("Every other setting was saved — fix the network and run '%s setup' again", brand.BinName())
-				p.Step("Behind a proxy? set HTTP_PROXY / HTTPS_PROXY. Air-gapped? place model.onnx and tokenizer.json in the cache directory above")
-				return fmt.Errorf("downloading embedding model: %w", modelErr)
-			} else if downloaded {
-				p.StepOK("Embedding model downloaded to %s", modelDir)
+			// It is deliberately stricter than the local store initialisation above, which
+			// only warns — those retry on the next command, whereas this is a fixed asset
+			// the tool needs to do its job. It is also the last step on purpose: everything
+			// before it has already been written, so re-running setup after fixing the
+			// network costs one prompt pass and loses nothing.
+			if embeddingProvider == "" || embeddingProvider == "local" {
+				if modelDir, downloaded, modelErr := ensureEmbeddingModel(cmd.Context(), p); modelErr != nil {
+					p.Error("Embedding model download failed: %v", modelErr)
+					p.Detail("Model cache", modelDir)
+					p.Step("Every other setting was saved — fix the network and run '%s setup' again", brand.BinName())
+					p.Step("Behind a proxy? set HTTP_PROXY / HTTPS_PROXY. Air-gapped? place model.onnx and tokenizer.json in the cache directory above")
+					return fmt.Errorf("downloading embedding model: %w", modelErr)
+				} else if downloaded {
+					p.StepOK("Embedding model downloaded to %s", modelDir)
+				} else {
+					p.StepOK("Embedding model already present at %s", modelDir)
+				}
 			} else {
-				p.StepOK("Embedding model already present at %s", modelDir)
+				p.StepOK("Embedding provider is %s — no local model to download", embeddingProvider)
 			}
 
 			p.Blank()
@@ -192,21 +206,10 @@ func promptS3Credentials(p *output.Printer, reader *bufio.Reader) error {
 	accessKeyID, _ := reader.ReadString('\n')
 	accessKeyID = strings.TrimSpace(accessKeyID)
 
-	fmt.Print("  Enter S3 secret access key [leave blank for AWS default chain]: ")
-	var secretBytes []byte
-	var err error
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		secretBytes, err = term.ReadPassword(int(os.Stdin.Fd()))
-		p.Blank()
-	} else {
-		var secret string
-		secret, err = reader.ReadString('\n')
-		secretBytes = []byte(secret)
-	}
+	secretAccessKey, err := promptSecret(p, reader, "S3 secret access key", "leave blank for AWS default chain")
 	if err != nil {
-		return fmt.Errorf("reading S3 secret access key: %w", err)
+		return err
 	}
-	secretAccessKey := strings.TrimSpace(string(secretBytes))
 
 	if err := config.SetGlobalS3Credentials(accessKeyID, secretAccessKey); err != nil {
 		return fmt.Errorf("saving S3 credentials: %w", err)
@@ -217,6 +220,146 @@ func promptS3Credentials(p *output.Printer, reader *bufio.Reader) error {
 	}
 	p.StepOK("S3 credentials: stored in global config")
 	return nil
+}
+
+// promptSecret reads a masked value — a password or an API key — from the terminal, falling
+// back to a plain line read when stdin is not a terminal (piped input: tests, CI, scripts have
+// nothing to mask against). hint is the bracketed text shown after the label, e.g. "leave blank
+// to use an environment variable instead".
+func promptSecret(p *output.Printer, reader *bufio.Reader, label, hint string) (string, error) {
+	fmt.Printf("  Enter %s [%s]: ", label, hint)
+	var raw []byte
+	var err error
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		raw, err = term.ReadPassword(int(os.Stdin.Fd()))
+		p.Blank()
+	} else {
+		var line string
+		line, err = reader.ReadString('\n')
+		raw = []byte(line)
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", label, err)
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
+
+// embeddingProviders and rerankProviders are shown in the setup prompt so the operator does
+// not have to already know the valid values for ai.embedding.provider / ai.rerank.provider.
+const (
+	embeddingProviderChoices = "local/openai/openai-compatible/cohere/voyage/google"
+	rerankProviderChoices    = "local/cohere/voyage/jina"
+)
+
+// promptEmbeddingProvider asks which embedding backend to use, saving ai.embedding.provider
+// and, for anything other than "local", the model/API key/base URL that provider needs.
+//
+// Local stays the default and downloads nothing here — its one-time model download is the
+// separate, still-mandatory-for-local step later in this command. A remote provider needs no
+// download at all: it is an HTTP client, not a model on disk.
+func promptEmbeddingProvider(p *output.Printer, reader *bufio.Reader) (string, error) {
+	p.Blank()
+	p.Step("Embedding provider: local runs a small ONNX model on this machine (nothing downloaded until the step below). OpenAI, Cohere, Voyage AI, and Google send text to that provider's API instead. openai-compatible talks to any self-hosted server using the OpenAI /v1/embeddings shape — Ollama, vLLM, LM Studio, TEI, and others.")
+	provider := strings.ToLower(strings.TrimSpace(promptSimple(reader,
+		fmt.Sprintf("embedding provider [%s]", embeddingProviderChoices),
+		firstNonEmptyString(config.ResolveConfig("ai.embedding.provider", nil, nil), "local"))))
+	if provider == "" {
+		provider = "local"
+	}
+	if err := config.SetGlobalConfigValue("ai.embedding.provider", provider); err != nil {
+		return "", fmt.Errorf("saving ai.embedding.provider: %w", err)
+	}
+	if provider == "local" {
+		p.StepOK("Embedding provider: local")
+		return provider, nil
+	}
+
+	model := promptSimple(reader, "embedding model (blank for the provider default)",
+		config.ResolveConfig("ai.embedding.model", nil, nil))
+	if model != "" {
+		if err := config.SetGlobalConfigValue("ai.embedding.model", model); err != nil {
+			return "", fmt.Errorf("saving ai.embedding.model: %w", err)
+		}
+	}
+
+	if provider == "openai-compatible" {
+		baseURL := promptSimple(reader, "endpoint base URL (e.g. http://localhost:11434/v1 for Ollama)",
+			config.ResolveConfig("ai.embedding.base_url", nil, nil))
+		if baseURL == "" {
+			return "", fmt.Errorf("ai.embedding.provider=openai-compatible needs a base URL")
+		}
+		if err := config.SetGlobalConfigValue("ai.embedding.base_url", baseURL); err != nil {
+			return "", fmt.Errorf("saving ai.embedding.base_url: %w", err)
+		}
+	}
+
+	apiKey, err := promptSecret(p, reader, "API key", "leave blank to use an environment variable instead")
+	if err != nil {
+		return "", err
+	}
+	if apiKey != "" {
+		if err := config.SetGlobalConfigValue("ai.embedding.api_key", apiKey); err != nil {
+			return "", fmt.Errorf("saving ai.embedding.api_key: %w", err)
+		}
+		p.StepOK("Embedding provider: %s (API key stored)", provider)
+	} else {
+		p.StepOK("Embedding provider: %s (no API key stored here — set one via '%s config' or the provider's usual environment variable before using it)", provider, brand.BinName())
+	}
+	return provider, nil
+}
+
+// promptRerankProvider is promptEmbeddingProvider's counterpart for ai.rerank.provider.
+//
+// Reranking itself stays opt-in via search.rerank regardless of provider — this only decides
+// WHICH backend answers when it is turned on. Local's cross-encoder (~1.04 GiB) is downloaded
+// lazily on first use, never here; a remote provider never downloads anything.
+func promptRerankProvider(p *output.Printer, reader *bufio.Reader) (string, error) {
+	p.Blank()
+	p.Step("Rerank provider: an optional second search stage (enabled separately via search.rerank), independent of the embedding provider above. local uses a cross-encoder model, downloaded on first use, not here.")
+	provider := strings.ToLower(strings.TrimSpace(promptSimple(reader,
+		fmt.Sprintf("rerank provider [%s]", rerankProviderChoices),
+		firstNonEmptyString(config.ResolveConfig("ai.rerank.provider", nil, nil), "local"))))
+	if provider == "" {
+		provider = "local"
+	}
+	if err := config.SetGlobalConfigValue("ai.rerank.provider", provider); err != nil {
+		return "", fmt.Errorf("saving ai.rerank.provider: %w", err)
+	}
+	if provider == "local" {
+		p.StepOK("Rerank provider: local")
+		return provider, nil
+	}
+
+	model := promptSimple(reader, "rerank model (blank for the provider default)",
+		config.ResolveConfig("ai.rerank.model", nil, nil))
+	if model != "" {
+		if err := config.SetGlobalConfigValue("ai.rerank.model", model); err != nil {
+			return "", fmt.Errorf("saving ai.rerank.model: %w", err)
+		}
+	}
+
+	apiKey, err := promptSecret(p, reader, "API key", "leave blank to use an environment variable instead")
+	if err != nil {
+		return "", err
+	}
+	if apiKey != "" {
+		if err := config.SetGlobalConfigValue("ai.rerank.api_key", apiKey); err != nil {
+			return "", fmt.Errorf("saving ai.rerank.api_key: %w", err)
+		}
+		p.StepOK("Rerank provider: %s (API key stored)", provider)
+	} else {
+		p.StepOK("Rerank provider: %s (no API key stored here — set one via '%s config' or the provider's usual environment variable before using it)", provider, brand.BinName())
+	}
+	return provider, nil
+}
+
+func firstNonEmptyString(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // promptValue asks for one global setting, offering the current value or the compiled-in

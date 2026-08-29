@@ -32,6 +32,8 @@ func (r *recordingEmbClient) EmbedBatch(_ context.Context, texts []string) ([][]
 
 func (r *recordingEmbClient) ModelName() string { return "recording" }
 
+func (r *recordingEmbClient) Dimensions() int { return ai.EmbeddingDimensions }
+
 // The model receives a batchSize x maxLen tensor, where maxLen is the longest text in the
 // batch — so a batch costs its worst member for every one of its rows. Batching texts of
 // similar length is what stops one long entity from being paid for 127 times.

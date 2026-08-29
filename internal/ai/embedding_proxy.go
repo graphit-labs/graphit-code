@@ -39,6 +39,16 @@ func (c *proxyEmbeddingClient) ModelName() string {
 	return c.modelName
 }
 
+// Dimensions reports the width of whatever ai.embedding.provider currently configures.
+//
+// It does not ask the daemon over the socket — ModelName() does not either, see modelName
+// above — it reads the same config file the daemon reads. Both processes see the same
+// answer because it is the same file on disk, and a config-only read is far cheaper than a
+// round trip for something that changes only when the operator edits config.
+func (c *proxyEmbeddingClient) Dimensions() int {
+	return resolveActiveEmbeddingDimensions()
+}
+
 func (c *proxyEmbeddingClient) Embed(ctx context.Context, text string) ([]float32, error) {
 	vecs, err := c.EmbedBatch(ctx, []string{text})
 	if err != nil {

@@ -320,7 +320,7 @@ func TestLazyEmbeddingClient_ModelName_NilClient(t *testing.T) {
 	t.Parallel()
 	lazy := NewLazyEmbeddingClient()
 	name := lazy.ModelName()
-	want := localModelName + " (lazy, not loaded)"
+	want := "embedder (lazy, not loaded)"
 	if name != want {
 		t.Errorf("ModelName = %q; want %q", name, want)
 	}

@@ -201,18 +201,23 @@ func encodeEmbShard(f *os.File, emb *shardEmb) error {
 		}
 	}
 
+	// The active dimension, not the local model's fixed constant: a shard written under one
+	// ai.embedding.provider must record ITS width, so readEmbShard's check below correctly
+	// treats a shard from a since-abandoned provider as stale rather than misreading its bytes.
+	dim := ai.ResolveConfiguredEmbeddingDimensions()
+
 	hash := []byte(emb.Hash)
 	putBytes([]byte(shardEmbMagic))
 	put(uint16(shardEmbVersion))
-	put(uint16(ai.EmbeddingDimensions))
+	put(uint16(dim))
 	put(uint16(len(hash)))
 	putBytes(hash)
-	put(uint32(countWritable(emb.Embeddings)))
+	put(uint32(countWritable(emb.Embeddings, dim)))
 
 	for uid, vec := range emb.Embeddings {
 		// A vector of the wrong width would desynchronise every record after it, since the
 		// reader takes the width from the header. countWritable excluded it from the count.
-		if len(vec) != ai.EmbeddingDimensions {
+		if len(vec) != dim {
 			continue
 		}
 		put(uint16(len(uid)))
@@ -225,10 +230,10 @@ func encodeEmbShard(f *os.File, emb *shardEmb) error {
 	return w.Flush()
 }
 
-func countWritable(vecs map[string][]float32) int {
+func countWritable(vecs map[string][]float32, dim int) int {
 	n := 0
 	for _, v := range vecs {
-		if len(v) == ai.EmbeddingDimensions {
+		if len(v) == dim {
 			n++
 		}
 	}
@@ -257,8 +262,13 @@ func readEmbShard(path string) (*shardEmb, error) {
 	if err := binary.Read(r, binary.LittleEndian, &dim); err != nil {
 		return nil, err
 	}
-	if int(dim) != ai.EmbeddingDimensions {
-		return nil, fmt.Errorf("emb shard %s: dim %d, want %d", path, dim, ai.EmbeddingDimensions)
+	// A shard whose stored width does not match what ai.embedding.provider currently resolves
+	// to is not corrupt — it is a leftover from a provider or model that is no longer active.
+	// Rejecting it here is what makes NewShardEmbCache's load loop drop it as "an older
+	// format" and let it be recomputed, which is the correct response to a provider switch:
+	// nothing needs bespoke migration logic, this cache is defined to be fully recomputable.
+	if want := ai.ResolveConfiguredEmbeddingDimensions(); int(dim) != want {
+		return nil, fmt.Errorf("emb shard %s: dim %d, want %d (ai.embedding.provider changed since this shard was written)", path, dim, want)
 	}
 	if err := binary.Read(r, binary.LittleEndian, &hashLen); err != nil {
 		return nil, err

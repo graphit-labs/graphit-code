@@ -183,7 +183,13 @@ func lanceFilesSchema() lancestore.Schema {
 	}}
 }
 
-func lanceEntitiesSchema() lancestore.Schema {
+// lanceEntitiesSchema takes the vector width as a parameter rather than assuming
+// ai.EmbeddingDimensions: it is called with ai.ResolveConfiguredEmbeddingDimensions(), which is
+// 768 for the local model and whatever the configured remote provider/model resolves to
+// otherwise. A table built under one provider and later opened under another with a different
+// width fails on the first Append/Upsert — a Lance/Arrow type error, not silent corruption —
+// which is the intended signal to run a full reindex after switching ai.embedding.provider.
+func lanceEntitiesSchema(vectorDim int) lancestore.Schema {
 	return lancestore.Schema{Fields: []lancestore.Field{
 		{Name: "uid", Type: lancestore.FieldString},
 		{Name: "name", Type: lancestore.FieldString},
@@ -195,7 +201,7 @@ func lanceEntitiesSchema() lancestore.Schema {
 		{Name: lanceBodyColumn, Type: lancestore.FieldString},
 		// Nullable: an entity with no embedding is still searchable by keyword, and refusing to
 		// store it would make the whole index depend on the embedder having run.
-		{Name: lanceVectorColumn, Type: lancestore.FieldVector, Dim: ai.EmbeddingDimensions, Nullable: true},
+		{Name: lanceVectorColumn, Type: lancestore.FieldVector, Dim: vectorDim, Nullable: true},
 	}}
 }
 
@@ -362,7 +368,11 @@ func buildEntityRow(e cachedEntity, emb []float32) lancestore.Row {
 		lanceBodyColumn:   entityBody(e),
 		lanceVectorColumn: nil,
 	}
-	if len(emb) == ai.EmbeddingDimensions {
+	// A failed embed call reports as a nil/empty vector (see localEmbeddingClient.EmbedBatch and
+	// its remote equivalents), which is the only case this must tell apart from a real one — NOT
+	// a fixed width. Gating on ai.EmbeddingDimensions specifically silently dropped every valid
+	// vector from any provider whose width isn't 768.
+	if len(emb) > 0 {
 		row[lanceVectorColumn] = emb
 	}
 	return row
@@ -427,7 +437,7 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 	if err != nil {
 		return err
 	}
-	entities, err := s.store.CreateTable(ctx, lanceEntitiesTable, lanceEntitiesSchema())
+	entities, err := s.store.CreateTable(ctx, lanceEntitiesTable, lanceEntitiesSchema(ai.ResolveConfiguredEmbeddingDimensions()))
 	if err != nil {
 		return err
 	}
@@ -669,7 +679,7 @@ func (s *SearchIndex) ensureTables(ctx context.Context) error {
 		s.files = t
 	}
 	if s.entities == nil {
-		t, err := s.store.EnsureTable(ctx, lanceEntitiesTable, lanceEntitiesSchema())
+		t, err := s.store.EnsureTable(ctx, lanceEntitiesTable, lanceEntitiesSchema(ai.ResolveConfiguredEmbeddingDimensions()))
 		if err != nil {
 			return err
 		}

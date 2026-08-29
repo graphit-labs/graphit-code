@@ -60,6 +60,8 @@ func (f *fakeEmbClient) EmbedBatch(ctx context.Context, texts []string) ([][]flo
 
 func (f *fakeEmbClient) ModelName() string { return "fake" }
 
+func (f *fakeEmbClient) Dimensions() int { return ai.EmbeddingDimensions }
+
 // TestEmbedderStreamingRunCycle exercises the single-pass streaming scan end to
 // end against an on-disk shard cache: it verifies pending counting, that every
 // embeddable entity gets a vector — comments included, since their text is the

@@ -72,6 +72,25 @@ func (q *QueryService) SetEmbeddingClient(client ai.EmbeddingClient) {
 	q.embeddingClient = client
 }
 
+// fitVectorWidth forces vec to exactly dim, which is the width the search index's vector
+// column was built with (ai.ResolveConfiguredEmbeddingDimensions at schema time). It should be
+// a no-op in normal operation, since a query is embedded by the same configured client that
+// produced the index — this only guards a provider returning a vector that does not match its
+// own declared Dimensions(), and truncating a non-Matryoshka embedding is lossy, so a caller
+// hitting this path routinely is a sign ai.embedding.provider or .model was changed without a
+// reindex, not something to rely on.
+func fitVectorWidth(vec []float32, dim int) []float32 {
+	if len(vec) == dim {
+		return vec
+	}
+	if len(vec) > dim {
+		return vec[:dim]
+	}
+	padded := make([]float32, dim)
+	copy(padded, vec)
+	return padded
+}
+
 func (q *QueryService) FullTextSearch(ctx context.Context, query string, topK int) ([]SearchResult, error) {
 	if q.searchIndex == nil {
 		return nil, q.searchUnavailable
@@ -98,12 +117,8 @@ func (q *QueryService) SemanticSearch(ctx context.Context, query string, topK in
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
 
-	if len(vec) < ai.EmbeddingDimensions {
-		padded := make([]float32, ai.EmbeddingDimensions)
-		copy(padded, vec)
-		vec = padded
-	} else if len(vec) > ai.EmbeddingDimensions {
-		vec = vec[:ai.EmbeddingDimensions]
+	if dim := q.embeddingClient.Dimensions(); len(vec) != dim {
+		vec = fitVectorWidth(vec, dim)
 	}
 
 	results, err := q.searchIndex.SemanticSearch(ctx, vec, topK)
@@ -135,14 +150,8 @@ func (q *QueryService) HybridSearch(ctx context.Context, query string, topK int)
 			queryVec = nil
 		}
 
-		if queryVec != nil {
-			if len(queryVec) < ai.EmbeddingDimensions {
-				padded := make([]float32, ai.EmbeddingDimensions)
-				copy(padded, queryVec)
-				queryVec = padded
-			} else if len(queryVec) > ai.EmbeddingDimensions {
-				queryVec = queryVec[:ai.EmbeddingDimensions]
-			}
+		if dim := q.embeddingClient.Dimensions(); queryVec != nil && len(queryVec) != dim {
+			queryVec = fitVectorWidth(queryVec, dim)
 		}
 	}
 

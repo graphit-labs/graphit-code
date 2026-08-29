@@ -814,7 +814,7 @@ func TestNewLazyEmbeddingClient(t *testing.T) {
 func TestLazyEmbeddingClient_ModelName_BeforeInit(t *testing.T) {
 	lazy := NewLazyEmbeddingClient()
 	name := lazy.ModelName()
-	expected := localModelName + " (lazy, not loaded)"
+	expected := "embedder (lazy, not loaded)"
 	if name != expected {
 		t.Errorf("ModelName = %q; want %q", name, expected)
 	}

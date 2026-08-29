@@ -192,6 +192,8 @@ func boundedEmbedThreads() int {
 
 func (c *localEmbeddingClient) ModelName() string { return localModelName }
 
+func (c *localEmbeddingClient) Dimensions() int { return EmbeddingDimensions }
+
 func (c *localEmbeddingClient) Embed(ctx context.Context, text string) ([]float32, error) {
 	vecs, err := c.EmbedBatch(ctx, []string{text})
 	if err != nil {

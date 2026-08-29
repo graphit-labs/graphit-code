@@ -44,6 +44,8 @@ func (m *mockEmbeddingClient) ModelName() string {
 	return "mock-model"
 }
 
+func (m *mockEmbeddingClient) Dimensions() int { return 2 }
+
 func TestNewEmbedServer_SockFilePath(t *testing.T) {
 	tempHome := t.TempDir()
 	origHome := os.Getenv("HOME")

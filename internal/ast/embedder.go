@@ -494,10 +494,8 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 				continue
 			}
 
-			if len(vec) < ai.EmbeddingDimensions {
-				padded := make([]float32, ai.EmbeddingDimensions)
-				copy(padded, vec)
-				vec = padded
+			if dim := e.client.Dimensions(); len(vec) != dim {
+				vec = fitVectorWidth(vec, dim)
 			}
 
 			if row.Path != "" {

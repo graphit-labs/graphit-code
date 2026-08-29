@@ -44,6 +44,20 @@ func NewWikiEmbedder(client ai.EmbeddingClient, cfg WikiEmbedConfig) *WikiEmbedd
 	return &WikiEmbedder{client: client, cfg: cfg}
 }
 
+// fitVectorWidth forces vec to exactly dim — see the identical helper and its comment in
+// internal/ast/query.go, which this mirrors for the wiki's own vector column.
+func fitVectorWidth(vec []float32, dim int) []float32 {
+	if len(vec) == dim {
+		return vec
+	}
+	if len(vec) > dim {
+		return vec[:dim]
+	}
+	padded := make([]float32, dim)
+	copy(padded, vec)
+	return padded
+}
+
 // chunkRow is a chunk needing an embedding.
 type chunkRow struct {
 	// NO ID FIELD, deliberately. It used to be the chunk's SQLite rowid, and when the store
@@ -110,10 +124,8 @@ func (e *WikiEmbedder) RunCycle(ctx context.Context, wikiDir string) (int, error
 			if len(vec) == 0 {
 				continue
 			}
-			if len(vec) < ai.EmbeddingDimensions {
-				padded := make([]float32, ai.EmbeddingDimensions)
-				copy(padded, vec)
-				vec = padded
+			if dim := e.client.Dimensions(); len(vec) != dim {
+				vec = fitVectorWidth(vec, dim)
 			}
 
 			// Keyed by SLUG, not by a row id. The id used to be the chunk's SQLite rowid,
