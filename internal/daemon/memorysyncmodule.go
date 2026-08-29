@@ -27,6 +27,12 @@ func NewMemorySyncModule() *MemorySyncModule {
 	return &MemorySyncModule{}
 }
 
+// Name is what the supervisor logs this module as.
+//
+// It covers BOTH memory scopes — a project's own and the user's — because every scope's raw
+// directory lives under the one root this watches recursively. See Start.
+func (m *MemorySyncModule) Name() string { return "memory-sync" }
+
 func (m *MemorySyncModule) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
 
 // Start recompiles a memory wiki whenever its raw directory changes.

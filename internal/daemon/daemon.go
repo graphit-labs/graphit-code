@@ -89,6 +89,19 @@ type Daemon struct {
 	// process last accepted it: "" for the global pair, one entry per supervised
 	// project. Guarded by mu.
 	grammarSigs map[string]string
+
+	// globalModules belong to the machine rather than to a project — the memory watcher,
+	// whose one root covers every scope, and the embedding server, whose ONNX session every
+	// process on the machine shares. They are supervised like a project's modules; see
+	// SuperviseGlobal for why they used to not be.
+	globalModules []WatchModule
+}
+
+// AddGlobalModule registers a module that outlives any single project. Call before Run.
+func (d *Daemon) AddGlobalModule(mod WatchModule) {
+	if mod != nil {
+		d.globalModules = append(d.globalModules, mod)
+	}
 }
 
 func New(cfg Config, builder ProjectModuleBuilder) *Daemon {
@@ -149,6 +162,10 @@ func (d *Daemon) Start(ctx context.Context, discoverFn func() ([]ProjectInfo, er
 
 	d.log("daemon started (pid=%d, discovery_interval=%s, version_check=%s, stamp=%s)",
 		os.Getpid(), d.cfg.DiscoveryInterval, d.cfg.VersionCheckInterval, d.bootStamp)
+
+	for _, mod := range d.globalModules {
+		go SuperviseGlobal(ctx, mod, d.log)
+	}
 
 	d.event("running", "Global daemon started")
 	d.event("step", "Discovery interval: %s", d.cfg.DiscoveryInterval)

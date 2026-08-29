@@ -37,6 +37,9 @@ type embedResponse struct {
 	Error   string      `json:"error,omitempty"`
 }
 
+// Name is what the supervisor logs this module as.
+func (s *EmbedServer) Name() string { return "embed-server" }
+
 func (s *EmbedServer) Start(ctx context.Context) error {
 	if err := os.MkdirAll(filepath.Dir(s.sockFile), 0o755); err != nil {
 		return fmt.Errorf("embed server: creating dir: %w", err)

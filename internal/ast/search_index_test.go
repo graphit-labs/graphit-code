@@ -1,3 +1,5 @@
+//go:build lancedb
+
 package ast
 
 import (
@@ -23,33 +25,6 @@ import (
 // the input. The migration was reverted — LadybugDB does not maintain an FTS index on
 // insert, which forced an O(corpus) rebuild per edit, and it intermittently stored invalid
 // UTF-8 — so the tests now run against SQLite alone, keeping the requirements they encode.
-
-// cacheFromCorpus builds a parse cache from a corpus of entities.
-func cacheFromCorpus(t *testing.T, dir string, corpus []gateEntity) *ShardCache {
-	t.Helper()
-	pc, err := NewShardCache(dir)
-	if err != nil {
-		t.Fatalf("shard cache: %v", err)
-	}
-	byPath := map[string][]cachedEntity{}
-	for _, e := range corpus {
-		byPath[e.path] = append(byPath[e.path], cachedEntity{
-			Label: e.entityType, UID: e.uid, Name: e.name,
-			Path: e.path, Line: 1, EndLine: 1, Docstring: e.docstring,
-		})
-	}
-	for p, ents := range byPath {
-		if err := pc.Store(p, "h-"+p, &parseCacheEntry{
-			RelPath: p, Language: "go", Source: "// " + p + "\n", Entities: ents,
-		}); err != nil {
-			t.Fatalf("store %s: %v", p, err)
-		}
-	}
-	if err := pc.FlushDirty(); err != nil {
-		t.Fatal(err)
-	}
-	return pc
-}
 
 func buildSearchIndex(t *testing.T, dir string, cache *ShardCache,
 	embLookup func(relPath, uid string) []float32) *SearchIndex {
@@ -97,34 +72,6 @@ func applyVectors(t *testing.T, si *SearchIndex, cache *ShardCache,
 	}
 }
 
-// entityNames reduces results to entity names, dropping file hits, so an expectation
-// about which ENTITY ranks first is not satisfied or spoiled by a file result.
-func entityNames(res []SearchResult, topK int) []string {
-	var out []string
-	seen := map[string]bool{}
-	for _, r := range res {
-		if r.Type == "file" {
-			continue
-		}
-		n := r.Name
-		if i := strings.IndexByte(n, ' '); i > 0 {
-			n = n[:i]
-		}
-		if seen[n] {
-			continue
-		}
-		seen[n] = true
-		out = append(out, n)
-		if topK > 0 && len(out) == topK {
-			break
-		}
-	}
-	return out
-}
-
-// indexSearchNames returns the names of all results, files included, deduplicated and
-// capped. Used where an expectation is about reachability rather than about which entity
-// wins.
 func indexSearchNames(t *testing.T, si *SearchIndex, query string, topK int) []string {
 	t.Helper()
 	res, err := si.Search(context.Background(), query, topK)

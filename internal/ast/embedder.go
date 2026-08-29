@@ -619,11 +619,21 @@ func RunEmbeddingLoop(ctx context.Context, interval time.Duration, cacheDir, rep
 	// carried one.
 	// The daemon runs one of these loops per active project inside a single process.
 	cycle := func(label string, reload bool) {
+		// The gate has ONE slot for the whole machine, shared with every project's reindex
+		// and every other project's embedding cycle. A cycle that waits on it looks
+		// identical to a cycle that is working, from outside and from the log — which is
+		// part of what "embedding is slow" turns out to be. Say so when the wait is long
+		// enough to matter, as the sync module already does for its own.
+		askedAt := time.Now()
 		release, err := sysutil.AcquireHeavy(ctx)
 		if err != nil {
 			return
 		}
 		defer release()
+		if waited := time.Since(askedAt); waited > time.Second {
+			log.Info(label+" waited for the indexing slot",
+				"waited", waited.Round(time.Millisecond))
+		}
 
 		if reload && cfg.ParseCache != nil {
 			cfg.ParseCache.Reload()

@@ -1,3 +1,5 @@
+//go:build lancedb
+
 package ast
 
 import (
@@ -6,45 +8,12 @@ import (
 	"testing"
 )
 
-// abbrevCorpus is the corpus TestAbbreviatedIdentifierSearch probes directly against a
-// hand-built Ladybug FTS index, so the raw-versus-split-versus-trigram comparison and the
-// whole-index measurements here run on identical input.
-func abbrevCorpus() []gateEntity {
-	return []gateEntity{
-		{"a1", "coreConf", "Core configuration accessor.", "Function", "core.go"},
-		{"a2", "CONF_MGR", "Configuration manager package.", "Package", "conf_mgr.sql"},
-		{"a3", "CFG_LOAD", "Loads settings at startup.", "Procedure", "cfg_load.sql"},
-		{"a4", "configLoader", "Loads the configuration.", "Class", "loader.go"},
-		{"a5", "initConfiguration", "Initialises configuration state.", "Function", "init.go"},
-		{"a6", "computeChecksum", "Computes a checksum.", "Function", "hash.go"},
-		{"a7", "PKG_ACCOUNT_UPDATE", "Updates account rows.", "Package", "acct.sql"},
-	}
-}
-
-// buildSearchIndexFrom seeds the search index with an arbitrary corpus.
 func buildSearchIndexFrom(t *testing.T, dir string, corpus []gateEntity) *SearchIndex {
 	t.Helper()
 	cache := cacheFromCorpus(t, filepath.Join(dir, "cache"), corpus)
 	return buildSearchIndex(t, dir, cache, nil)
 }
 
-// abbrevCorpusNamesOnly is abbrevCorpus with the prose stripped. It exists to remove a
-// confound: every entity in abbrevCorpus has a docstring containing "configuration", and on
-// the FTS5 index the prefix pass made the query "config" match that word, so a hit proved
-// nothing about whether the NAME was reachable. That particular route is gone — LadybugDB
-// has no prefix matching — but the variant is kept because prose can still answer a query
-// through the docstring index, and because TestAbbreviatedIdentifierSearch indexes names
-// only, so only this variant is comparable to it.
-func abbrevCorpusNamesOnly() []gateEntity {
-	out := abbrevCorpus()
-	for i := range out {
-		out[i].docstring = ""
-	}
-	return out
-}
-
-// abbrevProbes are the three directions of partial match, shared by every measurement of
-// abbreviation recall.
 func abbrevProbes() []struct {
 	query string
 	want  []string

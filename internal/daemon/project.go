@@ -145,6 +145,18 @@ func (ps *ProjectSupervisor) projectLog(format string, args ...any) {
 }
 
 func (ps *ProjectSupervisor) supervise(ctx context.Context, entry *moduleEntry) {
+	superviseModule(ctx, entry, ps.projectLog)
+}
+
+// superviseModule runs one module and keeps it running: panics become errors with their stack,
+// a crash is retried with exponential backoff, and a module that survives long enough has its
+// restart counter forgiven.
+//
+// It takes its log function rather than a supervisor because the modules that most need this
+// are not per-project. A global module started as a bare `go func() { _ = mod.Start(ctx) }()`
+// has no restart, discards the error, and logs neither its start nor its death — so a watcher
+// that dies takes its whole responsibility with it and nothing says so.
+func superviseModule(ctx context.Context, entry *moduleEntry, logf func(string, ...any)) {
 	modName := entry.mod.Name()
 
 	for {
@@ -161,14 +173,14 @@ func (ps *ProjectSupervisor) supervise(ctx context.Context, entry *moduleEntry) 
 		entry.setStarted()
 		startTime := time.Now()
 
-		ps.projectLog("%s: starting", modName)
+		logf("%s: starting", modName)
 
 		err := runProtected(modCtx, entry)
 		modCancel()
 
 		if ctx.Err() != nil {
 			entry.setState(ModuleStopped)
-			ps.projectLog("%s: stopped (shutdown)", modName)
+			logf("%s: stopped (shutdown)", modName)
 			return
 		}
 
@@ -176,17 +188,17 @@ func (ps *ProjectSupervisor) supervise(ctx context.Context, entry *moduleEntry) 
 		entry.setError(err)
 		restarts := entry.incRestarts()
 
-		ps.projectLog("%s: crashed (attempt=%d, error=%v)", modName, restarts, err)
+		logf("%s: crashed (attempt=%d, error=%v)", modName, restarts, err)
 
 		if time.Since(startTime) >= stableAfter {
 			entry.resetRestarts()
 			restarts = 0
-			ps.projectLog("%s: was stable for >%s, reset restart counter", modName, stableAfter)
+			logf("%s: was stable for >%s, reset restart counter", modName, stableAfter)
 		}
 
 		if restarts >= maxRestarts {
 			entry.setState(ModuleFailed)
-			ps.projectLog("%s: FAILED — exceeded max restarts (%d)", modName, maxRestarts)
+			logf("%s: FAILED — exceeded max restarts (%d)", modName, maxRestarts)
 			return
 		}
 
@@ -194,7 +206,7 @@ func (ps *ProjectSupervisor) supervise(ctx context.Context, entry *moduleEntry) 
 		if backoff > maxBackoff {
 			backoff = maxBackoff
 		}
-		ps.projectLog("%s: backing off %s before restart", modName, backoff)
+		logf("%s: backing off %s before restart", modName, backoff)
 
 		select {
 		case <-ctx.Done():

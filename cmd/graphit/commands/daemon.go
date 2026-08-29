@@ -219,18 +219,6 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	if sharedEmbedClient != nil {
-		go func() {
-			server := daemon.NewEmbedServer(sharedEmbedClient)
-			_ = server.Start(ctx)
-		}()
-	}
-
-	go func() {
-		memSync := daemon.NewMemorySyncModule()
-		_ = memSync.Start(ctx)
-	}()
-
 	mcpPortFile := daemonctl.PortFilePath()
 	mcpKeyFile := daemonctl.KeyFilePath()
 	pidClaimed := make(chan struct{})
@@ -355,6 +343,14 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	}
 
 	d := daemon.New(cfg, builder)
+
+	// Global, not per-project: one memory root covering every scope — a project's own and the
+	// user's — and one ONNX session every process on the machine shares. Both used to run as
+	// bare goroutines with their error discarded and no restart.
+	if sharedEmbedClient != nil {
+		d.AddGlobalModule(daemon.NewEmbedServer(sharedEmbedClient))
+	}
+	d.AddGlobalModule(daemon.NewMemorySyncModule())
 
 	discoverFn := func() ([]daemon.ProjectInfo, error) {
 		mgr, mgrErr := hub.NewGlobalLockManager()

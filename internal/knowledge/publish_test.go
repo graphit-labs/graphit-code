@@ -1,3 +1,5 @@
+//go:build lancedb
+
 package knowledge
 
 import (
@@ -12,17 +14,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-func isolateHome(t *testing.T) string {
-	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	return home
-}
-
-// publishFrom compiles a docs tree the way a producer does, then returns the directory
-// that would be pushed to the branch — the compiled wiki without its database, which is
-// what SyncCopyDirExcept(wiki.IsDerivedFile) leaves behind.
 func publishFrom(t *testing.T, docs map[string]string) string {
 	t.Helper()
 

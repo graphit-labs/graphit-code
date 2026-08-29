@@ -1,3 +1,5 @@
+//go:build lancedb
+
 package ast
 
 import (
@@ -9,119 +11,6 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
-
-// Data formats are key/value languages, and until now only the key was indexed.
-//
-// An XML attribute produced one node named "env"; the "prod" it was set to lived
-// nowhere. A JSON member produced a node named `"host"` — quotes included, because
-// the capture spanned the string literal — and never the host itself. Meanwhile
-// every capture in a pattern became an entity carrying the query's graph_label, so
-// HCL's `resource "aws_instance" "web"` produced three Resource nodes: `resource`,
-// `aws_instance` and `web`.
-//
-// Both halves of a pair are now nodes, the pair survives as a CONTAINS edge from
-// key to value, and the value's name IS the value — which is what puts it in the
-// search index, since that index reads name and docstring and never value.
-
-// stageGrammar is stageLang for languages whose grammar name is not derivable
-// from the language name — yaml_lang uses tree-sitter-yaml.
-func stageGrammar(t *testing.T, langName, grammar, ext, queryFile string) string {
-	t.Helper()
-	body, err := os.ReadFile(filepath.Join("queries", queryFile))
-	if err != nil {
-		t.Skipf("no %s: %v", queryFile, err)
-	}
-	return stageGrammarWithQueries(t, langName, grammar, ext, queryFile, string(body))
-}
-
-// stageGrammarWithQueries stages a query file the framework does not ship, which
-// is how a project opts a registered grammar back in through ast.queries_dir.
-// Reading from queries/ would skip instead of fail for these, and a skip is not
-// how an opt-in that stopped working should report itself.
-func stageGrammarWithQueries(t *testing.T, langName, grammar, ext, queryFile, queries string) string {
-	t.Helper()
-	body := []byte(queries)
-	if lang, err := resolveTreeSitterLang(langName, grammar); err != nil || lang == nil {
-		t.Skipf("%s grammar unavailable: %v", langName, err)
-	}
-
-	projectDir := t.TempDir()
-	qdir := filepath.Join(projectDir, brand.DotDir(), "ast", "queries")
-	if err := os.MkdirAll(qdir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(qdir, queryFile), body, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	restore, had := tsExtMap[ext]
-	extTablesMu.Lock()
-	tsExtMap[ext] = &tsLangConfig{
-		Language: langName, Grammar: grammar, Extensions: []string{ext},
-	}
-	extTablesMu.Unlock()
-	t.Cleanup(func() {
-		extTablesMu.Lock()
-		if had {
-			tsExtMap[ext] = restore
-		} else {
-			delete(tsExtMap, ext)
-		}
-		extTablesMu.Unlock()
-	})
-	return projectDir
-}
-
-type kvNode struct {
-	label   string
-	name    string
-	parent  string // Context
-	pLabel  string // ContextType
-	value   string // Properties["value"]
-	present bool
-}
-
-func nodesOf(pf *ParsedFile) map[[2]string]kvNode {
-	got := make(map[[2]string]kvNode)
-	for _, ents := range pf.Entities {
-		for _, e := range ents {
-			got[[2]string{e.GraphLabel, e.Name}] = kvNode{
-				label: e.GraphLabel, name: e.Name,
-				parent: e.Context, pLabel: e.ContextType,
-				value: e.Properties["value"], present: true,
-			}
-		}
-	}
-	return got
-}
-
-func parseFixture(t *testing.T, projectDir, name, source string) *ParsedFile {
-	t.Helper()
-	srcPath := filepath.Join(projectDir, name)
-	if err := os.WriteFile(srcPath, []byte(source), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	pf, err := NewCompositeParser(projectDir, nil).Parse(srcPath, false, ParseOptions{})
-	if err != nil {
-		t.Fatalf("parse %s: %v", name, err)
-	}
-	return pf
-}
-
-// wantNode asserts a node exists with the given label and name, and that it is
-// contained by the expected parent.
-func wantNode(t *testing.T, got map[[2]string]kvNode, label, name, parent, pLabel string) {
-	t.Helper()
-	n, ok := got[[2]string{label, name}]
-	if !ok {
-		t.Errorf("no %s node named %q", label, name)
-		return
-	}
-	if n.parent != parent || n.pLabel != pLabel {
-		t.Errorf("%s %q is contained by %s %q, want %s %q",
-			label, name, n.pLabel, n.parent, pLabel, parent)
-	}
-}
 
 func TestXMLKeysAndValuesAreBothNodes(t *testing.T) {
 	projectDir := stageGrammar(t, "xml", "tree-sitter-xml", ".xml", "xml.yaml")
