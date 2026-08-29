@@ -126,6 +126,13 @@ func (r *embedRanker) rank(lang, label string) (int, bool) {
 	return i, ok
 }
 
+// preparedRow pairs a row with its embedding text so the text is built once and the batching
+// can order by its length. See processBatch.
+type preparedRow struct {
+	row  entityRow
+	text string
+}
+
 type entityRow struct {
 	UID       string
 	Label     string
@@ -385,6 +392,11 @@ func embedSourceSnippet(fileSource string, line, endLine int) string {
 	return sliceLines(strings.Split(fileSource, "\n"), line, endLine)
 }
 
+// vectorFlushRows bounds how many vectors are held before they are written to the index.
+// At 768 float32 a row is ~3 KB, so this is ~12 MB of buffer to cut the number of dataset
+// versions a cycle produces by a factor of 32.
+const vectorFlushRows = 4096
+
 // maxSkippedSample caps how many unembeddable entities are named in the warning.
 // The count is the signal; the sample is what makes it actionable.
 const maxSkippedSample = 5
@@ -402,20 +414,62 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 		}
 	}()
 
-	for i := 0; i < len(rows); i += e.cfg.BatchSize {
+	// Vectors are handed to the index in large groups rather than one group per model batch.
+	// An Upsert is a delete plus an append, so each one is a dataset version and a fragment:
+	// at one per 128-entity batch a single cycle left 484 versions and 643 fragments behind
+	// and grew the index to 858 MB before the compaction at the end could reclaim it. The
+	// cost in TIME was measured at 0.2% of the cycle — this is about the disk it churns
+	// through, not about speed.
+	//
+	// The cache is still saved per batch, so a cycle that dies loses no computed vector: the
+	// next rebuild replays them from there.
+	var pending []cachedEntity
+	var pendingVecs [][]float32
+	flushVectors := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+		if err := e.cfg.Index.StoreEntityVectors(ctx, pending, pendingVecs); err != nil {
+			return fmt.Errorf("store vectors: %w", err)
+		}
+		pending, pendingVecs = pending[:0], pendingVecs[:0]
+		return nil
+	}
+
+	// Build every text once and batch the SHORT ones together.
+	//
+	// The model receives a batchSize x maxLen tensor, where maxLen is the longest text in
+	// the batch — so a batch costs its worst member, for all of it. MEASURED on this
+	// repository: 40,365 entities with a median of 29 tokens and a maximum of 307, which in
+	// arrival order makes the tensor 1.9x the tokens that carry any signal. Grouping texts
+	// of similar length brings it to 1.0x and the model's work to 54%.
+	//
+	// Nothing about a vector changes: an entity is embedded from its own text, so only which
+	// entities share a tensor row-length moves.
+	prepared := make([]preparedRow, len(rows))
+	for i, row := range rows {
+		prepared[i] = preparedRow{row: row, text: e.buildEmbeddingText(row)}
+	}
+	sort.Slice(prepared, func(i, j int) bool {
+		return len(prepared[i].text) < len(prepared[j].text)
+	})
+
+	for i := 0; i < len(prepared); i += e.cfg.BatchSize {
 		if ctx.Err() != nil {
 			return total, ctx.Err()
 		}
 
 		end := i + e.cfg.BatchSize
-		if end > len(rows) {
-			end = len(rows)
+		if end > len(prepared) {
+			end = len(prepared)
 		}
-		batch := rows[i:end]
+		group := prepared[i:end]
 
-		texts := make([]string, len(batch))
-		for j, row := range batch {
-			texts[j] = e.buildEmbeddingText(row)
+		batch := make([]entityRow, len(group))
+		texts := make([]string, len(group))
+		for j, p := range group {
+			batch[j] = p.row
+			texts[j] = p.text
 		}
 
 		vectors, err := e.client.EmbedBatch(ctx, texts)
@@ -425,9 +479,6 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 		if len(vectors) != len(batch) {
 			return total, fmt.Errorf("expected %d vectors, got %d", len(batch), len(vectors))
 		}
-
-		embedded := make([]cachedEntity, 0, len(batch))
-		embeddedVecs := make([][]float32, 0, len(batch))
 
 		for j, row := range batch {
 			vec := vectors[j]
@@ -454,13 +505,15 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 					e.cfg.EmbCache.Set(row.Path, row.UID, hash, vec)
 				}
 			}
-			embedded = append(embedded, row.entity())
-			embeddedVecs = append(embeddedVecs, vec)
+			pending = append(pending, row.entity())
+			pendingVecs = append(pendingVecs, vec)
 			total++
 		}
 
-		if err := e.cfg.Index.StoreEntityVectors(ctx, embedded, embeddedVecs); err != nil {
-			return total, fmt.Errorf("store vectors: %w", err)
+		if len(pending) >= vectorFlushRows {
+			if err := flushVectors(); err != nil {
+				return total, err
+			}
 		}
 		if err := e.cfg.EmbCache.Save(); err != nil {
 			e.log().Warn("embedding cache save", "error", err)
@@ -469,6 +522,10 @@ func (e *Embedder) processBatch(ctx context.Context, label string, rows []entity
 		if e.cfg.OnProgress != nil && grandTotal > 0 {
 			e.cfg.OnProgress(*donePtr+total, grandTotal)
 		}
+	}
+
+	if err := flushVectors(); err != nil {
+		return total, err
 	}
 
 	return total, nil

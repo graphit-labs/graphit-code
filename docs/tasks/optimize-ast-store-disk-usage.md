@@ -482,6 +482,41 @@ as an unused second answer to the same question.
 `TestRebuildRestoresVectorsFromTheCacheInsteadOfRecomputing` pins the reason all of this exists:
 a rebuild restores the vectors instead of re-running the model.
 
+### 2026-08-28 — the embedding is slow, and it is padding
+
+The Engineer's impression, checked: 29,065 entities in 1492s = 19.5 entities/second.
+
+**First hypothesis, wrong, recorded because it looked obvious.** T1 had added one Lance `Upsert`
+per model batch of 128, which left 484 dataset versions and 643 fragments and grew `search.lance`
+to 858 MB. Benchmarked directly: 157 upserts of 128 rows on a 20k-row table take 2.264s against
+608ms for one upsert of 20,000. Scaled to the real run that is ~2.4 seconds out of 1492 —
+**0.2% of the time**. The disk churn is real and worth fixing on its own terms, but it is not why
+embedding is slow.
+
+**The actual cause.** `localEmbeddingClient.EmbedBatch` builds a tensor of shape
+`[batchSize, maxLen]` where **maxLen is the longest text in that batch**, capped at 512. Every
+row is padded to it, so a batch costs its worst member, for all 128 of its rows.
+
+Measured over 40,365 entities of this repository:
+
+| | tokens |
+|---|---|
+| median | 29 |
+| p90 | 110 |
+| max | 307 |
+| useful tokens | 1,708,166 |
+| tensor cells, arrival order | 3,167,762 (**1.9x**) |
+| tensor cells, globally sorted | 1,724,023 (1.0x) |
+| tensor cells, sorted within each label | 1,877,836 (1.1x) |
+
+`processBatch` now builds every text once into a `preparedRow{row, text}`, sorts by `len(text)`,
+and batches from there — **59% of the work**, a ~1.7x speedup. Nothing about a vector changes:
+an entity is embedded from its own text, so only which entities share a tensor row-length moves.
+Dedup is unaffected, happening in `scanPending` before `processBatch`.
+
+Knobs checked and left alone: `SetIntraOpNumThreads(CPUBudget())` = 15 of 20 cores here,
+`SetInterOpNumThreads(1)`, `maxSeqLen` 512, `BatchSize` 128, `MaxSourceChars` 500.
+
 ## Results — measured, not projected
 
 The store for this repository, before any of this work and after all of it:
