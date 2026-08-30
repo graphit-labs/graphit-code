@@ -296,10 +296,18 @@ Then every node table lists the same rows in the same order
 
 ## Technical Debt
 
-- [ ] **Not validated against `private-corpus` itself.** The numbers above are from a
-  synthetic corpus with one dominant label; that repository is PL/SQL, Forms, XML and
-  reports, so its label distribution is far wider — which is the case T3 helps most and this
-  probe measures least. The check is a full re-index, and it needs an overnight parse first.
+- [x] **Validated against `private-corpus` — and it still OOMs.** MEASURED 2026-08-30
+  18:36 (see the Progress Log entry below): T1..T8 are not sufficient at that scale. The
+  ceiling is no longer the export's own data structures but the `entries` map below, which
+  is the FIRST debt item now, not a footnote.
+- [ ] **`entries` defeats `StreamEntries` and is now THE OOM.** `ShardCache.StreamEntries`
+  is genuinely streaming — it deletes each file from `sc.nodes`/`sc.edges` right after the
+  callback — but `rebuildIcebugFromCacheWithDelta` retains every entry in
+  `entries map[string]*parseCacheEntry`, so the eviction frees nothing and the whole corpus
+  is decoded and held live before the first Parquet is written. At 21 GB of shard JSON /
+  ~35.6 M graph elements that map alone is tens of GB. Fixing it means `newRebuildIndex`
+  consuming a stream (or a two-pass read over the shards) instead of taking a materialized
+  map.
 - [ ] The streaming producers allocate one short-lived map per row. That is allocation
   traffic, not peak, but at tens of millions of rows it is not free — the producers could
   fill a reusable map that the accumulator copies out of synchronously.
@@ -352,6 +360,48 @@ Then every node table lists the same rows in the same order
   alphabetical only for reproducibility.
 
 ## Progress Log
+
+### 2026-08-30 — validated against `private-corpus`: STILL KILLED, and the cause moved
+`graphit ast index --reset` on the 120,064-file repository was OOM-killed again, 52 minutes
+in, at the same `Writing graph: 120064 file(s)` line — running a binary built AFTER T1..T8
+(verified: the installed binary carries the `icebug rebuild memory limit` log string, and the
+run started one minute after `make install`). So this task's fix is real and insufficient at
+that scale; what follows is where the memory actually is now.
+
+**The kernel's own account, which is the primary evidence:**
+
+```
+kernel: Out of memory: Killed process 1090324 (graphit-core)
+        total-vm:54338508kB, anon-rss:48477088kB
+kernel: oom-kill:constraint=CONSTRAINT_NONE, global_oom
+```
+
+- anon-RSS at kill: **46.23 GiB**. MemTotal is 61.34 GiB, so `exportMemoryHeadroom = 0.75`
+  set the soft limit at **46.00 GiB**. The process died 0.23 GiB past its own limit — T8 was
+  installed and holding exactly where it was told to hold.
+- `constraint=CONSTRAINT_NONE` / `global_oom`: the machine ran out, not a cgroup. The
+  workstation already had ~15 GiB in use (Docker, desktop) and 2 GB of swap, so a 46 GiB
+  soft limit could not be honoured by the machine even though the process honoured it.
+
+**Two conclusions, and the second is the one that matters:**
+
+1. **75% of MemTotal is the wrong policy for a workstation.** `debug.SetMemoryLimit` is
+   SOFT — it never fails an allocation — so it is not a budget, it is a GC target. Aiming
+   that target at 75% of a shared machine tells the collector to grow to 46 GiB, which is
+   precisely what it did. Worse, once live approaches the target the collector runs
+   continuously: 20 cores in GC while the kernel reclaims page cache is what the engineer
+   experienced as the machine freezing. The headroom should come off what is AVAILABLE, not
+   off MemTotal.
+2. **The remaining term is `entries`, not anything T1..T8 touched.** MEASURED on the store
+   left behind: `shards/` is **21.0 GB** of JSON across 240,128 shard files, and a 400-file
+   sample gives 589 bytes per graph element → **~35.6 M elements** (entities + edges). That
+   is 4.7x the largest synthetic probe in this file (7.6 M elements → 6.6 GB peak), and all
+   of it is decoded into `entries` and held live before the export starts. The debt item
+   that predicted this is now the top of the list.
+
+**Corroborating state on disk:** the run left `graph.icebug.tmp.f7df140/` holding **32 MB**
+beside a 22 MB `manifest.json`. The output was never the problem — 46 GiB of heap to produce
+tens of MB of bundle is the whole shape of this bug.
 
 ### 2026-08-30 — the one-row-group invariant, verified rather than asserted
 The engineer reaffirmed the constraint: one row group per Parquet, because Ladybug returns
