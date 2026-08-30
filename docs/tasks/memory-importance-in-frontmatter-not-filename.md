@@ -346,6 +346,18 @@ Then its frontmatter still contains "important: true"
 - [ ] The `.wiki/` shard mirrors in the migrated stores hold entries keyed by the old
   filenames. They are inert (content-hash mismatch is never read) but they are dead weight
   until a compile with reset clears them.
+- [ ] **The installed binary is still the old one** (`/usr/local/bin/graphit`, root-owned,
+  built before this change), and it is what the daemon and the MCP server run. It wrote the
+  memories created during this session as `<id>_important_.md`, which the migration had to
+  normalise a second time. Until `make install` (needs sudo) and a daemon restart, every
+  memory write reverts to the old format. The Engineer takes this step.
+- [ ] **185 duplicate `_2.md` pages in the compiled memory wiki** at
+  `~/.graphit/wiki/memory/project/01KSH1CRFFG8Z74B5ZS78WW808/`. The daemon compiled the store
+  mid-migration, when a memory existed under both names, and `UniqueSlug` gave the second one
+  a `_2` slug. `GenerateMemoryWiki` prunes pages absent from `keepFiles`, so ONE clean
+  recompile removes them — but it must run with the NEW binary: the old reader takes
+  importance from the filename, so recompiling with it would drop all 198 important marks
+  from the wiki and from the IDE rule block.
 
 ## System Knowledge
 
@@ -411,4 +423,21 @@ Then its frontmatter still contains "important: true"
   line scan and re-emitted correctly quoted. Verified: 0 invalid, 0 id/filename mismatches,
   198 important. `graphit memory list` and `graphit memory important` read the migrated store
   correctly.
-- Full suite green: `go build ./...`, `go test ./...` — no failures.
+- Full suite green: `go build ./...`, `go test ./...` — no failures. Committed on `main` as
+  `refactor(memory): importance lives in the frontmatter, and the frontmatter goes through
+  the YAML parser`.
+- Found afterwards, while writing new memories: the MCP server and the daemon still run the
+  binary installed at `/usr/local/bin/graphit`, which predates this change — so the two
+  memories written in this session came back as `<id>_important_.md` with hand-built
+  frontmatter, and the migration had to be re-run over the store. Also left behind: 185
+  duplicate wiki pages from a mid-migration compile. Both are in Technical Debt; the
+  Engineer runs `make install` (sudo) and restarts the daemon, and the recompile that
+  follows clears the duplicates.
+- No `graphit_sync` was run at the end of this session, deliberately. With the old binary
+  still installed, a recompile of the memory wiki would read importance from filenames that
+  no longer carry it and silently drop all 198 important marks. The sync belongs after the
+  install, not before it.
+- Self-inflicted, recorded because the trap is already a memory in this store: `graphit
+  config get memory.store` does NOT read a key — the CLI is `graphit config <key> <value>`,
+  so it WROTE a junk key `get: memory.store` into `graphit.lock.json`. Reverted with `git
+  checkout graphit.lock.json`. The reading form is `graphit config --get <key>`.
