@@ -1,361 +1,341 @@
-Embedded block loads its own language; three repetitions in what the agent reads
+# Embedded block carries its own language; and three cuts to repetition in what the agent reads
 
-## Contexto
+## Context
 
-Auditoria de uso real do framework num corpus grande de banco de dados (PL/SQL Oracle +
-XML configuration flow). The agent that performed the analysis reported where the tools were located.
-ajudaram e onde falharam. Este log cobre o que foi verificado, corrigido e adiado.
+Real-world usage audit of the framework on a large database corpus (Oracle PL/SQL +
+flow-configuration XML). The agent that ran the analysis reported where the tools helped
+and where they fell short. This log covers what was verified, fixed, and deferred.
 
-The first find in the report was the most serious, and his diagnosis was wrong — as stated.
-The verification changed the root cause. The others were measured one by one before turning into a change.
+Finding #1 in the report was the most serious, and its diagnosis **was wrong** — verification
+changed the root cause. The rest were measured one at a time before becoming a change.
 
-The primary flaw: resolved by using the wrong reference block.
+## The main defect: embedded-block reference resolved with the wrong language
 
-### Sintoma
+### Symptom
 
-In an embedded SQL configuration with XML, `MATCH (a)-[r]->(t:Table)` filtering by
-The ``r.source_file`` of XML returned **no lines**. The natural reading would be, "this flow doesn't"
-"It's not even in the same league as that." - That is the opposite of the truth.
+In a configuration XML with embedded SQL, `MATCH (a)-[r]->(t:Table)` filtered by
+`r.source_file` from the XML returned **zero rows**. The natural reading — "this flow
+doesn't touch any table" — is the opposite of the truth.
 
-The symptom was not missing junctions. The junctions existed, as self-loops `File → File`:
-SELECTS 2617, UPDATES 545, INSERTS 181, DELETES 25. Aresta presente e **invertida**, que
-It's worse than absent: nothing announces this as a gap.
+The symptom was NOT a missing edge. The edges existed, as `File → File` self-loops:
+SELECTS 2617, UPDATES 545, INSERTS 181, DELETES 25. An edge present and **inverted**,
+which is worse than absent: nothing announces it as a gap.
 
-### Causa raiz
+### Root cause
 
 The measurement that isolates the problem:
 
 ```cypher
 MATCH (t:Table) RETURN t.lang, count(*)     -- plsql, 10674
-MATCH (n) WHERE n.path STARTS WITH '<dir do xml>/' RETURN n.lang, label(n), count(*)
-Everything XML - including Cursor, Procedure, and Variable, which only the PL/SQL parser produces
+MATCH (n) WHERE n.path STARTS WITH '<xml dir>/' RETURN n.lang, label(n), count(*)
+-- ALL xml — including Cursor, Procedure, Variable, which only the PL/SQL parser produces
 ```
 
-Tudo o que o parser embutido produzia ficava carimbado com a linguagem do arquivo
-HOSPEDEIRO. `mergeParsedInto` dobrava o parse interno no externo concatenando listas,
-Without any trace of where they came from. Two guards at the wheel then failed together:
+Everything the embedded parser produced was stamped with the HOST file's language.
+`mergeParsedInto` folded the inner parse into the outer one by concatenating lists, without
+recording where each item came from. Two engine guards then failed together:
 
-1. `resolveNamed` exige `d.lang == lang`. É proposital e correto — o `fill()` de um
-``.tsx`` cannot call the `Go` function itself, but the reference says ``xml``, and...
-The declarations are INLINE_0, so she never married.
-2. `refRule` escolhe a `TargetRule` POR LINGUAGEM, e as regras de DML com
-They live in `plsql.yaml` / `sql.yaml`. `xml.yaml` does not declare anything.
-Then the fallback became `TargetFallbackStub`, which returns `(ref.Path, LabelFile)`.
+1. `resolveNamed` requires `d.lang == lang`. That's deliberate and correct — a `.tsx`'s
+   `fill()` must not bind to a Go function of the same name. But the reference said `xml`
+   while the declarations were `plsql`, so it never matched.
+2. `refRule` picks the `TargetRule` BY LANGUAGE, and the DML rules with `fallback: Table`
+   live in `plsql.yaml`/`sql.yaml`. `xml.yaml` declares none, so the fallback became
+   `TargetFallbackStub`, which returns `(ref.Path, LabelFile)`.
 
-Neither of them is isolated bugs. The bug is the wrong language arriving in them.
+Neither is an isolated bug. The bug is the wrong language reaching them.
 
-Correction
+### Fix
 
-- `internal/ast/parser.go`: `Entity`, `CallInfo` e `ReferenceInfo` ganharam `Lang` — a
-Language that GENERATED the item is empty when it's from the file.
-- `internal/ast/treesitter_embedded.go`: `mergeParsedInto` carimba `inner.Language` nas
-Three lists, filling in only what is empty for the innermost block to win in.
-  aninhamento. Helper `langOr`.
-- `internal/ast/parse_cache.go`: `Lang` em `cachedCall` e `cachedReference`.
-- `internal/ast/cache_convert.go`: propaga com `langOr(item.Lang, pf.Language)`.
-- `internal/ast/rebuild_index.go`: `resolveRefTarget` faz `lang = langOr(ref.Lang, lang)`;
-The three callers of `resolveCallee` pass `langOr(call.Lang, fe.entry.Language)`.
+- `internal/ast/parser.go`: `Entity`, `CallInfo`, and `ReferenceInfo` gained `Lang` — the
+  language that PRODUCED the item, empty when it's the file's own.
+- `internal/ast/treesitter_embedded.go`: `mergeParsedInto` stamps `inner.Language` onto all
+  three lists, filling in **only what's empty** so the innermost block wins in a nesting.
+  Helper `langOr`.
+- `internal/ast/parse_cache.go`: `Lang` on `cachedCall` and `cachedReference`.
+- `internal/ast/cache_convert.go`: propagates it with `langOr(item.Lang, pf.Language)`.
+- `internal/ast/rebuild_index.go`: `resolveRefTarget` does `lang = langOr(ref.Lang, lang)`;
+  the three callers of `resolveCallee` pass `langOr(call.Lang, fe.entry.Language)`.
 - `internal/ast/shard_cache.go`: `shardCacheVersion` 4 → 5.
 
-It applies to any embedded language, not just SQL in XML.
+Applies to any embedded language, not just SQL in XML.
 
-Tests - it's the point
+### Tests — of the GRAPH, and that's the point
 
-`internal/ast/embedded_lang_resolution_test.go`, quatro casos. Verificado que o teste
-primary **failure without correction**, exactly as the production symptom (0 lines).
+`internal/ast/embedded_lang_resolution_test.go`, four cases. Verified that the main test
+**fails without the fix**, with exactly the production symptom (0 rows).
 
-Um teste sobre `pf.References` passa com o defeito inteiro no lugar, e foi assim que
-isto sobreviveu a duas rodadas: `TestEmbeddedANTLRBlockProducesDMLEdges`, apesar do
-Name never looked at the graph. Includes **negative control** — a reference without INLINE_0
-She cannot cross the language barrier without it - otherwise, even if she fails the test.
-resolution would ignore language entirely.
+A test on `pf.References` passes with the whole defect still in place, and that's how this
+survived two rounds: `TestEmbeddedANTLRBlockProducesDMLEdges`, despite its name, never
+looked at the graph. Includes a **negative control** — a reference without its own `Lang`
+must not cross languages — without which the test would pass even if resolution ignored
+language entirely.
 
-Three cuts throughout the entire session
+## Three cuts to what the agent reads every session
 
-### `ast_schema` agrupa labels que compartilham a lista de propriedades
+### `ast_schema` groups labels that share the same property list
 
-Almost all labels are entities and carry the same 16 properties; only `File`.
-**INLINE_0** and **INLINE_1** differ. They were approximately 25 repetitions of the same list. Now, the forms are different.
-Unique ones come out one per line (the difference between INLINE_0 and INLINE_1 of an entity is
-justamente o que faz query estourar) e as compartilhadas saem uma vez, nomeando os
-Labels. No information gets lost. `internal/ast/schema.go`, test in
-`schema_shared_shape_test.go`.
+Almost every label is an entity label carrying the SAME 16 properties; only `File`,
+`Directory`, and `Module` differ. That was ~25 repetitions of the same list. Now the unique
+shapes print one per line (the difference between `File.path` and an entity's `path` is
+exactly what makes a query blow up), and the shared ones print once, naming the labels.
+No information is lost. `internal/ast/schema.go`, test in `schema_shared_shape_test.go`.
 
-Agents.md: A policy is invariant once stated.
+### AGENTS.md: the invariant policy is stated once
 
-Five modules repeated the same six phrases (precedence, CLI prohibition, list of...).
-Natives' Tools: "If you're unsure, apply it," "Reapply with each request."
-Clause of Integrity. **Measured: ~3.228 bytes, 18.6% of the file, were copies beyond the original.
-Here's the translation:
+Five modules repeated the same six sentences (precedence, CLI prohibition, the list of
+native tools, "if in doubt, it applies," "re-apply on every request," the integrity
+clause). **Measured: ~3,228 bytes, 18.6% of the file, were copies beyond the first
+occurrence.** Hoisted into `mandatePreamble()`, which always precedes the blocks. Each
+block now states only what VARIES: domain, skill, triggers, tools.
+`internal/hub/adapters/ide/mandate.go`. The old test asserted the old design and was
+replaced by two: the block carries what varies and **not** the policy; and the preamble
+states it exactly once — without this second half, deleting the policy would still pass.
 
-First, Isolated should be inline (INLINE_0), preceding all blocks.
-He directs what varies: domain, skill, triggers, tools.
-`internal/hub/adapters/ide/mandate.go`. O teste antigo afirmava o desenho antigo e foi
-Substituted by two: The block carries what varies and **not** politics; and the preamble to.
-It affirms exactly once—without this second half, canceling out politics would be impossible.
+### AST skill: when hybrid search is noise
 
-Skill of AST: When hybrid is sought, it's noise.
+In a corpus with no prose and a rigid naming convention (`PRC_`, `PCK_`, `IX_`), both sides
+of the hybrid rank on text and have nothing to tell them apart: the observed result was
+fifteen scores flattened into 0.03–0.05. The skill now names the case and the signal for
+recognizing it (flat scores, top-1 no better than top-10), and directs straight to Cypher
+with `STARTS WITH` on the prefix. `internal/ast/rule.go`.
 
-In a corpus without prose and with rigid convention of name (`PRC_`, `PCK_`, `IX_`), the two
-The sides of the hybrid rank over text and don't have what separates them: the observed result.
-foram quinze scores achatados em 0,03–0,05. A skill agora nomeia o caso e o sinal para
-Recognize him (scores plans, top-1 not better than top-10), and sends him straight to
-Cypher com `STARTS WITH` no prefixo. `internal/ast/rule.go`.
+## The "leaking label" was not an indexing defect — it was a missing instruction
 
-The "leaking label" was not an indexing defect; it was a missing instruction.
+Reported as `PRC_X` coming back with label `Value` instead of `Procedure`. These are two
+legitimate nodes in the same file: the `Procedure` on line 2, and a `Value` on line 9, which
+is the string literal `:= 'PRC_X'` initializing `v_nome_progr`. This happens with 338
+procedures in the corpus and does **not** break resolution — `plsql.yaml`'s `target_rules`
+restrict `CALLS` to `[Function, Procedure, Package, Trigger]`, and 34 `CALLS` edges reach
+"shadowed" procedures normally.
 
-Relatado como `PRC_X` voltando com label `Value` em vez de
-They are two legitimate entries in the same file: INLINE 1 on line 2 and one.
-On line 9, which is the literal of string `:= 'PRC_X'`
-Initializing `v_nome_progr`_. Occurs with 338 procedures of the corpus and does not break.
-resolution — the `target_rules` of `plsql.yaml` restricts `CALLS` to
-Here is the translation:
+**The first version of this log classified this as an agent-query trap. Wrong.** The agent
+had read the skill — and the skill INSTRUCTS it to run exactly the query that produces the
+confusing result: `Phase 2: Pre-search (Grounding)` calls for
+`MATCH (n) WHERE toLower(n.name) CONTAINS ...` with no label, and the multi-label table has
+the line "Anything — full discovery." Nowhere did it say that labels named after their
+**content** exist. Whoever followed the instruction got a result the instruction never
+prepared them for: that's a defect in the skill.
 
-"**INLINE_0**, and edges **INLINE_1** reach procedures."
-"sombreadas" normalmente.
+The whole class was raised instead of invented: `Value`, `AttributeValue`, and `Text` come
+from `value_label` in 37 shipped grammars, and `Comment` was already documented. All four
+have `name` equal to their own content.
 
-The first version of this log classified it as an agent query trap.
-Errado.** O agente tinha lido a skill — e a skill MANDA fazer exatamente a query que
-produz o resultado confuso: `Phase 2: Pre-search (Grounding)` instrui
-`MATCH (n) WHERE toLower(n.name) CONTAINS ...` sem label, e a tabela multi-label traz a
-linha "Anything — full discovery". Em lugar nenhum ela dizia que existem labels
-appointed by **content**. Who followed the instruction received a result that was
+## Instruction gaps closed in the same round
 
----
+Applying the same criterion — if the agent read it and still got it wrong, the instruction
+is missing — three more:
 
-This is already English, so no changes were made.
-The instruction was not prepared: this is a defect of skill.
+- **A DML query that comes back empty or with only readers.** "Nobody writes to this table"
+  is a conclusion with consequences, and the failure mode isn't a missing edge: it's an
+  edge that resolved to another node. The skill now instructs inspecting `label(a)/label(b)`
+  by `source_file` before concluding absence, and explains that `File → File` means an
+  unresolved target.
+- **An `Index` with no columns or uniqueness.** Forbidden to infer "the database doesn't
+  enforce this" from a query that found no unique index — the graph doesn't index that, so
+  an empty result proves nothing. It now instructs reading the DDL with the source tool
+  before making the claim.
+- **Cold-start memory** (`internal/memory/rule.go`): an empty store and a query that missed
+  are indistinguishable in a search. `graphit_memory_list` reads the store directly and
+  settles it in ONE call — instruction to use it on the FIRST empty search, not the third.
 
-The entire class is raised instead of invented: INLINE_0, INLINE_1, and INLINE_2 come
-From 37 grammars sent in, and four were already documented.
-They have it equal to the actual content.
+## Second round: the deferred items, done
 
-Closed instruction holes in the same round
+### Attribution to the host entity
 
-Applying the same criterion— if the agent reads and makes a mistake, it's missing instruction—
+A statement inside an embedded block now has as its source the entity that HOSTS it,
+instead of the file. `attributeToHostEntity` + `hostEntityAt` in `treesitter_embedded.go`,
+running before the merge, while the block's position is still at hand — the embedded parse
+is the file's last step, so the host's entities already exist with absolute line numbers.
 
-This is already in English. No translation needed.
+Innermost by span, because documents nest; content-named labels (`Value`, `AttributeValue`,
+`Text`, `Comment`) are excluded, otherwise the text node CARRYING the statement would always
+be the innermost match and the source would be the statement's own text. Ties are broken by
+line and then name, because `Entities` is a map and maps have no order.
 
-The query returns an empty result or only readers. "Nobody writes in this table."
-A conclusion with consequences, and the mode of failure is not missing link: it's the missing link.
-He resolved for another node. The skill now inspects `label(a)/label(b)`.
-Before concluding absence, and explains that `File → File` means target.
-Unresolved
-Without columns or uniqueness constraints. Forbidden from inferring "the database does not guarantee this."
-A query that did not find an unique index - the graph does not index it, so the empty set.
-The proof is in the pudding. Before making the assertion, read the DDL with the tool of source.
-Cold Start with an Empty Memory and a Query That Doesn't Exist
-They were indistinguishable in their pursuit. `graphit_memory_list` reads the store directly.
-Resolve in a call — instruction to use in the first empty search, not on
-  terceira.
+This is the half that makes the project's own grammar pay off: the engine has no idea what
+the host models — a step, a job, a handler are all just entities some grammar declared —
+and because it doesn't know, it attributes whichever one fits.
 
-## Segunda rodada: os itens adiados, feitos
+> **FIXED on 2026-08-19, and what is written above describes the defective version.**
+> "Innermost by span" wasn't enough: the caller passed the OFFSET as the block's line, one
+> line above it, so the source became the sibling above it — in indented XML, the `<key>`
+> that precedes the `<value>`. And "innermost that spans the line" was replaced with
+> "innermost that CONTAINS the block, strictly," because in a data grammar an entity's span
+> ends at the start tag. See `docs/tasks/embedded-block-host-must-contain-the-block.md`.
 
-Assignment to Host Entity
+### Index with table, columns, and uniqueness
 
-The statement of an embedded block has its origin in the entity that it HOSTS, not
-o arquivo. `attributeToHostEntity` + `hostEntityAt` em `treesitter_embedded.go`, rodando
-Before the merge, while the block position is still in hand—this is the embedded parser's role.
-Last step of the file, then the host entities already exist with absolute lines.
+`Index` used to be a name and nothing else. Now it carries:
 
-Innermost por span, porque documento aninha; content-named labels (`Value`,
-Excluded from `AttributeValue`, `Text`, and `Comment`, otherwise the text loading node.
-The statement would always be the most internal and the origin would be the very text of the statement itself.
-Statement. By line and name, because INLINE_0 is a map and maps do not have order.
-
-It's half that dictates the grammar of the project: the engine doesn't know what the host is
-Models - stage, job, handler are all just declared entities by some grammar.
-Because of not knowing, he attributes any one.
-
-Corrected on August 19, 2026, and what is written above describes the defective version.
-> "Innermost por span" era pouco: o chamador passava o DESLOCAMENTO como linha do bloco, uma
-Above it, then the origin turned into the brother above— in an indented XML, the `<key>` that
-> antecede o `<value>`. E "innermost que cruza a linha" foi trocado por "innermost que CONTÉM
-The block, strictly speaking, because in a data grammar, the span of an entity ends at the start.
-> tag. Ver `docs/tasks/embedded-block-host-must-contain-the-block.md`.
-
-### Índice com tabela, colunas e unicidade
-
-`Index` era um nome e nada mais. Agora carrega:
-
-Table, as `REFERENCES` exits from index (`create_index`) entered
+- the **table**, as `REFERENCES` coming out of the index (`create_index` entered
   `context_types`);
-Columns covered, in order, which is semantic in an indexed compound;
-- a **unicidade**, no `value` — justamente a propriedade que a auditoria encontrou vazia.
+- the **covered columns**, in order, which is semantically meaningful in a composite index;
+- **uniqueness**, in `value` — exactly the property the audit found empty.
 
-`INLINE_0` is a keyword, not a rule, and therefore required a new capability in ```
-Motor: It falls into the TOKEN when no rule fits. Generic - any
-Grammar, now that you can load facts into keywords, can capture them too.
-``Token`` comes with its grammar's syntax (`'UNIQUE'`, in quotes), so the comparison.
-The tree was felled without being cut down.
+`UNIQUE` is a keyword, not a rule, and that required a new engine capability:
+`ChildByRule` falls back to the TOKEN when no rule matches. Generic — any ANTLR grammar
+that carries a fact in a keyword can now capture it. The `Token` comes with the grammar's
+own spelling (`'UNIQUE'`, quotes included), so the comparison strips the quotes; found by
+dumping the tree, not deduced.
 
-Controlled Test: An Index Cannot Win the Mark — "The Bank Guarantees"
-Exactly the assertion that cannot be invented.
+Tested with a control: a NON-unique index must not get the marker — "the database
+guarantees this" is exactly the claim that must never be invented.
 
-The only thing NOT made, and why
+## The one item NOT done, and why
 
-Column-level DML Investigation and Oversight: A Deeper Dive and Oversight Exclusion: The Version
-Simple-minded produces the same class of error that this round existed to eliminate. Capture the
-Column is trivial; solving it isn't. `resolveNamed` requires exactly one candidate.
-They exist in dozens of tables—so almost all edges would fall.
-In case of fallback, and a single node would aggregate all writes from ALL tables. "Who
-He would respond with whom he writes the identical column.
-apresentado como se fosse a dela.
+**Column-level DML.** Investigated thoroughly and deliberately left out: the naive version
+produces the same class of error this round existed to eliminate. Capturing the column is
+trivial; resolving it is not. `resolveNamed` requires exactly one candidate, and
+`ORDER_ID`/`STATUS`/`ID` exist in dozens of tables — so almost every edge would fall back,
+and a single `Column` node would aggregate the writes of ALL tables. "Who writes this
+column" would answer with whoever writes the same-named column of any other table,
+presented as if it were this one's.
 
-The blockade was necessary; no longer is there token capture (the token's capture has become available in this round)
-It is what resolves the uniqueness of the index), lacks QUALIFICATION. The table is a sister to the column
-In the tree and the captures resolve downward, then a pattern that fits the column not
-It reaches the table, and one that fits the statement only reaches the first column. The drawing that
-resolve - inline 0 captures, inline 1, and declaration index
-qualified by `context.name` — written in the backlog with the acceptance criteria that
-Detects aggregation if it recurses.
+The blocker turned out to be precise: it's not that capture is missing (the token capture
+added this round is what resolved the index's uniqueness), it's that QUALIFICATION is
+missing. The table is a sibling of the column in the tree, and captures resolve downward, so
+a pattern that matches the column can't reach the table, and one that matches the statement
+only reaches the first column. The design that resolves it — `..` traversal in captures,
+`qualifier_capture`, and a declaration index qualified by `context.name` — is written up in
+the backlog, with an acceptance criterion that detects the aggregation if it comes back.
 
-## Fronteira reafirmada
+## Boundary reaffirmed
 
-O motor conhece FORMATOS (`xml`, `sql`, `json`), nunca FERRAMENTAS. Reconhecer as
-The concrete flow orchestrator's structure is customized grammar of the project.
-Consumer role here is to deliver the generic apparatus – and when the consumer doesn't
-He can get there with him, the hole is here even if nothing is there.
-tecnicamente quebrado.
+The engine knows FORMATS (`xml`, `sql`, `json`), never TOOLS. Recognizing the structures of
+a concrete flow orchestrator is the consuming project's own custom grammar. This engine's
+job is to deliver the generic apparatus — and when the consumer can't reach the answer with
+it, the gap is here, even if nothing is technically broken.
 
 ## Progress Log
 
-August 15, 2026 - Diagnosis, correction, graph tests, three repetitions cuts, three
-  itens de backlog. `go test ./...` verde. Falta reindexar os consumidores: o cache de
-Shards are keyed by content hashes and only the bump of `shardCacheVersion` invalidates it.
-With the daemon running the new binary.
-August 15, 2026 (same session, later) - Correction by Engineer: I had assigned one
-Found the error in the query agent's reading, which had read the skill. The criterion becomes
-The agent read the skill and missed = instruction is missing. Reclassified and redirected
-under instruction: named labels by content (Phase 2 of the AST skill), diagnosis
-Empty DML Query Prohibits Inference of Bank Guarantee from an INLINE_0 without Columns
-And an inline error in the memory skill.
-  `internal/memory/rule.go`.
+- 2026-08-15 — Diagnosis, fix, graph tests, three repetition cuts, three backlog items.
+  `go test ./...` green. Consumers still need reindexing: the shard cache is keyed by
+  content hash, and only bumping `shardCacheVersion` invalidates it, with the daemon
+  running the new binary.
+- 2026-08-15 (same session, later) — Correction by the Engineer: I had attributed a finding
+  to an agent query error, when the agent had actually read the skill. The criterion becomes
+  **the agent read the skill and still got it wrong = the instruction is missing**.
+  Reclassified and turned into instructions: labels named by content (Phase 2 of the AST
+  skill), diagnosing an empty DML query, the ban on inferring a database guarantee from an
+  `Index` with no columns, and the cold-start signal in the memory skill.
+  `internal/ast/rule.go`, `internal/memory/rule.go`.
 
-Third Round: The Qualification, and the Item That Was Missing Entered
+## Third round: qualification, and the item that had been left out comes in
 
-The column-level DML was out because the naive version aggregated. The lock was
-QUALIFICAÇÃO, e ela agora existe como mecanismo do motor.
+Column-level DML was left out because the naive version aggregated. The blocker was
+QUALIFICATION, and it now exists as an engine mechanism.
 
-Generic - across both backends
+### `qualifier_capture` — generic, across both backends
 
-Um alvo capturado passa a resolver como `QUALIFICADOR.NOME`, e `scan()` indexa toda
-The declaration with `Context` also under `context + "." + name`. The field is the same in YAML and
-Semantics follows the backend because the trees are different:
+A captured target now resolves as `QUALIFIER.NAME`, and `scan()` indexes every declaration
+with a `Context` under `context + "." + name` as well. The field is the same in YAML, and
+the semantics follow the backend, because the trees are different:
 
-ANTLR: The pattern matches one node and captures them recursively, but the qualifier is a sibling (a)
-The update table goes alongside the SET). The path is anchored in ANCESTRAL —
-The first segment is the rule that you must follow. The chain has already existed in INLINE_0__;
-It was missing INLINE_0 from accepting anchors, derived directly from its own queries.
-Here is the translation:
+- **ANTLR**: the pattern matches ONE node and captures descend, but the qualifier is a
+  SIBLING (an UPDATE's table sits beside the SET). The path is anchored on an ANCESTOR —
+  the first segment is the rule to climb to. The chain already existed in
+  `MatchResult.Context`; what was missing was `contextRulePredicate` accepting the anchors,
+  derived from the queries themselves via `qualifierAnchors`, deliberately WITHOUT turning
+  into `context_type`, otherwise `update_statement` would end up owning everything inside it.
+- **tree-sitter**: the pattern is structural and matches the whole tree, so the qualifier is
+  another CAPTURE (`QualifierIdx` alongside `NameIdx`/`ValueIdx`/`ParentIdx`).
 
-"INLINE_0 and deliberately not turning INLINE_1, otherwise INLINE_2"
+**The decision that defines the quality bar:** a query that asks for a qualifier and can't
+get one emits NOTHING. An unqualified edge isn't a lesser version of a good one — it's
+harmful. Qualifying also makes the fallback honest: a `PEDIDO.ST_PROC` stub records a
+column of one table, where `ST_PROC` alone would have merged every table's columns
+together.
 
-This translation maintains the structure of the original Portuguese text while rendering it in idiomatic English. The placeholders "`qualifierAnchors`", "`context_type`", and "`update_statement`" are left as they were to preserve the specific meaning intended by the original author.
-  viraria dono de tudo dentro dele.
-Tree-sitter patterns are structural and encompass the entire tree, so the qualifier is
-  outra CAPTURA (`QualifierIdx` ao lado de NameIdx/ValueIdx/ParentIdx).
+### The relation-type allowlist became an exclusion list
 
-The decision that defines quality: a query asking for a qualifier but not getting one
-It emits nothing. The unqualified boundary is not a lesser version of good; it is harmful.
-Qualifying also makes the fallback honest: an inline 0 stub registers a column
-de uma tabela, onde `ST_PROC` fundiria as de todas.
-
-The type relationship whitelist has turned into an exclusion list.
-
-`INLINE_0` was an array of Go relationship names - vocabulary in code.
-Grammar stuck in the engine. It was stale in both directions: it admitted `CREATES`, `EXECUTES`, and
-The following is an idiomatic English translation of the provided Portuguese text:
-
-"`TRUNCATES`," which none of the grammars sent declares, and silently discarded any.
-type new - extracted entities, cached references, no edges and no errors.
-It turned into INLINE 0: the exclusion of what the engine routes on its own path.
+`validDMLEdgeTypes` was a fixed list of RELATION NAMES in Go code — grammar vocabulary
+trapped in the engine. It was stale in both directions: it admitted `CREATES`, `EXECUTES`,
+and `TRUNCATES`, which no shipped grammar declares, and it **silently discarded** any new
+type — entities extracted, references cached, no edge and no error. It became
+`engineOwnedRelTypes`: the exclusion list of what the engine routes through its own path
 (CALLS, INSTANTIATES, READS/WRITES_FIELD, INHERITS, IMPLEMENTS, IMPORTS, DECORATOR,
-Export). What an engine possesses is closed-ended; what a grammar invents now
-chega ao grafo sozinho.
+EXPORT). What the engine owns is now a closed question; whatever a grammar invents reaches
+the graph on its own.
 
-Coverage in language, which is always the question to ask
+### Per-language coverage, which is the question to always ask
 
-`WRITES_COLUMN` declarado em **plsql, tsql, postgresql** (UPDATE + INSERT), **db2**
-Only update, and **SQL/Tree-Sitter**. All trees are different, and each path came from
-A dump is not of speculation. In DB2, INSERT does not descend into columns - declare the query
-It would be an example that fits nothing at all, worse than being absent because it seems like cover-up.
+`WRITES_COLUMN` declared in **plsql, tsql, postgresql** (UPDATE + INSERT), **db2** (UPDATE
+only), and **sql/tree-sitter**. The trees are all different, and each path came from a dump,
+not an assumption. In db2, INSERT doesn't descend into column nodes — declaring the query
+there would be a pattern that matches nothing, which is worse than absence because it looks
+like coverage.
 
-Quarter Final: Closed Index Parity, and What It Reveals
+## Fourth round: index parity closed, and what it uncovered
 
-The index form is now available in **PL/SQL, T-SQL, PostgreSQL, DB2, and SQL/Treesitter**.
-Each path emerged from a dump. Two things came out with it:
+Index shape now exists in **plsql, tsql, postgresql, db2, and sql/tree-sitter**. Each path
+came from a dump. Two things came out of it:
 
-The guard was unnecessary. As `ChildByRule` falls into the token, the capture
-It returns empty when the mark is not there—so ONE query resolves both cases, and the
-`INLINE_0` was simplified from two to one. In PostgreSQL, it's not even a token; it’s just the rule.
-The `unique_` simply does not appear in a common index. Even the same field, the same answer.
+**The uniqueness guard turned out to be unnecessary.** Since `ChildByRule` falls back to the
+token, the capture returns empty when the marker isn't there — so ONE query resolves both
+cases, and `plsql` was simplified from two queries to one. In postgres the marker isn't even
+a token: it's the `unique_` rule, which simply doesn't appear in an ordinary index. Same
+field, same answer.
 
-``context_name_paths` was read only by the backend Tree-Sitter.` In ANTLR, the name of a variable is...
-Context exited from INLINE_0 - field declared as name, otherwise first terminal.
-It doesn't fail high: the first terminal of INLINE_0 is the word
-Here is the translation:
+**`context_name_paths` was only read by the tree-sitter backend.** In ANTLR, a context's
+name came from `declarationName` — the declared name field, or else the FIRST TERMINAL. That
+doesn't fail loudly: the first terminal of `CREATE UNIQUE INDEX ...` is the word `CREATE`,
+so every entity inside the statement ended up with a context named "CREATE". Measured: in
+tsql, `create_or_alter_function`, `create_or_alter_procedure`, and `create_schema` all
+answered "CREATE"; in postgres, `createtrigstmt` answered with the trigger's TABLE instead
+of its name. The same YAML key now answers consistently on both backends, with the same
+rule walker.
 
-"`CREATE`", then all entities within the statement would have a context called
-"CREATE". Medido: em tsql, `create_or_alter_function`, `create_or_alter_procedure` e
-`create_schema` respondiam "CREATE"; em postgres, `createtrigstmt` respondia a TABELA do
-trigger em vez do nome dele. A mesma chave de YAML agora responde nos dois backends,
-com o mesmo caminhador de regras.
+**What this repo's own guard test uncovered.** Declaring `context_types` in `sql.yaml`,
+`tsql.yaml`, and `postgresql.yaml` triggered `TestEveryCallableContainerIsDeclaredAsAContext`
+and its sibling, which require that EVERY container a grammar declares be listed in
+`context_types` — otherwise parameters and columns get attributed to whatever surrounds
+them, or dropped. `sql.yaml` came out of `flatLanguages` and started declaring
+`create_table`, `create_view`, and `create_function` in addition to the index. In other
+words: parity wasn't just adding the index — it closed containment gaps these three
+grammars were missing.
 
-**O que o teste-guarda deste repo desenterrou.** Declarar `context_types` em `sql.yaml`,
-`tsql.yaml` e `postgresql.yaml` acionou `TestEveryCallableContainerIsDeclaredAsAContext`
-And her sister, who demands that every declared container by a grammar be in
-Here is the translation:
+## Fifth round: backlog tackled, and the repository goes English
 
-"Otherwise, parameters and columns are assigned to what surrounds them."
-descartados. `sql.yaml` saiu de `flatLanguages` e passou a declarar `create_table`,
-And beyond the index, which means parity was not just
-Add an index — it was closing what was missing in these three grammars.
+### Language: decided and applied
 
-Quintuple Round: The backlog is attacked, and the repository switches to English.
+The Engineer closed the question that had been open in the backlog — **code and comments
+are 100% English.** Translated ~520 lines: `rebuild_index.go` (100 lines, the largest block
+and the module's most valuable rationale), `cache_convert.go`, the AST tests, and the
+comments across 45 grammar YAMLs. Much of the YAML was the SAME paragraph repeated across 26
+grammars — translated once and applied to all.
 
-### Idioma: decidido e aplicado
+Two traps in the translation, both caught by tests: a comment in `comment_entity_test` was a
+**fixture**, and its assertion mirrored the text (translating only one side broke the test);
+and multi-line block replacement leaves an **orphan line** when the block changed since it
+was written — the final pass scanning for accented characters is what closes that.
 
-The Engineer closed the open question in the backlog - code and comments are
-One hundred percent English. Translated approximately 520 lines: INLINE_0__ (100, the largest block and the...
-The most valuable feature of module, `cache_convert.go`, is the AST tests and comments.
-Of the 45 YAMls of grammar, a good part was just one paragraph repeated in 26.
-Grammar rules - once translated and applied to all.
+### `unused` linter: turned on, and the backlog's measurement was wrong
 
-Two traps in the translation, both caught by test: a comment in `comment_entity_test`
-It was a fixture, and his assertion mirrored the text (translated only one side broke the test);
-Replacement of multiline block leaves an orphaned line when the block has changed since it was last used.
-Written: The final character-by-character scan is what closes this.
+The backlog claimed "costs zero (0 issues)." The measurement had been run with
+`golangci-lint run --enable unused`, and **`--enable` doesn't override the config's
+`disable:`** — the linter never actually ran. Turned on for real: **25 dead symbols**, all
+removed (a third copy of `copyDirRecursive`, a whole `mockGit` that builds nothing, a
+benchmark's `rssSampler` whose benchmark had disappeared, `resolveWikiScopeDir`,
+`isRemoteEmpty` from GitStore, and others). `make lint` is green, and a dead test function
+confirms the net actually catches things.
 
-Lint tool is enabled, and the backlog measurement was incorrect.
+### Daemon: stable cwd at startup
 
-The backlog stated "zero issues" (0 issues). The measurement was conducted with
-**Inline 1 does not overlay Inline 2 of **Inline 0**.
-Brazilian Portuguese to idiomatic English:
+`chdirToStableDir()` at the start of `Daemon.Start`. The daemon inherited its cwd from
+whoever spawned it — including a test that had chdir'd into its own `t.TempDir()` — and it
+survived the directory's removal, after which EVERY tool that calls `os.Getwd()` failed
+while the ones that resolve via `project_dir` kept working. That split is what made the
+symptom look like it belonged to just one module. Deliberately best-effort: a daemon that
+can't chdir is still a working daemon.
 
-The lint **never ran**. True, **25 dead symbols**, all
-Removed (a third copy of `copyDirRecursive`, an integer `mockGit` that nothing)
-builds an inline 0 of a benchmark that failed, inline 1,
-In GitStore and other places, there is a green inline comment, and a dead test function
-confirma que a rede pega.
+### Evaluated and kept in the backlog
 
-Daemon: The current working directory is stable on startup.
-
-At the beginning of `Daemon.Start`, the daemon inherited the current working directory from whom.
-It emerged, including from a test that ran chdir for itself `t.TempDir()`.
-After removing the directory, all tools that call `os.Getwd()` failed.
-While those who resolved by `project_dir` were still functioning, that division was what did it.
-The symptom appears like an incomplete module. Best effort for purpose: a daemon that cannot
-Chdir is still running as a daemon.
-
-### Avaliados e mantidos no backlog
-
-Graph integrity sensor remains valid and valuable: detects mode
-Silent BugDB Corruption String Test - None of the current tests catch it. It's work.
-Clearly defined (_`graphit ast verify`), not here.
-Two loose ends of the dream continue valid; the first (take it to the report)
-The session warning that you didn't use the tool is cheap and should come first.
-- **Flake do `TestMemoryGitStore_CreateOrphanBranch_Full`** — reproduzida uma vez nesta
-The session was under load, passing three consecutive executions. The backlog diagnosis remains standing.
-ICU in the bundle is blocked by the Engineer's decision ("return it, then I'll fix it later").
-I resolve this) and requires verification on macOS and Windows, which cannot be done from here.
+- **Graph integrity probe** — still valid and worthwhile: it detects the SILENT corruption
+  mode of LadybugDB string data, which no current test catches. It's well-scoped work
+  (`graphit ast verify`), not done here.
+- **Two loose ends from the dream** — still valid; the first (surfacing in the report a
+  session's warning that it didn't use a tool) is cheap and should come first.
+- **Flake in `TestMemoryGitStore_CreateOrphanBranch_Full`** — reproduced once this session
+  under load, passed on 3 consecutive runs afterward. The backlog's diagnosis still stands.
+- **ICU in the bundle** — blocked by the Engineer's decision ("bring the lib back, I'll deal
+  with it later") and needs verification on macOS and Windows, which can't be done from here.

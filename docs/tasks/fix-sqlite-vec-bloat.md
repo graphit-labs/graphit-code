@@ -1,31 +1,39 @@
-# Fix: sqlite-vec bloat no ladybugdb.search.sqlite
+# Fix: sqlite-vec bloat in ladybugdb.search.sqlite
 
-## Resultado
+## Result
 
-"20 GB → 760 MB" (a reduction of 96%)
+**20 GB → 760 MB** (96% reduction)
 
-## Problema
+## Problem
 
-The file `.graphit/ast/project/ladybugdb.search.sqlite` grew to **20GB** with only **2.3% of actual usage**.
+The file `.graphit/ast/project/ladybugdb.search.sqlite` grew to **20GB** with only **2.3%
+actual utilization**.
 
-Diagnosis
+### Diagnosis
 
-The `sqlite-vec` (`vec0`) allocates fixed-size chunks of **1024 slots × 3072 bytes = 3MB per chunk**. When lines are deleted via `DELETE FROM entity_vec`, the slots are only marked as invalid in the `entity_vec_chunks.validity` bitmap — disk space is never released.
+`sqlite-vec` (`vec0`) allocates fixed-size chunks of **1024 slots × 3072 bytes = 3MB per
+chunk**. When rows are deleted via `DELETE FROM entity_vec`, the slots are only marked invalid
+in the `entity_vec_chunks.validity` bitmap — the disk space is **never released**.
 
-Slots allocated: 6,714,368 (6557 chunks × 1024)
-Slots used: 154,791
-Utilization rate: 2.3%
-Space wasted: ~18.76 GB
+| Metric | Value |
+|---|---|
+| Allocated slots | 6,714,368 (6557 chunks × 1024) |
+| Used slots | 154,791 |
+| Utilization rate | 2.3% |
+| Wasted space | ~18.76 GB |
 
-Secondary Cause: Virtual Table DROP fails silently
+### Secondary cause: DROP VIRTUAL TABLE fails silently
 
-The first attempt to fix used `DROP VIRTUAL TABLE entity_vec` + `CREATE`. However, the `sql.DB` in Go maintains a pool of prepared statements compiled against tables — this prevents SQLite from executing the DROP, which silently fails (error ignored with `_, _ = ...`). The `CREATE` subsequent attempt fails with "table already exists".
+The first fix attempt used `DROP VIRTUAL TABLE entity_vec` + `CREATE`. But Go's `sql.DB`
+maintains a connection pool with prepared statements compiled against the tables — this
+prevents SQLite from executing the DROP, which fails silently (error ignored with `_, _ =
+...`). The subsequent `CREATE` fails with "table already exists".
 
-Final Solution Applied
+## Final Solution Applied
 
 ### `internal/ast/fts_sqlite.go` — `RebuildFromCache()`
 
-Replaced the entire mechanism of `DROP/CREATE` with **close + delete + reopen** for the SQLite file:
+Replaced the entire DROP/CREATE mechanism with **close + delete + reopen** of the SQLite file:
 
 ```go
 _ = s.db.Close()
@@ -34,28 +42,28 @@ _ = os.Remove(s.path + "-wal")
 _ = os.Remove(s.path + "-shm")
 
 db, _ := sql.Open("sqlite3", s.path+"?_journal_mode=WAL&...")
-migrateSearchSchema(db)  // recria tabelas vazias
+migrateSearchSchema(db)  // recreates empty tables
 s.db = db
-... INSERT directly, without necessary DELETES
+// ... direct INSERT, no DELETEs needed
 ```
 
-This approach is guaranteed to work independently of sqlite-vec or connection pools.
+This approach is guaranteed to work regardless of sqlite-vec or the connection pool.
 
---- INLINE 12 --- INLINE 13 with INLINE 14
+### `cmd/graphit/commands/ast.go` — `ast embed` with `pending == 0`
 
-Added a check for the existence of SQLite in an early return:
+Added a check for SQLite's existence in the early return:
 
 ```go
 if pending == 0 {
     if _, err := os.Stat(idxPath); os.IsNotExist(err) {
-        // SQLite foi deletado — rebuildar sem re-embeddar
+        // SQLite was deleted — rebuild without re-embedding
         searchIdx.RebuildFromCache(parseCache, embLookup)
     }
     return nil
 }
 ```
 
-## Arquivos modificados
+## Modified Files
 
-- `internal/ast/fts_sqlite.go` - `RebuildFromCache()`: close, delete, and reopen instead of DROP/DELETE
-- `cmd/graphit/commands/ast.go` - `newASTEmbedCmd()`: rebuild when SQLite does not exist and `pending == 0`
+- `internal/ast/fts_sqlite.go` — `RebuildFromCache()`: close+delete+reopen instead of DROP/DELETE
+- `cmd/graphit/commands/ast.go` — `newASTEmbedCmd()`: rebuild when SQLite doesn't exist and `pending == 0`

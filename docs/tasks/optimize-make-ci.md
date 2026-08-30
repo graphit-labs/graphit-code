@@ -9,88 +9,88 @@ tags: [ci, testing, performance, graphit-improvements]
 # Optimize make ci — slowness measured and test hygiene
 
 ## Objective
-`make ci` (`ui vet lint vulncheck test ui-lint`) é percebido como muito lento (>10min) e deve passar 100% verde. Aplicar a metodologia `graphit-improvements` — Performance (parallelism, non-blocking I/O) e Testing (isolated business logic, inject dependencies, small focused tests) — para medir o gargalo real, corrigir o que bloqueia `ci` corretamente e deixá-lo mais rápido sem sacrificar cobertura.
+`make ci` (`ui vet lint vulncheck test ui-lint`) is perceived as very slow (>10min) and must pass 100% green. Apply the `graphit-improvements` methodology — Performance (parallelism, non-blocking I/O) and Testing (isolated business logic, inject dependencies, small focused tests) — to measure the real bottleneck, fix what is properly blocking `ci`, and make it faster without sacrificing coverage.
 
 ## Reasoning
-- Lint/vet já zerados nos dois commits anteriores (`2f1d552`, `8e05a84`), mas `make ci` ainda inclui `vulncheck` + `test -race` com 1.29M linhas ANTLR linkadas e `internal/ai` baixando modelo 132MB. Memórias registram `make test é lento por estrutura: internal/ast linka 1,29M linhas de ANTLR e tudo compila duas vezes` e `Onde a lentidão realmente está: medido, não estimado` — a causa não é só CPU mas duplo `go list`/`go test` e falta de `-short` para testes pesados.
-- Skill `graphit-improvements` exige: business logic testável sem DB/rede, dependências externas via interface/mock, paralelismo para CPU-bound e async para I/O-bound, e `ci` deve respeitar `GO_PKGS_SKIP` já existente.
+- Lint/vet were already zeroed out in the two previous commits (`2f1d552`, `8e05a84`), but `make ci` still includes `vulncheck` + `test -race` with 1.29M lines of linked ANTLR and `internal/ai` downloading a 132MB model. Memories record `make test is slow due to structure: internal/ast links 1.29M lines of ANTLR and everything compiles twice` and `Where the slowness really is: measured, not estimated` — the cause isn't just CPU but a double `go list`/`go test` and a lack of `-short` for heavy tests.
+- The `graphit-improvements` skill requires: business logic testable without DB/network, external dependencies via interface/mock, parallelism for CPU-bound work and async for I/O-bound work, and `ci` must respect the existing `GO_PKGS_SKIP`.
 
 ## Justification
-- Alternativa A: só aumentar `-p` — descartada, não resolve duplo build nem modelo 132MB.
-- Alternativa B: reescrever todos os testes para mock — escopo grande, via backlog.
-- Escolhida: medir `make vet/lint/vulncheck/test` isolados, paralelizar `vet|lint|vulncheck|ui-lint` (independentes), introduzir modo `-short` para pular testes pesados (LanceDB/ONNX) e documentar, sem quebrar `ci` completo.
+- Alternative A: just increase `-p` — discarded, doesn't solve the double build or the 132MB model.
+- Alternative B: rewrite all tests to use mocks — large scope, deferred to the backlog.
+- Chosen: measure `make vet/lint/vulncheck/test` in isolation, parallelize `vet|lint|vulncheck|ui-lint` (independent), introduce a `-short` mode to skip heavy tests (LanceDB/ONNX), and document it, without breaking the full `ci`.
 
 ## Plan & Task Breakdown
-- [ ] **T1 — Measure** — Rodar `time make vet`, `time make lint`, `time make ui-lint`, `time go test -tags lancedb -short -p 4` vs completo, e `go test -list` para achar pacotes pesados. Registrar números em `## Progress Log`.
-- [ ] **T2 — Test hygiene audit** — Verificar se `internal/ai/*_test.go` e `internal/ast/*_test.go` injetam `ModelManager`/`LadybugDB` via interface ou usam rede/disco real; marcar violações como backlog se não for viável no diff.
-- [ ] **T3 — Makefile ci parallel** — Fazer `ci` rodar `vet lint vulncheck ui-lint` em paralelo (`&`/`wait` ou `$(MAKE) -j4`) e manter `test` sequencial após, sem quebrar `GO_PKGS_SKIP` e `BUILD_TAGS`.
-- [ ] **T4 — Fast test path** — Adicionar `-short` aos testes pesados (`if testing.Short() { t.Skip }`) em 2-3 casos provando o padrão (ai model, ladybug lancedb), e expor `make test-short` usado por `ci` rápido; `ci` completo continua disponível.
-- [ ] **T5 — Verify** — `make vet && make lint && make ui-lint` 0, `make test-short` < 1/2 do tempo de `make test`, `make ci` verde em máquina local.
+- [ ] **T1 — Measure** — Run `time make vet`, `time make lint`, `time make ui-lint`, `time go test -tags lancedb -short -p 4` vs. the full run, and `go test -list` to find heavy packages. Record numbers in `## Progress Log`.
+- [ ] **T2 — Test hygiene audit** — Check whether `internal/ai/*_test.go` and `internal/ast/*_test.go` inject `ModelManager`/`LadybugDB` via interface or use real network/disk; mark violations as backlog if not feasible within this diff.
+- [ ] **T3 — Makefile ci parallel** — Make `ci` run `vet lint vulncheck ui-lint` in parallel (`&`/`wait` or `$(MAKE) -j4`) and keep `test` sequential afterward, without breaking `GO_PKGS_SKIP` and `BUILD_TAGS`.
+- [ ] **T4 — Fast test path** — Add `-short` to heavy tests (`if testing.Short() { t.Skip }`) in 2-3 cases proving the pattern (ai model, ladybug lancedb), and expose `make test-short` used by fast `ci`; the full `ci` remains available.
+- [ ] **T5 — Verify** — `make vet && make lint && make ui-lint` 0, `make test-short` < 1/2 the time of `make test`, `make ci` green on a local machine.
 
 ## Implementation Details
-**T1 — Measure:** `time make vet` 0.57s, `lint` 1.39s, `ui-lint` 4.25s sequencial = 6.2s, paralelo = max 4.25s. `vulncheck` timeout 120s evidencia gargalo de rede; `go test -run=^$ -tags lancedb ./internal/ast` só compilação já custa segundos devido a 1.29M linhas ANTLR. `go test -short` em `internal/ai` 0.615s vs sem `-short` >5s com download.
+**T1 — Measure:** `time make vet` 0.57s, `lint` 1.39s, `ui-lint` 4.25s sequential = 6.2s, parallel = max 4.25s. `vulncheck` timeout at 120s shows the network bottleneck; `go test -run=^$ -tags lancedb ./internal/ast` — compilation alone already costs seconds due to 1.29M lines of ANTLR. `go test -short` on `internal/ai` 0.615s vs. without `-short` >5s with download.
 
-**T2 — Hygiene:** `internal/ai/ai_test.go:1094` `TestModelManager_EnsureModel_DownloadModel` e similares fazem download real via `httptest` mas também já testavam fallback de rede; `internal/lancestore/probe_floor_lancedb_test.go:342` `TestSearchQualityGate` exige modelo + LanceDB. Violam `Isolated Business Logic` (skill) — deveriam injetar `ModelManager` mock, mas escopo grande → `t.Skip` em `-short` como mitigação.
+**T2 — Hygiene:** `internal/ai/ai_test.go:1094` `TestModelManager_EnsureModel_DownloadModel` and similar tests do a real download via `httptest` but were also already testing network fallback; `internal/lancestore/probe_floor_lancedb_test.go:342` `TestSearchQualityGate` requires the model + LanceDB. They violate `Isolated Business Logic` (skill) — they should inject a mock `ModelManager`, but the scope is large → `t.Skip` under `-short` as a mitigation.
 
-**T3 — Makefile ci parallel:** `ci: lancedb-native` + `$(MAKE) -j5 ui vet lint vulncheck ui-lint` + `$(MAKE) test`; novo `ci-fast: lancedb-native` + `$(MAKE) -j3 vet lint ui-lint` + `test-short`. Mantido `GO_PKGS_SKIP` e `-unreachable=false`.
+**T3 — Makefile ci parallel:** `ci: lancedb-native` + `$(MAKE) -j5 ui vet lint vulncheck ui-lint` + `$(MAKE) test`; new `ci-fast: lancedb-native` + `$(MAKE) -j3 vet lint ui-lint` + `test-short`. `GO_PKGS_SKIP` and `-unreachable=false` kept as-is.
 
-**T4 — Fast test path:** Novo `test-short` duplica `test` com `-short` em ambas as fases (`-race` para project code e sem race para parsers). Adicionado `if testing.Short() { t.Skip }` em `internal/ai/ai_test.go:1094,1118,1169`, `ai/model_progress_test.go:131,151`, `ai_embedding_test.go:433`, `lancestore/probe_floor_lancedb_test.go:342,405`.
+**T4 — Fast test path:** New `test-short` duplicates `test` with `-short` in both phases (`-race` for project code and no race for parsers). Added `if testing.Short() { t.Skip }` in `internal/ai/ai_test.go:1094,1118,1169`, `ai/model_progress_test.go:131,151`, `ai_embedding_test.go:433`, `lancestore/probe_floor_lancedb_test.go:342,405`.
 
-**T5 — Verify:** `make vet/lint/ui-lint` 0, `go test -short -tags lancedb ./internal/ai ./internal/lancestore` 0.8s, `go test -short -run TestModelManager...` SKIP correto.
+**T5 — Verify:** `make vet/lint/ui-lint` 0, `go test -short -tags lancedb ./internal/ai ./internal/lancestore` 0.8s, `go test -short -run TestModelManager...` correctly SKIPs.
 
 ## Use Cases
-### UC-01: CI rápido para PRs
+### UC-01: Fast CI for PRs
 - **Actor**: Dev / CI runner
-- **Preconditions**: `make ci` deve ser verde.
-- **Main Flow**: `make ci` roda `ui` → `vet|lint|vulncheck|ui-lint` em paralelo → `test -short`.
-- **Alternative**: `make ci-full` roda `test` completo com modelo.
-- **Error**: Se teste pesado falha só em modo completo, `test -short` não esconde — `ci-full` semanal pega.
-- **Postconditions**: PRs rápidos, main ainda cobre integração.
+- **Preconditions**: `make ci` must be green.
+- **Main Flow**: `make ci` runs `ui` → `vet|lint|vulncheck|ui-lint` in parallel → `test -short`.
+- **Alternative**: `make ci-full` runs the complete `test` with the model.
+- **Error**: If a heavy test only fails in full mode, `test -short` doesn't hide it — the weekly `ci-full` catches it.
+- **Postconditions**: Fast PRs, main still covers integration.
 - **Affected Files**: `Makefile`, `internal/ai/*_test.go`, `internal/ast/*_test.go`
 
 ## Test Cases & Acceptance Criteria
 ### Feature: make ci performance
 Ref: UC-01
-#### Scenario: make ci paralelo é mais rápido que sequencial
+#### Scenario: parallel make ci is faster than sequential
 ```gherkin
-Given vet ~2s, lint ~8s, vulncheck ~12s, ui-lint ~3s sequenciais = ~25s
-When ci roda vet|lint|vulncheck|ui-lint em paralelo
-Then tempo total ~ max(2,8,12,3) + overhead < 15s
+Given vet ~2s, lint ~8s, vulncheck ~12s, ui-lint ~3s sequential = ~25s
+When ci runs vet|lint|vulncheck|ui-lint in parallel
+Then total time ~ max(2,8,12,3) + overhead < 15s
 ```
-#### Scenario: test -short pula modelo 132MB
+#### Scenario: test -short skips the 132MB model
 ```gherkin
-Given internal/ai tests baixam modelo sem -short
+Given internal/ai tests download the model without -short
 When go test -short -tags lancedb ./internal/ai
-Then testes pulam com t.Skip e não baixam, tempo < 5s
+Then tests skip via t.Skip and don't download, time < 5s
 ```
 
 ## Files Changed
 | File | Change | Reason |
 |---|---|---|
-| `Makefile:831` | `ci` paralelo (`-j5 ui vet lint vulncheck ui-lint`) + `ci-fast` (`-j3 vet lint ui-lint`) + `test-short` (`-short`) | Paralelizar I/O-bound/CPU-bound per skill Performance |
-| `internal/ai/ai_test.go:1094,1118,1169` | `if testing.Short() { t.Skip }` | Pular download 132MB em `-short` |
+| `Makefile:831` | parallel `ci` (`-j5 ui vet lint vulncheck ui-lint`) + `ci-fast` (`-j3 vet lint ui-lint`) + `test-short` (`-short`) | Parallelize I/O-bound/CPU-bound per the Performance skill |
+| `internal/ai/ai_test.go:1094,1118,1169` | `if testing.Short() { t.Skip }` | Skip the 132MB download under `-short` |
 | `internal/ai/model_progress_test.go:131,151` | Same |  |
 | `internal/ai/ai_embedding_test.go:433` | Same |  |
-| `internal/lancestore/probe_floor_lancedb_test.go:342,405` | Same | Pular LanceDB quality gate pesado |
-| `internal/ui/eslint.config.js:8` | `ignores: ['dist','coverage']` | Já commitado `af6a183` — `ui-lint` 0 |
+| `internal/lancestore/probe_floor_lancedb_test.go:342,405` | Same | Skip the heavy LanceDB quality gate |
+| `internal/ui/eslint.config.js:8` | `ignores: ['dist','coverage']` | Already committed in `af6a183` — `ui-lint` 0 |
 
 ## Trade-offs & Decisions
-- `GO_PKGS_SKIP` mantido — vet já usa `-unreachable=false` para não falhar em `antlr/db2_parser.go`.
+- `GO_PKGS_SKIP` kept — vet already uses `-unreachable=false` to avoid failing on `antlr/db2_parser.go`.
 
 ## Technical Debt
-- [ ] `internal/ai` e `lancestore` heavy tests ainda usam disco/rede real — migrar para DI com mock `ModelManager`/`Store` per skill Testing (Isolated Business Logic)
-- [ ] `vulncheck` ainda na `ci` completa — extrair para `ci-full` semanal se 120s continuar bloqueando PRs
+- [ ] `internal/ai` and `lancestore` heavy tests still use real disk/network — migrate to DI with a mock `ModelManager`/`Store` per the Testing skill (Isolated Business Logic)
+- [ ] `vulncheck` still in the full `ci` — extract to a weekly `ci-full` if 120s keeps blocking PRs
 
 ## System Knowledge
-- `make test` duplo: `go list | grep -Ev GO_PKGS_SKIP` com `-race` e `grep -E GO_PKGS_PARSERS` sem `-race` — evita recompilar ANTLR com race, mas ainda compila tudo uma vez.
-- `MODEL_CACHE` compartilhado `/tmp/<brand>-model-cache` já evita 132MB por binário; `-short` evita até o httptest.
-- `vet` precisa `-unreachable=false` e `GO_PKGS_SKIP` senão falha em `antlr/db2_parser.go` gerado.
+- `make test` double build: `go list | grep -Ev GO_PKGS_SKIP` with `-race` and `grep -E GO_PKGS_PARSERS` without `-race` — avoids recompiling ANTLR with race, but still compiles everything once.
+- Shared `MODEL_CACHE` at `/tmp/<brand>-model-cache` already avoids 132MB per binary; `-short` avoids even the httptest.
+- `vet` needs `-unreachable=false` and `GO_PKGS_SKIP`, otherwise it fails on the generated `antlr/db2_parser.go`.
 
 ## Progress Log
 ### 2026-08-27
-- Task log criado antes de qualquer edição.
-- T1 measure: vet 0.57s, lint 1.39s, ui-lint 4.25s, vulncheck timeout 120s evidencia gargalo rede.
-- T2 audit: ai/lancestore tests violam Isolated Business Logic — marcado debt, mitigado com Short.
-- T3 Makefile ci parallel + ci-fast + test-short implementados.
-- T4 adicionado t.Skip em 7 testes pesados (ai + lancestore).
-- T5 verify: make vet/lint/ui-lint 0, go test -short ai+lancestore 0.8s, SKIP correto. Próximo: commit e graphit_sync.
+- Task log created before any editing.
+- T1 measure: vet 0.57s, lint 1.39s, ui-lint 4.25s, vulncheck timeout 120s shows the network bottleneck.
+- T2 audit: ai/lancestore tests violate Isolated Business Logic — marked as debt, mitigated with Short.
+- T3 Makefile ci parallel + ci-fast + test-short implemented.
+- T4 added t.Skip to 7 heavy tests (ai + lancestore).
+- T5 verify: make vet/lint/ui-lint 0, go test -short ai+lancestore 0.8s, correct SKIP. Next: commit and graphit_sync.

@@ -1,312 +1,277 @@
 ---
-The tests started running on an ephemeral HOME — and this revealed 6 tests that depended on the machine.
+title: Tests now run in an ephemeral HOME — and this revealed 6 tests that depended on the machine
 status: done
 created: 2026-08-18
 updated: 2026-08-18
-tags: [testes, isolamento, brand, ast, hermeticidade]
+tags: [tests, isolation, brand, ast, hermeticity]
 ---
 
-The tests started running in an ephemeral home — and this revealed 6 tests that depended on the machine.
+# Tests now run in an ephemeral HOME — and this revealed 6 tests that depended on the machine
 
-## Objetivo
+## Objective
 
-The Engineer observed that running the suite polluted the **actual** core of the machine, with
-Projects and temporary directory memories. All tests should run in a temporary directory.
-ephemeral
+The Engineer observed that running the suite polluted the machine's **real** `~/.graphit`, with
+projects and memories from temporary directories. Every test should run in an ephemeral
+directory.
 
-The observation was correct, and the measurement exceeded the suspicion.
+The observation was correct, and the measurement was worse than the suspicion.
 
-## O que foi medido antes de mexer em nada
+## What was measured before touching anything
 
-In this actual machine:
+In this machine's real `~/.graphit`:
 
-Residue | Quantity | Verified Origin
+| Residue | Amount | Proven origin |
 |---|---|---|
-The Portuguese text translates to:
+| `ast/project/path-*` | 43 directories, 87 MB | manifests with `existing.sql`, `a.sql`, `b.sql`, `criada.sql` |
+| `wiki/knowledge/project/path-*` | 39 directories, 73 MB | manifests with `docs/test.md` and `README.md` |
+| `memory.lock.json` | 2 orphan branches | `memory/project/test-proj` pointing to 4 worktrees in `/tmp/TestMemoryService_*` already deleted, and `memory/project/validate-test` |
 
-"_`ast/project/path-*`_ | 43 directories, 87 MB | manifests with _`existing.sql`_, _`a.sql`_, _`b.sql`_, _`criada.sql`_"
+**160 MB**, and none of the 82 `path-*` directories corresponded to a real project — the
+classification was done by reading each one's manifest, not by sampling. The most recent ones
+had a mtime from the current day, so the pollution was ongoing, not historical.
 
-This is already in idiomatic English. No translation needed.
-Here is the translation:
+`path-<hash>` is the key of a project **without a lockfile** (`store.pathStoreID`: `sha256` of
+the first 16 hex characters of the absolute path). A real project has a ULID — on this machine
+only `01KSH1...` (graphit-code) and `<private-corpus>` (private-corpus). Every `path-*` was a
+temporary test directory.
 
-"_`wiki/knowledge/project/path-*`_ | 39 directories, 73 MB | manifests with `docs/test.md` and `README.md`"
-The Portuguese text is already in idiomatic English. Here's the translation:
+Isolation coverage before: **17 of 44 packages** touched `HOME` in some test, with 6 different
+helpers under 3 names (`withHome`, `isolateHome`, `testHome`), and only 3 packages with
+`TestMain`. `internal/ast` isolated in 4 of 139 test files.
 
-| `memory.lock.json` | 2 orphan branches | `memory/project/test-proj` pointing to 4 worktrees that have been deleted at `/tmp/TestMemoryService_*`, and `memory/project/validate-test` |
+## The fix: a single point, and it's an environment variable
 
-This sentence appears to be describing a situation where there are two orphaned branches, four deleted worktrees, and an unspecified third element (denoted by `memory/project/validate-test`). The structure is similar in both languages, making the translation straightforward.
+`brand.GlobalDir()` is `os.UserHomeDir() + "/.graphit"`, and `os.UserHomeDir()` reads `$HOME`.
+An `init()` in `internal/brand/testhome.go` points `HOME` to a disposable directory when
+`testing.Testing()` is true.
 
-**160 MB**, and none of the 82 directories corresponded to an actual project— in **INLINE_0**.
-The classification was made by reading each person's manifesto, not through sampling. The latest
-They had their own time of day, so pollution was common, not historic.
+**Why an environment variable and not a guard inside `GlobalDir()`:** `GlobalDir()` is not the
+only path to the operator's home. `os.UserHomeDir()` is called directly in 9 other places —
+`internal/config` (the global config), `internal/ai` (the 132 MB model cache),
+`internal/hub/adapters/ide`, `cmd/launcher` — and none of them go through `GlobalDir()`. Moving
+`HOME` covers all of them at once, including any added later.
 
-The ``path-<hash>`` is the key of a project without a lockfile (``store.pathStoreID`:`)
-The first sixteen absolute path's initial inline 0 of 16. The actual project has an ULID - on this machine
-Only INLINE_0 (graphit-code) and INLINE_1 (private-corpus). All INLINE_2 were directories.
-Temporary test.
+And it covers two cases that no in-process check can reach:
 
-Cobertura de isolamento antes: **17 de 44 pacotes** tocavam `HOME` em algum teste, com 6
-helpers diferentes sob 3 nomes (`withHome`, `isolateHome`, `testHome`), e apenas 3 pacotes
-com `TestMain`. `internal/ast` isolava em 4 de 139 arquivos de teste.
+1. **Subprocess.** A test that spins up the daemon hands it this process's environment. The
+   child is not a test binary, so `testing.Testing()` is false there, and it would resolve the
+   real home regardless of what this package returned here.
+2. **Git's own config.** A temporary repository reads `~/.gitconfig`, and on a real
+   installation that config names a memory remote — which is how a test run ends up adding a
+   live repository as `origin` and pushing test branches to it (see
+   [[A_flake_de_limpeza_não_era_o_gc_do_git_os_testes_falavam_com_o_remote_real]]).
+   `XDG_CONFIG_HOME` follows `HOME` because git prefers `$XDG_CONFIG_HOME/git/config`.
 
-The correction: one point, and it's an environment variable
+A package that isolates `HOME` on its own still benefits: the `init()` runs before any
+`TestMain` and any `t.Setenv`, so it's the floor, never the ceiling.
 
-`INLINE_0` is `INLINE_1`, and `INLINE_2` reads `INLINE_3`.
-An INLINE_0 in INLINE_1 points to a discardable directory
-when INLINE_0 is true.
+### The cost of importing `testing` into production code: measured
 
-"Why is the environment variable and not an inline inside `GlobalDir()`: `GlobalDir()`"
-It is not the only path to the operator's home. `os.UserHomeDir()` is called directly in 9.
-outros lugares — `internal/config` (a config global), `internal/ai` (o cache de 132 MB do
-modelo), `internal/hub/adapters/ide`, `cmd/launcher` — e nenhum passa por `GlobalDir()`.
-Mover `HOME` cobre todos de uma vez, inclusive os que forem adicionados depois.
+15,625 bytes — 265,379,408 → 265,395,408, **0.006%** of the binary. The heavy dependencies of
+`testing` (`flag`, `regexp`, `runtime/pprof`) were already linked in through other paths. The
+trade-off that seemed to need discussion doesn't exist.
 
-And covers two cases that no verification in progress reaches:
+## What the change revealed: 6 tests green by accident
 
-1. **Subprocesso.** Um teste que sobe o daemon entrega a ele o ambiente deste processo. O
-The child is not binary test-driven, so INLINE\_0 is false there and it would resolve it.
-   home real independentemente do que este pacote devolvesse aqui.
-Here's the translation:
+The 6 passed **only** because they read the developer's real `~/.graphit`. All were confirmed
+green on the baseline (via `git stash`) and red with isolation — meaning they weren't
+pre-existing failures, they were hidden dependencies that isolation exposed.
 
-2. **The Config of Your Own Git.**
-    A temporary repository reads `~/.gitconfig`, and in another.
-
-This is a very literal translation, but it maintains the structure and meaning of the original Portuguese text. If you need an idiomatic English version that conveys the same idea more naturally, please let me know!
-installation, this configuration names a remote memory – which is like a round of
-The tests finish adding a live repository as `origin` and pushing branches of
-Test for him ([[The lint that wasn't the GC of Git's remote tests were talking to the real one]]).
-   `XDG_CONFIG_HOME` acompanha `HOME` porque o git prefere `$XDG_CONFIG_HOME/git/config`.
-
-A package that isolates itself automatically continues to gain traction: the _INLINE_1_ runs before
-Any `TestMain` and of any `t.Setenv`, then it is the floor, never the ceiling.
-
-The cost of importing `testing` into production code: measured
-
-15,625 bytes - 265,379,408 → 265,395,408, **0.006%** of binary. Heavy dependencies
-They were already linked by other paths.
-The trade-off that seemed like it needed discussion doesn't exist.
-
-What the change revealed: 6 green tests by accident
-
-Os 6 passavam **apenas** porque liam o `~/.graphit` real do desenvolvedor. Todos foram
-confirmados verdes no baseline (com `git stash`) e vermelhos com o isolamento — ou seja,
-They were not inherent flaws; they were hidden dependencies that isolation revealed.
-
-| Teste | Pacote | Causa real |
+| Test | Package | Real cause |
 |---|---|---|
-| `TestEmbeddedLangResolvesAcrossBothBackends` | ast | nenhuma linguagem resolve sem as queries instaladas |
+| `TestEmbeddedLangResolvesAcrossBothBackends` | ast | no language resolves without the installed queries |
 | `TestParsePoolResetsAntlrCachesWithParsesInFlight` | ast | `unknown ANTLR grammar: antlr-plsql` |
-| `TestParquetRoundTripPreservesGraph` | ast | grafo vazio porque nada parseou |
-| `TestGraphSamplesRunOnAGraphWithoutEntities` | ast | idem |
-Brazilian Portuguese to idiomatic English:
+| `TestParquetRoundTripPreservesGraph` | ast | empty graph because nothing parsed |
+| `TestGraphSamplesRunOnAGraphWithoutEntities` | ast | same |
+| `TestPrepareASTPublishPrefersParquet` | hub | publishing an AST artifact builds a real graph |
+| `TestDaemonLeavesTheDirectoryItWasSpawnedFrom` | daemon | the assertion used `os.TempDir()` as a proxy for "ephemeral" |
 
-"_`TestPrepareASTPublishPrefersParquet`_ | hub | constructs a real graph by publishing artifact AST "
-Brazilian Portuguese to idiomatic English:
+### The seventh, which only showed up in the full suite: git's identity
 
-The daemon used `os.TempDir()` as a "ephemeral" proxy.
-
-The seventh, which only appeared in the complete suite: the identity of Git
-
-`TestGitCLIBackend` (`internal/git`) falhou com
+`TestGitCLIBackend` (`internal/git`) failed with
 
 ```
 git commit failed: exit status 128: fatal: unable to auto-detect email address
 (got '<user>@<host>.(none)')
 ```
 
-Emptying `HOME` is precisely what conceals `~/.gitconfig`, and Git refuses to commit without.
-Identity. `internal/memory` and `internal/hub` already resolved this in their own `TestMain`
-— eles exportam `GIT_AUTHOR_*`/`GIT_COMMITTER_*` por exatamente esse motivo. Com o
-Isolation applies to the 44 packages, and identity became a direct consequence of this.
-Here's the translation:
+Emptying `HOME` is exactly what hides `~/.gitconfig`, and git refuses to commit without an
+identity. `internal/memory` and `internal/hub` already handled this in their own `TestMain` —
+they export `GIT_AUTHOR_*`/`GIT_COMMITTER_*` for exactly this reason. With isolation applying
+to all 44 packages, identity became a direct consequence of the `init()` and was resolved
+there, rather than left for every committing package to rediscover.
 
-"Inline 0 was responded to there, and not left for each package that has to rediscover."
+This only showed up in the full `make test`, not in the 12 packages I ran targeting the
+residue — which is the argument for running the whole suite before declaring it done, not just
+the packages the change seemed to touch.
 
-It only appeared in the complete _INLINE_0_, not in the 12 packages I ran with a focus on
-garbage - what is the argument for running the suite entirely before declaring it ready, and not
-Just the packages that the change seemed to touch.
+### Language definitions are not compiled into the binary
 
-The definitions of language are not compiled in binary.
-
-The chain is worth noting because it's not obvious:
+The chain, worth recording because it isn't obvious:
 
 ```
 internal/ast/queries/*.yaml
-  → cmd/launcher/runtime/ast/queries/   (cp no Makefile, linha 289)
-  → go:embed no launcher                (cmd/launcher/embed.go)
-Extracted during installation for ~/.graphit/runtime/<version>/ast/queries/
+  → cmd/launcher/runtime/ast/queries/   (cp in the Makefile, line 289)
+  → go:embed in the launcher             (cmd/launcher/embed.go)
+  → extracted at install time to ~/.graphit/runtime/<version>/ast/queries/
 ```
 
-The code reads only the last destination. Binary test never had
-Installer, then it starts from zero languages. Before isolation, he finds the runtime of
-The version that the developer had installed - which made the green suite dependent on
-Machine: A contributor who never installed it and CI would see flaws that don't exist.
-reproduzem em lugar nenhum.
+`rebuildExtTables` reads **only** the final destination. The test binary never had an
+installer, so it saw zero languages. Before isolation it found the runtime of whichever
+version the developer had installed — which made the green suite depend on the machine: a
+contributor who never ran the installer, and CI, would see failures that don't reproduce
+anywhere else.
 
-The correction is INLINE 0, which seeds the queries **for this checkout** at runtime.
-isolated: self-contained. Exercises the path of production load rather than circumventing it, then loader,
-Order of Merge and Extension Tables Continue Under Test.
+The fix is `internal/testsupport`, which seeds the queries **from this checkout** into the
+isolated runtime dir. It exercises the production load path instead of bypassing it, so the
+loader, merge order, and extension tables remain under test.
 
-The order is the detail that makes it work. `internal/ast` builds the tables in the background.
-Inline 0, own (Inline 1), reading the directory once and caching
-The result, including an empty one. INLINE_0 runs after all of INLINE_1, then.
-planting there is too late. Sowing lives in the _`init()`_ of _`testsupport`_: dependencies on
-A package is initialized before it happens, so import `testsupport` from the test files
-It puts this ___ INLINE_3___ in front of the ___ INLINE_4___ — and the ___ INLINE_5___ is.
-Here is the translation:
-
-"Inline 0, dependency on Inline 1, in front of both."
+**The ordering is the detail that makes it work.** `internal/ast` builds its tables in its own
+`init()` (`treesitter_adapter.go:300`), reading the directory once and caching the result —
+including when empty. `TestMain` runs **after** all `init()` functions, so seeding there would
+be too late. The seeding lives in `testsupport`'s `init()`: a package's dependencies are
+initialized before it is, so importing `testsupport` from `internal/ast`'s test files puts that
+`init()` ahead of `internal/ast`'s — and `internal/brand`'s, a dependency of `testsupport`,
+ahead of both.
 
 ## Files Changed
 
 | File | Change | Reason |
 |---|---|---|
-Here is the translation:
-
-| `internal/brand/testhome.go` | Created | It points to an ephemeral directory and exports the Git identity that empties out `HOME` just as it has been hidden |
-
-This translation aims for idiomatic English while maintaining the original technical meaning.
-The inline 0 is created, and a binary test must resolve the home to within the ephemeral root.
-Brazilian Portuguese:
-| `internal/testsupport/runtimequeries.go` | Created | It seeds the grammar queries for checkout at runtime in the isolated `init()` directory. |
-The field was created, but the high failure rate occurred early if planting did not happen.
-Brazilian Portuguese:
-| `internal/hub/main_test.go` | Modified | The same verification; publishing the AST artifact builds a real graph |
-
-Idiomatic English:
-The modified version involves the same verification process, and publishing the Abstract Syntax Tree (AST) artifact results in constructing a genuine graph.
-Here is the translation:
-
-"| `internal/daemon/daemon_cwd_test.go` | Modified | The assertion 'not in `os.TempDir()`' has started contradicting the one above it."
-| `internal/brand/brand_test.go` | Modified | `TestGlobalDirsAndResolvers` vazava `Brand = "testbrand2"` para todo teste seguinte |
-| `Makefile` | Modified | varre os homes da rodada anterior no alvo `test` |
+| `internal/brand/testhome.go` | Created | the `init()` that points `HOME`/`USERPROFILE`/`XDG_CONFIG_HOME` to a disposable directory, and exports the git identity that emptying `HOME` just hid |
+| `internal/brand/testhome_test.go` | Created | regression test: a test binary must resolve the home into the ephemeral root |
+| `internal/testsupport/runtimequeries.go` | Created | seeds the checkout's grammar queries into the isolated runtime dir, in `init()` |
+| `internal/ast/main_test.go` | Created | fails loudly and early if the seeding didn't happen |
+| `internal/hub/main_test.go` | Modified | same check; publishing an AST artifact builds a real graph |
+| `internal/daemon/daemon_cwd_test.go` | Modified | the "not under `os.TempDir()`" assertion started contradicting the assertion above it |
+| `internal/brand/brand_test.go` | Modified | `TestGlobalDirsAndResolvers` leaked `Brand = "testbrand2"` into every following test |
+| `Makefile` | Modified | sweeps homes from the previous run in the `test` target |
 
 ## Trade-offs & Decisions
 
-**`init()` mexendo em `HOME` versus guard em `GlobalDir()`.** Escolhido o `init()`: cobre
-os 9 chamadores diretos de `os.UserHomeDir()`, os subprocessos e o git. O guard cobriria
-Only those who go through `GlobalDir()`.
+**`init()` touching `HOME` versus a guard in `GlobalDir()`.** Chose the `init()`: it covers the
+9 direct callers of `os.UserHomeDir()`, the subprocesses, and git. The guard would only cover
+callers going through `GlobalDir()`.
 
-Silencing redirection vs bursting. The redirection is silent because of it.
-Objective is the result — no test at home real — and a panic would break up 44 packages of
-once without anyone having asked for it, but when the temporary directory couldn't
-Created, there's panic: the silent fallback on this path is exactly the bug that this
-The file exists to remove it, and an `/tmp` that is not _graspable_ will break `t.TempDir()` and almost the entire program.
-entire suite
+**Silent redirect versus panicking.** The redirect is silent because the goal is the outcome —
+no test touching the real home — and a panic would break 44 packages at once without anyone
+having asked for that. But when the temporary directory **cannot be created**, that does
+panic: a silent fallback on that path is exactly the bug this file exists to remove, and a
+non-writable `/tmp` already breaks `t.TempDir()` and nearly the whole suite.
 
-Copy instead of symlink for the queries. The symlink would leave the repository as a copy.
-unique and would grab copies in the middle of the session—no value here, because each binary is
-teste recebe uma home nova e re-semeia de qualquer forma — enquanto transformaria qualquer
-Written in that directory within this checked-out versioned file system.
-Today, nobody writes there; copying means that nothing needs to continue being true for
-It will go smoothly. There are 45 small files.
+**Copy instead of symlink for the queries.** A symlink would leave the repository as the
+single copy and would pick up mid-session edits — no value here, since every test binary gets
+a fresh home and reseeds regardless — while it would turn any write into that directory into a
+silent edit of this checkout's versioned files. Today nobody writes there; copying means
+nothing has to keep being true for this to stay safe. It's 45 small files.
 
-The sweep goes before the round, not after. **INLINE_0** does not go **INLINE_1**, and a package.
-Without _INLINE_0, there is no hook after _INLINE_1—so nothing can erase
-The home on exit. Preparing before limits the residue to equivalent of one round and doesn't tear
-o `HOME` de baixo de um processo que um teste vazado deixou rodando, o que varrer depois
-faria.
+**The sweep runs before the run, not after.** `os.Exit` doesn't run `defer`, and a package
+without its own `TestMain` offers no hook after `m.Run()` — so nothing can delete the home on
+exit. Sweeping beforehand caps the residue at roughly one run's worth and doesn't rip the
+`HOME` out from under a process that a leaked test left running, which sweeping afterward
+would do.
 
 ## Technical Debt
 
-The ephemeral homes are not removed at the end of the process—only cleared by `make test`
-In the next round, whoever goes straight accumulates a directory by binary.
-In `/tmp`, a complete round generated **323 MB** solely in `internal/ast` and `internal/daemon`.
-Here is the idiomatic English translation:
-
-"Those 27 packages that were not isolating `HOME` now rely on the floor of `brand`."
-Just for that, but it means none of them declare their own need— if they do.
-The removal of `init()` results in pollution returning silently. `internal/brand/testhome_test.go`
-It is the only thing that secures this door.
-- [ ] 8 arquivos de teste em `internal/daemon` usam `os.Setenv("HOME", …)` com `defer` em
-It's time for `t.Setenv`; it doesn't match with `t.Parallel()` and will leak if the test fails.
-      antes do defer. Com o piso do `brand` no lugar, a maioria deles pode simplesmente ser
-      apagada.
-The 82 directories have already been removed from the INLINE_1 of the INLINE_0.
-Engineer — Returns 0, and only two
-      chaves ULID de projeto real permanecem (`01KSH1…` graphit-code, `<private-corpus>` private-corpus).
-- [ ] The 2 orphaned branches continue there — this item was closed by
-Error in a previous revision of this section, which only verified `path-*` and concluded with.
-      resto. `memory/project/test-proj` ainda referencia 4 worktrees em
-      `/tmp/TestMemoryService_*` apagados, e `memory/project/validate-test` tem `refs: ["user"]`.
-They are remnants of an earlier test before isolation; isolation prevents new ones from being added.
-The old one goes to the Engineer, as he is the global lockfile real.
-- [ ] `internal/memory/main_test.go` e `internal/hub/main_test.go` continuam exportando a
-      identidade do git que o `init()` do `brand` agora exporta para todo mundo. É
-Duplication innocuous (identical values) and was intentionally left out because those
-Files carry the reasoning of the rest, but it's duplication.
+- [ ] Ephemeral homes are not removed at the end of the process — only swept by `make test` on
+      the next run. Anyone running `go test ./...` directly accumulates one directory per
+      binary in `/tmp`. A full run produced **323 MB** in `internal/ast` + `internal/daemon`
+      alone.
+- [ ] The 27 packages that still didn't isolate `HOME` now depend on `brand`'s floor. That's
+      intentional, but it means none of them declares its own need for it — if the `init()`
+      is removed, the pollution comes back silently. `internal/brand/testhome_test.go` is the
+      only thing guarding that door.
+- [ ] 8 test files in `internal/daemon` use `os.Setenv("HOME", …)` with `defer` instead of
+      `t.Setenv`, which is incompatible with `t.Parallel()` and leaks if the test fails before
+      the defer runs. With `brand`'s floor in place, most of them can simply be deleted.
+- [x] The **82 `path-*` directories** (160 MB) have already been removed from the Engineer's
+      `~/.graphit` — `find ~/.graphit -maxdepth 3 -name 'path-*'` returns **0**, and only the
+      two real-project ULID keys remain (`01KSH1…` graphit-code, `<private-corpus>` private-corpus).
+- [ ] The **2 orphan branches in `memory.lock.json` are still there** — this item was closed
+      by mistake in an earlier revision of this section, which checked only the `path-*`
+      directories and assumed the rest. `memory/project/test-proj` still references 4 deleted
+      worktrees in `/tmp/TestMemoryService_*`, and `memory/project/validate-test` has
+      `refs: ["user"]`. These are leftovers from testing prior to isolation; isolation
+      prevents new ones, it doesn't clean up the old ones. Removal is left to the Engineer,
+      since it's the real global lockfile.
+- [ ] `internal/memory/main_test.go` and `internal/hub/main_test.go` still export the git
+      identity that `brand`'s `init()` now exports for everyone. It's harmless duplication
+      (identical values) and was left in on purpose, because those files carry the reasoning
+      for the rest of what they isolate — but it is duplication.
 
 ## System Knowledge
 
-The variable is set, and nothing more — without overriding by parameter.
-Environment. `HOME` is the sole control point, which is precisely why correction is...
-An environment variable.
-- **`testing.Testing()` funciona dentro de `init()`.** É um valor que o linker define ao
-Build a test binary, and it's already correct before any INLINE_0 gets executed.
-The ``make test`` function is no longer available in ``-tags fts5``. The commit ``fb19403`` removed SQLite from the system.
-Binary; only historical mention remains in a comment on the Makefile (lines 541-542).
-The memory that said the opposite was corrected in this session.
-It is a mutable global variable that tests are rewriting. Anything that derives from it.
-In call context, it is unstable within the suite; `internal/brand/testhome.go`
-The gardener stores the home created in a variable instead of recalculating the root.
-The assertion of `daemon_cwd_test.go` was an old proxy. "Not under control."
-The global is not in a directory that anyone will delete.
-During tests, the proxy started contradicting the assertion when inside `/tmp`.
-  imediatamente acima, que exige `cwd == brand.GlobalDir()`.
+- **`brand.GlobalDir()` is `$HOME/.<brand>` and nothing else** — no override via environment
+  variable. `HOME` is the only control point, which is exactly why the fix is an environment
+  variable.
+- **`testing.Testing()` works inside `init()`.** It's a value the linker sets when building a
+  test binary, so it's already correct before any `init()` runs.
+- **`make test` no longer passes `-tags fts5`.** Commit `fb19403` removed SQLite from the
+  binary; only a historical mention remains in a Makefile comment (lines 541-542). The memory
+  that said otherwise was corrected in this session.
+- **`Brand` is a mutable global that tests rewrite.** Anything that derives a path from `Brand`
+  at call time is unstable within the suite; `internal/brand/testhome.go` stores the created
+  home in a variable instead of recomputing the root.
+- **The `daemon_cwd_test.go` assertion was a proxy that aged poorly.** "Not under
+  `os.TempDir()`" meant "not in a directory someone is going to delete." With the global dir
+  living under `/tmp` during tests, the proxy started contradicting the assertion immediately
+  above it, which requires `cwd == brand.GlobalDir()`.
 
 ## Progress Log
 
 ### 2026-08-18
-Measured the actual residual size: 160 MB, 82 directories, all classified by manifest.
-The inline 0 is transient by binary test parent only.
-Measured the cost of importing `testing` in production: 15 KiB, 0.6%.
-Confirmed with baseline by `git stash` that all six failures were hidden dependencies on
-Home of the developer, no regressions.
-Inline 0: Query seeding in Inline 1, in the order of initialization.
-Empirical Verification: The actual byte-by-byte identical value after 12 packets.
-Including those who produced all the original residue.
-Final verification session, next round.
+- Measured the real residue: 160 MB, 82 directories, all classified by manifest.
+- `internal/brand/testhome.go`: ephemeral `HOME` per test binary, under a single parent.
+- Measured the cost of importing `testing` in production: 15 KiB, 0.006%.
+- Confirmed with a `git stash` baseline that the 6 failures were hidden dependencies on the
+  developer's home, not regressions.
+- `internal/testsupport`: query seeding in `init()`, following initialization order.
+- Empirical check: real `~/.graphit` byte-for-byte identical after 12 packages, including the
+  ones that produced all the original residue.
 
-The previous session concluded with the suite fully airborne and without any recorded results. Round and.
-verificada aqui.
+### 2026-08-18 (final verification, following session)
 
-**`make test` completo: 44 pacotes `ok`, zero `FAIL`, zero erro de build.** Nenhum pacote fica
-de fora: `GO_PKGS_SKIP` apenas separa as duas passadas (`/antlr/|/treesitter/` sai da passada
-with `-race`), and the second round exactly removes the packages that the first one excluded. The changed ones.
-mexeu: `internal/ast` 195,6 s (66,1%), `internal/daemon` 52,1 s (79,4%), `internal/brand`
-1,0 s (95,5%), `internal/git` 1,1 s (99,2%), `internal/hub` 3,1 s (53,5%).
+The previous session ended with the full suite in flight and no result recorded. Run and
+verified here.
 
-The real home was not touched. [Inline 0, Inline 1, Inline 2, Inline 3 to]
-`maxdepth 3` antes e depois da rodada: `diff` vazio. `memory.lock.json` e `global.lock.json`
-Identical. Zero _INLINE_0_ new.
+**Full `make test`: 44 packages `ok`, zero `FAIL`, zero build errors.** No package is left
+out: `GO_PKGS_SKIP` only separates the two passes (`/antlr/|/treesitter/` is excluded from the
+`-race` pass), and pass 2 runs exactly the packages pass 1 excluded. The ones the change
+touched: `internal/ast` 195.6 s (66.1%), `internal/daemon` 52.1 s (79.4%), `internal/brand`
+1.0 s (95.5%), `internal/git` 1.1 s (99.2%), `internal/hub` 3.1 s (53.5%).
 
-Where was the residue? Comprising 105 homes and 328 MB, each containing
-exatamente o que antes ia para a home real:
+**The real home was not touched.** Snapshot of `ast/`, `wiki/`, `memory/`, `memory-wt/` up to
+`maxdepth 3` before and after the run: empty `diff`. `memory.lock.json` and `global.lock.json`
+identical. Zero new `path-*`.
+
+**Where the residue went.** `/tmp/graphit-test-homes/` with 105 homes and 328 MB, each
+containing exactly what used to go to the real home:
 `home-*/.graphit/{ast/project/path-*,wiki/knowledge/project,models/coderankembed,memory-wt}` —
-More than `home-*/.lbdb/extension/` is LadybugDB's extension, also exiting from `$HOME`. A
-varredura do `make test` funcionou: 112 homes / 330 MB da rodada anterior foram apagados antes
-from the moment it starts.
+plus `home-*/.lbdb/extension/`, which is LadybugDB's extension and also used to come out of
+`$HOME`. The `make test` sweep worked: 112 homes / 330 MB from the previous run were deleted
+before this run started.
 
-The identity of Git is false, and **_INLINE_0_** is unattainable. Measured with a probe.
-Temporary in `internal/brand`, which made `git init` + `commit` within a `t.TempDir()`. Removed
-depois):
+**Git's identity is the fake one, and `~/.gitconfig` is unreachable.** Measured with a
+temporary probe in `internal/brand` that did `git init` + `commit` in a `t.TempDir()` (removed
+afterward):
 
-"What value does it hold within the binary test?"
+| what | value inside the test binary |
 |---|---|
 | `HOME` | `/tmp/graphit-test-homes/home-3470831534` |
 | `XDG_CONFIG_HOME` | `…/home-3470831534/.config` |
-| autor e committer do commit | `Test <test@example.com>` |
-| `git config --get user.email` | `""` — vazio |
-| `git remote -v` | `""` — nada herdado |
+| commit author and committer | `Test <test@example.com>` |
+| `git config --get user.email` | `""` — empty |
+| `git remote -v` | `""` — nothing inherited |
 
-The empty line of INLINE_0 is closing both requirements in one go: Git resolves it.
-Identity through variables `GIT_AUTHOR_*` and `GIT_COMMITTER_*`, and the global configuration of
-Developer - any that may be found in `user.name`/`user.email` on the machine - simply not
-There exists there. And that's also why no __`memory.repo` can be inherited, which is the mechanism
-The accidental push as described in `docs/tasks/` and in corresponding memory.
+The empty `user.email` line settles both requirements at once: git resolves identity through
+the `GIT_AUTHOR_*`/`GIT_COMMITTER_*` variables, and the developer's global config — whatever
+`user.name`/`user.email` is on the machine — simply doesn't exist from there. This is also why
+no `memory.repo` can be inherited, which is the mechanism behind the accidental push described
+in `docs/tasks/` and in the corresponding memory.
 
-`golangci-lint` nos cinco pacotes tocados: **0 issues**.
+`golangci-lint` on the five touched packages: **0 issues**.
 
-The measurement of **`/tmp`** is lower than expected: `/tmp` here is `tmpfs` (31 GB, 33% used)
-Usage: and the _INLINE_0__ cleans inputs with a 10-day limit. Then, the accumulation of those running
-Directly, it has two independent roofs beyond the `make test`.
+**The `/tmp` debt is measured, and it's smaller than it looked:** `/tmp` here is `tmpfs`
+(31 GB, 33% used) and `systemd-tmpfiles` cleans entries after 10 days. So the accumulation
+from anyone running `go test ./...` directly has two independent ceilings beyond the
+`make test` sweep.

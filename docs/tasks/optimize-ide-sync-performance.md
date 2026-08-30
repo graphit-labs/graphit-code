@@ -1,91 +1,85 @@
 ---
-title: Otimizar Performance do Sync IDE Adapter e IDE Rule
+title: Optimize IDE Adapter and IDE Rule Sync Performance
 status: done
 created: 2026-06-18
 updated: 2026-06-18
 tags: [performance, sync, ide-adapter, idempotency]
 ---
 
-# Otimizar Performance do Sync: IDE Adapter e IDE Rule
+# Optimize Sync Performance: IDE Adapter and IDE Rule
 
 ## Objective
 
-O `graphit sync` (e `graphit_sync` MCP) estava lento mesmo quando nada mudava no projeto.
-The steps "Updating IDE rules" and "Syncing IDE adapter" performed unnecessary I/O operations (read + write)
-Each invocation, regardless of any actual changes made.
+`graphit sync` (and the `graphit_sync` MCP) was slow even when nothing in the project had
+changed. The "Updating IDE rules" and "Syncing IDE adapter" steps performed unnecessary I/O
+(reading and rewriting files) on every invocation, regardless of any actual change.
 
 ## Implementation Details
 
-Problem 1 — INLINE_0 was performing legacy cleanup before immutability.
+### Problem 1 — `UpsertMandateTrigger` ran legacy cleanup before checking idempotency
 
-**Arquivo**: `internal/hub/adapters/ide/mandate.go`
+**File**: `internal/hub/adapters/ide/mandate.go`
 
-Before: The function always executed `cleanupLegacy(targetPath)` before checking if the content was present.
-The trigger was already correct. The `cleanupLegacy` reads and potentially overwrites the AGENTS.md file three times.
-(Bloqueos de Legacy), and it was called five times by Sync (once per module: Knowledge, AST, Hub, Memory)
-improvements).
+**Before**: The function always ran `cleanupLegacy(targetPath)` before checking whether the
+trigger content was already correct. `cleanupLegacy` reads and potentially rewrites AGENTS.md 3
+times (once per legacy block), and it was called 5 times per sync (once per module: knowledge,
+ast, hub, memory, improvements).
 
-**Depois**:
-Read the file only once at the beginning.
-2. Verify if legacy blocks are present (string search without destructive input/output)
-3. Verify if the content of the trigger is already correct
-4. If there is no legacy content and the data is correct, return nil (no writes).
-Only executes `cleanupLegacy` if necessary
+**After**:
+1. Reads the file once at the start
+2. Checks whether legacy blocks are present (string search, no destructive I/O)
+3. Checks whether the trigger content is already correct
+4. If there's no legacy content AND the content is already correct → **return nil** (zero writes)
+5. Only runs `cleanupLegacy` if needed
 
-Added Functions:
-- `readMandateContentFromString(content string) string` — extrai o inner do bloco mandato a partir
-"Reading from an already processed string, avoiding disk re-reading"
+**Functions added**:
+- `readMandateContentFromString(content string) string` — extracts the inner content of the
+  mandate block from an already-read string, avoiding re-reading the disk
 
-Fixed in Legacy Detection Format: The detection format was incorrect (_`START`/_`END` in the name), corrected.
-para o formato real do `HTMLBlockStyle`: `<!-- MARKER -->` / `<!-- END MARKER -->`.
+**Fix in the legacy marker**: The detection format was wrong (`START`/`END` in the name),
+corrected to match the actual `HTMLBlockStyle` format: `<!-- MARKER -->` / `<!-- END MARKER -->`.
 
-### Problema 2 — `copyArtifact` folder-mode sempre fazia RemoveAll+copyDirAll
+### Problem 2 — `copyArtifact` folder-mode always did RemoveAll+copyDirAll
 
-**Arquivo**: `internal/hub/adapters/ide/base.go`
+**File**: `internal/hub/adapters/ide/base.go`
 
-Before: For artifacts of type INLINE_0 (folder mode), the code always did:
+**Before**: For `skill`-type artifacts (folder-mode), the code always did:
 ```go
-The code snippet provided translates to:
-
+_ = os.RemoveAll(dest)   // destroys the destination
+return copyDirAll(...)   // re-copies everything
 ```
-_ = dest.RemoveAll();  // Destroys the destination
-```
-return copyDirAll(...)   // recopia tudo
-```
-The `copyDirAll` uses `copyFile` with idempotence (compares size + content), but as the `RemoveAll`
-It destroyed destiny before, idempotence never worked.
+`copyDirAll` uses `copyFile` with idempotency (compares size+content), but since `RemoveAll`
+destroyed the destination beforehand, idempotency never actually kicked in.
 
-After: Before `RemoveAll`, calls `dirContentsEqual(src, dst)`. If directories are
-Identical (same tree, same sizes, same content), returns immediately in its default state.
+**After**: Before `RemoveAll`, it calls `dirContentsEqual(src, dst)`. If the directories are
+identical (same tree, same sizes, same content), it returns nil immediately.
 
-Function Added
-Brazilian Portuguese:
+**Function added**:
 - `dirContentsEqual(src, dst string) bool` — compares two directories using `filepath.Walk`:
-Verifies that all files from the src directory exist in the dst directory with the same size and content, and that the dst directory exists.
-There are no extra files. Use `filepath.SkipAll` for short-circuiting in case of divergence.
+  verifies that every file in src exists in dst with the same size and content, and that dst has
+  no extra files. Uses `filepath.SkipAll` to short-circuit on divergence.
 
 ## Files Changed
 
 | File | Change | Reason |
 |---|---|---|
-Inline 0 | Modified | Ensuring idempotence before cleanup of legacy; helper reads Mandate content from string.
-Here is the translation:
-
-"_`internal/hub/adapters/ide/base.go`_ | Modified | dirContentsEqual for folder mode, skip RemoveAll+Copy when identical"
+| `internal/hub/adapters/ide/mandate.go` | Modified | Idempotency before legacy cleanup; `readMandateContentFromString` helper |
+| `internal/hub/adapters/ide/base.go` | Modified | `dirContentsEqual` for folder-mode; skip RemoveAll+copy when identical |
 
 ## Key Decisions
 
-Reading of the file once instead of reading it multiple times (one for cleaning up legacy, etc.)
-A book for reading the mandate), now we read it once and pass the content as a string to the helpers.
-Using ``strings.Contains`` for string search detection is O(n) but only once, which is efficient.
-  vs. compilar regex e executar `RemoveBlockStyled` 3 vezes (que inclui leitura+escrita).
-Verification of directory equality involves two walks.
-Add-ons just for counting files. This could be combined, but readability is better this way.
-The cost is minimal compared to RemoveAll + copy.
+- **Single file read**: Instead of reading the file multiple times (once for legacy cleanup, once
+  to read the mandate), we now read it once and pass the content as a string to the helpers.
+- **String search for legacy detection**: Using `strings.Contains` is O(n) but only runs once,
+  versus compiling a regex and running `RemoveBlockStyled` 3 times (which includes
+  reading+writing).
+- **File counting for extra dst files**: The directory-equality check does two additional walks
+  just to count files. This could be combined, but readability is better this way, and the cost
+  is minimal compared to RemoveAll+copy.
 
 ## Notes
 
-The warning "INLINE_0" in the build is from a third-party package.
-Irrelevant and pre-existing.
-Added in Go 1.20, it is available in the version used by the project.
-The tests for package `internal/hub/adapters/ide` pass without modification.
+- The `null character(s) preserved in literal` warning in the build comes from the third-party
+  package `go-tree-sitter/lua` — irrelevant and pre-existing.
+- `filepath.SkipAll` (added in Go 1.20) is available in the Go version used by the project.
+- All tests in the `internal/hub/adapters/ide` package pass without modification.

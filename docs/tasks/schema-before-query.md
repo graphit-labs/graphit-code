@@ -1,11 +1,11 @@
-# Tarefa: a skill de AST tem que mandar chamar o schema antes da primeira query
+# Task: the AST skill must require calling the schema before the first query
 
-Status: Completed on August 4, 2026.
+**Status: completed** on 2026-08-04.
 
-## O problema, com o caso real
+## The problem, with a real case
 
-In a session, the agent went straight to Cipher and broke two times consecutively, in properties that shouldn't have been compromised.
-existem:
+In one session, the agent went straight to Cypher and broke twice in a row, on properties that
+don't exist:
 
 ```
 MATCH (n) WHERE n.path CONTAINS 'internal/hub/' RETURN n.type, n.name, n.path, n.line
@@ -15,90 +15,93 @@ MATCH (n:Function) WHERE toLower(n.name) CONTAINS 'event' RETURN n.name, n.path,
 → Binder exception: Cannot find property line for n
 ```
 
-The inline 0 does not exist - the type of node is inline 1. Inline 2 does not exist - it is inline 3.
+`type` doesn't exist — the node's type is `label(n)`. `line` doesn't exist — it's `line_number`.
 
-The material already exists to prevent this: the "Property Reference" table in Phase 1 and the...
-aviso sobre `n.type` na Fase 2.3. O que faltava era **posicional**: nada dizia que a chamada de
-The ``graphit_ast_schema`` comes before writing the query. The Phase 1 starts with "the labels are dynamic,"
-Call the schema to discover what exists" — an optional suggestion for discovery, not a step
-Required. Therefore, the table was only read after an error occurred, when it was read.
+The material to prevent this **was already in the skill**: the "Property Reference" table in
+Phase 1 and the warning about `n.type` in Phase 2.3. What was missing was **positional**: nothing
+said that the call to `graphit_ast_schema` comes *before* writing the query. Phase 1 opened with
+"labels are dynamic, call the schema to find out which ones exist" — an optional discovery
+suggestion, not a mandatory step. So the table was only read after the error — when it was read
+at all.
 
-It is worth noting the complete failure mode: an invented property does not degrade the result
-vazio, ela derruba a query. E um agente que chutou uma vez tende a chutar de novo — foi
-exatamente o que aconteceu entre a primeira e a segunda query acima.
+It's worth recording the full failure mode: a made-up property does **not degrade** to an empty
+result — it crashes the query. And an agent that guessed once tends to guess again — that's
+exactly what happened between the first and second query above.
 
-## O que foi feito — `internal/ast/rule.go`
+## What was done — `internal/ast/rule.go`
 
-Everything in **INLINE_0**, which is the source of **INLINE_1** for all three IDEs, and in **INLINE_2**.
+Everything in `ASTRuleContent()`, which is the source of `SKILL.md` for all three IDEs, and in
+`MandateTrigger()`.
 
-Phase one became a step, not a reference.
-Call the schema tool before your first query, opening with "The first call to the AST that you"
-It is the schema, not a query", and "before writing Cypher — not after failing." Also says
-When repeating: property new in this session, or swap of `project_dir`/`context` (labels are
-for project - repository without SQL doesn't have `Table`).
+1. **Phase 1 became a step, not a reference.** The title changed to `Phase 1: Know the schema —
+   call the schema tool BEFORE your first query`, opening with "the first AST call you make is
+   the schema, not a query" and "before writing Cypher — not after failing." It also states when
+   to repeat it: a new property in this session, or a change of `project_dir`/`context` (labels
+   are per-project — a repository without SQL has no `Table`).
 
-The output of the schema is authority, the table is summary. The previous text—“the labels are”
-Dynamic, however, property names are fixed and universal – inviting you to treat them as such.
-   tabela como suficiente e pular a chamada. Agora a tabela se chama "the common labels — the
+2. **The schema output is the authority, the table is a summary.** The previous wording —
+   "labels are dynamic, **but** property names are fixed and universal" — invited treating the
+   table as sufficient and skipping the call. Now the table is titled "the common labels — the
    schema tool is still the authority".
 
-New Table: `Properties that do NOT exist`\. Four plausible shots → Name
-   real: `n.type`/`n.kind`/`n.label` → `label(n)`; `n.line`/`n.start_line` → `n.line_number`;
-   `n.complexity` → `n.cyclomatic_complexity`; `n.body`/`n.code` → a tool de source;
-   `n.is_public` → `n.is_exported`; `n.params` → `HAS_PARAMETER`; `n.callers` → contar a aresta;
-Speak "don't kick" without saying what you're writing.
-It leaves the agent in a bind—this is the right column that makes the rule actionable.
+3. **New table: `Properties that do NOT exist`.** Fourteen rows of plausible guesses → the real
+   name: `n.type`/`n.kind`/`n.label` → `label(n)`; `n.line`/`n.start_line` → `n.line_number`;
+   `n.complexity` → `n.cyclomatic_complexity`; `n.body`/`n.code` → the source tool;
+   `n.is_public` → `n.is_exported`; `n.params` → `HAS_PARAMETER`; `n.callers` → count the edge;
+   `r.line`/`r.file` → `r.line_number`/`r.source_file`. Saying "don't guess" without giving what
+   to write leaves the agent stuck — it's the right-hand column that makes the rule actionable.
 
-4. Recovery Protocol for Inline 0. The error names the property that did not connect;
-The instruction is to call the schema and rewrite it once, never second-guessing a second name. Separate.
-Both causes require different corrections: (a) the property does not exist; (b) it exists, but
-Not in all the labels that the standard fits — only with `MATCH (n)` without a label can you touch the set.
-Shared, and `n.is_exported` there is a crash, not an empty column.
+4. **`Binder exception` recovery protocol.** The error names the property that didn't resolve;
+   the instruction is to call the schema and rewrite **once**, never guessing a second name. It
+   also separates the two causes, which call for different fixes: (a) the property doesn't
+   exist; (b) it exists, but not on every label the pattern matches — in a label-less
+   `MATCH (n)`, you can only rely on the shared set, and `n.is_exported` there is a crash, not an
+   empty column.
 
-Two new triggers in the mandate (therefore, in context, throughout the entire session): "go"
-Write Cypher and still haven't called `ast_schema` for this `project_dir`/`context`. And the query.
-   falhou com `Binder exception: Cannot find property`".
+5. **Two new triggers in the mandate** (and therefore in `AGENTS.md`, in context every session):
+   "about to write Cypher and haven't called `ast_schema` for this `project_dir`/`context` yet"
+   and "the query failed with `Binder exception: Cannot find property`".
 
-6. **Bullet in Inline 0:** "Schema Before Cypher," with the reason—chucking doesn't return
-   vazio, quebra.
+6. **Bullet in `Cypher Guidelines`:** "Schema before Cypher", with the reason — guessing doesn't
+   return empty, it breaks.
 
-Here's the translation:
-
-7. Note on `File.source`. Side effect of promoting authority to exit schema: she
-List **INLINE_0** in **INLINE_1**, and Phase 4h states that the source is not owned by the graph. Both are.
-Certainly, and reconciliation is in the code — `internal/ast/ladybug.go:222`:
+7. **Note about `File.source`.** A side effect of promoting the schema output to authority: it
+   lists `source` on `File`, and Phase 4h says source isn't a graph property. Both are correct,
+   and the reconciliation lives in the code — `internal/ast/ladybug.go:222`:
 
    > `File.source` no longer holds file text — the search index owns that, as the only copy that
    > is actually queryable. The column survives for the synthetic `__config__` node, where
    > `RunEnrichment` stores the detected project config.
 
-The text from the files came out as INLINE 0 ("just a text file storage only"): INLINE 1
-And `json_rebuild.go` writes `File` without `source`. The column remains in the DDL for a purpose, and...
-The only writer is __`enrichment.go:413`__. Confirmed in the living graph: __`size(c.source)`__ on __`__config__`__.
-It is 71, in `internal/ast/rule.go`, it's empty — connect, doesn't break. Without this note, the new instruction
-It would create its own way of failure: an INLINE_0 expecting the file.
+   File text moved out in `2cf35f0` ("a single store for file text"): `rebuild_index.go` and
+   `json_rebuild.go` write `File` without `source`. The **column** deliberately remains in the
+   DDL, and its only writer is `enrichment.go:413`. Verified in the live graph:
+   `size(c.source)` on `__config__` returns 71, while on `internal/ast/rule.go` it comes back
+   empty — that's expected, not broken. Without this note, the new instruction would create its
+   own failure mode: a `RETURN f.source` expecting the file.
 
-## Testes — `internal/ast/rule_schema_first_test.go`
+## Tests — `internal/ast/rule_schema_first_test.go`
 
-Three, being the third thing that matters in the long run:
+Three tests, the third being the one that matters long-term:
 
-- INLINE 0 - the instruction exists **and** appears before the
+- `TestASTRuleContentDemandsSchemaBeforeFirstQuery` — the instruction exists **and** appears
+  before Phase 3, otherwise anyone reading top-to-bottom has already written the query by the
+  time they hit the rule.
+- `TestASTRuleContentNamesTheInventedProperties` — the properties that actually broke are named,
+  the `Binder exception` text appears, and "don't guess a second name" is there.
+- `TestASTRuleContentRunnableQueriesUseRealProperties` — **the skill validated against itself**:
+  every copyable query it publishes is checked against the real set of properties (nodes +
+  edges, pulled from `graphit_ast_schema`). An example with a made-up property teaches exactly
+  the mistake the rule exists to prevent. The test caught the two counter-examples I had just
+  pasted in; that's why they got a `❌` at the start of the line, which also keeps them from being
+  copied by mistake — `runnableQueries` only collects lines that start with `MATCH `.
 
-This is already English, so no changes were made.
-Phase 3, otherwise anyone reading from top to bottom has already written out the query when they hear the rule.
-- `TestASTRuleContentNamesTheInventedProperties` - the properties that truly broke
-Noted, the text of `Binder exception` appears, and "don't second-guess your name" is there.
-- `TestASTRuleContentRunnableQueriesUseRealProperties` — **a skill validada contra ela mesma**:
-Every copyable query she publishes is checked against the set of actual properties (we +)
-  arestas, tirado de `graphit_ast_schema`). Um exemplo com propriedade inventada ensina exatamente
-  o erro que a regra existe pra impedir. O teste pegou os dois contra-exemplos que eu tinha
-finished with; therefore they put _`❌`_ at the beginning of the line, which also prevents them from
-Copied by mistake — `runnableQueries` only collects lines that start with `MATCH `.
+## Propagation
 
-Propagation
+`ast.InstallRule` + `ast.InstallSkill` for the three IDEs (claude, antigravity, kiro) —
+regenerated `AGENTS.md` and the three copies of `SKILL.md`. Nothing edited by hand outside of
+`rule.go`.
 
-The three IDEs (Claude, Antigravity, Kiro) have regenerated.
-Inline 0 and the three copies of Inline 1, nothing edited outside Inline 2.
-
-`go test -tags fts5 ./internal/ast/` passa inteiro. Sem a tag `fts5` o pacote falha em ~8 testes de
-Search Index (`no such module: fts5`) is the tag of `Makefile`; it's not regression.
+`go test -tags fts5 ./internal/ast/` passes in full. Without the `fts5` tag, the package fails on
+~8 search-index tests (`no such module: fts5`) — that's the `Makefile`'s tag requirement, not a
+regression.

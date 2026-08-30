@@ -9,51 +9,51 @@ tags: [cleanup, dead-code, yagni]
 # Remove Unused Code
 
 ## Objective
-Remover todo código não usado do repositório `graphit-code`. Isso inclui funções, métodos, structs, interfaces, variáveis, constantes, imports, tipos e qualquer símbolo declarado mas não referenciado via CALLS, IMPORTS, INHERITS, IMPLEMENTS, READS_FIELD/WRITES_FIELD ou outras arestas do grafo AST. O objetivo segue o princípio YAGNI: código morto é passivo e aumenta superfície de manutenção.
+Remove all unused code from the `graphit-code` repository. This includes functions, methods, structs, interfaces, variables, constants, imports, types, and any symbol declared but not referenced via CALLS, IMPORTS, INHERITS, IMPLEMENTS, READS_FIELD/WRITES_FIELD, or other AST graph edges. The goal follows the YAGNI principle: dead code is a liability and increases maintenance surface.
 
 ## Reasoning
-- Usuário solicitou remoção direta e completa de código não usado.
-- Verificado em `graphit_memory_search` que `make lint` com `unused` já reportou ~10 símbolos privados mortos em 2026-08-24; existe precedente de varreduras estáticas.
-- O projeto é Go-dominante (653 arquivos Go) + TS/TSX secundário; AST graph cobre ambos.
-- Decisão: usar o grafo AST como fonte primária de verdade (MCP-first) e validar com `golangci-lint`/`go vet`/`staticcheck` via toolchain local antes de deletar. Não remover código por inferência textual.
+- The user requested direct and complete removal of unused code.
+- Verified in `graphit_memory_search` that `make lint` with `unused` already reported ~10 dead private symbols on 2026-08-24; there is precedent for static scans.
+- The project is Go-dominant (653 Go files) + secondary TS/TSX; the AST graph covers both.
+- Decision: use the AST graph as the primary source of truth (MCP-first) and validate with `golangci-lint`/`go vet`/`staticcheck` via the local toolchain before deleting. Do not remove code based on textual inference.
 
 ## Justification / Alternatives Considered
-- Alternativa A: `grep`/`unused` apenas — descartada porque não cobre JS/TS, não distingue stubs, não detecta structs/interfaces não implementadas.
-- Alternativa B: Remoção automática agressiva via `unused` SSA — descartada por risco de falsos positivos em exports, handlers, interfaces, testes e entry points.
-- Escolhida: Análise em camadas via queries Cypher + validação com toolchain + remoção conservadora (só privados não exportados sem chamadores e sem teste).
+- Alternative A: `grep`/`unused` only — discarded because it doesn't cover JS/TS, doesn't distinguish stubs, and doesn't detect unimplemented structs/interfaces.
+- Alternative B: aggressive automatic removal via `unused` SSA — discarded due to the risk of false positives on exports, handlers, interfaces, tests, and entry points.
+- Chosen: layered analysis via Cypher queries + toolchain validation + conservative removal (only unexported privates with no callers and no tests).
 
 ## Plan & Task Breakdown
-- [ ] **T1 — Inventory via AST graph** — Spec: rodar queries Cypher para listar candidatos não usados por label (Function, Method, Struct, Interface, Type, Variable, Constant, Field) filtrando `is_stub=false`, `is_exported=false`, e checando inbound edges zero. Files: grafo AST. Done: lista ranqueada com path/line.
-- [ ] **T2 — Validate with toolchain** — Spec: rodar `golangci-lint` com `unused`, `go vet`, e checar `make lint`/`make ci` se existir. Files: toolchain Go. Done: interseção entre grafo e linter.
-- [ ] **T3 — Pre-edit impact checks** — Spec: para cada candidato final, query callers/callees/test coverage/IMPLEMENTS/INHERITS antes de editar. Done: blast radius documentado.
-- [ ] **T4 — Remove unused code safely** — Spec: editar/deletar apenas símbolos privados sem chamadores, sem implementadores, sem leitura/escrita externa, mantendo exports e entry points. Done: arquivos editados, sem quebrar build.
-- [ ] **T5 — Verify & document** — Spec: `go build ./...`, `go vet ./...`, testes afetados, `graphit_sync`, atualizar task log e memória. Done: build verde, docs atualizados.
+- [ ] **T1 — Inventory via AST graph** — Spec: run Cypher queries to list unused candidates by label (Function, Method, Struct, Interface, Type, Variable, Constant, Field) filtering `is_stub=false`, `is_exported=false`, and checking zero inbound edges. Files: AST graph. Done: ranked list with path/line.
+- [ ] **T2 — Validate with toolchain** — Spec: run `golangci-lint` with `unused`, `go vet`, and check `make lint`/`make ci` if it exists. Files: Go toolchain. Done: intersection between the graph and the linter.
+- [ ] **T3 — Pre-edit impact checks** — Spec: for each final candidate, query callers/callees/test coverage/IMPLEMENTS/INHERITS before editing. Done: blast radius documented.
+- [ ] **T4 — Remove unused code safely** — Spec: edit/delete only private symbols with no callers, no implementers, no external read/write, keeping exports and entry points. Done: files edited, build not broken.
+- [ ] **T5 — Verify & document** — Spec: `go build ./...`, `go vet ./...`, affected tests, `graphit_sync`, update the task log and memory. Done: green build, updated docs.
 
 ## Implementation Details
-**T1 — Inventory via AST graph:** Queries Cypher `MATCH (f:Function) WHERE is_stub=false AND is_exported=false OPTIONAL MATCH (caller)-[:CALLS]->(f) WHERE callers=0` listou ~100 privados com 0 callers diretos, mas muitos são `Test*` ou `main`/`init` (entry points) e `copyDir`/`copyFile` com callers intra-pacote não capturados por name-based `collect`. Filtrado para 4 candidatos confirmados via `golangci-lint --enable-only unused`.
+**T1 — Inventory via AST graph:** The Cypher query `MATCH (f:Function) WHERE is_stub=false AND is_exported=false OPTIONAL MATCH (caller)-[:CALLS]->(f) WHERE callers=0` listed ~100 privates with 0 direct callers, but many are `Test*` or `main`/`init` (entry points) and `copyDir`/`copyFile` with intra-package callers not captured by name-based `collect`. Filtered down to 4 candidates confirmed via `golangci-lint --enable-only unused`.
 
-**T2 — Validate with toolchain (nativa é ideal):** `deadcode -test` vs sem `-test` mostrou diferença `test-only live` vs `production dead`; `unused` é SSA preciso. `deadcode` sem `-test` reportou ~150 não alcançáveis de `main`, com `-test` reduziu a 4. `unused` em `internal/ast` reportou exatamente 4: `countLiveFiles` (`json_rebuild.go:480`), `canonicalAnchorTables` (`ladybug_icebug_canonical.go:237`), `returnTailPattern` (`ladybug_icebug_traversal.go:22`), `cluster` field (`writer.go:12`). `go vet -tags lancedb` passou após fixes. `knip` em `internal/ui` reportou 13 deps não usadas e 3 exports/5 types não usados — avaliados como gap (radix/d3 são peer deps de design system, exports são API pública) e mantidos.
+**T2 — Validate with toolchain (native is ideal):** `deadcode -test` vs. without `-test` showed the difference between `test-only live` and `production dead`; `unused` is precise SSA. `deadcode` without `-test` reported ~150 unreachable from `main`, with `-test` it reduced to 4. `unused` in `internal/ast` reported exactly 4: `countLiveFiles` (`json_rebuild.go:480`), `canonicalAnchorTables` (`ladybug_icebug_canonical.go:237`), `returnTailPattern` (`ladybug_icebug_traversal.go:22`), `cluster` field (`writer.go:12`). `go vet -tags lancedb` passed after fixes. `knip` in `internal/ui` reported 13 unused deps and 3 exports/5 unused types — assessed as an acceptable gap (radix/d3 are design-system peer deps, exports are public API) and kept as-is.
 
-**T3 — Pre-edit impact checks:** Para cada dos 4: `MATCH (caller)-[r]->(target {name:X}) RETURN caller` deu só `CONTAINS` (declaração), 0 `CALLS`/`READS_FIELD`/`WRITES_FIELD`; `MATCH (f {name:X})-[:CALLS]->(callee)` mostrou callees mas 0 callers; `toLower(f.name) CONTAINS 'test'` excluído. Confirmado gap vs lixo: todos são órfãos de refator (`guardAgainstShrink` removido em `8a2abac`, `canonicalTablesFor` substituiu `canonicalAnchorTables`).
+**T3 — Pre-edit impact checks:** For each of the 4: `MATCH (caller)-[r]->(target {name:X}) RETURN caller` returned only `CONTAINS` (declaration), 0 `CALLS`/`READS_FIELD`/`WRITES_FIELD`; `MATCH (f {name:X})-[:CALLS]->(callee)` showed callees but 0 callers; `toLower(f.name) CONTAINS 'test'` excluded. Confirmed acceptable gap vs. genuine dead code: all are refactor orphans (`guardAgainstShrink` removed in `8a2abac`, `canonicalTablesFor` replaced `canonicalAnchorTables`).
 
-**T4 — Remove safely:** Removidos os 4 + testes quebrados/mortos: `embedded_*_test.go:372`, `:45/:86/:244`, `file_reference_source_test.go:82/:108/:192`, `source_search_index_test.go:81` fix `fileNodeJSON("")` → `fileNodeJSON()` (assinatura mudou em `8a2abac` → `rebuild_index.go:430`), e `rebuild_shrink_test.go:24,111` testes de guard removido (mantido `TestScopedRunWithAnEmptyCache`).
+**T4 — Remove safely:** Removed the 4 symbols + broken/dead tests: `embedded_*_test.go:372`, `:45/:86/:244`, `file_reference_source_test.go:82/:108/:192`, `source_search_index_test.go:81` fix `fileNodeJSON("")` → `fileNodeJSON()` (signature changed in `8a2abac` → `rebuild_index.go:430`), and `rebuild_shrink_test.go:24,111` tests for the removed guard (kept `TestScopedRunWithAnEmptyCache`).
 
-**T5 — Verify:** `go build -tags lancedb ./...` OK, `golangci-lint --enable-only unused` 0 issues em `internal/ast`, `go vet -tags lancedb` (filtrado `grep -v antlr`) OK, `go test -run TestScopedRun|TestEmbedded` OK.
+**T5 — Verify:** `go build -tags lancedb ./...` OK, `golangci-lint --enable-only unused` 0 issues in `internal/ast`, `go vet -tags lancedb` (filtered with `grep -v antlr`) OK, `go test -run TestScopedRun|TestEmbedded` OK.
 
 ## Use Cases
-### UC-01: Remoção de símbolo privado não usado
+### UC-01: Removal of an unused private symbol
 - **Actor**: Maintainer / agent
-- **Preconditions**: Símbolo é privado (`is_exported=false`), não-stub, sem inbound CALLS/IMPORTS/IMPLEMENTS/INHERITS/READS/WRITES.
+- **Preconditions**: Symbol is private (`is_exported=false`), non-stub, with no inbound CALLS/IMPORTS/IMPLEMENTS/INHERITS/READS/WRITES.
 - **Main Flow**:
-  1. Query AST identifica candidato.
-  2. Toolchain confirma sem uso.
-  3. Pre-edit check retorna 0 callers e 0 testes.
-  4. Símbolo é removido do arquivo fonte.
-  5. Build e testes continuam verdes.
-- **Alternative Flows**: Se símbolo é exportado mas sem uso intra-repo, manter (uso externo possível) e registrar em backlog.
-- **Error Scenarios**: Remoção quebra build por uso via reflexão/interface dinâmica → revert e adicionar à allowlist.
-- **Postconditions**: Código morto removido, índice AST atualizado.
-- **Affected Files**: Quaisquer `*.go`, `*.ts`, `*.tsx` listados em T1.
+  1. AST query identifies the candidate.
+  2. Toolchain confirms no usage.
+  3. Pre-edit check returns 0 callers and 0 tests.
+  4. Symbol is removed from the source file.
+  5. Build and tests remain green.
+- **Alternative Flows**: If a symbol is exported but has no intra-repo usage, keep it (possible external use) and record it in the backlog.
+- **Error Scenarios**: Removal breaks the build due to usage via reflection/dynamic interface → revert and add to the allowlist.
+- **Postconditions**: Dead code removed, AST index updated.
+- **Affected Files**: Any `*.go`, `*.ts`, `*.tsx` listed in T1.
 
 ## Test Cases & Acceptance Criteria
 ### Feature: Unused code removal
@@ -85,37 +85,37 @@ Then the Interface is kept
 ## Files Changed
 | File | Change | Reason |
 |---|---|---|
-| `internal/ast/json_rebuild.go:480` | Removed `countLiveFiles` | Órfão após remoção do `guardAgainstShrink` em 8a2abac; 0 callers, `unused` flag |
-| `internal/ast/ladybug_icebug_canonical.go:237` | Removed `canonicalAnchorTables` | Substituída por `canonicalTablesFor:436`; 0 callers |
-| `internal/ast/ladybug_icebug_traversal.go:22` | Removed `returnTailPattern` | Var regex não lida; planner não usa mais |
-| `internal/ast/writer.go:12` | Removed `GraphWriter.cluster` field | Campo nunca lido/escrito; `HAS_FIELD` só |
-| `internal/ast/rebuild_shrink_test.go` | Deleted 2 dead tests, kept 1 | Testes de guard removido; mantido `TestScopedRun...` |
-| `internal/ast/embedded_host_span_test.go:372` | Fix `fileNodeJSON("")` → `fileNodeJSON()` | Assinatura mudou em rebuild_index.go:430 |
+| `internal/ast/json_rebuild.go:480` | Removed `countLiveFiles` | Orphaned after removal of `guardAgainstShrink` in 8a2abac; 0 callers, `unused` flag |
+| `internal/ast/ladybug_icebug_canonical.go:237` | Removed `canonicalAnchorTables` | Replaced by `canonicalTablesFor:436`; 0 callers |
+| `internal/ast/ladybug_icebug_traversal.go:22` | Removed `returnTailPattern` | Unread regex var; planner no longer uses it |
+| `internal/ast/writer.go:12` | Removed `GraphWriter.cluster` field | Field never read/written; `HAS_FIELD` only |
+| `internal/ast/rebuild_shrink_test.go` | Deleted 2 dead tests, kept 1 | Tests for the removed guard; kept `TestScopedRun...` |
+| `internal/ast/embedded_host_span_test.go:372` | Fix `fileNodeJSON("")` → `fileNodeJSON()` | Signature changed in rebuild_index.go:430 |
 | `internal/ast/embedded_lang_resolution_test.go:45,86,244` | Same fix |  |
 | `internal/ast/file_reference_source_test.go:82,108,192` | Same fix |  |
 | `internal/ast/source_search_index_test.go:81` | Same fix |  |
 
 ## Trade-offs & Decisions
-- Conservadorismo em exports: manter `is_exported=true` mesmo sem callers para evitar quebrar consumidores externos ou reflexão.
-- `is_stub` filtrado: stubs são alvos externos/ambíguos, não candidatos a remoção.
-- Ferramentas nativas (`unused` SSA, `deadcode` RTA) usadas como árbitro; grafo AST complementou para `READS_FIELD`/`IMPLEMENTS` e para validar testes quebrados. `knip` em TS não levou a remoção de deps — radix/d3 são gap de design system.
-- `deadcode -test` vs sem `-test` distingue `test-only live` vs `real dead`; não remover helpers de teste (`splitIdentifier`, `cosine`) mesmo com 0 callers fora de `_test.go`.
+- Conservative on exports: keep `is_exported=true` even without callers, to avoid breaking external consumers or reflection-based use.
+- `is_stub` filtered out: stubs are external/ambiguous targets, not removal candidates.
+- Native tools (`unused` SSA, `deadcode` RTA) used as the arbiter; the AST graph complemented this for `READS_FIELD`/`IMPLEMENTS` and to validate broken tests. `knip` in TS did not lead to removing deps — radix/d3 are an accepted design-system gap.
+- `deadcode -test` vs. without `-test` distinguishes `test-only live` from `real dead`; test helpers (`splitIdentifier`, `cosine`) not removed even with 0 callers outside `_test.go`.
 
 ## Technical Debt
-- [ ] `internal/ui` — 13 deps flagged por `knip` (`@radix-ui/*`, `class-variance-authority`, `d3`) mantidas como gap; avaliar remoção real vs tree-shaking em sprint de UI — `internal/ui/package.json:14-29`
-- [ ] `internal/ast` — ~100 privados com 0 `CALLS` diretos mas vivos via `deadcode -test`; revisitar com cobertura aumentada se `deadcode` reportar como gap de teste morto
+- [ ] `internal/ui` — 13 deps flagged by `knip` (`@radix-ui/*`, `class-variance-authority`, `d3`) kept as an accepted gap; evaluate real removal vs. tree-shaking in a UI sprint — `internal/ui/package.json:14-29`
+- [ ] `internal/ast` — ~100 privates with 0 direct `CALLS` but alive via `deadcode -test`; revisit with increased coverage if `deadcode` reports them as a dead-test gap
 
 ## System Knowledge
-- `8a2abac` removeu `guardAgainstShrink`/`shrinkFloor` e mudou `fileNodeJSON("")` → `fileNodeJSON()` e `dirNodeJSON(nil,"")`; testes que ainda chamavam assinatura antiga quebravam `go vet`.
-- `unused` é o detector preciso de morto por pacote; `deadcode` sem `-test` é produção, com `-test` é inclusive teste — diferença explica por que grafo lista 100 candidatos mas só 4 são lixo real.
-- `GraphWriter.cluster` nunca fez parte do pipeline atual; cluster é resolvido por `resolveClusterForPath` no `rebuildIndex`.
+- `8a2abac` removed `guardAgainstShrink`/`shrinkFloor` and changed `fileNodeJSON("")` → `fileNodeJSON()` and `dirNodeJSON(nil,"")`; tests still calling the old signature broke `go vet`.
+- `unused` is the precise per-package dead-code detector; `deadcode` without `-test` is production-only, with `-test` it includes tests too — this difference explains why the graph lists 100 candidates but only 4 are genuine dead code.
+- `GraphWriter.cluster` was never part of the current pipeline; cluster is resolved by `resolveClusterForPath` in `rebuildIndex`.
 
 ## Progress Log
 ### 2026-08-27
-- Task log criado antes de qualquer edição, conforme graphit-knowledge skill.
-- T1 inventory via AST + `golangci-lint unused`/`deadcode` — 4 candidatos reais.
-- T2 validação nativa: `deadcode -test` vs sem, `unused` 4, `knip` TS avaliado como gap.
-- T3 impact checks: 0 callers/READS para os 4, confirmada decisão de remoção vs manter `test-only`.
-- T4 removidos 4 símbolos + fix de 5 arquivos de teste com assinatura quebrada e 2 testes mortos de guard removido.
-- T5 verificado: `go build -tags lancedb ./...` OK, `unused` 0 issues, `go vet` filtrado OK, testes `TestScopedRun|TestEmbedded` OK.
-- Próximo: `graphit_sync` e fechar task como `done`.
+- Task log created before any editing, per the graphit-knowledge skill.
+- T1 inventory via AST + `golangci-lint unused`/`deadcode` — 4 real candidates.
+- T2 native validation: `deadcode -test` vs. without, `unused` 4, `knip` TS assessed as an accepted gap.
+- T3 impact checks: 0 callers/READS for the 4, confirmed the decision to remove vs. keep `test-only`.
+- T4 removed 4 symbols + fixed 5 test files with a broken signature and 2 dead tests for the removed guard.
+- T5 verified: `go build -tags lancedb ./...` OK, `unused` 0 issues, filtered `go vet` OK, `TestScopedRun|TestEmbedded` tests OK.
+- Next: `graphit_sync` and close the task as `done`.

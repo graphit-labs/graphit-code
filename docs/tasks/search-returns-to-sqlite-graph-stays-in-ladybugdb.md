@@ -6,238 +6,155 @@ updated: 2026-08-19
 tags: [ast, wiki, memory, sqlite, ladybug, search, fts, parquet, hub, storage]
 ---
 
-# Busca textual volta para o SQLite
+# Text Search Returns to SQLite
 
-Origin: Engineer's instruction - "I'm having many issues with the ladybug for"
-All of this depends on the indexes.
-Embedding and FTS are very limited and slow. Everything that is FTS, Embedding, Trigram, and
-tudo o mais que responder por busca textual precisa ser feito no sqlite. O ladybug fica com o
-grafo e o sqlite com a busca textual."*
+Origin: an instruction from the Engineer — "I'm having a lot of problems with Ladybug for search: everything depends on the indexes, and embedding and FTS are both very limited and slow. Everything that's FTS, embedding, trigram, and anything else answering for text search needs to be done in SQLite. Ladybug keeps the graph, and SQLite gets the text search."
 
-This reverses the direction of INLINE_0 ("SQLite exits from binary format"), which was changed on August 16, 2026, three days earlier.
+This reverses the direction of the earlier decision to consolidate search into LadybugDB and drop SQLite (see `consolidate-search-into-ladybugdb-and-drop-sqlite.md`), which had been made on August 16, 2026, just three days earlier.
 
 ---
 
-## Por que
+## Why
 
-A property measured alone decides: "the lib bug doesn't maintain an FTS index"
-Insertion - The first two lines are hidden in 25 iterations, while the last two lines remain visible after 12 iterations. This requires INLINE_0 to be set.
-Here is the translation:
+One measured fact settles this on its own: LadybugDB's library doesn't maintain its FTS index incrementally — inserting a single row forces a full rebuild of the index from scratch after every write. That makes an update cost `O(corpus)` instead of `O(1)`.
 
-"Starting with the eighth index after each write: work _INLINE_1_ for a change"
-
-This translation maintains the structure and meaning of the original Portuguese text, expressing that starting from the eighth index following each write operation, there's some kind of work or process happening. The underscore followed by "INLINE_1_" suggests this is part of a larger context involving inline operations or changes.
-`O(1)`.
-
-No corpus real, 39.429 arquivos e 2.501.342 entidades:
+On the real corpus, 39,429 files and 2,501,342 entities:
 
 | | LadybugDB | SQLite |
 |---|---|---|
 | full rebuild | 988 s | — |
-| incremental de UM arquivo | **1.178 s** | ~300 ms |
+| incremental, ONE file | **1,178 s** | ~300 ms |
 
-The increment of an archive was slower than reconstructing everything. That number is the argument.
-inteiro.
+Incrementally updating a single file was slower than rebuilding everything from scratch. That number alone is the whole argument.
 
-## O que NÃO foi feito: um rollback
+## What Was NOT Done: a Rollback
 
-The Engineer was explicit - "it's not just rolling back to previous commits."
-The project progressed; you can consult back there to understand how SQLite works, but it's not recommended for production use.
-The state of the code today is different; there have been improvements and corrections.*
+The Engineer was explicit: "this is not just reverting to the previous commits." The project has moved on since then — you can go back and look at how SQLite was used before, but that's a reference, not a target: today's code is different, with improvements and fixes made along the way.
 
-Then **INLINE_0** served as a reference for SQL mechanics, not a destination. What remains is the
+So the old SQLite-era code served as a reference for the SQL mechanics, not as a destination to restore. What's left is today's state, with the storage layer swapped out underneath it:
 
-Translation: Then INLINE_0 was used as a reference for SQL mechanics, not as a final destination. What's left is the
-estado de hoje, com a camada de armazenamento trocada por baixo:
-
-Survived unscathed for what?
+| What | Survived untouched |
 |---|---|
-The following is the translation from Portuguese to English:
+| `internal/ast/search_common.go` | Deliberately storage-independent — tokenization, trigram bag, RRF, determinism. This is exactly what made moving to a single rewritten layer, and moving back, both possible without touching it. |
+| Fusion (`search_fusion.go`, `store_query.go`) | Fixes three measured defects that a plain `bm25()` doesn't express. It carried over across both engines unchanged. |
+| Logical schema | `name_split` / `name_tri` / `etype`, and the precomputed trigram bag. |
+| Ladybug probes | Kept, inverted on purpose: they pass only while the upstream bug is still present, so they'll fail the day it's fixed. |
 
-| `internal/ast/search_common.go` | It is purposefully storage-independent — tokenization, trigram bag, RRF, determinism. This is what made the migration of going into a single layer re-writing and the return as well |
-The fusion (`search_fusion.go`, `store_query.go`) corrects three defects measured that a single `bm25()` does not express. They traversed the two engines without changing.
-The logical scheme | `name_split` / `name_tri` / `etype` , and the precomputed 3-grams sack |
-The probes of liblbug continue inverted for a purpose: they run while the bug is present.
-
-Without backward compatibility — Engineer's decision, "We're in development." No fallback for
-artifact published in an old format, no existing store migration exists.
+No backward compatibility — the Engineer's call: "we're still in development." No fallback for an artifact published in the old format, and no migration path for an existing store.
 
 ---
 
-The three design decisions
+## The Three Design Decisions
 
-The index is updated in-place.
+**1. The index updates in place.**
 
-It does not follow the copy+swap graph update technique. This is what takes approximately 50 milliseconds to update the index.
-In this corpus of this repository (measured, see below), against the 1,178 sentences that the previous arrangement included
-pagava por um arquivo.
+It doesn't follow the copy+swap technique used for the graph. That's what brings the index update down to roughly 50 milliseconds on this repository's corpus (measured, see below), against the 1,178 seconds the previous arrangement paid for a single file.
 
-The cost is real, known, and accepted: a reader can see through an update's width.
-New index against the old graph — or, if the swap fails, against a graph that didn't change.
-Neither of them is corruption, and the next incremental correction will fix it. Pay `O(corpus)` for editing.
-To close this window, it is precisely the exchange you are refusing.
+The cost is real, known, and accepted: for the width of an update, a reader might see the new index paired with the old graph — or, if the swap fails, paired with a graph that never changed. Neither case is corruption, and the next incremental update fixes it. Paying `O(corpus)` on every edit just to close that window is exactly the trade-off being rejected here.
 
-The searchable text resides in tables BASE.
+**2. Searchable text lives in base tables.**
 
-It was the opposite: INLINE 0 **was** storage, with the source inside the virtual table.
-
-It changed because today's Hub persists as an artifact through **Parquet**, and a virtual table is
-Motor structure, not provided—nothing to export from it. Then:
+It used to be the opposite: the FTS5 virtual table **was** the storage, with the source text living inside it. That changed because the Hub now persists this as a **Parquet** artifact, and a virtual table is engine-internal structure — there's nothing in it you can export. So:
 
 ```
-files, entities, entity_emb          tabelas base — o que viaja
-file_fts, entity_fts, file_tri,      external-content FTS5 sobre elas, mantidas por triggers
+files, entities, entity_emb          base tables — what travels
+file_fts, entity_fts, file_tri,      external-content FTS5 over them, maintained by triggers
 entity_tri
-Entity vector (vec0)                  Index vector constructed from entity embedding
+entity vector (vec0)                 vector index built from entity embeddings
 ```
 
-The triggers are the mechanism that the other engine lacked: SQLite maintains an FTS5 index to
-measure where lines arrive, then nothing is knocked down and rebuilt afterwards.
+Triggers are the mechanism the other engine lacked: SQLite maintains the FTS5 index incrementally as rows arrive, instead of tearing everything down and rebuilding it afterward.
 
-3. Leave only the SEARCH LOAD in the graph
+**3. Leave only the search workload in the graph.**
 
-Source file, matching fields, and label vectors declared by the grammar in
-The graph maintains its nodes and edges as they are—**including `Comment.name`**, which is
-Accessible by Cypher and not just text search, and that the AST skill documents.
+Source file, matching fields, and vectors labeled by the grammar's declarations — none of that moves. The graph keeps its nodes and edges exactly as they are, **including `Comment.name`**, which stays reachable through Cypher and not just through text search, as the ast skill documents.
 
 ---
 
-## O Hub: o SQLite carrega do Parquet
+## The Hub: SQLite Loads from Parquet
 
-New requirement that did not exist before `fb19403`. `internal/ladybugstore/transfer.go` moves
-Tables of the Ladybug; now there is the twin `internal/sqlitestore/transfer.go`, led by
-`sqlite_master`, com a mesma forma e as mesmas duas recusas:
+A new requirement that didn't exist before `fb19403`. `internal/ladybugstore/transfer.go` moves LadybugDB's tables; now there's a twin, `internal/sqlitestore/transfer.go`, driven by `sqlite_master`, with the same shape and the same two refusals:
 
-Indices don't travel. FTS5 and vec0 are engine structure; the consumer builds them. It's
-Also what compelled the scheme to have tables of bases.
-The file from the database does not travel. A `.sqlite` loads page format and a set of
-Compiled modules: A consumer without keys would open and find illegible tables.
+- Indexes don't travel. FTS5 and vec0 are engine-internal structure; the consumer rebuilds them locally — this is also what forced the schema to have base tables in the first place.
+- The database file itself doesn't travel. A `.sqlite` file carries page format and a set of compiled extension modules; a consumer without the matching build would open it and find unreadable tables.
 
-An artifact of AST now has two bundles, `graph/` and `search/`, in directories.
-separated, because any half may legitimately be missing and there is only one manifesto
-It would be undetectable.
+An AST artifact now ships two bundles, `graph/` and `search/`, in separate directories, because either half can legitimately be missing, and with a single manifest that would go undetected.
 
-Columns are named on both sides, never by position. The graph bundle
-He learned this in the opposite direction: his INLINE_0 maps by position and writes into the wrong column.
-Silence when two types are compatible.
+Columns are matched by name on both sides, never by position. The graph bundle learned this the hard way, in the opposite direction: its Parquet loader used to map by position and silently write into the wrong column whenever two types happened to be compatible.
 
-The identifiers of the manifesto are validated against INLINE 0. One
-Manifesto is not ours entry—come inside of a repository that another person published and...
-Brazilian Portuguese:
-"Create an `INSERT` with the names found there."
+The identifiers in the manifest are validated against the actual table schema. A manifest is not a trusted input — it arrives inside an artifact someone else published, and the loader builds its `INSERT` using the column names it actually finds there.
 
 ---
 
-What came out of reverting to FTS5: the prefix index
+## What Came Out of Going Back to FTS5: the Prefix Index
 
-The LadybugDB does not have prefix marriage or wildcards (_`conf*`_ marries nothing). The sack of
-Three grams was built to replace him. With FTS5 back, there are both of them, and they
-They respond with different questions: the prefix reaches a genuinely specific term.
-It starts; the bag scores partial overlap anywhere in the name.
+LadybugDB has no prefix matching or wildcards (`conf*` matches nothing). The trigram bag was built to stand in for it. Now that FTS5 is back, both exist side by side, and they answer different questions: the prefix index reaches a term that genuinely starts with the given string, while the bag scores partial overlap anywhere in the name.
 
 Measured in this session, on the quality floor:
 
-| | sem passe de prefixo | com |
+| | without prefix pass | with |
 |---|---|---|
-| piso lexical | 12/16 | **13/16** |
-| truncamento | 9/9 | 9/9 |
+| lexical floor | 12/16 | **13/16** |
+| truncation | 9/9 | 9/9 |
 
-The 13th probe is ___LINE\_0___ → ___LINE\_1___: they tie exactly in ___LINE\_2___
-Field name only, and nothing else in the fusion separates them. The index of prefixes separates – the query is
-prefixo de "validate" e apenas substring de "Validator".
+The 13th probe is `validate` → `Validator`: they tie exactly on the name field alone, and nothing else in the fusion tells them apart. The prefix index breaks the tie — the query is a prefix of "validate" and only a substring of "Validator".
 
-**English:** It changed its conclusion right alongside it, and even the test documentation itself was affected.
-Here's the Portuguese text translated into idiomatic English:
+The truncation test's own documentation had to be corrected too: earlier revisions reported 9/9 with an occasional drop to 8/9, whenever the prefix pass failed to reach the truncated form of a term.
 
-"Prior to this, you had two drafts that both reached 9/9 and a drop.
+## A Bloat Defect Solved by Construction
 
-This translation aims for natural-sounding English while maintaining the original meaning. The technical terms like "prefix index" have been kept as they are in the original text.
-For 8 means that the prefix pass has stopped reaching the index of terms.
+`vec0` allocates fixed blocks of 1,024 rows and never returns the space from a deleted row — this is what drove one index up to 20 GB while holding only 760 MB of live data, and the only remedy was writing an entirely new file.
 
-A defect of bloating resolved by construction
-
-The `vec0` allocates fixed blocks of 1024 lines and never returns the space for a deleted line — it was.
-What led an index to 20GB with 760MB of live data, and the only remedy was writing one.
-arquivo novo inteiro.
-
-Agora os vetores moram em `entity_emb`, uma tabela comum. `compactVectorIndexIfNeeded` conta
-The dead lines and reconstruct `entity_vec` from it when they cross `max(4096, 25% of`
-Vivas - cheap because it doesn't recycle the model, and rare enough for common cases to follow
-milissegundos.
+Now the vectors live in `entity_emb`, an ordinary table. `compactVectorIndexIfNeeded` counts the dead rows and rebuilds `entity_vec` from it once they cross `max(4096, 25% of live rows)` — cheap, since it doesn't reload the model, and rare enough that the common case stays in milliseconds.
 
 ---
 
-## Arquivos
+## Files
 
-| arquivo | o que |
+| file | what |
 |---|---|
-Brazilian Portuguese:
-| `internal/ast/search_sqlite.go` | New - scheme, write, and low-level queries |
+| `internal/ast/search_sqlite.go` | New — schema, writes, and low-level queries |
+| `internal/ast/search_fusion.go` | New — the fusion logic, extracted from `search_query.go`, now storage-independent |
+| `internal/ladybugstore/search_*.go` (FTS/vec0 code) | Removed — the LadybugDB-based implementation |
+| `internal/ast/store_query.go` (`QueryRecord` accessors) | Added and removed within the same session — no longer used |
+| `internal/wiki/store.go`, `store_query.go` | rewritten on top of SQLite |
+| `internal/wiki/values.go` | **new** — row accessors and the parser for the sqlite-vec format |
+| `internal/sqlitestore/transfer.go` | new — Parquet ↔ SQLite, twin of `ladybugstore` |
+| `internal/ast/parquet_transfer.go` | exports and imports both halves |
+| search index (FTS5/trigram) | updated in place again, not copy+swap |
+| `entity_vec` | rebuilt AFTER the swap |
+| buffer pool ceiling | the measurement that justified it no longer holds; the number stays, but the comment now says it's unmeasured |
+| `Makefile`, `.golangci.yml`, `fts5_required.go` (x2) | the `fts5` build tag and its guards are back |
 
-Idiomatic English:
-| `internal/ast/search_sqlite.go` | Updated - new framework, fresh code, and streamlined database access |
+Removed probes that measured things that no longer exist: `fts_bufferpool_probe_test.go`, `fts_hotcold_probe_test.go`, `fts_scaling_probe_test.go`, `fts_shape_probe_test.go`, `search_copy_load_test.go`, `search_emb_mixed_batch_test.go`, `search_oversized_source_test.go` — all of them about the FTS build, the `COPY`, and the mixed vector batch **inside LadybugDB**.
 
-This translation maintains the technical nature of the original while making it more conversational in idiomatic English.
-____ | New — The fusion, extracted from `search_query.go`, now storage-independent |
-The inline elements have been removed — implementation on LadybugDB.
-Created and removed within the same session: the accessors of `QueryRecord` have no use left.
-| `internal/wiki/store.go`, `store_query.go` | reescritos sobre SQLite |
-| `internal/wiki/values.go` | **novo** — acessores de linha e o parser do formato do sqlite-vec |
-Brazilian Portuguese to idiomatic English:
+## State
 
-"`internal/sqlitestore/transfer.go` | New — Parquet ↔ SQLite, twin of `ladybugstore`"
-| `internal/ast/parquet_transfer.go` | exporta e importa as DUAS metades |
-The index is updated in place again.
-The inline 0 is rebuilt AFTER the swap.
-The buffer pool's paper-backed ceiling lost its justification measurement; the number remains, and the comment states that it is without a measurement.
-| `Makefile`, `.golangci.yml`, `fts5_required.go` (x2) | a tag `fts5` e as guardas voltam |
+Full green suite with `-count=1` across 40 packages. `go vet` and `golangci-lint` clean (0 issues). Quality floor 13/16, truncation 9/9, abbreviation recall 4/4.
 
-Removed probes measure what doesn't exist anymore: `fts_bufferpool_probe_test.go`.
-`fts_hotcold_probe_test.go`, `fts_scaling_probe_test.go`, `fts_shape_probe_test.go`,
-`search_copy_load_test.go`, `search_emb_mixed_batch_test.go`,
-`search_oversized_source_test.go` — todos sobre o build de FTS, o `COPY` e o lote misto de
-vetores **dentro do LadybugDB**.
-
-## Estado
-
-Complete green suite with `-count=1` in 40 packages. `go vet` and `golangci-lint` clean.
-(0 issues). Quality floor 13/16, truncation 9/9, abbreviation recall 4/4.
-
-### O incremental, MEDIDO no store real (2026-08-19, depois do `make install`)
+### The Incremental Cost, MEASURED on the Real Store (2026-08-19, after `make install`)
 
 Repository corpus: 737 files, 58,500 entities, 36,674 vectors.
 
-| fase | custo |
+| phase | cost |
 |---|---|
-Here is the Portuguese text translated into idiomatic English:
+| search index update, one file / 46 entities (three runs) | 69 ms / 51 ms / 48 ms |
+| copying the graph directory (95 MB, warm page cache) | 31 ms |
+| end-to-end incremental, via the CLI | **7.2 s / 8.6 s / 17.6 s** |
 
-The file is one of 46 entities. It took three executions to run in 69, 51, and 48 milliseconds respectively.
+The search index is only 0.3–0.7% of the increment's total cost. The ~50 ms is in the same order of magnitude as SQLite's historical figure (~300 ms) — and actually better, since external-content triggers kept the FTS index in sync at no extra cost, which was the whole bet behind this design.
 
-This translation maintains the meaning while using more natural phrasing in English. The technical terms "entidades" (entities) are kept as they are not easily translated into a common English term.
-Copy the directory of the graph (95 MB, warm page cache) | 31 ms
-| incremental fim-a-fim, pelo CLI | **7,2 s / 8,6 s / 17,6 s** |
+What's left — 7 to 17 seconds, with that much variation — is the graph's "copy + swap": the insert into LadybugDB, plus `Shutdown` and `Close` on the mutated copy, which is exactly what `IncrementalRebuild`'s own doc comment already flagged as ranging from 215 milliseconds to 5 seconds — and this measurement confirms it's larger and more variable today than that range suggests. None of this was touched by this piece of work.
 
-The search index is 0.3-0.7% of the increment. The ~50ms correspond to the order of magnitude.
-Historic of SQLite (~300 ms) and better than it - external-content triggers
-They kept FTs without anything, which was their entire bet.
+The consequence for anyone optimizing next: the incremental bottleneck isn't the search index anymore. Attacking the search index won't move the number; attacking the graph copy's shutdown/close path will.
 
-What remains — 7 to 17 seconds, with this variation — is the "copy + swap of the graph": the insertion into
-LadybugDB plus the mutated copy's `Shutdown` and `Close`, which is the header of `IncrementalRebuild`
-It had already documented in 215 milliseconds - 5 seconds and this measurement confirms it to be larger and more variable than
-isso hoje. Nada disso foi tocado por este trabalho.
-
-The consequence for those optimizing is that the bottleneck of incremental no longer exists.
-Attack on search index does not move number; attack on closing of graph copy moves.
-
-Sonda: `internal/ast/incremental_cost_probe_test.go`, pulada sem
-`GRAPHIT_COST_PROBE_STORE`.
+Probe: `internal/ast/incremental_cost_probe_test.go`, skipped unless `GRAPHIT_COST_PROBE_STORE` is set.
 
 ---
 
-References
+## References
 
 - [Storage Layout](../architecture/storage_layout.md#two-engines-and-which-one-owns-what)
-- SQLite exits from binary (./consolidate-search-into-ladybugdb-and-drop-sqlite.md) — the direction
-  que este trabalho reverte
-- [Artefato de AST leva as tabelas em Parquet](./ast-artifact-ships-parquet-tables.md)
-- [Artefato de knowledge idem](./knowledge-artifact-ships-parquet-tables.md)
+- [Consolidate search into LadybugDB and drop SQLite](./consolidate-search-into-ladybugdb-and-drop-sqlite.md) — the direction this work reverses
+- [AST artifact ships Parquet tables](./ast-artifact-ships-parquet-tables.md)
+- [Knowledge artifact, same thing](./knowledge-artifact-ships-parquet-tables.md)

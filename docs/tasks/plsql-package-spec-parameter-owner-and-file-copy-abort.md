@@ -1,1028 +1,621 @@
-Task: The parameter of the package specification belongs to the subroutine, and an incorrect copy does not publish any incomplete graph.
+# Task: The package spec parameter belongs to the subroutine, and a failed copy no longer publishes an incomplete graph
 
 **Date:** 2026-08-03 → 2026-08-04
 **Status:** ✅ Complete
 
-## Problema
+## Problem
 
-Reportado a partir de uma pergunta concreta sobre a massa de teste do projeto
-um corpus Oracle privado de 36.823 arquivos: *por que o
-Parameter `P_LOG_TX` is linked to the package `PCK_EXEMPLO` and not to the procedure
-`ATLZ_EXEMPLO`?*
+Reported from a concrete question about the project's test corpus — a private Oracle corpus of 36,823 files: *why is parameter `P_LOG_TX` linked to package `PCK_EXEMPLO` instead of to procedure `ATLZ_EXEMPLO`?*
 
-The investigation found two independent bugs, as well as two gaps of the same family in
+The investigation found **two independent bugs**, plus **two gaps of the same family in other grammars**.
 
-This is already English and idiomatic. No changes were needed.
-Other grammars.
+### 1. `procedure_spec` / `function_spec` missing from `context_types` (PL/SQL)
 
-### 1. `procedure_spec` / `function_spec` fora de `context_types` (PL/SQL)
+`internal/ast/queries/plsql.yaml` declares Procedure and Function from three forms each:
 
-Brazilian Portuguese:
-The `internal/ast/queries/plsql.yaml` declares Procedures and Functions from three forms each:
-
-| forma | onde aparece | estava em `context_types`? |
+| form | where it appears | was it in `context_types`? |
 |---|---|---|
-| `create_procedure_body` | `CREATE PROCEDURE` avulso | sim |
-| `procedure_body` | corpo dentro de `CREATE PACKAGE BODY` | sim |
-The Portuguese text is already in English, so it remains unchanged:
+| `create_procedure_body` | standalone `CREATE PROCEDURE` | yes |
+| `procedure_body` | body inside `CREATE PACKAGE BODY` | yes |
+| `procedure_spec` | **declaration inside `CREATE PACKAGE`** (spec) | **no** |
 
-| `procedure_spec` | **declaration within `CREATE PACKAGE`** (spec) | **not** |
+`resolveParentContextAntlr` (`internal/ast/antlr_adapter.go:598`) walks up the `match.Context.Outer` chain and returns the **first** ancestor whose rule is in `context_types`. In a package spec, the chain for a parameter is `parameter → procedure_spec → create_package`; since `procedure_spec` was not a context, the walk skipped over it and stopped at `create_package`.
 
-`resolveParentContextAntlr` (`internal/ast/antlr_adapter.go:598`) sobe a cadeia
-`match.Context.Outer` e devolve o **primeiro** ancestral cujo rule esteja em `context_types`.
-In a package specification, the chain of parameters is set to `parameter → procedure_spec → create_package`.
-as if it ignored him
-`create_package`.
+Measured in the corpus graph before the fix — Parameter by `context_type`:
 
-Medido no grafo do corpus antes do fix — Parameter por `context_type`:
-
-Owner Parameters
+| owner | parameters |
 |---|---|
-| Procedure | 13.542 |
-| Function | 10.558 |
-| **Package** | **9.052** |
+| Procedure | 13,542 |
+| Function | 10,558 |
+| **Package** | **9,052** |
 
-And 100% of the 9, 052 cases are within bounds (none outside), which closes up on it.
-Diagnosis: It is precisely the entire set of specifications. Beyond assigning the wrong owner, this **collides
-UIDs: Two subprograms within the same package that share a parameter name (_`E_TX_ERRO`)
-The typical case in this corpus produced INLINE 0.
+And 100% of the 9,052 `Package` cases are under `schema/packages/` (zero outside it), which closes the diagnosis: it is exactly the set of specs. Beyond assigning the wrong owner, this **collides uids**: two subprograms of the same package sharing a parameter name (`E_TX_ERRO` is the typical case in this corpus) produced the same `path::PACKAGE.E_TX_ERRO`.
 
-Issue: `ConvertToCache` discards parameter and field with empty context - this is data loss.
-967 de 2.732 entidades documentada em `internal/ast/oracle_parameter_loss_test.go`. Um
-It is not merely an error that a non-callable function does not use its context, but rather it can also leak the entire parameter.
+Making it worse: `ConvertToCache` **discards** parameters and fields with an empty context — this is the loss of 967 out of 2,732 entities documented in `internal/ast/oracle_parameter_loss_test.go`. A callable that is not a context does not just file the parameter under the wrong owner: it can cost the parameter entirely.
 
-### 2. COPY falho era logado e ignorado, e o rebuild trocava o banco de todo jeito
+### 2. A failed COPY was logged and ignored, and the rebuild swapped the database anyway
 
-No mesmo projeto, `MATCH (f:File) RETURN count(f)` devolvia **0**, com `Directory` = 17 e
-todas as entidades presentes. Sintomas:
+In the same project, `MATCH (f:File) RETURN count(f)` returned **0**, with `Directory` = 17 and all entities present. Symptoms:
 
-- `graphit ast source` / `graphit_ast_source` falhava com `source not found for path` para
-  **qualquer** caminho do projeto (verificado em `schema/packages/PCK_EXEMPLO.sql` e em
-The code snippet is not provided in this context, so I cannot translate it directly. However, if you provide the specific code or a brief description of what it does, I can help you understand and then translate it into idiomatic English for you. Please share more details about the code or its purpose.
-The code snippet returned no lines in silence;
-- as arestas `CONTAINS File→entidade` e `Directory→File` (`internal/ast/json_rebuild.go`)
-simply did not exist.
+- `graphit ast source` / `graphit_ast_source` failed with `source not found for path` for **any** path in the project (verified against `schema/packages/PCK_EXEMPLO.sql` and `AGENTS.md`) — it wasn't a specific path, it was the entire project;
+- `MATCH (f:File {path:...})-[:CONTAINS]->(e)` returned zero rows **silently**;
+- the `CONTAINS File→entity` and `Directory→File` edges (`internal/ast/json_rebuild.go`) simply did not exist.
 
-Causa: em `RebuildFromJSON`, o helper `copyNode` apenas logava o erro e incrementava
-`copyErrors`; nada checava `copyErrors` antes de `lb.AtomicSwapDB(tempDBPath)`. O rebuild
-seguia, rodava enrichment e **publicava** o banco meio-carregado. O log do erro vai para o
-Slogan for rebuilding, not for **INLINE_0** — confirmed: no line of
-COPY/error nos logs do daemon global nem do projeto.
+Cause: in `RebuildFromJSON`, the `copyNode` helper only logged the error and incremented `copyErrors`; nothing checked `copyErrors` before `lb.AtomicSwapDB(tempDBPath)`. The rebuild kept going, ran enrichment, and **published** the half-loaded database. The error log goes to the rebuild's slog, not to `.graphit/daemon/daemon.log` — confirmed: no COPY/error line appeared in either the global or the project daemon logs.
 
-Why does the COPY of File explode: `ri.fileNodeJSON` builds a **slice** in memory with
-"Inline 0" of all files, it writes into a single JSON and loads with a single request.
-Here is the translation:
+Why the File COPY is the one that blows up: `ri.fileNodeJSON` builds **one** in-memory slice with `"source": fe.entry.Source` for every file, writes it to a single JSON, and loads it with a single `COPY File(...) FROM '<file>'`. In this corpus that is 36,823 files / 2.4 GB of shards, with individual shards of up to 133 MB (a single XML file).
 
-In this corpus there are 36,823 files / 2.4 GB of shards,
+The source was **not** lost during extraction: the shard `schema/packages/PCK_EXEMPLO.sql.nodes.json` has the keys `v,h,lang,src,file_row,dir_paths,entities` with `src` intact. The loss happens only at load time.
 
-This translation maintains the structure and meaning of the original Portuguese sentence while rendering it in idiomatic English.
-Individual shards up to 133 MB (a single XML).
+Note: the **incremental** path already handled this correctly — `internal/ast/incremental_rebuild.go` falls back to a full rebuild when `insertErrors > 0`, with a comment explaining exactly this class of bug. It was the full rebuild that still needed to be closed.
 
-The source was not lost during extraction: the shard.
-`schema/packages/PCK_EXEMPLO.sql.nodes.json` tem as chaves
-The complete _INLINE_0_ is available, but there's only a loss in weight.
+### 3. `html.yaml` declared contexts but no `context_name_paths`
 
-Note: The path **incrementally** already addressed this correctly —
-`internal/ast/incremental_rebuild.go` cai para rebuild completo quando `insertErrors > 0`, com
-comment explaining exactly this class of bug. The full rebuild was what was missing
-fechar.
+Direct continuation of [Entities know their parent](../changelogs/20260802_entidades_conhecem_seu_pai_e_a_subida_e_memoizada.md), which added `context_name_paths` to `xml`, `json`, `yaml_lang`, and `svelte`. `html.yaml` was left out: it declares `element`, `script_element`, and `style_element` as contexts, but tree-sitter-html's `element` does not expose a `name` field — the name lives in the `start_tag`. Without the path, `nameNodeOf` returns nil, the container becomes **transparent**, and every HTML entity falls back onto File — precisely the silent failure that piece of work existed to kill.
 
-### 3. `html.yaml` declarava contextos e nenhum `context_name_paths`
+### 4. Other grammars: callables that were not contexts
 
-Continuation directly from [Entities know their father](../changelogs/20260802_entidades_conhecem_seu_pai_e_a_subida_e_memoizada.md)
-que adicionou `context_name_paths` a `xml`, `json`, `yaml_lang` e `svelte`. `html.yaml` ficou
-de fora: declara `element`, `script_element` e `style_element` como contextos, mas
-The field of `name` is not exposed by `tree-sitter-html`; the name goes in `start_tag`. Without the
+An audit of all 44 grammars cross-referencing "rule that the query turns into a callable" against `context_types`. Real gaps found beyond PL/SQL:
 
-This translation maintains the meaning and structure of the original Portuguese text while providing an idiomatic English equivalent.
-path, `nameNodeOf` devolve nil, o container fica **transparente** e toda entidade HTML volta a
-Fall into Place, which is precisely the silent failure that that work was meant to kill.
-
-Other Grammars: Callable Functions That Were Not Contextual
-
-Audit of all 44 grammars crossing "rule that the query transforms into callable" against
-Real gaps found beyond PL/SQL:
-
-Grammar rule effect
+| grammar | rule | effect |
 |---|---|---|
-Here is the idiomatic English translation:
+| `dart` | `function_signature`, `method_signature` | Dart declares the signature as its own node; **every** method parameter went to the class |
+| `objc` | `function_definition`, `method_declaration`, `method_definition` | same issue: parameters went to the class/protocol |
+| `java` | `constructor_declaration` | constructor parameters went to the class |
+| `javascript`, `typescript`, `tsx` | `generator_function_declaration` | `function* foo()` is its own kind, not `function_declaration` |
 
-"By default, Dart declares the signature as its own type; all method parameters go to the class."
-Here is the translation:
+## Solution
 
-"____ | `objc` , `function_definition` , `method_declaration` , `method_definition` | same as parameters went to the class/protocol"
-Parameters of constructor were moved to the class.
-The first thing you need to do is make sure that your computer meets the minimum system requirements for running Windows 7. This includes having a compatible processor and sufficient RAM. Additionally, ensure that your hard drive has enough space for installation.
+### Grammar `context_types`
 
-Translation:
+`internal/ast/queries/plsql.yaml` — added `function_spec: Function`, `procedure_spec: Procedure`, `create_materialized_view: MaterializedView`, and the family of package-level type declarations (`record_type_definition`, `table_type_definition`, `varray_type_definition`, `ref_cursor_type_definition`, `subtype_declaration` → `Type`), with a comment in the file explaining the invariant: *every rule that a query turns into a container must be listed here*.
 
-| Make sure your computer meets the minimum system requirements for running Windows 7 | Ensure compatibility with your processor | Ensure sufficient RAM | Hard drive should have enough space for installation |
+Also `java.yaml` (`constructor_declaration`), `javascript.yaml` / `typescript.yaml` / `tsx.yaml` (`generator_function_declaration`), `dart.yaml` (`function_signature`, `method_signature`), `objc.yaml` (3 rules), `svelte.yaml` (`script_element`, `style_element`, for parity with `html.yaml`), and `html.yaml` (`context_name_paths` for the three contexts).
 
-Solution
-
-The rules of grammar
-
-`internal/ast/queries/plsql.yaml` — adicionados `function_spec: Function`,
-Here is the translation:
-
-"`procedure_spec: Procedure`, `create_materialized_view: MaterializedView` and the family of"
-
-This appears to be a placeholder or template for some kind of code, possibly in C++ or another language that uses inline functions. The placeholders "`procedure_spec: Procedure`" and "`create_materialized_view: MaterializedView`" are likely variables or parameters used within this context. The "family of" suggests it could be related to inheritance or class hierarchies in object-oriented programming.
-
-Without more context, I've provided a general translation that maintains the structure while making minimal changes for clarity.
-statements of type level package (`record_type_definition`, `table_type_definition`)
-`varray_type_definition`, `ref_cursor_type_definition`, `subtype_declaration` → `Type`), com
-comment explaining the invariant in the file: *any rule that transforms a query into
-container tem de estar aqui*.
-
-Mais `java.yaml` (`constructor_declaration`), `javascript.yaml` / `typescript.yaml` /
-`tsx.yaml` (`generator_function_declaration`), `dart.yaml` (`function_signature`,
-`method_signature`), `objc.yaml` (3 regras), `svelte.yaml` (`script_element`, `style_element`,
-for parity with `html.yaml`, and `html.yaml` (`context_name_paths` for all three contexts).
-
-Rebuild does not publish an incomplete graph
+### The rebuild no longer publishes an incomplete graph
 
 `internal/ast/json_rebuild.go`:
 
-The database is now **aborted**; it has closed its temporary backend and returned an error.
-The previous one stays in place, and the temporary is removed by defer (because `swapped` continues)
-Keeping the old bank is strictly better than publishing an incomplete one.
-- `copyNode` passou a iterar `batchRows(data, copyBatchBytes)` — 64 MiB por COPY. Novas
-functions INLINE_0 and INLINE_1 measure **bytes**, not lines: the sizes here
-They vary by six orders of magnitude, so counting lines does not express the limit. One
-The larger line exceeds its budget - the goal is to limit the document, not expand it.
-Reject content.
+- `copyErrors > 0` now **aborts**: it closes the temporary backend and returns an error. The previous database stays in place, and the temporary one is removed by the defer (because `swapped` stays `false`). Keeping the old database is strictly better than publishing an incomplete one.
+- `copyNode` now iterates over `batchRows(data, copyBatchBytes)` — 64 MiB per COPY. The new `batchRows` and `estimateRowBytes` functions measure **bytes**, not rows: sizes here vary across six orders of magnitude, so a row count would not express the limit. A row larger than the budget gets its own batch — the goal is to bound the document, not reject content.
 
-The `internal/ast/incremental_rebuild.go` is batched according to the same criteria, ensuring uniformity in processing.
-A large file does not necessitate an unnecessary full rebuild.
+`internal/ast/incremental_rebuild.go` — `insertNodes` batches by the same criterion, so that one large file does not force an unnecessary full rebuild.
 
-The text from the files comes out of the graph: the search index is the only owner.
+### File text moves out of the graph: the search index is the sole owner
 
-The source was stored **three times** using different code paths:
+The source was stored **three times**, through different code paths:
 
-Copy where written by
+| copy | where | written by |
 |---|---|---|
-| shard do parse cache | `<dir do DB>/shards/<path>.nodes.json`, campo `src` | pipeline de parse |
-| propriedade do grafo | `File.source` dentro de `ladybugdb` | `COPY File` em `RebuildFromJSON` |
-Column of search index | `file_fts.source` in `ladybugdb.search.sqlite` | `fts_sqlite.go`
+| parse cache shard | `<DB dir>/shards/<path>.nodes.json`, field `src` | parse pipeline |
+| graph property | `File.source` inside `ladybugdb` | `COPY File` in `RebuildFromJSON` |
+| search index column | `file_fts.source` in `ladybugdb.search.sqlite` | `fts_sqlite.go` |
 
-The ``file_fts`` declares ``source` as an indexed column (``fts_sqlite.go:95``, unlike ``name``)
-that is `UNINDEXED` with BM25 weight of 1.0 in `bm25(2.0, 0.0, 8.0, 1.0)`, and the query FTS "file_fts,"
-In the table level — so the source is actually searchable, and FTS5 stores it.
-Original text recoverable by `SELECT`. Verified in the real corpus: 36,823 lines in
-`file_fts`, e `schema/packages/PCK_EXEMPLO.sql` com 12.973 bytes de source — no **mesmo**
-Bank whose graph has no nodes.
+`file_fts` declares `source` as an **indexed** column (`fts_sqlite.go:95`, unlike `name`, which is `UNINDEXED`), with a BM25 weight of 1.0 in `bm25(2.0, 0.0, 8.0, 1.0)`, and `queryFTS("file_fts", ...)` uses table-level `MATCH` — so the source is genuinely searchable, and FTS5 keeps the original text retrievable via `SELECT`. Verified on the real corpus: 36,823 rows in `file_fts`, and `schema/packages/PCK_EXEMPLO.sql` with 12,973 bytes of source — in the **same** database whose graph has zero File nodes.
 
-Of the three, only the search index is accessible - the other two were dead weight that still
-She was the most expensive, and that's why she forced the entire repository to be passed through.
-For one `COPY`, and it was her who failed. Then **the text falls off the page**:
+Of the three, only the search-index copy is actually queryable — the other two were dead weight that could still drift apart. The graph copy was the most expensive: it was the one forcing the entire repository through a single `COPY`, and it was the one that failed. So **the text moves out of the graph**:
 
-- INLINE 0 is no longer emitting INLINE 2.
-- `internal/ast/json_rebuild.go` — `fileCols` perde a coluna, e com ela desaparece o `COPY` de
-  2,4 GB que causou o incidente. O caminho incremental se ajusta sozinho: `insertNodes` deriva
-  as chaves de `data[0]`.
-- Column `internal/ast/ladybug.go` survives in the DDL of table File, and only because
-A reason: the synthetic `'__config__'`, where `RunEnrichment` holds the configuration
-  detectada do projeto (`enrichment.go:413`) e que a skill documenta consultar
-  (`MATCH (c:File {path: '__config__'}) RETURN c.source AS configs`). Para arquivo real, ela
-  fica vazia.
-Brazilian Portuguese:
-- `INLINE_0` does not consult the graph for text anymore:
+- `internal/ast/rebuild_index.go` — `fileNodeJSON` no longer emits `"source"`.
+- `internal/ast/json_rebuild.go` — `fileCols` loses the column, and with it the 2.4 GB `COPY` that caused the incident disappears. The incremental path adjusts itself: `insertNodes` derives its keys from `data[0]`.
+- `internal/ast/ladybug.go` — the `source` **column** survives in the File table DDL, and for one reason only: the synthetic `'__config__'` node, where `RunEnrichment` stores the project's detected configuration (`enrichment.go:413`) and which the skill documents querying (`MATCH (c:File {path: '__config__'}) RETURN c.source AS configs`). For a real file, it stays empty.
+- `internal/ast/source_service.go` — `SourceService` no longer queries the graph for text: `WithStore(dbPath)` and a single `FileSourceAt`.
+- `internal/ast/server.go` — the file-content HTTP endpoint likewise, via `storePathFor(context)`.
+- `internal/ast/rule.go` — the skill's property table loses `source` for **File**, and the "Quick source peek" section — which used to teach `RETURN file.source` — now states that text is not a graph property: the query gives the location, the `ast source` tool gives the text.
 
-Idiomatic English:
-- `INLINE_0` no longer queries the graph for text.
-Inline 0 and a single Inline 1.
-Here is the translation:
+New function `FileSourceAt` in `internal/ast/fts_sqlite.go`: a single `SELECT source FROM file_fts WHERE path = ?`, opening sqlite with `mode=ro`. It **deliberately does not** use `OpenSearchIndex` — that path calls `migrateSearchSchema`, which does `DROP TABLE IF EXISTS file_fts` when the schema version differs (`fts_sqlite.go:74`). Reading a source must never destroy the index it reads from; there is a test for this.
 
-- `internal/ast/server.go` - the HTTP content file endpoint identical via
-  `storePathFor(context)`.
-- `internal/ast/rule.go` — a tabela de propriedades da skill perde `source` de **File**, e a
-Section "Quick Source Peek" — which used to say `RETURN file.source` — now says that text is not
-Property of the graph: The query provides location information, while Tool INLINE_0 gives text.
+### Imported contexts become searchable
 
-New function `FileSourceAt` in `internal/ast/fts_sqlite.go`: a single one
-`SELECT source FROM file_fts WHERE path = ?`, abrindo sqlite com `mode=ro`. **Deliberadamente
-He does not use `OpenSearchIndex`. This calls `migrateSearchSchema`, which does.
-When the schema version differs (`fts_sqlite.go:74`), read one.
-Brazilian Portuguese:
-"Never can it destroy the index where he reads."
+With text living only in the index, a context without one isn't a degraded context — it's unusable. And that was exactly the case for the Hub install: `internal/hub/service.go` (`case TypeAST`) called `RebuildFromJSON` and stopped there, never opening a `SearchIndex`. The context stayed navigable via Cypher but was neither searchable nor readable, and the shards it was built from remain in the Hub clone, not next to the store — so nothing else could serve the text.
 
-Idiomatic English:
-"It's impossible for it to corrupt the place where he reads."
+New function `ast.BuildSearchIndexFor(dbPath, cache, embCache)` wraps `OpenSearchIndex` + `RebuildFromCache` + `BuildEmbLookup`, and the Hub install now calls it, failing the install if it fails. All three context types become equivalent:
 
-Contexts imported can now be researched.
-
-With the text confined solely to its index, an index-less context is not degraded— it's...
-Useless. And that was exactly the case with the Install of the Hub: `internal/hub/service.go`
-(`case TypeAST`) chamava `RebuildFromJSON` e parava ali, sem nunca abrir um `SearchIndex`. O
-The context was navigable by Cipher and neither searchable nor readable, and the shards he came from.
-Built remain at the clone of the Hub, not next to the store — nothing else could serve it.
-texto.
-
-New function `ast.BuildSearchIndexFor(dbPath, cache, embCache)` encapsulates
-`OpenSearchIndex` + `RebuildFromCache` + `BuildEmbLookup`, e o install do Hub agora a chama,
-Failing the installation if it fails. The three contexts remain equivalent:
-
-Origin | Graph | Search Index
+| source | graph | search index |
 |---|---|---|
-project own | pipeline | pipeline (INLINE_0)
-| `ast_install` de path local | pipeline com `CacheDir: filepath.Dir(ictx.DBPath)` | pipeline |
-| artefato do Hub | `RebuildFromJSON` | **`BuildSearchIndexFor`** (novo) |
+| own project | pipeline | pipeline (`pipeline.go:544`) |
+| `ast_install` from a local path | pipeline with `CacheDir: filepath.Dir(ictx.DBPath)` | pipeline |
+| Hub artifact | `RebuildFromJSON` | **`BuildSearchIndexFor`** (new) |
 
-The resolution by context has been working on both sides without needing to change it: INLINE_0
-deriva `lb.cfg.DBPath + searchIndexSuffix` (`query.go:36-38`) e `openASTDB(projectDir, context)`
-It returns the backend of the context. Only missing was the file existing.
+Context resolution already worked on both sides and didn't need to change: `NewQueryService` derives `lb.cfg.DBPath + searchIndexSuffix` (`query.go:36-38`), and `openASTDB(projectDir, context)` returns the context's backend. All that was missing was for the file to exist.
 
-It stops semantic search from degrading.
+### `ast.index_source: false` no longer degrades semantic search
 
-Different flag than before, and the problem is with polarity, not surface. With
-False — or `--no-source` / `no_source` in the index — the text is not
-persistido em lugar nenhum: `antlr_adapter.go:272` e `treesitter_adapter.go:309` nem
-They materialize `result.Source`, and `ConvertToCache` writes an empty `src` to the shard. No FTS
-About the source being accepted as a consequence: `entity_fts` continues indexing name, `name_split`
-And then, with docstrings, it should work by following the name.
+A different flag from the previous one, and the problem is about signal, not surface. With `ast.index_source` false — or `--no-source` / `no_source` on the index command — the text is not persisted anywhere: `antlr_adapter.go:272` and `treesitter_adapter.go:309` don't even materialize `result.Source`, and `ConvertToCache` writes an empty `src` to the shard. Not having FTS over the source is an accepted consequence: `entity_fts` keeps indexing name, `name_split`, and docstring, so search by name keeps working.
 
-What was unacceptable was what the embedding lost. `scanPending` assembled the snippet with
-INLINE 0 — the source persisted — that under the flag is empty.
-O texto embeddado ficava reduzido a label, path, contexto, nome e docstring: exatamente sem
-a parte que descreve o que uma entidade **faz** em vez de como ela se chama. A flag
-It degrades semantic search in silence.
+What was **not** acceptable is what the embedding lost. `scanPending` built the snippet with `embedSourceSnippet(entry.Source, ...)` — the **persisted** source — which under the flag is empty. The embedded text ended up reduced to label, path, context, name, and docstring: exactly missing the part that describes what an entity **does** rather than what it's called. The flag was silently degrading semantic search.
 
-The distinction that resolves: the flag says "do not save a copy of the source," not "*do not look at the"
-Embedding is a vector, not a recoverable text — it can be calculated from the source.
-file and persisted as long as the text never is.
+The distinction that fixes it: the flag says *don't keep a copy of the source*, not *don't look at the source*. An embedding is a vector, not retrievable text — it can be computed from the file and persisted while the text itself never is.
 
-Index tree, indexed only when parsing cache is empty
-  texto para aquele arquivo. Vazio desliga a leitura e o embedding cai para nome, docstring
-  e contexto, em vez de falhar.
-- `Embedder.sourceFromDisk(relPath, shardHash)` — **SAFETY**: exige que
-The file aligns with the hash of the shard, and the embedding cache is keyed.
-In this hash, embedding text from the new version under the old key would store a vector.
-Describing code that the graph does not contain, and it would survive until the file changes again.
-Divergence ⇒ It's better than the wrong snippet.
-Idle resolution by shard: a cache that **never** touches the disk, so it doesn't need to.
-Reading is not a new cost on the standard path; at most one reading.
-  por shard, na mesma forma de streaming da varredura.
-Brazilian Portuguese:
-- The inline 0 won the parameter inline 1, propagated by the embedding module of
+- `EmbeddingConfig.RepoRoot` — the indexed tree, read **only** when the parse cache has no text for that file. Empty turns off the read, and the embedding falls back to name, docstring, and context instead of failing.
+- `Embedder.sourceFromDisk(relPath, shardHash)` — **SAFETY**: requires the file's `fileContentHash` to match the shard's hash. The embedding cache is keyed on that hash, so embedding newer text under the old key would store a vector describing code the graph doesn't contain, and it would survive until the file changed again. A mismatch ⇒ no snippet, which is better than the wrong snippet.
+- Lazy resolution per shard: a cache that **has** text never touches disk, so the read is a path taken only under the flag, not a new cost on the default path. At most one read per shard, in the same streaming fashion as the scan.
+- `RunEmbeddingLoop` gained a `repoRoot` parameter, propagated through the daemon's embedding module (which already had `rootPath`). `RepoRoot` is also wired into `ast embed`, the sync path, and the MCP tool — the latter resolving `ListImportedContexts()[ctx].SourcePath` for an imported context, and leaving it empty for a Hub artifact, which has no local tree.
 
-Idiomatic English translation:
-The inline 0 triumphed in its own parameters, which were passed along from the embedding module.
-Daemon, which already had `rootPath`. Also connected to `RepoRoot` on the `ast embed` path.
-Sure, here is the translation:
+### `--no-sources` finally actually exists
 
-"Sync and in the tool MCP — this last one resolves INLINE_0__ for"
+The flag was declared on two surfaces — `--no-sources` in the CLI (`ast.go:289`) and `no_sources` in the MCP tool — and it was **accepted and discarded**: `runASTExport` received the parameter and never read it, and the success message said "(with sources)" regardless. It was also unimplementable as written, because it described omitting a node property where the text no longer lives.
 
-This translation maintains the original meaning while making it more idiomatic English.
-Context imported, leaving blank for hub artifact, which does not have a local tree.
+With the text coming from the index, including it is a real action and omitting it is a real choice:
 
-### `--no-sources` passa a existir de fato
+- `internal/ast/fts_sqlite.go` — `EachFileSource(indexPath, fn)` walks `file_fts` row by row. **Streaming, not collecting**: the entire corpus sits on the other side of the cursor (2.4 GB for 36k files), and whatever writes to a zip needs one file at a time. Rows with an empty `source` are skipped.
+- `internal/ast/bundle.go` — `ExportBundle` gains `BundleOptions{StorePath, NoSources}`, and writes each file as a `sources/<path>` member of the zip instead of one giant map: the extracted bundle becomes a tree, and reading one file doesn't require parsing all of them. A path that would escape the archive root is skipped. The manifest gains `source_count`, to distinguish a structural bundle from a truncated one without guesswork.
+- Wired into all three call sites: the CLI, the MCP tool, and `POST /api/export/bundle` (which gained `no_sources` in its body).
 
-The flag was declared on two surfaces — INLINE 0 in CLI (INLINE 1) and
-The ``no_sources`` feature in the tool MCP was accepted and discarded: `runASTExport` received the parameter.
-He never read it, and the success message said "with sources" no matter how they phrased it. Also was
-Infeasible as it was written, because it described omitting a property of a node where the text
-He no longer lives there.
+Requesting sources and failing to get them is an **error**, not a silent structural export — a bundle nobody can use must not look like a success. Without `StorePath`, the bundle is structural by definition, and the manifest says so.
 
-With the text coming from the index, including is an action of reality, while excluding is a choice of reality:
+Error messages now distinguish the two cases, which is useful for diagnosis:
 
-- `internal/ast/fts_sqlite.go` — `EachFileSource(indexPath, fn)` percorre `file_fts` linha a
-Line. **Streaming, not collection:** The entire corpus is on the other side of the cursor (2.4 GB in size)
-  caso de 36k arquivos) e quem escreve num zip precisa de um arquivo por vez. Linhas com
-The empty INLINE_0 does not enter.
-- `internal/ast/bundle.go` — `ExportBundle` ganha `BundleOptions{StorePath, NoSources}`, e
-  escreve cada arquivo como um membro `sources/<path>` do zip, em vez de um mapa gigante: o
-The extracted bundle turns into an arbor, and reading an archive doesn't require parsing all of them.
-It would escape from the root of the file is skipped. The manifest gains `source_count` to distinguish bundle
-structural of truncated bundle without guessing.
-Connected at all three call sites: CLI, tool MCP, and INLINE 0 (which won)
-  `no_sources` no corpo).
-
-Requesting sources and not being able to is an error, not exporting structurally silent— a bundle that
-No one can use it, so it seems like failure. Without `StorePath`, the bundle is structural by default.
-definition and what it says.
-
-The error messages now distinguish between the two cases, which is diagnostic useful:
-
-| mensagem | significado |
+| message | meaning |
 |---|---|
-There is no file node — index incomplete.
-The file exists without a source configuration - inline 0.
+| `source not found for path %q (no File node in the graph; ...)` | no File node exists — incomplete index |
+| `file source is empty: %s (indexed without source, see ast.index_source)` | File node exists without source — configuration |
 
-Ligado em `internal/mcpstdio/tools_ast.go` e `cmd/graphit/commands/runners.go` via
-`WithShardCache(filepath.Dir(cfg.DBPath))`.
+Wired in `internal/mcpstdio/tools_ast.go` and `cmd/graphit/commands/runners.go` via `WithShardCache(filepath.Dir(cfg.DBPath))`.
 
 ## Use Cases
 
-### UC-01: Indexar um package spec PL/SQL e navegar a assinatura de um subprograma
-- **Actor**: agente ou desenvolvedor consultando o grafo.
-- **Preconditions**: projeto indexado com `ast.grammar .sql=antlr-plsql`; arquivo contendo
-  `CREATE PACKAGE ... AS` com `PROCEDURE`/`FUNCTION` declarados no spec.
+### UC-01: Index a PL/SQL package spec and navigate a subprogram's signature
+- **Actor**: Agent or developer querying the graph.
+- **Preconditions**: Project indexed with `ast.grammar .sql=antlr-plsql`; a file containing `CREATE PACKAGE ... AS` with `PROCEDURE`/`FUNCTION` declared in the spec.
 - **Main Flow**:
-  1. O indexador casa `//procedure_spec/identifier` e cria a entidade Procedure.
-2. For each parameter in the signature, use `//parameter/parameter_name`.
-  3. `resolveParentContextAntlr` sobe de `parameter` e encontra `procedure_spec`, agora em
-     `context_types`, devolvendo `(nome do subprograma, "Procedure")`.
-The entity Parameter is stored with `context` = subroutine, `context_type` = `Procedure`,
-     e o uid fica `path::PACKAGE.SUBPROGRAMA.PARAM`.
-  5. `MATCH (p:Procedure {name:'X'})-[:CONTAINS]->(a:Parameter)` devolve a assinatura.
+  1. The indexer matches `//procedure_spec/identifier` and creates the Procedure entity.
+  2. It matches `//parameter/parameter_name` for each parameter of the signature.
+  3. `resolveParentContextAntlr` walks up from `parameter` and finds `procedure_spec`, now in `context_types`, returning `(subprogram name, "Procedure")`.
+  4. The Parameter entity is written with `context` = the subprogram, `context_type` = `Procedure`, and the uid becomes `path::PACKAGE.SUBPROGRAM.PARAM`.
+  5. `MATCH (p:Procedure {name:'X'})-[:CONTAINS]->(a:Parameter)` returns the signature.
 - **Alternative Flows**:
-In **INLINE_0**, the context found is **INLINE_1**/**INLINE_2**.
-    comportamento inalterado.
-In `CREATE PROCEDURE`, it is `create_procedure_body`.
-The declared types in the package (`TYPE ... IS RECORD`) now refer to the own fields' contexts.
-Instead of leaving them in the package.
+  - In `CREATE PACKAGE BODY`, the context found is `procedure_body`/`function_body` — unchanged behavior.
+  - In a standalone `CREATE PROCEDURE`, it is `create_procedure_body` — unchanged.
+  - Types declared in the package (`TYPE ... IS RECORD`) are now the context for their own fields instead of leaving them on the package.
 - **Error Scenarios**:
-Rule of absent container with `context_types` → parameter assigned to wrong ancestor or
-    descartado por `ConvertToCache`. Barrado em teste por
-    `TestEveryCallableContainerIsDeclaredAsAContext`.
-- **Postconditions**: nenhum Parameter de spec tem `context_type = "Package"`; uids de
-Homologated Parameters between Different Subprocedures Do Not Collide.
+  - A container rule missing from `context_types` → parameter assigned to the wrong ancestor or discarded by `ConvertToCache`. Caught by the `TestEveryCallableContainerIsDeclaredAsAContext` test.
+- **Postconditions**: No spec Parameter has `context_type = "Package"`; uids of same-named parameters in different subprograms no longer collide.
 - **Affected Files**: `internal/ast/queries/plsql.yaml`, `internal/ast/antlr_adapter.go`.
 
-Complete rebuild with non-publication of the graph due to COPY failure
-- **Actor**: `graphit ast index`, ou o daemon via sync.
-Preconditions: populated parsing cache; existing or non-existent previous database.
+### UC-02: A full rebuild with a COPY failure does not publish the graph
+- **Actor**: `graphit ast index`, or the daemon via sync.
+- **Preconditions**: Parse cache populated; a previous database may or may not exist.
 - **Main Flow**:
-Brazilian Portuguese:
-1. INLINE_0 creates the temporary database and initializes the schema.
-The second inline divides each table into batches of up to 64 MiB and executes a COPY per batch.
-  3. Nenhum erro → enrichment → `AtomicSwapDB` → `swapped = true`.
+  1. `RebuildFromJSON` creates the temporary database and initializes the schema.
+  2. `copyNode` splits each table into batches of up to 64 MiB and runs one COPY per batch.
+  3. No error → enrichment → `AtomicSwapDB` → `swapped = true`.
 - **Alternative Flows**:
-A small table → a single batch, with zero cost compared to previous behavior.
-Greater than the budget → own batch, nothing is discarded.
+  - Small table → a single batch, zero cost relative to the previous behavior.
+  - A row larger than the budget → gets its own batch, nothing is discarded.
 - **Error Scenarios**:
-Brazilian Portuguese to idiomatic English:
-
-- Any COPY fails → **INLINE** 0 → backend temporarily closed, error returned, database
-Previous preserved, temporary removed by delete.
-  - No caminho incremental, `insertErrors > 0` continua caindo para rebuild completo — que
-    agora falha explicitamente em vez de publicar incompleto.
-Postconditions: The bank is published or complete, or it has not been published.
+  - Any COPY fails → `copyErrors > 0` → temporary backend closed, error returned, **previous database preserved**, temporary one removed by the defer.
+  - On the incremental path, `insertErrors > 0` still falls back to a full rebuild — which now fails explicitly instead of publishing an incomplete graph.
+- **Postconditions**: The published database is either complete, or it was not published at all.
 - **Affected Files**: `internal/ast/json_rebuild.go`, `internal/ast/incremental_rebuild.go`.
 
-### UC-03: Ler o texto de um arquivo indexado
-Actor: agent via INLINE_0, user via INLINE_1, or endpoint
-HTTP File Content Transfer
-Preconditions: active the `ast.index_source` indexed file; search index in
-  `<DBPath>.search.sqlite`.
+### UC-03: Read the text of an indexed file
+- **Actor**: Agent via `graphit_ast_source`, user via `graphit ast source`, or the file-content HTTP endpoint.
+- **Preconditions**: File indexed with `ast.index_source` enabled; search index at `<DBPath>.search.sqlite`.
 - **Main Flow**:
-  1. O call site resolve o store — do projeto ou do contexto — e chama `WithStore(dbPath)`.
-The function INLINE_0 calls INLINE_1, which opens the index in INLINE_2 and executes.
-     `SELECT source FROM file_fts WHERE path = ?`.
-The text is returned and cut as `head`, `tail`, `entity`, and `pattern`.
+  1. The call site resolves the store — the project's or a context's — and calls `WithStore(dbPath)`.
+  2. `fetchFileSource` calls `FileSourceAt`, which opens the index in `mode=ro` and runs `SELECT source FROM file_fts WHERE path = ?`.
+  3. The text is returned and sliced according to `head`/`tail`/`entity`/`pattern`.
 - **Alternative Flows**:
-- The **location** is sourced from the graph (`line_number`/`end_line`), and the text is provided by `entity`.
-index; responsibilities are separated by construction.
-  - Contexto importado → mesmo caminho, com o `DBPath` daquele contexto.
+  - `entity` given → the **location** comes from the graph (`line_number`/`end_line`) and the text from the index; they are separate responsibilities by design.
+  - Imported context → same path, with that context's `DBPath`.
 - **Error Scenarios**:
-Service without storage → saying it's impossible to reach the index, not that the file
-There is none.
-Absent path in the index → error citing both possible causes: not indexed or
-    `ast.index_source` falso.
-Deflated index schema version → Reading works, but it does not migrate or drop.
-    `file_fts`.
-Postconditions: The text originates from a single store; the index remains intact after reading;
-The graph is not consulted for text.
-- **Affected Files**: `internal/ast/source_service.go`, `internal/ast/fts_sqlite.go`,
-  `internal/ast/server.go`, `internal/mcpstdio/tools_ast.go`, `cmd/graphit/commands/runners.go`.
+  - Service without a store → error stating there's no way to reach the index, not that the file doesn't exist.
+  - Path missing from the index → error citing both possible causes: not indexed, or `ast.index_source` set to false.
+  - Outdated index schema version → the read still works and does **not** migrate or drop `file_fts`.
+- **Postconditions**: The text comes from a single store; the index stays intact after the read; the graph is never queried for text.
+- **Affected Files**: `internal/ast/source_service.go`, `internal/ast/fts_sqlite.go`, `internal/ast/server.go`, `internal/mcpstdio/tools_ast.go`, `cmd/graphit/commands/runners.go`.
 
-UC-04: Install an Abstract Syntax Tree (AST) Context and Explore It
-Actor: user or agent through INLINE_0 of artifact INLINE_1.
-- **Preconditions**: artefato no Hub carregando shards do parse cache.
+### UC-04: Install an AST context from the Hub and search it
+- **Actor**: User or agent via `graphit_hub_install` of an `ast` artifact.
+- **Preconditions**: Hub artifact carrying parse cache shards.
 - **Main Flow**:
-  1. `internal/hub/service.go` (`case TypeAST`) carrega o shard cache do clone.
-  2. `CreateGraphSchema` + `RebuildFromJSON` constroem o grafo em
-     `~/.graphit/ast/<project-id>/ladybugdb`.
-The third line constructs
-     `ladybugdb.search.sqlite` a partir dos mesmos shards.
-  4. `ast_search` e `ast_source` com `context: "<nome>"` resolvem aquele store e respondem.
+  1. `internal/hub/service.go` (`case TypeAST`) loads the shard cache from the clone.
+  2. `CreateGraphSchema` + `RebuildFromJSON` build the graph at `~/.graphit/ast/<project-id>/ladybugdb`.
+  3. `ast.BuildSearchIndexFor(dbPath, shardCache, embCache)` builds `ladybugdb.search.sqlite` from the same shards.
+  4. `ast_search` and `ast_source` with `context: "<name>"` resolve that store and respond.
 - **Alternative Flows**:
-Shard cache empty (_`Count() == 0`) → nothing is built as before.
+  - Empty shard cache (`Count() == 0`) → nothing is built, as before.
 - **Error Scenarios**:
-Error building index → the installation **fails** with an error, instead of leaving a context
-Navigable but unsearchable.
-Postconditions: all three contexts of origin (project, `ast_install` local, hub) have a graph.
-Index of search.
+  - Failure to build the index → the install **fails** with an error, instead of leaving a context that's navigable but not searchable.
+- **Postconditions**: All three context origins (project, local `ast_install`, Hub) have both a graph and a search index.
 - **Affected Files**: `internal/hub/service.go`, `internal/ast/fts_sqlite.go`.
 
-### UC-05: Exportar um bundle com ou sem o texto dos arquivos
-Actor: User via `graphit ast export --format bundle`, Agent via the MCP Export Tool
-  ou `POST /api/export/bundle`.
-Preconditions: indexed project; search index present when seeking text.
+### UC-05: Export a bundle with or without file text
+- **Actor**: User via `graphit ast export --format bundle`, agent via the export MCP tool, or `POST /api/export/bundle`.
+- **Preconditions**: Project indexed; search index present when the text is wanted.
 - **Main Flow**:
-  1. O call site monta `BundleOptions{StorePath, NoSources}`.
-The second part collects vertices and edges of the graph.
-With **INLINE_0** set as false and **INLINE_1** filled in, **INLINE_2** traverses the index via
-     `EachFileSource` e escreve um membro `sources/<path>` por arquivo, em streaming.
-  4. O manifest registra `node_count`, `edge_count` e `source_count`.
+  1. The call site builds `BundleOptions{StorePath, NoSources}`.
+  2. `ExportBundle` collects nodes and edges from the graph.
+  3. With `NoSources` false and `StorePath` set, `writeBundleSources` walks the index via `EachFileSource` and streams a `sources/<path>` member per file.
+  4. The manifest records `node_count`, `edge_count`, and `source_count`.
 - **Alternative Flows**:
-- Inline 0 and Inline 1 are skipped in step 3; Inline 2 equals 0.
-- Without `StorePath` → by definition, structural bundle.
+  - `--no-sources` / `no_sources` → step 3 is skipped; `source_count` = 0.
+  - No `StorePath` → structural bundle by definition.
 - **Error Scenarios**:
-Error, named after the source step missing or illegible.
-    reportado como exportado com sucesso.
-Path of the index that would leap free from the root of the zip → jumped, not written.
-Postconditions: The content of the bundle matches what the flag requested, and the manifest is correct.
-  descreve o que ele carrega.
-- **Affected Files**: `internal/ast/bundle.go`, `internal/ast/fts_sqlite.go`,
-  `internal/ast/server.go`, `internal/mcpstdio/tools_ast.go`, `cmd/graphit/commands/runners.go`.
+  - Sources requested but the index is missing or unreadable → **error**, naming the sources step; nothing is reported as a successful export.
+  - An index path that would escape the zip root → skipped, not written.
+- **Postconditions**: The bundle's content matches what the flag requested, and the manifest describes what it carries.
+- **Affected Files**: `internal/ast/bundle.go`, `internal/ast/fts_sqlite.go`, `internal/ast/server.go`, `internal/mcpstdio/tools_ast.go`, `cmd/graphit/commands/runners.go`.
 
-UC-06: Index without persisting the source and still have semantic search
-Actor: user with `ast.index_source: false` in the configuration or `--no-source` in the index.
-Preconditions: an indexed tree present on disk and INLINE_0 configured in the embedder.
+### UC-06: Index without persisting the source and still have semantic search
+- **Actor**: User with `ast.index_source: false` in the config, or `--no-source` on the index command.
+- **Preconditions**: Indexed tree present on disk; `RepoRoot` configured on the embedder.
 - **Main Flow**:
-The parse does not materialize `result.Source`, and `ConvertToCache` writes an empty `src` to the shard.
-  2. `scanPending` encontra `entry.Source` vazio e chama `sourceFromDisk(relPath, hash)`.
-The hash of the file is compared with that of the shard; when they match, the file is read.
-The snippet is cut by the line interval of the entity and limited by
-The vector is calculated and persisted in the embedding cache.
+  1. Parsing doesn't materialize `result.Source`, and `ConvertToCache` writes an empty `src` to the shard.
+  2. `scanPending` finds `entry.Source` empty and calls `sourceFromDisk(relPath, hash)`.
+  3. The file's hash is compared to the shard's; if they match, the file is read.
+  4. The snippet is sliced to the entity's line range and capped by `MaxSourceChars`; the vector is computed and persisted in the embedding cache.
 - **Alternative Flows**:
-  - Shard **com** texto → usa o texto do cache, sem tocar o disco.
-  - `RepoRoot` vazio (artefato do Hub, por exemplo) → sem snippet; a entidade continua
-Embedded by name, docstring, and context.
-The FTS about the source does not exist under this flag by definition; `entity_fts` continues
-    indexando nome, `name_split` e docstring.
+  - Shard **with** text → uses the cached text, without touching disk.
+  - Empty `RepoRoot` (a Hub artifact, for example) → no snippet; the entity is still embeddable by name, docstring, and context.
+  - FTS over the source doesn't exist under this flag, by definition; `entity_fts` keeps indexing name, `name_split`, and docstring.
 - **Error Scenarios**:
-The file's hash does not match the shard's hash → without snippet, to avoid storing a snippet in the cache.
-vector indicating that the graph does not contain.
-The file is illegible or absent → no snippet, no error: the shard will be reprocessed.
-- **Postconditions**: existe vetor para a entidade incluindo o sinal do corpo, e nenhum
-Artifact persists contains text.
-- **Affected Files**: `internal/ast/embedder.go`, `internal/daemon/adapters.go`,
-  `internal/mcpstdio/tools_ast.go`, `cmd/graphit/commands/ast.go`,
-  `cmd/graphit/commands/lifecycle.go`.
+  - File hash different from the shard hash → no snippet, so the cache doesn't end up storing a vector for code the graph doesn't contain.
+  - File unreadable or missing → no snippet, no error: the shard will be reprocessed.
+- **Postconditions**: A vector exists for the entity including the body's signal, and no persisted artifact contains the text.
+- **Affected Files**: `internal/ast/embedder.go`, `internal/daemon/adapters.go`, `internal/mcpstdio/tools_ast.go`, `cmd/graphit/commands/ast.go`, `cmd/graphit/commands/lifecycle.go`.
 
 ## Test Cases & Acceptance Criteria
 
-Feature: Owner of the parameter in package specification
+### Feature: Parameter ownership in a package spec
 Ref: UC-01
 
-The parameter declared in the procedure specification belongs to the procedure.
+#### Scenario: a parameter of a procedure declared in the spec belongs to the procedure
 ```gherkin
-Given um arquivo com "CREATE PACKAGE PCK_COBRANCA AS" declarando a procedure "ATUALIZAR_INTEGRACAO"
-And that procedure declares the parameter "P_LOG_TX"
-When the file is parsed with ANTLR-PLSQL grammar
-Then a entidade Parameter "P_LOG_TX" tem context "ATUALIZAR_INTEGRACAO"
-  And tem context_type "Procedure"
-But there's no context "PCK_COBRANCA"
+Given a file with "CREATE PACKAGE PCK_COBRANCA AS" declaring the procedure "ATUALIZAR_INTEGRACAO"
+  And that procedure declares the parameter "P_LOG_TX"
+When the file is parsed with the antlr-plsql grammar
+Then the Parameter entity "P_LOG_TX" has context "ATUALIZAR_INTEGRACAO"
+  And has context_type "Procedure"
+  But does not have context "PCK_COBRANCA"
 ```
 
-The parameter declared in the specification belongs to the function.
+#### Scenario: a parameter of a function declared in the spec belongs to the function
 ```gherkin
-Given an invoice package specification that declares the function "BALANCE_DEBITOR" with the parameter "P_ID_CONTRACT"
+Given a package spec declaring the function "SALDO_DEVEDOR" with the parameter "P_ID_CONTRATO"
 When the file is parsed
-Then o Parameter "P_ID_CONTRATO" tem context "SALDO_DEVEDOR" e context_type "Function"
+Then the Parameter "P_ID_CONTRATO" has context "SALDO_DEVEDOR" and context_type "Function"
 ```
 
-#### Scenario: package body continua atribuindo corretamente
+#### Scenario: the package body keeps assigning ownership correctly
 ```gherkin
-Given a "CREATE PACKAGE BODY" with the procedure "UPDATE_INTEGRATION" and parameter "P_LOG_TX"
+Given a "CREATE PACKAGE BODY" with the procedure "ATUALIZAR_INTEGRACAO" and the parameter "P_LOG_TX"
 When the file is parsed
-Then o Parameter "P_LOG_TX" tem context "ATUALIZAR_INTEGRACAO" e context_type "Procedure"
+Then the Parameter "P_LOG_TX" has context "ATUALIZAR_INTEGRACAO" and context_type "Procedure"
 ```
 
-Scenario: Parameters survive conversion to cache
+#### Scenario: spec parameters survive conversion to cache
 ```gherkin
-Given a package specification declaring the procedure "P" with parameters "P_A" and "P_B"
-When o resultado do parse passa por ConvertToCache
-Then, since entities "P_A" and "P_B" exist in the cache
+Given a package spec declaring the procedure "P" with parameters "P_A" and "P_B"
+When the parse result goes through ConvertToCache
+Then the Parameter entities "P_A" and "P_B" are present in the cache
 ```
 
-Feature: Grammar Protection Network
+### Feature: Grammar safety net
 Ref: UC-01
 
-Scenario: A non-context-dependent rule-declared callable fails the build
+#### Scenario: a callable declared from a non-context rule fails the build
 ```gherkin
-Given a grammar whose query generates Functions, Methods, Procedures, or Constructors from a rule
-And that rule isn't in context_types.
-And language is not in flat Languages.
-And the rule isn't in callableContainerExemptions
-And the pattern does not mention any kind of anon_func_types.
-When TestEveryCallableContainerIsDeclaredAsAContext roda
-The test fails by naming grammar, labeling, and rules.
+Given a grammar whose query creates a Function, Method, Procedure, or Constructor from a rule
+  And that rule is not in context_types
+  And the language is not in flatLanguages
+  And the rule is not in callableContainerExemptions
+  And the pattern does not mention a kind from anon_func_types
+When TestEveryCallableContainerIsDeclaredAsAContext runs
+Then the test fails, naming the grammar, the label, and the rule
 ```
 
-Scenario: Removing `procedure_spec` from `plsql.yaml` reverts the fix and is detected.
+#### Scenario: removing procedure_spec from plsql.yaml reintroduces the bug and is caught
 ```gherkin
-Given plsql.yaml sem "procedure_spec: Procedure" em context_types
-When a suite rolls
-Then TestEveryCallableContainerIsDeclaredAsAContext falha apontando "procedure_spec"
-And the TestPackageSpecParametersBelongToTheirSubprogram fails with the parameter assigned to the Package
+Given plsql.yaml without "procedure_spec: Procedure" in context_types
+When the suite runs
+Then TestEveryCallableContainerIsDeclaredAsAContext fails, pointing at "procedure_spec"
+  And TestPackageSpecParametersBelongToTheirSubprogram fails with the parameter assigned to the Package
 ```
 
-### Feature: Batching do COPY
+### Feature: COPY batching
 Ref: UC-02
 
-Scenario: Large lines are divided into multiple batches
+#### Scenario: large rows are split across several batches
 ```gherkin
-Given 3 linhas de aproximadamente 900 bytes de source cada
-When `batchRows` is called with an argument of 2000 bytes
-Then more than one batch is produced.
-And none of the batches are empty.
-And the sum of the lines in each batch equals the total input.
+Given 3 rows of approximately 900 bytes of source each
+When batchRows is called with a budget of 2000 bytes
+Then more than one batch is produced
+  And no batch is empty
+  And the sum of rows across batches equals the total input
 ```
 
-The larger line exceeds the budget.
+#### Scenario: a row larger than the budget is not discarded
 ```gherkin
-Given uma linha com 10000 bytes de source entre duas linhas pequenas
-When `batchRows` is called with an argument of 100 bytes
-The big line is present in the output.
-And the sum of the lines in each batch equals the total input.
+Given a row with 10000 bytes of source between two small rows
+When batchRows is called with a budget of 100 bytes
+Then the large row is present in the output
+  And the sum of rows across batches equals the total input
 ```
 
-#### Scenario Outline: casos de borda do batching
+#### Scenario Outline: batching edge cases
 ```gherkin
-Given a entrada "<entrada>"
-When `batchRows` is called with budget `<budget>`
-Then the result is "<result>".
+Given the input "<input>"
+When batchRows is called with budget "<budget>"
+Then the result is "<result>"
 
 Examples:
-  | entrada        | orcamento | resultado                   |
-  | nil            | 64MiB     | nenhum batch                |
-  | slice vazio    | 64MiB     | nenhum batch                |
-  | 2 linhas       | 0         | um batch com as 2 linhas    |
-  | 2 linhas       | 64MiB     | um batch                    |
+  | input          | budget    | result                      |
+  | nil            | 64MiB     | no batches                  |
+  | empty slice    | 64MiB     | no batches                  |
+  | 2 rows         | 0         | one batch with both rows    |
+  | 2 rows         | 64MiB     | one batch                   |
 ```
 
-Feature: The search index owns the text.
+### Feature: The search index is the sole owner of the text
 Ref: UC-03
 
-Scenario: The source comes from file_fts, and the graph is not consulted.
+#### Scenario: source comes from file_fts and the graph is never queried
 ```gherkin
-Given um grafo que devolve zero linhas para toda consulta
-And an index containing "schema/packages/PCK_X.sql" with the file's text
-When `GetSource` is called for "schema/packages/PCK_X.sql"
-The text returned is identical to that stored in file_fts
-And the graph was never consulted.
+Given a graph that returns zero rows for every query
+  And a search index containing "schema/packages/PCK_X.sql" with the file's text
+When GetSource is called for "schema/packages/PCK_X.sql"
+Then the returned text matches what is stored in file_fts
+  And the graph was never queried
 ```
 
-Scenario: The line in the table file does not load text
+#### Scenario: a File table row carries no text
 ```gherkin
-Given um parse cache com "a/b.go" e seu source
-When fileNodeJSON monta as linhas da tabela File
-Then there is no key "source" in the line "a/b.go".
-  And tem path igual a "a/b.go"
+Given a parse cache with "a/b.go" and its source
+When fileNodeJSON builds the File table rows
+Then the row for "a/b.go" has no "source" key
+  And has path equal to "a/b.go"
 ```
 
-Scenario: Reading the source does not migrate or destroy the index
+#### Scenario: reading the source does not migrate or destroy the index
 ```gherkin
-Given an index whose search_meta schema version has been lowered to "0"
+Given a search index whose search_meta.schema_version was downgraded to "0"
 When FileSourceAt is called for a path present in file_fts
-Then it is returned as the source.
-And a second call returns the source, proving that file_fts was not dropped.
+Then the source is returned
+  And a second call still returns the source, proving file_fts was not dropped
 ```
 
-The error names the absent store, not the file.
+#### Scenario: the error names the missing store, not the file
 ```gherkin
-Given an unconfigured SourceService constructed without a storage path
-When `GetSource` is called for `"a/b.sql"`
-Then an error is returned.
-And the message says that the service is down, not that the file doesn't exist.
+Given a SourceService built without a store path
+When GetSource is called for "a/b.sql"
+Then an error is returned
+  And the message says the service has no store, not that the file doesn't exist
 ```
 
-Scenario: Error citing ast_index_source when the path is not in the index
+#### Scenario: the error cites ast.index_source when the path is not in the index
 ```gherkin
-Given an index containing only "a/b.sql"
-When `GetSource` is called for "not/indexed.sql"
-Then an error is returned.
-And the message cites "ast.index_source" as one of the possible causes.
+Given a search index containing only "a/b.sql"
+When GetSource is called for "not/indexed.sql"
+Then an error is returned
+  And the message cites "ast.index_source" as one of the possible causes
 ```
 
-Scenario Outline: Entries that Do Not Resolve
+#### Scenario Outline: inputs that do not resolve
 ```gherkin
-Given an index containing only "a/b.sql"
-When `FileSourceAt` is called with index "<index>" and path "<path>"
-Then a leitura recusa
+Given a search index containing only "a/b.sql"
+When FileSourceAt is called with index "<index>" and path "<path>"
+Then the read is refused
 
 Examples:
-  | indice          | path              |
-Valid | Not/Indexed.sql
-  | vazio           | a/b.sql           |
-Valid |
-  | arquivo ausente | a/b.sql           |
+  | index           | path              |
+  | valid           | not/indexed.sql   |
+  | empty           | a/b.sql           |
+  | valid           |                   |
+  | missing file    | a/b.sql           |
 ```
 
-Scenario: Empty source does not count as found
+#### Scenario: an empty source does not count as found
 ```gherkin
-Given an index whose `file_fts` field contains `"empty.sql"` with a source equal to an empty string.
-When `FileSourceAt` is called with "empty.sql"
-Then reading refuses, so that the caller still knows the source is unavailable.
+Given a search index whose file_fts has "empty.sql" with source equal to an empty string
+When FileSourceAt is called for "empty.sql"
+Then the read is refused, so the caller still knows the source is unavailable
 ```
 
-### Feature: Embedding sob ast.index_source falso
+### Feature: Embedding under ast.index_source false
 Ref: UC-06
 
-Scenario: The embedding retains the source signal without retaining the source.
+#### Scenario: the embedding keeps the source's signal without persisting the source
 ```gherkin
-Given an empty shard with the function "ChargeCard" on lines 3 to 6
-  And o arquivo real em disco cujo hash bate com o hash do shard
-  And RepoRoot apontando para a raiz daquele arquivo
-When scanPending monta as linhas pendentes com snippet
-Then the snippet of the entity contains the body of the function
-And the embedded text contains both "ChargeCard" and the body.
+Given a shard without text, with the function "ChargeCard" on lines 3 to 6
+  And the real file on disk whose hash matches the shard's hash
+  And RepoRoot pointing at that file's root
+When scanPending builds the pending rows with a snippet
+Then the entity's snippet contains the function body
+  And the embedded text contains both "ChargeCard" and the body
 ```
 
-Scenario: No data is persisted on the shard
+#### Scenario: no text is persisted in the shard
 ```gherkin
 Given the same scenario, after scanPending has produced the snippet
-When it is recorded on disk and read back
-The source field of the shard is empty.
-And the file body does not appear anywhere in the JSON of the shard.
+When the shard is written to disk and read back
+Then the shard's src field is empty
+  And the file's body does not appear anywhere in the shard's JSON
 ```
 
-Scenario: The modified file is not read to avoid poisoning the cache
+#### Scenario: a changed file is not read, so it does not poison the cache
 ```gherkin
-Given a shard whose hash was calculated based on the original content
-  And o arquivo em disco foi reescrito depois disso
-When scanPending tenta montar o snippet
-Then no snippet is produced because the hash doesn't match.
+Given a shard whose hash was computed over the original content
+  And the file on disk was rewritten after that
+When scanPending tries to build the snippet
+Then no snippet is produced, because the hash does not match
 ```
 
-Scenario: The entity remains embeddable without a RepoRoot
+#### Scenario: without RepoRoot the entity is still embeddable
 ```gherkin
-Given um shard sem texto e RepoRoot vazio
-When scanPending monta as linhas pendentes
+Given a shard without text and an empty RepoRoot
+When scanPending builds the pending rows
 Then no snippet is produced
-But the embedded text still contains the entity name
+  But the embedded text still contains the entity's name
 ```
 
-Scenario: Cache without touching the disk
+#### Scenario: a cache with text never touches disk
 ```gherkin
-Given um shard que carrega texto contendo "CACHED_MARKER"
-When scanPending monta o snippet
-Then o snippet vem do cache, contendo "CACHED_MARKER"
+Given a shard carrying text containing "CACHED_MARKER"
+When scanPending builds the snippet
+Then the snippet comes from the cache, containing "CACHED_MARKER"
 ```
 
-### Feature: Sources no bundle e a flag --no-sources
+### Feature: Sources in the bundle and the --no-sources flag
 Ref: UC-05
 
-Scenario: The bundle loads text from the search index.
+#### Scenario: the bundle carries text coming from the search index
 ```gherkin
-Given an index containing "svc/handler.go", with the text of the file
-When ExportBundle is called with StorePath pointing to that store
-Then o zip tem um membro "sources/svc/handler.go" com exatamente aquele texto
-  And o manifest declara source_count igual a 1
+Given a search index containing "svc/handler.go" with the file's text
+When ExportBundle is called with StorePath pointing at that store
+Then the zip has a member "sources/svc/handler.go" with exactly that text
+  And the manifest declares source_count equal to 1
 ```
 
-#### Scenario: --no-sources omite o texto
+#### Scenario: --no-sources omits the text
 ```gherkin
 Given the same search index
-When ExportBundle is called with Sources set to false
-Then there is no member named "sources" in the zip file.
-  And o manifest declara source_count igual a 0
+When ExportBundle is called with NoSources true
+Then the zip has no member under "sources/"
+  And the manifest declares source_count equal to 0
 ```
 
-The scenario where the bundle is structural and declares this fact.
+#### Scenario: without a store the bundle is structural and declares it
 ```gherkin
-Given BundleOptions sem StorePath
+Given BundleOptions without StorePath
 When ExportBundle is called
-Then the zipper doesn't have any source members
-  And o manifest declara source_count igual a 0
+Then the zip has no source members
+  And the manifest declares source_count equal to 0
 ```
 
-Scenario: Requesting sources without an index available is an error.
+#### Scenario: requesting sources with no index available is an error
 ```gherkin
-Given BundleOptions pointing to an inexistent store
-  And NoSources falso
+Given BundleOptions with StorePath pointing at a store that does not exist
+  And NoSources false
 When ExportBundle is called
-Then an error is returned, naming the source stage.
-And no bundle is presented as exported successfully
+Then an error is returned naming the sources step
+  And no bundle is presented as successfully exported
 ```
 
-Scenario: Skips over lines without text and reports missing index
+#### Scenario: the scan skips rows without text and reports the missing index
 ```gherkin
-Given an index with "has/text.go" containing text and "no/text.go" with a source field empty
-When EachFileSource traverses the index
-Then "has/text.go" is visited with its text.
-But "no/text.go" is not visited.
+Given an index with "has/text.go" holding text and "no/text.go" with an empty source
+When EachFileSource walks the index
+Then "has/text.go" is visited with its text
+  But "no/text.go" is not visited
 ```
 
-Feature: Imported Context Searchable
+### Feature: Imported context is searchable
 Ref: UC-04
 
-The index built from the shard cache serves text and search.
+#### Scenario: an index built from the shard cache serves both text and search
 ```gherkin
-Given a shard cache containing "svc/handler.go" with a function named "HandlePayment"
-When the BuildSearchIndexFor method is called for a new store
-Then FileSourceAt devolve o texto de "svc/handler.go" daquele store
-And a search for "HandlePayment" in this index returns at least one result
+Given a shard cache containing "svc/handler.go" with a function "HandlePayment"
+When BuildSearchIndexFor is called for a new store
+Then FileSourceAt returns the text of "svc/handler.go" from that store
+  And a search for "HandlePayment" in that index returns at least one result
 ```
 
 ## Files Changed
 
 | File | Change | Reason |
 |---|---|---|
-Here is the translation:
-
-"_`internal/ast/queries/plsql.yaml`_ | Modified | _`function_spec`/_`procedure_spec` + matview + types of packages in _`context_types`; invariant comment"
-| `internal/ast/queries/java.yaml` | Modified | `constructor_declaration` como contexto |
-| `internal/ast/queries/javascript.yaml` | Modified | `generator_function_declaration` como contexto |
-| `internal/ast/queries/typescript.yaml` | Modified | idem |
-| `internal/ast/queries/tsx.yaml` | Modified | idem |
-| `internal/ast/queries/dart.yaml` | Modified | `function_signature`/`method_signature` como contextos |
-| `internal/ast/queries/objc.yaml` | Modified | `function_definition`/`method_declaration`/`method_definition` como contextos |
-| `internal/ast/queries/html.yaml` | Modified | `context_name_paths` para `element`/`script_element`/`style_element` |
-| `internal/ast/queries/svelte.yaml` | Modified | `script_element`/`style_element` como contextos, com name paths |
-Here is the translation:
-
-| `internal/ast/queries/sql.yaml` | Modified | Only comment: points to `flatLanguages` and explains why it's a purpose plan |
-| `internal/ast/json_rebuild.go` | Modified | Aborta em `copyErrors > 0`; `copyNode` batcheia; `batchRows`/`estimateRowBytes`/`copyBatchBytes` |
-"Batches according to the same criterion."
-| `internal/ast/rebuild_index.go` | Modified | `fileNodeJSON` deixa de emitir `source` |
-Here is the translation:
-
-"_`internal/ast/ladybug.go`_ | Modified | Comment in DDL: column _`source`_ survives only for _`'__config__'`_"
-Here is the translation:
-
-"_`internal/ast/source_service.go`_ | Modified | _`WithStore`; text comes only from the search index; error messages that distinguish absent store from non-indexed path"
-
-This translation maintains the structure and meaning of the original Portuguese text while rendering it in idiomatic English.
-| `internal/ast/fts_sqlite.go` | Modified | `FileSourceAt`, `EachFileSource` (streaming) e `BuildSearchIndexFor` |
-| `internal/ast/bundle.go` | Modified | `BundleOptions`, membros `sources/<path>` em streaming, `source_count` no manifest |
-Here is the translation:
-
-"_`internal/ast/server.go`_ | Modified | Content Endpoint Reader from Index; _`storePathFor`_; accepts _`no_sources`_"
-
-This translation maintains the structure and meaning of the original Portuguese text, providing a natural-sounding English equivalent.
-The inline 0 is modified; the property table of `File.source` is not present, and the section titled "Quick Source Peek" has been rewritten.
-Here is the translation:
-
-"____ | Modified | The installation of artifact AST builds the search index, and fails if it cannot."
-| `internal/mcpstdio/tools_ast.go` | Modified | Passa o store ao `SourceService` |
-| `cmd/graphit/commands/runners.go` | Modified | Idem na CLI; mensagem do export de bundle deixa de prometer sources |
+| `internal/ast/queries/plsql.yaml` | Modified | `function_spec`/`procedure_spec` + matview + package-level types in `context_types`; comment documenting the invariant |
+| `internal/ast/queries/java.yaml` | Modified | `constructor_declaration` as a context |
+| `internal/ast/queries/javascript.yaml` | Modified | `generator_function_declaration` as a context |
+| `internal/ast/queries/typescript.yaml` | Modified | Same |
+| `internal/ast/queries/tsx.yaml` | Modified | Same |
+| `internal/ast/queries/dart.yaml` | Modified | `function_signature`/`method_signature` as contexts |
+| `internal/ast/queries/objc.yaml` | Modified | `function_definition`/`method_declaration`/`method_definition` as contexts |
+| `internal/ast/queries/html.yaml` | Modified | `context_name_paths` for `element`/`script_element`/`style_element` |
+| `internal/ast/queries/svelte.yaml` | Modified | `script_element`/`style_element` as contexts, with name paths |
+| `internal/ast/queries/sql.yaml` | Modified | Comment only: points to `flatLanguages` and explains why it is deliberately flat |
+| `internal/ast/json_rebuild.go` | Modified | Aborts on `copyErrors > 0`; `copyNode` now batches; adds `batchRows`/`estimateRowBytes`/`copyBatchBytes` |
+| `internal/ast/incremental_rebuild.go` | Modified | `insertNodes` batches by the same criterion |
+| `internal/ast/rebuild_index.go` | Modified | `fileNodeJSON` no longer emits `source` |
+| `internal/ast/ladybug.go` | Modified | Comment in the DDL: the `source` column survives only for `'__config__'` |
+| `internal/ast/source_service.go` | Modified | `WithStore`; text now comes only from the search index; error messages distinguish a missing store from a non-indexed path |
+| `internal/ast/fts_sqlite.go` | Modified | `FileSourceAt`, `EachFileSource` (streaming), and `BuildSearchIndexFor` |
+| `internal/ast/bundle.go` | Modified | `BundleOptions`, streamed `sources/<path>` members, `source_count` in the manifest |
+| `internal/ast/server.go` | Modified | Content endpoint reads from the index; `storePathFor`; export accepts `no_sources` |
+| `internal/ast/rule.go` | Modified | Property table without `File.source`; "quick source peek" section rewritten |
+| `internal/hub/service.go` | Modified | AST artifact install builds the search index, and fails if it cannot |
+| `internal/mcpstdio/tools_ast.go` | Modified | Passes the store to `SourceService` |
+| `cmd/graphit/commands/runners.go` | Modified | Same on the CLI; bundle export message no longer promises sources |
 | `internal/ast/containment_coverage_test.go` | Modified | `TestEveryCallableContainerIsDeclaredAsAContext` + helpers + `callableContainerExemptions` |
-**Translation:**
-
-| `internal/ast/oracle_package_spec_owner_test.go` | Created | Regression of reported bug (spec, body, survival in cache) |
+| `internal/ast/oracle_package_spec_owner_test.go` | Created | Regression test for the reported bug (spec, body, survival through the cache) |
 | `internal/ast/copy_batch_test.go` | Created | `batchRows`/`estimateRowBytes` |
-Here is the Brazilian Portuguese text translated into idiomatic English:
+| `internal/ast/source_search_index_test.go` | Created | Text only from the index, File without `source`, non-migration, edge cases, searchable context |
+| `internal/ast/bundle_sources_test.go` | Created | Sources in the bundle, `--no-sources`, structural bundle, error when the index is missing, the scan |
+| `internal/ast/embedder.go` | Modified | `RepoRoot`, `sourceFromDisk` with a hash guard, lazy per-shard resolution, `repoRoot` in `RunEmbeddingLoop` |
+| `internal/daemon/adapters.go` | Modified | Propagates `rootPath` to the embedding loop |
+| `cmd/graphit/commands/ast.go` | Modified | `RepoRoot` in `ast embed` |
+| `cmd/graphit/commands/lifecycle.go` | Modified | `RepoRoot` on the sync path |
+| `internal/ast/embedder_no_source_test.go` | Created | Source signal under `index_source: false`, shard without text, hash guard, degradation without a root, preference for the cache |
 
-"_______ | Created | Index-only Text, File without `internal/ast/source_search_index_test.go`, no migration, edge cases, searchable context"
+## Trade-offs & Decisions
 
-This translation maintains the original meaning while making it more natural and conversational in English. The underscores (_) have been removed for clarity.
-Inline 0 created | Sources not in bundle, `--no-sources`, structural bundle, error when index is missing, scan
-Here is the Portuguese text translated to idiomatic English:
-
-"____ INLINE 0 ____ | Modified | `RepoRoot`, `sourceFromDisk` with hash guard, lazy resolution by shard, `repoRoot` in `RunEmbeddingLoop`"
-
-This translation maintains the structure and meaning of the original Portuguese text while rendering it in a more natural English phrasing.
-| `internal/daemon/adapters.go` | Modified | Propaga `rootPath` ao loop de embedding |
-| `cmd/graphit/commands/ast.go` | Modified | `RepoRoot` no `ast embed` |
-| `cmd/graphit/commands/lifecycle.go` | Modified | `RepoRoot` no caminho de sync |
-Here is the Portuguese text translated into idiomatic English:
-
-The inline 0 created by `internal/ast/embedder_no_source_test.go`. Sourced signal from `index_source: false` without text. Hash guard, no degradation with root, preference for cache.
-
-Trade-offs and Decisions
-
-The `sql.yaml` was intentionally reverted. The first attempt added
-  `create_function`/`create_table`/`create_view` a `context_types`, e
-The inline code has rejected: `sql` is in `flatLanguages`.
-Justification written. The grammar Tree-Sitter-SQL only captures TOP-level CREATES and does not have a feature for capturing other types of SQL statements.
-Query of column or parameter - nothing is nested for assignment. It's just a comment.
-Pointing to the existing decision. A guard test with written reason won the challenge.
-Assumption, which is exactly what he exists to do.
-Batching by bytes, not lines. An entity line contains dozens of bytes; one of
-The file contains the entire archive. A limit by count would be pointless in the single case that matters.
-"Abandon in progress instead of publishing partially." Aligning with the decision already taken on the path.
-Incremental (`internal/ast/incremental_rebuild.go`). Cost: an outdated index instead of
-An incorrect index - and an obvious error instead of silence.
-A copy that is viewable, not a chain of fallbacks. The design went through three versions in...
-Sequence, and the first two were wrong: (1) reading the shard from the parse cache when the graph
-Failure; (2) when the graph fails, read from INLINE_0 with the shard behind. Both dealt with
-Redundancy as strength. The third removes the problem instead of circumventing it: the text has one.
-Owner only — the index of search, the sole copy that is accessible — and the graph disappears.
-Keep it. Without fallback, there is no possible divergence between copies, and the `COPY` that caused the
-  incidente deixa de existir.
-Choosing which copy to read has never been an expense of space. The three were already paid for in...
-  disco. A economia veio de **eliminar** uma: `File.source` sai do `ladybugdb`.
-The column `source` is in the DDL of the table File, solely due to the synthetic node.
-Here is the translation:
-
-"`'__config__'`," which is not an actual file—`RunEnrichment` stores the detected configuration, and
-The skill documents her consultation. Alternative considered and rejected: move this load to another.
-Property, what would tear up a documented query for cosmetic cleaning.
-Index required for search during installation of the Hub, not best effort. If the text is only there.
-Context without an index is not degraded context; it's useless context—so the installation fails instead.
-Half-finished delivery. Even principle of rebuilding's half-done.
-- **Ler o arquivo em disco para embeddar, em vez de persistir o snippet.** A alternativa era
-  gravar o snippet por entidade no shard mesmo sob `index_source: false`. Recusada por duas
-Reasons: Contradicts the purpose of the shield for those who link it by confidentiality, and expensive —
-The _INLINE_0_ measures body size by entity at 1.31 times its own file size.
-Reading the file is akin to sharding the stream, just as scanning already does
-There is, and it does not persist anything. The price accepted depends on whether the tree is in disk at the time of
-Embedding is true for the project itself and for the context of local paths, not for
-artifact of the Hub - where degradation is explicit.
-- **Guarda de hash em vez de confiar no arquivo.** Sem ela, embeddar um arquivo mais novo sob a
-Old cache key would store a vector describing code that the graph does not contain, and it
-Survive until the file changes again. Preferred not to have a snippet with the wrong one.
-The path migrates and drops the schema.
-In a version divergence. Accepted cost: opening and closing an SQLite connection by
-Reading, on a path that only turns when the graph has already failed.
-- **Teste-guarda restrito a callables.** A auditoria completa (todo label de container) gera
-~30 signals, almost all benign (imports, `package_declaration`, our wrapped components)
-for a more immediate context), requiring a large enough list of exceptions to turn into
-Noise. Calls are the initial cut: they have Parameters, and one without
-Owner is discarded, not just archived incorrectly.
-Exceptions to callability are explicit and justified (`callableContainerExemptions`), in
-same spirit of `flatLanguages` : "I didn't think about it" and "there's nothing to think about" should be
-Distinguishable in the file.
+- **`sql.yaml` was reverted on purpose.** The first attempt added `create_function`/`create_table`/`create_view` to `context_types`, and `TestEveryShippedGrammarDeclaresItsContainment` failed: `sql` is in `flatLanguages` with a written justification. The tree-sitter-sql grammar only captures top-level CREATEs and has no column or parameter query — there is nothing nested to assign. What remained was just a comment pointing to the existing decision. A guard test with a written reason beat an assumption, which is exactly what it exists to do.
+- **Batching by bytes, not by rows.** An entity row is dozens of bytes; a File row is the entire file. A count-based limit would be useless in the one case that matters.
+- **Abort instead of publishing partially.** Aligned with the decision already made on the incremental path (`internal/ast/incremental_rebuild.go`). Cost: an outdated index instead of a wrong one — and a visible error instead of silence.
+- **One queryable copy, not a chain of fallbacks.** The design went through three versions in sequence, and the first two were wrong: (1) read the parse-cache shard when the graph fails; (2) read `file_fts` when the graph fails, with the shard as a further fallback. Both treated redundancy as robustness. The third removes the problem instead of working around it: the text has a single owner — the search index, the only one of the three copies that is actually queryable — and the graph stops holding it. With no fallback, there's no possible drift between copies, and the `COPY` that caused the incident stops existing.
+- **Choosing which copy to read from was never about saving space.** All three were already paid for on disk. The saving came from **eliminating** one: `File.source` leaves `ladybugdb`.
+- **The `source` column stays in the File table's DDL.** Only because of the synthetic `'__config__'` node, which is not a file at all — it's where `RunEnrichment` stores the detected config, and the skill documents querying it. Alternative considered and rejected: moving that payload to another property, which would break a documented query for the sake of cosmetic cleanliness.
+- **Search index mandatory on Hub install, not best-effort.** If the text lives only there, a context without an index isn't a degraded context, it's a useless one — so the install fails instead of delivering something half-done. Same principle as the rebuild abort.
+- **Reading the file on disk to embed, instead of persisting the snippet.** The alternative was to write the per-entity snippet to the shard even under `index_source: false`. Rejected for two reasons: it contradicts the flag's purpose for anyone enabling it for confidentiality, and it's expensive — `entity_source_cost_test` measures the per-entity body at 1.31x the size of the file itself. Reading the file costs one read per shard, in the same streaming fashion the scan already uses, and persists nothing. The accepted price is depending on the tree being present on disk at embedding time, which is true for the project's own tree and for a local-path context, and is not true for a Hub artifact — where the degradation is explicit.
+- **A hash guard instead of trusting the file.** Without it, embedding a newer file under the old cache key would store a vector describing code the graph doesn't contain, and it would survive until the file changed again. Having no snippet is preferred over having the wrong one.
+- **`FileSourceAt` does not go through `OpenSearchIndex`.** That path migrates the schema and drops `file_fts` on a version mismatch. Accepted cost: opening and closing one sqlite connection per read, on a path that only runs once the graph has already failed.
+- **Guard test restricted to callables.** The full audit (every container label) flags ~30 cases, almost all benign (imports, `package_declaration`, wrapper nodes covered by a closer context) and would need an exception list large enough to become noise. Callables are the principled cut: they are the ones that own Parameters, and a Parameter without an owner is **discarded**, not just filed under the wrong one.
+- **Callable exceptions are explicit and justified** (`callableContainerExemptions`), in the same spirit as `flatLanguages`: "I didn't think about this" and "there's nothing to think about" must be distinguishable in the file.
 
 ## Technical Debt
 
-The six open debts were closed on August 4, 2026. Two of them, upon verification with
-Instead of reasoning, they revealed flaws that the original justification denied.
+The six open debt items were closed on 2026-08-04. Two of them, once verified with a test instead of reasoning, revealed bugs that the original justification had denied.
 
-The index of the corpus was repaired — `make install` + `ast index --reset`. Verified:
-7,823 we File (was 0); the parameter under the procedure that declares it, with uid by
-The program ended, then the collision happened; Parameter by owner Procedure 33.472 /
-      Function 12.432 / **Package 0**; `ast source` e `ast_search` respondem.
-The construction of the search index has stopped logging. It is the third case of the pattern.
-Log in and follow, and the worst of all three after the text settled there: fail.
-      custava o `ast source` do projeto inteiro. `pipeline.go` conta como write error,
-      `fullRebuildWithSearch` retorna o erro, e os dois caminhos incrementais capturam o erro
-      da goroutine e o devolvem ao chamador.
-- [x] **Os logs do rebuild passaram a existir.** A causa era mais simples e pior do que
-"are not persisted": `PipelineOptions.Logger` was null and `slogutil.Resolve(nil)`
-      devolve um handler **NOP que descarta todo record**. As linhas que havia em
-They came from the supervisor, not the pipeline—what made the logs
-It is functional. `projectRebuildLogger` writes in the same file, linked to the module of
-      sync e no de embedding.
-- [x] **A leitura por entidade virou leitura por shard.** O arquivo inteiro continua sendo
-Read because the hash covers the entire file and there's no way to verify it by intervals.
-Lines - Memory remains in parity with the default path, where the shard carries the same.
-The original was indeed wasteful, and it has been corrected: INLINE_0__ does
-      `strings.Split` do arquivo inteiro uma vez por ENTIDADE. Um arquivo com 500 entidades
-It was divided into 500 parts. Now **INLINE_0** receives the already divided lines,
-      uma vez por shard.
-The degradation without text has been reported. The investigation closed the debit by another method.
-Path: The embedding cache "jumps" through the artifact of the Hub and feeds into the index, then one.
-Contextual installation inherits the vectors from the origin and does not need the text. The actual gap is
-      estreita — entidade cujo vetor a origem nunca calculou — e nada pode ser feito
-      localmente. `scanPending` conta os shards sem texto e avisa, em vez de degradar calado.
-- [x] **`clojure`, `julia` e `r` foram verificados com fixture, e a justificativa estava
-Wrong. The exception stated that "parameters resolve by a more proximate context."
-Declared. They couldn't resolve: **Julia** left the context EMPTY — and INLINE 0
-It discards parameters without ownership, so it lost all of them; **r** assigned to a function called
-The inline keyword itself because `function_definition` does not have field `name`.
-They began to declare containment by virtue of their assignment around.
-Here is the translation:
+- [x] **The corpus index was repaired** — `make install` + `ast index --reset`. Verified: 36,823 File nodes (was 0); parameters sit under the procedure that declares them, with a per-subprogram uid, so the collision is gone; Parameter by owner: Procedure 33,472 / Function 12,432 / **Package 0**; `ast source` and `ast_search` respond.
+- [x] **Building the search index no longer just logs.** This was the third instance of the "log and continue" pattern, and the worst of the three once the text came to live only there: failing would cost `ast source` for the entire project. `pipeline.go` now counts it as a write error, `fullRebuildWithSearch` returns the error, and both incremental paths capture the goroutine's error and return it to the caller.
+- [x] **Rebuild logs now actually exist.** The cause was simpler and worse than "not persisted": `PipelineOptions.Logger` stayed nil, and `slogutil.Resolve(nil)` returns a **NOP handler that discards every record**. The lines that did appear in `.graphit/daemon/daemon.log` came from the supervisor, not the pipeline — which made the logging look functional. `projectRebuildLogger` writes to the same file, wired into both the sync module and the embedding module.
+- [x] **Per-entity reads became per-shard reads.** The whole file is still read, because the hash covers the entire file and there's no way to verify it over a line range — memory usage ends up on par with the default path, where the shard already carries the same text. What was genuine waste, and got fixed: `embedSourceSnippet` was doing `strings.Split` over the whole file once per ENTITY. A file with 500 embeddable entities was split 500 times. Now `sliceLines` receives the lines already split, once per shard.
+- [x] **Degradation without text is now reported.** Investigating closed this debt item a different way than expected: the embedding cache **travels** with the Hub artifact and feeds the index, so an installed context inherits the origin's vectors and doesn't need the text. The real gap is narrow — an entity whose vector the origin never computed — and nothing can be done locally about that. `scanPending` now counts shards without text and warns, instead of degrading silently.
+- [x] **`clojure`, `julia`, and `r` were verified with a fixture, and the justification was wrong.** The exception claimed that "parameters resolve to a closer, already-declared context". They didn't: **julia** left the context EMPTY — and `ConvertToCache` discards ownerless parameters, meaning it lost all of them; **r** assigned them to a Function literally named `function`, the keyword itself, because `function_definition` has no `name` field and r names the function via the surrounding assignment. Both were changed to declare containment through `parent_capture` in the pattern; `function_definition` was removed from r's `context_types`, where it could only ever produce the ghost. clojure doesn't declare a Parameter query, so the question doesn't arise — and this is now an assertion.
+- [x] **The non-callable container audit got a test** (`TestEveryNonCallableContainerIsDeclaredAsAContext`, 108 declarations verified, 23 justified exceptions). It found the same bug as `html` in **`toml`**: `table` was a declared context without `context_name_paths`, so the node was transparent and every pair fell onto File instead of belonging to its table.
 
-"`parent_capture` in the standard; `function_definition` exited from `context_types` of R, where only"
-She could produce the ghost. Clojure does not declare a parameter query, so the issue.
-There is none— and that's an assertion now.
-The audit of containerized services is now tested.
-(`TestEveryNonCallableContainerIsDeclaredAsAContext`, 108 verified declarations, 23)
-Exceptions Justified) She found the same bug in `html` as in `toml`: `table` was
-The context was declared without `context_name_paths`, so the node was transparent, and all pairs fell.
-Instead of belonging to your table.
+### New findings, fixed right after
 
-### Achados novos, corrigidos em seguida
+- [x] **Four of the five grammars with an inert context were fixed** — `protobuf` (`service: service_name`, `message: message_name`, `enum: enum_name`), `graphql` (the four types by `name`, which is a KIND rather than a field), `markdown` (`section: atx_heading/heading_content`), and `elixir` (`call: arguments/alias`, plus `parent_capture` on the Parameter query, because a `def` has no alias to name it and its parameters would go to the module instead of the function). Verified: `card_id` belongs to `Charge`, the `rpc` to `Payments`, GraphQL fields to their type, code blocks to their heading, elixir parameters to their function.
+- [x] **The markdown Heading entity was renamed.** It used to be called `"# Title\n"` — the whole `atx_heading` node, marker and newline included — while the context resolved to `"Title"`. A name that doesn't match its own context is a ghost parent. The query now captures `heading_content`.
+- [x] **`hcl` still had an inert context, and the first fix attempt was reverted.** **CLOSED further below, within this same task** — see "A name path learned to pick the nth child of a kind" and the `hcl` item under "### Closed subsequently". The checkbox was left open by a bookkeeping oversight and was corrected on 2026-08-05, with no code change: `hcl.yaml` already carries `block: string_lit[1]/template_literal|string_lit[0]/template_literal`, and `TestHCLAttributesBelongToTheirBlock` asserts that `bucket` belongs to `logs` — the INSTANCE, not the type — with `assertNoDanglingContains` at the end. An open debt item that was already resolved is worse than none: it sends the next agent to redo finished work. The original diagnosis text follows below because it explains *why* the index was needed.
 
-Four of the five grammars without context were corrected.
-      (`service: service_name`, `message: message_name`, `enum: enum_name`), `graphql` (os
-Four types by ``name``, which is a kind and not a field), ``markdown``
-      (`section: atx_heading/heading_content`) e `elixir` (`call: arguments/alias`, mais
-In the query parameter for `parent_capture`, because a `def` does not have an alias to name it.
-Their parameters would go to the module instead of the function). Verified: `card_id` belongs to
-      `Charge`, o `rpc` a `Payments`, campos GraphQL ao seu tipo, code block ao heading,
-parameter elixir for its function.
-The entity heading in Markdown has been renamed. It was called INLINE_0 — node.
-Here is the translation:
+      A path only descends, so the only reachable name is the FIRST label of the block: the TYPE in `resource "aws_s3_bucket" "logs"`, not the instance. And the type is not an entity — `TestHCLBlockLabelsAreNotAllEntities` asserts it must never be — so naming the context after it made `ConvertToCache` **synthesize** a parent UID and emit an edge to a node that's never created: measured as `Resource(a.tf::aws_instance) -> Attribute(...)` with `parentExists=false`. An attribute stuck on File is wrong; one pointing at a ghost is worse, and with the rebuild now aborting on a failed COPY, it risks bringing down the entire index. It needed a path that could say "the second child of this kind".
+- [x] **The class of error I made twice myself got a guard.** `assertNoDanglingContains` converts to cache and checks that every CONTAINS edge's `ParentUID` exists among the entities. `ConvertToCache` does **not** validate this: when it can't find the parent, it synthesizes the UID (`entityUID(relPath, e.Context, "")`) and emits the edge anyway — the same shape as the historical "Table does not exist" failure that used to bring down the rebuild. Applied to the tests for r, julia, toml, protobuf, graphql, markdown, and elixir.
 
-"Fully inline, including marker and newline – while the context resolves"
-The name that doesn't match its own context is an invisible father. The query has passed.
-      capturar `heading_content`.
-- [x] **`hcl` continua com contexto inerte, e a tentativa de corrigir foi revertida.**
-      **FECHADO mais abaixo, nesta mesma tarefa** — ver "Um name path passou a saber escolher o
-N-th child of a kind and the item `hcl` in `### Closed in sequence`. The checkbox is now
-Open due to an oversight in accounting and corrected on August 5, 2026, without code changes:
-"`hcl.yaml` already brings"
-      `block: string_lit[1]/template_literal|string_lit[0]/template_literal`, e
-      `TestHCLAttributesBelongToTheirBlock` afirma que `bucket` pertence a `logs` — a
-INSTANT, not the type — with `assertNoDanglingContains` at the end. Open debit that has already been closed.
-It's worse than nothing: the next agent is supposed to redo the work already done.
-The diagnosis report follows below, as it explains *why* the index was necessary.
+### Closed subsequently
 
-      Um path
-Only goes down, so the only name that can be reached is the first label in the block: TYPE.
-`resource "aws_s3_bucket" "logs"`, not an instance. And the type is not an entity —
-It asserts that it should never be - then name the context
-He synthesized an ID parent and emitted edges for a node that
-never is created: measured INLINE 0 with
-The attribute bound to the file is incorrect; pointing to a ghost is worse, and
-With the build failing in COPY, it starts risking completely destroying the index. It needs
-      de um path que saiba dizer "o segundo filho deste kind".
-- [x] **Ganhou guarda a classe de erro que eu mesmo cometi duas vezes.**
-      `assertNoDanglingContains` converte para cache e verifica que todo `ParentUID` de aresta
-CONTAINS exists between entities. INLINE_0 does not validate this: when it doesn't find
-      o pai, sintetiza o UID (`entityUID(relPath, e.Context, "")`) e emite a aresta de todo
-Approach - same as historical failure "Table does not exist" that would drop the rebuild.
-      Aplicado nos testes de r, julia, toml, protobuf, graphql, markdown e elixir.
+- [x] **A name path learned to pick the nth child of a kind and to carry alternatives.** `contextSpec` holds a list of `namePath` entries, each segment with an optional zero-based index (`kind[n]`), and the value accepts alternatives separated by `|`, tried in order. `parsePathSegment` has a unit test because a malformed segment fails OPEN — it degrades to "the first child of that kind", meaning it resolves to the wrong node instead of to none, and a wrong owner is exactly the failure mode this area produces. An empty alternative and an index on a field (a field holds only one node) both fail validation.
+- [x] **`hcl`** — `block: string_lit[1]/template_literal|string_lit[0]/template_literal`. The index is what makes this correct: `resource "aws_s3_bucket" "logs"` has two labels and the entity is the SECOND one; the first is the type, which is deliberately not an entity. The second alternative covers a single-label block — variable, output, module, provider — whose only label IS the name. Verified: `ami` belongs to `logs`, `default` to `region`, no dangling edge.
+- [x] **TOML table with a dotted key** — `table: bare_key|dotted_key`. `[server.http]` is now the owner of its pairs.
+- [x] **An r anonymous-function parameter got an owner.** `binary_operator: Function` with path `lhs` — the same node the Function entity takes its name from, so the owner always exists. `function_definition` stays out, since it only ever produced the ghost `function`. Verified: inside a lambda within `charge_card`, the parameter `item` belongs to `charge_card` — not to the lambda, which r doesn't name, but to the function whose body it is.
+- [x] **elixir stopped turning arguments into Functions.** Every declaration in elixir is a `call`, so a pattern without a predicate on the target also matches ordinary calls: `def charge(amount, currency)` was producing a Function `amount` and a Function `currency`, and `alias Other.Helper` was producing a Module. Predicates `#match? "^(def|defp|defmacro|defmacrop)$"` were added to the Function and Parameter queries, `#eq? "defmodule"` to Module, and `#eq? "defstruct"` to Field.
 
-Closed in sequence
+### Open
 
-The name path has now learned to choose the nth child of a kind and have alternatives.
-The ``contextSpec`` variable stores a list of ``namePath``, with each segment optionally containing an index.
-      (`kind[n]`, base zero) e o valor aceita alternativas separadas por `|`, tentadas em
-Order. `parsePathSegment` has a unit test because an improperly formed segment fails
-OPEN - degrades to "the first child of that breed," or resolves for the wrong one
-Instead of for nothing, and the wrong owner is exactly how this area fails.
-A void alternative and an index on a field (a field stores only one node) fail in
-      validador.
-- [x] **`hcl`** — `block: string_lit[1]/template_literal|string_lit[0]/template_literal`. O
-The index is what makes it correct: INLINE_0 has two labels and the
-entity is the second; the first is the type, which deliberately is not an entity. The second
-Alternative covers a block of one label—variable, output, module, provider—which is solely
-      label É o nome. Verificado: `ami` pertence a `logs`, `default` a `region`, sem aresta
-      pendurada.
-- [x] **Tabela toml com chave pontilhada** — `table: bare_key|dotted_key`. `[server.http]`
-Now you're in charge of your peers.
-- The anonymous function parameter in R has gained a new owner. `binary_operator: Function` with path
-**INLINE_0** - which is the same node from where the entity **Function** derives its name, so the owner always
-There exists. `function_definition` follows outside because it only produced the ghost `function`.
-Verified: Inside an inline lambda within `charge_card`, parameter `item` belongs to
-INLINE_0 — not to the lambda, which does not name it, but to the function whose body it is.
-The elixir has stopped transforming arguments into functions. Every declaration in Elixir is a...
-Here is the translation from Portuguese to idiomatic English:
-
-"`call`, then a common predicate-free pattern in the target house called with the standard format:"
-      `def charge(amount, currency)` produzia Function `amount` e Function `currency`, e
-      `alias Other.Helper` produzia um Module. Predicados `#match? "^(def|defp|defmacro|defmacrop)$"`
-      nas queries de Function e Parameter, `#eq? "defmodule"` no Module e `#eq? "defstruct"` no
-      Field.
-
-### Aberto
-
-Nothing on this task. The registration **INLINE_0** is **empty** — five
-Grammar rules that were there went out— and inline 0 fails if one
-sexta aparecer.
+Nothing in this task. The `transparentContextGrammars` registry is **empty** — the five grammars that used to be there are gone — and `TestNamelessContextsDeclareANamePath` fails if a sixth one shows up.
 
 ## System Knowledge
 
-- **`resolveParentContextAntlr` devolve o primeiro ancestral que É contexto, e ignora os que
-They are not... there is no fallback for "the closest ancestral with a name." A rule outside of this context.
-The `INLINE_0` is invisible, not used as a last resort. That's what causes the bug to be
-Silent: The result is a plausible owner, just wrong.
-- **`resolve`/`owner` pulam o auto-nome.** Uma entidade cujo container tem o mesmo nome e label
-It is why she herself cannot be contained by her; the search continues above. Therefore, `create_type` as
-Context does not create self-loops in the attributes of an `CREATE TYPE`.
-In Tree-Sitter, an arrow function assigned to a variable is resolved by `anonHit`.
-  (`internal/ast/treesitter_context.go:246`), via `anon_func_types` + `variable_declarator` —
-Not because of `context_types`. Declaring `variable_declarator` as a context is unnecessary and
-It would be misleading, because INLINE_0 also serves as a common variable.
-Explicit is different from absent. Nil falls into
-The ``defaultContextTypes`` and ``{}`` mean "this grammar is purposefully flat." For a
-Grammar format data falls into the default category, which is documented as pathological in the documentation.
-Inline 0: 74% of the parsing time spent climbing up to the root, testing various types of JavaScript.
-The context node without `context_name_paths` can be inert. If the context node does not have
-Field `name` and `nameNodeOf` return nil, and the container becomes transparent. Declare context not
-  garante que ele seja usado — era o caso de `html.yaml`.
-Entities in PL/SQL have `line_number == end_line` (the span comes from the name node, not the definition node)
-declaration), then containment here **cannot** be derived from a line range — only from
-  cadeia de contexto. Uma consulta que tente inferir dono por intervalo de linhas num package
-It doesn't work.
-The **INLINE_0** is fixed text, not introspection. He listed **INLINE_1**.
-Normally, in a bank with zero nodes, File. Counting of nodes requires `count()`.
-The `UNION ALL` in LadybugDB scrambled the correspondence between branch and line in a query of
-  contagens (`MATCH (d:Directory) RETURN count(d) UNION ALL MATCH (p:Procedure) ...` devolveu
-Numbers that did not match with the same counts rolled separately) for counting of
-Diagnosis, run separate queries.
-Brazilian Portuguese to idiomatic English:
+- **`resolveParentContextAntlr` returns the first ancestor that IS a context, and ignores the ones that aren't** — there's no fallback to "the nearest named ancestor". A rule outside `context_types` is *invisible*, not "used as a last resort". That's what makes the bug silent: the result is a plausible owner, just the wrong one.
+- **`resolve`/`owner` skip the self-name.** An entity whose container has the same name and label as itself is not contained by itself; the search continues upward. This is why `create_type` as a context doesn't create a self-loop on the attributes of a `CREATE TYPE`.
+- **In tree-sitter, an arrow function assigned to a variable is resolved by `anonHit`** (`internal/ast/treesitter_context.go:246`), via `anon_func_types` + `variable_declarator` — **not** via `context_types`. Declaring `variable_declarator` as a context would be unnecessary and misleading, because `variable_declarator` also serves ordinary variables.
+- **An explicit `context_types: {}` is different from an absent one.** Absent (nil) falls back to `defaultContextTypes`; `{}` means "this grammar is deliberately flat". For a data-format grammar, falling back to the default is the pathological case documented in `treesitter_context.go`: 74% of parse time spent walking up to the root testing JavaScript kinds.
+- **`context_types` without `context_name_paths` can be inert.** If the context node has no `name` field, `nameNodeOf` returns nil and the container becomes transparent. Declaring a context doesn't guarantee it gets used — that was the case for `html.yaml`.
+- **PL/SQL entities have `line_number == end_line`** (the span comes from the name node, not the declaration), so containment here **cannot** be derived from a line range — only from the context chain. A query that tries to infer ownership by line interval within a package will not work.
+- **`graphit_ast_schema` is fixed text, not introspection.** It listed `File(... source)` normally even on a database with zero File nodes. Counting nodes requires `count()`.
+- **`UNION ALL` in LadybugDB scrambled the correspondence between branch and row** in a count query (`MATCH (d:Directory) RETURN count(d) UNION ALL MATCH (p:Procedure) ...` returned numbers that didn't match the same counts run separately). For diagnostic counts, run separate queries.
+- **`split()` doesn't exist in LadybugDB** — grouping by directory requires `STARTS WITH`.
+- **The shard cache lives at `<DB dir>/shards/`**, i.e. `.graphit/ast/project/shards/`, and **not** at `.graphit/cache/` (that one holds skills). Each `.nodes.json` shard carries the full `src`.
+- **The source used to live in three places, written by different code paths**: the shard (`src`), `File.source` in the graph, and `file_fts.source` in `<DBPath>.search.sqlite`. That's why the disaster was partial — one copy was lost, not the text itself. After this task, two remain: the shard, which is the parse cache, and the index, which is the owner. `file_fts.source` is **indexed** and takes part in search with a BM25 weight of 1.0; `name` in the same table is `UNINDEXED`.
+- **Text and location are now different stores, by design.** The graph answers *where* (`path`, `line_number`, `end_line`); the index answers *what*. `ast source` with `entity` uses both, and that is the only seam between them.
+- **`OpenSearchIndex` is destructive on a schema version mismatch**: `migrateSearchSchema` does `DROP TABLE IF EXISTS file_fts/entity_fts/entity_trigram` when `search_meta.schema_version != ftsSchemaVersion`. Never use that path just to read.
+- **A context installed from the Hub had no search index — fixed here — and still has no shards next to the database.** `internal/hub/service.go` (`case TypeAST`) loads the shard cache from the **Hub clone**, not from `filepath.Dir(dbPath)`, so nothing next to the store can serve text: the search index is the only route, which is why building it became mandatory there. A context installed via `ast_install` from a local path is different: the pipeline runs with `CacheDir: filepath.Dir(ictx.DBPath)` and produces both shards and the index normally.
+- **Per-context store resolution was already uniform** and didn't need changing: `NewQueryService` derives the index from `lb.cfg.DBPath + searchIndexSuffix` (`query.go:36-38`), and `openASTDB(projectDir, context)` returns the context's backend. What was missing was the file existing, not the code knowing how to find it.
+- **`ExportBundle` is export-only: there is no `ImportBundle`.** A bundle exists to carry the graph outward (to a human or another tool); the entry path for a context is always shards, via `ast_install` or the Hub.
 
-- "LadybugDB does not exist in INLINE_0" — group by directory requires INLINE_1.
-- **O shard cache fica em `<dir do DB>/shards/`**, ou seja `.graphit/ast/project/shards/`, e
-Not in `.graphit/cache/` (this skill is not inline). Each shard `.nodes.json` carries `src`.
-  completo.
-The source lived in three places, written by different paths: inline 0.
-  `File.source` no grafo, e `file_fts.source` no `<DBPath>.search.sqlite`. É por isso que o
-Disaster was partial - lost a copy, not the text. After this task remains two: the
-The shard, which is the parser cache, and the index, which owns it, `file_fts.source` is indexed.
-Enter the search with weight BM25 set to 1.0; `name` is also found in the same table as `UNINDEXED`.
-Text and localization are now different stores for a purpose. The graph responds *where*
-Index responds to what. `ast source` with `entity`.
-The two, and that is the only stitch between them.
-The ``OpenSearchIndex`` is destructive in version divergence of schema: ``migrateSearchSchema``
-  faz `DROP TABLE IF EXISTS file_fts/entity_fts/entity_trigram` quando
-Never use this path just for reading.
-The context installed by the Hub does not have a search index – corrected here, and still lacks.
-  shards ao lado do banco.** `internal/hub/service.go` (`case TypeAST`) carrega o shard cache do
-**Clone of the Hub**, not of INLINE_0, so nothing around the store can serve text:
-The index is the only way, and that's why building it became mandatory there.
-The context installed by `ast_install` from a local path is different; the pipeline runs with
-Here is the translation:
-
-"INLINE_0" and produces shards and index normally.
-The resolution of context-aware storage has been standardized and did not require any changes:
-The index of `lb.cfg.DBPath + searchIndexSuffix` is derived from `query.go:36-38`.
-  `openASTDB(projectDir, context)` devolve o backend do contexto. O que faltava era o arquivo
-Existence knows it, not the code.
-The ``ExportBundle`` is just export: there is no `ImportBundle`. The bundle serves to carry the graph.
-for outside (human or another tool); the entry route of context is always shards, way
-  `ast_install` ou Hub.
-
-Verification
+## Verification
 
 ```
 go build ./...                                          # ok
@@ -1030,63 +623,28 @@ go vet ./internal/ast ./internal/mcpstdio ./cmd/graphit/commands   # ok
 go test -tags fts5 ./internal/ast/ ./internal/mcpstdio/ ./cmd/...  # ok
 ```
 
-The ``fts5`` is mandatory (missing from ``BUILD_TAGS`` in the Makefile); without it, two tests of the search index.
-falham com `no such module: fts5` por motivo ambiental.
+The `fts5` tag is mandatory (`BUILD_TAGS` in the Makefile); without it, two search-index tests fail with `no such module: fts5` for environmental reasons.
 
-Testes negativos executados para provar que as redes pegam o bug — removendo
-`procedure_spec: Procedure` de `plsql.yaml`:
+Negative tests run to prove the safety nets catch the bug — removing `procedure_spec: Procedure` from `plsql.yaml`:
 
-- `TestEveryCallableContainerIsDeclaredAsAContext` falha nomeando `procedure_spec`;
-- `TestPackageSpecParametersBelongToTheirSubprogram` falha com
-`P_LOG_TX owned by Package "PCK_COBRANCA"` — an exact reproduction of the symptom reported.
+- `TestEveryCallableContainerIsDeclaredAsAContext` fails, naming `procedure_spec`;
+- `TestPackageSpecParametersBelongToTheirSubprogram` fails with `P_LOG_TX owned by Package "PCK_COBRANCA"` — the exact reproduction of the reported symptom.
 
 ## Progress Log
 
 ### 2026-08-03
-- Investigado o caso reportado no grafo do `corpus-privado`: `P_LOG_TX` sob
-Here is the translation:
-
-"`PCK_EXEMPLO` and the measured standard in 9.052 parameters, all under `schema/packages/`."
-Traced back to the cause at INLINE_0 of INLINE_1 × INLINE_2.
-Discovered while investigating why **INLINE_0** was not responding, the second bug: zero files in the directory.
-Graphed with the source intact across shards, by the failing COPY that did not roll back the swap.
-Audited are 44 grammars; found gaps in `dart`, `objc`, `java`, and `javascript`.
-  `typescript`, `tsx` e a de `context_name_paths` em `html`.
-- Primeira tentativa em `sql.yaml` reprovada por `TestEveryShippedGrammarDeclaresItsContainment`
-  e revertida.
-- Implementados o abort, o batching e a leitura alternativa de source; escritos os quatro
-  conjuntos de teste; confirmado com testes negativos.
-Review of Source Reading Drawings: Initial version read from the shard in the parse cache. Measured
-  que o `<DBPath>.search.sqlite` do corpus tem os 36.823 arquivos com source completo
-The file has been modified for the same database whose graph contains zero nodes, at column indexed by (`file_fts`).
-  `file_fts` e o shard removido. Descoberto no caminho que `OpenSearchIndex` dropa tabelas em
-Divergence of version, hence dedicated read-only reader, and no index in the context of the Hub
-  de busca nem shards ao lado do banco.
-Second revision, and the one that closes the design: instead of chaining fallbacks, **the owner only**.
-  `File.source` sai do grafo (some o `COPY` de 2,4 GB que causou o incidente), `SourceService` e
-The HTTP endpoint starts reading exclusively from the index, and the skill stops announcing.
-`File.source`, and the installation of the artifact AST for the Hub starts building the index – without which one wouldn't have it.
-  contexto importado ficaria sem texto e sem busca. Skill, DDL e mensagens de erro alinhados.
+- Investigated the case reported in the `corpus-privado` graph: `P_LOG_TX` under `PCK_EXEMPLO`, with the pattern measured across 9,052 parameters, all under `schema/packages/`.
+- Traced the cause to `plsql.yaml`'s `context_types` versus `resolveParentContextAntlr`.
+- Discovered, while investigating why `ast source` wasn't responding, the second bug: zero File nodes in the graph, with the source intact in the shards, caused by a failed COPY that didn't abort the swap.
+- Audited all 44 grammars; found gaps in `dart`, `objc`, `java`, `javascript`, `typescript`, `tsx`, and the `context_name_paths` gap in `html`.
+- First attempt on `sql.yaml` failed by `TestEveryShippedGrammarDeclaresItsContainment` and reverted.
+- Implemented the abort, the batching, and the alternative source read; wrote the four test suites; confirmed with negative tests.
+- Revised the design of the source read: the first version read the parse-cache shard. Measured that the corpus's `<DBPath>.search.sqlite` has all 36,823 files with full source (`file_fts`, an indexed column), in the same database whose graph has zero File nodes. Switched to `file_fts` and dropped the shard read. Discovered along the way that `OpenSearchIndex` drops tables on a version mismatch, hence the dedicated read-only read, and that a Hub context has neither a search index nor shards next to the database.
+- Second revision, the one that settles the design: instead of chaining fallbacks, **a single owner**. `File.source` leaves the graph (the 2.4 GB `COPY` that caused the incident disappears with it), `SourceService` and the HTTP endpoint now read exclusively from the index, the skill stops advertising `File.source`, and the Hub's AST artifact install now builds the index — without which an imported context would end up with neither text nor search. Skill, DDL, and error messages all aligned.
 
 ### 2026-08-04
-Commit inline 0 in the main with the three preceding axes.
-Implemented INLINE 0. It existed on two surfaces and was accepted or discarded.
-Brazilian Portuguese:
-(`runASTExport` received and did not read; the message promised "(with sources)" always) -- and after that
-Remove INLINE_0 from the graph, and it also has no object. Now the bundle writes members.
-The indices read in streaming are declared as `source_count`, and sources are requested.
-Without an index is an error, and the three surfaces pass to flag.
-The snippet of the embedding no longer degraded semantic search.
-The translated sentence from Portuguese to idiomatic English is:
-
-"The vector lost precisely what it was supposed to have."
-  descreve o que a entidade faz. Agora vem do arquivo em disco, com guarda de hash, sem
-  persistir nada. `RepoRoot` propagado por daemon, CLI, sync e tool MCP.
-Reindexed with the new binary. Both reported bugs are closed in.
-graph real, with numbers in the section of Technical Debt.
-The forecast was wrong, registered because it changed the disk expectation: I said that the reindex.
-  encolheria o `ladybugdb` por tirar `File.source`. Ele **cresceu**, de 571 MB para 1078 MB. O
-The reason is obvious in retrospect and invalidates the comparison: the 571 MB was a graph that had been mutilated —
-zero we File, therefore no edge `CONTAINS File→entidade` nor `Directory→File` — and still
-There are 12,752 fewer parameters (45,904 against 33,152). The new bank is larger because it's complete.
-How much would it cost above that not be measurable without reintroducing it?
+- Commit `74b634f8` landed on main with the three previous axes of work.
+- Implemented `--no-sources`. It existed on two surfaces and was accepted and discarded (`runASTExport` received it and never read it; the message always promised "(with sources)") — and after `File.source` left the graph, it also lost its object. Now the bundle streams `sources/<path>` members read from the index, the manifest declares `source_count`, requesting sources with no index is an error, and all three surfaces pass the flag through.
+- `ast.index_source: false` no longer degrades semantic search. The embedding's snippet used to come from the **persisted** source, which is empty under the flag, so the vector lost exactly the part describing what the entity does. Now it comes from the file on disk, guarded by a hash check, without persisting anything. `RepoRoot` propagated through the daemon, the CLI, sync, and the MCP tool.
+- `corpus-privado` reindexed with the new binary. Both reported bugs are closed in the real graph, with the numbers in the Technical Debt section.
+- **Wrong prediction, recorded because it changes disk-size expectations:** I said the reindex would shrink `ladybugdb` by removing `File.source`. It **grew** instead, from 571 MB to 1078 MB. The reason is obvious in hindsight and invalidates the comparison: the 571 MB was a **mutilated** graph — zero File nodes, and therefore no `CONTAINS File→entity` or `Directory→File` edges — and still 12,752 fewer parameters (45,904 vs. 33,152). The new database is larger because it's complete. How much `File.source` would cost on top of that isn't measurable without reintroducing it.

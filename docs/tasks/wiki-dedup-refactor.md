@@ -3,45 +3,38 @@ Wiki/Knowledge/Refactor - Remove Duplication
 **Date:** 2026-06-18  
 **Status:** Done
 
-## Problema
+## Problem
 
 The modules `knowledge` and `memory` contained exact copies of functions that belonged to the module `wiki` (the shared library). Each new improvement had to be made in two places.
 
-## O que foi movido para `internal/wiki`
+## What was moved to `internal/wiki`
 
-### `internal/wiki/helpers.go` [NOVO]
+### `internal/wiki/helpers.go` [NEW]
 
-Function | Source (removed)
+| Function | Source (removed) |
 |--------|------------------|
-The elements in the set are identical.
-The two expressions are identical.
-The two expressions are identical.
-| `StripFrontmatter(content string) string` | `knowledge.stripFrontmatter` — deveria ser compartilhado |
+| `StripFrontmatter(content string) string` | `knowledge.stripFrontmatter` — should be shared |
 
-### `internal/wiki/fastpath.go` [NOVO]
+### `internal/wiki/fastpath.go` [NEW]
 
-Type/Function | Description
+| Type/Function | Description |
 |-------------|-----------|
-| `DocHashEntry` | Struct com `CacheKey`, `ContentHash`, `Slug` |
-Here's the Portuguese text translated into idiomatic English:
+| `DocHashEntry` | Struct with `CacheKey`, `ContentHash`, `Slug` |
+| `FastPathCheck` | Encapsulates the repeated pattern: DB exists + all hashes in cache + no deletions |
 
-"Encapsulates the repeated pattern: DB exists + all hashes in cache + without deletions"
-
-This translation maintains the meaning of the original Portuguese text while rendering it in a more natural English phrasing.
-
-## O que foi simplificado
+## What was simplified
 
 ### `internal/knowledge/wiki.go`
-Four private functions have been removed (the body replaced by thin wrappers of one line)
-- Fast-path inline de ~50 linhas → `wiki.FastPathCheck` + fallback compacto
-- Import `"unicode"` removido
+Four private functions have been removed (the body replaced by a thin one-line wrapper)
+- ~50-line inline fast path → `wiki.FastPathCheck` + a compact fallback
+- `"unicode"` import removed
 
 ### `internal/memory/wiki.go`
-Three private functions have been removed (the body replaced by thin wrapper classes of one line)
-- Fast-path inline de ~47 linhas → `wiki.FastPathCheck` (15 linhas)
-- Import `"unicode"` removido
+Three private functions have been removed (the body replaced by a thin one-line wrapper)
+- ~47-line inline fast path → `wiki.FastPathCheck` (15 lines)
+- `"unicode"` import removed
 
-Verification
+## Verification
 
 ```
 go build ./internal/wiki/... ./internal/knowledge/... ./internal/memory/... — OK

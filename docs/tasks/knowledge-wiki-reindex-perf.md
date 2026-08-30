@@ -5,46 +5,58 @@
 
 ## Problem
 
-O `graphit sync` / `graphit knowledge index` / `graphit memory index` demoravam bastante mesmo quando nada tinha mudado e tudo estava no cache. Os mesmos bottlenecks afetavam ambas as wikis.
+`graphit sync` / `graphit knowledge index` / `graphit memory index` were quite slow even when
+nothing had changed and everything was in the cache. The same bottlenecks affected both wikis.
 
 ## Root Causes
 
-### 1. Fast-path O(N) file reads (knowledge e memory)
+### 1. Fast-path O(N) file reads (knowledge and memory)
 
-O fast-path verificava `content_hash` lendo cada arquivo `.md` do wikiDir do disco. Com 200 docs = 200 leituras de arquivo.
+The fast-path checked `content_hash` by reading every `.md` file in wikiDir from disk. With 200
+docs = 200 file reads.
 
-### 2. WikiDB rebuild sempre executava em `wiki/pipeline.go`
+### 2. WikiDB rebuild always ran in `wiki/pipeline.go`
 
-The inline 0 always performed write-to-temp + FTS5 rebuild + atomic rename + embedding restore, even when no document had changed. On the memory wiki, inline 1 was always not null, so the fast path of the pipeline never triggered.
+`RebuildDB` always did write-to-temp + FTS5 rebuild + atomic rename + embedding restore, even
+when no doc had changed. On the memory wiki, `logEntry` was **always** non-nil, so the
+pipeline's fast path never triggered.
 
-### 3. FTS5 `optimize` em cada rebuild
+### 3. FTS5 `optimize` on every rebuild
 
-The `optimizeTables()` (FTS5 segments merge) operation ran on every rebuild — a costly and unnecessary task.
+`optimizeTables()` (FTS5 segment merge) ran on every rebuild — an expensive and unnecessary
+operation.
 
 ## Fixes
 
 ### Fix 1 — Fast-path via `processCache` (zero disk I/O)
 
-Inline 0 and Inline 1: Replaced the N reads of Inline 2 with Inline 3 — O(1) in memory by design. If the cache manifest confirms that no file has changed, it returns immediately without touching the disk.
+`internal/knowledge/wiki.go` and `internal/memory/wiki.go`: replaced the loop of N `.md` reads
+with `processCache.HasChanged()` — O(1) in memory per doc. If the cache manifest confirms no
+file has changed, it returns immediately without touching disk.
 
-### Fix 2 — Skip do rebuild via `CheckAllHashesMatch`
+### Fix 2 — Skip the rebuild via `CheckAllHashesMatch`
 
-Added `CheckAllHashesMatch(chunks []WikiChunk) bool` — performs a single query `SELECT content_hash FROM chunks` and compares in Go.
+`internal/wiki/fts.go`: added `CheckAllHashesMatch(chunks []WikiChunk) bool` — runs a single
+`SELECT content_hash FROM chunks` query and compares in Go.
 
-`internal/wiki/pipeline.go`: `RebuildDB` chama `CheckAllHashesMatch` antes do `Rebuild`. Se bater (e `logEntry == nil`), retorna imediatamente.
+`internal/wiki/pipeline.go`: `RebuildDB` calls `CheckAllHashesMatch` before `Rebuild`. If it
+matches (and `logEntry == nil`), it returns immediately.
 
-`internal/memory/wiki.go`: corrigido para passar `logEntry = nil` quando nenhum artigo foi escrito — habilita o skip no pipeline.
+`internal/memory/wiki.go`: fixed to pass `logEntry = nil` when no article was written — enables
+the skip in the pipeline.
 
-### Fix 3 — FTS5 `optimize` condicional
+### Fix 3 — Conditional FTS5 `optimize`
 
-The inline replacement of `optimizeTables()` with `optimizeTablesIfNeeded()` is optimized for every 10 rebuilds (`wiki_meta.rebuild_count`).
+`internal/wiki/fts.go`: replaced `optimizeTables()` with `optimizeTablesIfNeeded()` — runs FTS
+optimize only every 10 rebuilds (counter in `wiki_meta.rebuild_count`, copied between rebuilds
+in the atomic rename).
 
 ## Files Changed
 
 - `internal/knowledge/wiki.go` — fast-path O(1) via processCache
-- `internal/memory/wiki.go` — fast-path O(1) + logEntry condicional
-- Copy of `wiki_meta` in `optimizeTablesIfNeeded` during `CheckAllHashesMatch` and `internal/wiki/fts.go`
-- `internal/wiki/pipeline.go` — skip condicional do rebuild quando `logEntry == nil && CheckAllHashesMatch`
+- `internal/memory/wiki.go` — fast-path O(1) + conditional logEntry
+- `internal/wiki/fts.go` — `CheckAllHashesMatch`, `optimizeTablesIfNeeded`, copy of `wiki_meta` in Rebuild
+- `internal/wiki/pipeline.go` — conditional skip of rebuild when `logEntry == nil && CheckAllHashesMatch`
 
 ## Verification
 

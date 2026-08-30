@@ -3,80 +3,64 @@
 **Date:** 2026-06-18  
 **Status:** ✅ Complete
 
-## Problema
+## Problem
 
-`graphit sync` estava lento mesmo quando nada mudava no projeto:
+`graphit sync` was slow even when nothing had changed in the project:
 - **Baseline:** wall=57s, user=22.8s CPU, sys=2.8s
 
-O tempo era dominado por 4 gargalos:
+The time was dominated by 4 bottlenecks:
 
-"AST": Hash all files on every sync, even without changes.
-2. **Knowledge Wiki:** Inline 0 and Inline 1 were previously serving all documents before any cache check; the full page comparison failed due to the Inline 2 that changes daily.
-3. **Memory Wiki:** Same format — no early exit before the loop
-Step 1: Identify the context and key elements of the Portuguese text.
-The text appears to be discussing a process involving multiple files being rewritten or updated periodically.
+1. **AST**: SHA-256 of every file on each sync, even without changes
+2. **Knowledge wiki**: `autoLinkContent` and `resolveWikiLinksInBody` ran for every doc before any cache check; whole-page string comparison failed because of the `updated: <today>` field that changes daily
+3. **Memory wiki**: same pattern — no early-exit before the loop
+4. **`installAllRules`**: rewrote AGENTS.md, SKILL.md, MCP config and all rule files every time, even without changes → 195,880 file system outputs per sync
 
-Step 2: Translate each part while maintaining the overall meaning and structure:
-- "4. `installAllRules`": This could refer to a specific step number, so it remains unchanged.
-"Re-wrote AGENTS.md, SKILL.md, MCP configuration, and all rule files every time, even without changes → 195,880 filesystem output syncs"
-  - "re-writing" is translated to "rewriting."
-  - "even without changes" is translated to "even without modifications."
-
-Step 3: Combine the translated parts into a coherent English sentence:
-4. `installAllRules`: re-wrote AGENTS.md, SKILL.md, MCP config and all rule files every time, even without changes → 195.880 file system outputs per sync
-
-Final translation:
-4. `installAllRules`: rewrote AGENTS.md, SKILL.md, MCP config and all rule files every time, even without changes → 195.880 file system outputs per sync
-
-Solution
+## Solution
 
 ### 1. AST: mtime pre-filter ([`shard_cache.go`](../../internal/ast/shard_cache.go), [`pipeline.go`](../../internal/ast/pipeline.go))
 
-- Adicionado campo `Mtime int64` em `shardManifestEntry`
-Methods INLINE 0 and INLINE 1
-No pipeline: inline parallel of all files → only hash on files with different mtime
-After a successful parse, it stores mtime → next sync is even faster.
+- Added `Mtime int64` field to `shardManifestEntry`
+- Methods `NeedsHash(relPath, mtime)` and `StoreMtime(relPath, mtime)`
+- In the pipeline: parallel `stat()` of all files → only hash the ones with a different mtime
+- After a successful parse, it stores the mtime → the next sync is even faster
 
-### 2. Knowledge wiki: early-exit antes das fases caras ([`knowledge/wiki.go`](../../internal/knowledge/wiki.go))
+### 2. Knowledge wiki: early-exit before the expensive phases ([`knowledge/wiki.go`](../../internal/knowledge/wiki.go))
 
-Pre-check of `content_hash` in the existing pages' front matter before `buildAutoLinkTargets`, `autoLinkContent`, and __INLINE_3.
-- Se todos os hashes batem e `wiki.db` existe → `return result, nil` imediatamente
-Added inline helper (quick read without full parsing)
-- Eliminado falso-positivo do `updated: <today>` que invalidava cache diariamente
+- **Pre-scan** of `content_hash` in the frontmatter of existing pages **before** `buildAutoLinkTargets`, `autoLinkContent`, `resolveWikiLinksInBody`
+- If all hashes match and `wiki.db` exists → `return result, nil` immediately
+- Added `readKnowledgeFrontmatterField` helper (fast read without a full parse)
+- Eliminated the false positive from `updated: <today>` that invalidated the cache daily
 
 ### 3. Memory wiki: pre-scan ([`memory/wiki.go`](../../internal/memory/wiki.go))
 
-Added inline to the front matter of pages via inline
-Pre-scanning of hashes and checking for stale pages before the generation loop
-- Skip de `wiki.RebuildDB` quando nada mudou
-- Adicionado `readFrontmatterField` helper
+- `content_hash` added to page frontmatter via `memoryEntityPageWithHash`
+- Pre-scan of hashes + stale-page check before the generation loop
+- Skip `wiki.RebuildDB` when nothing changed
+- Added `readFrontmatterField` helper
 
-4. Idempotence ([`mandate.go`](../../internal/hub/adapters/ide/mandate.go), [`adapters.go`](../../internal/hub/adapters/ide/adapters.go), [`base.go`](../../internal/hub/adapters/ide/base.go))
+### 4. `installAllRules`: idempotence ([`mandate.go`](../../internal/hub/adapters/ide/mandate.go), [`adapters.go`](../../internal/hub/adapters/ide/adapters.go), [`base.go`](../../internal/hub/adapters/ide/base.go))
 
-Brazilian Portuguese:
-- `UpsertMandateTrigger`: check early — if the trigger content is identical, return without touching the file
-Brazilian Portuguese to idiomatic English:
+- `UpsertMandateTrigger`: early check — if the trigger content is identical, returns without touching the file
+- `installSkillForAdapter`: compares SKILL.md content before `WriteFile`
+- `copyFile`: compares size + content before copying
+- `reconcileMCPFile`: compares the resulting JSON before `WriteFile`
 
-- Compare content of SKILL.md before __INLINE_1
-- INLINE 0: compares size and content before copying
-- `reconcileMCPFile`: compara JSON resultante antes de `WriteFile`
+## Result
 
-## Resultado
-
-Metric | Before | After | Gain
+| Metric | Before | After | Gain |
 |---------|-------|--------|-------|
-Wall Time: 57s | **30s** | **2x Faster**
-| User CPU | 22.8s | **5.3s** | **4.3x menos CPU** |
-| Sys (I/O) | 2.8s | **1.1s** | **2.5x menos I/O** |
+| Wall time | 57s | **30s** | **2x faster** |
+| User CPU | 22.8s | **5.3s** | **4.3x less CPU** |
+| Sys (I/O) | 2.8s | **1.1s** | **2.5x less I/O** |
 
-The remaining 30 seconds are rede (pull from git memory repository and hub repository) – irreducible without network cache.
+The remaining 30s are network (git pull of the memory repo + hub repo) — irreducible without a network cache.
 
-## Arquivos Modificados
+## Modified Files
 
-- `internal/ast/shard_cache.go` — campo Mtime + NeedsHash/StoreMtime
-- `internal/ast/pipeline.go` — pre-filtro mtime no pipeline paralelo
-- `internal/knowledge/wiki.go` — pre-scan hash + early-exit + readKnowledgeFrontmatterField
-- `internal/memory/wiki.go` — pre-scan hash + content_hash no frontmatter + readFrontmatterField
-Idempotence in UpsertMandateTrigger
-Idempotence in installing Skill for Adapter
-IDEMPOTENCE IN COPYFILE AND RECONCILE MCP FILE
+- `internal/ast/shard_cache.go` — Mtime field + NeedsHash/StoreMtime
+- `internal/ast/pipeline.go` — mtime pre-filter in the parallel pipeline
+- `internal/knowledge/wiki.go` — hash pre-scan + early-exit + readKnowledgeFrontmatterField
+- `internal/memory/wiki.go` — hash pre-scan + content_hash in frontmatter + readFrontmatterField
+- `internal/hub/adapters/ide/mandate.go` — idempotence in UpsertMandateTrigger
+- `internal/hub/adapters/ide/adapters.go` — idempotence in installSkillForAdapter
+- `internal/hub/adapters/ide/base.go` — idempotence in copyFile and reconcileMCPFile

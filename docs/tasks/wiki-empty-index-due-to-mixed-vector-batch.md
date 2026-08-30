@@ -1,168 +1,164 @@
 ---
-Title: The index of the wiki was empty because an UNWIND cannot mix a line with a vector and a line without one.
+title: The wiki index came out empty because an UNWIND can't mix a row with a vector and a row without one
 status: done
 created: 2026-08-18
 updated: 2026-08-18
 tags: [wiki, ladybug, embedding, bugfix, strace]
 ---
 
-# O que sobrou de `wiki-db-pre-migration-sqlite-file.md`
+# What Was Left Over from `wiki-db-pre-migration-sqlite-file.md`
 
-The task log closed three defects and left one open, as stated:
+That task log closed three defects and left one open, stated like this:
 
-With three corrected, it reaches `RebuildDB` with 152 chunks, and then returns.
-> sem erro, e o store sai vazio assim mesmo.
+> With the three fixed, `memory index` **reaches** `RebuildDB` with 152 chunks, it returns
+> no error, and the store still comes out empty.
 
-As duas metades daquela frase estavam erradas, e cada uma por um motivo diferente.
+Both halves of that sentence were wrong, each for a different reason.
 
 ---
 
-State at the beginning
+## State at the start
 
-About 152 memories, with the recently installed binary:
+`graphit memory index --reset` over 152 memories, with the freshly installed binary:
 
 ```
 › Cleared …/wiki/memory/project/01KSH1CRFFG8Z74B5ZS78WW808
 ✓ Memory index complete (0.2s)
 ```
 
-152 pages written, 455 shards beside, **inline** 0 of **16.384 bytes**, no errors. Two
-Things point to the problem without naming it: 0.2 seconds is too little for 152 chunks plus index.
-FTS has an index vector, and 16 KB is less than the inline scope Wiki's size of `user`, which has **zero**.
-Memories occupy 1.9 MB. A store with nothing inside was larger than a store with 152 pages.
-lado — sinal de que o de 16 KB nem chegou a receber o schema.
+152 pages written, 455 shards alongside, a `wiki.db` of **16,384 bytes**, no errors. Two
+things give away the problem without naming it: 0.2s is far too little for 152 chunks plus
+an FTS index plus a vector index, and 16 KB is less than the `user`-scope wiki, which has
+**zero** memories and takes up 1.9 MB. A store with nothing in it was LARGER than the store
+with 152 pages next to it — a sign that the 16 KB one never even got as far as receiving the
+schema.
 
-How the defect became invisible
+## How the defect stayed invisible
 
-**`Rebuild` publica por swap**: escreve um store novo em `wiki.db.new` e o renomeia por cima do
-I am alive. Whenever any step fails, INLINE_0 **erases** the temporary and the old index remains.
-Exactly where you were. The only evidence of a failure is the absence of change— which is
-Indistinguishable from "there was nothing to do."
+**`Rebuild` publishes via swap**: it writes a new store to `wiki.db.new` and renames it over
+the live one. Whenever any step fails, `cleanup()` **deletes** the temporary file and the
+old index stays exactly where it was. The only trace of a failure is the ABSENCE of a
+change — which is indistinguishable from "there was nothing to do."
 
-Foi o `strace` que nomeou o defeito antes de eu saber qual era:
+It was `strace` that named the defect before I knew what it was:
 
 ```
-openat("…/wiki.db.new", O_RDWR|O_CREAT)      = 8     ← criado
-pwrite64(9<…/wiki.db.new.wal>, …)                    ← populado
-pwrite64(8<…/wiki.db.new>, "…WikiSyn"…)              ← checkpoint entrou no arquivo
-unlinkat("…/wiki.db.new", 0)                 = 0     ← APAGADO
+openat("…/wiki.db.new", O_RDWR|O_CREAT)      = 8     ← created
+pwrite64(9<…/wiki.db.new.wal>, …)                    ← populated
+pwrite64(8<…/wiki.db.new>, "…WikiSyn"…)              ← checkpoint entered the file
+unlinkat("…/wiki.db.new", 0)                 = 0     ← DELETED
 ```
 
-Nenhum `rename`. O caminho executado era o de erro, e o `Rebuild` estava retornando erro.
+No `rename`. The path taken was the error path, and `Rebuild` was returning an error.
 
-Method, because it goes beyond this atomic swap issue: when a pipeline with an atomic swap "does nothing."
-Trace the system calls. Publishing and aborting have different forms on the disk even when they are the same.
-obvious result
+**Method, because it's worth more than this one bug:** when a pipeline with an atomic swap
+"does nothing," trace the syscalls. Publishing and aborting look different on disk even when
+they produce the same visible result.
 
-## Por que "retorna sem erro" parecia verdade
+## Why "returns no error" looked true
 
-`internal/memory/wiki.go` reportava a falha assim:
+`internal/memory/wiki.go` was reporting the failure like this:
 
 ```go
 slogutil.Resolve(nil).Error("memory wiki index build failed; …")
 ```
 
-The function returns a value of type `discardHandler`, which is an instance of class or object `Enabled`. The variable `slogutil.Resolve(nil)` holds the return value, and it can be used in further calculations.
-The previous commit replaced `_ = wiki.RebuildDB(...)` with an inline log and maintained silence:
-The error has been written and discarded. The previous session read "no errors" from a log that
-nunca poderia ter um, e foi procurar o defeito em outro lugar.
+`slogutil.Resolve(nil)` returns `NOP()` — a `discardHandler` whose `Enabled` is `false`. An
+earlier commit had replaced `_ = wiki.RebuildDB(...)` with a log line and **kept the
+silence**: the error started being written and discarded. The previous session read "no
+errors" from a log that could never have had one, and went looking for the defect somewhere
+else.
 
-The **INLINE_0** — the funnel through which every **INLINE_1** passes — does not go through the logger. In other words, the
-The only caller that mattered was exactly what it reported nowhere.
+`IndexMemories` — the funnel every `memory index` goes through — passes no logger. In other
+words, the only caller that mattered was exactly the one reporting to nowhere.
 
-The error becomes apparent once it is visible.
+## The error, once visible
 
 ```
 rebuild wiki db: insert wiki chunks: failed to convert Go value to Lbug value:
 failed to create LIST value with status: 1. please make sure all the values are of the same type
 ```
 
-It is the same defect of commit 1a8839c, fixed in the index of search for the Abstract Syntax Tree on August 17 and never.
-In the wiki. The driver creates a single LIST for the parameter `$batch` of type integer and refuses types.
-different elements, then a batch with line carrying `FLOAT[768]` next to a line with
-`emb` nil morre inteiro.
+This is **the same defect as commit 1a8839c**, fixed in the AST search index on 08/17 and
+never in the wiki. The driver builds a single LIST for the entire `$batch` parameter and
+rejects mixed element types, so a batch with a row carrying `FLOAT[768]` next to a row with
+`emb` nil dies whole.
 
-Mixed is the usual case, not the border. A single chunk receives a vector if three things are true of it.
-even time — the content hash is in the embedding cache, the vector has the right dimension, and
-The chunk has at least 10 words, inline. Every wiki whose embedding is
-Partially, it produces both types of lines, including all wikis that the embedder has not yet embedded.
-He finished and all the wikis had one short page.
+**Mixed is the normal case, not the edge case.** A chunk only gets a vector if three things
+hold at once — its content hash is in the embedding cache, the vector has the right
+dimension, and the chunk has at least `wikiEmbedMinWords` (10) words. Every wiki whose
+embedding is partial produces both kinds of rows, and that includes every wiki the embedder
+hasn't finished yet, and every wiki with a short page.
 
-Why did the Wiki of `user` survive: with no memories, no lines, nothing to mix? Why did it?
-Another project survived: 8 memories that fell on the same side.
+Why the `user` wiki survived: zero memories, zero rows, nothing to mix. Why the other
+project survived: 8 memories that all landed on the same side.
 
-Correction
+## The fix
 
-Brazilian Portuguese to idiomatic English:
+**`internal/wiki/store.go` — `writeChunks` splits each batch into two homogeneous halves**
+and uses two queries: `insertWikiChunkQuery` with `emb`, and `insertWikiChunkQueryNoVec`
+without the property, leaving the column NULL — which is what the vector query already
+ignores by construction.
 
-**`internal/wiki/store.go` — `writeChunks` divides each lot into two homogeneous parts and uses**
-duas queries: `insertWikiChunkQuery` com `emb`, e `insertWikiChunkQueryNoVec` sem a
-property, leaving the column NULL -- which is what vectorized queries already ignore by default.
-construction
+Each half is skipped when empty. This isn't defensive coding: an UNWIND over an empty list
+fails with "failed to create LIST value because the slice is empty," so a wiki with a vector
+on every chunk — or on none — can't be handed the other query.
 
-Each half is pulled when empty. This is not defensive programming: a UNWIND on an empty list fails
-with "failed to create LIST value because the slice is empty," then an encyclopedia with vectors in all sections
-The chunks (or none) cannot receive the other query.
+The two obvious workarounds had already been measured in 1a8839c and don't work: a typed nil
+`[]float32` and `[]float32{}` both fail with the same "slice is empty."
 
-The two obvious exits have already been measured in 1a8839c and do not work: `[]float32` is null.
-tipado e `[]float32{}` falham os dois pelo mesmo "slice is empty".
+**`internal/memory/wiki.go` — `errLogger`**: prefers the caller's logger and falls back to
+`slog.Default()`, never to NOP. `slogutil.Resolve` is still correct for routine logging;
+what it can't be is the reporting path that says the index doesn't exist.
 
-**`internal/memory/wiki.go` — `errLogger`**: prefere o logger do chamador e cai no
-`slog.Default()`, nunca no NOP. `slogutil.Resolve` continua correto para conversa de rotina; o
-The path he cannot be is the report that says the index does not exist.
+## Measured result
 
-## Resultado medido
-
-| | antes | depois |
+| | before | after |
 |---|---|---|
-| `wiki.db` do projeto | 16.384 B | 30.777.344 B |
-Pages: 152, 153
-| tempo de `memory index --reset` | 0,2 s | 2,7 s |
+| project `wiki.db` | 16,384 B | 30,777,344 B |
+| pages | 152 | 153 |
+| `memory index --reset` time | 0.2 s | 2.7 s |
 
-The 0.2s were the cost of writing and failing; the 2.7s are the index being built.
+The 0.2s was the cost of writing the pages and failing; the 2.7s is the index actually being
+built.
 
-The ``graphit_memory_search`` responded constantly, using fallback BM25 on the ``.md``, which is
-Exactly because nothing seemed broken while every query relied on the entire directory.
+`graphit_memory_search` kept responding the whole time, via the BM25 fallback over the `.md`
+files — which is exactly why nothing looked broken while every query relied on the whole
+directory.
 
-## Testes
+## Tests
 
 `internal/wiki/chunk_partial_embedding_test.go`:
 
-- **INLINE 0** — five vector distributions on the
+- `TestRebuildIndexesAWikiWhoseEmbeddingIsPartial` — five vector distributions over the same
+  6 chunks (alternating, only the first, only the last, all, none). Checks both the chunk
+  count **and** the vector count: partitioning the batch can't cost a chunk its embedding.
+- `TestPartialEmbeddingSurvivesMoreThanOneBatch` — `wikiBatchRows + 7` chunks, because the
+  partitioning happens per batch and the result can't depend on where the batch gets cut.
 
-This text is already in English, so no translation was needed.
-The same 6 chunks (alternating, only the first, only the last, all, none). Check the count.
-Chunks and vectors: partitioning the lot cannot cost an entire chunk its embedding.
-- `TestPartialEmbeddingSurvivesMoreThanOneBatch` — `wikiBatchRows + 7` chunks, porque a
-The partition occurs in lots, and the result cannot depend on where the lot was cut.
+The fixture writes 40-word bodies on purpose: below `wikiEmbedMinWords`, no row gets a
+vector, and the test would stop exercising the mix without failing.
 
-The fixture writes bodies with 40 words for purpose: below `wikiEmbedMinWords`, none
-linha ganha vetor, e o teste deixaria de exercitar a mistura sem falhar.
-
-It belongs to another defect of this session - verify
+`internal/git/hook_env_test.go` belongs to the other defect from this session — see
 `docs/tasks/daemon-herdava-ambiente-de-git-hook.md`.
 
-## Arquivos alterados
+## Files Changed
 
-File | Change | Reason
+| File | Change | Reason |
 |---|---|---|
-| `internal/wiki/store.go` | Modificado | `writeChunks` particiona o lote; duas queries de insert |
-Modified | `internal/memory/wiki.go` | Updated so that index failure is no longer discarded |
-Created | Mixed Lot Regression, Including Lote Traversal
-Modified | Item left open is closed |
+| `internal/wiki/store.go` | Modified | `writeChunks` partitions the batch; two insert queries |
+| `internal/memory/wiki.go` | Modified | `errLogger`, so index failure stops being discarded |
+| `internal/wiki/chunk_partial_embedding_test.go` | Created | Mixed-batch regression, including batch traversal |
+| `docs/tasks/wiki-db-pre-migration-sqlite-file.md` | Modified | Closes the item left open there |
 
-Debt Technical
+## Technical Debt
 
-The square brackets indicate that this is an incomplete sentence, and "INLINE_0" likely refers to a specific inline code or variable. The English translation would be:
-
-- [ ] **`BuildDBFromCache` returns 0 chunks on a wiki memory directory with 455**
-
-This suggests the function or script being tested returns zero results when processing a directory containing 455 files in a wiki memory system.
-Shards. ** Observed during this defect inspection, not investigated: `LoadAllChunks()` is not
-You find nothing where INLINE_0 just wrote. It doesn't affect memory—nothing installs one.
-Wiki memory from shards — but it's the path through which a publicly published Wiki by the Hub is
-Mounted, then it's worth confirming whether the format of memory shards and what is INLINE_0?
-The wait is the same.
-- [ ] The partition exits when migration of data from UNWIND to COPY occurs. `COPY` does not have this feature.
-limitation - measured at 1a8839c, loads `FLOAT[768]` with NULL mixed in. Applies to the AST and
-  para o wiki.
+- [ ] **`BuildDBFromCache` returns 0 chunks over a memory-wiki directory with 455 shards.**
+  Observed while probing this defect, not investigated: `LoadAllChunks()` finds nothing
+  where `ExportShards` just wrote. Doesn't affect memory — nothing installs a memory wiki
+  from shards — but it's the path through which a wiki published by the Hub gets mounted, so
+  it's worth confirming whether the memory shard format and what `LoadAllChunks` expects are
+  the same.
+- [ ] **The partitioning goes away once the load migrates from UNWIND to COPY.** `COPY`
+  doesn't have this limitation — measured in 1a8839c, it loads `FLOAT[768]` with NULL mixed
+  in. Applies to both the AST and the wiki.

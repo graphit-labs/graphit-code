@@ -1,48 +1,48 @@
 # Knowledge Wiki Sync: Parallel Stat Pre-Check (AST Pattern)
 
-## Objetivo
-Make INLINE 0 performant when nothing has changed, especially with step "Knowledge Wiki Reindex".
+## Objective
+Make `graphit sync` performant when nothing has changed, especially the "Knowledge wiki
+reindexed" step.
 
-## Resultado
-Before: 4.3 seconds (unchanged)
-- Depois: 0.0s ✓ (igual ao AST)
+## Result
+- Before: 4.3s (even without changes)
+- After: 0.0s ✓ (same as AST)
 
-## Causa raiz
-O wiki fazia filepath.Walk sobre TODO o projeto (585+ Go files) + ReadFile de 199 doc files a cada sync, mesmo sem nada ter mudado.
+## Root cause
+The wiki did a filepath.Walk over the ENTIRE project (585+ Go files) + ReadFile of 199 doc
+files on every sync, even when nothing had changed.
 
-Solution implemented
+## Solution implemented
 
-Pipeline Pattern (pipeline.go)
-O AST usa mtime+size em cache. Se changedFiles==0 → retorna imediatamente. Sem Walk, sem hash, sem nada.
+### AST pattern (pipeline.go)
+AST uses cached mtime+size. If changedFiles==0 → returns immediately. No Walk, no hash, nothing.
 
-Implementation on the wiki
+### Implementation in the wiki
 
 **`internal/wiki/process_cache.go`**:
-- Adicionado `Mtime int64` (UnixNano), `Size int64` em `wikiCacheManifestEntry`
-- `AllStatEntries()` → retorna todos os arquivos com mtime; nil se algum tiver Mtime==0
-- `StatMatch(relPath, mtime, size)` → O(1), retorna (hash, true) se bater
-- `StoreMtime(relPath, mtime, size)` → persiste mtime; DEVE chamar `dirty[""] = true`
+- Added `Mtime int64` (UnixNano), `Size int64` to `wikiCacheManifestEntry`
+- `AllStatEntries()` → returns all files with mtime; nil if any has Mtime==0
+- `StatMatch(relPath, mtime, size)` → O(1), returns (hash, true) if it matches
+- `StoreMtime(relPath, mtime, size)` → persists mtime; MUST call `dirty[""] = true`
 
-**`internal/knowledge/wiki.go`** (antes do Walk):
+**`internal/knowledge/wiki.go`** (before the Walk):
 ```
-Phase A: stat paralelo dos arquivos em cache
-  → statMatch: mtime+size igual → skip
-  → needHash: mtime/size diferente → precisa hash
-Phase B: ReadFile+hash apenas needHash
-  → hash igual → StoreMtime → allUnchanged
-  → hash diferente → allUnchanged = false → full Walk
-Se allUnchanged && wiki.db existe → Save() → return
+Phase A: parallel stat of cached files
+  → statMatch: mtime+size equal → skip
+  → needHash: mtime/size different → needs hash
+Phase B: ReadFile+hash only for needHash
+  → hash equal → StoreMtime → allUnchanged
+  → hash different → allUnchanged = false → full Walk
+If allUnchanged && wiki.db exists → Save() → return
 ```
 
-Critical bugs fixed
-Here is the idiomatic English translation:
+### Critical bugs fixed
+1. `StoreMtime` without `dirty[""] = true` → mtime doesn't persist to disk → pre-check never activates
+2. `Unix()` instead of `UnixNano()` → insufficient precision, mtime always different
+3. Using `FastPathCheck` in the pre-check → fails for chunked markdown (multiple slugs per source file)
+4. `StoreMtime` must be called after a Walk stat-cache HIT AND after `Store()` new processing
 
-Without `StoreMtime`, mtime does not persist on disk → pre-check never activates
-"Replace INLINE_0 with INLINE_1 → insufficient precision, always differentmtime."
-Use `INLINE_0` in the pre-check → fails for Markdown chunked (multiple slugs per source file)
-4. It should be called after Walk Stat-Cache HIT and after `Store()` new processing.
-
-## Arquivos modificados
+## Modified Files
 - `internal/wiki/process_cache.go`
 - `internal/knowledge/wiki.go`
-- `internal/knowledge/knowledgeignore.go` (adicionado .agents/, .claude/ etc ao ignore, renomeado para .wikiignore)
+- `internal/knowledge/knowledgeignore.go` (added .agents/, .claude/ etc to the ignore list, renamed to .wikiignore)

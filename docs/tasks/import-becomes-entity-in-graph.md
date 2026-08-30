@@ -1,85 +1,77 @@
-Task: #Tarefa was an error in a repository with 2,838 imports.
+# Task: `MATCH (n:Import)` Was an Error in a Repository with 2838 Imports
 
-Status: completed on August 5, 2026. Third round of the series that began in
-`docs/tasks/schema-antes-da-query.md` e seguiu em `docs/tasks/tradutor-cypher-sem-lista-fixa.md`.
+**Status: done** on 2026-08-05. Third round of the series that started in
+`docs/tasks/schema-antes-da-query.md` and continued in `docs/tasks/tradutor-cypher-sem-lista-fixa.md`.
 
-## O sintoma, que foi uma chamada minha
+## The symptom, which was a call I made
 
 ```
 MATCH (n:Import) RETURN count(n) AS n
 → Binder exception: Table Import does not exist.
 ```
 
-It is declared by grammars as a label — `go.yaml` has `graph_label: Import` in the query.
-of imports. This repository has 2,838 edges (`File-[:IMPORTS]->Module`) for 215 modules. Or
-be: The imports were represented as edges in the graph, and the declared label did not exist as a table.
+`Import` **is** a label declared by the grammars — `go.yaml` has `graph_label: Import` on
+the imports query. And this repository has 2838 `File-[:IMPORTS]->Module` edges for 215
+modules. In other words: the imports were in the graph as edges, and the declared label
+didn't exist as a table.
 
-## A causa: um `continue` que jogava a entidade fora
+## The cause: a `continue` that threw the entity away
 
-In the branch of `dataKey == "imports"`, it constructed the register of `internal/ast/cache_convert.go`.
-The code imported a canonical edge for the `Module`, ended at `continue`. The `label` was read three times.
-Lines discarded before analysis. No entities, no tables, no nodes.
+In `internal/ast/cache_convert.go`, in the `dataKey == "imports"` branch: it built the
+import record (the edge to the canonical `Module`) and ended with `continue`. The `label`
+was read three lines earlier and discarded. No entity, no table, no node.
 
-Decision of the Engineer: "Why not keep it in the drawer? And if a declared label doesn't arrive"
-into the graph is an error. ** The `continue` exited.
+Engineer's decision: **there's no reason not to store it in the database, and if a declared
+label doesn't reach the graph, that's a bug.** The `continue` was removed.
 
-Now an import is recorded twice intentionally, because it answers two questions:
+Now an import is recorded twice, on purpose, because it answers two questions:
 
-- a aresta `File-[:IMPORTS]->Module` diz **de que este arquivo depende**, canonicalizada — todos
-The files that pull the same module point to one node;
-The entity says where the statement is, in this file on this line, that it's at the module node.
-Shared cannot say.
+- the `File-[:IMPORTS]->Module` edge says **what this file depends on**, canonicalized —
+  every file that pulls in the same module points to a single node;
+- the entity says **where the statement is**, in this file, on this line — something the
+  shared module node can't say.
 
-The label: three forms, not one
+## The label: three shapes, not one
 
-The statements were derived from three directions in INLINE 0: 22 queries said
-Here's the translation:
+The declarations were spread across three directions under the same `data_key`: 22 queries
+said `Module`, 10 said `Import`, one said `""`, and 7 said nothing — while the pipeline used
+none of them. `Module` was the worst: the entity's uid is per-file, so honoring it would
+fabricate a second `Module` node next to the canonical one every file already points to.
 
-"INLINE_0", ten said INLINE_1, a INLINE_2, and seven nothing - while the pipeline did not use any of them.
-The inline 0 was the worst: the entity's ID is by file, so it would honor her to create another node.
-In line with the canonical that all files already point to.
+Auditing pattern by pattern, two families turned out not to be a literal import, and the
+Engineer decided to separate them instead of unifying everything:
 
-Auditing standard by standard, two families are not literally equivalent, and the Engineer decided
-separar em vez de uniformizar:
-
-| forma | queries | label |
+| shape | queries | label |
 |---|---|---|
 | `import x` / `use` / `require` / `@import` — Go, Python, Java, Kotlin, Scala, Groovy, Dart, Rust, PHP, Ruby, CSS, Haskell, Julia, JS/TS `import_statement` | 23 | `Import` |
 | `preproc_include` — C, C++, ObjC | 6 | `Include` |
 | `export_statement source:` — JS, TS, TSX (re-export) | 3 | `Export` |
 
-The three produce the edge `IMPORTS`, because they pull module. `Export` was dead labeled until
-Here: The const existed and nothing produced (`detectExportsTS` only marks `is_exported`), so there is none.
-Collision. `Include` is new in `types.go`.
+All three produce the `IMPORTS` edge, because all three pull in a module. `Export` was a
+dead label until now: the constant existed and nothing produced it (`detectExportsTS` only
+sets `is_exported`), so there's no collision. `Include` is new in `types.go`.
 
-The inline 0 honors the declared for this family and replaces the rest with inline 1 - what
-covers INLINE_0 and covers the missing label, which is what a query INLINE_1 must cover.
-tem.
+`importEntityLabel` honors the declared label for this family and replaces everything else
+with `Import` — which covers `Module` and covers the missing label, something a
+`type: relation` query is required to have.
 
-## O que eu errei no caminho, e quem me pegou
+## What I got wrong along the way, and who caught it
 
-Normalize all 31 declarations into INLINE_0 once, including in queries
-Here's the translation from Portuguese to idiomatic English:
+I normalized **all** 31 declarations to `Import` at once, including in `type: relation`
+queries. `TestVerifyAllDefaultQueries`, which already existed, failed on four grammars:
+*query imports has type=relation but non-empty graph_label "Import"*. A relation carries no
+label, which is exactly why seven of those queries declared nothing — it wasn't an
+oversight. Reverted.
 
-"`type: relation`". "`TestVerifyAllDefaultQueries`", which already existed, failed in four grammars:
-
-This translation maintains the structure and meaning of the original sentence while making it sound more natural in English.
-The query's import has a type of relation, but there is an empty graph labeled "Import".
-And that's why seven of those queries didn't declare anything—there was no oversight. Reversed.
-
-Detail that this reversal revealed: `processRelations` (INLINE_1) does not remove entities.
-From `result.Entities` onwards, a declared inline query as a relation continues through.
-even part of `cache_convert`. As the label is forced in the code, these five grammars gain
-It is even declared as `graph_label` without any coverage - covered by
+A detail that this revert exposed: `processRelations` (`helper.go:138`) **does not remove**
+entities from `result.Entities`, so an import query declared as a relation still passes
+through the same `cache_convert` branch. Since the label is forced in code, those five
+grammars still get an import node even though they declare no `graph_label` — covered by
 `TestConvertToCacheForcesTheImportLabelWhenTheQueryDeclaresNone`.
 
-## Erro hostil, corrigido no caminho
+## A hostile error, fixed along the way
 
-Here is the translation from Portuguese to idiomatic English:
-
-Now it explains `Table X does not exist` instead of passing it raw:
-
-This translation maintains the essence of the original sentence while using more natural phrasing in English.
+`Query` now explains `Table X does not exist` instead of passing it through raw:
 
 ```
 ladybug query: Binder exception: Table Import does not exist. — "Import" is not a label or
@@ -87,54 +79,58 @@ relationship type in this project's graph: nothing indexed here produced it, so 
 table. Present: AtRule, Attribute, ..., Variable
 ```
 
-A label that no indexed file produced has an empty table, so linking it is a hard error here.
-where Neo4j would return zero lines — and the harsh message reads as "the graph is broken" instead
-"From 'this label does not exist IN THIS project' continue **error** for purpose: return result"
-empty would make a mistake indistinguishable from an honest absence. It also covers types of dishonest relationships.
-digitado (`-[:CALS]->`) e o caso do grafo vazio ou em rebuild, que apareceu de verdade durante
-This task when I consulted a pre-swap bank.
+A label that no indexed file produced has no table, so matching it here is a hard error —
+whereas Neo4j would return zero rows — and the raw message reads like "the graph is broken"
+instead of "this label doesn't exist IN THIS project." It stays an **error**, on purpose:
+returning an empty result would make a typo indistinguishable from an honest absence. It
+also covers a mistyped relationship type (`-[:CALS]->`) and the case of an empty or
+rebuilding graph, which came up for real during this task when I queried a pre-swap
+database.
 
-## Testes
+## Tests
 
-`internal/ast/cache_convert_imports_test.go` e `internal/ast/ladybug_missing_table_test.go`.
+`internal/ast/cache_convert_imports_test.go` and `internal/ast/ladybug_missing_table_test.go`.
 
-O que vale registrar sobre o desenho de dois deles: os testes de pipeline **encenam** o YAML do
-repository with `stageGrammar`_. Without this, they measure the copy that the last sync installed on
-runtime directory, and they wait while the repository file says something else - exactly
-o que aconteceu na primeira tentativa, com o teste de C devolvendo `Import` porque leu o YAML
-instalado.
+Worth noting about the design of two of them: the pipeline tests **stage** the repository's
+YAML with `stageGrammar`. Without that, they measure the copy the last sync installed in the
+runtime directory, and they pass while the repository file says something else — which is
+exactly what happened on the first attempt, with the C test returning `Import` because it
+read the installed YAML.
 
-The parser's cache did not invalidate, and the change didn't reach anyone.
+## The parse cache didn't invalidate, and the change reached no one
 
-After completing `make install` and a fully `sync`, the graph of this project continued without having one.
-It is running the new binary. The cause: the shard cache is keyed by the **hash of
-Content of the file remains unchanged; anything that the converter produces does not change the key. All files returned from the process are intact.
-cache, com as entradas antigas.
+After `make install` and a full `sync`, this project's graph still had **not a single
+`Import` node** — while running the new binary. The cause: the shard cache is keyed by the
+file's **content hash**, and changing what the converter *produces* doesn't move the key.
+Every file came back from the cache, with the old entries.
 
-What he resolved in his hands was INLINE_0, and it's worth understanding why: he does
-In directory of the database (`os.RemoveAll`), and `CacheDir` is this very same directory.
-(`runners.go:330`), then the reset wiped the cache along with it. It was a fortunate coincidence, not design.
+What fixed it manually was `ast index --reset`, and it's worth understanding why: it does
+`os.RemoveAll` on the database directory (`runners.go:268`), and `CacheDir` **is that same
+directory** (`runners.go:330`), so the reset wiped out the cache along with it. That was a
+fortunate coincidence, not a design.
 
-The only lever that invalidates everything is `shardCacheVersion`.
-Discarded, and now every file seems altered. It was for `2`.
+`shardCacheVersion` is the only lever that invalidates everything — a manifest written under
+a different version is discarded, and then every file looks changed. It was bumped to `2`.
 
-Decision, with the right question from Engineer ("Are we in development, should we touch the seal?"): Yes, and
-Being in Dev is an argument for. What makes a bump expensive is the installed base paying for rebuilds on it.
-Update - risk that has not yet materialized. The cost here is a reparse from cache, exactly what the...
-It has already been done. And it's not just a cache; the binary indexes two registered projects, each
-com o seu, mais contextos importados quando houver;
-The inline 0 achieves one at a time and depends on someone remembering. The failure that the seal avoids is
-Silent — a new binary graph with an old cache returns a partially complete graph without any errors anywhere.
-What is the way this series fails all together?
+**Decision, prompted by the Engineer's right question ("we're in dev, is it worth touching
+the version stamp?"):** yes, and being in dev is actually an argument *in favor*. What makes
+a bump expensive is an installed base paying for a rebuild on update — a risk that doesn't
+exist yet. The cost here is one reparse per cache, exactly what `--reset` already did. And
+it's not just one cache: the binary indexes two registered projects, each with its own, plus
+imported contexts when there are any; `--reset` reaches one at a time and depends on someone
+remembering to run it. The failure the version stamp prevents is silent — a new binary with
+an old cache returns an incomplete graph with no error anywhere, which is the failure mode
+of this whole series.
 
-The _INLINE_0_ fixes semantics in both directions because the bump doesn't matter if it's not used.
-tolerance is sometimes accepted.
+`shard_cache_version_test.go` pins the semantics in both directions, because the bump is
+worthless if the mismatch is ever tolerated.
 
-It is registered, not corrected.
+## Left on record, not fixed
 
-**objc, julia e haskell declaram as mesmas queries de import duas vezes** — uma como entidade e
-A like `type: relation` with the same tree-sitter pattern (ObjC 3+3, Julia 2+2, Haskell 1+1). Only
-does not write in double because the `seenNames` of the adapter discards the second match with the same name. Is
-Inert duplication today, fragile: depends on a deduplication tool designed for another purpose. Like this.
-By now, it has produced the edge, the copy `type: relation` is redundant — but removing it messes with
-Production of five grammatical structures deserves independent verification.
+**objc, julia, and haskell declare the same import queries twice** — once as an entity and
+once as `type: relation`, with the same tree-sitter pattern (objc 3+3, julia 2+2, haskell
+1+1). It only avoids writing duplicates because the adapter's `seenNames` discards the
+second match of the same name. It's inert duplication today, and fragile: it depends on a
+dedup mechanism that exists for a different purpose. Since the entity path already produces
+the edge, the `type: relation` copy is redundant — but removing it touches edge production
+in five grammars and deserves its own verification.

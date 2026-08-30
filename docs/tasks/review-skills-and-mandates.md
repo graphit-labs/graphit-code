@@ -1,189 +1,109 @@
-Task: complete the review of skills and mandates
+# Task: Complete the Review of Skills and Mandates
 
-Status: Completed on July 28, 2026. Six stages — `f0432fef`, `70fa594c`, `39184383`, `09b73553`, __INLINE_4__.
-Here is the translation:
-
-"INLINE_0_" and "INLINE_1_" each with their own changelog in "INLINE_2". The first three were
-The scope was originally intended; the last three came from corrections made by the Engineer during the work.
-The below assessment serves as reference (commands, tool catalog, conventions); section
-What remains at the end reflects what does not belong to this task.
+Status: completed on July 28, 2026. Six stages — `f0432fef`, `70fa594c`, `39184383`, `09b73553`, plus two more — each with its own changelog in the commit message. The first three were the originally intended scope; the last three came from corrections the Engineer made during the work. The assessment below serves as a reference (commands, tool catalog, conventions); the final section covers what falls outside this task.
 
 ---
 
-## O que foi feito
+## What Was Done
 
-Step 1 — `f0432fef` — each skill teaches its own module's tools
+### Step 1 — `f0432fef` — each skill teaches its own module's tools
 
-The _INLINE_0 was the significant gap that became the first call in every skill of the Hub, with semantics
-documented (substring of ID/NAME/DescRIPTION, without stemming) because this changes how it is searched. The
-Others who were absent entered all of them. The decisions that the survey left open:
+`hub_search` was the biggest gap: it became the first call taught in every Hub skill, with its search semantics documented (substring match on ID/NAME/DESCRIPTION, no stemming) because that detail changes how you search. All the other missing tools were added as well. Decisions the review left open:
 
-They enter — not just lifecycle, but also the origins of contexts that
-The rest of her skills were already being used without explanation from where they came.
-And `memory_sync` and `memory_remove` enter together, in a section of imported contexts.
-- **`knowledge_remove` entra por par** com install, com aviso: sem `context`, limpa o wiki local.
-"He was outside of the lift registration" — he wasn't in the list and it's the narrow tool.
-For the case where the watcher was unable to witness the change.
+- `hub_link` is added — not a lifecycle tool, but the origin of the imported contexts that the rest of the skill already used without explaining where they came from.
+- `memory_sync` and `memory_remove` are added together, in a section about imported contexts.
+- `knowledge_remove` is added paired with `install`, with a warning: without `context`, it wipes the local wiki.
+- `sync` is added outside the lifecycle registry — it wasn't on the list, and it's the narrow tool for the case where the watcher failed to observe the change.
 
-Also: `hub_type-path` was not on the own Hub's mandate, despite being used by the skill of
-improvements; e o ecossistema de projetos (`cluster_*`) ganhou ensino de verdade em vez de uma
-frase de passagem, a pedido do Engenheiro.
+Also: `hub_type-path` wasn't in the Hub's own mandate, despite being used by the Improvements skill; and the project ecosystem (`cluster_*`) got real instruction instead of a passing mention, at the Engineer's request.
 
-### Etapa 2 — `70fa594c` — `config`, `daemon` e `dream` sem sexto mandate
+### Step 2 — `70fa594c` — `config`, `daemon`, and `dream` without a sixth mandate
 
-Selected Drawing: Sections from Existing Skills. Not for economy— the expensive is the mandate, which
-It remains in context throughout the session, while the body of the skill is on-demand. What did you decide was...
-Each domain already had a skill that led the agent to the door and left them without tools:
+Chosen approach: sections within existing skills, not for economy's sake — the mandate is what's expensive, since it stays in context for the whole session, while the skill body is loaded on demand. Each domain already had a skill that walked the agent to the door and left it there without tools:
 
-Domain | Skill | The trigger that already existed without mechanism
+| Domain | Skill | Trigger that already existed without a mechanism |
 |---|---|---|
-Brazilian Portuguese:
-| `dream` | Improvements | "You noticed something out of the ordinary in this current change" - and there was no way to fix it. |
-Here is the Brazilian Portuguese text translated into idiomatic English:
+| `dream` | Improvements | "You noticed something out of the ordinary in this change" — and there was no way to act on it. |
+| `daemon` | ast | "The daemon isn't running" — with no way to check. |
+| `config` | Hub | The Hub already owns `cluster_*`; configuration is the same slot. |
 
-The inline comment says, "The daemon isn't running" — without how to check.
-Brazilian Portuguese to idiomatic English:
+The right question isn't which domain the tool belongs to; it's **what the agent is doing when it needs it.** Precedent: skills here are grouped by trigger, not by prefix.
 
-| `config` | hub | The hub already owns `cluster_*`; configuration is the same slot |
+### Step 3 — Content Review
 
-This translation maintains the original meaning while using more natural phrasing in English.
+The worst one: the documentation had it backwards, and it's destructive — `DryRun` defaults to `false`. Calling it with no parameters removes every candidate. The skill described this as a dry run.
 
-The right question isn't about what domain the tool is for; it's **what the agent is doing when...**
-She needs it. Precedent: The skills here are grouped by trigger, not prefix.
+Also fixed by commit `9e179bc9`: a step that survived in the workflow, contradicting the section it belonged to; the obsolete sync block that still existed in full inside `ast`; `hub_list` documented with a `project_dir` parameter and an unnamed filter that don't exist, in the skill's only mandatory step; four places that accepted a native tool without the harness having been tried first; and `memory_search` described as an inline read of `.md` files when it's actually FTS5 over the compiled wiki.
 
-Step 3 — Review Content
+### Step 4 — Exploring Another Project Starts in the Ecosystem
 
-The worst: The documentation was backwards and it overwrites **—** `DryRun`'s default `false`.
-The called without parameter removes all candidates. The skill presented this as a dry run.
+Directive given by the Engineer during the task: mandatory whenever the question concerns code or documentation outside this repository — call `cluster_projects` first, then the same MCP tools with the sibling's `dir` as `project_dir`, and only as a last resort, a native tool.
 
-Also: the step INLINE_0 survives in the workflow contradicting the section that it belongs to.
-commit `9e179bc9` acrescentou; o bloco obsoleto de sync ainda existia inteiro no ast; `hub_list`
-received `project_dir` and an unnamed filter that doesn't exist, in the only mandatory step of the skill;
-quatro lugares aceitavam ferramenta nativa sem o harness ter sido tentado; e `memory_search` era
-described as inline read of `.md` when it is FTS5 on the compiled wiki.
+The missing distinction was that the ast skill treated an imported context as the only way to consult code outside the repo. A registered "sibling project" already has its own graph, wiki, and memories — importing it re-indexes something that already exists, and not knowing that meant the agent defaulted to reading file by file. This turned into a four-row table: this repository, a sibling in the ecosystem, an unregistered checkout, or a dependency with no check-in at all.
 
-Step 4 — Explore Another Project Begins in Ecosystem
+Nothing needs to be installed, linked, or imported: `project_dir` is just a parameter. `hub_link` was added as the exception — it brings an artifact into this project, but it doesn't grant access to something that's already set up elsewhere.
 
-Order given by the Engineer during the task. Mandatory when the question pertains to code or
-Documentation outside this repository: `cluster_projects` First, follow the same tools MCP
-with the `dir` of the brother as `project_dir`, and last, a native tool.
+### Step 5 — `wiki_source`: Read a Wiki Page via MCP
 
-The missing distinction was: the skill of Ast treated imported context as the only way to consult.
-Code Outside. The "sister project" registration already has its own graph, wiki, and memories - import it.
-Reindexes what already exists and not knowing about it is what the agent was supposed to read file by file.
-It turned into a four-line table (this repository, brother of the ecosystem, or unregistered checkout)
-Dependence without check-in.
+Requested by the Engineer. The skills said "read the wiki page for this entity," and reading that page was exactly the task with no tool for it — the only option was reading directly from a file, which is precisely what fails when the agent is confined to its own workspace and the page belongs to another project.
 
-Nothing needs to be installed, linked, or imported: `project_dir` is a parameter. `hub_link` entered.
-as an exception — brings an artifact for this project and does not grant access that passes
-It's already done.
+`wiki_source` was added, in both MCP and CLI, with the same slicing options as `ast_source` (`head`, `tail`, `start_line`/`end_line`, `line_numbers`, `pattern` + `regex`/`before`/`after`). `path` accepts a slug, a slug with `.md`, or a relative path — the filename generated for a wiki title is case-insensitive, and the slug you have in hand rarely matches it exactly.
 
-Step 5 — Inline 0 — Inline 1: Read page from Wikipedia via MCP
+The slicing logic was routed through `ast.SourceService` rather than duplicated — once the text is found, everything else is pure string manipulation shared with `ast_source`. `ErrPageNotFound` distinguishes a bad slug from a rejected reference; otherwise, the list of alternatives is enough to explain the rejection.
 
-Request by the Engineer. Skills dictated "read the entity page," and reading the page was the task.
-The only step without tools—there was reading directly from a file, which is exactly what fails.
-When the agent is confined to their own workspace and the page belongs to another project.
+### Step 6 — Cypher, and the Bug That Erases Live Code
 
-`wiki_source` em MCP e CLI, com o mesmo fatiamento do `ast_source` (`head`, `tail`,
-`start_line`/`end_line`, `line_numbers`, `pattern` + `regex`/`before`/`after`). `path` aceita slug,
-Slug with either `.md` or relative path - filename for wiki title is generated without case differentiation
-And the slug in hand rarely hits exactly.
+The Engineer noticed that the agent used `ast_search` and almost never wrote a query. It wasn't a lack of examples — it was the phase heading itself. It became "the best way to find names, never the answer," with Phase 3 renamed to "where the question gets answered."
 
-The fatality was sent to INLINE_0 instead of getting a second copy: after searching for
-Text in all instances of `ast.SourceService` is pure manipulation. `ErrPageNotFound` separates incorrect slugs from
-Reference rejected, otherwise the list of alternatives suffices to bury the reason for rejection.
+And here's the worst finding of the whole review: every callable appears twice in the graph. `CONTAINS` links it to the `File`; `CALLS` points to a stub keyed by name only, empty, at line `0`. The two are different nodes, so `NOT ()-[:CALLS]->(f)` is true for all of them regardless of the real declaration — `Apply` was reported as dead code despite having 13 callers, because it exists in three separate places and the agent can follow any one of them and delete code that's actually in use.
 
-Step 6 — Inline 0 — Cipher, and the bug that wipes out live code
-
-The Engineer observed that the agent used INLINE_0 and almost never queried. **It wasn't a lack of
-
-Translation:
-
-The Engineer noticed that the agent utilized INLINE_0 and rarely performed queries. It was not due to a deficiency.
-Example — it was the header INLINE_0_. It became "the"
-best way to FIND NAMES, never the answer"*, com a Fase 3 renomeada para *"where the question gets
-answered"*.
-
-And there's the worst find of all the revision: every callable appears twice in the graph.
-Here is the Portuguese text translated into idiomatic English:
-
-The ``CONTAINS`` sets up the connection to the ``File``; ``CALLS`` points to a key-stroked stub by name.
-
-This translation maintains the technical structure and intent of the original Portuguese code snippet.
-Empty and line `0`. We are different, so `NOT ()-[:CALLS]->(f)` is true for all.
-declaration — `Apply` was reported as dead code with 13 callers, present in three locations, and one.
-Agent follows any one of them and erases in use code.
-
-The same cause: mixing types of edges around the same node returns **no lines and no errors**.
-Two pre-existing queries always returned empty, hence.
+Same root cause: mixing edge types around the same node returns **no rows and no error**. Two pre-existing queries had always returned empty because of it.
 
 ---
 
-What remains (does not belong to this task)
+## What's Left (Out of Scope for This Task)
 
-The comment at line `REFERENCES` is never persisted. The commit `6ab88223` states that each
-comment loads an edge `REFERENCES` to the declaration that precedes it. Does not load:
-`MATCH (c:Comment)-[:REFERENCES]->(t)` falha com *Table REFERENCES does not exist*. Causa raiz em
-INLINE 0 type relationship is only registered when INLINE 1.
-And since the comment adapter doesn't fill in INLINE_0, the table never gets created and writing is skipped.
-Rejected. The nodes _INLINE_0_ and their edges, which can be reached by _INLINE_1_, are present; only the edge is missing. Task
-separada aberta.
+The `REFERENCES` edge is never persisted. Commit `6ab88223` claims every comment loads a `REFERENCES` edge pointing to the declaration right above it. It doesn't: `MATCH (c:Comment)-[:REFERENCES]->(t)` fails with *Table REFERENCES does not exist*. Root cause: a relationship type is only registered in the graph schema once at least one instance of it has been written, and since the comment adapter never populates this edge, the table is never created and the write is silently skipped. Out of scope for this task — the `Comment` nodes and the edges reachable from them are present, only this one edge is missing. A separate task log was opened for it.
 
-**`ast_index` via MCP grava no grafo do projeto errado.** ~~`openASTDBReadWrite` faz `chdir`, monta
-The ``DefaultLadybugConfig()`` with ``DBPath`` relative, and returns a handle whose database only opens on
-First query - when INLINE_0 has already reverted INLINE_1. ~~**Corrected**, along with the stub of~~
-`DeleteRepository` — ver `docs/tasks/corrigir-indexacao-no-projeto-errado.md`. A causa raiz era mais
-Extensive beyond what this paragraph suggested: the same defect appeared in four more places, including one.
-`os.RemoveAll` de caminho relativo em `ast_index(reset: true)` que apagava o banco AST do projeto
-errado.
+**`ast_index` via MCP writes to the wrong project's graph.** ~~`openASTDBReadWrite` does a `chdir`, builds `DefaultLadybugConfig()` with a relative `DBPath`, and returns a handle whose database only actually opens on the first query — by which point something else has already changed the working directory back. Fixed~~, along with the `DeleteRepository` stub — see `docs/tasks/corrigir-indexacao-no-projeto-errado.md`. The root cause turned out to be more extensive than this paragraph suggested: the same defect showed up in four more places, including an `os.RemoveAll` on a relative path in `ast_index(reset: true)` that deleted the AST database of the wrong project.
 
-The AST index of this project has 16 nodes of the probe, resulting from the above bug during verification.
-Task: an _INLINE_0_ _INLINE_1_ that does not exist here, more entities and name comments
-Invented. Nothing was destroyed—since the graph was empty and INLINE\_0 was a stub, so the call
-Only added. They continue there: they exit with `ast_index(reset: true)`, or now that it works,
-`reindex: true`.
+This project's AST index still has 16 probe nodes left over from verifying the bug above — a task, a function, and a file that don't exist here, plus a few invented entity and comment names. Nothing was destroyed, since the graph was empty and `DeleteRepository` was a stub, so the call only added data. They're still there: clear them with `ast_index(reset: true)`, or, now that it works, `reindex: true`.
 
-**`__config__` tem `lang` vazio neste projeto.** A query *Identifying project frameworks* da skill
-Returns the line with `frameworks` empty — the enrichment did not detect a framework in the CLI Go.
-It's plausible. The query runs; it doesn't respond here.
+**`__config__` has an empty `lang` in this project.** The skill's *Identifying project frameworks* query returns a row with `frameworks` empty — enrichment didn't detect a framework for this Go CLI, which is plausible. The query itself works; it just has nothing to answer here.
 
-``receiver_type` is narrower than it suggests.` The text refers to tracing calls.
-Until the owning class, in this graph's sample, populated values were constructors.
-JavaScript/TypeScript (inline 0, inline 1). Unmodified - the query runs and returns data, only covers less.
-do que a frase promete.
+**`receiver_type` is narrower than it sounds.** The text about tracing a call back to its owning class: in this graph's sample, populated values only existed for constructors in JavaScript/TypeScript. Left unchanged — the query runs and returns data, it just covers less than the sentence promises.
 
 ---
 
-## Onde as coisas ficam
+## Where Things Live
 
-What? Where?
+| What | Where |
 |---|---|
-| Template do mandate | `internal/hub/adapters/ide/mandate.go` → `ModuleMandateTrigger` |
-Mandate + Skill of Each Module | `internal/{ast,hub,knowledge,memory,improvements}/rule.go` (Improvements also `rules.go`)
-Content of Skill | Function INLINE_0 at the top of each INLINE_1 |
-| Frontmatter da skill | dentro de `InstallSkill()`, string `"---\nname: …\ndescription: …\n---"` |
-| Ferramentas MCP | `internal/mcpstdio/tools_*.go`, registradas via `brand.MCPToolName("dominio", "acao")` |
-Reference to tool in text | INLINE 0 → renders with dashes
+| Mandate template | `internal/hub/adapters/ide/mandate.go` → `ModuleMandateTrigger` |
+| Mandate + skill for each module | `internal/{ast,hub,knowledge,memory,improvements}/rule.go` (Improvements also has `rules.go`) |
+| Skill content | the function at the top of each `rule.go` |
+| Skill frontmatter | inside `InstallSkill()`, string `"---\nname: …\ndescription: …\n---"` |
+| MCP tools | `internal/mcpstdio/tools_*.go`, registered via `brand.MCPToolName("domain", "action")` |
+| Tool name reference in prose | rendered with the action segment using dashes (e.g. `hub_type-path`) |
 
-Tamanhos: `knowledge` 1000 linhas, `ast` 660, `improvements/rules.go` 566, `memory` 365,
-`mandate.go` 364, `hub` 289.
+Sizes: `knowledge` 1000 lines, `ast` 660, `improvements/rules.go` 566, `memory` 365, `mandate.go` 364, `hub` 289.
 
-Commands (not obvious — CGO, tags, and the Ladybug library)
+## Commands (Not Obvious — CGO, Tags, and the Ladybug Library)
 
 ```bash
 export LBUG=~/go/pkg/mod/github.com/\!ladybug\!d\!b/go-ladybug@v0.17.0/lib
 LD_LIBRARY_PATH="$LBUG:$LD_LIBRARY_PATH" go build -tags fts5 ./...
 LD_LIBRARY_PATH="$LBUG:$LD_LIBRARY_PATH" go test -race -tags fts5 -p 4 -timeout 2400s \
   $(go list ./... | grep -v "/antlr/" | grep -v "/treesitter/")
-golangci-lint run --timeout=5m     # RODE ANTES DE COMMITAR — a CI reprova por isto
+golangci-lint run --timeout=5m     # RUN BEFORE COMMITTING — CI fails on this
 make ci                            # vet, lint, vulncheck, test, ui, ui-lint
 ```
 
-The approximately 26 warnings from the UI are already there and do not block.
+About 26 UI warnings already existed and don't block the build.
 
 ---
 
-Real Tool Catalog MCP (62 verified)
+## Real MCP Tool Catalog (62 Verified)
 
 ```
 ast          ast_search ast_query ast_schema ast_source ast_list ast_index ast_export
@@ -204,14 +124,13 @@ dream        dream_status dream_reports dream_subject_add dream_subject_list
 improvements improvements_rules
 ```
 
-The count was 62; there are 64 with `hub_type-path` (which was missing from the list), and not including those.
-cinco de ciclo de vida (`init`, `sync`, `update`, `remove`, `version`).
+The count was 62; it's actually 64 once you add `hub_type-path` (which was missing from the list), not counting the five lifecycle tools (`init`, `sync`, `update`, `remove`, `version`).
 
-## O levantamento original — lacunas, todas fechadas
+## The Original Survey — Gaps, All Closed
 
-The tools built into the module are missing from the skill's content.
+Tools implemented in the module but missing from the skill's content:
 
-Module Absentees
+| Module | Missing tools |
 |---|---|
 | ast | `ast_list`, `ast_index`, `ast_export`, `ast_embed` |
 | hub | **`hub_search`**, `hub_submit`, `hub_projects`, `hub_uninstall` |
@@ -219,105 +138,60 @@ Module Absentees
 | memory | `memory_export`, `memory_remove`, `memory_schema` |
 | improvements | `improvements_rules` |
 
-It is the most serious: The mandate instructs "to check the Hub through MCP before trusting in"
-Own knowledge and skills never teach you how to use a search tool. The agent receives the order
-sem o meio de cumpri-la.
+The most serious one: the mandate instructs the agent to "check the Hub via MCP before trusting its own knowledge," but the skill never taught it how to use the search tool. The agent got the order without the means to carry it out.
 
-The following is provided:
+Decisions still open at the time of the survey:
 
-**Inline 0/Inline 1**, **Inline 2/Inline 3**, and **Inline 4** are of
-Life cycle exception - decide if they enter, not assume that yes.
-
-2. No domain without any skills
-
-Before writing, decide on architecture: 
-
-This phrase is idiomatic English translation of the given Portuguese text. It conveys that before starting to write or code, one should first determine and choose their architectural approach or design plan.
-own skills for each, a skill "operations" covering three sections within the scope of
-existentes.
-
-Review of Content (most of it not yet started)
-
-Read each line in full, looking for: obsolete instruction, example that doesn't work,
-tool with an incorrect parameter, which the harness already automates, and location
-where native tool is accepted without having been tried before with harness.
+1. `init`/`sync`/`update`/`remove`/`version` are lifecycle-exception tools — decide case by case whether they belong in a skill, don't assume yes.
+2. No domain should be left without any skill at all — before writing, decide on the architecture: dedicated skills for each domain, or one "operations" skill covering the domains that don't have one yet.
+3. Content review (most of it not started yet) — read every line in full, watching for: obsolete instructions, examples that don't work, a tool documented with a wrong parameter, something the harness already automates, and places where a native tool is accepted without the harness having been tried first.
 
 ---
 
-Done (do not re-do)
+## Done (Don't Redo)
 
 Commit `9e179bc9`:
 
-Empty sections do not receive `ModuleMandateTrigger`, `triggers []string`, or `tools []string`.
-  renderizam.
-The five mandates rewritten with concrete triggers and inventory of tools.
-- Bloco `⚡ MANDATORY: Sync After Every File Modification` do knowledge **removido**.
-- Testes: `TestModuleMandateTriggerCarriesTriggersAndTools`,
-  `TestModuleMandateTriggerOmitsEmptySections`.
+- Empty sections no longer emit `ModuleMandateTrigger`, `triggers []string`, or `tools []string` — they simply don't render.
+- The five mandates rewritten with concrete triggers and a full tool inventory.
+- The knowledge module's `⚡ MANDATORY: Sync After Every File Modification` block **removed**.
+- Tests: `TestModuleMandateTriggerCarriesTriggersAndTools`, `TestModuleMandateTriggerOmitsEmptySections`.
 
 ---
 
-Things Learned That Change Decisions
+## Things Learned That Change Decisions
 
-The mandate is the trigger, skill is instruction. The mandate says "when to open"; the procedure stays in place.
-Skill. Do not move procedure to mandate.
+The mandate is the trigger, the skill is the instruction. The mandate says *when* to open the skill; the procedure itself stays in the skill. Don't move procedure into the mandate.
 
-Abstract mandate does not trigger. "For any structural analysis task, use MCP."
-Policy, not trigger: who receives "thinks it's called 'saveUser'" doesn't classify that as
-Analysis and structure, use grep. Write the trigger as it arrives in the request.
+An abstract mandate doesn't trigger. "For any structural-analysis task, use MCP" is a policy, not a trigger: an agent that gets "I think it's called saveUser" won't classify that as structural analysis and will reach for grep instead. Write the trigger the way it actually arrives in a request.
 
-The watcher also reindexes the AST, not just the wiki. Confirmed in
-`internal/daemon/syncmodule.go`: um watch, dois consumidores (`reindexAST` e `reindexKnowledge`),
-Each with their own ignored file. And the memories compile themselves due to `MemorySyncModule` or
-Sure, here is the Portuguese text translated into idiomatic English:
+The watcher also reindexes the AST, not just the wiki. Confirmed in `internal/daemon/syncmodule.go`: one watch, two consumers (`reindexAST` and `reindexKnowledge`), each with its own ignore file. And memories compile themselves via `MemorySyncModule` too — so `sync`, `ast_index`, `knowledge_sync`, and `memory_index` are all exception tools.
 
-"Be it, `sync`, `ast_index`, `knowledge_sync` and `memory_index` are all exception tools."
+The narrower tool wins by a wide margin. When only one subsystem is off, `ast_index`, `knowledge_sync`, or `memory_index` do a fraction of the work that `sync` does. `sync` reindexes AST, updates the wiki, memory, and the Hub all at once.
 
-This translation maintains the original meaning while making it sound more natural in English.
+**The daemon holds the write lock and reads fail with a misleading message.** A graph query that lands during the reindexing retry window fails with `ladybug open: failed to open database with status 1` — easy to misread as "there's no graph here." It's just locked; retrying works. A genuinely missing index says something different (`no AST database found at ...`). This is documented in both the ast and knowledge skills, because falling back to grep at this point is the most expensive mistake available.
 
-The tool that tightens wins big. When just one subsystem is wrong, **inline 0**,
-**INLINE_0** or **INLINE_1** perform nearly half as much work as **INLINE_2**. **INLINE_3**
-Indexes reindexes, updates both Wikis, memory, and the Hub.
+The watcher makes manual synchronization unnecessary. The daemon watches the docs tree and rebuilds the wiki on its own. Any instruction that implies syncing after every edit is obsolete — `sync` is an exception tool: for a stopped daemon, a change that came from outside the harness, or a provably stale index. What stays mandatory is **writing down** the task log, not re-indexing it. Apply the same standard to the ast and memory skills.
 
-**O daemon segura o write lock e a leitura falha com mensagem enganosa.** Uma consulta ao grafo
-that fails on the reindexing retry window with `ladybug open: failed to open database with status 1` —
-The name of the bank is read as "there is no graph here." It's locked; retrying works. Index:
-verdade ausente diz outra coisa (`no AST database found at ...`). Documentado nas skills de ast e
-Knowledge because falling into grep here is the most costly error available.
+**Naming the tool in the mandate matters.** The agent decides between MCP and native tools *before* opening the skill; until then, it only knows what the mandate itself said.
 
-The watcher makes synchronization unnecessary. The daemon observes the tree of documents and reconstructs the wiki.
-alone. Any instruction that suggests synchronizing after editing is obsolete — `sync` is
-exception tool: stopped daemon, coming from outside the machine, or a proven index
-old. What remains obligatory is **to write down** the registration, not to re-index it. Look for the same
-Standard in INLINE_0 and INLINE_1.
+Skills are authored in Go, not Markdown. They're concatenated string slices — run `gofmt` after editing them, and watch out for escaped quotes.
 
-**Nomear a ferramenta no mandate importa.** O agente decide entre MCP e nativa *antes* de abrir
-Skill; until then, he only knows what was said by the one who gave the order.
+### Conventions of This Repository
 
-Skills are created in Go, not Markdown. They're slices of strings concatenated —
-`gofmt` depois de mexer, e cuidado com aspas escapadas.
+Code, comments, and names in **English**; commits, changelogs, and documentation in **Portuguese**.
 
-Conventions of this repository
-
-Code, comments, and names in **English**; commits, change logs, and documentation in **Portuguese**.
-Changelog required at the end of each stage upon completion —
-Atomic, not a giant changelog at the end.
-- Nunca commitar automaticamente fora do fluxo pedido; nunca remover hooks do git.
-- Nomes de sonda em teste devem ser **inventados**, nunca copiados do corpus real.
-Nothing of mocking or stubbing in functional requirements without explicit authorization.
+- A changelog is required at the end of each completed stage — atomic, not one giant changelog at the end.
+- Never commit automatically outside the requested flow; never remove git hooks.
+- Probe names in tests must be **invented**, never copied from the real corpus.
+- No mocking or stubbing in functional requirements without explicit authorization.
 
 ---
 
-## Invariante que ficou no lugar do levantamento
+## The Invariant Left in Place of the Survey
 
-A module test asserts that all tools it possesses are reachable from the ```
-Own skill - because the mandate announces the inventory, and the tool announced that the skill does not
-It teaches is order without means of fulfilling it. It was exactly the case with `hub_search`.
+A module-level test now asserts that every tool a module owns is reachable from its own skill — because the mandate announces the inventory, and a tool the mandate announces but the skill doesn't teach is an order given without the means to carry it out. That was exactly what happened with `hub_search`.
 
-New MCP Tool, therefore, has two additional obligations beyond registration in `tools_*.go`: entering into
-The test of the package
-reprova se faltar a segunda.
+A new MCP tool therefore carries two obligations beyond being registered in `tools_*.go`: it must be added to the module's mandate, and it must be taught in the skill — the package's test fails if the second one is missing.
 
-The tests that verify **warning** — not just mention — exist because a single mention alone does not prevent it.
-Error: omitting to say that the agent of the dream does not inherit the conversation produced
-Useless subjects, and documenting INLINE_0 without saying that the naked call produces data loss.
+The tests check for a **warning**, not just a mention, because a mention alone doesn't prevent the mistake — like omitting the fact that the dream agent doesn't inherit the conversation, which produces useless subjects, or documenting `knowledge_remove` without saying that calling it bare causes data loss.

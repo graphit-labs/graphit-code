@@ -1,147 +1,160 @@
 ---
-Title: The wiki.db file fails to embed the wiki forever before migration, and the error does not specify the reason.
+title: Pre-migration SQLite wiki.db breaks wiki embedding forever, and the error never says why
 status: done
 created: 2026-08-18
 updated: 2026-08-18
 tags: [wiki, ladybug, migration, bugfix, diagnostics]
 ---
 
-A wiki.db SQLite survives migration and nobody notices.
+A SQLite `wiki.db` survives the migration and nobody notices.
 
-Origin: The **INLINE_0** passed reporting failure upon opening three **INLINE_1**. I attributed it to
-Temporary containment with the daemon. **I was wrong**— and the project log proved it.
+Origin: the alert reported a failure opening three wikis. I attributed it to a
+temporary daemon hiccup. **I was wrong** — and the log proved it.
 
 ---
 
-## O defeito
+## The Defect
 
-The index of the wiki was SQLite and it has now become LadybugDB, with the same name as before.
-file**. Nothing converts or discards the old file, so any machine that has
-Indexed before the change remains with an **INLINE_0** that the current engine cannot open.
+The wiki index used to be SQLite and has now become LadybugDB, keeping the same file
+name as before: `wiki.db`. Nothing converts or discards the old file, so any machine
+that indexed before the change is left with a `wiki.db` file that the current engine
+can no longer open.
 
 ```
 level=WARN msg="wiki embedding cycle error" module=ast
   dir=…/wiki/memory/user/…  error="open wiki db: open wiki store: open wiki.db: failed to open database with status 1"
 ```
 
-Fifteen thirty-three repetitions in ninety minutes, three wikis halted, embedded wiki not running.
+1,533 repetitions in ninety minutes, three wikis stalled, wiki embedding never running.
 
 Confirmed by magic bytes, not by inference:
 
-| arquivo | formato | data |
+| file | format | date |
 |---|---|---|
 | `memory/user/<hash>/wiki.db` | `SQLite format 3` | 08-14 21:23 |
 | `memory/project/<id>/wiki.db` | `SQLite format 3` | 08-17 19:03 |
 | `knowledge/project/<id>/wiki.db` | `SQLite format 3` | 08-18 11:57 |
 
-The knowledge is few hours before INLINE 0 -- the binary still writes
-In that morning.
+The `knowledge` entry is from just a few hours before the fix — the binary was still
+writing SQLite that morning.
 
-## Por que custou tanto para achar
+## Why it took so long to find
 
-The message is as bad as it can be: **INLINE_0** is ambiguous
-Construction, because the C API does not have a channel for the C++ text. It is identical to lock.
-Missing file, creation under read-only - and for incorrect format.
+The message is as unhelpful as it gets: **status 1** is ambiguous by construction,
+because the C API has no channel for the underlying C++ error text. It's identical
+whether the cause is a lock, a missing file, creation under read-only, or an incorrect
+format.
 
-And it showed no process at all with the file open, which eliminated contention and was the solution.
-que empurrou para olhar o formato.
+And checking for open file handles showed no process at all had the file open, which
+ruled out contention — that's what pushed me to look at the format instead.
 
-Correction
+## Correction
 
-**Translation:**
+**The fix:**
 
-``discardPreMigrationDB``, called by ``OpenWikiDB`` before opening:
+`discardPreMigrationDB`, called by `OpenWikiDB` before opening:
 
-reads the first 16 bytes, and,
-se forem `SQLite format 3\0`, remove o arquivo e os sidecars `-wal`/`-shm`/`-journal`.
+reads the first 16 bytes, and if they are `SQLite format 3\0`, removes the file along
+with its `-wal`/`-shm`/`-journal` sidecars.
 
-Deleting is safe because the bank is **derived** — Inline 0 already said this, and it's the only one.
-thing in a wiki directory that never travels: the pages and shards next to it are exactly what
-He is reconstructed, and a memory wiki is compiled from the worktree.
+Deleting it is safe because the database is **derived** — this was already established,
+and it's the only thing in a wiki directory that never travels: the pages and shards
+next to it are exactly what it's reconstructed from, and a memory wiki is compiled
+from its worktree.
 
-The test is not "the opening failed." A healthy store that fails by lock or
-It never can be destroyed; only an unproven file could possibly be lost by this engine.
-He will never read it, and it is discarded. `TestOpenKeepsAStoreItCannotIdentifyAsSQLite` exists to catch.
-That distinction.
+The test is not "did the open fail." A healthy store that fails to open because of a
+lock or some other transient condition must never be destroyed; only a file this
+engine can never possibly read — because it isn't SQLite — should be discarded.
+`TestOpenKeepsAStoreItCannotIdentifyAsSQLite` exists to catch exactly that distinction.
 
-## Testes
+## Tests
 
-- `TestOpenDiscardsPreMigrationSQLiteDB` — arquivo com a magic do SQLite mais sidecars; abre,
-Reconstructs, verifies counts, and the sidecars disappeared.
-- _INLINE_0__ - illegible file that **is not** SQLite
-Survives unscathed from the attempt.
+- `TestOpenDiscardsPreMigrationSQLiteDB` — a file with the SQLite magic bytes plus
+  sidecars; it opens, reconstructs, verifies the counts, and confirms the sidecars
+  are gone.
+- `TestOpenKeepsAStoreItCannotIdentifyAsSQLite` — an unreadable file that **is not**
+  SQLite survives the attempt unscathed.
 
 ---
 
-Three more flaws found after the first one
+## Three more bugs found after the first one
 
-Correcting the opening exposed the next steps. The three produce.
-Even in its final state — empty index, no errors — due to unforeseen causes.
+Fixing the open path exposed the next layer of bugs. All three, independently, end
+up in the same final state — an empty index, no errors — for unrelated reasons.
 
-The two doors of skip were asking if the file existed.
+Both skip paths were only asking whether the file existed.
 
-It ended at `StatPreCheck`, and it started again at `FastPathCheck`. One
-The store, present and empty, satisfies all other conditions — the sources have not changed and the ones that remain are still there.
-Pages were generated — therefore, the generation is skipped, and the index never gets built, and all of them.
-The execution jumps again. **`memory index` responded "complete" in 0.0 seconds on a database.
-"Com 152 pages, starting at 16 KB."
+It first showed up in `StatPreCheck`, then again in `FastPathCheck`: the store —
+present but empty — satisfies every other condition (the sources haven't changed,
+and the pages that do exist have already been generated), so generation gets skipped
+and the index never gets built at all. Execution short-circuits again:
+**`memory index`** reported "complete" in 0.0 seconds on a database with 152 pages,
+weighing in at 16 KB.
 
-The condition turned into INLINE 0, stated once and used twice. It costs one.
-Store opening via generation – not by file. The alternative was a sizeable floor.
-file that needs a magic number and fails silently on the first time it's used in a store
-vazio mudar.
+The fix folded the condition into a single check, defined once and used in both
+places: whether the store was opened via generation, not via an existing file. The
+alternative would have been a considerable rework — checking a file's magic number,
+which fails silently the first time it's used on a store that starts out empty and
+then changes.
 
-**Os dois testes que falharam com isso codificavam o bug como expectativa** — criavam um
-The wiki.db file should be able to pass through, with the comment "An empty wiki.db"
-Disk is the default state on a pristine wiki, *. Each name declares (completeness of
-Pages continue valid (new source detection); what changed is that the fixture now satisfies
-The remaining conditions of truth.
+**The two tests that failed because of this had encoded the bug as the expected
+behavior** — they created an empty `wiki.db` on disk with the comment "an empty
+wiki.db on disk is the default state for a pristine wiki," and each one only
+asserted a partial truth (page count still valid / new-source detection still
+valid); what changed is that the fixture now satisfies all the remaining conditions.
 
-The error in building the index was discarded.
+Bug two: the error from building the index was being discarded.
 
-`internal/memory/wiki.go` fazia `_ = wiki.RebuildDB(...)`. Qualquer falha virava sucesso
-Silent: Pages and shards written, "Memory Index Complete" printed, empty storage. And...
-The search continued responding because it fell into a BM25 query about `.md`. So nothing seemed broken.
-While all queries rely on the entire directory.
+`internal/memory/wiki.go` did `_ = wiki.RebuildDB(...)`. Any failure silently turned
+into a success: pages and shards were written, "memory index complete" was printed,
+and the store stayed empty. And search kept responding, because it fell back to a
+BM25 query over the `.md` files — so nothing looked broken, as long as the query
+relied on the whole directory.
 
-The third one did not have `--reset`.
+Bug three: there was no `--reset`.
 
-The _INLINE_0_ and _INLINE_1_ have memory that didn't exist, and it's precisely the command for which they are.
-It needs when the index is wrong for some reason that **is not** a memory alteration — which is
-Exactly what a common execution doesn't fix because it skips over unchanged hashes.
+The `--reset` and `--force` flags exist for exactly this: for when the index is
+wrong for a reason that **is not** a memory change — which is exactly what a normal
+run won't fix, because it skips over unchanged hashes.
 
-To be safe: Git's memory lives in its own worktree, and the entire wiki is derived from it.
-delas.
+To be safe: memory lives in its own Git worktree, and the entire wiki is derived
+from them.
 
-## O que ficou em aberto — RESOLVIDO em 2026-08-18
+## What was left open — RESOLVED on 2026-08-18
 
-The text below is the original statement, maintained because both of its assertions were present.
-Incorrect and how they were is the lesson:
+The text below is the original write-up, kept as-is because both of its claims
+turned out to be wrong, and how they were wrong is the lesson:
 
-With the three corrected, it reaches `RebuildDB` with 152 chunks, and then returns.
-Without error, and even so, the store is empty like that. Every isolated reproduction of `Rebuild` works.
-The remaining difference lies in the true path of memory and has not yet been found.
+With all three bugs fixed, it reaches `RebuildDB` with 152 chunks and then returns
+with no error — and yet the store is still empty. Every isolated reproduction of
+`Rebuild` works. The remaining difference must be in the real memory path, and it
+hasn't been found yet.
 
-He did not return without error. The mistake was written in INLINE 0, which is the handler
-NOP - the second correction above replaced INLINE_0 with an error log line and kept silent, then.
-"No error" was read from an log that couldn't have any errors.
+It did NOT actually return without error. The error was being swallowed by the same
+`_ = wiki.RebuildDB(...)` discard described above — the second fix above replaced
+that no-op with a line that logs the error instead of staying silent. "No error" had
+been read off a log that was structurally incapable of ever showing one.
 
-And the difference with isolated reproduction was not in memory's path, but in the corpus:
-`writeChunks` mandava um UNWIND com linhas COM vetor ao lado de linhas SEM, o que o driver
-Refusal. The fixtures give vectors to all chunks or none at all, so only a real corpus mixes.
+And the actual difference from the isolated reproduction wasn't in the memory path
+at all, but in the corpus: `writeChunks` was sending a single UNWIND with rows that
+had a vector alongside rows that didn't, which the driver rejected. The test
+fixtures give vectors to all chunks or to none, so only a real-world corpus produces
+the mix.
 
-Ver `docs/tasks/wiki-indice-vazio-por-lote-de-vetores-misto.md`.
+See `docs/tasks/wiki-indice-vazio-por-lote-de-vetores-misto.md`.
 
-Note: Because it was expensive
+### Note: why it was so costly
 
-In this episode, I made four consecutive mistakes before finally getting it right: after handling the old one.
-swap, dedup de embedding por texto, daemon segurando o slot de escrita, e embeddings nunca
-Injected. All had the same form — "conclusion drawn from an instant snapshot of a system"
-With asynchronous phases, without reading the log that records the phases.
+In this episode, I made four consecutive wrong guesses before landing on the actual
+cause: the old swap handling, embedding dedup by text, the daemon holding the write
+slot, and embeddings never being injected. All four had the same shape — a
+conclusion drawn from an instantaneous snapshot of a system that has asynchronous
+phases, without reading the log that actually records those phases.
 
-O log existia o tempo todo, em `.graphit/runtime/daemon/daemon.log` (por projeto, escrito por
-`projectRebuildLogger`). Eu olhei `~/.graphit/logs/graphit.log`, vi que estava desatualizado
-e desisti em vez de procurar o certo. Foi ele que resolveu os dois casos reais:
+The log had been there the whole time, at `.graphit/runtime/daemon/daemon.log`
+(per-project, written by `projectRebuildLogger`). I looked at
+`~/.graphit/logs/graphit.log`, saw it was stale, and gave up instead of looking for
+the right one. That per-project log is what actually resolved both real cases:
 
 ```
 13:02:49  initial cycle complete            entities_embedded=36178
@@ -149,5 +162,5 @@ e desisti em vez de procurar o certo. Foi ele que resolveu os dois casos reais:
 13:03:23  search index rebuild  files=730 entities=57657 vectors=36295
 ```
 
-Proving that my zero-vector measurements fell, and that the AST embedding is working.
-dentro da janela de vinte minutos em que ele ainda rodava.
+This proves that my zero-vector measurements were taken, and that AST embedding does
+work, within the twenty-minute window during which it was still running.
