@@ -76,6 +76,9 @@ type ShardCache struct {
 	dirty    map[string]bool
 	nodes    map[string]*shardNodes
 	edges    map[string]*shardEdges
+	// interner is corpus-wide and lives as long as the cache: the values it holds are
+	// the ones repeated across files, so a table shared by every file is the point.
+	interner *shardInterner
 }
 
 type shardManifest struct {
@@ -119,10 +122,11 @@ func NewShardCache(cacheDir string) (*ShardCache, error) {
 	}
 
 	sc := &ShardCache{
-		dir:   cacheDir,
-		dirty: make(map[string]bool),
-		nodes: make(map[string]*shardNodes),
-		edges: make(map[string]*shardEdges),
+		dir:      cacheDir,
+		dirty:    make(map[string]bool),
+		nodes:    make(map[string]*shardNodes),
+		edges:    make(map[string]*shardEdges),
+		interner: newShardInterner(shardInternLimit),
 		manifest: &shardManifest{
 			Version: shardCacheVersion,
 			Files:   make(map[string]*shardManifestEntry),
@@ -287,27 +291,48 @@ func (sc *ShardCache) getEntryLocked(relPath string) *parseCacheEntry {
 		return nil
 	}
 
-	n := sc.nodes[relPath]
-	if n == nil {
-		loaded, err := loadShard[shardNodes](sc.shardPath(relPath, ".nodes.json"))
-		if err != nil {
+	n, e := sc.nodes[relPath], sc.edges[relPath]
+	if n == nil || e == nil {
+		var freshNodes *shardNodes
+		var freshEdges *shardEdges
+		var err error
+		if n == nil {
+			if freshNodes, err = loadShard[shardNodes](sc.shardPath(relPath, ".nodes.json")); err != nil {
+				return nil
+			}
+		}
+		if e == nil {
+			if freshEdges, err = loadShard[shardEdges](sc.shardPath(relPath, ".edges.json")); err != nil {
+				return nil
+			}
+		}
+		sc.adoptShardsLocked(relPath, freshNodes, freshEdges)
+		n, e = sc.nodes[relPath], sc.edges[relPath]
+		if n == nil || e == nil {
 			return nil
 		}
-		n = loaded
-		sc.nodes[relPath] = n
-	}
-
-	e := sc.edges[relPath]
-	if e == nil {
-		loaded, err := loadShard[shardEdges](sc.shardPath(relPath, ".edges.json"))
-		if err != nil {
-			return nil
-		}
-		e = loaded
-		sc.edges[relPath] = e
 	}
 
 	return mergeShards(relPath, n, e, me.Lang, me.Dep)
+}
+
+// adoptShardsLocked compacts freshly decoded shards and puts them in the cache. Either may
+// be nil, meaning that half of the file was already cached. Both halves share one local
+// interner because an identifier a file declares in its nodes is the same identifier its
+// edges point at.
+func (sc *ShardCache) adoptShardsLocked(relPath string, n *shardNodes, e *shardEdges) {
+	if n == nil && e == nil {
+		return
+	}
+	local := newShardInterner(shardLocalInternLimit)
+	if n != nil {
+		n.compact(sc.interner, local)
+		sc.nodes[relPath] = n
+	}
+	if e != nil {
+		e.compact(sc.interner, local)
+		sc.edges[relPath] = e
+	}
 }
 
 func (sc *ShardCache) AllEntries() map[string]*parseCacheEntry {
@@ -355,12 +380,7 @@ func (sc *ShardCache) AllEntries() map[string]*parseCacheEntry {
 
 		sc.mu.Lock()
 		for _, r := range results {
-			if r.nodes != nil {
-				sc.nodes[r.path] = r.nodes
-			}
-			if r.edges != nil {
-				sc.edges[r.path] = r.edges
-			}
+			sc.adoptShardsLocked(r.path, r.nodes, r.edges)
 		}
 		sc.mu.Unlock()
 	}
