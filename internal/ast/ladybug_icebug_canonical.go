@@ -127,6 +127,12 @@ func (k *LadybugBackend) tryCanonicalBoundedTraversal(
 			}
 		}
 		frontier = next
+		// A bounded plan has everything it can use once it has run maxHops hops: the
+		// filter above admits nothing deeper. Without this the loop kept expanding to
+		// visited saturation and threw the result away.
+		if plan.maxHops != 0 && hop >= plan.maxHops {
+			break
+		}
 	}
 
 	if len(reached) == 0 {
@@ -159,16 +165,30 @@ func (k *LadybugBackend) finishCanonicalTraversal(ctx context.Context, plan cano
 	reachedProps = append(reachedProps, plan.returnClause)
 	resolvedLabels := canonicalTablesFor(k.canonical, plan.reached.label,
 		plan.reached.variable, reachedProps)
-	result := &QueryResult{}
+	// SAFETY: the row order is SPECIFIED, not inherited. It used to fall out of the
+	// iteration — reached uid, then candidate label, then whatever the engine returned —
+	// which is an order keyed on something the caller cannot see, and it moved the moment
+	// the queries were batched. Sorting on the record's own canonical key makes it
+	// reproducible whatever the planner does underneath, and it matches the uid-projection
+	// path above, which already answers in sorted uid order.
+	type keyedRecord struct {
+		key    string
+		record QueryRecord
+	}
+	var collected []keyedRecord
 	seen := map[string]bool{}
-	for _, uid := range uids {
-		if err := ctx.Err(); err != nil {
-			return nil, true, err
-		}
-		for _, label := range resolvedLabels {
-			pk := canonicalPKFor(k.canonical, label)
+	// Batched at the same width as the traversal above. One query per reached uid meant a
+	// result of N rows cost N round trips per candidate label, which is the whole cost of
+	// any traversal that projects properties rather than uids.
+	for _, label := range resolvedLabels {
+		pk := canonicalPKFor(k.canonical, label)
+		for start := 0; start < len(uids); start += icebugTraversalBatchSize {
+			if err := ctx.Err(); err != nil {
+				return nil, true, err
+			}
+			end := min(start+icebugTraversalBatchSize, len(uids))
 			conds := append(canonicalConditions(plan.reached, plan.reachedPreds),
-				fmt.Sprintf("%s.%s IN [%s]", plan.reached.variable, ladybug.QuoteIdent(pk), icebugStringList([]string{uid})))
+				fmt.Sprintf("%s.%s IN [%s]", plan.reached.variable, ladybug.QuoteIdent(pk), icebugStringList(uids[start:end])))
 			q := fmt.Sprintf("MATCH (%s:%s) WHERE %s RETURN DISTINCT %s",
 				plan.reached.variable, ladybug.QuoteIdent(label), strings.Join(conds, " AND "), plan.returnClause)
 			records, err := k.queryRecordsLocked(q, params)
@@ -179,10 +199,15 @@ func (k *LadybugBackend) finishCanonicalTraversal(ctx context.Context, plan cano
 				key := icebugRecordKey(record)
 				if !seen[key] {
 					seen[key] = true
-					result.Records = append(result.Records, record)
+					collected = append(collected, keyedRecord{key: key, record: record})
 				}
 			}
 		}
+	}
+	sort.Slice(collected, func(i, j int) bool { return collected[i].key < collected[j].key })
+	result := &QueryResult{Records: make([]QueryRecord, 0, len(collected))}
+	for _, c := range collected {
+		result.Records = append(result.Records, c.record)
 	}
 	return result, true, nil
 }
