@@ -26,16 +26,12 @@ func newFakeWriter(dir string) *fakeWriter {
 
 func (f *fakeWriter) LocalDir() string { return f.dir }
 
-func (f *fakeWriter) path(id string) (string, bool) {
-	normal := filepath.Join(f.dir, NormalFileName(id))
-	if _, err := os.Stat(normal); err == nil {
-		return normal, false
+func (f *fakeWriter) path(id string) string {
+	p := filepath.Join(f.dir, MemoryFileName(id))
+	if _, err := os.Stat(p); err == nil {
+		return p
 	}
-	important := filepath.Join(f.dir, ImportantFileName(id))
-	if _, err := os.Stat(important); err == nil {
-		return important, true
-	}
-	return "", false
+	return ""
 }
 
 func (f *fakeWriter) UpdateMemory(id, newTitle, newBody string) error {
@@ -46,7 +42,7 @@ func (f *fakeWriter) UpdateMemoryTyped(id, newTitle, newBody, memType string) er
 	if err := f.failOn["update:"+id]; err != nil {
 		return err
 	}
-	path, important := f.path(id)
+	path := f.path(id)
 	if path == "" {
 		return os.ErrNotExist
 	}
@@ -55,7 +51,7 @@ func (f *fakeWriter) UpdateMemoryTyped(id, newTitle, newBody, memType string) er
 		return err
 	}
 	content := updatedMemoryContent(string(data), memoryUpdate{
-		ID: id, Scope: "project", ScopeID: "test", Important: important,
+		ID: id, Scope: "project", ScopeID: "test",
 		NewTitle: newTitle, NewBody: newBody, NewType: memType,
 	})
 	f.updates = append(f.updates, id)
@@ -66,7 +62,7 @@ func (f *fakeWriter) RemoveMemory(id string) error {
 	if err := f.failOn["remove:"+id]; err != nil {
 		return err
 	}
-	path, _ := f.path(id)
+	path := f.path(id)
 	if path == "" {
 		return os.ErrNotExist
 	}
@@ -75,23 +71,16 @@ func (f *fakeWriter) RemoveMemory(id string) error {
 }
 
 func (f *fakeWriter) setRelevance(id string, promote bool) error {
-	path, important := f.path(id)
-	if path == "" || important == promote {
+	path := f.path(id)
+	if path == "" {
 		return os.ErrNotExist
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	target := filepath.Join(f.dir, NormalFileName(id))
-	if promote {
-		target = filepath.Join(f.dir, ImportantFileName(id))
-	}
-	// Mirrors changeRelevance: the flag in the frontmatter moves with the filename.
-	if err := os.WriteFile(target, []byte(withImportantFlag(string(data), promote)), 0o644); err != nil {
-		return err
-	}
-	return os.Remove(path)
+	// Mirrors changeRelevance: the flag in the frontmatter is the only thing that moves.
+	return os.WriteFile(path, []byte(withImportantFlag(string(data), promote)), 0o644)
 }
 
 func (f *fakeWriter) PromoteMemory(id string) error {
@@ -118,10 +107,6 @@ func (f *fakeWriter) DemoteMemory(id string) error {
 
 func writeMemory(t *testing.T, dir, id, title, body, memType string, important bool, tags ...string) {
 	t.Helper()
-	name := NormalFileName(id)
-	if important {
-		name = ImportantFileName(id)
-	}
 	tagSet := append([]string{"memory", "project"}, tags...)
 	if memType != "" {
 		tagSet = append(tagSet, memType)
@@ -131,35 +116,25 @@ func writeMemory(t *testing.T, dir, id, title, body, memType string, important b
 		Type: memType, Important: important,
 		CreatedAt: "2026-01-01T00:00:00Z", Tags: tagSet,
 	}, body)
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, MemoryFileName(id)), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func readMemory(t *testing.T, dir, id string) (MemoryFrontmatter, string, bool) {
 	t.Helper()
-	for _, important := range []bool{false, true} {
-		name := NormalFileName(id)
-		if important {
-			name = ImportantFileName(id)
-		}
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err == nil {
-			return ParseMemoryFrontmatter(string(data)), extractBodyAfterFrontmatter(string(data)), important
-		}
+	data, err := os.ReadFile(filepath.Join(dir, MemoryFileName(id)))
+	if err != nil {
+		t.Fatalf("memory %q not found in %s", id, dir)
 	}
-	t.Fatalf("memory %q not found in %s", id, dir)
-	return MemoryFrontmatter{}, "", false
+	fm := ParseMemoryFrontmatter(string(data))
+	return fm, extractBodyAfterFrontmatter(string(data)), fm.Important
 }
 
 func exists(t *testing.T, dir, id string) bool {
 	t.Helper()
-	for _, name := range []string{NormalFileName(id), ImportantFileName(id)} {
-		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
-			return true
-		}
-	}
-	return false
+	_, err := os.Stat(filepath.Join(dir, MemoryFileName(id)))
+	return err == nil
 }
 
 // The merge the model asked for, applied: one survivor carrying the supplied

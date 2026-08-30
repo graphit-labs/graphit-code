@@ -623,7 +623,7 @@ func TestRunConsolidation_SingleMemory_Coverage(t *testing.T) {
 func TestRunConsolidation_ImportantMemory_Coverage(t *testing.T) {
 	dir := t.TempDir()
 	date := time.Now().Add(-120 * 24 * time.Hour).Format(time.RFC3339)
-	writeMemFile(t, dir, "IMP_important_.md", fmt.Sprintf("---\ntitle: Important\ncreated_at: %s\nimportant: true\n---\n\n# Important\n\nBody of important memory.", date))
+	writeMemFile(t, dir, "IMP.md", fmt.Sprintf("---\ntitle: Important\ncreated_at: %s\nimportant: true\n---\n\n# Important\n\nBody of important memory.", date))
 	writeMemFile(t, dir, "NORM.md", fmt.Sprintf("---\ntitle: Normal\ncreated_at: %s\n---\n\n# Normal\n\nBody of normal memory.", date))
 
 	ctx := context.Background()
@@ -654,7 +654,7 @@ func TestMemoryService_IndexMemories_Coverage(t *testing.T) {
 	wikiDir := t.TempDir()
 
 	writeMemFile(t, rawDir, "MEM1.md", "---\ntitle: Test\ntype: fact\n---\n\n# Test\n\nBody content.")
-	writeMemFile(t, rawDir, "MEM2_important_.md", "---\ntitle: Important\nimportant: true\n---\n\n# Important\n\nImportant body.")
+	writeMemFile(t, rawDir, "MEM2.md", "---\ntitle: Important\nimportant: true\n---\n\n# Important\n\nImportant body.")
 
 	svc := &MemoryService{
 		scope:    MemoryScopeProject,
@@ -752,7 +752,7 @@ func TestGenerateMemoryWiki_WithImportantMemories(t *testing.T) {
 	wikiDir := t.TempDir()
 
 	writeMemFile(t, rawDir, "MEM1.md", "---\ntitle: Regular\ntype: fact\ncreated_at: 2026-01-01T00:00:00Z\n---\n\n# Regular\n\nRegular body.")
-	writeMemFile(t, rawDir, "IMP1_important_.md", "---\ntitle: Important One\nimportant: true\ntype: convention\ncreated_at: 2026-01-02T00:00:00Z\n---\n\n# Important One\n\nVery important.")
+	writeMemFile(t, rawDir, "IMP1.md", "---\ntitle: Important One\nimportant: true\ntype: convention\ncreated_at: 2026-01-02T00:00:00Z\n---\n\n# Important One\n\nVery important.")
 
 	ctx := context.Background()
 	result, err := GenerateMemoryWiki(ctx, rawDir, wikiDir)

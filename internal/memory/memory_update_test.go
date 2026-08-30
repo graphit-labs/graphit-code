@@ -30,11 +30,10 @@ func TestUpdatedMemoryContentPreservesClassification(t *testing.T) {
 	}, "The original body.")
 
 	updated := updatedMemoryContent(original, memoryUpdate{
-		ID:        "01AAAAAAAAAAAAAAAAAAAAAAAA",
-		Scope:     "project",
-		ScopeID:   "proj-1",
-		Important: true,
-		NewBody:   "A fuller explanation.",
+		ID:      "01AAAAAAAAAAAAAAAAAAAAAAAA",
+		Scope:   "project",
+		ScopeID: "proj-1",
+		NewBody: "A fuller explanation.",
 	})
 
 	fm := ParseMemoryFrontmatter(updated)
@@ -172,7 +171,7 @@ func TestBuildMemoryFileAndUpdateAgreeOnFrontmatter(t *testing.T) {
 
 	// Round-tripping through an update must not lose any of it.
 	updated := updatedMemoryContent(created, memoryUpdate{
-		ID: fm.ID, Scope: "project", ScopeID: "p", Important: true, NewBody: "Body 2",
+		ID: fm.ID, Scope: "project", ScopeID: "p", NewBody: "Body 2",
 	})
 	after := ParseMemoryFrontmatter(updated)
 	if after.Type != fm.Type || after.Important != fm.Important || after.ProjectID != fm.ProjectID {

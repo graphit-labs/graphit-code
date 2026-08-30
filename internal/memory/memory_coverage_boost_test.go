@@ -19,7 +19,8 @@ import (
 func TestListImportantInDir_WithEntries(t *testing.T) {
 	dir := t.TempDir()
 
-	writeMemFile(t, dir, "MEM1_important_.md", `---
+	writeMemFile(t, dir, "MEM1.md", `---
+important: true
 title: Important Convention
 created_at: 2026-01-01T00:00:00Z
 ---
@@ -87,7 +88,8 @@ func TestListImportantInDir_NonExistentReturnsNil(t *testing.T) {
 func TestRenderImportantBlock_ViaDir(t *testing.T) {
 	dir := t.TempDir()
 
-	writeMemFile(t, dir, "MEM1_important_.md", `---
+	writeMemFile(t, dir, "MEM1.md", `---
+important: true
 title: Critical Convention
 ---
 
@@ -95,7 +97,8 @@ title: Critical Convention
 
 Never use global state.`)
 
-	writeMemFile(t, dir, "MEM2_important_.md", `---
+	writeMemFile(t, dir, "MEM2.md", `---
+important: true
 title: Another Important
 ---
 
@@ -156,7 +159,8 @@ created_at: 2026-06-01T00:00:00Z
 Body B.`)
 
 	// Important files should be excluded
-	writeMemFile(t, dir, "MEM_C_important_.md", `---
+	writeMemFile(t, dir, "MEM_C.md", `---
+important: true
 title: Important Skip
 created_at: 2026-03-01T00:00:00Z
 ---
@@ -440,7 +444,8 @@ created_at: 2026-01-01T00:00:00Z
 
 Body.`)
 
-	writeMemFile(t, dir, "MEM2_important_.md", `---
+	writeMemFile(t, dir, "MEM2.md", `---
+important: true
 title: Important Memory
 created_at: 2026-01-02T00:00:00Z
 ---
@@ -851,7 +856,8 @@ created_at: 2026-01-01T00:00:00Z
 
 Use gofmt always.`)
 
-	writeMemFile(t, rawDir, "MEM2_important_.md", `---
+	writeMemFile(t, rawDir, "MEM2.md", `---
+important: true
 title: Important Decision
 type: decision
 created_at: 2026-01-02T00:00:00Z
@@ -1288,9 +1294,13 @@ func TestSaveMemLock_Success(t *testing.T) {
 	}
 }
 
-func TestImportantMemorySuffix_Boost(t *testing.T) {
-	if ImportantMemorySuffix != "_important_" {
-		t.Errorf("ImportantMemorySuffix = %q; want '_important_'", ImportantMemorySuffix)
+func TestImportantFlagRoundTrip_Boost(t *testing.T) {
+	content := renderMemoryFile(MemoryFrontmatter{ID: "MEM1", Title: "T", Important: true}, "Body.")
+	if !IsImportantContent(content) {
+		t.Error("a memory rendered as important does not read back as important")
+	}
+	if IsImportantContent(withImportantFlag(content, false)) {
+		t.Error("a demoted memory still reads back as important")
 	}
 }
 

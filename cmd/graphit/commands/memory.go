@@ -380,7 +380,7 @@ func newMemoryImportantCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "important",
 		Short: "List important memories with their content",
-		Long: `List all important memories (files matching *_important_.md) with their
+		Long: `List all important memories (frontmatter carrying important: true) with their
 full content. These are the memories surfaced in the IDE global rule.
 
 Without --user: lists important project memories (default).
@@ -402,7 +402,7 @@ func newMemoryPromoteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "promote <id>",
 		Short: "Mark a memory as important (surfaces in IDE rule)",
-		Long: `Rename a memory file to add the suffix _important_, making it visible
+		Long: `Set important: true in a memory's frontmatter, making it visible
 in the IDE global rule's "Key Project Memories" section.
 
 Examples:
@@ -422,7 +422,7 @@ func newMemoryDemoteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "demote <id>",
 		Short: "Remove important status from a memory",
-		Long: `Rename a memory file to remove the suffix _important_, removing it
+		Long: `Clear important: true from a memory's frontmatter, removing it
 from the IDE global rule's "Key Project Memories" section.
 
 Examples:

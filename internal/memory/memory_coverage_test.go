@@ -565,8 +565,9 @@ created_at: %s
 This is a normal memory body.`, oldDate))
 
 	// Important memory (skipped by stale detection)
-	writeMemFile(t, dir, "MEM2_important_.md", fmt.Sprintf(`---
+	writeMemFile(t, dir, "MEM2.md", fmt.Sprintf(`---
 title: Important Memory
+important: true
 created_at: %s
 ---
 
@@ -804,7 +805,8 @@ created_at: 2026-05-21T00:00:00Z
 Second body.`)
 
 	// Important memory should be skipped
-	writeMemFile(t, dir, "MEM3_important_.md", `---
+	writeMemFile(t, dir, "MEM3.md", `---
+important: true
 title: Important Memory
 created_at: 2026-05-22T00:00:00Z
 ---
@@ -893,13 +895,13 @@ func listRecentInDir(dir string, limit int) ([]ImportantEntry, error) {
 			continue
 		}
 		name := e.Name()
-		if IsImportantMemory(name) {
-			continue
-		}
-		id := strings.TrimSuffix(name, ".md")
+		id := MemoryIDFromFileName(name)
 		absPath := filepath.Join(dir, name)
 		data, err := os.ReadFile(absPath)
 		if err != nil {
+			continue
+		}
+		if IsImportantContent(string(data)) {
 			continue
 		}
 		title, createdAt := parseMemoryMeta(absPath)
@@ -1215,7 +1217,7 @@ func TestExtractBodyAfterFrontmatter_Coverage(t *testing.T) {
 
 func TestListImportantInDir_UnreadableFile(t *testing.T) {
 	dir := t.TempDir()
-	fname := ImportantFileName("test-id")
+	fname := MemoryFileName("test-id")
 	fpath := filepath.Join(dir, fname)
 	_ = os.WriteFile(fpath, []byte("data"), 0644)
 	_ = os.Chmod(fpath, 0000)
@@ -1319,27 +1321,27 @@ func TestRawDir_ContextScopeResolves(t *testing.T) {
 	}
 }
 
-// IsImportantMemory, ImportantFileName, NormalFileName
+// MemoryFileName, MemoryIDFromFileName, IsImportantContent
 
-func TestIsImportantMemory_Coverage(t *testing.T) {
-	if !IsImportantMemory("test_important_.md") {
+func TestIsImportantContent_Coverage(t *testing.T) {
+	if !IsImportantContent("---\nimportant: true\n---\n\nbody") {
 		t.Error("should be important")
 	}
-	if IsImportantMemory("test.md") {
+	if IsImportantContent("---\ntitle: t\n---\n\nbody") {
 		t.Error("should not be important")
 	}
 }
 
-func TestImportantFileName_Coverage(t *testing.T) {
-	got := ImportantFileName("abc")
-	if got != "abc_important_.md" {
-		t.Errorf("ImportantFileName = %q", got)
+func TestMemoryFileName_Coverage(t *testing.T) {
+	got := MemoryFileName("abc")
+	if got != "abc.md" {
+		t.Errorf("MemoryFileName = %q", got)
 	}
 }
 
-func TestNormalFileName_Coverage(t *testing.T) {
-	got := NormalFileName("abc")
-	if got != "abc.md" {
-		t.Errorf("NormalFileName = %q", got)
+func TestMemoryIDFromFileName_Coverage(t *testing.T) {
+	got := MemoryIDFromFileName("abc.md")
+	if got != "abc" {
+		t.Errorf("MemoryIDFromFileName = %q", got)
 	}
 }

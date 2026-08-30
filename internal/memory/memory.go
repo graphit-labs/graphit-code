@@ -6,14 +6,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"github.com/oklog/ulid/v2"
+	"gopkg.in/yaml.v3"
 )
 
 type MemoryScope string
@@ -164,13 +164,7 @@ func (m *MemoryService) AddMemory(title, body string, opts MemoryOpts) (string, 
 		return "", fmt.Errorf("opening the memory scope: %w", err)
 	}
 
-	var fileName string
-	if opts.Important {
-		fileName = ImportantFileName(id)
-	} else {
-		fileName = NormalFileName(id)
-	}
-	if err := scope.WriteFile(fileName, []byte(content)); err != nil {
+	if err := scope.WriteFile(MemoryFileName(id), []byte(content)); err != nil {
 		return "", fmt.Errorf("writing memory file: %w", err)
 	}
 
@@ -213,20 +207,10 @@ func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string) erro
 		return fmt.Errorf("opening the memory scope: %w", err)
 	}
 
-	normalPath := NormalFileName(id)
-	importantPath := ImportantFileName(id)
-	var relPath string
-	var data []byte
-
-	data, err = scope.ReadFile(normalPath)
+	relPath := MemoryFileName(id)
+	data, err := scope.ReadFile(relPath)
 	if err != nil {
-		data, err = scope.ReadFile(importantPath)
-		if err != nil {
-			return fmt.Errorf("memory %q not found", id)
-		}
-		relPath = importantPath
-	} else {
-		relPath = normalPath
+		return fmt.Errorf("memory %q not found", id)
 	}
 
 	// Archive the version being replaced BEFORE overwriting it, and point the new one at the
@@ -238,14 +222,13 @@ func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string) erro
 	}
 
 	content := updatedMemoryContent(string(data), memoryUpdate{
-		ID:        id,
-		Scope:     string(m.scope),
-		ScopeID:   m.scopeID,
-		Important: IsImportantMemory(relPath),
-		NewTitle:  newTitle,
-		NewBody:   newBody,
-		NewType:   memType,
-		Previous:  archived,
+		ID:       id,
+		Scope:    string(m.scope),
+		ScopeID:  m.scopeID,
+		NewTitle: newTitle,
+		NewBody:  newBody,
+		NewType:  memType,
+		Previous: archived,
 	})
 
 	if err := scope.WriteFile(relPath, []byte(content)); err != nil {
@@ -274,8 +257,7 @@ func (m *MemoryService) RemoveMemory(id string) error {
 		return fmt.Errorf("opening the memory scope: %w", err)
 	}
 
-	normalPath := NormalFileName(id)
-	importantPath := ImportantFileName(id)
+	relPath := MemoryFileName(id)
 
 	// Archive the version being deleted, so the trail survives the deletion — which is what the
 	// git repository did, where a removed file stayed reachable in history.
@@ -283,19 +265,13 @@ func (m *MemoryService) RemoveMemory(id string) error {
 	// Nothing points AT the archive afterwards: the memory that would have carried the `previous`
 	// field is the one being removed. So a deleted memory's chain is found by its id under
 	// `history/<id>/`, not by following a pointer.
-	m.archiveBeforeDelete(scope, id, normalPath, importantPath)
+	m.archiveBeforeDelete(scope, id, relPath)
 
-	if err := scope.RemoveFile(normalPath); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("removing memory file: %w", err)
+	if err := scope.RemoveFile(relPath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("memory %q not found", id)
 		}
-
-		if err := scope.RemoveFile(importantPath); err != nil {
-			if os.IsNotExist(err) {
-				return fmt.Errorf("memory %q not found", id)
-			}
-			return fmt.Errorf("removing memory file: %w", err)
-		}
+		return fmt.Errorf("removing memory file: %w", err)
 	}
 
 	msg := fmt.Sprintf("memory: remove %s (%s/%s)", id, m.scope, m.scopeID)
@@ -309,9 +285,9 @@ func (m *MemoryService) RemoveMemory(id string) error {
 	return nil
 }
 
-// archiveBeforeDelete copies whichever of the two candidate files exists into the history
-// directory. A failure is logged and not returned: losing the archive is bad, and refusing to
-// delete a memory the user asked to delete is worse.
+// archiveBeforeDelete copies the memory file into the history directory. A failure is logged
+// and not returned: losing the archive is bad, and refusing to delete a memory the user asked
+// to delete is worse.
 func (m *MemoryService) archiveBeforeDelete(scope *ScopeStore, id string, candidates ...string) {
 	for _, rel := range candidates {
 		data, err := scope.ReadFile(rel)
@@ -344,40 +320,22 @@ func (m *MemoryService) changeRelevance(id string, promote bool) error {
 		return fmt.Errorf("opening the memory scope: %w", err)
 	}
 
-	var oldName, newName string
-	if promote {
-		oldName = NormalFileName(id)
-		newName = ImportantFileName(id)
-	} else {
-		oldName = ImportantFileName(id)
-		newName = NormalFileName(id)
-	}
+	relPath := MemoryFileName(id)
 
-	oldPath := oldName
-	newPath := newName
-
-	data, err := scope.ReadFile(oldPath)
+	data, err := scope.ReadFile(relPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if promote {
-				return fmt.Errorf("memory %q not found (or already important)", id)
-			}
-			return fmt.Errorf("memory %q not found (or not marked important)", id)
+			return fmt.Errorf("memory %q not found", id)
 		}
 		return fmt.Errorf("reading memory file: %w", err)
 	}
 
-	// Importance is encoded twice: in the filename, which is what listing and the
-	// wiki read, and in the frontmatter. Moving the bytes across only changed the
-	// filename, so a promoted memory carried `important:` absent and a demoted one
-	// kept `important: true` — the file contradicting its own name. Anything that
-	// trusts the frontmatter, including a later update, then read the stale value.
-	if err := scope.WriteFile(newPath, []byte(withImportantFlag(string(data), promote))); err != nil {
-		return fmt.Errorf("writing renamed memory file: %w", err)
+	if IsImportantContent(string(data)) == promote {
+		return nil
 	}
 
-	if err := scope.RemoveFile(oldPath); err != nil {
-		return fmt.Errorf("removing old memory file: %w", err)
+	if err := scope.WriteFile(relPath, []byte(withImportantFlag(string(data), promote))); err != nil {
+		return fmt.Errorf("writing memory file: %w", err)
 	}
 
 	verb := "promote"
@@ -411,16 +369,9 @@ func (m *MemoryService) ListMemories() ([]MemoryEntry, error) {
 			continue
 		}
 		name := e.Name()
-		important := IsImportantMemory(name)
-		var id string
-		if important {
-			id = strings.TrimSuffix(name, ImportantMemorySuffix+".md")
-		} else {
-			id = strings.TrimSuffix(name, ".md")
-		}
-		title, createdAt := parseMemoryMeta(filepath.Join(rawDir, name))
+		title, createdAt, important := parseMemoryHeader(filepath.Join(rawDir, name))
 		memories = append(memories, MemoryEntry{
-			ID:        id,
+			ID:        MemoryIDFromFileName(name),
 			Title:     title,
 			CreatedAt: createdAt,
 			Scope:     m.scope,
@@ -522,19 +473,6 @@ func buildMemoryFile(id, title, body, scope, scopeID, origProjectID string, impo
 	}, body)
 }
 
-var reFrontmatterTitle = regexp.MustCompile(`(?m)^title:\s*(.+)$`)
-var reFrontmatterCreatedAt = regexp.MustCompile(`(?m)^created_at:\s*(.+)$`)
-var reFrontmatterUpdatedAt = regexp.MustCompile(`(?m)^updated_at:\s*(.+)$`)
-var reFrontmatterScope = regexp.MustCompile(`(?m)^scope:\s*(.+)$`)
-var reFrontmatterScopeID = regexp.MustCompile(`(?m)^scope_id:\s*(.+)$`)
-var reFrontmatterProjectID = regexp.MustCompile(`(?m)^project_id:\s*(.+)$`)
-var reFrontmatterType = regexp.MustCompile(`(?m)^type:\s*(.+)$`)
-var reFrontmatterTags = regexp.MustCompile(`(?m)^tags:\s*\[(.*)\]\s*$`)
-var reFrontmatterImportant = regexp.MustCompile(`(?m)^important:\s*true\s*$`)
-var reFrontmatterRevision = regexp.MustCompile(`(?m)^revision:\s*(\d+)\s*$`)
-var reFrontmatterPrevious = regexp.MustCompile(`(?m)^previous:\s*(.+)$`)
-var reFrontmatterUpdatedBy = regexp.MustCompile(`(?m)^updated_by:\s*(.+)$`)
-
 // MemoryFrontmatter is every classification field a memory file carries.
 //
 // It exists because rebuilding frontmatter field-by-field at each write site is
@@ -543,85 +481,61 @@ var reFrontmatterUpdatedBy = regexp.MustCompile(`(?m)^updated_by:\s*(.+)$`)
 // an untyped, untagged memory, and nothing reports the loss because the file is
 // still valid and the body is still right.
 type MemoryFrontmatter struct {
-	ID        string
-	Title     string
-	Scope     string
-	ScopeID   string
-	ProjectID string
-	Type      string
-	Important bool
-	CreatedAt string
-	UpdatedAt string
-	Tags      []string
+	ID        string `yaml:"id"`
+	Title     string `yaml:"title"`
+	Scope     string `yaml:"scope"`
+	ScopeID   string `yaml:"scope_id"`
+	ProjectID string `yaml:"project_id,omitempty"`
+	Type      string `yaml:"type,omitempty"`
+	Important bool   `yaml:"important,omitempty"`
+	CreatedAt string `yaml:"created_at,omitempty"`
+	UpdatedAt string `yaml:"updated_at"`
 
 	// Revision counts the writes this memory has had, starting at 1. It is the history the git
 	// repository used to carry, moved in-band: object storage has no commit to hang it on, and a
 	// memory that cannot say whether it was edited is a memory you cannot trust twice.
-	Revision int
-
-	// Previous is the path of the version this one replaced, relative to the scope's directory,
-	// empty on the first revision. Following it walks the whole chain backwards.
-	Previous string
+	Revision int `yaml:"revision"`
 
 	// UpdatedBy is the unit that made the last write. It replaces the git author, and it is why
 	// the identity had to survive git's removal rather than disappear with it.
-	UpdatedBy string
+	UpdatedBy string `yaml:"updated_by,omitempty"`
+
+	// Previous is the path of the version this one replaced, relative to the scope's directory,
+	// empty on the first revision. Following it walks the whole chain backwards.
+	Previous string `yaml:"previous,omitempty"`
+
+	Tags []string `yaml:"tags,flow"`
 }
 
 // ParseMemoryFrontmatter reads the classification fields out of a memory file.
-// Unknown or absent fields come back as zero values; the caller decides what a
-// missing field means.
+// Absent fields come back as zero values; the caller decides what a missing field
+// means.
+//
+// The YAML parser resolves the block, and it is the only thing that does. A
+// line-by-line scan cannot tell a quoted colon from a key separator, and it cannot
+// tell the frontmatter from a body that happens to contain `important: true` —
+// which is a memory silently promoting itself by quoting one.
 func ParseMemoryFrontmatter(content string) MemoryFrontmatter {
-	fm := MemoryFrontmatter{Important: reFrontmatterImportant.MatchString(content)}
-
-	first := func(re *regexp.Regexp) string {
-		if m := re.FindStringSubmatch(content); m != nil {
-			return strings.TrimSpace(m[1])
-		}
-		return ""
+	block, ok := wiki.FrontmatterBlock(content)
+	if !ok {
+		return MemoryFrontmatter{}
 	}
-
-	fm.Title = first(reFrontmatterTitle)
-	fm.Scope = first(reFrontmatterScope)
-	fm.ScopeID = first(reFrontmatterScopeID)
-	fm.ProjectID = first(reFrontmatterProjectID)
-	fm.Type = first(reFrontmatterType)
-	fm.CreatedAt = first(reFrontmatterCreatedAt)
-	fm.UpdatedAt = first(reFrontmatterUpdatedAt)
-	fm.Previous = first(reFrontmatterPrevious)
-	fm.UpdatedBy = first(reFrontmatterUpdatedBy)
-	if raw := first(reFrontmatterRevision); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil {
-			fm.Revision = n
-		}
-	}
-
-	if m := reFrontmatterIDLine.FindStringSubmatch(content); m != nil {
-		fm.ID = strings.TrimSpace(m[1])
-	}
-
-	if raw := first(reFrontmatterTags); raw != "" {
-		for _, t := range strings.Split(raw, ",") {
-			if t = strings.TrimSpace(t); t != "" {
-				fm.Tags = append(fm.Tags, t)
-			}
-		}
+	var fm MemoryFrontmatter
+	if err := yaml.Unmarshal([]byte(block), &fm); err != nil {
+		return MemoryFrontmatter{}
 	}
 	return fm
 }
 
-var reFrontmatterIDLine = regexp.MustCompile(`(?m)^id:\s*(.+)$`)
-
 // memoryUpdate is the input to updatedMemoryContent. Empty NewTitle, NewBody and
 // NewType each mean "leave that alone".
 type memoryUpdate struct {
-	ID        string
-	Scope     string
-	ScopeID   string
-	Important bool
-	NewTitle  string
-	NewBody   string
-	NewType   string
+	ID       string
+	Scope    string
+	ScopeID  string
+	NewTitle string
+	NewBody  string
+	NewType  string
 
 	// Previous is the archived path of the version being replaced. The caller writes the archive
 	// and passes the path, because only the caller has the store to write it to.
@@ -643,9 +557,6 @@ func updatedMemoryContent(oldContent string, u memoryUpdate) string {
 	fm.ID = u.ID
 	fm.Scope = u.Scope
 	fm.ScopeID = u.ScopeID
-	// The filename is authoritative for importance: it is what ListMemories and the
-	// wiki read, so a frontmatter flag that disagrees with it is the wrong one.
-	fm.Important = u.Important
 	// Overwritten deliberately: this is the one timestamp an update owns.
 	fm.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	// The chain. A memory with no revision recorded is treated as revision 1, so the first edit
@@ -727,41 +638,24 @@ func replaceTypeTag(tags []string, oldType, newType string) []string {
 // single place the on-disk shape is defined, so add and update cannot disagree
 // about which fields a memory has.
 func renderMemoryFile(fm MemoryFrontmatter, body string) string {
+	if fm.UpdatedAt == "" {
+		fm.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	}
+	if fm.Revision < 1 {
+		fm.Revision = 1
+	}
+	if fm.Tags == nil {
+		fm.Tags = []string{}
+	}
+
+	front, err := yaml.Marshal(fm)
+	if err != nil {
+		front = nil
+	}
+
 	var b strings.Builder
 	b.WriteString("---\n")
-	_, _ = fmt.Fprintf(&b, "id: %s\n", fm.ID)
-	_, _ = fmt.Fprintf(&b, "title: %s\n", fm.Title)
-	_, _ = fmt.Fprintf(&b, "scope: %s\n", fm.Scope)
-	_, _ = fmt.Fprintf(&b, "scope_id: %s\n", fm.ScopeID)
-	if fm.ProjectID != "" {
-		_, _ = fmt.Fprintf(&b, "project_id: %s\n", fm.ProjectID)
-	}
-	if fm.Type != "" {
-		_, _ = fmt.Fprintf(&b, "type: %s\n", fm.Type)
-	}
-	if fm.Important {
-		b.WriteString("important: true\n")
-	}
-	if fm.CreatedAt != "" {
-		_, _ = fmt.Fprintf(&b, "created_at: %s\n", fm.CreatedAt)
-	}
-	updated := fm.UpdatedAt
-	if updated == "" {
-		updated = time.Now().UTC().Format(time.RFC3339)
-	}
-	_, _ = fmt.Fprintf(&b, "updated_at: %s\n", updated)
-	revision := fm.Revision
-	if revision < 1 {
-		revision = 1
-	}
-	_, _ = fmt.Fprintf(&b, "revision: %d\n", revision)
-	if fm.UpdatedBy != "" {
-		_, _ = fmt.Fprintf(&b, "updated_by: %s\n", fm.UpdatedBy)
-	}
-	if fm.Previous != "" {
-		_, _ = fmt.Fprintf(&b, "previous: %s\n", fm.Previous)
-	}
-	_, _ = fmt.Fprintf(&b, "tags: [%s]\n", strings.Join(fm.Tags, ", "))
+	b.Write(front)
 	b.WriteString("---\n\n")
 	_, _ = fmt.Fprintf(&b, "# %s\n\n", fm.Title)
 	if body != "" {
@@ -774,14 +668,19 @@ func renderMemoryFile(fm MemoryFrontmatter, body string) string {
 }
 
 func parseMemoryMeta(path string) (title, createdAt string) {
+	title, createdAt, _ = parseMemoryHeader(path)
+	return title, createdAt
+}
+
+func parseMemoryHeader(path string) (title, createdAt string, important bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return filepath.Base(path), ""
+		return filepath.Base(path), "", false
 	}
 	content := string(data)
-	if m := reFrontmatterTitle.FindStringSubmatch(content); m != nil {
-		title = strings.TrimSpace(m[1])
-	} else {
+	fm := ParseMemoryFrontmatter(content)
+	title = fm.Title
+	if title == "" {
 		for _, line := range strings.Split(content, "\n") {
 			if strings.HasPrefix(line, "# ") {
 				title = strings.TrimPrefix(line, "# ")
@@ -790,12 +689,9 @@ func parseMemoryMeta(path string) (title, createdAt string) {
 		}
 	}
 	if title == "" {
-		title = strings.TrimSuffix(filepath.Base(path), ".md")
+		title = MemoryIDFromFileName(path)
 	}
-	if m := reFrontmatterCreatedAt.FindStringSubmatch(content); m != nil {
-		createdAt = strings.TrimSpace(m[1])
-	}
-	return title, createdAt
+	return title, fm.CreatedAt, fm.Important
 }
 
 func ParseMemoryMetaPublic(path string) (title, createdAt string) {

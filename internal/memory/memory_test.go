@@ -12,52 +12,9 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// helpers: IsImportantMemory, ImportantFileName, NormalFileName
+// helpers: MemoryFileName, MemoryIDFromFileName, IsImportantContent
 
-func TestIsImportantMemory(t *testing.T) {
-	tests := []struct {
-		filename string
-		want     bool
-	}{
-		{"abc_important_.md", true},
-		{"01J123_important_.md", true},
-		{"abc.md", false},
-		{"abc_important.md", false}, // missing trailing underscore
-		{"_important_.md", true},    // edge: no id prefix
-		{"dir/nested_important_.md", true},
-		{"abc.txt", false},
-		{"", false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.filename, func(t *testing.T) {
-			got := IsImportantMemory(tc.filename)
-			if got != tc.want {
-				t.Errorf("IsImportantMemory(%q) = %v; want %v", tc.filename, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestImportantFileName(t *testing.T) {
-	tests := []struct {
-		id   string
-		want string
-	}{
-		{"123", "123_important_.md"},
-		{"01J5X", "01J5X_important_.md"},
-		{"", "_important_.md"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.id, func(t *testing.T) {
-			got := ImportantFileName(tc.id)
-			if got != tc.want {
-				t.Errorf("ImportantFileName(%q) = %q; want %q", tc.id, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestNormalFileName(t *testing.T) {
+func TestMemoryFileName(t *testing.T) {
 	tests := []struct {
 		id   string
 		want string
@@ -68,9 +25,53 @@ func TestNormalFileName(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
-			got := NormalFileName(tc.id)
+			got := MemoryFileName(tc.id)
 			if got != tc.want {
-				t.Errorf("NormalFileName(%q) = %q; want %q", tc.id, got, tc.want)
+				t.Errorf("MemoryFileName(%q) = %q; want %q", tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMemoryIDFromFileName(t *testing.T) {
+	tests := []struct {
+		filename string
+		want     string
+	}{
+		{"abc.md", "abc"},
+		{"01J123.md", "01J123"},
+		{"dir/nested.md", "nested"},
+		{"abc.txt", "abc.txt"},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.filename, func(t *testing.T) {
+			got := MemoryIDFromFileName(tc.filename)
+			if got != tc.want {
+				t.Errorf("MemoryIDFromFileName(%q) = %q; want %q", tc.filename, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsImportantContent(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"flag set", "---\ntitle: T\nimportant: true\n---\n\n# T\n\nBody.", true},
+		{"flag absent", "---\ntitle: T\n---\n\n# T\n\nBody.", false},
+		{"flag false", "---\ntitle: T\nimportant: false\n---\n\n# T\n\nBody.", false},
+		{"word in body only", "---\ntitle: T\n---\n\n# T\n\nimportant: true", false},
+		{"no frontmatter", "# T\n\nBody.", false},
+		{"empty", "", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := IsImportantContent(tc.content)
+			if got != tc.want {
+				t.Errorf("IsImportantContent(%q) = %v; want %v", tc.content, got, tc.want)
 			}
 		})
 	}
@@ -578,13 +579,14 @@ func TestListMemories(t *testing.T) {
 
 	impContent := `---
 title: Important Memory
+important: true
 created_at: 2026-05-20T00:00:00Z
 ---
 
 # Important Memory
 
 Details.`
-	writeMemFile(t, dir, "ABC_important_.md", impContent)
+	writeMemFile(t, dir, "ABC.md", impContent)
 
 	normContent := `---
 title: Normal Memory
@@ -664,12 +666,13 @@ func TestListImportantInDir(t *testing.T) {
 
 	impContent := `---
 title: Critical Rule
+important: true
 ---
 
 # Critical Rule
 
 Always do X before Y.`
-	writeMemFile(t, dir, "RULE1_important_.md", impContent)
+	writeMemFile(t, dir, "RULE1.md", impContent)
 
 	normContent := `---
 title: Normal Fact
@@ -745,7 +748,7 @@ important: true
 Beta is the second letter.`
 
 	writeMemFile(t, rawDir, "MEM1.md", mem1)
-	writeMemFile(t, rawDir, "MEM2_important_.md", mem2)
+	writeMemFile(t, rawDir, "MEM2.md", mem2)
 
 	ctx := context.Background()
 	result, err := GenerateMemoryWiki(ctx, rawDir, wikiDir)
@@ -935,12 +938,13 @@ func TestRenderImportantBlock_Inline(t *testing.T) {
 	dir := t.TempDir()
 	content := `---
 title: Critical Rule
+important: true
 ---
 
 # Critical Rule
 
 Always follow this rule.`
-	writeMemFile(t, dir, "RULE1_important_.md", content)
+	writeMemFile(t, dir, "RULE1.md", content)
 
 	// We test listImportantInDir + rendering inline since RenderImportantBlock
 	// uses global scope resolution that depends on project state.
@@ -1253,9 +1257,13 @@ func TestEnsureScopeDirs_EmptyProjectDir(t *testing.T) {
 	}
 }
 
-func TestImportantMemorySuffix(t *testing.T) {
-	if ImportantMemorySuffix != "_important_" {
-		t.Errorf("ImportantMemorySuffix = %q; want '_important_'", ImportantMemorySuffix)
+func TestImportanceIsNotEncodedInTheFileName(t *testing.T) {
+	content := renderMemoryFile(MemoryFrontmatter{ID: "MEM1", Title: "T", Important: true}, "Body.")
+	if !strings.Contains(content, "\nimportant: true\n") {
+		t.Errorf("rendered memory carries no important flag:\n%s", content)
+	}
+	if name := MemoryFileName("MEM1"); name != "MEM1.md" {
+		t.Errorf("MemoryFileName for an important memory = %q; want the plain id", name)
 	}
 }
 

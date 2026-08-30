@@ -40,7 +40,7 @@ func TestMemoryStartsAtRevisionOneWithNoPrevious(t *testing.T) {
 		t.Fatalf("AddMemory: %v", err)
 	}
 
-	data, err := w.ReadFile(NormalFileName(id))
+	data, err := w.ReadFile(MemoryFileName(id))
 	if err != nil {
 		t.Fatalf("reading the memory: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestUpdateArchivesThePreviousVersionAndPointsAtIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddMemory: %v", err)
 	}
-	before, err := w.ReadFile(NormalFileName(id))
+	before, err := w.ReadFile(MemoryFileName(id))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestUpdateArchivesThePreviousVersionAndPointsAtIt(t *testing.T) {
 		t.Fatalf("UpdateMemory: %v", err)
 	}
 
-	after, err := w.ReadFile(NormalFileName(id))
+	after, err := w.ReadFile(MemoryFileName(id))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestRevisionChainWalksBackToTheFirstVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := w.ReadFile(NormalFileName(id))
+	data, err := w.ReadFile(MemoryFileName(id))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestRemoveArchivesTheDeletedVersion(t *testing.T) {
 		t.Fatalf("RemoveMemory: %v", err)
 	}
 
-	if _, err := w.ReadFile(NormalFileName(id)); !os.IsNotExist(err) {
+	if _, err := w.ReadFile(MemoryFileName(id)); !os.IsNotExist(err) {
 		t.Errorf("the memory itself should be gone, got %v", err)
 	}
 	archived, err := w.ReadFile(HistoryPath(id, 1))

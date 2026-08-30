@@ -148,9 +148,9 @@ func TestOrderBySimilarityKeepsMemoriesThatHaveNoVector(t *testing.T) {
 // The wiki names a memory `<ID>_…​.md`; the ID is what joins a vector to a snapshot.
 func TestMemoryIDIsRecoveredFromTheWikiSourceName(t *testing.T) {
 	cases := map[string]string{
-		"01M04E0YB97A79ZV42QSNKDNWF_important_.md": "01M04E0YB97A79ZV42QSNKDNWF",
-		"/abs/path/01ABC_plain_.md":                "01ABC",
-		"01XYZ.md":                                 "01XYZ",
+		"01M04E0YB97A79ZV42QSNKDNWF.md": "01M04E0YB97A79ZV42QSNKDNWF",
+		"/abs/path/01ABC.md":            "01ABC",
+		"01XYZ.md":                      "01XYZ",
 	}
 	for source, want := range cases {
 		if got := memoryIDFromSource(source); got != want {

@@ -228,15 +228,9 @@ func loadMemorySnapshots(dir string) ([]memorySnapshot, error) {
 		if readErr != nil {
 			continue
 		}
-		important := IsImportantMemory(name)
-		var id string
-		if important {
-			id = strings.TrimSuffix(name, ImportantMemorySuffix+".md")
-		} else {
-			id = strings.TrimSuffix(name, ".md")
-		}
-
+		id := MemoryIDFromFileName(name)
 		fm := ParseMemoryFrontmatter(string(data))
+		important := fm.Important
 		title := fm.Title
 		if title == "" {
 			title = id

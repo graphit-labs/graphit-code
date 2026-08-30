@@ -6,19 +6,19 @@ import (
 	"strings"
 )
 
-const ImportantMemorySuffix = "_important_"
-
-func IsImportantMemory(filename string) bool {
-	base := filepath.Base(filename)
-	return strings.HasSuffix(base, ImportantMemorySuffix+".md")
-}
-
-func ImportantFileName(id string) string {
-	return id + ImportantMemorySuffix + ".md"
-}
-
-func NormalFileName(id string) string {
+func MemoryFileName(id string) string {
 	return id + ".md"
+}
+
+func MemoryIDFromFileName(name string) string {
+	if name == "" {
+		return ""
+	}
+	return strings.TrimSuffix(filepath.Base(name), ".md")
+}
+
+func IsImportantContent(content string) bool {
+	return ParseMemoryFrontmatter(content).Important
 }
 
 type ImportantEntry struct {
@@ -45,19 +45,16 @@ func listImportantInDir(dir string) ([]ImportantEntry, error) {
 
 	var important []ImportantEntry
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
 			continue
 		}
 		name := e.Name()
-		if !IsImportantMemory(name) {
-			continue
-		}
-
-		id := strings.TrimSuffix(name, ImportantMemorySuffix+".md")
-
 		absPath := filepath.Join(dir, name)
 		data, err := os.ReadFile(absPath)
 		if err != nil {
+			continue
+		}
+		if !IsImportantContent(string(data)) {
 			continue
 		}
 
@@ -65,7 +62,7 @@ func listImportantInDir(dir string) ([]ImportantEntry, error) {
 		content := extractBodyAfterFrontmatter(string(data))
 
 		important = append(important, ImportantEntry{
-			ID:      id,
+			ID:      MemoryIDFromFileName(name),
 			Title:   title,
 			Content: strings.TrimSpace(content),
 			Path:    absPath,

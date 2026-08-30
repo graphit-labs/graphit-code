@@ -50,11 +50,7 @@ func memoryIDFromSource(source string) string {
 	if i := strings.LastIndexAny(base, "/\\"); i >= 0 {
 		base = base[i+1:]
 	}
-	base = strings.TrimSuffix(base, ".md")
-	if i := strings.Index(base, "_"); i > 0 {
-		return base[:i]
-	}
-	return base
+	return MemoryIDFromFileName(base)
 }
 
 // orderBySimilarity reorders memories so that semantically close ones sit next to each

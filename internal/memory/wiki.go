@@ -91,18 +91,13 @@ func GenerateMemoryWiki(ctx context.Context, rawDir, wikiDir string, logger ...*
 		name := e.Name()
 		absPath := filepath.Join(rawDir, name)
 
-		important := IsImportantMemory(name)
-		var id string
-		if important {
-			id = strings.TrimSuffix(name, ImportantMemorySuffix+".md")
-		} else {
-			id = strings.TrimSuffix(name, ".md")
-		}
-
 		data, readErr := os.ReadFile(absPath)
 		if readErr != nil {
 			continue
 		}
+
+		id := MemoryIDFromFileName(name)
+		important := IsImportantContent(string(data))
 
 		contentHash := wiki.ContentHash(data)
 		validPaths[name] = true
