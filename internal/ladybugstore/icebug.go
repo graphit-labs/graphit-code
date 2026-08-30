@@ -45,6 +45,9 @@ import (
 // maxRowGroupLength keeps a table in a single Parquet row group.
 const maxRowGroupLength = 1 << 40
 
+// parquetChunkRows is how many rows are held as Arrow at once while writing a table.
+const parquetChunkRows = 64 << 10
+
 const (
 	// IcebugEntityTable is the single node table every label is folded into.
 	IcebugEntityTable = "Entity"
@@ -835,7 +838,9 @@ func icebugMetadata() *arrow.Metadata {
 // groups where the reference tool produces 1, and `parquet.WithMaxRowGroupLength` does not
 // merge them. MEASURED: a multi-row-group file mounts, counts correctly through an anonymous
 // pattern, and then fails to resolve a node when the pattern binds one — while the reference
-// tool's single-row-group file answers both. So the whole table goes into one record.
+// tool's single-row-group file answers both. WriteBuffered is the one form that batches
+// without that cost: it appends into the CURRENT row group while the running total stays
+// under MaxRowGroupLength, so the table is fed in chunks and still lands in one group.
 //
 // Dictionary encoding is off. Tested BOTH ways on the real corpus: it makes no difference to
 // correctness, so this is not a safety constraint. What did produce "Invalid string encoding
@@ -861,13 +866,28 @@ func writeParquet(dest string, schema *arrow.Schema, rows int, fill func(*array.
 
 	builder := array.NewRecordBuilder(memory.DefaultAllocator, schema)
 	defer builder.Release()
-	fill(builder, 0, rows)
-	rec := builder.NewRecordBatch()
-	defer rec.Release()
 
-	if err := w.Write(rec); err != nil {
-		_ = w.Close()
-		return err
+	writeChunk := func(from, to int) error {
+		fill(builder, from, to)
+		rec := builder.NewRecordBatch()
+		defer rec.Release()
+		return w.WriteBuffered(rec)
+	}
+	for from := 0; from < rows; from += parquetChunkRows {
+		to := from + parquetChunkRows
+		if to > rows {
+			to = rows
+		}
+		if err := writeChunk(from, to); err != nil {
+			_ = w.Close()
+			return err
+		}
+	}
+	if rows == 0 {
+		if err := writeChunk(0, 0); err != nil {
+			_ = w.Close()
+			return err
+		}
 	}
 	return w.Close()
 }

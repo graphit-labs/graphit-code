@@ -43,7 +43,14 @@ type rebuildIndex struct {
 	fieldUIDs   map[string]bool
 	dirPathSet  map[string]bool
 	fileEntries []fileEntry
-	emittedUIDs map[string]map[string]bool
+	// emittedTable is the node table a uid was first written into, and emittedExtra
+	// holds the rare uid written into a second one.
+	//
+	// SAFETY: this used to be map[string]map[string]bool. A Go map holding one entry
+	// costs ~200 B of header and bucket before the entry itself, so at tens of millions
+	// of uids the bookkeeping outweighed the data it was tracking.
+	emittedTable map[string]string
+	emittedExtra map[uidTable]bool
 	// decls resolves a target's name to the declarations it may mean. It indexes EVERY
 	// declared label, with no fixed list: which subset counts is the grammar's
 	// decision, through TargetRule.
@@ -72,35 +79,59 @@ type fileEntry struct {
 
 func newRebuildIndex(entries map[string]*parseCacheEntry, rules *TargetRules) *rebuildIndex {
 	ri := &rebuildIndex{
-		entries:     entries,
-		rules:       rules,
-		labelSet:    make(map[string]bool),
-		entityUIDs:  make(map[string]string),
-		fieldUIDs:   make(map[string]bool),
-		dirPathSet:  make(map[string]bool),
-		emittedUIDs: make(map[string]map[string]bool),
+		entries:      entries,
+		rules:        rules,
+		labelSet:     make(map[string]bool),
+		entityUIDs:   make(map[string]string),
+		fieldUIDs:    make(map[string]bool),
+		dirPathSet:   make(map[string]bool),
+		emittedTable: make(map[string]string),
 	}
 	ri.scan()
 	return ri
 }
 
+type uidTable struct{ uid, table string }
+
 func (ri *rebuildIndex) emitUID(uid, table string) bool {
-	if ri.emittedUIDs[uid] == nil {
-		ri.emittedUIDs[uid] = make(map[string]bool)
+	first, seen := ri.emittedTable[uid]
+	if !seen {
+		ri.emittedTable[uid] = table
+		return true
 	}
-	if ri.emittedUIDs[uid][table] {
+	if first == table {
 		return false
 	}
-	ri.emittedUIDs[uid][table] = true
+	key := uidTable{uid: uid, table: table}
+	if ri.emittedExtra[key] {
+		return false
+	}
+	if ri.emittedExtra == nil {
+		ri.emittedExtra = make(map[uidTable]bool)
+	}
+	ri.emittedExtra[key] = true
 	return true
 }
 
 func (ri *rebuildIndex) emittedIn(uid, table string) bool {
-	return ri.emittedUIDs[uid] != nil && ri.emittedUIDs[uid][table]
+	if table == "" {
+		return false
+	}
+	if first, seen := ri.emittedTable[uid]; seen && first == table {
+		return true
+	}
+	return ri.emittedExtra[uidTable{uid: uid, table: table}]
 }
 
 func (ri *rebuildIndex) emittedAny(uid string) bool {
-	return len(ri.emittedUIDs[uid]) > 0
+	_, seen := ri.emittedTable[uid]
+	return seen
+}
+
+func (ri *rebuildIndex) detachEmitState() (restore func()) {
+	table, extra := ri.emittedTable, ri.emittedExtra
+	ri.emittedTable, ri.emittedExtra = make(map[string]string), nil
+	return func() { ri.emittedTable, ri.emittedExtra = table, extra }
 }
 
 // refSourceLabel says which node table a reference starts from.
@@ -427,29 +458,43 @@ func (ri *rebuildIndex) schemaInfo() SchemaInfo {
 	}
 }
 
+// collectRows materializes a streamed row producer. The streaming form is the real one:
+// the export never holds a label's rows as a slice, and these collectors exist so callers
+// that genuinely want the whole table — tests, and the delta probe — share one
+// implementation with it rather than a second copy of the same loop.
+func collectRows(stream func(emit func(map[string]any))) []map[string]any {
+	var rows []map[string]any
+	stream(func(r map[string]any) { rows = append(rows, r) })
+	return rows
+}
+
 func (ri *rebuildIndex) fileNodeJSON() []map[string]any {
-	rows := make([]map[string]any, 0, len(ri.fileEntries))
+	return collectRows(ri.streamFileNodes)
+}
+
+func (ri *rebuildIndex) streamFileNodes(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		ri.emitUID(fe.relPath, "File")
-		rows = append(rows, map[string]any{
+		emit(map[string]any{
 			"path": fe.relPath, "name": filepath.Base(fe.relPath),
 			"relative_path": fe.relPath, "is_dependency": fe.entry.IsDepend,
 			"lang": fe.entry.Language, "cluster": fe.entry.Cluster,
 		})
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) dirNodeJSON(clusterPathMap map[string]string, defaultCluster string) []map[string]any {
-	rows := make([]map[string]any, 0, len(ri.dirPathSet))
+	return collectRows(func(emit func(map[string]any)) { ri.streamDirNodes(clusterPathMap, defaultCluster, emit) })
+}
+
+func (ri *rebuildIndex) streamDirNodes(clusterPathMap map[string]string, defaultCluster string, emit func(map[string]any)) {
 	for dp := range ri.dirPathSet {
 		ri.emitUID(dp, "Directory")
 		cluster := resolveClusterForPath(dp, "", clusterPathMap, defaultCluster)
-		rows = append(rows, map[string]any{
+		emit(map[string]any{
 			"path": dp, "name": filepath.Base(dp), "cluster": cluster,
 		})
 	}
-	return rows
 }
 
 func entityToJSON(ent cachedEntity, isStub bool, cluster string) map[string]any {
@@ -490,20 +535,25 @@ func stubJSON(uid, lang, cluster string) map[string]any {
 }
 
 func (ri *rebuildIndex) entityJSON(label string) []map[string]any {
-	var rows []map[string]any
+	return collectRows(func(emit func(map[string]any)) { ri.streamEntities(label, emit) })
+}
+
+func (ri *rebuildIndex) streamEntities(label string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, ent := range fe.entry.Entities {
 			if ent.Label == label && ri.emitUID(ent.UID, label) {
-				rows = append(rows, entityToJSON(ent, false, fe.entry.Cluster))
+				emit(entityToJSON(ent, false, fe.entry.Cluster))
 			}
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) moduleJSON() []map[string]any {
+	return collectRows(ri.streamModules)
+}
+
+func (ri *rebuildIndex) streamModules(emit func(map[string]any)) {
 	seen := make(map[string]bool)
-	var rows []map[string]any
 	for _, fe := range ri.fileEntries {
 		for _, imp := range fe.entry.Imports {
 			if !seen[imp.ModuleUID] {
@@ -516,11 +566,10 @@ func (ri *rebuildIndex) moduleJSON() []map[string]any {
 				if fe.entry.Cluster != "" {
 					m["cluster"] = fe.entry.Cluster
 				}
-				rows = append(rows, m)
+				emit(m)
 			}
 		}
 	}
-	return rows
 }
 
 // resolveNamed joins a target captured by name to the declaration it means, under the
@@ -577,7 +626,10 @@ func (ri *rebuildIndex) resolveCallee(calleeUID, callerLang string) (uid, label 
 }
 
 func (ri *rebuildIndex) stubFunctionJSON() []map[string]any {
-	var rows []map[string]any
+	return collectRows(ri.streamStubFunctions)
+}
+
+func (ri *rebuildIndex) streamStubFunctions(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, call := range fe.entry.Calls {
 			if call.CalleeUID == "" {
@@ -590,36 +642,39 @@ func (ri *rebuildIndex) stubFunctionJSON() []map[string]any {
 				continue
 			}
 			ri.emitUID(uid, LabelFunction)
-			rows = append(rows, stubJSON(uid, fe.entry.Language, fe.entry.Cluster))
+			emit(stubJSON(uid, fe.entry.Language, fe.entry.Cluster))
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) stubClassJSON() []map[string]any {
-	var rows []map[string]any
+	return collectRows(ri.streamStubClasses)
+}
+
+func (ri *rebuildIndex) streamStubClasses(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, inh := range fe.entry.Inheritance {
 			if inh.RelType == "INHERITS" && !ri.emittedAny(inh.ParentUID) {
 				ri.emitUID(inh.ParentUID, "Class")
-				rows = append(rows, stubJSON(inh.ParentUID, fe.entry.Language, fe.entry.Cluster))
+				emit(stubJSON(inh.ParentUID, fe.entry.Language, fe.entry.Cluster))
 			}
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) stubInterfaceJSON() []map[string]any {
-	var rows []map[string]any
+	return collectRows(ri.streamStubInterfaces)
+}
+
+func (ri *rebuildIndex) streamStubInterfaces(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, inh := range fe.entry.Inheritance {
 			if inh.RelType == "IMPLEMENTS" && !ri.emittedAny(inh.ParentUID) {
 				ri.emitUID(inh.ParentUID, "Interface")
-				rows = append(rows, stubJSON(inh.ParentUID, fe.entry.Language, fe.entry.Cluster))
+				emit(stubJSON(inh.ParentUID, fe.entry.Language, fe.entry.Cluster))
 			}
 		}
 	}
-	return rows
 }
 
 // resolveFieldTarget says which node a field access reaches.
@@ -640,7 +695,10 @@ func (ri *rebuildIndex) resolveFieldTarget(name, lang string) string {
 }
 
 func (ri *rebuildIndex) stubFieldJSON() []map[string]any {
-	var rows []map[string]any
+	return collectRows(ri.streamStubFields)
+}
+
+func (ri *rebuildIndex) streamStubFields(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, fa := range fe.entry.FieldAccess {
 			uid := ri.resolveFieldTarget(fa.FieldUID, fe.entry.Language)
@@ -648,10 +706,9 @@ func (ri *rebuildIndex) stubFieldJSON() []map[string]any {
 				continue
 			}
 			ri.emitUID(uid, LabelField)
-			rows = append(rows, stubJSON(uid, fe.entry.Language, fe.entry.Cluster))
+			emit(stubJSON(uid, fe.entry.Language, fe.entry.Cluster))
 		}
 	}
-	return rows
 }
 
 // resolveRefTarget maps a reference target to the node it means.
@@ -715,7 +772,10 @@ func (ri *rebuildIndex) refRule(ref cachedReference, lang string) TargetRule {
 }
 
 func (ri *rebuildIndex) stubTableJSON() []map[string]any {
-	var rows []map[string]any
+	return collectRows(ri.streamStubTables)
+}
+
+func (ri *rebuildIndex) streamStubTables(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, ref := range fe.entry.References {
 			if ref.SourceUID == "" {
@@ -726,15 +786,17 @@ func (ri *rebuildIndex) stubTableJSON() []map[string]any {
 				continue
 			}
 			ri.emitUID(uid, LabelTable)
-			rows = append(rows, stubJSON(uid, fe.entry.Language, fe.entry.Cluster))
+			emit(stubJSON(uid, fe.entry.Language, fe.entry.Cluster))
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) annotationNodeJSON(kind string) []map[string]any {
+	return collectRows(func(emit func(map[string]any)) { ri.streamAnnotationNodes(kind, emit) })
+}
+
+func (ri *rebuildIndex) streamAnnotationNodes(kind string, emit func(map[string]any)) {
 	seen := make(map[string]bool)
-	var rows []map[string]any
 	for _, fe := range ri.fileEntries {
 		for _, ent := range fe.entry.Entities {
 			if annotationKind(ent.Lang) != kind {
@@ -754,16 +816,18 @@ func (ri *rebuildIndex) annotationNodeJSON(kind string) []map[string]any {
 					if fe.entry.Cluster != "" {
 						m["cluster"] = fe.entry.Cluster
 					}
-					rows = append(rows, m)
+					emit(m)
 				}
 			}
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) paramEdgeJSON(callerLabel string) []map[string]any {
-	var rows []map[string]any
+	return collectRows(func(emit func(map[string]any)) { ri.streamParamEdges(callerLabel, emit) })
+}
+
+func (ri *rebuildIndex) streamParamEdges(callerLabel string, emit func(map[string]any)) {
 	seen := make(map[string]bool)
 	for _, fe := range ri.fileEntries {
 
@@ -777,7 +841,7 @@ func (ri *rebuildIndex) paramEdgeJSON(callerLabel string) []map[string]any {
 			}
 			if ri.emittedIn(ce.ParentUID, callerLabel) && ri.emittedIn(ce.ChildUID, "Parameter") {
 				seen[key] = true
-				rows = append(rows, map[string]any{
+				emit(map[string]any{
 					"func_uid": ce.ParentUID, "uid": ce.ChildUID,
 					"source_file": fe.relPath, "line_number": 0,
 				})
@@ -788,38 +852,42 @@ func (ri *rebuildIndex) paramEdgeJSON(callerLabel string) []map[string]any {
 			key := p.FuncUID + "→" + p.UID
 			if !seen[key] && ri.emittedIn(p.FuncUID, callerLabel) && ri.emittedIn(p.UID, "Parameter") {
 				seen[key] = true
-				rows = append(rows, map[string]any{
+				emit(map[string]any{
 					"func_uid": p.FuncUID, "uid": p.UID,
 					"source_file": fe.relPath, "line_number": p.Line,
 				})
 			}
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) fieldEdgeJSON(parentType string) []map[string]any {
-	var rows []map[string]any
+	return collectRows(func(emit func(map[string]any)) { ri.streamFieldEdges(parentType, emit) })
+}
+
+func (ri *rebuildIndex) streamFieldEdges(parentType string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, f := range fe.entry.Fields {
 
 			if ri.emittedIn(f.ParentUID, parentType) && ri.emittedIn(f.UID, "Field") {
-				rows = append(rows, map[string]any{
+				emit(map[string]any{
 					"parent_uid": f.ParentUID, "uid": f.UID,
 					"source_file": fe.relPath, "line_number": f.Line,
 				})
 			}
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) importEdgeJSON() []map[string]any {
-	var rows []map[string]any
+	return collectRows(ri.streamImportEdges)
+}
+
+func (ri *rebuildIndex) streamImportEdges(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, imp := range fe.entry.Imports {
 			if ri.emittedAny(imp.FileUID) && ri.emittedAny(imp.ModuleUID) {
-				rows = append(rows, map[string]any{
+				emit(map[string]any{
 					"file_uid": imp.FileUID, "module_uid": imp.ModuleUID,
 					"alias": imp.Alias, "full_import_name": imp.RawImport,
 					"imported_name": imp.ImportedName, "line_number": imp.Line,
@@ -828,7 +896,6 @@ func (ri *rebuildIndex) importEdgeJSON() []map[string]any {
 			}
 		}
 	}
-	return rows
 }
 
 // canWriteCallerLabel says whether the CALLS group has both ends for this caller.
@@ -849,7 +916,10 @@ func (ri *rebuildIndex) canWriteCallerLabel(callerLabel string) bool {
 }
 
 func (ri *rebuildIndex) callEdgeJSON(callerLabel, calleeLabel string) []map[string]any {
-	var rows []map[string]any
+	return collectRows(func(emit func(map[string]any)) { ri.streamCallEdges(callerLabel, calleeLabel, emit) })
+}
+
+func (ri *rebuildIndex) streamCallEdges(callerLabel, calleeLabel string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, call := range fe.entry.Calls {
 			if call.CallerUID == "" || call.SourceType != callerLabel ||
@@ -863,18 +933,20 @@ func (ri *rebuildIndex) callEdgeJSON(callerLabel, calleeLabel string) []map[stri
 			if resolved != calleeLabel || !ri.emittedIn(calleeUID, calleeLabel) {
 				continue
 			}
-			rows = append(rows, map[string]any{
+			emit(map[string]any{
 				"caller_uid": call.CallerUID, "callee_uid": calleeUID,
 				"source_file": call.Path, "line_number": call.Line,
 				"full_call_name": "", "receiver_type": call.ReceiverType,
 			})
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) inheritEdgeJSON(relType, fromLabel, toLabel string) []map[string]any {
-	var rows []map[string]any
+	return collectRows(func(emit func(map[string]any)) { ri.streamInheritEdges(relType, fromLabel, toLabel, emit) })
+}
+
+func (ri *rebuildIndex) streamInheritEdges(relType, fromLabel, toLabel string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, inh := range fe.entry.Inheritance {
 			if inh.RelType != relType {
@@ -882,21 +954,23 @@ func (ri *rebuildIndex) inheritEdgeJSON(relType, fromLabel, toLabel string) []ma
 			}
 			if ri.entityUIDs[inh.ChildUID] == fromLabel && ri.entityUIDs[inh.ParentUID] == toLabel &&
 				ri.emittedAny(inh.ChildUID) && ri.emittedAny(inh.ParentUID) {
-				rows = append(rows, map[string]any{
+				emit(map[string]any{
 					"child_uid": inh.ChildUID, "parent_uid": inh.ParentUID,
 					"source_file": inh.Path, "line_number": inh.Line,
 				})
 			}
 		}
 	}
-	return rows
 }
 
 // fieldAccessEdgeJSON takes the source label because a method reads fields as much as
 // a function does — in Go, more. The COPY pinned Function as the source, so every
 // access made from inside a method had no group to be written into.
 func (ri *rebuildIndex) fieldAccessEdgeJSON(write bool, srcLabel string) []map[string]any {
-	var rows []map[string]any
+	return collectRows(func(emit func(map[string]any)) { ri.streamFieldAccessEdges(write, srcLabel, emit) })
+}
+
+func (ri *rebuildIndex) streamFieldAccessEdges(write bool, srcLabel string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, fa := range fe.entry.FieldAccess {
 			if fa.IsWrite != write || !ri.emittedIn(fa.SourceUID, srcLabel) {
@@ -906,17 +980,19 @@ func (ri *rebuildIndex) fieldAccessEdgeJSON(write bool, srcLabel string) []map[s
 			if !ri.emittedIn(fieldUID, LabelField) {
 				continue
 			}
-			rows = append(rows, map[string]any{
+			emit(map[string]any{
 				"source_uid": fa.SourceUID, "field_uid": fieldUID,
 				"source_file": fa.Path, "line_number": fa.Line,
 			})
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) dmlEdgeJSON(relType, srcLabel, tgtLabel string) []map[string]any {
-	var rows []map[string]any
+	return collectRows(func(emit func(map[string]any)) { ri.streamDMLEdges(relType, srcLabel, tgtLabel, emit) })
+}
+
+func (ri *rebuildIndex) streamDMLEdges(relType, srcLabel, tgtLabel string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, ref := range fe.entry.References {
 			if ref.RelType != relType || ref.SourceUID == "" ||
@@ -941,17 +1017,19 @@ func (ri *rebuildIndex) dmlEdgeJSON(relType, srcLabel, tgtLabel string) []map[st
 			} else if !ri.emittedIn(targetUID, tgtLabel) {
 				continue
 			}
-			rows = append(rows, map[string]any{
+			emit(map[string]any{
 				"source_uid": ref.SourceUID, "target_uid": targetUID,
 				"source_file": ref.Path, "line_number": ref.Line,
 			})
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) annotationEdgeJSON(kind, ownerLabel string) []map[string]any {
-	var rows []map[string]any
+	return collectRows(func(emit func(map[string]any)) { ri.streamAnnotationEdges(kind, ownerLabel, emit) })
+}
+
+func (ri *rebuildIndex) streamAnnotationEdges(kind, ownerLabel string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, ent := range fe.entry.Entities {
 			if ent.Label != ownerLabel || annotationKind(ent.Lang) != kind {
@@ -960,7 +1038,7 @@ func (ri *rebuildIndex) annotationEdgeJSON(kind, ownerLabel string) []map[string
 			for _, dec := range ent.Decorators {
 				annUID := dec + ":" + ent.Lang
 				if dec != "" && ri.emittedAny(ent.UID) && ri.emittedAny(annUID) {
-					rows = append(rows, map[string]any{
+					emit(map[string]any{
 						"entity_uid": ent.UID, "annotation_uid": annUID,
 						"source_file": ent.Path, "line_number": ent.Line,
 					})
@@ -968,60 +1046,67 @@ func (ri *rebuildIndex) annotationEdgeJSON(kind, ownerLabel string) []map[string
 			}
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) containsFileEntityJSON(label string) []map[string]any {
-	var rows []map[string]any
+	return collectRows(func(emit func(map[string]any)) { ri.streamContainsFileEntity(label, emit) })
+}
+
+func (ri *rebuildIndex) streamContainsFileEntity(label string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, ent := range fe.entry.Entities {
 			if ent.Label == label && ri.emittedIn(ent.Path, "File") && ri.emittedIn(ent.UID, label) {
-				rows = append(rows, map[string]any{"path": ent.Path, "uid": ent.UID})
+				emit(map[string]any{"path": ent.Path, "uid": ent.UID})
 			}
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) containsDirDirJSON() []map[string]any {
-	var rows []map[string]any
+	return collectRows(ri.streamContainsDirDir)
+}
+
+func (ri *rebuildIndex) streamContainsDirDir(emit func(map[string]any)) {
 	for dp := range ri.dirPathSet {
 		parent := filepath.Dir(dp)
 		if strings.Contains(dp, "/") && ri.emittedAny(parent) && ri.emittedAny(dp) {
-			rows = append(rows, map[string]any{
+			emit(map[string]any{
 				"parent_dir": parent, "child_dir": dp,
 			})
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) containsDirFileJSON() []map[string]any {
-	var rows []map[string]any
+	return collectRows(ri.streamContainsDirFile)
+}
+
+func (ri *rebuildIndex) streamContainsDirFile(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		parent := filepath.Dir(fe.relPath)
 		if strings.Contains(fe.relPath, "/") && ri.emittedAny(parent) && ri.emittedAny(fe.relPath) {
-			rows = append(rows, map[string]any{
+			emit(map[string]any{
 				"parent_dir": parent, "file_path": fe.relPath,
 			})
 		}
 	}
-	return rows
 }
 
 func (ri *rebuildIndex) containsEntityJSON(parentLabel, childLabel string) []map[string]any {
-	var rows []map[string]any
+	return collectRows(func(emit func(map[string]any)) { ri.streamContainsEntity(parentLabel, childLabel, emit) })
+}
+
+func (ri *rebuildIndex) streamContainsEntity(parentLabel, childLabel string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, ce := range fe.entry.ContainsEdges {
 			if ce.ParentLabel == parentLabel && ce.ChildLabel == childLabel &&
 				ri.emittedIn(ce.ParentUID, parentLabel) && ri.emittedIn(ce.ChildUID, childLabel) {
-				rows = append(rows, map[string]any{
+				emit(map[string]any{
 					"parent_uid": ce.ParentUID, "child_uid": ce.ChildUID,
 				})
 			}
 		}
 	}
-	return rows
 }
 
 func annotationKind(lang string) string {

@@ -36,6 +36,8 @@ func rebuildIcebugFromCacheWithDelta(ctx context.Context, cache *ShardCache, cha
 	if cache == nil || cache.Count() == 0 {
 		return nil
 	}
+	defer applyExportMemoryLimit(log)()
+
 	entries := make(map[string]*parseCacheEntry, cache.Count())
 	cache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
 		entries[relPath] = entry

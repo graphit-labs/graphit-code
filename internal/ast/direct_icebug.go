@@ -30,6 +30,12 @@ import (
 // identified, and which two row keys anchor an edge — and even those are driven
 // by the data rather than by a per-label table.
 
+// maxRowGroupRows keeps a table in a single Parquet row group, whatever its size.
+const maxRowGroupRows = 1 << 40
+
+// parquetChunkRows is how many rows are held as Arrow at once while writing a table.
+const parquetChunkRows = 64 << 10
+
 func ExportDirectFromRebuildIndex(ri *rebuildIndex, outDir, storageURI string) (*ladybug.CanonicalManifest, error) {
 	return exportDirectWithReverse(ri, outDir, storageURI, nil, nil, true)
 }
@@ -44,50 +50,7 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 	}
 
 	// ---- nodes: every label the shards declare, plus the two structural tables ----
-	type nodeBatch struct {
-		label string
-		rows  []map[string]any
-	}
-	batches := make([]nodeBatch, 0)
 	var labelIDs = map[string]map[string]uint64{}
-
-	labels := append([]string{}, ri.labels...)
-	labels = append(labels, "File", "Directory")
-
-	// Rows per label come from the same sources the file-backed rebuild used (see
-	// rebuild_index.go) — fileNodeJSON, dirNodeJSON, entityJSON plus the stub
-	// writers — so the exported data is identical to what a populated store had.
-	seenLabel := map[string]bool{}
-	collect := func(label string) {
-		if seenLabel[label] {
-			return
-		}
-		seenLabel[label] = true
-		rows := nodeRowsFor(ri, label)
-		// Deleted (missing) entities leave no references to resolve: files are
-		// the only rows that always exist.
-		_ = rows
-		if len(rows) == 0 && label != "File" && label != "Directory" {
-			return
-		}
-		if len(rows) == 0 && label == "Directory" {
-			return
-		}
-		batches = append(batches, nodeBatch{label: label, rows: rows})
-	}
-	for _, l := range labels {
-		collect(l)
-	}
-	// Parameter/Field tables appear when the shards carry them, not by default.
-	if ri.hasParams && !seenLabel["Parameter"] {
-		collect("Parameter")
-	}
-	if ri.hasFields && !seenLabel["Field"] {
-		collect("Field")
-	}
-	for _, kind := range ri.annotationKinds {
-		collect(kind)
-	}
 
 	// Manifest shell.
 	man := &ladybug.CanonicalManifest{
@@ -103,52 +66,40 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 		},
 	}
 
-	// Deterministic node order for reproducible exports.
-	sort.Slice(batches, func(i, j int) bool { return batches[i].label < batches[j].label })
-	order := []string{}
-	for _, b := range batches {
-		order = append(order, b.label)
+	// Rows per label come from the same sources the file-backed rebuild used (see
+	// rebuild_index.go) — fileNodeJSON, dirNodeJSON, entityJSON plus the stub
+	// writers — so the exported data is identical to what a populated store had.
+	//
+	// SAFETY: this ORDER is load-bearing and is not the write order. The stub writers
+	// skip a uid that emittedAny already knows, so which table a stub lands in depends on
+	// which label was generated first. Parameter/Field appear when the shards carry them,
+	// not by default.
+	labels := append([]string{}, ri.labels...)
+	labels = append(labels, "File", "Directory")
+	if ri.hasParams {
+		labels = append(labels, "Parameter")
 	}
-
-	for _, b := range batches {
-		cols, pk := columnsForLabel(b.label, b.rows)
-		// Dense ids are the row index after an order determined by the primary key,
-		// exactly like ExportIcebugCanonical: stable when nothing changed, so an
-		// incremental can rewrite only a label's file.
-		sort.SliceStable(b.rows, func(i, j int) bool {
-			return strings.Compare(fmt.Sprint(b.rows[i][pk]), fmt.Sprint(b.rows[j][pk])) < 0
-		})
-		// THE ID SPACE IS PER TABLE, matching ExportIcebugCanonical: the CSR of a
-		// `FROM A TO B` member indexes A's rows 0..nA and B's rows 0..nB; the
-		// reader resolves the member's declared endpoints, so File:0 and
-		// Function:0 are distinct by being in different declared tables.
-		ids := make(map[string]uint64, len(b.rows))
-		for i, r := range b.rows {
-			ids[fmt.Sprint(r[pk])] = uint64(i)
-		}
-		labelIDs[b.label] = ids
-
-		fields := make([]arrow.Field, len(cols))
-		for i, c := range cols {
-			fields[i] = arrow.Field{Name: c.Name, Type: arrowTypeForCypherDirect(c.Type), Nullable: true}
-		}
-		file := "nodes_" + b.label + ".parquet"
-		schema := arrow.NewSchema(fields, icebugMetadataDirect())
-		if err := writeParquetDirect(filepath.Join(outDir, file), schema, len(b.rows),
-			func(bld *array.RecordBuilder, from, to int) {
-				for ci, col := range cols {
-					builder := bld.Field(ci)
-					for i := from; i < to; i++ {
-						appendArrowValueDirect(builder, b.rows[i][col.Name])
-					}
-				}
-			}); err != nil {
-			return nil, fmt.Errorf("write nodes %s: %w", b.label, err)
-		}
-		man.NodeTables = append(man.NodeTables, ladybug.CanonicalNodeTable{
-			Label: b.label, File: file, Rows: int64(len(b.rows)), PrimaryKey: pk, Columns: cols,
-		})
+	if ri.hasFields {
+		labels = append(labels, "Field")
 	}
+	labels = append(labels, ri.annotationKinds...)
+
+	// One label's rows at a time: they are generated, written and released inside this
+	// loop rather than collected up front, so the peak is the largest single table
+	// instead of the sum of every one of them.
+	seenLabel := map[string]bool{}
+	for _, label := range labels {
+		if seenLabel[label] {
+			continue
+		}
+		seenLabel[label] = true
+		if err := writeNodeTableDirect(ri, outDir, label, man, labelIDs); err != nil {
+			return nil, err
+		}
+	}
+	// Deterministic node order for reproducible exports, and the order schema.cypher
+	// declares the node tables in.
+	sort.Slice(man.NodeTables, func(i, j int) bool { return man.NodeTables[i].Label < man.NodeTables[j].Label })
 
 	// ---- relationships ----
 	//
@@ -161,69 +112,56 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 	relReverse := map[string][]*ladybug.CanonicalMember{}
 	usedMembers := map[string]string{}
 
-	exportRel := func(relType, from, to, fromCol, toCol string, data []map[string]any) error {
-		if len(data) == 0 {
-			return nil
-		}
+	exportRel := func(relType, from, to, fromCol, toCol string, stream func(emit func(map[string]any))) error {
 		fromIDs, ok1 := labelIDs[from]
 		toIDs, ok2 := labelIDs[to]
 		if !ok1 || !ok2 {
 			return nil
 		}
+		// The property columns are accumulated ALONGSIDE the edge they belong to, and
+		// only for the rows whose endpoints resolved. A second pass over the rows would
+		// include the ones skipped here, and every property from the first skipped row
+		// on would land on the wrong edge. The rows themselves are never retained.
 		var edges []csrEdgeDirect
-		var propNames []string
-		propSeen := map[string]bool{}
-		for _, r := range data {
+		propTable := newNodeColumns()
+		stream(func(r map[string]any) {
 			s, okS := fromIDs[fmt.Sprint(r[fromCol])]
 			t, okT := toIDs[fmt.Sprint(r[toCol])]
 			if !okS || !okT {
-				continue
+				return
 			}
 			edges = append(edges, csrEdgeDirect{source: s, target: t})
-			for k := range r {
-				if k == fromCol || k == toCol {
-					continue
-				}
-				if !propSeen[k] {
-					propSeen[k] = true
-					propNames = append(propNames, k)
-				}
-			}
-		}
+			propTable.appendRowExcept(r, fromCol, toCol)
+		})
 		if len(edges) == 0 {
 			return nil
 		}
-		// Property columns, in the stable order of their first appearance across
-		// rows, with the type inferred from the values — matches what the file
-		// path wrote for the same row keys.
-		sort.Strings(propNames)
-		props := make([]ladybug.Field, 0, len(propNames))
-		for _, k := range propNames {
-			props = append(props, ladybug.Field{Name: k, Type: inferTypeFor(collectPropValues(data, k))})
-		}
+		props, propColumns := propTable.sortedFields()
+
 		fwdName := canonicalMemberNameDirect(relType, from, to)
 		if prev, seen := usedMembers[fwdName]; seen && prev != from+"->"+to {
 			return fmt.Errorf("canonical members collide on %q", fwdName)
 		}
 		usedMembers[fwdName] = from + "->" + to
 
-		sortedEdges, sortedProps := sortCSR(edges, collectProps(data, props, fromCol, toCol))
+		fwdCSR := csrMemberDirect{edges: edges, props: propColumns}
+		fwdCSR.order = csrOrderDirect(edges)
 		indicesFile := "indices_" + fwdName + ".parquet"
 		indptrFile := "indptr_" + fwdName + ".parquet"
 		propArrowFields := make([]arrow.Field, len(props))
 		for i, p := range props {
 			propArrowFields[i] = arrow.Field{Name: p.Name, Type: arrowTypeForCypherDirect(p.Type), Nullable: true}
 		}
-		if err := writeIndicesDirect(filepath.Join(outDir, indicesFile), sortedEdges, propArrowFields, sortedProps); err != nil {
+		if err := writeIndicesDirect(filepath.Join(outDir, indicesFile), fwdCSR, propArrowFields); err != nil {
 			return err
 		}
-		if err := writeIndptrDirect(filepath.Join(outDir, indptrFile), sortedEdges, uint64(len(fromIDs))); err != nil {
+		if err := writeIndptrDirect(filepath.Join(outDir, indptrFile), fwdCSR.edges, uint64(len(fromIDs))); err != nil {
 			return err
 		}
 		fwd := &ladybug.CanonicalMember{
 			From: from, To: to, Table: fwdName,
 			Indices: indicesFile, Indptr: indptrFile,
-			Rows: int64(len(sortedEdges)),
+			Rows: int64(len(fwdCSR.edges)),
 		}
 		relMembers[relType] = append(relMembers[relType], fwd)
 		man.EdgeCount += fwd.Rows
@@ -234,24 +172,23 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 		// A self-loop matters only when the two endpoint TABLES are the same:
 		// File:0 -> Function:0 are different rows in different tables. The id
 		// space is per table and the reader resolves the member's endpoints.
-		revEdges, revProps := reverseEdgesDirect(sortedEdges, sortedProps, from, to)
-		if len(revEdges) == 0 {
+		revCSR := reverseMemberDirect(fwdCSR, from == to)
+		if len(revCSR.edges) == 0 {
 			return nil
 		}
-		revSorted, revSortedProps := sortCSR(revEdges, revProps)
 		revName := fwdName + "_reverse"
 		revIndices := "indices_" + revName + ".parquet"
 		revIndptr := "indptr_" + revName + ".parquet"
-		if err := writeIndicesDirect(filepath.Join(outDir, revIndices), revSorted, propArrowFields, revSortedProps); err != nil {
+		if err := writeIndicesDirect(filepath.Join(outDir, revIndices), revCSR, propArrowFields); err != nil {
 			return err
 		}
-		if err := writeIndptrDirect(filepath.Join(outDir, revIndptr), revSorted, uint64(len(toIDs))); err != nil {
+		if err := writeIndptrDirect(filepath.Join(outDir, revIndptr), revCSR.edges, uint64(len(toIDs))); err != nil {
 			return err
 		}
 		rev := &ladybug.CanonicalMember{
 			From: to, To: from, Table: revName,
 			Indices: revIndices, Indptr: revIndptr,
-			Rows: int64(len(revSorted)),
+			Rows: int64(len(revCSR.edges)),
 		}
 		relReverse[relType] = append(relReverse[relType], rev)
 		return nil
@@ -259,13 +196,13 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 
 	if ri.hasParams {
 		for _, owner := range ri.paramOwnerLabels {
-			if err := exportRel("HAS_PARAMETER", owner, "Parameter", "func_uid", "uid", ri.paramEdgeJSON(owner)); err != nil {
+			if err := exportRel("HAS_PARAMETER", owner, "Parameter", "func_uid", "uid", func(emit func(map[string]any)) { ri.streamParamEdges(owner, emit) }); err != nil {
 				return nil, err
 			}
 		}
 	}
 	for _, pt := range ri.labels {
-		if err := exportRel("HAS_FIELD", pt, "Field", "parent_uid", "uid", ri.fieldEdgeJSON(pt)); err != nil {
+		if err := exportRel("HAS_FIELD", pt, "Field", "parent_uid", "uid", func(emit func(map[string]any)) { ri.streamFieldEdges(pt, emit) }); err != nil {
 			return nil, err
 		}
 	}
@@ -275,13 +212,13 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 			if !ri.labelSet[ol] {
 				continue
 			}
-			if err := exportRel(edgeName, ol, kind, "entity_uid", "annotation_uid", ri.annotationEdgeJSON(kind, ol)); err != nil {
+			if err := exportRel(edgeName, ol, kind, "entity_uid", "annotation_uid", func(emit func(map[string]any)) { ri.streamAnnotationEdges(kind, ol, emit) }); err != nil {
 				return nil, err
 			}
 		}
 	}
 	if ri.hasImports {
-		if err := exportRel("IMPORTS", "File", "Module", "file_uid", "module_uid", ri.importEdgeJSON()); err != nil {
+		if err := exportRel("IMPORTS", "File", "Module", "file_uid", "module_uid", ri.streamImportEdges); err != nil {
 			return nil, err
 		}
 	}
@@ -290,7 +227,7 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 			continue
 		}
 		for _, tl := range ri.calleeLabels {
-			if err := exportRel("CALLS", cl, tl, "caller_uid", "callee_uid", ri.callEdgeJSON(cl, tl)); err != nil {
+			if err := exportRel("CALLS", cl, tl, "caller_uid", "callee_uid", func(emit func(map[string]any)) { ri.streamCallEdges(cl, tl, emit) }); err != nil {
 				return nil, err
 			}
 		}
@@ -303,20 +240,20 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 			if !ri.labelSet[to] {
 				continue
 			}
-			if err := exportRel("INHERITS", from, to, "child_uid", "parent_uid", ri.inheritEdgeJSON("INHERITS", from, to)); err != nil {
+			if err := exportRel("INHERITS", from, to, "child_uid", "parent_uid", func(emit func(map[string]any)) { ri.streamInheritEdges("INHERITS", from, to, emit) }); err != nil {
 				return nil, err
 			}
-			if err := exportRel("IMPLEMENTS", from, to, "child_uid", "parent_uid", ri.inheritEdgeJSON("IMPLEMENTS", from, to)); err != nil {
+			if err := exportRel("IMPLEMENTS", from, to, "child_uid", "parent_uid", func(emit func(map[string]any)) { ri.streamInheritEdges("IMPLEMENTS", from, to, emit) }); err != nil {
 				return nil, err
 			}
 		}
 	}
 	if ri.labelSet[LabelField] {
 		for _, src := range ri.fieldAccessSourceLabels {
-			if err := exportRel("READS_FIELD", src, "Field", "source_uid", "field_uid", ri.fieldAccessEdgeJSON(false, src)); err != nil {
+			if err := exportRel("READS_FIELD", src, "Field", "source_uid", "field_uid", func(emit func(map[string]any)) { ri.streamFieldAccessEdges(false, src, emit) }); err != nil {
 				return nil, err
 			}
-			if err := exportRel("WRITES_FIELD", src, "Field", "source_uid", "field_uid", ri.fieldAccessEdgeJSON(true, src)); err != nil {
+			if err := exportRel("WRITES_FIELD", src, "Field", "source_uid", "field_uid", func(emit func(map[string]any)) { ri.streamFieldAccessEdges(true, src, emit) }); err != nil {
 				return nil, err
 			}
 		}
@@ -331,38 +268,47 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 				continue
 			}
 			for _, tgt := range ri.dmlTargetLabels {
-				if err := exportRel(rt, src, tgt, "source_uid", "target_uid", ri.dmlEdgeJSON(rt, src, tgt)); err != nil {
+				if err := exportRel(rt, src, tgt, "source_uid", "target_uid", func(emit func(map[string]any)) { ri.streamDMLEdges(rt, src, tgt, emit) }); err != nil {
 					return nil, err
 				}
 			}
 		}
 		for _, tgt := range ri.dmlTargetLabels {
-			if err := exportRel(rt, LabelFile, tgt, "source_uid", "target_uid", ri.dmlEdgeJSON(rt, LabelFile, tgt)); err != nil {
+			if err := exportRel(rt, LabelFile, tgt, "source_uid", "target_uid", func(emit func(map[string]any)) { ri.streamDMLEdges(rt, LabelFile, tgt, emit) }); err != nil {
 				return nil, err
 			}
 		}
 	}
 	for _, label := range ri.labels {
-		if err := exportRel("CONTAINS", "File", label, "path", "uid", ri.containsFileEntityJSON(label)); err != nil {
+		if err := exportRel("CONTAINS", "File", label, "path", "uid", func(emit func(map[string]any)) { ri.streamContainsFileEntity(label, emit) }); err != nil {
 			return nil, err
 		}
 	}
-	if err := exportRel("CONTAINS", "Directory", "Directory", "parent_dir", "child_dir", ri.containsDirDirJSON()); err != nil {
+	if err := exportRel("CONTAINS", "Directory", "Directory", "parent_dir", "child_dir", ri.streamContainsDirDir); err != nil {
 		return nil, err
 	}
-	if err := exportRel("CONTAINS", "Directory", "File", "parent_dir", "file_path", ri.containsDirFileJSON()); err != nil {
+	if err := exportRel("CONTAINS", "Directory", "File", "parent_dir", "file_path", ri.streamContainsDirFile); err != nil {
 		return nil, err
 	}
 	for _, eg := range ri.containsPairs {
-		if err := exportRel("CONTAINS", eg[0], eg[1], "parent_uid", "child_uid", ri.containsEntityJSON(eg[0], eg[1])); err != nil {
+		if err := exportRel("CONTAINS", eg[0], eg[1], "parent_uid", "child_uid", func(emit func(map[string]any)) { ri.streamContainsEntity(eg[0], eg[1], emit) }); err != nil {
 			return nil, err
 		}
 	}
 
-	for relType, members := range relMembers {
+	// Ranging a map put the groups in a different order on every run, so two exports of
+	// an unchanged corpus produced different icebug.json bytes. The REL TABLE order in
+	// schema.cypher is a separate, load-bearing thing and stays where it is decided —
+	// writeCanonicalSchemaDirect, largest member first.
+	relTypes := make([]string, 0, len(relMembers))
+	for relType := range relMembers {
+		relTypes = append(relTypes, relType)
+	}
+	sort.Strings(relTypes)
+	for _, relType := range relTypes {
 		man.RelGroups = append(man.RelGroups, ladybug.CanonicalRelGroup{
 			Type:           relType,
-			Members:        cloneMembers(members),
+			Members:        cloneMembers(relMembers[relType]),
 			ReverseMembers: cloneMembers(relReverse[relType]),
 		})
 	}
@@ -445,14 +391,13 @@ func ExportDirectIncrementalWithReverse(ri *rebuildIndex, outDir, finalDir, stor
 	// real export below produced an EMPTY table for each one. That is the mechanism behind a
 	// bundle shrinking a little on every incremental: 549 Parquet files -> 175 -> 57 over
 	// three runs on a 38k-file corpus. The probe has to leave no trace.
-	emitted := ri.emittedUIDs
-	ri.emittedUIDs = make(map[string]map[string]bool)
+	restoreEmitState := ri.detachEmitState()
 	for _, nt := range oldMan.NodeTables {
 		if _, ok := labelInBatches(ri, nt.Label); !ok {
 			affectedLabels[nt.Label] = true
 		}
 	}
-	ri.emittedUIDs = emitted
+	restoreEmitState()
 
 	// Recompute affected rel types from the changed files' entry shapes.
 	affectedRels := map[string]bool{}
@@ -702,52 +647,114 @@ func exportDirectDelta(ri *rebuildIndex, outDir, finalDir, storageURI string, af
 	return man, nil
 }
 
+// writeNodeTableDirect generates one label's rows, assigns its dense ids and writes its
+// Parquet. The rows are unreachable the moment it returns, which is the whole point of
+// generating them here rather than in a batch the caller holds.
+// writeNodeTableDirect generates one label's rows, assigns its dense ids and writes its
+// Parquet. The rows are streamed into typed columns rather than retained as a slice of
+// maps, so what survives the generation is the column data itself.
+func writeNodeTableDirect(ri *rebuildIndex, outDir, label string, man *ladybug.CanonicalManifest, labelIDs map[string]map[string]uint64) error {
+	table := newNodeColumns()
+	streamNodeRowsFor(ri, label, table.appendRow)
+	// Deleted (missing) entities leave no references to resolve: files are the only
+	// rows that always exist.
+	if table.rows == 0 && label != "File" {
+		return nil
+	}
+
+	cols, columns, pk := table.fields(label)
+	// Dense ids are the row index after an order determined by the primary key,
+	// exactly like ExportIcebugCanonical: stable when nothing changed, so an
+	// incremental can rewrite only a label's file.
+	order, keys := table.sortedOrder(pk)
+	// THE ID SPACE IS PER TABLE, matching ExportIcebugCanonical: the CSR of a
+	// `FROM A TO B` member indexes A's rows 0..nA and B's rows 0..nB; the
+	// reader resolves the member's declared endpoints, so File:0 and
+	// Function:0 are distinct by being in different declared tables.
+	ids := make(map[string]uint64, table.rows)
+	for i, at := range order {
+		ids[keys[at]] = uint64(i)
+	}
+	keys = nil
+	labelIDs[label] = ids
+
+	fields := make([]arrow.Field, len(cols))
+	for i, c := range cols {
+		fields[i] = arrow.Field{Name: c.Name, Type: arrowTypeForCypherDirect(c.Type), Nullable: true}
+	}
+	file := "nodes_" + label + ".parquet"
+	schema := arrow.NewSchema(fields, icebugMetadataDirect())
+	err := writeParquetDirect(filepath.Join(outDir, file), schema, table.rows,
+		func(bld *array.RecordBuilder, from, to int) {
+			for ci, col := range columns {
+				builder := bld.Field(ci)
+				for i := from; i < to; i++ {
+					col.appendTo(builder, int(order[i]))
+				}
+			}
+		})
+	if err != nil {
+		return fmt.Errorf("write nodes %s: %w", label, err)
+	}
+	man.NodeTables = append(man.NodeTables, ladybug.CanonicalNodeTable{
+		Label: label, File: file, Rows: int64(table.rows), PrimaryKey: pk, Columns: cols,
+	})
+	return nil
+}
+
 func labelInBatches(ri *rebuildIndex, label string) (map[string]any, bool) {
-	rows := nodeRowsFor(ri, label)
-	return nil, len(rows) > 0
+	var found bool
+	streamNodeRowsFor(ri, label, func(map[string]any) { found = true })
+	return nil, found
 }
 
 // ---------- node rows ----------
 
 func nodeRowsFor(ri *rebuildIndex, label string) []map[string]any {
+	return collectRows(func(emit func(map[string]any)) { streamNodeRowsFor(ri, label, emit) })
+}
+
+func streamNodeRowsFor(ri *rebuildIndex, label string, emit func(map[string]any)) {
 	switch label {
 	case "File":
-		return ri.fileNodeJSON()
+		ri.streamFileNodes(emit)
+		return
 	case "Directory":
-		return ri.dirNodeJSON(nil, "")
+		ri.streamDirNodes(nil, "", emit)
+		return
 	case "Module":
 		if ri.hasImports {
-			return ri.moduleJSON()
+			ri.streamModules(emit)
 		}
-		return nil
+		return
 	}
 	for _, kind := range ri.annotationKinds {
 		if label == kind {
-			return ri.annotationNodeJSON(kind)
+			ri.streamAnnotationNodes(kind, emit)
+			return
 		}
 	}
-	rows := ri.entityJSON(label)
+	ri.streamEntities(label, emit)
 	switch label {
 	case "Function":
-		rows = append(rows, ri.stubFunctionJSON()...)
+		ri.streamStubFunctions(emit)
 	case "Class":
 		if ri.labelSet["Class"] {
-			rows = append(rows, ri.stubClassJSON()...)
+			ri.streamStubClasses(emit)
 		}
 	case "Interface":
 		if ri.labelSet["Interface"] {
-			rows = append(rows, ri.stubInterfaceJSON()...)
+			ri.streamStubInterfaces(emit)
 		}
 	case LabelField:
 		if ri.labelSet[LabelField] {
-			rows = append(rows, ri.stubFieldJSON()...)
+			ri.streamStubFields(emit)
 		}
 	case "Table":
 		if ri.labelSet["Table"] {
-			rows = append(rows, ri.stubTableJSON()...)
+			ri.streamStubTables(emit)
 		}
 	}
-	return rows
 }
 
 // ---------- columns and types (derived, not hardcoded) ----------
@@ -757,72 +764,6 @@ var graphColumnOrder = []string{
 	"lang", "cyclomatic_complexity", "context", "context_type", "class_context",
 	"is_dependency", "is_depend", "is_exported", "value", "is_stub", "cluster",
 	"full_import_name", "alias", "imported_name", "source_file",
-}
-
-// nodePrimaryKeyNames are the property names a label can key on. The tables the
-// shards declare always use uid; the two structural tables use path. Nothing
-// else is hardcoded.
-func nodePrimaryKeyFor(label string, rows []map[string]any) string {
-	for _, r := range rows {
-		if _, ok := r["path"]; ok && (label == "File" || label == "Directory") {
-			return "path"
-		}
-		break
-	}
-	return "uid"
-}
-
-// columnsForLabel returns the column set for a node table: the union of every
-// property name present in the label's rows, in a stable order, with types
-// inferred from values. uuid → STRING for identifiers.
-func columnsForLabel(label string, rows []map[string]any) ([]ladybug.Field, string) {
-	seen := map[string]bool{}
-	var names []string
-	for _, r := range rows {
-		for k := range r {
-			if !seen[k] {
-				seen[k] = true
-				names = append(names, k)
-			}
-		}
-	}
-	// Stable order: the canonical graph order first (when present), then the rest
-	// alphabetically.
-	ordered := make([]string, 0, len(names))
-	for _, g := range graphColumnOrder {
-		if seen[g] {
-			ordered = append(ordered, g)
-		}
-	}
-	var rest []string
-	for _, n := range names {
-		if !seenIn(ordered, n) {
-			rest = append(rest, n)
-		}
-	}
-	sort.Strings(rest)
-	ordered = append(ordered, rest...)
-
-	cols := make([]ladybug.Field, 0, len(ordered))
-	for _, n := range ordered {
-		cols = append(cols, ladybug.Field{Name: n, Type: inferTypeFor(collectColumnValues(rows, n))})
-	}
-	pk := nodePrimaryKeyFor(label, rows)
-	return cols, pk
-}
-
-func collectColumnValues(rows []map[string]any, key string) []any {
-	var out []any
-	for _, r := range rows {
-		if v, ok := r[key]; ok {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-func collectPropValues(rows []map[string]any, key string) []any {
-	return collectColumnValues(rows, key)
 }
 
 func inferTypeFor(values []any) string {
@@ -847,26 +788,7 @@ func inferTypeFor(values []any) string {
 	}
 }
 
-func seenIn(list []string, s string) bool {
-	for _, e := range list {
-		if e == s {
-			return true
-		}
-	}
-	return false
-}
-
 // ---------- property collection for edges ----------
-
-func collectProps(rows []map[string]any, props []ladybug.Field, fromCol, toCol string) [][]any {
-	out := make([][]any, len(props))
-	for _, r := range rows {
-		for i, p := range props {
-			out[i] = append(out[i], r[p.Name])
-		}
-	}
-	return out
-}
 
 func cloneMembers(in []*ladybug.CanonicalMember) []ladybug.CanonicalMember {
 	out := make([]ladybug.CanonicalMember, len(in))
@@ -876,34 +798,39 @@ func cloneMembers(in []*ladybug.CanonicalMember) []ladybug.CanonicalMember {
 	return out
 }
 
-func sortCSR(edges []csrEdgeDirect, propValues [][]any) ([]csrEdgeDirect, [][]any) {
-	idx := make([]int, len(edges))
-	for i := range idx {
-		idx[i] = i
+// csrMemberDirect is one CSR edge member, read through indirections instead of copies.
+//
+// SAFETY: `props` is shared with the reverse member and must not be reordered in place.
+// `order` is the CSR read order over `edges`; `propAt` maps an edge back to its row in
+// `props`, and nil means the identity. Sorting used to copy every property column, and
+// building the reverse copied them again — four full copies of a `[][]any` per member.
+type csrMemberDirect struct {
+	edges  []csrEdgeDirect
+	props  []*nodeColumn
+	propAt []int32
+	order  []int32
+}
+
+func (m csrMemberDirect) propRow(edge int32) int32 {
+	if m.propAt == nil {
+		return edge
 	}
-	sort.SliceStable(idx, func(a, b int) bool {
-		ea, eb := edges[idx[a]], edges[idx[b]]
+	return m.propAt[edge]
+}
+
+func csrOrderDirect(edges []csrEdgeDirect) []int32 {
+	order := make([]int32, len(edges))
+	for i := range order {
+		order[i] = int32(i)
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ea, eb := edges[order[a]], edges[order[b]]
 		if ea.source != eb.source {
 			return ea.source < eb.source
 		}
 		return ea.target < eb.target
 	})
-	sorted := make([]csrEdgeDirect, len(edges))
-	for i, id := range idx {
-		sorted[i] = edges[id]
-	}
-	outProps := make([][]any, len(propValues))
-	for c := range propValues {
-		if len(propValues[c]) != len(idx) {
-			continue
-		}
-		col := make([]any, len(idx))
-		for i, id := range idx {
-			col[i] = propValues[c][id]
-		}
-		outProps[c] = col
-	}
-	return sorted, outProps
+	return order
 }
 
 // ---------- manifest & schema ----------
@@ -1023,23 +950,22 @@ type csrEdgeDirect struct {
 	target uint64
 }
 
-func reverseEdgesDirect(edges []csrEdgeDirect, propValues [][]any, from, to string) ([]csrEdgeDirect, [][]any) {
-	var out []csrEdgeDirect
-	outProps := make([][]any, len(propValues))
-	for i := range outProps {
-		outProps[i] = make([]any, 0, len(edges))
+func reverseMemberDirect(m csrMemberDirect, sameTable bool) csrMemberDirect {
+	rev := csrMemberDirect{
+		props:  m.props,
+		edges:  make([]csrEdgeDirect, 0, len(m.edges)),
+		propAt: make([]int32, 0, len(m.edges)),
 	}
-	for i, e := range edges {
+	for i, e := range m.edges {
 		// Same row in the SAME table: only then it is a real self-loop.
-		if from == to && e.source == e.target {
+		if sameTable && e.source == e.target {
 			continue
 		}
-		out = append(out, csrEdgeDirect{source: e.target, target: e.source})
-		for pi := range propValues {
-			outProps[pi] = append(outProps[pi], propValues[pi][i])
-		}
+		rev.edges = append(rev.edges, csrEdgeDirect{source: e.target, target: e.source})
+		rev.propAt = append(rev.propAt, m.propRow(int32(i)))
 	}
-	return out, outProps
+	rev.order = csrOrderDirect(rev.edges)
+	return rev
 }
 
 func canonicalMemberNameDirect(relType, from, to string) string {
@@ -1092,6 +1018,10 @@ func arrowTypeForCypherDirect(cypher string) arrow.DataType {
 	}
 }
 
+// SAFETY: the row group count is load-bearing — see TestIcebugWritesOneRowGroupPerFile.
+// WriteBuffered appends into the CURRENT row group while the running total stays under
+// MaxRowGroupLength, so every chunk below lands in the same one; FileWriter.Write would
+// open a new row group per call.
 func writeParquetDirect(dest string, schema *arrow.Schema, rows int, fill func(*array.RecordBuilder, int, int)) error {
 	f, err := os.Create(dest)
 	if err != nil {
@@ -1101,7 +1031,7 @@ func writeParquetDirect(dest string, schema *arrow.Schema, rows int, fill func(*
 	props := parquet.NewWriterProperties(
 		parquet.WithCompression(compress.Codecs.Zstd),
 		parquet.WithDictionaryDefault(false),
-		parquet.WithMaxRowGroupLength(1<<40),
+		parquet.WithMaxRowGroupLength(maxRowGroupRows),
 	)
 	w, err := pqarrow.NewFileWriter(schema, f, props, pqarrow.DefaultWriterProps())
 	if err != nil {
@@ -1109,31 +1039,48 @@ func writeParquetDirect(dest string, schema *arrow.Schema, rows int, fill func(*
 	}
 	builder := array.NewRecordBuilder(memory.DefaultAllocator, schema)
 	defer builder.Release()
-	fill(builder, 0, rows)
-	rec := builder.NewRecordBatch()
-	defer rec.Release()
-	if err := w.Write(rec); err != nil {
-		_ = w.Close()
-		return err
+
+	writeChunk := func(from, to int) error {
+		fill(builder, from, to)
+		rec := builder.NewRecordBatch()
+		defer rec.Release()
+		return w.WriteBuffered(rec)
+	}
+	for from := 0; from < rows; from += parquetChunkRows {
+		to := from + parquetChunkRows
+		if to > rows {
+			to = rows
+		}
+		if err := writeChunk(from, to); err != nil {
+			_ = w.Close()
+			return err
+		}
+	}
+	if rows == 0 {
+		if err := writeChunk(0, 0); err != nil {
+			_ = w.Close()
+			return err
+		}
 	}
 	return w.Close()
 }
 
-func writeIndicesDirect(dest string, edges []csrEdgeDirect, propFields []arrow.Field, propValues [][]any) error {
+func writeIndicesDirect(dest string, m csrMemberDirect, propFields []arrow.Field) error {
 	fields := make([]arrow.Field, 0, len(propFields)+1)
 	fields = append(fields, arrow.Field{Name: "target", Type: arrow.PrimitiveTypes.Uint64, Nullable: true})
 	fields = append(fields, propFields...)
 	schema := arrow.NewSchema(fields, icebugMetadataDirect())
-	return writeParquetDirect(dest, schema, len(edges), func(b *array.RecordBuilder, from, to int) {
+	return writeParquetDirect(dest, schema, len(m.edges), func(b *array.RecordBuilder, from, to int) {
 		tb := b.Field(0).(*array.Uint64Builder)
 		for i := from; i < to; i++ {
-			tb.Append(edges[i].target)
+			tb.Append(m.edges[m.order[i]].target)
 		}
 		for ci := range propFields {
 			col := b.Field(ci + 1)
 			for i := from; i < to; i++ {
-				if ci < len(propValues) && i < len(propValues[ci]) {
-					appendArrowValueDirect(col, propValues[ci][i])
+				row := int(m.propRow(m.order[i]))
+				if ci < len(m.props) && row < m.props[ci].len() {
+					m.props[ci].appendTo(col, row)
 				} else {
 					col.AppendNull()
 				}
