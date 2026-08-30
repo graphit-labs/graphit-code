@@ -146,6 +146,7 @@ type antlrLangConfig struct {
 	Grammar    string // Grammar name (e.g. "antlr-plsql")
 	Extensions []string
 	StartRule  string
+	Exclusive  bool
 }
 
 // antlrConfigOf builds the extension config an ANTLR query file describes.
@@ -159,6 +160,7 @@ func antlrConfigOf(qf ExternalQueryFile) *antlrLangConfig {
 		Grammar:    grammar,
 		Extensions: qf.Extensions,
 		StartRule:  qf.StartRule,
+		Exclusive:  qf.Exclusive,
 	}
 }
 
@@ -182,17 +184,8 @@ func (a *AntlrParser) Parse(path string, isDepend bool, opts ParseOptions) (*Par
 		langName := strings.TrimPrefix(ext, ".")
 		qfs := resolveQueriesForLang(a.projectDir, langName, ext)
 		for _, qf := range qfs {
-			if qf.Parser == "antlr4" {
-				grammar := qf.Grammar
-				if grammar == "" {
-					grammar = "antlr-" + qf.Language
-				}
-				cfgs = append(cfgs, &antlrLangConfig{
-					Language:   qf.Language,
-					Grammar:    grammar,
-					Extensions: qf.Extensions,
-					StartRule:  qf.StartRule,
-				})
+			if qf.Parser == "antlr4" && !qf.Exclusive {
+				cfgs = append(cfgs, antlrConfigOf(qf))
 			}
 		}
 		if len(cfgs) == 0 {
@@ -933,7 +926,7 @@ func HasAntlrForExtensionIn(projectDir, ext string) bool {
 		return false
 	}
 	for _, qf := range effectiveProjectQueryFiles(projectDir) {
-		if qf.Parser != "antlr4" || !queryFileClaims(qf, ext) {
+		if qf.Parser != "antlr4" || qf.Exclusive || !queryFileClaims(qf, ext) {
 			continue
 		}
 		if grammarEnabledIn(projectDir, qf.Language, effectiveGrammarName(qf)) {
@@ -988,7 +981,11 @@ func HasParserForExtension(ext string) bool {
 }
 
 // HasParserForExtensionIn is HasParserForExtension including the languages a
-// project declares for itself.
+// project declares for itself, and the grammar its configuration binds to the
+// extension — which is the only way an exclusive grammar is ever reached.
 func HasParserForExtensionIn(projectDir, ext string) bool {
+	if grammar := overriddenGrammarFor(projectDir, ext); grammar != "" {
+		return grammarKnownIn(projectDir, grammar)
+	}
 	return HasTreeSitterForExtensionIn(projectDir, ext) || HasAntlrForExtensionIn(projectDir, ext)
 }

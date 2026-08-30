@@ -52,10 +52,10 @@ Graphit Code indexes **44 programming languages: 39 through Tree-sitter and 5 th
 | 15 | **Ruby** | Tree-sitter | `.rb` | Function, Class, Module, Variable, Field, Parameter |
 | 16 | **SQL** | Tree-sitter | `.sql` | Function, Table, Column, View, Index — plus `SELECTS` / `INSERTS` / `UPDATES` / `DELETES` / `ALTERS` edges to the tables each statement touches. **Default parser for `.sql`**; an Oracle/T-SQL project opts into its dialect with `ast.grammar` (`.sql=antlr-plsql`) |
 | 17 | **XML** | Tree-sitter | `.xml`, `.xsl`, `.xslt`, `.xsd`, `.svg`, `.wsdl`, `.plist`, `.xhtml` | Element |
-| 18 | **PL/SQL** | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Function, Procedure, Package, Table, View, MaterializedView, Trigger, Type, Index, Sequence, Synonym, DBLink, Column, Parameter, Variable, Constant, Cursor, Exception, Constraint, Savepoint |
-| 19 | **PostgreSQL** | ANTLR v4 | `.sql`, `.pgsql`, `.plpgsql`, `.pg` | Function, Procedure, Table, View, MaterializedView, Schema, Trigger, Sequence, Index, Extension, Type (domain/composite/enum/range), Column, Parameter, Constraint, Variable |
-| 20 | **DB2** | ANTLR v4 | `.sql`, `.db2` | Function, StoredProcedure, Table, View, Trigger, Index, Sequence, Type, Schema, Alias, Tablespace, Column, Parameter, Variable |
-| 21 | **T-SQL** | ANTLR v4 | `.sql`, `.tsql` | StoredProcedure, Function, Table, View, Trigger, Index, Sequence, Type, Schema, Column, Parameter, Variable |
+| 18 | **PL/SQL** (exclusive) | ANTLR v4 | `.sql`, `.pks`, `.pkb`, `.pls`, `.plb`, `.prc`, `.fnc`, `.trg`, `.typ`, `.bdy`, `.spc`, `.vw` | Function, Procedure, Package, Table, View, MaterializedView, Trigger, Type, Index, Sequence, Synonym, DBLink, Column, Parameter, Variable, Constant, Cursor, Exception, Constraint, Savepoint |
+| 19 | **PostgreSQL** (exclusive) | ANTLR v4 | `.sql`, `.pgsql`, `.plpgsql`, `.pg` | Function, Procedure, Table, View, MaterializedView, Schema, Trigger, Sequence, Index, Extension, Type (domain/composite/enum/range), Column, Parameter, Constraint, Variable |
+| 20 | **DB2** (exclusive) | ANTLR v4 | `.sql`, `.db2` | Function, StoredProcedure, Table, View, Trigger, Index, Sequence, Type, Schema, Alias, Tablespace, Column, Parameter, Variable |
+| 21 | **T-SQL** (exclusive) | ANTLR v4 | `.sql`, `.tsql` | StoredProcedure, Function, Table, View, Trigger, Index, Sequence, Type, Schema, Column, Parameter, Variable |
 | 22 | **COBOL 85** | ANTLR v4 | `.cob`, `.cbl`, `.cpy`, `.cobol` | Program, Section, Paragraph, DataItem, FileDescription, ConditionName |
 | 23 | **HTML** | Tree-sitter | `.html`, `.htm` | Element, Attribute, AttributeValue, Doctype, Text — plus everything the inline `<script>` and `<style>` bodies declare (see [Embedded Language Parsing](embedded_language_parsing.md)) |
 | 24 | **Bash** | Tree-sitter | `.sh`, `.bash` | Function, Variable |
@@ -100,6 +100,16 @@ Graphit Code indexes **44 programming languages: 39 through Tree-sitter and 5 th
 > machine — with `ast.grammars_blacklist`, and a project that wants only a few of them
 > names those in `ast.grammars_whitelist`. See
 > [Turning a grammar off by configuration](#turning-a-grammar-off-by-configuration).
+
+> **(exclusive) means the language is never chosen automatically.** The four SQL
+> dialects above, and the tree-sitter `plpgsql` grammar behind the splice below, are
+> declared `exclusive: true` in their query YAML: they are not registered for the
+> extensions they list, so no file reaches them by extension and nothing falls back to
+> them. A project indexes SQL with one of them by naming it —
+> `ast.grammar=.sql=antlr-plsql`. Without that, `.sql` is parsed by the tree-sitter
+> `SQL` grammar (row 16) and the dialect-only extensions (`.pks`, `.db2`, `.tsql`, …)
+> are not indexed at all. See
+> [Exclusive grammars](#exclusive-grammars--reachable-only-when-named).
 
 > **PL/pgSQL, a splice rather than a 45th row.** PostgreSQL's ANTLR grammar parses
 > `CREATE FUNCTION ... AS $$ ... $$` at the DDL level only — the dollar-quoted body is one
@@ -299,18 +309,37 @@ Bridges the native Go ANTLR runtime with the indexing pipeline. Uses a `GrammarD
 4. Runs XPath pattern matching and extracts entities.
 5. Returns a `ParsedFile` with structured data for graph insertion.
 
-When multiple ANTLR grammars support the same extension (e.g., `.sql`), the adapter tries each in sequence (PL/SQL → PostgreSQL → DB2 → T-SQL → COBOL 85) and returns the first result that successfully extracts entities.
+When multiple ANTLR grammars support the same extension, the adapter tries each in sequence and returns the first result that successfully extracts entities — reading the file once and sharing the buffer across the candidates.
 
-### `--grammar` CLI Flag
+**The SQL dialects are no longer among those candidates.** `plsql`, `postgresql`, `db2`, `tsql` and the tree-sitter `plpgsql` are declared `exclusive: true`, so they are not registered for `.sql` or for any of their own extensions and this loop never sees them. A `.sql` file resolves to `tree-sitter-sql` and stops there; the dialects are used only when `ast.grammar` binds an extension to one of them. See [Exclusive grammars](#exclusive-grammars--reachable-only-when-named).
 
-When both Tree-sitter and ANTLR grammars exist for the same file extension (e.g., `.sql`), Tree-sitter is used by default. The `--grammar` flag overrides this, selecting a specific grammar per extension:
+### `ast.grammar` and the `--grammar` CLI Flag
+
+The override map binds a file extension to one grammar by name, and it is the only
+way an [exclusive grammar](#exclusive-grammars--reachable-only-when-named) is ever
+used. It is read from configuration:
+
+```json
+{ "config": { "ast": { "grammar": ".sql=antlr-plsql,.pks=antlr-plsql" } } }
+```
+
+or given per command:
 
 ```bash
 graphit sync --grammar .sql=antlr-plsql
 graphit init --grammar .sql=antlr-plsql,.pks=antlr-plsql
 ```
 
-The grammar name determines the backend automatically: `antlr-*` uses ANTLR v4, all others use tree-sitter. This is propagated as `GrammarOverrides map[string]string` through `PipelineOptions` → `CompositeParser`.
+The grammar name determines the backend automatically: `antlr-*` uses ANTLR v4, all others use tree-sitter. The parse side is propagated as `GrammarOverrides map[string]string` through `PipelineOptions` → `CompositeParser`, which dispatches to it directly with **no fallback**: an override says which grammar, not which to try first.
+
+**The configured key and the flag do not reach the same distance.** Discovery,
+the watcher and the daemon's batch router ask `HasParserForExtensionIn`, which has a
+project directory and no pipeline options, so it resolves `ast.grammar` from
+configuration. The `--grammar` flag is merged on top of that map for *parsing* only.
+The distinction matters for an extension that no non-exclusive grammar claims: put
+`.pks=antlr-plsql` in configuration and `.pks` files are discovered and parsed; pass
+it only as a flag and discovery never offers the parser a file. For an extension some
+grammar still claims — `.sql` — the flag alone works as it always did.
 
 ---
 
@@ -436,6 +465,7 @@ queries:
 | `grammar` | ⚠️ | Required for ANTLR. Maps to the native grammar identifier (e.g., `antlr-plsql`) |
 | `start_rule` | ⚠️ | Required for ANTLR. The grammar's start rule (e.g., `sql_script`) |
 | `extensions` | ❌ | File extensions filter. If omitted, applies to all extensions registered for the language |
+| `exclusive` | ❌ | When `true`, this grammar is **not** registered for its own `extensions`: nothing reaches it by file extension and nothing falls back to it when another grammar came back empty. It stays reachable by NAME — an `ast.grammar` override binding an extension to it, or an `embedded` block naming its language. Default: absent, which registers the extensions as always. See [Exclusive grammars](#exclusive-grammars--reachable-only-when-named) |
 | `merge` | ❌ | When `true`, this file merges into the same language declared at the level below instead of replacing it. Default: absent, which **replaces** — the file is the whole language. See [`merge: true`](#merge-true--merging-instead-of-replacing). (This key replaced `replace`, which was parsed and never honoured, and whose documented meaning here was the reverse of the actual behaviour.) |
 | `queries[].data_key` | ✅ | Internal entity category. Standard keys: `functions`, `methods`, `classes`, `structs`, `interfaces`, `enums`, `types`, `traits`, `imports`, `exports`, `variables`, `constants`, `calls`, `instantiations`, `parameters`, `fields`, `field_reads`, `field_writes`, `heritage`, `implements`, `decorators`, `namespaces`, `packages`, `modules`, `tables`, `views`, `dml_selects`, `dml_inserts`, `dml_updates`, `dml_deletes` |
 | `queries[].type` | ❌ | `"entity"` (default) or `"relation"`. Determines how the engine processes the extracted data. Entities become graph nodes; relations become edges (CallSites or References) |
@@ -835,10 +865,9 @@ directories — so writing the key lands on a running daemon within a couple of
 seconds, with no restart.
 
 **An ANTLR extension narrows rather than disappearing.** `antlrExtMap` maps an
-extension to a *list*: `.sql` is claimed by `plsql`, `postgresql` and `tsql`, each
-tried in turn. Blacklisting one dialect removes it from the candidate list and
-leaves `.sql` claimed by the others — which is also the cheap way to keep the PL/SQL
-prediction stage out of a repository whose SQL is not Oracle.
+extension to a *list*, so blacklisting one dialect removes it from the candidate
+list and leaves the extension claimed by the others. (The `.sql` dialects are no
+longer such a list — they are `exclusive`, and never enter it. See below.)
 
 **An explicit `--grammar` override does not win against it.** A disabled grammar is
 not usable, full stop, and `ParseWithGrammar` says so:
@@ -853,6 +882,71 @@ is no longer live, deleting it from both the graph and the search index. No
 `--reset` is needed. In *scoped* mode (`graphit ast index --path`) the tree is
 never walked, so the prune does not run and the old nodes survive until a full
 index.
+
+### Exclusive grammars — reachable only when named
+
+`exclusive: true` in a grammar's YAML is the third answer to *whether* a language is
+used, and it sits between the other two: the grammar is fully installed and fully
+usable, but **only when something names it**.
+
+| State | Reached by extension | Reached by name (`ast.grammar`, `embedded`) |
+|---|---|---|
+| normal | ✅ | ✅ |
+| `exclusive: true` | ❌ | ✅ |
+| blacklisted / not whitelisted | ❌ | ❌ (`grammar disabled by configuration`) |
+
+**What it does, mechanically.** `rebuildExtTables` registers a query file's
+`extensions:` into `tsExtMap` / `antlrExtMap` and its grammar into `tsGrammarMap` /
+`antlrGrammarMap`. An exclusive file skips the first half and keeps the second, so
+`HasTreeSitterForExtensionIn` and `HasAntlrForExtensionIn` never answer for it —
+which takes it out of discovery, out of `CompositeParser`'s extension branch, and
+out of `AntlrParser.Parse`'s candidate loop in one move. `projectTsExtMap`, the
+project-level branch of `HasAntlrForExtensionIn`, and `AntlrParser.Parse`'s
+project-YAML fallback apply the same rule, so a project cannot re-enter through a
+side door it did not intend.
+
+**How an exclusive grammar is asked for.** `ast.grammar` — the override map that
+already existed for the `--grammar` flag — binds an extension to a grammar name:
+
+```json
+{ "config": { "ast": { "grammar": ".sql=antlr-plsql,.pks=antlr-plsql" } } }
+```
+
+`HasParserForExtensionIn` consults that map **first**: when an override binds the
+extension, the answer is whether the named grammar is registered and enabled, and the
+extension tables are not consulted at all. That is what makes `.pks` discoverable
+again — no non-exclusive grammar claims it — and it is also what makes an override
+naming an unregistered grammar claim nothing, instead of discovering files whose
+parse would fail. The map is resolved per project in
+`internal/ast/grammar_overrides.go`, cached behind the same staleness interval as the
+grammar filter, so writing the key lands on a running daemon without a restart.
+
+Ordering with the other two keys is unchanged: an override does not revive a
+blacklisted grammar. Exclusivity is *off by default, on when named*; the blacklist is
+*off, full stop*.
+
+**Why the SQL dialects are declared exclusive.** Four ANTLR grammars claimed `.sql` —
+`plsql`, `postgresql`, `db2`, `tsql` — and `CompositeParser` handed a `.sql` file to
+tree-sitter first and to that list afterwards whenever tree-sitter extracted nothing.
+The result was a *guess about which dialect the repository is written in*, decided by
+whichever grammar happened to extract an entity first, and paid for with up to four
+full ANTLR parses of a file that was often not SQL any of them understood. A
+repository whose SQL is PostgreSQL does not want a PL/SQL package body read out of
+it. Naming the dialect is one config line; guessing it correctly is not something the
+indexer can do.
+
+So `.sql` now resolves to `tree-sitter-sql` and stops, and the five exclusive
+grammars — `plsql`, `postgresql`, `db2`, `tsql`, and the tree-sitter `plpgsql` —
+together with the extensions only they claimed (`.pks`, `.pkb`, `.prc`, `.db2`,
+`.tsql`, `.pgsql`, `.plpgsql`, …) are indexed only where the configuration asks for
+them. **This is a behaviour change for an Oracle export indexed without
+configuration: it now yields nothing until `ast.grammar` names the dialect.**
+
+**Why a YAML flag and not a list in Go.** The same reasoning as `embed_labels`,
+`comment_types` and `target_rules`: only the grammar knows what it is. A hardcoded
+list of five names answers for the grammars the binary ships and answers wrongly, by
+construction, for one installed from the Hub or written into `ast.queries_dir` —
+silently, because its name is simply absent from the list.
 
 ### `merge: true` — merging instead of replacing
 
@@ -900,6 +994,7 @@ What merging does, field by field:
 | Field | Rule |
 |---|---|
 | `extensions`, `parser`, `grammar`, `start_rule` | declared wins; **omitted inherits** — this is what makes a partial file a working language |
+| `exclusive` | declared `true` wins; **omitted inherits** — a merging file that says nothing about it does not quietly put the grammar back into extension resolution |
 | `queries` | merged by `data_key`: a redeclared key replaces that whole group, new keys are added, untouched keys are inherited |
 | `context_types`, `context_name_paths`, `text_normalizers` | merged key by key, the upper level winning per key |
 | `self_keywords`, `declaration_types`, `comment_types`, `anon_func_types`, `embed_labels`, `exports` | declared replaces, omitted inherits — a list is a complete statement, which is also the only way to *shorten* one |

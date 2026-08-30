@@ -16,6 +16,7 @@ type tsLangConfig struct {
 	Language   string
 	Grammar    string
 	Extensions []string
+	Exclusive  bool
 }
 
 // tsQueryDef mirrors ExternalQueryDef for direct struct cast. The cast is
@@ -149,6 +150,7 @@ func tsConfigOf(qf ExternalQueryFile) *tsLangConfig {
 		Language:   qf.Language,
 		Grammar:    grammar,
 		Extensions: qf.Extensions,
+		Exclusive:  qf.Exclusive,
 	}
 }
 
@@ -179,9 +181,11 @@ func rebuildExtTables() {
 		for _, qf := range files {
 			if qf.Parser == "antlr4" {
 				cfg := antlrConfigOf(qf)
-				for _, ext := range qf.Extensions {
-					e := strings.ToLower(ext)
-					antlrExt[e] = append(antlrExt[e], cfg)
+				if !cfg.Exclusive {
+					for _, ext := range qf.Extensions {
+						e := strings.ToLower(ext)
+						antlrExt[e] = append(antlrExt[e], cfg)
+					}
 				}
 				antlrGram[cfg.Grammar] = cfg
 				continue
@@ -190,8 +194,10 @@ func rebuildExtTables() {
 			if cfg == nil {
 				continue
 			}
-			for _, ext := range qf.Extensions {
-				ts[strings.ToLower(ext)] = cfg
+			if !cfg.Exclusive {
+				for _, ext := range qf.Extensions {
+					ts[strings.ToLower(ext)] = cfg
+				}
 			}
 			tsGram[cfg.Grammar] = cfg
 			tsName[strings.ToLower(cfg.Language)] = cfg
@@ -228,7 +234,7 @@ func projectTsExtMap(projectDir string) map[string]*tsLangConfig {
 	m := make(map[string]*tsLangConfig)
 	for _, qf := range effectiveProjectQueryFiles(projectDir) {
 		cfg := tsConfigOf(qf)
-		if cfg == nil {
+		if cfg == nil || cfg.Exclusive {
 			continue
 		}
 		for _, ext := range qf.Extensions {

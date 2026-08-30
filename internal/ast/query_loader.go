@@ -49,6 +49,20 @@ type ExternalQueryFile struct {
 	// it alone. See mergeQueryFile for what merging does field by field.
 	Merge bool `yaml:"merge,omitempty"`
 
+	// Exclusive keeps a grammar out of the automatic resolution: it is not
+	// registered for its own `extensions`, so nothing reaches it by file
+	// extension and nothing falls back to it when another grammar came back
+	// empty. It stays reachable BY NAME — an `ast.grammar` override binding an
+	// extension to it, or an embedded block naming its language.
+	//
+	// The SQL dialects are why this exists. Four ANTLR grammars claim `.sql`,
+	// and a file that tree-sitter parsed into nothing used to be handed to each
+	// of them in turn until one extracted something — a guess about which
+	// dialect the repository is written in, paid for with four full parses.
+	// `extensions` still says what the grammar can parse; this says it must be
+	// asked for. See docs/specs/ast_module.md.
+	Exclusive bool `yaml:"exclusive,omitempty"`
+
 	// Language-level configuration (all optional — engine uses sensible defaults)
 	Exports      *ExportConfig     `yaml:"exports,omitempty"`
 	SelfKeywords []string          `yaml:"self_keywords,omitempty"`
@@ -1112,6 +1126,9 @@ func mergeQueryFile(base, over ExternalQueryFile) ExternalQueryFile {
 	if merged.StartRule == "" {
 		merged.StartRule = base.StartRule
 	}
+	if !over.Exclusive {
+		merged.Exclusive = base.Exclusive
+	}
 
 	merged.Queries = mergeQueryDefs(base.Queries, over.Queries)
 
@@ -1383,6 +1400,7 @@ func InvalidateQueryCaches() {
 	})
 
 	invalidateGrammarFilters()
+	invalidateGrammarOverrides()
 
 	invalidateDerivedQueryCaches()
 }

@@ -6,6 +6,7 @@ parser: antlr4
 grammar: antlr-db2
 start_rule: db2_file
 extensions: [".sql", ".db2"]
+exclusive: true
 
 # Target resolution: a DML/DDL relation captures its object by NAME, and the name
 # alone does not say what kind of thing it is. A target this corpus never declares is

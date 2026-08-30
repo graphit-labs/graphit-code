@@ -6,6 +6,7 @@ parser: antlr4
 grammar: antlr-tsql
 start_rule: tsql_file
 extensions: [".sql", ".tsql"]
+exclusive: true
 
 # Target resolution: a DML/DDL relation captures its object by NAME, and the name
 # alone does not say what kind of thing it is. A target this corpus never declares is

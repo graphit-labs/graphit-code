@@ -362,6 +362,39 @@ markdown structure in the graph adds its own `markdown.yaml` under
 
 **Diagnosis:** Check the indexing output for skipped files or run with verbose logging.
 
+### An Oracle / T-SQL / DB2 repository indexes nothing
+
+**Cause:** the SQL dialect grammars — `plsql`, `postgresql`, `db2`, `tsql`, `plpgsql` —
+are **exclusive**: they claim no file extensions, so nothing reaches them by extension
+and nothing falls back to them. A `.sql` file is parsed by the tree-sitter `sql`
+grammar, which reads standard DDL and DML and produces nothing for a PL/SQL package
+body; `.pks`, `.pkb`, `.prc`, `.db2` and `.tsql` are not discovered at all.
+
+This is deliberate. Four ANTLR grammars used to claim `.sql` and were tried in turn
+whenever tree-sitter came back empty, which made the dialect a *guess* — decided by
+whichever grammar happened to extract an entity first — and cost up to four full
+parses per file.
+
+**Solution:** name the dialect.
+
+```bash
+# Oracle: the .sql files and the package/procedure files
+graphit config ast.grammar ".sql=antlr-plsql,.pks=antlr-plsql,.pkb=antlr-plsql,.prc=antlr-plsql,.fnc=antlr-plsql,.trg=antlr-plsql"
+
+# SQL Server
+graphit config ast.grammar ".sql=antlr-tsql"
+
+# PostgreSQL
+graphit config ast.grammar ".sql=antlr-postgresql"
+
+graphit ast index --reset
+```
+
+Use the configuration key rather than the `--grammar` flag when the extension is one
+only a dialect claims: file discovery reads the key, and the flag is applied at parse
+time, after discovery already decided what to offer. Check what is in effect with
+`graphit config --get ast.grammar`.
+
 ### Large repository indexing is slow
 
 **Solutions:**

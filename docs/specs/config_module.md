@@ -135,6 +135,7 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `ast.index_source` | Whether to store file source in the AST graph | `true` |
 | `ast.index_docs` | Whether the AST pipeline indexes `knowledge.docs_dir`. Off, because the docs tree belongs to the knowledge wiki. | `false` |
 | `ast.queries_dir` | Relative path to the directory holding the project's own grammar query files. The default is tracked by git, so this is only needed to keep grammars elsewhere. | `.graphit/ast/queries` |
+| `ast.grammar` | Comma-separated `.ext=grammar-name` pairs binding a file extension to one grammar. The only way an `exclusive` grammar — the SQL dialects — is ever used. | (empty — no override) |
 | `ast.grammars_blacklist` | Comma-separated grammars the AST index must **not** use. Their files are not discovered, not parsed, and their queries do not resolve. | (empty — nothing disabled) |
 | `ast.grammars_whitelist` | Comma-separated grammars the AST index may use, exclusively. Empty means every grammar; non-empty disables everything it does not name. The blacklist still applies on top. | (empty — every grammar) |
 | `ast.cluster_map` | Comma-separated `path=cluster` pairs for cluster tagging by directory prefix. Example: `backend/=python,frontend/=javascript,shared/=typescript`. Persisted when using `--cluster-path` CLI flag. | (empty — no per-path clusters) |
@@ -439,6 +440,50 @@ the shipped ones live in the installed runtime directory, which is regenerated o
 every install and is not a consumer's to edit. See
 [the AST module](ast_module.md#turning-a-grammar-off-by-configuration) for where
 the keys are enforced and what happens to nodes already in the graph.
+
+### Binding an extension to one grammar: `ast.grammar`
+
+```go
+func ResolveGrammarOverrides(inlineCfg, projectCfg ConfigMap) map[string]string
+func ParseGrammarOverrides(val string) map[string]string
+func MergeGrammarOverrides(base, priority map[string]string) map[string]string
+```
+
+Comma-separated `.ext=grammar-name` pairs. The extension gets a leading dot if the
+value omits one, and the grammar name selects the backend on its own: `antlr-*` is
+ANTLR v4, anything else tree-sitter.
+
+```bash
+# this project's .sql is Oracle, and its package files are PL/SQL too
+graphit config ast.grammar ".sql=antlr-plsql,.pks=antlr-plsql,.pkb=antlr-plsql"
+
+# …on this machine, for every project
+graphit config --global ast.grammar ".sql=antlr-tsql"
+
+# …for one command only
+graphit ast index --grammar .sql=antlr-postgresql
+```
+
+**It selects rather than reorders.** A bound extension is parsed by the named grammar
+and by nothing else — there is no fallback to whatever the extension tables would have
+chosen, which is the whole point of stating it.
+
+**It is what makes an exclusive grammar usable.** `plsql`, `postgresql`, `db2`, `tsql`
+and `plpgsql` declare `exclusive: true` in their query YAML, so they claim no
+extensions at all. Without an entry here, `.sql` is parsed by the tree-sitter `sql`
+grammar and `.pks` / `.db2` / `.tsql` are not indexed at all. See
+[Exclusive grammars](ast_module.md#exclusive-grammars--reachable-only-when-named).
+
+**It does not revive a disabled grammar.** `ast.grammars_blacklist` and
+`ast.grammars_whitelist` are checked after this key: a grammar they exclude stays
+excluded, and the files bound to it are not discovered. Exclusivity means *off by
+default, on when named*; the blacklist means *off*.
+
+**The configured key reaches further than the `--grammar` flag.** File discovery, the
+watcher and the daemon's batch router decide what to offer the parser from the project
+configuration alone — they have no command line. The flag is merged on top for parsing
+only. So for an extension that no other grammar claims, the key is what makes its files
+visible; the flag alone would leave the parser with nothing to parse.
 
 ### The improvement backlog: `improvements.backlog_dir`
 

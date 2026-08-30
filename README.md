@@ -255,6 +255,8 @@ Two parser backends: **Tree-sitter** and **ANTLR v4**, covering 44 languages out
 
 **ANTLR v4 (5):** PL/SQL · PostgreSQL · DB2 · T-SQL · COBOL 85
 
+The four SQL dialects are **exclusive** grammars: `.sql` is parsed by the tree-sitter SQL grammar by default and a dialect is used only where you name it — `graphit config ast.grammar ".sql=antlr-plsql"`. Which dialect a repository speaks is a fact about the repository, not something the indexer guesses.
+
 Every source file is parsed into a graph stored in **LadybugDB** (embedded graph database) with support to **full** and **incremental** parsing modes. The entire pipeline is **pure YAML-driven**, allowing you to customize the AST parsing pipeline without recompiling the source code. See the [User Manual](docs/guides/user_manual.md#customizing-ast-tree-sitter-queries) and the [AST Module Spec](docs/specs/ast_module.md#-external-query-customization) for details.
 
 ### 3. LLM Wiki & Knowledge Discovery

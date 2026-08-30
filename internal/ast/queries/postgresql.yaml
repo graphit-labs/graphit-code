@@ -6,6 +6,7 @@ parser: antlr4
 grammar: antlr-postgresql
 start_rule: root
 extensions: [".sql", ".pgsql", ".plpgsql", ".pg"]
+exclusive: true
 
 # Target resolution: a DML/DDL relation captures its object by NAME, and the name
 # alone does not say what kind of thing it is. A target this corpus never declares is
@@ -234,10 +235,13 @@ queries:
     name_capture: name
     type: entity
 
-  # Variable declarations (PL/pgSQL DECLARE block)
+  # Variable declarations (PL/pgSQL DECLARE block, spliced in by
+  # plpgsql_splice.go). decl_varname is a child of decl_statement, not of
+  # decl_stmt: the grammar nests decl_stmt > decl_statement > decl_varname,
+  # so anchoring at decl_stmt matched nothing.
   - data_key: variables
     graph_label: Variable
-    pattern: "//decl_stmt/decl_varname"
+    pattern: "//decl_statement/decl_varname"
     name_capture: name
     type: entity
 

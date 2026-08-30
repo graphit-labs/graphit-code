@@ -7,6 +7,7 @@ parser: antlr4
 grammar: antlr-plsql
 start_rule: sql_script
 extensions: [".sql", ".pks", ".pkb", ".pls", ".plb", ".prc", ".fnc", ".trg", ".typ", ".bdy", ".spc", ".vw"]
+exclusive: true
 
 # Target resolution: a DML/DDL relation captures its object by NAME, and the name
 # alone does not say what kind of thing it is. A target this corpus never declares is

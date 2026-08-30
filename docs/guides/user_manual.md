@@ -288,8 +288,8 @@ lists is disabled.
 
 A name matches the language, the grammar, or the grammar without its
 `tree-sitter-` / `antlr-` prefix — `yaml`, `yaml_lang` and `tree-sitter-yaml` are the
-same language, and `antlr-plsql` names one SQL dialect without touching the others
-that also claim `.sql`. A name matching nothing is inert: no error, and nothing
+same language, and `antlr-plsql` names one SQL dialect without touching the others.
+A name matching nothing is inert: no error, and nothing
 disabled — so check the spelling with `graphit config --list` if a language you
 expected to drop is still in the graph.
 
@@ -736,24 +736,32 @@ graphit sync
 
 All other YAML fields (`extensions`, `exports`, `self_keywords`, `context_types`, etc.) work identically for both parser backends.
 
-### Grammar Selection (`--grammar`)
+### Grammar Selection (`ast.grammar` / `--grammar`)
 
-By default, Tree-sitter is used when a grammar exists for the file extension; ANTLR is used as fallback. When both engines support the same extension (e.g., `.sql`), Tree-sitter is tried first and ANTLR is used only if Tree-sitter fails or extracts nothing.
+By default, Tree-sitter is used when a grammar exists for the file extension; ANTLR is used as fallback. When both engines support the same extension, Tree-sitter is tried first and ANTLR is used only if Tree-sitter fails or extracts nothing.
 
-To override this and select a specific grammar per extension, use the `--grammar` flag:
+**The SQL dialects are the exception, and they are the reason this setting exists.** `plsql`, `postgresql`, `db2`, `tsql` and `plpgsql` are **exclusive** grammars: they claim no extensions of their own, so `.sql` is parsed by the tree-sitter `sql` grammar with no dialect fallback behind it, and the dialect-only extensions — `.pks`, `.pkb`, `.prc`, `.db2`, `.tsql`, `.pgsql` — are not indexed unless you ask for them. Which dialect a repository is written in is not something the indexer can guess, and guessing it wrong used to cost four full ANTLR parses per file.
+
+Bind an extension to a grammar in configuration, which is what discovery reads:
 
 ```bash
-# Force ANTLR PL/SQL grammar for .sql files
+# this repository's SQL is Oracle, and so are its package files
+graphit config ast.grammar ".sql=antlr-plsql,.pks=antlr-plsql,.pkb=antlr-plsql"
+
+# T-SQL instead
+graphit config ast.grammar ".sql=antlr-tsql"
+```
+
+Or per command, with the `--grammar` flag:
+
+```bash
 graphit sync --grammar .sql=antlr-plsql
-
-# Multiple overrides
-graphit sync --grammar .sql=antlr-plsql,.pks=antlr-plsql,.pkb=antlr-plsql
-
-# Force tree-sitter SQL grammar explicitly
 graphit ast index --grammar .sql=tree-sitter-sql
 ```
 
-The grammar name determines the backend automatically: names starting with `antlr-` use ANTLR, others use tree-sitter.
+The grammar name determines the backend automatically: names starting with `antlr-` use ANTLR, others use tree-sitter. A bound extension is parsed by the named grammar and by nothing else — there is no fallback behind an explicit choice.
+
+Prefer the configuration key over the flag for an extension that no other grammar claims. File discovery, the watcher and the daemon read the key and have no command line, so `--grammar .pks=antlr-plsql` on its own tells the parser what to do with `.pks` files that were never offered to it. A grammar disabled by `ast.grammars_blacklist` stays disabled either way.
 
 ### Important Notes
 
