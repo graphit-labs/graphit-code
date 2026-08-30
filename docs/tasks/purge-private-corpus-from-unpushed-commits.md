@@ -1,6 +1,6 @@
 ---
 title: Purge private-corpus references from the unpushed commits
-status: in-progress
+status: done
 created: 2026-08-30
 updated: 2026-08-30
 tags: [security, privacy, git-history, documentation]
@@ -75,20 +75,20 @@ now-redundant sanitizing commit disappears.
   when the audit grep returns nothing over versioned files. Constraint: the *measurements*
   the logs report must survive — only identifying names go, never the numbers, because the
   measurement is the whole value of those logs.
-- [ ] **T3 — Commit the sanitized tree** — Spec: one commit on `main`, recording HEAD's tree
+- [x] **T3 — Commit the sanitized tree** — Spec: one commit on `main`, recording HEAD's tree
   hash, because T5 verifies against it.
-- [ ] **T4 — Rewrite `origin/main..HEAD`** — Spec: `filter-branch --index-filter` scoped to
+- [x] **T4 — Rewrite `origin/main..HEAD`** — Spec: `filter-branch --index-filter` scoped to
   the six paths, `--prune-empty`. Done when it completes without aborting.
-- [ ] **T5 — Verify** — Spec: (a) HEAD's tree hash comes out **byte-identical** to the one
+- [x] **T5 — Verify** — Spec: (a) HEAD's tree hash comes out **byte-identical** to the one
   recorded in T3 — this is the strongest available proof the rewrite was surgical, because
   the sed is a no-op on an already-clean HEAD, so any change means it did something it should
   not have; (b) `git log -S <term> origin/main..HEAD` returns 0 for every audit term;
   (c) `git fsck` clean. Constraint: `git grep <ref>` inspects that ref's **tree**, not its
   history — history leaks are visible only to `git log -S`.
-- [ ] **T6 — Sweep the other local refs** — Spec: the 2026-08-09 cleanup was defeated by a
+- [x] **T6 — Sweep the other local refs** — Spec: the 2026-08-09 cleanup was defeated by a
   work branch from another session still pointing at pre-rewrite objects. Done when every
   local ref still holding the terms is identified and reported to the user.
-- [ ] **T7 — Sync the indexes** — Spec: `graphit_sync`, so the wiki stops serving the
+- [x] **T7 — Sync the indexes** — Spec: `graphit_sync`, so the wiki stops serving the
   pre-purge pages.
 
 ## Files Changed
@@ -119,6 +119,11 @@ now-redundant sanitizing commit disappears.
 - [ ] **Project ULIDs in task logs are not synthetic.** One real store ULID appears in
       `docs/tasks/consolidate-search-into-ladybugdb-and-drop-sqlite.md` labelled "production
       shard cache". Opaque once names are gone, so low severity, but it is a real identifier.
+- [ ] **Two published Portuguese task logs carry the developer's absolute home path.**
+      `docs/tasks/corrigir-indexacao-no-projeto-errado.md` and
+      `docs/tasks/revisar-skills-e-mandates.md` on `origin/main`. This range already renames
+      them to English and drops the paths, so the exposure stops going forward, but the
+      published copies stay reachable by SHA. Same class as the schema identifiers above.
 - [ ] **No mechanical check before push.** Three scrubs in one month means the only control
       is an agent remembering to run one, which has now failed twice. A pre-push hook was
       offered and declined for now, so this stays manual.
@@ -147,4 +152,30 @@ now-redundant sanitizing commit disappears.
 - T1 done: backup ref created at `8812d5e`.
 - T2 done: six files sanitized; the audit grep returns nothing over versioned files.
 - Rewrote this log after noticing it quoted the very strings being purged.
-- Next: T3, commit the sanitized tree and record its tree hash for the T5 verification.
+- T3 done: sanitized tree committed; HEAD tree recorded as `e0d2bbe5`.
+- T4 done: `filter-branch --index-filter` rewrote all 26 commits of the range in ~1 s. No
+  abort. The sanitizing commit was NOT pruned by `--prune-empty`, correctly — it is not
+  empty, because it also adds this log.
+- T5 done, all three checks pass:
+  - **(a) HEAD's tree came out `e0d2bbe5`, byte-identical to the pre-rewrite value.** This is
+    the check that matters: the sed is a no-op on an already-clean HEAD, so an identical tree
+    proves the rewrite changed history and nothing else.
+  - **(b)** Every audit term returns 0 commits over the range, with two apparent residuals
+    that are not leaks and are worth writing down because they will recur:
+    - One term still reports 5 commits under `git log -S`, which is **substring** matching —
+      the same trap recorded in memory, where the term is a substring of two very common
+      English words. A word-boundary search across every commit in the range returns nothing.
+    - One absolute-path term reports 1 commit. That commit **removes** it: the string lives
+      in two published Portuguese task logs on `origin/main` that this range renames to
+      English. `git log -S` counts a changed occurrence count, so a deletion scores exactly
+      like an addition. See Technical Debt.
+  - **(c)** `git fsck` clean.
+- T6 done: two local branches still contain the terms, both backups, neither on the push path
+  — `backup-pre-corpus-purge-20260830` (created by T1, the rollback for this operation) and
+  `backup-pre-squash-20260826-212556` (pre-existing). Reported to the user; deleting them is
+  the user's call, and the first one should outlive this session only until the result is
+  accepted.
+- T7 done: `graphit_sync` run so the wiki stops serving the pre-purge pages.
+
+**Final state: `main` is clean and safe to push.** 26 commits ahead of `origin/main`, all
+rewritten SHAs. Rollback: `git reset --hard backup-pre-corpus-purge-20260830`.
