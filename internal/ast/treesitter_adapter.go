@@ -1126,7 +1126,14 @@ func extractCommentsTS(root *sitter.Node, src []byte, result *ParsedFile,
 	qc := queryCursorPool.Get().(*sitter.QueryCursor)
 	defer queryCursorPool.Put(qc)
 
-	seen := map[string]bool{}
+	// Keyed by byte position, not by text: this guards against the SAME node
+	// matching twice (an alternation query catching one node under more than one
+	// branch), which is a real concern. Two DIFFERENT comments that happen to say
+	// the same thing — a repeated license header, a copy-pasted "// TODO" — are not
+	// that case and must not be conflated; keying on text used to do exactly that,
+	// silently dropping every occurrence after the first, including the REFERENCES
+	// edge that would have pointed a later declaration at its own comment.
+	seen := map[uint]bool{}
 	matches := qc.Matches(q, root, src)
 	for {
 		match := matches.Next()
@@ -1135,11 +1142,15 @@ func extractCommentsTS(root *sitter.Node, src []byte, result *ParsedFile,
 		}
 		for ci := range match.Captures {
 			node := &match.Captures[ci].Node
-			text := cleanDocstring(node.Utf8Text(src))
-			if text == "" || seen[text] {
+			start := node.StartByte()
+			if seen[start] {
 				continue
 			}
-			seen[text] = true
+			seen[start] = true
+			text := cleanDocstring(node.Utf8Text(src))
+			if text == "" {
+				continue
+			}
 
 			line := int(node.StartPosition().Row) + 1
 			target := fileName
@@ -1158,7 +1169,13 @@ func extractCommentsTS(root *sitter.Node, src []byte, result *ParsedFile,
 				GraphLabel: LabelComment,
 			})
 			result.References = append(result.References, ReferenceInfo{
-				SourceName: text,
+				// The comment's own text can be arbitrarily large and carry any byte
+				// — a license header, a multi-KB docstring. commentUIDName(line) is
+				// what cache_convert.go's entity loop ALSO uses for this same
+				// comment's own uid (see contentNamedUID / LabelComment there), so
+				// this reference resolves to the right source without embedding the
+				// text a second time.
+				SourceName: commentUIDName(line),
 				TargetName: target,
 				RelType:    "REFERENCES",
 				Line:       line,

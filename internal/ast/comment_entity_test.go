@@ -58,20 +58,32 @@ func stageLang(t *testing.T, langName, ext, queryFile string) string {
 }
 
 // commentsOf returns the Comment entities and the edge target of each.
+//
+// Matched by LINE, not by ReferenceInfo.SourceName == the comment's own text:
+// SourceName carries a disambiguator (commentUIDName) instead of the raw text
+// precisely so that two comments with identical text don't collide — see
+// cache_convert.go's contentNamedUID / commentUIDName. Line is the value both the
+// entity and its reference already carry independently and is what production
+// code (cache_convert.go) also uses to make the two agree.
 func commentsOf(t *testing.T, pf *ParsedFile) (map[string]bool, map[string]string) {
 	t.Helper()
 	names := map[string]bool{}
+	lineToName := map[int]string{}
 	for _, ents := range pf.Entities {
 		for _, e := range ents {
 			if e.GraphLabel == LabelComment {
 				names[e.Name] = true
+				lineToName[e.Line] = e.Name
 			}
 		}
 	}
 	targets := map[string]string{}
 	for _, r := range pf.References {
-		if r.RelType == "REFERENCES" && names[r.SourceName] {
-			targets[r.SourceName] = r.TargetName
+		if r.RelType != "REFERENCES" {
+			continue
+		}
+		if name, ok := lineToName[r.Line]; ok {
+			targets[name] = r.TargetName
 		}
 	}
 	return names, targets
@@ -255,5 +267,72 @@ END;
 	}
 	for name, tgt := range targets {
 		t.Logf("  %-28q -> %s", name, tgt)
+	}
+}
+
+// Two comments with identical text, at different positions, must both survive as
+// distinct entities with their own REFERENCES edge — not collapse into one, the
+// way keying extraction's dedup on text used to make them.
+func TestRepeatedIdenticalCommentsAreBothIndexedAntlr(t *testing.T) {
+	drv := nativeAntlrDrivers["antlr-plsql"]
+	if drv == nil {
+		t.Skip("antlr-plsql driver not built into this binary")
+	}
+
+	src := []byte(`-- nota repetida
+CREATE OR REPLACE FUNCTION UM(a IN NUMBER) RETURN NUMBER IS
+BEGIN
+  RETURN a;
+END;
+/
+
+-- nota repetida
+CREATE OR REPLACE FUNCTION DOIS(a IN NUMBER) RETURN NUMBER IS
+BEGIN
+  RETURN a;
+END;
+/
+`)
+
+	tree, err := drv.Parse(src)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	result := &ParsedFile{Path: "pkg.sql", Entities: map[string][]Entity{
+		"functions": {
+			{Name: "UM", Line: 2, GraphLabel: "Function"},
+			{Name: "DOIS", Line: 9, GraphLabel: "Function"},
+		},
+	}}
+	extractCommentsAntlr(tree, result, "pkg.sql")
+
+	var comments []Entity
+	for _, e := range result.Entities["comments"] {
+		if e.GraphLabel == LabelComment {
+			comments = append(comments, e)
+		}
+	}
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 distinct Comment entities for the repeated note, got %d", len(comments))
+	}
+	if comments[0].Line == comments[1].Line {
+		t.Fatalf("both comment entities report the same line: %d", comments[0].Line)
+	}
+
+	// Each must have its OWN reference, not one shared/dropped one — attachment
+	// target (file vs. the following declaration) is a different, untouched piece
+	// of logic; what this test guards is that neither comment's reference vanished.
+	var refLines []int
+	for _, r := range result.References {
+		if r.RelType == "REFERENCES" {
+			refLines = append(refLines, r.Line)
+		}
+	}
+	if len(refLines) != 2 {
+		t.Fatalf("expected 2 REFERENCES edges (one per comment), got %d: %v", len(refLines), refLines)
+	}
+	if refLines[0] == refLines[1] {
+		t.Fatalf("both REFERENCES edges report the same line: %d — the second comment's edge was dropped or duplicated the first's", refLines[0])
 	}
 }

@@ -3,6 +3,7 @@ package ast
 import (
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -40,7 +41,11 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 	// doesn't match the actual struct node.
 	for _, dataKey := range dataKeys {
 		for _, e := range pf.Entities[dataKey] {
-			if e.Name != "" {
+			// A content-named entity's `name` is never a legitimate context target —
+			// nothing nests inside a Value/Text/Comment node — so it never needs an
+			// entry here, which also skips using its (possibly huge) content as a map
+			// key.
+			if e.Name != "" && !contentNamedLabels[entityLabelOf(dataKey, e)] {
 				nameToUID[e.Name] = entityUID(relPath, e.Name, e.Context)
 			}
 		}
@@ -66,7 +71,7 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 	}
 
 	for _, dataKey := range dataKeys {
-		for _, e := range pf.Entities[dataKey] {
+		for i, e := range pf.Entities[dataKey] {
 			label := entityLabelOf(dataKey, e)
 			if label == "" {
 				continue
@@ -105,6 +110,14 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 			}
 
 			uid := entityUID(relPath, e.Name, e.Context)
+			switch {
+			case label == LabelComment:
+				// Must match commentUIDName's use in extractCommentsTS's
+				// ReferenceInfo.SourceName exactly — see commentUIDName.
+				uid = entityUID(relPath, commentUIDName(e.Line), "")
+			case contentNamedLabels[label]:
+				uid = contentNamedUID(relPath, dataKey, i)
+			}
 
 			var decorators []string
 			isExported := false
@@ -178,7 +191,9 @@ func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *pa
 				}
 			}
 
-			nameToUID[e.Name] = uid
+			if !contentNamedLabels[label] {
+				nameToUID[e.Name] = uid
+			}
 
 			// Nothing contains itself. The lookup order above is what makes this
 			// rare, but same-name nesting is not the only way to arrive here --
@@ -436,4 +451,39 @@ func entityLabelOf(dataKey string, e Entity) string {
 // statement to the text of the statement says nothing.
 var contentNamedLabels = map[string]bool{
 	"Value": true, "AttributeValue": true, "Text": true, LabelComment: true,
+}
+
+// contentNamedUID gives a content-named entity a short, deterministic identity
+// instead of the usual entityUID(path, name, context) — which for one of these
+// labels would embed the entity's own `name`, and that name IS its content: a
+// license header, a multi-paragraph docstring, a long string literal. Measured on
+// this repository's own store: the ten largest entity uids are all Comment nodes,
+// up to 1.2 KB each, some carrying embedded newlines. Downstream that string is a
+// Parquet primary key sort key, a Cypher literal, and a Go map key — none of which
+// need to survive arbitrary source text, and several of which pay real cost for it.
+//
+// dataKey+index (this entity's position within its own data key's slice, which both
+// the pre-pass and the main pass iterate in the same order) is unique per real
+// occurrence in the file: two DIFFERENT entities never share it, even when their
+// content is byte-for-byte identical — unlike a hash of the content, which would
+// collapse two occurrences of the same license header, or the same string literal
+// appearing twice, into what this package's dedup-by-(uid,label) logic then treats
+// as one node instead of two.
+func contentNamedUID(relPath, dataKey string, index int) string {
+	return entityUID(relPath, dataKey+"#"+strconv.Itoa(index), "")
+}
+
+// commentUIDName is the disambiguator a Comment entity's uid is built from, in
+// place of its own (arbitrarily large) text. A comment's REFERENCES edge to what
+// it documents is built separately, in extractCommentsTS, from the SAME line —
+// so that call site uses this exact function too, guaranteeing the reference's
+// source uid and the comment entity's own uid always agree without either side
+// needing to see the other's data.
+//
+// Line, not an index into the entities slice: a reference and its comment entity
+// are built together at extraction time but land in two DIFFERENT slices
+// (References gets contributions from other passes too), so there is no shared
+// index to recompute here — line is the one value both sides already have.
+func commentUIDName(line int) string {
+	return "comment@L" + strconv.Itoa(line)
 }

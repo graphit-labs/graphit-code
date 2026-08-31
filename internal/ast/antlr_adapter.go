@@ -538,13 +538,20 @@ func extractCommentsAntlr(tree *antlrcommon.TreeNode, result *ParsedFile, fileNa
 	}
 	sort.Slice(starts, func(i, j int) bool { return starts[i].line < starts[j].line })
 
-	seen := map[string]bool{}
+	// Keyed by position, not by text — see extractCommentsTS's identical fix for why:
+	// two DIFFERENT comments that happen to say the same thing (a repeated license
+	// header, a copy-pasted note) are not the same comment, and keying on text
+	// silently dropped every occurrence after the first.
+	seen := map[[2]int]bool{}
 	for _, c := range tree.Comments {
-		text := cleanDocstring(c.Text)
-		if text == "" || seen[text] {
+		if seen[c.Start] {
 			continue
 		}
-		seen[text] = true
+		seen[c.Start] = true
+		text := cleanDocstring(c.Text)
+		if text == "" {
+			continue
+		}
 
 		endLine := c.End[0]
 		target := fileName
@@ -564,7 +571,11 @@ func extractCommentsAntlr(tree *antlrcommon.TreeNode, result *ParsedFile, fileNa
 			GraphLabel: LabelComment,
 		})
 		result.References = append(result.References, ReferenceInfo{
-			SourceName: text,
+			// See extractCommentsTS: commentUIDName(line), not the comment's own
+			// text, so this agrees with the uid cache_convert.go gives the Comment
+			// entity without embedding the text (which can be arbitrarily large) a
+			// second time.
+			SourceName: commentUIDName(c.Start[0]),
 			TargetName: target,
 			RelType:    "REFERENCES",
 			Line:       c.Start[0],
