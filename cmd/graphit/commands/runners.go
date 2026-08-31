@@ -261,6 +261,8 @@ func indexProgressReporter(p *output.Printer) func(string, int, int, int) {
 			return
 		}
 		switch ph {
+		case "saving-cache":
+			p.StepProgress("Saving parse cache: %d file(s)", total)
 		case "writing":
 			// current is rows already copied into the graph; it is 0 on the single
 			// line emitted before the phase starts.
@@ -269,6 +271,10 @@ func indexProgressReporter(p *output.Printer) func(string, int, int, int) {
 				return
 			}
 			p.StepProgress("Writing graph: %d file(s)", total)
+		case "searching":
+			p.StepProgress("Building search index: %d file(s)", total)
+		case "search-maintenance":
+			p.StepProgress("Maintaining search index")
 		default:
 			if errors > 0 {
 				p.StepProgress("Parsing: %d/%d file(s), %d error(s)", current, total, errors)
@@ -485,9 +491,17 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 	}
 
 	if finalResult.DiscoverTime > 0 || finalResult.HashTime > 0 {
-		p.Step("Timing: discover %.2fs, hash %.2fs, parse %.2fs, write %.2fs",
+		p.Step("Timing: discover %.2fs, hash %.2fs, parse %.2fs, cache-save %.2fs, write %.2fs",
 			finalResult.DiscoverTime.Seconds(), finalResult.HashTime.Seconds(),
-			finalResult.ParseTime.Seconds(), finalResult.WriteTime.Seconds())
+			finalResult.ParseTime.Seconds(), finalResult.WritePhases.CacheSave.Seconds(),
+			finalResult.WriteTime.Seconds())
+	}
+	if finalResult.WriteTime > 0 {
+		phases := finalResult.WritePhases
+		p.Step("Write breakdown: graph-prepare %.2fs, graph-export %.2fs, graph-publish %.2fs, embeddings %.2fs, search-open %.2fs, search-build %.2fs, search-maintain %.2fs, search-close %.2fs",
+			phases.GraphPrepare.Seconds(), phases.GraphExport.Seconds(), phases.GraphPublish.Seconds(),
+			phases.EmbeddingCache.Seconds(), phases.SearchOpen.Seconds(), phases.SearchBuild.Seconds(),
+			phases.SearchMaintain.Seconds(), phases.SearchClose.Seconds())
 	}
 
 	if finalResult.TimeoutCount > 0 {

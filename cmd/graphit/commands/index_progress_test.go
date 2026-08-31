@@ -1,8 +1,12 @@
 package commands
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/graphit-labs/graphit-code/internal/output"
 )
 
 // `ast index` printed the grammar overrides and then nothing until it finished.
@@ -74,5 +78,29 @@ func TestProgressThrottleAlwaysPrintsAPhaseChange(t *testing.T) {
 	// And the new phase then throttles on its own clock.
 	if th.allow("writing", now.Add(2*time.Millisecond)) {
 		t.Error("the new phase did not start throttling")
+	}
+}
+
+func TestIndexProgressReporterNamesEveryPostParsePhase(t *testing.T) {
+	var buf bytes.Buffer
+	p := output.NewPrinterTo("", &buf)
+	report := indexProgressReporter(p)
+
+	report("saving-cache", 0, 848, 0)
+	report("writing", 0, 848, 0)
+	report("searching", 0, 848, 0)
+	report("search-maintenance", 0, 0, 0)
+	p.EndProgress()
+
+	got := buf.String()
+	for _, want := range []string{
+		"Saving parse cache: 848 file(s)",
+		"Writing graph: 848 file(s)",
+		"Building search index: 848 file(s)",
+		"Maintaining search index",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("progress output %q does not contain %q", got, want)
+		}
 	}
 }

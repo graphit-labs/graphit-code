@@ -86,6 +86,7 @@ type PipelineResult struct {
 	ParseTime    time.Duration
 	WriteTime    time.Duration
 	TotalTime    time.Duration
+	WritePhases  WritePhaseTiming
 
 	// SearchIndexRebuilt reports that nothing was reparsed and nothing was written to the
 	// graph, but the search index was replayed from the shard cache because it was missing
@@ -101,6 +102,18 @@ type PipelineResult struct {
 	WriteErrorFiles []string
 
 	EngineStats map[string]int
+}
+
+type WritePhaseTiming struct {
+	CacheSave      time.Duration
+	GraphPrepare   time.Duration
+	GraphExport    time.Duration
+	GraphPublish   time.Duration
+	EmbeddingCache time.Duration
+	SearchOpen     time.Duration
+	SearchBuild    time.Duration
+	SearchMaintain time.Duration
+	SearchClose    time.Duration
 }
 
 // resolveClusterForPath returns the cluster name for a given file path based on the
@@ -421,6 +434,9 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		// The repair replays the shards rather than reparsing: the parse cache is current
 		// by definition here, which is what made this branch reachable.
 		if storeDir != "" && !SearchIndexBuilt(ctx, storeDir) {
+			if opts.OnProgress != nil {
+				opts.OnProgress("searching", 0, jsonCache.Count(), 0)
+			}
 			var embCache *ShardEmbCache
 			if ec, err := NewShardEmbCache(opts.CacheDir, jsonCache); err == nil {
 				embCache = ec
@@ -443,6 +459,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				HashTime:           hashTime,
 				WriteTime:          writeTime,
 				TotalTime:          time.Since(t0),
+				WritePhases:        WritePhaseTiming{SearchBuild: writeTime},
 				SearchIndexRebuilt: true,
 				EngineStats:        make(map[string]int),
 			}, nil
@@ -584,6 +601,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		errorFiles       []string
 		writeErrorFiles  []string
 		writeDuration    time.Duration
+		writePhases      WritePhaseTiming
 	)
 	engineStats := make(map[string]int)
 
@@ -673,7 +691,12 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	parseTime := time.Since(t1)
 
 	if jsonCache != nil && !dryRun {
+		if opts.OnProgress != nil {
+			opts.OnProgress("saving-cache", 0, jsonCache.Count(), parseErrors+writeErrors)
+		}
+		tCacheSave := time.Now()
 		_ = jsonCache.Save()
+		writePhases.CacheSave = time.Since(tCacheSave)
 	}
 
 	if !dryRun && jsonCache != nil && jsonCache.Count() > 0 {
@@ -718,13 +741,22 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		if opts.ReverseEdges != nil {
 			reverseEdges = *opts.ReverseEdges
 		}
-		var err error
+		var (
+			err         error
+			graphTiming icebugRebuildTiming
+		)
 		if doIncremental {
-			err = rebuildIcebugFromCacheWithDelta(ctx, jsonCache, changedRels, deletedFiles, opts.Cluster, abs, opts.Logger, true, bundleDir, reverseEdges)
+			graphTiming, err = rebuildIcebugFromCacheWithDeltaTimed(ctx, jsonCache, changedRels, deletedFiles, opts.Cluster, abs, opts.Logger, true, bundleDir, reverseEdges)
 		} else {
-			err = RebuildIcebugFromCacheWithReverse(ctx, jsonCache, opts.Cluster, abs, opts.Logger, bundleDir, reverseEdges)
+			graphTiming, err = rebuildIcebugFromCacheWithDeltaTimed(ctx, jsonCache, nil, nil, opts.Cluster, abs, opts.Logger, false, bundleDir, reverseEdges)
 		}
+		writePhases.GraphPrepare = graphTiming.Prepare
+		writePhases.GraphExport = graphTiming.Export
+		writePhases.GraphPublish = graphTiming.Publish
 		if err == nil {
+			if opts.OnProgress != nil {
+				opts.OnProgress("searching", 0, jsonCache.Count(), parseErrors+writeErrors)
+			}
 			// Search sidecar (LanceDB): incremental where small, full otherwise.
 			//
 			// The embedding cache is read here, never written: a rebuild drops the entity
@@ -732,16 +764,21 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			// re-run the model over the whole corpus.
 			var embCache *ShardEmbCache
 			if opts.CacheDir != "" {
+				tEmbCache := time.Now()
 				if ec, ecErr := NewShardEmbCache(opts.CacheDir, jsonCache); ecErr == nil {
 					embCache = ec
 				}
+				writePhases.EmbeddingCache = time.Since(tEmbCache)
 			}
 			if lb, ok := db.(*LadybugBackend); ok {
+				tSearchOpen := time.Now()
 				idx, oerr := OpenSearchIndex(ctx, lb.cfg.StoreDir)
+				writePhases.SearchOpen = time.Since(tSearchOpen)
 				if oerr != nil {
 					err = fmt.Errorf("open search index: %w", oerr)
 				} else {
 					idx.Logger = opts.Logger
+					tSearchBuild := time.Now()
 					if doIncremental {
 						if serr := idx.UpdateIncremental(ctx, jsonCache, changedRels, deletedFiles, BuildEmbLookup(jsonCache, embCache)); serr != nil {
 							err = fmt.Errorf("search index incremental: %w", serr)
@@ -749,10 +786,18 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 					} else if serr := idx.RebuildFromCache(ctx, jsonCache, BuildEmbLookup(jsonCache, embCache)); serr != nil {
 						err = fmt.Errorf("search index rebuild: %w", serr)
 					}
+					writePhases.SearchBuild = time.Since(tSearchBuild)
 					if err == nil {
+						if opts.OnProgress != nil {
+							opts.OnProgress("search-maintenance", 0, 0, parseErrors+writeErrors)
+						}
+						tSearchMaintain := time.Now()
 						idx.Maintain(ctx)
+						writePhases.SearchMaintain = time.Since(tSearchMaintain)
 					}
+					tSearchClose := time.Now()
 					_ = idx.Close()
+					writePhases.SearchClose = time.Since(tSearchClose)
 				}
 			}
 		}
@@ -777,6 +822,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		ParseTime:       parseTime,
 		WriteTime:       writeDuration,
 		TotalTime:       totalTime,
+		WritePhases:     writePhases,
 		ErrorCount:      parseErrors,
 		TimeoutCount:    timeoutCount,
 		EmptyCount:      emptyCount,

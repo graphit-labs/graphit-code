@@ -32,11 +32,24 @@ func RebuildIcebugFromCacheWithReverse(ctx context.Context, cache *ShardCache, c
 }
 
 func rebuildIcebugFromCacheWithDelta(ctx context.Context, cache *ShardCache, changed, deleted []string, cluster, rootPath string, logger *slog.Logger, isIncremental bool, finalDir string, reverseEdges bool) error {
+	_, err := rebuildIcebugFromCacheWithDeltaTimed(ctx, cache, changed, deleted, cluster, rootPath, logger, isIncremental, finalDir, reverseEdges)
+	return err
+}
+
+type icebugRebuildTiming struct {
+	Prepare time.Duration
+	Export  time.Duration
+	Publish time.Duration
+}
+
+func rebuildIcebugFromCacheWithDeltaTimed(ctx context.Context, cache *ShardCache, changed, deleted []string, cluster, rootPath string, logger *slog.Logger, isIncremental bool, finalDir string, reverseEdges bool) (icebugRebuildTiming, error) {
+	var timing icebugRebuildTiming
 	log := slogutil.Resolve(logger)
 	if cache == nil || cache.Count() == 0 {
-		return nil
+		return timing, nil
 	}
 
+	t0 := time.Now()
 	entries := make(map[string]*parseCacheEntry, cache.Count())
 	cache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
 		entries[relPath] = entry
@@ -48,7 +61,7 @@ func rebuildIcebugFromCacheWithDelta(ctx context.Context, cache *ShardCache, cha
 	_ = os.RemoveAll(tmpDir)
 	removeStaleBundleTemps(finalDir)
 	if err := os.MkdirAll(filepath.Dir(finalDir), 0o755); err != nil {
-		return fmt.Errorf("icebug rebuild: mkdir final parent: %w", err)
+		return timing, fmt.Errorf("icebug rebuild: mkdir final parent: %w", err)
 	}
 	storageURI := finalDir
 	if abs, err := filepath.Abs(finalDir); err == nil {
@@ -63,22 +76,27 @@ func rebuildIcebugFromCacheWithDelta(ctx context.Context, cache *ShardCache, cha
 	}
 	var man *ladybug.CanonicalManifest
 	var err error
+	timing.Prepare = time.Since(t0)
+	t0 = time.Now()
 	if doIncremental {
 		man, err = ExportDirectIncrementalWithReverse(ri, tmpDir, finalDir, storageURI, changed, deleted, reverseEdges)
 	} else {
 		man, err = ExportDirectFromRebuildIndexWithReverse(ri, tmpDir, storageURI, reverseEdges)
 	}
+	timing.Export = time.Since(t0)
 	if err != nil {
 		_ = os.RemoveAll(tmpDir)
-		return fmt.Errorf("icebug rebuild direct: %w", err)
+		return timing, fmt.Errorf("icebug rebuild direct: %w", err)
 	}
+	t0 = time.Now()
 	_ = os.RemoveAll(finalDir)
 	if err := os.Rename(tmpDir, finalDir); err != nil {
 		_ = os.RemoveAll(tmpDir)
-		return fmt.Errorf("icebug rebuild: rename bundle: %w", err)
+		return timing, fmt.Errorf("icebug rebuild: rename bundle: %w", err)
 	}
+	timing.Publish = time.Since(t0)
 	log.Info("icebug bundle rebuilt direct", "dir", finalDir, "nodes", len(man.NodeTables), "edges", man.EdgeCount, "incremental", doIncremental)
-	return nil
+	return timing, nil
 }
 
 // staleBundleTempAge is how long a working directory must have been untouched before this

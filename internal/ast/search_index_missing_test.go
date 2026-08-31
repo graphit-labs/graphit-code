@@ -43,6 +43,9 @@ func TestEmptySearchIndexIsRebuiltFromCacheWithoutReparsing(t *testing.T) {
 	if !SearchIndexBuilt(ctx, dbPath) {
 		t.Skip("this build has no search engine linked (needs -tags lancedb), so there is no index to empty")
 	}
+	if first.WritePhases.GraphExport <= 0 || first.WritePhases.GraphPublish <= 0 || first.WritePhases.SearchBuild <= 0 {
+		t.Fatalf("first run did not expose graph/search write timing: %+v", first.WritePhases)
+	}
 
 	// The search index goes; the graph and the parse cache stay. This is the shape of a store
 	// carried across an engine change.
@@ -66,6 +69,9 @@ func TestEmptySearchIndexIsRebuiltFromCacheWithoutReparsing(t *testing.T) {
 	}
 	if !second.SearchIndexRebuilt {
 		t.Error("the run did not report rebuilding the search index — it took the up-to-date shortcut")
+	}
+	if second.WritePhases.SearchBuild <= 0 {
+		t.Errorf("search-only repair did not expose its timing: %+v", second.WritePhases)
 	}
 	if !SearchIndexBuilt(ctx, dbPath) {
 		t.Fatal("the search index is still empty after a run that reported success")
