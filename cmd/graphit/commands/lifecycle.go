@@ -827,41 +827,59 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 	if !config.IsModuleDisabled("embedding", nil, projectCfg) {
 		var task *output.Task
 		if p != nil {
-			task = p.StartTask("Generating vector embeddings...")
+			task = p.StartTask("Generating embeddings and finalizing vector index...")
 		}
-		embClient, err := ai.NewEmbeddingClientFromConfig()
-		if err != nil {
-			syncLogError("embedding", "client init: %v", err)
+		cfg := ast.DefaultEmbeddingConfig()
+		cfg.RepoRoot = wd
+		cfg.ProjectDir = wd
+		ladybugCfg := ast.DefaultLadybugConfig()
+		cacheDir := ladybugCfg.StoreDir
+		parseCache, cacheErr := ast.NewShardCache(cacheDir)
+		if cacheErr == nil {
+			parseCache.SetRoot(cfg.RepoRoot)
+			cfg.ParseCache = parseCache
+		}
+		searchIdx, idxErr := ast.OpenSearchIndex(ctx, cacheDir)
+		if idxErr == nil {
+			cfg.Index = searchIdx
+			defer func() { _ = searchIdx.Close() }()
+		}
+		if cfg.ParseCache != nil {
+			if embCache, embErr := ast.NewShardEmbCache(cacheDir, cfg.ParseCache); embErr == nil {
+				cfg.EmbCache = embCache
+				defer func() { _ = embCache.Close() }()
+			}
+		}
+
+		var embClient ai.EmbeddingClient
+		if cfg.Index == nil || cfg.ParseCache == nil || cfg.EmbCache == nil {
+			syncLogError("embedding", "search index or embedding caches are unavailable")
 			if task != nil {
-				task.Fail("Embeddings: %v", err)
+				task.Fail("Vector index: search index or caches unavailable")
 			}
 		} else {
-			cfg := ast.DefaultEmbeddingConfig()
-			cfg.RepoRoot, _ = os.Getwd()
-			ladybugCfg := ast.DefaultLadybugConfig()
-			cacheDir := ladybugCfg.StoreDir
-			if parseCache, cacheErr := ast.NewShardCache(cacheDir); cacheErr == nil {
-				parseCache.SetRoot(cfg.RepoRoot)
-				cfg.ParseCache = parseCache
-			}
-			if searchIdx, idxErr := ast.OpenSearchIndex(ctx, cacheDir); idxErr == nil {
-				cfg.Index = searchIdx
-				defer func() { _ = searchIdx.Close() }()
-			}
-			if cfg.ParseCache != nil {
-				if embCache, embErr := ast.NewShardEmbCache(cacheDir, cfg.ParseCache); embErr == nil {
-					cfg.EmbCache = embCache
-					defer func() { _ = embCache.Close() }()
+			pending := ast.NewEmbedder(nil, cfg).CountPending(ctx)
+			if pending > 0 {
+				var err error
+				embClient, err = ai.NewEmbeddingClientFromConfig()
+				if err != nil {
+					syncLogError("embedding", "client init: %v", err)
+					if task != nil {
+						task.Fail("Embeddings: %v", err)
+					}
 				}
 			}
-			embedder := ast.NewEmbedder(embClient, cfg)
-			if _, err := embedder.RunCycle(ctx); err != nil {
-				syncLogError("embedding", "cycle: %v", err)
-				if task != nil {
-					task.Fail("Embeddings: %v", err)
+			if pending == 0 || embClient != nil {
+				embedder := ast.NewEmbedder(embClient, cfg)
+				n, err := embedder.RunCycle(ctx)
+				if err != nil {
+					syncLogError("embedding", "cycle: %v", err)
+					if task != nil {
+						task.Fail("Vector index: %v", err)
+					}
+				} else if task != nil {
+					task.Done("Vector index finalized (%d embeddings generated)", n)
 				}
-			} else if task != nil {
-				task.Done("Vector embeddings generated")
 			}
 		}
 	}

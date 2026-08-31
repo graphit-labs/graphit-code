@@ -106,6 +106,7 @@ type PipelineResult struct {
 
 type WritePhaseTiming struct {
 	CacheSave      time.Duration
+	GraphPreload   time.Duration
 	GraphPrepare   time.Duration
 	GraphExport    time.Duration
 	GraphPublish   time.Duration
@@ -502,6 +503,17 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}
 
 	dryRun := os.Getenv("AST_DRY_RUN") == "1"
+	var graphPreparation *rebuildEntryPreparation
+	if !dryRun && jsonCache != nil {
+		reparsed := make(map[string]bool, len(changedFiles))
+		for _, path := range changedFiles {
+			pathAbs, _ := filepath.Abs(path)
+			if relPath := writer.rel(pathAbs); relPath != "" {
+				reparsed[relPath] = true
+			}
+		}
+		graphPreparation = startRebuildEntryPreparation(jsonCache, reparsed)
+	}
 
 	type result struct {
 		path string
@@ -663,6 +675,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 					writeErrors++
 					writeErrorFiles = append(writeErrorFiles, fmt.Sprintf("%s: cache store: %v", relPath, storeErr))
 				} else {
+					graphPreparation.adopt(relPath, entry)
 					// Record current mtime so the next sync can skip SHA-256 for this file.
 					if info, statErr := os.Stat(r.pf.Path); statErr == nil {
 						jsonCache.StoreMtime(relPath, info.ModTime().UnixNano())
@@ -698,6 +711,8 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		_ = jsonCache.Save()
 		writePhases.CacheSave = time.Since(tCacheSave)
 	}
+	preparedEntries, preloadDuration := graphPreparation.finish(jsonCache)
+	writePhases.GraphPreload = preloadDuration
 
 	if !dryRun && jsonCache != nil && jsonCache.Count() > 0 {
 		tw0 := time.Now()
@@ -746,10 +761,11 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			graphTiming icebugRebuildTiming
 		)
 		if doIncremental {
-			graphTiming, err = rebuildIcebugFromCacheWithDeltaTimed(ctx, jsonCache, changedRels, deletedFiles, opts.Cluster, abs, opts.Logger, true, bundleDir, reverseEdges)
+			graphTiming, err = rebuildIcebugFromPreparedWithDeltaTimed(ctx, jsonCache, preparedEntries, changedRels, deletedFiles, opts.Cluster, abs, opts.Logger, true, bundleDir, reverseEdges)
 		} else {
-			graphTiming, err = rebuildIcebugFromCacheWithDeltaTimed(ctx, jsonCache, nil, nil, opts.Cluster, abs, opts.Logger, false, bundleDir, reverseEdges)
+			graphTiming, err = rebuildIcebugFromPreparedWithDeltaTimed(ctx, jsonCache, preparedEntries, nil, nil, opts.Cluster, abs, opts.Logger, false, bundleDir, reverseEdges)
 		}
+		preparedEntries = nil
 		writePhases.GraphPrepare = graphTiming.Prepare
 		writePhases.GraphExport = graphTiming.Export
 		writePhases.GraphPublish = graphTiming.Publish

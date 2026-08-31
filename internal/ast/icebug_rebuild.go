@@ -43,6 +43,10 @@ type icebugRebuildTiming struct {
 }
 
 func rebuildIcebugFromCacheWithDeltaTimed(ctx context.Context, cache *ShardCache, changed, deleted []string, cluster, rootPath string, logger *slog.Logger, isIncremental bool, finalDir string, reverseEdges bool) (icebugRebuildTiming, error) {
+	return rebuildIcebugFromPreparedWithDeltaTimed(ctx, cache, nil, changed, deleted, cluster, rootPath, logger, isIncremental, finalDir, reverseEdges)
+}
+
+func rebuildIcebugFromPreparedWithDeltaTimed(ctx context.Context, cache *ShardCache, prepared map[string]*parseCacheEntry, changed, deleted []string, cluster, rootPath string, logger *slog.Logger, isIncremental bool, finalDir string, reverseEdges bool) (icebugRebuildTiming, error) {
 	var timing icebugRebuildTiming
 	log := slogutil.Resolve(logger)
 	if cache == nil || cache.Count() == 0 {
@@ -50,11 +54,14 @@ func rebuildIcebugFromCacheWithDeltaTimed(ctx context.Context, cache *ShardCache
 	}
 
 	t0 := time.Now()
-	entries := make(map[string]*parseCacheEntry, cache.Count())
-	cache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
-		entries[relPath] = entry
-		return true
-	})
+	entries := prepared
+	if entries == nil {
+		entries = make(map[string]*parseCacheEntry, cache.Count())
+		cache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
+			entries[relPath] = entry
+			return true
+		})
+	}
 	ri := newRebuildIndex(entries, targetRulesFor(rootPath))
 
 	tmpDir := finalDir + ".tmp." + shortHex()

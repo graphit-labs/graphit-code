@@ -462,10 +462,13 @@ Requires an embedding provider to be configured (see ` + brand.BinName() + ` set
 					if rbErr := searchIdx.RebuildFromCache(ctx, parseCache, ast.BuildEmbLookup(parseCache, cfg.EmbCache)); rbErr != nil {
 						p.StepWarn("Search index rebuild: %v", rbErr)
 					}
-					task.Done("Search index rebuilt")
-				} else {
-					task.Done("All entities up to date")
 				}
+				task.Update("Finalizing vector index...")
+				if err := searchIdx.FinalizeVectors(ctx); err != nil {
+					task.Fail("Vector index: %v", err)
+					return nil
+				}
+				task.Done("All entities and vector index up to date")
 				return nil
 			}
 

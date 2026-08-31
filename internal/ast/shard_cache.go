@@ -442,9 +442,19 @@ func (sc *ShardCache) Remove(relPath string) {
 // from disk and evicting it after the callback returns. This bounds memory to
 // O(1) loaded shards instead of O(N). Return false from fn to stop early.
 func (sc *ShardCache) StreamEntries(fn func(relPath string, entry *parseCacheEntry) bool) {
+	sc.streamEntriesExcept(nil, fn)
+}
+
+// streamEntriesExcept is StreamEntries with a pre-load exclusion set. The skip
+// check happens before GetEntry so a path being reparsed is not decoded only to
+// be replaced moments later.
+func (sc *ShardCache) streamEntriesExcept(skip map[string]bool, fn func(relPath string, entry *parseCacheEntry) bool) {
 	sc.mu.Lock()
 	paths := make([]string, 0, len(sc.manifest.Files))
 	for p := range sc.manifest.Files {
+		if skip[p] {
+			continue
+		}
 		paths = append(paths, p)
 	}
 	sc.mu.Unlock()

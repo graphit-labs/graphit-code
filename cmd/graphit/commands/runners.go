@@ -498,8 +498,8 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 	}
 	if finalResult.WriteTime > 0 {
 		phases := finalResult.WritePhases
-		p.Step("Write breakdown: graph-prepare %.2fs, graph-export %.2fs, graph-publish %.2fs, embeddings %.2fs, search-open %.2fs, search-build %.2fs, search-maintain %.2fs, search-close %.2fs",
-			phases.GraphPrepare.Seconds(), phases.GraphExport.Seconds(), phases.GraphPublish.Seconds(),
+		p.Step("Write breakdown: graph-preload %.2fs (overlapped), graph-prepare %.2fs, graph-export %.2fs, graph-publish %.2fs, embeddings %.2fs, search-open %.2fs, search-build %.2fs, search-maintain %.2fs, search-close %.2fs",
+			phases.GraphPreload.Seconds(), phases.GraphPrepare.Seconds(), phases.GraphExport.Seconds(), phases.GraphPublish.Seconds(),
 			phases.EmbeddingCache.Seconds(), phases.SearchOpen.Seconds(), phases.SearchBuild.Seconds(),
 			phases.SearchMaintain.Seconds(), phases.SearchClose.Seconds())
 	}

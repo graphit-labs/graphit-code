@@ -462,6 +462,27 @@ func (t *Table) EnsureIndexes(ctx context.Context, indexes ...Index) error {
 	return nil
 }
 
+// DropIndex removes one index when it exists.
+func (t *Table) DropIndex(ctx context.Context, idx Index) error {
+	if t.store.remote {
+		return ErrReadOnly
+	}
+	name := indexName(idx)
+	infos, err := t.tbl.GetAllIndexes(ctx)
+	if err != nil {
+		return fmt.Errorf("lancestore: listing indexes on %s: %w", t.name, err)
+	}
+	for _, info := range infos {
+		if strings.EqualFold(info.Name, name) {
+			if err := t.tbl.DropIndex(ctx, info.Name); err != nil {
+				return fmt.Errorf("lancestore: dropping %s on %s.%s: %w", idx.Kind, t.name, idx.Column, err)
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
 func indexName(idx Index) string {
 	return fmt.Sprintf("%s_%s_idx", idx.Column, strings.ReplaceAll(idx.Kind.String(), "-", "_"))
 }

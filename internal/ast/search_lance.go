@@ -2,7 +2,10 @@ package ast
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -14,6 +17,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/lockfile"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
 
@@ -92,16 +96,20 @@ func LanceIndexPath(storeDir string) string {
 	return filepath.Join(storeDir, LanceIndexDirName)
 }
 
-// embedsStatusFile is the sidecar that records how many entity rows carry an embedding,
-// written by every rebuild. It is the only thing that tells a hybrid/semantic query whether
-// the vector channel can answer at all — the engine's RRF rank needs a `_distance` column
-// that no row can produce when every embedding is NULL, and the resulting error is one word
-// out of a C++ query planner rather than an actionable message.
-const embedsStatusFile = "embeds.json"
+// embedsStatusFile records vector coverage and IVF-PQ publication for one corpus generation.
+const (
+	embedsStatusFile       = "embeds.json"
+	embedsStatusLockFile   = "embeds.lock"
+	vectorFinalizeLockFile = "vector-index.lock"
+	vectorIndexPending     = "pending"
+	vectorIndexReady       = "ready"
+)
 
 type embedsStatus struct {
-	Vectors  int64 `json:"vectors"`
-	Entities int64 `json:"entities"`
+	Vectors     int64  `json:"vectors"`
+	Entities    int64  `json:"entities"`
+	Generation  string `json:"generation,omitempty"`
+	VectorIndex string `json:"vector_index,omitempty"`
 }
 
 func embedsStatusPath(storeDir string) string {
@@ -118,12 +126,76 @@ func readEmbedsStatus(storeDir string) embedsStatus {
 	return st
 }
 
-func writeEmbedsStatus(storeDir string, vectors, entities int64) error {
-	raw, err := json.MarshalIndent(embedsStatus{Vectors: vectors, Entities: entities}, "", "  ")
+func writeEmbedsStatusFile(storeDir string, st embedsStatus) error {
+	raw, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(embedsStatusPath(storeDir), raw, 0o644)
+	tmp, err := os.CreateTemp(storeDir, ".embeds-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(raw); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, embedsStatusPath(storeDir))
+}
+
+func withEmbedsStatusLock(storeDir string, fn func(embedsStatus) error) error {
+	lock, err := lockfile.Acquire(filepath.Join(storeDir, embedsStatusLockFile), 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("lock embeds status: %w", err)
+	}
+	defer lock.Release()
+	return fn(readEmbedsStatus(storeDir))
+}
+
+func newSearchGeneration() string {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err == nil {
+		return hex.EncodeToString(id[:])
+	}
+	return fmt.Sprintf("%x", time.Now().UnixNano())
+}
+
+func beginVectorGeneration(storeDir string) (string, error) {
+	generation := newSearchGeneration()
+	err := withEmbedsStatusLock(storeDir, func(st embedsStatus) error {
+		st.Generation = generation
+		st.VectorIndex = vectorIndexPending
+		return writeEmbedsStatusFile(storeDir, st)
+	})
+	return generation, err
+}
+
+func publishPendingVectorCounts(storeDir, generation string, vectors, entities int64) error {
+	return withEmbedsStatusLock(storeDir, func(st embedsStatus) error {
+		if st.Generation != generation {
+			return fmt.Errorf("vector generation changed from %s to %s", generation, st.Generation)
+		}
+		st.Vectors = vectors
+		st.Entities = entities
+		st.VectorIndex = vectorIndexPending
+		return writeEmbedsStatusFile(storeDir, st)
+	})
+}
+
+// VectorGeneration returns the currently published search corpus generation.
+func (s *SearchIndex) VectorGeneration() string {
+	if s == nil || s.storeDir == "" {
+		return ""
+	}
+	return readEmbedsStatus(s.storeDir).Generation
 }
 
 // OpenSearchIndex opens the search index of a graph store.
@@ -205,18 +277,21 @@ func lanceEntitiesSchema(vectorDim int) lancestore.Schema {
 	}}
 }
 
-// lanceIndexes is what has to exist for search to answer.
+// lanceEntityIndexes is what has to exist for search to answer.
 //
 // The inverted index is NOT optional: a full-text query without one matches nothing at all, so
 // this is not a performance step that can be deferred to an idle moment.
 func lanceEntityIndexes() []lancestore.Index {
 	return []lancestore.Index{
 		{Column: lanceBodyColumn, Kind: lancestore.IndexInvertedText},
-		{Column: lanceVectorColumn, Kind: lancestore.IndexVectorIVFPQ},
 		// etype has few distinct values across many rows, which is the bitmap's case.
 		{Column: "etype", Kind: lancestore.IndexScalarBitmap},
 		{Column: "path", Kind: lancestore.IndexScalarBTree},
 	}
+}
+
+func lanceVectorIndex() lancestore.Index {
+	return lancestore.Index{Column: lanceVectorColumn, Kind: lancestore.IndexVectorIVFPQ}
 }
 
 func lanceFileIndexes() []lancestore.Index {
@@ -427,6 +502,14 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 		return lancestore.ErrReadOnly
 	}
 	t0 := time.Now()
+	generation := ""
+	if s.storeDir != "" {
+		var err error
+		generation, err = beginVectorGeneration(s.storeDir)
+		if err != nil {
+			return fmt.Errorf("publishing pending vector generation: %w", err)
+		}
+	}
 
 	for _, name := range []string{lanceFilesTable, lanceEntitiesTable} {
 		if err := s.store.DropTable(ctx, name); err != nil {
@@ -505,16 +588,7 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 	if err := files.EnsureIndexes(ctx, lanceFileIndexes()...); err != nil {
 		return err
 	}
-	// The vector index needs enough vectors to train on — see lanceMinRowsForVectorIndex. Below
-	// the floor it is skipped, and semantic search still answers by scanning.
-	idx := lanceEntityIndexes()
-	if vecCount < lanceMinRowsForVectorIndex {
-		idx = withoutColumn(idx, lanceVectorColumn)
-		s.log().Info("vector index not built: too few embeddings to train on",
-			"vectors", vecCount, "required", lanceMinRowsForVectorIndex,
-			"impact", "semantic search still answers, by scanning instead of by index")
-	}
-	if err := entities.EnsureIndexes(ctx, idx...); err != nil {
+	if err := entities.EnsureIndexes(ctx, lanceEntityIndexes()...); err != nil {
 		return err
 	}
 
@@ -522,23 +596,13 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 		"files", fileCount, "entities", entCount, "vectors", vecCount,
 		"duration_ms", time.Since(t0).Seconds()*1000)
 
-	if s.storeDir != "" && entCount > 0 {
-		if err := writeEmbedsStatus(s.storeDir, int64(vecCount), int64(entCount)); err != nil {
+	if s.storeDir != "" {
+		if err := publishPendingVectorCounts(s.storeDir, generation, int64(vecCount), int64(entCount)); err != nil {
 			return fmt.Errorf("writing embeds status: %w", err)
 		}
 	}
 	s.vectorCount = int64(vecCount)
 	return nil
-}
-
-func withoutColumn(in []lancestore.Index, column string) []lancestore.Index {
-	out := make([]lancestore.Index, 0, len(in))
-	for _, i := range in {
-		if i.Column != column {
-			out = append(out, i)
-		}
-	}
-	return out
 }
 
 // ---------- incremental ----------
@@ -569,6 +633,17 @@ func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
 		return err
 	}
 	t0 := time.Now()
+	generation := ""
+	if s.storeDir != "" {
+		var err error
+		generation, err = beginVectorGeneration(s.storeDir)
+		if err != nil {
+			return fmt.Errorf("publishing pending vector generation: %w", err)
+		}
+	}
+	if err := s.entities.DropIndex(ctx, lanceVectorIndex()); err != nil {
+		return fmt.Errorf("invalidating vector index: %w", err)
+	}
 
 	// Deleted first, and for BOTH lists: a changed file's old rows have to go before its new ones
 	// arrive, or the index answers with two versions of the same entity.
@@ -589,6 +664,9 @@ func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
 		fileRows = append(fileRows, buildFileRow(p, cache.SourceOf(p)))
 		for _, e := range entry.Entities {
 			var emb []float32
+			if embLookup != nil {
+				emb = embLookup(p, e.UID)
+			}
 			row := buildEntityRow(e, emb)
 			if row[lanceVectorColumn] != nil {
 				vecCount++
@@ -646,7 +724,7 @@ func (s *SearchIndex) UpdateIncremental(ctx context.Context, cache *ShardCache,
 				vectors = 0
 			}
 		}
-		if err := writeEmbedsStatus(s.storeDir, vectors, entities); err != nil {
+		if err := publishPendingVectorCounts(s.storeDir, generation, vectors, entities); err != nil {
 			return fmt.Errorf("writing embeds status: %w", err)
 		}
 		s.vectorCount = vectors
@@ -1150,47 +1228,90 @@ func (s *SearchIndex) StoreEntityVectors(ctx context.Context, ents []cachedEntit
 
 // FinalizeVectors is called once an embedding cycle has finished writing.
 //
-// A rebuild builds its indexes at the END, when it knows how many vectors it wrote. Vectors now
-// arrive AFTER that — the embedding cycle writes them into rows that already exist — so at
-// rebuild time the count is zero and the vector index is skipped as "too few to train on". If
-// nothing built it afterwards, it would never be built at all, and a hybrid query would fail
-// asking for a _distance column that no index produces.
-//
-// So this is where the vector index actually comes from. It is idempotent: EnsureIndexes leaves
-// an index that already exists alone, and below the training floor there is deliberately no
-// index — semantic search answers by scanning, which at that size is what an index degenerates
-// into anyway.
+// The synchronous AST rebuild deliberately leaves IVF-PQ pending. This heavy finalizer builds it
+// after vectors are restored/generated; below the training floor, exact scan is the ready state.
 func (s *SearchIndex) FinalizeVectors(ctx context.Context) error {
+	generation := s.VectorGeneration()
+	if s.storeDir != "" && generation == "" {
+		var err error
+		generation, err = beginVectorGeneration(s.storeDir)
+		if err != nil {
+			return fmt.Errorf("publishing pending vector generation: %w", err)
+		}
+	}
+	_, err := s.FinalizeVectorsForGeneration(ctx, generation)
+	return err
+}
+
+// FinalizeVectorsForGeneration builds IVF-PQ only when generation is still current.
+func (s *SearchIndex) FinalizeVectorsForGeneration(ctx context.Context, generation string) (bool, error) {
 	if s.Remote() {
-		return lancestore.ErrReadOnly
+		return false, lancestore.ErrReadOnly
+	}
+	var finalizeLock *lockfile.Lock
+	if s.storeDir != "" {
+		var err error
+		finalizeLock, err = lockfile.TryAcquire(filepath.Join(s.storeDir, vectorFinalizeLockFile))
+		if errors.Is(err, lockfile.ErrLocked) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("lock vector index finalization: %w", err)
+		}
+		defer finalizeLock.Release()
+		current := readEmbedsStatus(s.storeDir)
+		if current.Generation != generation {
+			return false, nil
+		}
+		if current.VectorIndex == vectorIndexReady {
+			s.vectorCount = current.Vectors
+			return true, nil
+		}
 	}
 	entCount, vecCount, err := s.Counts(ctx)
 	if err != nil {
-		return fmt.Errorf("counting vectors: %w", err)
+		return false, fmt.Errorf("counting vectors: %w", err)
 	}
-	idx := lanceEntityIndexes()
 	if vecCount < lanceMinRowsForVectorIndex {
-		idx = withoutColumn(idx, lanceVectorColumn)
 		s.log().Info("vector index not built: too few embeddings to train on",
 			"vectors", vecCount, "required", lanceMinRowsForVectorIndex,
 			"impact", "semantic search still answers, by scanning instead of by index")
-	}
-	if err := s.entities.EnsureIndexes(ctx, idx...); err != nil {
-		return fmt.Errorf("building indexes over new vectors: %w", err)
+	} else if err := s.entities.EnsureIndexes(ctx, lanceVectorIndex()); err != nil {
+		return false, fmt.Errorf("building vector index: %w", err)
 	}
 	if err := s.entities.FoldNewRowsIntoIndexes(ctx); err != nil {
 		s.log().Warn("folding new vectors into the indexes", "error", err)
 	}
-	s.vectorCount = vecCount
-	if s.storeDir != "" && entCount > 0 {
-		if err := writeEmbedsStatus(s.storeDir, vecCount, entCount); err != nil {
-			return fmt.Errorf("writing embeds status: %w", err)
+	if s.storeDir != "" {
+		published := false
+		if err := withEmbedsStatusLock(s.storeDir, func(st embedsStatus) error {
+			if st.Generation != generation {
+				if st.VectorIndex != vectorIndexReady {
+					if err := s.entities.DropIndex(ctx, lanceVectorIndex()); err != nil {
+						s.log().Warn("discarding stale vector index", "error", err)
+					}
+				}
+				return nil
+			}
+			st.Vectors = vecCount
+			st.Entities = entCount
+			st.VectorIndex = vectorIndexReady
+			published = true
+			return writeEmbedsStatusFile(s.storeDir, st)
+		}); err != nil {
+			return false, fmt.Errorf("publishing vector index: %w", err)
+		}
+		if !published {
+			s.log().Info("discarded vector index built for a stale corpus generation",
+				"generation", generation)
+			return false, nil
 		}
 	}
+	s.vectorCount = vecCount
 	// An embedding cycle rewrites rows through Upsert — delete then append — so it leaves
 	// exactly the fragmentation and the superseded versions this reclaims.
 	s.Maintain(ctx)
-	return nil
+	return true, nil
 }
 
 // ---------- reclaiming disk ----------

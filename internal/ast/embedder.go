@@ -186,6 +186,7 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 	if e.cfg.Index == nil || e.cfg.EmbCache == nil || e.cfg.ParseCache == nil {
 		return 0, nil
 	}
+	generation := e.cfg.Index.VectorGeneration()
 
 	// Single streaming pass: collect only rows that still need embedding,
 	// bucketed by label, with their source snippet precomputed. Replaces the old
@@ -197,7 +198,11 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 		grandTotal += len(rows)
 	}
 	if grandTotal == 0 {
-		return 0, nil
+		if generation == "" {
+			return 0, e.cfg.Index.FinalizeVectors(ctx)
+		}
+		_, err := e.cfg.Index.FinalizeVectorsForGeneration(ctx, generation)
+		return 0, err
 	}
 	if e.cfg.OnProgress != nil {
 		e.cfg.OnProgress(0, grandTotal)
@@ -222,8 +227,14 @@ func (e *Embedder) RunCycle(ctx context.Context) (int, error) {
 
 	// The vector index cannot exist before the vectors do — see FinalizeVectors.
 	if done > 0 {
-		if err := e.cfg.Index.FinalizeVectors(ctx); err != nil {
-			e.log().Warn("finalizing the vector index", "error", err)
+		var err error
+		if generation == "" {
+			err = e.cfg.Index.FinalizeVectors(ctx)
+		} else {
+			_, err = e.cfg.Index.FinalizeVectorsForGeneration(ctx, generation)
+		}
+		if err != nil {
+			return done, fmt.Errorf("finalizing vector index: %w", err)
 		}
 	}
 

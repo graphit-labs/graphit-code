@@ -30,6 +30,17 @@ func newLanceIndexForTest(t *testing.T) *SearchIndex {
 	return idx
 }
 
+func newLocalLanceIndexForTest(t *testing.T) (*SearchIndex, string) {
+	t.Helper()
+	dir := t.TempDir()
+	idx, err := OpenSearchIndex(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("open local lance index: %v", err)
+	}
+	t.Cleanup(func() { _ = idx.Close() })
+	return idx, dir
+}
+
 func newShardCacheForTest(t *testing.T, entries ...*parseCacheEntry) *ShardCache {
 	t.Helper()
 	cache, err := NewShardCache(t.TempDir())
@@ -362,6 +373,132 @@ func TestLanceRebuildStoresEmbeddingsAndSearchesThemSemantically(t *testing.T) {
 	}
 	if n, _ := hits[0].Row["name"].(string); n != "beta" {
 		t.Errorf("nearest to beta's own vector is %q, want beta", n)
+	}
+}
+
+func TestLanceRebuildPublishesPendingUntilHeavyFinalizes(t *testing.T) {
+	ctx := context.Background()
+	idx, storeDir := newLocalLanceIndexForTest(t)
+	vec := make([]float32, ai.EmbeddingDimensions)
+	vec[0] = 1
+	cache := newShardCacheForTest(t, entryWith("a.go", "package a", cachedEntity{Name: "alpha"}))
+	lookup := func(_, _ string) []float32 { return vec }
+
+	if err := idx.RebuildFromCache(ctx, cache, lookup); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	st := readEmbedsStatus(storeDir)
+	if st.Generation == "" || st.VectorIndex != vectorIndexPending {
+		t.Fatalf("status after rebuild = %+v, want generated pending state", st)
+	}
+
+	hits, err := idx.entities.Search(ctx, lancestore.Query{
+		Vector: vec, VectorColumn: lanceVectorColumn, Limit: 1,
+	})
+	if err != nil || len(hits) != 1 {
+		t.Fatalf("pending vector scan: hits=%d err=%v", len(hits), err)
+	}
+	published, err := idx.FinalizeVectorsForGeneration(ctx, st.Generation)
+	if err != nil || !published {
+		t.Fatalf("finalize: published=%v err=%v", published, err)
+	}
+	if got := readEmbedsStatus(storeDir); got.VectorIndex != vectorIndexReady {
+		t.Fatalf("status after heavy = %+v, want ready", got)
+	}
+}
+
+func TestLanceStaleVectorGenerationIsNotPublished(t *testing.T) {
+	ctx := context.Background()
+	idx, storeDir := newLocalLanceIndexForTest(t)
+	cache := newShardCacheForTest(t, entryWith("a.go", "package a", cachedEntity{Name: "alpha"}))
+	if err := idx.RebuildFromCache(ctx, cache, nil); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	oldGeneration := readEmbedsStatus(storeDir).Generation
+	newGeneration, err := beginVectorGeneration(storeDir)
+	if err != nil {
+		t.Fatalf("advance generation: %v", err)
+	}
+
+	published, err := idx.FinalizeVectorsForGeneration(ctx, oldGeneration)
+	if err != nil {
+		t.Fatalf("finalize stale generation: %v", err)
+	}
+	if published {
+		t.Fatal("stale vector generation was published")
+	}
+	st := readEmbedsStatus(storeDir)
+	if st.Generation != newGeneration || st.VectorIndex != vectorIndexPending {
+		t.Fatalf("current status = %+v, want newer pending generation", st)
+	}
+}
+
+func TestLanceIncrementalRestoresCachedVectorsAndInvalidatesGeneration(t *testing.T) {
+	ctx := context.Background()
+	idx, storeDir := newLocalLanceIndexForTest(t)
+	vec := make([]float32, ai.EmbeddingDimensions)
+	vec[0] = 1
+	first := newShardCacheForTest(t, entryWith("a.go", "package a", cachedEntity{Name: "alpha"}))
+	lookup := func(_, _ string) []float32 { return vec }
+	if err := idx.RebuildFromCache(ctx, first, lookup); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	firstStatus := readEmbedsStatus(storeDir)
+	if _, err := idx.FinalizeVectorsForGeneration(ctx, firstStatus.Generation); err != nil {
+		t.Fatalf("first finalize: %v", err)
+	}
+
+	changed := newShardCacheForTest(t, entryWith("a.go", "package a", cachedEntity{Name: "beta"}))
+	if err := idx.UpdateIncremental(ctx, changed, []string{"a.go"}, nil, lookup); err != nil {
+		t.Fatalf("incremental: %v", err)
+	}
+	st := readEmbedsStatus(storeDir)
+	if st.Generation == firstStatus.Generation || st.VectorIndex != vectorIndexPending {
+		t.Fatalf("incremental status = %+v, want a new pending generation", st)
+	}
+	entities, vectors, err := idx.Counts(ctx)
+	if err != nil {
+		t.Fatalf("counts: %v", err)
+	}
+	if entities != 1 || vectors != 1 {
+		t.Fatalf("counts after incremental = entities:%d vectors:%d, want 1/1", entities, vectors)
+	}
+}
+
+func TestEmbeddingCycleFinalizesPendingIndexWithNoNewEmbeddings(t *testing.T) {
+	ctx := context.Background()
+	idx, storeDir := newLocalLanceIndexForTest(t)
+	entry := entryWith("a.go", "package a", cachedEntity{Name: "alpha"})
+	entry.Language = "go"
+	cache := newShardCacheForTest(t, entry)
+	embCache, err := NewShardEmbCache(cache.dir, cache)
+	if err != nil {
+		t.Fatalf("embedding cache: %v", err)
+	}
+	t.Cleanup(func() { _ = embCache.Close() })
+	vec := make([]float32, ai.EmbeddingDimensions)
+	vec[0] = 1
+	embCache.Set("a.go", entry.Entities[0].UID, "h-0", vec)
+	if err := embCache.Save(); err != nil {
+		t.Fatalf("save embedding cache: %v", err)
+	}
+	if err := idx.RebuildFromCache(ctx, cache, BuildEmbLookup(cache, embCache)); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	cfg := DefaultEmbeddingConfig()
+	cfg.Index = idx
+	cfg.ParseCache = cache
+	cfg.EmbCache = embCache
+	n, err := NewEmbedder(nil, cfg).RunCycle(ctx)
+	if err != nil {
+		t.Fatalf("zero-pending cycle: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("embedded %d entities, want zero cached work", n)
+	}
+	if st := readEmbedsStatus(storeDir); st.VectorIndex != vectorIndexReady {
+		t.Fatalf("status after zero-pending heavy cycle = %+v, want ready", st)
 	}
 }
 
