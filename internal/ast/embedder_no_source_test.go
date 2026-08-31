@@ -127,10 +127,19 @@ func TestEmbeddingKeepsSourceSignalWithoutPersistingSource(t *testing.T) {
 // Asserted against the shard ON DISK, which is the artifact that would leak.
 func TestShardOnDiskNeverCarriesFileText(t *testing.T) {
 	const rel = "svc/pay.go"
-	e, _ := noSourceFixture(t, rel, noSourceBody, noSourceEntities())
-
+	e, repoRoot := noSourceFixture(t, rel, noSourceBody, noSourceEntities())
 	if rows := e.scanPending(true)["Function"]; len(rows) != 1 || rows[0].Source == "" {
 		t.Fatalf("the fixture did not produce an embedded snippet: %+v", rows)
+	}
+
+	fullPath := filepath.Join(repoRoot, rel)
+	entry := ConvertToCache(&ParsedFile{
+		Path:     fullPath,
+		Source:   noSourceBody,
+		Language: embedLabelsTestLang,
+	}, repoRoot, true, "service")
+	if err := e.cfg.ParseCache.Store(rel, fileContentHash(fullPath), entry); err != nil {
+		t.Fatalf("store source-indexed shard: %v", err)
 	}
 	if err := e.cfg.ParseCache.FlushDirty(); err != nil {
 		t.Fatalf("flush: %v", err)
@@ -142,6 +151,18 @@ func TestShardOnDiskNeverCarriesFileText(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "gateway.Authorize") {
 		t.Error("the file body leaked into the shard JSON")
+	}
+	if strings.Contains(string(raw), "file_row") {
+		t.Error("the legacy file_row tuple leaked into the shard JSON")
+	}
+
+	reloaded, err := NewShardCache(e.cfg.ParseCache.dir)
+	if err != nil {
+		t.Fatalf("reload shard cache: %v", err)
+	}
+	defer reloaded.Close()
+	if got := reloaded.GetEntry(rel).Cluster; got != "service" {
+		t.Errorf("cluster = %q, want service", got)
 	}
 }
 

@@ -59,7 +59,7 @@ func (n *shardNodes) compact(shared, local *shardInterner) {
 		return
 	}
 	n.Lang = shared.of(n.Lang)
-	n.FileRow = clip(n.FileRow)
+	n.Cluster = shared.of(n.Cluster)
 	n.DirPaths = clip(n.DirPaths)
 	for i := range n.DirPaths {
 		n.DirPaths[i] = shared.of(n.DirPaths[i])

@@ -36,9 +36,10 @@ func TestCompactionPreservesEveryValue(t *testing.T) {
 		if got == nil {
 			t.Fatalf("%s: not found after reload", relPath)
 		}
-		// Source is not persisted in a shard, so it is the one field a round-trip
+		// Source and legacy FileRow are not persisted in a shard, so they are fields a round-trip
 		// legitimately drops.
 		want.Source = ""
+		want.FileRow = nil
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: round-trip differs\n got: %+v\nwant: %+v", relPath, got, want)
 		}
@@ -154,7 +155,6 @@ func compactionCorpus() []*parseCacheEntry {
 			RelPath:  rel,
 			Language: "go",
 			Cluster:  "core",
-			FileRow:  []string{rel, name, rel, "false", "go", "", "core"},
 			DirPaths: []string{"pkg"},
 			Entities: []cachedEntity{
 				{

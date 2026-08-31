@@ -1,13 +1,12 @@
 package ast
 
 import (
-	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
 )
 
-func ConvertToCache(pf *ParsedFile, rootPath string, indexSource bool, cluster string) *parseCacheEntry {
+func ConvertToCache(pf *ParsedFile, rootPath string, _ bool, cluster string) *parseCacheEntry {
 	abs, _ := filepath.Abs(pf.Path)
 	relPath := computeRelPath(rootPath, abs)
 	if relPath == "" {
@@ -19,25 +18,6 @@ func ConvertToCache(pf *ParsedFile, rootPath string, indexSource bool, cluster s
 		Language: pf.Language,
 		IsDepend: pf.IsDepend,
 		Cluster:  cluster,
-	}
-
-	src := ""
-	if indexSource {
-		src = pf.Source
-		if src == "" {
-			if raw, err := ReadFileBytes(abs); err == nil {
-				src = string(raw)
-			}
-		}
-	}
-	entry.Source = src
-
-	entry.FileRow = []string{
-		relPath, filepath.Base(abs), relPath,
-		fmt.Sprint(pf.IsDepend), pf.Language, src,
-	}
-	if cluster != "" {
-		entry.FileRow = append(entry.FileRow, cluster)
 	}
 
 	nameToUID := make(map[string]string)

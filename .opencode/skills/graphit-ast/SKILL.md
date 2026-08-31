@@ -151,6 +151,15 @@ concluding the index is stale or falling back to grep — and note that a name m
 known grammar is deliberately inert, so a typo in either key disables nothing and says
 nothing.
 
+**A SQL corpus with an empty graph is configuration, not a broken index.** The SQL
+dialect grammars — `plsql`, `postgresql`, `db2`, `tsql`, `plpgsql` — are declared
+`exclusive` in their query YAML, which means they claim no extensions: `.sql` is parsed
+by the tree-sitter `sql` grammar and nothing falls back to a dialect, while `.pks`,
+`.pkb`, `.db2` and `.tsql` are not indexed at all. A project indexes with a dialect by
+naming it — `ast.grammar` = `.sql=antlr-plsql,.pks=antlr-plsql`. So when an Oracle or
+T-SQL repository has no Procedure and no Package in its graph, read `ast.grammar` with `graphit_config_get`
+before reindexing anything.
+
 **"I need to search inside comments."** Comments are **in the graph**, as `Comment` nodes
 whose `name` is the comment text:
 ```

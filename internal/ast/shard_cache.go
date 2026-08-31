@@ -66,7 +66,12 @@ import (
 //	text that is already in the working tree grows the store with the corpus and buys
 //	nothing. A project reads the text from the tree; a store installed from elsewhere
 //	reads it from its search index, which is what the text travels in.
-const shardCacheVersion = 10
+//
+// 11: the legacy file_row tuple left the nodes shard. It redundantly carried file metadata
+//
+//	and retained source text at index 5 when source indexing was enabled; cluster now has its
+//	own field.
+const shardCacheVersion = 11
 
 type ShardCache struct {
 	dir      string
@@ -98,7 +103,7 @@ type shardNodes struct {
 	Hash     string            `json:"h"`
 	Lang     string            `json:"lang,omitempty"`
 	Dep      bool              `json:"dep,omitempty"`
-	FileRow  []string          `json:"file_row,omitempty"`
+	Cluster  string            `json:"cluster,omitempty"`
 	DirPaths []string          `json:"dir_paths,omitempty"`
 	Entities []cachedEntity    `json:"entities,omitempty"`
 	Params   []cachedParameter `json:"params,omitempty"`
@@ -579,7 +584,7 @@ func splitEntry(entry *parseCacheEntry, hash string) (*shardNodes, *shardEdges) 
 		Hash:     hash,
 		Lang:     entry.Language,
 		Dep:      entry.IsDepend,
-		FileRow:  entry.FileRow,
+		Cluster:  entry.Cluster,
 		DirPaths: entry.DirPaths,
 		Entities: entry.Entities,
 		Params:   entry.Parameters,
@@ -599,16 +604,11 @@ func splitEntry(entry *parseCacheEntry, hash string) (*shardNodes, *shardEdges) 
 }
 
 func mergeShards(relPath string, n *shardNodes, e *shardEdges, lang string, isDep bool) *parseCacheEntry {
-	cluster := ""
-	if len(n.FileRow) >= 7 {
-		cluster = n.FileRow[6]
-	}
 	return &parseCacheEntry{
 		RelPath:       relPath,
 		Language:      lang,
 		IsDepend:      isDep,
-		Cluster:       cluster,
-		FileRow:       n.FileRow,
+		Cluster:       n.Cluster,
 		DirPaths:      n.DirPaths,
 		Entities:      n.Entities,
 		Parameters:    n.Params,
