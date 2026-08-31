@@ -51,8 +51,16 @@ type canonicalPlan struct {
 func (k *LadybugBackend) tryCanonicalBoundedTraversal(
 	ctx context.Context, cypher string, params map[string]any,
 ) (*QueryResult, bool, error) {
-	plan, ok := parseCanonicalTraversal(cypher)
+	plan, refusal, ok := parseCanonicalTraversal(cypher)
 	if !ok {
+		// A refusal binds only for a LOGICAL relationship type, where this planner is
+		// the only route and forwarding the query would enumerate the whole component.
+		// A traversal naming a physical member table is the engine's to run exactly as
+		// written, so this planner's rules say nothing about it — as does a query that
+		// is not a traversal at all.
+		if refusal != nil && k.canonicalGroup(refusal.relType) != nil {
+			return nil, true, refusal
+		}
 		return nil, false, nil
 	}
 	group := k.canonicalGroup(plan.relType)
@@ -308,24 +316,58 @@ func (p canonicalPlan) uidProjection() (string, bool) {
 	return "", false
 }
 
+// canonicalRefusal names the rule a query broke and the form that works instead. The
+// planner knows which of its rules rejected a query; returning a bare bool threw that
+// away and left the caller guessing at the reason from the query text.
+//
+// relType is carried because a refusal only BINDS for a logical relationship type. A
+// traversal naming a physical member table is answered by the engine as written, so no
+// rule of this planner has any bearing on it — the caller checks the type against the
+// manifest before surfacing any of this.
+type canonicalRefusal struct {
+	relType string
+	what    string
+	fix     string
+}
+
+func (r *canonicalRefusal) Error() string {
+	if r.fix == "" {
+		return "canonical catalog: " + r.what
+	}
+	return "canonical catalog: " + r.what + " " + r.fix
+}
+
 // parseCanonicalTraversal recognizes the bounded-reachability shapes whose semantics the
 // canonical planner can preserve exactly, including the aggregation forms it computes over
 // the reached set. Everything else fails closed.
-func parseCanonicalTraversal(cypher string) (canonicalPlan, bool) {
+//
+// The three outcomes are distinct and the caller depends on all three: a plan; a refusal,
+// which the caller must surface rather than retry; and neither, which means the query is
+// not a traversal at all and belongs to the engine.
+func parseCanonicalTraversal(cypher string) (canonicalPlan, *canonicalRefusal, bool) {
 	m := canonicalTraversalPattern.FindStringSubmatch(cypher)
 	if m == nil {
-		return canonicalPlan{}, false
+		return canonicalPlan{}, nil, false
+	}
+	relType := m[3]
+	refuse := func(what, fix string) (canonicalPlan, *canonicalRefusal, bool) {
+		return canonicalPlan{}, &canonicalRefusal{relType: relType, what: what, fix: fix}, false
 	}
 	// m[2] is the relationship variable (`[r:CALLS]`); it is metadata for the
 	// planner, whose traversal does not need to bind the relationship itself.
 	left, okL := parseIcebugNodePattern(m[1])
 	right, okR := parseIcebugNodePattern(m[8])
-	if !okL || !okR || left.variable == right.variable {
-		return canonicalPlan{}, false
+	if !okL || !okR {
+		return refuse("both ends of the pattern must be node patterns this planner can read.",
+			"Write them as `(v)`, `(v:Label)` or `(v:Label {prop: 'value'})`.")
+	}
+	if left.variable == right.variable {
+		return refuse("both ends of the pattern bind the same variable.",
+			"Give them different names: one end is filtered and the other is projected.")
 	}
 
 	plan := canonicalPlan{
-		relType: m[3], minHops: 1,
+		relType: relType, minHops: 1,
 		directionless: m[7] == "-",
 		distinct:      strings.TrimSpace(m[10]) != "",
 		returnClause:  strings.TrimSpace(m[11]),
@@ -340,16 +382,25 @@ func parseCanonicalTraversal(cypher string) (canonicalPlan, bool) {
 		if m[6] != "" {
 			plan.maxHops, _ = strconv.Atoi(m[6])
 			if plan.maxHops < plan.minHops {
-				return canonicalPlan{}, false
+				return refuse(fmt.Sprintf("the hop range *%d..%d is inverted.", plan.minHops, plan.maxHops),
+					"Write the lower bound first.")
 			}
 		}
 	}
 	returnClause := plan.returnClause
 	returnLeft := referencesVariable(returnClause, left.variable)
 	returnRight := referencesVariable(returnClause, right.variable)
-	if returnLeft == returnRight || strings.Contains(strings.ToLower(returnClause), "label(") ||
-		strings.Contains(strings.ToLower(returnClause), "."+strings.ToLower(ladybug.IcebugLabelColumn)) {
-		return canonicalPlan{}, false
+	if lowered := strings.ToLower(returnClause); strings.Contains(lowered, "label(") ||
+		strings.Contains(lowered, "."+strings.ToLower(ladybug.IcebugLabelColumn)) {
+		return refuse("a label is not projectable here: on a canonical catalog the label IS the physical table, "+
+			"and the logical type "+relType+" spans several of them, so a traversal has no label column to return.",
+			"Pin the label in the pattern instead and run one query per label: "+
+				"`MATCH (a)-[:"+relType+"]->(b:Function) ... RETURN DISTINCT b.name`.")
+	}
+	if returnLeft == returnRight {
+		return refuse("the RETURN must project exactly one end of the pattern, and this one projects "+
+			map[bool]string{true: "both", false: "neither"}[returnLeft]+".",
+			"Project one end; the other one carries the filter that anchors the traversal.")
 	}
 
 	// Whichever endpoint the RETURN projects is the REACHED side; the other carries the
@@ -362,24 +413,36 @@ func parseCanonicalTraversal(cypher string) (canonicalPlan, bool) {
 	reachedVar := plan.reached.variable
 
 	if cm := canonicalCountPattern.FindStringSubmatch(returnClause); cm != nil {
-		if cm[2] != reachedVar {
-			return canonicalPlan{}, false
-		}
+		// No check that the counted variable is the reached one: the count pattern is
+		// anchored to the WHOLE return clause, so its variable is the only one the
+		// clause references, and reachedVar was just derived from that same reference.
+		// The two are the same by construction.
 		plan.countDistinct = strings.TrimSpace(cm[1]) != ""
 		plan.count = true
 		plan.distinct = false
 		plan.returnClause = ""
 	} else if !plan.distinct {
-		return canonicalPlan{}, false
+		return refuse("a projection over a traversal must be DISTINCT: the planner materializes the SET of reached "+
+			"nodes, so it cannot reproduce one row per path.",
+			"Add DISTINCT: `RETURN DISTINCT "+reachedVar+".name`.")
 	} else {
 		// Every projected item must be `reached.prop [AS alias]`; the materializer runs them
 		// per node, so anything richer (collect, arithmetic, paths) would silently change
 		// semantics and is refused instead.
 		for _, item := range splitCommaList(returnClause) {
 			pm := canonicalProjectionPattern.FindStringSubmatch(item)
-			if pm == nil || pm[1] != reachedVar ||
-				strings.EqualFold(pm[2], ladybug.IcebugLabelColumn) {
-				return canonicalPlan{}, false
+			if pm == nil {
+				return refuse("`"+item+"` is not a plain property projection, and the planner evaluates the RETURN "+
+					"per reached node — collect(), arithmetic and path expressions would answer a different question.",
+					"Project properties only: `"+reachedVar+".property [AS alias]`.")
+			}
+			if pm[1] != reachedVar {
+				return refuse("`"+item+"` projects `"+pm[1]+"`, which is the end the pattern filters rather than the end it reaches.",
+					"Project the reached end, `"+reachedVar+"`, or swap which end carries the filter.")
+			}
+			if strings.EqualFold(pm[2], ladybug.IcebugLabelColumn) {
+				return refuse("a label is not projectable here: on a canonical catalog the label IS the physical table.",
+					"Pin the label in the pattern instead: `(:"+"Function)`.")
 			}
 		}
 	}
@@ -388,7 +451,9 @@ func parseCanonicalTraversal(cypher string) (canonicalPlan, bool) {
 		a := referencesVariable(predicate, plan.anchor.variable)
 		r := referencesVariable(predicate, plan.reached.variable)
 		if a && r {
-			return canonicalPlan{}, false
+			return refuse("the predicate `"+predicate+"` compares the two ends of the pattern, which the planner "+
+				"resolves as two independent sets and cannot join.",
+				"Filter one end at a time.")
 		}
 		switch {
 		case r:
@@ -396,13 +461,16 @@ func parseCanonicalTraversal(cypher string) (canonicalPlan, bool) {
 		case a:
 			plan.anchorPreds = append(plan.anchorPreds, predicate)
 		default:
-			return canonicalPlan{}, false
+			return refuse("the predicate `"+predicate+"` references neither end of the pattern.",
+				"Every predicate must filter `"+plan.anchor.variable+"` or `"+plan.reached.variable+"`.")
 		}
 	}
 	if !plan.anchor.selective(plan.anchorPreds) {
-		return canonicalPlan{}, false
+		return refuse("nothing filters `"+plan.anchor.variable+"`, the end the traversal starts from, so the plan "+
+			"would begin with every node of that label.",
+			"Filter the starting end — a property in the pattern or a WHERE predicate on it.")
 	}
-	return plan, true
+	return plan, nil, true
 }
 
 // sanitizeCanonicalUIDEquality rewrites `X.uid = 'lit'` into `X.uid IN ['lit']` outside

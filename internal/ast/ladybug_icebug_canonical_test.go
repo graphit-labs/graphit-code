@@ -118,12 +118,16 @@ func TestMountedCanonicalCountDistinct(t *testing.T) {
 	}
 }
 
-func TestMountedCanonicalUnsupportedMultiHopFailsClosed(t *testing.T) {
+// The name this test used to carry — "unsupported multi-hop" — was the same mislabelling
+// the error message made: its query is refused for its PROJECTION, and it would be refused
+// identically at one hop. It now asserts the rule that actually fires, which is the missing
+// DISTINCT (checked before the projection's shape is considered).
+func TestMountedCanonicalUnsupportedProjectionFailsClosed(t *testing.T) {
 	mounted := buildCanonicalFixture(t)
 	_, err := mounted.Query(context.Background(),
 		"MATCH (caller)-[:CALLS*1..3]->(t) WHERE t.uid IN ['fn_f'] RETURN collect(caller.uid)", nil)
-	if err == nil || !stringsContains(err.Error(), "not supported remotely") {
-		t.Fatalf("want fail-closed error for unsupported multi-hop form, got %v", err)
+	if err == nil || !stringsContains(err.Error(), "must be DISTINCT") {
+		t.Fatalf("want a fail-closed refusal naming its rule, got %v", err)
 	}
 }
 

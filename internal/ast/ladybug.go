@@ -3,6 +3,7 @@ package ast
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -764,6 +765,13 @@ func (k *LadybugBackend) Query(ctx context.Context, cypher string, params map[st
 		cypher = sanitizeCanonicalPKEquality(k.canonical, cypher)
 		if res, handled, err := k.tryCanonicalBoundedTraversal(ctx, cypher, params); handled {
 			if err != nil {
+				// A refusal already says which rule the query broke and what to write
+				// instead; wrapping it in "ladybug query" would bury that behind a
+				// prefix about a layer the reader cannot act on.
+				var refusal *canonicalRefusal
+				if errors.As(err, &refusal) {
+					return nil, refusal
+				}
 				return nil, fmt.Errorf("ladybug query: %w", err)
 			}
 			return res, nil
@@ -782,8 +790,13 @@ func (k *LadybugBackend) Query(ctx context.Context, cypher string, params map[st
 			for _, g := range k.canonical.RelGroups {
 				members = append(members, g.Type)
 			}
-			return nil, fmt.Errorf("canonical catalog: only bounded reachability over %v is planned "+
-				"(RETURN DISTINCT <endpoint> | count([DISTINCT] endpoint.uid)); this multi-hop form is not supported remotely", members)
+			// Not a refusal by a named rule: the planner did not recognize the query as a
+			// traversal at all — several MATCH clauses, a WITH, a projected path. So this
+			// one names the shapes that ARE planned instead of a rule that was broken.
+			return nil, fmt.Errorf("canonical catalog: a query over %v must be a single "+
+				"`MATCH (a)-[:TYPE]->(b) [WHERE ...] RETURN DISTINCT b.property | count([DISTINCT] b.uid)`, "+
+				"with one end filtered; this query is not that shape, and the planner is the only route for "+
+				"these types", members)
 		}
 	}
 

@@ -224,6 +224,64 @@ LadybugDB uses standard graph database constraints, but does not support all com
 
 ---
 
+## 🧭 The Canonical Traversal Planner — What It Answers, and Why It Refuses
+
+On a canonical catalog there is no `Entity` table and no label column: **each label is its own
+physical node table**, and one *logical* relationship type — `CALLS`, `CONTAINS` — is stored as
+several physical member tables, one per `(type, from, to)` triple. The engine cannot fuse those
+members back into one type, so a traversal naming a logical type is answered by
+`internal/ast/ladybug_icebug_canonical.go`: it resolves the members from the manifest and runs
+selective one-hop CSR frontiers.
+
+This planner is the **only** route for those types. Forwarding an unplanned form to the engine
+hands it to an upstream recursive plan that MEASURED enumerates the whole reachable component,
+so anything the planner cannot preserve exactly **fails closed**.
+
+### The forms it plans
+
+```cypher
+MATCH (a)-[:TYPE]->(b)      WHERE <filter on a> RETURN DISTINCT b.property [AS alias], ...
+MATCH (a)-[:TYPE*1..3]->(b) WHERE <filter on a> RETURN DISTINCT b.uid
+MATCH (a)-[:TYPE*]->(b)     WHERE <filter on a> RETURN count(DISTINCT b.uid)
+```
+
+One end is **filtered** and the other is **projected**; which is which follows from the RETURN.
+A bare `-[:TYPE]->` is exactly one hop, `*1..N` is bounded, `*` is uncapped.
+
+### The rules, and what each refusal says
+
+A refusal names the rule and the form that works — it does **not** report a generic "unsupported"
+message. Every rule below is one branch of `parseCanonicalTraversal`, and each has a test in
+`internal/ast/ladybug_icebug_refusal_test.go`.
+
+| The query | Why it cannot be planned | Write instead |
+|---|---|---|
+| `RETURN ... label(b) ...` | the label IS the physical table, and a logical type spans several, so a traversal has no label column to return | pin the label in the pattern and run one query per label: `-[:CONTAINS]->(b:Function)` |
+| `RETURN b.name` (no `DISTINCT`) | the planner materializes the SET of reached nodes; it cannot reproduce one row per path | `RETURN DISTINCT b.name` |
+| `RETURN DISTINCT collect(b.uid)`, arithmetic, path expressions | the RETURN is evaluated per reached node, so a richer expression answers a different question | project properties only |
+| `RETURN DISTINCT a.name, b.name` | both ends projected — there is no single reached set | project one end |
+| `WHERE a.name = b.name` | the two ends are resolved as independent sets and cannot be joined | filter one end at a time |
+| `MATCH (a)-[:TYPE]->(b) RETURN DISTINCT b.name` with no `WHERE` | nothing anchors the traversal, so it would start from every node of that label | filter the starting end |
+| `-[:TYPE*3..1]->` | inverted hop range | lower bound first |
+
+**A refusal binds only for a logical relationship type.** A traversal naming a *physical* member
+table (`-[:calls__function_function]->`) is the engine's to run exactly as written, so
+`tryCanonicalBoundedTraversal` checks the type against the manifest before surfacing any rule —
+including for shapes the planner cannot read at all, such as anonymous `()` endpoints.
+
+**A query that is not a traversal falls through.** A node-only pattern runs on the mounted
+tables, `label(n)` included: the restriction is about traversing a logical type, not about
+labels in general. What *does* produce an error is a query that names a logical type in a shape
+the planner does not recognize at all — several `MATCH` clauses, a `WITH`, a projected path —
+and that message lists the planned forms rather than a rule, because no single rule was broken.
+
+> The message these refusals replaced was one fixed sentence claiming the query was an
+> unsupported **multi-hop** form, emitted for every rejection including one-hop queries whose
+> real problem was a projected label or a missing `DISTINCT`. See
+> `docs/tasks/canonical-planner-names-its-refusal.md`.
+
+---
+
 ## 🔍 Parser Adapters & Native CGO Runtime
 
 The engine uses a **dual-parser architecture** — Tree-sitter and ANTLR v4. The YAML `parser:` field in each language configuration determines which backend is used; Tree-sitter is the default when the field is omitted.
