@@ -17,7 +17,6 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/ast"
-	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	_ "github.com/graphit-labs/graphit-code/internal/ast/cypher" // registers AI Cypher generator
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
@@ -25,7 +24,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/fswatch"
 	"github.com/graphit-labs/graphit-code/internal/hub"
-	"github.com/graphit-labs/graphit-code/internal/improvements"
+	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
@@ -153,13 +152,6 @@ func refreshModuleRule(module, projectDir, ideName string) {
 		} else {
 			err = hub.InstallRule(projectDir, ideName)
 		}
-	case "improvements":
-		if disabled {
-			_ = improvements.RemoveRule(projectDir, ideName)
-			err = improvements.InstallSkill(projectDir, ideName)
-		} else {
-			err = improvements.InstallRule(projectDir, ideName)
-		}
 	}
 	_ = err
 }
@@ -177,8 +169,6 @@ func getModuleDefaultRule(module string) string {
 	case "memory":
 		contexts := memory.AllContextDirs()
 		return memory.RuleContent(contexts)
-	case "improvements":
-		return improvements.DefaultRules()
 	default:
 		return ""
 	}
@@ -197,8 +187,6 @@ func getModuleResolvedRule(module string) string {
 	case "memory":
 		contexts := memory.AllContextDirs()
 		return brand.ResolveModuleRule("memory", memory.RuleContent(contexts))
-	case "improvements":
-		return improvements.Rules()
 	default:
 		return ""
 	}
@@ -422,14 +410,14 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		wd, _ := os.Getwd()
 		projectRoot := wd
 
-	var allFiles []string
-	for _, absPath := range absPaths {
-		files, e := collectFilesForPath(absPath, projectRoot)
-		if e != nil {
-			return fmt.Errorf("collecting files for %s: %w", absPath, e)
+		var allFiles []string
+		for _, absPath := range absPaths {
+			files, e := collectFilesForPath(absPath, projectRoot)
+			if e != nil {
+				return fmt.Errorf("collecting files for %s: %w", absPath, e)
+			}
+			allFiles = append(allFiles, files...)
 		}
-		allFiles = append(allFiles, files...)
-	}
 
 		pipeOpts.ChangedPaths = make([]string, len(allFiles))
 		for i, f := range allFiles {
@@ -445,14 +433,14 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		wd, _ := os.Getwd()
 		projectRoot := wd
 
-	var allFiles []string
-	for _, absPath := range absPaths {
-		files, e := collectFilesForPath(absPath, projectRoot)
-		if e != nil {
-			return fmt.Errorf("collecting files for %s: %w", absPath, e)
+		var allFiles []string
+		for _, absPath := range absPaths {
+			files, e := collectFilesForPath(absPath, projectRoot)
+			if e != nil {
+				return fmt.Errorf("collecting files for %s: %w", absPath, e)
+			}
+			allFiles = append(allFiles, files...)
 		}
-		allFiles = append(allFiles, files...)
-	}
 
 		pipeOpts.ChangedPaths = make([]string, len(allFiles))
 		for i, f := range allFiles {
@@ -557,7 +545,6 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 	return nil
 }
 
-
 // persistClusterConfig saves the cluster and cluster-path settings to the project config.
 func persistClusterConfig(clusterPathMap map[string]string, defaultCluster string) error {
 	wd, err := os.Getwd()
@@ -565,7 +552,7 @@ func persistClusterConfig(clusterPathMap map[string]string, defaultCluster strin
 		return fmt.Errorf("getwd: %w", err)
 	}
 	lockPath := filepath.Join(wd, "graphit.lock.json")
-	
+
 	lf, err := hub.LoadLockfile(lockPath)
 	if err != nil {
 		return fmt.Errorf("load lockfile: %w", err)
@@ -573,17 +560,17 @@ func persistClusterConfig(clusterPathMap map[string]string, defaultCluster strin
 	if lf == nil {
 		return nil // no lockfile, nothing to persist
 	}
-	
+
 	if lf.Config == nil {
 		lf.Config = make(map[string]any)
 	}
-	
+
 	// Use nested structure for config
 	astConfig, ok := lf.Config["ast"].(map[string]any)
 	if !ok {
 		astConfig = make(map[string]any)
 	}
-	
+
 	if len(clusterPathMap) > 0 {
 		// Build comma-separated string
 		var pairs []string
@@ -592,19 +579,18 @@ func persistClusterConfig(clusterPathMap map[string]string, defaultCluster strin
 		}
 		astConfig["cluster_map"] = strings.Join(pairs, ",")
 	}
-	
+
 	if defaultCluster != "" {
 		astConfig["cluster"] = defaultCluster
 	}
-	
+
 	lf.Config["ast"] = astConfig
-	
+
 	if err := hub.SaveLockfile(lockPath, lf); err != nil {
 		return fmt.Errorf("save lockfile: %w", err)
 	}
 	return nil
 }
-
 
 // collectFilesForPath collects all parseable files under a path, honouring the
 // project's ignore rules (.gitignore and .astignore).

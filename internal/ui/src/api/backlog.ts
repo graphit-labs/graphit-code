@@ -6,8 +6,6 @@ export interface BacklogItem {
   body?: string
   path: string
   created_at: string
-  done: boolean
-  result_path?: string
 }
 
 export const backlogApi = {

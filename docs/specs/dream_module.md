@@ -16,8 +16,6 @@ prerequisites:
   - "docs/architecture/architecture_overview.md"
 related:
   - "docs/specs/daemon_module.md"
-  - "docs/specs/improvements_module.md"
-  - "docs/specs/backlog.md"
 ---
 
 # Dream Module Specification
@@ -34,7 +32,7 @@ The Dream module operates directly in the project directory, reading conversatio
 | File | Responsibility |
 |---|---|
 | `internal/dream/dream.go` | The `Runner`: idle monitoring, session state, deep sleep, config resolution, memory consolidation, report ownership |
-| `internal/dream/prompt.go` | Builds the agent prompt, the consolidation briefing, the report envelope, and the assigned-item section |
+| `internal/dream/prompt.go` | Builds the knowledge-improvement prompt, consolidation briefing, and report envelope |
 | `internal/dream/reports.go` | The reports vault: locating, listing, and marking reports as read |
 | `internal/memory/consolidate.go` | Analysis: turns the memory corpus into a consolidation plan |
 | `internal/memory/consolidate_apply.go` | Application: executes a plan under the invariants, and reports what it did |
@@ -55,8 +53,7 @@ module has never run" rather than an error, so no caller re-sorts or pre-checks 
 
 ```mermaid
 graph TD
-    A[Daemon Idle Monitor] -->|User Inactive| B[Pick Oldest Pending Backlog Item]
-    B --> C["Phase 1: Observe"]
+    A[Daemon Idle Monitor] -->|User Inactive| C["Phase 1: Observe"]
     C -->|Read wiki, memories, existing skills| D["Phase 2: Extract"]
     D -->|Mine conversation logs for patterns| E["Phase 3: Diagnose"]
     E -->|Evaluate existing skill effectiveness, classify failures| F["Phase 4: Create"]
@@ -155,25 +152,25 @@ the memory skill instructs agents to fold duplicates, resolve contradictions and
 correct outdated memories at the moment they read them, because an agent holding the
 task context knows which memory misled it and a background pass does not.
 
-## 📋 Memory and Work Selection Flow
+## 📋 Knowledge Improvement Flow
 
-The AI agent does not work at random.
-It is guided by the improvement backlog and prior project memories:
+The agent is guided by project knowledge, memories, conversation history, existing agent artifacts,
+and prior Dream reports. It never reads or consumes the task backlog.
 
-### 1. The Improvement Backlog
-Deferred work is queued in the **improvement backlog**, owned by the Improvements module and
-specified in [Improvement Backlog](backlog.md). It lives in the documentation tree —
-`docs/tasks/backlog/<slug>.md` by default, overridable with `improvements.backlog_dir`.
+### 1. Knowledge Inputs
 
-- **Selection**: The Dream module picks the oldest pending item. If nothing is pending, it runs general conversation mining and skill effectiveness evaluation.
-- **Reporting**: When an item is completed, a `<slug>.done.md` file containing the outcome is written beside it, which is what marks the item done.
+- Project wiki and architecture documentation
+- Persistent memories and their consolidation outcomes
+- Conversation transcripts containing recurring patterns and corrections
+- Existing skills, rules, commands, and integration artifacts
+- Prior Dream reports, used to avoid repeating exhausted investigations
 
-The Dream module only *consumes* the backlog — adding and removing items is
-`graphit improvements backlog`, not `graphit dream`.
+Dream produces knowledge artifacts and a session report. Task execution belongs to explicit task
+workflows outside this module.
 
 ### 2. State and Deep Sleep (Exhaustion)
 The execution state is saved globally in `.<brand>/daemon/dream.state`.
-If a dream cycle completes and no further patterns can be extracted or skills improved — the backlog is empty and nothing else is left — or if the agent creates an `<id>.exhausted` file, the state is marked as `Exhausted: true`.
+If a dream cycle completes and no further patterns can be extracted or skills improved, or if the agent creates an `<id>.exhausted` file, the state is marked as `Exhausted: true`.
 The module enters a deep sleep state to conserve resources and CPU usage.
 It remains in deep sleep until new user activity (a newer file edit) is detected in the repository.
 
@@ -377,8 +374,8 @@ path. Daemon state is separate and resolves under `runtime/daemon/`.
 
 ### Why reports default to `.graphit/runtime/dream/` while the backlog is versioned
 
-The improvement backlog lives in the documentation tree so items are versioned and
-reviewable — see [Improvement Backlog](backlog.md). The reports vault defaults to runtime
+The task backlog lives in the documentation tree so items are versioned and reviewable — see
+[Task Backlog](backlog.md). The reports vault defaults to runtime
 storage because of what the directory holds:
 
 | Artifact | Nature |
@@ -403,6 +400,6 @@ Two things to know if you configure a versioned reports directory:
   the ones worth keeping is the point of leaving the choice open.
 
 A project that wants the vault somewhere else — under `docs/`, to be committed as a matter of
-course — has `dream.reports_dir`, which follows the `improvements.backlog_dir` pattern.
+course — has `dream.reports_dir`, which follows the `backlog.dir` pattern.
 Existing files under the former `.graphit/dream/` default are neither moved nor deleted;
 temporarily set `dream.reports_dir` to that path to read or migrate them explicitly.

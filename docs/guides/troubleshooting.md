@@ -940,18 +940,10 @@ graphit sync  # Ensures daemon is running
 
 ### Dream reports not generated
 
-**Cause:** The dream module only activates after an idle timeout (configurable, default varies). Reports contain skill generation findings, conversation analysis results, and newly created memories or skills. The project must have a pending improvement backlog item or discoverable conversation patterns.
+**Cause:** The Dream module only activates after an idle timeout (configurable, default varies). Reports contain skill-generation findings, conversation analysis results, and newly created memories or skills. The task backlog is not a Dream input.
 
 **Solutions:**
-1. Check the improvement backlog:
-   ```bash
-   graphit improvements backlog list
-   ```
-2. Add an item manually:
-   ```bash
-   graphit improvements backlog add "Review recent changes" --body "Detailed instructions..."
-   ```
-3. Check dream status for timing:
+1. Check dream status for timing:
    ```bash
    graphit dream status
    ```
@@ -962,10 +954,10 @@ graphit sync  # Ensures daemon is running
 
 **Solutions:**
 ```bash
-graphit config --get improvements.backlog_dir   # the explicit override, if any
+graphit config --get backlog.dir                # the explicit override, if any
 graphit config --get knowledge.docs_dir         # what the default is composed from
 ```
-An environment variable outranks both config files and appears in neither, so also check `GRAPHIT_IMPROVEMENTS_BACKLOG_DIR`.
+An environment variable outranks both config files and appears in neither, so also check `GRAPHIT_BACKLOG_DIR`.
 
 ---
 

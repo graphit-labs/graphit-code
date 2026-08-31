@@ -22,7 +22,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/hub"
-	"github.com/graphit-labs/graphit-code/internal/improvements"
+	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/lockfile"
 	"github.com/graphit-labs/graphit-code/internal/memory"
@@ -34,6 +34,7 @@ import (
 
 func installAllRules(p *output.Printer, wd, ideName string) {
 	projectCfg := loadProjectConfigFromDir(wd)
+	removeRetiredImprovementsGuidance(p, wd, ideName)
 
 	for _, r := range []struct {
 		name    string
@@ -45,7 +46,6 @@ func installAllRules(p *output.Printer, wd, ideName string) {
 		{"AST", ast.InstallRule, ast.RemoveRule, ast.InstallSkill},
 		{"Hub", hub.InstallRule, hub.RemoveRule, hub.InstallSkill},
 		{"Memory", memory.InstallRule, memory.RemoveRule, memory.InstallSkill},
-		{"Improvements", improvements.InstallRule, improvements.RemoveRule, improvements.InstallSkill},
 	} {
 		moduleLower := strings.ToLower(r.name)
 		if config.IsModuleDisabled(moduleLower, nil, projectCfg) {
@@ -74,7 +74,6 @@ func removeAllRules(p *output.Printer, wd, ide string) {
 		{"AST", ast.RemoveRule, ast.RemoveSkill},
 		{"Hub", hub.RemoveRule, hub.RemoveSkill},
 		{"Memory", memory.RemoveRule, memory.RemoveSkill},
-		{"Improvements", improvements.RemoveRule, improvements.RemoveSkill},
 	} {
 		if err := r.removeRule(wd, ide); err != nil {
 			p.StepWarn("%s rule cleanup: %v", r.name, err)
@@ -82,6 +81,16 @@ func removeAllRules(p *output.Printer, wd, ide string) {
 		if err := r.removeSkill(wd, ide); err != nil {
 			p.StepWarn("%s skill cleanup: %v", r.name, err)
 		}
+	}
+	removeRetiredImprovementsGuidance(p, wd, ide)
+}
+
+func removeRetiredImprovementsGuidance(p *output.Printer, projectDir, ideName string) {
+	if err := ide.RemoveMandateTrigger(projectDir, ideName, "imp_rule"); err != nil {
+		p.StepWarn("retired Improvements mandate cleanup: %v", err)
+	}
+	if err := ide.RemoveManagedSkill(projectDir, ideName, brand.SkillDirName("improvements")); err != nil {
+		p.StepWarn("retired Improvements skill cleanup: %v", err)
 	}
 }
 

@@ -925,6 +925,25 @@ This enables a new agent to understand the full trajectory.>
 - If a task involves a design decision, create an ADR in `docs/decisions/` AND
   reference it from the task log's Trade-offs section.
 - Task logs are the "how it happened" — specs and ADRs are the "what it is",
+
+#### Task backlog — task registration is independent of Dream
+
+The task backlog records work that should survive the current conversation or session.
+It lives in `docs/tasks/backlog/` by default and is managed through:
+
+```
+`graphit_backlog_list`(project_dir: "/path/to/project")
+`graphit_backlog_add`(project_dir: "/path/to/project", title: "<task>", body: "<self-contained brief>")
+`graphit_backlog_remove`(project_dir: "/path/to/project", slug: "<slug>")
+```
+
+**Dream never consumes backlog items.** Recording, listing, and removing tasks works
+whether Dream is enabled, disabled, running, or absent. Dream improves project knowledge;
+the backlog only records tasks for an agent or user to perform through a separate workflow.
+
+Write every backlog body for a reader with no conversation history: name the paths, the
+problem, relevant constraints, what has already been ruled out, and how completion will
+be verified. Check the list before adding so the same task is not recorded twice.
 ---
 
 > **Note:** The section below covers integration and interface documentation specifically.

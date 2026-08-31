@@ -984,6 +984,25 @@ func KnowledgeRuleContent(contexts []string, docsDir string) string {
 		"- If a task involves a design decision, create an ADR in `docs/decisions/` AND",
 		"  reference it from the task log's Trade-offs section.",
 		"- Task logs are the \"how it happened\" — specs and ADRs are the \"what it is\",",
+		"",
+		"#### Task backlog — task registration is independent of Dream",
+		"",
+		"The task backlog records work that should survive the current conversation or session.",
+		"It lives in `docs/tasks/backlog/` by default and is managed through:",
+		"",
+		"```",
+		brand.MCPToolRef("backlog", "list")+"(project_dir: \"/path/to/project\")",
+		brand.MCPToolRef("backlog", "add")+"(project_dir: \"/path/to/project\", title: \"<task>\", body: \"<self-contained brief>\")",
+		brand.MCPToolRef("backlog", "remove")+"(project_dir: \"/path/to/project\", slug: \"<slug>\")",
+		"```",
+		"",
+		"**Dream never consumes backlog items.** Recording, listing, and removing tasks works",
+		"whether Dream is enabled, disabled, running, or absent. Dream improves project knowledge;",
+		"the backlog only records tasks for an agent or user to perform through a separate workflow.",
+		"",
+		"Write every backlog body for a reader with no conversation history: name the paths, the",
+		"problem, relevant constraints, what has already been ruled out, and how completion will",
+		"be verified. Check the list before adding so the same task is not recorded twice.",
 	)
 
 	lines = append(lines,
@@ -1385,7 +1404,7 @@ func MandateTrigger() string {
 		"Knowledge & Documentation",
 		knowledgeSkillName,
 		"documentation or project-knowledge",
-		"The task log OPENS the task and stays current through it: BEFORE you touch anything, create the task log under the docs tasks directory with the objective, your reasoning, the justification for the approach, and the plan broken into tasks — one entry per task, each with its spec. Then update it as each step lands, as the direction changes, and as debt appears, so that another agent can take the work over from the log alone, at any moment, without your conversation. After ANY code change the task log MUST be updated — a change without its record is not complete. Search the knowledge wiki via MCP tools BEFORE grepping or reading docs directly. Reindexing is NOT your job: the daemon watches the docs tree and rebuilds the wiki on its own — but it lags the write, so when you need certainty that an index is current, call "+brand.MCPToolRef("sync")+" and let it finish.\n"+
+		"The task log OPENS the task and stays current through it: BEFORE you touch anything, create the task log under the docs tasks directory with the objective, your reasoning, the justification for the approach, and the plan broken into tasks — one entry per task, each with its spec. Then update it as each step lands, as the direction changes, and as debt appears, so that another agent can take the work over from the log alone, at any moment, without your conversation. After ANY code change the task log MUST be updated — a change without its record is not complete. The task backlog records future work independently of Dream; Dream never consumes backlog items, because its role is to improve project knowledge. Search the knowledge wiki via MCP tools BEFORE grepping or reading docs directly. Reindexing is NOT your job: the daemon watches the docs tree and rebuilds the wiki on its own — but it lags the write, so when you need certainty that an index is current, call "+brand.MCPToolRef("sync")+" and let it finish.\n"+
 			"SEARCH ANSWERS WITH TITLES, NOT WITH PAGES. A search result is a slug, a title, a type and a score — it carries no page text, deliberately, so that the tokens go on the one or two pages you actually decide to open rather than on twenty previews. Choosing is yours: read the titles, pick, then call "+brand.MCPToolRef("wiki", "source")+" on what you picked, with `pattern` or a line range when the page is long. Acting on a search result alone is acting on a title you never read. `preview: true` buys a short excerpt per hit when two titles genuinely do not separate — it is the exception.",
 		[]string{
 			"you are about to start a task of any size — the task log is the FIRST artifact of it, written before the work, never a report you assemble at the end",
@@ -1400,13 +1419,15 @@ func MandateTrigger() string {
 			"the task involves an external system integration, an API contract, or a spec",
 			"the user asks how a named system works, or whether it has some functionality, and that system is not this project's own code — check the Hub (installed context, then hub_search) before answering",
 			"you finished a change and have not yet recorded it",
+			"you identified a task that should be recorded for later instead of being lost or forced into the current change",
+			"you are about to add, list, or remove an item in the task backlog — Dream state is irrelevant to these operations",
 			"you need the provenance of a page — what links to it, what it came from",
 			"a search returned nothing and you cannot tell whether the page is missing or just ranked low",
 			"a search came back and you are about to act on it — you cannot: " + brand.MCPToolRef("knowledge", "search") + " answers with TITLES, so pick the one or two the titles justify and read them with " + brand.MCPToolRef("wiki", "source") + " before you conclude anything",
 			"an index looks stale, or a graph read failed to open the database — find out whether the daemon is alive before concluding anything",
 			"the documentation you need belongs to another project — resolve it in the ecosystem and search ITS wiki, never walk or grep its docs tree",
 		},
-		[]string{"knowledge_search", "wiki_search", "wiki_browse", "wiki_xrefs", "wiki_log", "wiki_source", "wiki_embed", "knowledge_list", "knowledge_lint", "knowledge_schema", "knowledge_export", "knowledge_install", "knowledge_remove", "knowledge_sync", "cluster_projects", "daemon_status", "daemon_stop"},
+		[]string{"knowledge_search", "wiki_search", "wiki_browse", "wiki_xrefs", "wiki_log", "wiki_source", "wiki_embed", "knowledge_list", "knowledge_lint", "knowledge_schema", "knowledge_export", "knowledge_install", "knowledge_remove", "knowledge_sync", "backlog_list", "backlog_add", "backlog_remove", "cluster_projects", "daemon_status", "daemon_stop"},
 	)
 }
 

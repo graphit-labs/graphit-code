@@ -12,8 +12,8 @@ func TestUIConfigDefaultsAndProjectPrecedence(t *testing.T) {
 	t.Setenv(brand.EnvVar("UI_HOST"), "")
 	t.Setenv(brand.EnvVar("UI_ALLOWED_ORIGINS"), "")
 
-	if got := ResolveUIHost(nil, nil); got != "0.0.0.0" {
-		t.Fatalf("default host = %q; want 0.0.0.0", got)
+	if got := ResolveUIHost(nil, nil); got != "127.0.0.1" {
+		t.Fatalf("default host = %q; want 127.0.0.1", got)
 	}
 	if err := SetGlobalConfigValue("ui.host", "192.0.2.1"); err != nil {
 		t.Fatalf("set global UI host: %v", err)

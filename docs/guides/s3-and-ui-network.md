@@ -84,15 +84,15 @@ graphit config --global --unset hub.secret_access_key
 
 | Key | Environment variable | Built-in default |
 |---|---|---|
-| `ui.host` | `GRAPHIT_UI_HOST` | `0.0.0.0` |
+| `ui.host` | `GRAPHIT_UI_HOST` | `127.0.0.1` |
 | `ui.allowed_origins` | `GRAPHIT_UI_ALLOWED_ORIGINS` | localhost origins only |
 
 `ui.host` controls the network interface on which `graphit ui` listens. The
-default `0.0.0.0` accepts connections on every IPv4 interface. Use `127.0.0.1`
-when the dashboard must be local-only:
+default `127.0.0.1` accepts local connections only. Set `0.0.0.0` explicitly
+when the dashboard must listen on every IPv4 interface:
 
 ```bash
-graphit config ui.host 127.0.0.1
+graphit config ui.host 0.0.0.0
 ```
 
 `ui.allowed_origins` controls browser CORS access to all UI API endpoints. It is

@@ -129,7 +129,7 @@ func TestHandleBacklogList_ReturnsEmptyArray(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -184,7 +184,7 @@ func TestNewWikiHandler(t *testing.T) {
 
 func TestHandleBacklogRemove_EmptySlugParam(t *testing.T) {
 	t.Parallel()
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 
 	// Register without method pattern to test internal slug check
@@ -202,7 +202,7 @@ func TestHandleBacklogRemove_EmptySlugParam(t *testing.T) {
 
 func TestHandleBacklogAdd_MethodValidation(t *testing.T) {
 	t.Parallel()
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/test/subject", corsJSON(h.handleBacklogAdd))
 

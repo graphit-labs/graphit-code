@@ -415,7 +415,7 @@ func TestHandleDreamReports_NonMarkdownFilesIgnored(t *testing.T) {
 }
 
 func TestHandleBacklogList_MissingDir(t *testing.T) {
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -430,7 +430,7 @@ func TestHandleBacklogList_MissingDir(t *testing.T) {
 
 func TestHandleBacklogList_EmptyDir(t *testing.T) {
 	tmp := t.TempDir()
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -459,7 +459,7 @@ func TestHandleBacklogList_EmptyDir(t *testing.T) {
 func TestHandleBacklogList_AndAddRemove(t *testing.T) {
 	tmp := t.TempDir()
 
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -509,7 +509,7 @@ func TestHandleBacklogList_AndAddRemove(t *testing.T) {
 }
 
 func TestHandleBacklogAdd_MissingDir(t *testing.T) {
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -525,7 +525,7 @@ func TestHandleBacklogAdd_MissingDir(t *testing.T) {
 
 func TestHandleBacklogAdd_InvalidJSON(t *testing.T) {
 	tmp := t.TempDir()
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -540,7 +540,7 @@ func TestHandleBacklogAdd_InvalidJSON(t *testing.T) {
 
 func TestHandleBacklogAdd_EmptyTitle(t *testing.T) {
 	tmp := t.TempDir()
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -555,7 +555,7 @@ func TestHandleBacklogAdd_EmptyTitle(t *testing.T) {
 }
 
 func TestHandleBacklogAdd_InvalidMethod(t *testing.T) {
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	// Register using non-pattern route to test method check inside handler
 	mux.HandleFunc("/test/dream/subject", corsJSON(h.handleBacklogAdd))
@@ -570,7 +570,7 @@ func TestHandleBacklogAdd_InvalidMethod(t *testing.T) {
 }
 
 func TestHandleBacklogRemove_MissingDir(t *testing.T) {
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -584,7 +584,7 @@ func TestHandleBacklogRemove_MissingDir(t *testing.T) {
 }
 
 func TestHandleBacklogRemove_InvalidMethod(t *testing.T) {
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	// Register without method pattern to test the handler's own method check
 	mux.HandleFunc("/test/dream/subject/{slug}", corsJSON(h.handleBacklogRemove))
@@ -600,7 +600,7 @@ func TestHandleBacklogRemove_InvalidMethod(t *testing.T) {
 
 func TestHandleBacklogRemove_NonexistentSlug(t *testing.T) {
 	tmp := t.TempDir()
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -672,6 +672,13 @@ func TestNewDaemonDreamHandler(t *testing.T) {
 	}
 }
 
+func TestNewDaemonBacklogHandler(t *testing.T) {
+	h := NewDaemonBacklogHandler()
+	if h == nil {
+		t.Fatal("NewDaemonBacklogHandler returned nil")
+	}
+}
+
 func TestDaemonDreamHandler_RegisterAPIRoutes(t *testing.T) {
 	h := NewDaemonDreamHandler(nil)
 	mux := http.NewServeMux()
@@ -685,7 +692,6 @@ func TestDaemonDreamHandler_RegisterAPIRoutes(t *testing.T) {
 		{http.MethodGet, "/api/daemon/status"},
 		{http.MethodGet, "/api/dream/status?project_dir=/tmp"},
 		{http.MethodGet, "/api/dream/reports?project_dir=/tmp"},
-		{http.MethodGet, "/api/backlog?project_dir=/tmp"},
 	}
 	for _, ep := range endpoints {
 		req := httptest.NewRequest(ep.method, ep.path, nil)
@@ -694,5 +700,18 @@ func TestDaemonDreamHandler_RegisterAPIRoutes(t *testing.T) {
 		if w.Code == 404 {
 			t.Errorf("route %s %s not registered", ep.method, ep.path)
 		}
+	}
+}
+
+func TestDaemonBacklogHandler_RegisterAPIRoutes(t *testing.T) {
+	h := NewDaemonBacklogHandler()
+	mux := http.NewServeMux()
+	h.RegisterAPIRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/backlog?project_dir=/tmp", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code == http.StatusNotFound {
+		t.Error("backlog route not registered")
 	}
 }

@@ -15,12 +15,10 @@ import (
 )
 
 const (
-	// ItemExt is the extension of a queued backlog item.
+	// ItemExt is the extension of a registered backlog item.
 	ItemExt = ".md"
 
-	// ResultExt marks an item as closed: the agent that worked it writes
-	// <slug>.done.md beside <slug>.md, and Pending stops returning it.
-	ResultExt = ".done.md"
+	legacyResultExt = ".done.md"
 )
 
 // Item is one unit of deferred work: something a review identified and
@@ -35,14 +33,10 @@ type Item struct {
 	Path string `json:"path"`
 
 	CreatedAt time.Time `json:"created_at"`
-
-	Done bool `json:"done"`
-
-	ResultPath string `json:"result_path,omitempty"`
 }
 
 // Dir returns the absolute backlog directory for a project, honouring
-// improvements.backlog_dir.
+// backlog.dir.
 func Dir(projectDir string) string {
 	return filepath.Join(projectDir, config.ResolveBacklogDir(nil, config.LoadProjectConfig(projectDir)))
 }
@@ -97,20 +91,11 @@ func List(projectDir string) ([]Item, error) {
 		return nil, fmt.Errorf("reading backlog dir: %w", err)
 	}
 
-	doneSet := make(map[string]string)
-	for _, e := range entries {
-		name := e.Name()
-		if !e.IsDir() && strings.HasSuffix(name, ResultExt) {
-			slug := strings.TrimSuffix(name, ResultExt)
-			doneSet[slug] = filepath.Join(dir, name)
-		}
-	}
-
 	var items []Item
 	for _, e := range entries {
 		name := e.Name()
 
-		if e.IsDir() || !strings.HasSuffix(name, ItemExt) || strings.HasSuffix(name, ResultExt) {
+		if e.IsDir() || !strings.HasSuffix(name, ItemExt) || strings.HasSuffix(name, legacyResultExt) {
 			continue
 		}
 
@@ -135,11 +120,6 @@ func List(projectDir string) ([]Item, error) {
 			item.Title = slug
 		}
 
-		if resultPath, ok := doneSet[slug]; ok {
-			item.Done = true
-			item.ResultPath = resultPath
-		}
-
 		items = append(items, item)
 	}
 
@@ -148,20 +128,6 @@ func List(projectDir string) ([]Item, error) {
 	})
 
 	return items, nil
-}
-
-func Pending(projectDir string) ([]Item, error) {
-	all, err := List(projectDir)
-	if err != nil {
-		return nil, err
-	}
-	var pending []Item
-	for _, item := range all {
-		if !item.Done {
-			pending = append(pending, item)
-		}
-	}
-	return pending, nil
 }
 
 func Remove(projectDir, slug string) error {
@@ -176,22 +142,7 @@ func Remove(projectDir, slug string) error {
 		return fmt.Errorf("removing backlog item: %w", err)
 	}
 
-	resultPath := filepath.Join(dir, slug+ResultExt)
-	_ = os.Remove(resultPath)
-
 	return nil
-}
-
-// Pick returns the oldest pending item, or nil when the backlog is empty.
-func Pick(projectDir string) (*Item, error) {
-	pending, err := Pending(projectDir)
-	if err != nil {
-		return nil, err
-	}
-	if len(pending) == 0 {
-		return nil, nil
-	}
-	return &pending[0], nil
 }
 
 func slugify(title string) string {

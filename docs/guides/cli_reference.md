@@ -156,7 +156,7 @@ Allows you to explore the AST code database in 3D, chat with the wiki knowledge,
 graphit ui [--repo <path>]
 ```
 
-The server binds to `ui.host` (`0.0.0.0` by default). Browser origins use the exact,
+The server binds to `ui.host` (`127.0.0.1` by default). Browser origins use the exact,
 comma-separated `ui.allowed_origins` policy; without an override, only same-origin and
 localhost loopback origins are accepted. The server has no authentication, so a reachable
 instance needs a firewall, VPN, or authenticated reverse proxy. `--repo` selects the
@@ -383,38 +383,29 @@ Controls autonomous skill generation and knowledge mining.
 graphit dream <subcommand> [flags]
 ```
 **Subcommands:**
-- `status`: Show dream state (active/idle/exhausted) and the pending improvement backlog.
+- `status`: Show dream state (active/idle/exhausted), report count, and timing configuration.
 - `reports`: List dream session reports.
   - `--all`: Show all reports.
-
-Each session picks up the oldest pending item from the improvement backlog — manage that with
-`graphit improvements backlog`.
 
 The default reports vault is `.graphit/runtime/dream/`, which is covered by the generated
 `.gitignore`. Set `dream.reports_dir` to a versioned directory such as `docs/dream` when
 reports are intended to be reviewed and committed. Existing `.graphit/dream/` reports are
 not moved or deleted automatically.
 
-### `improvements`
-Manages code improvement rules and the improvement backlog.
+### `backlog`
+Manages the documentation-backed task backlog independently of Dream.
 ```bash
-graphit improvements <subcommand> [flags]
+graphit backlog <subcommand> [flags]
 ```
 **Subcommands:**
-- `rules [file]`: Output resolved rules or set custom rule override.
-  - `--default`: Output built-in defaults.
-  - `--unset`: Remove override.
-- `rule [file]`: Customize IDE rule block.
-  - `--default`: Output built-in defaults.
-  - `--unset`: Remove override.
-- `backlog <list|add|rm>`: Manage the improvement backlog — work identified but deferred.
-  - `backlog list`: List every item, pending and done.
-  - `backlog add [title]`: Add an item.
-    - `--body <body>`: The full brief for whoever picks it up.
-  - `backlog rm [slug]`: Remove an item.
+- `list`: List every registered task.
+- `add [title]`: Add an item.
+  - `--body <body>`: The full brief for whoever picks it up.
+- `rm [slug]`: Remove an item.
 
-Backlog items are markdown files under `improvements.backlog_dir` (default `docs/tasks/backlog`),
-so they are versioned with the project. See [Improvement Backlog](../specs/backlog.md).
+Backlog items are Markdown files under `backlog.dir` (default `docs/tasks/backlog`), so they
+are versioned with the project. Dream never consumes backlog items and its state is irrelevant to CRUD. See
+[Task Backlog](../specs/backlog.md).
 
 ### `cluster`
 Manages project grouping.

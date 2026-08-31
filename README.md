@@ -235,7 +235,7 @@ Manage the entire Hub and search knowledge across your own code or multiple proj
 ```bash
 graphit ui  # Opens the automatically selected free port
 ```
-- **Network:** binds to `0.0.0.0` by default; CORS remains localhost-only until explicitly overridden.
+- **Network:** binds to `127.0.0.1` by default; remote exposure and CORS are explicit configuration.
 - **Security:** the UI has no authentication, so restrict the bind address or use a firewall/VPN/authenticated proxy.
 - **AST Explorer:** 3D interactive graph with Cypher queries.
 - **Wiki Explorer:** FTS, semantic search, and documentation routing.
@@ -331,8 +331,7 @@ Visit the **[Documentation Hub](docs/README.md)** for a complete index of all gu
 - **[Hub Collaboration Spec](docs/specs/hub_collaboration.md)**: S3-backed registry, artifact operations, and lockfiles.
 - **[Daemon Module Spec](docs/specs/daemon_module.md)**: Supervisors, schedulers, and servers.
 - **[Dream Module Spec](docs/specs/dream_module.md)**: Autonomous skill generation, conversation mining, and knowledge extraction.
-- **[Improvements Module Spec](docs/specs/improvements_module.md)**: Rules resolved order and Clean Code.
-- **[Improvement Backlog Spec](docs/specs/backlog.md)**: Deferred work versioned in the docs tree.
+- **[Task Backlog Spec](docs/specs/backlog.md)**: Future work versioned in the docs tree and managed independently of Dream.
 - **[UI Dashboard Spec](docs/specs/ui_dashboard.md)**: React force-directed canvas and uiserver handlers.
 - **[AI Engine Spec](docs/specs/ai_engine.md)**: the local ONNX embedding stack, the model manager, and prompt completions.
 - **[Cluster Discovery Spec](docs/specs/cluster_microservices.md)**: Projects registry and cross-project delegated queries.

@@ -2,7 +2,7 @@ package config
 
 import "strings"
 
-const DefaultUIHost = "0.0.0.0"
+const DefaultUIHost = "127.0.0.1"
 
 func ResolveUIHost(inlineCfg, projectCfg ConfigMap) string {
 	host := strings.TrimSpace(ResolveConfig("ui.host", inlineCfg, projectCfg))

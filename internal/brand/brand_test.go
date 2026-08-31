@@ -359,7 +359,6 @@ func TestCoreSkillIDs(t *testing.T) {
 		"testbrand-hub",
 		"testbrand-knowledge",
 		"testbrand-memory",
-		"testbrand-improvements",
 	}
 	for _, id := range expectedIDs {
 		if !ids[id] {

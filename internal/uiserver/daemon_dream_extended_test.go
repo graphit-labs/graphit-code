@@ -238,45 +238,6 @@ func TestHandleDreamStatus_WithDreamConfig(t *testing.T) {
 	}
 }
 
-func TestHandleDreamStatus_WithPendingBacklog(t *testing.T) {
-	tmp := t.TempDir()
-
-	// Queue a backlog item so the status handler has something pending to report
-	subj, err := backlog.Add(tmp, "Test Subject", "Test body content")
-	if err != nil {
-		t.Fatalf("backlog.Add: %v", err)
-	}
-	if subj == nil {
-		t.Fatal("backlog.Add returned nil")
-	}
-
-	h := NewDaemonDreamHandler(nil)
-	mux := http.NewServeMux()
-	h.RegisterAPIRoutes(mux)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/dream/status?project_dir="+tmp, nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d; want %d", w.Code, http.StatusOK)
-	}
-
-	var res struct {
-		PendingBacklog []string `json:"pending_backlog"`
-	}
-	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	if len(res.PendingBacklog) != 1 {
-		t.Errorf("PendingBacklog count = %d; want 1", len(res.PendingBacklog))
-	}
-	if len(res.PendingBacklog) > 0 && res.PendingBacklog[0] != "Test Subject" {
-		t.Errorf("PendingBacklog[0] = %q; want %q", res.PendingBacklog[0], "Test Subject")
-	}
-}
-
 func TestHandleDreamStatus_WithDreamReportsCount(t *testing.T) {
 	tmp := t.TempDir()
 
@@ -327,7 +288,7 @@ func TestHandleBacklogList_WithSubjects(t *testing.T) {
 		}
 	}
 
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -352,7 +313,7 @@ func TestHandleBacklogAdd_LongTitle(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -371,7 +332,7 @@ func TestHandleBacklogAdd_NoBody(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	h.RegisterAPIRoutes(mux)
 
@@ -388,7 +349,7 @@ func TestHandleBacklogAdd_NoBody(t *testing.T) {
 
 func TestHandleBacklogRemove_EmptySlug(t *testing.T) {
 	t.Parallel()
-	h := NewDaemonDreamHandler(nil)
+	h := NewDaemonBacklogHandler()
 	mux := http.NewServeMux()
 	// Register without pattern to test slug validation
 	mux.HandleFunc("/test/dream/subject/{slug}", corsJSON(h.handleBacklogRemove))

@@ -23,7 +23,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
-	"github.com/graphit-labs/graphit-code/internal/improvements"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/livesearch"
 	"github.com/graphit-labs/graphit-code/internal/memory"
@@ -244,7 +243,6 @@ func guidanceModules() []guidanceModule {
 		{"ast", ast.InstallRule, ast.InstallSkill},
 		{"hub", hub.InstallRule, hub.InstallSkill},
 		{"memory", memory.InstallRule, memory.InstallSkill},
-		{"improvements", improvements.InstallRule, improvements.InstallSkill},
 	}
 }
 

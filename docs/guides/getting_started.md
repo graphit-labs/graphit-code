@@ -195,8 +195,8 @@ Verify that Graphit Code is fully active:
    ```bash
    graphit ui
    ```
-   The command opens the browser on the free port it selected. The listener binds to all
-   IPv4 interfaces by default (`ui.host=0.0.0.0`), while browser CORS remains localhost-only
+   The command opens the browser on the free port it selected. The listener binds to the
+   IPv4 loopback interface by default (`ui.host=127.0.0.1`), while browser CORS remains localhost-only
    until `ui.allowed_origins` is configured. The UI has no authentication; set
-   `ui.host=127.0.0.1` for local-only use or protect remote access with a firewall, VPN, or
+   set `ui.host=0.0.0.0` for deliberate remote access and protect it with a firewall, VPN, or
    authenticated reverse proxy. See the [network guide](s3-and-ui-network.md).

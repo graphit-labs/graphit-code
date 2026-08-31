@@ -11,7 +11,6 @@ export interface DreamStatus {
   idle_timeout: string
   max_duration: string
   total_reports: number
-  pending_backlog?: string[]
 }
 
 export interface DreamReport {

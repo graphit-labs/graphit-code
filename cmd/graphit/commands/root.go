@@ -65,7 +65,7 @@ func init() {
 		newWikiCmd(),
 		newLiveCmd(),
 		newDreamCmd(),
-		newImprovementsCmd(),
+		newBacklogCmd(),
 		newDaemonCmd(),
 		newMCPCmd(),
 		newClusterCmd(),

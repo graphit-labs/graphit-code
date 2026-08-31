@@ -12,34 +12,29 @@ import (
 )
 
 func TestIsModuleDisabled(t *testing.T) {
-	// Without any config, improvements should be enabled by default (not in OptInModules)
-	if IsModuleDisabled("improvements", nil, nil) {
-		t.Error("expected improvements module to be enabled by default")
+	// Without any config, AST should be enabled by default (not in OptInModules).
+	if IsModuleDisabled("ast", nil, nil) {
+		t.Error("expected AST module to be enabled by default")
 	}
 
-	// If explicitly set to true, it should be enabled (IsModuleDisabled = false)
+	// If explicitly set to true, it should be enabled (IsModuleDisabled = false).
 	cfgTrue := ConfigMap{
 		"modules": map[string]any{
-			"improvements": "true",
+			"ast": "true",
 		},
 	}
-	if IsModuleDisabled("improvements", nil, cfgTrue) {
-		t.Error("expected improvements module to be enabled when explicitly configured to true")
+	if IsModuleDisabled("ast", nil, cfgTrue) {
+		t.Error("expected AST module to be enabled when explicitly configured to true")
 	}
 
-	// If explicitly set to false, it should be disabled (IsModuleDisabled = true)
+	// If explicitly set to false, it should be disabled (IsModuleDisabled = true).
 	cfgFalse := ConfigMap{
 		"modules": map[string]any{
-			"improvements": "false",
+			"ast": "false",
 		},
 	}
-	if !IsModuleDisabled("improvements", nil, cfgFalse) {
-		t.Error("expected improvements module to be disabled when explicitly configured to false")
-	}
-
-	// For comparison, another default module like "ast" should be enabled by default (IsModuleDisabled = false)
-	if IsModuleDisabled("ast", nil, nil) {
-		t.Error("expected ast module to be enabled by default")
+	if !IsModuleDisabled("ast", nil, cfgFalse) {
+		t.Error("expected AST module to be disabled when explicitly configured to false")
 	}
 }
 

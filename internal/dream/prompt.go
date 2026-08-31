@@ -6,15 +6,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 )
 
-func buildDreamPrompt(projectDir, sessionID, ide string, item *backlog.Item, outcomes []*memory.ConsolidationOutcome) string {
-	context := buildDreamContext(projectDir, sessionID, ide, item)
+func buildDreamPrompt(projectDir, sessionID, ide string, outcomes []*memory.ConsolidationOutcome) string {
+	context := buildDreamContext(projectDir, sessionID, ide)
 	analysisRules := brand.ResolveModuleRule("dream", "")
-	envelope := buildDreamEnvelope(projectDir, sessionID, item)
+	envelope := buildDreamEnvelope(projectDir, sessionID)
 
 	var b strings.Builder
 	b.WriteString(context)
@@ -58,7 +57,7 @@ func buildConsolidationBriefing(outcomes []*memory.ConsolidationOutcome) string 
 	return b.String()
 }
 
-func buildDreamContext(projectDir, sessionID, ide string, item *backlog.Item) string {
+func buildDreamContext(projectDir, sessionID, ide string) string {
 	var b strings.Builder
 
 	b.WriteString("# Dream Session — Autonomous Skill Generation & Knowledge Mining\n\n")
@@ -82,38 +81,6 @@ func buildDreamContext(projectDir, sessionID, ide string, item *backlog.Item) st
 	_, _ = fmt.Fprintf(&b, "You are operating with IDE context `%s`. ", ide)
 	b.WriteString("Use this when interacting with the hub, syncing rules, or any IDE-scoped operations. ")
 	_, _ = fmt.Fprintf(&b, "For example: `%s sync --ide %s` or `%s hub install --ide %s`.\n\n", brand.BinName(), ide, brand.BinName(), ide)
-
-	if item != nil {
-		b.WriteString("## 🎯 Assigned Backlog Item\n\n")
-		b.WriteString("**This dream session has a specific backlog item assigned by the developer.**\n")
-		b.WriteString("You MUST prioritize this item above general exploration.\n\n")
-		_, _ = fmt.Fprintf(&b, "**Item**: %s\n", item.Title)
-		_, _ = fmt.Fprintf(&b, "**Instruction file**: `%s`\n\n", item.Path)
-		b.WriteString("### Item Instructions\n\n")
-		b.WriteString("```\n")
-		b.WriteString(item.Body)
-		b.WriteString("```\n\n")
-		b.WriteString("### Item Completion Protocol\n\n")
-		b.WriteString("When you have completed work on this item:\n")
-		_, _ = fmt.Fprintf(&b, "1. Create the result file at `%s/%s%s` with a summary of what was done\n",
-			backlog.Dir(projectDir), item.Slug, backlog.ResultExt)
-		b.WriteString("2. Reference this item in your dream report under **Skills Created** or **Skills Improved** with the tag `[backlog]`\n")
-		b.WriteString("3. Include a section **Backlog Item Resolution** in your dream report explaining:\n")
-		b.WriteString("   - What the developer asked for (the item)\n")
-		b.WriteString("   - What you analyzed and found\n")
-		b.WriteString("   - What skills, memories, or artifacts you created/improved to address it\n")
-		b.WriteString("   - Whether the item is fully resolved or partially addressed\n\n")
-		b.WriteString("The result file should be a concise markdown summary:\n\n")
-		b.WriteString("```markdown\n")
-		_, _ = fmt.Fprintf(&b, "# %s — Result\n\n", item.Title)
-		b.WriteString("## Resolution\n\n")
-		b.WriteString("[Explain what was done to address the backlog item]\n\n")
-		b.WriteString("## Artifacts Generated\n\n")
-		b.WriteString("- [List skills, memories, rules created or improved]\n\n")
-		b.WriteString("## Status\n\n")
-		b.WriteString("[COMPLETED | PARTIALLY_COMPLETED — explain what remains]\n")
-		b.WriteString("```\n\n")
-	}
 
 	// Phase 1: OBSERVE
 	b.WriteString("## Your Mission — 5-Phase Architecture\n\n")
@@ -251,7 +218,7 @@ func buildDreamContext(projectDir, sessionID, ide string, item *backlog.Item) st
 	return b.String()
 }
 
-func buildDreamEnvelope(projectDir, sessionID string, item *backlog.Item) string {
+func buildDreamEnvelope(projectDir, sessionID string) string {
 	var b strings.Builder
 	reportPath := filepath.Join(ReportsDir(projectDir), sessionID+reportExt)
 
@@ -276,27 +243,9 @@ func buildDreamEnvelope(projectDir, sessionID string, item *backlog.Item) string
 	_, _ = fmt.Fprintf(&b, "title: Dream Session %s\n", sessionID)
 	_, _ = fmt.Fprintf(&b, "created: %s\n", time.Now().UTC().Format(time.RFC3339))
 	b.WriteString("type: dream-report\n")
-	if item != nil {
-		_, _ = fmt.Fprintf(&b, "backlog_item: %s\n", item.Slug)
-	}
 	b.WriteString("---\n\n")
 
 	b.WriteString("# Dream Report\n\n")
-
-	if item != nil {
-		b.WriteString("## Backlog Item Resolution\n\n")
-		_, _ = fmt.Fprintf(&b, "**Item**: %s\n", item.Title)
-		_, _ = fmt.Fprintf(&b, "**Slug**: `%s`\n", item.Slug)
-		_, _ = fmt.Fprintf(&b, "**Instruction file**: `%s`\n\n", item.Path)
-		b.WriteString("### What was requested\n\n")
-		b.WriteString("[Summarize what the developer asked for in the backlog item]\n\n")
-		b.WriteString("### Analysis & Findings\n\n")
-		b.WriteString("[What you found when investigating the item — be specific]\n\n")
-		b.WriteString("### Artifacts Generated\n\n")
-		b.WriteString("[What skills, memories, or rules you created/improved to address the item]\n\n")
-		b.WriteString("### Completion Status\n\n")
-		b.WriteString("[COMPLETED | PARTIALLY_COMPLETED — explain what remains if partial]\n\n")
-	}
 
 	b.WriteString("## Conversations Analyzed\n\n")
 	b.WriteString("List every conversation reviewed in this session:\n\n")

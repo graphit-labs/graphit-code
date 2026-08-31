@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
-	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
@@ -377,12 +376,6 @@ func (r *Runner) executeDream(ctx context.Context, sessionID string) error {
 	// later still leaves the store consolidated.
 	outcomes := r.runMemoryConsolidation(ctx)
 
-	var item *backlog.Item
-	if picked, err := backlog.Pick(r.projectDir); err == nil && picked != nil {
-		item = picked
-		r.log("dream: picked backlog item %q (%s)", picked.Title, picked.Slug)
-	}
-
 	artifactPath := filepath.Join(dreamArtifactDir, sessionID+reportExt)
 
 	// Recorded before the agent runs: if the agent writes the report itself, that
@@ -391,7 +384,7 @@ func (r *Runner) executeDream(ctx context.Context, sessionID string) error {
 	agentReportBefore := reportFingerprint(artifactPath)
 
 	r.log("dream: executing AI agent locally for %s", r.projectDir)
-	prompt := buildDreamPrompt(r.projectDir, sessionID, r.ide, item, outcomes)
+	prompt := buildDreamPrompt(r.projectDir, sessionID, r.ide, outcomes)
 	result, err := r.executeLocal(ctx, prompt, sessionID)
 	if err != nil {
 		// A failed agent does not discard the consolidation that already happened.

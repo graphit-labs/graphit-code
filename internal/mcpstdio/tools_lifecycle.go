@@ -15,7 +15,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/hub"
-	"github.com/graphit-labs/graphit-code/internal/improvements"
+	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/version"
@@ -238,10 +238,10 @@ func registerLifecycleTools(server *mcp.Server) {
 				ast.InstallRule,
 				hub.InstallRule,
 				memory.InstallRule,
-				improvements.InstallRule,
 			} {
 				_ = r(projectDir, targetIDE)
 			}
+			removeRetiredImprovementsGuidance(projectDir, targetIDE)
 		}
 
 		// 6. Sync IDE adapters for all IDEs
@@ -283,10 +283,10 @@ func registerLifecycleTools(server *mcp.Server) {
 			ast.InstallRule,
 			hub.InstallRule,
 			memory.InstallRule,
-			improvements.InstallRule,
 		} {
 			_ = r(projectDir, resolvedIDE)
 		}
+		removeRetiredImprovementsGuidance(projectDir, resolvedIDE)
 
 		return textResult("Update completed successfully.")
 	}))
@@ -319,6 +319,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		} {
 			_ = r(projectDir, resolvedIDE)
 		}
+		removeRetiredImprovementsGuidance(projectDir, resolvedIDE)
 
 		return textResult("Graphit removed from this project successfully.")
 	}))
@@ -452,4 +453,9 @@ func registerLifecycleTools(server *mcp.Server) {
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input versionInput) (*mcp.CallToolResult, any, error) {
 		return textResult(version.Version)
 	}))
+}
+
+func removeRetiredImprovementsGuidance(projectDir, ideName string) {
+	_ = ide.RemoveMandateTrigger(projectDir, ideName, "imp_rule")
+	_ = ide.RemoveManagedSkill(projectDir, ideName, brand.SkillDirName("improvements"))
 }

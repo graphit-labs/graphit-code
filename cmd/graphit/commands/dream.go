@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
@@ -23,12 +22,9 @@ func newDreamCmd() *cobra.Command {
 		Short: "Dream module — autonomous idle-triggered code improvement.",
 		Long: brand.DisplayName + ` Dream — autonomous reflection & improvement module.
 
-The Dream module runs during idle periods, analyzing and improving the codebase.
+The Dream module runs during idle periods, improving project knowledge and agent artifacts.
 By default, reports are stored in ` + brand.ProjectRuntimePath(".", "dream") + `.
 Set dream.reports_dir to publish them elsewhere.
-
-Each session picks up the oldest pending item from the improvement backlog —
-manage that with ` + brand.BinName() + ` improvements backlog.
 
 Commands:
   status   Show current dream state (active, idle, last dream, config)
@@ -170,13 +166,6 @@ func runDreamStatus() error {
 
 	if reports, err := dream.ListReports(projectDir); err == nil && len(reports) > 0 {
 		p.KeyValue("Total reports", fmt.Sprintf("%d", len(reports)))
-	}
-
-	if pending, err := backlog.Pending(projectDir); err == nil && len(pending) > 0 {
-		p.KeyValue("Pending backlog", fmt.Sprintf("%d", len(pending)))
-		for _, item := range pending {
-			p.Step("%s", item.Title)
-		}
 	}
 
 	return nil

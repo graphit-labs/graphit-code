@@ -101,7 +101,7 @@ by an identifier. A project directory carries no compiled data at all: only its 
 its lockfile, and a few small per-project records. See
 [Storage Layout](storage_layout.md) for the full picture and the reasoning.
 
-The unified UI is a separate network boundary. It binds to `ui.host` (`0.0.0.0` by
+The unified UI is a separate network boundary. It binds to `ui.host` (`127.0.0.1` by
 default) and applies one exact-origin CORS policy from `ui.allowed_origins`. It has no
 authentication, so remote deployments require network controls or an authenticated proxy;
 CORS alone is not authorization. See

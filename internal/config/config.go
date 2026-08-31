@@ -494,8 +494,8 @@ const (
 	backlogDirName       = "backlog"
 )
 
-// DefaultBacklogDir is where the improvement backlog lives when
-// improvements.backlog_dir says nothing: inside the documentation tree, beside
+// DefaultBacklogDir is where the task backlog lives when backlog.dir says
+// nothing: inside the documentation tree, beside
 // the task logs.
 //
 // It used to be under the brand directory, which `graphit init` gitignores —
@@ -510,12 +510,12 @@ func DefaultBacklogDir(inlineCfg, projectCfg ConfigMap) string {
 	return filepath.Join(ResolveDocsDir(inlineCfg, projectCfg), backlogParentDirName, backlogDirName)
 }
 
-// ResolveBacklogDir returns the directory holding the improvement backlog,
-// relative to the project root. Override it with improvements.backlog_dir —
-// inline, GRAPHIT_IMPROVEMENTS_BACKLOG_DIR, project lockfile, global config, in
+// ResolveBacklogDir returns the directory holding the task backlog, relative to
+// the project root. Override it with backlog.dir — inline,
+// GRAPHIT_BACKLOG_DIR, project lockfile, global config, in
 // that order of precedence.
 func ResolveBacklogDir(inlineCfg, projectCfg ConfigMap) string {
-	val := strings.TrimSpace(ResolveConfig("improvements.backlog_dir", inlineCfg, projectCfg))
+	val := strings.TrimSpace(ResolveConfig("backlog.dir", inlineCfg, projectCfg))
 	if val == "" {
 		return DefaultBacklogDir(inlineCfg, projectCfg)
 	}

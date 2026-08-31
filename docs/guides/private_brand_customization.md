@@ -97,7 +97,7 @@ bucket policy enforces it.
 
 ## UI network hardening
 
-The unified UI binds to `0.0.0.0` by default and selects a free port. Browser CORS
+The unified UI binds to `127.0.0.1` by default and selects a free port. Browser CORS
 remains limited to localhost until `ui.allowed_origins` is explicitly configured.
 The server has no authentication, and CORS does not stop scripts or direct network
 clients.

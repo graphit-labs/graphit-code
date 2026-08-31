@@ -308,14 +308,13 @@ instead of shipping skills no strict IDE will load.
 hand-written quoter gets wrong (`: `, quotes, backslashes, leading `%`/`#`/`-`/`?`/`&`/`*`,
 scalars that resolve to bool/null/number/date, leading and trailing whitespace, tabs, newlines,
 non-ASCII), asserting the value round-trips byte-identical.
-`cmd/graphit/commands/managed_skills_frontmatter_test.go` then installs all five skills for
+`cmd/graphit/commands/managed_skills_frontmatter_test.go` then installs all four skills for
 every supported IDE and reads them back the way an IDE would, and additionally asserts that the
 descriptions still contain `": "` — otherwise valid frontmatter would only prove the content had
 become bland, not that quoting works.
 
-Agents also write skill frontmatter by hand, so the same contract is stated where they are
-instructed to: the dream module's skill-crystallization prompt (`internal/dream/prompt.go`) and
-Step 3b of the improvements methodology (`internal/improvements/rules.go`).
+Agents also write skill frontmatter by hand, so the same contract is stated in the Dream
+module's skill-crystallization prompt (`internal/dream/prompt.go`).
 
 ---
 

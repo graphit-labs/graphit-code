@@ -164,11 +164,10 @@ func SkillDirName(module string) string {
 
 func CoreSkillIDs() map[string]bool {
 	return map[string]bool{
-		SkillDirName("ast"):          true,
-		SkillDirName("hub"):          true,
-		SkillDirName("knowledge"):    true,
-		SkillDirName("memory"):       true,
-		SkillDirName("improvements"): true,
+		SkillDirName("ast"):       true,
+		SkillDirName("hub"):       true,
+		SkillDirName("knowledge"): true,
+		SkillDirName("memory"):    true,
 	}
 }
 

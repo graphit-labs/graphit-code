@@ -75,6 +75,7 @@ func NewUnifiedServer(
 
 	daemonDreamHandler := NewDaemonDreamHandler(hubSvc)
 	daemonDreamHandler.RegisterAPIRoutes(mux)
+	NewDaemonBacklogHandler().RegisterAPIRoutes(mux)
 
 	s := &UnifiedServer{
 		port: port, host: host, allowedOrigins: allowedOrigins,

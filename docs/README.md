@@ -56,8 +56,7 @@ Explore the engineering specifications of each internal package:
 - **[Configuration Module Specification](specs/config_module.md)**: Layered precedence, global/project storage, compiled defaults, and all supported keys.
 - **[Daemon Module Specification](specs/daemon_module.md)**: Background daemon, shared embedding model client, OS schedulers, and replacement spawns.
 - **[Dream Module Specification](specs/dream_module.md)**: Autonomous skill generation, conversation mining, skill effectiveness evaluation, and knowledge extraction.
-- **[Improvements Module Specification](specs/improvements_module.md)**: Resolution order, engineering analysis methodology (Clean Code, Security, Observability), and reflection phase.
-- **[Improvement Backlog Specification](specs/backlog.md)**: Deferred work recorded in the documentation tree, its storage and configuration, and the CLI/MCP/HTTP surfaces that manage it.
+- **[Task Backlog Specification](specs/backlog.md)**: Future work recorded independently in the documentation tree, its storage and configuration, and the CLI/MCP/HTTP surfaces that manage it.
 - **[UI Dashboard Specification](specs/ui_dashboard.md)**: Vite-React application, Force-Directed 3D canvas, state stores, and uiserver handlers.
 - **[AI Engine Specification](specs/ai_engine.md)**: Model manager, embedding backends (local, proxy, lazy), and Cypher AI helpers.
 - **[Cluster Discovery Specification](specs/cluster_microservices.md)**: Sibling project registration, multi-service navigation, and cross-project query delegations.

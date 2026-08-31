@@ -1715,7 +1715,6 @@ func TestAssembleTriggers_CanonicalOrder(t *testing.T) {
 
 	// Insert in reverse canonical order; output must be in canonical order.
 	triggers := map[string]string{
-		"imp_rule": "imp",
 		"doc_rule": "doc",
 		"hub_rule": "hub",
 		"ast_rule": "ast",
@@ -1727,7 +1726,7 @@ func TestAssembleTriggers_CanonicalOrder(t *testing.T) {
 	posOf := func(tag string) int {
 		return strings.Index(got, "<"+tag+">")
 	}
-	order := []string{"mem_rule", "ast_rule", "hub_rule", "doc_rule", "imp_rule"}
+	order := []string{"mem_rule", "ast_rule", "hub_rule", "doc_rule"}
 	for i := 1; i < len(order); i++ {
 		if posOf(order[i-1]) >= posOf(order[i]) {
 			t.Errorf("%s should appear before %s in assembled output:\n%s", order[i-1], order[i], got)
@@ -1765,7 +1764,6 @@ func TestUpsertMandateTrigger_CanonicalOrdering(t *testing.T) {
 
 	// Call UpsertMandateTrigger in reverse canonical order.
 	calls := []struct{ tag, content string }{
-		{"imp_rule", "IMP"},
 		{"doc_rule", "DOC"},
 		{"hub_rule", "HUB"},
 		{"ast_rule", "AST"},
@@ -1784,7 +1782,7 @@ func TestUpsertMandateTrigger_CanonicalOrdering(t *testing.T) {
 	got := string(data)
 
 	posOf := func(tag string) int { return strings.Index(got, "<"+tag+">") }
-	order := []string{"mem_rule", "ast_rule", "hub_rule", "doc_rule", "imp_rule"}
+	order := []string{"mem_rule", "ast_rule", "hub_rule", "doc_rule"}
 	for i := 1; i < len(order); i++ {
 		if posOf(order[i-1]) >= posOf(order[i]) {
 			t.Errorf("%s should appear before %s regardless of install order\nfile:\n%s",

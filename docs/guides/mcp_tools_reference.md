@@ -962,7 +962,6 @@ Tools for managing the autonomous dream module — skill generation and knowledg
 - `status` — current status: `dreaming`, `deep sleep`, `standby`, or `inactive`
 - `idle_timeout` / `max_duration` — dream timing configuration
 - `total_reports` — number of dream session reports
-- `pending_backlog` — titles of the pending improvement backlog items a session would pick up
 
 ---
 
@@ -1061,23 +1060,13 @@ Tools for managing project cluster labels in the Graphit ecosystem.
 
 ---
 
-## Improvements Tools
+## Backlog Tools
 
-Tools for code improvement analysis and methodology rules.
+Tools for recording and managing future project tasks independently of Dream.
 
-### `graphit_improvements_rules`
+### `graphit_backlog_list`
 
-**Description:** Output the resolved code improvement analysis methodology rules.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `default` | boolean | | Return compiled-in default rules ignoring any customization |
-
----
-
-### `graphit_improvements_backlog_list`
-
-**Description:** List the improvement backlog — work identified but deliberately deferred.
+**Description:** List the documentation-backed task backlog.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -1088,26 +1077,27 @@ Tools for code improvement analysis and methodology rules.
 
 ---
 
-### `graphit_improvements_backlog_add`
+### `graphit_backlog_add`
 
-**Description:** Add an item to the improvement backlog for a later autonomous session to pick up.
+**Description:** Record a task for later work.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
-| `title` | string | ✅ | One-line description of the deferred work |
+| `title` | string | ✅ | One-line description of the task |
 | `body` | string | | The full brief, written for a reader with no conversation history |
 | `ai_optimized` | boolean | | Set to `true` for compact TOON output instead of JSON |
 
-Items are written to `improvements.backlog_dir` (default `docs/tasks/backlog`). Adding an item
-always succeeds; whether anything picks it up depends on `modules.dream` and the daemon — check
-`graphit_dream_status`. See [Improvement Backlog](../specs/backlog.md).
+Items are written to `backlog.dir` (default `docs/tasks/backlog`). Adding, listing, and removing
+items works regardless of Dream state. Dream never consumes backlog items; it improves project
+knowledge through its own inputs. See
+[Task Backlog](../specs/backlog.md).
 
 ---
 
-### `graphit_improvements_backlog_remove`
+### `graphit_backlog_remove`
 
-**Description:** Remove an item from the improvement backlog by slug.
+**Description:** Remove an item from the task backlog by slug.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

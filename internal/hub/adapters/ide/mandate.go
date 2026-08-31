@@ -68,7 +68,6 @@ var canonicalTriggerOrder = []string{
 	"ast_rule",
 	"hub_rule",
 	"doc_rule",
-	"imp_rule",
 }
 
 // parseTriggers extracts all <tag>...</tag> blocks from inner into a map.

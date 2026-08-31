@@ -471,7 +471,7 @@ func HubRuleContent() string {
 		"| A file is parsed by the wrong grammar | `ast.grammar` overrides, per extension |",
 		"| A grammar YAML the project committed has no effect | `ast.queries_dir` — the project's grammar directory, **`"+brand.DotDir()+"/ast/queries` by default**, which IS tracked by git; check the key has not been pointed elsewhere, since a configured directory replaces the default rather than adding to it |",
 		"| Nothing ever happens overnight | `modules.dream` — dream is **opt-in**, off unless explicitly `true` |",
-		"| The improvement backlog is not where you expected it | `improvements.backlog_dir` — **defaults to `"+config.DefaultBacklogDir(nil, nil)+"`**, inside the docs tree so items are versioned; it follows `knowledge.docs_dir` |",
+		"| The task backlog is not where you expected it | `backlog.dir` — **defaults to `"+config.DefaultBacklogDir(nil, nil)+"`**, inside the docs tree so items are versioned; it follows `knowledge.docs_dir` |",
 		"| Hub operations fail before reaching the network | `hub.bucket` |",
 		"| An artifact installed into the wrong IDE's directory | `ide` |",
 		"",

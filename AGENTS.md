@@ -104,32 +104,17 @@ OPEN THE `graphit-knowledge` SKILL WHEN ANY OF THESE IS TRUE — this is the tri
 - the task involves an external system integration, an API contract, or a spec
 - the user asks how a named system works, or whether it has some functionality, and that system is not this project's own code — check the Hub (installed context, then hub_search) before answering
 - you finished a change and have not yet recorded it
+- you identified a task that should be recorded for later instead of being lost or forced into the current change
+- you are about to add, list, or remove an item in the task backlog — Dream state is irrelevant to these operations
 - you need the provenance of a page — what links to it, what it came from
 - a search returned nothing and you cannot tell whether the page is missing or just ranked low
 - a search came back and you are about to act on it — you cannot: `graphit_knowledge_search` answers with TITLES, so pick the one or two the titles justify and read them with `graphit_wiki_source` before you conclude anything
 - an index looks stale, or a graph read failed to open the database — find out whether the daemon is alive before concluding anything
 - the documentation you need belongs to another project — resolve it in the ecosystem and search ITS wiki, never walk or grep its docs tree
 
-MCP tools this module owns: `graphit_knowledge_search`, `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`, `graphit_wiki_source`, `graphit_wiki_embed`, `graphit_knowledge_list`, `graphit_knowledge_lint`, `graphit_knowledge_schema`, `graphit_knowledge_export`, `graphit_knowledge_install`, `graphit_knowledge_remove`, `graphit_knowledge_sync`, `graphit_cluster_projects`, `graphit_daemon_status`, `graphit_daemon_stop`. The skill says when and how to call each.
+MCP tools this module owns: `graphit_knowledge_search`, `graphit_wiki_search`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`, `graphit_wiki_source`, `graphit_wiki_embed`, `graphit_knowledge_list`, `graphit_knowledge_lint`, `graphit_knowledge_schema`, `graphit_knowledge_export`, `graphit_knowledge_install`, `graphit_knowledge_remove`, `graphit_knowledge_sync`, `graphit_backlog_list`, `graphit_backlog_add`, `graphit_backlog_remove`, `graphit_cluster_projects`, `graphit_daemon_status`, `graphit_daemon_stop`. The skill says when and how to call each.
 
-The task log OPENS the task and stays current through it: BEFORE you touch anything, create the task log under the docs tasks directory with the objective, your reasoning, the justification for the approach, and the plan broken into tasks — one entry per task, each with its spec. Then update it as each step lands, as the direction changes, and as debt appears, so that another agent can take the work over from the log alone, at any moment, without your conversation. After ANY code change the task log MUST be updated — a change without its record is not complete. Search the knowledge wiki via MCP tools BEFORE grepping or reading docs directly. Reindexing is NOT your job: the daemon watches the docs tree and rebuilds the wiki on its own — but it lags the write, so when you need certainty that an index is current, call `graphit_sync` and let it finish.
+The task log OPENS the task and stays current through it: BEFORE you touch anything, create the task log under the docs tasks directory with the objective, your reasoning, the justification for the approach, and the plan broken into tasks — one entry per task, each with its spec. Then update it as each step lands, as the direction changes, and as debt appears, so that another agent can take the work over from the log alone, at any moment, without your conversation. After ANY code change the task log MUST be updated — a change without its record is not complete. The task backlog records future work independently of Dream; Dream never consumes backlog items, because its role is to improve project knowledge. Search the knowledge wiki via MCP tools BEFORE grepping or reading docs directly. Reindexing is NOT your job: the daemon watches the docs tree and rebuilds the wiki on its own — but it lags the write, so when you need certainty that an index is current, call `graphit_sync` and let it finish.
 SEARCH ANSWERS WITH TITLES, NOT WITH PAGES. A search result is a slug, a title, a type and a score — it carries no page text, deliberately, so that the tokens go on the one or two pages you actually decide to open rather than on twenty previews. Choosing is yours: read the titles, pick, then call `graphit_wiki_source` on what you picked, with `pattern` or a line range when the page is long. Acting on a search result alone is acting on a title you never read. `preview: true` buys a short excerpt per hit when two titles genuinely do not separate — it is the exception.
 </doc_rule>
-<imp_rule>
-# Code Improvement Methodology
-MCP-FIRST for improvement, audit, review, refactor, or post-task reflection: read the `graphit-improvements` skill BEFORE any improvement, audit, review, refactor, or post-task reflection operation, and use exactly the MCP tools it prescribes.
-
-OPEN THE `graphit-improvements` SKILL WHEN ANY OF THESE IS TRUE — this is the trigger list, not a summary:
-- the request is to review, audit, refactor, clean up, optimise, or harden something
-- you just finished a task — the reflection is part of finishing, not an optional extra
-- you are about to declare work complete
-- you noticed something worth fixing that is outside the current change — there is a tool for that, it does not have to be dropped or crammed in
-- the request asks what is wrong with something, or how it could be better
-- you are deciding what "good" means for this codebase rather than in general
-- the user wants work queued for later, or wants to know what ran while they were away
-
-MCP tools this module owns: `graphit_improvements_rules`, `graphit_improvements_backlog_add`, `graphit_improvements_backlog_list`, `graphit_improvements_backlog_remove`, `graphit_dream_status`, `graphit_dream_reports`. The skill says when and how to call each.
-
-During analysis and the mandatory post-task reflection, all memory, knowledge, and hub lookups MUST go through the graphit MCP tools — never the CLI.
-</imp_rule>
 </GRAPHIT_SYSTEM_MANDATE>

@@ -33,7 +33,7 @@ func NewServer() *mcp.Server {
 	registerDreamTools(server)
 	registerDaemonTools(server)
 	registerClusterTools(server)
-	registerImprovementsTools(server)
+	registerBacklogTools(server)
 
 	return server
 }

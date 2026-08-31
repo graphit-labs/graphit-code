@@ -127,7 +127,7 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `hub.access_key_id` | Optional explicit S3 access key; active only with `hub.secret_access_key` | AWS credential-provider chain |
 | `hub.secret_access_key` | Optional explicit S3 secret key; active only with `hub.access_key_id` | AWS credential-provider chain |
 | `hub.icebug.reverse_edges` | Whether AST artifacts publish a separate reverse CSR for every relationship type. Only explicit `false` disables it. | `true` |
-| `ui.host` | Address on which the unified UI server listens | `0.0.0.0` |
+| `ui.host` | Address on which the unified UI server listens | `127.0.0.1` |
 | `ui.allowed_origins` | Comma-separated exact CORS origins; configured values replace the localhost default allowlist | localhost loopback origins |
 | `knowledge.docs_dir` | Relative path to the project documentation directory. Set to `.` to index the whole project. | `docs` |
 | `knowledge.include_readme` | Whether the project root's README is indexed into the wiki on top of `knowledge.docs_dir` | `true` |
@@ -140,7 +140,7 @@ Parsed lazily by `getCompiledDefaults()` using `sync.Once` to ensure it is proce
 | `ast.grammars_whitelist` | Comma-separated grammars the AST index may use, exclusively. Empty means every grammar; non-empty disables everything it does not name. The blacklist still applies on top. | (empty — every grammar) |
 | `ast.cluster_map` | Comma-separated `path=cluster` pairs for cluster tagging by directory prefix. Example: `backend/=python,frontend/=javascript,shared/=typescript`. Persisted when using `--cluster-path` CLI flag. | (empty — no per-path clusters) |
 | `ast.cluster` | Default cluster name for files not matching any `ast.cluster_map` prefix. | (empty — no default cluster) |
-| `improvements.backlog_dir` | Relative path to the improvement backlog. The default is composed from `knowledge.docs_dir`, so it follows the documentation tree. | `docs/tasks/backlog` |
+| `backlog.dir` | Relative path to the task backlog. The default is composed from `knowledge.docs_dir`, so it follows the documentation tree. | `docs/tasks/backlog` |
 | `dream.reports_dir` | Relative path to the dream reports vault. Move it under `docs/` to commit reports as a matter of course. | `.graphit/runtime/dream` |
 | `dream.idle_timeout` | Inactivity in **seconds** before a dream cycle starts | `7200` (2 hours) |
 | `dream.max_duration` | Hard limit in **seconds** on one dream session; `0` means unlimited | `28800` (8 hours) |
@@ -180,8 +180,8 @@ graphit config --global --unset hub.secret_access_key
 
 ### Unified UI network access: `ui.host` and `ui.allowed_origins`
 
-The unified UI server binds to `0.0.0.0` by default. `ui.host` can restrict it to
-a loopback address or select another interface. Like every normal config key, a
+The unified UI server binds to `127.0.0.1` by default. `ui.host` can publish it on
+another interface or every IPv4 interface. Like every normal config key, a
 project value overrides a global value, and `GRAPHIT_UI_HOST` overrides both.
 
 `ui.allowed_origins` is a comma-separated list of exact browser origins. When the
@@ -485,15 +485,15 @@ configuration alone — they have no command line. The flag is merged on top for
 only. So for an extension that no other grammar claims, the key is what makes its files
 visible; the flag alone would leave the parser with nothing to parse.
 
-### The improvement backlog: `improvements.backlog_dir`
+### The task backlog: `backlog.dir`
 
 ```go
 func DefaultBacklogDir(inlineCfg, projectCfg ConfigMap) string
 func ResolveBacklogDir(inlineCfg, projectCfg ConfigMap) string
 ```
 
-The improvement backlog holds work that was identified and deliberately not done —
-see [Improvement Backlog](backlog.md). It used to live at `.graphit/dream/subjects/`,
+The task backlog records project work for later execution — see [Task Backlog](backlog.md).
+It used to live at `.graphit/dream/subjects/`,
 and `graphit init` gitignored `.graphit/` wholesale at the time, so deferred work was
 invisible to every other checkout, to review, and to anyone not at the machine that
 recorded it. A backlog item is a project artifact, not machine state, so the default
@@ -514,13 +514,13 @@ matching place, with no second key to set:
 graphit config knowledge.docs_dir documentation
 
 # or pin the backlog independently of the docs tree
-graphit config improvements.backlog_dir ops/queue
+graphit config backlog.dir ops/queue
 
 # one command only
-GRAPHIT_IMPROVEMENTS_BACKLOG_DIR=ops/queue graphit improvements backlog list
+GRAPHIT_BACKLOG_DIR=ops/queue graphit backlog list
 ```
 
-An explicit `improvements.backlog_dir` wins over the composed default, and the value
+An explicit `backlog.dir` wins over the composed default, and the value
 is cleaned and converted from slash form, so a Windows path and a POSIX path both
 resolve. Because the default sits under `knowledge.docs_dir`, backlog items are
 **indexed into the knowledge wiki** — intentional: the backlog is then searchable

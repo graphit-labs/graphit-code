@@ -76,7 +76,7 @@ func TestDirDefaultsUnderDocsTree(t *testing.T) {
 
 func TestDirHonoursConfigOverride(t *testing.T) {
 	projectDir := t.TempDir()
-	t.Setenv("GRAPHIT_IMPROVEMENTS_BACKLOG_DIR", "custom/queue")
+	t.Setenv("GRAPHIT_BACKLOG_DIR", "custom/queue")
 
 	dir := Dir(projectDir)
 
@@ -117,36 +117,13 @@ func TestBacklogLifecycle(t *testing.T) {
 		t.Error("expected error when adding duplicate item")
 	}
 
-	// 2. List and Pending
+	// List registered tasks.
 	list, err := List(tempProj)
 	if err != nil {
 		t.Fatalf("List failed: %v", err)
 	}
 	if len(list) != 1 || list[0].Slug != "my-backlog-item" {
 		t.Errorf("expected 1 item in list, got %v", list)
-	}
-
-	pending, err := Pending(tempProj)
-	if err != nil || len(pending) != 1 {
-		t.Errorf("expected 1 pending item, got %v, error: %v", pending, err)
-	}
-
-	picked, err := Pick(tempProj)
-	if err != nil || picked == nil || picked.Slug != "my-backlog-item" {
-		t.Errorf("unexpected picked item: %v, error: %v", picked, err)
-	}
-
-	donePath := filepath.Join(Dir(tempProj), "my-backlog-item"+ResultExt)
-	_ = os.WriteFile(donePath, []byte("Done content"), 0644)
-
-	listDone, _ := List(tempProj)
-	if len(listDone) != 1 || !listDone[0].Done {
-		t.Error("expected item to be marked done")
-	}
-
-	pendingEmpty, _ := Pending(tempProj)
-	if len(pendingEmpty) != 0 {
-		t.Errorf("expected 0 pending items after done, got %v", pendingEmpty)
 	}
 
 	err = Remove(tempProj, "my-backlog-item")
@@ -289,35 +266,18 @@ func TestRemoveNotFound(t *testing.T) {
 	}
 }
 
-func TestRemoveWithResultFile(t *testing.T) {
+func TestListIgnoresLegacyResultFiles(t *testing.T) {
 	dir := t.TempDir()
-	item, err := Add(dir, "Remove Test", "body")
+	itemDir := Dir(dir)
+	_ = os.MkdirAll(itemDir, 0o755)
+	_ = os.WriteFile(filepath.Join(itemDir, "retired.done.md"), []byte("legacy result"), 0o644)
+
+	items, err := List(dir)
 	if err != nil {
-		t.Fatalf("Add failed: %v", err)
+		t.Fatalf("List failed: %v", err)
 	}
-
-	resultPath := filepath.Join(Dir(dir), item.Slug+ResultExt)
-	_ = os.WriteFile(resultPath, []byte("done"), 0644)
-
-	// Remove should also clean up result file
-	err = Remove(dir, item.Slug)
-	if err != nil {
-		t.Fatalf("Remove failed: %v", err)
-	}
-
-	if _, err := os.Stat(resultPath); !os.IsNotExist(err) {
-		t.Error("expected result file to be removed")
-	}
-}
-
-func TestPickNoPending(t *testing.T) {
-	dir := t.TempDir()
-	picked, err := Pick(dir)
-	if err != nil {
-		t.Fatalf("Pick failed: %v", err)
-	}
-	if picked != nil {
-		t.Errorf("expected nil for no pending items, got %v", picked)
+	if len(items) != 0 {
+		t.Fatalf("legacy result file must not be registered as a task: %v", items)
 	}
 }
 
@@ -374,32 +334,6 @@ func TestListInfoError(t *testing.T) {
 	}
 	if len(list) != 2 {
 		t.Errorf("expected 2 items, got %d", len(list))
-	}
-}
-
-func TestPendingError(t *testing.T) {
-	dir := t.TempDir()
-	itemDir := Dir(dir)
-	_ = os.MkdirAll(itemDir, 0o755)
-	_ = os.Chmod(itemDir, 0o000)
-	defer func() { _ = os.Chmod(itemDir, 0o755) }()
-
-	_, err := Pending(dir)
-	if err == nil {
-		t.Error("expected error when List fails")
-	}
-}
-
-func TestPickError(t *testing.T) {
-	dir := t.TempDir()
-	itemDir := Dir(dir)
-	_ = os.MkdirAll(itemDir, 0o755)
-	_ = os.Chmod(itemDir, 0o000)
-	defer func() { _ = os.Chmod(itemDir, 0o755) }()
-
-	_, err := Pick(dir)
-	if err == nil {
-		t.Error("expected error when Pending fails")
 	}
 }
 

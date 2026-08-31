@@ -81,9 +81,7 @@ func completionBacklogSlugs() func(*cobra.Command, []string, string) ([]string, 
 		}
 		slugs := make([]string, 0, len(items))
 		for _, item := range items {
-			if !item.Done {
-				slugs = append(slugs, item.Slug)
-			}
+			slugs = append(slugs, item.Slug)
 		}
 		return slugs, cobra.ShellCompDirectiveNoFileComp
 	}

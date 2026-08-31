@@ -1,7 +1,7 @@
 # Explicit S3 credentials are optional; UI server network uses layered config
 
 - **Date:** 2026-08-24
-- **Status:** accepted and implemented
+- **Status:** partially superseded — the host default is superseded by [`2026-08-31-default-ui-host-loopback.md`](2026-08-31-default-ui-host-loopback.md)
 - **Scope:** `cmd/graphit/commands`, `internal/config`, `internal/s3store`,
   `internal/lancestore`, `internal/ast`, `internal/hub`, `internal/uiserver`,
   `internal/netutil`
@@ -17,7 +17,8 @@ The UI server also had two local assumptions: the CORS policy accepted only loop
 
 1. `graphit setup` optionally prompts for `hub.access_key_id` and `hub.secret_access_key`. Only a complete pair is persisted in global config; any blank field removes the explicit pair and keeps the existing provider chain. The prompt warns about this fallback and does not echo the secret.
 2. All S3 consumers use the configured pair only when it is complete. Otherwise, AWS SDK, LanceDB, and LadybugDB keep their current environment/profile/role mechanisms.
-3. `ui.host` follows normal inline → env → project → global → default resolution and uses `0.0.0.0` as default.
+3. `ui.host` follows normal inline → env → project → global → default resolution. The original
+   `0.0.0.0` default was superseded on 2026-08-31; the current default is `127.0.0.1`.
 4. `ui.allowed_origins` accepts a comma-separated list via the same mechanism. With no value, the localhost allowlist remains. With a value, the explicit list replaces the default. `*` is an explicit and dangerous opt-in for any origin.
 5. The unified UI uses `/api` on the same origin instead of injecting `localhost`, so it works by remote hostname or reverse proxy.
 
@@ -25,7 +26,8 @@ The UI server also had two local assumptions: the CORS policy accepted only loop
 
 - A simple setup now serves MinIO and S3-compatible providers without requiring the operator to prepare environment variables before the first command.
 - The preferable alternative remains leaving the fields blank and using temporary credentials from the provider chain. When provided, the secret stays in global config as readable text, protected by `0600` permissions; read commands show it as `[REDACTED]`.
-- Publishing the UI server on `0.0.0.0` does not let arbitrary sites read its data: the localhost CORS allowlist remains the default. Network exposure and origin authorization are separate decisions.
+- Operators can still publish the UI server on `0.0.0.0` explicitly. CORS remains a separate
+  browser-origin policy and is not network access control.
 - A project value overrides the global one, allowing a corporate default with versioned per-project exceptions. Explicit origin values must also include any localhost origin that should still work.
 - The UI server does not implement authentication. CORS is a browser policy, not network access control; a reachable instance needs firewall, VPN, or authenticated TLS proxy, and must not be published directly to the Internet.
 

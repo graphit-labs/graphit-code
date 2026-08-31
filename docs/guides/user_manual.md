@@ -143,21 +143,21 @@ The Dream module allows AI agents to mine conversation history and generate reus
 5. **Skill Effectiveness Evaluation**: Existing skills are analyzed for failures and improved using a self-healing loop with root cause classification.
 6. **Integration Skills**: The module creates skills designed for external developers integrating with your project.
 
-### Queueing Work — the Improvement Backlog
-You queue tasks or instructions for the background agent through the **improvement backlog**. It is also where a review records work it deliberately did not do, so the finding survives the conversation that produced it:
+### Recording Future Work — the Task Backlog
+The **task backlog** records work that should survive the conversation or session that identified it. It is a task registry, separate from Dream:
 ```bash
-# Add an item for the next dream cycle to pick up
-graphit improvements backlog add "Create skill for deployment workflow" --body "Review conversations about deployment to extract a reusable skill"
+# Record a task
+graphit backlog add "Create skill for deployment workflow" --body "Review conversations about deployment to extract a reusable skill"
 
-# Check what is queued
-graphit improvements backlog list
+# Check recorded tasks
+graphit backlog list
 
 # Drop an item you have since handled yourself
-graphit improvements backlog rm create-skill-for-deployment-workflow
+graphit backlog rm create-skill-for-deployment-workflow
 ```
-Items are markdown files under `improvements.backlog_dir` — `docs/tasks/backlog/` by default — so they are committed with the project and visible in review, not hidden in a gitignored directory. Each session picks the oldest pending item and writes a `<slug>.done.md` beside it when finished. Full details in [Improvement Backlog](../specs/backlog.md).
+Items are Markdown files under `backlog.dir` — `docs/tasks/backlog/` by default — so they are committed with the project and visible in review. Dream never consumes these items; it improves project knowledge instead. Full details are in [Task Backlog](../specs/backlog.md).
 
-> Adding an item always works, but the session that would act on it is opt-in: `modules.dream` must be `true` and the daemon must be running. Check with `graphit dream status`.
+> Adding, listing, and removing items always works. `modules.dream` and daemon state are unrelated to backlog operations.
 
 ### Reviewing Dream Reports
 After the session finishes, it produces a markdown report detailing the skill generation findings, conversation analysis results, and any new memories or skills created:
@@ -789,23 +789,8 @@ The first source found wins. This means a project-level override always takes pr
 
 ### Managing Rules via CLI
 
-Every module exposes a `rule` subcommand:
-
-```bash
-# Output resolved rules (respecting the full override hierarchy)
-graphit improvements rules
-
-# Show only the compiled-in default (ignore all overrides)
-graphit improvements rules --default
-
-# Set a custom global CLI override from a file
-graphit improvements rules my-rules.md
-
-# Restore default ruleset (removes the global CLI override)
-graphit improvements rules --unset
-```
-
-This works for all modules: `graphit ast rule`, `graphit knowledge rule`, `graphit memory rule`, `graphit hub rule`, `graphit improvements rules`.
+Modules that provide agent guidance expose a `rule` subcommand, including `graphit ast rule`,
+`graphit knowledge rule`, `graphit memory rule`, and `graphit hub rule`.
 
 ### Embedding the Default with Placeholders
 

@@ -1,7 +1,6 @@
 package uiserver
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
@@ -33,9 +31,6 @@ func (h *DaemonDreamHandler) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/daemon/stop", corsJSON(h.handleDaemonStop))
 	mux.HandleFunc("GET /api/dream/status", corsJSON(h.handleDreamStatus))
 	mux.HandleFunc("GET /api/dream/reports", corsJSON(h.handleDreamReports))
-	mux.HandleFunc("GET /api/backlog", corsJSON(h.handleBacklogList))
-	mux.HandleFunc("POST /api/backlog/item", corsJSON(h.handleBacklogAdd))
-	mux.HandleFunc("DELETE /api/backlog/item/{slug}", corsJSON(h.handleBacklogRemove))
 }
 
 func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +138,6 @@ func (h *DaemonDreamHandler) handleDreamStatus(w http.ResponseWriter, r *http.Re
 		IdleTimeout    string    `json:"idle_timeout"`
 		MaxDuration    string    `json:"max_duration"`
 		TotalReports   int       `json:"total_reports"`
-		PendingBacklog []string  `json:"pending_backlog,omitempty"`
 	}
 
 	var res DreamStatusResult
@@ -181,12 +175,6 @@ func (h *DaemonDreamHandler) handleDreamStatus(w http.ResponseWriter, r *http.Re
 		res.TotalReports = len(reports)
 	}
 
-	if pending, err := backlog.Pending(projectDir); err == nil {
-		for _, item := range pending {
-			res.PendingBacklog = append(res.PendingBacklog, item.Title)
-		}
-	}
-
 	writeJSON(w, res)
 }
 
@@ -207,86 +195,6 @@ func (h *DaemonDreamHandler) handleDreamReports(w http.ResponseWriter, r *http.R
 	}
 
 	writeJSON(w, reports)
-}
-
-func (h *DaemonDreamHandler) handleBacklogList(w http.ResponseWriter, r *http.Request) {
-	projectDir := r.URL.Query().Get("project_dir")
-	if projectDir == "" {
-		http.Error(w, "project_dir required", http.StatusBadRequest)
-		return
-	}
-
-	items, err := backlog.List(projectDir)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if items == nil {
-		items = []backlog.Item{}
-	}
-
-	writeJSON(w, items)
-}
-
-func (h *DaemonDreamHandler) handleBacklogAdd(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "POST only", http.StatusMethodNotAllowed)
-		return
-	}
-
-	projectDir := r.URL.Query().Get("project_dir")
-	if projectDir == "" {
-		http.Error(w, "project_dir required", http.StatusBadRequest)
-		return
-	}
-
-	var body struct {
-		Title string `json:"title"`
-		Body  string `json:"body"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if body.Title == "" {
-		http.Error(w, "title is required", http.StatusBadRequest)
-		return
-	}
-
-	item, err := backlog.Add(projectDir, body.Title, body.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, item)
-}
-
-func (h *DaemonDreamHandler) handleBacklogRemove(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "DELETE only", http.StatusMethodNotAllowed)
-		return
-	}
-
-	projectDir := r.URL.Query().Get("project_dir")
-	if projectDir == "" {
-		http.Error(w, "project_dir required", http.StatusBadRequest)
-		return
-	}
-
-	slug := r.PathValue("slug")
-	if slug == "" {
-		http.Error(w, "slug is required", http.StatusBadRequest)
-		return
-	}
-
-	if err := backlog.Remove(projectDir, slug); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	writeJSON(w, map[string]any{"success": true, "message": fmt.Sprintf("Backlog item %q removed.", slug)})
 }
 
 func splitLastNLocal(s string, n int) []string {

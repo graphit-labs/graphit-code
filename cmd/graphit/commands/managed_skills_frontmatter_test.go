@@ -13,7 +13,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
-	"github.com/graphit-labs/graphit-code/internal/improvements"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 )
@@ -24,11 +23,10 @@ import (
 // generator and reads back what an IDE would read.
 func TestManagedSkillFrontmatterIsValid(t *testing.T) {
 	generators := map[string]func(string, string) error{
-		"ast":          ast.InstallSkill,
-		"hub":          hub.InstallSkill,
-		"improvements": improvements.InstallSkill,
-		"knowledge":    knowledge.InstallSkill,
-		"memory":       memory.InstallSkill,
+		"ast":       ast.InstallSkill,
+		"hub":       hub.InstallSkill,
+		"knowledge": knowledge.InstallSkill,
+		"memory":    memory.InstallSkill,
 	}
 
 	for _, ideName := range ide.SupportedIDEs() {
@@ -99,11 +97,10 @@ func TestManagedSkillFrontmatterIsValid(t *testing.T) {
 // content.
 func TestManagedSkillDescriptionsStillContainAColon(t *testing.T) {
 	descriptions := map[string]func(string, string) error{
-		"ast":          ast.InstallSkill,
-		"hub":          hub.InstallSkill,
-		"improvements": improvements.InstallSkill,
-		"knowledge":    knowledge.InstallSkill,
-		"memory":       memory.InstallSkill,
+		"ast":       ast.InstallSkill,
+		"hub":       hub.InstallSkill,
+		"knowledge": knowledge.InstallSkill,
+		"memory":    memory.InstallSkill,
 	}
 
 	for module, install := range descriptions {

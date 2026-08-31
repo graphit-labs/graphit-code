@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
-	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
@@ -845,121 +844,59 @@ func TestLastModifiedTimeWithIgnoredFile(t *testing.T) {
 }
 
 func TestBuildDreamPrompt(t *testing.T) {
-	t.Run("without subject", func(t *testing.T) {
-		projectDir := "/tmp/project"
-		result := buildDreamPrompt(projectDir, "test-session", "vscode", nil, nil)
-		if result == "" {
-			t.Error("expected non-empty prompt")
-		}
-		if !strings.Contains(result, "test-session") {
-			t.Error("prompt should contain the session id")
-		}
-		if !strings.Contains(result, "/tmp/project") {
-			t.Error("prompt should contain the project dir")
-		}
-		if !strings.Contains(result, "vscode") {
-			t.Error("prompt should contain the IDE name")
-		}
-		if !strings.Contains(result, ReportsDir(projectDir)) {
-			t.Errorf("prompt should contain resolved reports directory %q", ReportsDir(projectDir))
-		}
-	})
-
-	t.Run("with backlog item", func(t *testing.T) {
-		item := &backlog.Item{
-			Title: "Test Item",
-			Slug:  "test-item",
-			Body:  "Do something specific",
-			Path:  "/tmp/project/docs/tasks/backlog/test-item.md",
-		}
-		result := buildDreamPrompt("/tmp/project", "test-session", "cursor", item, nil)
-		if !strings.Contains(result, "Test Item") {
-			t.Error("prompt should contain the item title")
-		}
-		if !strings.Contains(result, "test-item") {
-			t.Error("prompt should contain the item slug")
-		}
-		if !strings.Contains(result, "Do something specific") {
-			t.Error("prompt should contain the item body")
-		}
-		if !strings.Contains(result, "Assigned Backlog Item") {
-			t.Error("prompt should contain the assigned backlog item section")
-		}
-	})
+	projectDir := "/tmp/project"
+	result := buildDreamPrompt(projectDir, "test-session", "vscode", nil)
+	if result == "" {
+		t.Error("expected non-empty prompt")
+	}
+	if !strings.Contains(result, "test-session") {
+		t.Error("prompt should contain the session id")
+	}
+	if !strings.Contains(result, projectDir) {
+		t.Error("prompt should contain the project dir")
+	}
+	if !strings.Contains(result, "vscode") {
+		t.Error("prompt should contain the IDE name")
+	}
+	if !strings.Contains(result, ReportsDir(projectDir)) {
+		t.Errorf("prompt should contain resolved reports directory %q", ReportsDir(projectDir))
+	}
+	if strings.Contains(strings.ToLower(result), "backlog") {
+		t.Error("dream prompt must not reference the task backlog")
+	}
 }
 
 func TestBuildDreamContext(t *testing.T) {
-	t.Run("without backlog item", func(t *testing.T) {
-		result := buildDreamContext("/tmp/project", "session1", "ide1", nil)
-		if !strings.Contains(result, "session1") {
-			t.Error("context should contain the session id")
-		}
-		if !strings.Contains(result, "Phase 1") {
-			t.Error("context should contain mission phases")
-		}
-		if strings.Contains(result, "Assigned Backlog Item") {
-			t.Error("context should NOT contain the item section without an item")
-		}
-	})
-
-	t.Run("with backlog item", func(t *testing.T) {
-		item := &backlog.Item{
-			Title: "My Item",
-			Slug:  "my-item",
-			Body:  "Instructions here",
-			Path:  "/path/to/my-item.md",
-		}
-		result := buildDreamContext("/tmp/project", "session2", "ide2", item)
-		if !strings.Contains(result, "Assigned Backlog Item") {
-			t.Error("context should contain the assigned backlog item section")
-		}
-		if !strings.Contains(result, "My Item") {
-			t.Error("context should contain the item title")
-		}
-		if !strings.Contains(result, "Item Completion Protocol") {
-			t.Error("context should contain completion protocol")
-		}
-	})
+	result := buildDreamContext("/tmp/project", "session1", "ide1")
+	if !strings.Contains(result, "session1") {
+		t.Error("context should contain the session id")
+	}
+	if !strings.Contains(result, "Phase 1") {
+		t.Error("context should contain mission phases")
+	}
+	if strings.Contains(strings.ToLower(result), "backlog") {
+		t.Error("dream context must not reference the task backlog")
+	}
 }
 
 func TestBuildDreamEnvelope(t *testing.T) {
-	t.Run("without backlog item", func(t *testing.T) {
-		projectDir := "/tmp/project"
-		result := buildDreamEnvelope(projectDir, "session1", nil)
-		if !strings.Contains(result, "session1") {
-			t.Error("envelope should contain the session id")
-		}
-		if !strings.Contains(result, "Dream Report") {
-			t.Error("envelope should contain Dream Report section")
-		}
-		if !strings.Contains(result, "Deep Sleep") {
-			t.Error("envelope should contain deep sleep section")
-		}
-		if strings.Contains(result, "Backlog Item Resolution") {
-			t.Error("envelope should NOT contain item resolution without an item")
-		}
-		if !strings.Contains(result, filepath.Join(ReportsDir(projectDir), "session1"+reportExt)) {
-			t.Error("envelope should contain the resolved runtime report path")
-		}
-	})
-
-	t.Run("with backlog item", func(t *testing.T) {
-		item := &backlog.Item{
-			Title: "Test Item",
-			Slug:  "test-item",
-			Path:  "/path/to/test-item.md",
-		}
-		result := buildDreamEnvelope("/tmp/project", "session2", item)
-		if !strings.Contains(result, "Backlog Item Resolution") {
-			t.Error("envelope should contain the item resolution section")
-		}
-		if !strings.Contains(result, "Test Item") {
-			t.Error("envelope should contain the item title")
-		}
-		if !strings.Contains(result, "test-item") {
-			t.Error("envelope should contain the item slug")
-		}
-	})
+	projectDir := "/tmp/project"
+	result := buildDreamEnvelope(projectDir, "session1")
+	if !strings.Contains(result, "session1") {
+		t.Error("envelope should contain the session id")
+	}
+	if !strings.Contains(result, "Dream Report") {
+		t.Error("envelope should contain Dream Report section")
+	}
+	if !strings.Contains(result, "Deep Sleep") {
+		t.Error("envelope should contain deep sleep section")
+	}
+	if strings.Contains(strings.ToLower(result), "backlog") {
+		t.Error("dream report envelope must not reference the task backlog")
+	}
+	if !strings.Contains(result, filepath.Join(ReportsDir(projectDir), "session1"+reportExt)) {
+		t.Error("envelope should contain the resolved runtime report path")
+	}
 }
 
 func TestBuildDreamArtifact(t *testing.T) {
@@ -1059,41 +996,6 @@ func TestExecuteDreamExecuteLocalError(t *testing.T) {
 	// Error should be about executing dream agent (either AI client creation or execution)
 	if !strings.Contains(err.Error(), "executing dream agent") && !strings.Contains(err.Error(), "creating") {
 		t.Errorf("unexpected error message: %v", err)
-	}
-}
-
-func TestExecuteDreamWithBacklogItem(t *testing.T) {
-	dir := t.TempDir()
-	// Add a pending item so backlog.Pick returns it
-	_, err := backlog.Add(dir, "Test Item", "body here")
-	if err != nil {
-		t.Fatalf("backlog.Add failed: %v", err)
-	}
-
-	r := NewRunner(dir, "ide", nil)
-	var logged []string
-	r.logFn = func(format string, args ...any) {
-		logged = append(logged, fmt.Sprintf(format, args...))
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately so AI CLI terminates fast
-
-	// This will fail at executeLocal but covers the backlog.Pick path
-	err = r.executeDream(ctx, "test-session")
-	if err == nil {
-		t.Error("expected error from executeLocal")
-	}
-
-	// Verify the item was picked
-	foundItemLog := false
-	for _, l := range logged {
-		if strings.Contains(l, "picked backlog item") && strings.Contains(l, "test-item") {
-			foundItemLog = true
-		}
-	}
-	if !foundItemLog {
-		t.Error("expected log about the picked backlog item")
 	}
 }
 
@@ -1530,8 +1432,8 @@ func TestExecuteDreamWriteArtifactError(t *testing.T) {
 	if err == nil {
 		t.Error("expected error")
 	}
-	// Covers the happy path up to the agent call: MkdirAll succeeds, backlog.Pick
-	// runs, executeLocal fails.
+	// Covers the happy path up to the agent call: MkdirAll succeeds and
+	// executeLocal fails.
 }
 
 // saveStateLocked — json.MarshalIndent error (line 385-387)

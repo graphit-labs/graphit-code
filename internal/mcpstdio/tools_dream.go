@@ -7,7 +7,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/graphit-labs/graphit-code/internal/backlog"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
@@ -37,7 +36,6 @@ type DreamStatusResult struct {
 	IdleTimeout    string    `json:"idle_timeout"`
 	MaxDuration    string    `json:"max_duration"`
 	TotalReports   int       `json:"total_reports"`
-	PendingBacklog []string  `json:"pending_backlog,omitempty"`
 }
 
 func registerDreamTools(server *mcp.Server) {
@@ -94,11 +92,6 @@ func registerDreamTools(server *mcp.Server) {
 				res.TotalReports = len(reports)
 			}
 
-			if pending, err := backlog.Pending(projectDir); err == nil {
-				for _, item := range pending {
-					res.PendingBacklog = append(res.PendingBacklog, item.Title)
-				}
-			}
 			return nil
 		})
 		if err != nil {
