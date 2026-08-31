@@ -399,7 +399,7 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		CacheDir:         ladybugCfg.StoreDir,
 		Cluster:          cluster,
 		ClusterPathMap:   clusterPathMap,
-		ForceRebuild:     reindex,
+		ForceRebuild:     reset || reindex,
 		ReverseEdges:     &revEdges,
 		GrammarOverrides: grammarOverrides,
 		OnProgress:       indexProgressReporter(p),
@@ -498,12 +498,21 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 	}
 	if finalResult.WriteTime > 0 {
 		phases := finalResult.WritePhases
-		p.Step("Write breakdown: graph-preload %.2fs (overlapped), graph-prepare %.2fs, graph-export %.2fs, graph-publish %.2fs, embeddings %.2fs, search-open %.2fs, search-build %.2fs, search-maintain %.2fs, search-close %.2fs",
+		searchPhase := "search-build"
+		if phases.SearchOverlapped {
+			searchPhase = "search-wait (build overlapped)"
+		}
+		p.Step("Write breakdown: graph-preload %.2fs (overlapped), graph-prepare %.2fs, graph-export %.2fs, graph-publish %.2fs, embeddings %.2fs, search-open %.2fs, %s %.2fs, search-maintain %.2fs, search-close %.2fs",
 			phases.GraphPreload.Seconds(), phases.GraphPrepare.Seconds(), phases.GraphExport.Seconds(), phases.GraphPublish.Seconds(),
-			phases.EmbeddingCache.Seconds(), phases.SearchOpen.Seconds(), phases.SearchBuild.Seconds(),
+			phases.EmbeddingCache.Seconds(), phases.SearchOpen.Seconds(), searchPhase, phases.SearchBuild.Seconds(),
 			phases.SearchMaintain.Seconds(), phases.SearchClose.Seconds())
 		if phases.SearchSetup > 0 || phases.SearchPrepare > 0 {
-			p.Step("Search breakdown: setup %.2fs, prepare %.2fs, files-write %.2fs, entities-write %.2fs, files-fts %.2fs, files-scalar %.2fs, entities-fts %.2fs, entities-scalar %.2fs, publish %.2fs",
+			overlapNote := ""
+			if phases.SearchOverlapped {
+				overlapNote = " (active work, overlapped)"
+			}
+			p.Step("Search breakdown%s: setup %.2fs, prepare %.2fs, files-write %.2fs, entities-write %.2fs, files-fts %.2fs, files-scalar %.2fs, entities-fts %.2fs, entities-scalar %.2fs, publish %.2fs",
+				overlapNote,
 				phases.SearchSetup.Seconds(), phases.SearchPrepare.Seconds(), phases.SearchFilesWrite.Seconds(),
 				phases.SearchEntitiesWrite.Seconds(), phases.SearchFilesFTS.Seconds(), phases.SearchFilesScalar.Seconds(),
 				phases.SearchEntitiesFTS.Seconds(), phases.SearchEntitiesScalar.Seconds(), phases.SearchPublish.Seconds())

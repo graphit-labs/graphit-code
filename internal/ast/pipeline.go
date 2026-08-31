@@ -113,6 +113,7 @@ type WritePhaseTiming struct {
 	EmbeddingCache       time.Duration
 	SearchOpen           time.Duration
 	SearchBuild          time.Duration
+	SearchOverlapped     bool
 	SearchSetup          time.Duration
 	SearchPrepare        time.Duration
 	SearchFilesWrite     time.Duration
@@ -512,6 +513,36 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}
 
 	dryRun := os.Getenv("AST_DRY_RUN") == "1"
+	var writePhases WritePhaseTiming
+	var stagedSearch *stagedSearchRebuild
+	var stagedSearchErr error
+	_, isLadybug := db.(*LadybugBackend)
+	if !dryRun && isLadybug && opts.ForceRebuild && jsonCache != nil && storeDir != "" {
+		tEmbCache := time.Now()
+		var embCache *ShardEmbCache
+		if opts.CacheDir != "" {
+			embCache, _ = NewShardEmbCache(opts.CacheDir, jsonCache)
+		}
+		writePhases.EmbeddingCache = time.Since(tEmbCache)
+		tSearchOpen := time.Now()
+		var err error
+		stagedSearch, err = startStagedSearchRebuild(ctx, storeDir, jsonCache, embCache)
+		writePhases.SearchOpen = time.Since(tSearchOpen)
+		if err != nil {
+			if embCache != nil {
+				_ = embCache.Close()
+			}
+			_ = jsonCache.Close()
+			return nil, err
+		}
+	}
+	if stagedSearch != nil {
+		defer func() {
+			if stagedSearch.stagingPath != "" {
+				stagedSearch.Abort()
+			}
+		}()
+	}
 	var graphPreparation *rebuildEntryPreparation
 	if !dryRun && jsonCache != nil {
 		reparsed := make(map[string]bool, len(changedFiles))
@@ -622,7 +653,6 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		errorFiles       []string
 		writeErrorFiles  []string
 		writeDuration    time.Duration
-		writePhases      WritePhaseTiming
 	)
 	engineStats := make(map[string]int)
 
@@ -685,6 +715,11 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 					writeErrorFiles = append(writeErrorFiles, fmt.Sprintf("%s: cache store: %v", relPath, storeErr))
 				} else {
 					graphPreparation.adopt(relPath, entry)
+					if stagedSearch != nil && stagedSearchErr == nil {
+						if stageErr := stagedSearch.Adopt(relPath, entry); stageErr != nil {
+							stagedSearchErr = fmt.Errorf("stage search row: %w", stageErr)
+						}
+					}
 					// Record current mtime so the next sync can skip SHA-256 for this file.
 					if info, statErr := os.Stat(r.pf.Path); statErr == nil {
 						jsonCache.StoreMtime(relPath, info.ModTime().UnixNano())
@@ -722,8 +757,18 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	}
 	preparedEntries, preloadDuration := graphPreparation.finish(jsonCache)
 	writePhases.GraphPreload = preloadDuration
+	if stagedSearch != nil && stagedSearchErr == nil {
+		if err := stagedSearch.Complete(preparedEntries); err != nil {
+			stagedSearchErr = fmt.Errorf("complete staged search rows: %w", err)
+		}
+	}
+	if stagedSearchErr != nil {
+		stagedSearch.Abort()
+		writeErrors++
+		writeErrorFiles = append(writeErrorFiles, stagedSearchErr.Error())
+	}
 
-	if !dryRun && jsonCache != nil && jsonCache.Count() > 0 {
+	if !dryRun && stagedSearchErr == nil && jsonCache != nil && jsonCache.Count() > 0 {
 		tw0 := time.Now()
 
 		// The write is a single call into the rebuild and reports nothing from
@@ -766,10 +811,13 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			reverseEdges = *opts.ReverseEdges
 		}
 		var (
-			err         error
-			graphTiming icebugRebuildTiming
+			err              error
+			graphTiming      icebugRebuildTiming
+			graphPublication *icebugPublication
 		)
-		if doIncremental {
+		if stagedSearch != nil {
+			graphTiming, graphPublication, err = rebuildIcebugFromPreparedWithDeltaStagedTimed(ctx, jsonCache, preparedEntries, nil, nil, opts.Cluster, abs, opts.Logger, false, bundleDir, reverseEdges)
+		} else if doIncremental {
 			graphTiming, err = rebuildIcebugFromPreparedWithDeltaTimed(ctx, jsonCache, preparedEntries, changedRels, deletedFiles, opts.Cluster, abs, opts.Logger, true, bundleDir, reverseEdges)
 		} else {
 			graphTiming, err = rebuildIcebugFromPreparedWithDeltaTimed(ctx, jsonCache, preparedEntries, nil, nil, opts.Cluster, abs, opts.Logger, false, bundleDir, reverseEdges)
@@ -787,15 +835,37 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			// The embedding cache is read here, never written: a rebuild drops the entity
 			// table, and without replaying the vectors it already holds every rebuild would
 			// re-run the model over the whole corpus.
-			var embCache *ShardEmbCache
-			if opts.CacheDir != "" {
-				tEmbCache := time.Now()
-				if ec, ecErr := NewShardEmbCache(opts.CacheDir, jsonCache); ecErr == nil {
-					embCache = ec
+			if stagedSearch != nil {
+				tSearchBuild := time.Now()
+				searchTiming, serr := stagedSearch.Publish(ctx)
+				writePhases.SearchBuild = time.Since(tSearchBuild)
+				writePhases.SearchOverlapped = true
+				writePhases.SearchSetup = searchTiming.Setup
+				writePhases.SearchPrepare = searchTiming.Prepare
+				writePhases.SearchFilesWrite = searchTiming.FilesWrite
+				writePhases.SearchEntitiesWrite = searchTiming.EntitiesWrite
+				writePhases.SearchFilesFTS = searchTiming.FilesFTS
+				writePhases.SearchFilesScalar = searchTiming.FilesScalar
+				writePhases.SearchEntitiesFTS = searchTiming.EntitiesFTS
+				writePhases.SearchEntitiesScalar = searchTiming.EntitiesScalar
+				writePhases.SearchPublish = searchTiming.Publish
+				if serr != nil {
+					err = fmt.Errorf("publish staged search index: %w", serr)
+					if rollbackErr := graphPublication.Rollback(); rollbackErr != nil {
+						err = fmt.Errorf("%w; rollback graph: %v", err, rollbackErr)
+					}
+				} else {
+					graphPublication.Commit()
 				}
-				writePhases.EmbeddingCache = time.Since(tEmbCache)
-			}
-			if lb, ok := db.(*LadybugBackend); ok {
+			} else if lb, ok := db.(*LadybugBackend); ok {
+				var embCache *ShardEmbCache
+				if opts.CacheDir != "" {
+					tEmbCache := time.Now()
+					if ec, ecErr := NewShardEmbCache(opts.CacheDir, jsonCache); ecErr == nil {
+						embCache = ec
+					}
+					writePhases.EmbeddingCache = time.Since(tEmbCache)
+				}
 				tSearchOpen := time.Now()
 				idx, oerr := OpenSearchIndex(ctx, lb.cfg.StoreDir)
 				writePhases.SearchOpen = time.Since(tSearchOpen)
@@ -842,6 +912,11 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 					_ = idx.Close()
 					writePhases.SearchClose = time.Since(tSearchClose)
 				}
+			}
+		}
+		if err != nil && graphPublication != nil && graphPublication.active {
+			if rollbackErr := graphPublication.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("%w; rollback graph: %v", err, rollbackErr)
 			}
 		}
 		if err != nil {

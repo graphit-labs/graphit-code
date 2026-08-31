@@ -53,8 +53,9 @@ const LanceIndexDirName = "search.lance"
 
 // The two tables and the columns that carry the search.
 const (
-	lanceFilesTable    = "files"
-	lanceEntitiesTable = "entities"
+	lanceFilesTable     = "files"
+	lanceEntitiesTable  = "entities"
+	lanceFileTextColumn = "source"
 
 	// lanceBodyColumn is the single text column the full-text index is built on.
 	//
@@ -105,6 +106,22 @@ type SearchRebuildTiming struct {
 	EntitiesFTS    time.Duration
 	EntitiesScalar time.Duration
 	Publish        time.Duration
+}
+
+type searchRebuildWriter struct {
+	ctx       context.Context
+	index     *SearchIndex
+	files     *lancestore.Table
+	entities  *lancestore.Table
+	embLookup func(relPath, uid string) []float32
+	timing    SearchRebuildTiming
+
+	fileRows []lancestore.Row
+	entRows  []lancestore.Row
+
+	fileCount int
+	entCount  int
+	vecCount  int
 }
 
 // LastRebuildTiming returns the most recent full rebuild's phase timings.
@@ -271,7 +288,6 @@ func lanceFilesSchema() lancestore.Schema {
 		{Name: "path", Type: lancestore.FieldString},
 		{Name: "name", Type: lancestore.FieldString},
 		{Name: "source", Type: lancestore.FieldString, Nullable: true},
-		{Name: lanceBodyColumn, Type: lancestore.FieldString},
 	}}
 }
 
@@ -316,7 +332,7 @@ func lanceVectorIndex() lancestore.Index {
 
 func lanceFileIndexes() []lancestore.Index {
 	return []lancestore.Index{
-		{Column: lanceBodyColumn, Kind: lancestore.IndexInvertedText},
+		{Column: lanceFileTextColumn, Kind: lancestore.IndexInvertedText},
 		{Column: "path", Kind: lancestore.IndexScalarBTree},
 	}
 }
@@ -359,15 +375,28 @@ func entityBody(e cachedEntity) string {
 }
 
 // fileBody is the same idea for a file: its name carries the signal, its text is corroboration.
-func fileBody(relPath, source string) string {
+func fileSearchMetadata(relPath string) string {
 	base := filepath.Base(relPath)
 	split := splitCodeIdentifier(base)
 	parts := []string{base}
 	if split != base {
 		parts = append(parts, split)
 	}
-	parts = append(parts, gramsFor(base, split), relPath, source)
+	parts = append(parts, gramsFor(base, split), relPath)
 	return strings.Join(nonEmpty(parts), " ")
+}
+
+const fileSourceBoundary = "\x00"
+
+func fileSearchDocument(relPath, source string) string {
+	return source + fileSourceBoundary + fileSearchMetadata(relPath)
+}
+
+func sourceFromFileSearchDocument(document string) string {
+	if boundary := strings.LastIndex(document, fileSourceBoundary); boundary >= 0 {
+		return document[:boundary]
+	}
+	return ""
 }
 
 // gramsFor is the 2+3-gram bag of an identifier and of each of its split words.
@@ -476,10 +505,9 @@ func buildEntityRow(e cachedEntity, emb []float32) lancestore.Row {
 // buildFileRow is the same, for a file.
 func buildFileRow(relPath, source string) lancestore.Row {
 	return lancestore.Row{
-		"path":          relPath,
-		"name":          filepath.Base(relPath),
-		"source":        source,
-		lanceBodyColumn: fileBody(relPath, source),
+		"path":   relPath,
+		"name":   filepath.Base(relPath),
+		"source": fileSearchDocument(relPath, source),
 	}
 }
 
@@ -522,9 +550,6 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 		return lancestore.ErrReadOnly
 	}
 	t0 := time.Now()
-	s.rebuildTiming = SearchRebuildTiming{}
-	timing := &s.rebuildTiming
-	tSetup := time.Now()
 	generation := ""
 	if s.storeDir != "" {
 		var err error
@@ -534,100 +559,142 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 		}
 	}
 
+	writer, err := s.beginSearchRebuild(ctx, embLookup)
+	if err != nil {
+		return err
+	}
+	tPrepare := time.Now()
+	var walkErr error
+	cache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
+		walkErr = writer.Add(relPath, cache.SourceOf(relPath), entry)
+		return walkErr == nil
+	})
+	writer.timing.Prepare = time.Since(tPrepare) - writer.timing.FilesWrite - writer.timing.EntitiesWrite
+	if writer.timing.Prepare < 0 {
+		writer.timing.Prepare = 0
+	}
+	if walkErr != nil {
+		return walkErr
+	}
+	if err := writer.Finish(); err != nil {
+		return err
+	}
+	s.rebuildTiming = writer.timing
+
+	s.log().Info("search index rebuild",
+		"files", writer.fileCount, "entities", writer.entCount, "vectors", writer.vecCount,
+		"duration_ms", time.Since(t0).Seconds()*1000)
+
+	if s.storeDir != "" {
+		tPublish := time.Now()
+		if err := publishPendingVectorCounts(s.storeDir, generation, int64(writer.vecCount), int64(writer.entCount)); err != nil {
+			return fmt.Errorf("writing embeds status: %w", err)
+		}
+		s.rebuildTiming.Publish = time.Since(tPublish)
+	}
+	s.vectorCount = int64(writer.vecCount)
+	return nil
+}
+
+func (s *SearchIndex) beginSearchRebuild(ctx context.Context,
+	embLookup func(relPath, uid string) []float32) (*searchRebuildWriter, error) {
+	tSetup := time.Now()
 	for _, name := range []string{lanceFilesTable, lanceEntitiesTable} {
 		if err := s.store.DropTable(ctx, name); err != nil {
-			return fmt.Errorf("clearing %s: %w", name, err)
+			return nil, fmt.Errorf("clearing %s: %w", name, err)
 		}
 	}
 	files, err := s.store.CreateTable(ctx, lanceFilesTable, lanceFilesSchema())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	entities, err := s.store.CreateTable(ctx, lanceEntitiesTable, lanceEntitiesSchema(ai.ResolveConfiguredEmbeddingDimensions()))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	s.files, s.entities = files, entities
-	timing.Setup = time.Since(tSetup)
+	return &searchRebuildWriter{
+		ctx: ctx, index: s, files: files, entities: entities, embLookup: embLookup,
+		timing: SearchRebuildTiming{Setup: time.Since(tSetup)},
+	}, nil
+}
 
-	var (
-		fileRows, entRows             []lancestore.Row
-		fileCount, entCount, vecCount int
-		walkErr                       error
-	)
-	flushFiles := func() bool {
-		if len(fileRows) == 0 {
-			return true
-		}
-		tWrite := time.Now()
-		err := files.Append(ctx, fileRows)
-		timing.FilesWrite += time.Since(tWrite)
-		if err != nil {
-			walkErr = fmt.Errorf("writing files: %w", err)
-			return false
-		}
-		fileRows = fileRows[:0]
-		return true
+func (w *searchRebuildWriter) Add(relPath, source string, entry *parseCacheEntry) error {
+	if entry == nil {
+		return nil
 	}
-	flushEntities := func() bool {
-		if len(entRows) == 0 {
-			return true
-		}
-		tWrite := time.Now()
-		err := entities.Append(ctx, entRows)
-		timing.EntitiesWrite += time.Since(tWrite)
-		if err != nil {
-			walkErr = fmt.Errorf("writing entities: %w", err)
-			return false
-		}
-		entRows = entRows[:0]
-		return true
-	}
-
 	tPrepare := time.Now()
-	cache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
-		fileRows = append(fileRows, buildFileRow(relPath, cache.SourceOf(relPath)))
-		fileCount++
-		if len(fileRows) >= lanceWriteBatch && !flushFiles() {
-			return false
+	w.fileRows = append(w.fileRows, buildFileRow(relPath, source))
+	w.fileCount++
+	for _, e := range entry.Entities {
+		var emb []float32
+		if w.embLookup != nil {
+			emb = w.embLookup(relPath, e.UID)
 		}
-
-		for _, e := range entry.Entities {
-			var emb []float32
-			if embLookup != nil {
-				emb = embLookup(relPath, e.UID)
-			}
-			row := buildEntityRow(e, emb)
-			if row[lanceVectorColumn] != nil {
-				vecCount++
-			}
-			entRows = append(entRows, row)
-			entCount++
-			if len(entRows) >= lanceWriteBatch && !flushEntities() {
-				return false
-			}
+		row := buildEntityRow(e, emb)
+		if row[lanceVectorColumn] != nil {
+			w.vecCount++
 		}
-		return true
-	})
-	if walkErr != nil {
-		return walkErr
+		w.entRows = append(w.entRows, row)
+		w.entCount++
 	}
-	if !flushFiles() || !flushEntities() {
-		return walkErr
+	w.timing.Prepare += time.Since(tPrepare)
+	if len(w.fileRows) >= lanceWriteBatch {
+		if err := w.flushFiles(); err != nil {
+			return err
+		}
 	}
-	timing.Prepare = time.Since(tPrepare) - timing.FilesWrite - timing.EntitiesWrite
-	if timing.Prepare < 0 {
-		timing.Prepare = 0
+	if len(w.entRows) >= lanceWriteBatch {
+		if err := w.flushEntities(); err != nil {
+			return err
+		}
 	}
+	return nil
+}
 
+func (w *searchRebuildWriter) flushFiles() error {
+	if len(w.fileRows) == 0 {
+		return nil
+	}
+	tWrite := time.Now()
+	err := w.files.Append(w.ctx, w.fileRows)
+	w.timing.FilesWrite += time.Since(tWrite)
+	if err != nil {
+		return fmt.Errorf("writing files: %w", err)
+	}
+	w.fileRows = w.fileRows[:0]
+	return nil
+}
+
+func (w *searchRebuildWriter) flushEntities() error {
+	if len(w.entRows) == 0 {
+		return nil
+	}
+	tWrite := time.Now()
+	err := w.entities.Append(w.ctx, w.entRows)
+	w.timing.EntitiesWrite += time.Since(tWrite)
+	if err != nil {
+		return fmt.Errorf("writing entities: %w", err)
+	}
+	w.entRows = w.entRows[:0]
+	return nil
+}
+
+func (w *searchRebuildWriter) Finish() error {
+	if err := w.flushFiles(); err != nil {
+		return err
+	}
+	if err := w.flushEntities(); err != nil {
+		return err
+	}
 	for _, idx := range lanceFileIndexes() {
 		tIndex := time.Now()
-		err := files.EnsureIndexes(ctx, idx)
+		err := w.files.EnsureIndexes(w.ctx, idx)
 		d := time.Since(tIndex)
 		if idx.Kind == lancestore.IndexInvertedText {
-			timing.FilesFTS += d
+			w.timing.FilesFTS += d
 		} else {
-			timing.FilesScalar += d
+			w.timing.FilesScalar += d
 		}
 		if err != nil {
 			return err
@@ -635,30 +702,19 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 	}
 	for _, idx := range lanceEntityIndexes() {
 		tIndex := time.Now()
-		err := entities.EnsureIndexes(ctx, idx)
+		err := w.entities.EnsureIndexes(w.ctx, idx)
 		d := time.Since(tIndex)
 		if idx.Kind == lancestore.IndexInvertedText {
-			timing.EntitiesFTS += d
+			w.timing.EntitiesFTS += d
 		} else {
-			timing.EntitiesScalar += d
+			w.timing.EntitiesScalar += d
 		}
 		if err != nil {
 			return err
 		}
 	}
-
-	s.log().Info("search index rebuild",
-		"files", fileCount, "entities", entCount, "vectors", vecCount,
-		"duration_ms", time.Since(t0).Seconds()*1000)
-
-	if s.storeDir != "" {
-		tPublish := time.Now()
-		if err := publishPendingVectorCounts(s.storeDir, generation, int64(vecCount), int64(entCount)); err != nil {
-			return fmt.Errorf("writing embeds status: %w", err)
-		}
-		timing.Publish = time.Since(tPublish)
-	}
-	s.vectorCount = int64(vecCount)
+	w.index.rebuildTiming = w.timing
+	w.index.vectorCount = int64(w.vecCount)
 	return nil
 }
 
@@ -931,7 +987,7 @@ func (s *SearchIndex) search(ctx context.Context, q lancestore.Query, topK int) 
 
 	if len(out) < topK || topK <= 0 {
 		fq := lancestore.Query{
-			Text: q.Text, TextColumn: lanceBodyColumn, Limit: topK,
+			Text: q.Text, TextColumn: lanceFileTextColumn, Limit: topK,
 			Filter: q.Filter, Rerank: q.Rerank,
 		}
 		if fq.Text != "" {
@@ -979,9 +1035,9 @@ func fileHitsToResults(hits []lancestore.Hit) []SearchResult {
 	for _, h := range hits {
 		path, _ := h.Row["path"].(string)
 		name, _ := h.Row["name"].(string)
-		src, _ := h.Row["source"].(string)
+		document, _ := h.Row["source"].(string)
 		out = append(out, SearchResult{
-			Type: LabelFile, Name: name, Path: path, Source: src,
+			Type: LabelFile, Name: name, Path: path, Source: sourceFromFileSearchDocument(document),
 			SearchType: "fts", RelevanceScore: h.Score,
 		})
 	}
@@ -1083,7 +1139,8 @@ func (s *SearchIndex) FileSource(ctx context.Context, relPath string) (string, b
 	if err != nil || len(hits) == 0 {
 		return "", false
 	}
-	src, _ := hits[0].Row["source"].(string)
+	document, _ := hits[0].Row["source"].(string)
+	src := sourceFromFileSearchDocument(document)
 	return src, src != ""
 }
 
@@ -1166,8 +1223,8 @@ func (s *SearchIndex) EachFileSource(ctx context.Context, fn func(relPath, sourc
 		byPath := make(map[string]string, len(hits))
 		for _, h := range hits {
 			p, _ := h.Row["path"].(string)
-			src, _ := h.Row["source"].(string)
-			byPath[p] = src
+			document, _ := h.Row["source"].(string)
+			byPath[p] = sourceFromFileSearchDocument(document)
 		}
 		// Emitted in path order, not in whatever order the engine returned the page.
 		for _, p := range page {

@@ -5,6 +5,8 @@ package ast
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -146,6 +148,72 @@ func TestLanceRebuildIndexesFilesAndEntities(t *testing.T) {
 	}
 	if got := searchNames(t, idx, "swaps it in", 5); !hasName(got, "SyncRegistry") {
 		t.Errorf("searching the docstring did not find its entity: %v", got)
+	}
+}
+
+func TestLanceFileSourceIsStoredOnceAndRemainsSearchable(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	relPath := "internal/memory/scope.go"
+	source := "package memory\n\nfunc OpenScope() {}\n"
+	absPath := filepath.Join(root, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+		t.Fatalf("mkdir source: %v", err)
+	}
+	if err := os.WriteFile(absPath, []byte(source), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	cache, err := NewShardCache(t.TempDir())
+	if err != nil {
+		t.Fatalf("shard cache: %v", err)
+	}
+	cache.SetRoot(root)
+	entry := entryWith(relPath, source)
+	if err := cache.Store(relPath, fileContentHash(absPath), entry); err != nil {
+		t.Fatalf("store shard: %v", err)
+	}
+
+	idx := newLanceIndexForTest(t)
+	if err := idx.RebuildFromCache(ctx, cache, nil); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	for _, field := range idx.files.Schema().Fields {
+		if field.Name == lanceBodyColumn {
+			t.Fatal("the rebuilt files table still contains the duplicated body column")
+		}
+	}
+	if got, ok := idx.FileSource(ctx, relPath); !ok || got != source {
+		t.Fatalf("source round trip: ok=%v got=%q want=%q", ok, got, source)
+	}
+	if got := sourceFromFileSearchDocument("old raw source without envelope"); got != "" {
+		t.Fatalf("legacy source row decoded without a rebuild: %q", got)
+	}
+	directHits, err := idx.files.Search(ctx, lancestore.Query{
+		Text: LanceQueryText("OpenScope"), TextColumn: lanceFileTextColumn, Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("direct file search: %v", err)
+	}
+	if len(directHits) == 0 {
+		t.Fatal("direct file search returned no hits")
+	}
+	for _, query := range []string{"OpenScope", "scope.go", "internal memory"} {
+		results, err := idx.Search(ctx, query, 10)
+		if err != nil {
+			t.Fatalf("search %q: %v", query, err)
+		}
+		found := false
+		for _, result := range results {
+			if result.Type == LabelFile && result.Name == "scope.go" && result.Source == source {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("search %q did not return the file: %v", query, results)
+		}
 	}
 }
 

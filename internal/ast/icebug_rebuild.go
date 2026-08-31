@@ -47,10 +47,59 @@ func rebuildIcebugFromCacheWithDeltaTimed(ctx context.Context, cache *ShardCache
 }
 
 func rebuildIcebugFromPreparedWithDeltaTimed(ctx context.Context, cache *ShardCache, prepared map[string]*parseCacheEntry, changed, deleted []string, cluster, rootPath string, logger *slog.Logger, isIncremental bool, finalDir string, reverseEdges bool) (icebugRebuildTiming, error) {
+	timing, publication, err := rebuildIcebugFromPreparedWithDeltaStagedTimed(ctx, cache, prepared, changed, deleted, cluster, rootPath, logger, isIncremental, finalDir, reverseEdges)
+	if err == nil && publication != nil {
+		publication.Commit()
+	}
+	return timing, err
+}
+
+// icebugPublication keeps the previous bundle alive while another part of the
+// same corpus (the search sidecar) is being published. All graph files are
+// closed before this value is returned, so its directory moves are portable to
+// Windows as well as Linux and macOS.
+type icebugPublication struct {
+	finalDir  string
+	backupDir string
+	active    bool
+}
+
+func (p *icebugPublication) Commit() {
+	if p == nil || !p.active {
+		return
+	}
+	if p.backupDir != "" {
+		_ = os.RemoveAll(p.backupDir)
+	}
+	p.active = false
+}
+
+func (p *icebugPublication) Rollback() error {
+	if p == nil || !p.active {
+		return nil
+	}
+	p.active = false
+	if p.backupDir == "" {
+		return os.RemoveAll(p.finalDir)
+	}
+
+	discardDir := p.finalDir + ".discard." + shortHex()
+	if err := os.Rename(p.finalDir, discardDir); err != nil {
+		return fmt.Errorf("move failed graph publication aside: %w", err)
+	}
+	if err := os.Rename(p.backupDir, p.finalDir); err != nil {
+		_ = os.Rename(discardDir, p.finalDir)
+		return fmt.Errorf("restore previous graph publication: %w", err)
+	}
+	_ = os.RemoveAll(discardDir)
+	return nil
+}
+
+func rebuildIcebugFromPreparedWithDeltaStagedTimed(ctx context.Context, cache *ShardCache, prepared map[string]*parseCacheEntry, changed, deleted []string, cluster, rootPath string, logger *slog.Logger, isIncremental bool, finalDir string, reverseEdges bool) (icebugRebuildTiming, *icebugPublication, error) {
 	var timing icebugRebuildTiming
 	log := slogutil.Resolve(logger)
 	if cache == nil || cache.Count() == 0 {
-		return timing, nil
+		return timing, nil, nil
 	}
 
 	t0 := time.Now()
@@ -68,7 +117,7 @@ func rebuildIcebugFromPreparedWithDeltaTimed(ctx context.Context, cache *ShardCa
 	_ = os.RemoveAll(tmpDir)
 	removeStaleBundleTemps(finalDir)
 	if err := os.MkdirAll(filepath.Dir(finalDir), 0o755); err != nil {
-		return timing, fmt.Errorf("icebug rebuild: mkdir final parent: %w", err)
+		return timing, nil, fmt.Errorf("icebug rebuild: mkdir final parent: %w", err)
 	}
 	storageURI := finalDir
 	if abs, err := filepath.Abs(finalDir); err == nil {
@@ -93,17 +142,30 @@ func rebuildIcebugFromPreparedWithDeltaTimed(ctx context.Context, cache *ShardCa
 	timing.Export = time.Since(t0)
 	if err != nil {
 		_ = os.RemoveAll(tmpDir)
-		return timing, fmt.Errorf("icebug rebuild direct: %w", err)
+		return timing, nil, fmt.Errorf("icebug rebuild direct: %w", err)
 	}
 	t0 = time.Now()
-	_ = os.RemoveAll(finalDir)
+	publication := &icebugPublication{finalDir: finalDir, active: true}
+	if _, statErr := os.Stat(finalDir); statErr == nil {
+		publication.backupDir = finalDir + ".backup." + shortHex()
+		if err := os.Rename(finalDir, publication.backupDir); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return timing, nil, fmt.Errorf("icebug rebuild: back up active bundle: %w", err)
+		}
+	} else if !os.IsNotExist(statErr) {
+		_ = os.RemoveAll(tmpDir)
+		return timing, nil, fmt.Errorf("icebug rebuild: inspect active bundle: %w", statErr)
+	}
 	if err := os.Rename(tmpDir, finalDir); err != nil {
 		_ = os.RemoveAll(tmpDir)
-		return timing, fmt.Errorf("icebug rebuild: rename bundle: %w", err)
+		if publication.backupDir != "" {
+			_ = os.Rename(publication.backupDir, finalDir)
+		}
+		return timing, nil, fmt.Errorf("icebug rebuild: rename bundle: %w", err)
 	}
 	timing.Publish = time.Since(t0)
 	log.Info("icebug bundle rebuilt direct", "dir", finalDir, "nodes", len(man.NodeTables), "edges", man.EdgeCount, "incremental", doIncremental)
-	return timing, nil
+	return timing, publication, nil
 }
 
 // staleBundleTempAge is how long a working directory must have been untouched before this
