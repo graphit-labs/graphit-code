@@ -112,11 +112,34 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 	relReverse := map[string][]*ladybug.CanonicalMember{}
 	usedMembers := map[string]string{}
 
-	exportRel := func(relType, from, to, fromCol, toCol string, stream func(emit func(map[string]any))) error {
-		fromIDs, ok1 := labelIDs[from]
-		toIDs, ok2 := labelIDs[to]
+	type relJob struct {
+		idx                               int
+		relType, from, to, fromCol, toCol string
+		stream                            func(emit func(map[string]any))
+	}
+	type relResult struct {
+		idx               int
+		relType, from, to string
+		fwdName           string
+		fwd, rev          *ladybug.CanonicalMember
+		err               error
+	}
+
+	// computeRelJob does everything the old sequential exportRel did EXCEPT touch
+	// relMembers, relReverse, usedMembers or man.EdgeCount — those are shared across
+	// every job and are mutated exactly once, sequentially, in the merge loop below.
+	// Everything in this function only READS ri: every emitUID call happened in the
+	// node-table loop above, which has already run to completion, so ri.emittedTable /
+	// ri.entityUIDs / ri.decls are finished and safe to read from many goroutines at
+	// once. Each job also writes files under names unique to itself
+	// (canonicalMemberNameDirect is a function of relType+from+to), so nothing here
+	// collides with another job's output either.
+	computeRelJob := func(job relJob) relResult {
+		res := relResult{idx: job.idx, relType: job.relType, from: job.from, to: job.to}
+		fromIDs, ok1 := labelIDs[job.from]
+		toIDs, ok2 := labelIDs[job.to]
 		if !ok1 || !ok2 {
-			return nil
+			return res
 		}
 		// The property columns are accumulated ALONGSIDE the edge they belong to, and
 		// only for the rows whose endpoints resolved. A second pass over the rows would
@@ -124,87 +147,91 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 		// on would land on the wrong edge. The rows themselves are never retained.
 		var edges []csrEdgeDirect
 		propTable := newNodeColumns()
-		stream(func(r map[string]any) {
-			s, okS := fromIDs[fmt.Sprint(r[fromCol])]
-			t, okT := toIDs[fmt.Sprint(r[toCol])]
+		job.stream(func(r map[string]any) {
+			s, okS := fromIDs[fmt.Sprint(r[job.fromCol])]
+			t, okT := toIDs[fmt.Sprint(r[job.toCol])]
 			if !okS || !okT {
 				return
 			}
 			edges = append(edges, csrEdgeDirect{source: s, target: t})
-			propTable.appendRowExcept(r, fromCol, toCol)
+			propTable.appendRowExcept(r, job.fromCol, job.toCol)
 		})
 		if len(edges) == 0 {
-			return nil
+			return res
 		}
 		props, propColumns := propTable.sortedFields()
 
-		fwdName := canonicalMemberNameDirect(relType, from, to)
-		if prev, seen := usedMembers[fwdName]; seen && prev != from+"->"+to {
-			return fmt.Errorf("canonical members collide on %q", fwdName)
-		}
-		usedMembers[fwdName] = from + "->" + to
-
+		res.fwdName = canonicalMemberNameDirect(job.relType, job.from, job.to)
 		fwdCSR := csrMemberDirect{edges: edges, props: propColumns}
 		fwdCSR.order = csrOrderDirect(edges)
-		indicesFile := "indices_" + fwdName + ".parquet"
-		indptrFile := "indptr_" + fwdName + ".parquet"
+		indicesFile := "indices_" + res.fwdName + ".parquet"
+		indptrFile := "indptr_" + res.fwdName + ".parquet"
 		propArrowFields := make([]arrow.Field, len(props))
 		for i, p := range props {
 			propArrowFields[i] = arrow.Field{Name: p.Name, Type: arrowTypeForCypherDirect(p.Type), Nullable: true}
 		}
 		if err := writeIndicesDirect(filepath.Join(outDir, indicesFile), fwdCSR, propArrowFields); err != nil {
-			return err
+			res.err = err
+			return res
 		}
 		if err := writeIndptrDirect(filepath.Join(outDir, indptrFile), fwdCSR.edges, uint64(len(fromIDs))); err != nil {
-			return err
+			res.err = err
+			return res
 		}
-		fwd := &ladybug.CanonicalMember{
-			From: from, To: to, Table: fwdName,
+		res.fwd = &ladybug.CanonicalMember{
+			From: job.from, To: job.to, Table: res.fwdName,
 			Indices: indicesFile, Indptr: indptrFile,
 			Rows: int64(len(fwdCSR.edges)),
 		}
-		relMembers[relType] = append(relMembers[relType], fwd)
-		man.EdgeCount += fwd.Rows
 
 		if !reverse {
-			return nil
+			return res
 		}
 		// A self-loop matters only when the two endpoint TABLES are the same:
 		// File:0 -> Function:0 are different rows in different tables. The id
 		// space is per table and the reader resolves the member's endpoints.
-		revCSR := reverseMemberDirect(fwdCSR, from == to)
+		revCSR := reverseMemberDirect(fwdCSR, job.from == job.to)
 		if len(revCSR.edges) == 0 {
-			return nil
+			return res
 		}
-		revName := fwdName + "_reverse"
+		revName := res.fwdName + "_reverse"
 		revIndices := "indices_" + revName + ".parquet"
 		revIndptr := "indptr_" + revName + ".parquet"
 		if err := writeIndicesDirect(filepath.Join(outDir, revIndices), revCSR, propArrowFields); err != nil {
-			return err
+			res.err = err
+			return res
 		}
 		if err := writeIndptrDirect(filepath.Join(outDir, revIndptr), revCSR.edges, uint64(len(toIDs))); err != nil {
-			return err
+			res.err = err
+			return res
 		}
-		rev := &ladybug.CanonicalMember{
-			From: to, To: from, Table: revName,
+		res.rev = &ladybug.CanonicalMember{
+			From: job.to, To: job.from, Table: revName,
 			Indices: revIndices, Indptr: revIndptr,
 			Rows: int64(len(revCSR.edges)),
 		}
-		relReverse[relType] = append(relReverse[relType], rev)
-		return nil
+		return res
+	}
+
+	// Every job below only reads ri and writes files unique to itself, so the SET of
+	// them runs in parallel below — what must stay sequential is the ORDER results are
+	// merged in: usedMembers' collision check and every Members slice's insertion
+	// order are meaningful (see the sort comment near man.RelGroups further down), so
+	// `jobs` is built in EXACTLY the order the old sequential code called exportRel,
+	// and the merge loop after parallelForEach replays that same order regardless of
+	// which goroutine happens to finish first.
+	var jobs []relJob
+	addJob := func(relType, from, to, fromCol, toCol string, stream func(emit func(map[string]any))) {
+		jobs = append(jobs, relJob{idx: len(jobs), relType: relType, from: from, to: to, fromCol: fromCol, toCol: toCol, stream: stream})
 	}
 
 	if ri.hasParams {
 		for _, owner := range ri.paramOwnerLabels {
-			if err := exportRel("HAS_PARAMETER", owner, "Parameter", "func_uid", "uid", func(emit func(map[string]any)) { ri.streamParamEdges(owner, emit) }); err != nil {
-				return nil, err
-			}
+			addJob("HAS_PARAMETER", owner, "Parameter", "func_uid", "uid", func(emit func(map[string]any)) { ri.streamParamEdges(owner, emit) })
 		}
 	}
 	for _, pt := range ri.labels {
-		if err := exportRel("HAS_FIELD", pt, "Field", "parent_uid", "uid", func(emit func(map[string]any)) { ri.streamFieldEdges(pt, emit) }); err != nil {
-			return nil, err
-		}
+		addJob("HAS_FIELD", pt, "Field", "parent_uid", "uid", func(emit func(map[string]any)) { ri.streamFieldEdges(pt, emit) })
 	}
 	for _, kind := range ri.annotationKinds {
 		edgeName := "HAS_" + strings.ToUpper(kind)
@@ -212,24 +239,18 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 			if !ri.labelSet[ol] {
 				continue
 			}
-			if err := exportRel(edgeName, ol, kind, "entity_uid", "annotation_uid", func(emit func(map[string]any)) { ri.streamAnnotationEdges(kind, ol, emit) }); err != nil {
-				return nil, err
-			}
+			addJob(edgeName, ol, kind, "entity_uid", "annotation_uid", func(emit func(map[string]any)) { ri.streamAnnotationEdges(kind, ol, emit) })
 		}
 	}
 	if ri.hasImports {
-		if err := exportRel("IMPORTS", "File", "Module", "file_uid", "module_uid", ri.streamImportEdges); err != nil {
-			return nil, err
-		}
+		addJob("IMPORTS", "File", "Module", "file_uid", "module_uid", ri.streamImportEdges)
 	}
 	for _, cl := range ri.callerLabels {
 		if !ri.canWriteCallerLabel(cl) {
 			continue
 		}
 		for _, tl := range ri.calleeLabels {
-			if err := exportRel("CALLS", cl, tl, "caller_uid", "callee_uid", func(emit func(map[string]any)) { ri.streamCallEdges(cl, tl, emit) }); err != nil {
-				return nil, err
-			}
+			addJob("CALLS", cl, tl, "caller_uid", "callee_uid", func(emit func(map[string]any)) { ri.streamCallEdges(cl, tl, emit) })
 		}
 	}
 	for _, from := range ri.inheritLabels {
@@ -240,22 +261,14 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 			if !ri.labelSet[to] {
 				continue
 			}
-			if err := exportRel("INHERITS", from, to, "child_uid", "parent_uid", func(emit func(map[string]any)) { ri.streamInheritEdges("INHERITS", from, to, emit) }); err != nil {
-				return nil, err
-			}
-			if err := exportRel("IMPLEMENTS", from, to, "child_uid", "parent_uid", func(emit func(map[string]any)) { ri.streamInheritEdges("IMPLEMENTS", from, to, emit) }); err != nil {
-				return nil, err
-			}
+			addJob("INHERITS", from, to, "child_uid", "parent_uid", func(emit func(map[string]any)) { ri.streamInheritEdges("INHERITS", from, to, emit) })
+			addJob("IMPLEMENTS", from, to, "child_uid", "parent_uid", func(emit func(map[string]any)) { ri.streamInheritEdges("IMPLEMENTS", from, to, emit) })
 		}
 	}
 	if ri.labelSet[LabelField] {
 		for _, src := range ri.fieldAccessSourceLabels {
-			if err := exportRel("READS_FIELD", src, "Field", "source_uid", "field_uid", func(emit func(map[string]any)) { ri.streamFieldAccessEdges(false, src, emit) }); err != nil {
-				return nil, err
-			}
-			if err := exportRel("WRITES_FIELD", src, "Field", "source_uid", "field_uid", func(emit func(map[string]any)) { ri.streamFieldAccessEdges(true, src, emit) }); err != nil {
-				return nil, err
-			}
+			addJob("READS_FIELD", src, "Field", "source_uid", "field_uid", func(emit func(map[string]any)) { ri.streamFieldAccessEdges(false, src, emit) })
+			addJob("WRITES_FIELD", src, "Field", "source_uid", "field_uid", func(emit func(map[string]any)) { ri.streamFieldAccessEdges(true, src, emit) })
 		}
 	}
 	// DML types are whatever the references carry — never a fixed list.
@@ -268,31 +281,42 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 				continue
 			}
 			for _, tgt := range ri.dmlTargetLabels {
-				if err := exportRel(rt, src, tgt, "source_uid", "target_uid", func(emit func(map[string]any)) { ri.streamDMLEdges(rt, src, tgt, emit) }); err != nil {
-					return nil, err
-				}
+				addJob(rt, src, tgt, "source_uid", "target_uid", func(emit func(map[string]any)) { ri.streamDMLEdges(rt, src, tgt, emit) })
 			}
 		}
 		for _, tgt := range ri.dmlTargetLabels {
-			if err := exportRel(rt, LabelFile, tgt, "source_uid", "target_uid", func(emit func(map[string]any)) { ri.streamDMLEdges(rt, LabelFile, tgt, emit) }); err != nil {
-				return nil, err
-			}
+			addJob(rt, LabelFile, tgt, "source_uid", "target_uid", func(emit func(map[string]any)) { ri.streamDMLEdges(rt, LabelFile, tgt, emit) })
 		}
 	}
 	for _, label := range ri.labels {
-		if err := exportRel("CONTAINS", "File", label, "path", "uid", func(emit func(map[string]any)) { ri.streamContainsFileEntity(label, emit) }); err != nil {
-			return nil, err
+		addJob("CONTAINS", "File", label, "path", "uid", func(emit func(map[string]any)) { ri.streamContainsFileEntity(label, emit) })
+	}
+	addJob("CONTAINS", "Directory", "Directory", "parent_dir", "child_dir", ri.streamContainsDirDir)
+	addJob("CONTAINS", "Directory", "File", "parent_dir", "file_path", ri.streamContainsDirFile)
+	for _, eg := range ri.containsPairs {
+		addJob("CONTAINS", eg[0], eg[1], "parent_uid", "child_uid", func(emit func(map[string]any)) { ri.streamContainsEntity(eg[0], eg[1], emit) })
+	}
+
+	results := make([]relResult, len(jobs))
+	parallelForEach(jobs, SafeWorkers(0), computeRelJob, func(res relResult) { results[res.idx] = res })
+
+	for _, res := range results {
+		if res.err != nil {
+			return nil, res.err
 		}
 	}
-	if err := exportRel("CONTAINS", "Directory", "Directory", "parent_dir", "child_dir", ri.streamContainsDirDir); err != nil {
-		return nil, err
-	}
-	if err := exportRel("CONTAINS", "Directory", "File", "parent_dir", "file_path", ri.streamContainsDirFile); err != nil {
-		return nil, err
-	}
-	for _, eg := range ri.containsPairs {
-		if err := exportRel("CONTAINS", eg[0], eg[1], "parent_uid", "child_uid", func(emit func(map[string]any)) { ri.streamContainsEntity(eg[0], eg[1], emit) }); err != nil {
-			return nil, err
+	for _, res := range results {
+		if res.fwd == nil {
+			continue
+		}
+		if prev, seen := usedMembers[res.fwdName]; seen && prev != res.from+"->"+res.to {
+			return nil, fmt.Errorf("canonical members collide on %q", res.fwdName)
+		}
+		usedMembers[res.fwdName] = res.from + "->" + res.to
+		relMembers[res.relType] = append(relMembers[res.relType], res.fwd)
+		man.EdgeCount += res.fwd.Rows
+		if res.rev != nil {
+			relReverse[res.relType] = append(relReverse[res.relType], res.rev)
 		}
 	}
 

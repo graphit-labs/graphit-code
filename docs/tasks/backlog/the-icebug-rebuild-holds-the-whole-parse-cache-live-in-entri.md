@@ -7,11 +7,20 @@
 
 ## Done, do not redo
 
+- **The relationship half of `exportDirectWithReverse`'s ~30 passes now runs concurrently**
+  instead of sequentially — see
+  `../relationship-export-passes-now-run-concurrently.md`. **This is a WALL-CLOCK fix, not a
+  MEMORY fix**: `ri.fileEntries` is still fully resident and every job still reads all of it,
+  so peak heap is unchanged — do not read this as closing the O(corpus) item below, which is
+  about memory, not time. Measured 1.8x on this repo's own store (808ms → 450ms). The NODE
+  label loop above it in `exportDirectWithReverse` is untouched and stays sequential — its
+  generation order is load-bearing for stub placement (see that doc for why it is safe to
+  parallelize one half and not the other).
 - **Edge UIDs pointing at a shared declaration (`CalleeUID`, `Inheritance.ParentUID`,
   `FieldAccess.FieldUID`) now intern corpus-wide instead of per-file** — see
   `../edge-uids-pointing-at-a-shared-declaration-now-intern-corpus-wide.md`. Narrower than
   what remains below: it shrinks how much `ri.fileEntries` there is, not the O(corpus)
-  decode-before-any-Parquet or the ~30-pass export loop, both still open.
+  decode-before-any-Parquet.
 - **The memory limit came off MemTotal.** REMOVED entirely, on the engineer's decision: a
   soft limit indicates the real term is not under control, and its implementation was
   Linux-only in a product that must run on Linux, Windows and macOS. Do not reintroduce one
@@ -39,7 +48,10 @@ another limit.
 The rebuild's live heap is still O(corpus): ~14.6 GB for 120,064 files / ~37.5 M graph
 elements, measured with `TestShardCacheFootprint`. The retention is structural, not a stray
 reference: `exportDirectWithReverse` makes one pass over `ri.fileEntries` per node label and
-one per relationship type, so the corpus has to be either resident or re-readable.
+one per relationship type, so the corpus has to be either resident or re-readable. Running
+the relationship passes concurrently (done, above) does not change this: concurrency reuses
+the SAME resident `ri.fileEntries` from multiple goroutines, it does not reduce how much of
+it has to be resident.
 
 Two directions, neither cheap:
 
