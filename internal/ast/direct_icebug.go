@@ -84,18 +84,98 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 	}
 	labels = append(labels, ri.annotationKinds...)
 
-	// One label's rows at a time: they are generated, written and released inside this
-	// loop rather than collected up front, so the peak is the largest single table
-	// instead of the sum of every one of them.
+	// Collecting a label's rows calls ri.emitUID, and which label is generated FIRST
+	// decides which table an ambiguous stub uid lands in — see the SAFETY note above.
+	// That collection therefore stays strictly sequential, in `labels` order. Writing
+	// an already-collected table to Parquet does not touch ri at all, so it runs
+	// concurrently below, on the engineer's explicit choice to optimize this for wall
+	// time and not bound peak memory: every label's table is held at once here
+	// instead of one at a time.
+	type collectedNodeTable struct {
+		label string
+		table *nodeColumns
+	}
 	seenLabel := map[string]bool{}
+	var collected []collectedNodeTable
 	for _, label := range labels {
 		if seenLabel[label] {
 			continue
 		}
 		seenLabel[label] = true
-		if err := writeNodeTableDirect(ri, outDir, label, man, labelIDs); err != nil {
-			return nil, err
+		table := newNodeColumns()
+		streamNodeRowsFor(ri, label, table.appendRow)
+		// Deleted (missing) entities leave no references to resolve: files are the
+		// only rows that always exist.
+		if table.rows == 0 && label != "File" {
+			continue
 		}
+		collected = append(collected, collectedNodeTable{label: label, table: table})
+	}
+
+	type nodeWriteResult struct {
+		label string
+		ids   map[string]uint64
+		row   ladybug.CanonicalNodeTable
+		err   error
+	}
+	writeCollectedNodeTable := func(c collectedNodeTable) nodeWriteResult {
+		res := nodeWriteResult{label: c.label}
+		cols, columns, pk := c.table.fields(c.label)
+		// Dense ids are the row index after an order determined by the primary key,
+		// exactly like ExportIcebugCanonical: stable when nothing changed, so an
+		// incremental can rewrite only a label's file.
+		order, keys := c.table.sortedOrder(pk)
+		// THE ID SPACE IS PER TABLE, matching ExportIcebugCanonical: the CSR of a
+		// `FROM A TO B` member indexes A's rows 0..nA and B's rows 0..nB; the
+		// reader resolves the member's declared endpoints, so File:0 and
+		// Function:0 are distinct by being in different declared tables.
+		ids := make(map[string]uint64, c.table.rows)
+		for i, at := range order {
+			ids[keys[at]] = uint64(i)
+		}
+		res.ids = ids
+
+		fields := make([]arrow.Field, len(cols))
+		for i, col := range cols {
+			fields[i] = arrow.Field{Name: col.Name, Type: arrowTypeForCypherDirect(col.Type), Nullable: true}
+		}
+		file := "nodes_" + c.label + ".parquet"
+		schema := arrow.NewSchema(fields, icebugMetadataDirect())
+		if err := writeParquetDirect(filepath.Join(outDir, file), schema, c.table.rows,
+			func(bld *array.RecordBuilder, from, to int) {
+				for ci, col := range columns {
+					builder := bld.Field(ci)
+					for i := from; i < to; i++ {
+						col.appendTo(builder, int(order[i]))
+					}
+				}
+			}); err != nil {
+			res.err = fmt.Errorf("write nodes %s: %w", c.label, err)
+			return res
+		}
+		res.row = ladybug.CanonicalNodeTable{
+			Label: c.label, File: file, Rows: int64(c.table.rows), PrimaryKey: pk, Columns: cols,
+		}
+		return res
+	}
+
+	// man.NodeTables is re-sorted by label right below, so the order results land in
+	// here does not need to match `collected`'s order the way the relationship merge
+	// does — only labelIDs (a map, order-free by construction) and man.NodeTables
+	// (sorted next) read this.
+	var firstNodeErr error
+	parallelForEach(collected, SafeWorkers(0), writeCollectedNodeTable, func(res nodeWriteResult) {
+		if res.err != nil {
+			if firstNodeErr == nil {
+				firstNodeErr = res.err
+			}
+			return
+		}
+		labelIDs[res.label] = res.ids
+		man.NodeTables = append(man.NodeTables, res.row)
+	})
+	if firstNodeErr != nil {
+		return nil, firstNodeErr
 	}
 	// Deterministic node order for reproducible exports, and the order schema.cypher
 	// declares the node tables in.
@@ -669,61 +749,6 @@ func exportDirectDelta(ri *rebuildIndex, outDir, finalDir, storageURI string, af
 		return nil, err
 	}
 	return man, nil
-}
-
-// writeNodeTableDirect generates one label's rows, assigns its dense ids and writes its
-// Parquet. The rows are unreachable the moment it returns, which is the whole point of
-// generating them here rather than in a batch the caller holds.
-// writeNodeTableDirect generates one label's rows, assigns its dense ids and writes its
-// Parquet. The rows are streamed into typed columns rather than retained as a slice of
-// maps, so what survives the generation is the column data itself.
-func writeNodeTableDirect(ri *rebuildIndex, outDir, label string, man *ladybug.CanonicalManifest, labelIDs map[string]map[string]uint64) error {
-	table := newNodeColumns()
-	streamNodeRowsFor(ri, label, table.appendRow)
-	// Deleted (missing) entities leave no references to resolve: files are the only
-	// rows that always exist.
-	if table.rows == 0 && label != "File" {
-		return nil
-	}
-
-	cols, columns, pk := table.fields(label)
-	// Dense ids are the row index after an order determined by the primary key,
-	// exactly like ExportIcebugCanonical: stable when nothing changed, so an
-	// incremental can rewrite only a label's file.
-	order, keys := table.sortedOrder(pk)
-	// THE ID SPACE IS PER TABLE, matching ExportIcebugCanonical: the CSR of a
-	// `FROM A TO B` member indexes A's rows 0..nA and B's rows 0..nB; the
-	// reader resolves the member's declared endpoints, so File:0 and
-	// Function:0 are distinct by being in different declared tables.
-	ids := make(map[string]uint64, table.rows)
-	for i, at := range order {
-		ids[keys[at]] = uint64(i)
-	}
-	keys = nil
-	labelIDs[label] = ids
-
-	fields := make([]arrow.Field, len(cols))
-	for i, c := range cols {
-		fields[i] = arrow.Field{Name: c.Name, Type: arrowTypeForCypherDirect(c.Type), Nullable: true}
-	}
-	file := "nodes_" + label + ".parquet"
-	schema := arrow.NewSchema(fields, icebugMetadataDirect())
-	err := writeParquetDirect(filepath.Join(outDir, file), schema, table.rows,
-		func(bld *array.RecordBuilder, from, to int) {
-			for ci, col := range columns {
-				builder := bld.Field(ci)
-				for i := from; i < to; i++ {
-					col.appendTo(builder, int(order[i]))
-				}
-			}
-		})
-	if err != nil {
-		return fmt.Errorf("write nodes %s: %w", label, err)
-	}
-	man.NodeTables = append(man.NodeTables, ladybug.CanonicalNodeTable{
-		Label: label, File: file, Rows: int64(table.rows), PrimaryKey: pk, Columns: cols,
-	})
-	return nil
 }
 
 func labelInBatches(ri *rebuildIndex, label string) (map[string]any, bool) {

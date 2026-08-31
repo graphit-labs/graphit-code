@@ -8,6 +8,13 @@ tags: [ast, icebug, performance, concurrency]
 
 # The relationship half of exportDirectWithReverse's ~30 passes now run concurrently
 
+> **Extended 2026-08-31, same day.** The node-label loop, described below as staying
+> sequential "correctly so," was ALSO parallelized on its write side — on the engineer's
+> explicit instruction, after being shown the memory trade-off, to optimize for wall time and
+> not preserve the "one table at a time" memory bound. See the addendum at the bottom of this
+> doc. Everything below this note describes the state as of the FIRST change of the day; the
+> addendum describes what changed after it.
+
 ## Objective
 
 Follow-up to
@@ -116,20 +123,28 @@ which goroutine happens to finish first never affects the output.
 
 | File | Change | Reason |
 |---|---|---|
-| `internal/ast/direct_icebug.go` | Modified | `exportRel` split into `computeRelJob` (parallel, read-only) + a sequential job list and merge loop |
+| `internal/ast/direct_icebug.go` | Modified | `exportRel` split into `computeRelJob` (parallel, read-only) + a sequential job list and merge loop; `writeNodeTableDirect` removed and replaced with a two-phase collect-then-parallel-write over every label |
 | `docs/tasks/backlog/the-icebug-rebuild-holds-the-whole-parse-cache-live-in-entri.md` | Modified | recorded as done; clarified this is a wall-clock fix, not a memory fix |
 
-## What this does NOT fix
+## What this does NOT fix, and one thing it deliberately UNDOES
 
-- **Peak memory is unchanged.** `ri.fileEntries` is still fully resident, and every
-  concurrent job still reads all of it — concurrency parallelizes the READS, it does not
-  shrink what has to be resident. The ~14.6 GB O(corpus) figure in the backlog doc is
-  untouched by this task.
-- **The node-table loop is still sequential**, and correctly so — see Reasoning above for
-  why its order is load-bearing in a way the relationship half's is not.
-- **The "single pass, reorganized around the output" rewrite the backlog described is still
-  open** as the way to fix the MEMORY side. This task closes the wall-clock side of the same
-  backlog item without needing that rewrite.
+- **Peak memory is now WORSE for the node-table phase, on purpose.** The pre-addendum
+  `writeNodeTableDirect` held one label's table at a time by design ("the peak is the
+  largest single table instead of the sum of every one of them" — a lesson from a real OOM).
+  The addendum collects every label's table before writing any of them, so peak memory
+  during node writing is now the SUM of every label's table, not the largest one. This was
+  an explicit, informed choice by the engineer after the trade-off was described, not an
+  oversight — but it means a future OOM investigation on a very large corpus should look
+  here first, not assume this discipline still holds.
+- **`ri.fileEntries` itself is still fully resident** regardless of either change here —
+  concurrency parallelizes reads of it, it never shrinks what has to be resident. The
+  ~14.6 GB O(corpus) figure in the backlog doc is about THAT retention and is untouched by
+  either change in this task.
+- **The "single pass, reorganized around the output" rewrite the backlog described** would
+  have fixed the memory side while ALSO speeding things up. This task took the faster,
+  narrower route instead — it fixes wall time on both halves of the export, and on the node
+  half it does so by spending more memory rather than avoiding the rewrite's complexity in a
+  memory-neutral way.
 
 ## Progress Log
 
@@ -143,3 +158,36 @@ sequential merge step preserving the original call order, using the project's ex
 stash`) that output is byte-for-byte identical; verified the full `internal/ast` suite green
 both with and without `-race`. Measured ~1.8x on this repository's own real store with a
 throwaway (uncommitted) timing probe.
+
+### 2026-08-31 — addendum: the node loop's write side, on explicit instruction
+
+Asked afterward whether the (still sequential) node-label loop could also be sped up.
+Measured its own breakdown with another throwaway probe: of ~263ms total, ~118ms is
+`streamNodeRowsFor` (collect — mutates `ri.emitUID`, must stay sequential for stub
+placement) and ~145ms is sort+id-assignment+Parquet write (pure, once a label's rows are
+already collected — same shape as the relationship half).
+
+Flagged the trade-off before touching anything: `writeNodeTableDirect`'s existing comment
+says rows are "generated, written and released inside this loop... so the peak is the
+largest single table instead of the sum of every one of them" — a deliberate design that
+came out of a real OOM incident in production (see
+`docs/tasks/the-parse-cache-stops-paying-for-the-same-string-twice.md`). Collecting every
+label's table up front so the writes can run in parallel reintroduces exactly that "sum of
+every table" peak, on the same code path that OOM incident touched.
+
+**The engineer's explicit answer: optimize for wall time, do not preserve that memory
+bound.** Implemented accordingly: `writeNodeTableDirect` is gone; the node-label loop is now
+two phases — collection stays a single sequential pass in the original `labels` order
+(unchanged, still what decides stub placement), then EVERY label's already-collected table
+is hand off to `parallelForEach` for the sort+ids+Parquet-write step, all held in memory at
+once rather than one at a time. `man.NodeTables` needed no order-preserving merge here
+(unlike the relationship half): it is re-sorted by label right after the loop regardless of
+insertion order, so `labelIDs` (a map) and `man.NodeTables` are both fine being populated in
+whatever order `parallelForEach`'s completion callback happens to deliver.
+
+Verified the same way as the first change: `TestDumpBundle` 3 runs (incl. one under `-race`,
+one diffed against the pre-this-addendum code via `git stash`) — byte-for-byte identical
+every time. Full `internal/ast` suite green with and without `-race` (52s / 95s). Timed on
+this repository's own real store: `exportDirectWithReverse` **334–397 ms**, down from
+427–486 ms (relationship-only parallel) and from the original 808–818 ms sequential baseline
+— **~2.25x cumulative** on this small (852-file) corpus.

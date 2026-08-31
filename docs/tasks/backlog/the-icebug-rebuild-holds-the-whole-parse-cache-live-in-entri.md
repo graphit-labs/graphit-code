@@ -7,15 +7,18 @@
 
 ## Done, do not redo
 
-- **The relationship half of `exportDirectWithReverse`'s ~30 passes now runs concurrently**
-  instead of sequentially — see
-  `../relationship-export-passes-now-run-concurrently.md`. **This is a WALL-CLOCK fix, not a
-  MEMORY fix**: `ri.fileEntries` is still fully resident and every job still reads all of it,
-  so peak heap is unchanged — do not read this as closing the O(corpus) item below, which is
-  about memory, not time. Measured 1.8x on this repo's own store (808ms → 450ms). The NODE
-  label loop above it in `exportDirectWithReverse` is untouched and stays sequential — its
-  generation order is load-bearing for stub placement (see that doc for why it is safe to
-  parallelize one half and not the other).
+- **Both halves of `exportDirectWithReverse`'s ~30 passes now run concurrently on their write
+  side** — see `../relationship-export-passes-now-run-concurrently.md` (and its 2026-08-31
+  addendum for the node-label half). **This is a WALL-CLOCK fix, not a MEMORY fix** for the
+  relationship half — `ri.fileEntries` is still fully resident there and every job still
+  reads all of it. **For the node-label half it is the OPPOSITE of a memory fix**: on the
+  engineer's explicit instruction, the "one table at a time" discipline
+  `writeNodeTableDirect` used to have (a deliberate fix for a real prior OOM) was removed —
+  every label's table is now collected before any of them are written, so peak memory during
+  node writing is the SUM of every table, not the largest one. Measured ~2.25x cumulative on
+  this repo's own store (808ms → ~360ms). **Do not read either half as closing the O(corpus)
+  item below** — one leaves memory unchanged, the other makes it worse, and both are
+  documented trade-offs, not oversights.
 - **Edge UIDs pointing at a shared declaration (`CalleeUID`, `Inheritance.ParentUID`,
   `FieldAccess.FieldUID`) now intern corpus-wide instead of per-file** — see
   `../edge-uids-pointing-at-a-shared-declaration-now-intern-corpus-wide.md`. Narrower than
@@ -45,13 +48,19 @@ another limit.
 
 ## What remains
 
-The rebuild's live heap is still O(corpus): ~14.6 GB for 120,064 files / ~37.5 M graph
-elements, measured with `TestShardCacheFootprint`. The retention is structural, not a stray
-reference: `exportDirectWithReverse` makes one pass over `ri.fileEntries` per node label and
-one per relationship type, so the corpus has to be either resident or re-readable. Running
-the relationship passes concurrently (done, above) does not change this: concurrency reuses
-the SAME resident `ri.fileEntries` from multiple goroutines, it does not reduce how much of
-it has to be resident.
+The rebuild's live heap is still O(corpus), and now has a SECOND O(corpus)-scale term
+alongside it: ~14.6 GB for 120,064 files / ~37.5 M graph elements for `ri.fileEntries` itself
+(measured with `TestShardCacheFootprint`), PLUS — since the node-label write-parallelization
+above — every label's collected node table held simultaneously rather than one at a time.
+`ri.fileEntries`'s retention is structural: `exportDirectWithReverse` makes one pass over it
+per node label and one per relationship type, so the corpus has to be either resident or
+re-readable, and running passes concurrently (done, both halves, above) does not change
+this — concurrency reuses the SAME resident `ri.fileEntries` from multiple goroutines, it
+does not reduce how much of it has to be resident. The second term is not structural, it is
+the explicit trade the 2026-08-31 addendum made; reintroducing "one label at a time" there
+(the streaming/bounded-pipeline design considered and rejected that day) would remove it
+without giving up the wall-clock win, if this backlog item's memory number becomes the
+priority again.
 
 Two directions, neither cheap:
 
