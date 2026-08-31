@@ -145,9 +145,13 @@ func TestShardOnDiskNeverCarriesFileText(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(e.cfg.ParseCache.dir, "shards", rel+".nodes.json"))
+	raw, err := os.ReadFile(filepath.Join(e.cfg.ParseCache.dir, "shards", rel+shardNodesSuffix))
 	if err != nil {
 		t.Fatalf("read shard: %v", err)
+	}
+	raw, err = shardZstdDecoder.DecodeAll(raw, nil)
+	if err != nil {
+		t.Fatalf("decompress shard: %v", err)
 	}
 	if strings.Contains(string(raw), "gateway.Authorize") {
 		t.Error("the file body leaked into the shard JSON")

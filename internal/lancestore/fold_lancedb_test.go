@@ -137,3 +137,73 @@ func TestVectorColumnRoundTripsAsFloat32(t *testing.T) {
 		}
 	}
 }
+
+func TestNullableVectorPreservesNullAndValue(t *testing.T) {
+	ctx := context.Background()
+	st := openLocal(t)
+
+	const dim = 8
+	tbl, err := st.CreateTable(ctx, "nullable_vecs", Schema{Fields: []Field{
+		{Name: "uid", Type: FieldString},
+		{Name: "v", Type: FieldVector, Dim: dim, Nullable: true},
+	}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	want := make([]float32, dim)
+	for i := range want {
+		want[i] = float32(i) / 8
+	}
+	if err := tbl.Append(ctx, []Row{
+		{"uid": "missing", "v": nil},
+		{"uid": "present", "v": want},
+	}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+
+	missing, err := tbl.Search(ctx, Query{Filter: "uid = 'missing'", Limit: 1})
+	if err != nil || len(missing) != 1 {
+		t.Fatalf("read null: hits=%d err=%v", len(missing), err)
+	}
+	if got := missing[0].Row["v"]; got != nil {
+		t.Fatalf("null vector came back as %#v", got)
+	}
+	present, err := tbl.Search(ctx, Query{Filter: "uid = 'present'", Limit: 1})
+	if err != nil || len(present) != 1 {
+		t.Fatalf("read value: hits=%d err=%v", len(present), err)
+	}
+	got, ok := present[0].Row["v"].([]float32)
+	if !ok || len(got) != dim {
+		t.Fatalf("vector came back as %T with width %d", present[0].Row["v"], len(got))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("element %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func BenchmarkRecordOfAllNullVectors(b *testing.B) {
+	const (
+		dim  = 768
+		rows = 2_000
+	)
+	schema := Schema{Fields: []Field{
+		{Name: "uid", Type: FieldString},
+		{Name: "v", Type: FieldVector, Dim: dim, Nullable: true},
+	}}
+	batch := make([]Row, rows)
+	for i := range batch {
+		batch[i] = Row{"uid": itoa(i), "v": nil}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rec, err := recordOf(schema, batch)
+		if err != nil {
+			b.Fatal(err)
+		}
+		rec.Release()
+	}
+}

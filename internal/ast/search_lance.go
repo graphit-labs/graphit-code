@@ -76,6 +76,8 @@ type SearchIndex struct {
 	files    *lancestore.Table
 	entities *lancestore.Table
 
+	rebuildTiming SearchRebuildTiming
+
 	// vectorCount is how many entity rows carry an embedding, read from the embeds
 	// status file beside the index. When it is zero, hybrid and semantic queries
 	// cannot answer — the engine's RRF rank needs a _distance column no row can
@@ -89,6 +91,24 @@ type SearchIndex struct {
 }
 
 func (s *SearchIndex) log() *slog.Logger { return slogutil.Resolve(s.Logger) }
+
+// SearchRebuildTiming separates row preparation and ingestion from each durable index build.
+// The pipeline copies this into its public timing result so a large corpus does not collapse every
+// search-side cost into one opaque "search-build" number.
+type SearchRebuildTiming struct {
+	Setup          time.Duration
+	Prepare        time.Duration
+	FilesWrite     time.Duration
+	EntitiesWrite  time.Duration
+	FilesFTS       time.Duration
+	FilesScalar    time.Duration
+	EntitiesFTS    time.Duration
+	EntitiesScalar time.Duration
+	Publish        time.Duration
+}
+
+// LastRebuildTiming returns the most recent full rebuild's phase timings.
+func (s *SearchIndex) LastRebuildTiming() SearchRebuildTiming { return s.rebuildTiming }
 
 // LanceIndexPath is where the search index of a store directory lives: a sibling
 // of graph.icebug under the same store dir.
@@ -484,7 +504,7 @@ const lanceMinRowsForVectorIndex = 256
 // made the SQLite rebuild stream instead of collecting. The same constraint applies here, and a
 // batch is the unit that keeps peak memory flat while still giving the engine enough rows per
 // call to be worth the crossing into Rust.
-const lanceWriteBatch = 2000
+const lanceWriteBatch = 8192
 
 // RebuildFromCache replaces the whole index from the parse shards.
 //
@@ -502,6 +522,9 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 		return lancestore.ErrReadOnly
 	}
 	t0 := time.Now()
+	s.rebuildTiming = SearchRebuildTiming{}
+	timing := &s.rebuildTiming
+	tSetup := time.Now()
 	generation := ""
 	if s.storeDir != "" {
 		var err error
@@ -525,6 +548,7 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 		return err
 	}
 	s.files, s.entities = files, entities
+	timing.Setup = time.Since(tSetup)
 
 	var (
 		fileRows, entRows             []lancestore.Row
@@ -535,7 +559,10 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 		if len(fileRows) == 0 {
 			return true
 		}
-		if err := files.Append(ctx, fileRows); err != nil {
+		tWrite := time.Now()
+		err := files.Append(ctx, fileRows)
+		timing.FilesWrite += time.Since(tWrite)
+		if err != nil {
 			walkErr = fmt.Errorf("writing files: %w", err)
 			return false
 		}
@@ -546,7 +573,10 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 		if len(entRows) == 0 {
 			return true
 		}
-		if err := entities.Append(ctx, entRows); err != nil {
+		tWrite := time.Now()
+		err := entities.Append(ctx, entRows)
+		timing.EntitiesWrite += time.Since(tWrite)
+		if err != nil {
 			walkErr = fmt.Errorf("writing entities: %w", err)
 			return false
 		}
@@ -554,6 +584,7 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 		return true
 	}
 
+	tPrepare := time.Now()
 	cache.StreamEntries(func(relPath string, entry *parseCacheEntry) bool {
 		fileRows = append(fileRows, buildFileRow(relPath, cache.SourceOf(relPath)))
 		fileCount++
@@ -584,12 +615,36 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 	if !flushFiles() || !flushEntities() {
 		return walkErr
 	}
-
-	if err := files.EnsureIndexes(ctx, lanceFileIndexes()...); err != nil {
-		return err
+	timing.Prepare = time.Since(tPrepare) - timing.FilesWrite - timing.EntitiesWrite
+	if timing.Prepare < 0 {
+		timing.Prepare = 0
 	}
-	if err := entities.EnsureIndexes(ctx, lanceEntityIndexes()...); err != nil {
-		return err
+
+	for _, idx := range lanceFileIndexes() {
+		tIndex := time.Now()
+		err := files.EnsureIndexes(ctx, idx)
+		d := time.Since(tIndex)
+		if idx.Kind == lancestore.IndexInvertedText {
+			timing.FilesFTS += d
+		} else {
+			timing.FilesScalar += d
+		}
+		if err != nil {
+			return err
+		}
+	}
+	for _, idx := range lanceEntityIndexes() {
+		tIndex := time.Now()
+		err := entities.EnsureIndexes(ctx, idx)
+		d := time.Since(tIndex)
+		if idx.Kind == lancestore.IndexInvertedText {
+			timing.EntitiesFTS += d
+		} else {
+			timing.EntitiesScalar += d
+		}
+		if err != nil {
+			return err
+		}
 	}
 
 	s.log().Info("search index rebuild",
@@ -597,9 +652,11 @@ func (s *SearchIndex) RebuildFromCache(ctx context.Context, cache *ShardCache,
 		"duration_ms", time.Since(t0).Seconds()*1000)
 
 	if s.storeDir != "" {
+		tPublish := time.Now()
 		if err := publishPendingVectorCounts(s.storeDir, generation, int64(vecCount), int64(entCount)); err != nil {
 			return fmt.Errorf("writing embeds status: %w", err)
 		}
+		timing.Publish = time.Since(tPublish)
 	}
 	s.vectorCount = int64(vecCount)
 	return nil

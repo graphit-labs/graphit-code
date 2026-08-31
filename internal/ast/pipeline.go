@@ -105,16 +105,25 @@ type PipelineResult struct {
 }
 
 type WritePhaseTiming struct {
-	CacheSave      time.Duration
-	GraphPreload   time.Duration
-	GraphPrepare   time.Duration
-	GraphExport    time.Duration
-	GraphPublish   time.Duration
-	EmbeddingCache time.Duration
-	SearchOpen     time.Duration
-	SearchBuild    time.Duration
-	SearchMaintain time.Duration
-	SearchClose    time.Duration
+	CacheSave            time.Duration
+	GraphPreload         time.Duration
+	GraphPrepare         time.Duration
+	GraphExport          time.Duration
+	GraphPublish         time.Duration
+	EmbeddingCache       time.Duration
+	SearchOpen           time.Duration
+	SearchBuild          time.Duration
+	SearchSetup          time.Duration
+	SearchPrepare        time.Duration
+	SearchFilesWrite     time.Duration
+	SearchEntitiesWrite  time.Duration
+	SearchFilesFTS       time.Duration
+	SearchFilesScalar    time.Duration
+	SearchEntitiesFTS    time.Duration
+	SearchEntitiesScalar time.Duration
+	SearchPublish        time.Duration
+	SearchMaintain       time.Duration
+	SearchClose          time.Duration
 }
 
 // resolveClusterForPath returns the cluster name for a given file path based on the
@@ -799,11 +808,29 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 						if serr := idx.UpdateIncremental(ctx, jsonCache, changedRels, deletedFiles, BuildEmbLookup(jsonCache, embCache)); serr != nil {
 							err = fmt.Errorf("search index incremental: %w", serr)
 						}
-					} else if serr := idx.RebuildFromCache(ctx, jsonCache, BuildEmbLookup(jsonCache, embCache)); serr != nil {
-						err = fmt.Errorf("search index rebuild: %w", serr)
+					} else {
+						serr := idx.RebuildFromCache(ctx, jsonCache, BuildEmbLookup(jsonCache, embCache))
+						searchTiming := idx.LastRebuildTiming()
+						writePhases.SearchSetup = searchTiming.Setup
+						writePhases.SearchPrepare = searchTiming.Prepare
+						writePhases.SearchFilesWrite = searchTiming.FilesWrite
+						writePhases.SearchEntitiesWrite = searchTiming.EntitiesWrite
+						writePhases.SearchFilesFTS = searchTiming.FilesFTS
+						writePhases.SearchFilesScalar = searchTiming.FilesScalar
+						writePhases.SearchEntitiesFTS = searchTiming.EntitiesFTS
+						writePhases.SearchEntitiesScalar = searchTiming.EntitiesScalar
+						writePhases.SearchPublish = searchTiming.Publish
+						if serr != nil {
+							err = fmt.Errorf("search index rebuild: %w", serr)
+						}
 					}
 					writePhases.SearchBuild = time.Since(tSearchBuild)
-					if err == nil {
+					// A full rebuild contains no dead rows: compacting it immediately rewrites every
+					// fragment, while the MVCC retention window prevents pruning the originals. That
+					// doubles the data directory and spends about a minute on the Linux corpus. The
+					// larger bulk-load batches already bound fragmentation; maintenance remains useful
+					// after incrementals, which do create dead rows through delete-then-append.
+					if err == nil && doIncremental {
 						if opts.OnProgress != nil {
 							opts.OnProgress("search-maintenance", 0, 0, parseErrors+writeErrors)
 						}

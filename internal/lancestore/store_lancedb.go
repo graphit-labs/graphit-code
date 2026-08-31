@@ -747,6 +747,12 @@ func recordOf(s Schema, rows []Row) (arrow.Record, error) {
 
 	for ci, f := range s.Fields {
 		fb := b.Field(ci)
+		if f.Type == FieldVector {
+			if err := appendVectorColumn(fb, f, rows); err != nil {
+				return nil, fmt.Errorf("lancestore: column %q: %w", f.Name, err)
+			}
+			continue
+		}
 		for ri, row := range rows {
 			v, present := row[f.Name]
 			if !present || v == nil {
@@ -762,6 +768,41 @@ func recordOf(s Schema, rows []Row) (arrow.Record, error) {
 		}
 	}
 	return b.NewRecord(), nil
+}
+
+// appendVectorColumn builds a fixed-size-list column in bulk.
+//
+// Arrow's FixedSizeListBuilder.AppendNull appends one child null for every element in the list.
+// Calling it row by row on an empty FLOAT[768] column therefore performs 768 builder operations
+// per row — billions of calls during a large AST rebuild. The list's own validity bitmap is what
+// makes a vector null; child values under a null list are ignored, so a dense zero-filled child
+// buffer is equivalent and lets Arrow copy the whole column at once.
+func appendVectorColumn(fb array.Builder, f Field, rows []Row) error {
+	valid := make([]bool, len(rows))
+	values := make([]float32, len(rows)*f.Dim)
+	for ri, row := range rows {
+		v, present := row[f.Name]
+		if !present || v == nil {
+			if !f.Nullable {
+				return fmt.Errorf("row %d has no value and the column is not nullable", ri)
+			}
+			continue
+		}
+		vec, ok := v.([]float32)
+		if !ok {
+			return fmt.Errorf("row %d: want []float32, got %T", ri, v)
+		}
+		if len(vec) != f.Dim {
+			return fmt.Errorf("row %d: vector has %d values, column is %d wide", ri, len(vec), f.Dim)
+		}
+		valid[ri] = true
+		copy(values[ri*f.Dim:(ri+1)*f.Dim], vec)
+	}
+
+	lb := fb.(*array.FixedSizeListBuilder)
+	lb.AppendValues(valid)
+	lb.ValueBuilder().(*array.Float32Builder).AppendValues(values, nil)
+	return nil
 }
 
 func appendValue(fb array.Builder, f Field, v any) error {

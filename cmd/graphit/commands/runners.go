@@ -502,6 +502,12 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 			phases.GraphPreload.Seconds(), phases.GraphPrepare.Seconds(), phases.GraphExport.Seconds(), phases.GraphPublish.Seconds(),
 			phases.EmbeddingCache.Seconds(), phases.SearchOpen.Seconds(), phases.SearchBuild.Seconds(),
 			phases.SearchMaintain.Seconds(), phases.SearchClose.Seconds())
+		if phases.SearchSetup > 0 || phases.SearchPrepare > 0 {
+			p.Step("Search breakdown: setup %.2fs, prepare %.2fs, files-write %.2fs, entities-write %.2fs, files-fts %.2fs, files-scalar %.2fs, entities-fts %.2fs, entities-scalar %.2fs, publish %.2fs",
+				phases.SearchSetup.Seconds(), phases.SearchPrepare.Seconds(), phases.SearchFilesWrite.Seconds(),
+				phases.SearchEntitiesWrite.Seconds(), phases.SearchFilesFTS.Seconds(), phases.SearchFilesScalar.Seconds(),
+				phases.SearchEntitiesFTS.Seconds(), phases.SearchEntitiesScalar.Seconds(), phases.SearchPublish.Seconds())
+		}
 	}
 
 	if finalResult.TimeoutCount > 0 {

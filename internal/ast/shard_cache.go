@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // shardCacheVersion invalidates every cached shard when it changes: a manifest written
@@ -71,7 +73,40 @@ import (
 //
 //	and retained source text at index 5 when source indexing was enabled; cluster now has its
 //	own field.
-const shardCacheVersion = 11
+//
+// 12: node and edge JSON payloads are stored as independent zstd frames. The previous plain JSON
+//
+//	format occupied 4.85 GB for the Linux corpus although the same bytes compress to 281 MB as one
+//	stream; independent frames preserve per-file incremental replacement and bounded reads.
+const shardCacheVersion = 12
+
+const (
+	shardNodesSuffix = ".nodes.json.zst"
+	shardEdgesSuffix = ".edges.json.zst"
+)
+
+var (
+	shardZstdEncoder = mustShardZstdEncoder()
+	shardZstdDecoder = mustShardZstdDecoder()
+)
+
+func mustShardZstdEncoder() *zstd.Encoder {
+	enc, err := zstd.NewWriter(nil,
+		zstd.WithEncoderLevel(zstd.SpeedFastest),
+		zstd.WithEncoderConcurrency(1))
+	if err != nil {
+		panic(fmt.Sprintf("create shard zstd encoder: %v", err))
+	}
+	return enc
+}
+
+func mustShardZstdDecoder() *zstd.Decoder {
+	dec, err := zstd.NewReader(nil)
+	if err != nil {
+		panic(fmt.Sprintf("create shard zstd decoder: %v", err))
+	}
+	return dec
+}
 
 type ShardCache struct {
 	dir      string
@@ -302,12 +337,12 @@ func (sc *ShardCache) getEntryLocked(relPath string) *parseCacheEntry {
 		var freshEdges *shardEdges
 		var err error
 		if n == nil {
-			if freshNodes, err = loadShard[shardNodes](sc.shardPath(relPath, ".nodes.json")); err != nil {
+			if freshNodes, err = loadShard[shardNodes](sc.shardPath(relPath, shardNodesSuffix)); err != nil {
 				return nil
 			}
 		}
 		if e == nil {
-			if freshEdges, err = loadShard[shardEdges](sc.shardPath(relPath, ".edges.json")); err != nil {
+			if freshEdges, err = loadShard[shardEdges](sc.shardPath(relPath, shardEdgesSuffix)); err != nil {
 				return nil
 			}
 		}
@@ -376,8 +411,8 @@ func (sc *ShardCache) AllEntries() map[string]*parseCacheEntry {
 
 				var n *shardNodes
 				var e *shardEdges
-				n, _ = loadShard[shardNodes](sc.shardPath(relPath, ".nodes.json"))
-				e, _ = loadShard[shardEdges](sc.shardPath(relPath, ".edges.json"))
+				n, _ = loadShard[shardNodes](sc.shardPath(relPath, shardNodesSuffix))
+				e, _ = loadShard[shardEdges](sc.shardPath(relPath, shardEdgesSuffix))
 				results[idx] = loadResult{relPath, n, e}
 			}(i, p)
 		}
@@ -430,8 +465,8 @@ func (sc *ShardCache) Remove(relPath string) {
 	delete(sc.edges, relPath)
 	delete(sc.dirty, relPath)
 
-	_ = os.Remove(sc.shardPath(relPath, ".nodes.json"))
-	_ = os.Remove(sc.shardPath(relPath, ".edges.json"))
+	_ = os.Remove(sc.shardPath(relPath, shardNodesSuffix))
+	_ = os.Remove(sc.shardPath(relPath, shardEdgesSuffix))
 	_ = os.Remove(sc.shardPath(relPath, ".emb.json"))
 	removeEmptyParents(filepath.Dir(sc.shardPath(relPath, "")), filepath.Join(sc.dir, "shards"))
 
@@ -519,7 +554,7 @@ func (sc *ShardCache) flushLocked(evict bool) error {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if err := writeShard(sc.shardPath(rp, ".nodes.json"), nd); err != nil {
+			if err := writeShard(sc.shardPath(rp, shardNodesSuffix), nd); err != nil {
 				errCh <- fmt.Errorf("write nodes %s: %w", rp, err)
 			}
 		}(relPath, n)
@@ -528,7 +563,7 @@ func (sc *ShardCache) flushLocked(evict bool) error {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if err := writeShard(sc.shardPath(rp, ".edges.json"), ed); err != nil {
+			if err := writeShard(sc.shardPath(rp, shardEdgesSuffix), ed); err != nil {
 				errCh <- fmt.Errorf("write edges %s: %w", rp, err)
 			}
 		}(relPath, e)
@@ -641,6 +676,9 @@ func writeShard(path string, data any) error {
 	if err != nil {
 		return err
 	}
+	if strings.HasSuffix(path, ".zst") {
+		raw = shardZstdEncoder.EncodeAll(raw, nil)
+	}
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, raw, 0o644); err != nil {
 		return err
@@ -656,6 +694,12 @@ func loadShard[T any](path string) (*T, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
+	}
+	if strings.HasSuffix(path, ".zst") {
+		raw, err = shardZstdDecoder.DecodeAll(raw, nil)
+		if err != nil {
+			return nil, fmt.Errorf("decompress shard: %w", err)
+		}
 	}
 	var data T
 	if err := json.Unmarshal(raw, &data); err != nil {
