@@ -1154,19 +1154,21 @@ The AST module supports two indexing modes to balance completeness with performa
 
 ### Full Indexing Pipeline
 
-Triggered on first `graphit init` or when the database is missing/corrupted. The complete pipeline:
+Triggered on first `graphit init` or when the store is missing. The complete pipeline:
 
 ```
-Source Files → File Discovery → Parse (Tree-sitter / ANTLR) → Entity Extraction → Graph Write → Search Tables → FTS Indexes → Vector Embedding
+Source Files → File Discovery → Parse (Tree-sitter / ANTLR) → Entity Extraction → Shard Cache
+             → Direct Parquet Export (graph.icebug/) → Search Tables → FTS Indexes → Vector Embedding
 ```
 
 1. **File Discovery**: Walks the project directory, respecting `.gitignore` and `.astignore` rules plus three built-in exclusions — the `.graphit/` state directory, the project's own `graphit.lock.json`, and the knowledge module's documentation tree (`knowledge.docs_dir`, default `docs/`). The first two are the framework's own output; a `.json` file with a parser in front of it, describing the indexer to itself. The docs tree belongs to the wiki; set `ast.index_docs=true` to index it here as well. Because built-in patterns are applied last and gitignore semantics are last-match-wins, a `!docs/` negation in `.astignore` cannot override that — the config key is the override. Detects language via file extension, so a markdown file is out of scope before any pattern is consulted: no shipped query file claims `.md`. See [ignore_files](../guides/ignore_files.md).
-2. **Parse**: Each file is parsed into a concrete syntax tree using the appropriate language grammar — Tree-sitter for most languages, ANTLR v4 for languages configured with `parser: antlr4`. The parser backend is determined by the language YAML; see [`--grammar`](#--grammar-cli-flag) for per-extension override.
+2. **Parse**: Each file is parsed into a concrete syntax tree using the appropriate language grammar — Tree-sitter for most languages, ANTLR v4 for languages configured with `parser: antlr4`. The parser backend is determined by the language YAML; see [`--grammar`](#--grammar-cli-flag) for per-extension override. Files are distributed to concurrent Go worker goroutines via a shared channel; each worker allocates its own thread-local parser instances, so parsing is lock-free across cores.
 3. **Entity Extraction**: YAML-defined queries (S-expressions for Tree-sitter, XPath for ANTLR) extract structured entities (functions, classes, imports, calls, fields, DML statements, etc.) from the syntax tree.
-4. **Graph Write**: Extracted entities are written as nodes and relationships into LadybugDB. Each entity gets a unique `uid` and is linked to its parent file via `CONTAINS` edges.
-5. **Search Tables**: Entity names are split (camelCase, snake_case) and gram-expanded into `entities`, in the LanceDB sidecar beside the graph. On a full rebuild the indexes are built AFTER the bulk load, in one pass over the finished tables; on an incremental nothing is rebuilt — an appended row is searchable before it is folded into the index, which is the property this storage engine was chosen for.
-6. **Trigram Index**: Entity names are decomposed into 3-character trigrams for fuzzy matching and typo tolerance.
-7. **Vector Embedding**: When enabled, entity contexts are embedded via the local ONNX model (CodeRankEmbed-137M) and written to `entity_emb`, then indexed into the `vec0` table `entity_vec` keyed by the same row id.
+4. **Shard Cache (`internal/ast/shard_cache.go`)**: Extracted entities and relationships for each file are written as JSON shards on disk — one nodes shard and one edges shard per file, grouped under a manifest. Repeated strings (paths, labels, languages, and edge-endpoint uids that point at a widely-referenced declaration — a popular callee, a common base class, a heavily-read field) are interned at shard adoption, corpus-wide for values that repeat across files and per-file for values that only repeat within one, so the cache does not pay one allocation per occurrence of the same string.
+5. **Direct Parquet Export**: The shard cache is streamed into `graph.icebug/` — a CSR-format Parquet bundle (`nodes_*.parquet`, `indices_*.parquet`, `indptr_*.parquet`) — without ever populating an intermediate database. There is no separate "graph write" step into a running database: the bundle IS the graph, and a query opens it fresh (see [Database Architecture](#-database-architecture-ladybugdb-icebug-filesystem-on-the-fly-memory-catalog) above). Node-table generation for a given label must stay in a fixed order (it decides which table an unresolved reference's stub row lands in), but once a label's rows are collected, writing its Parquet — and every relationship-type Parquet — runs concurrently across CPU cores; none of that writing touches another label's or relationship's data. Each entity gets a unique `uid` and a `CONTAINS` edge from its parent file.
+6. **Search Tables**: Entity names are split (camelCase, snake_case) and gram-expanded into `entities`, in the LanceDB sidecar beside the graph. On a full rebuild the indexes are built AFTER the bulk load, in one pass over the finished tables; on an incremental nothing is rebuilt — an appended row is searchable before it is folded into the index, which is the property this storage engine was chosen for.
+7. **Trigram Index**: Entity names are decomposed into 3-character trigrams for fuzzy matching and typo tolerance.
+8. **Vector Embedding**: When enabled, entity contexts are embedded via the local ONNX model (CodeRankEmbed-137M) and written to `entity_emb`, then indexed into the `vec0` table `entity_vec` keyed by the same row id.
 
 ### Incremental Indexing Pipeline
 
@@ -1174,24 +1176,20 @@ Triggered on every subsequent `graphit sync` or by the file watcher. Only proces
 
 1. **Hash Cache (`internal/ast/hash_cache.go`)**: During setup, the pipeline scans files and stores a SHA-256 checksum hash per file.
 2. **Change Detection**: Compares current file hashes against the stored cache. Only files with modified hashes enter the parse pipeline.
-3. **Selective Graph Update**: For each changed file, the pipeline:
-   - Removes all existing nodes and edges belonging to that file from LadybugDB.
-   - Re-parses the file via Tree-sitter.
-   - Re-writes the extracted entities and relationships.
-   - Rewrites the affected `files` and `entities` rows IN PLACE, in the LanceDB sidecar: delete by path, append, and fold the new rows into the indexes afterwards. Nothing here is O(corpus), and the fold is for LATENCY rather than correctness — measured, an appended row is found by full-text search before any fold. The sidecar is deliberately outside the graph's copy+swap: that is what buys a ~300 ms incremental, at the cost of a window where the index and the graph describe corpora one edit apart.
-4. **Parallel Workers**: Files are distributed to concurrent Go worker goroutines via a shared channel. Each worker allocates its own thread-local parser instances, enabling lock-free parallel parsing. Results flow to a single-threaded writer, because the engine allows one read-write handle per database.
-5. **Shard Cache (`internal/ast/shard_cache.go`)**: Parsed AST results are cached as JSON shards on disk, enabling fast rebuilds without re-parsing unchanged files.
+3. **Selective Shard Update**: Each changed file is re-parsed and its shard pair (nodes + edges) is rewritten in the shard cache; unchanged files' shards are read from disk rather than re-parsed.
+4. **Partial Parquet Export**: When the number of changed-plus-deleted files is a small fraction of the corpus, `ExportDirectIncremental` rewrites only the Parquet tables the change could have touched, into a fresh `graph.icebug/` directory that then replaces the old one with a single atomic rename — never an in-place edit of the published bundle, so a reader always sees either the complete old graph or the complete new one, never a partial write. Deletions or a large-enough change fall back to a full re-export from the (still-cached, still-not-reparsed) shards.
+5. **Search Index**: The `files` and `entities` rows for changed paths are rewritten IN PLACE in the LanceDB sidecar: delete by path, append, and fold the new rows into the indexes afterwards. Nothing here is O(corpus), and the fold is for LATENCY rather than correctness — measured, an appended row is found by full-text search before any fold. The sidecar is updated independently of the graph bundle, which is what keeps an incremental in the sub-second range.
 
 ### "Nothing changed" is checked against BOTH halves of the store
 
 When no file hash moved, the pipeline skips the write and reports `N files up to date`. That
 shortcut is only safe when there is something to skip **to**, and the store has two halves — the
-graph (`ladybugdb`) and the search index (`search.lance/`). Each is checked before the shortcut is
-taken, and each has its own repair, which replays the shard cache instead of reparsing:
+graph bundle (`graph.icebug/`) and the search index (`search.lance/`). Each is checked before the
+shortcut is taken, and each has its own repair, which replays the shard cache instead of reparsing:
 
 | what is missing | how it is detected | what happens |
 |---|---|---|
-| the graph | `os.Stat` on the database path | falls through to the write, which replays the shards |
+| the graph | `os.Stat` on `graph.icebug/schema.cypher` | falls through to the export, which replays the shards |
 | the search index | `SearchIndexBuilt` — **counts rows** | rebuilds it from the shard cache, then returns |
 
 **`os.Stat` cannot answer the second one.** `OpenSearchIndex` *creates* the directory it opens, so
@@ -1212,11 +1210,11 @@ the shards, and the next `ast index` replays them.
 
 | Metric | Full Index | Incremental Index |
 |---|---|---|
-| **Trigger** | First init, database rebuild | File change detected |
+| **Trigger** | First init, store rebuild | File change detected |
 | **Scope** | All project files | Only changed files |
 | **Typical Duration** | Seconds (medium projects) to minutes (large monorepos) | Milliseconds to low seconds |
-| **CPU Impact** | Moderate (concurrent workers) | Minimal |
-| **Graph Consistency** | Full rebuild guarantees correctness | Hash-validated partial updates |
+| **CPU Impact** | Moderate (concurrent parsing, concurrent Parquet export) | Minimal |
+| **Graph Consistency** | Full rebuild guarantees correctness | Hash-validated partial updates, atomic rename on publish |
 
 ---
 

@@ -104,7 +104,11 @@ Each active project has an isolated supervisor thread monitoring watch modules:
 and the ONNX intra-op pool — but it is a budget for **one** pipeline, and the daemon
 runs one supervisor per active project inside a single process. Three active projects
 therefore claimed three times the machine, plus a LadybugDB buffer pool per open
-database (two per database during a copy+swap rebuild).
+query connection. (The graph export itself no longer opens a LadybugDB handle at
+all — it writes `graph.icebug/`'s Parquet tables directly from the shard cache; see
+[AST Module Specification](ast_module.md#-indexing-pipeline-full--incremental). What
+this gate still bounds on the export side is the Go worker pool the export's own
+concurrent Parquet writers draw from, which is sized off the same `CPUBudget()`.)
 
 `sysutil.AcquireHeavy(ctx)` is the missing half of that budget: a process-wide
 semaphore that every CPU-saturating job takes before it starts.

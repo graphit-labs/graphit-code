@@ -412,22 +412,35 @@ time, after discovery already decided what to offer. Check what is in effect wit
    ```
 4. The AST database uses incremental indexing — only changed files are re-parsed on subsequent runs.
 
-### Database locked / corruption
+### `failed to open database with status 1`
 
 **Symptoms:**
 ```
-database is locked
+failed to open database with status 1
 ```
 
-**Cause:** Multiple processes attempting to write the same store simultaneously, or an unclean shutdown. The graph engine allows one read-write handle per database.
+**Cause:** The graph has no database file to lock — it is a Parquet bundle
+(`graph.icebug/`) mounted fresh, in memory, on every query — but the engine's C API
+reports every open failure as this one opaque code, with no message channel to say
+which. In practice this means a query landed in the brief window while the daemon is
+publishing a freshly rebuilt bundle (an atomic directory rename). It is transient: the
+graph backend already retries up to 5 times over roughly 750 ms before surfacing this
+error, so seeing it means that budget was exceeded, not that nothing is there.
 
 **Solutions:**
-1. Stop any running daemon or MCP server instances.
-2. Reset the AST database:
+1. Retry the query — a rebuild that was still publishing when the budget ran out will
+   have finished a moment later.
+2. If it persists, check whether the daemon is stuck mid-rebuild:
+   ```bash
+   graphit daemon status
+   ```
+3. Reset the AST store:
    ```bash
    graphit ast index --reset
    ```
-3. The database is stored in `.graphit/ast/`. Deleting the directory and reindexing is safe.
+4. The store lives under the global graphit directory (`~/.graphit` by default, or
+   `GRAPHIT_GLOBAL_DIR` if set), not inside the project — `graphit ast index --reset`
+   finds and rebuilds it without needing the exact path.
 
 ---
 

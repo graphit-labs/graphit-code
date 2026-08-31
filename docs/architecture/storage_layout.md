@@ -94,7 +94,8 @@ Things worth knowing before you set it:
 │   ├── context/<name>/                  a locally imported code graph — same icebug filesystem layout
 │   │   └── graph.icebug/ + search.lance/ …
 │   ├── hub/<context-id>/<version>/      a Hub code graph, MOUNTED per version
-│   │   ├── ladybugdb                        the CATALOG only — the data is on S3 (legacy file catalog; will migrate to :memory:)
+│   │   ├── schema.cypher                    storage = 's3://…', format='icebug-disk' — the graph's Parquet stays on S3, never downloaded
+│   │   ├── icebug.json                      canonical manifest v2
 │   │   └── search.uri                       where the search index lives (an s3:// URI)
 │   └── queries/                         USER grammar query overrides (not a store)
 ├── wiki/
