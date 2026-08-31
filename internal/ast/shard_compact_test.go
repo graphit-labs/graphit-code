@@ -86,6 +86,27 @@ func TestCompactionSharesRepeatedStrings(t *testing.T) {
 	if data(a.Entities[0].Path) == data(b.Entities[0].Path) {
 		t.Error("two DIFFERENT paths were folded into one value")
 	}
+
+	// A callee, a base class, and an accessed field are all "pointed at from many files";
+	// interning them per-file (discarded per file) would miss the exact duplication that
+	// happens when two DIFFERENT files reference the same one. These three must be on the
+	// corpus-wide table, like ModuleUID and References.TargetUID already are.
+	if data(a.Calls[0].CalleeUID) != data(b.Calls[0].CalleeUID) {
+		t.Error("CalleeUID referenced by two files is still two allocations")
+	}
+	if data(a.Inheritance[1].ParentUID) != data(b.Inheritance[1].ParentUID) {
+		t.Error("Inheritance.ParentUID referenced by two files is still two allocations")
+	}
+	if data(a.FieldAccess[1].FieldUID) != data(b.FieldAccess[1].FieldUID) {
+		t.Error("FieldAccess.FieldUID referenced by two files is still two allocations")
+	}
+
+	// CallerUID and SourceUID are declared IN the referencing file, not pointed at from
+	// elsewhere — the local (per-file) table is correct for them, and unrelated distinct
+	// UIDs must never collapse into the same allocation regardless of which table holds them.
+	if data(a.Calls[0].CallerUID) == data(b.Calls[0].CallerUID) {
+		t.Error("two DIFFERENT CallerUIDs were folded into one value")
+	}
 }
 
 // A field whose values are all distinct must not grow the table without bound: past the
@@ -185,9 +206,14 @@ func compactionCorpus() []*parseCacheEntry {
 			},
 			Inheritance: []cachedInheritance{
 				{ChildUID: rel + ":A", ParentUID: rel + ":B", RelType: "INHERITS", Path: rel, Line: 1},
+				// A base class both files inherit from — the cross-file case ParentUID
+				// interning exists for.
+				{ChildUID: rel + ":A", ParentUID: "external:CommonBase", RelType: "INHERITS", Path: rel, Line: 2},
 			},
 			FieldAccess: []cachedFieldAccess{
 				{SourceUID: rel + ":A", FieldUID: rel + ":A:f", IsWrite: true, Path: rel, Line: 2},
+				// A field both files read — the cross-file case FieldUID interning exists for.
+				{SourceUID: rel + ":A", FieldUID: "external:CommonBase.f", IsWrite: false, Path: rel, Line: 3},
 			},
 			References: []cachedReference{
 				{SourceUID: rel + ":A", TargetUID: "PEDIDO", RelType: "SELECTS", Path: rel, Line: 3, Lang: "go"},

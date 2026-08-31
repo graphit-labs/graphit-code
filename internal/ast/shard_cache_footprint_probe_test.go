@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"sort"
@@ -144,6 +145,7 @@ func TestShardCacheStringDuplication(t *testing.T) {
 	var occurrences, byteTotal int64
 	unique := make(map[string]int64)
 	perField := make(map[string]*[2]int64)
+	perFieldUnique := make(map[string]map[string]bool)
 	note := func(field, s string) {
 		occurrences++
 		byteTotal += int64(len(s))
@@ -154,9 +156,34 @@ func TestShardCacheStringDuplication(t *testing.T) {
 		if f == nil {
 			f = &[2]int64{}
 			perField[field] = f
+			perFieldUnique[field] = make(map[string]bool)
 		}
+		perFieldUnique[field][s] = true
 		f[0]++
 		f[1] += int64(len(s))
+	}
+
+	// localSum accumulates, per field, the SUM across files of that file's own distinct-value
+	// count. Comparing it to the GLOBAL distinct count isolates cross-file duplication: a
+	// per-file (local) interner already collapses repeats within one file, so localSum is
+	// what local interning alone would leave allocated. The gap between localSum and the
+	// global distinct count is duplication ACROSS files, which only corpus-wide (shared)
+	// interning would catch.
+	localSum := make(map[string]int64)
+	localSeen := make(map[string]map[string]bool)
+	noteLocal := func(field, s string) {
+		m := localSeen[field]
+		if m == nil {
+			m = make(map[string]bool)
+			localSeen[field] = m
+		}
+		m[s] = true
+	}
+	flushLocal := func() {
+		for field, m := range localSeen {
+			localSum[field] += int64(len(m))
+		}
+		localSeen = make(map[string]map[string]bool)
 	}
 
 	files := 0
@@ -183,7 +210,28 @@ func TestShardCacheStringDuplication(t *testing.T) {
 			note("call.SourceType", c.SourceType)
 			note("call.Path", c.Path)
 			note("call.ReceiverType", c.ReceiverType)
+			noteLocal("call.CallerUID", c.CallerUID)
+			noteLocal("call.CalleeUID", c.CalleeUID)
 		}
+		for _, in := range entry.Inheritance {
+			note("inh.ChildUID", in.ChildUID)
+			note("inh.ParentUID", in.ParentUID)
+			noteLocal("inh.ChildUID", in.ChildUID)
+			noteLocal("inh.ParentUID", in.ParentUID)
+		}
+		for _, fa := range entry.FieldAccess {
+			note("fa.SourceUID", fa.SourceUID)
+			note("fa.FieldUID", fa.FieldUID)
+			noteLocal("fa.SourceUID", fa.SourceUID)
+			noteLocal("fa.FieldUID", fa.FieldUID)
+		}
+		for _, ce := range entry.ContainsEdges {
+			note("contains.ParentUID", ce.ParentUID)
+			note("contains.ChildUID", ce.ChildUID)
+			noteLocal("contains.ParentUID", ce.ParentUID)
+			noteLocal("contains.ChildUID", ce.ChildUID)
+		}
+		flushLocal()
 	}
 
 	var uniqueBytes int64
@@ -209,6 +257,13 @@ func TestShardCacheStringDuplication(t *testing.T) {
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].b > rows[j].b })
 	for _, r := range rows {
-		t.Logf("  %-22s %10d occurrences %8.1f MB", r.field, r.n, float64(r.b)/(1<<20))
+		distinct := len(perFieldUnique[r.field])
+		line := fmt.Sprintf("  %-22s %10d occurrences %8.1f MB   distinct=%d (%.0f%% would dedupe)", r.field, r.n, float64(r.b)/(1<<20), distinct, 100*(1-float64(distinct)/float64(r.n)))
+		if ls, ok := localSum[r.field]; ok {
+			crossFileGap := ls - int64(distinct)
+			line += fmt.Sprintf("   local-only-distinct(summed per file)=%d, CROSS-FILE duplicates a LOCAL interner would miss=%d (%.0f%% of this field's occurrences)",
+				ls, crossFileGap, 100*float64(crossFileGap)/float64(r.n))
+		}
+		t.Logf("%s", line)
 	}
 }

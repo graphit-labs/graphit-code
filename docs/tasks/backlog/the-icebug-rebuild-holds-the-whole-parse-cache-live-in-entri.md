@@ -7,6 +7,11 @@
 
 ## Done, do not redo
 
+- **Edge UIDs pointing at a shared declaration (`CalleeUID`, `Inheritance.ParentUID`,
+  `FieldAccess.FieldUID`) now intern corpus-wide instead of per-file** — see
+  `../edge-uids-pointing-at-a-shared-declaration-now-intern-corpus-wide.md`. Narrower than
+  what remains below: it shrinks how much `ri.fileEntries` there is, not the O(corpus)
+  decode-before-any-Parquet or the ~30-pass export loop, both still open.
 - **The memory limit came off MemTotal.** REMOVED entirely, on the engineer's decision: a
   soft limit indicates the real term is not under control, and its implementation was
   Linux-only in a product that must run on Linux, Windows and macOS. Do not reintroduce one

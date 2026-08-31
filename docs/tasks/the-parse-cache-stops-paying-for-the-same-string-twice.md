@@ -111,8 +111,20 @@ Which table a field goes into is the whole design:
 
 | table | fields | why |
 |---|---|---|
-| corpus-wide | `Path`, `Lang`, `Label`, `Context`, `ContextType`, `SourceType`, `ReceiverType`, `RelType`, `ParentType`, `ParentLabel`, `ChildLabel`, `ModuleName`, `ModuleUID`, `RawImport`, `SourceFile`, `TargetUID`, `Decorators`, `DirPaths` | cardinality bounded by the grammar or by the file count, and every file repeats them |
-| per-file | `UID`, `CallerUID`, `CalleeUID`, `FuncUID`, `ParentUID`, `ChildUID`, `SourceUID`, `FieldUID`, `FileUID` | nearly unique corpus-wide, heavily repeated inside one file — a caller's uid across its calls, a parent's across its children |
+| corpus-wide | `Path`, `Lang`, `Label`, `Context`, `ContextType`, `SourceType`, `ReceiverType`, `RelType`, `ParentType`, `ParentLabel`, `ChildLabel`, `ModuleName`, `ModuleUID`, `RawImport`, `SourceFile`, `TargetUID`, `Decorators`, `DirPaths`, `Calls.CalleeUID`, `Inheritance.ParentUID`, `FieldAccess.FieldUID` | cardinality bounded by the grammar or by the file count, and every file repeats them |
+| per-file | `UID`, `CallerUID`, `FuncUID`, `Fields.ParentUID`, `Contains.ParentUID`, `Contains.ChildUID`, `Inheritance.ChildUID`, `SourceUID`, `FileUID` | nearly unique corpus-wide, heavily repeated inside one file — a caller's uid across its calls, a parent's across its children |
+
+> **Revised 2026-08-31.** The three fields moved into corpus-wide above were placed here
+> originally on the assumption that a reference's target "repeats only within one file." That
+> assumption was wrong for exactly the fields that name a declaration the referencing file
+> merely POINTS AT rather than owns: a popular callee, a widely-subclassed base, a
+> often-accessed field are referenced from many DIFFERENT files, which a per-file table
+> (discarded after each file) cannot see. Measured on this repository's own store: 24% of
+> `Calls` rows and 24% of `FieldAccess` rows carried a cross-file duplicate the per-file table
+> was structurally blind to. See
+> [edge UIDs pointing at a shared declaration now intern corpus-wide](edge-uids-pointing-at-a-shared-declaration-now-intern-corpus-wide.md)
+> for the measurement and the fix. The remaining per-file fields were checked against the same
+> question and confirmed to have a 0% cross-file gap — they stay per-file correctly.
 
 `getEntryLocked` was reshaped so both halves of a file are adopted through one
 `adoptShardsLocked` call and therefore share one local interner: an identifier a file declares
