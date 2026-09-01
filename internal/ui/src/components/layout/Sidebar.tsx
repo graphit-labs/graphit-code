@@ -31,7 +31,6 @@ import {
   Search,
   Sparkles,
   FileCode2,
-  Blocks,
 } from 'lucide-react'
 
 interface NavItemProps {
@@ -124,7 +123,7 @@ function PrimaryNavItem({
   )
 }
 
-const TYPE_FILTERS = [
+export const TYPE_FILTERS = [
   { label: 'Any Type', value: 'all', icon: <Layers className="w-3.5 h-3.5" /> },
   { label: 'Knowledge', value: 'knowledge', icon: <BookOpen className="w-3.5 h-3.5" /> },
   { label: 'Skill', value: 'skill', icon: <Wand2 className="w-3.5 h-3.5" /> },
@@ -135,7 +134,6 @@ const TYPE_FILTERS = [
   { label: 'MCP Server', value: 'mcp', icon: <Server className="w-3.5 h-3.5" /> },
   { label: 'Power', value: 'power', icon: <Layers className="w-3.5 h-3.5" /> },
   { label: 'Language', value: 'language', icon: <FileCode2 className="w-3.5 h-3.5" /> },
-  { label: 'Framework', value: 'framework', icon: <Blocks className="w-3.5 h-3.5" /> },
 ]
 
 interface SidebarProps {

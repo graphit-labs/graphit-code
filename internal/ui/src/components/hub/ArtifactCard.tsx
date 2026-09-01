@@ -2,11 +2,11 @@ import { useState, useRef, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Download, Check, Settings, AlertCircle, Trash2, ArrowUpCircle, CloudUpload,
   BookOpen, Zap, Bot, Scale, Code2, Terminal, Server, Wand2, FileText, ShieldCheck,
-  ChevronDown, Tag, Layers, FileCode2, Blocks } from 'lucide-react'
+  ChevronDown, Tag, Layers, FileCode2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { RegistryEntry, InstalledArtifact } from '@/api/hub'
 
-const TYPE_ICONS: Record<string, LucideIcon> = {
+export const TYPE_ICONS: Record<string, LucideIcon> = {
   knowledge: BookOpen,
   skill: Zap,
   agent: Bot,
@@ -16,10 +16,9 @@ const TYPE_ICONS: Record<string, LucideIcon> = {
   mcp: Server,
   power: Wand2,
   language: FileCode2,
-  framework: Blocks,
 }
 
-const TYPE_STYLES: Record<string, { bg: string; text: string; border: string; glow: string; gradient: string }> = {
+export const TYPE_STYLES: Record<string, { bg: string; text: string; border: string; glow: string; gradient: string }> = {
   knowledge: {
     bg: 'bg-blue-500/10',
     text: 'text-blue-500 dark:text-blue-400',
@@ -82,13 +81,6 @@ const TYPE_STYLES: Record<string, { bg: string; text: string; border: string; gl
     border: 'border-lime-500/20',
     glow: 'bg-lime-500',
     gradient: 'from-lime-500 to-green-500',
-  },
-  framework: {
-    bg: 'bg-sky-500/10',
-    text: 'text-sky-500 dark:text-sky-400',
-    border: 'border-sky-500/20',
-    glow: 'bg-sky-500',
-    gradient: 'from-sky-500 to-indigo-500',
   },
 }
 
