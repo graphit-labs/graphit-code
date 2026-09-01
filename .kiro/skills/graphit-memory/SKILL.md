@@ -226,8 +226,9 @@ Reading raw .md files is slower, wastes tokens, and bypasses ranking.
 A memory scope has exactly two locations on this machine, both global:
 
 ```
-<global>/memory-raw/memory-<scope>-<id>/  the raw markdown — the truth
-<global>/wiki/memory/<scope>/<id>/        the compiled wiki — what search opens
+<global>/memory-raw/memory-<scope>-<id>/                    the raw markdown — the truth
+<global>/memory-raw/memory-<scope>-<id>/history/<id>/<rev>.md  every superseded revision
+<global>/wiki/memory/<scope>/<id>/                          the compiled wiki — what search opens
 ```
 
 There used to be a third — a replica of the wiki inside every project that read it, which is
@@ -285,6 +286,72 @@ it, that is the explanation; `graphit_memory_index` forces the rebuild.
 4. **Never** try to read a memory `.md` file or grep the memory store — there is no copy in
    the project and the global store is outside your workspace. `graphit_wiki_source` is how a
    memory gets read, for this project and for any other.
+
+## 🕓 A Memory Has a History, and You Can Read It
+
+An update does not overwrite the past. It rewrites the memory in place — same id, so
+everything that referred to it still resolves — and files the version being replaced under
+`history/<id>/<revision>.md`. Every one of those revisions is compiled into the wiki and is
+**searchable and readable exactly like a live memory**. Nothing is lost when a memory is
+corrected; it moves one step back in a chain you can walk.
+
+The chain is doubly linked, and both links are in the frontmatter:
+
+| Field | On | Meaning |
+|---|---|---|
+| `previous` | any revision after the first | the version this one replaced — **follow it to go back in time** |
+| `next` | superseded revisions only | the version that replaced this one; `<id>.md` when that is the live memory |
+| `revision` | everything | how many writes this memory has had, starting at 1 |
+| `revision_id` | superseded revisions only | this revision's own address inside the chain |
+| `updated_by` | everything | the unit that made the last write — **not** a pointer, it is the author |
+
+`previous` and `next` are the chain; `revision` counts it; `updated_by` is who, and is a
+different question entirely. A live memory has no `next`, and that absence is its
+definition: it is the head.
+
+### What this changes about reading a search result
+
+**Two revisions of one memory never both appear in your results.** When a query matches the
+current version and an old one, only the current is returned, with no mention of the old —
+because `previous` and `next` make the two provably one memory, and one memory has no
+business occupying two of your result slots. You do not have to notice this or work around
+it; it is done before the answer reaches you.
+
+**What you WILL see is a hit that is only an old revision**, and it looks like this:
+
+```
+results[2]{slug|title|type|score|superseded|current}:
+  Some_current_memory|Some current memory|fact|61.2|-|-
+  An_older_wording--r01M1F…|An older wording|fact|48.9|yes|01M0CWRQ6VBRTPQBTK6T4ZNW3G
+```
+
+A row with `superseded=yes` matched text the project has since changed its mind about, and
+`current` is the id of what it believes now. **The decision is yours and it is a real one:**
+
+- the old wording is what answered your query, so it is often exactly what you want — a
+  measurement taken under an architecture that no longer exists, the phrasing of a decision
+  before it was revised, the reason something used to be done differently
+- but do not act on it as current. Read the `current` memory before you conclude anything
+  about how the system behaves **today**
+- and when the two disagree in a way that matters, that is not a contradiction to resolve —
+  see Sanitise On Sight, which is about two LIVE memories. A superseded revision is supposed
+  to disagree with its successor. That is what it is for
+
+### Walking the chain
+
+A revision page is read like any other page — the slug is what search gave you:
+
+```
+# the revision that matched
+graphit_wiki_source(project_dir: "/path/to/project", path: "<slug from search>", wiki: "memory")
+
+# what it says it replaced, and what replaced it: read `previous` / `next` off that page
+graphit_wiki_source(project_dir: "/path/to/project", path: "<slug>", wiki: "memory", pattern: "previous", after: 1)
+```
+
+Use it when the question is **how something came to be the way it is**: what a memory said
+before the correction, when the belief changed, and what it was replaced with. That is a
+question the current memory alone cannot answer, and until now the answer was unreachable.
 
 ## 📋 MCP Tools Reference
 

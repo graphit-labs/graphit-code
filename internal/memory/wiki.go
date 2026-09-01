@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -22,14 +23,41 @@ type WikiResult struct {
 
 // isMemorySourceFile reports whether a filename in the memory store is a
 // memory page rather than a generated artifact of the wiki itself.
+//
+// The forked-id rejection is the guard against a name that carries a memory id plus something
+// else — `<ulid>_important_.md` being the shape that forked 184 memories in this repository. A
+// file like that is not a memory: it is a twin created by a write path that recovered the id from
+// the file name. Compiling it produced a second page for one memory, which search then answered
+// with twice.
 func isMemorySourceFile(name string) bool {
 	if filepath.Ext(name) != ".md" {
 		return false
 	}
-	return name != "index.md" && name != "log.md" && !strings.HasPrefix(name, "Memory_Wiki")
+	if name == "index.md" || name == "log.md" || strings.HasPrefix(name, "Memory_Wiki") {
+		return false
+	}
+	return !isForkedMemoryFileName(name)
 }
 
-// memorySourceFileNames lists the cache keys of the memories currently on disk.
+// isForkedMemoryFileName reports whether a name is a memory id with something appended.
+//
+// Deliberately narrow: it rejects `<ulid><anything>.md` and nothing else, so a store whose files
+// are named by some other convention still compiles. The general protection against a duplicate
+// page is dedupMemoryDocsByID, which works on the declared id rather than on the name.
+func isForkedMemoryFileName(name string) bool {
+	stem := strings.TrimSuffix(name, ".md")
+	if len(stem) <= 26 || IsMemoryID(stem) {
+		return false
+	}
+	return IsMemoryID(stem[:26])
+}
+
+// memorySourceFileNames lists the cache keys of everything the wiki compiles: the live memories
+// at the top level, and every archived revision under history/.
+//
+// The archives are included so a change to one — a forward pointer repointed by a later update —
+// invalidates the stat pre-check and gets recompiled. Leaving them out made the chain's own
+// metadata the one thing a rebuild could not notice.
 func memorySourceFileNames(rawDir string) []string {
 	entries, err := os.ReadDir(rawDir)
 	if err != nil {
@@ -42,6 +70,37 @@ func memorySourceFileNames(rawDir string) []string {
 		}
 		names = append(names, e.Name())
 	}
+	return append(names, historySourceFileNames(rawDir)...)
+}
+
+// historySourceFileNames lists every archived revision, as a path relative to the raw directory.
+//
+// This is the deliberate walk into history/ that the rest of the package does not do. Every
+// listing elsewhere reads one level and skips directories, which is what keeps a superseded
+// revision out of the CATALOGUE of what this project knows; compiling it is a different question,
+// and the answer to that one is yes.
+func historySourceFileNames(rawDir string) []string {
+	chains, err := os.ReadDir(filepath.Join(rawDir, HistoryDirName))
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, chain := range chains {
+		if !chain.IsDir() {
+			continue
+		}
+		revisions, err := os.ReadDir(filepath.Join(rawDir, HistoryDirName, chain.Name()))
+		if err != nil {
+			continue
+		}
+		for _, rev := range revisions {
+			if rev.IsDir() || filepath.Ext(rev.Name()) != ".md" {
+				continue
+			}
+			names = append(names, path.Join(HistoryDirName, chain.Name(), rev.Name()))
+		}
+	}
+	sort.Strings(names)
 	return names
 }
 
@@ -88,69 +147,19 @@ func GenerateMemoryWiki(ctx context.Context, rawDir, wikiDir string, logger ...*
 		if e.IsDir() || !isMemorySourceFile(e.Name()) {
 			continue
 		}
-		name := e.Name()
-		absPath := filepath.Join(rawDir, name)
-
-		data, readErr := os.ReadFile(absPath)
-		if readErr != nil {
-			continue
+		if doc, ok := buildMemDoc(rawDir, e.Name(), processCache, validPaths); ok {
+			docs = append(docs, doc)
 		}
+	}
 
-		id := MemoryIDFromFileName(name)
-		important := IsImportantContent(string(data))
+	// Two files claiming one id is one memory compiled twice, and the page it produces is
+	// indistinguishable from a real memory in a search result. Resolve it here rather than
+	// downstream, so nothing further in the pipeline ever sees the duplicate.
+	docs = dedupMemoryDocsByID(docs, validPaths)
 
-		contentHash := wiki.ContentHash(data)
-		validPaths[name] = true
-
-		// Always parse metadata (cheap).
-		title, createdAt := parseMemoryMeta(absPath)
-
-		// Try cache first — skip re-processing unchanged files.
-		if processCache != nil && !processCache.HasChanged(name, contentHash) {
-			if cached := processCache.Get(name, contentHash); len(cached) > 0 {
-				cc := cached[0]
-				docs = append(docs, memDoc{
-					id:          id,
-					title:       cc.Title,
-					createdAt:   createdAt,
-					important:   important,
-					body:        cc.Body,
-					filename:    name,
-					memType:     cc.DocType,
-					contentHash: cc.ContentHash,
-				})
-				continue
-			}
-		}
-
-		// Cache miss — process from source.
-		body := extractBodyAfterFrontmatter(string(data))
-		memType := parseMemoryType(string(data))
-
-		doc := memDoc{
-			id:          id,
-			title:       title,
-			createdAt:   createdAt,
-			important:   important,
-			body:        body,
-			filename:    name,
-			memType:     memType,
-			contentHash: contentHash,
-		}
-		docs = append(docs, doc)
-
-		// Store in cache.
-		if processCache != nil {
-			processCache.Store(name, contentHash, []wiki.CachedChunk{{
-				Title:       title,
-				Body:        body,
-				DocType:     memType,
-				ContentHash: contentHash,
-			}})
-			// Record mtime so next sync can skip via StatPreCheck Phase A.
-			if info, statErr := os.Stat(absPath); statErr == nil {
-				processCache.StoreMtime(name, info.ModTime().UnixNano(), info.Size())
-			}
+	for _, rel := range historySourceFileNames(rawDir) {
+		if doc, ok := buildMemDoc(rawDir, rel, processCache, validPaths); ok {
+			docs = append(docs, doc)
 		}
 	}
 
@@ -160,10 +169,18 @@ func GenerateMemoryWiki(ctx context.Context, rawDir, wikiDir string, logger ...*
 	}
 
 	sort.Slice(docs, func(i, j int) bool {
+		// Live memories before superseded revisions: the head of a chain is what a reader wants,
+		// and the index page is ordered by this.
+		if docs[i].superseded != docs[j].superseded {
+			return docs[j].superseded
+		}
 		if docs[i].important != docs[j].important {
 			return docs[i].important
 		}
-		return docs[i].createdAt > docs[j].createdAt
+		if docs[i].createdAt != docs[j].createdAt {
+			return docs[i].createdAt > docs[j].createdAt
+		}
+		return docs[i].filename < docs[j].filename
 	})
 
 	result := &WikiResult{}
@@ -173,7 +190,7 @@ func GenerateMemoryWiki(ctx context.Context, rawDir, wikiDir string, logger ...*
 	slugs := make([]string, len(docs))
 	usedSlugs := make(map[string]bool, len(docs))
 	for i, doc := range docs {
-		slugs[i] = wiki.UniqueSlug(wiki.SafeSlug(doc.title), usedSlugs)
+		slugs[i] = wiki.UniqueSlug(doc.slugBase(), usedSlugs)
 	}
 
 	// FAST PATH: use wiki.FastPathCheck — checks processCache (O(1) per entry,
@@ -201,7 +218,7 @@ func GenerateMemoryWiki(ctx context.Context, rawDir, wikiDir string, logger ...*
 				continue
 			}
 		}
-		page := memoryEntityPageWithHash(doc.id, doc.title, doc.createdAt, doc.important, doc.body, doc.memType, doc.contentHash)
+		page := memoryEntityPage(doc)
 		if err := os.WriteFile(path, []byte(page), 0o644); err != nil {
 			continue
 		}
@@ -316,7 +333,24 @@ func errLogger(logger []*slog.Logger) *slog.Logger {
 	return slog.Default()
 }
 
-func memoryEntityPageWithHash(id, title, createdAt string, important bool, body, memType, contentHash string) string {
+// Frontmatter keys that carry the revision chain onto a compiled page.
+//
+// They are read back by the search layer, which is what lets it recognise two hits as one memory
+// and name the current revision of an old one. Keeping them as page frontmatter rather than as
+// columns in the wiki database is a deliberate trade: the search reads at most top_k small files,
+// and the database schema stays shared with the knowledge wiki instead of growing a memory-only
+// concept.
+const (
+	PageFieldMemoryID   = "id"
+	PageFieldSuperseded = "superseded"
+	PageFieldCurrent    = "current"
+	PageFieldRevisionID = "revision_id"
+)
+
+func memoryEntityPage(doc memDoc) string {
+	id, title, createdAt, important := doc.id, doc.title, doc.createdAt, doc.important
+	body, memType, contentHash := doc.body, doc.memType, doc.contentHash
+
 	var b strings.Builder
 	now := time.Now().UTC().Format("2006-01-02")
 	docType := memType
@@ -327,9 +361,23 @@ func memoryEntityPageWithHash(id, title, createdAt string, important bool, body,
 	b.WriteString("---\n")
 	_, _ = fmt.Fprintf(&b, "type: %s\n", wiki.YAMLScalar(docType))
 	_, _ = fmt.Fprintf(&b, "title: %s\n", wiki.YAMLScalar(title))
-	_, _ = fmt.Fprintf(&b, "id: %s\n", wiki.YAMLScalar(id))
+	_, _ = fmt.Fprintf(&b, "%s: %s\n", PageFieldMemoryID, wiki.YAMLScalar(id))
+	if doc.superseded {
+		_, _ = fmt.Fprintf(&b, "%s: true\n", PageFieldSuperseded)
+		_, _ = fmt.Fprintf(&b, "%s: %s\n", PageFieldCurrent, wiki.YAMLScalar(id))
+		_, _ = fmt.Fprintf(&b, "%s: %s\n", PageFieldRevisionID, wiki.YAMLScalar(doc.revisionID))
+		if doc.revision > 0 {
+			_, _ = fmt.Fprintf(&b, "revision: %d\n", doc.revision)
+		}
+		if doc.previous != "" {
+			_, _ = fmt.Fprintf(&b, "previous: %s\n", wiki.YAMLScalar(doc.previous))
+		}
+		if doc.next != "" {
+			_, _ = fmt.Fprintf(&b, "next: %s\n", wiki.YAMLScalar(doc.next))
+		}
+	}
 	wiki.WriteOKFGenerated(&b, wiki.OKFActor("memory"), now)
-	wiki.WriteOKFSources(&b, fmt.Sprintf("memory/%s.md", id))
+	wiki.WriteOKFSources(&b, path.Join("memory", filepath.ToSlash(doc.filename)))
 	summary := wiki.ExtractSummary(body)
 	if summary != "" {
 		summaryEscaped := strings.ReplaceAll(summary, "\n", " ")
@@ -348,12 +396,34 @@ func memoryEntityPageWithHash(id, title, createdAt string, important bool, body,
 	if memType != "" && memType != "memory" {
 		tags = append(tags, memType)
 	}
+	if doc.superseded {
+		tags = append(tags, "superseded")
+	}
 	b.WriteString("tags:\n")
 	for _, t := range tags {
 		_, _ = fmt.Fprintf(&b, "  - %s\n", wiki.YAMLScalar(t))
 	}
 	b.WriteString("---\n\n")
 	_, _ = fmt.Fprintf(&b, "# %s\n\n", title)
+
+	if doc.superseded {
+		b.WriteString("> 🕓 **Superseded revision — this is not what the project believes now.**\n")
+		if doc.revision > 0 {
+			_, _ = fmt.Fprintf(&b, "> This is revision %d of memory `%s`.\n", doc.revision, id)
+		} else {
+			_, _ = fmt.Fprintf(&b, "> This is an earlier revision of memory `%s`.\n", id)
+		}
+		if doc.next != "" {
+			_, _ = fmt.Fprintf(&b, "> It was replaced by `%s`. ", doc.next)
+		} else {
+			b.WriteString("> Nothing replaced it: the memory it belonged to was deleted. ")
+		}
+		_, _ = fmt.Fprintf(&b, "The current revision of this chain is memory `%s`.\n", id)
+		if doc.previous != "" {
+			_, _ = fmt.Fprintf(&b, "> The revision before this one is `%s`.\n", doc.previous)
+		}
+		b.WriteString("\n")
+	}
 
 	if memType != "" {
 		typeEmojis := map[string]string{
@@ -371,7 +441,10 @@ func memoryEntityPageWithHash(id, title, createdAt string, important bool, body,
 		b.WriteString("> ⭐ **Important memory** — surfaced in IDE rules.\n\n")
 	}
 
-	if createdAt != "" {
+	// A superseded revision is old by definition, so the staleness nudge would be noise on it —
+	// and worse than noise, since the fix it suggests is to update a revision that no longer
+	// exists as a memory.
+	if createdAt != "" && !doc.superseded {
 		if t, err := time.Parse(time.RFC3339, createdAt); err == nil {
 			age := time.Since(t)
 			if age > 30*24*time.Hour {
@@ -389,6 +462,17 @@ func memoryEntityPageWithHash(id, title, createdAt string, important bool, body,
 }
 
 func memoryIndexPage(docs []memDoc) string {
+	// The catalogue is what this project knows, so a superseded revision has no entry in it. It
+	// stays searchable and readable by slug; listing it here would multiply the index by the
+	// revision count and bury the current memories in their own history.
+	live := make([]memDoc, 0, len(docs))
+	for _, d := range docs {
+		if !d.superseded {
+			live = append(live, d)
+		}
+	}
+	docs = live
+
 	var b strings.Builder
 	now := time.Now().UTC().Format("2006-01-02")
 
@@ -549,6 +633,147 @@ type memDoc struct {
 	filename    string
 	memType     string
 	contentHash string
+
+	revisionID string
+	revision   int
+	superseded bool
+	previous   string
+	next       string
+}
+
+// slugBase is the slug a document claims before collision handling.
+//
+// A superseded revision suffixes its own address, because it usually shares its title with the
+// live memory — and letting wiki.UniqueSlug settle that with a `_2` would make the two pages
+// indistinguishable from two unrelated memories that happen to share a title. The suffix also
+// makes the slug stable across rebuilds, which a positional `_2` is not.
+func (d memDoc) slugBase() string {
+	base := wiki.SafeSlug(d.title)
+	if !d.superseded || d.revisionID == "" {
+		return base
+	}
+	return base + "--r" + d.revisionID
+}
+
+// buildMemDoc reads one memory file — live or archived — into a memDoc, using the process cache
+// when the content has not changed.
+//
+// rel is relative to rawDir, and it is also the cache key, which is why an archived revision keys
+// on `history/<id>/<rev>.md` rather than on a bare file name.
+func buildMemDoc(rawDir, rel string, processCache *wiki.WikiProcessCache, validPaths map[string]bool) (memDoc, bool) {
+	absPath := filepath.Join(rawDir, filepath.FromSlash(rel))
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return memDoc{}, false
+	}
+
+	fm := ParseMemoryFrontmatter(string(data))
+
+	// Supersession is decided by WHERE the file is, not by what it says about itself. An archive
+	// written before `revision_id` existed declares nothing, and trusting the frontmatter alone
+	// compiled it as though it were a live memory — a second page under the same title as the
+	// memory it is the history of, which is exactly the duplicate this work set out to remove.
+	// The location cannot be wrong: a file under history/ is a superseded revision.
+	superseded := isHistorySource(rel) || fm.IsArchivedRevision()
+
+	// The declared id is authoritative. Deriving it from the file name is what forked memories
+	// into twins whose id carried the name's suffix, so the name is only a fallback for a file
+	// whose frontmatter has no id at all — and for an archive the fallback is its chain directory,
+	// never its own name, which is the revision's address rather than the memory's.
+	id := fm.ID
+	if id == "" {
+		if superseded {
+			id = path.Base(path.Dir(filepath.ToSlash(rel)))
+		} else {
+			id = MemoryIDFromFileName(path.Base(rel))
+		}
+	}
+
+	revisionID := fm.RevisionID
+	if superseded && revisionID == "" {
+		revisionID = RevisionIDFromHistoryPath(rel)
+	}
+
+	contentHash := wiki.ContentHash(data)
+	validPaths[rel] = true
+
+	doc := memDoc{
+		id:          id,
+		createdAt:   fm.CreatedAt,
+		important:   IsImportantContent(string(data)),
+		filename:    rel,
+		contentHash: contentHash,
+		revisionID:  revisionID,
+		revision:    fm.Revision,
+		superseded:  superseded,
+		previous:    fm.Previous,
+		next:        fm.Next,
+	}
+
+	if processCache != nil && !processCache.HasChanged(rel, contentHash) {
+		if cached := processCache.Get(rel, contentHash); len(cached) > 0 {
+			cc := cached[0]
+			doc.title = cc.Title
+			doc.body = cc.Body
+			doc.memType = cc.DocType
+			doc.contentHash = cc.ContentHash
+			return doc, true
+		}
+	}
+
+	doc.title = fm.Title
+	if doc.title == "" {
+		doc.title, doc.createdAt = parseMemoryMeta(absPath)
+	}
+	doc.body = extractBodyAfterFrontmatter(string(data))
+	doc.memType = parseMemoryType(string(data))
+
+	if processCache != nil {
+		processCache.Store(rel, contentHash, []wiki.CachedChunk{{
+			Title:       doc.title,
+			Body:        doc.body,
+			DocType:     doc.memType,
+			ContentHash: contentHash,
+		}})
+		if info, statErr := os.Stat(absPath); statErr == nil {
+			processCache.StoreMtime(rel, info.ModTime().UnixNano(), info.Size())
+		}
+	}
+	return doc, true
+}
+
+// dedupMemoryDocsByID keeps one document per memory id.
+//
+// The winner is the file named after the id it declares, because that is the only name a write
+// path produces. Anything else claiming the same id is a twin — the residue of an id recovered
+// from a file name — and its page would otherwise sit beside the real one in every search result.
+func dedupMemoryDocsByID(docs []memDoc, validPaths map[string]bool) []memDoc {
+	best := make(map[string]int, len(docs))
+	for i, doc := range docs {
+		if doc.id == "" {
+			continue
+		}
+		prev, seen := best[doc.id]
+		if !seen {
+			best[doc.id] = i
+			continue
+		}
+		if doc.filename == MemoryFileName(doc.id) && docs[prev].filename != MemoryFileName(doc.id) {
+			delete(validPaths, docs[prev].filename)
+			best[doc.id] = i
+			continue
+		}
+		delete(validPaths, doc.filename)
+	}
+
+	kept := make([]memDoc, 0, len(docs))
+	for i, doc := range docs {
+		if doc.id == "" || best[doc.id] == i {
+			kept = append(kept, doc)
+		}
+	}
+	return kept
 }
 
 var reMemoryType = regexp.MustCompile(`(?m)^type:\s*(.+)$`)

@@ -62,7 +62,7 @@ func listImportantInDir(dir string) ([]ImportantEntry, error) {
 		content := extractBodyAfterFrontmatter(string(data))
 
 		important = append(important, ImportantEntry{
-			ID:      MemoryIDFromFileName(name),
+			ID:      MemoryIDFor(string(data), name),
 			Title:   title,
 			Content: strings.TrimSpace(content),
 			Path:    absPath,

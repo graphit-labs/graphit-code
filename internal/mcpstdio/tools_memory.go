@@ -10,7 +10,6 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/memory"
-	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
 type memoryInsertInput struct {
@@ -260,16 +259,16 @@ func registerMemoryTools(server *mcp.Server) {
 			return errResult(fmt.Errorf("memory wiki not found for %s scope", scope))
 		}
 
-		var results []wiki.BM25Result
+		var results []memory.ChainResult
 		err = withProjectDir(projectDir, func() error {
-			results = wiki.BM25Search(ctx, wikiDir, input.Query, input.TopK)
+			results = memory.SearchChains(ctx, wikiDir, input.Query, input.TopK)
 			return nil
 		})
 		if err != nil {
 			return errResult(err)
 		}
 		if aiOpt(input.AiOptimized) {
-			out := wiki.FormatBM25ResultsTOON(results, wantPreview(input.Preview))
+			out := memory.FormatChainResultsTOON(results, wantPreview(input.Preview))
 			if notice != "" {
 				return textResult(notice + "\n" + out)
 			}

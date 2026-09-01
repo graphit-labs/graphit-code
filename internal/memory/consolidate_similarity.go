@@ -37,11 +37,25 @@ func loadMemoryVectors(ctx context.Context, wikiDir string) map[string][]float32
 
 	byID := make(map[string][]float32, len(bySource))
 	for source, vec := range bySource {
+		// An archived revision is in the wiki too, and its vector must not become the vector of
+		// its own chain: consolidation compares memories to find duplicates, and a memory is
+		// always near its own history — which would make every edited memory look like a
+		// duplicate of itself.
+		if isHistorySource(source) {
+			continue
+		}
 		if id := memoryIDFromSource(source); id != "" {
 			byID[id] = vec
 		}
 	}
 	return byID
+}
+
+// isHistorySource reports whether a wiki chunk's source path addresses an archived revision.
+func isHistorySource(source string) bool {
+	normalised := strings.ReplaceAll(source, "\\", "/")
+	return strings.HasPrefix(normalised, HistoryDirName+"/") ||
+		strings.Contains(normalised, "/"+HistoryDirName+"/")
 }
 
 // memoryIDFromSource extracts the memory ID from a wiki source filename.

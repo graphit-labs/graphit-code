@@ -228,7 +228,10 @@ func loadMemorySnapshots(dir string) ([]memorySnapshot, error) {
 		if readErr != nil {
 			continue
 		}
-		id := MemoryIDFromFileName(name)
+		// The declared id, never the file name: a consolidation pass feeds these ids straight
+		// into UpdateMemoryTyped, so an id read off a suffixed name would write a twin under
+		// that suffix instead of updating the memory.
+		id := MemoryIDFor(string(data), name)
 		fm := ParseMemoryFrontmatter(string(data))
 		important := fm.Important
 		title := fm.Title

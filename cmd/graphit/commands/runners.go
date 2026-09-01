@@ -1602,14 +1602,19 @@ func runMemorySearch(term string, userScope bool) error {
 		return nil
 	}
 
-	results := wiki.BM25Search(ctx, wikiDir, term, 0)
+	results := memory.SearchChains(ctx, wikiDir, term, 0)
 	if len(results) == 0 {
 		p.Info("No memories matching %q in %s scope.", term, scope)
 		return nil
 	}
 
 	for _, r := range results {
-		p.ListItem("[%.3f] %s — %s", r.Score, strings.TrimSuffix(r.Path, ".md"), r.Title)
+		slug := strings.TrimSuffix(r.Path, ".md")
+		if r.Superseded {
+			p.ListItem("[%.3f] %s — %s (superseded — current: %s)", r.Score, slug, r.Title, r.Current)
+			continue
+		}
+		p.ListItem("[%.3f] %s — %s", r.Score, slug, r.Title)
 	}
 	p.Count("match", len(results))
 	return nil

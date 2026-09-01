@@ -43,6 +43,8 @@ OPEN THE `graphit-memory` SKILL WHEN ANY OF THESE IS TRUE — this is the trigge
 - you are about to open a memory page as a file — you cannot: the store is global and outside your workspace, so `graphit_wiki_source` with `wiki: "memory"` is the only way to read one
 - the question is about another project in the ecosystem — its memories hold why it is the way it is; pass its `project_dir` instead of re-deriving that from its code
 - a memory search came back and you are about to act on it — you cannot: `graphit_memory_search` answers with TITLES, so pick the one or two the titles justify and read them with `graphit_wiki_source` (`wiki: "memory"`) before you conclude anything
+- a search result is marked `superseded` — it is an OLD revision of the memory named in `current`, so read that one before you state anything about how the system behaves today
+- the question is how a belief in this project CHANGED — what a memory said before a correction, or why it was revised. Every superseded revision is searchable and the chain is walkable through `previous`; do not answer that from the current memory alone
 
 MCP tools this module owns: `graphit_memory_search`, `graphit_memory_insert`, `graphit_memory_update`, `graphit_memory_list`, `graphit_memory_important`, `graphit_memory_promote`, `graphit_memory_demote`, `graphit_memory_delete`, `graphit_memory_index`, `graphit_memory_schema`, `graphit_memory_export`, `graphit_memory_sync`, `graphit_memory_remove`, `graphit_wiki_source`. The skill says when and how to call each.
 

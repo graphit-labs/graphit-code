@@ -63,3 +63,21 @@ func SyncAndCycle(ctx context.Context, scope, scopeID string, store MemoryStoreP
 
 	return RunCycle(ctx, scope, rawDir, MemoryWikiGlobalDir(scope, scopeID))
 }
+
+// memoryEntityPageWithHash renders the page of a LIVE memory.
+//
+// It is the old signature of memoryEntityPage, kept for the tests that predate the revision
+// chain. Production code passes a memDoc, because a page now also has to be able to describe a
+// superseded revision — which needs the chain fields this helper deliberately leaves empty.
+func memoryEntityPageWithHash(id, title, createdAt string, important bool, body, memType, contentHash string) string {
+	return memoryEntityPage(memDoc{
+		id:          id,
+		title:       title,
+		createdAt:   createdAt,
+		important:   important,
+		body:        body,
+		memType:     memType,
+		contentHash: contentHash,
+		filename:    MemoryFileName(id),
+	})
+}
