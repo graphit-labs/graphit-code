@@ -247,7 +247,7 @@ func GenerateMemoryWiki(ctx context.Context, rawDir, wikiDir string, logger ...*
 		now := time.Now().UTC().Format("2006-01-02")
 		wc := len(strings.Fields(doc.body))
 
-		wikiChunks = append(wikiChunks, wiki.WikiChunk{
+		chunk := wiki.WikiChunk{
 			Slug:        slugs[i],
 			Title:       doc.title,
 			Body:        doc.body,
@@ -258,7 +258,16 @@ func GenerateMemoryWiki(ctx context.Context, rawDir, wikiDir string, logger ...*
 			Updated:     now,
 			Important:   doc.important,
 			ContentHash: doc.contentHash,
-		})
+			// The chain, as columns. A memory id is the entity: every revision of a memory shares
+			// it, which is what lets the index answer "these two hits are one memory".
+			EntityID:   doc.id,
+			RevisionID: doc.revisionID,
+			Superseded: doc.superseded,
+		}
+		if doc.superseded {
+			chunk.CurrentID = doc.id
+		}
+		wikiChunks = append(wikiChunks, chunk)
 	}
 
 	// Pass a logEntry only when articles were actually written so that

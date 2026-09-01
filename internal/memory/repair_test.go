@@ -415,3 +415,109 @@ func TestQuoteUnquotedScalarsLeavesGoodLinesAlone(t *testing.T) {
 		}
 	}
 }
+
+// Chain collapse must be answerable from the index alone. It used to open each hit's page and
+// parse its frontmatter — a file read per hit for something the columns can project.
+//
+// The test proves it by making the pages unreadable after the index is built: if the search still
+// resolves the chain, it did not touch them.
+func TestChainResolvesFromTheIndexAndNotFromThePages(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	svc, w := newLocalService(t)
+
+	id, err := svc.AddMemory("Column-resolved", "the marker word wombat and an old detail", MemoryOpts{Type: MemoryTypeFact})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.UpdateMemory(id, "Column-resolved", "the marker word wombat and a new detail"); err != nil {
+		t.Fatal(err)
+	}
+
+	wikiDir := filepath.Join(t.TempDir(), "wiki")
+	if _, err := GenerateMemoryWiki(context.Background(), w.Dir(), wikiDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Blank every page. The index keeps its columns; the frontmatter is gone.
+	pages, err := filepath.Glob(filepath.Join(wikiDir, "*.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pages {
+		if err := os.WriteFile(p, []byte("gutted\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results := SearchChains(context.Background(), wikiDir, "wombat", 10)
+	if len(results) != 1 {
+		for _, r := range results {
+			t.Logf("hit %s entity=%s superseded=%v", r.Path, r.MemoryID, r.Superseded)
+		}
+		t.Fatalf("got %d results, want 1 — the chain was not resolved from the index", len(results))
+	}
+	if results[0].MemoryID != id {
+		t.Errorf("memory_id = %q, want %q", results[0].MemoryID, id)
+	}
+	if results[0].Superseded {
+		t.Error("the surviving result is the superseded revision")
+	}
+}
+
+// The columns are generic, so a wiki that is not memory can carry supersession too — an ADR
+// replaced by a later one, a spec kept for reference.
+func TestSupersessionColumnsRoundTripThroughTheIndex(t *testing.T) {
+	wikiDir := filepath.Join(t.TempDir(), "wiki")
+	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	chunks := []wiki.WikiChunk{
+		{
+			Slug: "adr-0007-current", Title: "ADR 7", Body: "we index quokka tables in lance",
+			DocType: "decision", EntityID: "adr-0007", WordCount: 6,
+		},
+		{
+			Slug: "adr-0007-r1", Title: "ADR 7 (r1)", Body: "we indexed quokka tables in sqlite",
+			DocType: "decision", EntityID: "adr-0007", RevisionID: "r1",
+			Superseded: true, CurrentID: "adr-0007", WordCount: 6,
+		},
+	}
+	if err := wiki.RebuildDB(context.Background(), wikiDir, chunks, nil, nil, nil); err != nil {
+		t.Fatalf("RebuildDB: %v", err)
+	}
+
+	db, err := wiki.OpenWikiDB(context.Background(), wikiDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	got, err := db.Search(context.Background(), "quokka", 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d hits, want both revisions", len(got))
+	}
+	var sawCurrent, sawSuperseded bool
+	for _, r := range got {
+		if r.EntityID != "adr-0007" {
+			t.Errorf("entity_id = %q, want adr-0007", r.EntityID)
+		}
+		if r.Superseded {
+			sawSuperseded = true
+			if r.CurrentID != "adr-0007" || r.RevisionID != "r1" {
+				t.Errorf("superseded hit carries current_id=%q revision_id=%q", r.CurrentID, r.RevisionID)
+			}
+			continue
+		}
+		sawCurrent = true
+		if r.RevisionID != "" {
+			t.Errorf("the current revision carries revision_id=%q, want empty", r.RevisionID)
+		}
+	}
+	if !sawCurrent || !sawSuperseded {
+		t.Error("the two revisions did not round-trip with their supersession columns")
+	}
+}

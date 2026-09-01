@@ -496,9 +496,25 @@ Then nothing is written
 
 ## Technical Debt
 
-- [ ] Chain metadata belongs in the wiki DB (`WikiChunk` / `BM25Result`) so dedup is a
-  filter in the query instead of a frontmatter read per hit. Blocked on deciding whether
-  supersession is a general wiki concept or a memory-only one.
+- [x] Chain metadata belongs in the wiki DB so dedup is a filter in the query instead of a
+  frontmatter read per hit. **Done 2026-09-01**, and the blocking question was decided:
+  supersession is a GENERAL wiki concept, so the columns are generic — `entity_id`,
+  `revision_id`, `superseded`, `current_id` on `lanceChunksSchema`, with a bitmap index on
+  `superseded` and a BTree on `entity_id`. `WikiChunk`, `WikiSearchResult` and `BM25Result`
+  carry them, so `resolveChains` reads no files. The page frontmatter is still written and is
+  still the fallback for the markdown-scan path, which has no columns to project.
+  `TestChainResolvesFromTheIndexAndNotFromThePages` proves it by gutting every page after the
+  index is built.
+- [ ] The `search_body` column repeats `body`, because the engine's FTS targets exactly one
+  column (`Query.TextColumn`, and lancedb-go's `FTSSearch` takes a single column name), so
+  the title, the slug's words, the summary and the gram bag have to sit in the same column as
+  the text. Measured on this project's memory wiki: `chunks.lance` is 6.0 MB against 1.3 MB of
+  markdown, of which roughly 1.2 MB is embeddings — so the duplicate is on the order of the
+  markdown itself. Removing it means indexing `body` directly and keeping the derived signals
+  in a second indexed column, then fusing two FTS queries with the RRF that already exists.
+  That is a recall question before it is a size question, so it needs a measurement, not a
+  rewrite. **`body` itself must not be dropped**: it is the only copy of the page text for a
+  wiki mounted from the Hub.
 - [ ] `graphit_memory_list` has no way to ask for a chain's revisions. Reading them today
   means searching or knowing the slug. A `memory_history <id>` surface would close it.
 - [ ] The repair pass runs on every index. Once every clone of the bucket has run it, it is
@@ -597,3 +613,32 @@ Then nothing is written
   Previously duplicated titles now appear once.
 - `go test -tags fts5,lancedb ./...` green. `make lint` clean after removing the
   now-unused `currentRevision` and fixing one `appendAssign` in the new test.
+
+### 2026-09-01 (follow-up: supersession becomes columns)
+
+- Decided the blocking question: supersession is a general wiki concept, so the columns are
+  generic rather than memory-named — `entity_id`, `revision_id`, `superseded`, `current_id` on
+  `lanceChunksSchema`, bitmap index on `superseded`, BTree on `entity_id`. `WikiChunk`,
+  `WikiSearchResult` and `BM25Result` carry them end to end.
+- `resolveChains` now reads no files. `chainFromPage` remains as the fallback for the
+  markdown-scan path, which has no columns.
+- Verified against the real store with a throwaway probe (since deleted): the columns are
+  populated, and the raw index returns three rows for one entity where the collapsed search
+  returns one. An earlier MCP search stopped showing a superseded row, which turned out to be
+  correct — the over-fetched set now includes the head, so the head wins the slot.
+- Two facts established while checking the premise, both worth recording because a memory
+  claimed otherwise:
+  - **the wiki index is LanceDB, not SQLite** — the memory describing `wiki.db` with
+    `chunks_fts` FTS5 and `chunks_vec` was from before the Fase D migration, and was corrected
+  - **`-tags fts5` is no longer required** — `go build -tags lancedb ./internal/wiki/...
+    ./internal/ast/...` compiles, and `make lint` already uses `lancedb` alone
+- Answered the "why duplicate the body" question with a measurement rather than a change: the
+  duplication is `search_body` re-including `body`, it exists because the engine's FTS targets
+  exactly one column, and `body` itself is the only copy of the page text for a Hub-mounted
+  wiki. Recorded as debt with the numbers.
+- Confirmed the local-file / Hub-index split the user asked for **already exists**:
+  `wiki_source` calls `ReadPageFrom` (which reads `chunks.body`) when `openMountedWiki` reports
+  a mounted context, and falls through to `wiki.ReadPage` reading the `.md` otherwise. It is
+  gated on `module == "knowledge"`, which is right today because an imported memory context
+  syncs its raw files locally and therefore has pages to read.
+- `go test -tags lancedb ./...` green, `make lint` 0 issues.

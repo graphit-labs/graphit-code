@@ -67,29 +67,48 @@ func SearchChains(ctx context.Context, wikiDir, query string, topN int) []ChainR
 	return out
 }
 
-// resolveChains attaches the chain metadata each hit's page declares.
+// resolveChains attaches the chain metadata to each hit.
 //
-// It reads the page rather than the index because supersession lives in the page frontmatter —
-// see the note on PageFieldSuperseded for why it is not a column. The cost is one small read per
-// hit, and there are at most top_k * chainOverFetch of them.
+// It comes out of the index: `entity_id`, `revision_id`, `superseded` and `current_id` are columns
+// on the chunks table, so a hit already carries its chain and this function reads no files. It used
+// to open each hit's page and parse its frontmatter — correct, and a file read per hit for
+// something the index could have projected.
+//
+// The page frontmatter is still written, and is still the fallback here: the markdown scan that
+// answers before a wiki has ever been compiled has no columns to project, and a memory written
+// seconds ago is found by exactly that path.
 func resolveChains(wikiDir string, hits []wiki.BM25Result) []ChainResult {
 	out := make([]ChainResult, 0, len(hits))
 	for _, hit := range hits {
-		cr := ChainResult{BM25Result: hit}
-
-		fields := pageChainFields(wikiDir, hit.Path)
-		cr.MemoryID = fields[PageFieldMemoryID]
-		cr.RevisionID = fields[PageFieldRevisionID]
-		cr.Superseded = strings.EqualFold(fields[PageFieldSuperseded], "true")
-		if cr.Superseded {
-			cr.Current = fields[PageFieldCurrent]
-			if cr.Current == "" {
-				cr.Current = cr.MemoryID
-			}
+		cr := ChainResult{
+			BM25Result: hit,
+			MemoryID:   hit.EntityID,
+			RevisionID: hit.RevisionID,
+			Superseded: hit.Superseded,
+			Current:    hit.CurrentID,
+		}
+		if cr.MemoryID == "" {
+			cr = chainFromPage(wikiDir, hit)
+		}
+		if cr.Superseded && cr.Current == "" {
+			cr.Current = cr.MemoryID
 		}
 		out = append(out, cr)
 	}
 	return out
+}
+
+// chainFromPage resolves a hit's chain from its compiled page, for the markdown-scan path.
+func chainFromPage(wikiDir string, hit wiki.BM25Result) ChainResult {
+	cr := ChainResult{BM25Result: hit}
+	fields := pageChainFields(wikiDir, hit.Path)
+	cr.MemoryID = fields[PageFieldMemoryID]
+	cr.RevisionID = fields[PageFieldRevisionID]
+	cr.Superseded = strings.EqualFold(fields[PageFieldSuperseded], "true")
+	if cr.Superseded {
+		cr.Current = fields[PageFieldCurrent]
+	}
+	return cr
 }
 
 // collapseChains keeps one result per chain, preferring the current revision.

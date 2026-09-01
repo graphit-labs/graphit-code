@@ -330,11 +330,15 @@ func wikiFTSToB25Results(ftsResults []WikiSearchResult) []BM25Result {
 	results := make([]BM25Result, 0, len(ftsResults))
 	for _, r := range ftsResults {
 		results = append(results, BM25Result{
-			Path:    r.Slug + ".md",
-			Title:   r.Title,
-			DocType: r.DocType,
-			Score:   r.Score,
-			Snippet: r.Snippet,
+			Path:       r.Slug + ".md",
+			Title:      r.Title,
+			DocType:    r.DocType,
+			Score:      r.Score,
+			Snippet:    r.Snippet,
+			EntityID:   r.EntityID,
+			RevisionID: r.RevisionID,
+			Superseded: r.Superseded,
+			CurrentID:  r.CurrentID,
 		})
 	}
 	return results

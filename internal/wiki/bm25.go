@@ -43,6 +43,13 @@ type BM25Result struct {
 	DocType string
 	Score   float64
 	Snippet string
+
+	// Supersession, carried out of the index so a caller can collapse an entity's revisions
+	// without opening a single page. Empty on the markdown-scan path, which has no columns.
+	EntityID   string
+	RevisionID string
+	Superseded bool
+	CurrentID  string
 }
 
 func NewBM25Index(wikiDir string, cfg BM25Config) (*BM25Index, error) {

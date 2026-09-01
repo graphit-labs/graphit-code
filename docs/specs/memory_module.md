@@ -105,10 +105,22 @@ The catalogue surfaces — the wiki index page, `memory_list` and
 `memory_important` — list live memories only. A superseded revision is not part of
 what the project currently knows; it is reachable by search and by slug.
 
-Chain metadata is carried in the compiled page's frontmatter (`superseded`,
-`current`, `revision_id`) rather than in the wiki database, so resolving a hit's
-chain costs one small read per hit and the database schema stays shared with the
-knowledge wiki unchanged.
+Chain metadata is carried as **columns on the wiki index**, so collapsing a chain is
+a projection the engine answers rather than a file read per hit. The columns are
+generic, because supersession is not a memory concept — an ADR replaced by a later
+one is the same shape:
+
+| Column | Meaning |
+|---|---|
+| `entity_id` | the stable identity of the thing the page is about, shared by all its revisions. For a memory, the memory id |
+| `revision_id` | this revision's own address; empty on the current one |
+| `superseded` | this page is an older revision (bitmap index) |
+| `current_id` | the `entity_id` to read for the current version; set only when `superseded` |
+
+The same fields are written into the compiled page's frontmatter as well, and that
+copy is the fallback for the markdown-scan path — the BM25 scan that answers before
+a wiki has ever been compiled has no columns to project, and a memory written
+seconds ago is found by exactly that path.
 
 ## Identity integrity
 

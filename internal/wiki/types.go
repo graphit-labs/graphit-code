@@ -22,6 +22,17 @@ type WikiChunk struct {
 	WordCount   int
 	Updated     string
 	Important   bool
+
+	// Supersession — the same four fields on every wiki, because "this page is an older version
+	// of that one" is not a memory concept. A memory's revision chain is one instance of it; an
+	// ADR replaced by a later ADR and a spec kept for reference are others.
+	//
+	// They are columns rather than page frontmatter so that collapsing a chain is a predicate the
+	// engine evaluates, not a file read per hit.
+	EntityID   string // stable identity of the thing this page is about, shared by all its revisions
+	RevisionID string // this revision's own address within the entity; empty on the current one
+	Superseded bool   // this page is an older revision, not what the project holds now
+	CurrentID  string // the EntityID to read for the current version; set only when Superseded
 }
 
 // WikiSearchResult is a single result from a wiki search.
@@ -35,6 +46,11 @@ type WikiSearchResult struct {
 	Snippet    string
 	CrossRefs  []string
 	Source     string
+
+	EntityID   string
+	RevisionID string
+	Superseded bool
+	CurrentID  string
 }
 
 // BrowseFilter controls Browse() output.

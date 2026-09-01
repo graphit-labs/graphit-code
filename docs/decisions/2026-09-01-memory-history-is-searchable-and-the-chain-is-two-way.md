@@ -107,10 +107,12 @@ Four parts:
   places rather than one: the compiled page opens with a banner naming the current id, the
   search result carries `superseded` and `current` columns with an instruction line, and the
   memory rule has a trigger for it. Not eliminated.
-- **Chain metadata lives in page frontmatter, not in the wiki database.** Cheaper to build
-  and it keeps a memory-only concept out of a schema shared with the knowledge wiki, at the
-  cost of a read per hit. Revisit if supersession turns out to be a general wiki concept —
-  recorded as debt in the task log.
+- **Chain metadata is carried as generic columns on the wiki index** — `entity_id`,
+  `revision_id`, `superseded`, `current_id`, with a bitmap index on `superseded`. It began as
+  page frontmatter read per hit, on the reasoning that supersession might be memory-only; that
+  was revisited the same day and decided the other way, because an ADR replaced by a later ADR
+  is the same shape and the knowledge wiki will want it. The frontmatter copy remains as the
+  fallback for the markdown-scan path, which has no columns to project.
 
 ## Alternatives considered
 

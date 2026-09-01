@@ -190,6 +190,10 @@ func lanceChunksSchema(vectorDim int) lancestore.Schema {
 		{Name: "word_count", Type: lancestore.FieldInt64},
 		{Name: "updated", Type: lancestore.FieldString, Nullable: true},
 		{Name: "important", Type: lancestore.FieldBool},
+		{Name: "entity_id", Type: lancestore.FieldString, Nullable: true},
+		{Name: "revision_id", Type: lancestore.FieldString, Nullable: true},
+		{Name: "superseded", Type: lancestore.FieldBool},
+		{Name: "current_id", Type: lancestore.FieldString, Nullable: true},
 		{Name: lanceWikiBody, Type: lancestore.FieldString},
 		{Name: lanceWikiVector, Type: lancestore.FieldVector, Dim: vectorDim, Nullable: true},
 	}}
@@ -238,6 +242,11 @@ func lanceChunkIndexes() []lancestore.Index {
 		{Column: lanceWikiVector, Kind: lancestore.IndexVectorIVFPQ},
 		{Column: "slug", Kind: lancestore.IndexScalarBTree},
 		{Column: "doc_type", Kind: lancestore.IndexScalarBitmap},
+		// Two values, and one of them selects almost the whole table — which is exactly what a
+		// bitmap is for. It is the index that makes "the current revisions only" a scan the engine
+		// skips rather than a filter it applies row by row.
+		{Column: "superseded", Kind: lancestore.IndexScalarBitmap},
+		{Column: "entity_id", Kind: lancestore.IndexScalarBTree},
 	}
 }
 
@@ -250,6 +259,21 @@ func lanceChunkIndexes() []lancestore.Index {
 // the title so a truncated query reaches them, and it deliberately does NOT cover the body: a
 // page's whole text expanded into two- and three-character grams is tens of thousands of tokens
 // that match everything, which is the opposite of recall.
+// wikiSearchBody is the text the inverted index reads.
+//
+// It repeats `body`, and that duplication is deliberate rather than an oversight: the engine's FTS
+// query targets exactly ONE column (`Query.TextColumn`, and lancedb-go's FTSSearch takes a single
+// column name), so every signal that has to be searchable — the title, the slug's words, the
+// summary, the breadcrumb, the type, and the gram bag that buys typo tolerance — has to live in
+// the same column as the body.
+//
+// The alternative is to index `body` directly and keep the derived signals in a second indexed
+// column, which removes one copy of the document text at the price of two FTS round trips fused in
+// Go. That is a recall question, not a size question, so it is not a change to make blind: see the
+// debt entry in docs/tasks/memory-revision-chain-searchable-history.md.
+//
+// `body` itself is NOT redundant with this column and must not be dropped: it is the only copy of
+// the page text for a wiki mounted from the Hub, where there is no `.md` to read — see ReadPageFrom.
 func wikiSearchBody(c WikiChunk) string {
 	parts := []string{c.Title, splitWikiSlug(c.Slug), c.Summary, c.Breadcrumb, c.DocType, c.Body}
 	parts = append(parts, wikiGramBag(c.Title, c.Slug))
@@ -333,6 +357,10 @@ func buildChunkRow(c WikiChunk, vec []float32) lancestore.Row {
 		"word_count":    int64(c.WordCount),
 		"updated":       c.Updated,
 		"important":     c.Important,
+		"entity_id":     c.EntityID,
+		"revision_id":   c.RevisionID,
+		"superseded":    c.Superseded,
+		"current_id":    c.CurrentID,
 		lanceWikiBody:   wikiSearchBody(c),
 		lanceWikiVector: nil,
 	}
@@ -669,6 +697,10 @@ func (w *WikiDB) search(ctx context.Context, q lancestore.Query) ([]WikiSearchRe
 			Breadcrumb: str(h.Row["breadcrumb"]),
 			Source:     str(h.Row["source"]),
 			Score:      h.Score,
+			EntityID:   str(h.Row["entity_id"]),
+			RevisionID: str(h.Row["revision_id"]),
+			Superseded: boolOf(h.Row["superseded"]),
+			CurrentID:  str(h.Row["current_id"]),
 		}
 		if r.Snippet == "" {
 			r.Snippet = wikiSnippet(str(h.Row["body"]), str(h.Row["summary"]))
