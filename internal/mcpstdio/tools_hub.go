@@ -33,19 +33,26 @@ type hubShowInput struct {
 }
 
 type hubInstallInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to install globally, with no project: the artifact lands in the shared version-keyed store and is addressed afterwards by its qualified id@version."`
 	ID          string `json:"id" jsonschema:"Artifact ID to install. Supports @version suffix for version pinning (required)"`
 	Type        string `json:"type,omitempty" jsonschema:"Artifact type"`
-	IDE         string `json:"ide,omitempty" jsonschema:"Target IDE (claude, cursor, gemini, etc.)"`
+	IDE         string `json:"ide,omitempty" jsonschema:"Target IDE (claude, cursor, gemini, etc.). Ignored for a global install, which has no IDE directory to materialise into."`
 	Alias       string `json:"alias,omitempty" jsonschema:"Alias to assign to installed artifact"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type hubUninstallInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to drop a global install."`
 	ID         string `json:"id" jsonschema:"Artifact ID to uninstall (required)"`
 	Type       string `json:"type,omitempty" jsonschema:"Artifact type"`
 	IDE        string `json:"ide,omitempty" jsonschema:"Target IDE"`
+}
+
+type hubContentInput struct {
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed artifact."`
+	ID         string `json:"id" jsonschema:"Artifact ID, optionally qualified with @version (required)"`
+	Type       string `json:"type,omitempty" jsonschema:"Artifact type: rule, skill, command or agent. Only needed when the same id exists under more than one type."`
+	Path       string `json:"path,omitempty" jsonschema:"Return only this file, as an artifact-relative path. Omit to return every file."`
 }
 
 type hubUpdateInput struct {
@@ -146,15 +153,23 @@ func registerHubTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("hub", "install"),
-		Description: "Install an artifact from the Graphit Hub into the current project.",
+		Name: brand.MCPToolName("hub", "install"),
+		Description: "Install an artifact from the Graphit Hub into the current project, or globally when project_dir is omitted. " +
+			"A global install needs no project: it populates the same shared, version-keyed store, and the artifact is " +
+			"addressed afterwards by its qualified id@version — as 'context' for ast and knowledge, and as 'id' for " +
+			brand.MCPToolName("hub", "content") + ".",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubInstallInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
 
-		resolvedIDE := resolveIDEFromProject(input.IDE, projectDir)
+		// No project means no IDE directory to materialise into, so resolving an IDE
+		// would only invite the install to write into one belonging to somebody else.
+		resolvedIDE := ""
+		if projectDir != "" {
+			resolvedIDE = resolveIDEFromProject(input.IDE, projectDir)
+		}
 
 		var result *hub.InstallResult
 		err = withProjectDir(projectDir, func() error {
@@ -177,14 +192,17 @@ func registerHubTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("hub", "uninstall"),
-		Description: "Remove an installed artifact from the current project.",
+		Description: "Remove an installed artifact from the current project, or drop a global install when project_dir is omitted.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubUninstallInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
 
-		resolvedIDE := resolveIDEFromProject(input.IDE, projectDir)
+		resolvedIDE := ""
+		if projectDir != "" {
+			resolvedIDE = resolveIDEFromProject(input.IDE, projectDir)
+		}
 
 		err = withProjectDir(projectDir, func() error {
 			reg, rerr := hub.NewRegistryManager(ctx)
@@ -368,6 +386,41 @@ func registerHubTools(server *mcp.Server) {
 			return errResult(err)
 		}
 		return textResult(fmt.Sprintf("Artifact %q unlinked.", input.Name))
+	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: brand.MCPToolName("hub", "content"),
+		Description: "Read the CONTENT of an installed rule, skill, command or agent artifact. " +
+			"An artifact is often several files — a skill is — so the answer is a map KEYED BY the artifact-relative " +
+			"PATH, with each file's text as the value, and 'canonical' naming the entry-point file to read first. " +
+			"project_dir is optional: with one, that project's claim decides the version; without one, the globally " +
+			"installed artifact is read and the id may carry an @version. ast and knowledge artifacts are not served " +
+			"here — they are mounted rather than downloaded, so read them with " +
+			brand.MCPToolName("ast", "source") + " and " + brand.MCPToolName("wiki", "source") + ".",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input hubContentInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		if input.ID == "" {
+			return errResult(fmt.Errorf("id is required"))
+		}
+
+		var content *hub.ArtifactContent
+		err = withProjectDir(projectDir, func() error {
+			reg, rerr := hub.NewRegistryManager(ctx)
+			if rerr != nil {
+				return rerr
+			}
+			svc := hub.NewHubService(reg)
+			content, rerr = svc.ArtifactContentFor(ctx, projectDir, input.ID,
+				hub.ArtifactType(strings.ToLower(input.Type)), input.Path)
+			return rerr
+		})
+		if err != nil {
+			return errResult(err)
+		}
+		return jsonResult(content)
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{

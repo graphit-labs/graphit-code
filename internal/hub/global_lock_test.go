@@ -100,7 +100,7 @@ func TestGlobalLockManager_RegisterInstall(t *testing.T) {
 	mgr := &GlobalLockManager{lockPath: filepath.Join(dir, "global.lock.json")}
 
 	// First install
-	art, err := mgr.RegisterInstall("my-rule", "1.0.0", TypeRule, "My Rule", "desc", "hash123", "/cache", "proj1", "/proj", "/local")
+	art, err := mgr.RegisterInstall(InstallRecord{ID: "my-rule", Version: "1.0.0", Type: TypeRule, Name: "My Rule", Description: "desc", Hash: "hash123", CachePath: "/cache", Owner: "proj1", OwnerDir: "/proj", LocalPath: "/local"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestGlobalLockManager_RegisterInstall(t *testing.T) {
 	}
 
 	// Update existing
-	art2, err := mgr.RegisterInstall("my-rule", "1.0.0", TypeRule, "Updated Name", "new desc", "newhash", "/newcache", "proj2", "/proj2", "/local2")
+	art2, err := mgr.RegisterInstall(InstallRecord{ID: "my-rule", Version: "1.0.0", Type: TypeRule, Name: "Updated Name", Description: "new desc", Hash: "newhash", CachePath: "/newcache", Owner: "proj2", OwnerDir: "/proj2", LocalPath: "/local2"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestGlobalLockManager_RegisterUninstall(t *testing.T) {
 	dir := t.TempDir()
 	mgr := &GlobalLockManager{lockPath: filepath.Join(dir, "global.lock.json")}
 
-	_, _ = mgr.RegisterInstall("my-rule", "1.0.0", TypeRule, "My Rule", "", "", "", "proj1", "", "")
+	_, _ = mgr.RegisterInstall(InstallRecord{ID: "my-rule", Version: "1.0.0", Type: TypeRule, Name: "My Rule", Owner: "proj1"})
 
 	orphaned, err := mgr.RegisterUninstall("my-rule", "1.0.0", TypeRule, "proj1")
 	if err != nil {
@@ -195,8 +195,8 @@ func TestGlobalLockManager_ListInstalledInProject(t *testing.T) {
 	dir := t.TempDir()
 	mgr := &GlobalLockManager{lockPath: filepath.Join(dir, "global.lock.json")}
 
-	_, _ = mgr.RegisterInstall("r1", "1.0.0", TypeRule, "R1", "", "", "", "proj1", "", "")
-	_, _ = mgr.RegisterInstall("r2", "1.0.0", TypeRule, "R2", "", "", "", "proj2", "", "")
+	_, _ = mgr.RegisterInstall(InstallRecord{ID: "r1", Version: "1.0.0", Type: TypeRule, Name: "R1", Owner: "proj1"})
+	_, _ = mgr.RegisterInstall(InstallRecord{ID: "r2", Version: "1.0.0", Type: TypeRule, Name: "R2", Owner: "proj2"})
 
 	arts, err := mgr.ListInstalledInProject("proj1")
 	if err != nil {

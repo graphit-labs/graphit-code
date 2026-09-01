@@ -93,10 +93,13 @@ func recordFrom(projectDir, artifactID string, meta *projectlock.ArtifactMeta) C
 // An empty map is the normal answer for a project that has claimed nothing, and is not
 // distinguished from a missing lockfile: both mean the same thing.
 func ListContexts(projectDir, kind string) map[string]ContextRecord {
-	out := map[string]ContextRecord{}
+	// No project means the GLOBAL scope, not "a project with nothing claimed". An
+	// artifact installed with no project records its membership in the global lock,
+	// and that record is the only one there is. See globalcontexts.go.
 	if projectDir == "" {
-		return out
+		return ListGlobalContexts(kind)
 	}
+	out := map[string]ContextRecord{}
 	lf, err := projectlock.Load(lockPathFor(projectDir))
 	if err != nil || lf == nil {
 		return out
@@ -128,6 +131,16 @@ func ContextNames(projectDir, kind string) []string {
 func LookupContext(projectDir, kind, name string) (ContextRecord, bool) {
 	if name == "" {
 		return ContextRecord{}, false
+	}
+	// The global scope accepts a qualified id@version, which a project never needs:
+	// a project's lockfile holds the version, so the name alone is enough there. A
+	// project-less caller has no lockfile to read it from, so the reference carries it.
+	//
+	// This fires only when projectDir is genuinely absent. It is NOT a second chance
+	// for a project that did not install the artifact — membership is the whole point
+	// of the per-project record, and a project must not reach a store it never claimed.
+	if projectDir == "" {
+		return LookupGlobalContext(kind, name)
 	}
 	ctxs := ListContexts(projectDir, kind)
 	if rec, ok := ctxs[name]; ok {

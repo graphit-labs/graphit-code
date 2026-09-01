@@ -69,14 +69,24 @@ type GlobalHubLock struct {
 }
 
 type GlobalArtifact struct {
-	ID          string                     `json:"id"`
-	Name        string                     `json:"name"`
-	Description string                     `json:"description,omitempty"`
-	Version     string                     `json:"version"`
-	Hash        string                     `json:"hash,omitempty"`
-	Type        ArtifactType               `json:"type"`
-	CachePath   string                     `json:"cachePath"`
-	Projects    map[string]*ProjectInstall `json:"projects"`
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	Description string       `json:"description,omitempty"`
+	Version     string       `json:"version"`
+	Hash        string       `json:"hash,omitempty"`
+	Type        ArtifactType `json:"type"`
+	CachePath   string       `json:"cachePath"`
+	// ProjectID is the PUBLISHING project, the same meaning it has in
+	// LockfileArtifactMeta — not one of the consumers in Projects below.
+	//
+	// It is recorded because it is half of a store's address: a Hub context is named
+	// after the project that published it (store.ContextNameFor), so resolving
+	// ASTHubDir or KnowledgeHubDir from this entry alone is impossible without it.
+	// A project-scoped install never needed it here, having the same field in its own
+	// lockfile; a project-less install has no lockfile, and this entry is the only
+	// record there is.
+	ProjectID string                     `json:"projectId,omitempty"`
+	Projects  map[string]*ProjectInstall `json:"projects"`
 }
 
 type ProjectInstall struct {
@@ -146,12 +156,38 @@ func (m *GlobalLockManager) save(lock *GlobalHubLock) error {
 	return os.WriteFile(m.lockPath, data, 0o644)
 }
 
-func (m *GlobalLockManager) RegisterInstall(
-	id, version string,
-	artType ArtifactType,
-	name, description, hash string,
-	cachePath, projectID, projectDir, localPath string,
-) (*GlobalArtifact, error) {
+// InstallRecord is one install being registered in the global lock.
+//
+// It is a struct rather than a parameter list because the list had reached ten
+// positional strings, four of which were ids and paths that read alike — and the
+// eleventh, the publishing project, is the one a project-less install cannot do
+// without. A mis-ordered pair there does not fail: it registers the install against
+// the wrong owner, or addresses a store that was never built.
+type InstallRecord struct {
+	ID          string
+	Version     string
+	Type        ArtifactType
+	Name        string
+	Description string
+	Hash        string
+	// CachePath is the local directory the install produced — a clone for a file
+	// artifact, a mounted store for AST.
+	CachePath string
+	// PublisherID is the project that PUBLISHED the artifact, and half of the
+	// address of its shared store. Empty means it was published outside any project.
+	PublisherID string
+	// Owner is who asked for the install: a project id, store.GlobalOwnerKey for an
+	// install that belongs to no project, or "__transient__" for a download made to
+	// answer one question.
+	Owner string
+	// OwnerDir is the owner's project directory, and empty for an owner that has
+	// none. ValidateProjectDirs keys its staleness check on this, so empty must mean
+	// "not a directory to check" rather than "a directory that is gone".
+	OwnerDir  string
+	LocalPath string
+}
+
+func (m *GlobalLockManager) RegisterInstall(rec InstallRecord) (*GlobalArtifact, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -160,39 +196,43 @@ func (m *GlobalLockManager) RegisterInstall(
 		return nil, err
 	}
 
-	key := artifactKey(id, version, artType)
+	key := artifactKey(rec.ID, rec.Version, rec.Type)
 	art := lock.Artifacts[key]
 	if art == nil {
 		art = &GlobalArtifact{
-			ID:          id,
-			Name:        name,
-			Description: description,
-			Version:     version,
-			Hash:        hash,
-			Type:        artType,
-			CachePath:   cachePath,
+			ID:          rec.ID,
+			Name:        rec.Name,
+			Description: rec.Description,
+			Version:     rec.Version,
+			Hash:        rec.Hash,
+			Type:        rec.Type,
+			CachePath:   rec.CachePath,
+			ProjectID:   rec.PublisherID,
 			Projects:    make(map[string]*ProjectInstall),
 		}
 		lock.Artifacts[key] = art
 	} else {
 
-		if name != "" {
-			art.Name = name
+		if rec.Name != "" {
+			art.Name = rec.Name
 		}
-		if description != "" {
-			art.Description = description
+		if rec.Description != "" {
+			art.Description = rec.Description
 		}
-		if hash != "" {
-			art.Hash = hash
+		if rec.Hash != "" {
+			art.Hash = rec.Hash
 		}
-		if cachePath != "" {
-			art.CachePath = cachePath
+		if rec.CachePath != "" {
+			art.CachePath = rec.CachePath
+		}
+		if rec.PublisherID != "" {
+			art.ProjectID = rec.PublisherID
 		}
 	}
 
-	art.Projects[projectID] = &ProjectInstall{
-		ProjectDir:  projectDir,
-		LocalPath:   localPath,
+	art.Projects[rec.Owner] = &ProjectInstall{
+		ProjectDir:  rec.OwnerDir,
+		LocalPath:   rec.LocalPath,
 		InstalledAt: time.Now().UTC().Format(time.RFC3339),
 	}
 
@@ -291,6 +331,16 @@ func (m *GlobalLockManager) ValidateProjectDirs() (int, error) {
 
 	for key, art := range lock.Artifacts {
 		for projID, proj := range art.Projects {
+			// An owner with no directory is not a project whose directory went
+			// missing — it is an owner that never had one: store.GlobalOwnerKey for
+			// an install that belongs to no project, "__transient__" for a download
+			// made to answer a single question. Joining "" with the lockfile name
+			// produces a RELATIVE path, which stats against this process's working
+			// directory and almost never exists, so the unguarded check deleted
+			// exactly the entries that are nobody's to validate.
+			if proj.ProjectDir == "" {
+				continue
+			}
 			lockFilePath := filepath.Join(proj.ProjectDir, brand.LockFileName())
 			if _, err := os.Stat(lockFilePath); os.IsNotExist(err) {
 				delete(art.Projects, projID)

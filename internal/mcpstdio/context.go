@@ -47,6 +47,83 @@ func resolveProjectDir(projectDir string) (string, error) {
 	return abs, nil
 }
 
+// resolveProjectDirOptional accepts an absent project_dir and answers with "".
+//
+// An empty string means the GLOBAL scope throughout this package: a caller with no
+// checkout on this machine — an agent reaching the server over HTTP — reaching Hub
+// artifacts that were installed with no project. Every store those artifacts live in is
+// already keyed by id and version rather than by project, so the only thing the caller
+// has to supply instead of a project is the artifact's qualified identifier.
+//
+// It is deliberately a separate function rather than a relaxation of resolveProjectDir.
+// Most tools genuinely need a project — indexing, linting, exporting, anything that
+// writes — and for those an absent project_dir is a caller error that must keep failing
+// loudly instead of resolving to something plausible.
+func resolveProjectDirOptional(projectDir string) (string, error) {
+	if projectDir == "" {
+		return "", nil
+	}
+	return resolveProjectDir(projectDir)
+}
+
+// resolveArtifactScope resolves the pair (project_dir, context) for a read that can be
+// served either from a project or from a global install.
+//
+// The rule it enforces is the one an agent gets wrong: without a project there is no
+// "own" graph or wiki to fall back on, so the context is not optional there. Left
+// unchecked, an empty pair does not fail — it resolves to a store keyed by the hash of
+// an empty path and answers with nothing, which reads as "the artifact is empty" rather
+// than "you did not say which artifact".
+func resolveArtifactScope(projectDir, contextName string) (string, error) {
+	abs, err := resolveProjectDirOptional(projectDir)
+	if err != nil {
+		return "", err
+	}
+	if abs == "" && contextName == "" {
+		return "", errNeedsArtifactReference()
+	}
+	return abs, nil
+}
+
+func errNeedsArtifactReference() error {
+	return fmt.Errorf("without project_dir there is no project to answer about: name the artifact " +
+		"in 'context' by its qualified identifier, for example 'my-artifact@1.2.0'")
+}
+
+// resolveWikiScope is resolveArtifactScope for the wiki tools, where the two wikis
+// differ on whether a project is needed.
+//
+// The memory wiki does not need one: its user scope is keyed by the machine, so a
+// project-less caller has a real scope to read rather than a fallback. The knowledge
+// wiki does, unless a context names the artifact to read instead.
+func resolveWikiScope(projectDir, wikiScope, contextName string) (string, error) {
+	abs, err := resolveProjectDirOptional(projectDir)
+	if err != nil {
+		return "", err
+	}
+	if abs != "" {
+		return abs, nil
+	}
+	if wikiScope == "memory" {
+		return "", nil
+	}
+	if contextName == "" {
+		return "", errNeedsArtifactReference()
+	}
+	return "", nil
+}
+
+// errGlobalScopeIsReadOnly is what a write gets in the global scope.
+//
+// Opening a graph or a wiki read-write CREATES it, and a project-less caller has no
+// identity to key one by: the store would be filed under the hash of an empty path,
+// where nothing would ever find it again and nothing would reclaim it. Same reasoning
+// that already refuses an ephemeral workspace a graph of its own.
+func errGlobalScopeIsReadOnly(what string) error {
+	return fmt.Errorf("%s needs a project: without project_dir this server can only READ artifacts "+
+		"installed globally, because writing would create a store with no owner to key it by", what)
+}
+
 // withProjectDir runs fn with the process sitting in projectDir.
 //
 // A working directory that cannot be read is NOT a reason to refuse: this function
@@ -57,6 +134,13 @@ func resolveProjectDir(projectDir string) (string, error) {
 // that case leaves the process somewhere that exists, which is strictly better than
 // where it was.
 func withProjectDir(projectDir string, fn func() error) error {
+	// The global scope has no directory to move into, and moving anywhere would be
+	// worse than staying: the whole reason this function exists is that code below it
+	// resolves things from the working directory, and in the global scope every path
+	// is absolute by construction.
+	if projectDir == "" {
+		return fn()
+	}
 	restoreTo, err := os.Getwd()
 	if err != nil {
 		restoreTo = projectDir
@@ -79,6 +163,13 @@ func withProjectDir(projectDir string, fn func() error) error {
 // contexts under the home directory, environment overrides — pass through.
 func anchorToProject(projectDir, path string) string {
 	if path == "" || filepath.IsAbs(path) {
+		return path
+	}
+	// Nothing to anchor to in the global scope. Joining with "" is a no-op that LOOKS
+	// harmless and is not: it leaves the path relative, which is precisely the state
+	// this function exists to remove, and the caller then resolves it against the
+	// server's own working directory.
+	if projectDir == "" {
 		return path
 	}
 	return filepath.Join(projectDir, path)
@@ -126,6 +217,12 @@ func openASTDBReadWrite(projectDir, contextName string) (ast.GraphDB, error) {
 	// Opening read-write CREATES the store, so this is the structural guard: an
 	// ephemeral workspace must not acquire a graph keyed by its session ID, and the
 	// end-of-session index the AST skill mandates would otherwise do exactly that.
+	//
+	// The global scope is the same hazard with a different key: no project means no
+	// identity, so the store would be filed under the hash of an empty path.
+	if projectDir == "" {
+		return nil, errGlobalScopeIsReadOnly("writing to a code graph")
+	}
 	if contextName == "" && store.IsEphemeralProject(projectDir) {
 		return nil, errEphemeralHasNoGraph()
 	}
@@ -152,6 +249,15 @@ func openASTDBReadWrite(projectDir, contextName string) (ast.GraphDB, error) {
 // different question.
 func memoryScopeFor(userScope bool, projectDir string) (memory.MemoryScope, string, bool, error) {
 	redirected := false
+	// The global scope has the same shape as an ephemeral workspace and for the same
+	// reason: a project memory scope is keyed by a project identity, and there is none
+	// here. The user scope is keyed by the machine, so it is available and it is the
+	// only memory such a caller legitimately has — refusing outright would fail the
+	// first call of every session the mandate tells an agent to make.
+	if !userScope && projectDir == "" {
+		userScope = true
+		redirected = true
+	}
 	if !userScope && store.IsEphemeralProject(projectDir) {
 		userScope = true
 		redirected = true
@@ -165,6 +271,12 @@ func memoryScopeFor(userScope bool, projectDir string) (memory.MemoryScope, stri
 		return memory.MemoryScopeUser, hash, redirected, nil
 	}
 
+	// Unreachable for an empty projectDir — the redirect above already took it — and
+	// guarded anyway, because the join would produce a relative path that resolves
+	// against this server's working directory.
+	if projectDir == "" {
+		return "", "", redirected, fmt.Errorf("a project memory scope is keyed by a project identity, and no project_dir was given")
+	}
 	lockPath := filepath.Join(projectDir, brand.LockFileName())
 	lf, err := hub.LoadLockfile(lockPath)
 	if err != nil || lf == nil {
@@ -176,7 +288,13 @@ func memoryScopeFor(userScope bool, projectDir string) (memory.MemoryScope, stri
 // memoryScopeNotice is the sentence a tool adds when the scope it served was not the
 // scope it was asked for, and "" when it was.
 func memoryScopeNotice(userScope bool, projectDir string) string {
-	if userScope || !store.IsEphemeralProject(projectDir) {
+	if userScope {
+		return ""
+	}
+	if projectDir == "" {
+		return "note: no project_dir was given, and a project memory scope is keyed by a project identity — your user memory was used instead"
+	}
+	if !store.IsEphemeralProject(projectDir) {
 		return ""
 	}
 	return "note: this is an ephemeral live search session, which has no project memory of its own — your user memory was used instead"
@@ -222,7 +340,10 @@ func resolveWikiDir(module, projectDir, contextName string) string {
 		// happen here too, or the two disagree: a search would return user memory
 		// slugs and reading one of them back would resolve to a directory that does
 		// not exist.
-		if scope == "project" && store.IsEphemeralProject(projectDir) {
+		//
+		// The global scope redirects for the same reason, and the two conditions are
+		// kept apart because the sentence the caller is shown differs.
+		if scope == "project" && (projectDir == "" || store.IsEphemeralProject(projectDir)) {
 			scope = "user"
 		}
 		return memory.WikiDirFor(projectDir, scope)
@@ -231,7 +352,17 @@ func resolveWikiDir(module, projectDir, contextName string) string {
 	}
 }
 
+// loadProjectConfig reads one project's configuration out of its lockfile.
+//
+// The empty projectDir guard is not defensive tidiness. filepath.Join("", "<lockfile>")
+// is a RELATIVE path, so without it a global-scope call reads the lockfile of whatever
+// directory this server happens to be sitting in and applies that project's
+// configuration — its Hub bucket, its module switches — to a request that named no
+// project at all.
 func loadProjectConfig(projectDir string) config.ConfigMap {
+	if projectDir == "" {
+		return nil
+	}
 	lp := filepath.Join(projectDir, brand.LockFileName())
 	if lf, err := hub.LoadLockfile(lp); err == nil && lf != nil {
 		return lf.Config
@@ -240,6 +371,9 @@ func loadProjectConfig(projectDir string) config.ConfigMap {
 }
 
 func loadProjectLockInfo(projectDir string) (config.ConfigMap, []string) {
+	if projectDir == "" {
+		return nil, nil
+	}
 	lp := filepath.Join(projectDir, brand.LockFileName())
 	if lf, err := hub.LoadLockfile(lp); err == nil && lf != nil {
 		return lf.Config, lf.IDEs

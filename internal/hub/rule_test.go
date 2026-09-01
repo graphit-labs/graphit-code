@@ -33,7 +33,7 @@ func TestHubRuleContentTeachesEveryHubTool(t *testing.T) {
 
 	for _, action := range []string{
 		"search", "show", "list", "install", "uninstall", "update",
-		"link", "unlink", "submit", "projects", "type-path",
+		"link", "unlink", "submit", "projects", "type-path", "content",
 	} {
 		if !strings.Contains(content, brand.MCPToolName("hub", action)) {
 			t.Errorf("hub skill never mentions %s", brand.MCPToolName("hub", action))
@@ -120,5 +120,67 @@ func TestRemoveSkill(t *testing.T) {
 	err := RemoveSkill(dir, "claude")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// An agent that does not know project_dir is optional will keep asking the user for a
+// path it does not need, and will never reach a globally installed artifact.
+func TestHubRuleContentTeachesTheProjectlessInstall(t *testing.T) {
+	t.Parallel()
+	content := HubRuleContent()
+
+	for _, want := range []string{
+		"Installing with NO project at all",
+		"`project_dir` is optional",
+		"qualified identifier",
+		brand.MCPToolName("hub", "install") + "(id: ",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("hub skill never explains %q", want)
+		}
+	}
+}
+
+// The path-keyed shape is the part an agent has to know in advance: it decides how the
+// answer is read, and a skill is routinely more than one file.
+func TestHubRuleContentExplainsThePathKeyedContentShape(t *testing.T) {
+	t.Parallel()
+	content := HubRuleContent()
+
+	for _, want := range []string{
+		"keyed by the artifact-relative path",
+		"canonical",
+		brand.MCPToolName("hub", "content") + "(id: ",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("hub skill never explains %q", want)
+		}
+	}
+
+	// And it must point the mounted types at the tools that can actually read them,
+	// rather than leaving an agent to conclude the artifact is empty.
+	for _, want := range []string{
+		brand.MCPToolRef("ast", "source"),
+		brand.MCPToolRef("wiki", "source"),
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("hub skill never points a mounted artifact at %s", want)
+		}
+	}
+}
+
+// The global scope is read-only for stores, and a project cannot borrow a global install.
+// Both are constraints an agent will otherwise discover as a confusing failure.
+func TestHubRuleContentStatesTheGlobalScopeLimits(t *testing.T) {
+	t.Parallel()
+	content := HubRuleContent()
+
+	for _, want := range []string{
+		"READ-ONLY",
+		"cannot reach a global install it never claimed",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("hub skill never states the limit %q", want)
+		}
 	}
 }

@@ -24,6 +24,16 @@ type ImportedContext struct {
 	SourcePath string `yaml:"source_path" json:"source_path"`
 	StoreDir   string `yaml:"store_dir" json:"store_dir"`
 	ImportedAt string `yaml:"imported_at" json:"imported_at"`
+	// Version is the Hub version this context is pinned to, and "local" for a
+	// context imported from a directory on this machine.
+	//
+	// It is reported because a caller with no project has no lockfile to read it
+	// from: the qualified id@version is the only way such a caller can name one
+	// version of an artifact rather than whichever is newest.
+	Version string `yaml:"version,omitempty" json:"version,omitempty"`
+	// Reference is what to pass as `context` to reach this store — the qualified
+	// identifier for a Hub context, the plain name otherwise.
+	Reference string `yaml:"reference,omitempty" json:"reference,omitempty"`
 }
 
 func sanitizeContextName(name string) string { return store.SanitizeName(name) }
@@ -139,10 +149,16 @@ func ListImportedContextsIn(projectDir string) map[string]ImportedContext {
 		if readable, ok := projectNames[name]; ok {
 			displayName = readable
 		}
+		reference := name
+		if rec.IsHub() && rec.Version != "" {
+			reference = name + "@" + rec.Version
+		}
 		result[name] = ImportedContext{
 			Name:       displayName,
 			SourcePath: rec.SourcePath,
 			StoreDir:   storeDir,
+			Version:    rec.Version,
+			Reference:  reference,
 		}
 	}
 	return result

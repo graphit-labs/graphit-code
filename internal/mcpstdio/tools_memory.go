@@ -14,7 +14,7 @@ import (
 )
 
 type memoryInsertInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
 	Title       string `json:"title" jsonschema:"Memory title (required)"`
 	Content     string `json:"content" jsonschema:"Detailed memory content (required)"`
 	Type        string `json:"type,omitempty" jsonschema:"Memory type: convention or correction or decision or tension or fact or skill"`
@@ -25,7 +25,7 @@ type memoryInsertInput struct {
 }
 
 type memoryUpdateInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
 	ID         string `json:"id" jsonschema:"Memory ID to update (required)"`
 	Content    string `json:"content,omitempty" jsonschema:"New content"`
 	Title      string `json:"title,omitempty" jsonschema:"New title"`
@@ -33,19 +33,19 @@ type memoryUpdateInput struct {
 }
 
 type memoryDeleteInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
 	ID         string `json:"id" jsonschema:"Memory ID to delete (required)"`
 	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 }
 
 type memoryListInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memorySearchInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
 	Query       string `json:"query" jsonschema:"Keywords to search for in the memory wiki using BM25"`
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
@@ -54,25 +54,25 @@ type memorySearchInput struct {
 }
 
 type memoryImportantInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type memoryPromoteInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
 	ID         string `json:"id" jsonschema:"Memory ID to promote (required)"`
 	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 }
 
 type memoryDemoteInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
 	ID         string `json:"id" jsonschema:"Memory ID to demote (required)"`
 	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 }
 
 type memoryIndexInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
 	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 }
 
@@ -99,7 +99,7 @@ func registerMemoryTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("memory", "insert"),
 		Description: "Add a new memory to the project or user memory store.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryInsertInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
@@ -156,7 +156,7 @@ func registerMemoryTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("memory", "update"),
 		Description: "Update the title or content of an existing memory.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryUpdateInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
@@ -181,7 +181,7 @@ func registerMemoryTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("memory", "delete"),
 		Description: "Delete a memory entry by ID.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryDeleteInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
@@ -206,7 +206,7 @@ func registerMemoryTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("memory", "list"),
 		Description: "List all memories in the project or user store.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryListInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
@@ -238,7 +238,7 @@ func registerMemoryTools(server *mcp.Server) {
 			"Answers with memory titles and scores, not memory text: pick the memory from the titles, then read it with " +
 			brand.MCPToolName("wiki", "source") + " and wiki: \"memory\". Pass preview=true only when the titles are not enough to choose.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySearchInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
@@ -285,7 +285,7 @@ func registerMemoryTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("memory", "important"),
 		Description: "List all memories marked as important.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryImportantInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
@@ -314,7 +314,7 @@ func registerMemoryTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("memory", "promote"),
 		Description: "Promote a memory to important status.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryPromoteInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
@@ -339,7 +339,7 @@ func registerMemoryTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("memory", "demote"),
 		Description: "Demote a memory from important status.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryDemoteInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
@@ -364,7 +364,7 @@ func registerMemoryTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("memory", "index"),
 		Description: "Regenerate the semantic wiki index of the memory store.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryIndexInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}

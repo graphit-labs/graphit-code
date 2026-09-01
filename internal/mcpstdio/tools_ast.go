@@ -29,14 +29,14 @@ type astIndexInput struct {
 }
 
 type astQueryInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
 	Query       string `json:"query" jsonschema:"Cypher query to execute against the AST graph database"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to query instead of the default project"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astSchemaInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
 	Context    string `json:"context,omitempty" jsonschema:"Named imported context"`
 }
 
@@ -55,12 +55,12 @@ type astRemoveInput struct {
 }
 
 type astListInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to list the artifacts installed globally."`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type astSourceInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
 	Path        string `json:"path" jsonschema:"Relative path to the file (required)"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context where the file resides"`
 	Entity      string `json:"entity,omitempty" jsonschema:"Entity name (function, class, etc.) to extract source using its line range from the graph"`
@@ -89,7 +89,7 @@ type astEmbedInput struct {
 }
 
 type astSearchInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
 	Query       string `json:"query" jsonschema:"Search query (keywords, natural language, or code identifiers)"`
 	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 15)"`
 	Mode        string `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
@@ -181,9 +181,9 @@ func registerASTTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "query"),
-		Description: "Execute a Cypher query against the AST code graph database.",
+		Description: "Execute a Cypher query against the AST code graph database. Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astQueryInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveArtifactScope(input.ProjectDir, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
@@ -207,9 +207,9 @@ func registerASTTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "schema"),
-		Description: "Return the AST graph database schema: node labels, properties, and relationship types.",
+		Description: "Return the AST graph database schema: node labels, properties, and relationship types. Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astSchemaInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveArtifactScope(input.ProjectDir, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
@@ -322,16 +322,18 @@ func registerASTTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "list"),
-		Description: "List all imported AST contexts and their repository paths.",
+		Description: "List all imported AST contexts and their repository paths. Without project_dir, lists the artifacts installed globally, which are the ones a project-less caller can query.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astListInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
 
 		// Listed for projectDir, not for the working directory: this server serves
 		// whichever project the caller names, and a Hub context is only visible
-		// through that project's lockfile.
+		// through that project's lockfile. An empty projectDir is the global scope,
+		// where the same question is answered by the global lock — which is what makes
+		// this the tool that tells a project-less caller what it may pass as `context`.
 		contexts := ast.ListImportedContextsIn(projectDir)
 		if aiOpt(input.AiOptimized) {
 			return toonResult(contexts)
@@ -341,9 +343,9 @@ func registerASTTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "source"),
-		Description: "Retrieve source code from the indexed code graph with support for head/tail, line ranges, entity extraction, and pattern search with context. This is the only way to read the source of an imported context or another project: the graph and its file text live in the global store, not in any project directory.",
+		Description: "Retrieve source code from the indexed code graph with support for head/tail, line ranges, entity extraction, and pattern search with context. This is the only way to read the source of an imported context or another project: the graph and its file text live in the global store, not in any project directory. Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astSourceInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveArtifactScope(input.ProjectDir, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
@@ -485,9 +487,9 @@ func registerASTTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("ast", "search"),
-		Description: "Hybrid search combining BM25 full-text and semantic vector search with Reciprocal Rank Fusion (RRF). Supports three modes: hybrid (default, best results), fts (keyword only), semantic (vector only).",
+		Description: "Hybrid search combining BM25 full-text and semantic vector search with Reciprocal Rank Fusion (RRF). Supports three modes: hybrid (default, best results), fts (keyword only), semantic (vector only). Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input astSearchInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveArtifactScope(input.ProjectDir, input.Context)
 		if err != nil {
 			return errResult(err)
 		}

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/ast"
@@ -25,6 +26,11 @@ type HubService struct {
 	tracker  *EventTracker
 	lockMgr  *GlobalLockManager
 }
+
+// transientOwnerKey owns a download made to answer one question rather than to install
+// anything — EnsureKnowledgeAvailable. Like store.GlobalOwnerKey it has no project
+// directory, which is what keeps ValidateProjectDirs from pruning it.
+const transientOwnerKey = "__transient__"
 
 func (s *HubService) log() *slog.Logger { return slogutil.Resolve(s.Logger) }
 
@@ -60,6 +66,28 @@ func NewHubService(registry *RegistryManager) *HubService {
 	}
 	return &HubService{registry: registry, tracker: tracker, lockMgr: lockMgr}
 }
+
+// globallyInstalled lists the artifacts installed with no project — the global lock's
+// equivalent of reading a project's lockfile.
+//
+// The reserved owner is what distinguishes them. An artifact whose only owners are real
+// projects is in the global lock because that is where every install is recorded, not
+// because anyone installed it globally.
+func (s *HubService) globallyInstalled() []*GlobalArtifact {
+	if s.lockMgr == nil {
+		return nil
+	}
+	arts, err := s.lockMgr.ListInstalledInProject(store.GlobalOwnerKey)
+	if err != nil {
+		s.log().Warn("listing global installs", "error", err)
+		return nil
+	}
+	return arts
+}
+
+// GlobalInstalls is globallyInstalled for callers outside this package — the MCP layer
+// answering "what can I reach without a project".
+func (s *HubService) GlobalInstalls() []*GlobalArtifact { return s.globallyInstalled() }
 
 func (s *HubService) ListEntries(typeFilter ArtifactType) []*Entry {
 	if s.registry == nil {
@@ -141,7 +169,22 @@ func (s *HubService) Install(
 		return nil, fmt.Errorf("unknown artifact type: %q", artType)
 	}
 
-	pp := paths.GetPathsForProject(ide, projectDir)
+	// An install with no project directory is a GLOBAL install: the artifact lands in
+	// the shared, version-keyed stores it would land in anyway, and its membership is
+	// recorded in the global lock instead of in a project's lockfile. Nothing else
+	// about the install changes — the same version resolution, the same store work,
+	// the same recursive dependencies.
+	//
+	// paths.GetPathsForProject must NOT be consulted in that case. With both arguments
+	// empty it falls through to paths.GetPaths, which walks UP from this process's
+	// working directory: a server sitting inside some checkout would bind the install
+	// to that project, silently and successfully.
+	globalInstall := projectDir == ""
+
+	var pp *paths.ProjectPaths
+	if !globalInstall {
+		pp = paths.GetPathsForProject(ide, projectDir)
+	}
 
 	// NOTHING MOUNTABLE IS TRANSFERRED ANY MORE. Both artifact families are read where they were
 	// published: a knowledge artifact is a search index and mounts as one, and an AST artifact is
@@ -276,7 +319,11 @@ func (s *HubService) Install(
 
 		default:
 
-			if ide != "" {
+			// Materialising into an IDE directory needs a project to put it in. A
+			// global install stops at the clone, which is not a degraded outcome:
+			// the clone in the shared cache IS the artifact, and it is what
+			// hub content serves to a caller that has no checkout to read files from.
+			if ide != "" && !globalInstall {
 				targetPath, err := ideAdapter.ArtifactTypePath(pp.ActiveProjectDir, ide, string(artType), localID)
 				if err == nil {
 					if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
@@ -301,21 +348,9 @@ func (s *HubService) Install(
 		}
 	}
 
-	lf, err := LoadLockfile(pp.LockFilePath)
-	if err != nil {
-		return nil, fmt.Errorf("reading lockfile: %w", err)
-	}
-	if lf == nil {
-		return nil, fmt.Errorf("project not initialized — run '%s init' first", brand.BinName())
-	}
-
 	memberIDs := make([]string, 0, len(entry.Dependencies))
 	for _, dep := range entry.Dependencies {
 		memberIDs = append(memberIDs, dep.ID)
-	}
-
-	if lf.Artifacts[artType] == nil {
-		lf.Artifacts[artType] = make(map[string]*LockfileArtifactMeta)
 	}
 
 	installedBy := []string{}
@@ -328,29 +363,66 @@ func (s *HubService) Install(
 		versionHash = entry.Hashes[resolvedVersion]
 	}
 
-	lf.Artifacts[artType][realID] = &LockfileArtifactMeta{
-		Version:          resolvedVersion,
-		Hash:             versionHash,
-		InstalledBy:      installedBy,
-		Members:          memberIDs,
-		ProjectID:        entry.ProjectID,
-		Alias:            alias,
-		RemoteID:         realID,
-		Origin:           "hub",
-		RequestedVersion: reqVersion,
-	}
+	owner := store.GlobalOwnerKey
+	ownerDir := ""
+	alreadyClaimed := map[string]bool{}
 
-	if err := SaveLockfile(pp.LockFilePath, lf); err != nil {
-		return nil, fmt.Errorf("saving lockfile: %w", err)
+	if !globalInstall {
+		lf, err := LoadLockfile(pp.LockFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("reading lockfile: %w", err)
+		}
+		if lf == nil {
+			return nil, fmt.Errorf("project not initialized — run '%s init' first", brand.BinName())
+		}
+
+		if lf.Artifacts[artType] == nil {
+			lf.Artifacts[artType] = make(map[string]*LockfileArtifactMeta)
+		}
+
+		lf.Artifacts[artType][realID] = &LockfileArtifactMeta{
+			Version:          resolvedVersion,
+			Hash:             versionHash,
+			InstalledBy:      installedBy,
+			Members:          memberIDs,
+			ProjectID:        entry.ProjectID,
+			Alias:            alias,
+			RemoteID:         realID,
+			Origin:           "hub",
+			RequestedVersion: reqVersion,
+		}
+
+		if err := SaveLockfile(pp.LockFilePath, lf); err != nil {
+			return nil, fmt.Errorf("saving lockfile: %w", err)
+		}
+
+		owner = lf.Project.ID
+		ownerDir = filepath.Dir(pp.LockFilePath)
+		for _, typeMap := range lf.Artifacts {
+			for depID := range typeMap {
+				alreadyClaimed[depID] = true
+			}
+		}
+	} else {
+		for _, rec := range s.globallyInstalled() {
+			alreadyClaimed[rec.ID] = true
+		}
 	}
 
 	if s.lockMgr != nil {
-		projDir := filepath.Dir(pp.LockFilePath)
-		if _, err := s.lockMgr.RegisterInstall(
-			realID, resolvedVersion, artType,
-			entry.Name, entry.Description, versionHash,
-			cachePath, lf.Project.ID, projDir, cloneDir,
-		); err != nil {
+		if _, err := s.lockMgr.RegisterInstall(InstallRecord{
+			ID:          realID,
+			Version:     resolvedVersion,
+			Type:        artType,
+			Name:        entry.Name,
+			Description: entry.Description,
+			Hash:        versionHash,
+			CachePath:   cachePath,
+			PublisherID: entry.ProjectID,
+			Owner:       owner,
+			OwnerDir:    ownerDir,
+			LocalPath:   cloneDir,
+		}); err != nil {
 			s.log().Warn("register install", "id", realID, "version", resolvedVersion, "error", err)
 		}
 	}
@@ -361,14 +433,9 @@ func (s *HubService) Install(
 
 	for _, dep := range entry.Dependencies {
 
-		alreadyInstalled := false
-		for _, typeMap := range lf.Artifacts {
-			if _, exists := typeMap[dep.ID]; exists {
-				alreadyInstalled = true
-				break
-			}
-		}
-		if alreadyInstalled {
+		// The set of what is already claimed comes from the project's lockfile, or
+		// from the global lock when there is no project. Same question, two records.
+		if alreadyClaimed[dep.ID] {
 			continue
 		}
 
@@ -477,13 +544,116 @@ func (s *HubService) recordPublishInGlobalLock(
 		}
 	}
 
-	if _, err := s.lockMgr.RegisterInstall(
-		entryID, version, artType,
-		name, description, versionHash,
-		"", projectID, projectDir, "",
-	); err != nil {
+	if _, err := s.lockMgr.RegisterInstall(InstallRecord{
+		ID:          entryID,
+		Version:     version,
+		Type:        artType,
+		Name:        name,
+		Description: description,
+		Hash:        versionHash,
+		Owner:       projectID,
+		OwnerDir:    projectDir,
+	}); err != nil {
 		s.log().Warn("register publish in global lock", "id", entryID, "version", version, "error", err)
 	}
+}
+
+// UninstallGlobal drops an install that belongs to no project.
+//
+// It is a separate method rather than a branch inside Uninstall because Uninstall is
+// built around the project lockfile: it reads the artifact's type and version from
+// there, walks its members from there, decrements InstalledBy there, and removes the
+// materialised copy from an IDE directory. A global install has none of that — the
+// global lock IS the record — so threading a flag through would leave most of the
+// function unreachable and the rest reading from a lockfile that does not exist.
+//
+// The shared store is only collected when the artifact comes out orphaned, which is the
+// same condition a project-scoped uninstall uses: another project may still be pinned to
+// this version.
+func (s *HubService) UninstallGlobal(ctx context.Context, entryID string, entryType ArtifactType) error {
+	if s.lockMgr == nil {
+		return fmt.Errorf("the global lock is unavailable, so a global install cannot be dropped")
+	}
+
+	realID, reqVersion := entryID, ""
+	if parts := strings.SplitN(entryID, "@", 2); len(parts) == 2 {
+		realID, reqVersion = parts[0], parts[1]
+	}
+
+	art, err := s.findGlobalInstall(realID, entryType, reqVersion)
+	if err != nil {
+		return err
+	}
+
+	orphaned, err := s.lockMgr.RegisterUninstall(art.ID, art.Version, art.Type, store.GlobalOwnerKey)
+	if err != nil {
+		return fmt.Errorf("dropping the global install of %s@%s: %w", art.ID, art.Version, err)
+	}
+
+	if orphaned {
+		if art.Type == TypeAST {
+			s.cleanupSharedASTStore(&LockfileArtifactMeta{
+				Version:   art.Version,
+				ProjectID: art.ProjectID,
+			}, art.ID)
+		}
+		if _, gcErr := s.lockMgr.GCOrphans(); gcErr != nil {
+			s.log().Warn("GC orphans", "after", art.ID, "error", gcErr)
+		}
+	}
+
+	s.tracker.TrackEvent("artifact.uninstall", "",
+		map[string]string{"type": string(art.Type), "version": art.Version},
+		map[string]string{"ide": ""})
+	return nil
+}
+
+// findGlobalInstall resolves one globally installed artifact from a reference that may
+// or may not carry a version and may or may not carry a type.
+//
+// An ambiguous reference is REFUSED rather than resolved by picking one. Two versions of
+// the same artifact are two different stores, and silently dropping the wrong one is not
+// a mistake the caller can see afterwards.
+func (s *HubService) findGlobalInstall(id string, artType ArtifactType, version string) (*GlobalArtifact, error) {
+	var matches []*GlobalArtifact
+	for _, art := range s.globallyInstalled() {
+		if art.ID != id {
+			continue
+		}
+		if artType != "" && art.Type != artType {
+			continue
+		}
+		if version != "" && art.Version != version {
+			continue
+		}
+		matches = append(matches, art)
+	}
+
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("%q is not installed globally — install it first with a hub install that omits project_dir", id)
+	case 1:
+		return matches[0], nil
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].Type != matches[j].Type {
+			return matches[i].Type < matches[j].Type
+		}
+		return matches[i].Version < matches[j].Version
+	})
+	refs := make([]string, 0, len(matches))
+	for _, m := range matches {
+		refs = append(refs, fmt.Sprintf("%s %s@%s", m.Type, m.ID, m.Version))
+	}
+	return nil, fmt.Errorf("%q is installed globally more than once — name which one with an @version "+
+		"suffix and a type: %s", id, strings.Join(refs, ", "))
+}
+
+// GlobalInstall resolves one globally installed artifact for callers outside this
+// package. See findGlobalInstall for how an ambiguous reference is treated.
+func (s *HubService) GlobalInstall(id string, artType ArtifactType, version string) (*GlobalArtifact, error) {
+	return s.findGlobalInstall(id, artType, version)
 }
 
 func (s *HubService) Uninstall(
@@ -493,6 +663,9 @@ func (s *HubService) Uninstall(
 	forceRoot bool,
 	ide, projectDir string,
 ) error {
+	if projectDir == "" {
+		return s.UninstallGlobal(ctx, entryID, entryType)
+	}
 	pp := paths.GetPathsForProject(ide, projectDir)
 
 	lf, err := LoadLockfile(pp.LockFilePath)
@@ -1067,11 +1240,18 @@ func (s *HubService) EnsureKnowledgeAvailable(ctx context.Context, artifactID st
 		if entry.Hashes != nil {
 			versionHash = entry.Hashes[resolvedVersion]
 		}
-		if _, err := s.lockMgr.RegisterInstall(
-			realID, resolvedVersion, TypeKnowledge,
-			entry.Name, entry.Description, versionHash,
-			cloneDir, "__transient__", "", cloneDir,
-		); err != nil {
+		if _, err := s.lockMgr.RegisterInstall(InstallRecord{
+			ID:          realID,
+			Version:     resolvedVersion,
+			Type:        TypeKnowledge,
+			Name:        entry.Name,
+			Description: entry.Description,
+			Hash:        versionHash,
+			CachePath:   cloneDir,
+			PublisherID: entry.ProjectID,
+			Owner:       transientOwnerKey,
+			LocalPath:   cloneDir,
+		}); err != nil {
 			s.log().Warn("register transient install", "id", realID, "version", resolvedVersion, "error", err)
 		}
 	}

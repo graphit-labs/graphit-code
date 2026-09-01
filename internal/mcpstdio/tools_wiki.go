@@ -24,14 +24,14 @@ type wikiSearchInput struct {
 	HubRefs     []string `json:"hub_refs,omitempty" jsonschema:"Hub knowledge artifact references to include (format: artifact-id@version)"`
 	SessionID   string   `json:"session_id,omitempty" jsonschema:"Session ID to continue an existing conversation"`
 	TopK        int      `json:"top_k,omitempty" jsonschema:"BM25 results per wiki source (0 = no limit)"`
-	ProjectDir  string   `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to search only wikis=[\"memory\"] or hub_refs."`
 	Mode        string   `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
 	Preview     *bool    `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the page is read with wiki_source when the agent decides it needs it"`
 	AiOptimized *bool    `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
 type wikiBrowseInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed artifact (context as id@version) or your user memory (wiki=memory)."`
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context, or a memory scope other than project"`
 	DocType     string `json:"doc_type,omitempty" jsonschema:"Filter by document type (e.g., specification, architecture, decision)"`
@@ -40,7 +40,7 @@ type wikiBrowseInput struct {
 }
 
 type wikiLogInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed artifact (context as id@version) or your user memory (wiki=memory)."`
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context, or a memory scope other than project"`
 	Limit       int    `json:"limit,omitempty" jsonschema:"Max log entries (default: 10)"`
@@ -48,7 +48,7 @@ type wikiLogInput struct {
 }
 
 type wikiXRefsInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed artifact (context as id@version) or your user memory (wiki=memory)."`
 	Query       string `json:"query" jsonschema:"Entity slug or name to find cross-references for"`
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project, memory (default: project)"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context, or a memory scope other than project"`
@@ -62,7 +62,7 @@ type wikiEmbedInput struct {
 }
 
 type wikiSourceInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory — may be another project in the ecosystem (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to read a globally installed artifact (context as id@version) or your user memory (wiki=memory)."`
 	Path        string `json:"path" jsonschema:"Page to read: the slug returned by search/browse/xrefs, that slug with .md, or a path relative to the wiki directory (required)"`
 	Wiki        string `json:"wiki,omitempty" jsonschema:"Wiki scope: project (default) or memory"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported knowledge context where the page resides"`
@@ -173,9 +173,10 @@ func registerWikiTools(server *mcp.Server) {
 		Name: brand.MCPToolName("wiki", "search"),
 		Description: "Search across multiple wiki sources using BM25 full-text and optional semantic search. " +
 			"Answers with page titles and scores, not page text: pick the page from the titles, then read it with " +
-			brand.MCPToolName("wiki", "source") + ", which slices. Pass preview=true only when the titles are not enough to choose.",
+			brand.MCPToolName("wiki", "source") + ", which slices. Pass preview=true only when the titles are not enough to choose. " +
+			"Without project_dir, only wikis=[\"memory\"] and hub_refs are searchable, because every other source names a project.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiSearchInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
@@ -192,7 +193,27 @@ func registerWikiTools(server *mcp.Server) {
 
 		wikis := input.Wikis
 		if len(wikis) == 0 {
-			wikis = []string{"project"}
+			// A project-less caller has no project wiki, so the default cannot be
+			// "project" there. Memory is the source it does have: its user scope is
+			// keyed by the machine rather than by a project.
+			if projectDir == "" {
+				wikis = []string{"memory"}
+			} else {
+				wikis = []string{"project"}
+			}
+		}
+
+		// Every source other than "memory" names a project — "project" itself, and an
+		// ecosystem project ID. Without a project_dir those resolve to nothing, and a
+		// search over nothing answers "no results", which reads as a fact about the
+		// documentation instead of about the request.
+		if projectDir == "" {
+			for _, w := range wikis {
+				if w != "memory" {
+					return errResult(fmt.Errorf("wiki source %q needs a project: without project_dir only "+
+						"wikis=[\"memory\"] and hub_refs are searchable, because every other source names a project", w))
+				}
+			}
 		}
 
 		switch mode {
@@ -328,9 +349,9 @@ func registerWikiTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "browse"),
-		Description: "Browse wiki documents in a structured format. Lists chunks/documents from the WikiDB with optional filtering by type. Pass context to browse an imported knowledge context or another memory scope.",
+		Description: "Browse wiki documents in a structured format. Lists chunks/documents from the WikiDB with optional filtering by type. Pass context to browse an imported knowledge context or another memory scope. Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context, or wiki=memory for your user memory.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiBrowseInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveWikiScope(input.ProjectDir, input.Wiki, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
@@ -389,9 +410,9 @@ func registerWikiTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "log"),
-		Description: "Show wiki sync history. Returns a timeline of sync operations showing what was added, updated, and deleted. Pass context for an imported knowledge context or another memory scope.",
+		Description: "Show wiki sync history. Returns a timeline of sync operations showing what was added, updated, and deleted. Pass context for an imported knowledge context or another memory scope. Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context, or wiki=memory for your user memory.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiLogInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveWikiScope(input.ProjectDir, input.Wiki, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
@@ -445,9 +466,9 @@ func registerWikiTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("wiki", "xrefs"),
-		Description: "Show cross-references for a wiki entity. Returns inbound and outbound references with configurable graph traversal depth. Pass context for an imported knowledge context or another memory scope.",
+		Description: "Show cross-references for a wiki entity. Returns inbound and outbound references with configurable graph traversal depth. Pass context for an imported knowledge context or another memory scope. Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context, or wiki=memory for your user memory.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiXRefsInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveWikiScope(input.ProjectDir, input.Wiki, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
@@ -560,9 +581,10 @@ func registerWikiTools(server *mcp.Server) {
 		Name: brand.MCPToolName("wiki", "source"),
 		Description: "Read the content of a wiki page, with head/tail, line ranges and pattern search with context — the same slicing as the code-source tool. " +
 			"This is the ONLY way to read a page: wikis are stored once, in the global directory, so there is no page file inside the project to open. " +
-			"It takes the project as a parameter, so it also reads pages belonging to any other project in the ecosystem.",
+			"It takes the project as a parameter, so it also reads pages belonging to any other project in the ecosystem. " +
+			"Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context, or wiki=memory for your user memory.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiSourceInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveWikiScope(input.ProjectDir, input.Wiki, input.Context)
 		if err != nil {
 			return errResult(err)
 		}

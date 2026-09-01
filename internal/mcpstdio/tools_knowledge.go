@@ -29,7 +29,7 @@ type knowledgeIndexInput struct {
 }
 
 type knowledgeSearchInput struct {
-	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
+	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to search a globally installed artifact, naming it in context as id@version."`
 	Query       string `json:"query" jsonschema:"Keywords to search for in the knowledge wiki using BM25"`
 	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to search"`
@@ -129,9 +129,10 @@ func registerKnowledgeTools(server *mcp.Server) {
 		Name: brand.MCPToolName("knowledge", "search"),
 		Description: "Search the project knowledge wiki using BM25 keyword ranking. " +
 			"Answers with page titles and scores, not page text: pick the page from the titles, then read it with " +
-			brand.MCPToolName("wiki", "source") + ", which slices. Pass preview=true only when the titles are not enough to choose.",
+			brand.MCPToolName("wiki", "source") + ", which slices. Pass preview=true only when the titles are not enough to choose. " +
+			"Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeSearchInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
+		projectDir, err := resolveArtifactScope(input.ProjectDir, input.Context)
 		if err != nil {
 			return errResult(err)
 		}
