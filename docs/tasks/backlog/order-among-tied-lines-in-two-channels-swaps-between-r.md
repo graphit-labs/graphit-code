@@ -1,18 +1,31 @@
-Order of lines in equalized two-way channels swaps between rebuilds on the hybrid path
+# Order among tied lines in both channels permutes between rebuilds on the hybrid path
 
-Measured on August 24, 2026 (see `docs/tasks/busca-devolve-so-arquivos-e-index-nao-reconstroi.md`).
+Measured on 2026-08-24 (see `docs/tasks/search-returns-only-files-and-index-not-rebuilt.md`).
 
-The key phrase (`sortResultsDeterministic`) ties scores **TIED** by identity, and this is what makes the keyword channel reproducible across rebuilds. In the hybrid channel, the engine places equal lines in both channels with RRF values **DISTINCT** — `1/(60+rank)`, differing only in the fourth decimal place because it had to order the lines — so the tie-by-identity never engages, and these lines swap between rebuilds.
+`sortResultsDeterministic` (`internal/ast/search_common.go`) breaks ties between **EQUAL** scores by
+identity, and that is what makes the keyword channel reproducible across rebuilds. In the hybrid
+channel the engine gives lines tied in both channels **DISTINCT** RRF values — `1/(60+rank)`,
+differing in the fourth decimal place only because it had to put the lines in some order — so the
+tie-break by identity never engages, and those lines permute between rebuilds.
 
-What is guaranteed today, and tied by
-`TestHybridTopResultAndSetAreStableAcrossRebuilds` (`internal/ast/search_scale_test.go`): the result of rank 1 and the SET of results are identical in 8 rebuilds. What is not: the internal order of lines that do not distinguish.
+What IS guaranteed today, and is locked down by
+`TestHybridTopResultAndSetAreStableAcrossRebuilds` (`internal/ast/search_scale_test.go`): the rank 1
+result and the SET of results are identical across 8 rebuilds. What is not: the internal order of
+lines that nothing distinguishes.
 
-Why was it not corrected: recovering the tie would require deciding in Go that two ranks of the engine are "close enough to be a tie" — rounding the score, or treating differences below an epsilon as ties. This is a ranking policy issue, and this module does not have such a policy (the same reason why 331 lines of `search_fusion.go` were deleted from T14). An epsilon would also distort genuinely different ranks in a long list.
+Why it was not fixed: recovering the tie-break would require deciding in Go that two ranks from the
+engine are "close enough to be a tie" — rounding the score, or treating differences below an epsilon
+as a tie. That is ranking policy, and this module does not have any (it is the same reason the 331
+lines of `search_fusion.go` were deleted in T14). An epsilon would also distort genuinely different
+adjacent ranks in a long list.
 
-Another route, registered and also rejected at this point: to order the lines in INLINE_7 on ESCRITA, so as to make the physical ordering of the function index of the data. The comment INLINE_8 already rejected it with a valid argument — updates incrementally cause append, therefore the physical ordering of an incremental-rebuilt index diverges from any reconstruction from scratch in any case.
+Another route, recorded and also rejected for now: sorting the lines at WRITE time, in
+`RebuildFromCache`, to make the physical order of the index a function of the data. The comment on
+`sortResultsDeterministic` already rejected this with a valid argument — incremental updates append,
+so the physical order of an incrementally updated index diverges from one rebuilt from scratch
+anyway.
 
-Impact: Real impact is low, and it's worth measuring before investing effort. Affected lines are those that the ranker cannot distinguish. If there’s an instance where this matters (an agent receiving different responses to the same question in two sessions), the concrete case should guide the correction.
-
----
-
-**Note:** The provided text appears to be a technical specification or guideline related to some form of ranking system, possibly for a chatbot or similar application. The translation aims to convey the essence and intent of the original Portuguese text while maintaining its idiomatic feel.
+Real impact: low, and worth measuring before spending effort. The affected lines are, by
+construction, the ones the ranker cannot distinguish. If a case shows up where this matters (an
+agent getting a different answer to the same question in two sessions), the concrete case is what
+should guide the fix.

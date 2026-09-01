@@ -1,110 +1,170 @@
 ---
-title: Hub exits from Git and heads to S3; graph queried in Icebug and search conducted in LanceDB, both executed on the fly.
+title: "The Hub leaves git and goes to S3; graph in icebug and search in LanceDB, both queried on-the-fly"
 status: in-progress
 created: 2026-08-21
 updated: 2026-08-24
 tags: [hub, s3, icebug, ladybug, lancedb, parquet, sqlite, search, migration, architecture]
 ---
 
-Hub in S3, graph in Icebug, search in LanceDB
+# Hub on S3, graph in icebug, search in LanceDB
 
-HOW TO CONTINUE - READ THIS FIRST (2026-08-22)
+## HOW TO CONTINUE — read this first (2026-08-22)
 
-Where is it?
+### Where it stands
 
 | phase | state |
 |---|---|
-| **T1–T3** configuration of S3, INLINE 0, INLINE 1 requesting bucket | **completed, tested** |
-| **T4–T5** INLINE 2, rewire, INLINE 3 | **completed, tested** |
-| **T7** inline 4 in the payload of launcher + inline 5 verified | **completed, tested** |
-| **T8** native writer icebug in Go (INLINE 6) | **100% correct data; corrected count order by INLINE 7; remaining upstream defect without boundary** |
-| **T6** memory leaves Git | **completed, tested** |
-| **T9** installation does not download | **DONE for both**: knowledge builds the index, icebug graph builds + the index |
-| **T10** native of LanceDB compiled by platform (INLINE 8) | **completed, tested** |
-| **T11** INLINE 9 (local + on-the-fly, hybrid of engine) | **completed, tested** |
-| **T12** icebug index in LanceDB (INLINE 10) | **completed, tested** |
-| **T13** wiki index and memory in LanceDB (INLINE 11) | **completed, tested** |
-| **T14** SQLite APPLIED — 5.737 lines, the tag INLINE 12 and dependencies | **completed, tested** |
-| **RELEASE** native by platform, on each SO runner | **completed, verified in Linux** |
-| **T15** point-to-point CLI in a clean project | **DONE** — found THREE defects that no test could catch |
-| **T16** documentation | **DONE**: specs, architecture and guidelines up to date; ADR written; changelogs intact purposeful |
-| **T17** timeout on inline traversal of 3 hops | **DONE** — planner bounded by frontiers, 3 hops in ~0.3 s local / ~0.4 s S3 (before >30 s); reversed commits committed in INLINE 13; correction in commit separate |
+| **T1–T3** S3 config, `internal/s3store`, `setup` asking for the bucket | **done, tested** |
+| **T4–T5** `internal/hub/s3_store.go`, rewire, `git_store.go` **deleted** | **done, tested** |
+| **T7** `httpfs` in the launcher payload + `LoadExtensions` verified | **done, tested** |
+| **T8** native icebug writer in Go (`internal/ladybugstore/icebug.go`) | **data 100% correct; `[:A\|B]` counting FIXED by ordering; 1 upstream defect left with no workaround** |
+| **T6** memory leaves git | **done, tested** |
+| **T9** install stops downloading | **DONE for both**: knowledge mounts the index, ast mounts the icebug graph + the index |
+| **T10** LanceDB native compiled per platform (`make fetch-lancedb`) | **done, tested** |
+| **T11** `internal/lancestore` (local + on-the-fly, engine hybrid) | **done, tested** |
+| **T12** AST index on LanceDB (`internal/ast/search_lance.go`) | **done, tested** |
+| **T13** wiki and memory index on LanceDB (`internal/wiki/store.go`) | **done, tested** |
+| **T14** SQLite DELETED — 5,737 lines, the `fts5` tag and the deps | **done, tested** |
+| **RELEASE** native per platform, on each OS's runner | **done, verified on linux** |
+| **T15** end to end through the CLI in a clean project | **DONE** — found THREE defects no test was catching |
+| **T16** documentation | **DONE**: specs, architecture and guides up to date; ADR written; changelogs deliberately untouched |
+| **T17** timeout in on-the-fly 3-hop traversal | **DONE** — planner bounded by frontiers, 3 hops in ~0.3 s local / ~0.4 s S3 (previously >30 s); reverse edges committed in `42cc1af`; fix in a separate commit |
 
-The suite is green, and both are in production. There is no Python on the way to production.
+`go build -tags lancedb ./...` and the suite are green. No Python in the production path.
 
-T17 - Correcting a timeout of 3 hops in the remote IceBug graph (2026-08-24)
+### T17 — fix the 3-hop timeout on the remote icebug graph (2026-08-24)
 
-**Objective.** Queries against the dynamically built AST graph should no longer timeout after three hops, without reintroducing downloads or local re-construction of the graph. The export must continue native in Go and **always materialize** the reverse adjacency: it is a functional requirement for the agent to be able to inline query `-[:TIPO]-` without direction, as well as help anchor-based planning.
-Direct and reverse relations should remain separate so that `->` preserves the original graph's semantics. The query path should avoid the plan
-`TABLE_FUNCTION_CALL(a._ID) -> RECURSIVE_EXTEND` that has already been measured by enumerating the entire universe.
+**Objective.** Make three-hop queries against the AST graph mounted on-the-fly stop hitting the
+timeout, without reintroducing download or local reconstruction of the graph. The export must
+remain native in Go and **always** materialize the reverse adjacency: it is a functional
+requirement so the agent can query `-[:TIPO]-` without direction, and it may also help the
+anchored plan. The direct and reverse relations must remain separate so that `->` preserves the
+semantics of the original graph. The query path must avoid the
+`TABLE_FUNCTION_CALL(a._ID) -> RECURSIVE_EXTEND` plan that has already been measured enumerating
+the entire universe.
 
-**Reasoning and Justification.** Independently of the reverse edges hypothesis, it has already been discarded by control: in a corpus of 60, 000 nodes/200, 000 edges, doubling adjacency did not alter the timeout. It remains relevant for the artifact’s contract but requires precise correction to also address the query plan and the quantity/locality of Parquet files read from S3. The diagnosis will be guided by `EXPLAIN`, a local equivalent benchmark to the remote mount, documentation/code upstream; any change is only accepted with a test that fails in the previous behavior.
+**Reasoning and justification.** The reverse-edges hypothesis, on its own, has already been
+discarded by control: on the 60,000-node/200,000-edge corpus, doubling the adjacency did not change
+the timeout. It remains relevant to the artifact's contract, but the fix also needs to attack the
+query plan and the number/locality of Parquet objects read from S3. The diagnosis will be guided by
+`EXPLAIN`, a local benchmark equivalent to the remote mount, and upstream documentation/code; any
+change will only be accepted with a test that fails on the previous behavior.
 
-Plan and specification of tasks
+#### Plan and task specification
 
-- [x] **T17.1 — Reproduce and measure the bottleneck.** Identify the real query of three hops, capture the physical plan, establish a reference time/result. Done when there is a deterministic test or benchmark that distinguishes the slow path from the corrected one without relying on a real bucket. **DONE** - `TestIcebugRealGraphThreeHopPlans` captures the five plans `EXPLAIN`; controls: native 8,6–13,6 ms vs recursive/reversed/fixed chain >30 s; BFS manually by frontiers of a hop returned the same set in ~292 ms.
-- [x] **T17.2 — Investigate upstream behavior and alternatives.** Consult Ladybug/Kuzu, icebug-format, Parquet, and httpfs/S3 from primary sources, including the official notebook `LadybugDB/ladybug-icebug-notebooks/index.ipynb` indicated by the Engineer. Done when each hypothesis has evidence and is classified as applicable, discarded, or dependent on upstream correction. **DONE** - recursive join/global init/explosions/filter placement are upstream (kuzu#4285/#4941/#4459/#5040); official notebook proves only the semantics of reverses; row-group split is discarded by correction; cache httpfs investigated and not enabled without evidence; secondary indices do not exist on this path (`CREATE INDEX` is an NOP).
-- [x] **T17.3 — Correct the export of the reverse adjacency.** All artifacts published by the Hub must materialize `TIPO_REVERSE` by default, without contaminating `-[:TIPO]->`. Done when round-trip, self-loop, properties, manifest pairs, and orientation continue to be exact, and the opt-out in layers is covered by regression.
-- [x] **T17.4 — Correct the path of three-hop query.** Rewrite/plan the traversal starting from a filtered selection set, avoiding global enumeration while preserving Cypher public; patterns `-[:TIPO]-` should use `TIPO|TIPO_REVERSE` without altering directed queries. Done when the three-hop query completes below the timeout and returns the same result as native storage. **DONE** - limited frontier planner in `internal/ast/ladybug_icebug_traversal.go` connected before `runQuery`; `-[:TIPO]-` expands `TIPO` and `TIPO_REVERSE` in separate queries (no alternative engine); identical 3 hops to native in 291 ms local / 429 ms S3.
-- [x] **T17.5 — Verify and document.** Run focused tests, benchmark, and proportional suite; update spec/architecture and register trade-offs, files, use cases, and BDD scenarios. Done when code, documentation, and indices are synchronized and without known regressions. **DONE** - spec `docs/specs/hub_collaboration.md` covers a row group, bounded planner, safe subselection, fallback, fast path UID, and index conclusion; focused tests green; suite expanded passed twice; `go vet` cleaned in modified files; `git diff --check` cleaned; executed memories and sync Graphit; correction done separately.
+- [x] **T17.1 — Reproduce and measure the bottleneck.** Identify the real three-hop query, capture
+  the physical plan and establish a reference time/result. Done when there is a deterministic test
+  or benchmark that distinguishes the slow path from the fixed one without depending on a real bucket.
+  **DONE** — `TestIcebugRealGraphThreeHopPlans` captures the five `EXPLAIN` plans; controls:
+  native 8.6–13.6 ms vs recursive/reverse/fixed chain >30 s; manual BFS over one-hop frontiers
+  returned the same set in ~292 ms.
+- [x] **T17.2 — Research the upstream behavior and alternatives.** Consult Ladybug/Kuzu,
+  icebug-format, Parquet and httpfs/S3 in primary sources, including the official notebook
+  `LadybugDB/ladybug-icebug-notebooks/index.ipynb` pointed out by the Engineer. Done when each
+  hypothesis has evidence and is classified as applicable, discarded or dependent on an upstream
+  fix. **DONE** — recursive join/global init/explosion/filter placement are upstream pending items
+  (kuzu#4285/#4941/#4459/#5040); the official notebook only proves the semantics of reverse edges;
+  row-group split discarded by correction; httpfs cache researched and not enabled without evidence;
+  secondary indexes nonexistent on this path (`CREATE INDEX` is a no-op).
+- [x] **T17.3 — Fix the export of the reverse adjacency.** Every Icebug artifact published by the
+  Hub must materialize `TIPO_REVERSE` by default, without contaminating `-[:TIPO]->`. Done when
+  round-trip, self-loop, properties, manifest pairs and orientation remain exact and the layered
+  opt-out is covered by regression.
+- [x] **T17.4 — Fix the three-hop query path.** Rewrite/plan the traversal to start from the
+  already-filtered selective set, avoiding global enumeration and preserving public Cypher;
+  `-[:TIPO]-` patterns must use `TIPO|TIPO_REVERSE` without altering directed queries. Done when the
+  three-hop query completes below the timeout and returns the same result as the native storage.
+  **DONE** — bounded-frontier planner in `internal/ast/ladybug_icebug_traversal.go` wired in before
+  `runQuery`; `-[:TIPO]-` expands `TIPO` and `TIPO_REVERSE` in separate queries (no alternation in
+  the engine); 3 hops identical to native in 291 ms local / 429 ms S3.
+- [x] **T17.5 — Verify and document.** Run focused tests, benchmark and a proportional suite;
+  update spec/architecture and record trade-offs, files, use cases and BDD scenarios. Done when
+  code, documentation and indexes are in sync and without known regressions. **DONE** —
+  spec `docs/specs/hub_collaboration.md` covers one row group, bounded planner, safe subset,
+  fallback, UID fast path and the conclusion on indexes; focused tests green; the expanded suite
+  passed twice; `go vet` clean on the changed files; `git diff --check` clean; memories and Graphit
+  sync executed; fix in a separate commit.
 
-The corrected release is built on the native in each SO's runner.
+### RELEASE FIXED: the native is built on each OS's runner
 
-The defect was real: `BUILD_TAGS := lancedb` worked for the three targets and the native did not cross-compile, so `.native/` had only the `.so` of Linux.
+The defect was real: `BUILD_TAGS := lancedb` applied to all three targets and the native does not
+cross-compile, so `.native/` had only the linux `.so`.
 
-The CI was already on the platform — in INLINE_38_, INLINE_39_, and INLINE_40_. Then **it** does not cross-compile: it runs on macOS.
-What was missing was the native, and the correction is symmetrical to what already existed for `liblbug` and the ORT:
+**The CI was already per platform** — `build-linux` on `ubuntu-22.04`, `build-darwin` on `macos-14`,
+`build-windows-native` on `windows-2022`. So `build-darwin` does **not** cross-compile: it runs on
+the mac. What was missing was the native, and the fix ended up symmetric to what already existed
+for `liblbug` and ORT:
 
-Translation:
-The CI had been on the platform — in INLINE_38_, INLINE_39_, and INLINE_40_. Then **it** does not cross-compile: it runs on macOS.
-What was missing was the native, and the correction is symmetrical to what already existed for `liblbug` and the ORT:
+- the three targets gained `lancedb-native` as a dependency and `cp -L $(LANCEDB_LIB)` into the
+  launcher payload;
+- the three CI jobs gained `dtolnay/rust-toolchain@stable` and caching of
+  `~/.cargo` + `$(LANCEDB_CACHE)`, keyed by `hashFiles('Makefile')` — which is where
+  `LANCEDB_SHA` lives, so changing the SHA invalidates the cache;
+- `LANCEDB_CACHE` became `?=` so the CI can point it where it knows how to cache (on Windows,
+  `/c/cache/lancedb`);
+- `ci.yml` too: `make vet`/`make test` now compile with `-tags lancedb`, and without Rust there the
+  whole CI would break.
 
-The three targets gained ___INLINE_46__ as a dependency and ___INLINE_47__ for the launcher's payload;
-- The three jobs of CI gained ___INLINE_48__ and cache of `~/.cargo` + `$(LANCEDB_CACHE)`, keyed by `hashFiles('Makefile')` — where the `LANCEDB_SHA` resides, so changing the SHA invalidates the cache;
-- `LANCEDB_CACHE` became `?=` for CI to point it where it knows how to cache (on Windows, `/c/cache/lancedb`);
-- The `ci.yml` also: `make vet`/`make test` compile with `-tags lancedb` now, and without Rust the entire CI would fall apart.
+**The `build-windows` that cross-compiled from linux was REMOVED.** It was the only target that
+could not carry the native, and the Engineer's decision settles this: `build-windows-native`
+already exists, runs on the Windows runner and carries it. Keeping the cross alive meant keeping a
+path capable of producing a binary that compiles, links and then answers `ErrNotBuilt` to every
+query — the same failure this project spent a day removing from `fts5`.
 
-The **__INLINE_60__** that cross-compiled from Linux was REMOVED. It was the only target that couldn't load natively, and the Engineer's decision closes this issue: already exists the __INLINE_61__, which runs on the Windows runner and loads. Keeping the cross-compiler live meant keeping a path capable of producing a binary that compiles, links, and then responds to every query — the same failure that this project had days ago removed from **__INLINE_63__**.
+`build-all` went with it: **no machine builds everything**, because the native does not
+cross-compile and a binary without it has no search. The target now fails with the explanation and
+points to `.github/workflows/release.yml` (three runners) or `make build-local` (this machine).
 
-**INLINE_64** was with him: **no machine builds everything**, because the native does not cross-compile, and an executable without it lacks search. The target now fails to explain and points to **INLINE_65** (three runners) or **INLINE_66** (this machine).
+#### Verified here, on linux
 
-#### Verificado aqui, no linux
-
-What matters in the payload is the **`$ORIGIN`**, because the `rpath` absolutely does not exist on the user's machine. Tested by causing exactly this: binaries and libraries copied to a temporary directory, the target of `rpath` hidden, then
+What matters in the payload is **`$ORIGIN`**, because the absolute `rpath` does not exist on the
+user's machine. Tested by provoking exactly that: binary and library copied to a temporary
+directory, the absolute `rpath` target **hidden**, and then
 
 ```
 ldd → liblancedb_go.so => /tmp/tmp.fP3770Pf3n/liblancedb_go.so
 graphit version dev
 ```
 
-Resolve the directory of its own binary and runs. `make vet` green. `make build-local` produces
+resolves through the binary's own directory and runs. `make vet` green. `make build-local` produces
 a binary that resolves the library.
 
-**Not Verified Here:** the Darwin and Windows builds, due to the lack of `clang` and mingw on this machine— the first execution of the workflow is their test.
+**Not verified here:** the darwin and windows builds, because there is neither `clang` nor mingw on
+this machine — the first run of the workflow is their test.
 
-### ICEBUG É O ÚNICO MECANISMO DO LADYBUG NO HUB (2026-08-23)
+### ICEBUG IS THE ONLY LADYBUG MECHANISM IN THE HUB (2026-08-23)
 
-Engineer's Decision: Despite the upstream gaps, what exists serves— and must be the **only** path. Publish exports ice bugs; install **always** reads on-the-fly.
+The Engineer's decision: despite the upstream gaps, what exists is enough — and it has to be the
+**only** path. Publish exports icebug; install **always** reads on-the-fly.
 
-Two fallbacks were removed, and that is what closes the decision:
+**Two fallbacks were REMOVED, and that is what settles the decision:**
 
-The path is erased. What did he do wrong?
-| Bundle Parquet of the graph | The consumer **carried** the graph: bytes traveled and each project fixed in a version saved its immutable copy of the same data |
-| Publish shards | The consumer **reconstructed** the graph, paying for installation to get a result that the publisher had already frozen |
+| deleted path | what it was doing wrong |
+|---|---|
+| Parquet bundle of the graph | the consumer **loaded** the graph: the bytes traveled and every project pinned to a version kept its copy of the same immutable data |
+| publishing the shards | the consumer **rebuilt** the graph, paying per installation for a result the publisher had already frozen |
 
-Note: "Reconstruindo" is not an idiomatic English translation but rather a literal rendering. In natural English, it would be more appropriate to say "The consumer reconstructed the graph."
+And the two together made an artifact's behavior depend on **which path it happened to take** — so
+a consumer had no way to know whether its context was mounted or copied.
+`internal/ast/parquet_transfer.go` and its test were deleted.
 
-And the two together acted like an artifact depending on **which path he happened to take**—so a consumer couldn't know if their context was built or copied. `internal/ast/parquet_transfer.go` and its test were removed.
+**Publishing now FAILS if it cannot export**, instead of falling back. An artifact nobody can mount
+is one nobody can install the intended way, and the moment to find that out is the publisher's, not
+every consumer's.
 
-Publishing now FAILS if not able to export, instead of falling into a fallback. An artifact that nobody can build is an artifact that nobody can install the way it's supposed to be, and the moment when this happens is the publisher's, not the consumer's.
+**`storage` is decided by the publisher and never rewritten.** It is the only one that knows where
+it put the objects, so the consumer's URI is computed before the export and written into every
+`CREATE … WITH (storage = 's3://…', format = 'icebug-disk')`. Pinned by a test that refuses an
+empty URI (a `storage = ''` mounts against the process's working directory) and that verifies the
+published schema **does not leak a local path** — leaking would make the artifact work on exactly
+one machine.
 
-The URI is decided by the publisher and never re-written. It is the only one who knows where the objects were placed, so the consumer's URI is calculated before export and written to each `CREATE ... WITH (storage = 's3://...', format = 'icebug-disk')`. The URI is fixed by a test that rejects an empty URI (a _INLINE_75 creates a directory structure for the process), and verifies that the published schema **does not leak local path** — leaking would make the artifact work on exactly one machine.
+**Install runs the DDL against an empty local catalog.** What comes down is `schema.cypher` — a few
+KB of metadata, and without it there is nothing pointing at the objects. Not one byte of graph.
 
-Installing the DDL against an empty local catalog will drop the `schema.cypher` — a few KB of metadata and without it, there’s nothing pointing to the objects. No bytes in the graph.
+#### Verified: the whole cycle, and the data does NOT come down
 
-Verified throughout, and the data does not descend
-
-`TestIcebugArtifactMountsAndAnswers` indexa fonte real, publica, monta o DDL e consulta:
+`TestIcebugArtifactMountsAndAnswers` indexes real source, publishes, mounts the DDL and queries:
 
 ```
 published bundle holds 7 data files; the local catalog holds 0
@@ -112,52 +172,76 @@ mounted graph answers: 5 nodes
 mounted graph answers: 1 CALLS edges
 ```
 
-The assertion is not by absence, but by size — and this was corrected during the work. Comparing sizes was the first attempt and does not prove anything: a catalog has a page floor (16 KiB here), so it is legitimately larger than any graph of two functions. In a real graph, the ratio reverses in orders of magnitude, but a test that only applies to large input is a test that will be wrong for someone's fixture. What can be verified at any size: Parquet are included in the published bundle and **absent anywhere** under the mount.
+**The assertion is by absence, not by size** — and that was fixed during the work. Comparing sizes
+was the first attempt and proves nothing: a catalog has a floor of one page (16 KiB here), so
+against a two-function graph the catalog is legitimately the larger of the two. On a real graph the
+ratio inverts by orders of magnitude, but a test that only holds for large input is a test that will
+be wrong on somebody's fixture. What is verifiable at any size: the Parquet files are in the
+published bundle and **nowhere** under the mount.
 
-Note: The original Portuguese text contains technical terms and code blocks which were not provided in the English translation.
+#### The gaps, accepted and declared where you trip over them
 
-The gaps, accepted and declared where one stumbles upon them
+They are at the top of `internal/ast/icebug_transfer.go`, not only here, because that is where a
+caller finds them:
 
-They are at the top of `internal/ast/icebug_transfer.go`, not just here, because that's where a caller finds them:
+- **multi-hop traversal** over a mounted graph is weaker than over a native one;
+- **one edge table holds one CSR**, so it declares exactly one FROM/TO pair. With ~97 pairs in this
+  graph, every label is folded into an `Entity` table with the label as a column — so
+  `MATCH (f:Function)` becomes `MATCH (e:Entity {label:'Function'})` against a mounted context.
 
-- A multi-hop traversal over a constructed graph is weaker than one over an existing native graph;
-- An adjacency table stores a CSR (Compressed Sparse Row) value, so it declares exactly one FROM/TO pair. With approximately 97 pairs in this graph, every label is doubled in the `Entity` table with the label as the column — and `MATCH (f:Function)` becomes `MATCH (e:Entity {label:'Function'})` against a context constructed.
+The trade was made deliberately: an installed context that answers one-hop questions over objects
+nobody downloaded is worth more than one that answers everything after copying a gigabyte, and the
+alternative on offer was neither of the two.
 
-Note: The inline codes are placeholders for actual code blocks or specific technical terms that would be needed to provide an accurate translation.
+### T9 DONE FOR KNOWLEDGE: publish uploads, and the read is straight from S3
 
-The exchange was done for a purpose: a context set up to answer questions instantly about objects that no one has downloaded is worth more than one that answers everything after copying an entire gigabyte, and the alternative offered was not any of those two.
+The recorded blocker was about **multi-hop traversal**, and it only hits the **graph**. A
+`knowledge` context has no graph — it is wiki, only LanceDB — so nothing was blocking it.
 
-T9 Made for Knowledge: Publishing goes up, reading is direct from S3
+**Installing a knowledge context stopped transferring bytes.** The decision is taken BEFORE the
+clone, because the clone is the transfer; the rest of the installation continues (lockfile,
+dependencies, telemetry), and it is the lockfile entry that makes the mount resolvable later.
 
-The registered block was for the **multi-hop traversal**, and it only reaches the **graph**. A context
-____INLINE\_82__ does not have a graph— it's a wiki, just LanceDB— so nothing blocked it.
+**The URI is DERIVED, never written.** The context entry already carries everything the location is
+made of — artifact, version, publishing project — so the URI is computed from that plus the
+configured bucket. Writing it into the lockfile was the obvious move and would have been wrong
+twice: it changes a format every project on disk already has, and it freezes an endpoint, so
+pointing the framework at another bucket would leave every installed context resolving to the old
+one.
 
-"Installing a knowledge context has stopped transferring bytes." The decision is made before the clone, because the clone is the transfer; the rest of the installation continues (lockfile, dependencies, telemetry), and it is the registration in the lockfile that makes the mount resolveable afterward.
+**`MountsKnowledge` requires BOTH conditions** — bucket configured AND engine linked. Without the
+engine there is nothing that opens an `s3://` index, so a build without the `lancedb` tag has to
+keep downloading; answering "yes" there would install a context with no bytes and no way to read
+them.
 
-The URI is derived, never stored. The context registration already carries everything that the location is configured for — artifact, version, publisher project — so computing the URI from it plus the configured bucket would be an obvious move and would be wrong twice: it would change a format that every disk-based project already has, and freeze an endpoint, then pointing the framework to another bucket would leave all the context installed resolving to the old one.
+**Page reading now comes from the index.** `wiki_source` read the `.md` file on disk, and a mounted
+artifact has no file at all. The body is in the `body` column, and it is the **same** text because
+the wiki compiles one chunk per document — so it is a faithful read, not an approximation.
 
-**INLINE_83** requires the TWO conditions — bucket configured AND linked motor. Without the motor, there is nothing that opens up `s3://`, so a build without tag `lancedb` must continue to download;
-respond "yes" and it will install an empty context with no bytes available and no way to read them.
+#### Two real defects that the end-to-end test found
 
-Reading of pages has moved from the index to inline. `wiki_source` reads an archive file from disk, and a mounted artifact does not have any files. The body is in column `body`, and it's the same text because the wiki compiles a chunk per document — so it's faithful reading, not approximation.
+1. **THE READ WENT THROUGH A WRITE PATH.** `ensureTables` calls `EnsureTable`, which **creates** —
+   and creating is refused on a published store. Result: every published wiki answered
+   `this store is read-only` to any query, which reads as a permission problem and was a
+   code-path problem. **No published wiki was readable.** In a mounted artifact the tables exist by
+   definition: the publisher wrote them. Now they are **opened**, and a missing table is tolerated
+   (an artifact published by an old build may have no sync log, and refusing the whole wiki over
+   that would make one missing table cost the pages).
+2. **The mount has to address the directory the publisher wrote.** Pinned by a test that compares
+   the mount URI against the list of objects actually uploaded — the divergence there is exactly the
+   one that shows up as `no such table`.
 
-This translation aims to maintain the technical meaning while adapting it to idiomatic English.
+#### What was verified, and over which transport
 
-Two real flaws that the end-to-end test identified
+**Always:** `TestPublishedWikiCarriesItsIndexes` asserts that the published artifact contains
+`_versions/` (the manifest), `data/` and **`_indices/`** — this last one is what proves install
+stopped rebuilding, because the inverted index travels.
 
-1. **Reading passed through the path of writing.**
-   The artifice called `EnsureTable`, which ___CREATE___ and is rejected in a published store. Result: every wiki published responded to any query, as read as permission issue and was a code-path problem. **No public wiki was readable.** In an artifact mounted, tables exist by definition: the publisher wrote them. Now they are open, and an absent table is tolerated (a publicly built artifact that did not have sync logs could refuse the entire wiki for this reason, making it cost pages).
-2. **The mount must address the directory that the publisher wrote to.** Fixed by a test comparing the URI of the mount with the list of objects actually sent — there, the divergence is exactly what appears as `no such table`.
+**The whole wiring**, with local transport: publish → resolve the mount → open → search → read
+page → walk xrefs. The two defects above are transport-independent, and they were real.
 
-
-What was verified, and with which transportation method?
-
-Always: `TestPublishedWikiCarriesItsIndexes` states that the artifact published contains
-`_versions/` (the manifesto), `data/` and **`_indices/` — this last one proves that installation did not reconstruct, because the inverted index travels.
-
-The entire wire, with local transport: publish → resolve the mount → open → browse → search → read page → traverse cross-references. Both of these defects are independent of transport and were real.
-
-**FROM THE NETWORK, VERIFIED.** After the Engineer released disk space, the same test ran against the MINIO real:
+**OVER THE NETWORK, VERIFIED.** After the Engineer freed up disk space, the same test ran against
+the real MinIO:
 
 ```
 running over a REAL object store
@@ -165,36 +249,47 @@ reading on-the-fly from s3://graphit-hub/artifacts/knowledge/acme/1.0.0/index.la
 --- PASS
 ```
 
-Publish, resolve the mount, search, read page, and traverse xrefs—everything about objects that were never downloaded.
+Publish, resolve the mount, search, read page and walk xrefs — all over objects that nothing
+downloaded.
 
-The Other Half of Mount: The AST also Reads from S3 (August 23, 2026)
+### THE OTHER HALF OF THE MOUNT: the AST search also reads from S3 (2026-08-23)
 
-A gap was found when comparing the architecture to what the code does, and it is of a type that passes:
-**the graph mounted but the search did not.**
-`NewQueryService` opens the index in `LanceIndexPath(dbPath)` —
-a local path — and nothing was downloaded within an indexed context.
-Result: the context **traverses perfectly and responds to every search with nothing**, which reads as a corpus without correspondence, not as an absent index.
+A gap found while checking the architecture against what the code does, and it is the kind that
+slips through: **the graph mounted and the search did not.** `NewQueryService` opened the index at
+`LanceIndexPath(dbPath)` — a local path — and in a mounted context nothing had been downloaded.
+Result: the context **traverses perfectly and answers every search with nothing**, which reads as a
+corpus with no match, not as a missing index.
 
+The fix gives search the **same treatment the graph already had**: local metadata pointing at remote
+data. `WriteSearchMount` writes a `search.uri` next to the catalog, and `OpenSearchIndex` resolves
+through it — so a `QueryService` built the same way serves a local project and a Hub context,
+without the caller knowing which is which.
 
-The correction treats the search as having the same treatment that the graph already had: metadata pointing to remote data. **INLINE_99** writes a `search.uri` next to the catalog, and `OpenSearchIndex` resolves it — then a `QueryService` built in the same way serves both the local project and context of the Hub, without the caller knowing which is which.
+**Only the URI is written.** Region and endpoint are resolved from the environment configuration at
+open time, for the same reason as not writing them into the lockfile: writing them freezes the
+endpoint, and pointing the framework at another one would leave every installed context searching
+the old one. The bucket is part of the location and goes into the URI; the rest is *how* you connect,
+not *where* it is.
 
-Only the URI is stored. The region and endpoint are resolved from the environment configuration at startup, for the same reason they're not stored in the lockfile: storing them would freeze the endpoint, and pointing the framework to another one would leave all the installed context searching for the old one. The bucket is part of the location and goes into the URI; everything else is how you connect, not where it's located.
-
-Verified in the same complete cycle test:
+Verified in the same full-cycle test:
 
 ```
 mounted search answers: 4 hits for "helper"
 mounted index serves file text
 ```
 
-with a guard: The test fails if there is an index nearby the catalog, otherwise it could read a local copy.
+with one guard: the test fails if a local index exists next to the catalog, otherwise it could pass
+by reading a local copy.
 
-**A defect in the test, not in the code, found on the way:** `IndexSource` is opt-in and by default is OFF, so the first version of the test claimed text from an archive that was never instructed to save any.
+**One defect of the test, not of the code, found along the way:** `IndexSource` is opt-in and OFF by
+default, so the first version of the test asserted file text on a store that had never been
+instructed to keep any.
 
-MEASURED: documented form of label in a context where it fails significantly, not silently
+### MEASURED: the documented label form in a mounted context FAILS LOUD, not in silence
 
-I had raised it as a risk — that `MATCH (n:Function)` would not silently confront against
-a context built up, because the label turned into column of `Entity`. **Measured and wrong on point where it mattered:**
+I had raised this as a risk — that `MATCH (n:Function)` would silently match nothing against a
+mounted context, because the label became a column of `Entity`. **Measured, and it is wrong at the
+point that mattered:**
 
 ```
 MATCH (n:Function)                            -> ERROR: Table Function does not exist.
@@ -205,39 +300,49 @@ MATCH (n:Entity) WHERE n.label = 'Function'   -> 2
 MATCH (n:Entity {label:'Function'})           -> 2
 ```
 
-The error message that already exists lists the tables present, including `Entity`.
-Then the user receives an unnamed failure and the path to the correct form, which is the behavior they want — there is no defect to fix here or a compiler to build.
+The error message that already exists **lists the tables present**, including `Entity`. So the user
+gets a named failure and the path to the right form, which is the behavior you want — there is no
+defect to fix here and no transpiler to build.
 
-**Note on the "label translator":** it does not exist as code, despite being named as necessary in logs and some tests. The ones that exist are two adjacent rewriters: `rePatternLabel`, which puts backticks around labels so that a collision with a keyword parses, and `reLabelPredicate`, which converts `WHERE n:Function` (Neo4j syntax) into `label(n) = 'Function'`. Neither of these translates `(n:Function)` to the double form.
+**A note on the "label transpiler":** it does NOT exist as code, even though the log and some tests
+name it as necessary. What exists in `internal/ast/ladybug.go` are two adjacent rewriters:
+`rePatternLabel`, which backticks labels so that one colliding with a keyword parses, and
+`reLabelPredicate`, which converts `WHERE n:Function` (Neo4j syntax) into `label(n) = 'Function'`.
+Neither of them translates `(n:Function)` into the folded form.
 
-The issue with INLINE_113: ISSUE RESOLVED, and the assignment was incorrect.
+### The `[:A|B]` bug: HALF RESOLVED, and the attribution was wrong
 
-The count was corrected — by reordering, and it's a line. The downstream filter continues to be wrong, upstream. Complete details in the section "RESOLVED: `[:A|B]` are TWO defects."
+**The counting was fixed** — by ordering, and it is one line. **The filter on a bound endpoint is
+still wrong, and it is UPSTREAM.** Full detail in the section "RESOLVED: `[:A|B]` is TWO defects".
 
-Summary that matters for decision-making:
+Summary of what matters for deciding:
 
 | | before | now |
 |---|---|---|
-| inline 115 count, the 28 pairs | 9 wrong | **28/28 correct** |
-| all 8 alternatives at once | — | **exactly** (source and target) |
-| edge identity in the form of alternatives | not tested | **exact** (source and target) |
-| inline 116 with `WHERE b.name = …` | wrong | **still wrong - UPSTREAM, without contour** |
+| `[:A\|B]` counting, the 28 pairs | 9 wrong | **28/28 exact** |
+| the 8 alternatives at once | — | **204,353 = exact** |
+| edge identity in the alternation form | not tested | **exact** (source and target) |
+| `[:A\|B]` with `WHERE b.name = …` | wrong | **still wrong — UPSTREAM, no workaround** |
 
-The correction: `sortRelsLargestFirst` — `schema.cypher` creates the tables of edges **from largest to smallest**. The engine limits all alternatives by the number of lines in the **first table created**; with decreasing order, the edge with the lowest ID in any subset is also the largest one, so nothing is ever truncated.
+**The fix:** `sortRelsLargestFirst` — `schema.cypher` creates the edge tables **from largest to
+smallest**. The engine caps every alternation by the row count of the **first table created**; with
+descending order, the lowest-id one in any subset is also its largest, so nothing is ever truncated.
 
-Consequence for the drawing: the partitioning by N-Partition is no longer feasible, and the label transpiler remains necessary. The remaining defect is exactly how it would use the partitioning: INLINE_120 becomes alternatives with filtered ends.
+**Consequence for the design: partitioning by pair does NOT become viable again and the label
+transpiler is still necessary.** The remaining defect is exactly the form partitioning would use:
+`MATCH (f:Function)-[:CALLS]->(g) WHERE g.name = …` becomes alternatives with a filtered endpoint.
 
-How to recreate fixtures (the scratchpad from the previous session no longer exists)
+### How to recreate the fixtures (the previous session's scratchpad no longer exists)
 
 ```bash
-# 1. Frozen copy of the real graph. Mandatory: read the store that the daemon overwrites
-Causes a segfault in Cgo and an error of duplicate key that does not exist.
+# 1. FROZEN copy of the real graph. Mandatory: reading the store the daemon is rewriting
+#    causes a segfault in cgo and a duplicate-key error that does not exist.
 mkdir -p /tmp/icebug-fix && cp ~/.graphit/ast/project/01KSH1CRFFG8Z74B5ZS78WW808/ladybugdb \
   /tmp/icebug-fix/ladybugdb
 
-Two graphs for GRAPHIT_TOOL_ICEBUG with 60,000 nodes and 200,000 edges.
-#    Big/Small nos tamanhos do par que falhava para GRAPHIT_TOOL_ICEBUG_MULTI.
-Python is not installed on your system — use `uvx --with pyarrow --from pyarrow python`.
+# 2. A `demo` graph (60k nodes, 200k edges) for GRAPHIT_TOOL_ICEBUG, and a
+#    Big/Small pair at the sizes of the pair that was failing, for GRAPHIT_TOOL_ICEBUG_MULTI.
+#    pyarrow is NOT in the system python — use `uvx --with pyarrow --from pyarrow python`.
 mkdir -p /tmp/icebug-fix/src /tmp/icebug-fix/demo-src
 uvx --with pyarrow --from pyarrow python - <<'EOF'
 import pyarrow as pa, pyarrow.parquet as pq, random
@@ -252,14 +357,14 @@ EOF
 
 # Dois grafos numa source-dir => a ferramenta escreve UM SUBDIRETÓRIO POR GRAFO.
 uvx icebug-format --source-dir /tmp/icebug-fix/src --output-dir /tmp/icebug-fix/out --backend pyarrow
-A graph should write directly to the output-dir, and `--storage` must point to it.
+# Um grafo só => escreve direto na output-dir, e `--storage` tem que apontar para ela.
 uvx icebug-format --source-dir /tmp/icebug-fix/demo-src --output-dir /tmp/icebug-fix/tool \
   --backend pyarrow --storage /tmp/icebug-fix/tool
 ```
 
-It is necessary: the default requires DuckDB and fails with `ImportError`.
+`--backend pyarrow` is required: the default demands duckdb and fails with `ImportError`.
 
-Tests and the variables they ask for
+### Tests and the variables they ask for
 
 ```bash
 GRAPHIT_REAL_STORE=/tmp/icebug-fix/ladybugdb \
@@ -268,373 +373,421 @@ GRAPHIT_TOOL_ICEBUG_MULTI=/tmp/icebug-fix/out \
   go test -tags fts5 -run "TestIcebug" ./internal/ladybugstore/ -v
 ```
 
-The Portuguese text has been provided as a table with inline code blocks and markdown formatting. The translation is as follows:
-
-| Test | What Guarantees |
+| test | what it guarantees |
 |---|---|
-| `TestIcebugAgainstARealGraph` | round trip label per label and type per type on the real graph |
-| `TestIcebugWritesOneRowGroupPerFile` | **the most expensive invariant** — one row group per file |
-| `TestIcebugFiltersOnBothSidesOfAPattern` | regression guard for row group bug |
-| `TestIcebugCountOfANodeVariableAgrees` | same as above |
-| `TestIcebugEveryPairOfTypesSumsExactly` | **order correction guard** — 28 pairs + all eight at once, and descending order in `schema.cypher` |
-| `TestIcebugAlternativesBoundIsTheFirstTable` | fixes the RULE (limit = first table created, not minimum) with 2 and 3 tables |
-| `TestIcebugAlternativesKeepEdgeIdentity` | edge count **and identity** with disjoint source ranges |
-| `TestIcebugAlternativesWithAFilteredEndpointIsWRONG` | asserts the defect that remains, and **fails when it is corrected upstream** |
-| `TestIcebugPairsSumWithPerTableStorage` | maintains the hypothesis of shared directory `storage` |
-| `TestIcebugAlternativesDefectOnToolOutput` | reproduces truncation in tool, **in both orders** |
-| `TestIcebugFilteredAlternativesDefectOnToolOutput` | reproduces edge defect filtered at the end in tool |
-| `TestIcebugDefectsReproduceOnTheReferenceToolOutput` | separates our defect from upstream |
+| `TestIcebugAgainstARealGraph` | round trip label by label and type by type on the real graph |
+| `TestIcebugWritesOneRowGroupPerFile` | **the invariant that cost the most** — one row group per file |
+| `TestIcebugFiltersOnBothSidesOfAPattern` | regression guard for the row group bug |
+| `TestIcebugCountOfANodeVariableAgrees` | same |
+| `TestIcebugEveryPairOfTypesSumsExactly` | **the guard of the ordering fix** — 28 pairs + the 8 at once, and the descending order in `schema.cypher` |
+| `TestIcebugAlternativesBoundIsTheFirstTable` | pins the RULE (bound = first table created, not the minimum) with 2 and 3 tables |
+| `TestIcebugAlternativesKeepEdgeIdentity` | counting **and identity** of the edge, with disjoint source ranges |
+| `TestIcebugAlternativesWithAFilteredEndpointIsWRONG` | asserts the remaining defect, and **fails when it gets fixed upstream** |
+| `TestIcebugPairsSumWithPerTableStorage` | keeps the shared `storage` directory hypothesis buried |
+| `TestIcebugAlternativesDefectOnToolOutput` | reproduces the truncation in the tool, **in both orders** |
+| `TestIcebugFilteredAlternativesDefectOnToolOutput` | reproduces the filtered-endpoint defect in the tool |
+| `TestIcebugDefectsReproduceOnTheReferenceToolOutput` | separates our defect from the upstream one |
 | `TestIcebugRealGraphQueryCost` | native cost against icebug |
 
-Note: The inline code blocks and markdown formatting have been preserved as requested.
+### Traps that have already cost time
 
-Traps that already cost time
+1. **A matching count does not prove the edge links the right nodes.** Test identity: **disjoint**
+   source id ranges per table, and ask which sources the pattern reports.
+2. **`count(<node variable>)` and `count(r)` are not the same question.** Comparing one against the
+   other made me report a nonexistent defect.
+3. **A small fixture hides and misleads:** 2+2=4 is indistinguishable from 2×2=4.
+4. **`parquet.WithMaxRowGroupLength` does not merge row groups** — each `FileWriter.Write` opens a
+   new one. The whole table goes in a single record.
+5. **Measure against a frozen copy of the store.** A count changing between runs is the signal that
+   the daemon is writing.
+6. **One store handle per test process** (`openRealStore` with `sync.Once`) — opening the same store
+   repeatedly causes a failure that disappears when the test runs alone. In the synthetic harness,
+   use **a subtest per case** so the store closes between them: opening dozens in one process gives
+   `failed to open database with status 1`.
+7. **`count(<property>)` does NOT skip null in this engine** — `count(r.line_number)` equals
+   `count(r)` even on a table that does not have the column. It is no use for distinguishing an
+   alternative. An earlier inference ("all the rows came from CALLS") came from there and the premise
+   never held.
+8. **Testing 6 pairs out of 28 found 1 failure where there were 9.** Enumerate the whole matrix: it
+   was the matrix that revealed the discriminant was the creation order, not the pair.
+9. **The reference tool was only compared in one order.** A test against a reference implementation
+   has to sweep the order too, otherwise it absolves the engine by luck.
 
-1. The count bouncing doesn't prove that the edge connects the right nodes.
-2. `count(<node variable>)` and `count(r)` are not the same question. Comparing them made me report an nonexistent defect.
-3. A small fixture hides and deceives:
-   2+2=4 is indistinguishable from 2×2=4.
-4. `parquet.WithMaxRowGroupLength` doesn't join row groups — each `FileWriter.Write` opens a new one. The entire table fits into a record only.
-5. Measure against the frozen copy of the store. A count changing between executions is the sign that the daemon is writing.
-6. A handle for a process test (`openRealStore` with `sync.Once`) — opening the same store repeatedly causes a failure that disappears when the test runs alone. In the synthetic harness, use **subtest by case** for the store to close between them: opening dozens in one process gives `failed to open database with status 1`.
-7. `count(<propriedade>)` does not skip null in this engine — `count(r.line_number)` is equal to `count(r)` even in a table that doesn't have the column. It's not useful for distinguishing alternatives. An earlier inference ("all lines came from CALLS") arose there and the premise never held.
-8. Testing 6 pairs of 28 found 1 failure where there were 9. Enumerate the entire matrix: it was she who revealed that the discriminant was the order of creation, not the pair.
-9. The reference tool has only been compared in an order. A test against a reference implementation must also traverse the order, otherwise it absolves the engine by chance.
+### Upstream: one defect that blocks, one with a workaround
 
-Upstream: A defect that blocks, a bug with a workaround
+- **Multi-hop traversal does not complete.** Native does 2 hops in 2,133 ms (867,766 paths); icebug
+  does not complete in 100 s. **Reproduced on the official tool's output.** `EXPLAIN` shows
+  `TABLE_FUNCTION_CALL` over `a._ID` enumerating all the nodes before the `RECURSIVE_EXTEND`. It
+  matches [kuzu#4941](https://github.com/kuzudb/kuzu/issues/4941), [#4459](https://github.com/kuzudb/kuzu/issues/4459),
+  [#5040](https://github.com/kuzudb/kuzu/issues/5040), [#4540](https://github.com/kuzudb/kuzu/issues/4540),
+  [#4285](https://github.com/kuzudb/kuzu/issues/4285). **Reverse edge does NOT fix it** (measured).
+- **`=` on the primary key returns empty.** Exact workaround: `IN [value]`. `STARTS WITH`,
+  range and `ORDER BY` also work.
 
-Multi-hop Transit Not Complete.
-The native takes 2 hops in 2.133 ms (867,766 paths); icebug fails to complete within 100 seconds. This is reproduced in the official tool's output. `EXPLAIN` shows `TABLE_FUNCTION_CALL` about `a._ID` enumerating all nodes before `RECURSIVE_EXTEND`. It matches [kuzu#4941](https://github.com/kuzudb/kuzu/issues/4941), [#4459](https://github.com/kuzudb/kuzu/issues/4459), [#5040](https://github.com/kuzudb/kuzu/issues/5040), [#4540](https://github.com/kuzudb/kuzu/issues/4540), and [#4285](https://github.com/kuzudb/kuzu/issues/4285). Reverse Edge Not Solved (measured).
-- The primary key returns an empty value in `=`.
-Exact Contour: `IN [valor]`. Interval and `STARTS WITH` also work.
+Also worth reporting upstream, with a ready reproduction: [kuzu#2866](https://github.com/kuzudb/kuzu/issues/2866)
+and [#5049](https://github.com/kuzudb/kuzu/issues/5049) are the architectural origin of the
+multi-pair problem, and [#4189](https://github.com/kuzudb/kuzu/issues/4189) is the `[:A|B]` family.
 
-Note: The inline codes are placeholders for actual code snippets or URLs that should be replaced with their corresponding content when translating into English.
+### Memories to read before touching this
 
-Also report upstream with the ready reproduction: [kuzu#2866](https://github.com/kuzudb/kuzu/issues/2866)
-and [#5049](https://github.com/kuzudb/kuzu/issues/5049) are architectural origins of the multi-par problem,
-and [#4189](https://github.com/kuzudb/kuzu/issues/4189) is a family of `[:A|B]`.
-
-Translation:
-Also report upstream with the ready reproduction: [kuzu#2866](https://github.com/kuzudb/kuzu/issues/2866)
-and [#5049](https://github.com/kuzudb/kuzu/issues/5049) are architectural origins of the multi-par problem,
-and [#4189](https://github.com/kuzudb/kuzu/issues/4189) is a family of `[:A|B]`.
-
-Note: The term "`[:A|B]`" in the English translation appears to be an error or placeholder. It should likely be replaced with a more appropriate technical term or explanation based on context.
-
-Also report upstream with the ready reproduction: [kuzu#2866](https://github.com/kuzudb/kuzu/issues/2866)
-and [#5049](https://github.com/kuzudb/kuzu/issues/5049) are architectural origins of the multi-par problem,
-and [#4189](https://github.com/kuzudb/kuzu/issues/4189) is a family of `[:A|B]`.
-
-Translation: Also report upstream with the ready reproduction: [kuzu#2866](https://github.com/kuzudb/kuzu/issues/2866)
-and [#5049](https://github.com/kuzudb/kuzu/issues/5049) are architectural origins of the multi-par problem,
-and [#4189](https://github.com/kuzudb/kuzu/issues/4189) is a family of `[:A|B]`.
-
-Note: The term "`[:A|B]`" appears to be an incomplete or incorrectly formatted placeholder. It should be replaced with the appropriate technical term if it refers to a specific concept in the context being discussed.
-
-Note: The term "`[:A|B]`" in the English translation appears to be an incomplete or placeholder code block. It should be replaced with the actual code snippet when translating technical content.
-
-Note: The code block and technical term "INLINE_156" have been preserved as requested.
-
-Before you start reading these memories, please consider them carefully.
-
-By "icebug", read specifically:
-- *RAIZ ENCONTRADA: pqarrow opens a new row group on every Write…*
-- *The defect of `[:A|B]` is also OURS: reduced to ONE part…*
+`graphit_memory_search` for "icebug", and read in particular:
+- *ROOT FOUND: pqarrow opens a NEW row group on every Write…*
+- *The `[:A|B]` defect is also OURS: reduced to ONE pair…*
 - *PROVEN: multi-hop traversal over icebug is an optimizer bug…*
-- *LadybugDB extension: the directory is ~/.lbdb/extension, INSTALL/LOAD are no-op silent operations…*
-- *Hub exits from Git and goes to S3…* (the four decisions of the Engineer)
+- *LadybugDB extension: the directory is ~/.lbdb/extension, INSTALL/LOAD are a silent no-op…*
+- *The Hub leaves git and goes to S3…* (the Engineer's four decisions)
 
 ## Objective
 
-Swap the layer of **persistence and recovery** that the Hub distributes all at once.
+Swap out, in one pass, the **persistence and retrieval** layer of everything the Hub distributes.
+Four changes the Engineer asked for in the same pass, and which are interdependent:
 
-Four changes that the Engineer requested on the same occasion, which are mutually dependent:
+1. **The Hub's backend stops being a git repository and becomes an S3 bucket.** Today the
+   Hub is a git clone in `~/.graphit/hub` with five distinct responsibilities (registry,
+   one orphan branch per artifact/version, `refs/events/*` for telemetry, distribution of rules
+   through `main`, and memory worktrees). **All five go to S3** — git leaves the Hub
+   entirely.
+2. **Text search leaves SQLite and moves to LanceDB**, using what it actually has:
+   inverted index (BM25), vector index, hybrid search with RRF and reranking.
+3. **The graph stays in LadybugDB, but is no longer persisted as flat Parquet per
+   table** — it becomes persisted in **icebug format** (`icebug-disk`), Ladybug's
+   graph-lake format.
+4. **Querying becomes on-the-fly on both engines.** Installing a Hub context no longer
+   downloads any file: Ladybug mounts the icebug tables straight from `s3://` (via the
+   `httpfs` extension) and LanceDB opens the table straight from `s3://`. The download at
+   install time ceases to exist.
 
----
+Consequences the request implies and that are in scope:
 
-Note: The code block is not provided in this case. If you need a specific example or technical context, please provide it and I will translate it accordingly.
+- **`setup` stops asking for the git repository and starts asking for the bucket** (and the
+  region/endpoint).
+- **The moment of export to the Hub has to convert the data to icebug** — it is not the
+  consumer that converts.
+- **No backward compatibility.** We are in dev: no fallback for an artifact published in the
+  old format, no migration of an existing store, no read path from git.
 
-1. The backend of the Hub no longer serves as a Git repository and becomes an S3 bucket. Today, the Hub is a clone Git in INLINE_159 with five distinct responsibilities (registry, a orphaned branch by artifact/version, `refs/events/*` telemetry, distribution of rules via `main`, and memory-based worktrees). All five will go to S3 — Git leaves the Hub completely.
-2. Textual search moves from SQLite to LanceDB, using what it has: inverted index (BM25), vector index, hybrid search with RRF and reranking.
-3. The graph continues in LadybugDB but is no longer persisted as Parquet table format — it is now persisted in the `icebug-disk` format (graph-lake of Ladybug).
-4. Queries become on-the-fly in both engines. Installing a Hub context does not download any more files: Ladybug directly builds icebug tables from `s3://` via extension `httpfs`, and LanceDB opens the table directly from `s3://`. Downloading during installation no longer exists.
+### Entry reasoning
 
-Inline 159:
-```sql
--- Replace INLINE_159 with actual inline content or placeholder
-```
+What was already known before starting (memory + wiki + the feasibility investigation in
+[icebug-remote-graph-on-s3-feasibility.md](icebug-remote-graph-on-s3-feasibility.md), whose
+T1/T2 were closed and whose T3–T7 this task closes):
 
-Inline 160:
-```sql
--- Replace INLINE_160 with actual inline content or placeholder
-```
+- A context store is **TWO stores**: the graph (LadybugDB, `graph/` bundle) and the search
+  index (**SQLite** FTS5+vec0, `search/` bundle). The file text and the embeddings
+  live on the SQLite side — without the `search/` bundle the context "can be traversed but not
+  searched nor read" (`internal/ast/parquet_transfer.go`).
+- Today's Parquet is **per table, flat**, generated by `COPY (MATCH (n:T) RETURN n.*) TO`
+  in `internal/ladybugstore/transfer.go`. **It is not CSR and it is not icebug** — it needs conversion.
+- Moving text search back to SQLite (2026-08-19) was a deliberate and measured decision:
+  liblbug's FTS is not maintained on insert, forcing an O(corpus) DROP+CREATE per write
+  (988s for a full rebuild and 1178s for ONE incremental file, against ~300ms on SQLite).
+  **This task does not reverse that measurement — it changes the destination.** The measured problem
+  was with *liblbug's* FTS, not with SQLite; the reason for leaving SQLite now is a different one
+  (remote on-the-fly querying, which SQLite does not do) and the substitute is a different one
+  (LanceDB, which does).
+- `ATTACH ... (dbtype lbug)` works, but **FTS does not cross the attach** (measured 2026-08-16).
+  Irrelevant from here on: the remote graph is not an attach, it is `storage = 's3://...'`, and
+  FTS is no longer in Ladybug.
 
-Inline 161:
-```sql
--- Replace INLINE_161 with actual inline content or placeholder
-```
+### Design justification, and what was discarded
 
-Inline 162:
-```sql
--- Replace INLINE_162 with actual inline content or placeholder
-```
+Four decisions by the Engineer taken in this session, with the alternatives that fell:
 
-Inline 163:
-```sql
--- Replace INLINE_163 with actual inline content or placeholder
-```
-
-Inline 164:
-```sql
--- Replace INLINE_164 with actual inline content or placeholder
-```
-
-Inline 165:
-```sql
--- Replace INLINE_165 with actual inline content or placeholder
-```
-
-Consequences that the request implies and that fall within scope:
-
-- The _INLINE_166_ stops asking for the Git repository and starts asking for the bucket (and region/endpoint).
-- The moment of exporting to the Hub must convert the data into icebug — it is not the consumer that converts.
-- Without backward compatibility. We are in dev: no fallback for artifacts published in the old format, no migration of existing stores, no path to reading from Git.
-
-Input reasoning
-
-What was already known before starting (memory + wiki + feasibility investigation for remote graph on S3 in [icebug-remote-graph-on-s3-feasibility.md](icebug-remote-graph-on-s3-feasibility.md), where T1/T2 were closed and the task for T3-T7 is complete):
-
-- A context store is **two stores**: the graph (LadybugDB, bundle `graph/`) and the search index (**SQLite** FTS5+vec0, bundle `search/`). The text of files and embeddings live on SQLite — without the bundle `search/`, the context "can be traversed but not queried or read" (`internal/ast/parquet_transfer.go`).
-- Today's Parquet is **table-oriented**, generated by `COPY (MATCH (n:T) RETURN n.*) TO` in `internal/ladybugstore/transfer.go`. It is **not CSR and not icebug** — it requires conversion.
-- The text search back to SQLite (August 19, 2026) was a deliberate decision and measure:
-  the FTS of liblbug is not maintained on insert, forcing DROP+CREATE OF(corpus) by write (988s full rebuild and 1178s for an incremental file, against ~300ms in SQLite).
-  **This task does not reverse that measurement — it swaps the destination.** The measured problem was with liblbug's FTS, not SQLite; the reason to leave SQLite now is different (real-time remote query on-the-fly, which SQLite doesn't do) and the substitute is another (LanceDB, which does).
-- `ATTACH ... (dbtype lbug)` works, but **FTS cannot traverse the attach** (measured 2026-08-16). Irrelevant from here forward: the remote graph is not an attach, it's `storage = 's3://...'`, and FTS is no longer in Ladybug.
-
-Justification of the Drawing, and What Was Discarded
-
-Four decisions made by the Engineer in this session, with the options that fell:
-
-
-| Decision | Alternatives Discarded |
+| Decision | Discarded alternatives |
 |---|---|
-| **S3 replaces the entire Git in the Hub** | "only artifacts + registry" and "only data bundles" were discarded: `setup` asking for a bucket instead of the Git repo implies that nothing is left to ask from Git. |
-| **icebug generated calling `uvx icebug-format`, for now** | Go writer rejected *for now* — it becomes an item in the backlog. Motivation: The format is documented but not formally specified, and the official implementation is Python with three backends. Acceptable to have a dependency on Python/uv on the machine that **publishes** (not consuming) instead of blocking the rest of migration in reverse-engineered writer. |
-| **`httpfs` pre-built into the launcher, loaded with `LOAD EXTENSION '<path>'`** | `INSTALL httpfs` (runtime network) discarded: transforms the first remote query into a network call that may fail. The launcher already extracts `liblbug`, ONNX Runtime, ICU and YAML grammars extensions for `~/.graphit/runtime/<version>/` — the extension enters the same payload, using the same mechanism, and stays 100% offline. |
-| **Credentials via AWS chain; config stores only bucket/region/endpoints** | Storing `key_id`/`secret` in `~/.graphit/config.json` discarded: puts secrets in plain text into a file that the rest of the framework reads and logs. The system keychain is discarded because it is a new dependency on a new path for Linux headless. |
+| **S3 replaces the whole of git in the Hub** | "artifacts + registry only" and "only the data bundles" were discarded: `setup` asking for a bucket *in place of* the git repo implies nothing is left in git to ask for. |
+| **icebug generated by calling `uvx icebug-format`, for now** | A writer in Go discarded *for now* — it becomes a backlog item. Reason: the format is documented but not formally specified, and the official implementation is Python with three backends. The Python/uv dependency is accepted on the machine that **publishes** (not on the one that consumes) so as not to block the rest of the migration on a reverse-engineered writer. |
+| **`httpfs` pre-embedded in the launcher, loaded with `LOAD EXTENSION '<path>'`** | `INSTALL httpfs` (network at runtime) discarded: it turns the first remote query into a network call that can fail. The launcher already extracts `liblbug`, ONNX Runtime, ICU and the grammar YAMLs to `~/.graphit/runtime/<version>/` — the extension goes into the same payload, by the same mechanism, and stays 100% offline. |
+| **Credentials via the standard AWS chain; the config keeps only bucket/region/endpoint** | Writing `key_id`/`secret` into `~/.graphit/config.json` discarded: it puts a secret in cleartext in a file the rest of the framework reads and logs. The OS keychain discarded for being a new per-platform dependency with a new failure path on headless Linux. |
 
-What was established by this session's research (closing T3/T4 of the investigation)
+### What this session's research established (closes T3/T4 of the investigation)
 
-- **Inline 185** accepts Parquet with a directory of Vertices/Edges — in addition to __INLINE_186__ and __INLINE_187__. This is because it exactly matches the format that __INLINE_189__ already produces. The true source remains Ladybug’s local store, populated and consistent; the Parquet directory is an intermediate part of the publication pipeline, not a traveling artifact.
-- **Output Layout from Icebug-disk**: by table, __INLINE_190__, __INLINE_191__ (sorted by origin — the array __INLINE_192__ of CSR), __INLINE_193__ (the row-pointer array), plus one __INLINE_194__ in the directory. Each Parquet carries __INLINE_195__ metadata.
-- **Table Definition Language (DDL) for building**: __INLINE_196__ and __INLINE_197__.
-  __INLINE_198__ accepts URI — __INLINE_199__, __INLINE_200__, __INLINE_201__ require __INLINE_202__; __INLINE_203__ requires __INLINE_204__.
-- **S3 Credentials in Ladybug**: the doc says __INLINE_205__ and this is incorrect for this engine — MEASURED: "Catalog exception: function s3_credential does not exist". The real way are OPTIONS, one statement each:
-  __INLINE_206__, __INLINE_207__, __INLINE_208__, __INLINE_209__, __INLINE_210__, __INLINE_211___. Same as documented in __INLINE_212__.
-- **LanceDB has official Go SDK**: CGO on the core Rust, with precompiled binaries for Linux/darwin/windows/amd64 and arm64. Covers FTS (inverted index + BM25), vector (IVF-PQ, IVF-Flat, HNSW-PQ, HNSW-SQ), scalars (BTree, Bitmap, LabelList), **hybrid search with RRF**, reranking, and connection to __INLINE_214__, __INLINE_215__, __INLINE_216__ and MinIO with __INLINE_217__.
-- **The Hub has no artifact for any of the three** (`graphit_hub_search` for LanceDB, Ladybug, and S3 is empty; `graphit_hub_list` of `knowledge` and `ast` is also empty). The fallback to the official documentation was declared before it was used.
-
-Note: Inline 185, Inline 186, Inline 187, Inline 188, Inline 189, Inline 190, Inline 191, Inline 192, Inline 193, Inline 194, Inline 195, Inline 196, Inline 197, Inline 198, Inline 199, Inline 200, Inline 201, Inline 202, Inline 203, Inline 204, Inline 205, Inline 206, Inline 207, Inline 208, Inline 209, Inline 210, Inline 211, Inline 212, Inline 213, Inline 214, Inline 215, Inline 216, Inline 217, and Inline 218-Inline 221 are placeholders for the actual inline code or parameters that should be filled in with specific values.
+- **`icebug-format` accepts `--source-dir` with a directory of Parquet** per vertex/edge
+  table — besides `--source-db <duckdb>` and `--graphar`. This matters because it is
+  exactly the shape of what `ladybugstore.ExportTables` already produces. The source of truth
+  remains the **local Ladybug store, already populated and consistent**; the Parquet directory is
+  an intermediate of the publishing pipeline, not an artifact that travels.
+- **icebug-disk output layout**: per table, `nodes_<t>.parquet`,
+  `indices_<t>.parquet` (targets ordered by source — the CSR `indices` array),
+  `indptr_<t>.parquet` (the row-pointer array), plus a `schema.cypher` in the directory. Each
+  Parquet carries `icebug_disk_version` in its metadata.
+- **Mount DDL**: `CREATE NODE TABLE t(...) WITH (storage = '<uri>', format = 'icebug-disk')`
+  and `CREATE REL TABLE r(FROM a TO b, ...) WITH (storage = '<uri>', format = 'icebug-disk')`.
+  `storage` accepts a URI — `s3://`, `gcs://`, `https://` require `httpfs`; `az://` requires `azure`.
+- **S3 credentials in Ladybug**: the docs say `CALL s3_credential(key_id=..., secret=..., region=...)`
+  and **that is wrong for this engine** — MEASURED: "Catalog exception: function s3_credential
+  does not exist". The real form is OPTIONS, one statement each:
+  `CALL s3_access_key_id='…'`, `s3_secret_access_key`, `s3_session_token`, `s3_region`,
+  `s3_endpoint`, `s3_url_style='path'`. Same form as the documented `CALL http_cache_file=true`.
+- **LanceDB has an official Go SDK**: `github.com/lancedb/lancedb-go`, CGO over the Rust core,
+  with pre-compiled native binaries for linux/darwin/windows on amd64 and arm64. It covers
+  FTS (inverted index + BM25), vector (IVF-PQ, IVF-Flat, HNSW-PQ, HNSW-SQ), scalar
+  (BTree, Bitmap, LabelList), **hybrid search with RRF**, reranking, and connecting to `s3://`,
+  `az://`, `gs://` and MinIO with `storage_options`.
+- **The Hub has no artifact for any of the three** (`graphit_hub_search` for lancedb,
+  ladybug and s3 came back empty; `graphit_hub_list` of `knowledge` and `ast` is empty). The
+  fallback to the official documentation was declared to the Engineer before being used.
 
 ## Plan & Task Breakdown
 
-Phase A – Foundation (no behavior change yet)
+### Phase A — Foundation (no behavior change yet)
 
-- [x] **T1 — S3 Configuration and Credential Resolution** — Spec: `internal/config/config.go`.
-  New keys `hub.bucket`, `hub.region`, `hub.endpoint`, `hub.prefix`; `hub.repo` exits.
-  Credentials are never read or written by us — resolved via the AWS default chain.
-  Accept: `config.HubBucket()` and friends resolve with the same precedence as other keys
-  (inline > env > project > global > default), and `ResolveHubRepo`/`HubRepoURL` cease to exist without breaking compilation.
-- [x] **T2 — Object Layer** — Spec: new package on `internal/s3store`. Operations: `aws-sdk-go-v2`, `Get`, `Put`, `Delete` (with prefix and pagination),
-  `List`, `Head`, `Exists`; `URI(key)` returns exactly the format that Ladybug and LanceDB accept as `URI`.
-- [x] **T3 — Bucket Request, Not Repository** — Spec: `storage`.
-  Prompts for `setup` and `cmd/graphit/commands/setup.go` exit; they enter bucket, region, and endpoint. Validates with
-  a `hub.repo` and fails with the same discipline of the model download (error in face,
-  naming what was missing and the credential route). Accept: `memory.repo` in an environment without credentials explains which variable to define, and does not report success.
+- [x] **T1 — S3 config and credential resolution** — Spec: `internal/config/config.go`.
+  New keys `hub.bucket`, `hub.region`, `hub.endpoint`, `hub.prefix`; `hub.repo` goes away.
+  A credential is NEVER read nor written by us — it resolves through the standard AWS chain.
+  Acceptance: `config.HubBucket()` and friends resolve with the same precedence as the other keys
+  (inline > env > project > global > default), and `ResolveHubRepo`/`HubRepoURL` stop
+  existing without breaking compilation.
+- [x] **T2 — `internal/s3store`: the object layer** — Spec: new package over
+  `aws-sdk-go-v2`. Operations: `Get`, `Put`, `Delete`, `List` (with prefix and pagination),
+  `Head`, `Exists`, `URI(key)`. Acceptance: tested against a fake in-process S3 server
+  (no test touches the real network), and `URI` returns exactly the form that Ladybug and
+  LanceDB accept as `storage`.
+- [x] **T3 — `setup` asks for a bucket, not a repository** — Spec: `cmd/graphit/commands/setup.go`.
+  The `hub.repo` and `memory.repo` prompts go away; bucket, region and endpoint come in. It validates
+  with a `HeadBucket` and fails with the same discipline as the model download (error in your face,
+  naming what was missing and the credential route). Acceptance: `setup` in an environment without a
+  credential explains which variable to set, and does not report success.
 
-Phase B – The S3 Hub
+### Phase B — The Hub on S3
 
-- [x] **T4 — Inline 248 written and tested** (substituting the callers is T5) — Spec: same surface contract as the rest of the package already uses (Inline_249, Inline_250, Inline_251, Inline_252, Inline_253 → URI resolution, Inline_254 → prefix upload,
-  Inline_255 → prefix deletion, Inline_256/Inline_257 → ndjson objects, Inline_258 → memory prefix). Key layout defined in Inline_259 and versioned with JSON Schema.
-  Accept: no Inline_260 remains in package Inline_261.
+- [x] **T4 — `internal/hub/s3_store.go` written and tested** (replacing the callers is T5) — Spec: the same surface
+  contract the rest of the package already uses (`ReadFile`, `WriteFile`, `RemoveAll`, `ListDir`,
+  `EnsureArtifactClone` → URI resolution, `WriteArtifactBranch` → prefix upload,
+  `DeleteArtifactBranch` → prefix delete, `WriteEventFile`/`SyncEvents` → ndjson
+  objects, `MemoryWorktree` → memory prefix). Key layout defined in
+  `docs/specs/hub-s3-object-layout.md` and versioned with a JSON Schema.
+  Acceptance: no `exec.Command("git")` is left in the `hub` package.
+- [x] **T5 — Rewire whoever uses the GitStore, and `git_store.go` deleted** — Spec: `registry.go`, `service.go`,
+  `lifecycle.go`, `event_tracker.go`, `reconcile.go`, `ast_store.go`, `rule.go`,
+  `grammar_install.go`, `language_global.go`. Acceptance: `make test` of the package passes without
+  any remaining git store test.
+- [x] **T6 — Memory leaves git** — Spec: `internal/memory` + `MemoryWorktree`. The memory
+  store becomes a prefix in the bucket. Acceptance: `graphit_memory_export` publishes to S3;
+  `memory.repo` stops existing. **Design and result in "T6 — the design" below.**
 
-- [x] **T5 — Rewrite of who uses GitStore, and Inline_262 deleted** — Spec: Inline_263, Inline_264, Inline_265, Inline_266, Inline_267, Inline_268, Inline_269, Inline_270, Inline_271_. Accept: package Inline_272 passes without any git store remnants test.
-- [x] **T6 — Memory leaves Git** — Spec: Inline_273 + Inline_274_. Store of memory becomes prefix in bucket. Accept: Inline_275 publishes to S3; Inline_276 disappears. **Diagram and result below "T6 — the diagram"**.
+### Phase C — Graph in icebug, queried on-the-fly
 
-Phase C - Graph in IceBug, queried on demand
+- [x] **T7 — `httpfs` in the launcher payload** (the wiring of the icebug mount was done in T9: `ast.MountIcebugGraph`) — Spec: `Makefile` (per-platform
+  fetch target, in the mold of `setup-lbug`), `cmd/launcher/` (extraction), and the connection-opening
+  point in `internal/ladybugstore/store.go` (`LOAD EXTENSION '<runtime>/httpfs.lbug_extension'`
+  + `CALL s3_credential(...)`). Acceptance: a query against `s3://` works with the machine
+  offline except for S3 itself, and with nothing in `~/.lbug/extensions`.
+- [~] **T8 — native writer in Go: data and 1 hop CORRECT; `[:A|B]` counting FIXED; multi-hop traversal and alternatives with a filtered endpoint blocked UPSTREAM** — Spec:
+  `internal/ladybugstore/icebug.go` (native, **no Python in the production path**). Pipeline:
+  populated Ladybug store → `ExportIcebug` → upload of the directory to
+  `s3://<bucket>/<prefix>/…`. Acceptance REACHED: the published `schema.cypher` mounts on a clean
+  Ladybug and answers with the same numbers as the origin; `[:A|B]` exact on the 28 pairs after
+  `sortRelsLargestFirst`. **Left open, and it is upstream:** multi-hop traversal, and alternatives
+  with one filtered endpoint. See "RESOLVED: `[:A|B]` is TWO defects".
+- [x] **T9 — install does NOT download: both types mount** — Spec: `internal/ast/icebug_transfer.go`,
+  `internal/hub/ast_store.go`, `internal/hub/mount.go`. Install records the location and runs the
+  mount DDL; what comes down is `schema.cypher`, a few KB of metadata. Search mounts by the
+  same idea — `search.uri` next to the catalog. Acceptance REACHED: published, mounted and
+  queried, with `published bundle holds 7 data files; the local catalog holds 0`, and the search of
+  a mounted context answering. The format gaps were **accepted** by the Engineer's decision
+  and are declared at the top of `icebug_transfer.go`.
 
-- [x] T7 — __INLINE_277__ in the payload of the launcher (the icebug assembly wiring was done on T9: __INLINE_278__) — Spec: __INLINE_279__ (fetch target by platform, in the `setup-lbug` mold), __INLINE_281__ (extra extraction), and the connection opening point at `internal/ladybugstore/store.go` (__INLINE_283__ + __INLINE_284__). Accept: a query against `s3://` works offline except for itself on S3, and without anything in ___INLINE_286__.
-- [~] T8 — native Go writer: data and 1 hop correct; count correction __INLINE_287__; multi-hop traversal blocked upstream. Upstream: Spec: __INLINE_288__ (native, **without Python on the production path**). Pipeline:
-  populated Ladybug store → `ExportIcebug` → upload of directory to `s3://<bucket>/<prefix>/…`. Accept ATTED: the `schema.cypher` published is a clean Ladybug and responds with the same numbers as the origin; __INLINE_292__ exact in the next 28 pairs after ___INLINE_293__. It stays open, upstream: multi-hop traversal blocked upstream. See "RESOLVED: ___INLINE_294__ are TWO defects".
-- [x] T9 — install does not download: both types mount __INLINE_295__, __INLINE_296__, and __INLINE_297__. Installing registers the location and runs the
-  assembly DDL; what comes down is `schema.cypher`, a few KB of metadata. The search builds on the same idea — ___INLINE_299__ alongside the catalog. Accept ATTED: published, mounted, and queried, with __INLINE_300__, and the search for a context response. Format lacunas are **accepted** by the Engineer and declared at the top of `icebug_transfer.go`.
+### Phase D — Search in LanceDB, queried on-the-fly
 
-Note: Inline references to specific lines in the code or text have been omitted as they were not provided in the original Portuguese snippet.
-
-Phase D - Searches in LanceDB, performed on demand
-
-- [x] **T10 — the native of LanceDB is compiled by platform and goes to the payload** — Spec:
-  `Makefile` (`fetch-lancedb`, `lancedb-cgo-env`), `.gitignore`. Accept: `make fetch-lancedb`
-  produces `liblancedb_go.so`/`.dylib`/`.dll` in `cmd/launcher/runtime/`, and the launcher already finds it at runtime without any new code. **See "T10 REDEFINED" and "PROVEN: hybrid".**
+- [x] **T10 — the LanceDB native is COMPILED per platform and goes into the payload** — Spec:
+  `Makefile` (`fetch-lancedb`, `lancedb-cgo-env`), `.gitignore`. Acceptance: `make fetch-lancedb`
+  produces `liblancedb_go.so`/`.dylib`/`.dll` in `cmd/launcher/runtime/`, and the launcher already
+  finds it at runtime without a single new line of code. **See "T10 REDEFINED" and "PROVEN: hybrid".**
   `lancedb-go` is in `go.mod`, and the link contract is declared in the repository in
-  `internal/lancestore/cgo_lancedb.go` — not in the environment. The library lives in `.native/`, and the release builds it on each SO runner.
-- [x] **T11 — `internal/lancestore`: the search layer** — Spec: new package. Open local connection or `s3://`, create table, upsert, delete by key, create FTS/vector/scalar index, and three queries. **Hybrid is of the MOTOR**, not ours. Accept: ten green tests, including on-the-fly against MinIO. See "T11 DONE" below.
-- [x] **T12 — Size of AST Index** — Spec: `internal/ast/search_lance.go` (new); `search_sqlite.go` and `search_fusion.go` are deleted. `search_common.go` survived intact— it was written storage-independent purposefully, and that is what made this size a layer.
-  Accept with a premise correction: the median of 13/16 **media desempate**, then redefined to 11/11 strict + 5/5 recall. See "PASS STEP 2 (T12) DONE".
-- [x] **T13 — Size of Wiki Index** — Spec: `internal/wiki/store.go` rewritten on the LanceDB, `store_query.go` deleted, types moved to `types.go`. Accept with a premise correction: knowledge and memory search through the LanceDB using the preserved chunk model, and **four** tables instead of five— `chunk_emb` became a column, so the orphaned vector was no longer expressible.
-- [x] **T14 — SQLite exits** — 5.737 lines removed: `mattn/go-sqlite3`,
-  `sqlite-vec-go-bindings`, the tag `fts5`, the two guard files and `internal/sqlitestore/`
-  entirely. Accept with a premise correction: `go build ./...` compiles without any tags, and no sqlite imports remain— only historical comments were kept because they record why.
+  `internal/lancestore/cgo_lancedb.go` — not in the environment. The library lives in `.native/`, and
+  the release builds it on each OS's runner.
+- [x] **T11 — `internal/lancestore`: the search layer** — Spec: new package. Open a local or
+  `s3://` connection, create a table, upsert, delete by key, create an FTS/vector/scalar index,
+  and the three queries. **Hybrid is the ENGINE's**, not ours. Acceptance: ten tests green, including
+  on-the-fly against MinIO. See "T11 DONE" below.
+- [x] **T12 — Port of the AST index** — Spec: `internal/ast/search_lance.go` (new);
+  `search_sqlite.go` and `search_fusion.go` **deleted**. `search_common.go` survived intact —
+  it was written storage-independent on purpose, and that is what made this port a single layer.
+  Acceptance REACHED with one premise correction: the 13/16 floor **was measuring tie-breaking**, so it was
+  re-derived to a strict 11/11 + 5/5 of recall. See "STEP 2 (T12) DONE".
+- [x] **T13 — Port of the wiki index** — Spec: `internal/wiki/store.go` rewritten over
+  LanceDB, `store_query.go` deleted, types moved to `types.go`. Acceptance REACHED: knowledge and
+  memory search through LanceDB with the chunk model preserved, and **four** tables instead of
+  five — `chunk_emb` became a column, so an orphan vector stopped being expressible.
+- [x] **T14 — SQLite goes away** — 5,737 lines removed: `mattn/go-sqlite3`,
+  `sqlite-vec-go-bindings`, the `fts5` tag, the two guard files and the whole of
+  `internal/sqlitestore/`. Acceptance REACHED: `go build ./...` compiles with no tag at all, and no
+  sqlite import is left — only historical comments remain, kept because they record the why.
 
-### Fase E — Fechamento
+### Phase E — Closing
 
-- [x] **T15 — End-to-end PELO CLI** - Deployed with MinIO real: `init`, `ast index`, `hub submit`,
-  `hub install` in a clean project, and query.
+- [x] **T15 — End to end THROUGH THE CLI** — Run with real MinIO: `init`, `ast index`, `hub submit`,
+  `hub install` in a clean project, and querying.
 
-**FOUND THREE DEFECTS THAT NO TEST COULD DETECT**, all in the layer that tests bypassed:
+  **IT FOUND THREE DEFECTS NO TEST WAS CATCHING**, all in the layer the tests were bypassing:
 
-1. The publication and installation did not match the prefix. The publication wrote in `artifacts/ast/_global/3.0.0/`, and the installation read from `artifacts/ast/t15-demo/3.0.0/` because the mount prefix came from the *context ID* instead of the artifact identity. The tests called both sides with hand-chosen arguments, so they **converged by construction**.
+  1. **publishing and installing disagreed on the prefix.** Publishing wrote to
+     `artifacts/ast/_global/3.0.0/` and install read from `artifacts/ast/t15-demo/3.0.0/`, because the
+     mount prefix came from the *context id* instead of the artifact's identity. The tests called the
+     two sides with hand-picked arguments, so they **agreed by construction**.
+  2. **nobody turned on remote access in the query path.** `LoadExtensions` and `ConfigureS3`
+     had existed since T7 and no caller invoked them, so a mounted context resolved the URI and
+     reported `No such file or directory` for an object that was there — the engine had no
+     filesystem that reached it.
+  3. **the HTTP endpoint was unreachable.** The engine prefixes `https://` always (passing the scheme in
+     the endpoint is accepted and produces `https://http://localhost:9000/…`), and the option is not
+     called anything you would expect: `s3_use_ssl`, `s3_ssl`, `http_use_ssl`, `s3_scheme`, `s3_protocol`,
+     `s3_insecure`, `s3_verify_ssl` and `s3_use_tls` **all** return `Invalid option name`. The one that
+     exists is **`s3_disable_ssl`**, found by probing and not by documentation.
 
-2. No one connected to the remote access on the query path. `LoadExtensions` and `ConfigureS3` existed since T7; no caller invoked them, so a mounted context resolved the URI and reported `No such file or directory` to an object that was there—no filesystem in the motor could reach it.
+  Result against real MinIO: `MATCH (n:Entity) RETURN count(n)` → **6**;
+  `(a)-[:CALLS]->(b)` → `SyncRegistry` → `evictOldestStaged`; hybrid search in the mounted context →
+  **5 results**. **No data downloaded.**
 
-3. The HTTP endpoint was unreachable. The motor always prefixes `https://` (passing the scheme on the endpoint is accepted and produces `https://http://localhost:9000/…`), and the option does not call anything expected: `s3_use_ssl`, `s3_ssl`, `http_use_ssl`, `s3_scheme`, `s3_protocol`, `s3_insecure`, `s3_verify_ssl`, and `s3_use_tls` **all** return `Invalid option name`. The one that exists is **`s3_disable_ssl`**, found through a survey and not by documentation.
+  **Two limitations of the ENVIRONMENT, not of the product:** running the *core* binary outside the
+  launcher payload leaves the grammar YAMLs and the `httpfs` extension outside where it looks — they had
+  to be copied by hand — and `graphit setup` is interactive, so it hung until it was run with stdin
+  closed.
+- [x] **T16 — Documentation** — Rewritten where the design changed: `architecture/storage_layout.md`
+  (tree, table of who-keeps-what, the consequences of the split), `specs/ast_module.md` (the whole
+  Retrieval section, which described seven weighted passes and a prefix pass that do not
+  exist), `specs/wiki_module.md` (four tables, and why the absence of `chunk_emb` IS the
+  design), `specs/hub_collaboration.md` (Parquet bundle → mount). Plus pointed corrections in nine
+  guides and specs, and `git` left the architecture diagram and the memory design.
+  **The `docs/changelogs/` were NOT touched**, on purpose: they are dated records of what was
+  true then, and rewriting them erases the history of the decision. The mentions left in the
+  living docs are all historical — "SQLite managed that with triggers" — and they explain the why.
+  ADR: `docs/decisions/2026-08-23-hub-em-s3-icebug-e-lancedb.md`.
 
-Result against MinIO real: `MATCH (n:Entity) RETURN count(n)` → **6**;
-`(a)-[:CALLS]->(b)` → `SyncRegistry` → `evictOldestStaged`; hybrid search in the context of mounted →
-**5 results**. No data downloaded.
+## Phase D — T10 REDEFINED: the LanceDB native is compiled with the project (2026-08-22)
 
-**Two limitations of the ENVIRONMENT, not of the product:** Running the binary *core* outside the payload of the launcher leaves the YAMLs for grammar and the extension __INLINE_355__ out of where it searches — they had to be copied by hand — and the __INLINE_356__ is interactive, so it crashed even when stdin was closed.
-- [x] **T16 - Documentation** — Re-written where the design changed: __INLINE_357__ (tree, table of who holds what, consequences of split), __INLINE_358__ (the entire Retrieval section, which described seven passes with weight and a prefix-pass that doesn't exist), __INLINE_359__ (four tables, why the absence of __INLINE_360__ is the design), __INLINE_361__ (bundle Parquet → mount). Nine additional corrections in nine guides and specs, and the __INLINE_362__ left from the architecture diagram and memory design. **The `docs/changelogs/` were not touched**, purposefully: they are dated records of what was true then, and rewriting them erases the decision history. The remaining mentions in the living docs are all historical — "SQLite could do it with triggers" — and explain why.
-ADR: __INLINE_364__
+T10 was written as "download pre-compiled natives and put them in the launcher payload". Verification
+before writing plumbing knocked that premise down, and the Engineer decided the path.
 
-Phase D — T10 Redefined: The native of the LanceDB is compiled with the project (August 22, 2026)
+### What the verification found, measured and executed
 
-T10 was written as "download pre-compiled native binaries and put them in the launcher's payload." The verification before writing plumbing knocked this premise down, and the Engineer decided on the path.
-
-What was the result of the verification, measured, and executed?
-
-**1. 365 INLINE v0.1.2 — the only release — DOES NOT MAKE TEXTUAL SEARCHES.** Not a lack of hybrid: it is the full FTS. Proven in execution, not read:
+**1. `lancedb-go` v0.1.2 — the only release — DOES NOT DO text search.** It is not a lack of hybrid: it
+is the whole FTS. Proven in execution, not read:
 
 | operation | result |
 |---|---|
 | create table, insert, count | OK |
-| `CREATE FTS INDEX` (inverted index) | **OK — the native creates** |
+| `CREATE FTS INDEX` (inverted index) | **OK — the native creates it** |
 | `FullTextSearch` | **error: "Full-text search is not currently supported"** |
-| `VectorSearch` | real error from Lance (column Utf8, not vector) ⇒ it's actually connected |
-| FTS + vector in the same query | picked up the vector branch and never reached FTS |
+| `VectorSearch` | *real* Lance error (Utf8 column, not a vector) ⇒ it is genuinely wired |
+| FTS + vector in the same query | took the vector branch and never reached the FTS |
 
-The operation of creating a table, inserting data, and counting rows was successful. The inverted index is working as expected, with the native tool creating it. There was an error reported for `FullTextSearch`, which indicates that full-text search is not currently supported in this environment. For `VectorSearch`, there was a real issue related to the Lance column being of type Utf8 instead of vector, but it has been properly connected. When using FTS (Full-Text Search) along with vectors in the same query, the vector branch was picked up and never reached the Full-Text Search feature.
+The cause is in the binding's `rust/src/query.rs`: `// placeholder for future implementation`.
+The Rust crate `lancedb` it compiles against **has** `full_text_search`, `rerank` and `norm` in the
+`QueryBase` trait — the engine does it; the binding was not wiring the thread.
 
-The cause lies in the `rust/src/query.rs` of the binding: `// placeholder for future implementation`.
-Rust's crate against which it compiles **has** `full_text_search`, `rerank`, and `norm` in trait `QueryBase` — the engine does; the binding doesn't tie the thread.
+**2. The `main` branch already wired it.** Three commits from April 2026: hybrid vector+FTS in the
+`VectorQuery` (#33), RRF reranker exposed in the query config (#32), `create_index_v2` with full tuning (#31).
+`query.rs` goes from 226 to 580 lines, with `RRFReranker`, `NormalizeMethod` and the chaining
+`vector_query.full_text_search(fts)`. The Go side exposes `QueryConfig{VectorSearch, FTSSearch,
+Reranker, Postfilter, WithRowID}` — and the code's own comment says *"automatic RRF on hybrid
+nearest_to + full_text_search queries"*. **The fusion is the engine's; no RRF in Go.**
 
-**2. The branch INLINE_376 has already been linked.**
-Three commits from April 2026:
-- Hybrid vector+FTS on INLINE_377 (#33)
-- Exposed RRF reranker in query config (#32) 
-- Complete tuning for INLINE_378
-- Inline encasing with full tuning (#31).
-The INLINE_379 goes from 226 to 580 lines, with INLINE_380, INLINE_381, and the chaining INLINE_382. The Go side exposes `QueryConfig{VectorSearch, FTSSearch, Reranker, Postfilter, WithRowID}` — and the own code comment says *"Automatic RRF on hybrid nearest_to + full_text_search queries"*. **The fusion is from the engine; no RRF in Go.**
+**3. But there is no release with that.** Last release v0.1.2 from **2025-09-30**, eleven months before
+those commits. No prerelease, no draft. The published natives contain the stub.
 
-3. There is no release with that feature.
-The latest release v0.1.2 from September 30, 2025, eleven months before those commits. No pre-release or draft. The native releases contain the stub.
+**4. The published artifact has 3 platforms, not 5.** `darwin_amd64`, `darwin_arm64`,
+`linux_amd64`. Its `RELEASE_NOTES.md` promises `linux_arm64` and `windows_amd64`; they are not there.
 
-The artifact published has 3 platforms, not 5. `darwin_amd64`, `darwin_arm64`,
-`linux_amd64`. The `RELEASE_NOTES.md` of it promises `linux_arm64` and `windows_amd64`; they are not there.
+**5. `main` dropped the `cdylib`.** `crate-type = ["staticlib"]` in commit `fa14ce2`
+("drop unused cdylib"). The branches that copy `.so`/`.dylib`/`.dll` in `build-native.sh` are dead
+code. So the dynamic path requires reactivating `cdylib` — one line of `Cargo.toml`, without touching
+code.
 
-Note: I've kept the inline codes as is since they seem to be placeholders or identifiers for specific sections in a document. If you have any further context about these inline codes, please provide them so I can assist with translation more accurately.
+### The Engineer's decision
 
-**5. The branch that copies **__INLINE_393__/**__INLINE_394__/**__INLINE_395__** in the commit **__INLINE_396__** dropped unused cdylib.** The dynamic branches that copy **__INLINE_393__/**__INLINE_394__/**__INLINE_395__** require reactivating **__INLINE_397__**, a line of code, without touching the code.
+**Compile the native through the Makefile, together with the project, each platform its own — with no
+persistent artifact and no single published build.** Discarded: waiting for the upstream release (a
+third party's schedule, and without SQLite there is no fallback), and compiling once and publishing to
+our bucket.
 
-This translation aims to provide an idiomatic English version while maintaining the original structure and technical terms.
+Accepted consequences:
 
-The Engineer's Decision
+- **`go.mod` pins the pseudo-version of `main` at SHA `fa14ce29c7724354f2cea630a1d3488b56bbd64b`.**
+  It is not a fork: it is upstream with no code patch. The SHA is pinned in `go.mod` AND in the Makefile,
+  because Go and native MUST come from the same commit — if they diverge, the FFI breaks at runtime, not
+  at compile time.
+- **A Rust toolchain becomes a build prerequisite.** New in the project. No cross-compile: each
+  platform compiles its own, which is what the decision asks for.
+- `lancedb` crate v0.24.0 at the pinned SHA (v0.1.2 used v0.22.1).
 
-Compile the native using the Makefile alongside the project, per platform — without persistent artifacts or a published unique build. Discarded: waiting for an upstream release (third-party deadline, and SQLite is not a fallback), and compiling once and publishing to our bucket.
+### The plan's order CHANGED: T14 goes to the end
 
-Consequences accepted:
+The Engineer decided that SQLite goes away entirely. That inverts the safe order: **T11 and the proof
+that hybrid works on the real corpus come BEFORE removing SQLite.** Without a fallback, removing
+first would leave the framework with no search at all for several tasks.
 
-The **`go.mod` fixes the pseudo-version of `main` in SHA `fa14ce29c7724354f2cea630a1d3488b56bbd64b`. 
-It is not a fork; it's upstream without code patch. The SHA pinfs into `go.mod` and Makefile, because Go and native have to come from the same commit — if diverge, FFI breaks at runtime, not during compilation.
-- **Toolchain Rust becomes a build prerequisite.** New in the project. Without cross-compilation: each platform compiles its own, which is what the decision asks for.
-- `lancedb` crate version 0.24.0 fixed by SHA (version 0.1.2 used v0.22.1).
+Legacy to remove in T14, sized: `mattn/go-sqlite3`,
+`asg017/sqlite-vec-go-bindings`, the `fts5` build tag (today mandatory in every `go build`/`go
+test`), the whole of `internal/sqlitestore/`, `internal/ast/search_sqlite.go` (1,229 lines), the
+guard files — and `internal/ast/search_fusion.go`, which loses its caller when the fusion becomes
+the engine's.
 
-The plan's order has changed: T14 is moving to the end.
+## END OF PHASE D: the native enters the build, and SQLite goes away (2026-08-23)
 
-The Engineer decided that SQLite would be completely removed. This reverses the order of safety: **T11 and proving hybrid works in real-world corpora come before removing SQLite**. Without fallback, removing first would leave the framework without any search for several tasks.
+> **Name correction.** This section was born christened "PHASE E" and that was wrong: it is the rest of
+> **Phase D** (T12–T14). Phase E is the *Closing* — T15 end to end and T16 documentation — and
+> is still open. Renamed because a plan with two Phase Es is a plan you cannot read.
 
-Legacy to be removed in T14, dimensioned: `mattn/go-sqlite3`,
-`asg017/sqlite-vec-go-bindings`, the build tag `fts5` (currently mandatory across all `go build`/`go
-test`), `internal/sqlitestore/` inteiro, `internal/ast/search_sqlite.go` (1.229 lines), the files-guard — and `internal/ast/search_fusion.go`, which loses its caller when merging becomes of the engine.
+The Engineer's decision: "go ahead with all of them" — the four steps, in the order below.
 
-END OF PHASE D: The native enters the build, and SQLite exits (August 23, 2026)
+### What motivated the order
 
-**Correction of Name.** This section was renamed to "FASE E" and was incorrect; it is the remainder of **Phase D** (T12-T14). Phase E is the *Closure* — T15 from start to finish, followed by T16 documentation — and remains open. Renamed because a plan with two Phases E is an unreadable plan.
+The Engineer observed that **the `fts5` tag only exists because of SQLite**. Verified and correct:
+the only two occurrences of `//go:build .*fts5` are the guard files
+`internal/ast/fts5_required.go` and `internal/wiki/fts5_required.go`, both in packages that import
+`mattn/go-sqlite3`. The tag does not turn on Go code — the driver's `sqlite3_opt_fts5.go` has no
+code at all, only `#cgo CFLAGS: -DSQLITE_ENABLE_FTS5`. It decides which SQLite gets compiled.
 
-Decision of the Engineer: "follow all" — the four steps in order below.
-
-What prompted the order?
-
-The Engineer observed that the **tag INLINE 411** only exists because of SQLite. Verified and correct:
-the two occurrences of INLINE 412 are files-guard INLINE 413 and INLINE 414, both in packages that import INLINE 415. The tag does not link Go code — the driver's INLINE 416 tag has no code, just INLINE 417. It decides which SQLite is compiled.
-
-But the tag does not disappear; it simply moves to a new location, and this matters for the design.
-
-| tag | postura hoje | custo |
-|---|---|---|
-Inline, 418 | Mandatory (the guards break the build) | A compiler flag on a vendorized C system
-| **inline** 419 | **opcional** (`store_disabled.go` devolve `ErrNotBuilt`) | toolchain Rust, `.so` por plataforma |
+**But the tag does not disappear, it changes places**, and that matters for the design:
 
 | tag | posture today | cost |
 |---|---|---|
-| inline 418 | mandatory (the guards break the build) | a compiler flag on a vendorized C |
-| inline 419 | optional (`store_disabled.go` returns `ErrNotBuilt`) | Rust toolchain, `.so` for platform |
+| `fts5` | **mandatory** (the guards break the build) | one compiler flag in a vendored C |
+| `lancedb` | **optional** (`store_disabled.go` returns `ErrNotBuilt`) | Rust toolchain, a `.so` per platform |
 
-Note: The placeholders in the Portuguese text have been replaced with underscores and numbers to maintain their original form.
+After T14 LanceDB is the only search, and there is no Go fallback by explicit decision. So
+`store_disabled.go` stops being graceful degradation and becomes a broken installation: a search
+that always returns `ErrNotBuilt` is not search. Its role becomes that of today's `fts5_required.go`.
+**The guard-file pattern outlives its cause.**
 
-| tag | posture today | cost |
+### Why T14 cannot come first
+
+`search_sqlite.go` carries weight right now: it has `RebuildFromCache` (full rebuild) and
+`UpdateIncremental` (the delta), called from `json_rebuild.go`, `incremental_rebuild.go` and from two
+points in `cmd/graphit/commands/ast.go`. Deleting it before LanceDB has those two methods means being
+left with no search halfway through.
+
+### Why step 1 comes before T12
+
+`BUILD_TAGS := fts5` — that's all. The `fetch-lancedb` target is loose and **nothing depends on it**, and
+that is why `go test ./internal/lancestore/` answers `[no test files]`: the tests exist and nobody
+runs them. Porting the indexing path into a package the suite never exercises is writing
+blind.
+
+### The native's contract, measured
+
+- the `lancedb-go` module declares **`CFLAGS: -I${SRCDIR}/../../include`** (the header comes from it) and
+  **no `LDFLAGS`** — the library has to be supplied from outside;
+- `liblancedb_go.so` exports 50 symbols and depends only on system libs (`libbz2`, `libgcc_s`,
+  `libm`, `libc`) — `libbz2` is exactly the one that broke the static link;
+- unlike ORT, which is `dlopen` at runtime with the path discovered in Go
+  (`findORTLibrary`): LanceDB is cgo, so it is a **link** dependency and also a **loader** one.
+
+### The four steps
+
+| step | what | state |
 |---|---|---|
-| inline 418 | mandatory (the guards break the build) | a compiler flag on a vendorized C |
-| inline 419 | optional (`store_disabled.go` returns `ErrNotBuilt`) | Rust toolchain, `.so` for platform |
+| 1 | native in the default build: `lancedb` in `LOCAL_TAGS`, `test`/`vet`/`lint` depending on it, link resolved without an environment variable | **DONE** |
+| 2 (T12) | port `RebuildFromCache` and `UpdateIncremental` to `lancestore`, from the same `ShardCache`, preserving the incremental | **DONE** (the callers still have to be rewired, which is T14) |
+| 3 (T13) | wiki and memory search onto `lancestore` (no graph side) | **DONE** in the storage; the callers still have to be rewired (T14) |
+| 4 (T14) | delete SQLite: ~4,140 lines, the two guard files, the `fts5` tag and `search_fusion.go` | **DONE** |
 
-Note: The technical terms and code blocks have been left unchanged as per the instruction.
+### STEP 1 DONE: the link is declared in the repository, not in the environment
 
-The inline 418 tag is marked as mandatory (the guards break the build). It includes a compiler flag in a vendorized C code.
-
-The inline 419 tag is optional and returns `store_disabled.go` from `ErrNotBuilt`, using Rust toolchain with platform-specific settings.
-
-After T14, LanceDB is the only query, and there's no fallback in Go by explicit decision. So
-Inline 423 becomes a degraded installation, not a query that always returns Inline 424. Its role now becomes that of Inline 425 today.
-The file-guard pattern survives its cause.
-
-Why can't T14 come first?
-
-The carrega peso agora: has a total reconstruction (___INLINE_427__) and
-a delta (___INLINE_428__), called ___INLINE_429__, ___INLINE_430__ and two points in `cmd/graphit/commands/ast.go`. Removing before LanceDB implements these two methods is to avoid searching halfway through the process.
-
-Why does step 1 come before T12
-
-— That's all. The target `fetch-lancedb` is free and **nothing depends on him**, and that’s why `go test ./internal/lancestore/` responds `[no test files]`: the tests exist, but no one runs them. Porting the indexing path to a package that Excel never exercises would be writing blindfolded.
-
-### O contrato do nativo, medido
-
-- The module `lancedb-go` declares `CFLAGS: -I${SRCDIR}/../../include` (the header comes from it) and no `LDFLAGS` — the library must be provided externally;
-- `liblancedb_go.so` exports 50 symbols and depends solely on system libraries (__INLINE_440__, __INLINE_441__, __INLINE_442__, __INLINE_443__) — `libbz2` is exactly what broke the static link;
-- Unlike ORT, which is `dlopen` at runtime with the discovered path in Go (`findORTLibrary`): LanceDB is cgo, so it is a dependency of **link** and also of **loader**.
-
-### Os quatro passos
-
-Passage:
-| Step | What | State |
-|---|---|---|
-| 1 | Native in the default build: INLINE_447 in INLINE_448, INLINE_449/INLINE_450/INLINE_451 depending on it, resolved link without environment variable | **DONE** |
-| 2 (T12) | Port `RebuildFromCache` and `UpdateIncremental` to `lancestore`, the same `ShardCache`, preserving incremental | **DONE** (missing to glue callers, which is T14) |
-| 3 (T13) | Search for wiki and memory for `lancestore` (without graph side) | **DONE** in storage; missing to glue callers (T14) |
-| 4 (T14) | Delete SQLite: ~4.140 lines, the two guard files, tag `fts5` and `search_fusion.go` | **DONE**
-
-PASS STEP 1 COMPLETED: The link is declared in the repository, not in the environment.
-
-The contract of the link has turned into code. `internal/lancestore/cgo_lancedb.go` declares what the module does not declare, using `${SRCDIR}`, which Cgo expands to the absolute directory path of the file:
+**The link contract became code.** `internal/lancestore/cgo_lancedb.go` declares what the module
+does not declare, using `${SRCDIR}`, which cgo expands to the file's absolute directory:
 
 ```
 #cgo LDFLAGS: -L${SRCDIR}/../../.native -llancedb_go
@@ -642,578 +795,644 @@ The contract of the link has turned into code. `internal/lancestore/cgo_lancedb.
 #cgo LDFLAGS: -Wl,-rpath,$ORIGIN
 ```
 
-Two __INLINE_461__, because there are two types of binary:** the absolute serves the test binaries, which the toolchain links into a temporary directory where nothing is alongside them; the __INLINE_462__ serves the distributed binary, which travels with the library next to it — that's who keeps the relocatable installation.
-Verified in ELF: __INLINE_463__, and __INLINE_464__ resolves.
-
-Result measured: `go test -tags "fts5 lancedb" ./internal/lancestore/` passes **without any environment variables**, and **24 tests that nobody ran passed** (15 PASS, 1 SKIP on the remote S3 that requires MinIO). Prior to this, the suite responded with `[no test files]`.
-
-
-The library does not reside in `cmd/launcher/runtime`.
-That directory is the staging area for
-the `build-linux` launcher and ends with `rm -rf cmd/launcher/runtime/*` — pointing to `rpath` means that a `make build` silently breaks the `go test` following it. It lives in `.native/`, ignored by git, and the `build-linux` copies it into the package.
-
-Note: The placeholders (`cmd/launcher/runtime` to `build-linux`) are not provided in the original text.
-
-**INLINE_475 is separated from INLINE_476, and this is temporary.** The native Rust does not cross-compile,
-so INLINE_477 and INLINE_478 continue without the tag. **T14 forces it:** without SQLite, a binary without INLINE_479
-does not have any search functionality, so the tag must enter INLINE_480 and the release build must run on each platform instead of cross-compiling from one.
-
-**Defect Found in the Own Makefile:** `$(shell case "$$(go env GOOS)" in darwin) …)` —
-**make does not understand shell syntax**, and the first `)` unbalanced (which is what the legs of a `case` are made of) closes the function silently, truncating the value. The result was an empty path `.native/ echo liblancedb_go.dylib ;; …` that never existed, so the guard rebuilt the native in every invocation. Replaced by make conditionals.
-
----
-
-**Defect Found in Own Makefile:** `$(shell case "$$(go env GOOS)" in darwin) …)` —
-**make does not understand shell syntax**, and the first `)` unbalanced (which is what the legs of a `case` are made of) closes the function silently, truncating the value. The result was an empty path `.native/ echo liblancedb_go.dylib ;; …` that never existed, so the guard rebuilt the native in every invocation. Replaced by make conditionals.
-
-**Limitation Measured, Not Hidden:** The path of *reconstruction* (___INLINE_485__) could not be verified on this machine — ___INLINE_486__ exists but is missing a toolchain, and there are no `cargo`. What has been verified is the link, the guard, the tag, and the tests because the library that was built already exists at ___INLINE_488__. On a clean machine, ___INLINE_489__ still needs a real pass.
-
-PASSO 2 (T12) COMPLETED: `internal/ast/search_lance.go`, the two writing paths
-
-Ten tests, all against the real engine and one INLINE_491 - none stubs, because the port is that the engine will perform the search, so a fake test would precisely test the part that will be deleted.
-
-What remained the same as SQLite's index, by design:** two tables (`files` and `entities`,
-because joining an archive file and a classifying entity are different responses and ranking everything together buries the entities); the line built **in one place** for both writing paths; and the indexes created **after** mass loading.
-
-"What changed because the engine is different:"
-
-- **without integer IDs.** SQLite needed them to link external content tables' FTS columns to the content; here, the uid is the key and nothing needs to be numbered.
-- **without triggers.** The Lance keeps track of recently attached lines by scanning fragments that are not yet in the index, so incremental does not maintain an index per line— it folds after once due to latency.
-- **without a separate vector table and without compacting dead vectors.** The embedding is a column of the entity, so deleting the entity deletes the vector, and every bug class where a stale vector responds to an entity that no longer exists becomes unexpressible; it cannot be expressed anymore.
-- **one text column, not seven.** SQLite consulted seven fields with weights (name divided into 10.0, docstring in 3.0, type in 2.0, path in 1.0, and three files) and merged the passes into Go. This does not carry over to a query engine where text columns are queried, and refactoring the fusion into Go would be exactly the same as this project discarded: fields became a document, BM25 ranks— it already weights by term rarity, which is what manual weights approximated.
-
-Note: The original Portuguese text contains technical terms that were not provided in the English translation.
-
-The historical defect has become inexpressible. The `INSERT` of the rebuild for SQLite writes `name_tri`, but the incremental does not, so every file touched by an incremental loses recall of trigrams silently until the next complete rebuild. Now both paths call `buildEntityRow`, and `TestLanceBothWritePathsProduceTheSameDocument` compares the documents that the two produce instead of trusting they are equal.
-
-Three defects were identified through measurement, not by reading.
-
-1. **INLINE_498** is latency, not correction — and I had written the opposite.  
-   I documented that an appended line after the inverted index construction becomes invisible for textual search until fold. **False:** INLINE_499** appends a line with a term that does not exist anywhere else and finds it before any fold — the engine scans unindexed fragments along with the index. If I had believed in intuition, the design would have required an obligatory fold before every reading. The comment was corrected to what was measured, and the probe stayed for when the engine changed this.
-2. **IVF-PQ requires 256 lines to train, and failure caused a full rebuild.** Measured: INLINE_500___. That is:
-   **a project with fewer than 256 indexed entities would not be able to build any search index** — new repository, small service, almost all test fixtures. Below the threshold, the vector index skips over and semantic search continues to respond via scan, which in this size degenerates into whatever an index might do.
-3. **INLINE_501** was an error in a missing table. A rebuild against a new store failed on the first execution with INLINE_502__, which reads as corruption rather than empty store. Dropping what does not exist is no-op: the caller's intention is "this table should not exist."
-
-Also included: **only-filter** (`Mode() == "filter"`), which is similar to reading a line by its key — just like a test that verifies what was actually written rather than what the constructor was supposed to write.
-
-### PASSO 3 (T13) FEITO no armazenamento: `internal/wiki/store_lance.go`
-
-12 tests on the actual engine. **It also serves memory**, without any additional work: `internal/memory` uses the same `wiki.WikiDB` (via `consolidate_similarity.go`), so a store serves both.
-
-**Scope Discovery: The `WikiDB` was not just a search.**
-
-He stores five tables—`chunks`,
-`chunk_emb`, `xrefs`, `sync_log` and `wiki_meta`—along with browse and embedding accounting. As SQLite comes in full, everything had to go, not just the search.
-
----
-
-**Scope Discovery: The `WikiDB` was not merely a search.**
-
-He stores five tables—`chunks`,
-`chunk_emb`, `xrefs`, `sync_log` and `wiki_meta`—along with browse and embedding accounting. As SQLite is complete, everything had to be included, not just the search.
-
-The xrefs seemed to need a graph and didn't require it. `FindXRefs` traverses BFS in Go, with jumps; what he asks for from the storage is an unfiltered table of pairs, which is the most straightforward case of a column store. The form was purposefully identical to that of SQLite — not the part that needed changing.
-
-**Four tables instead of five:** `chunk_emb` became a column in `chunks` for the same reason as the AST index — an embedding that lives alongside its chunk cannot survive it, so the failure where an outdated vector answers for a page that no longer exists is no longer expressible.
-
-The log of the sync is the only table that survives a rebuild because it is the history *of*
-rebuilds: cleaning it on each rebuild would leave permanently an entry, which reads as "this wiki has only been synchronized once". Fixed by `TestLanceWikiSyncLogSurvivesARebuild`.
-
-A defect that would have affected all callers
-
-A vector written as `__INLINE_518__` does not return as `__INLINE_519__`. The Arrow→Go function returns a fixed-size list as `__INLINE_520__`, so __INLINE_521__ fails. And the assertion of two types does not throw an error, it returns nil.
-
-
-Real symptom measured: `StoredEmbeddings` returned an empty list while `EmbeddingStats` was counting the same lines as embedded — because one asked the engine and the other to Go. Corrected in
-`Table.normalizeRead`, which is the only layer that knows the schema, and fixed by
-`TestVectorColumnRoundTripsAsFloat32`. Converting would be the same error repeated in every caller.
-
-Also: the `slug` can contain an apostrophe (`what's-new`), and unescaped quotes in a filter **do not fail — they change which lines match**. `lanceQuote` folds the quotes, with test.
-
-### PASSO 4 (T14) FEITO: o SQLite saiu inteiro
-
-Removed 5.705 lines, written 2.225 times, and the entire suite is green, with ___INLINE_530__ working both with and without the tag.
-
-Deleted: `internal/ast/search_sqlite.go` (1. 229), `search_fusion.go` (331),
-`internal/wiki/store.go` (954), `store_query.go` (860), `internal/sqlitestore/` (766), the two files, `fts5_required.go`, `premigration_db_test.go`, and their dependencies
-`mattn/go-sqlite3` and `sqlite-vec-go-bindings` of `go.mod`. `BUILD_TAGS` has changed from `fts5` to `lancedb`.
-
-Note: The inline codes (e.g., `internal/ast/search_sqlite.go`) are placeholders for actual code snippets or file paths and should be replaced with the appropriate values.
-
-The types were not SQLite. `WikiChunk`, `WikiSearchResult`, `XRefResult`, and `SyncLogEntry` together went to `internal/wiki/types.go` — they describe what a wiki is, and nothing in them was specific to the engine, which is why the engine could be replaced without any changes to its form.
-
-Renamed to remove the engine from the API:**INLINE_549** → **INLINE_550**,  
-**INLINE_551** → **INLINE_552**. Only one of each now, so "Lance" in the name was just a detail leaking out.
-
-
-Publishing stopped converting, and installing stopped reconstructing.
-
-The artifact of the Hub carried the exported search tables in Parquet format, and each consumer reconstructed the inverted and vector indices — the non-virtual structure did not travel. A directory Lance loads its own, so publishing is copying and installing is copying. `parquet_transfer.go` and `wiki/transfer.go` were rewritten for this purpose, and the round-trip test became **stronger**: a search working on the other side now proves that the copied structure can be used, where before a rebuild would mask what had arrived broken.
-
----
-
-Inline comments:
-- The original inline comments have been preserved as they are not part of the technical translation.
-
-Five flaws that the tests found, all mine
-
-1. The SQLite index was absent and walked empty instead of reporting an error.
-2. The loop's index was the identifier, stable but not so: it wrapped a chunk and the following call returned that same number to another chunk. The field was removed — the slug is the identity. A test caught this.
-3. An empty query returned an error instead of nothing. It was a question without content, malformed request, and reporting an error to the user for that reason would be reporting a non-existent failure.
-4. An SQLite index leftover would be indexed as a source document. Nothing deletes this file (this project does not migrate), so it continues naming it purposefully — without this, the wiki would index its own old database.
-5. A build without the engine responded in silence. It swallowed the opening error and returned `nil, nil` — indistinguishable from a correct empty result that is exactly the trap the file-guarding `fts5` was designed to close. Now, the reason is reported.
-
-The file backup did not return, and this is a decision.
-
-As per my own previous analysis, `lancedb` would become mandatory, which would require a guard as the one from
-`fts5`. It was not done because of two reasons: the `ErrNotBuilt` already names the tag and correction ("run `make fetch-lancedb` and build with -tags lancedb"), precisely what the
-`no such module: fts5` does not do; and keeping `go build ./...` working is more important now that the native requires a Rust toolchain instead of a compiler flag. The __FOURTH__ was fixed was the part that really mattered — the failure being high rather than silent.
-
----
-
-
-Two high-quality gates reprocessed without downgrade
-
-The media was **13/16**, and it fell to 11/16. This is the same finding from this migration,
-repeated: five out of six probes do not have a uniquely defendable answer by the rule that the project itself wrote — returning an entity literally called `Config` is more defendable than `configLoader`. They became recall probes, and the strict floor is the eleven that have one response. Result: **11/11 strict and 5/5 of recall** — identical to what rederivation in `lancestore` gave, by an independent path.
-
-Note: The inline codes (`TestSearchIndexQualityFloor`, `config`, etc.) are placeholders for specific technical details or references that should be replaced with actual content.
-
-The test already excluded `valid` and `db` for this exact reason; it entered the same category when the preposition suffix was passed over. Eight out of eight strict, recall reaches position 2.
-
-He said to "keep the prefix index," which doesn't exist anymore. He then claimed that his conclusion — a maximum purchase of one probe and only with a correct guess — replaced an **abandoned** mechanism.
-
-A thing that is not regression
-
-INLINE_583 gave INLINE_584 intermittently (passed to the next round without change). This is an item in the backlog of the buffer pool: this machine has 41 out of 61 GB used and ~19 available, and LadybugDB's write threshold per handle without process coordination is 8 GiB. A native second in the process makes the peak higher, so migration **aggravates** the known problem without being its cause.
-
-**MEASURED WITH REAL INFERENCE: The reranker is INLINE 585 (MIT), and continues ON-OFF (2026-08-23)**
-
-The Engineer requested real-time measurements. It was conducted, and it changed two decisions:
-the model and the very account that measures.
-
-The Jina fell due to leave, not because of quality.
-
-INLINE_586 is **`cc-by-nc-4.0` — NOT COMMERCIAL**. For a commercial product, this is a blockage, and no benchmark number removes it. The previous choice was made by reading the benchmarks table and not the license; the license is required, not an in-page note.
-
-
-The two candidates with clean licenses, measured, and unargued
-
-Real Inference, ONNX Runtime, 24 entities in language-agnostic form with inline documentation strings:
-
-```markdown
-# Entities
-
-## Entity 1
-`internal/ai/rerank_eval_test.go`
-
-## Entity 2
-`rerankeval`
-
-## Entity 3
-`bge-reranker-base`
-
-## Entity 4
-`ms-marco-MiniLM-L-6-v2`
-
-## Entity 5
-`quoteIdent`
-
-## Entity 6
-`sanitizeUTF8`
-
-## Entity 7
-`improved 1, worsened 2`
-
-## Entity 8
-`evictOldestStaged`
-
-## Entity 9
-`first-stage miss: 1/16`
-
-## Entity 10
-`improved 1, worsened 1`
-
-## Entity 11
-`false`
-
-## Entity 12
-`false`
-
-## Entity 13
-`Run`
-
-## Entity 14
-`Missing Input: token_type_ids`
-
-## Entity 15
-`token_type_ids`
-
-## Entity 16
-`newCrossEncoderFrom`
-
-## Entity 17
-`ort.GetInputOutputInfo(modelPath)`
-
-## Entity 18
-`token_type_ids`
-
-## Entity 19
-`Encoding.TypeIds`
-
-## Entity 20
-`false`
-
-## Entity 21
-`ms-marco-MiniLM-L-6-v2`
-
-## Entity 22
-`jina-reranker-v1-tiny-en`
-
-## Entity 23
-`jina-reranker-v2-base-multilingual`
-
-## Entity 24
-`bge-reranker-base`
-```
-
-| **`bge-reranker-base`** | MIT | 1.04 GiB | 12 → 13/16 | 0.833 → 0.865 | 0.860 → 0.883 | 720 ms |
-| `ms-marco-MiniLM-L-6-v2` | Apache-2.0 | 87 MiB | 12 → 12/16 | 0.833 → 0.828 | 0.860 → 0.856 | 92 ms |
-
-Note: The model name and inline comments are not translated as they are placeholders or irrelevant to the translation process.
-
-The MS-Marco PIORA the ranking. It is tenth in size and eight times faster, yet still ends up last—trained on passage text, and an identifier with docstring is not a passage. This result is exactly why the decision went from parameter table to measurement: by size and latency, MS-Marco was the obvious choice.
+**Two `rpath`s, because there are two kinds of binary:** the absolute one serves the test binaries,
+which the toolchain links in a temporary directory where nothing sits next to them; `$ORIGIN` serves the
+distributed binary, which travels with the library alongside it — that is what keeps the installation
+relocatable. Verified in the ELF: `RUNPATH [/…/.native:$ORIGIN]`, and `ldd` resolves.
+
+Measured result: `go test -tags "fts5 lancedb" ./internal/lancestore/` passes **with no
+environment variable at all**, and **24 tests nobody was running started running** (15 PASS, 1 SKIP of the
+remote S3 one that needs MinIO). Before that the suite answered `[no test files]`.
+
+**The library does NOT live in `cmd/launcher/runtime`.** That directory is the launcher's staging
+area and `build-linux` ends with `rm -rf cmd/launcher/runtime/*` — pointing the `rpath` there
+means a `make build` silently breaks the next `go test`. It lives in `.native/`,
+ignored by git, and `build-linux` copies from it into the package.
+
+**`LOCAL_TAGS` is separate from `BUILD_TAGS`, and that is temporary.** The Rust native does not cross-compile,
+so `build-darwin` and `build-windows` remain without the tag. **T14 closes this by force:** without
+SQLite, a binary without `lancedb` has no search at all, so the tag has to go into `BUILD_TAGS`
+and the release build has to run on each platform instead of cross-compiling from a single one.
+
+**Defect found in the Makefile itself:** `$(shell case "$$(go env GOOS)" in darwin) …)` —
+**make does not understand shell syntax**, and the first unbalanced `)` (which is what the legs of a
+`case` are made of) closes the function and truncates the value in silence. The result was a path
+`.native/ echo liblancedb_go.dylib ;; …`, which never exists, so the guard rebuilt the native on
+every invocation. Swapped for make conditionals.
+
+**Limitation measured, not hidden:** the *rebuild* path (`make fetch-lancedb`) could not
+be verified on this machine — `~/.rustup` exists but has no toolchain, and there is no `cargo`. What
+is verified is the link, the guard, the tag and the tests, because the already-built library is in
+`.native/`. On a clean machine `fetch-lancedb` still needs a real pass.
+
+### STEP 2 (T12) DONE: `internal/ast/search_lance.go`, the two write paths
+
+10 tests, all against the real engine and a real `ShardCache` — no stub, because the point of the port
+is that the engine does the search, so a fake would test exactly the part that is going to be deleted.
+
+**What stayed the same as the SQLite index, on purpose:** two tables (`files` and `entities`,
+because matching a file and matching an entity are different answers and ranking everything together buries the
+entities); the row built **in a single place** for both write paths; and the indexes
+created **after** the bulk load.
+
+**What changed because the engine is a different one:**
+
+- **no integer ids.** SQLite needed them to tie the external-content FTS tables to the
+  content; here the uid is the key and nothing needs numbering;
+- **no triggers.** Lance keeps freshly appended rows findable by scanning the fragments that
+  are not yet in the index, so the incremental does not maintain a per-row index — it folds afterwards,
+  once, for latency;
+- **no separate vector table and no compacting of dead vectors.** The embedding is a column of the entity,
+  so deleting the entity deletes the vector, and the whole class of bug where an obsolete vector answers
+  for an entity that no longer exists **stops being expressible**;
+- **one text column, not seven.** SQLite queried seven weighted fields (name split into
+  10.0, docstring at 3.0, type at 2.0, path at 1.0, and three from the file) and fused the passes in
+  Go. That does not port to an engine whose text query takes one column, and redoing the fusion in
+  Go would be exactly the search-in-Go this project discarded. The fields become one document and
+  BM25 ranks — it already weights by term rarity, which is what the manual weights approximated.
+
+**The historical defect became inexpressible.** The SQLite rebuild's `INSERT` wrote `name_tri` and
+the incremental's did **not**, so every file touched by an incremental silently lost trigram recall
+until the next full rebuild. Now both paths call `buildEntityRow`, and
+`TestLanceBothWritePathsProduceTheSameDocument` compares the documents the two produce instead
+of trusting that they are the same.
+
+#### Three defects found by measurement, not by reading
+
+1. **`FoldNewRowsIntoIndexes` is latency, not correctness — and I had written the opposite.** I
+   documented that a row appended after the inverted index was built stays invisible to
+   text search until the fold. **False:** `TestFoldIsAboutLatencyNotVisibility` appends a row with
+   a term that exists in no other one and finds it **before** any fold — the engine scans
+   the unindexed fragments together with the index. Had I believed the intuition, the design
+   would have a mandatory fold before every read. The comment was corrected to what was
+   measured, and the probe stayed for the day the engine changes that.
+2. **IVF-PQ requires 256 rows to train, and the failure took down the whole rebuild.** Measured:
+   `Unprocessable: Not enough rows to train PQ. Requires 256 rows but only 2 available`. In other words:
+   **a project with fewer than 256 indexed entities could not build any search index at
+   all** — a new repository, a small service, almost every test fixture. Below the floor the
+   vector index is skipped and semantic search keeps answering by scan, which at that
+   size is what an index would degenerate into anyway.
+3. **`DropTable` on a missing table was an error.** A rebuild against a new store failed on the
+   very first run with `Table 'files' was not found`, which reads as corruption and not as an empty
+   store. Dropping what does not exist is a no-op: the caller's intent is "this table must not
+   exist".
+
+Also added: a **filter-only** query (`Mode() == "filter"`), which is how you read a
+row known by key — and it is how a test asserts what was actually written instead of what the
+builder intended to write.
+
+### STEP 3 (T13) DONE in the storage: `internal/wiki/store_lance.go`
+
+12 tests against the real engine. **It serves memory too**, with no extra work: `internal/memory`
+uses the same `wiki.WikiDB` (via `consolidate_similarity.go`), so one store serves both.
+
+**Scope discovery: `WikiDB` was not only search.** It keeps five tables — `chunks`,
+`chunk_emb`, `xrefs`, `sync_log` and `wiki_meta` — plus browse and embedding accounting. Since
+SQLite goes away entirely, all of that had to go, not just the search.
+
+**The xrefs looked like they needed a graph and did not.** `FindXRefs` does the BFS traversal **in
+Go**, with one-hop lookups; what it asks of the storage is a filterable table of pairs, which
+is the easiest case for a column store. The shape stayed identical to SQLite's on purpose — it was not
+the part that needed to change.
+
+**Four tables instead of five:** `chunk_emb` became a column of `chunks`, for the same reason as the
+AST index — an embedding that lives next to its chunk cannot outlive it, so the failure
+where an obsolete vector answers for a page that no longer exists stops being expressible.
+
+**The sync log is the only table that survives a rebuild**, because it is the history *of* the
+rebuilds: clearing it on every rebuild would leave it permanently with one entry, which reads as
+"this wiki only synced once". Pinned by `TestLanceWikiSyncLogSurvivesARebuild`.
+
+#### One defect that would have hit every caller
+
+**A vector written as `[]float32` does NOT come back as `[]float32`.** The Arrow→Go bridge returns a list of
+fixed size as `[]interface{}` of `float64`, so `v.([]float32)` fails — and the two-value
+form of the type assertion **does not error, it returns nil**.
+
+Real measured symptom: `StoredEmbeddings` returned an empty list while `EmbeddingStats` counted the
+**same rows** as embedded — because one asked the engine and the other asked Go. Fixed in
+`Table.normalizeRead`, which is the only layer that knows the schema, and pinned by
+`TestVectorColumnRoundTripsAsFloat32`. Converting at the point of use would be the same error repeated in
+every caller.
+
+Also: the `slug` may contain an apostrophe (`what's-new`), and unescaped quotes in a filter **do not
+fail — they change which rows match**. `lanceQuote` doubles the quote, with a test.
+
+### STEP 4 (T14) DONE: SQLite went away entirely
+
+**5,705 lines removed, 2,225 written, 83 files.** The whole suite green, and `go build ./...`
+works with and without the tag.
+
+Deleted: `internal/ast/search_sqlite.go` (1,229), `search_fusion.go` (331),
+`internal/wiki/store.go` (954), `store_query.go` (860), `internal/sqlitestore/` (766), the two
+guard files `fts5_required.go`, `premigration_db_test.go`, and the dependencies
+`mattn/go-sqlite3` and `sqlite-vec-go-bindings` from `go.mod`. `BUILD_TAGS` went from `fts5` to
+`lancedb`.
+
+**The types were not SQLite's.** `WikiChunk`, `WikiSearchResult`, `XRefResult`, `SyncLogEntry` and
+company went to `internal/wiki/types.go` — they describe what a wiki **is**, and nothing in them
+was engine-specific, which is why the engine could be swapped without a single caller changing
+shape.
+
+**Renamed to take the engine out of the API:** `LanceSearchIndex` → `SearchIndex`,
+`LanceWikiDB` → `WikiDB`. There is only one of each now, so "Lance" in the name was an
+implementation detail leaking outward.
+
+#### Publishing stopped converting, and installing stopped rebuilding
+
+The Hub artifact carried the search tables exported as Parquet, and **every consumer
+rebuilt the inverted and vector indexes** — engine structure did not travel. A Lance directory
+carries its own, so publishing is copying and installing is copying. `parquet_transfer.go` and
+`wiki/transfer.go` were rewritten for that, and the round-trip test got **stronger**: a
+working search on the other side now proves the copied structure is usable, where before a rebuild
+would mask whatever arrived broken.
+
+#### Five defects the tests caught, all mine
+
+1. **`EachFileSource` over a missing index walked empty instead of erroring.** `OpenSearchIndex`
+   **creates** what it opens, so a store with no index walked cleanly over zero files — and a caller
+   writing an artifact would publish it as complete. SQLite got that for free from a read-only open
+   that failed; a store in a directory has to be asked.
+2. **`chunkRow.ID` was the loop index.** It looked like a stable identifier and was not: embed a
+   chunk and the next call hands that same number to another chunk. The field was **removed** —
+   the slug is the identity. A test caught it.
+3. **An empty query returned an error instead of nothing.** `"  "` is a question with no content, not a
+   malformed request, and showing the user an error for that is reporting a failure that does not exist.
+4. **A leftover SQLite `wiki.db` would be indexed as a source document.** Nothing deletes that file
+   (this project does no migration), so `IsDerivedFile` keeps naming it **on purpose** —
+   without that the wiki would index its own old database.
+5. **A build without the engine answered silence.** `NewQueryService` swallowed the open error and the
+   searches returned `nil, nil` — indistinguishable from a correct empty result, which is exactly the
+   trap the `fts5` guard file existed to close. Now the reason is **reported**.
+
+#### The guard file did NOT come back, and that is a decision
+
+By my own earlier analysis, `lancedb` becoming mandatory would call for a guard like the `fts5`
+one. It was not done, for two measured reasons: `ErrNotBuilt` **already names the tag and the fix**
+("run `make fetch-lancedb` and build with -tags lancedb"), which is precisely what
+`no such module: fts5` did not do; and keeping `go build ./...` working matters more now that the
+native requires a Rust toolchain instead of a compiler flag. What **was** fixed is the part
+that actually mattered — the failure being loud instead of silent.
+
+#### Two quality gates re-derived, not lowered
+
+`TestSearchIndexQualityFloor` measured **13/16** and dropped to 11/16. It is the same finding from this
+migration, reapplied: five of the sixteen probes have no single defensible answer by the rule the project
+itself wrote — `config` returning an entity literally called `Config` is *more*
+defensible than `configLoader`. They became **recall** probes, and the strict floor is the eleven that
+have one answer. Result: **11/11 strict and 5/5 recall** — identical to what the re-derivation in
+`lancestore` gave, by an independent path.
+
+`TestTruncatedQueryCoverage`: `valida` matches `PKG_VALIDACAO_PAGAMENTO` and `SchemaValidator`
+comparably. The test **already excluded** `valid` and `db` for that exact reason; `valida` entered the
+same category when the prefix pass went away. 8/8 strict, recall reaches at position 2.
+
+`TestExpansionFieldCeiling` said it guarded "the prefix index", which no longer exists. It now
+asserts the **conclusion** it established — an expansion field buys at most one probe, and
+only with a lucky guess — instead of a deleted mechanism.
+
+#### One thing that is NOT a regression
+
+`internal/ast` gave `signal: segmentation fault` **intermittently** (it passed on the next
+run, with no change). It is the buffer pool backlog item: this machine has 41 of 61 GB in use and
+~19 available, and LadybugDB's write ceiling is 8 GiB per handle with no coordination between
+processes. A second native in the process makes the peak higher, so the migration **aggravates** the
+known problem without being its cause.
+
+## MEASURED with real inference: the reranker is `bge-reranker-base` (MIT), and it stays OPT-IN (2026-08-23)
+
+The Engineer asked for the measurement with real calls. It was done, and it changed two decisions:
+the model and the very arithmetic that was measuring.
+
+### Jina fell on license, not on quality
+
+`jina-reranker-v2-base-multilingual` is **`cc-by-nc-4.0` — NON-COMMERCIAL**. For a commercial
+product that is a blocker, and no benchmark number removes it. The previous choice was made
+reading the benchmark table and not the license; the license is a requirement, not a footnote.
+
+### The two candidates with a clean license, measured and not argued
+
+Real inference, ONNX Runtime, 16 natural-language questions over 24 entities from **this**
+repository with the real docstrings (`internal/ai/rerank_eval_test.go`, tag `rerankeval`):
+
+| model | license | size | top-1 | MRR | nDCG@10 | per query |
+|---|---|---|---|---|---|---|
+| **`bge-reranker-base`** | **MIT** | 1.04 GiB | 12→**13**/16 | 0.833→**0.865** | 0.860→**0.883** | 720 ms |
+| `ms-marco-MiniLM-L-6-v2` | Apache-2.0 | 87 MiB | 12→12/16 | 0.833→**0.828** | 0.860→**0.856** | 92 ms |
+
+**ms-marco MAKES the ranking WORSE.** It is a tenth of the size and eight times faster, and even
+so it comes last — it is trained on passage prose, and an identifier with a docstring is not
+a passage. That result is exactly why the decision moved from a table of parameters to
+measurement: by size and by latency, ms-marco was the obvious choice.
 
 The two queries that move are the same in both models, and only the direction changes:
 
-- `quoteIdent` ("why my delete didn't remove the line and didn't give an error"): 3 → **1** in BGE, 3 → 2 in MS-Marco.
-- `sanitizeUTF8`: 2 → 3 in BGE, 2 → **4** in MS-Marco.
+- `quoteIdent` ("why did my delete not remove a row and not error"): 3 → **1** in bge, 3 → 2 in ms-marco.
+- `sanitizeUTF8`: 2 → 3 in bge, 2 → **4** in ms-marco.
 
-The account was unjustly favoring the reranker in a way that made it seem worse.
+### The arithmetic was unfair to the reranker, and in the direction that favored it looking worse
 
-The first result of BGE came out with `improved 1, worsened 2`. Investigating: a response (`evictOldestStaged`) was ranked 24th out of 24 in the lexicon. The baseline was measured across the entire corpus and reranked within a window of 10 candidates — so the baseline received 1/24 credit, and the reranked received 0, **not because the reranker lowered the document, but because it had never seen this document**. Recall failure at stage one is being charged against stage two.
+The first bge result came out with `improved 1, worsened 2`. Investigating: one answer
+(`evictOldestStaged`) was at **rank 24 of 24** in the lexical stage. The baseline was measured over the whole
+corpus and the reranked one over the window of 10 candidates — so the baseline got 1/24 of credit and the
+reranked one got 0, **not because the reranker demoted the document, but because it never saw that
+document**. A first-stage recall failure charged to the second.
 
-Corrected: Both sides are measured in the same window, and the cost of the window is reported to the side.
-(__INLINE_596__). With the correct calculation, __INLINE_597__ in both models.
+Fixed: both sides are measured on the SAME window, and the window's cost is reported separately
+(`first-stage miss: 1/16`). With the right arithmetic, `improved 1, worsened 1` in both models.
 
-The find that's worth more than the reranker
+### The finding worth more than the reranker
 
-**Fourteen out of sixteen queries do not move.**
+**14 of 16 queries do not move.** The largest measured hole is not ordering — it is the answer that
+is outside the candidate window, which no reranking reaches. Widening the window is cheaper
+than 1 GiB of model and 720 ms per query.
 
-The largest measured hole is not sorting—it’s the answer that falls outside the window of candidates, which no reranking algorithm can reach. Expanding the window is cheaper than 1 GiB of model and 720 ms per query.
+### Decision: it goes in as is — opt-in, default `false`
 
-Decision: Enter as is — opt-in, default `false`
++0.032 of MRR on a set of 16 questions is **one query changing places**. That does not pay for
+1.04 GiB of download and 720 ms per query for everybody, and that is why the default stays `false`,
+which is what was already built. The model becomes bge, with an MIT license.
 
-+0.032 of MRR in a set of 16 questions is **a query moving around**. This does not pay
-1.04 GiB of download and 720 ms per query for everyone, hence the default becomes `false`,
-which was already built. The model now shifts to bge with MIT license.
+Honest limits of this number: 16 questions, 24 documents, one right answer per question, and a
+TF-IDF baseline instead of LanceDB's real hybrid. It is directional, not a verdict.
 
-Honest limits of this number: 16 questions, 24 documents, one correct answer per question, and baseline TF-IDF instead of the real hybrid from LanceDB. It is directional, not a verdict.
+### Code fix the measurement forced: the inputs are DISCOVERED
 
-Corrections made to the code that forced measurement: the inputs are DISCOVERED
+The first real `Run` failed with `Missing Input: token_type_ids` inside a Gather node. The
+ms-marco is BERT and **requires** `token_type_ids` — it is how it separates the question segment from
+the document segment. bge is XLM-RoBERTa and **does not have** that input. A fixed pair of inputs
+works for one and breaks for the other.
 
-The first INLINE_600 real failed with INLINE_601 inside a Gather node. The ms-marco is BERT and **requires** INLINE_602 — it separates the segment of the question from the segment of the document. The bge is XLM-RoBERTa and **does not have** this input. A fixed pair of inputs works for one and breaks for the other.
+`newCrossEncoderFrom` now calls `ort.GetInputOutputInfo(modelPath)`, assembles the tensors in the order
+the model declared, and feeds `token_type_ids` from `Encoding.TypeIds` only when the
+model asks for it. Both architectures ran — that is the proof.
 
-The two architectures ran - this is the proof.
+## HISTORICAL (license blocked it, see the section above): the initial choice of Jina (2026-08-23)
 
-Historical (license blocked; check above section): Initial choice by Jinja (August 23, 2026)
+### Wiring ready, OPT-IN, default false
 
-### Costura pronta, OPT-IN, default false
+The Engineer's decision: use Jina, and the cross-encoder stays opt-in with default `false`.
 
-Decision of the Engineer: Use Jina, and the cross-encoder is opt-in with default `false`.
+### Why Jina, and why not the one from our own family
 
-Why did Jina? And why not from our family?
+The research laid out the candidates with sizes:
 
-The research placed the candidates with size:
+| model | size | note |
+|---|---|---|
+| `ms-marco-MiniLM-L-6-v2` | 80 MB | ONNX ready, ~60 ms for top-100→top-20, but trained on **prose** |
+| `jina-reranker-v1-tiny-en` | 130 MB | fast, English only |
+| **`jina-reranker-v2-base-multilingual`** | ~1.1 GB | **the only small one with a published code-retrieval benchmark** |
+| `bge-reranker-base` | 1.04 GB | strong on text, no code focus |
+| `CodeRankLLM` | **7B (~4 GB)** | companion to our `coderankembed`, but **listwise by LLM** — an unfeasible size class |
 
-Model | Size | Observation |
---- | --- | ---
-| INLINE_608 | 80 MB | ONNX ready, ~60 ms for top-100→top-20, but trained in prose |
-| INLINE_609 | 130 MB | Fast, English only |
-| INLINE_610 | ~1.1 GB | Only small with published code retrieval benchmark |
-| INLINE_611 | 1.04 GB | Strong on text, no focus on code |
-| INLINE_612 | **7B (~4 GB)** | Companion to our INLINE_613, listwise by LLM — size class not viable |
+The one from our own family is conceptually the right one and the wrong one on size: `CodeRankEmbed` has
+137M and the reranker that accompanies it has 7B, because their reranking is listwise by LLM.
 
-Note: The "INLINE" placeholders are kept as they were in the original Portuguese table.
+### Why default `false`, and it is measurement and not caution
 
-The concept is correct for our own family, but the size is wrong: **INLINE\_614** has 137MB and the reranker that accompanies it has 7 billion because their reranking is list-wise by LLM.
+- **It costs a second model**: 1.1 GB against the ~132 MB of the retrieval embedder.
+- **It costs inference ON THE QUERY PATH.** An embedding is computed once at indexing time and cached
+  by shard hash; a cross-encoder runs per query, over every candidate.
+- **And the gate it would justify itself against is SATURATED**: 11/11 strict and 5/5 recall without
+  it. Turning it on by default would be repeating good practice as a formula instead of applying it.
 
-Why default __INLINE_615__, and it's measurement, not caution
+### What got built
 
-- "It costs two models": 1,1 GB against the ~132 MB of the recovery embedder.
-- "Costs inference on the query path." Embedding is calculated once during indexing and caching by shard hash; cross-encoder runs per query, over each candidate.
-- "The gate it defends against is saturated": 11/11 strict recall and 5/5 recall without it. Defaulting to link it would be repeating good practice as a formula instead of applying it.
+`lancestore.Reranker` — a two-function interface (`Rerank`, `Name`), pluggable, `nil` by default.
+`RerankConfig` in `Query` turns the stage on.
 
-What remains built
+Three behaviors the tests pin, and each one is a decision:
 
---- INLINE_616 --- interface of two functions (`Rerank`, `Name`), plugable by default. __INLINE_619__ in __INLINE_620__ links the stage.
+1. **The first stage WIDENS** when rerank is on (`CandidateLimit`, default 50): a
+   cross-encoder does not promote what retrieval did not return, so recall is retrieval's problem
+   and not the reranker's. The result is trimmed back to the caller's `Limit`.
+2. **A reranker failure DEGRADES to the engine's order**, and the error goes back to the caller along with the
+   results. Losing all the results because a second-stage model did not load is worse
+   than losing the reordering.
+3. **A reranker that returns a different set is refused.** The safe reading is to distrust the
+   reordering, not to serve a truncated answer as if it were ranked.
 
-Three behaviors that tests establish, each one is a decision:
+### The ONNX client, implemented
 
-1. The first stage ALARGES when the rerank is linked (`CandidateLimit`, default 50): one cross-encoder does not promote what it did not return during recovery, so recall is a problem of recovery and not of the reranker. The result is returned to `Limit` by the caller.
-2. The reranker DEGRADES for the order of the engine, and the error returns with the results along with them. Losing all the results because a second-stage model did not load is worse than losing reordering.
-3. A reranker that returns a different set is rejected. Safe reading suspects reordered responses as if they were ranked.
+`internal/ai/rerank_local.go` — `CrossEncoderReranker`, on the path already trodden by the embedder:
+`sugarme/tokenizer` for the `tokenizer.json`, `ort.NewDynamicAdvancedSession` for the `model.onnx`,
+and the runtime initialization **reusing the embedder's `initONNXRuntime`** instead of a second
+initializer, so the library path is resolved in a single place.
 
-Note: The code blocks, markdown, file paths, and technical terms have been preserved as requested.
+What differs from the embedder, and it is the part that matters: a bi-encoder reads one text and returns a vector, with
+the similarity computed afterwards; **a cross-encoder reads the query AND the candidate together** and returns a
+score. That is why it is better and why it is expensive — **you cannot pre-compute it nor cache it by content
+hash, because the score belongs to the pair, not to the document.** So there is no pooling and no
+L2 normalization; there is one logit per pair.
 
-### O cliente ONNX, implementado
+Details that are not obvious and are pinned:
 
----INLINE_624--- ---INLINE_625---, following the path already taken by the embedder:
----INLINE_626--- for the `tokenizer.json`, ---INLINE_628--- for the `model.onnx`,
-and initializing the runtime **reusing the `initONNXRuntime` of the embedder** instead of a second initializer, to resolve the library path in one place.
+- **The pair goes through the tokenizer's `EncodePair`**, not through string concatenation — it is what inserts
+  the separator the model was trained with. Getting that wrong **does not error**: it produces a plausible score
+  that ranks badly.
+- **Batch of 16 and sequence of 512.** The batch exists because this runs on the query path: it keeps
+  peak memory flat and lets a cancelled context take effect between batches.
+- **A candidate that does not tokenize scores `-Inf`** instead of taking down the batch — a malformed document
+  cannot cost the result set.
+- **The output width is read, not assumed** (`len(data)/len(batch)`), so a model with a two-class
+  head also scores correctly.
+- **Panic recovery in the tokenizer**, with the same guard as the embedder — it panics instead
+  of returning an error for certain inputs.
 
-The difference from the embedder is what matters: a bi-encoder reads a text and returns a vector with similarity calculated afterwards; **a cross-encoder reads the query and candidate together**, and returns a score. Therefore, it's better and therefore more expensive — **you can't pre-compute or cache by content hash because the score belongs to the pair, not the document**. So there is no pooling nor L2 normalization; there is a logit per pair.
+### THE GRAM BAG DOES NOT GO TO THE MODEL, and that was the trap
 
-Details that are not obvious and remain fixed:
+`internal/ai/rerank_adapter.go` assembles the candidate's text with identifier, split form,
+type, docstring and path — **and not with the indexed column**. The bag of grams exists so BM25 can
+match truncation; for a transformer trained on language it is hundreds of three-letter tokens that
+smother the sentence and consume the sequence budget. Passing the indexed column straight through was
+the obvious thing and would have been wrong. Pinned by `TestBuildRerankTextCarriesLanguageAndNotGrams`.
 
-- The tokenizer will traverse the `EncodePair` of the tokenizer, not by string concatenation— it inserts the separator used for model training. Getting this wrong **doesn't cause an error**: it produces a plausible score that ranks poorly.
-- A batch size of 16 and sequence length of 512. The batch exists because it runs on the query path: it maintains a flat peak memory and allows context cancellation to affect lots between batches.
-- A candidate that doesn’t tokenize scores `-Inf` instead of crashing the lot— an improperly formatted document cannot ruin the results set.
-- The output width is read, not assumed (`len(data)/len(batch)`), so a model with two classes also scores correctly.
-- Recovery from tokenizer panic, using the same embedding save as before— it panics in place of returning errors for certain inputs.
+The adapter also lives in `internal/ai` and not in `internal/lancestore`, so the search package
+does not gain a dependency on a model, a tokenizer or ONNX: `lancestore` declares the two-method
+interface and `ai` satisfies it.
 
-The GRAM bag is not going to the model, and that was the trap.
+### THE DOWNLOAD IS LAZY AND GATED, which was the explicit request
 
-The candidate text is constructed with identifier, format divided,
-type, docstring, and path — **not with the indexed column**. The bag of grams exists to match truncation; for a trained language model transformer, it's hundreds of three-letter tokens that smother the sentence and consume sequence budget. Passing directly to the indexed column was obvious but wrong. Stuck by `TestBuildRerankTextCarriesLanguageAndNotGrams`.
+`internal/ai/rerank_model.go` — `RerankModelManager`, deliberately a type separate from
+`ModelManager` and not a mode of it, because they differ in exactly the thing that matters here: **when
+they are allowed to touch the network.** `ModelManager` is called by `setup` and by the indexing
+path; this one only after someone opts into rerank.
 
----
-
-This translation aims to maintain the technical nature of the original Portuguese text while adapting it to idiomatic English. The key elements such as identifiers, formats, types, docstrings, paths, and the concept of a bag of grams (bag-of-grams) are preserved, along with the specific context related to language modeling transformers.
-
-The adapter also lives in **INLINE_636** and not in **INLINE_637**, for the search package to avoid dependency on model, tokenizer or ONNX: **INLINE_638** declares two methods, while **INLINE_639** satisfies.
-
-The download is lazy and gated, which was the explicit request.
-
----INLINE_640--- ---INLINE_641--- deliberately a separate type of
----INLINE_642--- and not a mode of it, because they differ exactly in the thing that matters here: **when they have permission to touch the network.** The `ModelManager` is called by `setup` and by the indexing path; this only after someone opts for reranking.
-
-```plaintext
-| input | behavior |
+| entry point | behavior |
 |---|---|
-| inline 645 | does not touch the network, does not create directory |
-| inline 646 | responds from disk, with **size check** — HTML error page of 16 bytes does not pass through model |
-| inline 647 | returns _inline_648 if the model is not there: "no rerank", no error and no download |
-| inline 649 | this is the compromise — downloads if missing |
-| inline 650 (config) | default `false`, and it gates everything above |
+| `NewRerankModelManager()` | **does not touch the network, does not create a directory** |
+| `Present()` | answers from disk, with a **size check** — a 16-byte HTML error page does not pass as a model |
+| `NewCrossEncoderRerankerIfPresent()` | returns `(nil, nil)` if the model is not there: "no rerank", not an error and not a download |
+| `NewCrossEncoderReranker(ctx)` | **this is the commitment** — it downloads if missing |
+| `search.rerank` (config) | **default `false`**, and it is what gates everything above |
 
-```
+`graphit setup` does not touch this manager. Whoever leaves `search.rerank` off **never** pays the
+280 MB — not at setup, not on the first query, not ever.
 
-The manager does not touch this one. Who turns off ___INLINE_653__ never pays for the 280 MB - neither during setup nor on the first query, or ever.
+### Tests
 
-### Testes
+`internal/ai`: nine — reorders without discarding anything, determinism on a tie, refuses a divergent
+score count, degrades on scorer failure, the gram bag does not reach the model, a redundant split is
+omitted, and **three about the download gate** (asking does not create a directory, `IfPresent` does not download,
+a truncated bundle is refused).
 
-INLINE\_654: nine — reorders without discarding anything, deterministic tie-breaking, score divergent count omitted, degraded to scorer failure, gram bag does not reach model, redundant split omitted, and **three on the download gate** (asking doesn't create directory, ___INLINE\_655\_\_ doesn't download, truncated bundle is refused).
+`internal/lancestore`: four — off by default, widening with trimming, degradation to the engine's
+order, refusal of an altered set.
 
-Sixty-five-six: four - off by default, with extension without guard, degradation to the order of the motor, altered set.
+`internal/config`: `search.rerank` is false by absence, and only `"true"` turns it on.
 
-INLINE_657: INLINE_658 is false by absence, and only INLINE_659 connects.
+**And before turning it on by default, the evaluation set has to have slack.** The current one passes at 100%,
+so it shows neither gain nor harm. Measuring over 19 synthetic entities does not decide 1.1 GB — it is
+in the backlog, along with what the new set needs to have.
 
-Before defaulting to the evaluation set, it must have a buffer. The current pass is at 100%, so neither gains nor losses are shown. Measuring on 19 synthetic entities does not decide 1.1 GB — it's in the backlog, requiring the new set.
+## ENGINE FIRST: the tokenizer is LanceDB's, and the gap that remains has a name (2026-08-23)
 
-Motor First: The tokenizer is from the LanceDB, and the gap that remains has a name (August 23, 2026)
+The Engineer's instruction: *"always prefer what the lancedb engine provides, it has priority
+over go, for anything"*. First consequence: **I was not exposing the tokenizer** —
+`lancestore.Index` had only column and type. Now it has `TextIndexOptions` with everything the engine
+offers: `Language`, `Stem`, `RemoveStopWords`, `LowerCase`, `ASCIIFolding`, `WithPosition`,
+`BaseTokenizer`, `NgramMin/Max`, `NgramPrefixOnly`, `MaxTokenLength`.
 
-Instruction for Engineer: "He always prefers what the Lancedb engine provides; he has priority over Go for anything." First consequence: **I did not expose the tokenizer** — _INLINE_660 only had column and type. Now it has _INLINE_661 with everything that the engine offers: _INLINE_662, _INLINE_663, _INLINE_664, _INLINE_665, _INLINE_666, _INLINE_667, _INLINE_668, _INLINE_669, _INLINE_670, _INLINE_671.
+### The sweep, over the re-derived gate
 
-Scan, over the reprocessed gate
+| configuration | strict | recall@5 | empties |
+|---|---|---|---|
+| **expansion in Go, default tokenizer** | **11/11** | **5/5** | 0 |
+| expansion in Go + engine `ngram` | 10/11 | 5/5 | 0 |
+| engine `ngram` 2–4, with and without ascii | 10/11 | 4/5 | 0 |
+| `ngram` 2–5 +ascii | 10/11 | 4/5 | 0 |
+| `ngram` 2–4 `prefix_only` | 6/11 | 2/5 | **3** |
+| default / `stem`+ascii | 6/11 | 3/5 | **4** |
 
-Configuration | Strict | Recall@5 | Empty Fields |
---- | --- | --- | --- |
-Expansion in Go, tokenizer default | 11/11 | 5/5 | 0 |
-Expansion in Go + INLINE_672 of the engine | 10/11 | 5/5 | 0 |
-INLINE_673 of the engine with and without ASCII | 10/11 | 4/5 | 0 |
-INLINE_674 of the engine with 2-5 + ASCII | 10/11 | 4/5 | 0 |
-INLINE_675 of the engine with 2-4 INLINE_676 | 6/11 | 2/5 | **3** |
-Default / INLINE_677 + ASCII | 6/11 | 3/5 | **4** |
+### THE GAP, with a name — and it is what authorizes the exception
 
-The GAP, with name—this is what authorizes the exception
+**The engine's ngram mode REPLACES word tokenization instead of adding to it.** Turning it on
+buys substring matching and **loses** whole-token matching, so a query that is a
+complete identifier can no longer beat a partial one — that is exactly why every line
+with ngram loses one strict probe. **There is no token FILTER that emits sub-token grams ALONGSIDE
+the words; there is only a different base tokenizer.**
 
-The n-gram mode of the SUBSTITUTES the word tokenization by substring instead of summing it. Connecting it
-with
-combines casamento with substring and **loses** casamento with whole tokens, so a query that is an
-identifying complete line loses the power to surpass a partial one — exactly why every n-gram line loses a strict substring.
-There does not exist a token FILTER that emits sub-token grams beside words; there is only one different base tokenizer.
+So the grams are emitted into the document at write time and the engine **keeps its word
+tokenizer**, indexing words and grams as ordinary terms. That is not a second search
+implementation — **no ranking happens in Go** — it is the document carrying what the
+tokenizer does not produce without giving something up.
 
-Then the grams are emitted during document creation and the engine retains the tokenizer's word index, indexing words and grams as common terms. This is not a second implementation of search—no ranking occurs in Go—rather, the document loads what the tokenizer does not produce without giving up something.
+And combining the two is **measurably worse** (10/11): the ngram tokenizer re-grams the bag of grams,
+flooding the term space and diluting the signal.
 
-And combining the two is **significantly worse** (10/11): the n-gram tokenizer regrams the bag of grams, flooding the space of terms and diluting the signal.
+**Trigger for deleting the exception:** if the engine gains an ngram token filter that composes with the
+word tokenizer, run the sweep again — the engine-only line should reach 11/11 and the
+expansion goes away. It is written in the comment of `chosenTuning`.
 
-**Trigger to Clear the Exception:** If the motor gains a token filter of n-gram that matches with the word tokenizer, rerun the tokenization again — the line only-motor should reach 11/11 and the expansion will be produced. This is written in comment `chosenTuning`.
+## THE QUALITY FLOOR WAS MEASURING TIE-BREAKING: 13/16 re-derived to 11/11 + 5/5 (2026-08-23)
 
-The quality floor was being revised to 11/11 + 5/5 (August 23, 2026)
+The Engineer doubted the expected values — *"I don't even know whether the values that are expected today
+make sense"* — and the doubt was right. **Five of the sixteen probes have no defensible
+answer, and the project itself had already written the rule that disqualifies them.**
 
-The Engineer doubted the expected values—“I don't even know if today's expected values make sense”—and his doubt was correct. Five out of sixteen probes do not have defensible answers, and the very project itself had already written down the rule that disqualifies them.
-
-From INLINE 679, regarding the probe INLINE 680:
+From `internal/ast/truncated_query_test.go`, about the `valid` probe:
 
 > *"`valid` is deliberately absent: it is a prefix of both `validate` and `validacao`, so whichever
 > of validateSchema and PKG_VALIDACAO_PAGAMENTO wins is tie-breaking, not coverage.
 > **A probe with no defensible answer measures nothing.**"*
 
-And the floor test includes `{"valid", "validateSchema"}`.
-Applying the rule consistently, five fall.
+**And the floor test includes `{"valid", "validateSchema"}`.** Applying the rule consistently,
+five fall:
 
-The translation from Portuguese to idiomatic English is as follows:
-
-| probe | Why not defendable? |
+| probe | why it is not defensible |
 |---|---|
-| `valid` | the case that the project excluded — and included in the floor |
-| `valida` | same: prefix of `validate` and `validacao` |
-| `config` | `Config` is literally called; prefer `configLoader` arbitrary |
-| `schema` | `validateSchema` and `SchemaValidator` carry in the name |
-| `configuration` | seven entities carry, and `initConfiguration` carries **in the name** |
+| `valid` | the case the project excluded — and included in the floor |
+| `valida` | same: prefix of `validate` AND of `validacao` |
+| `config` | `Config` is the entity literally called that; preferring `configLoader` is arbitrary |
+| `schema` | `validateSchema` and `SchemaValidator` both carry it in the name |
+| `configuration` | seven entities carry it, and `initConfiguration` carries it **in the name** |
 
-Note: The placeholders (e.g., `valid`) are kept as they are, assuming these represent specific code blocks or identifiers.
+**They were exactly the five that the engine-only design failed.** Without them, the design gets everything right.
 
-They were exactly five when the single-engine drawing failed. Without them, the drawing gets everything right.
+### The re-derived gate, and the result
 
-### O gate rederivado, e o resultado
-
-He is elected for eleven probes with a defendable response to **top-1 tight**; the five ambiguous ones become **recall** — the named entity must be reached. The window is 5, and the number was not chosen to pass: it's the window that the old gate already used (`si.Search(c.query, 5)`).
+Eleven probes with one defensible answer stay **strict top-1**; the five ambiguous ones become
+**recall** — the named entity has to be reached. The window is 5, and the number was not chosen
+to pass: it is the window the old gate already used (`si.Search(c.query, 5)`).
 
 ```
 strict top-1: 11/11    recall@5: 5/5    vazios: 0
 ```
 
-The entire ranking is done by the engine. The only work in Go is expanding documents and queries at write time and read time—splitting identifiers and a 2/3-gram bag—that is pre-processing, of the same category as converting to lowercase, not ranking.
+Ranking entirely from the engine. The only work in Go is expanding the document and the query at
+write and read time — identifier split and a bag of 2/3-grams — which is pre-processing, in the
+same category as lowercasing, not ranking.
 
-What does this fix, and what remains in debt?
+### What that resolves, and what remains as debt
 
-Resolve the question of the cross-encoder: it is not necessary for parity. I was going to build a reranker in Go to recover two points that did not exist — they were ties. The cross-encoder remains the path of LanceDB towards quality *above* parity, and the binding Go only exposes RRF, so it gets registered as an option measure rather than a necessity.
+**It resolves the cross-encoder question: it is not necessary for parity.** I was going to build a
+reranker in Go to recover two points that did not exist — they were tie-breaking. The cross-encoder
+remains LanceDB's path to quality *above* parity, and the Go binding only exposes
+RRF, so it is recorded as a measured option and not as a necessity.
 
-The debt of weight per field remains. The engine does not have: FTS multi-column index response `"Multi-column (composite) indices are not yet supported"`, the query does not name a field, and there is no boost. Two attempts to circumvent in write time were measured and **failed**: repeating the field has nothing (BM25 saturates frequency and normalizes by size, so elongating the document cancels out the gain), and encoding priority in token (`zn`/`zs`, counting with IDF) also does not work. When the compound index enters upstream, it can be remedied.
+**The per-field weight debt remains.** The engine does not have it: a multi-column FTS index answers
+`"Multi-column (composite) indices are not yet supported"`, the query does not name a field, and there is no
+boost. Two attempts to work around it at write time were measured and **failed**: repeating the
+field moves nothing (BM25 saturates frequency and normalizes by length, so lengthening the document
+cancels the gain), and encoding the priority in the token (`zn`/`zs`, counting on IDF) did not either.
+When the composite index lands upstream, it is worth re-measuring.
 
-### O tokenizer nativo, medido
+### The native tokenizer, measured
 
-Configuration:
-| Configuration | Top-1 (Old Set, 16) | Empty |
+| configuration | top-1 (old set, 16) | empties |
 |---|---|---|
-| Default | 8 | 4 |
-| `stem=English` + ASCII folding | 8 | 4 |
+| default | 8 | 4 |
+| `stem=English` + ascii folding | 8 | 4 |
 | `ngram` 2–4 | 10 | 0 |
 | `ngram` 2–4 `prefix_only` | 7 | 3 |
 | `ngram` 3–6 | 9 | 1 |
-| **Expansion of 2/3-grams in Go, default tokenizer** | **11** | **0** |
+| **2/3-gram expansion in Go, default tokenizer** | **11** | **0** |
 
-Note: The code blocks and markdown formatting have been preserved.
+`prefix_only` **makes it worse** and reintroduces empties. And the docs warn about the cost of ngram: many more tokens
+per document, larger index and memory. So write-time expansion beats the native
+tokenizer **and** is cheaper in the index.
 
-The expansion in write time gains from the native tokenizer and is cheaper in index.
+### Embeddings: nothing changed, and it should not
 
-Embeddings have not changed, and they should not change.
+`lancestore` receives a ready vector and **does not call the LLM**. Generation remains
+ONNX + `coderankembed` → `Embedder` → `ShardEmbCache` (keyed by `(relPath, uid, hash)`), with
+the daemon keeping the model alive behind `embed.sock`. Two reasons not to delegate to the database: LanceDB's
+"embedding functions" feature is Python and would fetch a model of its own instead of the one we already
+embed; and the shard-hash cache is what makes the incremental worthwhile — delegating would re-embed the
+corpus on every write.
 
-`_INLINE_707_` receives a ready vector and **does not call the LLM**. The generation continues as ONNX + `_INLINE_708_` → `_INLINE_709_` → `_INLINE_710_` (keyed by `_INLINE_711_`) with the daemon keeping the model alive behind `_INLINE_712__`. Two reasons not to delegate to the database: the "embedding functions" feature of LanceDB is Python, and it would seek out a new model instead of one already onboarded; and the hash-based shard cache is what makes incremental value — delegating would re-embed the corpus with each write.
+**A note on the old number:** the floor test runs with a nil `embLookup`, so 13/16 was
+**text only, no vector**. The measurements above are under the same condition, which makes them comparable —
+but it means neither of the two numbers measures the full hybrid.
 
-Note on the old number: The test of the floor runs with `embLookup` null, so 13/16 was just text without vector. Above measurements are in the same condition, making them comparable — but means that neither of these numbers measures the complete hybrid.
+## THE ARCHITECTURE, as stated by the Engineer (2026-08-23)
 
-## A ARQUITETURA, dita pelo Engenheiro (2026-08-23)
+Worth writing down because it decides T12 and T13, and because it has an asymmetry that is not obvious.
 
-It is written because it decides T12 and T13, and because there is an asymmetry that is not obvious.
-
-**AST - TWO BANSHEES:** Ladybug for the graph, LanceDB for hybrid search.
-
-```
-local:      shards  ->  POPULAM OS DOIS bancos, incrementalmente quando algo muda
-export:     os dois bancos PREPARAM e EXPORTAM  ->  Hub persiste em S3
-consumidor: consulta os dois on-the-fly em s3://
-```
-
-**Wikis (knowledge and memory) — A database:** only LanceDB, hybrid search. **No graph**, so there is no Ladybug on this path.
-
-Asymmetry: Only the graph needs conversion
-
-Graph (AST): LadybugDB native format; converted to `icebug-disk` in S3; yes, where all defects are located.
-Search (AST and wikis): Local table; converted to `Lance` in S3; no conversion.
-
-The native format of the Lance is already on-the-fly consultable directly from `s3://` — proven. So "export" on the search side does not involve format conversion; it's simply writing the table in the prefix of S3, which `lancestore.Store` already opens with the URI `s3://` and writes once. This is a significant effort difference compared to the graph side, explaining why Phase C cost what it did and why Phase D should not cost the same.
-
-What does this determine?
-
-T12 (AST index) portals INLINE_717 and INLINE_718 to populate the table
-Start from the same INLINE_719 that currently feeds SQLite, maintaining incremental path.
-T13 (wikis) uses the same INLINE_720 without a graph side.
-The INLINE_721/INLINE_722 on the search side stops being an archive of files and becomes "write to table in published prefix".
-
-T11 DONE: `internal/lancestore`, and the architecture of two modes (August 23, 2026)
-
-The Engineer clarified the flow, and he determines the design of the package:
+**AST — TWO databases:** Ladybug for the graph, LanceDB for the hybrid search.
 
 ```
-Project: Ladybug native + Localized index for fast search
-Publication: populated bank -> EXTRACTION -> Hub (icebug in S3 + table LanceDB in S3)
+local:     shards  ->  POPULATE BOTH databases, incrementally when something changes
+export:    both databases PREPARE and EXPORT  ->  Hub persists to S3
+consumer:  queries both on-the-fly at s3://
+```
+
+**Wikis (knowledge and memory) — ONE database:** only LanceDB, hybrid search. **There is no graph**, so there is
+no Ladybug on that path.
+
+### The asymmetry: only the graph needs conversion
+
+| | local format | published format | conversion? |
+|---|---|---|---|
+| graph (AST) | native LadybugDB | **icebug-disk** in S3 | **yes** — T8, and it is where all the defects are |
+| search (AST and wikis) | local Lance table | **Lance table** in S3 | **no** |
+
+Lance's native format **is already queryable on-the-fly** straight from `s3://` — proven. So the
+"export" on the search side is not a format conversion: it is writing the table to the S3 prefix, which
+`lancestore.Store` already does by opening with the `s3://` URI and writing once. That is a big
+difference in effort compared to the graph side, and it explains why Phase C cost what it cost and
+Phase D should not cost the same.
+
+### What that determines
+
+- **T12** (AST index) ports `RebuildFromCache` and `UpdateIncremental` to populate the Lance
+  table from the SAME `ShardCache` that today feeds SQLite, keeping the incremental path.
+- **T13** (wikis) uses the same `internal/lancestore`, with no graph side.
+- The search side's `ExportTables`/`ImportTables` stops being a file bundle and becomes
+  "write the table to the published prefix".
+
+## T11 DONE: `internal/lancestore`, and the two-mode architecture (2026-08-23)
+
+The Engineer clarified the flow, and it determines the package's design:
+
+```
+local:      projeto -> banco populado (Ladybug nativo + índice de busca local)
+publicação: banco populado -> EXTRAÇÃO -> Hub (icebug em S3 + tabela LanceDB em S3)
 consumidor: instala contexto -> consulta s3:// on-the-fly, sem baixar
 ```
 
-The two modes are not symmetric, and the package encodes this: local is where writes occur during normal operation (it replaces SQLite); remote is a published version written once by the publisher and read only by consumers. `Store.Remote()` reports the mode and all writes in a remote store return `ErrReadOnly` — a consumer that could write would split the artifact named by the registry.
+**The two modes are NOT symmetric**, and the package encodes that: local is where writes
+happen in normal operation (it is what replaces SQLite); remote is a published version, written
+ONCE by the publisher and only read by the consumers. `Store.Remote()` reports the mode and every
+write on a remote store returns `ErrReadOnly` — a consumer that could write would fork the
+artifact the registry names.
 
-What is exposed by the package
+### What the package exposes
 
-The inline 726 decides the mode based on the scheme of the URI. The inline 727 brings region and endpoint, and does not have a credential field — the standard AWS chain resolves, following the same rule as inline 728. Both derivations that an compatible server requires come from there: custom endpoint implies path-style, and endpoint `http://` requires ___INLINE_730__.
+`Open(ctx, Config)` decides the mode by the URI's scheme. `Config.S3` carries region and endpoint and
+**has no credential field** — the standard AWS chain resolves it, the same rule as
+`internal/s3store`. The two derivations a compatible server requires come from there: a custom
+endpoint implies **path-style**, and an `http://` endpoint requires `allow_http`.
 
-Surface:
-`CreateTable`/`OpenTable`/`EnsureTable`/`DropTable`, `Append`, `Upsert`,
-`DeleteByKey`, `DeleteWhere`, `EnsureIndexes`, `Search`. The search mode is determined by what is filled in, not by flag: `Text` alone is FTS, `Vector` alone is semantic, **both are hybrid** — and the fusion is of the engine.
+Surface: `CreateTable`/`OpenTable`/`EnsureTable`/`DropTable`, `Append`, `Upsert`,
+`DeleteByKey`, `DeleteWhere`, `EnsureIndexes`, `Search`. The search mode is decided by what is
+filled in, not by a flag: `Text` alone is FTS, `Vector` alone is semantic, **both is hybrid**
+— and then the fusion is the engine's.
 
-Stop walking around here.
+### Arrow stops traveling here
 
-The project compiles against `apache/arrow-go/v18`; the rest of the project uses `lancedb-go`.
-They coexist because they are different module paths, and **they never meet**: values enter as Go and results exit as Go. No v17↔v18 conversions anywhere.
+`lancedb-go` compiles against `apache/arrow/go/v17`; the rest of the project uses `apache/arrow-go/v18`.
+They coexist because they are different module paths, and **they never meet**: rows go in as
+Go values and results come out as Go values. No v17↔v18 conversion anywhere.
 
-Build tag, so that the tree continues compiling
+### Build tag, so the tree keeps compiling
 
-The native has ~230 MiB and is compiled from source. Excluding it everywhere would break the tree of those who didn't run __INLINE_746__. So the package has two halves — `store_lancedb.go` (`//go:build lancedb`) and `store_disabled.go` (`//go:build !lancedb`), with the same surface; the second returns `ErrNotBuilt` and reports `Available()`, to deliberately degrade a caller instead of discovering by mistake. __INLINE_755__ fixes the same SHA in the Makefile.
+The native is ~230 MiB and is compiled from source. Requiring it on every `go build ./...` would break the tree
+for anyone who has not run `make fetch-lancedb`. So the package has two halves — `store_lancedb.go`
+(`//go:build lancedb`) and `store_disabled.go` (`//go:build !lancedb`) — with the SAME surface; the
+second returns `ErrNotBuilt` and `Available()` reports `false`, so a caller degrades
+deliberately instead of finding out through an error. `go.mod` pins the same SHA as the Makefile.
 
-The silent defect that he found is corruption of data.
+### THE SILENT DEFECT THIS FOUND, and it is data corruption
 
-The filtered dialect treats names enclosed in double quotes as "LITERAL OF STRING", not as an identifier. Measured:
-
-```
-"uid" IN ('u2')   3 linhas -> 3 linhas   err=<nil>   <- apaga NADA, sem erro
-uid   IN ('u2')   3 linhas -> 2 linhas   err=<nil>
-`uid` IN ('u2')   3 linhas -> 2 linhas   err=<nil>
-```
-
-The predicate that he really evaluates is `'uid' IN ('u2')`, false for every line. And as `Upsert`
-is delete-then-append, **a delete that does nothing leaves the old line and adds a new one**: each incremental reindex silently duplicates the index. `quoteIdent` uses backticks, and `TestIdentifierQuotingActuallyMatchesRows` fixes it — including asserting that the form with double quotes continues to be the trap, for no one "correcting" back to SQL standard.
-
-Note: The inline codes (`'uid' IN ('u2')`, `Upsert`, `quoteIdent`, and `TestIdentifierQuotingActuallyMatchesRows`) are placeholders used in this translation.
-
-Ten tests, and what each group guarantees
-
-```markdown
-# Test Case
-
-| **Inline 760** | Guarantees FTS, semantics, and **hybrid** in local mode; the hybrid assertion is reordering (the winner of BM25 promoted above the vector winner) and that the vector winner continues in the set — a hybrid that discards it would be FTS with another name |
-| **Inline 761** | On-the-fly against MinIO: publishes, reopens as consumer, recovers the schema from its own table (without manifest), runs remote hybrid, and **refuses writes** |
-| **Inline 762** | The filter goes to the engine, otherwise post-filtering caller would lose ranking |
-| **Inline 763** | Upsert replaces accumulation — what caught the quoting defect |
-| **Inline 764** | Key with apostrophe (___Inline_765) does not close the literal |
-| **Inline 766** | Guard against silent corruption |
-| **Inline 767** | Emptying index must be explicitly requested |
-| **Inline 768** | Schema impossible is refused with named column, not as an error three layers below Arrow |
-| **Inline 769** | Same for line without mandatory column |
-| **Inline 770** | Keys of ___Inline_771 that ___Inline_772___ write as literal continue to be the same as vendor’s |
+The filter dialect treats a name **in double quotes as a STRING LITERAL**, not as an
+identifier. Measured:
 
 ```
+"uid" IN ('u2')   3 rows -> 3 rows   err=<nil>   <- deletes NOTHING, no error
+uid   IN ('u2')   3 rows -> 2 rows   err=<nil>
+`uid` IN ('u2')   3 rows -> 2 rows   err=<nil>
+```
 
-Inline 773 and the entire suite remain green **without** the tag; with the tag, the ten pass against MinIO.
+The predicate it actually evaluates is `'uid' IN ('u2')`, false for every row. And since `Upsert`
+is delete-then-append, **a delete that matches nothing leaves the old row and adds the new one**: every
+incremental reindex would silently duplicate the index. `quoteIdent` uses a backtick, and
+`TestIdentifierQuotingActuallyMatchesRows` pins that — including asserting that the double-quoted
+form is still the trap, so nobody "fixes" it back to standard SQL.
 
-PROVEN: Hybrid Search by LanceDB works in Go with RRF Motor's Engine (2026-08-22)
+### Ten tests, and what each group guarantees
 
-The premise of Phase D has ceased to be a supposition. Compiled and executed the fixed native SHA:
+| test | what it guarantees |
+|---|---|
+| `TestLocalStoreServesAllThreeSearches` | FTS, semantic and **hybrid** in local mode; the hybrid assertion is the **reordering** (the BM25 winner promoted above the vector winner) and that the vector winner **stays in the set** — a hybrid that discarded it would be FTS under another name |
+| `TestRemoteStoreIsQueriedOnTheFly` | **on-the-fly against MinIO**: publishes, reopens as a consumer, recovers the schema from the table itself (no manifest), runs a remote hybrid, and **refuses a write** |
+| `TestFilterIsAppliedByTheEngine` | the filter goes to the engine, otherwise the caller would post-filter and lose the ranking |
+| `TestUpsertReplacesByKey` | upsert replaces instead of accumulating — which is what caught the quoting defect |
+| `TestDeleteByKeyQuotesSafely` | a key with an apostrophe (`it's/odd.go`) does not terminate the literal |
+| `TestIdentifierQuotingActuallyMatchesRows` | the guard against the silent corruption |
+| `TestDeleteWhereRefusesAnEmptyFilter` | emptying the index has to be asked for explicitly |
+| `TestSchemaValidationNamesTheColumn` | an impossible schema is refused with the column named, not as an Arrow error three layers below |
+| `TestAppendRefusesAMissingRequiredColumn` | same for a row without a required column |
+| `TestStorageKeysMatchTheVendor` | the `object_store` keys that `config.go` writes as literals stay identical to the vendor's |
+
+`go build -tags fts5 ./...` and the whole suite remain green **without** the tag; with the tag, the ten
+pass against MinIO.
+
+## PROVEN: LanceDB's hybrid search works in Go, with the engine's RRF (2026-08-22)
+
+Phase D's premise stopped being an assumption. The native was compiled from the pinned SHA and run:
 
 ```
-FTS only, "fusional ranking" -> id=3; reciprocal rank fusion combines rankings
-Vector v = [0, 0.95, 0.05, 0];  
--> Id = 2, Id = 3, Id = 6
+FTS só    q="fusion rankings"        -> id=3  reciprocal rank fusion combines rankings
+Vetor só  v=[0,0.95,0.05,0]          -> id=2, id=3, id=6
 HYBRID    vetor + fts, RRF reranker  -> id=3, id=2, id=6
 ```
 
-The evidence is reordering. The winner of the vector was id=2; the BM25 winner was id=3. In hybrid, 
-id=3 rises to the top — this is the behavior of reciprocal rank fusion: 1st in FTS and 2nd in the vector beats 1st in the vector but absent from FTS. **The fusion is the engine's.** No RRF in Go.
+**The evidence is the reordering.** The vector winner was id=2; BM25's was id=3. In the hybrid,
+id=3 rises to the top — which is the behavior of reciprocal rank fusion: 1st in FTS and 2nd in vector beats
+1st in vector and absent from FTS. **The fusion is the engine's.** No RRF in Go.
 
-Translation from Portuguese to idiomatic English:
-
-"Form of the call, for reference:"
+Shape of the call, for reference:
 
 ```go
 QueryConfig{
@@ -1225,84 +1444,85 @@ QueryConfig{
 }
 ```
 
-The three screws that the build requires, and why each one
+### The three pins the build requires, and why each one
 
-1. **SHA of the commit**, in `go.mod` and Makefile: `fa14ce29c7724354f2cea630a1d3488b56bbd64b`
-   (pseudo-version `v0.1.3-0.20260509194607-fa14ce29c772`). Go and native HAVE to come from the same commit;
-   divergence that breaks FFI at runtime, not during compilation.
-2. **Version of `rustc`.** Upstream does NOT fix toolchain, and the `Cargo.lock` commit fixes
-   `ethnum 1.5.2`, which **does not compile** with rustc 1.98:
-   `E0512: cannot transmute between types of different sizes` (`()` of 0 bits to `TryFromIntError` of 8). `ethnum` comes from
-   `jsonb`, which comes from `lance-arrow`/`lance-datafusion`/`lance-index` — three levels below the one we choose. Corrected with
-   `cargo update -p ethnum --precise 1.5.3`, two lines of delta in the lockfile that become our patch.
-3. **Static libraries for system links**. A static library Rust does NOT load its transitively dependent C dependencies. Finding is canonical, not trial and error:
-
-Note: The inline references are placeholders for specific commit numbers or paths, which should be replaced with actual values when translating to a real context.
+1. **The commit SHA**, in `go.mod` AND in the Makefile: `fa14ce29c7724354f2cea630a1d3488b56bbd64b`
+   (pseudo-version `v0.1.3-0.20260509194607-fa14ce29c772`). Go and native MUST come from the same commit;
+   divergence breaks the FFI at runtime, not at compile time.
+2. **The `rustc` version.** Upstream does not pin a toolchain, and the committed `Cargo.lock` pins
+   `ethnum 1.5.2`, which **does not compile** on rustc 1.98:
+   `E0512: cannot transmute between types of different sizes` (`()` of 0 bits to
+   `TryFromIntError` of 8). `ethnum` comes from `jsonb`, which comes from `lance-arrow`/`lance-datafusion`/
+   `lance-index` — three levels below what we chose. Fixed with
+   `cargo update -p ethnum --precise 1.5.3`, two lines of delta in the lockfile that become
+   a patch of ours.
+3. **The system libraries of the static link.** A Rust staticlib does **not** carry its transitive
+   C dependencies. Discovering them is canonical, not trial and error:
 
    ```
    cargo rustc --release -- --print native-static-libs
    note: native-static-libs: -lbz2 -lgcc_s -lutil -lrt -lpthread -lm -ldl -lc
    ```
 
-Without __INLINE_789__ the link fails with __INLINE_790__. This changes the static/dynamic comparison:
-- The static version transfers responsibility for this list across platforms (on macOS it is `-framework Security -framework CoreFoundation`);
-- The dynamic version resolves within `.so` and the consumer doesn't need anything. The list is stable and discoverable, so it's manageable — but it’s a platform-dependent piece to keep.
+   Without `-lbz2` the link fails with `undefined reference to BZ2_bzDecompress`. **This changes the
+   static/dynamic comparison**: static transfers to us the responsibility of getting that list right per
+   platform (on macOS it is `-framework Security -framework CoreFoundation`); the `cdylib` would resolve
+   inside the `.so` and the consumer would need nothing. The list is stable and discoverable, so it is
+   manageable — but it is one more piece to maintain per platform.
 
-Numbers measured
+### Measured numbers
 
 | | |
 |---|---|
-| native build, from scratch | **4m55s** (plus the compiled dependencies) |
+| native build, from scratch | **4m55s** (plus the deps already compiled before) |
 | `liblancedb_go.a` | **646 MB** |
-| intermediaries in `target/` | 1.2 GB |
+| intermediates in `target/` | 1.2 GB |
 | Rust toolchain | 597 MB |
-| binary of the probe, statically linked | **260 MB** |
-| crate with SHA in `lancedb` | v0.24.0 · `lance` v1.0.3 · DataFusion v50.3.0 |
+| probe binary, static link | **260 MB** |
+| `lancedb` crate at the SHA | v0.24.0 · `lance` v1.0.3 · DataFusion v50.3.0 |
 
-Note: The code blocks and file paths are not translated, as they were already provided in the original text.
+## T10 DONE: `fetch-lancedb` compiles the native per platform (2026-08-22)
 
-T10 DONE: `fetch-lancedb` compiles native for platform (2026-08-22)
+The Engineer's decision: **dynamic linking**, compiling together with the project, each platform its
+own, with no persistent artifact.
 
-Decision of the Engineer: **Dynamic Linking**, integrating with the project, each platform to itself, without persistent artifact.
+### What went in
 
-What entered
+`make fetch-lancedb` — clones the pinned SHA into a cache in `/tmp`, applies the delta, compiles and copies the
+platform's library to `cmd/launcher/runtime/`. Idempotent: with a warm cache it finishes in
+0.27s. Without `cargo`, it fails naming what is missing and saying that **nothing else in the build needs
+Rust** — the discipline the project already uses for the model download.
 
----INLINE_799--- clones the fixed SHA in `/tmp`, applies the delta, compiles, and copies the platform library to `cmd/launcher/runtime/`. Idempotent: with hot cache, it takes 0.27 seconds. Without `cargo`, fails by naming what is missing and saying that **nothing else in the build needs Rust** — the discipline used by the project for downloading the model.
+`make lancedb-cgo-env` — prints `CGO_CFLAGS`/`CGO_LDFLAGS` pointing at the cache. The header and the
+library stay in the cache; **nothing is copied into the repository.**
 
-- _INLINE_803_ prints ___INLINE_804__/___INLINE_805__ pointing to the cache. The header and library remain in the cache; nothing is copied into the repository.
-
-Why dynamic, with number
+### Why dynamic, with numbers
 
 | | static | **dynamic** |
 |---|---|---|
 | core binary | 260 MB | **8.9 MB** |
-| library | `.a` of 646 MB | `.so` of 217 MB |
-| system libraries in the consumer | `-lbz2 -lgcc_s -lutil -lrt -lpthread -lm -ldl`, by platform | **none** |
+| library | 646 MB `.a` | 217 MB `.so` |
+| system libs on the consumer | `-lbz2 -lgcc_s -lutil -lrt -lpthread -lm -ldl`, per platform | **none** |
 
-The core binary is 260 MB. The library, which is inline of 646 MB, has been replaced with a smaller version of 217 MB. System libraries for the consumer are available on different platforms and may vary depending on the platform. There are no system libraries in the consumer.
+The `.so` resolves the C dependencies inside it — `ldd` shows only `libbz2`, `libc`, `libgcc_s`,
+`libm`, all base. Hybrid proven by both paths, with an identical result.
 
-The `.so` resolves the C dependencies within it — `ldd` shows only `libbz2`, `libc`, `libgcc_s`,
-`libm`, all of which are based. Hybrid proven by both paths, with identical results.
+**And the launcher did not need a single line.** `cmd/launcher/main.go` already extracts the payload and prepends
+the directory to `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` / `PATH` before exec'ing the core — the same
+mechanism as `libonnxruntime.so`.
 
-And the launcher didn't need a single line. `cmd/launcher/main.go` already extracts the payload and prepends the directory to `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` / `PATH` before executing the core — the same mechanism as `libonnxruntime.so`.
-
-
-The delta against the fixed commit: 3 lines, no code
+### The delta against the pinned commit: 3 lines, no code
 
 | file | change | reason |
 |---|---|---|
-| `rust/Cargo.toml` | `crate-type` += `cdylib` | upstream removed; we need `.so` |
-| `rust/Cargo.toml` | `features = ["aws"]` | **without this, there is no `s3://`** — see below |
-| `rust/Cargo.lock` | `ethnum` 1.5.2 → 1.5.3 | does not compile with the current rustc |
+| `rust/Cargo.toml` | `crate-type` += `cdylib` | upstream dropped it; we need the `.so` |
+| `rust/Cargo.toml` | `features = ["aws"]` | **without this there is no `s3://`** — see below |
+| `rust/Cargo.lock` | `ethnum` 1.5.2 → 1.5.3 | does not compile on the current rustc |
 
-The file has changed by adding or updating a line, and the reason is that upstream removed it; we need the new version.
-Without this change, there would be no `s3://` — see below.
-The Rust compiler 1.5.2 was updated to version 1.5.3, but it does not compile with the current rustc.
-
-The FIND THAT MATTERS MOST: THE NATIVE PUBLISHED DOES NOT HAVE S3
+### THE FINDING THAT MATTERS MOST: the published native HAS NO S3
 
 The binding depends on `lancedb` with `default-features = false`, and the crate declares `default = []`.
-Support for object store - S3 included - comes from feature **`aws`**, which nobody enables. Measured:
+Object store support — S3 included — comes from the **`aws`** feature, which nobody enables. Measured:
 
 ```
 lancedb.Connect(ctx, "s3://lance-otf/wiki", …)
@@ -1310,12 +1530,14 @@ lancedb.Connect(ctx, "s3://lance-otf/wiki", …)
    Valid schemes: file, file-…
 ```
 
-This applies to artifacts that have been published, which come from the same manifest — in other words,
-no native of a release ever served an external context, in any version. It only appeared because we compiled and tested against MinIO in its entirety. This is the third argument in favor of compiling alongside the project: "we need features that upstream does not enable."
+**This holds for the PUBLISHED artifacts too**, which come from the same manifest — that is,
+**no release native would ever serve a remote context**, in any version. It only showed up
+because we compiled and tested against a real MinIO. It is the third argument in favor of compiling
+together with the project: **we need features that upstream does not enable.**
 
-### PROVADO on-the-fly, contra MinIO
+### PROVEN on-the-fly, against MinIO
 
-With the feature enabled, everything against **INLINE\_833** without downloading anything:
+With the feature on, everything against `s3://` and downloading nothing:
 
 ```
 CONNECTED ON-THE-FLY to s3://lance-otf/wiki
@@ -1326,218 +1548,251 @@ Vector   v=[0,0.95,0.05,0]     -> id=2, id=3, id=6
 HYBRID   vetor + fts, RRF      -> id=3, id=2, id=6
 ```
 
-The same reordering of the local test: the id=3, winner of BM25, is promoted above the id=2, winner of the vector. The inverted index built on the object store and hybrid engine, remote.
+The same reordering as the local test: id=3, the BM25 winner, is promoted above id=2,
+the vector winner. **Inverted index built on the object store and the engine's hybrid, remote.**
 
-The target applies the two in a reversible manner and reverses **INLINE_834**/__INLINE_835__ when switching to SHA, so that the delta is never applied on another commit without review.
+The target applies both idempotently and reverts `Cargo.toml`/`Cargo.lock` when the SHA changes,
+so the delta is never applied over another commit without review.
 
-A pre-existing gap that this has exposed, and which was corrected
+### A PRE-EXISTING gap this exposed, and it was fixed
 
-Nothing in `cmd/launcher/runtime/` was ignored by Git — only `.keep` is tracked, and all native that the Makefile leaves behind (liblbug, httpfs, ONNX Runtime) appeared as untracked. After a build commit, it would generate hundreds of MB of binary files. Before, they were ~15 MB for ONNX; with LanceDB being 208 MB, the correction became mandatory:
-
----
-
-Note: The code block and markdown formatting have been preserved in the translation.
+**Nothing in `cmd/launcher/runtime/` was ignored by git** — only the `.keep` is tracked, and every
+native the Makefile leaves there (liblbug, httpfs, ONNX Runtime) showed up as untracked. A
+`git add -A` after a build would commit hundreds of MB of binary. Before it was ~15 MB of ONNX;
+with LanceDB it would be 208 MB, so the fix became mandatory:
 
 ```gitignore
 cmd/launcher/runtime/*
 !cmd/launcher/runtime/.keep
 ```
 
-Four corrections from a __INLINE_839__ real (2026-08-22)
+## Four fixes coming out of a real `setup` (2026-08-22)
 
-The Engineer rolled INLINE 840 against MinIO and looked at the global directory. Two of my bugs, a drawing request, and a verification appeared. None of them showed up in testing.
+The Engineer ran `graphit setup` against MinIO and looked at the global directory. Out came two bugs of mine,
+one design request and one verification. None of them showed up in a test.
 
-BUG ME: The daemon was monitoring the wrong directory—never recompiling memory.
+### 1. MY BUG: the daemon was watching the wrong directory — memory recompilation NEVER fired
 
-The inline 841 had **`memory-raw` AND `memory-raw-wt`**. The origin:
-`internal/daemon/memorysyncmodule.go` made `wtBase := store.Dir() + "-wt"`, because in the Git store, the
-`Dir()` was the repository and the worktrees were next to it. After T6, the `Dir()` **is** the raw root,
-so the suffix pointed to an empty directory that he himself created at the path.
+`~/.graphit/` had **`memory-raw` AND `memory-raw-wt`**. The origin:
+`internal/daemon/memorysyncmodule.go` did `wtBase := store.Dir() + "-wt"`, because in the git store
+`Dir()` was the repository and the worktrees sat next to it. After T6 `Dir()` **is** the raw root,
+so the suffix pointed the watcher at an empty directory that it created along the way itself.
 
-The inline 841 had **`memory-raw` AND `memory-raw-wt`**. The origin:
-`internal/daemon/memorysyncmodule.go` made `wtBase := store.Dir() + "-wt"`, because in the Git store, the
-`Dir()` was the repository and the worktrees were next to it. After T6, the `Dir()` **is** the raw root,
-so the suffix pointed to an empty directory that he himself created at the path.
+**Effect, and it is worse than the orphan directory:** a watch that never fires, and a memory wiki that
+never recompiles. Fixed to `store.Dir()`, with a comment explaining the suffix so nobody
+puts it back. The `memory-raw-wt` left on the Engineer's machine is residue and can be deleted.
 
-**Effect, worse than an orphaned directory:** a watch that never triggers, and a wiki of memory that never compiles. Corrected to `store.Dir()`, with a comment explaining the suffix so no one can reinsert it. The `memory-raw-wt` left on the Engineer's machine is residue and can be deleted.
-
-2. Bug Me: __INLINE_850__ in every command, on a new bucket
+### 2. MY BUG: `Registry sync failed` on every command, on a new bucket
 
 ```
 ✗ Registry sync failed (will retry on next command):
-  rename /home/…/.graphit/hub/registry.partial /home/…/.graphit/hub/registry: no such file or directory
+  rename ~/.graphit/hub/registry.partial ~/.graphit/hub/registry: no such file or directory
 ```
 
-The inline 851 was downloading the prefix for an staging and giving inline 852. But inline 853 writes an object file and creates directories in the path — so in a **blank registry**, which is all of the newly created bucket, nothing was created and inline 854 failed. And it failed **forever** because the registry only exists when someone publishes.
+`SyncRegistry` downloaded the prefix into a staging area and did a `rename`. But `DownloadPrefix` writes one
+file per object and creates the directories along the way — so in an **empty registry**, which is every
+freshly created bucket, nothing was created and the `rename` failed. And it failed **forever**, because the
+registry only starts existing when someone publishes.
 
-Corrected with a `MkdirAll` from the staging before the download. An empty registry is normal and not an error.
-Fixed by `TestSyncRegistryOnAnEmptyBucketSucceeds`.
+Fixed with a `MkdirAll` of the staging area before the download. An empty registry is a normal state, not an error.
+Pinned by `TestSyncRegistryOnAnEmptyBucketSucceeds`.
 
-Note: The code blocks, markdown, file paths, and technical terms have been preserved as requested.
+### 3. The unit identity left memory and went to the GLOBAL CONFIG
 
-3. The identity of unity emerged from memory and went to the CONFIG GLOBAL.
+The Engineer's request: *"the user's unit is beyond memory, it would be more interesting if
+you put it in the global config"*. He is right — "which installation is this" serves telemetry
+attribution, the origin of a published artifact, a shared-resource lease; it is not a memory
+concept.
 
-The Engineer's Request: *"the user unit is beyond the memory, it would be more interesting if you put it in the global configuration"*. Correct — "which installation is this" serves for telemetry assignment, artifact origin publication, shared resource lease; not a concept of memory.
+| was | became |
+|---|---|
+| `memory.UnitID()` + `<global>/unit.json` + key `memory.unit` | **`config.UnitID()`** + key **`unit.id`** in `~/.graphit/config.json` |
 
-The code block has been preserved as follows:
+Gains beyond the tidying: it shows up in `config get unit.id`, it is editable like any other setting, and
+it has no sidecar file of its own. Generation is serialized and the override (env or config written by the
+operator) **is not persisted back** — persisting would freeze what the operator wanted dynamic.
+`memory.UserScopeID()` stayed as a derivation: sha256 of the unit, 16 hex, because `unit.id` may be an
+e-mail or a name and that goes into a directory name and an object key.
 
-The translation is:
+### 4. The ignore: the project's `.gitignore` + the custom one, now WITHOUT depending on git
 
-```markdown
-| era |
-|---|
-| inline 548 + inline 549 + key inline 550 | **inline 551** + key **inline 552** in **inline 553** |
+Request: *"that Ignore file used git's mechanism to make sure it worked, it needs to
+work"*, and then *"it should consider the project's gitignore plus the custom one, that already
+worked"*.
+
+**What depended on git was only the BOUNDARY** — how far up to climb collecting ignore files was
+answered by looking for a `.git`. And **every test in the `ignorer` package created a `.git` directory**
+just to give that search something to find, which is the sign that the mechanism rested on an
+initialized git.
+
+**On investigating, I found that the git boundary never served any purpose.** `domainForFile` computes a
+pattern's domain with `filepath.Rel(project, dir)`, so a file **above** the project gets a
+domain of `..` and `gogitignore` never matches anything against that — it was collected and silently
+inert. Worse, it created a risk: a project under a directory that happened to be a repository (a dotfiles
+`$HOME`) climbed into it.
+
+**The boundary is now the project.** Simpler, no git, without the risk, and with the same
+observable result. Verified against THIS repository: `vendor/` and `coverage.txt` from the `.gitignore`,
+`internal/ast/antlr/` from the `.astignore` **with the negations** of `common/` and `*/driver.go` working,
+`.graphit/` and the lockfile from the defaults, and normal code not ignored.
+
+**`gogitignore` STAYS, and it is not a git dependency:** it is a pure-Go implementation of the *semantics*
+of gitignore patterns — negation, anchoring, directory-only pattern, per-file domain. It invokes nothing and
+does not require a repository. It is what makes `.astignore` and `.wikiignore` behave the way anyone who
+has ever written a `.gitignore` expects.
+
+**KNOWN LIMITATION, which predates this and was left declared in a test**
+(`TestAnIgnoreFileAboveTheProjectDoesNotApply`): in a monorepo, `node_modules/` in the `.gitignore` at the
+repository root does **not** exclude it from a subproject's index. Making it hold requires computing the domain
+against the collection root instead of the project — a bigger change than removing git, and not done here.
+
+Five new tests cover the path without git, which was the hole: custom alone, `.gitignore` alone,
+collection from `startDir` up to the project root (knowledge's scoped-build form), the limit above
+the project, and **`.gitignore` + custom together in the same checker**.
+
+## Telemetry: the event goes up when it happens; the queue was git's legacy (2026-08-22)
+
+The Engineer's observation: *"that events-staging makes no sense accumulating with s3, before it
+accumulated, with s3 it is just writing directly"*. Correct, and the code showed it was worse than the
+statement.
+
+### Three facts the code revealed
+
+1. **`SyncEvents` did ONE `Put` PER EVENT.** There never was a batch. The queue **deferred** requests
+   instead of reducing them — the whole "flushed in batches" argument in the comment was false.
+2. **`SyncEvents` was called from ONE single place:** `graphit sync`. An event from any other command
+   sat on disk until somebody ran sync. After the Engineer's `setup` there was already one sitting there.
+3. **The key was destroyed on the round-trip.** Staging wrote under
+   `strings.ReplaceAll(key, "/", "_")` and the flush reconstructed it with the inverse substitution — but the
+   key **already contains** `_`, in the ULID and in the action. Every resent event went up under a
+   mangled key.
+
+**Why it made sense in git:** an event was a write to `refs/events/*` plus a push, expensive
+enough per event for the batch to pay for itself. In object storage it is a PUT either way.
+
+### How it ended up
+
+- **`WriteEventFile` does the PUT, in the background.** No latency on the command's path, no queue on the
+  happy path. Same pattern as memory's `Publish`.
+- **`events-staging` is only the FAILURE path.** An event that did not go up is left for the next flush
+  to try; nothing else is written there.
+- **The key travels INSIDE the file** (`stagedEvent{Key, Body}`), not in the name — it kills bug 3.
+- **Without a bucket, the event is DISCARDED** with a debug log. A queue with no consumer is a disk leak,
+  not durability.
+- **The failure path is bounded** to `maxStagedEvents` (256), evicting the oldest. A broken remote,
+  and not just momentarily unreachable, would grow without limit.
+- **`hub.WaitForPendingEvents()`** wired into `root.go` and `daemon.go`, next to
+  `memory.WaitForPendingPushes()`, so the last command's event does not die with the process.
+
+Four tests: direct upload without accumulating, retry under the **same** key, the staging limit, and
+discard in local-only mode.
+
+## T6 — DONE: memory leaves git (2026-08-22)
+
+### The chain, before and after
 
 ```
-
-Note: The original text appears to be a Markdown table with some code blocks and placeholders for inline elements. The translation maintains the structure of the original text while converting the placeholders into actual English words or phrases.
-
-Gains beyond organization: appears in ___INLINE_863__, is editable as any other adjustment, and does not have a sidecar file. The generation is serialized and the override (env or config written by the operator) **is not persisted back** — persisting would freeze what the operator wanted dynamically.
-___INLINE_864__ remains as a derivation: sha256 of the unit, 16 hex, because ___INLINE_865__ can be an email or name and this goes to directory name and object key.
-
-4. The Ignore: INLINE 866 of the project + the customized, now WITHOUT depending on Git
-
-Order: "This file was using the Git mechanism to ensure it would work, it needs to work." Then, "It should consider the project's own GitIgnore and add a more customized one. This is already working."
-
-What depended on Git was just the FRONTIER — until where collecting ignored files was answered by searching for an INLINE_867_. And every package test `ignorer` created a directory `.git` just to give what it found, which is the sign that the mechanism rested on an initialized Git.
-
-**When investigating, I thought the Git frontier had never served any purpose.** `domainForFile` calculates the domain of a pattern with `filepath.Rel(projeto, dir)`, so an above-the-project file receives a domain of `..` and the `gogitignore` never aligns against it — it was collected and silently inert. Worse, it created risk: a project under a directory that by chance happens to be a repository (a `$HOME` of dotfiles) would descend into it.
-
----
-
-**Nota:** This is an example translation for illustrative purposes only. The actual content may vary depending on the specific context and technical details involved in the code or file being translated.
-
-The border has become the project. Simpler, without Git, without risk, and with the same observable result.
-Verified against THIS repository: `vendor/` and `coverage.txt` of `.gitignore`, `internal/ast/antlr/` of `.astignore` **with negations** from `common/` and `*/driver.go` functioning, `.graphit/` and the lockfile of defaults, and normal code not ignored.
-
-**Inline 883:** It remains, and is not a Git dependency: an implementation in pure Go of the semantics of
-GitIgnore — negation, anchoring, directory-specific pattern matching. Does not invoke anything and does not require a repository. This is what ___Inline_884___ and ___Inline_885___ behave like any other who has already written a ___Inline_886___ waits for.
-
-LIMITATION KNOWN, PRECEDED BY THIS ONE AND DECLARED IN TEST
-(`TestAnIgnoreFileAboveTheProjectDoesNotApply`): in a monorepo, `node_modules/` in the root of the repository **does not** exclude from the index of a subproject. To make it valid requires calculating domain against the collection root instead of the project — a change larger than removing Git, and not done here.
-
-Five new tests cover the path without Git, which was the hole: alone with custom, `.gitignore` alone,
-collecting `startDir` until the root of the project (the scoped build form of knowledge), above the project and **`.gitignore` + customized together in the same checker**.
-
-Telemetry: The event rises when it occurs; the queue was an inheritance of Git (2026-08-22)
-
-Observation of the Engineer: "This events-staging does not make sense to accumulate with S3; instead, it accumulates with S3 is just a matter of direct recording." Correct, and the code showed that it was worse than stated.
-
-Three facts that the code revealed
-
-1. Inline 893 does an inline 894 FOR EVENT. Never had batch. The queue **delayed** requests instead of reducing them — the entire argument for "flushed in batches" in the comment was false.
-2. Inline 895 was called a single place: Inline 896_. Any other command's event would stay on disk until someone ran sync. After Engineer's ___Inline_897___, there was already one sitting.
-3. The key was destroyed during round-trip. Staging wrote under ___Inline_898___ and the flush reconstructed with inverse substitution — but the key **already contains** ___Inline_899___, in ULID and action. All re-sent events went under a destroyed key.
-
-Why it made sense in Git: an event was written as inline 900 more than a push, dear boss, for the batch to pay. In object storage, it's a PUT of any kind.
-
-How did it turn out?
-
-- **`WriteEventFile` performs the PUT operation in the background.** Without latency on the command path or a queue on the happy path. Even with the `Publish` memory pattern.
-- **`events-staging` is just the failure path.** An event that did not rise will be tried again by the next flush attempt; nothing else is written there.
-- The key travels inside the file (`stagedEvent{Key, Body}`), not in the name — fixes bug 3.
-- Without a bucket, the event is discarded with debug log. A queue without a consumer is a disk space leak, not durability.
-- The failure path is limited to `maxStagedEvents` (256), discarding the oldest ones. A broken remote would grow indefinitely, neither temporarily unaccessible nor in any way restricted.
-- **`hub.WaitForPendingEvents()`** linked with `root.go` and `daemon.go`, alongside `memory.WaitForPendingPushes()`, to prevent the last command event from dying with the process.
-
-Four tests: direct upload without accumulation, retry under the same key, staging limit, and local-only discard.
-
-T6 - DONE: memory has been committed to Git (2026-08-22)
-
-The chain, before and after
-
-```
-antes:  remote (branch git memory/<scope>/<id>)  --fetch/rebase-->  worktree (VERDADE)  --compile-->  wiki global
-depois: remote (s3://<bucket>/<prefix>/memory/<scope>/<id>/) --sync-->  raw dir (VERDADE)  --compile-->  wiki global
+before: remote (git branch memory/<scope>/<id>)  --fetch/rebase-->  worktree (TRUTH)  --compile-->  global wiki
+after:  remote (s3://<bucket>/<prefix>/memory/<scope>/<id>/) --sync-->  raw dir (TRUTH)  --compile-->  global wiki
 ```
 
-Only the remote changes. The local directory remains true, and the global wiki continues authoritative—what every reader opens is not touched.
+Only the **remote** changes. The local directory remains the truth and the global wiki remains
+the authoritative one — the part every reader opens is untouched.
 
-Decisions, with an explanation of why each one
+### Decisions, and the why of each one
 
-1. The local directory does not move or change its name — follow `<global>/memory-wt/memory-<scope>-<id>/`. It ceases to be the Git worktree and becomes a common directory. Motivation: it is true, and every reader resolves it by `store.MemoryWorktreeDir` / `RawDir`. Renaming an orphaned raw store that already has one — with the remote empty, orphans are **losing memory**. "Without backward compatibility" does not authorize losing data. The path helpers keep the name because they name a directory that maintains its name.
-2. A remaining `.git` within the raw dir is ignored during reading and EXCLUDED from upload. Who updates there has one. Uploading this would publish git tripe inside the prefix of memory.
-3. Memory divides the Hub bucket, under prefix `memory/`. It was one of the five responsibilities of `GitStore`, and the Engineer's decision was that the five will go to S3. No new config keys; `memory.repo` exits.
-4. Branch → prefix, one for each: `memory/<scope>/<id>`.
-5. Renames because names would lie: `MemoryGitStore` → `MemoryStore`, `NewMemoryGitStore` → `NewMemoryStore`, and the struct `MemoryWorktree` → `MemoryScope`. Even the precedent of `GitStore` → `S3Store` in T4/T5.
-6. **Merges, not mirrors** — unlike the Hub registry. Downloading the prefix above the raw dir preserves a local file that has not yet been uploaded; mirroring would erase recently written memory that has not yet been published. The removal is directed only by `RemoveFile`.
-7. There are no commits, so there is no commit message. `CommitAndPush(msg)` becomes `Publish(reason)`, and `reason` goes to log. See the pending below.
-8. Conflict changes nature, better in common cases. Each memory is an ULID file, so two machines adding memories touch **different objects** and there is no conflict at all. Conflict only exists during the same-memory edition/removal, where it's last-writer-wins — which is what `rebase -X ours` was already approaching.
-9. The push continues in background (`WaitForPendingPushes` stays), to write memory without blocking on the network. The location is truth; upload is asynchronous.
+1. **The local directory does NOT move and does NOT change name** — it stays
+   `<global>/memory-wt/memory-<scope>-<id>/`. It stops being a git worktree and becomes an
+   ordinary directory. Reason: it **is the truth**, and every reader resolves it through
+   `store.MemoryWorktreeDir` / `RawDir`. Renaming orphans the raw store of anyone who already has one — and with an
+   empty remote, orphaning is **losing memory**. "No backward compatibility" does not authorize losing
+   data. The path helpers keep the name because they name a directory that keeps its name.
+2. **A leftover `.git` inside the raw dir is ignored on read and EXCLUDED from the upload.** Whoever
+   updates in place has one. Uploading that would publish git guts inside the memory prefix.
+3. **Memory shares the Hub's bucket**, under the `memory/` prefix. It was one of the FIVE
+   responsibilities of the `GitStore`, and the Engineer's decision was that all five go to S3.
+   No new config key; `memory.repo` goes away.
+4. **Branch → prefix, one for one:** `memory/<scope>/<id>`.
+5. **Renames, because the names would start lying:** `MemoryGitStore` → `MemoryStore`,
+   `NewMemoryGitStore` → `NewMemoryStore`, and the struct `MemoryWorktree` → `MemoryScope`. Same
+   precedent as `GitStore` → `S3Store` in T4/T5.
+6. **`Pull` MERGES, it does not mirror** — unlike the Hub's registry. Downloading the prefix on top
+   of the raw dir preserves a local file that has not gone up yet; mirroring would delete freshly written
+   memory that has not been published yet. Removal is driven only by `RemoveFile`.
+7. **There is no commit, so there is no commit message.** `CommitAndPush(msg)` becomes
+   `Publish(reason)`, and `reason` only goes to the log. See the pending item below.
+8. **Conflict changes in nature, and for the better in the common case.** Each memory is a file with
+   a ULID name, so two machines adding memories touch **different objects** and there is no
+   conflict at all. Conflict only exists in editing/removing the SAME memory, and there it is
+   last-writer-wins — which is what `rebase -X ours` already approximated.
+9. **The push stays in the background** (`WaitForPendingPushes` remains), so that writing memory does not
+   start blocking on the network. The local is the truth; the upload is asynchronous.
 
-What remains, and what was measured
+### What remained, and what was measured
 
-```markdown
 | | before | after |
-|---|-------|-------|
+|---|---|---|
 | backend files | `memory_git_store.go` (531 lines) + `memory_git_store_rebase_test.go` | `memory_s3_store.go` |
-| git invocations before first read | 8 (`init`, bootstrap commit, `config fetch.depth`, remote, `for-each-ref`, prune of refs…) | **0** |
+| git invocations before the first read | 8 (`init`, bootstrap commit, `config fetch.depth`, remote, `for-each-ref`, ref prune…) | **0** |
 | `memory.repo` | config key | **removed**, along with `ResolveMemoryRepo`, `MemoryRepoURL` and `MemoryRepoDirPath` |
 | callers | `NewMemoryGitStore` in 16 places | `NewMemoryStore`, same signature |
 
-```
+**Git in the `memory` package, what was left and why:** `git rev-parse --show-toplevel` and
+`git config user.email`, in `memory.go`. That is git as **identity**, not as storage —
+the `user` scope is keyed by the hash of the git identity by design. The criterion "no
+`exec.Command("git")` in the package", which held for the Hub in T4/T5, does not apply here for that
+reason, and the distinction is deliberate.
 
-**In the Git package `memory`, what's left and why:** `git rev-parse --show-toplevel` and
-`git config user.email`, in `memory.go`. This is Git as **identity**, not storage —
-the scope `user` is keyed by the hash of the Git identity design. The criterion "no
-`exec.Command("git")` in the package", which applied to the Hub in T4/T5, does not apply here for this reason,
-and the distinction is deliberate.
+**New tests** (`memory_s3_store_test.go`), with T2's fake S3 server:
 
-New Tests (`memory_s3_store_test.go`) with a fake S3 server of T2:
-
-Here's the translation from Portuguese to idiomatic English:
-
-```markdown
-| Test | What Guarantees |
+| test | what it guarantees |
 |---|---|
-| Inline 952 | The acceptance of T6 — the memory arrives in the bucket, prefixed by the branch name it was named with |
-| Inline 953 | Removal reaches the bucket (it is not inferred from the directory; the file has already been removed) |
-| Inline 954 | Pull merges | Local memory still survives if unpublished |
-| Inline 955 | Scope never published is normal state |
-| Inline 956 | ___Inline_957___ remains never published |
-| Inline 958 | Prune recovers local disk space and **does not** delete the remote prefix |
-| Inline 959 | Branch → Prefix is identity, without ___Inline_960___ doubled |
-| Inline 961 | Local-only continues supported mode |
-```
+| `TestMemoryPublishUploadsUnderTheScopePrefix` | **T6's acceptance** — the memory arrives in the bucket, under the prefix the branch used to name |
+| `TestMemoryPublishDeletesRemovedMemories` | removal reaches the bucket (it is not inferred from the directory, the file is already gone) |
+| `TestMemoryPullMergesAndKeepsUnpublishedMemories` | **Pull merges** — local memory not yet published survives |
+| `TestMemoryPullOnAnEmptyScopeIsNotAnError` | a scope never published is a normal state |
+| `TestMemoryPublishSkipsLeftoverGitMetadata` | a leftover `.git` is never published |
+| `TestMemoryPruneLeavesTheRemoteAlone` | prune reclaims local disk and does **not** delete the remote prefix |
+| `TestRemotePrefixMatchesTheBranchLayout` | branch → prefix is the identity, without a doubled `memory/` |
+| `TestNewMemoryStoreWithoutABucketIsLocalOnlyNotAnError` | local-only remains a supported mode |
 
+**Tests removed, and why it is not a loss of coverage:** seven tests exercised the git backend
+directly (`createOrphanBranch`, `syncRemote`, `isRemoteEmpty`, `remoteBranchExists`,
+`pushBranchInBackground`, the git helpers, and "nothing to commit"). They tested an
+implementation that no longer exists; the behavior that mattered — publish, remove, sync,
+prune — is covered above, and now against a real bucket instead of against a fake
+repository.
 
-**Tests Removed, and Why Not a Coverage Loss:** Seven tests exercised the backend Git directly (`createOrphanBranch`, `syncRemote`, `isRemoteEmpty`, `remoteBranchExists`, `pushBranchInBackground`, the Git helpers, and "nothing to commit"). They tested an implementation that no longer exists; the behavior that mattered — publishing, removing, synchronizing, pruning — is already covered above, now against a real bucket instead of a fake repository.
+`go build -tags fts5 ./...` and `go test -tags fts5 ./...` pass in full.
 
-`go build -tags fts5 ./...` e `go test -tags fts5 ./...` passam inteiros.
+### CLOSED: git ZERO, and the audit trail inside the memory (the Engineer's decision)
 
-Closed: Git Zero, and Audit Trail within Memory (Engineer's Decision)
+Three instructions: *"you don't need anything from git, remove it completely"*, *"you don't need
+backward compatibility nor to worry about preserving old data, even for identifying the user
+look at another unit mechanism"*, and *"as for git carrying historical data, make those
+data live in the memory's frontmatter, pointing even to the path of the previous version when
+there is one"*. All three done.
 
-Three instructions:
+**1. Git ZERO in the package.** `grep` for `internal/git`, `gitmod` and `exec.Command("git")` in
+`internal/memory/` (production AND test) returns nothing. Those were the last two uses, which I had
+defended as "git as identity":
 
-1. "You don't need anything about Git, just remove it completely."
-2. "Don't need retrocompatibility and don't worry about preserving old data to identify users; see another mechanism for unit identification."
-3. "When loading historical data into Git, make sure these data are in the frontmatter of memory, pointing even to the path of the previous version when present."
-
-Made as three.
-
-**1. Git ZERO in the package.** `grep` by `internal/git`, `gitmod`, and `exec.Command("git")` in
-`internal/memory/` (production and test) returns nothing. These were the two most recent uses, which I had defended as "git identity":
-
-The translation is:
-
-```markdown
-| era | became |
+| was | became |
 |---|---|
-| `git config user.email` → hash → scope ID `user` | **unit identity**: ULID generated once and persisted in `<global>/unit.json`, overridden by `memory.unit` |
-| `git rev-parse --show-toplevel` → project root | **searching for the lockfile** (`brand.LockFileName()`) |
+| `git config user.email` → hash → `user` scope id | **unit identity**: a ULID generated once and persisted in `<global>/unit.json`, with an override through `memory.unit` |
+| `git rev-parse --show-toplevel` → project root | **climbs looking for the lockfile** (`brand.LockFileName()`) |
 
-```
+Unit identity is **better than git's in two points**: it does not require another tool
+configured (the old error told the user to run `git config` before being able to write a
+memory), and the lockfile-based root gets right what `rev-parse` got wrong — a git repository with several
+projects resolved to the repository root, now it resolves to the right project.
 
-The identity by unity is **better than the two-point Git identity**: it does not require another configured tool (the old error made the user run `git config` before they could even save a memory), and the root by lockfile gets where `rev-parse` got wrong — a Git repository with multiple projects resolves for the root of the repository, now resolving for the right project.
+**What the override exists to solve, and it is the only loss of semantics:** git's e-mail made the
+`user` scope follow the PERSON across machines. A unit per installation does not. Setting the same
+`memory.unit` on both machines restores that, and it is the supported form. Without an override, two
+installations are two user scopes.
 
-What does the override exist to resolve, and that is the only semantic loss: Git's email follows the PERSON between machines. A per unit by installation doesn't. Setting the same `memory.unit` on both machines restores this, and it is the supported way. Without override, two installations are two user scopes.
-
-2. Audit Trail in the Front Matter, with a pointer to the previous version.
-Three new fields:
-
----
-
-This translation is idiomatic English while preserving the original structure and technical terms from Portuguese.
+**2. Audit trail in the frontmatter, with a pointer to the previous version.** Three new fields:
 
 ```yaml
 revision: 3
@@ -1545,24 +1800,21 @@ updated_by: 01K9...          # a unidade que escreveu
 previous: history/<id>/0002.md
 ```
 
-Each write **archives the version that replaced** in `history/<id>/<revision>.md` and points to it.
-Follows `previous` through the chain all the way back to the original—fixed by
-`TestRevisionChainWalksBackToTheFirstVersion`, which reconstructs `v3,v2,v1`. Removal also archives (Git left the blob accessible in the history); the honest difference is that nothing points to the file afterward because the memory carrying the pointer was removed — found at `history/<id>/`.
+Every write **archives the version it replaced** in `history/<id>/<revision>.md` and points to it.
+Following `previous` walks the whole chain back to the original — pinned by
+`TestRevisionChainWalksBackToTheFirstVersion`, which reconstructs `v3,v2,v1`. Removal also archives
+(git left the blob reachable in the history); the honest difference is that nothing points to the
+file afterwards, because the memory that would carry the pointer is the one that was removed — you find it
+through `history/<id>/`.
 
----
+**The archive is never confused with a memory:** `history/` is a subdirectory, and **every** listing in the
+package reads one level with `os.ReadDir` and skips directories. Pinned by
+`TestArchivedRevisionsAreNotMemories`, which checks the listing AND the wiki.
 
-Note: The inline references are placeholders for actual code blocks, markdown syntax, and file paths. These should be replaced with the appropriate content when translating into English.
+**3. Vocabulary corrected, now that backward compat was waived.** Without git, "worktree" and "branch"
+were lying:
 
-The file is never confused with memory: `history/` is a subdirectory, and **all** package listings read one level deep with `os.ReadDir` and skip the directory. Fixed by `TestArchivedRevisionsAreNotMemories`, which verifies the listing and wiki.
-
-3. Corrected Vocabulary, Now That Retrocompatibility is Dispensed With
-
-Without Git, "worktree" and "branch" mentaled:
-
-
-
-```plaintext
-| era | became |
+| was | became |
 |---|---|
 | `<global>/memory-wt/` | `<global>/memory-raw/` |
 | `store.MemoryWorktreeRoot/Dir` | `store.MemoryRawRoot/MemoryRawDir` |
@@ -1571,546 +1823,568 @@ Without Git, "worktree" and "branch" mentaled:
 | `HasLocalWorktree`, `WorktreeDirForBranch`, `ExtractBranchDir` | `HasLocalScope`, `ScopeDir`, `ExtractScopeDir` |
 | `HubBranch()` | `ScopePrefix()` |
 | `RegisterBranch`/`DeregisterBranch`/`ActiveMemoryBranches`/`MemoryBranchSummary`/`ValidateMemBranchRefs` | `RegisterScope`/`DeregisterScope`/`ActiveScopes`/`ScopeSummary`/`ValidateScopeRefs` |
-| `memory_branch_lock.go`, field JSON `branches` | `scope_lock.go`, field `scopes` |
+| `memory_branch_lock.go`, JSON field `branches` | `scope_lock.go`, field `scopes` |
 | `worktreeShardDir*` | `shardMirrorDir*` |
-```
 
-The parameter has been changed to **`scopePath`** (`memory/<scope>/<id>`) and not `branch`. `prefix` is reserved for the S3 key, otherwise both would collide in the same lexical scope.
+The parameter became **`scopePath`** (`memory/<scope>/<id>`) and not `branch`. `prefix` was kept
+reserved for the S3 key, otherwise the two collided in the same lexical scope.
 
-Also corrected the prose that described the Git model as `paths.go`, `shardsync.go`, `wiki.go`,
-`cycle.go`, `store.go` and — what was most important — in `rule.go`, which **showed the user** the
+Also corrected was the **prose** that described the git model in `paths.go`, `shardsync.go`, `wiki.go`,
+`cycle.go`, `store.go` and — what mattered most — in `rule.go`, which **showed the user** the
 path `<global>/memory-wt/...`, now nonexistent.
 
-**Tests:** the tests that depended on Git were removed with helpers INLINE_1037 and INLINE_1038; no package test needs Git. INLINE_1039 disabled maintenance of Git and exported Git identity — isolation of INLINE_1040 continues, now covering `unit.json` gratis between tests `history_test.go` and `memory_s3_store_test.go`.
+**Tests:** the ones that depended on git were removed along with the `gitAvailable` and
+`setupGitTestEnv` helpers; no test in the package needs git. `TestMain` stopped disabling
+git maintenance and exporting a git identity — the `HOME` isolation remains, and now it covers
+`unit.json` for free. Eleven new tests between `history_test.go` and `memory_s3_store_test.go`.
 
-The label transpiler does not exit due to upstream correctness: the restriction is from the FORMAT (2026-08-22)
+## The label transpiler does not go away with an upstream fix: the restriction is the FORMAT's (2026-08-22)
 
-Question from the Engineer: There is still upstream pending work, and there's migration that doesn't require a transpiler.
-The second issue was resolved because the measurement that supported it was **previously** corrected for row group — and three of those issues were this correction.
+The Engineer's question: is there an upstream pending item left, and is there a migration that dispenses with the transpiler?
+The second was re-measured, because the measurement that supported it was **earlier** than the row
+group fix — and three defects from that period were that fix.
 
-**Reduced, and still broken:** a graph table with two pairs of FROM/TO, a CSR of 300 edges (__INLINE_1044__):
+**Re-measured, and it is still broken:** an edge table with **two** FROM/TO pairs, a CSR of 300
+edges (`TestIcebugMultiPairRelTableCannotWork`):
 
-```markdown
-- Inline Error 1045: 600
-- Inline Error 1046: 300
-- Inline Error 1047: 300 (No existing edges)
+| query | result | correct |
+|---|---|---|
+| `[:R]` | **600** | 300 |
+| `(:NA)-[:R]->(:NB)` | 300 | 300 |
+| `(:NA)-[:R]->(:NA)` | **300** | 0 — edges that do not exist |
+
+**And now the reason, which is not a bug:** the reference tool emits **three files per
+graph** — `nodes_<t>`, `indices_<rel>`, `indptr_<rel>` — keyed by the **TABLE** name, with no
+pair at all in the name (`TestIcebugFormatHasNoPerPairFile`). There is nowhere to store the CSR of a
+second pair. And a target id is a **position in the dense id space of ONE table**, so with
+two TO tables the same number designates two different nodes. **No engine fix changes
+that; it is the format.**
+
+### The dichotomy, and it is structural
+
+| | single node table (today) | node table per label |
+|---|---|---|
+| `MATCH (f:Function)` | needs a **label transpiler** | native |
+| one edge type | **1 table, 1 CSR** | 1 table **per label pair** |
+| `[:CONTAINS]` | native | union of ~62 tables |
+| union with a filtered endpoint | not used | **broken, upstream, no workaround** |
+| variable-length path | correct | **no correct form** |
+
+So dispensing with the transpiler requires unioning pair tables, and unioning has only two forms: `[:A|B]`
+— broken with a filter on an endpoint — or **client-side expansion** (the framework rewrites
+`[:CALLS]` into a union of single-table queries, which are exact). The second works today, and it is
+**the worse deal**: it rewrites the edge side instead of the label side, with a fan-out of up to 62
+subqueries per pattern, and it has **no form at all** for a variable-length path.
+
+The label transpiler is the cheaper of the two rewrites: it is mechanical, total, without fan-out, and
+`(f:Function)` → `(f:Entity) WHERE f.label = 'Function'` has no semantic risk. **And it holds only
+for the remote/icebug path** — the local native store keeps a table per label and is not
+touched.
+
+**For the transpiler to go away, the necessary upstream fix is the one for alternatives with a filtered
+endpoint** — and even that only gives back the option of partitioning by pair, at the cost of fan-out and without
+variable length. A format with a CSR per pair would really solve it; that is a feature request,
+not a bug report.
+
+## RESOLVED: `[:A|B]` is TWO defects, both UPSTREAM; the counting fixes itself by ordering (2026-08-22)
+
+The requested step was to bisect the CALLS/CONTAINS pair and compare the four Parquet files byte by byte. The
+bisection came first and changed the question: **it was not a pair.**
+
+### What the whole matrix showed, and why 6 pairs misled
+
+Enumerated **all 28 pairs** of the 8 types, not six:
+
+- **9 wrong pairs**, not one. And in all 9 the result is `2 ×` the table **with the lowest id**.
+- The 19 "correct" ones were not correct by being correct: **there was nothing to truncate in them.**
+
+The rule that closes the 28: for `[:A|B]`, the engine caps **every** alternative by the row
+count of the **first table created** (lowest table id). Hence
+
+```
+result = rows(first) + min(rows(first), rows(second))
 ```
 
-**Now for the reason, which is not a bug:** The reference tool emits three files per graph — `nodes_<t>`, `indices_<rel>`, and `indptr_<rel>` — keyed by the name of the **TABLE**, without any parameters in the name (`TestIcebugFormatHasNoPerPairFile`). There is no place to store a second key. An ID target is a position within a dense space of IDs for one table, so with two tables, the same number designates two different nodes. No engine correction changes this; it's the format.
+First one smaller ⇒ `2 × first`. First one larger ⇒ exact sum. Equal ⇒ exact. **The order of the
+query does not matter; the CREATION order matters.** With the tables in alphabetical order, the 9 pairs
+whose alphabetical first was the smaller one failed, and only they — that is what made the defect look like it
+belonged to one pair of tables.
 
-The dichotomy, and it is structural
+### It is UPSTREAM, and the earlier test absolved the engine by luck
 
-| | Single Node Table (Today) | Node Table by Label |
-|---|---|---|
-| `MATCH (f:Function)` | needs a **label translator** | native |
-| edge type | 1 table, 1 CSR | 1 table per pair of labels |
-| `[:CONTAINS]` | native | union with ~62 tables |
-| filtered head | not used | **broken upstream, without loopback** |
-| variable length path | correct | **without a correct form** |
+The previous round attributed this to our files because the tool answered 147,219 at the
+same sizes. But that mount declared the **larger table first** — the case that cannot
+fail. Asked in both orders, **on the tool's own files**:
 
-Then dispensing with the transpiler requires joining tables, and there are only two ways to do this: INLINE_1054 — chopped at the end — or client-side expansion (the framework rewrites INLINE_1055 into a single table query union, which is exact). The second one works today, but it's **the worst business**: rewriting the edge side instead of the label side with fan-out up to 62 subqueries by default, and there’s no way for variable-length path.
-
-The compiler of labels is the cheapest rewriter of the two: it's mechanical, total, without fan-out, and
-INLINE_1056 → INLINE_1057 does not have semantic risk. **It only applies to remote/icebug** — the local store remains with a label table and is not touched.
-
-To exit the transpiler, upstream correction required is filtering alternatives — and even that only returns a partitioning option by pair, with fan-out cost without variable length. A CSR per pair format would truly resolve this; it’s a feature request, not a bug fix.
-
-RESOLVED: _INLINE_1058_ are TWO defects, both UPSTREAM; the count is corrected by order (2026-08-22)
-
-The requested step was to bisect the CALLS/CONTAINS partition and compare the four Parquet bytes byte by byte.
-The bisection came before, changing the question: **it wasn't a pair.**
-
-What the entire matrix showed, and why six pairs were mistaken
-
-Enumerated all 28 pairs of the 8 types, not six:
-
-Nine incorrect entries, not one. And in all nine, the result is `2 ×`, which is the table of "smallest ID".
-
-The nineteen correct entries were not correct because they were correct: there was nothing to truncate in them.
-
-The rule that closes on line 28: for `[:A|B]`, the engine limits **all** alternatives by the count of lines in the **first created table** (the smallest table ID). Therefore
-
-```
-resultado = linhas(primeira) + min(linhas(primeira), linhas(segunda))
-```
-
-First smallest ⇒ `2 × primeira`. First largest ⇒ exact sum. Equal ⇒ exactly equal. **The order of the query does not matter; only the creation order matters.** With tables in alphabetical order, the 9 pairs whose first alphabetically was the smallest failed, and just those — that is what caused the defect to appear as a pair of tables.
-
-It is upstream, and the previous test absolved the engine by luck.
-
-The previous round attributed it to our files because the tool responded with 147.219 in the same sizes. However, that mount declared the table as **the largest first** — the case that cannot fail. Asked twice, **in the tools' own files**:
-
-The order of creation is as follows:
-- Big (92.396) → Small (54.823): **147.219** = exactly  
-- Small (54.823) → Big (92.396): **109.646** = 2 × 54.823
-
-109. 646 is exactly the number that the real graph reported. The issue is with the engine, not the writer.
-
-Correction: Order
-
-In `sortRelsLargestFirst` — `schema.cypher` creates the tables of edges from largest to smallest. Since the limit is the **first** alternative (verified with three tables: `100,1000,50` yields 250, which is the first-limit, and not 150, which would be the minimum-limit), the descending order guarantees that the smallest edge in any subset is the largest of it. Nothing is truncated for any combination.
-
-Result on the real graph: **28/28 exact pairs**, and the **8 alternatives at once = 204.353**,
-exactly correct. And the **identity** is also correct, not just counting: with disjoint origin bands by table, the pattern reports the correct origins of each one.
-
-The defect that remains is what kills the partitioning by parts.
-
-With the count corrected came another defect, distinct and **without contour**: alternatives with a "tail-on" filter. Filtering by the most commonly used function of the real graph:
-
-| consulta | resultado | correto |
-|---|---|---|
-| INLINE_1067 | 3.769 | 3.769 ✓ |
-| INLINE_1068 | 0 | 0 ✓ |
-| INLINE_1069 | **0** | 3.769 ✗ — as 3.769 arestas de CALLS desaparecem |
-| INLINE_1070 | **3.798** | 3.769 ✗ — WRITES_FIELD inventa 29 |
-
-The table shows the results of a query, with each row representing an individual result. The "resultado" column indicates whether the result is correct or not.
-
-The table shows the results of a query, with inline code blocks and markdown formatting preserved. The English translation is as follows:
-
-| Query | Result | Correct |
-|---|---|---|
-| INLINE_1067 | 3.769 | ✓ |
-| INLINE_1068 | 0 | ✓ |
-| INLINE_1069 | **0** | ✗ — the 3.769 edges of CALLS disappear |
-| INLINE_1070 | **3.798** | ✗ — WRITES_FIELD invents 29 |
-
-Note: The inline code block and markdown formatting are kept as is, preserving their original meaning in the English translation.
-
-The table shows three queries with their results and correctness indicators:
-
-Query 1: 
-- Inline query number 1067
-- Result: 3.769
-- Correct: ✓
-
-Query 2: 
-- Inline query number 1068
-- Result: 0
-- Correct: ✓
-
-Query 3: 
-- Inline query number 1069
-- Result: 0 (indicating no edges of type CALLS)
-- Incorrect: ✗ — The 3.769 edges of type CALLS disappear
-
-Query 4: 
-- Inline query number 1070
-- Result: 3.798
-- Incorrect: ✗ — WRITES_FIELD invents 29
-
-Each alternative is paired against the set of nodes **of the first**, and sorting does not help.
-Reproduced in the tool's files (`Big_rel|Small_rel` filtered: 13–14 where the sum by table equals 9), so it is upstream.
-
-**Consequence of the design, and this is the answer to the objection against the compiler:** partitioning by parallel does not return to being viable. It transforms every question of type "who calls X" — `MATCH (f)-[:CALLS]->(g) WHERE g.name = …` — into a broken form. The single-node table remains the only correct way, and the label transpiler continues necessary. The doubled table is unaffected by either defect: each type is ONE table, so no framework queries emit alternatives. They only appear when the user writes them — and now counting is correct.
-
-Hypotheses eliminated by measurement in this round
-
-- **shared directory of `storage`** — relaid the same bytes with one table per directory:
-  identical 9 failures, identical. Fixed by `TestIcebugPairsSumWithPerTableStorage`.
-- **Parquet container** — schema, physical and logical types, nullability, encodings, metadata,
-  row groups, and page offsets compared table by table: every row group in all tables, consistent across the board. The container was not different this time.
-- **file content** — in synthetic harness, neither properties (0, 2, 4, int, string), nor distribution of degree (spread versus concentrated), nor size of the table changes the verdict. Only the order changes.
-- **as a discriminant size** — `2957|55040` fails synthetically and `HAS_FIELD|CALLS` real, in the same sizes, corrects. Same numbers, opposite verdict: it was the order.
-
-A PRIOR INCLUSION (correction above): 2026-08-22 reduced to ONE item
-
-After correcting the row group issue, the Engineer requested to remedy the defect of alternatives, including against the Python tool. Done.
-
-In the tool: DO NOT reproduce, nor in our form
-
-Generated two graphs with the same number of edges (92.396 and 54.823) in the same size as the one that fails (each having 60,000 nodes):
-
-| assembly | result |
+| creation order | `[:Big_rel\|Small_rel]` |
 |---|---|
-| tables of node **separated** (the tool's form) | 147.219 = **correct** |
-| table of node **shared** (our folded form) | 147.219 = **correct** |
+| Big (92,396) → Small (54,823) | **147,219** = exact |
+| Small (54,823) → Big (92,396) | **109,646** = 2 × 54,823 |
 
-Then neither the format nor sharing of a node's table explains it. The problem is in our files.
+109,646 is exactly the number the real graph was reporting. **An engine defect, not the writer's.**
 
-In our export: only one pair among all tested
+### The fix: one ordering
 
-```markdown
+`sortRelsLargestFirst` in `internal/ladybugstore/icebug.go` — `schema.cypher` creates the edge
+tables from largest to smallest. Since the cap is the **first** alternative (verified with three
+tables: `100,1000,50` gives 250, which is the first-one cap, and not 150, which would be the minimum cap),
+descending order guarantees that the lowest-id one in **any** subset is its largest. Nothing is
+truncated, for any combination.
+
+Result on the real graph: **28/28 pairs exact**, and the **8 alternatives at once = 204,353**,
+exact. And the **identity** is also right, not just the count: with disjoint source id ranges
+per table, the pattern reports the right sources for each one.
+
+### The defect that REMAINS, and it kills partitioning by pair
+
+With the counting fixed, a second defect appeared, distinct and **with no workaround**: alternatives
+with a **filter on a bound endpoint**. Filtering by the most-called function in the real graph:
+
+| query | result | correct |
+|---|---|---|
+| `[:CALLS]` | 3,769 | 3,769 ✓ |
+| `[:CONTAINS]` | 0 | 0 ✓ |
+| `[:CONTAINS\|CALLS]` | **0** | 3,769 ✗ — the 3,769 CALLS edges disappear |
+| `[:CALLS\|WRITES_FIELD]` | **3,798** | 3,769 ✗ — WRITES_FIELD invents 29 |
+
+Each alternative is matched against the node set **of the first one**, and ordering does not help.
+**Reproduced on the tool's files** (`Big_rel|Small_rel` filtered: 13–14 where the per-table
+sum is 9), so it is upstream too.
+
+**Design consequence, and it is the answer to the objection to the transpiler:** partitioning by pair
+does **not** become viable again. It turns every "who calls X" question —
+`MATCH (f)-[:CALLS]->(g) WHERE g.name = …` — into this broken form. The single node table remains
+the only correct form, and the label transpiler remains necessary. The folded table is
+not affected by either defect: each type is ONE table, so no framework query
+emits alternatives. They only appear when the user writes them — and there the counting
+is now right.
+
+### Hypotheses eliminated by measurement in this round
+
+- **shared `storage` directory** — relaid the same bytes with one directory per table:
+  the same 9 failures, identical. Pinned by `TestIcebugPairsSumWithPerTableStorage`.
+- **the Parquet container** — schema, physical and logical type, nullability, encodings, metadata,
+  row groups and page offsets compared table by table: one row group in all of them, everything
+  consistent. The container was not the difference this time.
+- **file content** — in the synthetic harness, neither properties (0, 2, 4, int, string), nor
+  degree distribution (spread out versus concentrated), nor table size change the verdict.
+  Only the order changes it.
+- **size as the discriminant** — synthetic `2957|55040` fails and the real `HAS_FIELD|CALLS`, at the
+  same sizes, is right. Same numbers, opposite verdict: it was the order.
+
+## EARLIER ATTRIBUTION TO THE WRITER (historical, CORRECTED above): `[:A|B]` reduced to ONE pair (2026-08-22)
+
+After the row group fix, the Engineer asked to re-measure the alternatives defect,
+including against the Python tool. Done.
+
+### On the tool: it does NOT reproduce, not even in our form
+
+Generated two graphs with `uvx icebug-format` at the SAME sizes as the failing pair
+(92,396 and 54,823 edges, 60,000 nodes each):
+
+| mount | result |
+|---|---|
+| **separate** node tables (the tool's form) | 147,219 = **correct** |
+| **shared** node table (our folded form) | 147,219 = **correct** |
+
+So neither the format nor the sharing of the node table explains it. **The defect is in
+our files.**
+
+### In our export: only ONE pair among all tested
+
 | alternatives | result |
 |---|---|
-| **INLINE\_1079** | **109,646 against 147,219 — wrong in 37,573** |
-| **INLINE\_1080** | ✓ |
-| **INLINE\_1081** | ✓ |
-| **INLINE\_1082** | ✓ |
-| **INLINE\_1083** | ✓ |
-| **INLINE\_1084** | ✓ |
-```
+| `[:CONTAINS\|CALLS]` | **109,646 against 147,219 — wrong by 37,573** |
+| `[:CONTAINS\|IMPORTS]` | 96,120 ✓ |
+| `[:CONTAINS\|WRITES_FIELD]` | 93,451 ✓ |
+| `[:CONTAINS\|HAS_FIELD]` | 95,349 ✓ |
+| `[:READS_FIELD\|REFERENCES]` | 39,371 ✓ |
+| `[:CALLS\|READS_FIELD]` | 76,738 ✓ |
 
-Who contributes what:
-INLINE_1085 returns **109.646**, and CONTAINS does not have `line_number` — so all lines came from CALLS. Calls is read twice, but CONTAINS contributes zero. The order doesn't matter, and the deficit is always exactly 37.573 (92.396 - 54.823).
+**Who contributes what:** `count(r.line_number)` over `[:CONTAINS|CALLS]` returns **109,646**, and
+CONTAINS **does not have** `line_number` — so all the rows came from CALLS. **CALLS is read twice
+and CONTAINS contributes zero.** The order changes nothing, and the deficit is always exactly
+37,573 (= 92,396 − 54,823).
 
-What has already been discarded by measurement
+### What has already been discarded by measurement
 
 - **row groups** — the files have 1, verified by test;
-- **types and nullability** — `indices_CONTAINS` is structurally identical to the tool (`target` INT64 unsigned optional, 1 row group);
+- **types and nullability** — `indices_CONTAINS` is structurally identical to the tool's
+  (`target` INT64 unsigned optional, 1 row group);
 - **dictionary encoding** — tested on and off, same deficit;
-- **shared table of nodes** — the tool gets this right;
-- **table size** — the tool gets the same sizes for both: 92.396 and 54.823;
-- **mixing tables with and without properties** — `[:CONTAINS|IMPORTS]` mixes 0 and 6 columns and acquires.
+- **shared node table** — the tool is right in that form;
+- **table size** — the tool is right with the same 92,396 and 54,823;
+- **mixing a table with and without a property** — `[:CONTAINS|IMPORTS]` mixes 0 and 6 columns and
+  is right.
 
-Next concrete step (not done): bisect the par export and only export CALLS and CONTAINS to a reduced graph, then compare the four Parquet bytes byte by byte with equivalents from the tool. This was the method that found the row group bug.
+**Concrete next step** (not done): bisect the pair by exporting only CALLS and CONTAINS in a
+reduced graph, and compare the four Parquet files byte by byte against the tool's equivalents. It was
+that method that found the row group bug.
 
-RESOLVED: Three of the five "issues" were mine—multiple row groups in Parquet (2026-08-22)
+## RESOLVED: three of the five "defects" were MINE — multiple row groups in the Parquet (2026-08-22)
 
-Engineer's Instruction, and she was spot on: "If in the Python tool it works and yours doesn't, there might be an issue with your generation; you should compare parquet by parquet that you generate with hers to understand the difference."
+The Engineer's instruction, and it was exact: *"if it works in the python tool and not in yours,
+there is some problem with your generation, you should compare parquet by parquet the ones you generate with
+his and understand the difference"*.
 
-Done. Even when exported from both paths and compared:
-- Schema, physical types, logical types, nullability, encoding, metadata, and row group count:
+Done. The same graph (60,000 nodes, 200,000 edges) exported by both paths, and comparing
+schema, physical and logical types, nullability, encodings, metadata and row group count:
 
-| **row groups** | inline 1091 | inline 1092 | inline 1093 | inline 1094 / inline 1095 repetition | logical type of `id` | encodings |
-|---|---|---|---|---|---|
-| required | optional | required | required | required | PLAIN, RLE, RLE_DICTIONARY |
+| | mine | tool |
+|---|---|---|
+| **row groups** | `indices` **49**, `indptr` **15**, `nodes` **15** | **1** in all |
+| `target`/`ptr` repetition | **required** | optional |
+| logical type of `id` | `Int(64, signed)` | `None` |
+| encodings | PLAIN, RLE | PLAIN, RLE, RLE_DICTIONARY |
 
-The cause: **INLINE_1099** opens a new row group on each call. I wrote in lots of 4,096 lines, so dozens of row groups were produced. And **INLINE_1100** does not join them — adding that option earlier did nothing, which led me to discard the hypothesis too early.
+**The cause: `pqarrow.FileWriter.Write` opens a NEW row group on every call.** I was writing in
+batches of 4,096 rows, so dozens of row groups came out. And `parquet.WithMaxRowGroupLength`
+does **not** merge them — I had added that option earlier and it changed nothing, which led me
+to discard the hypothesis far too early.
 
-The effect was exactly the worst possible: the file mounts, the anonymous count by default comes out exact, and at the moment when one of the patterns "ties a variable node" to resolution fails in silence. Nothing goes wrong.
+**The effect was exactly the worst possible one:** the file mounts, the count over an anonymous pattern comes out
+exact, and the moment a pattern **binds a node variable** the resolution fails in silence.
+Nothing errors.
 
-Corrected, and what went back to working.
+### Fixed, and what started working again
 
-A line of actual change - the entire table in one record - with nullability equal to that of the tool. Result on the real graph:
+One line of real change — the whole table in a single record — plus nullability equal to the
+tool's. Result on the real graph:
 
-Before | After |
-| Filter anchored at the source: **0** against 583 | **583 ✓** |
-| `count(<node variable>)`: 53.781 against 54.823 | **54.823 ✓** |
-| Target-anchored in synthetic: 0 against 1 | **1 ✓** |
+| before | after |
+|---|---|
+| filter anchored on the source: **0** against 583 | **583 ✓** |
+| `count(<node variable>)`: 53,781 against 54,823 | **54,823 ✓** |
+| target-anchored on the synthetic: 0 against 1 | **1 ✓** |
 
-Fixed by __LINE__ 1102__, and the two tests I had written as "engine defect" became regression guards with corrected names.
+Pinned by `TestIcebugWritesOneRowGroupPerFile`, and the two tests I had written as
+"engine defect" became regression guards with the name corrected.
 
-Accepted Cost: a single row group eliminates the pruning by row group, so the scan by label increased from 12 ms to 42 ms. The query of edges remains faster than native (0 ms).
+**Accepted cost:** a single row group eliminates row-group pruning, so the scan by label
+went from 12 ms to 42 ms. An edge query is still faster than the native one (0 ms).
 
-The final assignment, corrected
+### The final attribution, corrected
 
 | defect | verdict |
 |---|---|
-| anchor in a variable node | **My ERAs** — row groups |
-| `count(<node variable>)` | **My ERAs** — row groups |
-| reapplying indptr | **It's ME** — remedied; see below |
-| multi-hop traversal not complete | **UPSTREAM** — reproduced in the tool output and still fails after correction |
+| anchoring on a node variable | **WAS MINE** — row groups |
+| `count(<node variable>)` | **WAS MINE** — row groups |
+| `[:A\|B]` reapplying the indptr | **IS MINE** — to be re-measured; see the section below |
+| **multi-hop traversal does not complete** | **UPSTREAM** — reproduced on the tool's output and still fails after the fix |
+| **`=` on the primary key returns empty** | **UPSTREAM** — reproduced on the tool's output |
 
+**ONE confirmed upstream defect that blocks us remains** (traversal), plus the primary key one
+which has an exact workaround (`IN [v]`). `[:A|B]` needs re-measuring — if it was also row
+group, **partitioning by pair becomes viable again and the label transpiler stops being
+necessary**, which is exactly the Engineer's objection.
 
-There is an upstream confirmed defect that blocks us (traversal), plus the primary key issue with an exact contour (__INLINE_1106__). The __INLINE_1107__ needs to be fixed — if it was also part of a row group, partitioning around would be viable and the label transpiler becomes unnecessary, which is exactly the Engineer's objection.
+## EARLIER ATTRIBUTION (historical, corrected above): reproduced on the official tool, and an upstream search (2026-08-22)
 
-**PREVIOUS AWARD (historical, corrected above): Reproduced in the official tool, upstreamed (August 22, 2026)**
+At the Engineer's request: research the problems on the internet and test whether the Python tool
+confirms them too. Done, and it **corrects an earlier statement of mine** — I had called the
+five of them "reader defects", and only **two** are confirmed as upstream.
 
-Request from the Engineer: Search for problems on the internet and test if the Python tool confirms it. Done, and I have corrected an assertion made earlier — I had called the five "reader defects," but only two are confirmed as upstream issues.
+### What the upstream search found
 
-What was found upstream during the search
+LadybugDB is a continuation of **Kuzu**, and Kuzu has open issues that describe exactly
+what was measured here:
 
-LadybugDB is a sequel to **Kuzu**, and Kuzu has open issues that precisely describe what was measured here:
-
-```markdown
-- The GDS join initializes data structures for every node, which performs poorly with large datasets.
-- **It is literally our INLINE_1108:** Inline_1109 about Inline_1110 enumerating all nodes before Inline_1111.
-
-- Recursive joins consume too much memory in variable-length paths.
-- Defect 2
-
-- Queries involving recursive joins can get stuck.
-- Defect 2
-
-- Triggers with a non-directed recursive join.
-- Defect 2
-
-- Traps when using recursive joins that are not directed.
-- Defect 2
-
-- "TODOs" for GDS and Recursive Joins — open umbrella.
-- Defect 2
-
-- Each REL table in Kuzu may only contain one node type for the FROM and TO specification.
-- **The architectural origin** of the multi-par problem.
-
-- A bug: defining a rel table with multiple node table pairs.
-- Multi-par
-
-- Kuzu wrongly outputs non-existing relations in certain cases.
-- Family of defect 3
-```
-
-Nothing found for the anchored filter at the origin or for __INLINE_1112__ — icebug is recent (version 0.17.0), so they might be new.
-
-What the official tool confirms, and what it does not confirm
-
-Tests on `internal/ladybugstore/icebug_upstream_test.go`, concerning output produced by
-**`uvx icebug-format`** (60,000 nodes, 200,000 edges), with the truth read from CSR:
-
-| Defect | in the tool | verdict |
+| issue | what it says | corresponds to |
 |---|---|---|
-| 2 — multi-hop traversal | **does not complete within 100 s** | **UPSTREAM confirmed** |
-| 5 — `=` on primary key | __INLINE_1116__ → 0, __INLINE_1117__ → 1 | **UPSTREAM confirmed** |
-| 1 — anchoring at the origin | filter in column **not-key**: 8=8 ✓ and 1=1 ✓ | **NOT reproduced** |
-| 4 — `count(<node variable>)` | 200.000 = 200.000 ✓ | **NOT reproduced** |
-| 3 — `[:A\|B]` | fixture of the tool has 2+2=4, ambiguous with 2×2=4 | **inconclusive** |
+| [kuzu#4941](https://github.com/kuzudb/kuzu/issues/4941) | "The GDS join initializes data structures for every node, which performs poorly with large datasets" | **it is literally our `EXPLAIN`**: `TABLE_FUNCTION_CALL` over `a._ID` enumerating all the nodes before the `RECURSIVE_EXTEND` |
+| [kuzu#4459](https://github.com/kuzudb/kuzu/issues/4459) | recursive join consumes too much memory on a variable-length path | defect 2 |
+| [kuzu#5040](https://github.com/kuzudb/kuzu/issues/5040) | a query with a recursive relation **hangs** | defect 2 |
+| [kuzu#4540](https://github.com/kuzudb/kuzu/issues/4540) | hangs with an undirected recursive join | defect 2 |
+| [kuzu#4285](https://github.com/kuzudb/kuzu/issues/4285) | "GDS and Recursive Joins TODOs" — an open umbrella | defect 2 |
+| [kuzu#2866](https://github.com/kuzudb/kuzu/issues/2866) | "Each REL table in Kuzu may only contain one node type for the FROM and TO specification" | **the architectural origin** of the multi-pair problem |
+| [kuzu#5049](https://github.com/kuzudb/kuzu/issues/5049) | "Bug: Defining a rel table with multiple node table pairs" — "with only one pair there was no error" | multi-pair |
+| [kuzu#4189](https://github.com/kuzudb/kuzu/issues/4189) | "Kuzu wrongly output non-existing relations in certain cases" | family of defect 3 |
 
-The defect in the multi-hop traversal is not completed within 100 seconds. The UPSTREAM confirms this issue.
-There is an error on the primary key field: __INLINE_1116__ → 0 and __INLINE_1117__ → 1, which has been confirmed by the UPSTREAM.
-The anchoring at the origin filter in column **not-key** works correctly with values 8=8 ✓ and 1=1 ✓. This defect is not reproduced.
-There is an error on the field `count(<node variable>)`: 200.000 = 200.000 ✓, which also does not reproduce.
-The fixture of the tool has a combination of 2+2=4 and 2×2=4, making it ambiguous. This defect is inconclusive.
+Nothing found for the source-anchored filter nor for `count(<node variable>)` — the
+icebug is recent (v0.17.0), so they may be new.
 
-The defect is ours, and I have not yet found the cause.
+### What the official tool confirms, and what it does NOT confirm
 
-In our export, anchoring at the origin returns 0 in all forms (`=`, `IN`, `STARTS WITH`, and even `entity_id IN [27766]`), while anchoring on the target works. In the output of the tool, both sides work.
+Tests in `internal/ladybugstore/icebug_upstream_test.go`, over output produced by
+**`uvx icebug-format`** (60,000 nodes, 200,000 edges), with the truth read from the CSR:
 
-The data are correct — verified:
-- The node can be found by name: `entity_id 27766`, label `Function`, path is correct;
-- `entity_id` is monotonic 0, 1, 2, … so id dense == position of the line;
-- The CSR has an out-degree exactly equal to 583 in this ID, which is the number reported by the origin.
-
-Hypotheses already **rejected** by measurement: properties of edges in INLINE_1127 (removing them does not change anything), using multiple nodes as a filter (works with the tool that has two nodes), and the predicate's form. The only difference is in the **table shape**: 63,314 vertices × 20 columns and 8 tables of edges compared to 60,000 × 2 columns and 1 table. I have not bisected this yet.
-
-**Consequence of Honesty:** While defect 1 is not explained, it cannot be said that Phase C is blocked solely by upstream. Two defects are upstream; what more impedes us could be ours.
-
-The defect filter on the source side, measured in our export (2026-08-21)
-
-Investigated at the request of the Engineer, who asked if it would always be advantageous to generate a reverse edge. The answer is no, and the reason is worse than just a cost issue.
-
-Medido no grafo real, mesmas perguntas nos dois armazenamentos:
-
-Filter | Expected | Native | Icebug
---- | --- | --- | ---
-Target side ("Who calls X") | 3.752 | 3.752 ✓ | 3.752 ✓
-Source side ("What X calls") | 583 | 583 ✓ | 0 ✗
-Reverse table source side | 3.752 | — | 0 ✗
-
-Filtering by origin returns an empty result without error. It's ironic: the CSR is organized BY origin, so it should be the fast way. `MATCH (a)-[:CALLS]->(b) WHERE a.name = 'X'` — "what X calls" — is in response to no graph icebug mounted. Fixed by __INLINE_1129__, which also detects future corrections.
-
-
-Why does reverse edge not work in three levels
-
-1. In the same table is actively wrong. That's what the reference tool does, and it destroys direction:
-   200,000 edges build up as 399,996, and `MATCH (a)-[:CALLS]->(b)` starts returning calls that don't exist. The direction of CALLS in a code graph is the meaning. Therefore, our writer emits the mirror on a **separate table** `<TIPO>_REVERSE` — the forward is exact and the mirror does not count as an edge in the graph.
-2. The separate table is fast and still useless today. 54,807 correct lines, `MATCH ()-[r:CALLS_REVERSE]->()` responds with 54,807 in 1 ms, and the inbound query by it runs in **29 ms against 339 ms** for the forward — 11.7 times faster. But returns **0**, because asking for it anchors at the origin, which is exactly the broken path.
-3. It doesn't fix the traversal. Measured: 2 hops continue not completing with 399,996 symmetric edges.
-
-Note: The code blocks and inline comments have been preserved as per your request.
-
-And the inbound already works without anything of that, via forward: 57 milliseconds to count, 294-339 milliseconds to materialize 3.752 callers, against 2-4 ms native. Then reverse path would buy latency, not capacity — and today even that isn't so.
-
-The FIVE flaws of the reader, all silent, all measured
-
-None is wrong. All respond with confidence in their correct answer.
-
-# Defects and Evidence
-
-| # | Defect | Evidence |
+| defect | on the tool | verdict |
 |---|---|---|
-| 1 | The filter on the source side returns empty | 583 → 0; target 3.752 ✓ |
-| 2 | Multi-hop traversal fails | Native 2.133 ms / 867.766 paths; icebug >100 s. Reproduced in official tool output |
-| 3 | Reapplies the `indptr` of the first alternative to `[:A\|B]` | 92.337 against 8.740 alternatives; 2 out of 92 and 746 = 184 = 2 × 92 |
-| 4 | Sub-reports | 53.781 vs 54.823; `count(r)` and `count(*)` are exact |
-| 5 | Returns empty on primary key | `IN [v]`, `STARTS WITH`, interval, and `ORDER BY` work |
+| 2 — multi-hop traversal | **does not complete in 100 s** | **UPSTREAM confirmed** |
+| 5 — `=` on the primary key | `= 17` → 0, `IN [17]` → 1 | **UPSTREAM confirmed** |
+| 1 — anchoring on the source | filter on a **non-key** column: 8=8 ✓ and 1=1 ✓ | **does NOT reproduce** |
+| 4 — `count(<node variable>)` | 200,000 = 200,000 ✓ | **does NOT reproduce** |
+| 3 — `[:A\|B]` | the tool's fixture has 2+2=4, ambiguous with 2×2=4 | **inconclusive** |
 
-Note: The inline code blocks (`[:A\|B]`, `indptr`, etc.) are placeholders for actual technical details that would be provided in the original Portuguese text.
+### Defect 1 is OURS, and I have not found the cause yet
 
-Concluding Honesty: The Icebug reading path in liblbug 0.18.2 does not serve as a query pattern for this framework's standards.
-Our export is indeed correct — verified by reading the CSR and anchored queries on the target. What doesn't work is the reader.
+In our export, anchoring on the source returns 0 in **all** forms (`=`, `IN`, `STARTS WITH`,
+and even `entity_id IN [27766]`), while anchoring on the target works. On the tool's output,
+both sides work.
 
-Unique Node Table: Correct data, insufficient cross-border performance (2026-08-21)
+**The data is right** — verified:
+- the node is findable by name: `entity_id 27766`, label `Function`, correct path;
+- `entity_id` is monotonic 0,1,2,… so dense id == row position;
+- **the CSR has out-degree 583 at exactly that id**, which is the number the source reports.
 
-The Engineer decided to switch to a single-node table, always native in Go and **without any fallback to the Python tool**. Done. Measured against a **frozen copy of the real graph** (the daemon was rewriting the store during reading, causing segfaults and spurious key duplicates — suggestion from the Engineer, and it was she who stabilized the measurement).
+Hypotheses already **discarded** by measurement: edge properties in the `indices` (removing them does not
+change anything), a filter matching more than one node (it works on the tool with two), and the shape of the
+predicate. What is left is the difference in **table shape**: 63,314 nodes × 20 columns and 8 edge
+tables against 60,000 × 2 columns and 1 table. I have not bisected that yet.
 
-### O layout
+**Honest consequence:** while defect 1 is not explained, it cannot be claimed that
+Phase C is blocked only by upstream. Two defects are upstream; the one that hinders us most
+may be ours.
 
-- **A** table of nodes, `Entity`, with `label` as column and `entity_id INT64` (the very own dense id) as primary key. Not `_id`: the engine refuses with "reserved property name".
-- **A** table per type of edge, `FROM Entity TO Entity` — a pair, a CSR, or __no alternative in any place__ which was the defect that toppled partitioning.
-- Columns are the union between labels, null where the label does not have one. `LabelKeys` stores the original key of each label, and `Pairs` the (from,to) real values for each type, to reconstruct.
+## The source-side filter defect, measured on our export (2026-08-21)
 
-Note: The inline codes and placeholders were kept as is in the Portuguese text, which suggests they are part of a specific context or template.
+Investigated at the Engineer's request, who asked whether it would not always be advantageous to generate a
+reverse edge. The answer is no, and the reason is worse than a question of cost.
 
-### DADOS: 100% corretos no grafo real
+Measured on the real graph, the same questions on both storages:
 
-Against copying frozen: **63.314 nodes in 30 labels, 203.776 edges in 8 tables, export in 2.0-2.5 seconds**. Passes.
-
-- The labels **30 in sequence**.
-- There are **8 types of edges**, and they match exactly: CALLS 54.823, CONTAINS 92.396, HAS_FIELD 2.953,
-  HAS_PARAMETER 9.454, IMPORTS 3.724, READS_FIELD 21.915, REFERENCES 17.456, WRITES_FIELD 1.055.
-- **Self-loops: 16 of 16**, verified by reading the CSR and not through a query — see below.
-- **Artifact: 2.7 MiB** for the entire graph (the source store is 76 MiB). This is excellent
-  for remote read operations: the volume transferred per query is small.
-
-Correction of what I had reported incorrectly
-
-The first measurement compared our side's `count(a)` with the native side's `count(r)` — it is not the same question.
-
----
-
-The second measurement compared our side's `count(r)` with the native side’s `count(r)` — it is not the same question.
-
----
-
-The second measurement compared our side's `count(r)` with the native side's `count(r)`—it is not the same question.
-Rephrase exactly:
-The second measurement compared our side's `count(r)` with the native side's `count(r)` — it is not the same question.
-
-
-
-| Form | Result |
-|---|---|
-| Inline 1153, anonymous points | **54.823** ✓ |
-| Inline 1154, linked points | **54.823** ✓ |
-| Inline 1155, linked points | **54.823** ✓ |
-| Inline 1156 | 54.414 ✗ |
-
-The export is correct. The connected pins work properly. The only wrong part is
-`count(<node variable>)` — a narrow defect in the engine with an exact contour (`count(*)` or
-`count(r)`), fixed by `TestIcebugCountOfANodeVariableIsWrong`.
-
-Translation:
-The export is correct. The connected pins work properly. The only wrong part is
-`count(<node variable>)` — a narrow defect in the engine with an exact contour (`count(*)` or
-`count(r)`), fixed by `TestIcebugCountOfANodeVariableIsWrong`.
-
-
-PERFORMANCE: measured by the same measure
-
-Yes, the same question on both sides, in local disk (network would add latency above; the ratio between them doesn't change):
-
-```markdown
-# Consulta
-
-| Consulta | Native | Icebug | Reason |
+| filter | expected | native | icebug |
 |---|---|---|---|
-| Count a label | 2 ms | 12 ms | 4.8× |
-| Filter labels by property | 1 ms | 11 ms | 6.7× |
-| Count an edge type | 13 ms | **0 ms** | **0.05× - 20× faster** |
-| 1 hop with connected ends | 3 ms | **0 ms** | **1.3× - 8× faster** |
-| Multi-hop traversal | Fast | Not complete | Below: |
-```
+| **TARGET** side ("who calls X") | 3,752 | 3,752 ✓ | **3,752 ✓** |
+| **SOURCE** side ("what X calls") | 583 | 583 ✓ | **0 ✗** |
+| source side of the **reverse** table | 3,752 | — | **0 ✗** |
 
-Querying an edge becomes **faster** than the native (a CSR against 62 tables of parallelism); scanning by label is up to 5-7 times slower in absolute terms at 11-12 milliseconds, which is acceptable.
+**Filtering by the source side returns empty without an error.** And it is ironic: the CSR is organized BY
+source, so that should be the fast path. `MATCH (a)-[:CALLS]->(b) WHERE a.name = 'X'` —
+"what X calls" — is unanswerable on a mounted icebug graph. Pinned by
+`TestIcebugSourceSideFilterReturnsNothing`, which also detects the future fix.
 
-The multi-hop crossing is a bug in the Optimizer of Ladybug, proven with three experiments.
+### Why a reverse edge does NOT solve it, on three levels
 
-The proposed diagnostic report by the Engineer: run `EXPLAIN` (does not execute, so it does not hang), and re-run with `--add-reverse-edges` to see if the optimizer requires a reverse index until it returns to purely directed standard. Both executed, plus one control.
+1. **In the same table it is actively wrong.** It is what the reference tool does, and it destroys
+   the direction: 200,000 edges mount as 399,996, and `MATCH (a)-[:CALLS]->(b)` starts returning
+   calls that do not exist. In a code graph the direction of CALLS is the meaning. That is why
+   our writer emits the mirror in a **separate table** `<TIPO>_REVERSE` — the forward stays
+   exact and the mirror does not count as an edge of the graph.
+2. **The separate table is fast and still useless today.** 54,807 correct rows,
+   `MATCH ()-[r:CALLS_REVERSE]->()` answers 54,807 in 1 ms, and the inbound query through it runs
+   in **29 ms against 339 ms** through the forward — 11.7× faster. But it returns **0**, because
+   asking through it is anchoring on the source, which is exactly the broken path.
+3. **It does not fix the traversal.** Measured: 2 hops still does not complete with 399,996
+   symmetric edges.
 
-**1. ** INLINE\_1164 shows the difference between 1 hop and 2 hops.
+And the inbound **already works** without any of that, through the forward: 57 ms to count, 294–339 ms to
+materialize 3,752 callers, against 2–4 ms native. So a reverse edge would buy latency,
+not capability — and today not even that.
 
-A single hop receives an excellent plan — a sole operator:
+### The FIVE reader defects, all silent, all measured
+
+None of them errors. All of them answer with the confidence of a right answer.
+
+| # | defect | evidence |
+|---|---|---|
+| 1 | **a filter on the source side returns empty** | 583 → 0; target 3,752 ✓ |
+| 2 | **multi-hop traversal does not complete** | native 2,133 ms / 867,766 paths; icebug >100 s. Reproduced on the official tool's output |
+| 3 | `[:A\|B]` reapplies the `indptr` of the first alternative | 92,337 per table against 8,740 through alternatives; 2 alternatives of 92 and 746 = 184 = 2×92 |
+| 4 | `count(<node variable>)` under-reports | 53,781 against 54,823; `count(r)` and `count(*)` exact |
+| 5 | `=` on the primary key returns empty | `IN [v]`, `STARTS WITH`, range and `ORDER BY` work |
+
+**Honest conclusion: the icebug read path in liblbug 0.18.2 is not fit for this framework's query
+patterns.** Our export is demonstrably correct — verified by reading the
+CSR and by target-anchored queries. What is not fit is the reader.
+
+## Single node table: correct data, insufficient traversal performance (2026-08-21)
+
+The Engineer decided to switch to a single node table, always native in Go and **with no
+fallback to the Python tool**. Done. And measured against a **FROZEN COPY** of the real
+graph (the daemon was rewriting the store during the read and that caused a segfault and a spurious
+duplicate key — the Engineer's suggestion, and it was what stabilized the measurement).
+
+### The layout
+
+- **One** node table, `Entity`, with `label` as a column and `entity_id INT64` (the dense id
+  itself) as the primary key. Not `_id`: the engine refuses with "reserved property name".
+- **One** table per edge type, `FROM Entity TO Entity` — hence one pair, hence one CSR, hence
+  **no `[:A|B]` alternation anywhere**, which was the defect that took down
+  partitioning.
+- Columns are the **union** across labels, null where the label does not have one. `LabelKeys` keeps the
+  original key of each label, and `Pairs` the real (from,to) of each type, for reconstruction.
+
+### DATA: 100% correct on the real graph
+
+`TestIcebugAgainstARealGraph` against the frozen copy: **63,314 nodes in 30 labels, 203,776
+edges in 8 tables, export in 2.0–2.5s**. It passes.
+
+- The **30 labels** match node for node.
+- The **8 edge types** match exactly: CALLS 54,823, CONTAINS 92,396, HAS_FIELD 2,953,
+  HAS_PARAMETER 9,454, IMPORTS 3,724, READS_FIELD 21,915, REFERENCES 17,456, WRITES_FIELD 1,055.
+- **Self-loops: 16 of 16**, verified **by reading the CSR back** and not by query — see below.
+- **Artifact: 2.7 MiB** for the whole graph (the source store is 76 MiB). That is excellent
+  for remote reading: the volume to transfer per query is small.
+
+### CORRECTION OF WHAT I HAD REPORTED WRONG
+
+The first measurement compared **`count(a)` on our side with `count(r)` on the native side** — that is not
+the same question. Redone like with like:
+
+| form | result |
+|---|---|
+| `count(r)`, anonymous endpoints | **54,823** ✓ |
+| `count(r)`, **bound** endpoints | **54,823** ✓ |
+| `count(*)`, bound endpoints | **54,823** ✓ |
+| `count(<node variable>)` | 54,414 ✗ |
+
+**The export is correct.** Bound endpoints work. The only wrong one is
+`count(<node variable>)` — a narrow engine defect with an exact workaround (`count(*)` or
+`count(r)`), pinned by `TestIcebugCountOfANodeVariableIsWrong`.
+
+### PERFORMANCE: measured like with like
+
+`TestIcebugRealGraphQueryCost`, the same question on both sides, on local disk (the network would add
+latency on top; the ratio between them does not change):
+
+| Query | native | icebug | ratio |
+|---|---|---|---|
+| count a label | 2 ms | 12 ms | 4.8× |
+| filter a label by property | 1 ms | 11 ms | 6.7× |
+| count an edge type | 13 ms | **0 ms** | **0.05× — 20× faster** |
+| 1 hop with bound endpoints | 3 ms | **0 ms** | **0.13× — 8× faster** |
+| multi-hop traversal | fast | **does not complete** | see below |
+
+An edge query ends up **faster** than the native one (one CSR against 62 pair tables); a scan
+by label ends up 5–7× slower in absolute terms of 11–12 ms, which is acceptable.
+
+### Multi-hop traversal is a Ladybug OPTIMIZER BUG, proven with three experiments
+
+Diagnostic script proposed by the Engineer: run `EXPLAIN` (it does not execute, so it does not
+hang), and regenerate with `--add-reverse-edges` to see whether the optimizer requires a reverse index even
+for a purely directed pattern. Both run, plus a control.
+
+**1. `EXPLAIN` shows the difference between 1 and 2 hops.**
+
+1 hop gets an optimal plan — a single operator:
 ```
 RESULT_COLLECTOR[2] <- PROJECTION[1] <- COUNT_REL_TABLE[0]   Table: demo_rel
 ```
-Therefore, 0 milliseconds.
+Hence the 0 ms.
 
-2 hops recebe:
+2 hops gets:
 ```
 RESULT_COLLECTOR[7] <- PROJECTION[6] <- AGGREGATE_SCAN[5] <- AGGREGATE_FINALIZE[4]
   <- AGGREGATE[3] <- PROJECTION[2] <- TABLE_FUNCTION_CALL[1] (Expressions: a._ID)
   <- RECURSIVE_EXTEND[0]
 ```
-About enumarating all 60 thousand nodes as the initial set,
-Expand each one.
+`TABLE_FUNCTION_CALL` over `a._ID` **enumerates all 60 thousand nodes** as the initial set, and
+`RECURSIVE_EXTEND` expands from each one.
 
-The reverse cut does not resolve — hypothesis discarded. The same graph reconverted with `--add-reverse-edges` (399,996 edges, symmetric adjacency, `indptr` identical to the 60,001 lines): nodes 60,000 ✓, edges 399,996 ✓, 1 hop 1 ms ✓, **2 hops does not complete in 100 s**. There is no lack of reverse index.
+**2. A reverse edge does NOT solve it — hypothesis discarded.** The same graph reconverted with
+`--add-reverse-edges` (399,996 edges, symmetric adjacency, `indptr` with the same 60,001
+rows): nodes 60,000 ✓, edges 399,996 ✓, 1 hop 1 ms ✓, **2 hops still does not complete in
+100 s**. It is not a lack of a reverse index.
 
-3. The Control, which is what closes the case.
+**3. THE CONTROL, which is what closes the case.** The SAME data (60,000 nodes, 200,000 edges)
+loaded into **NATIVE** storage via `COPY FROM`, and the SAME query:
 
-The same data (60, 000 nodes, 200, 000 edges) loaded into storage **NATIVELY** via INLINE_1170, and the same query:
-
-
-Storage:
-- 2 hops
-
-Native:
-- 2.133 ms, 867.766 paths
-
-IceBug:
-- Does not complete in 100,000 ms
-
-IceBug + Reverse Edges:
-- Does not complete in 100,000 ms
-
-≥47× slower and effectively non-terminating, in a query that the native resolves in 2 seconds. The query is modest (867 thousand paths); the problem lies with the execution path of `RECURSIVE_EXTEND` over storage icebug. It's a Ladybug optimizer/execution bug, reproducible with their official tool output and not corrected on our side.
-
-The multi-hop crossing is a limitation upstream, and this has been proven.
-
-Engineering Suggestion: Compare with the Python tool for diagnosis. This is what separated "our defect" from "their defect."
-
-Generated a synthetic graph with **60,000 nodes and 200,000 edges**, created by the **own tool `icebug-format`**, and built:
-
-Output: Consultation in the output of the TOOL | Result |
+| storage | 2 hops |
 |---|---|
-We have 60,000 confirmed cases.
-Edges, anonymous ends | 200,000 ✓
-| arestas, pontas **ligadas** | 200.000 ✓ |
-| fan-in de 1 hop ligado | 200.000 ✓ (329 ms) |
-Travel of two hops did not complete in 100 seconds.
+| **native** | **2,133 ms, 867,766 paths** |
+| icebug | **does not complete in 100,000 ms** |
+| icebug + reverse edges | **does not complete in 100,000 ms** |
 
-The query in the output of the TOOL is as follows:
+**≥47× slower and effectively non-terminating, on a query the native resolves in 2 s.** The
+query is modest (867 thousand paths); the problem is the execution path of `RECURSIVE_EXTEND`
+over icebug storage. It is a Ladybug optimizer/execution bug, reproducible with the output of their
+official tool, and there is no fix on our side.
 
-- Nodes: 60,000 ✓
-- Edges, anonymous ends: 200,000 ✓
-- Edges, connected ends: 200,000 ✓
-- Fan-in with a single hop connection: 200,000 ✓ (329 ms)
-- **Two-hop traversal** | **not completed within 100 s** |
+### Multi-hop traversal is an UPSTREAM limitation, and that was PROVEN
 
-The query in the output of the TOOL is as follows:  
-Query Result:  
-- Nodes: 60,000 ✓  
-- Edges, anonymous ends: 200,000 ✓  
-- Edges, connected ends: 200,000 ✓ (329 ms)  
-- Edge fan-in of 1 hop connected: 200,000 ✓ (329 ms)  
-- **Two-hop traversal** | **not completed in 100 s** |
+The Engineer's suggestion: compare with the Python tool for diagnosis. That is what separated
+"our defect" from "their defect".
 
-The query in the output of the tool results in a positive outcome.
-The edges, anonymous endpoints | The edges and anonymous endpoints | The edges and connected endpoints | Fan-in with one hop connected | Traversal of two hops |
+A synthetic graph of **60,000 nodes and 200,000 edges** was generated, converted by the **tool
+`icebug-format` itself**, and mounted:
 
-The official tool's exit does not perform two hops in this scale either. Therefore, the multi-hop traversal is not a defect of our writer—it’s with the format/reader. And reversing the edge would not solve it; the issue isn’t directionality, but rather the expansion of the path (logic, not measurement).
+| query on the TOOL's output | result |
+|---|---|
+| nodes | 60,000 ✓ |
+| edges, anonymous endpoints | 200,000 ✓ |
+| edges, **bound** endpoints | **200,000 ✓** |
+| 1-hop bound fan-in | 200,000 ✓ (329 ms) |
+| **2-hop traversal** | **did not complete in 100 s** |
 
-The variable-length crossing **functions** at the scale of a fixture (`TestIcebugVariableLengthTraversalIsNative` passes), so it is a limit of scale, not syntax.
+**The official tool's output does not do 2 hops at that scale either.** So multi-hop
+traversal is not a defect of our writer — it is the format's/reader's. And **a reverse edge would
+not solve it**: the problem is not direction, it is path expansion (reasoning, not measurement).
 
-The structural explanation, and the real cost of doubling the labels: in the native graph
-`(a)-[:CALLS]->(b)` is typed by the par tables, so the planner knows that `a` is `Function` and it avoids searching. In the folded table `a` could be any one of the 63 thousand nodes — the planner **loses the type information that made the pruning**. Counting by type becomes faster (one CSR instead of 62); traversing with connected ends becomes very slow.
+Variable-length traversal **works** at fixture scale
+(`TestIcebugVariableLengthTraversalIsNative` passes), so it is a scale limit, not a syntax one.
 
-The two drawings fail in different ways, and that is what counts:
+**The structural explanation, and it is the real cost of folding the labels:** in the native graph
+`(a)-[:CALLS]->(b)` is typed by the pair tables, so the planner knows `a` is a `Function` and
+prunes the search. In the folded table `a` can be any of the 63 thousand nodes — the planner **loses
+the type information that made the pruning possible**. Counting by type gets faster (one CSR instead of
+62); traversal with bound endpoints gets much slower.
 
-Partioned by partition | Table of single node |
-| Data | Correct | Correct |
-| INLINE_1178_summable | Not | Yes |
-| Variable length path | Incorrect form | Correct but incomplete |
-| Podging by type in planner | Yes | No |
+The two designs fail in different ways, and that is the finding that matters:
 
-Open now, and with the owner of the problem identified
+| | partitioned by pair | single node table |
+|---|---|---|
+| data | correct | correct |
+| `[:CONTAINS]` summable | **no** | yes |
+| variable-length path | **no correct form** | correct but **does not complete** |
+| type pruning in the planner | yes | **no** |
 
-1. **Multi-hop Traverse — UPSTREAM.** Reproduced in the official tool's output. No correction from our side; it's for Ladybug project. While this, a remote context responds well to lookup, filtering by property, and 1-hop query, but not deep traversal.
-2. **`count(<node variable>)` — engine defect, controllable.** Use `count(*)` or `count(r)`. Fixed by test that also detects future correction.
-3. **Row group imports.** Writing in multiple row groups worsened the count with connected points (53.741) compared to a single row group (54.823). `parquet.WithMaxRowGroupLength` maintains the table in a single row group only.
+### Open, and now with the owner of the problem identified
 
-The Engineer's objection to the compiler, and it is correct
+1. **Multi-hop traversal — UPSTREAM.** Reproduced on the official tool's output. There is no
+   fix on our side; it is a matter for the Ladybug project. In the meantime, a remote context
+   answers lookup, property filter and 1-hop query well, and **not** deep
+   traversal.
+2. **`count(<node variable>)` — an engine defect, workaroundable.** Use `count(*)` or
+   `count(r)`. Pinned by a test that also detects the future fix.
+3. **Row group matters.** Writing in several row groups made the count with bound endpoints worse
+   (53,741) against a single row group (54,823). `parquet.WithMaxRowGroupLength` keeps the table
+   in a single row group.
 
-"I don't think it's right to rely on a transpiler for _INLINE_1183 to work"
+### The Engineer's objection to the transpiler, and it is correct
 
-Correct, and it's worth noting for why: **the label translator exists only because we fold the labels**, and folding exists only because the inline alternatives `[:A|B]` is broken. In other words, the need for the translator results from a defect in the reader, not in the design.
+> "I don't think it's right to have to rely on a transpiler for `MATCH (f:Function)` to work"
 
-If the defect of alternatives is corrected upstream, the **partitioning by partition** will revert to being better: label remains a table, `MATCH (f:Function)` is native, `ast_schema` does not change, and **no transpiler for labels is necessary**. The writer supports both groupings with localized changes — the CSR, manifesto, and tests are the same.
+He is right, and it is worth recording why: **the label transpiler exists ONLY because we folded the
+labels**, and folding exists only because the alternation form `[:A|B]` is broken. That is, the
+need for the transpiler is a consequence of a reader defect, not of the design.
 
-It is worth opening an issue upstream about:
-(a) reapplying the indptr of the first alternative,
-(b) completing a multi-hop traversal that does not complete,
-(c) sub-reporting at `count(<node variable>)`, and
-(d) returning an empty value on primary key lookup at ___INLINE_1189__.
+If the alternation defect is fixed upstream, **partitioning by pair** becomes the
+better one again: a label remains a table, `MATCH (f:Function)` is native, `ast_schema` does not change, and
+**no label transpiler is necessary**. The writer supports both groupings with a
+localized change — the CSR, the manifest and the tests are the same.
 
-A new trap, and it's from the reader.
+It is worth opening an upstream issue about: (a) `[:A|B]` reapplying the indptr of the first alternative,
+(b) multi-hop traversal not completing, (c) `count(<node variable>)` under-reporting, and
+(d) `=` on the primary key returning empty.
 
-A graph icebug constructed cannot respond "these two are the same node." All forms tested return zero while edges are actually present:
-`a.entity_id = b.entity_id`, interval comparison in it, repeated variable `(a)-[r]->(a)`, and even column **not-key** comparison `uid`. Therefore, the test verifies self-loop by reading the CSR (`countSelfLoopsInCSR`) — which tests the export rather than the planner of the engine.
+### A new trap, and it is the reader's
 
-Two things that the frozen copy revealed
+**A mounted icebug graph cannot answer "these two are the same node".** Every
+form tested returns zero while the edges are demonstrably present:
+`a.entity_id = b.entity_id`, a range comparison on it, a repeated variable `(a)-[r]->(a)`, and
+even a comparison of the **non-key** column `uid`. That is why the test verifies self-loops **by reading the
+CSR** (`countSelfLoopsInCSR`) — which tests the export instead of the engine's planner.
 
-- **Inline 1194** declares **Inline 1195** as PRIMARY KEY and has 951 duplicate values — the engine does not enforce this declaration. Mapping dense to the PK attached to the wrong twin in silence. Therefore, it is keyed by **Inline 1196**, unique construction (17.408 distinct entries in the same table). This is a defect of the AST indexer, separate from this task.
-- The graph contains strings that are not valid UTF-8 (Inline 1197), and a Parquet STRING column by definition is UTF-8 — the engine refuses to accept the entire file. Inline 1198 corrects it and publishes the count in Inline 1199, so the repair is visible instead of silent.
+### Two things the frozen copy revealed
 
-Two defects of the reader, measured in the REAL graph (2026-08-21) – history of partitioning
+- **`Comment` declares `uid` as PRIMARY KEY and has 951 repeated values** — the engine does not enforce
+  the declaration. Keying the dense mapping by the PK would attach an edge to the wrong twin, in
+  silence. That is why the mapping is keyed by **`offset(id(n))`**, unique by construction
+  (17,408 of 17,408 distinct in the same table). This is a defect of the AST indexer, separate
+  from this task.
+- **The graph contains a string that is not valid UTF-8** (`"\xD8\x06"`), and a Parquet STRING column is
+  UTF-8 by definition — the engine refuses the whole file. `sanitizeUTF8` repairs it and the manifest
+  publishes the count in `repaired_strings`, so the repair is visible instead of silent.
 
-The test `TestIcebugAgainstARealGraph` (`GRAPHIT_REAL_STORE=<ladybugdb>`) exports a populated store
-— **63, 314 nodes in 30 labels, ~198 thousand edges in 97 tables of parallelism, in ~2 seconds** — and compares label by label and type by type. It exists because the fixture with three labels **hides the two defects below**: in a small case, arithmetic coincides and the code does not change.
+## Two reader defects, measured on the REAL graph (2026-08-21) — history of the partitioning
 
-Defect 1 — the `COPY TO` of the engine produces Parquet that the reader's ICEBUG does not read itself
+The test `TestIcebugAgainstARealGraph` (`GRAPHIT_REAL_STORE=<ladybugdb>`) exports a populated
+store — **63,314 nodes in 30 labels, ~198 thousand edges in 97 pair tables, in ~2s** — and
+compares label by label and type by type. It exists because the 3-label fixture **hides the
+two defects below**: in a small case the arithmetic coincides and the encoding does not change.
+
+### Defect 1 — the engine's `COPY TO` produces Parquet that ITS OWN icebug reader cannot read
 
 ```
 MATCH (x:Function) RETURN count(x)
@@ -2118,447 +2392,804 @@ MATCH (x:Function) RETURN count(x)
    value "\x00…\x5C\x02\x00\x00serv\x97…\x5C\x02\x00\x00test\x98…" is not valid UTF8!
 ```
 
+Fragments of 4 characters interleaved with a constant counter (`\x5C\x02` = 604): a string
+column read with the wrong offsets. **It is not our code** — it was reproduced after removing
+`stampIcebugVersion`, which was the only thing of ours touching those files. On a 2-row table
+it passes; at ~5,000 it breaks, so it is encoding/scale-dependent (dictionary, pages
+or row groups).
 
----
+Consequence: **the node table cannot be written by the engine's `COPY TO`.** It has to be
+written by us, with arrow-go and explicit types (`cypherType` already maps them), probably with the
+dictionary turned off. It is our work and it is feasible — it is just not done.
 
-Fragmentations of 4 characters interleaved with a constant counter (__INLINE_1203__ = 604): column
-string read with incorrect offsets. **Not our code** — it was reproduced after removing
-the __INLINE_1204__, which was the only thing we touched on these files. In a table of 2 rows,
-it passes; around ~5,000 times, it breaks, so it depends on encoding/scaling (dictionary, pages or row groups).
+> Historical note: `stampIcebugVersion` was implemented to silence the warning about missing metadata
+> in the node files and **removed**, because on an Arrow round-trip over the real corpus
+> it *also* corrupted strings. Silencing a warning is not worth a corruption path. The warning
+> stays; the manifest (`icebug.json`) records the version.
 
----
+### Defect 2 — the alternation form `[:A|B|…]` is broken on an icebug table, and this is the serious one
 
-Consequence: **the table of node cannot be written by `COPY TO` of the engine.** It needs to be written by us, with arrow-go and explicit types (`cypherType` already maps), probably without a dictionary. This is our work, and it can be done — just not finished yet.
+Measured on the real graph, for `CONTAINS` (62 pair tables):
 
-Historical Note: `stampIcebugVersion` was implemented to silence the metadata absence warning in node files and **removed**, because during a round-trip Arrow over the real corpus, it *also* corrupted strings. Silencing an error is not worth a corruption path. The warning remains; the manifesto (`icebug.json`) records the version.
-
-Defect 2 — the form of alternatives INLINE_1209 is broken in table icebug, and this is the serious issue.
-
-Measured on the actual graph, for `CONTAINS` (62 tables of parallelism):
-
-| Formulation | Result |
+| Form | Result |
 |---|---|
-| Sum the tables by table | **92.337** ✓ (= manifesto = origin) |
-| `[:alt1\|…\|alt62]`, free ends | 8.740 ✗ |
+| Sum table by table | **92,337** ✓ (= manifest = origin) |
+| `[:alt1\|…\|alt62]`, free endpoints | 8,740 ✗ |
 | `(a:File)-[:alts_de_File]->()` | 27 ✗ |
 | `[:alt1\|alt2]` (tables of 92 and 746) | 184 = **2 × 92** ✗ |
 
-The `2 × 92` implements the mechanism: **the reader applies the `indptr` of the first alternative to all.** This is the same defect as multi-par, by another route. It functions natively (verified in live graph) and fails when mounted. In a small fixture it can coincide with the correct answer — this was what led me to assert incorrectly that variable-length traversal worked.
+The `2 × 92` gives the mechanism: **the reader applies the `indptr` of the FIRST alternative to all of them.** It is
+the same multi-pair defect, through another door. It works natively (checked on the live graph) and
+breaks mounted. On a small fixture it can coincide with the right answer — that is what made me
+state before, wrongly, that variable-length traversal worked.
 
-Consequence for the partitioning by parallel drawing: it depends on this re-writing to preserve `MATCH ()-[:CONTAINS]->()`. Without it, there remains a UNION by table, which is correct for fixed-length patterns and **does not have any form of correctness for variable-length path crossing pairs** — exactly what the framework impact queries use (`-[:CALLS*1..3]->`). A variable-length path crossing over ONE table of pair is correct and has been tested.
+**Consequence for the partition-by-pair design:** it depends on that rewrite to
+preserve `MATCH ()-[:CONTAINS]->()`. Without it, what is left is a UNION per table, which is correct for a
+fixed-length pattern and **has no correct form at all for a variable-length path
+crossing pairs** — which is exactly what the framework's impact queries
+use (`-[:CALLS*1..3]->`). Variable-length traversal over ONE pair table is
+correct and is tested.
 
-What does this mean for "not losing anything"?
+### What this means for "not losing anything"
 
-Data: 100% preserved, verified graph-wide table by table - manifesto = origin
-= constructed for each sample pair and the sum across 97 tables equals the total of the origin.
-Self-loops included.  
-Possibilities for query: NO, and defect 2 is not correctable from our side.
+- **Data: 100% preserved**, verified on the real graph table by table — manifest = origin
+  = mounted on every sampled pair, and the sum over the 97 tables closes with the origin's total.
+  Self-loops included.
+- **Query possibilities: NO**, and defect 2 is not fixable on our side.
 
-The decision on the drawing remains open, now with measurement: the **unique node table with label as property** ensures each type of edge has a single pair, so it results in a CSR (Single-Row Clustered Row) only, and therefore no alternative is necessary — `[:CONTAINS]`, `type(r)`, and `[:CALLS*1..3]` revert to native. The migration cost moves to the node side, where rewrites use only predicates that I already handle (equality in non-key column, and `IN [...]` for key).
+The design decision stays open, now with measurement: the **single node table with the label as a
+property** makes every edge type have a single pair, hence a single CSR, hence **no
+alternation is necessary** — `[:CONTAINS]`, `type(r)` and `[:CALLS*1..3]` become native again.
+The cost migrates to the node side, where the rewrites use only predicates I HAVE ALREADY MEASURED
+working (equality on a non-key column, and `IN [...]` for a key).
 
-How the Icebug lock was resolved: partition by part, natively (2026-08-21)
+## How the icebug blocker was resolved: partition by pair, natively (2026-08-21)
 
-The Engineer defined the restriction — "I don't want to lose any functionality of my graph when it is reconstructed, no relationships, no data" — and authorized the native path, **without any fallback to the Python tool**, pointing to the specification and reference code.
+The Engineer defined the constraint — **"I don't want to lose any functionality of my graph
+when it is rebuilt, no relation, no data"** — and authorized the native path,
+**with no fallback to the Python tool**, pointing at the spec and the reference code.
 
-The drawing, and why it doesn't lose anything
+### The design, and why it loses nothing
 
-`internal/ladybugstore/icebug.go` — writer nativo, `ExportIcebug`.
+`internal/ladybugstore/icebug.go` — native writer, `ExportIcebug`.
 
-- **Node Tables: one per label, intact.** Same name, same columns, same primary key. Therefore, __INLINE_1224__, __INLINE_1225__, and all access to the property continue identical.
-- **Edge Tables: one per triplet (type, from, to)**, named __INLINE_1227__. Each one carries exactly ONE pair FROM/TO, which is what the format requires. Nothing is fused or discarded; each edge falls into exactly one table.
-- **The separator is `__` because type of edge is UPPER_SNAKE and label is CamelCase— neither contains __INLINE_1229__, so the triplet can always be recovered. Tested even with __INLINE_1230__ that has underscores in its own name.
-- **The query surface remains preserved by translation**, as it already exists at `translateLadybug`: `[:CONTAINS]` expands to alternatives (`[:A|B|C]` is **native support**— measured), and `type(r)` normalizes with `string_split(type(r), '__')[1]` (`string_split` and `regexp_extract` exist— measured). The list of pairs comes from the artifact manifest, **never fixed list**— lesson __INLINE_1238__.
+- **Node tables: one per label, intact.** Same name, same columns, same primary
+  key. So `MATCH (f:Function)`, `label(n)`, `ast_schema` and every property access
+  stay identical.
+- **Edge tables: one per triple (type, from, to)**, named `TIPO__From__To`. Each one
+  carries exactly ONE FROM/TO pair, which is what the format requires. Nothing is merged, nothing is
+  discarded: every edge falls into exactly one table.
+- **The separator is `__`** because an edge type is UPPER_SNAKE and a label is CamelCase — neither
+  of them contains `__`, so the triple is always recoverable. Tested including with `READS_FIELD`,
+  which has an underscore in its own name.
+- **The query surface is preserved by translation**, in the `translateLadybug` that already exists:
+  `[:CONTAINS]` expands into the pair alternatives (`[:A|B|C]` is **natively supported** —
+  measured), and `type(r)` normalizes with `string_split(type(r), '__')[1]` (`string_split` and
+  `regexp_extract` exist — measured). The list of pairs comes from the artifact's manifest,
+  **never from a fixed list** — the lesson of `tradutor-cypher-sem-lista-fixa.md`.
 
-Note: Inline references to IDs have been removed for brevity.
+### What the native implementation gained over the tool
 
-What does native implementation gain over the tool
+1. **Partitioning by pair**, which the tool does not know how to do: it derives the type from the
+   table name and maps one pair per type.
+2. **Zero runtime dependency.** No Python, no uv, no intermediate DuckDB. Only
+   `arrow-go/v18`, which was already a dependency.
+3. **`--add-reverse-edges` reimplemented** and fixed for a heterogeneous graph: the reverse only
+   applies to a homogeneous pair. The mirror of `File->Function` is `Function->File`, which is ANOTHER
+   pair and another CSR — writing it in the same CSR **would invent edges**. It has a test.
 
-Partitioning by partition, which the tool cannot do: it infers the table type and maps a pair by type.
-Zero runtime dependency. Without Python, without uv, without intermediate DuckDB. Only `arrow-go/v18`, already a dependency.
-`--add-reverse-edges` reimplemented and corrected for heterogeneous graph: the reverse only applies to homogeneous pairs. The mirror of `File->Function` is `Function->File`, which is another pair and CSR — write it in the same CSR **inventories edges**. There's a test.
+### Divergences from the spec, deliberate and measured
 
-Translation:
-Partitioning by partition, which the tool cannot do: it infers the table type and maps a pair by type.
-Zero runtime dependency. Without Python, without uv, without intermediate DuckDB. Only `arrow-go/v18`, already a dependency.
-`--add-reverse-edges` reimplemented and corrected for heterogeneous graph: the reverse only applies to homogeneous pairs. The mirror of `File->Function` is `Function->File`, which is another pair and CSR — write it in the same CSR **inventories edges**. There's a test.
+| Spec says | Measured | What we do |
+|---|---|---|
+| "Self-loops are excluded. Any row where `source = target` is not emitted" | The reference implementation **preserves** self-loops; the `not_equal` filter is only on the reverse-edge path | **We preserve them.** A recursive function is a real edge. It has a test |
+| `{lowercase_table_name}.parquet` | The reader derives the file name from the **table name in the DDL, with the exact case** — it asked for `nodes_File.parquet` | Verbatim name, preserving the real label |
+| `icebug_disk_version` in the metadata (value not stated) | The value is **`"v1"`**; `"1"` is rejected with "current ladybug version does not support icebug_disk_version: 1" | `"v1"` |
+| Tables `{prefix}_mapping_{type}` and `{prefix}_metadata` exported | The tool's real output **does not contain them**, and the mount works without them | We do not emit them; our own manifest (`icebug.json`) covers the accounting |
+| The first column is the primary key | `RETURN n.*` expands in declaration order, which puts the key first **by luck** | We project the key first, explicitly |
 
-Differences of opinion, deliberate actions, and measures
+### Two reader traps that cost silence, not an error
 
-Preserve self-loops; the filter __INLINE_1243__ is only in the reverse edge path. The recursive function is an actual edge. There's a test.
+1. **A column without an alias comes back all null.** `RETURN n.path` produces a column called `n.path`, and
+   the reader matches by the name the DDL declares. Without `AS path`, it mounts, queries, and returns
+   `NULL` in everything. All projections are aliased.
+2. **`=` on the primary key returns empty.** The engine routes the predicate through a primary-key
+   index that icebug does not provide, and answers empty instead of scanning. **It does not
+   error.** Everything else works on the same column, including **`IN [value]`**, which is
+   semantically identical for a single value — it is the rewrite the reader applies, without loss.
+   Pinned by `TestIcebugPrimaryKeyEqualityNeedsIN`, which also detects whether the engine gains the
+   index in the future.
 
-The reader derives the file name from the table name in the DDL with the exact case — asked __INLINE_1246__. The verbatim name, preserving the real label.
+### What the engine's `COPY TO` does not do
 
-In metadata (__INLINE_1247__ not specified), the value is __INLINE_1248__; it's rejected as "current ladybug version does not support icebug_disk_version: 1". __INLINE_1250__?
+`KV_METADATA` is an "Unrecognized parquet option", so the engine does not stamp
+`icebug_disk_version` into the node files it writes — and without it the reader warns, once
+per table, on every mount. `stampIcebugVersion` rewrites the file with the metadata via an
+Arrow round-trip (it preserves the types exactly, with no remapping). Cost: one extra read and
+write per node table, only at publish time.
 
-Exported tables `{prefix}_mapping_{type}` and `{prefix}_metadata` are not included in the tool's output, and the assembly works without them. We do not emit; the manifest (__INLINE_1253__) covers the accounting.
+## The original blocker (historical): one CSR per edge TABLE, and our graph has 97 pairs
 
-The first column is the primary key. It expands by declaration order, placing the key first __by chance__ (we designed it that way explicitly).
+Probe: `internal/ladybugstore/icebug_probe_test.go`, behind `GRAPHIT_ICEBUG_DIR`.
+Tool: `uvx icebug-format` (installed by the Engineer in this session).
 
-Two traps of the reader that cost silence, not error
+### What WORKS, and was validated end to end
 
-Column without alias returns all nulls. **INLINE_1255** produces a column named **INLINE_1256**, and the reader uses the name declared by the DDL. Without **INLINE_1257**, it builds, queries, and returns values in all cases. All projections are aliased.
-In primary key constraint **INLINE_1259**, returns empty. The engine routes the predicate through a primary key index that the ICE bug does not provide, and responds with an empty result instead of scanning. **No error is thrown**. Everything else works similarly on the same column, including **INLINE_1260**, which semantically equals a value — it is the reapplication by the reader without loss.
-Fixed by **INLINE_1261**, which also detects if the engine will gain the index in the future.
+1. **`--backend pyarrow` converts with no extra dependency.** The default tries DuckDB and fails with
+   `ImportError: duckdb is required by the 'convert' feature`; `--backend pyarrow` needs nothing
+   beyond the package itself.
+2. **The `--source-db` (DuckDB) path is the only one that serves a heterogeneous graph.** It
+   **discovers multiple tables** (`Discovered node tables: [...]`, `Discovered edge tables:
+   [...]`), honors `--schema` for the FROM/TO, and emits **a combined `schema.cypher`** with
+   `contains(FROM file TO function)` and `calls(FROM function TO function)` — heterogeneous, correct.
+3. **The `--source-dir` path does NOT serve.** It expects `<name>-v.parquet` +
+   `<name>-e.parquet` pairs and models **one homogeneous graph per pair** (`FROM demo TO demo`, a table
+   named after the file). With two pairs in the same directory it produces **two independent
+   subdirectories**, with no combined schema. `--schema` is **ignored** on that path — tested.
+4. **The icebug DDL mounts and answers Cypher.** `MATCH (n:file) RETURN count(n)` → 2, and the
+   heterogeneous traversal `(a:file)-[r:contains]->(b:function)` → 2. **T9 is validated as a
+   mechanism.**
+5. **Table names are CASE-INSENSITIVE in Ladybug.** `icebug-format` lowercases
+   (`File` → `file`), and `MATCH (n:File)` matches the table `file`. So the lower-casing is
+   harmless and does **not** require label rewriting.
+6. **`--storage` is ignored on the `--source-db` path** (it comes out as `storage = ''`), and
+   **so is `--output-dir`** (it writes into `<stem>_csr`). Both have to be handled on the Go side
+   — rewriting `storage` is our work anyway, because the URI is ours.
 
-What does the `COPY TO` in the engine not do
+### What BLOCKS
 
-`INLINE_1263` is "Unrecognized parquet option", so the engine does not print `INLINE_1264` in the files it writes — and without it, the reader warns once per load. `INLINE_1265` rewrites the file with metadata via round-trip Arrow (exactly preserves types, no remapping). Cost: an extra read and write per table during publication.
+**icebug-disk keeps ONE CSR per edge TABLE, and Ladybug reapplies it to every FROM/TO pair
+declared.** Measured:
 
-The original blocking (historical): one CSR per TABLE of edges, and our graph has 97 pairs
+- `CREATE REL TABLE multi(FROM file TO function, FROM function TO function) WITH (…icebug…)`
+  is **accepted** — the initial failure was a missing file, not syntax, and it looks for **a single**
+  `indices_multi.parquet` for both pairs.
+- Fed with the CSR of `contains`, which has **2 edges**, the two-pair table answers
+  **4**. That is: the same CSR is interpreted once per pair. **Wrong data, silently.**
 
-Sonda: Behind `internal/ladybugstore/icebug_probe_test.go`, behind `GRAPHIT_ICEBUG_DIR`.
-Tool: `uvx icebug-format` (installed by the Engineer during this session).
+Hence, in an icebug schema **each edge table needs to declare EXACTLY ONE FROM/TO pair**.
 
-What WORKS, and has been validated end-to-end
+**And this graph is not like that.** Measured on this project's graph:
 
-1. **Inline 1269** converts without extra dependency.
-   The default tries to DuckDB and fails with
-   Inline 1270; Inline 1271 does not need anything beyond the own package.
-2. **The path Inline 1272 (DuckDB) is the only one that serves a heterogeneous graph.** It discovers multiple tables (Inline 1273, `Discovered edge tables:
-   [...] Inline 1274` combined with Inline 1275 and Inline 1276 — correct heterogeneity.
-3. **The path Inline 1278 does not serve.** It expects pairs Inline 1279 + Inline 1280 and models a homogeneous graph by pair (Inline 1281, named table from the file). With two pairs in the same directory produces two independent subdirectories without combined schema. **Inline 1282** is ignored on this path — tested.
-4. **The DDL of icebug builds and responds to Cypher.** Inline 1283 → 2, and the heterogeneity traversal Inline 1284 → 2. **T9 is validated as a mechanism.**
-5. **Table names are case-insensitive in Ladybug.** Inline 1285 minimizes (Inline 1286 → Inline 1287), and Inline 1288 aligns with the table Inline 1289. Then, lower-casing is
-   harmless and **does not require re-writing of label**.
-6. **Inline 1290** is ignored on path Inline 1291 (goes Inline 1292), and **Inline 1293 also** (writes in Inline 1294). Both need to be treated on the side Go — rewriting Inline 1295 is our work regardless, because the URI is ours.
+| Edge type | Distinct (From,To) pairs |
+|---|---|
+| CONTAINS | **62** |
+| REFERENCES | 9 |
+| CALLS | 7 |
+| READS_FIELD | 6 |
+| HAS_PARAMETER | 5 |
+| WRITES_FIELD | 4 |
+| HAS_FIELD | 3 |
+| IMPORTS | 1 |
 
-What BLOCKS
+~97 pairs in total, and **only `IMPORTS` is single-pair**. Encoding one rel table per pair produces
+~97 tables with names like `contains_file_function`, and destroys `MATCH ()-[:CONTAINS]->()` —
+which is in the AST skill, in the documentation and in practically every query of the framework — turning it into
+a UNION of 62 branches.
 
-**The icebug disk stores one CSR per table of edges, and the ladybug replicates it for each pair FROM/TO declared.**
+**It is not a code problem: it is a capability gap of the format.** That is why T8 stopped here instead
+of producing something that passes on a two-table toy graph and corrupts the real one.
 
+### The ways out, and why none is mine to choose
 
-- `CREATE REL TABLE multi(FROM file TO function, FROM function TO function) WITH (…icebug…)` is accepted — the initial failure was an absent file, not syntax, and it looks for a single one.
-- Aligned with the CSR of `contains`, which has **2 edges**, the table of two pairs responds **4**. That means: the same CSR is interpreted once per pair. **Given wrong data, silently.**
+1. **Ask upstream / wait** for multi-pair CSR support in icebug. It costs nothing now,
+   but it does not unblock today.
+2. **Remodel the graph** so that every edge type has a single pair — one `Entity` table
+   with `label` as a property, and `CALLS(FROM Entity TO Entity)`. It genuinely unblocks, and it is
+   a big redesign: a label stops being a table, so `MATCH (f:Function)` becomes
+   `MATCH (e:Entity {label:'Function'})`, and the documented surface of the AST skill, the
+   `ast_schema` and all the queries change.
+3. **Keep Parquet-per-table for the graph** (downloading at install time) and have on-the-fly **only in
+   the search**, with LanceDB — which does not have that limitation. It contradicts part 4 of the request for
+   half of the graph, and preserves everything else.
+4. **Hybrid** — icebug on the single-pair tables, Parquet on the rest. Two mount
+   mechanisms coexisting; discarded for incoherence, recorded for completeness.
 
-Therefore, in an Icebug schema, each table of edges must declare EXACTLY ONE pair FROM/TO.
+## Measured findings about the httpfs extension (2026-08-21)
 
-And this graph is not like that. Measured in the graph of this project:
+Probe: `internal/ladybugstore/httpfs_probe_test.go`, behind `GRAPHIT_HTTPFS_PROBE=1`.
 
-Type of Edge | Distinct Pairs (From, To) |
---- | --- |
-CONTAINS | **62** |
-REFERENCES | 9 |
-CALLS | 7 |
-READS_FIELD | 6 |
-HAS_PARAMETER | 5 |
-WRITES_FIELD | 4 |
-HAS_FIELD | 3 |
-IMPORTS | 1 |
-
-~97 tables in total, and **only `IMPORTS` is a single table**. Encoding one table per pair produces
-~97 tables with names like `contains_file_function`, and destroys `MATCH ()-[:CONTAINS]->()` — which is inside the skill of AST,
-in documentation, and practically every query in the framework — turning it into a UNION of 62 branches.
-
-Note: The inline codes (1299 and 1300) are placeholders for actual code snippets that would be provided in the context.
-
-It's not a code problem; it's a capacity gap in the format. Therefore, T8 stopped here instead of producing something that passes through a two-table graph-block and corrupts reality.
-
-The outputs, and why none is mine for me to choose
-
-1. **Ask upstream / wait for CSR multi-par support** in icebug. It doesn't cost anything now,
-but it won't unblock today.
-2. **Rebuild the graph** so that all types of edges have a unique pair — a table `Entity` with `label` as property, and `CALLS(FROM Entity TO Entity)`. Unblocks completely, and is a large reworked: label no longer becomes a table, then `MATCH (f:Function)` turns into `MATCH (e:Entity {label:'Function'})`, and the documented surface of the skill in AST (Abstract Syntax Tree), the `ast_schema` and all queries change.
-3. **Keep Parquet-per-table in graph** (downloading during installation) and have on-the-fly only when searching, with the LanceDB — which doesn't have this limitation. Contradicts part 4 of the request for half of the graph, preserving everything else.
-4. **Hybrid** — icebug in tables of unique pairs, Parquet elsewhere. Two mechanisms coexisting; discarded due to inconsistency, registered due to completeness.
-
-Found measurements on the HTTPFS extension (2026-08-21)
-
-Sensor: `internal/ladybugstore/httpfs_probe_test.go` behind `GRAPHIT_HTTPFS_PROBE=1`.
-
-This is a simple translation that preserves the original structure and technical terms. No code blocks or markdown were present in the input, so no changes were needed there either. The only change was to convert underscores into spaces for readability in English.
-
-1. The extension directory is not `~/.lbug/extensions`. It is ___INLINE_1311__. It was extracted from the template `{}/.lbdb/extension/{}/{}/` within the same `liblbug.so`.
-2. **Download URL**: ___INLINE_1314__.
-3. Platform tokens are server-side and do not match GOOS/GOARCH: ___INLINE_1315__, ___INLINE_1316__, ___INLINE_1317__, ___INLINE_1318__, and **___INLINE_1319__** — does not exist, which gives a 404. ___INLINE_1321__ does not exist. The Windows binary is 14 MB against ~1. 4 MB of the Linux.
-4. There is no build for version 0. 18. 2, which is the motor version that the `go-ladybug v0.17.0`
-   ships; the latest published is **0. 18. 1**. The binary 0. 18. 1 **loads with runtime 0. 18. 2**, and ___INLINE_1323__ confirms (___INLINE_1324__). This is why
-   ___INLINE_1325__ is a separate variable from ___INLINE_1326__ in the Makefile.
-5. **___INLINE_1327__** and **___INLINE_1328__** are silent no-op when the version directory does not exist: both return success, and returning 0 lines is the only way to know. Therefore, a mandatory verification is required in ___INLINE_1330__.
-6. An invalid file in the payload DERRUBA O PROCESSO. Pointing **___INLINE_1331__** to an HTML page with a 404 error does not return an error — it kills with **SIGBUS inside cgo**, which none of ___INLINE_1332__ can catch. Therefore, ___INLINE_1333__ (minimum size + ELF/Mach-O/PE magic bytes) before the LOAD, and ___INLINE_1334__ in the Makefile is load-bearing and not style.
-7. **___INLINE_1335__** works — it is a remote read cache candidate to link after measuring latency (T15).
+1. **The extensions directory is NOT `~/.lbug/extensions`** (which is what the docs and the web search say).
+   It is `~/.lbdb/extension/<engine-version>/<os>_<arch>/<ext>/lib<ext>.lbug_extension`. It was
+   extracted from the template `{}/.lbdb/extension/{}/{}/` inside `liblbug.so` itself.
+2. **Download URL**: `https://extension.ladybugdb.com/v<version>/<os>_<arch>/<ext>/lib<ext>.lbug_extension`.
+3. **Platform tokens belong to the server and do NOT match GOOS/GOARCH**: `linux_amd64`,
+   `linux_arm64`, `osx_amd64`, `osx_arm64`, and **`win_amd64`** — not `windows_amd64`, which gives a 404.
+   `win_arm64` does not exist. The Windows binary is 14 MB against ~1.4 MB for Linux.
+4. **There is no build for 0.18.2**, which is the engine version that `go-ladybug v0.17.0`
+   embeds; the newest published one is **0.18.1**. The 0.18.1 binary **loads on runtime 0.18.2**
+   and `show_loaded_extensions()` confirms it (`source: USER`). That is why
+   `LBUG_EXT_VERSION` is a variable separate from `LBUG_VERSION` in the Makefile.
+5. **`INSTALL httpfs` and `LOAD EXTENSION httpfs` are SILENT no-ops** when the version's
+   directory does not exist: both return success, and `show_loaded_extensions()` returning 0
+   rows is the ONLY way to know. Hence the mandatory verification in `LoadExtensions`.
+6. **An invalid file in the payload TAKES DOWN THE PROCESS.** Pointing `LOAD EXTENSION` at a
+   404 HTML page does not return an error — it kills with **SIGBUS inside cgo**, which no
+   `recover` catches. Hence `validateExtensionFile` (minimum size + ELF/Mach-O/PE magic bytes)
+   BEFORE the LOAD, and hence the `curl -f` in the Makefile being load-bearing and not style.
+7. **`CALL http_cache_file=true` works** — it is the remote-read cache, a candidate for turning on
+   by default after measuring latency (T15).
 
 ## Trade-offs & Decisions
 
-- **Python/uv as requirement for those publishing.** I accept it conscientiously to avoid blocking the migration of a reverse-engineered writer format. This is an explicit deviation from the "self-contained dependencies" requirement, limited to the publication path — writers only consuming artifacts do not need Python. Open item in backlog for the Go writer.
-- **The search comes back at the atomic publication again.** It had been like this since 2026-08-19 (the index is in-place, the graph is copy+swap). With both remote repositories, the problem changes form but does not disappear: a crash between uploading an icebug and LanceDB leaves describing corpora different graphs and indexes. The chosen mitigation: the registry only points to the new version **after** both prefixes have risen — the pointer is the commit.
-- **Remote query latency was not measured.** Queries in this framework are point lookups and traversals, not analytic scans, and no number exists yet for this form of load against S3. Declared as unmeasured until T15.
+- **Python/uv as a requirement for whoever publishes.** Consciously accepted so as not to block the
+  migration on a reverse-engineered format writer. It is an explicit deviation from the requirement of
+  "self-contained dependencies", and it is limited to the **publishing** path — whoever only
+  consumes an artifact does not need Python. Backlog item opened for the writer in Go.
+- **Search leaves atomic publication, again.** It had already been like that since 2026-08-19 (the index is
+  in-place, the graph is copy+swap). With both remote, the problem changes shape but does not
+  disappear: a crash between the icebug upload and the LanceDB one leaves graph and index
+  describing different corpora. Chosen mitigation: the registry only starts pointing at the
+  new version **after** both prefixes have gone up — the pointer is the commit.
+- **Remote query latency was not measured.** This framework's queries are point
+  lookups and traversals, not analytical scans, and no number exists yet for that
+  shape of load against S3. Declared as not measured until T15.
 
 ## Technical Debt
 
-- [ ] **INLINE_1336** is still downloading **INLINE_1337**/INLINE_1338** — INLINE_1339** on
-  INLINE_1340___. Some when the assembly by **INLINE_1341** and the opening of the index by prefix
-  enter. **INLINE_1342** is already the destination behavior and refuses.
-- [ ] **MEMORY continues in git** (INLINE_1343), and **INLINE_1344** still exists. It's T6. The
-  **INLINE_1345** no longer asks for it, so memory runs local-only — exactly what **INLINE_1346** empty always meant.
-- [ ] Writer native icebug-disk in Go to remove the dependency on Python/uv in publication (item in backlog of improvements — see INLINE_1347__).
-- [ ] Measure latency against **INLINE_1348** and decide whether a local read cache (INLINE_1349) should be enabled by default.
+- [ ] **`DownloadArtifact` still downloads `ast`/`knowledge`** — `TODO(T9)` in
+  `internal/hub/s3_store.go`. It goes away when the mount by `storage='s3://…'` and the opening of
+  the index by prefix land. `EnsureArtifactLocal` is already the destination behavior and refuses.
+- [ ] **Memory is still in git** (`internal/memory/memory_git_store.go`), and `memory.repo`
+  still exists. That is T6. `setup` already does not ask for it, so in the interval memory runs
+  local-only — which is exactly what an empty `memory.repo` always meant.
+- [ ] A native icebug-disk writer in Go, to remove the Python/uv dependency at publish time
+  (item in the improvements backlog — see `graphit_improvements_backlog_list`).
+- [ ] Measure traversal latency against `s3://` and decide whether a local read cache
+  (`CALL HTTP_CACHE_FILE=TRUE`) should be on by default.
 
 ## System Knowledge
 
-- The launcher is the mechanism of native distribution for this project. `cmd/launcher/` automatically extracts the embedded payload to `~/.graphit/runtime/<version>/`: the core, the MCP proxy, __INLINE_1352__, ONNX Runtime, ICU and YAML grammars' files. Any new native — __INLINE_1353__ , the binaries of LanceDB — enters there, and the `Makefile` already has the template (`setup-lbug`, `fetch-ort-*`) for downloading by platform and copying to `cmd/launcher/runtime/`.
-- The GitStore at the Hub has five responsibilities, not one. It acts as a registry in `main`, an orphaned branch artifact/vers (`WriteArtifactBranch`/`EnsureArtifactClone`), telemetry in `refs/events/*` (never on a branch), distribution of rules by `main`, and memory worktrees. Whoever replaces needs all five — changing just the artifact one leaves the package half-Git.
-
-Note: The inline references are placeholders for actual code or text that should be replaced with the appropriate values when translating to English.
+- **The launcher is this project's native distribution mechanism.** `cmd/launcher/`
+  self-extracts the embedded payload to `~/.graphit/runtime/<version>/`: the core, the MCP proxy,
+  `liblbug`, ONNX Runtime, ICU and the grammar YAMLs. Any new native — `httpfs`, the
+  LanceDB binaries — comes in through there, and the `Makefile` already has the mold (`setup-lbug`,
+  `fetch-ort-*`) for downloading per platform and copying into `cmd/launcher/runtime/`.
+- **The Hub's GitStore has five responsibilities, not one.** Registry on `main`, one orphan
+  branch per artifact/version (`WriteArtifactBranch`/`EnsureArtifactClone`), telemetry in
+  `refs/events/*` (never on a branch), rule distribution through `main`, and memory
+  worktrees. Whoever replaces it needs all five — swapping only the artifact one leaves the package
+  half-git.
 
 ## Progress Log
 
 ### 2026-08-21
 
-- The log is open before any edit. Viability study closed: `--source-dir` of `icebug-format` accepts the Parquet format that the project has already produced, and LanceDB has an official Go SDK with FTS+, vector, hybrid, and S3 — two of the biggest risks fell.
-- Four decisions made by the Engineer (total S3 scope, `uvx` for now, `httpfs` pre-built, AWS chain standard credentials) registered above with the alternatives discarded.
-- Open item in backlog for the Go writer icebug-disk.
-- **Phase A completed — T1, T2, and T3 compiled and green test passed.**
+- Log opened before any edit. Feasibility research closed: `icebug-format`'s `--source-dir`
+  accepts the Parquet form the project already produces, and LanceDB has an official Go SDK
+  with FTS+vector+hybrid+S3 — the design's two biggest risks fell.
+- Four decisions gathered from the Engineer (total scope of S3, `uvx` for now, `httpfs`
+  pre-embedded, credential through the standard AWS chain) and recorded above with the
+  discarded alternatives.
+- Backlog item opened for the icebug-disk writer in Go.
+- **Phase A concluded — T1, T2 and T3, compiling and with a green test.**
 
-T1 (config).  
-New: `S3Config{Bucket,Region,Endpoint,Prefix}`  
-With `Configured()` and `ResolveHubBucket/Region/Endpoint/Prefix`, plus the shortcut without arguments.  
-/`ResolveHubRepo`/`HubRepoURL` came from `config.go`.
+  **T1 (config).** New `internal/config/hub_s3.go`: `S3Config{Bucket,Region,Endpoint,Prefix}`
+  with `Configured()`, plus `ResolveHubBucket/Region/Endpoint/Prefix` and the argument-less
+  shortcuts. `ResolveHubRepo`/`HubRepoURL` left `config.go`.
+  `brand.DefaultHubRepoURL`/`DefaultMemoryRepoURL` became `DefaultHubBucket`/
+  `DefaultHubRegion`/`DefaultHubEndpoint`, and the `Makefile` followed
+  (`DEFAULT_HUB_BUCKET`/`REGION`/`ENDPOINT` in the `-X`).
+  `S3Config` **has no credential field, on purpose** — the secret is resolved by the
+  SDK's standard chain and never read, written or logged by us.
 
-/`brand.DefaultHubRepoURL`/`DefaultMemoryRepoURL` turned into `DefaultHubBucket`/`DefaultHubRegion`/`DefaultHubEndpoint`, and the `Makefile` followed (`DEFAULT_HUB_BUCKET`/`REGION`/`ENDPOINT` in `-X`).
+  **T2 (`internal/s3store`).** `store.go` + `uri.go`: `Get`, `Put`, `Delete`, `Exists`,
+  `List` (paginated by continuation token), `DeletePrefix` (in batches of 1000, because the
+  unit of an artifact is a prefix, not a file), `UploadDir`, `DownloadPrefix`,
+  `EnsureBucket`, `Key`, `URI`. Two sentinel errors that callers need to distinguish:
+  `ErrNotConfigured` (local-only mode, not a failure) and `ErrNotFound` (missing object — first
+  run — against a transport or permission failure).
+  A configured `endpoint` implies `UsePathStyle` — MinIO and most compatible
+  servers do not serve a bucket in virtual-host style.
+  Test: `store_test.go` brings up an **in-process fake S3** (`httptest`) implementing
+  HeadBucket, Get/Put/Head/Delete, ListObjectsV2 and DeleteObjects — **no test touches the network
+  or a real bucket**. 13 cases, including the exact URI format the two engines mount.
 
-**It does not have a credential field or purpose** — the secret is solved by the default chain of the SDK and never read, written, or logged by us.
+  **T3 (`setup`).** Both git repository prompts left; bucket, region and
+  endpoint come in. When the bucket is given, `verifyHubBucket` does a `HeadBucket` and **fails the
+  run** naming the bucket, the endpoint, the `AWS_ACCESS_KEY_ID`/
+  `AWS_SECRET_ACCESS_KEY` variables and the region as the probable cause — the same discipline as the
+  model download, which the project's memory records as a rule ("a half-done setup does NOT report
+  success"). The duplication of the three nearly identical prompt blocks was extracted into
+  `promptValue`/`promptSimple`.
+  Verified: `go build -tags fts5 ./...`, and `go test` green in `config`, `brand`,
+  `s3store`, `hub`, `hub/adapters/ide`, `memory`, `mcpstdio`, `cmd/...`.
 
-T2 (`internal/s3store`). `store.go` + `uri.go`: `Get`, `Put`, `Delete`, `Exists`,
-`List` (paginated by continuation token), `DeletePrefix` (in batches of 1000, because the unit of an artifact is a prefix, not an archive), `UploadDir`, `DownloadPrefix`,
-`EnsureBucket`, `Key`, `URI`. Two sentinel errors that callers must distinguish:
-`ErrNotConfigured` (local-only mode, not a failure) and `ErrNotFound` (missing object — first execution — against transport or permission failure).
-`endpoint` configured implies `UsePathStyle` — MinIO and most compatible servers do not serve buckets in virtual-host format.
-Test: `store_test.go` sets up a **fake S3 process** (`httptest`) implementing HeadBucket, Get/Put/Head/Delete, ListObjectsV2, and DeleteObjects — **no tests touch the network or real bucket**. 13 cases, including the exact format of URI that both engines build.
+- **Phase B's contract written before the code:** `docs/specs/hub-s3-object-layout.md` —
+  key convention for the five responsibilities leaving git (registry, artifacts,
+  events, rules, memory), JSON Schema of the entry file, of the project file and of the telemetry
+  event, which prefixes the two engines mount directly, and the publishing order that
+  makes the entry file the commit (prefix first, pointer afterwards). T4 becomes mechanical.
+  The `type` enum checked against `internal/projectlock/projectlock.go`, not deduced.
 
-Note: The inline references are placeholders for actual inline code blocks, which should be replaced with the appropriate content when translating to English.
+- **T7 (the httpfs half) concluded.**
+  `Makefile`: new `LBUG_EXT_VERSION`/`LBUG_EXT_HOST`/`LBUG_EXT_CACHE`, plus the function
+  `fetch_lbug_ext <token>` called by `build-linux` (`linux_amd64`), `build-darwin`
+  (`osx_arm64`), `build-windows` and `build-windows-native` (`win_amd64`). It lands in
+  `cmd/launcher/runtime/lbug/httpfs.lbug_extension`, and the launcher already embeds and extracts
+  recursively (`//go:embed runtime/*` + `fs.WalkDir` + `MkdirAll`), so **no
+  change was needed in the launcher**.
+  New `internal/ladybugstore/extension.go`: `ExtensionDir`/`ExtensionPath` (under
+  `brand.RuntimeDir(version.Version)`, the same pattern as `runtimeQueriesDir`),
+  `LoadExtensions` rewritten to load by path **with verification**,
+  `LoadedExtensions`, `validateExtensionFile`, `ConfigureS3` in option form, and
+  `EnableRemoteCache`. The old `LoadExtensions` (which did `INSTALL` + `LOAD` by name and was
+  dead code) left.
+  8 tests, green, including the SIGBUS regression guard.
 
-**T3 (`setup`).** The two Git repository prompts exited; they entered bucket, region, and endpoint. When the bucket is provided, `verifyHubBucket` performs `HeadBucket` and **fails to execute** naming the bucket, endpoint, variables `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, and region as probable cause — same discipline of model download, where project memory records it as a rule ("setup by half does not report success"). The duplication of three nearly identical prompts blocks was extracted to `promptValue`/`promptSimple`.
-Verified: `go build -tags fts5 ./...`, and `go test` green in `config`, `brand`, `s3store`, `hub`, `hub/adapters/ide`, `memory`, and `mcpstdio`, `cmd/...`.
+- **T4 concluded — `internal/hub/s3_store.go`.** A new type, complete, tested, and
+  **deliberately without touching the callers** so the build is never broken in the middle of the
+  phase. It covers the five responsibilities: registry (`ReadFile`/`WriteFile`/`RemoveFile`/
+  `ListDir`), artifact (`ArtifactPrefix`/`ArtifactURI`/`PublishArtifact`/`DeleteArtifact`/
+  `EnsureArtifactLocal`), telemetry (`WriteEventFile`/`SyncEvents`/`EventKey`), rules
+  (`ReadRule`/`ListRules`/`WriteRule`), and a generic `ReadJSON` that **refuses** a manifest of a
+  future version instead of parsing it.
+  Three decisions worth recording:
+  - **`EnsureArtifactLocal` REFUSES a mountable type** (`ast`/`knowledge`) instead of downloading.
+    Downloading there would silently reintroduce exactly the transfer this migration
+    removes; the error points at `ArtifactURI`.
+  - **A download goes to `<dest>.partial` and then `rename`**, because the reuse check
+    trusts "directory not empty" and an interrupted download would poison it forever.
+  - **`ArtifactPrefix` mirrors `ArtifactBranchName` segment by segment**, including the
+    rule that `ast`/`knowledge` do not carry the `id`. A test compares the two.
+  The fake S3 moved out of `internal/s3store/store_test.go` into `internal/testsupport/fakes3.go`,
+  because the `hub` package needed the same one and duplicating it would be the second thing to
+  maintain.
+  19 new tests, green.
 
-- **Contract for Phase B Document Before the Code:** `docs/specs/hub-s3-object-layout.md` —
-  Key convention for five responsibilities that emerge from Git (registry, artifacts,
-  events, rules, memory), JSON Schema of the entry file, project file, and telemetry event, what prefixes both engines mount directly, and the order of publication that makes the entry file the commit (prefix first, pointer after). T4 becomes mechanical.
-  Enum `type` is checked against `internal/projectlock/projectlock.go`, not deducted.
-
-- **T7 (half httpfs) completed.**
-  Inline 1425: Inline 1426/Inline 1427/Inline 1428 new, plus the function
-  called by Inline 1430 (Inline 1431), Inline 1432 (Inline 1433),
-  Inline 1434 and Inline 1435 (Inline 1436). Falls into Inline 1437, and the launcher already deploys
-  recursively (Inline 1438 + Inline 1439 + Inline 1440), so **no changes were necessary to the launcher**.
-  New: Inline 1442/Inline 1443 (same as Inline 1445, same pattern),
-  rewritten to load by path with verification,
-  Inline 1447, Inline 1448, Inline 1449 in option form, and
-  Inline 1450. The old Inline 1451 (which did Inline 1452 + Inline 1453 by name and was dead code) went away.
-  8 tests, green, including the SIGBUS regression guard test.
-
-Translation:
-- T7 (half httpfs) completed.
-  Inline 1425: Inline 1426/Inline 1427/Inline 1428 new, plus the function called by Inline 1430 (Inline 1431), Inline 1432 (Inline 1433),
-  Inline 1434 and Inline 1435 (Inline 1436). Falls into Inline 1437, and the launcher already deploys
-  recursively (Inline 1438 + Inline 1439 + Inline 1440), so **no changes were necessary to the launcher**.
-  New: Inline 1442/Inline 1443 (same as Inline 1445, same pattern),
-  rewritten to load by path with verification,
-  Inline 1447, Inline 1448, Inline 1449 in option form, and
-  Inline 1450. The old Inline 1451 (which did Inline 1452 + Inline 1453 by name and was dead code) went away.
-  8 tests, green, including the SIGBUS regression guard test.
-
-- **T4 completed — `internal/hub/s3_store.go`.** New type, complete, tested, and
-deliberately not touching the calleers for build never to break in the middle of phase. Covers five responsibilities:
-registry (`ReadFile`/`WriteFile`/`RemoveFile`/`ListDir`), artifact (`ArtifactPrefix`/`ArtifactURI`/`PublishArtifact`/`DeleteArtifact`/`EnsureArtifactLocal`), telemetry (`WriteEventFile`/`SyncEvents`/`EventKey`), rules
-(`ReadRule`/`ListRules`/`WriteRule`), and generic `ReadJSON` that **rejects** future version manifests instead of parsing.
-Three decisions worth registering:
-- **`EnsureArtifactLocal` REJECTS a type that can be mounted (`ast`/`knowledge`) in place of downloading. Downloading would reintroduce exactly the transfer that this migration removes; the error points to `ArtifactURI`.
-- **Download goes to `<dest>.partial` and then `rename`, because reuse check trusts "directory not empty" and a interrupted download would envenom forever.
-- **`ArtifactPrefix` mirrors `ArtifactBranchName` segment by segment**, including the rule of `ast`/`knowledge` that does not load `id`. Test compares the two. Fake S3 went from `internal/s3store/store_test.go` to `internal/testsupport/fakes3.go`, because package `hub` needed it and duplicating would be the second thing to keep.
-19 new green tests.
-
-- **T5 completed — the git exited from the Hub.** `internal/hub/git_store.go` (over 1000 lines),
+- **T5 concluded — git left the Hub.** `internal/hub/git_store.go` (1000+ lines),
   `git_store_test.go` and `git_store_sync_test.go` **deleted**. Acceptance criterion verified:
-  no `exec.Command("git")` remains in the package `hub`. **Green repository suite complete.**
+  no `exec.Command("git")` is left in the `hub` package. **The repository's full suite green.**
 
-What did the `S3Store` gain for rewire to fit inside?
-- **Local registry mirror.** `RegistryMirrorDir`/`AbsPath`/`SyncRegistry`. The registry is a small JSON metadata file and the code that reads it **traverses a directory** (`BuildRegistryCache` → `os.ReadDir` → `loadProjectDir`); mirroring it preserves this entire code. This does NOT reintroduce the download that migration removes: what never descends is the heavy half (graph + index of an artifact that can be mounted), and this continues to be read where.
-- **`RegistryRevision`** replaces `HeadCommit()` as a cache marker: a list about small JSON prefixes, hash of `key:size`. Limitation accepted and documented: does not detect rewrite of the same size — it doesn’t occur because the entry file leads to version in name.
-- **`WriteFile`/`RemoveFile` write both sides (bucket + mirror). This keeps consistent a read immediately after publishing, which was what commit guaranteed.
-- **`contexts/<kind>/<projectID>/<subdir>/`** and `PublishContextDir`/`FetchContextDir` for the `knowledge export`/`install` branch (not versioned) with worktree + commit. Publish **erases the prefix before uploading** (mirror, not merge — page deleted at origin disappears). Searching context never published is not an error.
-- **`DownloadArtifact`** separated from `EnsureArtifactLocal`, with `TODO(T9)`: until the graph is built by `storage='s3://…'`, installing `ast`/`knowledge` still needs bytes. It’s an exception that must die, and so it has a proper name instead of being a flag.
-- **`ArtifactCacheDirIn`** free from store because `resolveArtifactPath` only needed the path and constructed an entire `GitStore` to calculate it.
+  **What `S3Store` gained for the rewire to fit:**
+  - **Local mirror of the registry.** `RegistryMirrorDir`/`AbsPath`/`SyncRegistry`. The registry is
+    small JSON metadata and the code that reads it **walks a directory** (`BuildRegistryCache`
+    → `os.ReadDir` → `loadProjectDir`); mirroring it preserves that code entirely. **This does NOT
+    reintroduce the download the migration removes**: what can never come down is the heavy half
+    (graph + index of a mountable artifact), and that one is still read in place.
+    `SyncRegistry` **replaces** the mirror instead of merging — an entry file deleted
+    remotely has to disappear locally, otherwise it announces a version whose prefix no longer exists.
+  - **`RegistryRevision`** replaces `HeadCommit()` as the cache's validity marker: one
+    listing over a prefix of small JSONs, hash of `key:size`. Accepted and documented
+    limitation: it does not detect a rewrite of the SAME size — it does not occur, because an entry file carries
+    the version in its name.
+  - **`WriteFile`/`RemoveFile` write BOTH sides** (bucket + mirror). That is what keeps
+    a read immediately after publishing consistent, which is what the commit guaranteed.
+  - **`contexts/<kind>/<projectID>/<subdir>/`** and `PublishContextDir`/`FetchContextDir`, for
+    `knowledge export`/`install`, which was an **unversioned** branch (`knowledge/project/<id>`)
+    with a worktree + commit. Publishing **deletes the prefix before uploading** (mirror, not merge —
+    a page deleted at the origin disappears). Fetching a context never published **is not an error**.
+  - **`DownloadArtifact`** separate from `EnsureArtifactLocal`, with a `TODO(T9)`: until the graph is
+    mounted by `storage='s3://…'`, installing `ast`/`knowledge` still needs the bytes. It is
+    the exception that has to die, and that is why it has a name of its own instead of being a flag.
+  - **`ArtifactCacheDirIn`** free of a store, because `resolveArtifactPath` only needed the
+    path and built a whole `GitStore` to compute it.
 
-What was lost and why:
-Inline 1518 (each entry is durable — three calls removed)
-Inline 1519/1520 (→ Inline 1521)
-Inline 1522 (→ Inline 1523)
-Inline 1524 (→ Inline 1525),
-Inline 1526 (→ Inline 1527), Inline 1528 (→ Inline 1529),
-Inline 1530/1531 in the path of knowledge (→ Inline 1532/1533)
-Inline 1534, and all lock/rebase/worktree refs-events machinery.
+  **What disappeared, and why:** `CommitAndPush` (every write is already durable — three
+  calls removed), `Sync`/`EnsureCloned` (→ `SyncRegistry`), `HeadCommit`
+  (→ `RegistryRevision`), `WriteArtifactBranch` (→ `PublishArtifact`),
+  `DeleteArtifactBranch` (→ `DeleteArtifact`), `EnsureArtifactClone` (→ `DownloadArtifact`),
+  `MemoryWorktree`/`ExtractBranchDir` on the knowledge path (→ `PublishContextDir`/
+  `FetchContextDir`), `ArtifactBranchName`, and all the lock/rebase/worktree/
+  event-refs machinery.
 
-**Inline_1535** passed to store the **Inline_1536** of the constructor (Inline_1537). He already received and discarded it; all his methods are I/O from the Hub, called by the command that he built. The alternative was Inline_1538 in twenty signatures without gain.
+  **`RegistryManager` started keeping the constructor's `ctx`** (`baseCtx`). It already received one
+  and discarded it; all of its methods are Hub I/O, called by the command that
+  built it. The alternative was `ctx` in twenty signatures with no gain.
 
-**Switched Callers:** `internal/hub/registry.go` (~20 points), `event_tracker.go`,
-`lifecycle.go` (3), `service.go` (2, including `resolveArtifactPath`),
-`internal/mcpstdio/tools_knowledge.go` (4 + `installKnowledgeContext`),
-`tools_lifecycle.go`, `cmd/graphit/commands/{setup,lifecycle,runners}.go` (6).
-Adapted tests instead of deleted: `registry_test.go` (the persistence one now asserts
-**both sides**, bucket and mirror), `coverage_extra_test.go`, `event_tracker_test.go`.
-Three tests failed because the Hub's config enters via environment variable and `t.Setenv` does not coexist with parallelism.
+  **Callers swapped:** `internal/hub/registry.go` (~20 points), `event_tracker.go`,
+  `lifecycle.go` (3), `service.go` (2, including `resolveArtifactPath`),
+  `internal/mcpstdio/tools_knowledge.go` (4 + `installKnowledgeContext`),
+  `tools_lifecycle.go`, `cmd/graphit/commands/{setup,lifecycle,runners}.go` (6).
+  Tests adapted instead of deleted: `registry_test.go` (the persistence one now asserts
+  **both sides**, bucket and mirror), `coverage_extra_test.go`, `event_tracker_test.go`.
+  Three tests lost `t.Parallel()` because the Hub's config comes in through an environment variable and
+  `t.Setenv` does not coexist with parallel.
 
-- **Intermediate State, Explicit:** between T3 and T4/T6 the Hub and memory run locally. `GitStore.hubGitRemote()` returns `""` with a comment `DECISION` pointing to this log — the three dots that consulted `hub.repo` had already treated `""` as "no remote", so nothing pretends to work: the bucket is configured and validated, and it starts being used in fact when T4 replaces the `git_store.go`.
-
-Note: The inline comments (`GitStore.hubGitRemote()`, `""`, etc.) are placeholders for actual values or references that would be provided in a complete translation.
+- **Intermediate state, explicit:** between T3 and T4/T6 the Hub and memory run
+  **local-only**. `GitStore.hubGitRemote()` returns `""` with a `DECISION` comment
+  pointing at this log — the three points that consulted `hub.repo` already treated `""` as
+  "no remote", so nothing pretends to work: the bucket is configured and validated, and it starts
+  being used in fact when T4 replaces `git_store.go`.
 
 ### 2026-08-24 — T17
 
-- The issue was reopened due to a timeout observed during a three-hop query on the artifact icebug in S3.
-- Memory and wiki confirmed the previous control: the same traversal ends at 2.133 seconds in native storage but exceeds 100 seconds in icebug, including reverse edges; the slow plan enumerates all nodes before `RECURSIVE_EXTEND`.
-- Initial research into primary sources found explicit upstream issues for recursive join:
-  global initialization of structures, pushdown of filters, on-disk graph cache scan,
-  sequential/lot-based joins, and bidirectional joins. The current documentation Ladybug confirms that S3 is lazy by row group.
-- The local code already implements reverse edges in a separate table with semantic correctness but `ExportGraphToIcebug` does not activate `AddReverseEdges`; the Cypher `*1..3` remains intact until the engine.
-- The Engineer added it as mandatory evidence `https://github.com/LadybugDB/ladybug-icebug-notebooks/blob/main/index.ipynb`; the next step is to extract their cells and outputs before closing the correction drawing.
-- Investigated notebook: `index.ipynb` is just a catalog. The relevant example `ladybug_icebug_disk_karate.ipynb` uses `--add-reverse-edges` to represent correctly a directed dataset (78 edges become 156 entries in CSR format), creates local files, and executes only standard hops. No notebook in the index contains S3, remote query, multi-hop, benchmark, sorting by cluster or row group adjustment. Conclusion: it is evidence for exporting reverse when semantic symmetry is required, not evidence that it cures plan `RECURSIVE_EXTEND` responsible for timeout.
-- The Engineer corrected scope: reverse edges are mandatory in the writer because the agent needs to be able to query without direction. Criterion set: publish `TIPO_REVERSE` separately and combine only the two adjacencies for `-[:TIPO]-`; the original directed relationship will not be artificially duplicated.
-- Delivery order fixed by Engineer: conclude, test, and commit T17.3 (exporting reverse edges; transparent use in T17.4) before starting `ANALYZE` or any changes to indices/T17.1/T17.4. The first commit will not contain performance optimization.
-- Default was fixed as a positive and intentional configuration:
-  `hub.icebug.reverse_edges=true`. Resolution uses the existing hierarchy (inline → environment → project → global → default compiled) and only `false` explicitly disables it; `IcebugOptions{}` conserves the same default safe; the API receives the resolved decision from the publisher. Documentation for spec/architecture is in the same first commit.
-- Initial implementation of T17.3 applied: `IcebugOptions{}` now generates reverse tables; `hub.icebug.reverse_edges` resolves by hierarchy and only `false` disables it; the `RegistryManager` preserves the project configuration map and delivers to artifact preparation. The direct table remains intact, and the mirror stays in `TIPO_REVERSE`.
-- Added regressions for both sides of the contract: standard publication must contain `_REVERSE`; the project map's `hub.icebug.reverse_edges=false` needs to remove it; the writer also needs to accept explicit opt-out and mark correctly the manifest.
-- Focused execution: writer passed; configuration failed because the fixture modeled three nested maps. `ConfigMap` divides only at the first point, so the correct representation
-
-Note: The code blocks are preserved as is.
-The section `hub.icebug.reverse_edges` is the sum of `hub` + key `icebug.reverse_edges`. Corrected fixtures;
-the public key and its environment variable do not change.
-- The focused green second run on `internal/config`, `internal/ladybugstore`, and `internal/hub`.
+- Fix reopened because of a timeout observed on a three-hop query over the icebug artifact on S3.
+- Memory and the wiki reconfirmed the earlier control: the same traversal finishes in 2.133 s on native
+  storage and exceeds 100 s on icebug, including with reverse edges; the slow plan enumerates all the nodes
+  before the `RECURSIVE_EXTEND`.
+- Initial research in primary sources found explicit upstream pending items for recursive join:
+  global initialization of structures, filter pushdown, on-disk graph header cache,
+  sequential/batched scanning and bidirectional joins. Ladybug's current documentation confirms that
+  S3 is lazy per row group.
+- The local code already implements reverse edges in a separate and semantically correct table, but
+  `ExportGraphToIcebug` does not activate `AddReverseEdges`; the Cypher `*1..3` goes through intact to the engine.
+- The Engineer added as mandatory evidence the official notebook
+  `https://github.com/LadybugDB/ladybug-icebug-notebooks/blob/main/index.ipynb`; the next step is to
+  extract its cells and outputs before closing the design of the fix.
+- Notebook investigated: `index.ipynb` is just a catalog. The relevant example
+  `ladybug_icebug_disk_karate.ipynb` uses `--add-reverse-edges` to correctly represent
+  an **undirected** dataset (78 edges become 156 CSR entries), builds local files and
+  executes only one-hop patterns. No notebook in the index contains S3, remote query,
+  multi-hop, benchmark, cluster ordering or row group tuning. Conclusion: it is evidence for
+  exporting the reverse when the semantics call for symmetric adjacency, not evidence that it cures the
+  `RECURSIVE_EXTEND` plan responsible for the timeout.
+- The Engineer corrected the scope: reverse edges are mandatory in our own writer because the agent
+  needs to be able to query without direction. Criterion fixed: publish `TIPO_REVERSE` separately and
+  combine the two adjacencies only for `-[:TIPO]-`; the original directed relation will not be
+  artificially duplicated.
+- Delivery order fixed by the Engineer: conclude, test and **commit T17.3 in isolation**
+  (export of reverse edges; the transparent use stays in T17.4) before starting the `ANALYZE` and
+  any change to indexes/plan from T17.1/T17.4. The first commit will contain no performance
+  optimization.
+- The default was also fixed as a positive and intentional configuration:
+  `hub.icebug.reverse_edges=true`. Resolution uses the existing hierarchy (inline → environment →
+  project → global → compiled default) and only an explicit `false` disables it. `IcebugOptions{}`
+  keeps the same safe default; the API receives the publisher's already-resolved decision. Spec/architecture
+  documentation goes into the same first commit.
+- Initial implementation of T17.3 applied: `IcebugOptions{}` now generates the reverse tables;
+  `hub.icebug.reverse_edges` resolves through the normal hierarchy and only `false` disables it; the
+  `RegistryManager` preserves the project's configuration map and hands it to the artifact
+  preparation. The direct table remains intact and the mirror stays in `TIPO_REVERSE`.
+- Regressions added for both sides of the contract: a standard publication must contain
+  `_REVERSE`; `hub.icebug.reverse_edges=false` in the project map must remove it; the writer
+  must also accept an explicit opt-out and mark the manifest correctly.
+- First focused run: the writer passed; the configuration failed because the fixture modeled three
+  nested maps. `ConfigMap` splits only at the first dot, therefore the correct representation
+  of `hub.icebug.reverse_edges` is section `hub` + key `icebug.reverse_edges`. Fixtures corrected;
+  the public key and its environment variable do not change.
+- Second focused run green in `internal/config`, `internal/ladybugstore` and `internal/hub`.
   `docs/specs/config_module.md` and `docs/specs/hub_collaboration.md` now document the key,
-  precedence, environment variable, lockfile format, two CSR tables, self-loop, logical count,
-  and ensure that directed queries do not receive the mirror.
-- The expanded suite found and corrected an incorrect reverse metadata pre-existing: the mirrored CSR was correct, but the manifest copied only direct pairs and their counts. Now each pair registers `To → From` and excludes self-loops of `Rows`; regression verifies orientation and sum of pairs.
-  Tests that validated only direct tables passed to distinguish derived entries.
-- The focused green after correction: the default build `internal/ast` also returned to compiling with the helper `hasName` corrected in a separate task.
-- Native validation focused green: `internal/ast` and `internal/hub` with `-tags lancedb`, including publication, fly-on-the-wall mount, and hybrid search floorplan.
-- The complete suite of affected modules is green with `-tags lancedb`: (0.009 s), (4.067 s), (86.344 s), and (2.736 s). T17.3 closed for commit: default reverses, opt-out in layers, exact manifest, documentation.
-- Pre-commit review made the configuration dependency explicit: `prepareASTPublish` receives a mandatory `ConfigMap` (accepts `nil`) instead of a variadic; the manager stores the value as `projectConfig`. All test callers were updated, avoiding an API that hid which project decides opt-out.
-- T17.3 was delivered separately in commit `42cc1af`; the helper for testing `hasName`, necessary for the variant without `lancedb`, remained isolated in commit `3c26cd8`.
-- T17.1/T17.4 were resumed only after these commits. The memories and plan have been reviewed. Two proven restrictions remain: materializing reverses does not change the recursive plan that enumerates all nodes alone, and splitting Icebug files into multiple row groups silently breaks the endpoint connection in the reader. This phase will compare the original query with anchored reverse traversal on filtered node hops fixed and the same graph without direction before choosing implementation.
-- A reproducible diagnosis added to `TestIcebugRealGraphThreeHopPlans`, comparing the current real graph and target `internal/ast/ladybug.go::runQuery` (4 direct calls). _`EXPLAIN` shows that the original query and recursive reverse continue on `READ_FTABLE → RECURSIVE_EXTEND`; the reverse gains an `SEMI_MASKER` over the filtered target, but still exceeds 30 seconds. The native control returns the 7 transitive calls in 8.6–13.6 ms.
-- Unroll the expression into a single 2-hop pattern also exceeds 30 seconds: the plan becomes multiple `SCAN_REL_TABLE`/joins and does not use adjacency as a selective expansion. In contrast, BFS on the caller, with three independent queries of **one hop** over `CALLS_REVERSE` returned exactly the same 7 UIDs in 291.97 ms (101.20 + 97.45 + 93.33 ms). Therefore, T17.4 should intercept only a limited semantic reach and feed the query frontier; replace
+  precedence, environment variable, lockfile format, two CSR tables, self-loop, logical
+  count and the guarantee that directed queries do not receive the mirror.
+- The expanded suite found and fixed pre-existing incorrect reverse metadata: the mirrored CSR
+  was right, but the manifest copied the direct pairs and their counts. Now each pair records
+  `To → From` and excludes self-loops from `Rows`; a regression checks orientation and the sum of the pairs.
+  Tests that validated only the direct tables started distinguishing derived entries.
+- `go test ./internal/ladybugstore -run TestIcebug -count=1` green after the fix; the default build
+  of `internal/ast` also went back to compiling with the `hasName` helper fixed in a separate task.
+- Focused native validation green: `internal/ast` and `internal/hub` with `-tags lancedb`, including
+  publication, on-the-fly mount and the hybrid search floor.
+- Full suite of the affected modules green with `-tags lancedb`: `internal/config` (0.009 s),
+  `internal/ladybugstore` (4.067 s), `internal/ast` (86.344 s) and `internal/hub` (2.736 s).
+  T17.3 closed for commit: reverse by default, layered opt-out, exact manifest and documentation.
+- Pre-commit review made the configuration dependency explicit: `prepareASTPublish` takes a
+  mandatory `ConfigMap` (accepts `nil`) instead of a variadic; the manager keeps the value as
+  `projectConfig`. All the test callers were updated, avoiding an API that hid
+  which project decides the opt-out.
+- T17.3 was delivered in isolation in commit `42cc1af`; the fix to the `hasName` test helper,
+  needed for the variant without `lancedb`, stayed isolated in commit `3c26cd8`.
+- T17.1/T17.4 resumed only after those commits. Memories and the plan were re-read. Two
+  proven restrictions remain: materializing the reverse does not on its own change the recursive plan that enumerates
+  all the nodes, and splitting the Icebug files into several row groups silently breaks the binding
+  of endpoints in the current reader. This phase's measurement will compare the original query, the
+  reverse traversal anchored on the filtered node, unrolled fixed hops and the undirected pattern over the same
+  real graph, before choosing the implementation.
+- Reproducible diagnosis added in `TestIcebugRealGraphThreeHopPlans`, over the current real graph
+  and the target `internal/ast/ladybug.go::runQuery` (4 direct callers). `EXPLAIN` shows that the
+  original query and the recursive reverse remain on `READ_FTABLE → RECURSIVE_EXTEND`; the reverse
+  gains a `SEMI_MASKER` over the filtered target, but still exceeds 30 s. The native control returns the
+  7 transitive callers in 8.6–13.6 ms.
+- Unrolling the expression into a single 2-hop pattern also exceeds 30 s: the plan becomes multiple
+  `SCAN_REL_TABLE`/joins and does not use the adjacency as a selective expansion. In contrast, BFS on the
+  caller, with three independent **one-hop** queries over `CALLS_REVERSE`, returned exactly
+  the same 7 UIDs in 291.97 ms (101.20 + 97.45 + 93.33 ms). Therefore T17.4 should intercept only
+  the semantically safe bounded-reach form and feed the frontier between queries; changing
+  the orientation or generating a Cypher chain does not fix the upstream operator.
+- Acceptance regression opened before the implementation in
+  `internal/ast/ladybug_icebug_traversal_test.go`: it covers the documented public form with a label
+  (`t:Function`), filters/params separated per endpoint, directed reach from the source and the
+  undirected pattern. The baseline fails as expected: logical labels do not exist in the mounted catalog
+  (`Present: CALLS, CALLS_REVERSE, Entity`) and the form without a label still returns empty on the
+  recursive plan. The optimization will be deliberately narrow: only `RETURN DISTINCT` reach whose
+  expressions belong to the reached endpoint; aggregates, paths and predicates crossing endpoints
+  stay in the engine so as not to change semantics silently.
+- First implementation of the planner applied in `internal/ast/ladybug_icebug_traversal.go` and wired in
+  before `runQuery`: it identifies a mounted catalog by `Entity` + reverse tables, resolves the
+  selective endpoint, expands up to 8 levels in batches of 512 UIDs and materializes the `RETURN DISTINCT`
+  only on the reached endpoint. For the inverse direction it uses `TIPO_REVERSE`; for `-[:TIPO]-` it queries
+  `TIPO` and `TIPO_REVERSE` separately, avoiding the upstream alternation defect. The form without
+  `*1..N` is also served for one undirected hop. Queries with an edge/path variable, aggregation,
+  `ORDER BY`/`LIMIT`, without an anchor or with a predicate crossing endpoints are not intercepted.
+- The four acceptance tests went green after the implementation. A negative matrix was added
+  to prove that the narrow planner refuses forms whose semantics it cannot preserve; the
+  next validation is that matrix plus the real graph benchmark through the `LadybugBackend.Query` API.
+- The negative matrix went green and the undirected case started using the normal public syntax
+  `-[:CALLS]-`, without needing to write `*1..1`. An opt-in real-graph cost test was added:
+  it compares the UIDs returned by the native and by the Icebug catalog for the same public query and
+  fails if the planner's local execution exceeds 5 s.
+- The first run of the real test exposed a false positive of the control itself: the map form
+  `{uid: '…'}` answered zero on both sides. The test was switched to the proven workaround
+  `uid IN ['…']` and now also requires the known cardinality of 7, besides comparing the sets;
+  two empties never count as equivalence again.
+- With `uid IN` the native control finds 7 again, but the first run of the real planner still
+  returned zero in 53.8 ms, while the same manual strategy in the writer's test had returned
+  7. The investigation was reopened at the anchor point: the test now records first the node-only
+  lookup of `uid` and its `label`, separating a failure to resolve the target from a failure in the reverse CSR.
+- The anchor proved the data and found the cause of the zero: `runQuery` is a `Method`, not a `Function`. The test had
+  reintroduced exactly the assumption the public query avoids. The real query was corrected to
+  `(label(t) = 'Function' OR label(t) = 'Method')`, keeping the `uid IN`; now it measures the
+  documented case instead of a deliberately wrong label.
+- With the anchor correct, the BFS reached the UIDs, but the batched node-only materialization
+  `caller.uid IN [lista]` over the real `Entity` returned 5,922 rows; the same does not happen on the small
+  fixture nor on the relational expansion. The separation of responsibilities was kept: frontiers
+  remain in batches of 512 on the CSR, but each final UID is materialized in isolation with
+  `IN ['uid']`, the reader's demonstrably exact form. The control's cardinality stopped being
+  fixed at 7 because the planner's own new methods have already increased `runQuery`'s callers;
+  the correct criterion is a set identical to the native one and not empty.
+- Materializing one UID at a time did not finish in 60 s, indicating that the planner's `reached` set
+  may already be inflated — not only the final query. Before a third change, the real test
+  started executing and explicitly recording each `CALLS_REVERSE` frontier (cardinalities of
+  hops 1, 2 and 3) through the same API, to locate exactly where the divergence begins.
+- The manual execution isolated the CSR: 5, 6 and 4 UIDs on hops 1–3, with no explosion. Cardinality-only
+  `DEBUG` logs (anchor, frontier, reached and materialization) were added to the planner and the
+  real test activates that level, to compare the internal path without recording UIDs or content.
+- The logs located the cause: the internal anchor had 6,298 rows. The partitioner removed the
+  parentheses of `(label(t) = 'Function' OR label(t) = 'Method')` and then joined the predicate to
+  `t.uid IN [...]` with `AND`; by precedence, that meant `Function OR (Method AND uid)`.
+  Each partitioned predicate is now explicitly re-grouped before the join, preserving the
+  original boolean tree.
+- The Engineer reaffirmed the format restriction that governs any attempt at optimization by
+  index/locality: **every Icebug Parquet must contain exactly one row group**. In the current reader,
+  multiple row groups produce silently incorrect answers on large bases when a node
+  variable is bound to the edge. Therefore T17 will not split the files to obtain pruning or
+  smaller range reads; the optimization stays restricted to the reverse CSR, the selective plan by one-hop
+  frontiers and, only if measured safe, the read cache. The test
+  `TestIcebugWritesOneRowGroupPerFile` remains a mandatory regression criterion.
+- The first validation on the real bucket did not reach the query: httpfs answered `400 malformed Host
+  header`. The global configuration accepts `http://localhost:9000/`, but
+  `resolvedLadybugS3Credentials` removed only the scheme and handed `localhost:9000/` to the engine,
+  even though the contract requires `host[:port]`. Normalization now also removes trailing slashes and the
+  regression covers HTTP endpoint, path-style and `DisableSSL`; the S3 probe will be repeated with the same
+  self-contained temporary prefix, removed at cleanup.
+- With the endpoint normalized, the real S3 validation went green: the bundle was exported with a remote
+  URI, uploaded to the temporary prefix, mounted without download and queried through the public API. The
+  3-hop traversal returned exactly the same set as the native storage and the cleanup removed the
+  prefix. In the repetitions during the reindexing of our own code, it came in at **480–713 ms via S3** and
+  **351–387 ms on the local filesystem**; the cardinality changed with the live graph, so the test compares
+  non-empty sets instead of freezing a number. The original recursive query and the reverse one
+  remained above 30 s in the earlier diagnosis.
+- The UID-only return stopped re-reading `nodes_Entity.parquet`: the UIDs already deduplicated by the
+  CSR are the result. Projections of other properties remain materialized UID by UID because
+  of the defect measured in the batched node-only lookup; an additional regression guarantees that
+  `RETURN DISTINCT` remains global even when several nodes project the same value.
+- The conservative review of the parser closed one more false "anchor": constant predicates such as
+  `WHERE 1 = 1` do not count as selective and now fall into the engine without interception. The
+  materialization phase also observes context cancellation between individual reads.
+- Conclusion on indexes and locality, closed with evidence and incorporated into the spec
+  `docs/specs/hub_collaboration.md`: (1) the only index relevant to traversal is the CSR —
+  `indptr`, `indices` and the pre-materialized reverse table; (2) LadybugDB does not provide a secondary
+  index for that path — in `translateLadybug` (`internal/ast/ladybug.go`) `CREATE INDEX` and
+  constraints are no-ops; (3) the LanceDB index is the AST's textual/vector search, does not take part in the
+  expansion of Icebug edges and does not fix the `RECURSIVE_EXTEND`; (4) with exactly one row group
+  mandatory there is no row-group pruning — the anchor may read the whole `Entity` file, a cost
+  accepted for correctness, and splitting the file is forbidden; (5) ordering nodes by cluster/locality was
+  discarded without a favorable benchmark, because a single row group eliminates the main benefit of
+  pruning and the IDs are already dense with contiguous labels; the proven improvement came from the anchored
+  selective plan plus the reverse CSR; (6) a UID-only projection does not re-read `nodes_Entity.parquet`.
+- The httpfs cache (`CALL HTTP_CACHE_FILE=TRUE`) researched in the official documentation and deliberately
+  NOT enabled by default: the cache downloads the whole remote file, is visible only during the
+  transaction and is discarded on commit/rollback — since each planner expansion is a separate
+  query/autocommit, it may download files repeatedly and worsen latency, contradicting the
+  on-the-fly requirement. Any future cache test needs to be an explicit cold/warm remote benchmark,
+  opt-in, without becoming the default without evidence.
+- The expanded suite of the four affected modules (`go test -tags lancedb ./internal/config
+  ./internal/ladybugstore ./internal/ast ./internal/hub -count=1`) showed an intermittent native
+  failure: `internal/config`, `internal/ladybugstore` and `internal/hub` passed (0.008 s /
+  4.063 s / 3.493 s) and `internal/ast` died with `SIGSEGV` after 47.828 s, with no useful Go stack —
+  a native/cgo process failure. On the ISOLATED repetition (`go test -tags lancedb ./internal/ast
+  -count=1 -json`) the same package passed in full in 71.485 s, with all the final tests
+  recorded as PASS. Deliberately recorded as a native flake not attributed to the planner: no
+  evidence links the SIGSEGV to the change, the isolated run covers the whole affected package and the next
+  step of this verification is to repeat the expanded suite; if it reappears, isolate the active
+  combination/test before concluding.
+- Consolidated upstream research: `index.ipynb` is a catalog; the relevant notebook
+  (`ladybug_icebug_disk_karate.ipynb`) proves only the SEMANTIC need for reverse edges in an
+  undirected graph — it does not contain S3, multi-hop, benchmark nor row group tuning, therefore it is not
+  evidence that the reverse cures the recursive plan. Upstream pending items classified in T17.2:
+  recursive join backlog (kuzu#4285), global initialization (kuzu#4941), 2-hop explosion
+  (kuzu#4459), filter placement (kuzu#5040) — all dependent on an upstream fix, not applicable
+  here; httpfs S3 lazy per row group confirmed; Parquet row groups (Arrow blog) consulted.
+  No upgrade of Ladybug/go-ladybug in this task (0.17.0 stays), by the Engineer's decision.
+- Repetition of the expanded suite on 2026-08-25: the environment had lost `.native/liblancedb_go.so`
+  (the build cache `/tmp/lancedb-native-cache` does not exist either and there is no `cargo` in PATH), so
+  the library was restored from `~/.graphit/runtime/dev/liblancedb_go.so` to `.native/`. With it
+  in place, the full suite (`go test -tags lancedb ./internal/config ./internal/ladybugstore
+  ./internal/ast ./internal/hub -count=1`) passed TWICE consecutively: config 0.007 s /
+  ladybugstore 2.561 s / ast 54.392 s / hub 1.442 s and then config 0.005 s / ladybugstore
+  2.510 s / ast 50.070 s / hub 0.878 s. The earlier SIGSEGV did NOT reproduce; it remains classified
+  as an intermittent native flake not attributed to the planner, to be investigated only if it reappears.
+  `go vet` flags nothing in the changed files (only pre-existing unreachable code in the
+  generated ANTLR parsers) and `git diff --check` is clean.
+- Final benchmarks of this session, the same public 3-hop query anchored at
+  `internal/ast/ladybug.go::runQuery`, set identical to the native storage and not empty:
+  local filesystem **291.06 ms** (10 rows) and **real S3 429.13 ms** (10 rows, bundle exported to a
+  temporary `diagnostics/` prefix of the configured bucket, mounted without download and removed at
+  cleanup). Earlier controls: native 8.6–13.6 ms; the original recursive, the reverse and the fixed chain
+  above 30 s.
 
-with
-The guidance or generating a Cypher chain does not correct the upstream operator.
-- Open acceptance regression before implementation in ___INLINE_1618__: covers public documented form with label (___INLINE_1619__), filters/params separated by endpoint, directed from source and no direction. Baseline fails as expected: logical labels do not exist in mounted catalog (___INLINE_1620__) and the form without label still returns empty in recursive plan. The optimization will be deliberately narrow: only reach ___INLINE_1621__ whose expressions belong to endpoint reached; aggregates, paths, and predicates crossing endpoints remain in engine silently for silent semantic change.
-- First planner applied on ___INLINE_1622__ before ___INLINE_1623__: identifies mounted catalog by ___INLINE_1624__ + reverse tables, resolves select endpoint if needed, expands up to 8 levels in batches of 512 UIDs and materializes ___INLINE_1625__ only on the endpoint reached. For inverse direction uses ___INLINE_1626__; for `-[:TIPO]-` queries `TIPO` and `TIPO_REVERSE` separately, avoiding upstream alternative defect. The form without `*1..N` is also handled for a hop without direction. Queries with variable edge/path, aggregation, `ORDER BY`/`LIMIT`, or crossing endpoints are not intercepted.
-- The four acceptance tests turned green after implementation. A negative matrix was added to prove that the narrow planner refuses forms whose semantics cannot be preserved; the next validation is this matrix plus the graph API benchmark ___INLINE_1633__.
-- The negative matrix became green and the non-directional case started using public syntax `-[:CALLS]-`, without needing to write ___INLINE_1635__. A real planner cost test was added as an opt-in: it compares UIDs returned by native and mounted Icebug for the same public query and fails if local planner execution exceeds 5 seconds.
-- The first real test run exposed a false positive of its own control: the map form `{uid: '…'}` responded zero on both sides. The test was switched to the proven workaround `uid IN ['…']`, now requiring also known cardinality of 7 and comparing sets; two empty results never count as equivalence.
-- With ___INLINE_1638__ control returns 7 again, but the first real planner run still returned zero in 53.8 ms while the same strategy manual test on writer had returned 7. The investigation was reopened at anchor point: now it registers first lookup node-only of `uid` and its `label`, separating failure resolution from target failure in CSR reverse.
-- The anchor proved the data and found the cause of zero: `runQuery` is `Method`, not `Function`. The test had reintroduced exactly the assumption that public query avoids. The real query was corrected to `(label(t) = 'Function' OR label(t) = 'Method')`, maintaining `uid IN`; now it measures documented case instead of a deliberately wrong label.
-- With the anchor correct, BFS reached UIDs, but materialization node-only in batch `caller.uid IN [lista]` on the `Entity` real returned 5.922 lines; this does not occur in fixture
+### 2026-08-25 — reassessment of "table per label + real FROM/TO" at the Engineer's request
 
-Note: The code blocks and markdown are preserved as is.
-Small, even in relational expansion. The separation of responsibilities was maintained: frontiers continued to be implemented in lots of 512 on the CSR, but each final UID was materialized independently with `IN ['uid']`, the proven exact form of the reader. Cardinality control’s fixed value has dropped from 7 because new methods of the planner have already increased the callers of `runQuery`; the correct criterion is identical to native and not empty.
-- Materializing a UID one at a time did not end in 60 seconds, indicating that the set `reached` of the planner may already be inflated — not only the final query. Before a third modification, the real test started executing and explicitly registered each frontier `CALLS_REVERSE` (cardinality hops 1, 2, and 3) using the same API to locate exactly where divergence begins.
-- The manual execution isolated the CSR: 5, 6, and 4 UIDs in hops 1–3 without explosion. Only cardinality logs `DEBUG` were added to the planner and the real test activated this level, to compare the internal path without registering UIDs or content.
-- The logs located the cause: the inner anchor had 6.298 lines. The partitioner removed the parentheses of `(label(t) = 'Function' OR label(t) = 'Method')` and then joined the predicate with `t.uid IN [...]` and `AND`; by precedence, this meant `Function OR (Method AND uid)`.
-- Each partitioned predicate is now explicitly re-grouped before joining, preserving the original boolean tree structure.
-- The Engineer reaffirmed the format restriction governing any attempt at index/locality optimization: **each Parquet Icebug must contain exactly one row group**. In the current reader, multiple row groups produce incorrect responses silently in large buckets when a node variable is linked to an edge. Therefore T17 does not split files to obtain pruning or smaller range reads; optimization remains restricted to the reverse CSR, frontiers-by-hop plan selection, and only if measured safely, to read cache. The test `TestIcebugWritesOneRowGroupPerFile` remains a mandatory regression criterion.
-- The first validation in the real bucket did not reach the query: httpfs responded with `400 malformed Host header`. A configuration global accepts `http://localhost:9000/`, but `resolvedLadybugS3Credentials` removed only the schema and delivered `localhost:9000/` to the engine, although the contract required `host[:port]`. Normalization now also removes trailing slashes and regression covers HTTP endpoint, path-style, and `DisableSSL`; the S3 probe will be repeated with the same prefix temporarily auto-contained and removed in cleanup.
-- With normalized endpoints, the real S3 validation turned green: the bundle was exported with a remote URI, sent to the temporary prefix, mounted without download, and queried by the public API. The traversal of 3 hops returned exactly the same set of native storage and cleanup removed the prefix. During the reindexing of the own code, it remained at **480–713 ms via S3** and **351–387 ms on local filesystem**: cardinality changed with live graph, so the test compares non-empty sets instead of freezing a number. The original recursive query and its reverse continued above 30 seconds in the previous diagnosis.
-- The exclusive UID return stopped reading `nodes_Entity.parquet`: deduplicated UIDs by CSR are the result. Projections of other properties continue to be materialized UID to UID.
+- The Engineer questioned the folded layout (`FROM Entity TO Entity`) and asked to test a node table
+  per label with real FROM/TO, hypothesizing it might even dispense with the planner in Go. The protocol of memory
+  `01M0MJEX7CS29H2NPCHF60Z764` was followed: the proofs were RE-RUN live before answering.
+- `TestIcebugMultiPairRelTableCannotWork` PASS: a CSR of 300 edges declared over TWO pairs
+  returns 600 (`[:R]` reads the CSR once per pair) and 300 phantom edges (NB ids read in the id
+  space of NA). The restriction is the FORMAT's — `nodes_<t>`/`indices_<rel>`/`indptr_<rel>` are
+  keyed by the TABLE name; there is nowhere to store a second CSR per pair, and a target id only
+  makes sense in the dense space of ONE node table. No engine fix changes that.
+- `TestIcebugAlternativesWithAFilteredEndpointIsWRONG`, run against today's real corpus,
+  confirmed that the defect of alternatives with a filtered endpoint PERSISTS upstream:
+  `[CONTAINS|CALLS]=0` and `[CALLS|WRITES_FIELD]` with ~+30 phantoms vs `[CALLS]` exact.
+  The trigger for reconsidering partitioning by pair did NOT fire — the route stays discarded,
+  now with evidence from today, not from 2026-08-22.
+- BONUS — a bug of OURS found in the guard itself: since `42cc1af` the test built
+  `rows[r.Type] = r.Rows`, and the REVERSE tables carry the `Type` of the base relation — overwriting
+  the direct count with the reverse one (which excludes self-loops). The test accused a "+16 in the unfiltered
+  union" that never existed in the engine; it was its own expected sum corrupted by the mirror.
+  Fixed to ignore `r.Reverse`; two stable PASS repetitions. Nobody caught it before because the
+  test skips without `GRAPHIT_REAL_STORE`. A temporary diagnostic (deleted) proved file-by-file
+  integrity: manifest == rows of `indices_*.parquet` == last `indptr` for CALLS and
+  CONTAINS, cold and warm unions exact, order of the alternatives irrelevant.
+- Conclusion maintained WITH renewed evidence: a single node table on the icebug path; the local native
+  store stays per label; the bounded planner remains necessary for multi-hop.
 
-Translation is complete.
-The cause of the defect measured in the lookup node-only instance; an additional regression ensures that `RETURN DISTINCT` continues global even when multiple nodes project the same value.
-- The conservative revision to the parser closed another false “anchor”: constant predicates like `WHERE 1 = 1` are no longer treated as selective and now fall into the engine without interception. The materialization phase also observes cancellation of context between individual reads.
-- Conclusion of indices and locality, closed with evidence and incorporated into spec
-  `docs/specs/hub_collaboration.md`: (1) the only relevant index for traversal is the CSR — `indptr`, `indices`, and the pre-materialized reverse table; (2) LadybugDB does not provide secondary indexes for this path — in `translateLadybug` (`internal/ast/ladybug.go`), `CREATE INDEX`, constraints are no-op; (3) LanceDB is a textual/vectored AST index search, not part of Icebug’s expansion and does not correct `RECURSIVE_EXTEND`; (4) with exactly one row group required, there is no pruning by row group — the anchor can read the entire file `Entity`, accepted cost, and splitting the file is prohibited; (5) ordering by cluster/locality was discarded without favorable benchmark, because a single row group eliminates the main benefit of pruning and IDs are already dense with contiguous labels; the improvement proved comes from the anchored selector plus the reverse CSR; (6) UID-only projection does not re-read `nodes_Entity.parquet`.
-- Investigated httpfs cache (`CALL HTTP_CACHE_FILE=TRUE`), documented in official documentation, deliberately NOT enabled by default: the cache downloads the remote file completely, is visible only during transaction and is discarded on commit/rollback — as each planner expansion is a separate query/auto-commit, it can download files repeatedly and worsen latency, contradicting the requirement for on-the-fly. Any future cache test needs to be an explicit cold/warm benchmark opt-in without default.
-- Expanded suite of four affected modules (`go test -tags lancedb ./internal/config ./internal/ladybugstore ./internal/ast ./internal/hub -count=1`) exhibited a native intermittent failure: `internal/config`, `internal/ladybugstore` and `internal/hub` passed (0.008 s / 4.063 s / 3.493 s) and `internal/ast` died with `SIGSEGV` after 47,828 s, without a useful Go stack — native process failure/flake. In isolation (`go test -tags lancedb ./internal/ast -count=1 -json`), the same package passed completely in 71,485 s, with all final tests registered as PASS. Deliberately marked as flaky native planner: no evidence links SIGSEGV to changes; isolated testing was performed on the entire affected package and the next step of this verification is to repeat the expanded suite; if it reappears, isolate the active combination/test before concluding.
-- Consolidated upstream research: `index.ipynb` is a catalog; the relevant notebook (`ladybug_icebug_disk_karate.ipynb`) proves only the semantic necessity of reverse edges in undirected graphs — does not contain S3, multi-hop, benchmark or row group tuning, therefore it is not evidence that reversals cure recursive plans. Upstream pending issues classified as T17.2: recursive join backlog (kuzu#4285), global initialization (kuzu#4941), 2-hop explosion (kuzu#4459), filter placement (kuzu#5040) — all dependent on upstream correction, not applicable
+### 2026-08-25 — T18: canonical conformance with the icebug-format (real tables, no fold)
 
-Note: The inline references are placeholders for actual code snippets or identifiers that should be replaced with their corresponding values.
-Here; httpfs S3 lazy by row group confirmed; Parquet row groups (blog Arrow) consulted.
-No upgrade of Ladybug/go-ladybug in this task (version 0.17.0 remains unchanged), as decided by the Engineer.
-- Expanded suite repetition on August 25, 2026: The environment had lost `.native/liblancedb_go.so`
-  (the build cache `/tmp/lancedb-native-cache` does not exist and there is no `cargo` in PATH), so
-  the library was restored from `~/.graphit/runtime/dev/liblancedb_go.so` to `.native/`. With it, the complete suite (`go test -tags lancedb ./internal/config ./internal/ladybugstore ./internal/ast ./internal/hub -count=1`) passed twice consecutively: config 0.007 s / ladybugstore 2.561 s / ast 54.392 s / hub 1.442 s, followed by config 0.005 s / ladybugstore 2.510 s / ast 50.070 s / hub 0.878 s. The SIGSEGV did not reproduce; it is classified as a native intermittent flake, to be investigated only if it reappears.
-`go vet` does nothing in the modified files (only unreachable code pre-existing in generated ANTLR parsers) and `git diff --check` is clean.
-- Final benchmarks for this session, same public query with 3 hops anchored at `internal/ast/ladybug.go::runQuery`, identical storage native set and not empty:
-  local filesystem **291.06 ms** (10 rows) and **S3 real 429.13 ms** (10 rows, bundle exported to temporary prefix in bucket configured, mounted without download and removed during cleanup). Previous controls: native 8.6–13.6 ms; original recursive, reverse, and fixed chain above 30 s.
-
-Note: The inline references are placeholders for specific file paths or identifiers that should be replaced with actual values when translating the code blocks.
-
-August 25, 2026 - Reevaluation of the "label + FROM/TO Real" table requested by Engineer
-
-The Engineer questioned the folded layout (___INLINE_1692__) and requested to test a node table with real FROM/TO labels, hypothesizing that it might even dispense with the planner in Go. The protocol for memory ___INLINE_1693__ was followed: the proofs were RERODADAS live before answering.
-
-PASS 1: A CSR of 300 edges declared on two pairs returns 600 (___INLINE_1695__) and 300 phantom edges (read IDs from the ID space of NA). The restriction is FORMAT — ___INLINE_1696__/___INLINE_1697__/___INLINE_1698__ are keyed by the table name; there's no room to store a second CSR per pair, and an intended target only makes sense in the dense space of a single node table. No engine correction changes this.
-
-PASS 2: Executed against today's real corpus,
-confirmed that the defect with filtered tail PERSISTED upstream:
-___INLINE_1700__ and ___INLINE_1701__ with ~+30 phantoms vs ___INLINE_1702__ exact.
-The re-partitioning trigger did not fire — it was still discarded, now with evidence of the day, not from 2026-08-22.
-
-BONUS: A bug found in our own guard: since `42cc1af` the test set up ___INLINE_1704__ and loaded REVERSE tables with the ___INLINE_1705__ of the base relation — overwriting the direct count by reverse (which excludes self-loops). The test accused "+16 in an unfiltered union" that never existed in the engine; it was the sum expected from itself corrupted by the mirror. Corrected to ignore ___INLINE_1706__; two stable PASSes were found. No one caught this because the test gave a skip without `GRAPHIT_REAL_STORE`. Diagnostic temporary (deleted) proved file integrity: manifest == lines of ___INLINE_1708__ == last ___INLINE_1709__ for CALLS and CONTAINS, exact union and mellow join, irrelevant order of alternatives.
-
-Conclusion maintained with renewed evidence: a single node table on the icebug path; native store continues by label; bounded planner remains necessary for multi-hop.
-
-August 25, 2026 — T18: Canonical compliance with the icebug format (real tables without fold)
-
-**Objective.** The Engineer set the direction: follow the format **AS SHOULD BE**, according to `docs.ladybugdb.com/import/icebug/` and the official tool's code (__INLINE_1711__, installed as context AST __INLINE_1712__): node table WITH LABELS FROM/TO REAL relations — nothing of fold ___INLINE_1713__. Hypothesis to prove: in this layout, reverses work without ghosts (each table has its own space for IDs) and perhaps the planner in Go will become unnecessary.
+**Objective.** The Engineer fixed the direction: follow the format AS IT SHOULD BE, per
+`docs.ladybugdb.com/import/icebug/` and the official tool's code
+(`~/Downloads/icebug-format-main`, installed as the AST context `icebug-format`):
+a node table PER LABEL with real FROM/TO in the relations — no `Entity→Entity` fold. Hypothesis to
+prove: in that layout the reverse works without phantoms (each table has its own id
+space) and perhaps the planner in Go becomes unnecessary.
 
 **Facts already extracted from the official source (context `icebug-format`).**
-- The tool emits ONE parquet node per type (`nodes_<tipo>.parquet`) and ONE edge table per REL TABLE whose name matches the DDL.
-- Multi-pair input becomes MULTIPLE edge tables (one per pair) — schema generated never aggregates.
-- DUPLICATE lines within the SAME CSR (self-loop once), making the relationship symmetric — suitable for undirected graphs like Karate; DOES NOT preserve directed semantics. For AST, the canonical equivalent is an explicit mirror rel table by pair (e.g., `calls_reverse(FROM method TO function)`) in canonical layout without any ghost.
-- This project's native store already creates `CREATE REL TABLE GROUP CALLS(FROM Function TO Function, FROM Function TO Method, ...)` on node tables per label — the group mechanism exists in the engine for local storage.
+- The tool emits ONE node parquet per type (`nodes_<tipo>.parquet`) and ONE
+  `indices_/indptr_<rel>.parquet` pair per REL TABLE whose name is the same as the DDL's.
+- Multi-pair in the input becomes MULTIPLE edge tables (one per pair) — the generated schema never groups.
+- `--add-reverse-edges` DUPLICATES the rows inside the SAME CSR (self-loop once), making the
+  relation symmetric — suitable for undirected graphs like Karate; it does NOT preserve directed
+  semantics. For AST, the correct canonical equivalent is an explicit mirror rel table per pair
+  (e.g., `calls_reverse(FROM method TO function)`), which in the canonical layout has no phantom at all.
+- This project's NATIVE store already creates `CREATE REL TABLE GROUP CALLS(FROM Function TO Function,
+  FROM Function TO Method, ...)` over node tables per label — the group mechanism exists in the
+  engine for local storage.
 
 **Plan.**
-- [ ] T18.1 — Decisive experiments with a minimum bundle made by hand: (a) as pure Canon layout as in the doc mount and query; (b) `CREATE REL TABLE GROUP ... WITH (storage=..., format='icebug-disk')` is accepted by the engine? Which files does it expect as members?; (c) mirror rel responds without ghosts in both directions.
-- [ ] T18.2 — Decide on the export design based on results: public group-canonical name or tables per pair + query layer. Measure 3-hop recursive in real corpus layout before porting the complete writer.
-- [ ] T18.3 — Implement, test (round-trip, self-loop, properties, reverses, one row group), benchmark against native and against the current folded layout, document separately, commit separately.
+- [ ] T18.1 — Decisive experiments with a minimal bundle made by hand: (a) does the pure canonical layout as
+  in the docs mount and query; (b) is `CREATE REL TABLE GROUP ... WITH (storage=..., format=
+  'icebug-disk')` accepted by the engine? which files does it expect per member?; (c) does a mirror rel
+  per pair answer without phantoms in both directions.
+- [ ] T18.2 — Decide the export design according to the results: canonical-group (public name
+  preserved) or tables per pair + query layer. Measure the recursive 3-hop on the real corpus in the
+  chosen layout BEFORE porting the complete writer.
+- [ ] T18.3 — Implement, test (round-trip, self-loop, properties, reverse, one row group),
+  benchmark against native and against the current folded layout, document and commit separately.
 
-Status: In Progress — T18.1 is running.
-- T18.1 COMPLETED (2026-08-25, frozen corpus stored in /tmp/opencode/frozen-ladybug after store vivo reindexing instability):
-  (a) Pure canonical layout and query (E1); mirror by pair responds exactly, zero ghosts (E2);
-  (b) Public name preserved is IMPOSSIBLE on icebug-disk: `CREATE REL TABLE GROUP ... WITH`; syntax NEW `CREATE REL TABLE knows(FROM user TO city, FROM user TO town) WITH` both require a single `indices_<tabela>.parquet` (E3/E4/E6) — the reader icebug treats any table as ACSR by name, group or not. Official documentation confirms: GROUP deprecated since v0.8.0, internal member calls `<Rel>_<From>_<To>` locally, but file format lacks par; (c) Recursively works semantically but is SLOW: single-pair anchored 1m33s, alternation cross-label 1m51s vs native 16ms vs doubled+planner 0.29s — the recursive extend plan does not push filter anchor in any layout; (d) Data quality discovered in live store: ~1.6k duplicated UIDs in Function and 145 invalid UTF-8 strings ("cmd/\xAB\x06") — known backlog class (Comment), now confirmed in Function; future exporter needs to dedupe dense + sanitization.
-  Scratch of experiments: internal/ladybugstore/zz_canon_test.go and zz_canon_real_test.go (will regress in implementation).
-- Self-loops research (Engineer's request): no documented upstream reason (0 issues in tool); reconstruction by evidence — the deletion exists because the original use case duplicates edges in the same CSR on `--add-reverse-edges` without `rel_id` a self-loop duplicating would create two logical relationships; the tool cut node instead of building edge identity.
-  Open issue LadybugDB/ladybug#505 formalizes future model: `rel_id` as directional indices (non-relational mirrors) and invariant "self-loops must not create duplicate logical relationships". Experiment E7 proved that icebug-disk reader accepts self-loop in canonical CSR today (count=3 exact; standard (x)->(x) resolves). FIXED POLICY: export canon maintains single self-loop once on the direct par (unconventional emission current of tool, aligned with #505); mirrors exclude; equality preserved.
-- Closing two provocations by Engineer (2026-08-25):
-  (1) Multi-row-group measured with control matrix in current engine: `indices_<rel>.parquet` tolerates multiple row groups (count, sample and filters of both sides exact); it corrupts when fragmented (6k→5049). Refined writer rule: single-RG mandatory; indices can stream in multiple RGs (memory gain in large exports). Bonus discovered on path: filter primary key column with `=` returns zero in node table icebug-disk (`uid='x'`→0; `uid IN ['x']` works) — explains workaround history and requires automatic rewriter rewrite (T18.2b);
-  (2) PROPERTY `pair` ON EDGE (E10): single-hop transpile works EXACTLY (`WHERE r.pair='method_function'` returned only methB→funcA); var-len is IMPOSSIBLE in language — Binder exception "r has data type RECURSIVE_REL": cannot put hop condition in `*1..N`, so the idea does not replace planner for multi-hop. Works as optimization/autodescribing in single-hop and aligns with #505 vocabulary;
-(3) E8 closed with key: CSR mixed in under multi-pair declaration produces an incorrect graph silently.
-- The Engineer's Drawing Decision Registration: the planner should not be limited to 8 hops (constant `icebugTraversalMaxHops = 8` today) - canonically drawn + BFS frontiers end by saturating the visited set, not arbitrarily; accept `*1..N` with N large and standard `*` open, always with deadline/cancellation context.
-- Native recursive MEDIDAS on the frozen doubled (real corpus, anchor runQuery, native 10 rows/~16ms): `SHORTEST 1..3` >60s; lambda filter by hop `(rr,n | WHERE n.label=...)` >60s (isolated probes after the first experiment will hang due to abandoned goroutine holding the connection - lesson learned: probe with query possibly long loop in its own process with -timeout short). Projection `{n.uid}` stays for a second, same family. CONCLUSION: no syntax extension extends the plan; PLANNER remains essential. Extensions enter the tree-sitter-cypher vocabulary for future/when upstream fixes pushdown.
-- openCypher: official documentation states alignment ("as far as possible follows openCypher"); relevant divergences in our subset: default semantic WALK (TRAIL/ACYCLIC available), var-length requires upper bound (default 30, configurable), WHERE inside the node pattern not supported, singular label(), SHOW becomes CALL show_x(). Candidates for transpiler grammars:
-taekwombo/tree-sitter-cypher (updated 2026-08) and simplificare-org (based on openCypher grammar); choose based on coverage during implementation, SHA pinning.
+Status: IN PROGRESS — T18.1 running.
+- T18.1 CONCLUDED (2026-08-25, corpus frozen in /tmp/opencode/frozen-ladybug after instability
+  of the live store during reindexing):
+  (a) the pure canonical layout mounts and queries (E1); a mirror per pair answers exactly, zero phantoms
+  (E2);
+  (b) a preserved public name is IMPOSSIBLE over icebug-disk: `CREATE REL TABLE GROUP ... WITH`
+  and the NEW syntax `CREATE REL TABLE knows(FROM user TO city, FROM user TO town) WITH` both
+  require a single `indices_<tabela>.parquet` (E3/E4/E6) — the icebug reader treats any table
+  as ONE CSR by name, group or not. The official docs confirm: GROUP deprecated since v0.8.0,
+  an internal member is called `<Rel>_<From>_<To>` locally, but the file format has no per-pair notion;
+  (c) recursion on the canonical layout works semantically but is SLOW: single-pair anchored 1m33s,
+  cross-label alternation 1m51s vs native 16ms vs folded+planner 0.29s — the
+  RECURSIVE_EXTEND plan does not push the anchor's filter in ANY layout;
+  (d) DATA QUALITY discovered in the live native store: ~1,600 DUPLICATE uids in Function and
+  145 invalid UTF-8 strings ("cmd/\xAB\x06") — a known backlog class (Comment), now
+  confirmed in Function; a future exporter needs dense dedupe + sanitization.
+  Scratch of the experiments: internal/ladybugstore/zz_canon_test.go and zz_canon_real_test.go
+  (they will become regressions in the implementation).
+- Self-loop research (the Engineer's request): no documented upstream reason (0 issues in the
+  tool); reconstruction by evidence — the exclusion exists because the original use case
+  duplicates edges in the same CSR under `--add-reverse-edges` and without a `rel_id` a duplicated self-loop
+  would become two logical relations; the tool cut the node instead of building an edge identity.
+  The OPEN issue LadybugDB/ladybug#505 formalizes the future model: a logical `rel_id` +
+  `indices_bwd_<rel>.parquet`/`indptr_bwd_<rel>.parquet` as directional indexes (mirrors are not new
+  relations) and the invariant "self-loops must not create duplicate logical relationships".
+  Experiment E7 proved that the icebug-disk reader accepts a self-loop in a canonical CSR today
+  (count=3 exact; the pattern (x)->(x) resolves). POLICY FIXED: the canonical exporter keeps a
+  self-loop ONCE in the pair's direct CSR (a conscious deviation from the tool's current emission,
+  aligned with the normative direction of #505); mirrors exclude it; equality with native preserved.
+- Closing of the Engineer's two provocations (2026-08-25):
+  (1) MULTI-ROW-GROUP measured with a control matrix on the current engine: `indices_<rel>.parquet`
+  TOLERATES multiple row groups (count, sample and filters on both sides exact); it is
+  `indptr_<rel>.parquet` that CORRUPTS when fragmented (6000→5049). Refined writer rule:
+  indptr single-RG mandatory; indices may stream in multiple RGs (memory gain on large
+  exports). Bonus discovered along the way: filtering a PRIMARY KEY column with `=` returns ZERO
+  on an icebug-disk node table (`uid='x'`→0; `uid IN ['x']`→works) — it explains the historical
+  workaround and requires an automatic rewrite in the rewriter (T18.2b);
+  (2) THE `pair` PROPERTY ON THE EDGE (E10): single-hop with transpile works EXACTLY
+  (`WHERE r.pair='method_function'` returned only methB→funcA); var-len is IMPOSSIBLE in the language —
+  Binder exception "r has data type RECURSIVE_REL": there is no way to put a per-hop condition in
+  `*1..N`, so the idea does not replace the planner for multi-hop. It is worth having as an optimization/self-description
+  in single-hop and it aligns with the logical vocabulary of #505;
+  (3) E8 closed it conclusively: a merged CSR under a multi-pair declaration produces a silently wrong graph
+  (an edge crossed the id space and came out with an EMPTY LABEL).
+- DESIGN DECISION recorded by the Engineer: the planner must NOT stay limited to 8 hops
+  (the constant `icebugTraversalMaxHops = 8` today) — the canonical design + BFS frontiers terminates by
+  saturation of the visited set, not by an arbitrary ceiling; accept `*1..N` with a large N and the open
+  `*` pattern, always with a deadline/context cancellation.
+- Native levers of the recursive MEASURED over the frozen folded layout (real corpus, anchor
+  runQuery, native control 10 rows/~16ms): `SHORTEST 1..3` >60s; per-hop lambda filter
+  `(rr,n | WHERE n.label=...)` >60s (probes isolated per process after the first experiment
+  hung because of an abandoned goroutine holding the connection — a method lesson: a probe with a
+  possibly long query runs in its own process with a short -timeout). The `{n.uid}` projection stays
+  for a later probe, same family. CONCLUSION: no syntax extension makes the plan
+  selective; the PLANNER REMAINS essential. The extensions go into the vocabulary of the
+  tree-sitter-cypher transpiler for future forms/when upstream fixes pushdown.
+- openCypher: the official docs declare alignment ("as far as possible follows openCypher");
+  divergences relevant to our subset: WALK semantics by default (TRAIL/ACYCLIC available),
+  var-length requires an upper bound (default 30, configurable), WHERE inside the node pattern not
+  supported, singular label(), SHOW becomes CALL show_x(). Candidate grammars for the transpiler:
+  taekwombo/tree-sitter-cypher (updated 2026-08) and simplificare-org (based on the openCypher
+  grammar); the choice by measured coverage on our patterns during the implementation, SHA pinned.
 
-Plan of Implementation T18 - Frozen (August 25, 2026)
+#### T18 implementation plan — FROZEN (2026-08-25)
 
-- [ ] **Canonical Exporter T18.2** (`internal/ladybugstore/icebug_canonical.go`):
-  node table by label (columns via `table_info`, dense IDs per first occurrence,
-  UTF-8 sanitization inheriting the counter `RepairedStrings`), rel table by pair with
-  deterministic name `<tipo>_<de>_<para>` + mirror `_reverse` opt-out by
-  `hub.icebug.reverse_edges`, self-loop once in direct, INDPtr single-RG mandatory,
-  `schema.cypher` canonical and `icebug.json` v2 (`format: icebug-canonical`, map `TYPE → members`). Folded remains available; default swap happens only after the consumer is ready.
-- [ ] **T18.2b — Planner aware of members**: resolves `TYPE → membros` from manifest v2,
-  without hop limits (saturating visited + deadline), basic post-frontier aggregations
-  (count/count DISTINCT), rule ≥2 hops always our choice.
-- [ ] **T18.2c — Via REGEX ESTRITO fail-closed** (Engineer's decision: simplicity > tree-sitter; grammar goes to backlog as a conditionally improved fix): translates only exact recognized forms (`[:TIPO]`→alternation of members when no filter at linked end; UNION by member with filter; `uid='lit'`→`uid IN ['lit']`); unrecognized form → actionable error listing the member tables, never translated as a guess.
-- [ ] **Permanent Regression T18.3** (E1/E2/E5/E7/E10 as real tests), local/S3 benchmarks vs native, updated docs/specs, separate commits per phase.
+- [ ] **T18.2 — Canonical exporter** (`internal/ladybugstore/icebug_canonical.go`):
+  node table per label (columns via `table_info`, dense ids by first occurrence,
+  UTF-8 sanitization inheriting the `RepairedStrings` counter), rel table per pair with a
+  deterministic name `<tipo>_<de>_<para>` + `_reverse` mirror, opt-out through
+  `hub.icebug.reverse_edges`, self-loop once in the direct one, INDPtr single-RG mandatory,
+  canonical `schema.cypher` and `icebug.json` v2 (`format: icebug-canonical`, map
+  `TYPE → members`). Folded remains available; the default swap only after the consumer is ready.
+- [ ] **T18.2b — Planner aware of the members**: resolves `TYPE → members` from the v2 manifest,
+  WITHOUT a hop ceiling (saturation of the visited set + deadline), basic post-frontier aggregations
+  (count/count DISTINCT), the rule ≥2 hops is always ours.
+- [ ] **T18.2c — Compatibility through STRICT fail-closed REGEX** (the Engineer's decision:
+  simplicity > tree-sitter; the grammar goes to the backlog as an improvement conditioned on the volume of
+  errors): it translates ONLY exact recognized forms (`[:TIPO]`→alternation of the members when
+  there is no filter on a bound endpoint; UNION per member with a filter; `uid='lit'`→`uid IN ['lit']`);
+  an unrecognized form → an actionable ERROR listing the member tables, never a guessed translation.
+- [ ] **T18.3 — Permanent regressions** (E1/E2/E5/E7/E10 as real tests), local/S3 benchmarks
+  vs native, docs/specs updated, commits separated by phase.
 
-Status: T18.2 is running.
-- T18.2 committed (e7bf77c): canonical export complete with permanent regressions
-  (round-trip multi-par, self-loop-once, exact mirror preserving direction, opt-out,
-  PK-inequality pinched). T18.2b core delivered in this commit: backend loads icebug.json v2
-  upon connection (file alongside catalog mounted); installer of the Hub passes it along with schema;
-  canonical planner resolves TYPE→manifest members, BFS without a maximum hop depth respected (*N..M and * open), undirected via direct+reverse members,
-  count([DISTINCT] endpoint.uid) post-frontier, fail-closed for unsupported forms (error lists supported types). AST tests: unbounded == native in the chain of 5 hops, count DISTINCT=3 on *1..3, rejected with message.
-  PENDING (next increment): translation of single-hop outside planner (alternation/union), sanitization uid→IN over passing queries, benchmark local/S3 canonical path,
-  flip default folded→canonical after validation point-to-point.
-- SANITIZER delivered: INLINE_1756 rewrites INLINE_1757 outside strings with its own regression; applied only to canonical catalogs before any path.
-- PUBLISH FLIP TO CANONICAL: implemented and REVERSED in this cycle — the flip swaps the return type of ExportGraphToIcebug, breaking consumers of the folded manifest (tests for bundle/lookup). Next increment needs to update these consumers JUNTOS with the flip. Failures observed in the suite without -tags lancedb are environmental, not regressions.
-- REMAINING TO CLOSE T18: (1) flip with updated consumers; (2) single-hop outside planner: bare pattern today falls into fail-closed — decide alternation vs planner 1..1;
-(3) benchmarks local/S3 canonical; (4) hub_collaboration spec describing the canonical layout.
-- T18 CLOSED (2026-08-25): publish flipped to canonical with updated consumers (migrated tests of folded path contract — no label(), manifest staged, multi-item projections supported); bare pattern = exactly one hop via same mechanism;
-candidates filtered by columns referenced by predicates/projections and traversed only when both sides have uid; permanent benchmarks: local **182 ms** / S3 real **694 ms**, identical to native (10 rows), vs folded 291/429 ms and native ~16 ms. Spec hub_collaboration rewritten for the canonical layout, marked as legible legacy.
-- Final suites with -tags lancedb GREEN: AST 61.3s / ladybugstore 5.0s / hub 1.7s.
-  Closing commits: flip+consumers (7c36a55), migration of expectations from the Hub (7eba9ee),
-  sanitization (79f49af). T18 COMPLETED: publish canonical is default; folded remains legible for old bundles; optional pending moved to future improvements (connected components, 2-hop edge, versioned cache, bi-directional, upstream PR).
-- RETROCOMPATIBILITY REMOVED by Engineering decision: the reversed path of query from backend (parser regex Entity/CALLS, executor and label helpers) — canonical or native, without third state. Added S3×Local permanent test battery (TestMountedCanonicalS3Battery): 6 rounds on-the-fly against MinIO real, identical to native in all, preserved bundle in diagnostics/t18-canonical-battery-* for inspection.
-  Numbers of this execution: local native 6×≈60 ms total; S3 596–680 ms per round (10 rows).
-- The tree-sitter-cypher has been removed from the backlog by a decision of the Engineer: strict regex, fail-closed resolves 100% of current needs without native dependency. It is now archived as "it doesn't make sense now."
+Status: T18.2 RUNNING.
+- T18.2 DELIVERED (commit e7bf77c): complete canonical exporter with permanent regressions
+  (multi-pair round-trip, self-loop-once, exact mirror preserving direction, opt-out,
+  PK-equality quirk pinned). T18.2b CORE DELIVERED in this commit: the backend loads icebug.json v2
+  on connecting (a file next to the mounted catalog); the Hub's installer now downloads it along with the
+  schema; the canonical planner resolves TYPE→members from the manifest, BFS WITHOUT a hop ceiling with the
+  minimum depth respected (*N..M and open *), undirected via direct+reverse members,
+  count([DISTINCT] endpoint.uid) post-frontier, fail-closed for unsupported forms
+  (the error lists the plannable types). ast tests: unbounded == native on the 5-hop chain,
+  count DISTINCT=3 on *1..3, collect() rejected with a message.
+  PENDING (next increment): translation of single-hop outside the planner (alternation/union),
+  a uid=→IN sanitizer over pass-through queries, local/S3 benchmark of the canonical path,
+  the flip of the default folded→canonical in publish after end-to-end validation.
+- SANITIZER delivered: `sanitizeCanonicalUIDEquality` rewrites `X.uid='lit'`→IN outside
+  strings, with a regression of its own; applied only on canonical catalogs before any path.
+- FLIP OF PUBLISH TO CANONICAL: implemented and REVERTED in this cycle — the flip changes the return
+  type of ExportGraphToIcebug and breaks consumers of the folded manifest (bundle/
+  search tests). The next increment needs to update those consumers TOGETHER with the flip. Failures
+  observed in the suite without -tags lancedb are environmental, not regressions.
+- REMAINING to close T18: (1) the flip with the consumers updated; (2) single-hop outside the
+  planner: a bare pattern today falls into the fail-closed path — decide alternation vs planner 1..1;
+  (3) canonical local/S3 benchmarks; (4) the hub_collaboration spec describing the canonical layout.
+- T18 CLOSED (2026-08-25): publish flipped to canonical with the consumers updated
+  (tests from the folded era migrated to the canonical contract — no label(), staged manifest,
+  multi-item projections supported); bare pattern = exactly one hop through the same mechanism;
+  candidate tables filtered by the columns the predicates/projections reference and
+  members traversed only when BOTH sides have a uid; permanent benchmarks: local
+  **182 ms** / real S3 **694 ms**, set identical to the native one (10 rows), vs folded
+  291/429 ms and native ~16 ms. The hub_collaboration spec rewritten for the canonical layout,
+  the folded one marked as legacy-readable.
+- Final suites with -tags lancedb GREEN: ast 61.3s / ladybugstore 5.0s / hub 1.7s.
+  Closing commits: flip+consumers (7c36a55), migration of the hub's expectations
+  (7eba9ee), sanitizer (79f49af). T18 CONCLUDED: canonical publish is the default; folded
+  remains readable for old bundles; optional pending items moved to future improvements
+  (connected components, 2-hop edge, versioned cache, bidirectional, upstream PR).
+- BACKWARD COMPATIBILITY REMOVED by the Engineer's decision: the folded query path
+  deleted from the backend (Entity/CALLS regex parser, executor and label helpers) — canonical or
+  native, with no third state. A permanent S3×Local battery added
+  (TestMountedCanonicalS3Battery): 6 on-the-fly rounds against real MinIO, set identical
+  to the native one in all of them, bundle PRESERVED in diagnostics/t18-canonical-battery-* for inspection.
+  Numbers from this run: local native 6×≈60 ms total; S3 596–680 ms per round (10 rows).
+- tree-sitter-cypher removed from the backlog by the Engineer's decision: strict
+  fail-closed regex resolves 100% of the current needs with no native dependency. The item
+  archived as "it does not make sense now".

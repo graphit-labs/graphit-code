@@ -1,6 +1,6 @@
 ---
-Title: The document becomes the unit of the wiki, and memory gains a compile with N replicas.
-Description: "Removed the section splitter from the wiki of knowledge (1 document = 1 page), made the slug deterministic, and fixed eight functionality defects in the wiki layer: dead embedding, three divergent directory resolvers, swallowed errors, empty index signalless search, unsorted trigram pass, and inconsistency between .md and SQLite." The memory now has a single authoritative replicated compile for all projects.
+title: "The document becomes the wiki's unit, and memory gains one compile with N replicas"
+description: "Removed the per-section chunker from the knowledge wiki (1 document = 1 page), made the slug deterministic, and fixed eight functionality defects in the wiki layer: dead embedding, three divergent directory resolvers, swallowed errors, search with no empty-index signal, an unordered trigram pass and divergence between .md and SQLite. Memory now has a single authoritative compile replicated to every project."
 content-type: task-log
 audience: developers
 keywords:
@@ -17,308 +17,294 @@ related:
   - "docs/specs/daemon_module.md"
   - "docs/guides/retrieval_architecture.md"
 ---
-The document becomes the unit of the wiki, and memory gains a compile with N replicas.
+# The document becomes the wiki's unit, and memory gains one compile with N replicas
 
 **Date:** 2026-08-14
 
 ## Objective
 
-Duas coisas, pedidas nesta ordem pelo Engenheiro:
+Two things, asked for in this order by the Engineer:
 
-Stop dividing a document into sections — the entire document is one unit.
-recovery
-2. Corrigir os defeitos de funcionalidade que a auditoria da camada de wiki
-He rose without concern for backward compatibility and was functioning on Windows.
-   Linux e macOS.
+1. Stop splitting a document into subsections — the whole document is the unit of
+   retrieval.
+2. Fix the functionality defects the audit of the wiki layer
+   raised, with no concern for backward compatibility, and working on Windows,
+   Linux and macOS.
 
-## O que estava errado
+## What was wrong
 
-Producing blank pages that competed in the search for sections
+### Splitting by section produced empty pages that competed in search
 
-Measured in this repository's current index before the change: **2,294 chunks of 165.
-Documents (13.9 per document), average of 82.6 words.
+Measured on this repository's real index before the change: **2294 chunks from 165
+documents** (13.9 per document), average of 82.6 words.
 
 | `word_count` | chunks | % |
 |---|---|---|
-| ≤ 2 (vazio) | 261 | 11,4% |
-| 3–9 (abaixo do piso de embedding) | 79 | 3,4% |
-| ≥ 400 | 15 | 0,7% |
+| ≤ 2 (empty) | 261 | 11.4% |
+| 3–9 (below the embedding floor) | 79 | 3.4% |
+| ≥ 400 | 15 | 0.7% |
 
-It excluded from the body of a section its contents, which are the subsections' content.
-It is correct, which avoids repeating the same text in all levels. The error was
-Output: `emitSections` emits the entire chunk without delay. A heading whose content is entirely...
-Subsections produced an empty body, and that empty body turned into a page on the disk, a line in the text.
-`chunks` e linha em `chunks_fts`.
+`collectSectionBody` excluded the subsections' content from a section's body — which
+is **correct**, it is what avoids duplicating the same text at every level. The mistake was
+`emitSections` emitting the chunk anyway. A heading whose entire content is
+subsections produced an empty body, and that empty body became a page on disk, a row in
+`chunks` and a row in `chunks_fts`.
 
-Of the 261 empty pages, 195 contained only the generated parent-reference line.
-Injecting. The most affected titles: `Use Cases` 24/24 empty, `Progress Log` 19/19,
+Of the 261 empty ones, 195 contained only the `**Parent:** [[slug]]` line the generator
+injected. The most affected titles: `Use Cases` 24/24 empty, `Progress Log` 19/19,
 `Changes` 20/20, `Test Cases & Acceptance Criteria` 23/24.
 
-Worse: when a document opens with an H1 followed by only H2s, the page titled "Name" appears.
-The document was blank — and that's precisely what it asks for, INLINE_0.
+Worse: when a document opens with an H1 followed only by H2s, **the page named after the
+document was the empty page** — and that is precisely the one a `[[wikilink]]` asks for.
 
-The damage was reproducible and amplified by weight: INLINE_0__ uses
-`bm25(title=10, body=1, summary=5, breadcrumb=2, doc_type=3)`, e 668 dos 2294 chunks
-They shared the title with another chunk.
+The damage was reproducible, and amplified by the weights: `chunks_fts` uses
+`bm25(title=10, body=1, summary=5, breadcrumb=2, doc_type=3)`, and 668 of the 2294 chunks
+(29%) shared a title with another chunk.
 
 ```
 knowledge_search("use cases for the daemon watcher")   ← antes
-  1. Use_Cases_20.md                    → parent: Git-based daemon task
-  2. Test_Cases_Acceptance_Criteria.md   → parent: Git-based daemon task
+  1. Use_Cases_20.md                    → **Parent:** [[Task-_Git-Based_Daemon...]]
+  2. Test_Cases_Acceptance_Criteria.md   → **Parent:** [[Task-_Git-Based_Daemon...]]
 ```
 
-Two blank pages in the first two positions.
+Two empty pages in the first two positions.
 
-It was a dead knob with two comments contradicting it.
+### `MinTokens` was a dead knob, with two comments claiming otherwise
 
-`ChunkOpts.MinTokens` era documentado como *"Minimum tokens before merging with
-parent"*, setado pelo chamador, defaultado no chunker e **nunca comparado com nada**.
-`emitSections` dizia *"it will get merged by the post-processing step (wireParentChild
-handles MinTokens merging)"* e `wireParentChild` se declarava *"performs MinTokens
-Merging - the function only reconstructed INLINE_0. There was no fusion anywhere.
+`ChunkOpts.MinTokens` was documented as *"Minimum tokens before merging with
+parent"*, set by the caller, defaulted in the chunker and **never compared with anything**.
+`emitSections` said *"it will get merged by the post-processing step (wireParentChild
+handles MinTokens merging)"* and `wireParentChild` declared itself *"performs MinTokens
+merging"* — the function only rebuilt `Children`. There was no merging anywhere.
 
-They were also computed for `SemanticChunk.Children`, `.Level`, `.StartByte`, and `.EndByte`.
-nunca lidos, e os offsets de `splitLargeSection` eram falsos
-(`accumStart + len(textoTrimado)`, not the actual position in the document).
+`SemanticChunk.Children`, `.Level`, `.StartByte` and `.EndByte` were also computed and
+never read, and the offsets from `splitLargeSection` were false
+(`accumStart + len(textoTrimado)`, not the real position in the document).
 
-### O slug era posicional
+### The slug was positional
 
-Inline 0 counted collisions Inline 1, Inline 2, ... in order of iteration, and Inline 3 was
-Ordered by `(docType, title)` with `sort.Slice`, which is not stable. Add one
-document renumbered the others and silently repointed every legacy wiki reference and every
+`UniqueSlug` numbered collisions `_2`, `_3`, … in iteration order, and `docs` was
+sorted by `(docType, title)` with `sort.Slice`, which is **not stable**. Adding a
+document renumbered the others and silently repointed every `[[wikilink]]` and every
+xref already written — with no error, no log, no lint.
 
-"Already xrefed – no error, no log, no lint."
+### Nothing embedded the wiki, in any project
 
-### Nada embedava wiki, em nenhum projeto
+`WikiEmbeddingModule`, `NewWikiEmbeddingModule` and `RunWikiEmbeddingLoop` existed,
+complete and correct. **`NewWikiEmbeddingModule` was never called.** What the daemon
+registered was `EmbeddingModule`, which is `ast.RunEmbeddingLoop` — AST, not wiki.
 
-`WikiEmbeddingModule`, `NewWikiEmbeddingModule` e `RunWikiEmbeddingLoop` existiam
-completos e corretos. **`NewWikiEmbeddingModule` nunca era chamado.** O que o daemon
-It was registered as INLINE_0, which is INLINE_1 — AST, not wiki.
+And the three manual paths pointed at a nonexistent directory:
+`<project>/.graphit/knowledge/project/wiki`. The index lives one level above. Since
+`OpenWikiDB` **creates** what it opens, each of them created an empty database in the wrong
+place, found zero pending work and returned success — the CLI printing
+*"All wiki chunks already have embeddings"* about a file it had itself just
+created empty.
 
-And the three manual paths pointed to an nonexistent directory:
-The index is one level above. As
-`OpenWikiDB` **cria** o que abre, cada um criava um banco vazio no lugar errado,
-He found no discrepancies and returned success — the CLI printing
-*"All wiki chunks already have embeddings"* sobre um arquivo que ele mesmo acabara de
-criar vazio.
+### The sync swallowed the embedding error
 
-### O sync engolia o erro do embedding
+`if embClient, err := ai.NewEmbeddingClientFromConfig(); err == nil` made the whole
+step disappear when the client failed, and `_, _ = embedder.RunCycle(...)`
+discarded the rest. An embedder that does not come up was indistinguishable from a wiki
+already embedded.
 
-`if embClient, err := ai.NewEmbeddingClientFromConfig(); err == nil` fazia o passo
-inteiro desaparecer quando o cliente falhava, e `_, _ = embedder.RunCycle(...)`
-He dismissed everything else. A non-uploading embedder was indistinguishable from a wiki already.
-embedado.
+### `wiki_search` did not distinguish an empty index from an empty answer
 
+`searchCompiledWiki` was fixed for exactly this reason, and the comment in
+`search.go` documents the incident. But `wiki_search` did `OpenWikiDB` + `Search`
+directly — and since `OpenWikiDB` creates, in a project with no compiled wiki the tool created
+an empty database and returned zero without saying why. The `hybrid` mode degraded to pure
+FTS in silence when there was no vector.
 
-It did not distinguish an empty index from an empty response.
+### The trigram pass fed the RRF with storage order
 
-It was precisely because of this that _INLINE_0_ was fixed, and the comment in question is...
-`search.go` documenta o incidente. Mas `wiki_search` fazia `OpenWikiDB` + `Search`
-direto — e como `OpenWikiDB` cria, num projeto sem wiki compilado a ferramenta criava
-A bank was empty, and he returned with nothing without explaining why. The mode INLINE_0 degraded to FTS.
-Pure and silent when there was no vector.
+`queryChunksTrigram` was `SELECT … WHERE chunks_trigram MATCH ? LIMIT ?`, **with no
+`ORDER BY`**, and every hit carried a fixed `Score: 0.1`. Since the RRF scores by
+position (`0.7/(60+rank+1)`), the pass's weight was distributed according to the order in which
+SQLite returned the rows.
 
-### O passe de trigrama alimentava o RRF com a ordem de armazenamento
+### `.md` and SQLite could diverge
 
-`queryChunksTrigram` era `SELECT … WHERE chunks_trigram MATCH ? LIMIT ?`, **sem
-`ORDER BY`**, e todos os hits levavam `Score: 0.1` fixo. Como o RRF pontua por
-Position (`0.7/(60+rank+1)`), the weight of the pass was distributed according to the order in which it occurred.
-SQLite devolvia as linhas.
+`content_hash` was `sha256(chunk.Body)` computed **before** injecting the parent link,
+autolinking and resolving wikilinks, and writing the page was skipped when the hash
+matched. Document A unchanged + new document B whose title A mentions: the
+`chunks.Body` in the database got the `[[B]]`, but `A.md` was not rewritten. And
+`BuildCrossRefGraph` computes backlinks **by reading the files**.
 
-### `.md` e SQLite podiam divergir
+### Memory had two compiles competing, and no replication for the readers
 
-`content_hash` era `sha256(chunk.Body)` calculado **antes** de injetar o parent link,
-Linking and resolving wiki links, and writing on the page was interrupted when the hash appeared.
-She signed the document as it was, plus a new document titled "A" that references the original: Document A unchanged + New Document B titled "A".
-The `chunks.Body` value in the database received a reference to page B, but `A.md` was not rewritten.
-`BuildCrossRefGraph` calcula backlinks **lendo os arquivos**.
-
-The memory had two compilations competing, and no replication for whoever reads
-
-The royal chain, verified in code:
+The real chain, verified in the code:
 
 ```
-Remote ── Git ──▶ Worktree ── Compile ──▶ Wiki Global ── Copy ──▶ Replica of the Project
+remote ──git──▶ worktree ──compile──▶ wiki global ──copy──▶ réplica do projeto
                 (verdade)             (autoritativo)        (o que a busca abre)
 ```
 
-The worktree (_`<global>/memory-wt/memory-<scope>-<id>`) is the true source.
-The ``AddMemory`` writes it and does `CommitAndPush`, which doesn't remove anything— it's a check-in.
-Complete, not staging area.
-It is empty on disk: just.
-  placeholder, `syncToLocalInternal` sobrescreve `m.localDir` com o worktree.
-The authoritative compiled version is INLINE_0, which is
+- The **worktree** (`<global>/memory-wt/memory-<scope>-<id>`) is the source of truth.
+  `AddMemory` writes there and does `CommitAndPush`, which removes nothing — it is a full
+  checkout, not a staging area.
+- `MemoryLocalDir` (`<global>/memory/<scope>`) is **empty** on disk: it is only a
+  placeholder, `syncToLocalInternal` overwrites `m.localDir` with the worktree.
+- The **authoritative compiled** one is `MemoryWikiGlobalDir`, which is what
+  `newMemorySvcInternal` was already electing.
+- The **replica** (`<project>/<dotdir>/memory/<scope>`) is what readers open.
 
-Translation:
+The defects: `RunProjectCycle`/`RunUserCycle` compiled **straight into the replica**,
+while the daemon compiled into the global one — two files, distinct inodes, and whoever
+ran last decided what a project was able to remember. And
+`MemorySyncModule.recompile`, which is the path through which a memory coming from the
+**remote** arrives, compiled into the global one and **replicated to nobody**. A memory from
+the server did not show up in any project until someone ran a sync inside it.
 
-The officially approved compiled version is INLINE_0, which is
-Already chose.
-The replica (INLINE_0) is what readers open.
+On top of that, `WorktreeRawDirForScope` returned `""` when the replica did not exist — the
+raw store, which is the source of truth, was unreachable until something had already
+compiled from it. A fresh clone could not bootstrap its own
+memories.
 
-The defects: compiled directly into the replica,
-enquanto o daemon compilava no global — dois arquivos, inodes distintos, e quem
-He decided what a project could remember last.
-**INLINE_0**, which is the path through which a memory comes from **remote**.
-Arrived, compiled globally and **did not replicate for anyone**. A server memory
-He didn't appear in any project until someone ran a sync within it.
+## What changed
 
-Additionally, it would return `""` when the replica did not exist.
-The raw store, which is the true source, was unreachable until something had already existed.
-Compiled from it. A new clone couldn't even boot itself.
-Memories.
+### Granularity
 
-## O que mudou
+`internal/wiki/chunker.go` was **removed** (762 lines, self-contained, with no test
+of its own). `wiki.SplitByH2Headers` + `SplitDoc` in `docutil.go` were removed
+too — a second splitter whose only consumer was a test shim.
 
-### Granularidade
+`GenerateKnowledgeWiki` assembles one `knowledgeDoc` per file, with the whole body.
+`breadcrumb` now is the source path normalized with `filepath.ToSlash`, which
+makes the path searchable — `source` is not an indexed column in the FTS.
 
-`internal/wiki/chunker.go` foi **removido** (762 linhas, autocontido, sem teste
-Removed were `wiki.SplitByH2Headers`, `SplitDoc`, and `docutil.go`.
-Also— a second splitter, whose sole consumer was a test shim.
+A latent bug was fixed on the way: when the stat fast-path hit,
+`src.data` stayed `nil`; a cache miss after that indexed the document as
+empty. Now the content is read at that point.
 
-`GenerateKnowledgeWiki` monta um `knowledgeDoc` por arquivo, com o corpo inteiro.
-`breadcrumb` passa a ser o caminho da fonte normalizado com `filepath.ToSlash`, o que
-It makes the path searchable — `source` is not indexed as a column in FTS.
+### Deterministic slug
 
-Corrigido no caminho um bug latente: quando o fast-path de stat acertava,
-`src.data` ficava `nil`; um miss de cache depois disso indexava o documento como
-Empty. Now the content is read at this point.
+The title when the title is unique in the corpus; the source path when it is ambiguous or
+unusable. The ordering gained the path as a tie-break, making the order total.
+The path goes through `filepath.ToSlash` **before** the slug: `SafeSlug` today swaps `\`
+for `-` and that is why the result coincided by luck, and a slug that depended on the
+separator would give different page names per platform.
 
-Deterministic Slug
+### Byte-stable page, and the decision to rewrite by bytes
 
-Title when the title is unique in the corpus; path of origin when ambiguous or uncertain.
-Useless. The ordering won the path as a tiebreaker, making the entire order complete.
-O caminho passa por `filepath.ToSlash` **antes** do slug: `SafeSlug` hoje troca `\`
-por `-` e por isso o resultado coincidia por sorte, e um slug que dependesse do
-Separator would give page names different per platform.
+`updated:` in the frontmatter now comes from the **source's mtime**, not from `time.Now()` —
+which was, besides being truer, what prevented comparing bytes: the rendered page
+changed every day. With that, `writePageIfChanged` compares the rendered page against
+disk, and autolink/backlink no longer go stale.
 
-Stable Byte Page, and the Decision to Rewrite by Bytes
+### One directory resolver
 
-The ``updated:`` in the front matter now originates from the **source's mtime**, not from ``time.Now()``.
-which was more than just true; it prevented comparing bytes: the rendered page
-She changed every day. With this, INLINE_0__ compared the rendered page with the original.
-disk and auto-link/backlink do not become older.
+`resolveWikiDBDir` and `resolveWikiEmbedDir` were removed. What is left is
+`resolveWikiScopeDir`, which delegates to the `resolveWikiDir` the indexers already use.
+`RunWikiEmbeddingLoop` now **receives** the targets instead of deriving them, and
+`memory.ProjectReplicaDir` replaced `GlobalScopeDir`, whose name said the opposite of
+what the function returned.
 
-Directory Resolver
+### One compile, N replicas
 
-`resolveWikiDBDir` e `resolveWikiEmbedDir` foram removidos. Sobrou
+`internal/memory/replicate.go` (new) is the only place that turns the authoritative one
+into a replica. `ReplicateWikiToProjects` returns how many it updated **and the failures**.
+`ReplicateMemoryScope` (in `internal/daemon`) decides the targets by the meaning of the
+scope: `project` → only the project of the id; `user` → every registered project,
+because user memory belongs to the person and not to the repository; context → only where the
+replica already exists, because an imported context is opt-in.
 
-"`resolveWikiScopeDir` delegates to `resolveWikiDir` that indexers already use."
-The `RunWikiEmbeddingLoop` passed to receive targets instead of deriving them, and
-`memory.ProjectReplicaDir` substituiu `GlobalScopeDir`, cujo nome dizia o oposto do
-What it returned was the function.
+`MemorySyncModule` keeps **one observation point** (the base worktree, which already covered
+every branch, including the ones created later) and now fans out after each compile. The
+in-project cycles compile into the authoritative one and replicate to the current project.
 
-A compilation of N replicas
+### Signal instead of silence
 
-The only place where authority is transformed into something new is INLINE_0__.
-In response. `ReplicateWikiToProjects` returns how many were updated and the failures.
-`ReplicateMemoryScope` (em `internal/daemon`) decide os alvos por significado do
-Scope:
-`project`: Only the project of ID;
-`user`: All projects registered,
-because user memory is personal, not stored in the repository; context → only where it applies
-Replica already exists because imported context is opt-in.
+- `openWikiForRead` refuses an index with no content and says it is an empty index, not an
+  empty answer.
+- The `hybrid` mode reports when it degraded to FTS and why.
+- `graphit_sync` accumulates notes and returns them; a sync that skipped half the work no
+  longer says "completed successfully" on its own.
+- The sync's embedding runs **after** the memory cycle, because on a first
+  run the memory wiki does not exist yet before it.
 
-The ``MemorySyncModule`` maintains an observation point (the base worktree, which already covered)
-All branches, including those created after), and then fanouts after each compile. The ones.
-ciclos in-project compilam no autoritativo e replicam para o projeto corrente.
+### Search
 
-Signal instead of silence
+The trigram pass gained `ORDER BY chunks_trigram.rank` and a real score.
+`snippetAround` is the only snippet builder, centered on the first matching term,
+with a width of 320 and the edges pulled to a word boundary with limited slack and
+`utf8.RuneStart` as a net. `extractSnippet` delegates to it.
 
-- `openWikiForRead` refuses index without content and says it's an empty index, not a response.
-  vazia.
-The mode INLINE_0 reports when it degraded to FTS and why.
-The accumulator, `graphit_sync`, accumulates and returns notes; a sync that skipped half of the work doesn't
-  diz mais "completed successfully" sozinho.
-The synchronization embedding runs **after** the memory cycle, because in the first instance
-The execution of the memory wiki has not yet been implemented before it.
+### Size
 
-### Busca
-
-Passe de trigrama ganhou `ORDER BY chunks_trigram.rank` e score real.
-The INLINE 0 is the only snippet constructor centered around the first term that fits,
-com largura de 320 e as bordas puxadas para fronteira de palavra com folga limitada e
-`utf8.RuneStart` como rede. `extractSnippet` delega a ele.
-
-### Tamanho
-
-The ``details`` of ``sync_log`` covers only the pages that were synced to, and ``Rebuild`` maintains.
-Retention of 100 entries. INLINE_0 has transitioned into transaction mode.
-`MaxSourceChars` do embedder foi de 800 para 1600, para preencher a janela de 512
-Tokens of the model now that the chunk is a document.
+`sync_log`'s `details` covers only the pages the sync touched, and `Rebuild` keeps
+a retention of 100 entries. `restoreEmbeddingsFromCache` now runs in a transaction.
+The embedder's `MaxSourceChars` went from 800 to 1600, to fill the model's 512-token
+window now that a chunk is a document.
 
 ### Schema v3
 
-The `parent_slug` function (column, index, and field) exited - it existed to connect a section's chunk.
-ao chunk do heading pai. `wikiDBSchemaVersion` foi para 3.
+`parent_slug` (column, index and field) is gone — it existed to link a section's chunk
+to the parent heading's chunk. `wikiDBSchemaVersion` went to 3.
 
 ## Cross-platform
 
-No new code contains hardcoded versions of `syscall`, `os.Chmod`, `os.Symlink`, or separators.
-In every comparison value: breadcrumb, exclusion rule for copying
-  filtro de escopo do embed, slug derivado de caminho.
-Duplicate project deduplication is case-insensitive in replication on Windows and macOS.
-(`runtime.GOOS`), because two different box paths lead to the same place
-directory
-Replicas never receive `-wal` or `-shm`. A log is valid only next to the exact database.
-What produced it, and deleting one from under a reader is equally bad. The authoritative
-It is checked (`Checkpoint()`), another checkpoint at the end of `Rebuild` and the loop
-Before embedding, there is only one INLINE_0__ auto-contained for copying.
-Failure of replication is expected and survivable in Windows: a replica with
-The _INLINE_0_ that is open by a reader cannot be overwritten or deleted there.
-Contrary to Unix, replication is idempotent and guided by loops – the next step
-He takes what he did not write, and an unfinished project does not hinder others. The task is complete when it's done.
-Failures are logged with the project and the reason.
-The first says that the wiki isn't
-Compiled, the second one that compiled and the copy of a project is behind.
+- No `syscall`, `os.Chmod`, `os.Symlink` or hardcoded separator in the new code.
+- `filepath.ToSlash` on every compared value: breadcrumb, the copy's exclusion rule,
+  the embed's scope filter, the path-derived slug.
+- Project dedup in replication is case-insensitive on Windows and macOS
+  (`runtime.GOOS`), because there two paths differing in case are the same
+  directory.
+- **Replicas never receive `-wal`/`-shm`.** A log is only valid next to the exact database
+  that produced it, and deleting one from under a reader is equally bad. The authoritative
+  one is checkpointed (`Checkpoint()`, plus one checkpoint at the end of `Rebuild` and of the
+  embedder's cycle) before replicating, so there is only a self-contained `wiki.db` to copy.
+- A replication failure is **expected and survivable on Windows**: a replica with
+  `wiki.db` open by a reader cannot be overwritten or deleted there, unlike
+  on Unix. Replication is idempotent and loop-driven — the next pass
+  picks up what this one did not write, and one stuck project does not block the others. The
+  failures are logged with the project and the reason.
+- `CycleResult.ReplicaErr` is separate from `Err`: the first says the wiki did not
+  compile, the second that it compiled and one project's copy is behind.
 
 ## Files Changed
 
-File | Change
+| File | Change |
 |---|---|
-Removed - section break
-| `internal/wiki/docutil.go` | `SplitByH2Headers`, `SplitDoc`, `contentHash16` removidos |
-
-"Each document equals one chunk; deterministic slug;mtime data from `updated`; sync log details in `writePageIfChanged`; receives slugs in `knowledgeIndexPage`."
-Inline 0: Schema V3 without Inline 1, Inline 2 in the Trigram, Inline 3 retention of sync_log, Inline 4 restore within transaction.
-The constructor is delegated to the unique constructor.
-Inline 0: Inline 1: 800 → 1600; post-cycle checkpoint
-The element receives `[]EmbedTarget` with a hook; it does not derive any further path.
-| `internal/wiki/process_cache.go` | `CachedChunk.ParentTitle` removido |
-
-"_`internal/memory/replicate.go`_ | New - Replication, Exclusion of WAL, Target Deduplication"
-| `internal/memory/cycle.go` | ciclos compilam no autoritativo e replicam; `ReplicaErr` |
-The delegation is passed through replication.
-The port is now no longer dependent on the replica's raw direction.
-Pipe: after compilation, fan-out; `ReplicateMemoryScope`; logger
-| `internal/daemon/adapters.go` | `WikiEmbeddingModule` com alvos; `WikiEmbedTargets` |
-The inline comment is hidden, and it also honors the honorable exclusion in the initial copy.
-
-"The inline 0 is a resolver; inline 1; hybrid degradation report uses the daemon's targets."
-The Portuguese sentence "embedding reports failure; restarts after memory cycle" translates to idiomatic English as:
-
-"The embedding fails, and it restarts after the memory cycle."
-| `cmd/graphit/commands/daemon.go` | registra `WikiEmbeddingModule` |
-| `cmd/graphit/commands/runners.go` | CLI de embed usa os alvos do daemon |
+| `internal/wiki/chunker.go` | **removed** — splitting by section |
+| `internal/wiki/docutil.go` | `SplitByH2Headers`, `SplitDoc`, `contentHash16` removed |
+| `internal/knowledge/wiki.go` | 1 doc = 1 chunk; deterministic slug; `updated` from mtime; `writePageIfChanged`; sync_log details; `knowledgeIndexPage` receives the slugs |
+| `internal/wiki/fts.go` | schema v3 without `parent_slug`; `ORDER BY` on the trigram; `snippetAround`; sync_log retention; `Checkpoint()`; restore in a transaction |
+| `internal/wiki/search.go` | `extractSnippet` delegates to the single builder |
+| `internal/wiki/embedder.go` | `MaxSourceChars` 800→1600; post-cycle checkpoint |
+| `internal/wiki/embed_loop.go` | receives `[]EmbedTarget` with a hook; no longer derives a path |
+| `internal/wiki/process_cache.go` | `CachedChunk.ParentTitle` removed |
+| `internal/memory/replicate.go` | **new** — replication, WAL exclusion, target dedup |
+| `internal/memory/cycle.go` | cycles compile into the authoritative one and replicate; `ReplicaErr` |
+| `internal/memory/memory.go` | `ensureProjectCopy` delegates to replication |
+| `internal/memory/paths.go` | `GlobalScopeDir`→`ProjectReplicaDir`; the raw dir no longer depends on the replica |
+| `internal/daemon/memorysyncmodule.go` | fan-out after compile; `ReplicateMemoryScope`; logger |
+| `internal/daemon/adapters.go` | `WikiEmbeddingModule` with targets; `WikiEmbedTargets` |
+| `internal/paths/copy.go` | `SyncCopyDirExcept`; the exclusion is honored in the initial copy too |
+| `internal/mcpstdio/tools_wiki.go` | one resolver; `openWikiForRead`; hybrid reports the degradation; embed uses the daemon's targets |
+| `internal/mcpstdio/tools_lifecycle.go` | embedding reports failure; runs after the memory cycle |
+| `cmd/graphit/commands/daemon.go` | registers `WikiEmbeddingModule` |
+| `cmd/graphit/commands/runners.go` | the embed CLI uses the daemon's targets |
 
 ## Verification
 
-`go build -tags fts5 ./...` e `go test -tags fts5 -count=1 ./...` verdes.
-`go vet -tags fts5` limpo nos pacotes tocados.
+`go build -tags fts5 ./...` and `go test -tags fts5 -count=1 ./...` green.
+`go vet -tags fts5` clean on the packages touched.
 
-Reindexed with the binary installed:
+Reindexed with the installed binary:
 
-| | antes | depois |
+| | before | after |
 |---|---|---|
-| chunks / fontes | 2294 / 165 | **170 / 170** |
-| chunks vazios | 261 (11,4%) | **0** |
-| abaixo do piso de embedding | 340 (14,8%) | **0** |
-Average number of words: 82.6 | **1,197.8**
-Titles Duplicated | 668 (29%) | 0 |
-| Slugs with numbers `_N` | Many | 0 |
-| `sync_log` | 306 entradas / 99 MB | 1 entrada / 37 KB |
-| tamanho do `wiki.db` | 117 MB | **8,3 MB** |
+| chunks / sources | 2294 / 165 | **170 / 170** |
+| empty chunks | 261 (11.4%) | **0** |
+| below the embedding floor | 340 (14.8%) | **0** |
+| average words | 82.6 | **1197.8** |
+| duplicate titles | 668 (29%) | **0** |
+| slugs with `_N` numbering | many | **0** |
+| `sync_log` | 306 entries / 99 MB | 1 entry / 37 KB |
+| `wiki.db` size | 117 MB | **8.3 MB** |
 
-Busca, mesma query de antes:
+Search, same query as before:
 
 ```
 knowledge_search("use cases for the daemon watcher")   ← depois
@@ -327,49 +313,47 @@ knowledge_search("use cases for the daemon watcher")   ← depois
   ...
 ```
 
-Documentos reais, snippet centrado no termo.
+Real documents, snippet centered on the term.
 
-Reproduction: The replica of memory was **completely erased and reconstructed from scratch**.
-autoritativo por `graphit memory index` — 100 chunks nos dois lados, nenhum sidecar
-of WAL in replica.
+Replication: the memory replica was **deleted entirely** and rebuilt from the
+authoritative one by `graphit memory index` — 100 chunks on both sides, no WAL sidecar
+in the replica.
 
 ## System Knowledge
 
-A new binary with an altered schema is DESTROYED by another binary.
-with an old schema. **It happened during validation: the daemon was running the binary.
-Installed (v2) reopened the written index by binary local (v3), saw version
-  diferente, dropou tudo, recriou em v2 — e como o process cache dizia que nada
-Changed, but did not repopulate. Left `chunks = 0` with `parent_slug`. The CLI
-Start the daemon by calling `PersistentPreRun` first, then testing schema changes require
-**INLINE 0**, not only **INLINE 1**.
-The `copyDirRecursive` was the path of the first copy, and it did not honor exclusion.
-Found through its own test new: the rule that excludes `-wal` / `-shm` worked in
-Mirror and was ignored precisely when destiny did not yet exist, which is the
-  caso comum.
-The working tree is durable, not staged. `CommitAndPush` does not delete anything.
-Of this machine's 11 worktrees, 9 are empty because those projects don't have them.
-Memory - not because they were emptied.
-
-**The `ListActiveProjects` filter looks for an existing lock file, not a live process.**
-It is doing GC on entries whose lockfile has disappeared. This list is correct for replication.
-The wiki of memory exists at two locations with distinct nodes, and both had
-The same content because both writers were riding. Now one compiles, and the other is
-Copy.
+- **A `wiki.db` written by a binary with the new schema is DESTROYED by a binary
+  with the old schema.** It happened during validation: the daemon running the installed
+  binary (v2) reopened the index written by the local binary (v3), saw the different
+  version, dropped everything, recreated it in v2 — and since the process cache said nothing
+  had changed, it did not repopulate. It ended up `chunks = 0` with `parent_slug` back. The CLI
+  autostarts the daemon through `PersistentPreRun`, so **testing a schema change requires
+  `make install`**, not just `go build`.
+- **`copyDirRecursive` was the path of the FIRST copy**, and it did not honor the exclusion.
+  Found by the new test itself: the rule that excludes `-wal`/`-shm` worked on the
+  mirroring and was ignored exactly when the destination did not exist yet, which is the
+  common case.
+- **The memory worktree is durable, not staging.** `CommitAndPush` removes nothing.
+  Of the 11 worktrees on this machine, 9 are empty because those projects have no
+  memory — not because they were emptied.
+- **`ListActiveProjects` filters by existing lockfile, not by live process**, and
+  GCs the entries whose lockfile disappeared. It is the right list for replication.
+- **The memory wiki exists in two places with distinct inodes** and both had
+  the same content only because both writers were running. Now one compiles and the other is
+  a copy.
 
 ## Technical Debt
 
-- [ ] Inline 0 and Inline 1 exist, but they do not
-They are called by `GenerateMemoryWiki` — the memory wiki does not generate `index.md`
-Nem inline 0. Likely dead code, not touched here.
-Only for vectors in `semanticSearchLocked`.
-Normalized by L2. If the embedder doesn't normalize, the score of mode INLINE_0 is
-Wrong (in INLINE_0, the RRF overrides and hides). Not verifiable here: ONNX.
-The runtime is not present on this machine.
-- [ ] As stopwords de `wikiStopwords` incluem `no`, `not`, `use`, `using`, `where`,
-
-"`when`, `how`, and `why` - aggressive for technical documentation in AND/OR statements."
-      prefix.
-- [ ] Replicating copies the entire `wiki.db`. With many projects and one,
-Large index is linear I/O with projects changing every number.
-memory. A load test would decide whether it's worth copying only when `content_hash`
-      do conjunto muda.
+- [ ] `memoryIndexPage` and `appendMemLog` in `internal/memory/wiki.go` exist and are not
+      called by `GenerateMemoryWiki` — the memory wiki generates neither `index.md`
+      nor `log.md`. Probably dead code, not touched here.
+- [ ] `cosineSim = 1 - d²/2` in `semanticSearchLocked` only holds for
+      L2-normalized vectors. If the embedder does not normalize, the `semantic` mode's score is
+      wrong (in `hybrid` the RRF overwrites it and hides it). Not verifiable here: the ONNX
+      Runtime is not present on this machine.
+- [ ] The stopwords in `wikiStopwords` include `no`, `not`, `use`, `using`, `where`,
+      `when`, `how`, `why` — aggressive for technical documentation in the AND/OR/
+      prefix passes.
+- [ ] Replication copies the whole `wiki.db` per project. With many projects and a
+      large index that is I/O linear in the number of projects on every memory
+      change. A load test would decide whether it is worth copying only when the set's
+      `content_hash` changes.

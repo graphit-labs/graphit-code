@@ -1,186 +1,193 @@
 ---
-title: Budget for resources across pipelines, lock of the sync, and debouncing of Git hooks
+title: Resource budget across pipelines, sync lock and git hook debounce
 status: done
 created: 2026-08-08
 updated: 2026-08-08
-tags: [daemon, performance, recursos, sync, hooks, competition]
+tags: [daemon, performance, recursos, sync, hooks, concorrência]
 ---
 
-Budget for resources between pipelines, lock of the sync, and debouncing of Git hooks
+# Resource budget across pipelines, sync lock and git hook debounce
 
 ## Objective
 
-The user machine (20 CPUs, 61 GB of RAM, swap of 2 GB) crashed with load average 30.47 and swap at 100%. The measurement pointed to the Graphit daemon with a CPU lifetime of approximately 1047% — roughly 20.6 hours of CPU usage in 1h58m of process — and 10.7 GB of RSS, competing with an `gce ast index` and three `graphit-core sync --heavy` simultaneously.
+The user's machine (20 CPUs, 61 GB of RAM, 2 GB of swap) locked up with load average 30.47
+and swap 100% full. The measurement pointed at the Graphit daemon with a lifetime average of 1047% of
+CPU — about 20.6 hours of CPU in 1h58m of process — and 10.7 GB of RSS, contending for the
+machine with a `gce ast index` and three simultaneous `graphit-core sync --heavy`.
 
-The inline codes are placeholders for the actual inline code or inline content that should be present in the original text but have been omitted due to space constraints.
+The user's hypothesis was that running `sync --heavy` in parallel makes no sense. The
+investigation confirmed the hypothesis and found a bigger cause behind it: the indexer's
+resource budget is applied **per pipeline**, not per process, and the daemon runs
+N simultaneous pipelines in the same process.
 
-The user's hypothesis was that it doesn't make sense to run `sync --heavy` in parallel. The investigation confirmed the hypothesis and found a larger cause behind it: the resource budget for the indexer is applied **via pipeline**, not through processes, and the daemon runs N pipelines simultaneously within the same process.
+The goal of this task is to close the three gaps: the budget across pipelines, the
+duplication of sync processes, and the triggers that produce that duplication.
 
-The objective of this task is to close the three gaps: the pipeline budget gap, the duplication of synchronization processes, and the triggers that produce this duplication.
-
-Outside the scope due to an explicit user decision: reject the registration of directories under
-`/tmp` as a project, and reappeal the orphaned processes `graphit-mcp`.
+Out of scope by the user's explicit decision: refusing to register directories under
+`/tmp` as a project, and reaping the orphaned `graphit-mcp` processes.
 
 ## Implementation Details
 
-Diagnosis (what was established by the investigation)
+### Diagnosis (what the investigation established)
 
-1. The `sysutil.CPUBudget()` (`internal/sysutil/cpu.go:14`) returns `NumCPU - max(2, NumCPU/4)`.
-    — 15 in the measured machine. They derive three independent pools:
-   the Go workers (`ast.SafeWorkers`, `internal/ast/throttle.go:56`), native threads of LadybugDB
-   (`boundedDBThreads`, `internal/ast/resources.go:96`), and ONNX intra-op (`boundedEmbedThreads`, `internal/ai/embedding_local.go:151`). The `ortInitOnce` only initializes the *environment* of ONNX Runtime; the session is client-based, so each embedding module opens its own.
+1. `sysutil.CPUBudget()` (`internal/sysutil/cpu.go:14`) returns `NumCPU - max(2, NumCPU/4)`
+   — 15 on the machine measured. Three independent pools derive from it: the Go workers
+   (`ast.SafeWorkers`, `internal/ast/throttle.go:56`), LadybugDB's native threads
+   (`boundedDBThreads`, `internal/ast/resources.go:96`) and ONNX's intra-op
+   (`boundedEmbedThreads`, `internal/ai/embedding_local.go:151`). `ortInitOnce` only
+   initializes the ONNX Runtime *environment*; the session is per client, so each embedding
+   module opens its own.
 2. `internal/daemon/daemon.go:reconcileProjects` and `ProjectSupervisor.Start`
-   (`internal/daemon/project.go:70`) had no semaphore at all. Each active project gets a supervisor with two modules running in parallel, all in the same process. The `~/.graphit/daemon/daemon.log` registers three live supervisors between 11:11:39 and 11:12:09 (this repository, private corpus, and a temporary directory) — exactly the window where the user measured the hang.
-3. `boundedDBBufferPool` limits to 1 GiB **per database**, and the incremental rebuild keeps two open (production + copy+swap replica). Three projects × two databases = up to 6 GiB of buffer pool only.
-4. `spawnBackgroundSync` (`cmd/graphit/commands/lifecycle.go`) executed
-   `sync --heavy` without locking or checking if it was already running.
-5. The duplication trigger was the git hooks: `internal/git/hooks.go` installed
+   (`internal/daemon/project.go:70`) had no semaphore at all. Every active project gets
+   a supervisor with two modules running in parallel, all in the same process.
+   `~/.graphit/daemon/daemon.log` records three supervisors alive at the same time between
+   11:11:39 and 11:12:09 (this repository, the private corpus and a temporary directory) —
+   exactly the window in which the user measured the lockup.
+3. `boundedDBBufferPool` caps 1 GiB **per database**, and the incremental rebuild keeps two
+   open (production + the copy from the copy+swap). Three projects × two databases = up to 6 GiB of
+   buffer pool alone.
+4. `spawnBackgroundSync` (`cmd/graphit/commands/lifecycle.go`) ran
+   `sync --heavy` with no lock and without checking whether one was already running.
+5. The trigger for the duplication was the git hooks: `internal/git/hooks.go` installed
    `(graphit sync </dev/null >/dev/null 2>&1 &)` in `post-commit`, `pre-push` **and**
-   `post-merge`. Each one runs the full Phase 1 (reindex complete of AST + knowledge + memory cycles) synchronously (full reindex of AST + knowledge + memory cycles), and only then spawns the `--heavy`.
+   `post-merge`. Each of them runs the whole of Phase 1 synchronously (a full reindex of the AST
+   + knowledge + memory cycles) and only then spawns the `--heavy`.
 
-Please note that the inline code blocks are preserved as is, without translation.
+### Changes
 
-Changes
+**`internal/sysutil/gate.go` (new)** — a heavy-work semaphore, process-scoped.
+`AcquireHeavy(ctx)` returns the release function (idempotent, safe for `defer` alongside
+an explicit call). `HeavySlots()` resolves the capacity: 1 by default,
+`GRAPHIT_HEAVY_SLOTS` overrides it, always capped by `CPUBudget()`. A cancelled `ctx`
+returns `ctx.Err()` with a nil release and the caller **must** skip the work.
+`resetHeavyGate()` exists only for the tests.
 
-**`internal/sysutil/gate.go` (new)** — heavy lifting semaphore, process scope.
-`AcquireHeavy(ctx)` returns the function of release (idempotent, safe for `defer` alongside an explicit call).
-`HeavySlots()` resolves capacity: 1 by default, __INLINE_33__ overrides, always limited by `CPUBudget()`. A `ctx` canceled returns `ctx.Err()` with nil release and the caller **must** skip the work.
-`resetHeavyGate()` exists only for testing.
+**`internal/lockfile/` (new)** — an advisory file lock, across processes.
+`TryAcquire(path)` returns `ErrLocked` when another process holds the lock; `Release()` is
+idempotent and safe on a nil `*Lock`. The lock lives on the *open file description*, so a
+process that dies releases it by itself — there is no stale lock to clean up and no PID to
+validate. The pid and the timestamp written into the file are for whoever opens it during a debug.
 
-**`internal/lockfile/` (new)** — consultative file lock, between processes.
-`TryAcquire(path)` returns `ErrLocked` when another process holds the lock; `Release()` is idempotent and safe in a `*Lock` nil. The lock lives in the *open file description*, so a dying process liberates itself alone — there are no obsolete locks to clean up nor PIDs to validate. The PID and timestamp recorded in the file are for those opening during debugging.
+**`internal/daemon/syncmodule.go`** — `handleBatch` went from two independent
+`switch`/`if` to an explicit decision (`astWork`, `knowledgeWork`) followed by a single
+acquisition of the gate for the whole batch. A batch with no work returns **before** touching the
+gate, so an idle supervisor never queues behind a busy one. A wait above
+1s is logged.
 
----INLINE_43--- ---INLINE_44--- transitioned from two independent `switch`/`if`
-to an explicit decision (`astWork`, `knowledgeWork`) followed by a single gate acquisition for the entire batch. A batch without work returns **before** touching the gate, so an idle supervisor never sits behind a busy one. An wait above 1s is logged in the log.
+**`internal/ast/embedder.go`** — the repeated body of the cycle (the initial one and the per-tick one) became a
+`cycle(label, reload)` closure that takes the gate for the duration of the cycle and of the
+`triggerEmbeddingRebuild` that follows. The only side effect in the log: the error message
+of the periodic cycle went from `cycle error` to `embedding cycle error`.
 
----INLINE_43--- ---INLINE_44--- transitioned from two independent `switch`/`if`
-to an explicit decision (`astWork`, `knowledgeWork`) followed by a single gate acquisition for the entire batch. A batch without work returns **before** touching the gate, so an idle supervisor never sits behind a busy one. An wait above 1s is logged in the log.
+**`cmd/graphit/commands/lifecycle.go`** — the `sync` command gained:
+- `acquireSyncLock(wd, name)`, with three outcomes: lock free (proceeds with it), lock
+  taken (skips — the other one is already doing this), or the lock could not be created (proceeds
+  **without** a lock, degrading to the old behavior and recording it in `sync.log`).
+- Separate locks per phase: `.graphit/sync.lock` for Phase 1 and
+  `.graphit/sync-heavy.lock` for Phase 2.
+- A `--debounce <duração>` flag, with `syncedWithin` reading `.graphit/sync.stamp` and
+  `stampSync` writing the stamp at the end of Phase 1.
 
-**INLINE_49** — the repeated body of the cycle (initial and tick-based) turned into a closure **INLINE_50** that takes the gate for the duration of the cycle and the `triggerEmbeddingRebuild` that follows. Unique collateral effect in log: the error message from the periodic cycle passed from **INLINE_52** to **INLINE_53**.
+**`internal/git/hooks.go`** — the hooks pass `--debounce 60s`, via the `hookDebounce`
+constant.
 
-**INLINE_54** — the command **INLINE_55** gained:
-- **INLINE_56**, with three outcomes: free lock (follows it), locked (skips — the other is already doing this), or unable to create a lock (continues **without** lock, degrading to old behavior and registering in **INLINE_57**).
-- Separated locks by phase: **INLINE_58** for Phase 1 and **INLINE_59** for Phase 2.
-- Flag **INLINE_60**, with **INLINE_61** reading **INLINE_62** and **INLINE_63** writing the stamp at the end of Phase 1.
+### Why two locks and not one
 
-**`internal/git/hooks.go`** — os hooks passam `--debounce 60s`, via a constante
-`hookDebounce`.
+`graphit sync` spawns `sync --heavy` and returns right afterwards. With a single lock, the child
+would race against its own parent's release and lose by chance. Two phases, two locks,
+each idempotent with respect to the other.
 
-Why two locks, not one
+### Why the stamp is written after Phase 1
 
-Spawn `sync --heavy` and return immediately after spawning it. With just one lock, the child would run against its own father's release and accidentally lose. Two phases, two locks, each idempotent relative to the other.
-
-Why is the stamp placed after Phase 1
-
-Phase 2 is forget-me-not for the project. Waiting for it would keep the debounce window open indefinitely during an embedding round, and Phase 1 is exactly what a Git hook exists to trigger.
+Phase 2 is fire-and-forget per project. Waiting for it would leave the debounce window
+open for the entire duration of a round of embeddings, and Phase 1 is precisely the part that
+a git hook exists to trigger.
 
 ## Use Cases
 
-### UC-01: Two active projects reindex simultaneously on the daemon
-
-**Actor:** The daemon (`ProjectSupervisor` of each active project)
-
-**Preconditions:** The daemon is running; two or more projects within the activity window;
-modified files in more than one of them.
-
-**Main Flow:**
-
-1. Each `fswatch` delivers a batch to its `handleBatch`.
-2. `handleBatch` classifies the batch and decides `astWork` / `knowledgeWork`.
-3. If there is work, it calls `sysutil.AcquireHeavy(ctx)`.
-4. The first one arrives takes the only slot; the others wait.
-5. The holder runs `reindexAST` or `reindexKnowledge` and releases the slot on `defer`.
-6. The next in line proceeds.
-
-**Alternative Flows:**
-
-- `GRAPHIT_HEAVY_SLOTS=N` increases capacity to `min(N, CPUBudget())`.
-- A batch with `Rescan` is work for both indexers, regardless of which paths it names.
-
-**Error Scenarios:**
-
-- During the wait (supervisor parked or daemon shutting down), `ctx` is canceled:
-  - `AcquireHeavy` returns an error; `handleBatch` does not index and the slot that was never obtained is not released. The next batch reforges the work.
-
-**Postconditions:** At most `HeavySlots()` pipelines are running in the process.
-
+### UC-01: Two active projects reindex at the same time in the daemon
+- **Actor**: daemon (the `ProjectSupervisor` of each active project)
+- **Preconditions**: daemon running; two or more projects inside the activity window;
+  modified files in more than one of them.
+- **Main Flow**:
+  1. Each `SyncModule`'s `fswatch` delivers a batch to its `handleBatch`.
+  2. `handleBatch` classifies the batch and decides `astWork` / `knowledgeWork`.
+  3. If there is work, it calls `sysutil.AcquireHeavy(ctx)`.
+  4. The first to arrive takes the single slot; the others wait.
+  5. The holder runs `reindexAST` and/or `reindexKnowledge` and releases the slot in the `defer`.
+  6. The next in the queue proceeds.
+- **Alternative Flows**:
+  - `GRAPHIT_HEAVY_SLOTS=N` raises the capacity to `min(N, CPUBudget())`.
+  - A batch with `Rescan` is work for both indexers, regardless of the
+    paths it names.
+- **Error Scenarios**:
+  - `ctx` cancelled during the wait (a supervisor being parked or the daemon shutting down):
+    `AcquireHeavy` returns an error, `handleBatch` returns without indexing, and the slot that was never
+    obtained is not released. The next batch redoes the work.
+- **Postconditions**: at most `HeavySlots()` heavy pipelines running in the process.
 - **Affected Files**: `internal/sysutil/gate.go`, `internal/daemon/syncmodule.go`
 
-### UC-02: A batch without work does not enter the queue
-
-**Actor**: daemon (`SyncModule`)
-
-**Preconditions**: batches whose paths are all ignored, or extensions without a parser.
-
-**Main Flow**:
-1. Classifies and retrieves `astWork == false` and `knowledgeWork == false`.
-2. Immediately returns without calling `AcquireHeavy`.
-
-**Error Scenarios**: None — the path does not have any possible failure.
-
-**Postconditions**: The slot remains available for those who need to do something.
-
-**Affected Files**: `internal/daemon/syncmodule.go`
-
-### UC-03: Embedding Cycle Competes with Reindex
-
-**Actor**: daemon (via `EmbeddingModule`)
-
-**Preconditions**: the embedding loop is active; entities pending for embedding.
-
-**Main Flow**:
-1. The tick triggers `cycle("embedding cycle", true)`.
-2. A closure takes the weighted slot.
-3. Reloads the parse cache, runs `embedder.RunCycle`, and if the cycle produces something,
-   `triggerEmbeddingRebuild`.
-4. Releases the slot.
-
-**Alternative Flows**: 
-- The initial embedding loop runs as `cycle("initial cycle", false)` without reloading the recently opened cache.
-
-**Error Scenarios**:
-- `ctx` is canceled during waiting: the cycle skips; the next tick tries again.
-- `RunCycle` fails: registered as `<label> error`; the slot is released by `defer`.
-
-**Postconditions**: The embedding cycle never runs alongside a reindex of the same process.
-
-**Affected Files**: `internal/ast/embedder.go`
-
-### UC-04: Two processes are fired almost simultaneously
-
-- **Actor**: CLI (spawned by __INLINE_107__, typically), usually spawned by __INLINE_108__ or __INLINE_109__
-- **Preconditions**: one phase already executing on the same project.
+### UC-02: A batch with no work does not join the queue
+- **Actor**: daemon (`SyncModule`)
+- **Preconditions**: a batch whose paths are all ignored, or of extensions with no parser.
 - **Main Flow**:
-  1. The second process calls __INLINE_111__.
-  2. __INLINE_112__ returns __INLINE_113__.
-  3. The command silently returns 0, without proceeding to Phase 2.
+  1. `handleBatch` classifies and gets `astWork == false` and `knowledgeWork == false`.
+  2. It returns immediately, without calling `AcquireHeavy`.
+- **Error Scenarios**: none — the path has no possible failure.
+- **Postconditions**: the slot stays available for whoever has something to do.
+- **Affected Files**: `internal/daemon/syncmodule.go`
 
+### UC-03: An embedding cycle competes with a reindex
+- **Actor**: daemon (`EmbeddingModule` via `ast.RunEmbeddingLoop`)
+- **Preconditions**: embedding loop active; entities pending embedding.
+- **Main Flow**:
+  1. The tick fires `cycle("embedding cycle", true)`.
+  2. The closure takes the heavy slot.
+  3. It reloads the parse cache, runs `embedder.RunCycle` and, if the cycle produced anything,
+     `triggerEmbeddingRebuild`.
+  4. It releases the slot.
+- **Alternative Flows**:
+  - The initial cycle runs as `cycle("initial cycle", false)`, without reloading the cache that
+    was just opened.
 - **Error Scenarios**:
-  - The lock could not be created (directory lacks permissions): the error goes to __INLINE_114__, and the command continues without locking — never stops synchronizing due to this.
+  - `ctx` cancelled during the wait: the cycle is skipped; the next tick tries again.
+  - `RunCycle` fails: recorded as `<label> error`; the slot is released by the `defer`.
+- **Postconditions**: the embedding cycle never runs alongside a reindex from the same
+  process.
+- **Affected Files**: `internal/ast/embedder.go`
 
-- **Postconditions**: one Phase 2 per project, once.
-- **Affected Files**: __INLINE_115__ and __INLINE_116__
+### UC-04: Two `sync --heavy` are fired almost at the same time
+- **Actor**: CLI (`graphit sync --heavy`), typically spawned by `sync` or `init`
+- **Preconditions**: a `sync --heavy` already running over the same project.
+- **Main Flow**:
+  1. The second process calls `acquireSyncLock(wd, "sync-heavy.lock")`.
+  2. `lockfile.TryAcquire` returns `ErrLocked`.
+  3. The command returns 0 silently, without running Phase 2.
+- **Error Scenarios**:
+  - The lock could not be created (a directory with no permission): the error goes to `sync.log` and the
+    command **proceeds without a lock** — it never stops syncing because of that.
+- **Postconditions**: a single Phase 2 per project at a time.
+- **Affected Files**: `cmd/graphit/commands/lifecycle.go`, `internal/lockfile/lockfile.go`
 
-### UC-05: Commit followed by push triggers hooks in sequence
-
+### UC-05: A commit followed by a push fires the hooks in sequence
 - **Actor**: git (`post-commit`, then `pre-push`)
-- **Preconditions**: Hooks installed; the tree has changed once.
+- **Preconditions**: hooks installed; the tree changed once.
 - **Main Flow**:
   1. `post-commit` runs `graphit sync --debounce 60s`.
-  2. There is no recent signature, the lock is free: Phase 1 runs and writes
+  2. There is no recent stamp, the lock is free: Phase 1 runs and writes
      `.graphit/sync.stamp`.
-  3. A few seconds later, `pre-push` runs the same command.
-  4. `syncedWithin` reads the signature, sees that it's less than 60s old, and returns 0 without doing anything.
-
+  3. Seconds later, `pre-push` runs the same command.
+  4. `syncedWithin` reads the stamp, sees it is less than 60s old, and the command returns 0 without
+     doing anything.
 - **Alternative Flows**:
-  - The two hooks overlap instead of following each other: the second loses
-    `.graphit/sync.lock` and exits silently — debouncing and locking cover different cases.
-  - `graphit sync` interactive (without `--debounce`): never skips the signature, and when it loses the lock, prints "Another sync is already running — skipping" instead of just exiting quietly.
-
+  - The two hooks overlap instead of following each other: the second loses the
+    `.graphit/sync.lock` and exits silently — the debounce and the lock cover different cases.
+  - An interactive `graphit sync` (without `--debounce`): it is never skipped by the stamp, and on losing
+    the lock it prints "Another sync is already running — skipping" instead of exiting quietly.
 - **Error Scenarios**:
-  - `.graphit/sync.stamp` missing, illegible, or with invalid content: reads as "I don't know" and runs the sync. The debounce only skips what it can prove redundant.
-
-- **Postconditions**: one Phase 1 per 60-second window for each project.
+  - `.graphit/sync.stamp` missing, unreadable or with invalid content: it reads as "I don't know" and
+    the sync runs. The debounce only skips what it can prove redundant.
+- **Postconditions**: one Phase 1 per 60s window per project.
 - **Affected Files**: `internal/git/hooks.go`, `cmd/graphit/commands/lifecycle.go`
 
 ## Test Cases & Acceptance Criteria
@@ -188,199 +195,237 @@ modified files in more than one of them.
 ### Feature: Cross-pipeline resource gate
 Ref: UC-01, UC-02, UC-03
 
-Scenario: Eight Heavy Concurrent Jobs Never Interfere
+#### Scenario: Eight concurrent heavy jobs never overlap
 ```gherkin
-Given that GRAPHIT_HEAVY_SLOTS is defined as "1"
-And the gate was reconstructed from the environment.
-When eight goroutines call AcquireHeavy and hold the slot for one millisecond each.
-The maximum observed competition is one.
+Given GRAPHIT_HEAVY_SLOTS is set to "1"
+  And the gate was rebuilt from the environment
+When 8 goroutines call AcquireHeavy and hold the slot for 1 millisecond each
+Then the maximum concurrency observed is 1
 ```
 
-Scenario: The slot returns to the queue after release
+#### Scenario: The slot goes back to the queue after the release
 ```gherkin
-Given that GRAPHIT_HEAVY_SLOTS is defined as "1"
-And one goroutine obtained the sole slot.
-When she calls the function twice
-Then a new call to AcquireHeavy obtains the slot.
-And the duplicate release did not free up an nonexistent second slot.
+Given GRAPHIT_HEAVY_SLOTS is set to "1"
+  And a goroutine obtained the single slot
+When it calls the release function twice
+Then a new call to AcquireHeavy obtains the slot
+  And the duplicate release did not free a second, nonexistent slot
 ```
 
-#### Scenario: Uma espera cancelada abandona a fila
+#### Scenario: A cancelled wait abandons the queue
 ```gherkin
-Given that GRAPHIT_HEAVY_SLOTS is defined as "1"
-And the only slot is occupied.
-When AcquireHeavy is called with an already canceled context
-The error is context-canceled.
-The function's return value for release is null.
+Given GRAPHIT_HEAVY_SLOTS is set to "1"
+  And the single slot is taken
+When AcquireHeavy is called with an already cancelled context
+Then the error returned is context.Canceled
+  And the release function returned is nil
 ```
 
-Scenario Outline: The capacity is limited by the CPU budget
+#### Scenario Outline: The capacity is capped by the CPU budget
 ```gherkin
-Given that GRAPHIT_HEAVY_SLOTS is defined as "<override>"
-When HeavySlots is consulted
-The result is "<expected>"
+Given GRAPHIT_HEAVY_SLOTS is set to "<override>"
+When HeavySlots is queried
+Then the result is "<expected>"
 
 Examples:
   | override | expected                |
-  | <vazio>  | 1                       |
+  | <empty>  | 1                       |
   | 3        | min(3, CPUBudget())     |
   | 100000   | CPUBudget()             |
 ```
 
-Scenario: An empty batch does not queue up
+#### Scenario: An empty batch does not sit in the queue
 ```gherkin
-The only heavy slot is already occupied by another project.
-When handleBatch receives an unindexable batch
-Then ele retorna em menos de 5 segundos
-  And nunca chamou AcquireHeavy
+Given the single heavy slot is taken by another project
+When handleBatch receives a batch with no indexable paths
+Then it returns in less than 5 seconds
+  And it never called AcquireHeavy
 ```
 
-Scenario: A supervisor is not indexed in the output
+#### Scenario: A supervisor being parked does not index on the way out
 ```gherkin
-Given an IndexingSyncModule pointed to a project without an index
-When `handleBatch` is called with a batch of Rescans and an aborted context
-Then none of the AST banks are open in the project directory
-And the heavy slot remains available for the next caller.
+Given a SyncModule pointed at a project with no index
+When handleBatch is called with a Rescan batch and a cancelled context
+Then no AST database is opened in the project's directory
+  And the heavy slot stays available for the next caller
 ```
 
 ### Feature: Advisory file lock
 Ref: UC-04
 
-The second holder is rejected.
+#### Scenario: The second holder is refused
 ```gherkin
-Given um lock foi obtido em .graphit/sync.lock
-When `TryAcquire` is called on the same path by another open file description
-The error returned is ErrLocked
-And no lock is returned with the error
+Given a lock was obtained on .graphit/sync.lock
+When TryAcquire is called on the same path by another open file description
+Then the error returned is ErrLocked
+  And no Lock is returned along with the error
 ```
 
-Scenario: The lock is released for the next one.
+#### Scenario: The lock is released for the next one
 ```gherkin
-Given um lock foi obtido e depois liberado
-When `TryAcquire` is called on the same path
-Then it is unlocked.
+Given a lock was obtained and then released
+When TryAcquire is called on the same path
+Then the lock is granted
 ```
 
-Scenario: The two phases do not compete for the same lock
+#### Scenario: The two phases do not contend for the same lock
 ```gherkin
-Given a Phase 1 lock.
-When a Fase 2 pede .graphit/sync-heavy.lock
-Then it is unlocked.
+Given Phase 1 holds .graphit/sync.lock
+When Phase 2 asks for .graphit/sync-heavy.lock
+Then the lock is granted
 ```
 
-Scenario: Release is Idempotent
+#### Scenario: Release is idempotent
 ```gherkin
-Given um lock foi obtido
-When "Release" is called twice
-And Release is called in a *Lock Nil state.
-Then none of the calls panics.
+Given a lock was obtained
+When Release is called twice
+  And Release is called on a nil *Lock
+Then none of the calls panics
 ```
 
-Scenario: The file names who holds it
+#### Scenario: The file names who holds it
 ```gherkin
-Given um lock foi obtido
+Given a lock was obtained
 When the lock file is read
-Then the first line is the process ID of the holding process.
-And the second line is a timestamp.
+Then the first line is the pid of the holding process
+  And the second line is a timestamp
 ```
 
 ### Feature: Hook debounce
 Ref: UC-05
 
-Scenario: A recent synchronization has been skipped
+#### Scenario: A sync that just finished is skipped
 ```gherkin
-Given stampSync acabou de gravar .graphit/sync.stamp
-When it is consulted, it uses a window of one minute.
-Then ele responde que o sync deve ser pulado
+Given stampSync has just written .graphit/sync.stamp
+When syncedWithin is queried with a window of 1 minute
+Then it answers that the sync should be skipped
 ```
 
-Scenario Outline: Windows That Cannot Jump Anything
+#### Scenario Outline: Windows that cannot skip anything
 ```gherkin
-Given "<estado>" do carimbo
-When it is consulted, it uses the window "<window>".
-Then ele responde que o sync deve rodar
+Given "<state>" of the stamp
+When syncedWithin is queried with the window "<window>"
+Then it answers that the sync should run
 
 Examples:
-  | estado                        | janela      |
-  | nenhum carimbo em disco       | 1 minuto    |
-Stamp with an invalid text | 1 hour
-Carved stamp newly impressed with 0.
-Stamp newly engraved | -1 minute
-Carving newly engraved is 1 nanosecond.
+  | state                         | window      |
+  | no stamp on disk              | 1 minute    |
+  | stamp with invalid text       | 1 hour      |
+  | stamp just written            | 0           |
+  | stamp just written            | -1 minute   |
+  | stamp just written            | 1 nanosecond |
 ```
 
-#### Scenario: O script do hook carrega a janela
+#### Scenario: The hook script carries the window
 ```gherkin
-Given that hookScript is generated for any of the three hooks
-When it's inspected
-It contains "--debounce" followed by "hookDebounce".
-And `hookDebounce` is a duration that the command `sync` can interpret.
+Given hookScript is generated for any one of the three hooks
+When the script is inspected
+Then it contains "--debounce" followed by hookDebounce
+  And hookDebounce is a duration the sync command can parse
 ```
 
 ## Files Changed
 
-
-```markdown
 | File | Change | Reason |
 |---|---|---|
-| `internal/sysutil/gate.go` | Created | Heavy work semaphore with process scope |
-| `internal/sysutil/gate_test.go` | Created | Serialization, idempotent release, cancellation, capacity limits |
-| `internal/lockfile/lockfile.go` | Created | Consultative lock between processes |
+| `internal/sysutil/gate.go` | Created | Process-scoped heavy-work semaphore |
+| `internal/sysutil/gate_test.go` | Created | Serialization, release idempotency, cancellation, capacity limits |
+| `internal/lockfile/lockfile.go` | Created | Advisory lock across processes |
 | `internal/lockfile/lockfile_unix.go` | Created | `flock(2)` with `LOCK_EX\|LOCK_NB` |
 | `internal/lockfile/lockfile_windows.go` | Created | `LockFileEx` with `FAIL_IMMEDIATELY` |
-| `internal/lockfile/lockfile_test.go` | Created | Exclusion, release, creation of parent directory, signature by owner |
-| `internal/daemon/syncmodule.go` | Modified | Takes a slot per batch and exits early when there is no work |
-| `internal/daemon/syncmodule_gate_test.go` | Created | Empty batch does not queue; cancellation does not index or empty the slot |
-| `internal/ast/embedder.go` | Modified | Embedding cycle and its rebuild run under gate |
-| `cmd/graphit/commands/lifecycle.go` | Modified | Phase locks, flag `--debounce`, sync signature |
-| `cmd/graphit/commands/sync_guard_test.go` | Created | Phase locks, debounce windows, illegible signature |
-| `internal/git/hooks.go` | Modified | Hooks pass `--debounce 60s` |
-| `internal/git/git_test.go` | Modified | The hook script needs a valid window |
-| `docs/specs/daemon_module.md` | Modified | Documentates the gate between pipelines and its scope limit |
-| `docs/specs/git_module.md` | Modified | Documents debounce hooks |
-
-```
+| `internal/lockfile/lockfile_test.go` | Created | Exclusion, release, parent directory creation, holder stamp |
+| `internal/daemon/syncmodule.go` | Modified | `handleBatch` takes one slot per batch and exits early when there is no work |
+| `internal/daemon/syncmodule_gate_test.go` | Created | An empty batch does not queue; cancellation neither indexes nor leaks the slot |
+| `internal/ast/embedder.go` | Modified | The embedding cycle and its rebuild run under the gate |
+| `cmd/graphit/commands/lifecycle.go` | Modified | Per-phase locks, `--debounce` flag, sync stamp |
+| `cmd/graphit/commands/sync_guard_test.go` | Created | Per-phase locks, debounce windows, unreadable stamp |
+| `internal/git/hooks.go` | Modified | The hooks pass `--debounce 60s` |
+| `internal/git/git_test.go` | Modified | The hook script has to carry a valid window |
+| `docs/specs/daemon_module.md` | Modified | Documents the cross-pipeline gate and its scope limit |
+| `docs/specs/git_module.md` | Modified | Documents the hook debounce |
 
 ## Trade-offs & Decisions
 
-- **Serializing instead of dividing the budget.** The alternative was to divide `CPUBudget()` by the number of active supervisors while keeping everyone progressing with fewer threads.
-  It was discarded: dividing threads does not limit RAM (the buffer pool is open, not per thread), and working in batches does not become faster when split — it becomes slower, due to thrashing. Serializing limits CPU and memory using the same mechanism.
-- **Capacity 1 as default, not precautionary.** `CPUBudget` already delivers everything that the pipeline can have on the machine; a second slot is by definition overloading. `GRAPHIT_HEAVY_SLOTS` serves as an escape for those who prefer to swap memory peaks for draining.
-- **A slot per batch, not index indexer.** A batch that touches code and documentation could take and return the slot twice, giving more chances to other projects. Prefered not to go back in the queue mid-work while already having the slot in hand.
-- **Failure to create a lock degrades it to "no lock".** An `.graphit` directory without write permissions is reason for logging and continuing with the old behavior, never stopping synchronization silently at the project's end.
+- **Serialize instead of splitting the budget.** The alternative was to divide `CPUBudget()`
+  by the number of active supervisors, keeping them all progressing with fewer threads each.
+  It was discarded: splitting threads does not cap RAM (the buffer pool is per open database, not
+  per thread), and batch work does not get faster when sliced — it gets slower,
+  from thrash. Serializing caps CPU and memory with the same mechanism.
+- **Capacity 1 as the default, not as a precaution.** `CPUBudget` already hands a single
+  pipeline everything it can have from the machine; a second slot is, by definition,
+  overload. `GRAPHIT_HEAVY_SLOTS` remains as an escape hatch for anyone who prefers to trade peak
+  memory for throughput.
+- **One slot per batch, not per indexer.** A batch that touches code and documentation
+  could take and give back the slot twice, giving the other projects more of a turn. We preferred
+  not to go back to the end of the queue in the middle of work that already has the slot in hand.
+- **Failing to create the lock degrades to "no lock".** A `.graphit` directory without write
+  permission is a reason to record it and proceed with the old behavior, never to stop
+  syncing the project silently.
 - **Separate locks per phase.** See "Why two locks and not one", above.
-- **Conscious duplication of wrappers of `flock`.** `internal/daemon/pidfile_unix.go` and `internal/daemonctl/flock_unix.go` already have equivalent wrappers. Unifying them in three places would require changing the daemon's PID management and spawn path — a larger change, in sensitive code without relation to the issue at hand. See Technical Debt.
-
-Note: The inline references (e.g., `CPUBudget()`) are placeholders for actual lines or sections of text that should be replaced with the corresponding content when translating from Portuguese to English.
+- **Deliberate duplication of the `flock` wrappers.** `internal/daemon/pidfile_unix.go` and
+  `internal/daemonctl/flock_unix.go` already have equivalent wrappers. Unifying them across the three
+  places would require touching the daemon's PID handling and the spawn path — a bigger change,
+  in sensitive code, unrelated to the problem at hand. See Technical Debt.
 
 ## Technical Debt
 
-- [ ] **Nothing coordinates the daemon against an __INLINE_159__ CLI command line interface (CLI).** The gate is process-based, and file locks cover CLI-to-CLI interactions. A commit could still run a full reindex while the `SyncModule` of the daemon reacts to the same write events—another 2× collision that remains unresolved. Resolving this would require a process lock that the daemon respects, deciding what it does when it loses it (waiting for the watcher to catch up; skipping ahead leaves the index behind in the tree).
-- [ ] **Three copies of the `flock` wrappers**—`internal/lockfile`, `internal/daemonctl`, and `internal/daemon/pidfile_*`. Consolidate them into `internal/lockfile` when someone is already working on managing the daemon’s PID handling.
-- [x] **Section 2 and Section 4 describe polling of __INLINE_167__ that the `fswatch` replaces.** Previous debt from this task, found during documentation of the gate. Resolved in [[correct-defect-docs-watcher-fswatch]], where audit showed that the defect also affected `ast_module.md`, `memory_module.md`, the architecture diagram, and an orphaned comment in `internal/daemon/memorysyncmodule.go`. 
-- [ ] **Temporary directories registered as permanent projects.** A directory under `/tmp` had been in `~/.graphit/global.lock.json` since 2026-08-06, still being supervised. Out of scope due to user decision.
-- [ ] **Orphaned processes.** 13 running at the time of measurement, six during runtime, with uptime ranging from 3 to 5 days. Out of scope due to user decision.
+- [ ] **Nothing coordinates the daemon against a CLI `graphit sync`.** The gate is per process and
+  the file locks cover CLI-against-CLI. A commit can still make the hook run a
+  full reindex while the daemon's `SyncModule` reacts to the same write events —
+  a 2× collision that is left over. Solving it would require a cross-process lock that the daemon
+  honors, and deciding what it does when it loses it (waiting stalls the watcher; skipping leaves the
+  index behind the tree).
+- [ ] **Three copies of the `flock` wrappers** — `internal/lockfile`, `internal/daemonctl` and
+  `internal/daemon/pidfile_*`. Consolidate into `internal/lockfile` when somebody is already
+  touching the daemon's PID handling.
+- [x] **`docs/specs/daemon_module.md` §2 and §4 describe the `git status` polling that
+  `fswatch` replaced.** Debt predating this task, found while documenting the gate.
+  Resolved in [[fix-docs-watcher-fswatch-lag]], where the audit showed that the
+  lag also reached `ast_module.md`, `memory_module.md`, the architecture
+  diagram and an orphaned comment in `internal/daemon/memorysyncmodule.go`.
+- [ ] **Temporary directories registered as a permanent project.** A directory under
+  `/tmp` had been in `~/.graphit/global.lock.json` since 2026-08-06, still supervised.
+  Out of scope by the user's decision.
+- [ ] **Orphaned `graphit-mcp` processes.** 13 alive at measurement time, six from the `v0.1.27` runtime,
+  with 3 to 5 days of uptime. Out of scope by the user's decision.
 
 ## System Knowledge
 
-- **The median of the `%CPU` is life, not instantaneous.** The 1047% of the daemon means ~20.6 hours of CPU accumulated in 1h58m — sustained saturation, not a peak. Useful for not confusing a process that burned the machine with one that was burning at that second.
-- **Parking by idleness masks the problem instead of resolving it.** The window of 30 minutes makes it rare to have more than one active project, so the multiplication of budget only appears when two or three coincide. That's why it went unnoticed.
-- **`ortInitOnce` does not share the ONNX session.** It initializes only the *environment* of the ONNX Runtime. Each `EmbeddingClient` opens its own session with `SetIntraOpNumThreads(boundedEmbedThreads())`, so N modules of embedding mean N pools of threads of the full budget size.
-- **`flock` is due to open file description, not process.** Two calls to `TryAcquire` in the same path within the same process are excluded, which makes the lock testable without subprocesses.
-- **The discovery of daemon projects is `hub.GlobalLockManager.ListActiveProjects` (`cmd/graphit/commands/daemon.go`), reading `~/.graphit/global.lock.json`. Any `graphit init` in a temporary directory produces indefinite supervision. - __INLINE_187___ is partially delayed — see Technical Debt. When reading that spec, trust what it says about discovery and schedulers, not what it says about detecting changes.
-- **The median of the `%CPU` is life, not instantaneous.** The 1047% of the daemon means ~20.6 hours of CPU accumulated in 1h58m — sustained saturation, not a peak. Useful for not confusing a process that burned the machine with one that was burning at that second.
-- **Parking by idleness masks the problem instead of resolving it.** The window of 30 minutes makes it rare to have more than one active project, so the multiplication of budget only appears when two or three coincide. That's why it went unnoticed.
-- **The discovery of daemon projects is `hub.GlobalLockManager.ListActiveProjects` (`cmd/graphit/commands/daemon.go`), reading `~/.graphit/global.lock.json`. Any `graphit init` in a temporary directory produces indefinite supervision. - __INLINE_187___ is partially delayed — see Technical Debt. When reading that spec, trust what it says about discovery and schedulers, not what it says about detecting changes.
+- **`ps`'s `%CPU` is a lifetime average, not an instantaneous value.** The daemon's 1047% means ~20.6
+  hours of CPU accumulated in 1h58m — sustained saturation, not a spike. Useful for not
+  confusing a process that burned the machine with one that was burning it that second.
+- **Parking by idleness masks the problem instead of solving it.** The 30-minute
+  window means there is rarely more than one active project, so the multiplication of the
+  budget only shows up when two or three coincide. That is why it went unnoticed.
+- **`ortInitOnce` does not share the ONNX session.** It only initializes the ONNX Runtime
+  *environment*. Each `EmbeddingClient` opens its own session with
+  `SetIntraOpNumThreads(boundedEmbedThreads())`, so N embedding modules mean N
+  thread pools the size of the whole budget.
+- **`flock` is per open file description, not per process.** Two calls to `TryAcquire`
+  on the same path within the same process exclude each other, which is what makes the lock testable
+  without subprocesses.
+- **The daemon's project discovery is `hub.GlobalLockManager.ListActiveProjects`**
+  (`cmd/graphit/commands/daemon.go`), reading `~/.graphit/global.lock.json`. Any
+  `graphit init` in a temporary directory produces supervision for an indefinite time.
+- **`docs/specs/daemon_module.md` is partially out of date** — see Technical Debt. When
+  reading that spec, trust what it says about discovery and schedulers, not what it says
+  about change detection.
 
 ## Progress Log
 
 ### 2026-08-08
-
-- Measure the machine: load 30.47/20 CPUs, with `some avg10=32.38` of CPU pressure, zeroed I/O pressure, and a swap space of 132 KB free from 2 GB.
-- Traced the path from `sync --heavy` to `spawnBackgroundSync`, then to the three Git hooks—causing process duplication.
-- Found the root cause in ___INLINE_191__: simultaneous supervisors without semaphores among them, with CPU budget applied by pipeline.
-- Implemented gate (`internal/sysutil/gate.go`), lock (`internal/lockfile/`), phase locks, and debounce.
-- `go build -tags fts5 ./...` and `go vet -tags fts5 ./...` are clean. Suites of `internal/daemon`, `internal/ast`, `internal/git`, `internal/lockfile`, `internal/sysutil`, and `cmd/graphit/commands` pass.
-- Observed during the execution of tests: **another agent was editing this same repository in parallel** (the `git status` changed between two commands and a `zz_calls_test.go` transitional command broke a test compilation). This change has nothing to do with it, but relevant for those reproducing results.
-
-Note: The code blocks and inline comments have been preserved as per your request.
+- Measured the machine: load 30.47/20 CPUs, `some avg10=32.38` of CPU pressure, I/O
+  pressure at zero, swap with 132 KB free out of 2 GB.
+- Traced the path of `sync --heavy` down to `spawnBackgroundSync`, and from there to the three git
+  hooks — the cause of the process duplication.
+- Found the bigger cause in `daemon.log`: three simultaneous supervisors, with no semaphore
+  between them, with the CPU budget applied per pipeline.
+- Implemented the gate (`internal/sysutil/gate.go`), the lock (`internal/lockfile/`), the
+  per-phase locks and the debounce.
+- `go build -tags fts5 ./...` and `go vet -tags fts5 ./...` clean. The
+  `internal/daemon`, `internal/ast`, `internal/git`, `internal/lockfile`,
+  `internal/sysutil` and `cmd/graphit/commands` suites passing.
+- Observed while running the tests: **another agent session was editing this
+  same repository in parallel** (the `git status` changed between two commands and a
+  transient `zz_calls_test.go` broke a test compilation). Nothing to do with this
+  change, but relevant for anyone reproducing the results.

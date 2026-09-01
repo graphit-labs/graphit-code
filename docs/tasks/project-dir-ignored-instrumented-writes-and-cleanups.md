@@ -1,200 +1,229 @@
 ---
-title: Ignored project directory in lifecycle tools, written instrumented, and cleans
+title: project_dir ignored in the lifecycle tools, instrumented writes and cleanups
 status: done
 created: 2026-08-11
 updated: 2026-08-11
 tags: [mcp, hub, ast, escrita, performance, ui, concorrencia]
 ---
 
-Ignored in tools of the lifecycle cycle, scripted, and cleans
+# project_dir ignored in the lifecycle tools, instrumented writes and cleanups
 
 ## Objective
 
-Five fronts, exits from a performance analysis and a real incident:
+Five fronts, coming out of a performance analysis and of a real incident:
 
-1. The project accepted __INLINE_0__ and removed files from another project. Correct and audit if any other tool does the same.
-2. Assign the indexing phase — 80% of time on a single node — and act according to measurement.
-3. Writing did not report progress, so it seemed stuck.
-4. Audit the `select` with the form that gate accepted an abandoned context.
-5. Reset the 26 warnings from __INLINE_3__.
+1. `graphit_remove` accepted `project_dir` and removed files of ANOTHER project. Fix it and
+   audit whether any other tool does the same.
+2. Attribute the index write phase — 80% of the time, on a single core — and act according to the
+   measurement.
+3. The write did not report progress, and for that reason it looked stuck.
+4. Audit the `select`s with the shape that let the gate accept a cancelled context.
+5. Bring the 26 `ui-lint` warnings to zero.
 
 ## Implementation Details
 
-The **__INLINE_4__** that was not honored
+### 1. The `project_dir` that was not honoured
 
-The processes `hub.OnInit`, `hub.OnUpdate`, and `hub.OnRemove` resolved the entire path with
-`paths.GetPaths(ide, false)`, which starts from the working directory of the PROCESS. This is correct for CLI within the project,
-and wrong for the MCP server: a long-running process stopped in a project while its tools received an `project_dir` that names another one.
-The `graphit_remove` called with a temporary directory removed the IDE adapter, rules, the `CLAUDE.md` and the global registration **of the repository where the server was running**.
+`hub.OnInit`, `hub.OnUpdate` and `hub.OnRemove` resolved every path with
+`paths.GetPaths(ide, false)`, which walks up from the working directory of the PROCESS. That is
+correct for the CLI, typed inside the project, and wrong for the MCP server: a long-lived
+process parked in one project while its tools receive a `project_dir` that names
+another. `graphit_remove` called with a temporary directory removed the IDE adapter, the
+rules, `CLAUDE.md` and the global registration **of the repository where the server was running**.
 
-The three functions began to receive __INLINE_12__ and started using __INLINE_13__, which already existed. __INLINE_14__ preserves the old behavior, which is what the CLI passes.
+The three functions now receive `projectDir` and use `paths.GetPathsForProject`, which already
+existed. An empty `projectDir` preserves the old behaviour, which is what the CLI passes.
 
-The first fixed the main path and **not enough**: `OnRemove` still called
-`svc.UninstallAll(ctx, ide, "")` and `OnUpdate` still called `svc.UpdateAll(ctx, ide, "")` — and an empty string is exactly what causes `GetPathsForProject` to fall back into the working directory. That was where the `graphit.lock.json` of the repository continued being deleted, which only appeared because the new test erased it again.
+The first pass fixed the main path and **was not enough**: `OnRemove` still called
+`svc.UninstallAll(ctx, ide, "")` and `OnUpdate` still called `svc.UpdateAll(ctx, ide, "")` — and
+an empty string is exactly what makes `GetPathsForProject` fall back to the working
+directory. That is how the repository's `graphit.lock.json` kept being deleted, which
+only showed up because the new test deleted it again.
 
----
+`graphit_remove` also used `git.NewHookManager("")`, now `git.NewHookManager(projectDir)`.
 
-Note: The inline code blocks (e.g., `OnRemove`) are placeholders and should be replaced with actual content or removed if not needed for translation.
+**Audit** (what the task asked for): the only points that accepted a project and resolved
+by another path were those. In the CLI (`cmd/graphit/commands/lifecycle.go`) the working
+directory IS the project, so `NewHookManager("")` is still correct there and was left as it is.
 
-Also used `git.NewHookManager("")` now `git.NewHookManager(projectDir)`.
+**Side effect of the same bug:** the `internal/hub` test suite mutated the user's
+REAL `~/.graphit/global.lock.json`. Fixing the forwarding of `projectDir` resolved
+both — verified by hashing the file before and after running the whole package.
 
-**Audit** (what the task required): The only points that accepted a project and resolved it were these. In CLI (`cmd/graphit/commands/lifecycle.go`), the working directory is the project, so `NewHookManager("")` remains correct there and was left as it is.
+### 2. The write, measured before being optimized
 
-**Side effect of the same bug:** The test suite for __INLINE_26__ mutated the __INLINE_27__ REAL user data. Correcting the transfer of __INLINE_28__ resolved both — verified by hash before and after running the entire package.
+`RebuildFromJSON` now accounts separately for serialization (`writeJSON`) and
+ingestion (`COPY`), and reports `serialize_s`, `copy_s` and `rows` in the `COPY complete` log.
 
-2. The writing was done before optimization.
+Measured over this repository's real cache (842 files, 216.099 lines):
 
-It passed to separately count the serialization (__INLINE_30__) and ingestion (__INLINE_31__), and report __INLINE_32__, __INLINE_33__, and __INLINE_34__ in the log of __INLINE_35__.
+| part | time | fraction |
+|---|---|---|
+| COPY (database) | 6.50 s | 58% |
+| serialization to disk | 1.03 s | 9% |
+| building the in-memory maps | ~1.0 s | 9% |
+| schema, cache load, swap, post-processing | ~2.6 s | 24% |
+| **total of the rebuild** | **11.16 s** | |
 
-Measured against this repository's actual cache (842 files, 216,099 lines):
+Per call: 124 COPYs, and **a COPY of a single row takes 21–132 ms**. COPYs with fewer than
+50 rows cost 26 ms on average; with 50 or more, 59 ms. It is a floor per call, not volume.
 
-The total rebuild time is 11.16 seconds.
+**Two optimizations were tested and discarded, with measurement:**
 
-By call: 124 COPS, and **a single line copy takes between 21-132 milliseconds**. Copies with fewer than 50 lines cost on average 26 milliseconds; copies with 50 or more take 59 milliseconds. This is by call, not volume.
+- **Wrapping the COPYs in a transaction.** `copy_s` fell from 6.50 s to 3.00 s, but the total
+  rebuild came out at 10.90 s against 11.16 s — the time merely moved to the COMMIT, which was not
+  being accounted for. Besides gaining nothing, it would change the semantics of a partial error: today a COPY that
+  fails is counted and the swap is aborted, keeping the previous database.
+- **Parallelizing the COPYs.** `LadybugBackend.execQuery` takes a mutex over a single connection,
+  so concurrency on the Go side would only produce a queue on the same lock. Doing it for real would require
+  multiple connections on the same database, which this project already knows to be dangerous ground.
 
-Two optimizations were tested and discarded, with measurement:
+What stayed was the instrumentation, which is what allows deciding this again with data.
 
-- **Wrap the COPS in a transaction.** `copy_s` dropped from 6.50 seconds to 3.00 seconds, but the total rebuild time remained at 10.90 seconds compared to 11.16 seconds — only time migrated to COMMIT, which was not counted. In addition, it would no longer gain by changing partial error semantics: today, a failed COPY is counted and the swap is aborted, preserving the old database.
-- **Parallelize the COPS.** `LadybugBackend.execQuery` acquires a mutex on a single connection, so concurrency on the Go side only produces a queue in the same lock. To do it truly would require multiple connections to the same database, which this project already knows is perilous terrain.
+### 3. Progress during the write
 
-What remains is the instrumentation, which allows this to be decided anew with data.
+`RebuildFromJSONWithProgress` reports rows as they go in; `RebuildFromJSON` delegates to it
+with `nil`, so the nine existing call sites remain intact. The pipeline wires the callback to
+`OnProgress("writing", rows, files, errors)` and the CLI reporter now prints
+`Writing graph: N row(s) from M file(s)`.
 
-Progress during writing
+### 4. The `select`s where cancellation loses the draw
 
-The report is inline 38 and reports as entries come in; inline 39 delegates to it.
-With inline 40, the nine existing call sites remain intact. The pipeline connects the callback to inline 41, and the CLI relater now prints inline 42.
+Three candidates, handled by what each one does:
 
-### 4. The `select` where cancellation loses the draw
-
-Three candidates, treated according to what each one does:
-
-- `internal/fswatch/fswatch.go:272` — **corrected**. The batch proceeds to the `SyncModule`, which is
-  the path of heavy work; an `ctx.Err()` before the select costs a branch.
-- `internal/ast/pipeline.go:407` and `:431` — **as they are**. Both loops already test `ctx.Err()` at the top, and losing the draw results in either a path or more processed result. Extra code there would be noise.
+- `internal/fswatch/fswatch.go:272` — **fixed**. The batch goes on to the `SyncModule`, which is
+  the path of the heavy work; a `ctx.Err()` before the select costs one branch.
+- `internal/ast/pipeline.go:407` and `:431` — **left as they are**. Both loops already test
+  `ctx.Err()` at the top, and the consequence of losing the draw is one extra path or one extra result
+  processed. Extra code there would be noise.
 
 ### 5. `ui-lint`
 
 26 → 0. Twenty-two were `no-unused-vars` (imports, arguments, dead variables, and four
-`catch (err)` that turned into `catch {}`). One `no-explicit-any` became `isValidElement` with the declared type. Of the three `exhaustive-deps`, two asked for `containerRef`/`getNodeColor`, which are stable and already depended on by another hook in the same file — included. The third, in `SubmitModal`, seeds the form when the modal opens: including
-`gitAuthor`/`isUpdate`/`existingScope` would cause the form to run again with the modal open and overwrite what the user had entered, so there is a `eslint-disable-next-line` with the reason written.
+`catch (err)` that became `catch {}`). One `no-explicit-any` became `isValidElement` with the type
+declared. Of the three `exhaustive-deps`, two asked for `containerRef`/`getNodeColor`, which are
+stable and already appeared as a dependency of another hook in the same file — included. The
+third, in `SubmitModal`, seeds the form when the modal opens: including
+`gitAuthor`/`isUpdate`/`existingScope` would make the effect run again with the modal open and
+overwrite what the user typed, so there goes an `eslint-disable-next-line` with the
+reason written down.
 
 ## Use Cases
 
-### UC-01: Remove Graphit from a Project via the MCP Tool
+### UC-01: Remove Graphit from a project through the MCP tool
+- **Actor**: `graphit_remove` MCP tool.
+- **Preconditions**: the MCP server runs in project A; the call names project B.
+- **Main Flow**:
+  1. The handler resolves `projectDir` = B.
+  2. `git.NewHookManager(B)` removes B's hooks.
+  3. `RemoveGitignore` acts on B's `.gitignore`.
+  4. `hub.OnRemove(..., B)` assembles the paths with `GetPathsForProject(ide, B)`.
+  5. The IDE adapter removes under `pp.ActiveProjectDir`, which is B.
+  6. Being the last IDE, `UninstallAll(ctx, ide, B)` uninstalls B's artifacts and the project is deregistered from the global lock.
+- **Alternative Flows**:
+  - `project_dir` absent: resolves to the working directory, like the CLI.
+- **Error Scenarios**:
+  - Registry unavailable: the local removal goes on; the event is not tracked.
+- **Postconditions**: nothing outside B is touched — in particular the project where the server runs.
+- **Affected Files**: `internal/mcpstdio/tools_lifecycle.go`, `internal/hub/lifecycle.go`.
 
-**Actor**: MCP tool `graphit_remove`
-
-**Preconditions**: The MCP server runs in project A; the call names project B.
-
-**Main Flow**:
-1. Handler resolves `projectDir` = B.
-2. `git.NewHookManager(B)` removes hooks from B.
-3. `RemoveGitignore` ages in `.gitignore` of B.
-4. `hub.OnRemove(..., B)` builds paths with `GetPathsForProject(ide, B)`.
-5. IDE adapter removes `pp.ActiveProjectDir`, which is B.
-6. Since it's the last IDE, `UninstallAll(ctx, ide, B)` uninstalls artifacts from B and deregisters the project from the global lock.
-
-**Alternative Flows**:
-- `project_dir` absent: resolves to work directory, as CLI.
-
-**Error Scenarios**:
-- Registry unavailable: local removal follows; event not tracked.
-
-**Postconditions**: nothing outside of B is touched — particularly the project where the server runs.
-- Affected Files: `internal/mcpstdio/tools_lifecycle.go`, `internal/hub/lifecycle.go`.
-
-### UC-02: Monitor the Graph Writing Process
-
-**Actor:** The `graphit ast index` actor of the daemon.
-**Preconditions:** Parsing completed with input in cache.
-**Main Flow:**
-1. The pipeline emits `OnProgress("writing", 0, files, errors)` as it enters the phase.
-2. `RebuildFromJSONWithProgress` calls the callback at each COPY, with the accumulated lines.
-3. The CLI rewrites the progress line with lines and files.
-
-**Error Scenarios:**
-- `onProgress` is nil: the rebuild proceeds identically — this is the path of the other nine callers.
-
-**Postconditions:** The longest phase becomes silent.
-
-**Affected Files:** `internal/ast/json_rebuild.go`, `internal/ast/pipeline.go`, `cmd/graphit/commands/runners.go`
+### UC-02: Follow the graph write
+- **Actor**: `graphit ast index`, the daemon's `SyncModule`.
+- **Preconditions**: parse completed with entries in the cache.
+- **Main Flow**:
+  1. The pipeline emits `OnProgress("writing", 0, files, errors)` on entering the phase.
+  2. `RebuildFromJSONWithProgress` calls the callback on each COPY, with the accumulated rows.
+  3. The CLI rewrites the progress line with rows and files.
+- **Error Scenarios**:
+  - `onProgress` nil: the rebuild goes on the same — it is the path of the other nine callers.
+- **Postconditions**: the longest phase stops being silent.
+- **Affected Files**: `internal/ast/json_rebuild.go`, `internal/ast/pipeline.go`, `cmd/graphit/commands/runners.go`.
 
 ## Test Cases & Acceptance Criteria
 
-Feature: The tools honor the project received
-
+### Feature: the lifecycle tools honour the project they receive
 Ref: UC-01
 
-Scenario: Remove Age from Project Informed
+#### Scenario: remove acts on the project given
 ```gherkin
-Given a temporary project with a lockfile registering the IDE "Claude"
-And a process whose working directory is another project
-When `OnRemove` is called with the temporary directory
-Then it is removed from the lock file in the temporary directory.
+Given a temporary project with a lockfile registering the IDE "claude"
+  And a process whose working directory is another project
+When OnRemove is called with the temporary directory
+Then the IDE no longer appears in the lockfile of the temporary directory
 ```
 
-Scenario: Remove without uninstalling from work directory
+#### Scenario: remove does not uninstall from the working directory
 ```gherkin
-Given an interim project with only one registered ID, "Claude"
-And an existing graphit.lock.json file in the working directory
-When `OnRemove` is called with the temporary directory
-The graphit.lock.json file in the working directory remains present.
+Given a temporary project whose only registered IDE is "claude"
+  And an existing graphit.lock.json in the working directory
+When OnRemove is called with the temporary directory
+Then the graphit.lock.json of the working directory still exists
 ```
-Note: This scenario reproduces the actual damage. Without correction in `UninstallAll`, running the test would erase the lockfile of its own repository.
+Note: this scenario reproduces the real damage. Without the fix in `UninstallAll`, running the test
+deleted the lockfile of the repository itself.
 
-Scenario: The paths are within the project specified
+#### Scenario: the paths stay inside the project given
 ```gherkin
 Given a temporary project directory
-When the paths are resolved for this project
-Then o lockfile fica dentro dele
-And it does not match with the working directory
+When the paths are resolved for that project
+Then the lockfile is inside it
+  And it does not coincide with the working directory
 ```
 
 ## Files Changed
 
-File | Change | Reason  
---- | --- | ---  
-Inline 85 | Modified | Inline 86/87/88 receive Inline 89; Inline 90/91 stop receiving empty string  
-Inline 92 | Modified | Passes resolved Inline 93 to Inline 94  
-Inline 95 | Modified | Passes Inline 96 while preserving CLI behavior  
-Inline 97 | Created | Fixes the three properties above  
-Inline 98 | Modified | Instrumentation for serialize/copy/rows; variant with progress  
-Inline 99 | Modified | Links progress of writing to Inline 100  
-Inline 101 | Modified | Shows lines written during phase  
-Inline 102 | Modified | Cancels batch send when inline 103 (12 files) is modified  
-Inline 103 (12 files) | Modified | 26 lint warnings → 0
+| File | Change | Reason |
+|---|---|---|
+| `internal/hub/lifecycle.go` | Modified | `OnInit`/`OnUpdate`/`OnRemove` receive `projectDir`; `UpdateAll`/`UninstallAll` stop receiving an empty string |
+| `internal/mcpstdio/tools_lifecycle.go` | Modified | Forwards the resolved `project_dir`; `NewHookManager(projectDir)` |
+| `cmd/graphit/commands/lifecycle.go` | Modified | Passes `""`, preserving the CLI's behaviour |
+| `internal/hub/lifecycle_projectdir_test.go` | Created | Pins the three properties above |
+| `internal/ast/json_rebuild.go` | Modified | serialize/copy/rows instrumentation; variant with progress |
+| `internal/ast/pipeline.go` | Modified | Wires the write progress to `OnProgress` |
+| `cmd/graphit/commands/runners.go` | Modified | Shows rows written during the phase |
+| `internal/fswatch/fswatch.go` | Modified | Cancellation wins over sending the batch |
+| `internal/ui/src/**` (12 files) | Modified | 26 lint warnings → 0 |
 
 ## Trade-offs & Decisions
 
-- **New parameter instead of new variant in lifecycle hooks.** There are three functions with few callers; one variant `WithProject` for each tripled surface.
-- **New variant instead of parameter in rebuild.** This is the opposite: nine callables, only one needs progress.
-- **Instrumentation remains, but optimizations do not.** Transactions and parallelism were measured and did not pay—first improved time, second hit a single connection issue.
-- **An `eslint-disable` with reason, not complete dependencies.** In `SubmitModal` the lint rule and intent of effect disagree, and following the lint would break user input integrity.
-
-Note: The code blocks (`WithProject`, `eslint-disable`, `SubmitModal`) are placeholders for specific lines or sections that should be replaced with actual code snippets.
+- **A new parameter instead of a new variant in the lifecycle hooks.** They are three functions with
+  few callers; a `WithProject` variant for each would triple the surface.
+- **A new variant instead of a parameter in the rebuild.** Here it is the inverse: nine callers, of
+  which only one needs progress.
+- **The instrumentation stays, the two optimizations do not.** Transaction and parallelism were measured and
+  did not pay off — the first only shifted the time, the second runs into a single connection.
+- **An `eslint-disable` with a reason, and not complete deps.** In `SubmitModal` the lint rule and
+  the intent of the effect disagree, and obeying the lint would break the user's typing.
 
 ## Technical Debt
 
-- [ ] The call latency of ~25 ms per invocation of `COPY` remains the largest component of writing and is not explained — whether it's query planning, implicit transaction, or flush would decide if there’s anything to gain by reducing the number of tables rebuilt.
-- [ ] `IncrementalRebuild` does not report progress; only the complete rebuild reports.
-- [ ] No entity in this project fails today with tokenization, so the warning that names were not collected. If the crash-loop reappears in another corpus, it will be him who gives the names.
+- [ ] The floor of ~25 ms per `COPY` call remains the largest component of the write and
+  was not explained — knowing whether it is query planning, an implicit transaction or a flush would decide
+  whether there is anything to gain by reducing the number of tables per rebuild.
+- [ ] `IncrementalRebuild` does not report progress; only the full rebuild started reporting.
+- [ ] No entity of this project fails tokenization today, so the warning that would name them
+  had nothing to collect. If the crash-loop reappears in another corpus, that is what will give the names.
 
 ## System Knowledge
 
-- **`paths.GetPaths` starts from the working directory of the process; `GetPathsForProject`
-  accepts the project.** On an MCP server, the first is almost always wrong, and the error is
-  silent: the operation works on the wrong project.
-- **Passing `""` as a project is not neutral** — it falls back to the working directory. This was how the first half of the correction went unnoticed.
-- **Tests that call the hub hooks touch the user's real environment when the project is not passed: the `~/.graphit/global.lock.json` is resolved by `brand.GlobalDir()`, without path injection.
-- **Graph writing is dominated by cost per COPY call, not volume** — a COPY of one line costs hundreds of milliseconds.
+- **`paths.GetPaths` walks up from the process's working directory; `GetPathsForProject`
+  accepts the project.** In an MCP server the first is almost always the wrong one, and the error is
+  silent: the operation works, on the wrong project.
+- **Passing `""` as the project is not neutral** — it falls back to the working directory. That is how
+  the first half of the fix went unnoticed.
+- **Tests that call the hub hooks touch the user's real environment** when the project is not
+  forwarded: `~/.graphit/global.lock.json` is resolved by `brand.GlobalDir()`, with no
+  path injection.
+- **The graph write is dominated by per-COPY-call cost, not by volume** — a COPY of
+  one row costs tens of milliseconds.
 
 ## Progress Log
 
-### August 11, 2026
-- Bug _INLINE_114 reproduces and is fixed across other points; covered by tests.
-- Partial fix found in the test itself, which removed the lockfile from the repository;
-  `UninstallAll`/`UpdateAll` also received an empty string. Closed with a second test coverage.
-- Instrumented write and measured; transactions and parallelism tested and discarded using numbers.
-- Progress linked point-to-point.
-- _INLINE_117__ aligned to the gate; both pipeline selects evaluated and left as is.
-- _INLINE_118__ changed from 26 to 0, with UI recompiling.
+### 2026-08-11
+- `project_dir` bug reproduced, fixed, audited at the remaining points and covered by a test.
+- Incomplete fix discovered by the test itself, which deleted the repository's lockfile;
+  `UninstallAll`/`UpdateAll` were also receiving an empty string. Closed and covered by a second test.
+- Write instrumented and measured; transaction and parallelism tested and discarded with numbers.
+- Write progress wired end to end.
+- `fswatch` aligned with the gate; the pipeline's two selects evaluated and left as they are.
+- `ui-lint` from 26 to 0, with the UI recompiling.

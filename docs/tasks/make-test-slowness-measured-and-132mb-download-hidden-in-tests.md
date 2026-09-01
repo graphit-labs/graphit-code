@@ -1,27 +1,27 @@
-Task: The slowness of INLINE_0, measured - and the 132 MB that the tests downloaded from Hugging Face
+# Task: the slowness of `make test`, measured — and the 132 MB the tests were downloading from HuggingFace
 
-Status: partially completed as of August 7, 2026. Request from the Engineer: "attack on slowness."
+**Status: partially completed** on 2026-08-07. Request from the Engineer: "attack the slowness".
 
-The measurement first
+## The measurement first
 
-I had attributed slowness to "1, 29 million lines of ANTLR compiled twice." The measurement debunked this.
-The part that mattered. In a machine with 20 cores and 61 GB of RAM:
+I had attributed the slowness to "1.29M lines of ANTLR compiled twice". **The measurement disproved
+the part that mattered.** On a 20-core / 61 GB machine:
 
-| fase | frio | quente |
+| phase | cold | warm |
 |---|---|---|
-| build+link da passada 1 (`-race -covermode=atomic`) | **181 s** | **18 s** |
-Execution of past 1 | 108 seconds | 108 seconds
-| passada 2 (parsers, sem race) | 1,7 s | 1,6 s |
+| pass 1 build+link (`-race -covermode=atomic`) | **181 s** | **18 s** |
+| pass 1 execution | 108 s | 108 s |
+| pass 2 (parsers, no race) | 1.7 s | 1.6 s |
 
-The double-build costs 181s once per state of cache; then it's 18s. It wasn't the villain. The cost
-Recurring execution — within it, two packages.
+The double build costs 181s **once** per cache state; after that it is 18s. It was not the villain.
+The recurring cost is execution — and inside it, two packages.
 
-Method: INLINE 0 for the cold number (without touching the real cache)
-Inline 0 for separating build + link from execution.
+Method: `GOCACHE=/tmp/coldcache` for the cold number (without touching the real cache), and
+`-run '^NOPE$'` to separate build+link from execution.
 
-## O que estava errado: `internal/ai` baixava o modelo de verdade
+## What was wrong: `internal/ai` was downloading the real model
 
-`internal/ai` levava **102,9 s**, e sete testes eram ~81 s disso:
+`internal/ai` took **102.9 s**, and seven tests were ~81 s of that:
 
 ```
 18.18  TestModelManager_EnsureModel_CreateCacheDir
@@ -33,106 +33,106 @@ Inline 0 for separating build + link from execution.
  8.73  TestNewLocalEmbeddingClient_Fails
 ```
 
-`modelONNXURL` e `tokenizerJSONURL` eram `const` em `model_manager.go`, e `download()` usa
-Without timeout. Then all `make test` went to HuggingFace.co and moved 132 MB, several times.
-times. They even created a `httptest.NewServer` — and never pointed to it with `EnsureModel`.
+`modelONNXURL` and `tokenizerJSONURL` were `const` in `model_manager.go`, and `download()` uses
+`&http.Client{}` **without a timeout**. So every `make test` went to huggingface.co and moved 132 MB,
+several times over. Two of them even created an `httptest.NewServer` — and never pointed `EnsureModel`
+at it.
 
-E nenhum afirmava nada: o corpo era `if err == nil { t.Log(...) }`. O resultado era o que a rede
-This was not just slow—it was also a test that didn't test and an internal third-party dependency within CI.
+And none of them asserted anything: the body was `if err == nil { t.Log(...) }`. The result was
+whatever the network gave. It was not just slow — it was a test that did not test, and a third-party
+dependency inside CI.
 
-### Duas rotas, dois consertos
+### Two routes, two fixes
 
-Route 1 - Who builds `ModelManager` directly (4 tests)? `ModelManager` won two fields.
-not exported, `modelURL`/`tokenizerURL`, empty throughout production (`NewModelManager` does not include them)
-toca) e resolvidos por `modelSource()`/`tokenizerSource()`. O teste aponta para um `httptest`
-The local endpoint was under control, so the outcome became predetermined — then the assertions
-They turned their assertions: "A model of 50 bytes is rejected, and the error names the size," "The tokenizer already"
-Valid is not revoked." (verified by mtime).
+**Route 1 — the ones that build `ModelManager` directly (4 tests).** `ModelManager` gained two
+unexported fields, `modelURL`/`tokenizerURL`, empty throughout production (`NewModelManager` does not
+touch them) and resolved by `modelSource()`/`tokenizerSource()`. The test points at a local
+`httptest`. With the endpoint under control, the outcome became determined — so the assertions
+became assertions: "a 50-byte model is refused and the error names the size", "an already valid
+tokenizer is not downgraded" (verified by mtime).
 
-Route 2 - who passes through INLINE_0 (3 tests). They build themselves
-``ModelManager`` does not have a place to inject. Purely from the test side: sow the cache that
-`NewModelManager` deriva de `$HOME`, e `EnsureModel` retorna no `isValid` antes de cogitar
-Download. No production change.
+**Route 2 — the ones that go through `NewEmbeddingClientFromConfig` (3 tests).** Those build their
+own `ModelManager` and have nowhere to inject. Purely test-side solution: seed the cache that
+`NewModelManager` derives from `$HOME`, and `EnsureModel` returns at `isValid` before even
+considering a download. No production change.
 
-The scattered files are sparse (_`f.Truncate`), because _`isValid` only calls _`Stat` — the code
-anterior fazia `make([]byte, modelONNXMinSize+1)`, 100 MB de heap e 100 MB de escrita para
-responder uma pergunta sobre `st_size`.
+The seeded files are sparse (`f.Truncate`), because `isValid` only calls `Stat` — the previous code
+did `make([]byte, modelONNXMinSize+1)`, 100 MB of heap and 100 MB of writes to answer a question
+about `st_size`.
 
-**Resultado: `internal/ai` 102,9 s → 2,67 s.**
+**Result: `internal/ai` 102.9 s → 2.67 s.**
 
-The wall gain was less than the CPU gain, and that's perfectly fair to say.
+## The wall-clock gain was smaller than the CPU gain, and it is honest to say so
 
-Passed 1: 108.5 seconds → 105.2 seconds. Just 3 seconds.
+Pass 1: **108.5 s → 105.2 s**. Only 3 s.
 
-Because on INLINE_0, INLINE_1 ran in parallel with INLINE_2; subtracting 100 from it wouldn't work.
-Move the critical path. The floor is now **18s of build + 83s of `internal/ast`**.
+Because under `-p 4` `internal/ai` was running *in parallel* with `internal/ast`; taking 100 s out of
+it does not move the critical path. The floor now is **18 s of build + 83 s of `internal/ast`**.
 
-What does the repair actually deliver: 100 GB of CPU and network resources (relevant on a machine with less)
-Clusters where INLINE\_0 is not available, the CI no longer relies on Hugging Face being online, and seven.
-Tests that did not affirm anything began to assert.
+What the fix actually delivers: 100 s of CPU and network given back (relevant on a machine with fewer
+cores, where `-p 4` has no slack), CI stops depending on huggingface.co being up, and seven tests
+that asserted nothing started asserting.
 
-## O que sobrou, quantificado
+## What is left, quantified
 
-**INLINE_0** are 83 S and is the critical path. There were 352 tests conducted, of which only 42 called for action.
-**— These 310 run in series on a machine with 20 cores. This is where the next order is located.
-grandeza.
+`internal/ast` is 83 s and it is the critical path. **352 tests, of which only 42 call
+`t.Parallel()`** — 310 run serially on a 20-core machine. That is where the next order of magnitude
+is.
 
-I am not doing it because I'm conducting a 310-test audit with shared state: global ANTLR caches.
-LadybugDB handles, compatible with `t.Parallel`, are implemented in this code snippet.
-Pool is not clamped in tests (22 files use `lbug.DefaultSystemConfig()` cru, ~80% of RAM)
-Each). Probably, that's why `-p 4` exists.
+I did not do it because it is an audit of 310 tests with real shared state: ANTLR global caches
+(`ResetAntlrCaches`), `t.Setenv` (incompatible with `t.Parallel`), LadybugDB handles whose buffer
+pool is not clamped in the tests (22 files use `lbug.DefaultSystemConfig()` raw, ~80% of RAM each).
+That is probably the reason `-p 4` exists.
 
-The two most expensive tests of INLINE_0 are not waste and should not be cut off:
-`TestResetAntlrCachesRace` (13,0 s — 8 goroutines parseando enquanto 25 resets acontecem, sob
+The two most expensive tests in `ast` are **not** waste and should not be cut:
+`TestResetAntlrCachesRace` (13.0 s — 8 goroutines parsing while 25 resets happen, under
+`-race`) and `TestLadybugStringIntegrityUnderGCPressure` (11.6 s). They are stress tests doing real
+work.
 
-"`-race` and `TestLadybugStringIntegrityUnderGCPressure` (11, 6 seconds) are stress tests performing work"
+## Files
 
-real.
-
-## Arquivos
-
-File | Change | Reason
+| File | Change | Reason |
 |---|---|---|
-| `internal/ai/model_manager.go` | Modificado | campos `modelURL`/`tokenizerURL` + `modelSource()`/`tokenizerSource()`; `EnsureModel` usa os acessores |
-| `internal/ai/model_testserver_test.go` | Criado | `modelServer`, `seedModelCache`, `sparseFile`, `writeZeros` |
-Modifications | Updated | 4 tests outside the network, with real assertions
-| `internal/ai/ai_embedding_test.go` | Modificado | 2 testes fora da rede |
-| `internal/ai/ai_coverage_test.go` | Modificado | 1 teste fora da rede |
+| `internal/ai/model_manager.go` | Modified | `modelURL`/`tokenizerURL` fields + `modelSource()`/`tokenizerSource()`; `EnsureModel` uses the accessors |
+| `internal/ai/model_testserver_test.go` | Created | `modelServer`, `seedModelCache`, `sparseFile`, `writeZeros` |
+| `internal/ai/ai_test.go` | Modified | 4 tests off the network, with real assertions |
+| `internal/ai/ai_embedding_test.go` | Modified | 2 tests off the network |
+| `internal/ai/ai_coverage_test.go` | Modified | 1 test off the network |
 
-Verification
+## Verification
 
-`go test -race ./internal/ai/` em 2,67 s, todos passando. `make vet`, `make lint` (0 issues) e
-`make ci` verdes.
+`go test -race ./internal/ai/` in 2.67 s, all passing. `make vet`, `make lint` (0 issues) and
+`make ci` green.
 
 ---
 
-## A METADE QUE FALTAVA, fechada em 2026-08-24
+## THE MISSING HALF, closed on 2026-08-24
 
-The repair above covered Inline 0 — the two routes, URL injection, and cache seeding. He
-It did not cover **INLINE_0**, which also builds an embedding client, in four files.
-teste: `abbrev_semantic_test.go`, `hybrid_search_test.go`, `search_hybrid_floor_test.go` e
-None of them sowed seeds, so each one continued on to Hugging Face.
+The fix above covered `internal/ai` — both routes, URL injection and cache seeding. **It did not
+cover `internal/ast`, which also builds an embedding client**, in four test files:
+`abbrev_semantic_test.go`, `hybrid_search_test.go`, `search_hybrid_floor_test.go` and
+`search_index_test.go`. None of them seeds a cache, so each one kept going to HuggingFace.
 
-And it was invisible for the same reason that made downloading useless: all of them end up being...
-When the client does not ascend, then the cost appeared as `ok`, not as a delay of one
-Test that someone would investigate. Measured on August 24, 2026: 29 discarded homes with each containing 133 MB.
-4,3 GB in tmpfs - that's RAM. Date August 23, 2026, meaning accumulated since very long after this
-tarefa.
+And it was invisible for the same reason that made the download useless: **all of them end in
+`t.Skip`** when the client does not come up. So the cost showed up as `ok`, not as the slowness of a
+test that someone would go investigate. Measured on 2026-08-24: **29 throwaway homes with 133 MB
+each, 4.3 GB on a tmpfs** — that is, RAM. Dated 2026-08-23, that is, accumulating since well after
+this task.
 
-Three corrections, in `docs/tasks/busca-devolve-so-arquivos-e-index-nao-reconstroi.md`:
+Three fixes, in `docs/tasks/search-returns-only-files-and-index-not-rebuilt.md`:
 
-1. **`NewLocalEmbeddingClient` checa o ORT ANTES de baixar o modelo.** A ordem estava invertida, e
-   por isso o download acontecia mesmo quando o cliente ia falhar de qualquer forma. Agora o teste
-   sem ORT pula em **0,00 s** com o cache vazio, contra ~28 s e 133 MB antes.
-2. **`<BRAND>_MODEL_CACHE`** points to the root models directory for sharing.
-The model is downloaded once, not once per package.
-The orthodontist was able to reach her goals — INLINE_0 looked at the extracted payload, and INLINE_1.
-It places the Makefile's cache in the loader path. This is what finally made the gates operate, and that's why they...
-The hybrid channel responded with **0 out of 11** sensors.
-   decisivas, e `SemanticSearch` devolvia nada.
+1. **`NewLocalEmbeddingClient` checks ORT BEFORE downloading the model.** The order was inverted, and
+   that is why the download happened even when the client was going to fail anyway. Now the test
+   without ORT skips in **0.00 s** with an empty cache, against ~28 s and 133 MB before.
+2. **`<BRAND>_MODEL_CACHE`** points the model root at a shared directory, and `make test` sets it.
+   That way the model is downloaded once, not once per package.
+3. **ORT became reachable** — `findORTLibrary` now looks at the extracted payload, and `make test`
+   puts the Makefile cache on the loader path. That is what finally made the gates RUN, and what
+   they measured is recorded in that task's log: the hybrid channel answered **0 of 11** decisive
+   probes, and `SemanticSearch` returned nothing.
 
-Resultado: `/tmp/graphit-test-homes` saiu de **4,3 GB para 740 KB** num `make test` completo, sem
-None of the abandoned model copies, and `make test` outputs 0.
+Result: `/tmp/graphit-test-homes` went from **4.3 GB to 740 KB** on a full `make test`, with no
+abandoned model copy left behind, and `make test` exits 0.
 
-The task has another open item: the 310 inline tests that run on
-Series. Nothing here changed it.
+**The item from this task that remains open is the other one**: the 310 `internal/ast` tests that run
+serially. Nothing here touched that.

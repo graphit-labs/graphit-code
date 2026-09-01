@@ -1,36 +1,36 @@
 # fix: mandate canonical module ordering
 
-**Data:** 2026-06-20
-**Escopo:** `internal/hub/adapters/ide/mandate.go`, `internal/hub/adapters/ide/ide_test.go`
+**Date:** 2026-06-20
+**Scope:** `internal/hub/adapters/ide/mandate.go`, `internal/hub/adapters/ide/ide_test.go`
 
-## Problema
+## Problem
 
-The inline 2 removed and re-added the existing trigger to the end of the mandate block. This caused modules added for the first time (e.g., inline 3 via inline 4) to change position, generating large diffs even without content changes.
+`UpsertMandateTrigger` removed the existing trigger and re-appended it at the end of the mandate block. That made modules added for the first time (e.g. `imp_rule` via `graphit sync`) change position, producing large diffs even with no change in content.
 
-Root Cause
+## Root Cause
 
 ```go
 // antes — sempre appenda ao final
 inner = inner + "\n" + wrapped
 ```
 
-Solution
+## Solution
 
-Replaced the append strategy with an ordered complete rewrite:
+The append strategy was replaced by a complete ordered rewrite:
 
-1. **Extracts all existing triggers from a `map[string]string`**
-2. Update the target trigger in the map
-3. **Rewrites the inner with `canonicalTriggerOrder`:**
+1. `parseTriggers(inner)` — extracts every existing trigger into a `map[string]string`
+2. Updates the target trigger in the map
+3. `assembleTriggers(triggers)` — rewrites the inner following `canonicalTriggerOrder`:
    `mem_rule → ast_rule → hub_rule → doc_rule → imp_rule`
-Triggers that are unknown (installed on the hub) come after the canonical ones, sorted alphabetically.
+   Unknown triggers (hub-installed) come after the canonical ones, sorted alphabetically
 
-## Resultado
+## Result
 
-- The inline 10th project is already synchronized → diff zero
-- With the new module → the module appears in canonical position, not at the end
-- The order of calls to `InstallRule` no longer matters
+- `graphit sync` on an already synced project → zero diff
+- `graphit sync` with a new module → the module appears in the canonical position, not at the end
+- The call order of `InstallRule` no longer matters
 
-## Arquivos Modificados
+## Modified Files
 
-- `internal/hub/adapters/ide/mandate.go`: adicionado `canonicalTriggerOrder`, `parseTriggers`, `assembleTriggers`; `UpsertMandateTrigger` reescrito
-- `internal/hub/adapters/ide/ide_test.go`: 4 novos testes (`TestParseTriggers`, `TestAssembleTriggers_CanonicalOrder`, `TestAssembleTriggers_UnknownTagsSorted`, `TestUpsertMandateTrigger_CanonicalOrdering`, `TestUpsertMandateTrigger_Idempotent`)
+- `internal/hub/adapters/ide/mandate.go`: added `canonicalTriggerOrder`, `parseTriggers`, `assembleTriggers`; `UpsertMandateTrigger` rewritten
+- `internal/hub/adapters/ide/ide_test.go`: 4 new tests (`TestParseTriggers`, `TestAssembleTriggers_CanonicalOrder`, `TestAssembleTriggers_UnknownTagsSorted`, `TestUpsertMandateTrigger_CanonicalOrdering`, `TestUpsertMandateTrigger_Idempotent`)

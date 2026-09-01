@@ -1,8 +1,9 @@
-Task: The inline 0 was accusing the query when the guilty party was the rebuild
+# Task: `Cannot find property` blamed the query, when the culprit was the rebuild
 
-Status: completed on August 5, 2026. The series began at `docs/tasks/schema-antes-da-query.md`.
+**Status: completed** on 2026-08-05. Fourth in the series started in
+`docs/tasks/schema-before-query.md`.
 
-## O sintoma
+## The symptom
 
 ```
 MATCH (f:File)-[:CONTAINS]->(e) WHERE f.path IN ['internal/ast/antlr_adapter.go', ...]
@@ -11,14 +12,11 @@ MATCH (f:File)-[:CONTAINS]->(e) WHERE f.path IN ['internal/ast/antlr_adapter.go'
 → Binder exception: Cannot find property line_number for e
 ```
 
-## A query estava certa
+## The query was right
 
-My first hypothesis was modeling: _`e`_ without label, the group `CONTAINS` includes
-`FROM Directory TO File`, `File` does not have `line_number`, so the binder would refuse. I tested against a complete graph built in a temporary directory and all six forms connect:
-
----
-
-Note: The "Inline" sections are placeholders for code blocks or technical details that were omitted from this translation.
+My first hypothesis was about modelling: `e` without a label, the `CONTAINS` group includes
+`FROM Directory TO File`, `File` has no `line_number`, therefore the binder would refuse. I probed against a
+**complete** graph built in a temporary directory, and all six forms bind:
 
 ```
 MATCH (n) RETURN n.line_number                                  OK
@@ -28,40 +26,63 @@ MATCH (f:File)-[:CONTAINS]->(e) WHERE label(e) IN [...]         OK
 MATCH (f:File)-[:CONTAINS]->(e:Function) RETURN e.line_number   OK
 ```
 
-The LadybugDB rule is "some table candidate has the property," not "all have." What
-overturned the query was the **graph state**: INLINE_7 was in flight, and at that moment the database had only INLINE_8, INLINE_9, INLINE_10, and INLINE_11 — the latter two in reduced form (INLINE_12), without INLINE_13. None of the tables had the property, so the binder rejected a correct query.
+**LadybugDB's rule is "some candidate table has the property", not "all of them have it".** What
+brought the query down was the **state of the graph**: the `index --reset` was in flight, and at that moment the
+database had only `File`, `Directory`, `Field` and `Parameter` — the last two in reduced form
+(`uid, name, lang, is_stub`), without `line_number`. No table had the property, so the
+binder refused a correct query.
 
-Conferido no mesmo momento: `MATCH (f:File) RETURN count(f)` devolvia **2**.
+Checked at the same moment: `MATCH (f:File) RETURN count(f)` returned **2**.
 
-This makes the error worse than a failure.
+## That makes the error worse than a failure
 
-A transparent admission calls for fixing what is wrong. This call for fixing was made when she had me as a client before I started to test. It's noted that the message is **identical** to an invented name (`n.line`, `n.type`), and the agent cannot distinguish between them.
+An honest failure tells you to fix what is wrong. This one tells you to fix what was right — and
+that is what it did to me before I probed. Add to that the fact that the message is **identical** to the one for an
+invented name (`n.line`, `n.type`), and the agent has no way to tell them apart.
 
-What was done
+## What was done
 
----INLINE_17--- passes to treat the two families of errors from the binder. For ---INLINE_19--- , the distinction is made by evidence: which tables in this graph carry the property.
+**`internal/ast/ladybug.go`** — `explainBinderErrorLocked` now handles both families of binder
+error. For `Cannot find property X`, the distinction is made from evidence: which tables in this
+graph carry the property.
 
-- **No load** → The name doesn't exist, or the schema is partial. The message says both and shows the tables present because a "punch where there should be thirty" is the signature of a rebuild:
-  > in this graph, a property named "line_number" exists on some labels but not all — it's on File. Pin the label in the pattern (`MATCH (n:Function)`), because `WHERE label(n) IN [...]` filters after binding and doesn't help here
+- **None carries it** → either the name does not exist, or the schema is partial. The message says both
+  things and shows the tables present, because *a handful where there should be thirty* is the
+  signature of a rebuild:
+  > no label in this graph has a property "line_number". Either the name is wrong — `line` is
+  > `line_number`, and the node type is `label(n)`, not a property — or the graph is mid-rebuild
+  > and its schema is still partial, which is what these 4 tables look like: Directory, Field,
+  > File, Parameter
+- **Some carry it** → it is a wrong label pin, and the message names who has it:
+  > "relative_path" exists, but not on every label this pattern can match — it is on File. Pin the
+  > label in the pattern (`MATCH (n:Function)`), because `WHERE label(n) IN [...]` filters after
+  > binding and does not help here
 
-- **Some loads** → The label pin is wrong, and the message names who has:
-  > "relative_path" exists but not on every label this pattern can match — it's on File. Pin the label in the pattern (`MATCH (n:Function)`), because `WHERE label(n) IN [...]` filters after binding and doesn't help here
+**The skill asserted the opposite of the engine**, in two places, and that is the root cause of my having
+started from the wrong hypothesis:
 
-The skill claimed the opposite of the engine in two places, and this is the root cause for me to have started with the wrong hypothesis:
+- *"you may ONLY access properties shared by ALL labels: name, path, line_number, end_line,
+  docstring, lang"* — false in both directions. `is_exported` and `cyclomatic_complexity` bind in a
+  match without a label; and the list treated as safe properties that `File`/`Directory` do not have.
+- *"narrow with `label(n) IN [...]` before touching the property"* — does not work: binding happens
+  before filtering. The label has to be in the pattern, and several labels mean several `MATCH`
+  joined by `UNION ALL`.
 
-- "You may ONLY access properties shared by ALL labels: name, path, line_number, end_line,
-  docstring, lang" — false in both directions. `is_exported` and `cyclomatic_complexity` match without a label; the list is safe for properties that `File`/`Directory` do not have.
-- "Narrow with `label(n) IN [...]` before touching the property" — does not work: binding happens before filtering. The label must be in the pattern, and multiple labels mean multiple `MATCH` combined by `UNION ALL`.
+The `Binder exception` recovery protocol went from two causes to three, and the third
+is marked as the one that makes a correct query look wrong.
 
-Note: Inline codes and markdown are preserved as is.
+## Tests
 
-The recovery protocol for the ____INLINE_32__ has moved from two causes to three. The third one is marked as the cause that makes a correct query appear incorrect.
+`TestQueryDistinguishesAWrongPropertyFromAPartialSchema` sets up both states in the same test:
+a partial schema (only `initSchema`) rejects `line_number` with the rebuild message; after
+`initSchemaForLabels` the same query binds — which proves the message was about the schema, not about
+the query. And `n.line`, which does not exist in any state, keeps failing while offering the real name.
 
-## Testes
+`TestQueryExplainsAPropertyMissingFromSomeLabels` covers the other branch with `relative_path`, which only
+exists on `File`.
 
-The two states are combined into the same test:
-partial schema (only `initSchema`) rejects `line_number` with the message "rebuild"; after that query is executed, it connects — this proves that the message was about the schema, not about the query. And `n.line`, which does not exist in any state, continues to fail by offering the real name.
-
-The inline 38 covers the other branch with inline 39, which only exists in inline 40.
-
-The inline 41 has won the inverse: fail if skill says that a match without label only reaches what all labels share. **This test fixed the wrong assertion** — it was he who failed to correct the text when I corrected it, which is the right behavior for a content test and worth noting: a document test also needs to be checked against the system, not just against the previous text.
+`TestASTRuleContentNamesTheInventedProperties` got the inverse: it fails if the skill goes back to saying
+that a match without a label only reaches what all labels share. **That test pinned the
+wrong assertion** — it was the one that failed when I corrected the text, which is the right behaviour for a
+content test and worth recording: a documentation test also needs to be checked against the
+system, not only against the previous text.

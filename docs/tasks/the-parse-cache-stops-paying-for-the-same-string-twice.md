@@ -36,10 +36,10 @@ The obvious repair was to derive the limit from `MemAvailable` instead. That was
 tested, and then **deleted** — see the Progress Log. Two engineer directives redirected the
 task, and both were right:
 
-1. *"o problema é que a solução não está controlada e esses limites acabam prejudicando
-   máquinas com boas capacidades"* — a memory limit is a symptom of the real term not being
+1. *"the problem is that the solution is not under control and these limits end up hurting
+   machines with good capacity"* — a memory limit is a symptom of the real term not being
    under control. The real term is the live footprint, and it had never been measured.
-2. *"tudo precisa rodar em linux, windows e macos"* — the limit's implementation read
+2. *"everything needs to run on linux, windows and macos"* — the limit's implementation read
    `/proc/meminfo` and `/sys/fs/cgroup` **with no build tag at all**, in a repository that
    already has the correct pattern for exactly this (`internal/sysutil/memory_{linux,darwin,windows,other}.go`).
    On Windows and macOS every read would have failed silently, capacity would have been 0,
@@ -326,8 +326,8 @@ Examples:
 ## Progress Log
 
 ### 2026-08-30 — the limit is removed, and the footprint fix stands alone
-The engineer settled the question they had opened earlier: *"tudo precisa rodar em linux,
-windows e macos. sinceramente se puder não ter esses controles de limites eu acho melhor."*
+The engineer settled the question they had opened earlier: *"everything needs to run on linux,
+windows and macos. honestly, if we can do without these limit controls I think that is better."*
 
 Both halves acted on:
 - **Portability.** `export_memlimit.go` read `/proc/meminfo` and `/sys/fs/cgroup` with **no

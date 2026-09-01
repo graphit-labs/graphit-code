@@ -1,91 +1,91 @@
 ---
-Title: Merge Native LanceDB Resolution with Other Libraries' Standards
+title: Unify LanceDB native resolution with the pattern used by the other libs
 status: done
 created: 2026-08-25
 updated: 2026-08-25
 tags: [build, native, lancedb, runtime, makefile]
 ---
 
-Unify Native LanceDB Resolution with Other Libraries Standards
+# Unify LanceDB native resolution with the pattern used by the other libs
 
 ## Objective
 
-The Engineer fixed the principle: everything necessary for RUNNING should come from the RUNTIME of
-The global target "`~/.graphit/runtime/<version>/`" and the build should not have different processes.
-For those who need links, there are three distinct native processes today:
+The Engineer fixed the principle: everything needed to RUN must come from the runtime of the
+target global path (`~/.graphit/runtime/<versão>/`) and the build must not have different processes
+for libs that need linking. Today there are three distinct native processes:
 
-Lib | Origin | Placement for Link/Testing
+| Lib | Origin | Placement for linking/testing |
 |---|---|---|
+| `liblbug` | prebuilt (GitHub release tarball) | inside the Go module (`go mod download` + extraction into `$GOMODCACHE/go-ladybug@vX/lib`), resolved by cgo `${SRCDIR}/lib` |
+| ONNX Runtime | prebuilt (official release) | `/tmp/onnxruntime-cache`; the CODE resolves at runtime: exe dir → `brand.RuntimeDir(version)` → `LD_LIBRARY_PATH` (`internal/ai/embedding_local.go`, same pattern as query YAMLs and extensions) |
+| LanceDB | **built from source with cargo** (no usable release exists: v0.1.2 does not implement FTS — measured; requires 3 configuration patches and a pinned toolchain) | **`.native/` per checkout**, gitignored, via static cgo `-L${SRCDIR}/../../.native` in `internal/lancestore/cgo_lancedb.go:22` |
 
-Pre-built (release tarball from GitHub) inside the module Go (`go mod download` + extraction in `$GOMODCACHE/go-ladybug@vX/lib`), resolved by Cgo `${SRCDIR}/lib`
-ONNX Runtime is pre-built (official release) | `/tmp/onnxruntime-cache`; the CODE resolves at runtime: exe dir → `brand.RuntimeDir(version)` → `LD_LIBRARY_PATH` (`internal/ai/embedding_local.go`, same as YAMLs of queries and extensions)
-LanceDB | Build from source with role (no usable release exists: v0.1.2 does not implement FTS — measured; requires 3 configuration patches and statically linked toolchain) | Inline checkout, gitignored, via cgo static inline `-L${SRCDIR}/../../.native` in `internal/lancestore/cgo_lancedb.go:22`
+LanceDB is the only one whose artifact has to be built from source (unavoidable — there is nothing
+to download) AND the only one placed project-locally when everything else resolves through global
+paths. The launcher already extracts `liblancedb_go.so` into `~/.graphit/runtime/<versão>/` alongside
+the payload, so the global artifact exists after any installation; only the source tree's link does
+not look for it.
 
-The LanceDB is the only one whose artifact must be built from source (obvious - there's nothing to avoid).
-Download) And the only local project when everything else resolves globally is. The
-The launcher already extracts `liblancedb_go.so` from `~/.graphit/runtime/<version>/` along with the payload, then.
-The artifact exists globally after any installation; only the source tree's link does not search for it.
+**Reasoning behind the approach.** We cannot consume a ready-made release (there is none), but the
+PLACEMENT can follow the same philosophy as ONNX/YAMLs/extensions: use whatever the last
+installation extracted. The `lancedb-native` target now resolves as a cascade: existing `.native/`
+(no-op, the cheap guard we already have) → copy/link from `~/.graphit/runtime/dev/` → only then
+build with cargo. The cgo link path stays `.native/` (a contract documented in `cgo_lancedb.go`:
+changing one without the other breaks the link), so no Go code change is needed and CI stays
+deterministic.
 
-**The Approach Thinking.** Not for ready consumption (it doesn't exist), but the LOCATION
-It can follow the same philosophy of ONNX/YAML extensions: use what is extracted by the last installation.
-O alvo `lancedb-native` passa a resolver em cascata: `.native/` existente (no-op, guarda barata
-The current step is → copy/link from INLINE_0 → only then build with cargo. The path of
-link cgo permanece `.native/` (contrato documentado em `cgo_lancedb.go`: mudar um sem o outro
-The code breaks the link, so no changes to the Go code are necessary, and CI remains deterministic.
+**Alternatives discarded.**
+- Point cgo directly at the global runtime: couples every local build to the last installed
+  version, breaks CI hermeticity, and violates `cgo_lancedb.go`'s own contract comment.
+- Swap LanceDB for the upstream release: v0.1.2 has no FTS/hybrid (search's quality floor depends
+  on it) — rejected with the measurement recorded in the Makefile.
 
-**Alternativas descartadas.**
-Point the Go build directly at the runtime global: link all local builds to the last installed version,
-Breaking the CI's hermetic integrity and violating the own _INLINE_0_'s contract comment.
-Replace LanceDB with upstream release: v0.1.2 lacks FTS/hybrid (the quality floor of the search)
-It depends on that — rejected with registered measurement in the Makefile.
-
-Known and assumed risk. The extracted Lib in `runtime/dev/` does not carry metadata of
-**INLINE_0** originates from. If the pin changes between installation and fallback, there is theoretical risk of
-Mismatched FFI that fails at runtime, not during build. Mitigations for this task:
-
-(1) Explicit warning in the code.
-output do make nomeando ambas as origens; (2) os builds por cargo passam a gravar um stamp
-At the side of the library for future verification; (3) the pin changes rarely and has always been
-deliberate operation documented ("keep it and the toolchain pinned together")
+**Known and accepted risk.** The lib extracted into `runtime/dev/` carries no metadata about the
+`LANCEDB_SHA` it came from. If the pin changes between the installation and the fallback, there is a
+theoretical risk of an FFI mismatch that fails at runtime, not at build time. Mitigations in this
+task: (1) an explicit warning in the make output naming both origins; (2) cargo builds now write a
+`LANCEDB_SHA` stamp next to the lib for future verification; (3) the pin changes rarely and has
+always been a deliberate, documented operation ("keep it and the toolchain pinned together").
 
 ## Plan & Task Breakdown
 
-- [ ] T1 - Resolution Cascade on Target `lancedb-native`. Spec: target in `Makefile`;
-  ordem `.native/` presente → `$(HOME)/.$(BRAND)/runtime/dev/$(LANCEDB_LIB_NAME)` (symlink em
-Unix, copying to Windows) → Build package; warning naming origin; signed SHA hash stored in builds
-  por cargo. **FEITO** — `LANCEDB_RUNTIME_SOURCE ?= $(if $($(BRAND_ENV)_GLOBAL_DIR),…,$(HOME)/.$(BRAND))/runtime/dev`
-  respeita o override de global dir; `fetch-lancedb` grava `lancedb_go_build.sha` com o
-The waterfall emits an explicit warning of unregistered origin.
-- [ ] **T2 - End-to-end Verification.** Spec: remove `.native/`, run `make lancedb-native`.
-  conferir que a lib veio do runtime dev, `go build -tags lancedb ./...` e teste focado verdes;
-Repeat with `INLINE_0` present to prove the NOP (No Operation) in action. **DONE** - The first attempt revealed a bug: `INLINE_1`.
-The failure occurs when `INLINE_0` is not defined; corrected with `INLINE_1` before creation.
-  symlink criado para `~/.graphit/runtime/dev/liblancedb_go.so`, `go build -tags lancedb
+- [x] **T1 — Resolution cascade in the `lancedb-native` target.** Spec: target in `Makefile`;
+  order `.native/` present → `$(HOME)/.$(BRAND)/runtime/dev/$(LANCEDB_LIB_NAME)` (symlink on
+  unix, copy on windows) → cargo build; warning naming the origin; SHA stamp written by cargo
+  builds. **DONE** — `LANCEDB_RUNTIME_SOURCE ?= $(if $($(BRAND_ENV)_GLOBAL_DIR),…,$(HOME)/.$(BRAND))/runtime/dev`
+  honors the global dir override; `fetch-lancedb` writes `lancedb_go_build.sha` with the
+  `LANCEDB_SHA`; the cascade emits an explicit warning about unrecorded provenance.
+- [x] **T2 — End-to-end verification.** Spec: remove `.native/`, run `make lancedb-native`,
+  check that the lib came from the dev runtime, `go build -tags lancedb ./...` and a focused test
+  green; repeat with `.native/` present to prove the no-op. **DONE** — the first attempt exposed a
+  bug: `ln` fails when the whole `.native/` directory does not exist; fixed with `mkdir -p` before
+  creation. Afterwards: symlink created to `~/.graphit/runtime/dev/liblancedb_go.so`, `go build -tags lancedb
   ./internal/lancestore ./internal/ast` exit 0, `go test -tags lancedb ./internal/lancestore`
-  PASS (FFI carrega via symlink) e, com `.native/` presente, o alvo sai sem fazer nada.
-- [ ] T3 - Documentation and Memory. Spec: comments in the Makefile section for LanceDB;
-Note in `docs/architecture/storage_layout.md` (or Start Guide) about the cascade; memory
-Updated graph with decision. **DONE** – comments from target and INLINE_0
-They describe the waterfall; INLINE_0 gained an entire paragraph on unified resolution and the stamp.
-The SHA algorithm's memory, `INLINE_0`, is updated in place with the final decision.
+  PASS (FFI loads via the symlink) and, with `.native/` present, the target exits without doing anything.
+- [x] **T3 — Documentation and memory.** Spec: Makefile comments in the LanceDB section;
+  a note in `docs/architecture/storage_layout.md` (or the getting-started guide) about the cascade;
+  Graphit memory updated with the decision. **DONE** — the comments on the target and on
+  `LANCEDB_LIB_DIR` describe the cascade; `storage_layout.md` gained a paragraph about the unified
+  resolution and the SHA stamp; memory `01M0XAJ3ENS1VJT28E8W7FBW3F` updated in place with the final
+  decision.
 
 ## Files Changed
 
 | File | Change | Reason |
 |---|---|---|
-The inline 0 is modified by resolving cascata with a SHA stamp on target __inline_1__.
-| `docs/tasks/unify-lancedb-native-resolution.md` | Created | este log |
+| `Makefile` | Modified | resolution cascade + SHA stamp in the `lancedb-native` target |
+| `docs/tasks/unify-lancedb-native-resolution.md` | Created | this log |
 
 ## Progress Log
 
 ### 2026-08-25
-Task opened after correction/evaluation of T17 (commit `fcaa9d7`) and direction from Engineer:
-"How is it done with other libraries that require linking for testing? Shouldn't it be the same?"
-  dois processos diferentes".
-Context restored in this session: `.native/` and `/tmp/lancedb-native-cache` had disappeared and
-There is no path entry; the suite `-tags lancedb` only linked after manual copy of
-  `~/.graphit/runtime/dev/liblancedb_go.so` — exatamente o caso que a cascata automatiza.
+- Task opened after the T17 fix/performance work (commit `fcaa9d7`) and the Engineer's direction:
+  "how is it done with the other libs that need linking for the test? it should be the same, not
+  have two different processes".
+- Context restored in this session: `.native/` and `/tmp/lancedb-native-cache` had disappeared and
+  there is no cargo on the PATH; the `-tags lancedb` suite only linked again after a manual copy of
+  `~/.graphit/runtime/dev/liblancedb_go.so` — exactly the case the cascade automates.
 
-### 2026-08-25 (fechamento)
-Cascata verified from head to toe, documentation and memory completed. Task ready for deployment.
-"Be true to yourself."
+### 2026-08-25 (closing)
+- Cascade verified end to end, documentation and memory completed. Task ready for its own
+  commit.

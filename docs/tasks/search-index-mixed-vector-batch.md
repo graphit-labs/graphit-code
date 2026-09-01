@@ -1,20 +1,20 @@
 ---
-Title: The Index Builder Didn't Use Real Corpus Data - Same Lot With and Without Vectors Unwind
+title: The search index did not build on a real corpus — a batch with and without a vector in the same UNWIND
 status: done
 created: 2026-08-17
 updated: 2026-08-17
 tags: [ast, search, ladybug, vector, bugfix]
 ---
 
-The search index was not built on a real corpus
+# The search index did not build on a real corpus
 
-**Origem:** medir o incremental de 1178 s registrado em
-The measurement did not reach timing — or rather, the `consolidate-search-into-ladybugdb-and-drop-sqlite.md` is not yet complete.
-rebuild completo morreu antes, num defeito que nenhum teste pegava.
+**Origin:** measuring the 1178 s incremental recorded in
+`consolidate-search-into-ladybugdb-and-drop-sqlite.md`. The measurement never got to the timing — the
+full rebuild died before that, on a defect no test caught.
 
 ---
 
-## O defeito
+## The defect
 
 ```
 search index build failed — keeping the previous database
@@ -22,97 +22,97 @@ error="insert entities: ladybug query: failed to convert Go value to Lbug value:
 failed to create LIST value with status: 1. please make sure all the values are of the same type"
 ```
 
-An INLINE_0 cannot mix lines that carry vectors and lines that do not
-loads. The driver sets **an** INLINE\_0 parameter to **the** INTEGER\_INLINE\_1 and refuses types of
-elemento diferentes.
+An `UNWIND` cannot mix, in the same batch, a row that carries a vector and a row that does not.
+The driver builds **one** `LIST` for the whole `$batch` parameter and refuses different element
+types.
 
-| lote | resultado |
+| batch | result |
 |---|---|
-| todas as linhas com vetor | ok |
-| todas com `emb: nil` | ok |
-| misturado, vetor antes de nil | **falha** |
-| misturado, nil antes de vetor | **falha** |
+| all rows with a vector | ok |
+| all with `emb: nil` | ok |
+| mixed, vector before nil | **failure** |
+| mixed, nil before vector | **failure** |
 
-Mixed is the usual case, not the border. Whoever receives the vector makes the decision of grammar by itself.
-List of YAML - then any file that mixes an embedded label with one
-Embedded production yields both types of line, and any corpus of any size overflows with it.
-primeiro flush.
+**Mixed is the normal case, not the edge.** Which entities get a vector is the grammar's decision,
+through the YAML's `embed_labels` list — so any file that mixes an embedded label with a
+non-embedded one produces both kinds of row, and a corpus of any size blows up on the
+first flush.
 
-### Por que nada pegava
+### Why nothing caught it
 
-Two reasons that combined:
+Two reasons that added up:
 
-The synthetic fixtures give vectors to **all** entities or none at all. A field
-Optional field left blank uniformly does not exercise the optional field.
-The production machine development kit's build store was still in its previous format —
-"inline" alongside the graph -- because the installed binary was 16/8.
-03:44 And migration is from August 16, 2016: 09:16. The new path has never found a real corpus.
+1. The synthetic fixtures give a vector to **all** the entities or to **none**. An optional
+   field filled uniformly does not exercise the optional field.
+2. The development machine's production store was still in the previous format —
+   `ladybugdb.search.sqlite` next to the graph — because the installed binary was from Aug 16
+   03:44 and the migration is from Aug 16 16:09. The new path had never met a real corpus.
 
 ---
 
-Correction
+## The fix
 
-The two obvious exits don't work, and they were taken before choosing:
+The two obvious ways out do not work, and they were measured before choosing:
 
-| tentativa | resultado |
+| attempt | result |
 |---|---|
 | `var typedNil []float32` | `failed to create LIST value because the slice is empty` |
-| `[]float32{}` | idem |
+| `[]float32{}` | same |
 
-The only way the driver accepts is homogeneous batch. `flushEntities` partitions the lot.
-usa duas queries: `insertEntityQuery` com `emb`, e `insertEntityQueryNoVec` **sem a
-property, leaving the column NULL – which is what vectorized queries already ignore by default.
-construction. `RebuildFromCache` and `UpdateIncremental` pass through the same helper, so both
-The writing paths are covered.
+The only form the driver accepts is a **homogeneous batch**. `flushEntities` partitions the batch and
+uses two queries: `insertEntityQuery` with `emb`, and `insertEntityQueryNoVec` **without the
+property**, leaving the column NULL — which is what the vector query already ignores by
+construction. `RebuildFromCache` and `UpdateIncremental` go through the same helper, so both
+write paths are covered.
 
-Regression in INLINE_0 without environment guard: four cases, 0.09 seconds.
+Regression in `search_emb_mixed_batch_test.go`, without an environment guard: four cases, 0.09 s.
 
-Suite Verde, 98.5 S.
+`internal/ast` suite green, 98.5 s.
 
 ---
 
-What was measured but did not become code here
+## What the investigation measured, and did not become code here
 
-Registered because it decides the next step, and because an earlier baseline has fallen with this.
-The sensors used were discarded after measurement; nothing of instrumentation was left in the way.
-quente.
+Recorded because it decides the next step, and because an earlier baseline fell with it. The
+probes used were discarded after measuring; no instrumentation was left in the hot
+path.
 
-The **INLINE_0** does not have the limitation that forced **INLINE_1**. The **INLINE_2** of a Parquet with
-`FLOAT[768]` carregou 20.000 linhas, metade com vetor e metade com NULL, em 0,52 s. Se a
-The index migration from `UNWIND` to `COPY` no longer requires partitioning.
+**`COPY` does not have the limitation that forced `flushEntities`.** `COPY FROM` on a Parquet with
+`FLOAT[768]` loaded 20,000 rows, half with a vector and half with NULL, in 0.52 s. If the
+index load migrates from `UNWIND` to `COPY`, the partitioning stops being necessary.
 
-The bottleneck for the complete rebuild is the column vector load by `UNWIND`. Same as 80,000.
-linhas, todas com `FLOAT[768]`:
+**The load through `UNWIND` with a vector column is the bottleneck of the full rebuild.** The same 80,000
+rows, all with `FLOAT[768]`:
 
-| caminho | tempo | µs/linha |
+| path | time | µs/row |
 |---|---|---|
-| `UNWIND` em lotes de 500 | 371,4 s | 4.643 |
-| `COPY` de Parquet staged | **15,7 s** (+4,4 s staging) | **196** |
+| `UNWIND` in batches of 500 | 371.4 s | 4,643 |
+| `COPY` from staged Parquet | **15.7 s** (+4.4 s staging) | **196** |
 
-24x na carga. O mesmo `UNWIND` numa tabela *sem* coluna vetorial custa 48 µs/linha — a
-coluna sozinha multiplica o insert por ~93, no conversor de valor do driver. Estado final
-verified: constructed after 82s, `INLINE_0` returning the
-match exato.
+24x on the load. The same `UNWIND` on a table *without* a vector column costs 48 µs/row — the
+column alone multiplies the insert by ~93, in the driver's value converter. Final state
+verified: vector index built afterwards in 82 s, `QUERY_VECTOR_INDEX` returning the
+exact match.
 
-The creation order of the vector index costs 3.1 times more. `EnsureSchema` creates `se_vec`.
-Before loading, with the comment "accepted on an empty table, so there is no ordering"
-Constraint against the load "* -- correct on correction, wrong on cost: each insert passes.
-Maintaining an HNSW results in a superlinear cost (10.088 µs per line at 2K, 17.202 µs at 20K).
-"After" is linear. The FTS indices have already been created after purpose.
+**The order of creating the vector index costs another 3.1x.** `EnsureSchema` creates `se_vec`
+before the load, with the comment *"accepted on an empty table, so there is no ordering
+constraint against the load"* — right about correctness, wrong about cost: each insert now
+has to maintain an HNSW, and the cost is superlinear (10,088 µs/row at 2k, 17,202 at 20k) whereas
+"afterwards" is linear. The FTS indexes are already created afterwards on purpose.
 
-Consequence for a baseline: 988 rebuilt units registered in
-They cannot have been measured with.
-embeddings — com cobertura parcial estourariam no bug acima, e com cobertura total teriam
-Taken hours. That number is not comparable to an actual build.
+**Consequence for a baseline:** the 988 s of full rebuild recorded in
+`consolidate-search-into-ladybugdb-and-drop-sqlite.md` cannot have been measured with
+embeddings — with partial coverage they would blow up on the bug above, and with full coverage they
+would have taken hours. That number is not comparable to a real build.
 
-And what is not a bottleneck, with number: the copy of the store (833 MB ext4 → ext4 in 0.27 seconds; the disk
-It doesn't support reflink and still is cheap, but the staging file format (Parquet, CSV, and)
-JSON empatam no `COPY`: 0,71 / 0,74 / 0,79 s para 200k linhas) e a arquitetura de
-competition — the doc allows for an INLINE 0 or multiple INLINE 1s, and the
-Copy and swap follows this rule instead of circumventing it.
+**And what is NOT a bottleneck, with numbers:** copying the store (833 MB ext4→ext4 in 0.27 s; the disk
+does not support reflink and it is cheap even so), the format of the staging file (Parquet, CSV and
+JSON tie on `COPY`: 0.71 / 0.74 / 0.79 s for 200k rows) and the concurrency
+architecture — the engine's doc allows one `READ_WRITE` **or** several `READ_ONLY`, and the
+copy+swap obeys that rule instead of working around it.
 
-O incremental de 1178 s continua sendo outro problema, em outra fase: o DROP+CREATE dos nove
-Indices FTS, which is the corpus because the engine does not have partial construction. Measured that
-The cost of `CREATE_FTS_INDEX` is O(lines * that table), not O(database) — with 400,000 lines.
-Frozen intact next to each other, reconstructing five indices from a table of 300 rows takes 1. 64 seconds --
-It supports the drawing of two segments. It remains for an appropriate task.
+The 1178 s incremental remains another problem, in another phase: the DROP+CREATE of the nine
+FTS indexes, which is O(corpus) because the engine has no partial build. Measured that
+`CREATE_FTS_INDEX` costs O(rows *of that table*) and not O(database) — with 400,000 cold
+rows untouched alongside, rebuilding 5 indexes of a 300-row table takes 1.64 s —, which
+supports a two-segment design. Left for a task of its own.

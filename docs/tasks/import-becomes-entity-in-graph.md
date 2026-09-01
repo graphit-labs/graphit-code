@@ -1,7 +1,7 @@
 # Task: `MATCH (n:Import)` Was an Error in a Repository with 2838 Imports
 
 **Status: done** on 2026-08-05. Third round of the series that started in
-`docs/tasks/schema-antes-da-query.md` and continued in `docs/tasks/tradutor-cypher-sem-lista-fixa.md`.
+`docs/tasks/schema-before-query.md` and continued in `docs/tasks/cypher-translator-without-fixed-list.md`.
 
 ## The symptom, which was a call I made
 

@@ -1,91 +1,138 @@
-Task: Supervising Projects' Activity Windows with a Daemon
+# Task: Daemon — supervision by project activity window
 
 **Date:** 2026-08-02
 **Status:** ✅ Complete
 
-## Problema
+## Problem
 
-The global daemon (`internal/daemon`) discovers all the projects of `~/.graphit/global.lock.json` via `ListActiveProjects()` — despite its name, this method only filters out projects whose directory still exists, not those in use recently. Every tick of discovery (30 seconds by default), each registered project gained a `ProjectSupervisor` complete and permanent:
+The global daemon (`internal/daemon`) discovers every project in `~/.graphit/global.lock.json`
+via `ListActiveProjects()` — despite the name, that method only filters projects whose directory
+still exists, not projects in recent use. On every discovery tick (30s by default), EVERY
+registered project got a full, permanent `ProjectSupervisor`:
 
-- `SyncModule` — an inotify watcher on the entire project tree, always
-- `fswatch` — every two minutes
-- `EmbeddingModule` — autonomous routine run by idle time
+- `SyncModule` — an `fswatch` (inotify) watcher over the project's entire tree, forever
+- `EmbeddingModule` — a scan every 2 minutes
+- `DreamModule` — autonomous routine triggered by idleness
 
+That means a developer with dozens of projects registered over time keeps dozens of filesystem
+watchers and periodic loops running indefinitely, even for projects abandoned months ago —
+exactly what the user reported: the daemon "keeps listening for changes in every project in the
+global lock with no need for it".
 
-This means that a developer with dozens of projects registered over time
-maintains dozens of filesystem watchers and periodic loops running indefinitely,
-even for abandoned projects from months ago — exactly what the user reported:
-the daemon "continues to listen for changes on all projects in the global lock without needing."
+## Solution
 
-Solution
+Introduced a **parking** mechanism based on an activity window:
 
-A mechanism of **parking** (parking lot) by window activity:
-
-**INLINE_8** — a new function `ResolveProjectActivityWindow(inlineCfg, projectCfg)` resolves the standard chain of resolution (inline → env → project → global → default). Default: 30 minutes. **INLINE_10** turns off parking completely (previous behavior—always supervises).
+1. **`internal/config/config.go`** — new function `ResolveProjectActivityWindow(inlineCfg,
+   projectCfg) time.Duration`, reading the `daemon.activity_window` key through the standard
+   resolution chain (inline → env → project → global → default). Default: 30 minutes. `"0"` turns
+   parking off entirely (the previous behavior — always supervise).
 
 2. **`internal/daemon/daemon.go`** — `Config.ProjectActivityWindow time.Duration` (zero value =
-   off, preserving the previous behavior for those constructing `Daemon{}` directly,
-   as existing tests do). `Daemon.parked map[string]ProjectInfo` stores projects registered but not supervised at that moment. `reconcileProjects` gained three new steps:
-   - **Demo**: supervisor whose `IdleFor() >= window` is paused (`sup.Stop()`) and the project migrates to `parked`.
-   - **Promotion**: project in `parked` (or never seen) promoted to complete supervisor as soon as `projectRecentlyActive(dir, window)` — which reuses `dream.LastModifiedTime`, already used by the module Dream for deciding on idle status — finds a file touched within the window.
-   - Error during scan (directory inaccessible/vacant) defaults to "active" by default, never stopping a project due to its own check.
+   off, preserving the previous behavior for anyone constructing `Daemon{}` directly, as the
+   already existing tests do). `Daemon.parked map[string]ProjectInfo` holds projects that are
+   registered but not supervised at the moment. `reconcileProjects` gained three new steps,
+   all guarded by `window > 0`:
+   - **Demotion**: a supervisor whose `IdleFor() >= window` is stopped (`sup.Stop()`) and the
+     project migrates into `parked`.
+   - **Promotion**: a project in `parked` (or never seen) is promoted to a full supervisor
+     as soon as `projectRecentlyActive(dir, window)` — which reuses `dream.LastModifiedTime`,
+     already used by the Dream module to decide idleness — finds a file touched within
+     the window.
+   - An error during the scan (inaccessible/empty directory) assumes "active" by default, so a
+     project is never parked because of a failure in the check itself.
 
 3. **`internal/daemon/project.go`** — `ProjectSupervisor` gained `lastActivity atomic.Int64` +
    `Touch()` / `IdleFor()`. New interface `ActivityReporter { SetActivityCallback(func()) }`:
-   a module that it implements receives the callback `sup.Touch` when connected to the supervisor.
-   This prevents `reconcileProjects` from needing to re-varnish the disk to know if a project
-   *active* is still active — who knows, maybe this real-time knowledge is already provided by itself `SyncModule`, which already receives all filesystem events.
+   a module that implements it receives, when wired to the supervisor, the `sup.Touch` callback.
+   That keeps `reconcileProjects` from having to re-scan the disk to know whether an *active*
+   project is still active — what knows that in real time is `SyncModule` itself, which already
+   receives every filesystem event.
 
-4. **`internal/daemon/syncmodule.go`** — `SyncModule` implements `ActivityReporter`. All batches of events from `fswatch` (even if none of it is reindexable) call `onActivity()`, resetting the supervisor's clock cycle timer.
+4. **`internal/daemon/syncmodule.go`** — `SyncModule` implements `ActivityReporter`. Every batch
+   of `fswatch` events (even if nothing in it is reindexable) calls `onActivity()`, resetting the
+   supervisor's idleness clock.
 
-5. **Inline 37** resolves from the
-   inline 38 configuration global/env, and the help text for command Inline 40 mentions the behavior.
+5. **`cmd/graphit/commands/daemon.go`** — `runDaemonCore` resolves
+   `cfg.ProjectActivityWindow = config.ResolveProjectActivityWindow(nil, nil)` from the
+   global/env config, and the help text of the `daemon` command mentions the behavior.
 
-Effectively, projects that have been touched more than 41 INLINE_41 days ago no longer have watchers,
-embedding loop or dream runner running — and automatically resume supervision on the next discovery tick after any changes to them (the cost is a single `LastModifiedTime` walk per stationary project per tick — not by active project).
+Net effect: projects last touched more than `daemon.activity_window` ago no longer have a watcher,
+an embedding loop, or a dream runner running — and they go back to being supervised automatically
+on the next discovery tick after any change in them (the cost is a single `LastModifiedTime`
+walk per parked project, per tick — not per active project).
 
-Trade-offs & Decisions
+## Trade-offs & Decisions
 
-- **The resolution of the window value happens once, in the CLI layer (`runDaemonCore`), not every tick.** `reconcileProjects` only reads `d.cfg.ProjectActivityWindow`, a pure field — without I/O configuration per tick or depending on `HOME` during tests (which build `Daemon{}` directly and therefore have window zero = legacy behavior, deterministic). - **Without project-specific override implemented** — `ResolveProjectActivityWindow` already accepts `projectCfg` (same signature as all `Resolve*` in package `config`), but `reconcileProjects` does not load the lockfile of each project before deciding to supervise; only the builder (called already within the "promoted" path) loads configuration per project. It's out of scope — no one has requested a pinned project yet.
-- **Promoting stalled projects incurs a disk walk every tick (`dream.LastModifiedTime`, which ignores `.git` and the brand directory).** There is no more cost-effective mechanism without reintroducing some form of persistent watch — which would negate the gain. I accept because the set of *stalled* projects tends to be small (most assets do not pay this cost).
+- **Resolving the window value happens once, at the CLI layer (`runDaemonCore`), not on every
+  tick.** `reconcileProjects` only reads `d.cfg.ProjectActivityWindow`, a plain field — no config
+  I/O per tick, and no dependency on `HOME` during the tests (which construct `Daemon{}`
+  directly and therefore end up with a zero window = legacy, deterministic behavior).
+- **No per-project override implemented** — `ResolveProjectActivityWindow` already accepts
+  `projectCfg` (the same signature as every `Resolve*` in the `config` package), but
+  `reconcileProjects` does not load each project's lockfile before deciding to supervise; only
+  the builder (called already inside the "promoted" path) loads per-project config. Left out for
+  scope — nobody has asked for a per-project pin yet.
+- **Promoting parked projects costs one disk walk per tick (`dream.LastModifiedTime`, which
+  already ignores `.git` and the brand directory).** There is no cheaper mechanism without
+  reintroducing some kind of persistent watch — which would cancel out the gain. Accepted because
+  the set of *parked* projects tends to be small (most active ones no longer pay this cost).
 
 ## System Knowledge
 
-- _INLINE_55__ in _INLINE_56__ is poorly named: it filters only by the existence of the lockfile on disk, not by recent activity. The name suggested (incorrectly) that this filter already existed before this task.
-- `SyncModule` had been migrated from polling `git status` to `fswatch` (inotify) — see comment at the top of `Start()` in `syncmodule.go`. This means that "per project" overhead before this change was file descriptors/watch descriptors for inotify over the entire tree, not CPU from polling.
-- `dream.LastModifiedTime(dir)` (in _INLINE_63__) already existed to allow Dream module to decide on idle — reapplied here as the only way to "ring" a project without keeping a watcher alive.
+- `ListActiveProjects()` in `internal/hub/global_lock.go` is badly named: it filters only by the
+  lockfile existing on disk, not by recent activity. The name (wrongly) suggested that this
+  filter already existed before this task.
+- `SyncModule` had already been migrated from `git status` polling to `fswatch` (inotify) — see
+  the comment at the top of `Start()` in `syncmodule.go`. That means the cost "per registered
+  project" before this change was inotify file descriptors/watch descriptors over the entire
+  tree, not polling CPU.
+- `dream.LastModifiedTime(dir)` (in `internal/dream/dream.go`) already existed so the Dream module
+  could decide idleness — reused here as the only way to "probe" a project without keeping a
+  watcher alive.
 
-## Testes
+## Tests
 
-- `internal/config/config_default_test.go` — `TestResolveProjectActivityWindow_{Default, ProjectOverride, EnvOverride, ZeroDisables, InvalidFallsBackToDefault}`.
-- `internal/daemon/project_test.go` — `TestNewProjectSupervisor_StartsWithFreshIdleClock`, `TestProjectSupervisor_TouchResetsIdleFor`.
-- `internal/daemon/daemon_reconcile_test.go` — `TestDaemon_ReconcileProjects_{ParksInactiveProject, PromotesActiveProject, DemotesIdleSupervisor, ActivityWindowDisabled_AlwaysSupervises, WiresActivityCallback}`.
+- `internal/config/config_default_test.go` — `TestResolveProjectActivityWindow_{Default,
+  ProjectOverride,EnvOverride,ZeroDisables,InvalidFallsBackToDefault}`.
+- `internal/daemon/project_test.go` — `TestNewProjectSupervisor_StartsWithFreshIdleClock`,
+  `TestProjectSupervisor_TouchResetsIdleFor`.
+- `internal/daemon/daemon_reconcile_test.go` — `TestDaemon_ReconcileProjects_{ParksInactiveProject,
+  PromotesActiveProject,DemotesIdleSupervisor,ActivityWindowDisabled_AlwaysSupervises,
+  WiresActivityCallback}`.
 - `internal/daemon/syncmodule_test.go` — `TestSyncModule_ImplementsActivityReporter`.
-- All tests for `internal/daemon`, `internal/config`, and `cmd/graphit/commands` passed with `-race -count=8` (the package `daemon` alone) without flakes after fixing a latent race in the very same new tests.
-
+- Every test in `internal/daemon`, `internal/config` and `cmd/graphit/commands` passed
+  with `-race -count=8` (the `daemon` package on its own) with no flakes after fixing a latent
+  race in the new tests themselves (see below).
 
 ## Technical Debt
 
-- [ ] Without project-specific override by design (INLINE_76). If a specific project needs to remain always active independently of prolonged silence, today only globally un-pins the parking (INLINE_77).
-- [ ] INLINE_78 does not expose how many projects are supervised vs. pinned — it just reads the recent log file. This would be an observable improvement.
+- [ ] No per-project override of `daemon.activity_window` (pinning). If a specific project needs
+      to stay active regardless of prolonged silence, today the only option is turning parking
+      off globally (`daemon.activity_window=0`).
+- [ ] `daemon status` does not expose how many projects are `parked` vs supervised — it only reads
+      the recent log from the file. That would be a natural observability improvement.
 
-Note: The inline codes and underscores have been kept as they were in Portuguese to preserve the original structure and meaning of the text.
+## Gotcha for whoever touches this module's tests
 
-Gotcha for anyone messing with this module's tests
+A test that launches `reconcileProjects` (which in turn does `go func(s){ s.Start(ctx, d.log)
+}(sup)`) and calls `cancel()` **without first waiting for a signal that the module has already
+run** runs a real risk of canceling the context before the supervisor's goroutine is even
+scheduled — in that case `supervise()` falls into `if ctx.Err() != nil { return }` right on the
+first iteration, never calling `entry.mod.Start()`. This is not environment flakiness: it
+reproduced 100% of the time in a debug session (a goroutine dump via `runtime/pprof` confirmed
+zero supervisor goroutines alive). Always synchronize through a "started" channel before
+canceling — see the pattern in `TestDaemon_ReconcileProjects_PromotesActiveProject`.
 
-A test that launches `reconcileProjects` (which in turn executes `go func(s){ s.Start(ctx, d.log)
-}(sup)`) e chama `cancel()` **without waiting for a signal indicating the module has already started** runs the risk of prematurely canceling the context before the supervisor's goroutine is even scheduled — this results in `supervise()` falling into `if ctx.Err() != nil { return }` immediately on the first iteration, never calling `entry.mod.Start()`. This is not flaky environment behavior: reproducing 100% of the time in a debug session (the supervisor’s goroutines were confirmed to be dead via `runtime/pprof`). Always synchronize via a "started" channel before canceling — see the pattern in `TestDaemon_ReconcileProjects_PromotesActiveProject`.
+## Modified Files
 
-Note: The inline codes and references are placeholders for actual code snippets or identifiers that should be replaced with their corresponding content.
-
-## Arquivos Modificados
-
-- `internal/config/config.go` + `ResolveProjectActivityWindow` = ___INLINE_89__
-- `internal/config/config_default_test.go` = tests of the function above
-- `internal/daemon/daemon.go` = `Config.ProjectActivityWindow`, `Daemon.parked`, logic for parking/promotion/demonstration in `reconcileProjects`, `projectRecentlyActive`
-- `internal/daemon/project.go` = `ActivityReporter`, `ProjectSupervisor.lastActivity/Touch/IdleFor`
-- `internal/daemon/project_test.go` = tests of Touch/IdleFor
-- `internal/daemon/daemon_reconcile_test.go` = tests of parking/promotion/demonstration/wiring
-- `internal/daemon/syncmodule.go` = `SetActivityCallback` + call in each batch
-- `internal/daemon/syncmodule_test.go` = test of `ActivityReporter`
-- `cmd/graphit/commands/daemon.go` = resolve `ProjectActivityWindow` from config, help text
+- `internal/config/config.go` — `ResolveProjectActivityWindow` + `defaultProjectActivityWindow`
+- `internal/config/config_default_test.go` — tests for the function above
+- `internal/daemon/daemon.go` — `Config.ProjectActivityWindow`, `Daemon.parked`, parking/promotion/
+  demotion logic in `reconcileProjects`, `projectRecentlyActive`
+- `internal/daemon/project.go` — `ActivityReporter`, `ProjectSupervisor.lastActivity/Touch/IdleFor`
+- `internal/daemon/project_test.go` — tests for Touch/IdleFor
+- `internal/daemon/daemon_reconcile_test.go` — tests for parking/promotion/demotion/wiring
+- `internal/daemon/syncmodule.go` — `SetActivityCallback` + call on every batch
+- `internal/daemon/syncmodule_test.go` — test for `ActivityReporter`
+- `cmd/graphit/commands/daemon.go` — resolves `ProjectActivityWindow` from config, help text

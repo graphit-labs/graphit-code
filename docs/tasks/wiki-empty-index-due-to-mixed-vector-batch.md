@@ -140,7 +140,7 @@ The fixture writes 40-word bodies on purpose: below `wikiEmbedMinWords`, no row 
 vector, and the test would stop exercising the mix without failing.
 
 `internal/git/hook_env_test.go` belongs to the other defect from this session — see
-`docs/tasks/daemon-herdava-ambiente-de-git-hook.md`.
+`docs/tasks/daemon-inherited-git-hook-environment.md`.
 
 ## Files Changed
 

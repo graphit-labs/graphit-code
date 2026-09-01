@@ -141,7 +141,7 @@ had a vector alongside rows that didn't, which the driver rejected. The test
 fixtures give vectors to all chunks or to none, so only a real-world corpus produces
 the mix.
 
-See `docs/tasks/wiki-indice-vazio-por-lote-de-vetores-misto.md`.
+See `docs/tasks/wiki-empty-index-due-to-mixed-vector-batch.md`.
 
 ### Note: why it was so costly
 

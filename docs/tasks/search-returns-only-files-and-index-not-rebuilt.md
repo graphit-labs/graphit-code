@@ -8,8 +8,8 @@ tags: [ast, search, lancedb, ranking, bm25, rrf, index, cli]
 
 The search returns only files, and `ast index` does not rebuild an empty index.
 
-Continues `docs/tasks/hub-em-s3-icebug-e-lancedb.md` (T15 closed in `a7c0ac3`). The originating
-prompt is at `docs/tasks/backlog/PROMPT-busca-devolve-so-arquivos.md` (commit `abef386`).
+Continues `docs/tasks/hub-on-s3-icebug-and-lancedb.md` (T15 closed in `a7c0ac3`). The originating
+prompt is at `docs/tasks/backlog/PROMPT-search-returns-only-files.md` (commit `abef386`).
 
 ## Objective
 
@@ -442,7 +442,7 @@ Done in a scratch project (`/tmp/t2-demo`), not the real store.
 
 ### 2026-08-24
 
-Opened before touching anything. Read `hub-em-s3-icebug-e-lancedb.md` (continues T15), the backlog
+Opened before touching anything. Read `hub-on-s3-icebug-and-lancedb.md` (continues T15), the backlog
 prompt, and the `lancedb`/search memories — in particular the fix that brought the floor from 13/16
 to 11/11 + 5/5, and the T14 decision banning score merges in Go.
 - Froze a copy of the real store and measured both passes. The prompt's diagnosis fell apart.
@@ -552,7 +552,7 @@ from `HOME`, and each test binary gets its own throwaway one: measured on this m
 abandoned homes, 4.3 gigabytes**, sitting in a tmpfs.
 
 This closes the missing half of the 2026-08-07 task
-(`docs/tasks/lentidao-do-make-test-medida-e-o-download-de-132mb-escondido-nos-testes.md`), which
+(`docs/tasks/make-test-slowness-measured-and-132mb-download-hidden-in-tests.md`), which
 covered the reranker's model cache but not the embedder's — where four test files construct an
 embedding client and none of them seed the cache.
 

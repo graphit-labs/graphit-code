@@ -115,7 +115,7 @@ Then there is no comment affirming that the module performs polling
 ```gherkin
 The orphaned comment was removed.
 When "go build -tags fts5 ./..." e "go vet -tags fts5 ./internal/daemon/" rodam
-Then ambos terminam sem erro
+Then both finish without error
 And an internal/daemon suite continues passing.
 ```
 

@@ -1,47 +1,56 @@
 ---
-title: Continuous parser pool barrier - the chunk-based RWLock remains
+title: Continuous parse pool — the per-chunk barrier goes, the RWMutex stays
 status: done
 created: 2026-08-10
 updated: 2026-08-10
 tags: [ast, pipeline, antlr, concorrencia, performance]
 ---
 
-Continuous parser pool barrier falls when chunk exits, RW Mutex remains
+# Continuous parse pool — the per-chunk barrier goes, the RWMutex stays
 
 ## Objective
 
-The `ast index` stopped reporting progress in short intervals and seemed stuck —
-observed in ~2500 files with N-1 idle workers. The cause was not a deadlock; it was the
-chunk barrier of the parse pool. `runFileWorkerPool` parsed in blocks of `antlrCacheCheckInterval` (250) files with an `wg.Wait()` between them, and **a chunk cost its slowest file**. In a corpus whose file sizes vary by three orders of magnitude, this tail dominates: a PL/SQL procedure of 704 KB runs alone in just 24.3 seconds, and the few files of this size are adjacent in the walk order, so they fall into the same chunk and get stuck.
+`ast index` stopped reporting progress for minutes at a time and looked hung —
+observed on ~2500 files, with N-1 idle workers. The cause was not a deadlock: it was the
+parse pool's chunk barrier. `runFileWorkerPool` parsed in blocks of
+`antlrCacheCheckInterval` (250) files with a `wg.Wait()` between them, and **a chunk costs
+its slowest file**. In a corpus whose file sizes vary by three orders of
+magnitude, that tail dominates: a 704 KB PL/SQL procedure takes 24.3 s on its own, and the
+few files of that size end up adjacent in walk order, so they land in the same
+chunk and stall it.
 
-Note: The inline codes (`ast index`, `runFileWorkerPool`, `antlrCacheCheckInterval`, `wg.Wait()`) have been omitted for brevity.
-
-The barrier existed for a real reason: it was the only point where package-level caches of ANTLR (DFAs / prediction-context, ~2 MB retained per PL/SQL file, never flushed) could be reset without running afoul of an ongoing parse. Objective of this task: remove the barrier without reintroducing the race — and without leaving the heap growing unchecked.
+The barrier existed for a real reason: it was the only point where the ANTLR package-level
+caches (DFA / prediction-context, ~2 MB retained per PL/SQL file, never evicted) could
+be reset without racing an in-flight parse. Goal of this task: remove the
+barrier without reintroducing the race — and without letting the heap grow without bound.
 
 ## Implementation Details
 
 The lock that makes this possible **already existed** in `internal/ast/antlr/common/parser_sll_ll.go`
-(`staticMu sync.RWMutex`, with `LockParse`/`UnlockParse`/`WithCacheReset`), introduced to cover a scenario that the pipeline barrier never covered: the daemon runs one pipeline per project and the MCP parses on demand, all within the same process. Therefore, a reset initiated by a pipeline could run against the construction of another parser’s lexer/parser, where `decisionToDFA` is read.
+(`staticMu sync.RWMutex`, with `LockParse`/`UnlockParse`/`WithCacheReset`), introduced to
+cover a scenario the per-pipeline barrier never covered: the daemon runs one pipeline per
+project and the MCP parses on demand, all in the same process, so a reset triggered by one
+pipeline could race another's parser construction. The five native drivers
+(`cobol85`, `db2`, `plsql`, `postgresql`, `tsql`) already take the read lock on the first line of
+`Parse` and release it with `defer` — covering lexer/parser construction, which is where
+`decisionToDFA` is read.
 
----
+In other words: mutual exclusion was already guaranteed by the mutex. The barrier was redundant — and expensive.
 
-Note: The inline codes are placeholders for actual code snippets or paths that should be replaced with the specific content when translating to English.
+**1. `internal/ast/pipeline.go` — a single continuous pool.**
+A single producer feeds an unbuffered `paths` channel with every file, and
+`opts.Workers` goroutines consume until the end. There is no intermediate `wg.Wait()` anymore, so
+a worker stuck on a 24 s file does not stop any other from moving on.
 
-In other words: mutual exclusion was already guaranteed by the mutex. The barrier was redundant— and expensive.
+The heap pressure check became a shared atomic counter (`sinceCheck`): every
+`antlrCacheCheckInterval` completed files, the worker that closes the count consults
+`antlrCachePressure()` and, if it is above the ceiling, calls `ResetAntlrCaches()`. The reset is
+issued **between parses** of that worker — never from inside one — so the goroutine is not holding
+the read lock when it asks for the write lock.
 
-**1. INLINE 17 — a single continuous pool.**
-A producer feeds a non-buffered channel INLINE 18 with all the files, and INLINE 19 goroutines consume until the end. There are no more intermediate steps, so a worker stuck on a 24-second file does not prevent any other from proceeding.
-
-INLINE 17: Inline 17
-INLINE 18: Channel 18
-INLINE 19: Goroutine 19
-INLINE 20: Intermediate step
-
-The heap pressure check has become an atomic shared counter (`sinceCheck`): every time `antlrCacheCheckInterval` completed files are closed, the worker that closes the count consults `antlrCachePressure()` and if it is above the ceiling, calls `ResetAntlrCaches()`. The reset is emitted **between parses** of this worker — never inside one — so the goroutine does not lock up when requesting the write lock.
-
-**2. Inline 25 - Grammar race in the global project sprint.**
-Found by the new test running on ___Inline_26__, and **prior to this task:** the queue has always been a contender.
-
+**2. `internal/ast/antlr_adapter.go` — race on the project grammar global.**
+Found by the new test running under `-race`, and **predating this task**: the pool was always
+concurrent. `parseWithConfig` did
 
 ```go
 if a.projectDir != "" && antlrGrammarProjectDir == "" {
@@ -49,155 +58,171 @@ if a.projectDir != "" && antlrGrammarProjectDir == "" {
 }
 ```
 
-— Reading and writing in a global, from all the workers. All workers write the same absolute path (the pool builds each `CompositeParser` with the same `abs`), so the result has never been incorrect; still it is a formal data race and the `-race` breaks execution, which is the CI gate. The global passed to be stored by `antlrGrammarProjectDirMu sync.RWMutex`, with `setAntlrGrammarProjectDirIfUnset` doing a read-write lock under one lock (check with the read lock and then get the write lock would leave two workers observing `""` and both writing), and `grammarProjectDir()` for reading. `SetAntlrGrammarProjectDir` also passed to be blocked.
+— reading and writing a global, from every worker. All of them write the same absolute
+path (the pool builds each `CompositeParser` with the same `abs`), so the result was never
+incorrect; it is still a formal data race and `-race` kills the run, which is the CI
+gate. The global is now guarded by `antlrGrammarProjectDirMu sync.RWMutex`, with
+`setAntlrGrammarProjectDirIfUnset` doing test-and-set under a single lock (checking with the read
+lock and then taking the write lock would let two workers observe `""` and both write) and
+`grammarProjectDir()` for reading. `SetAntlrGrammarProjectDir` now locks as well.
 
-**3. Comments describing the old design.**
-
-The block of `antlrCacheCheckInterval` still stated that each check was a barrier and "the only place where cache resets can be safely performed"; the one at `ResetAntlrCaches` said, "Not safe to call while a parse is in flight." Both began describing the real contract, including the sole remaining restriction: who calls the reset cannot already hold the read lock.
+**3. Comments that described the old design.** The `antlrCacheCheckInterval` block
+still said that each check was a barrier and "the only point where the caches can be
+safely reset"; the one on `ResetAntlrCaches` said "NOT safe to call while a parse is in
+flight". Both now describe the real contract, including the one restriction that remains:
+whoever calls the reset must not already be holding the read lock.
 
 ## Use Cases
 
-### UC-01: Indexing a Repository with Very Uneven File Sizes
+### UC-01: Index a repository with very uneven file sizes
+- **Actor**: `graphit ast index` (CLI), the daemon's `SyncModule`, the `ast_index` MCP tool.
+- **Preconditions**: repository with more than `antlrCacheCheckInterval` parseable files; at least one file whose parse is orders of magnitude slower than the median.
+- **Main Flow**:
+  1. `RunPipeline` → `runFileWorkerPool` discovers the files and assembles `changedFiles`.
+  2. A producer sends every path over an unbuffered channel.
+  3. `opts.Workers` workers consume continuously; each builds its own `CompositeParser` and calls `Parse` per file.
+  4. Each result goes to the `results` channel, consumed by the main loop, which writes to the cache and emits `OnProgress("parsing", ...)`.
+  5. The slow file occupies **one** worker; the rest keep draining the queue to the end.
+- **Alternative Flows**:
+  - Scoped run (`ChangedPaths`/`DeletedPaths` populated): same mechanics, without the tree walk.
+- **Error Scenarios**:
+  - Parse error on a file: accounted for in `ErrorCount`/`ErrorFiles`; the other workers are unaffected.
+  - `ctx` canceled: producer and workers exit through the `<-ctx.Done()` arm; the unbuffered channel has a cancellation arm on both sides, so there is no permanent block.
+- **Postconditions**: every discovered file was parsed exactly once; progress advances continuously instead of jumping from chunk to chunk.
+- **Affected Files**: `internal/ast/pipeline.go`.
 
-**Actor**: CLI (Command Line Interface) and daemon, tool MCP (Multi-File Processor).
+### UC-02: Contain the ANTLR heap without draining the pool
+- **Actor**: parse pool worker.
+- **Preconditions**: at least `antlrCacheCheckInterval` files completed since the last check.
+- **Main Flow**:
+  1. The worker finishes a parse and delivers the result.
+  2. It increments `sinceCheck`; on reaching the interval, it zeroes the counter.
+  3. It calls `antlrCachePressure()` (a `runtime.ReadMemStats`, a brief stop-the-world).
+  4. Above `antlrCacheHeapLimit`, it calls `ResetAntlrCaches()`, which takes `antlrcommon`'s write lock and swaps the `decisionToDFA` of every registered grammar.
+  5. In-flight parses finish holding the read lock; the reset waits for them and only then runs.
+- **Alternative Flows**:
+  - Heap below the ceiling: nothing is reset — a warm DFA is worth more than the memory it occupies.
+  - End of the pool: one final check, because the caches are package-level and stay **alive** (they do not become garbage) in a long-lived daemon.
+- **Error Scenarios**:
+  - Reset requested from inside a parse (hypothetical regression): the goroutine already holds the read lock and would ask for the write lock — deadlock. That is what the new test detects by timeout.
+- **Postconditions**: heap contained; no parse observed static state being swapped underneath it.
+- **Affected Files**: `internal/ast/pipeline.go`, `internal/ast/antlr_adapter.go`, `internal/ast/antlr/common/parser_sll_ll.go`.
 
-**Preconditions**: More than `antlrCacheCheckInterval` parseable files in the repository; at least one file whose parsing is orders of magnitude slower than the median.
-
-**Main Flow**:
-1. The producers send all paths via a non-buffered channel.
-2. Workers continuously consume, each building their own `CompositeParser` and calling `Parse` for each file.
-3. Each result goes to the channel `results`, which is consumed by the main loop, which stores in cache and emits `OnProgress("parsing", ...)`.
-4. The slow file occupies **one** worker; the others drain the queue until it's empty.
-
-- Alternative Flows:
-  - Scoping execution (`ChangedPaths`/`DeletedPaths` filled): same mechanics without tree traversal.
-
-- Error Scenarios:
-  - Parsing error in an input file: counted in `ErrorCount`/`ErrorFiles`; the other workers are unaffected.
-  - Cancelled: producers and workers exit via `<-ctx.Done()`; the non-buffered channel has cancellation arms on both sides, so there's no permanent blockage.
-
-- Postconditions:
-  - Every discovered file is parsed exactly once; progress advances continuously rather than jumping chunk by chunk.
-
-**Affected Files**: `internal/ast/pipeline.go`
-
-### UC-02: Prevent the ANTLR heap without draining the pool
-
-**Actor**: Worker in the parse pool
-
-**Preconditions**: At least `antlrCacheCheckInterval` completed files since the last check.
-
-**Main Flow**:
-1. The worker finishes a parse and delivers the result.
-2. Increments `sinceCheck`; when it reaches the interval, resets the counter.
-3. Calls `antlrCachePressure()` (a brief stop-the-world).
-4. Above `antlrCacheHeapLimit`, calls `ResetAntlrCaches()`, which takes a write lock on `antlrcommon` and replaces the `decisionToDFA` of each registered grammar.
-5. Parses in flight end holding the read lock; the reset waits for them before executing.
-
-**Alternative Flows**:
-- Below the ceiling: nothing is resetted — a warm DFA is worth more than the memory it occupies.
-- End of pool: a final check, since caches are package-level and remain **alive** (not considered garbage) in a long-lived daemon.
-
-**Error Scenarios**:
-- Requested reset inside a parse (hypothetical regression): the goroutine already holds the read lock and would request the write lock — deadlock. This is what the new test detects by timeout.
-
-**Postconditions**: heap contained; no parse observed state transition underneath itself.
-- Affected Files: `internal/ast/pipeline.go`, `internal/ast/antlr_adapter.go`, `internal/ast/antlr/common/parser_sll_ll.go`
-
-### UC-03: Publish the grammar directory of the project from concurrent workers
-
-**Actor**: Actor 68, one per worker.
-
-**Preconditions**: The inline condition is not empty; the inline variable has not been initialized yet.
-
-**Main Flow**:
-1. Worker calls `setAntlrGrammarProjectDirIfUnset(a.projectDir)`.
-2. Under write lock, the global receives only if it is still empty.
-3. `antlrDriversOnce.Do(initAntlrDrivers)` reads the value from `grammarProjectDir()` and searches for sidecar binaries in `<projeto>/.graphit/grammars/antlr` and `~/.graphit/grammars/antlr`.
-
-**Alternative Flows**:
-- Called externally: always overwrites, also under write lock.
-
-**Error Scenarios**:
-- No sidecar binary found: uses the native compiled driver.
-
-**Postconditions**: Publishes a single value without data race.
-- Affected Files: `internal/ast/antlr_adapter.go`.
+### UC-03: Publish the project's grammar directory from concurrent workers
+- **Actor**: `AntlrParser.parseWithConfig`, one per worker.
+- **Preconditions**: `a.projectDir` not empty; `antlrDrivers` not yet initialized.
+- **Main Flow**:
+  1. The worker calls `setAntlrGrammarProjectDirIfUnset(a.projectDir)`.
+  2. Under the write lock, the global takes the value only if it is still empty.
+  3. `antlrDriversOnce.Do(initAntlrDrivers)` reads the value through `grammarProjectDir()` and looks for sidecar binaries in `<projeto>/.graphit/grammars/antlr` and `~/.graphit/grammars/antlr`.
+- **Alternative Flows**:
+  - `SetAntlrGrammarProjectDir` called from outside: overwrites unconditionally, also under the write lock.
+- **Error Scenarios**:
+  - No sidecar binary found: the compiled native driver is used.
+- **Postconditions**: a single published value, with no data race.
+- **Affected Files**: `internal/ast/antlr_adapter.go`.
 
 ## Test Cases & Acceptance Criteria
 
-Feature: Continuous Parse Pool with Concurrent Cache Reset
-
+### Feature: Continuous parse pool with concurrent cache reset
 Ref: UC-01, UC-02
 
-Scenario: The Reset Button Fires Real-Time ANTLR Parses on Flight
+#### Scenario: reset fires with real ANTLR parses in flight
 ```gherkin
-Given um projeto com 24 arquivos PL/SQL, cada um com um corpo distinto
-  And antlrCacheCheckInterval igual a 1
-And with antlrCacheHeapLimit set to 0, ensuring that pressure checks always indicate pressure.
-And the pipeline configured with four workers and the grammar fixed in "ANTLR-PL/SQL"
-When RunPipeline indexa o projeto
-Then the twenty-four files are parsed without error.
-And the published graph contains exactly 24 SQL files.
-And execution ends - a reset issued from within a parse would stall until the timeout.
+Given a project with 24 PL/SQL files, each with a distinct body
+  And antlrCacheCheckInterval equal to 1
+  And antlrCacheHeapLimit equal to 0, so that the pressure check always indicates pressure
+  And the pipeline configured with 4 workers and the grammar pinned to "antlr-plsql"
+When RunPipeline indexes the project
+Then the 24 files are parsed without error
+  And the published graph contains exactly 24 .sql files
+  And the run finishes — a reset issued from inside a parse would hang it until the timeout
 ```
 
-Scenario: Resetting Concurrently Does Not Contradict Parser Construction
+#### Scenario: concurrent reset does not race parser construction
 ```gherkin
-Given oito goroutines parseando PL/SQL continuamente pelo driver nativo
-When `ResetAntlrCaches` is called 25 times consecutively
-Then the race detection of Go does not report any races.
+Given eight goroutines parsing PL/SQL continuously through the native driver
+When ResetAntlrCaches is called 25 times in sequence
+Then Go's race detector reports no race
 ```
 Ref: `TestResetAntlrCachesRace` (already existing, `internal/ast/antlr_race_reset_test.go`)
 
-Scenario: Concurrent Publication of Grammar Directory for Project
+#### Scenario: concurrent publication of the project's grammar directory
 ```gherkin
-Given quatro workers chamando parseWithConfig com o mesmo projectDir
-When each publishes the directory of grammar projects
-Then the Go race detector does not report any races
-And the world has its own directory.
+Given four workers calling parseWithConfig with the same projectDir
+When each one publishes the project's grammar directory
+Then Go's race detector reports no race
+  And the global holds that directory
 ```
 
 ## Files Changed
 
 | File | Change | Reason |
 |---|---|---|
-| `internal/ast/pipeline.go` | Modified | Pool continuous in place of chunks with barrier; shared atomic counter for pressure check; comment `antlrCacheCheckInterval` updated |
-| `internal/ast/antlr_adapter.go` | Modified | `antlrGrammarProjectDir` stored by RWMutex with test-and-set; contract `ResetAntlrCaches` corrected |
-| `internal/ast/pipeline_reset_inflight_test.go` | Created | Covers reset of cache with real parses from ANTLR in full pipeline |
-
+| `internal/ast/pipeline.go` | Modified | Continuous pool in place of the barriered chunks; shared atomic counter for the pressure check; `antlrCacheCheckInterval` comment updated |
+| `internal/ast/antlr_adapter.go` | Modified | `antlrGrammarProjectDir` guarded by RWMutex with test-and-set; `ResetAntlrCaches` contract corrected |
+| `internal/ast/pipeline_reset_inflight_test.go` | Created | Covers cache reset with real ANTLR parses in flight through the full pipeline |
 
 ## Trade-offs & Decisions
 
-- **Mutex instead of barrier.** The barrier provided graceful exclusivity but at the cost of serializing the pool every 250 files. The mutex was already there for a case that the barrier did not cover (daemon multi-project in the same process), so keeping both was paying twice for the same guarantee.
-- **The reset still applies to the world, and this is accepted.** Under heap pressure, the worker that requests the write lock waits for all parses to finish before proceeding, and the RWMutex from Go blocks new read locks while there are writers waiting—so a file of 24 seconds in flight still stymies the pool until 24 seconds have passed. The difference is that now this happens **only under heap pressure**, not every 250 files conditionally. Removing this window would require reset by grammar or worker caches, which is another task.
-- **`sinceCheck.Add(1) >= interval` followed by `Store(0)` is not atomic as a parallel.** Two workers can almost close the count simultaneously and both reset; the second reset is cheap (caches have just been swapped) and the loss of count only delays the next check. Switching to a CAS would complicate the loop to correct something that does not have consequences.
-- **The global race has been corrected here, not deferred.** It precedes this task but exposes the new test, and a test that fails under `-race` in CI cannot be delivered as "known credit."
+- **Mutex instead of barrier.** The barrier gave exclusion for free, but at the cost of serializing
+  the pool every 250 files. The mutex was already there for a case the barrier did not cover
+  (multi-project daemon in the same process), so keeping both was paying twice for the
+  same guarantee.
+- **The reset still stops the world, and that is accepted.** Under heap pressure, the worker asking
+  for the write lock waits for every in-flight parse to finish, and Go's RWMutex blocks new read
+  locks while a writer is waiting — so a 24 s file in flight still stalls the pool
+  for up to 24 s. The difference is that this now happens **only under heap pressure**, not
+  every 250 files unconditionally. Eliminating that window would require per-grammar reset or
+  per-worker caches, which is another task.
+- **`sinceCheck.Add(1) >= interval` followed by `Store(0)` is not atomic as a pair.** Two
+  workers can close the count almost together and both reset; the second reset is cheap
+  (the caches were just swapped) and the lost count merely postpones the next check.
+  Switching to a CAS would complicate the loop to fix something with no consequence.
+- **The global's race was fixed here, not deferred.** It predates this task, but the
+  new test exposes it, and a test that fails under `-race` in CI cannot be delivered as
+  "known debt".
 
 ## Technical Debt
 
-- [ ] A forced reset still blocks the entire pool during the duration of the longest parse in flight (see Trade-offs). Directions: Reset by grammar, or use worker-level caches instead.
-- [ ] `SetAntlrGrammarProjectDir` is exported and has no caller in the graph. Or it's an entry point for another binary, or dead code — check before removing.
-- [ ] `TestParsePoolResetsAntlrCachesWithParsesInFlight` overrides `antlrCacheCheckInterval` and `antlrCacheHeapLimit`, which are global package globals, so it declares `t.Parallel()`.
-  If `internal/ast` is parallelized (see memory about the latency of `make test`), this test needs explicit isolation.
+- [ ] A reset under pressure still blocks the whole pool for the duration of the longest in-flight
+  parse (see Trade-offs). Directions: per-grammar reset, or per-worker caches instead of
+  package-level ones.
+- [ ] `SetAntlrGrammarProjectDir` is exported and has no caller in the graph. Either it is an
+  entry point for another binary, or it is dead code — check before removing.
+- [ ] `TestParsePoolResetsAntlrCachesWithParsesInFlight` overwrites `antlrCacheCheckInterval`
+  and `antlrCacheHeapLimit`, which are package globals, so it does not declare `t.Parallel()`.
+  If `internal/ast` gets parallelized (see the memory about `make test` being slow), this
+  test needs explicit isolation.
 
 ## System Knowledge
 
-- The reset budget is directed by pressure rather than count. Resetting every 500 files cost ~78% more parse time; never resetting led the heap to 23 GB in an Oracle corpus of 35k files. Therefore, there exists a check and it is amortized: each check is an INLINE_96, which is stop-the-world.
-- The ANTLR caches remain alive, not discarded as garbage. They are package-level, so the GC never collects them — that's why the final check after INLINE_97 does not exist without which a long-lived daemon ensures the entire budget until the process dies.
-- Every native driver secures the read lock by construction too. It is not a detail: INLINE_98 is read in INLINE_99/INLINE_100 before any rule runs. A lock that covers only INLINE_101 would leave the window open.
-- INLINE_102 and discovering extension consult different global tables.
-- INLINE_103 decides whether the extension is discovered; INLINE_104 resolves the override INLINE_105_. A test that wants PL/SQL from start to finish needs both — the tables are built from runtime query directories and user directories, so a project-specific grammar is discovered but not selectable by them.
+- **The reset budget is driven by pressure, not by count.** Resetting every 500
+  files cost ~78% more parse time; never resetting took the heap to 23 GB on an Oracle
+  corpus of 35k files. That is why the check exists and why it is amortized: each
+  check is a `runtime.ReadMemStats`, which is stop-the-world.
+- **The ANTLR caches stay alive, they do not become garbage.** They are package-level, so the GC never
+  collects them — hence the final check after `wg.Wait()`, without which a long-lived daemon
+  holds the entire budget until the process dies.
+- **Every native driver holds the read lock through construction too.** This is not a detail:
+  `decisionToDFA` is read in `NewXxxParser`/`NewXxxLexer`, before any rule runs. A
+  lock covering only `Parse()` would leave the window open.
+- **`ParseWithGrammar` and extension-based discovery consult different global tables.**
+  `antlrExtMap` decides whether the extension is discovered; `antlrGrammarMap` resolves the
+  `--grammar` override. A test that wants PL/SQL end to end has to populate both — the
+  tables are built from the runtime and user query directories, so a grammar local to the
+  project is discovered but not selectable through them.
 
 ## Progress Log
 
 ### 2026-08-10
-
-- The previous session was terminated due to a machine crash (reisub); the diff of `pipeline.go` and `antlr_adapter.go` survived in the working tree, without a task log.
-- It has been confirmed on the graph that the premise supporting the change: the 5 native drivers take `LockParse` at line 14 of each `driver.go` and release by `defer` at line 15.
-- The comment of `antlrCacheCheckInterval` has been corrected, which still described the barrier.
-- Written `TestParsePoolResetsAntlrCachesWithParsesInFlight`. It was written on ___INLINE_113__, exposing a pre-existing race in `antlr_adapter.go:256-257` (global `antlrGrammarProjectDir`).
-- The race with RWMutex + test-and-set has been corrected.
-- Green: `internal/ast` is complete both with and without `-race` (98.3 seconds on `-race`); `go vet` and `gofmt` are clean in the package.
-
-Note: The inline comments and file paths have been preserved as per your request.
+- The previous session ended in a machine freeze (reisub); the diff of `pipeline.go` and
+  `antlr_adapter.go` survived in the working tree, with no task log.
+- Confirmed in the graph the premise the change rests on: the 5 native drivers take
+  `LockParse` on line 14 of each `driver.go` and release it via `defer` on line 15.
+- Fixed the `antlrCacheCheckInterval` comment, which still described the barrier.
+- Wrote `TestParsePoolResetsAntlrCachesWithParsesInFlight`. Under `-race` it exposed a
+  **pre-existing** data race in `antlr_adapter.go:256-257` (the `antlrGrammarProjectDir` global).
+- Fixed the race with RWMutex + test-and-set.
+- Green: all of `internal/ast` with and without `-race` (98.3 s under `-race`); `go vet` and `gofmt`
+  clean in the package.

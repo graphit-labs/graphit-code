@@ -519,7 +519,7 @@ Query file, not grammar*, is the immediate precursor — it establishes that
   are DATA and propagate in seconds; rule text is Go CODE and propagates at
   `make install`.
 - Left on the improvement backlog:
-  `docs/tasks/backlog/graphit-config-aceita-qualquer-chave-sem-validacao-entao-um.md`
+  `docs/tasks/backlog/graphit-config-accepts-any-key-without-validation-then-a.md`
   — `graphit config` writes any key without validation, so a typo in either new
   key is silent. Pre-existing, but these keys widen its blast radius, because the
   symptom of a typo is "the grammar I disabled is still indexed" rather than an

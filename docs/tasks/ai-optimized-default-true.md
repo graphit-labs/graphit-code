@@ -41,7 +41,7 @@ func aiOpt(v *bool) bool {
 }
 ```
 
-**Arquivos alterados:**
+**Files changed:**
 - `internal/mcpstdio/tools_ast.go`
 - `internal/mcpstdio/tools_cluster.go`
 - `internal/mcpstdio/tools_daemon.go`

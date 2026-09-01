@@ -1,256 +1,336 @@
 ---
-title: SQLite exits binary format - arrays and vectors now reside in LadybugDB
+title: SQLite leaves the binary — search and vectors move into LadybugDB
 status: done-with-caveat
 created: 2026-08-16
 updated: 2026-08-16
 tags: [ast, wiki, memory, ladybug, sqlite, search, storage, incremental]
 ---
 
-SQLite exits binary format - indexes and vectors move to LadybugDB
+# SQLite leaves the binary — search and vectors move into LadybugDB
 
-Origin: Engineer's instruction — "there are so many ladybugs for the graph as well as sqlite for fts/bm25 and semantic search, the problem is that it weighs too much on disk and processing with two databases. I want to be just the ladybug."
+**Origin:** instruction from the Engineer — "today there is both ladybug for the graph and
+sqlite for fts/bm25 and semantic search, the problem is that having two databases weighs a
+lot on disk and on processing. i want it to be only ladybug".
 
-A previous attempt was made on July 26, 2026 (reverted commits `354a32c` and `c90e73f`). This did not reuse that code — it was written from scratch, using only the changelogs of that batch as a map of traps.
+An earlier attempt, on 2026-07-26, was made and **reverted** (commits `354a32c` and
+`c90e73f`). This one did not reuse that code — it was written from scratch, using the changelogs
+of that batch only as a map of the traps.
 
 ---
 
-Why now, having failed before
+## Why now, if it was rejected before
 
-The three July blockages were rechecked on this date. Two remain true; only the baseline has changed, not the engine.
+July's three blockers were re-verified on this date. Two are still true; what
+changed was the **baseline**, not the engine.
 
-The July blockage | State as of August 16, 2026 |
+| July blocker | State on 2026-08-16 |
 |---|---|
-| Index FTS is not maintained during insert — 25 lines invisible | **Continues** `TestLadybugFTSPerRowInsertIsReliable` (purposefully inverted) passed 12/12. `go-ladybug v0.17.0` remains the newest. |
-| Cascade failure in incremental | Already resolved in design: drop indices before mutating. |
-| "Incremental 5,3 s against ~330 ms" | **Baseline obsolete** Those 330 ms were measured with in-place write. |
-| Intermittent string corruption | Continues and is anterior to this change — already affecting the production graph. |
+| The FTS index is not maintained on insert — 22 of 25 rows invisible | **Still true.** `TestLadybugFTSPerRowInsertIsReliable` (inverted on purpose) passed 12/12. `go-ladybug v0.17.0` is still the newest. |
+| Cascading failure in the incremental | Already solved in the design: drop the indexes before mutating. |
+| "Incremental 5.3 s against ~330 ms" | **Obsolete baseline.** Those 330 ms were measured with in-place writes. |
+| Intermittent string corruption | Still true, and it predates this change — it already hits the graph in production. |
 
-The number that killed migration compared the cost of Ladybug against an incremental **in-place**.
-This arrangement ceased to be production: `inPlaceIncrementalEnabled()` only linked with `GRAPHIT_INPLACE_INCREMENTAL=1`, and the default — copy+swap — already copies the entire directory of the database and already pays 215 ms-5.0 s just closing the mutated copy. The DROP+CREATE of FTS indices passes inside this copy, which is already O(corpus).
+The number that killed the migration compared Ladybug's cost against an **in-place** incremental.
+That arrangement stopped being production's: `inPlaceIncrementalEnabled()` only turned on with
+`GRAPHIT_INPLACE_INCREMENTAL=1`, and the default — copy+swap — already copies the database's entire
+directory and already pays 215 ms–5.0 s just closing the mutated copy. The DROP+CREATE of the FTS
+indexes now falls **inside that copy**, which is already O(corpus).
 
-And the disk measurement that motivated everything on this laptop is project INLINE 6:
+And the disk measurement that motivated all of it, on this laptop, project `<private-corpus>`:
 
 | | size |
 |---|---|
-| INLINE_7 (the graph) | 833 MB |
-| INLINE_8 (the index) | **2.3 GB** |
+| `ladybugdb` (the graph) | 833 MB |
+| `ladybugdb.search.sqlite` (the index) | **2.3 GB** |
 
-The index was 2.8 times the graph he described.
+The index was 2.8× the graph it described.
 
 ---
 
-What has changed
+## What changed
 
-The inplace path was removed; copy+swap is the only option.
+### 1. The in-place path was removed; copy+swap is the only one
 
-Engineering Request. **Attention to Inversion:** The literal request was "only the possibility of `GRAPHIT_INPLACE_INCREMENTAL=1` should exist," but this flag LIGA (L) in-place — the opposite of "the production database is always read-only," which is how he described the system in his first message. Presented with the measurement, he chose copy+swap:
+The Engineer's request. **Watch out for an inversion:** the literal request was "only the
+possibility of `GRAPHIT_INPLACE_INCREMENTAL=1` should exist", but that flag TURNS ON in-place
+writing — the opposite of "the production database is always read-only", which was how he described
+the system in the first message. Presented with the measurement, he chose copy+swap:
 
 ```
 escritor                                          leituras ok  abertura falhou  crashou
 in-place, commit + CHECKPOINT                        43/60           11            6
-Copy and Swap, never written production                60/60            0            0
+copy+swap, produção nunca escrita                    60/60            0            0
 ```
 
-The 6 are SIGSEGV inside cgo, in `open`: the CHECKPOINT rewrites pages underneath a reader that is opening the same file. It cannot be retried – the process MCP follows.
+The 6 are SIGSEGV inside cgo, in `open`: the CHECKPOINT rewrites pages underneath a
+reader that is opening the same file. There is no retrying — it takes the MCP process down with it.
 
-Removed: `incrementalInPlace`, `inPlaceIncrementalEnabled`, `deleteFileDataChecked`, a flag, `internal/ast/incremental_mode_test.go` and `TestLadybugInPlaceWritesUnderCrossProcessReaders`. The measurement survives in the comment of `IncrementalRebuild`.
+Removed: `incrementalInPlace`, `inPlaceIncrementalEnabled`, `deleteFileDataChecked`, the
+flag, `internal/ast/incremental_mode_test.go` and
+`TestLadybugInPlaceWritesUnderCrossProcessReaders`. The measurement survives in the header
+comment of `IncrementalRebuild`.
 
+### 2. The AST index lives INSIDE the graph database
 
-The index of the AST is inside the graph database.
+`internal/ast/fts_sqlite.go` (1159 lines) removed. In its place:
 
-`internal/ast/fts_sqlite.go` (1159 linhas) removido. No lugar:
+| file | role |
+|---|---|
+| `internal/ast/search_index.go` | schema, rebuild, incremental |
+| `internal/ast/search_query.go` | lexical, semantic and hybrid search, reading source |
+| `internal/ast/search_common.go` | what is engine-independent: tokenization, split, trigrams, ordering |
 
-Arquivo | Paper
---- | ---
-__INLINE_18__ | schema, rebuild, incremental |
-__INLINE_19__ | lexical search, semantic analysis, hybrid, reading from source |
-__INLINE_20__ | what depends on the engine: tokenization, split, trigrams, sorting |
+Tables `SearchFile` and `SearchEntity` in `ladybugdb` itself, **not** in a sibling. That is the
+decision that closes the design: an index in a separate file does not join the swap without a second
+copy of its own, and updating it in place — which is what SQLite did, from a goroutine,
+while readers were reading — left search OUTSIDE the atomic publication. A crash between the two
+left graph and index describing different corpora. Now a single `rename(2)` publishes both
+or neither.
 
-Tables **INLINE_21** and **INLINE_22** within the same **INLINE_23**, not in a sibling, is the decision that closes the design: an index outside the file does not enter swap without a second copy itself, and updating it there — which is what SQLite did, concurrently with readers reading — left the atomic publication for search outside of the published corpus. A crash between them would describe two different corpora in the graph and index. Now **INLINE_24** publishes both or none.
+Consequence: `SearchIndex` does not open a database of its own. It borrows the already open
+`*LadybugBackend` (`NewSearchIndexOn`), because the engine bars a second RW handle on the same
+database. In the incremental it is built on the `workingBackend` — the COPY — never on production.
+Readers use `OpenSearchIndexReadOnly`.
 
-Consequence: The inline 25 does not open its own database. It lends the ___INLINE_26__ already opened (___INLINE_27__), because the engine blocks a second handle RW on the same database. In the incremental, it is built upon the ___INLINE_28__ — the COPY —, never on production. Readers use ___INLINE_29__.
+### 3. The wiki (knowledge + memory) too
 
-3. The wiki (knowledge + memory) also
-
-`internal/wiki/fts.go` (1667 linhas) removido. No lugar `internal/wiki/store.go`,
-`internal/wiki/store_query.go` e `internal/wiki/search_text.go`. Tabelas `WikiChunk`,
+`internal/wiki/fts.go` (1667 lines) removed. In its place `internal/wiki/store.go`,
+`internal/wiki/store_query.go` and `internal/wiki/search_text.go`. Tables `WikiChunk`,
 `WikiXRef`, `WikiMeta`, `WikiSyncLog`.
 
-The __INLINE_38__ has started receiving __INLINE_39__ instead of a serialized blob, and
-the __INLINE_40__ became __INLINE_41__: the shard format on disk (___INLINE_43__) remains unchanged — it's now an archive format with ownership in ___INLINE_44__.
+`InsertChunkVector` now takes `[]float32` instead of a serialized blob, and
+`EmbeddingCache` became `map[string][]float32`: the blob was `sqlite-vec`'s wire format, and
+the embedding loop had no business knowing the engine's byte layout. The shard format on
+disk (`.emb.json`) did NOT change — it is a file format, now owned by `process_cache.go`.
 
-### 4. `internal/ladybugstore`, novo
+### 4. `internal/ladybugstore`, new
 
-Thin Layer Shared. Exists because __INLINE_46__ cannot import __INLINE_47__, and
-both now need the same primitives: open/close, load extension, execute, coerce result of graph.
+A thin shared layer. It exists because `internal/wiki` cannot import `internal/ast`, and
+both came to need the same primitives: open/close, load extension, execute, coerce a graph
+result value.
 
-5. SQLite exits from binary
+### 5. SQLite leaves the binary
 
-Removed __INLINE_48__, __INLINE_49__, and __INLINE_50__ from the Makefile.
-Do __INLINE_51__ and the two files-guard, __INLINE_53__. __INLINE_54__, __INLINE_55__, and __INLINE_56__ run **without tags**.
-
----
-
-What the engine demanded, and how each part responded
-
-The FTS5 capacity is not listed. In LadybugDB, the response is:
-| INLINE 57 | No | A vector index per field with column weights applied during RRF merge |
-| INLINE 58 | No | Pre-computed trigram tokenizer at write time, indexed with word tokenizers - better than MELHOR because partial overlap is scored instead of requiring containment |
-| INLINE 59 | No | Same trigram bag: 11/11 vs. prefix index's 9/11 in truncated queries |
-| INLINE 60 | No | Conjunctive form of `vec0` |
-| INLINE 61 | No | Fallback, scoped to label |
-| INLINE 62 | Vector Index Native | **Gain**: Maintained during insert and delete operations, so add ___INLINE_63__ and re-write the entire file that forced space leakage |
-
-The inline fields are not listed. In LadybugDB, the response is:
-| INLINE 57 | No | A vector index per field with column weights applied during RRF merge |
-| INLINE 58 | No | Pre-computed trigram tokenizer at write time, indexed with word tokenizers - better than MELHOR because partial overlap is scored instead of requiring containment |
-| INLINE 59 | No | Same trigram bag: 11/11 vs. prefix index's 9/11 in truncated queries |
-| INLINE 60 | No | Conjunctive form of `vec0` |
-| INLINE 61 | No | Fallback, scoped to label |
-| INLINE 62 | Vector Index Native | **Gain**: Maintained during insert and delete operations, so add ___INLINE_63__ and re-write the entire file that forced space leakage |
-
-Measured on this date and still in doubt in July: `UNWIND` with `FLOAT[768]` is accepted, so vectors will be included in the lot; the vector index is accepted in an empty table; and rows with `emb` NULL are ignored by the query.
-
-The stemmer is explicitly fixed (`stemmer := 'porter'`) instead of left in the default state. The default
-is porter today — sonded: `'none'` only the literal `schema`, while default, `'porter'` and
-`'english'` reach `schemas` —, and ranking depends on it.
+Removed `mattn/go-sqlite3`, `asg017/sqlite-vec-go-bindings`, `BUILD_TAGS := fts5` from the
+Makefile, `build-tags: [fts5]` from `.golangci.yml` and the two guard files
+`fts5_required.go`. `go build ./...`, `go vet` and `golangci-lint` run **without the tag**.
 
 ---
 
-Three defects of fusion identified through measurement
+## What the engine forced, and how each piece was answered
 
-The RRF dismisses the magnitude of the score and retains only the position, which breaks the reconstruction of
-`bm25()` in three places. Nothing was predicted; all appeared as errors.
+| FTS5 capability | in LadybugDB | answer |
+|---|---|---|
+| `bm25(0,0,10,3,2,1)` — per-column weights in one index | does not exist | one FTS index **per field**, weights applied in the RRF fusion |
+| `trigram` tokenizer | does not exist | bag of 3-grams precomputed at write time, indexed with the word tokenizer — it matches BETTER, because it scores partial overlap instead of requiring containment |
+| prefix / wildcard index (`conf*`) | does not exist | the same bag of trigrams: 11/11 against 9/11 for the prefix index on truncated queries |
+| phrase operator | does not exist | conjunctive form of `QUERY_FTS_INDEX` |
+| queries shorter than a trigram | — | `CONTAINS` fallback, scoped to the label |
+| `vec0` | native vector index | **gain**: maintained on insert AND delete, so `entity_vec_map` goes away and so does the whole-file rewrite that vec0's space leak forced |
 
-1. A tie became an advantage.
-Two documents with identical scores were separated by the deterministic ordering, which is alphabetical, and this position entered into fusion. `schema` returned `SchemaValidator` about `validateSchema` due to the alphabetical face-up or face-down. Corrected with competition ranking — tied participants share the rank.
-2. Summing fields gave a full vote to the weak signal. Rank 0 in index `path` (weight 1) is worth 1/(k+1) more for being weaker than the marriage, and k=60 exceeds ~6 positions in name index (weight 10). `config` returned `parseConfig` about `configLoader` because `parseConfig` lives in `config.go`. Corrected with a stronger signal + rest dampened by 0.2.
-3. Exact name marriage was shifted. `config` returned `parseConfig` — which is house, docstring, and path — about the struct literally called `Config`. Corrected with an exact name boost.
+Measured on this date, and in doubt back in July: `UNWIND` with `FLOAT[768]` is **accepted**, so
+vectors go in the batch; the vector index is accepted on an **empty** table; and rows with `emb` NULL
+are ignored by the query.
 
-In the wiki, the same family: The title's initial weight was initially set at 6.0, above the inline `body` field (1.0). Since the bag of words houses disjunctively, a single shared 3-gram puts the document in rank 0 of itself — and the query `credenciais`, which appears in the body of one document but not in the title at all, ranked another document first. The weights of the trigram in the wiki were pushed down to the field with the weakest weight (0.7 and 0.4), where the FTS5 design had them (a shift from 1.5 against 0.7 term passes).
-
----
-
-Two flaws of the SWAP that SQLite concealed
-
-The two only appeared in the e2e of the daemon, and neither is about search—both are about publishing to the database. While the index was an SQLite file outside of swap space, both were invisible: they only affected pages of the graph that no test checked at this resolution. With the index inside the store, there was a total and immediate failure in the search.
-
-The inline 88 model left behind the sidecars of the engine.
-
-He renamed the file and removed only `<path>.wal` alone. The other sidecars of liblbug —
-`.shadow`, `.wal.checkpoint`, `.tmp`, and the two checkpoint locks — are named by
-PATH, not by the identity of the file, so they survived the rename and remained alongside the
-NEW file describing the previous incarnation. The next opening would retrieve from them,
-above what had just been published.
+The stemmer is pinned explicitly (`stemmer := 'porter'`) instead of left at the default. The default
+IS porter today — probed: `'none'` matches only the literal `schema`, while the default, `'porter'`
+and `'english'` all reach `schemas` —, and the ranking depends on it.
 
 ---
 
-Note: I have translated the code blocks as is, preserving their original format and content.
+## Three fusion defects, found by measurement
 
-Measured: after the swap, `ladybugdb.shadow` with 1,1 MB and `ladybugdb.wal.checkpoint` with 44 KB next to a `ladybugdb` of 2.5 MB. Removing the sidecars, the same store becomes 516 KB.
+RRF discards the magnitude of the score and keeps only the position, which breaks the reconstruction
+of `bm25()` in three places. None of them was predicted; all showed up as a probe getting it wrong.
 
-The correction names suffixes instead of sweeping `<path>.*`, for the same reason that cleanup of a swap interruption had to learn: a glob also grabs copies of work and sidecars that follow.
+1. **A tie turned into an advantage.** Two documents with an identical score were separated by the
+   deterministic ordering, which is alphabetical, and that position went into the fusion. `schema`
+   returned `SchemaValidator` over `validateSchema` on an alphabetical coin toss. Fixed
+   with competition ranking — tied entries share the rank.
+2. **Summing fields gave a full vote to a weak signal.** Rank 0 in the `path` index (weight 1) is
+   worth 1/(k+1) no matter how weak the match, and at k=60 that beats ~6 positions in the name index
+   (weight 10). `config` returned `parseConfig` over `configLoader` just because
+   `parseConfig` lives in `config.go`. Fixed with the strongest signal at full strength + the rest
+   damped to 0.2.
+3. **An exact name match got displaced.** `config` returned `parseConfig` — which matches on
+   name, docstring and path — over the struct literally called `Config`. Fixed with an
+   exact-name boost.
 
-2. The full rebuild was building the search in the file that the rename had just shut down
-
-The code writes into a TEMPORARY database and renames it before publishing.
-Inline 98 referred to this rebuild as "rebuilding" and only then constructed the search index through handle Inline 99 — which points to the renamed file. All lines and FTS indices went there, and they were discarded on the next open.
-
-
-The symptom was exactly what the test reported: `MATCH (n:SearchEntity) RETURN count(n)` returned three lines, `FileSourceAt` returned the text from the file, and every `QUERY_FTS_INDEX` returned zero.
-
-Corrected with __INLINE_103__, which populates the search tables INSIDE the temporary database before renaming. The graph and index are now published by the same operation.
-
-A silent bug that died in construction
-
-INLINE_104: INLINE_105 inserted into INLINE_106 **without the column INLINE_107**. The rebuild filled in (line 347), the incremental did not. Every entity touched by an incremental lost its trigrams until the next full rebuild, and the recall abbreviation transition (INLINE_108 → INLINE_109) stopped reaching them, silent. Now the line is built somewhere else (INLINE_110), so it cannot be expressed.
-
----
-
-## Testes
-
-Green with `TestConsolidationQualityGate`, without a build tag.
-
-Converted instead of erased, because the expectation survives the change in engine:
-
-- **INLINE_114** (Ladybug × SQLite) **removed** — there is no second engine to compare against, and a differential test with one side removed compares implementation with toy.
-  Your role is of `TestSearchIndexQualityFloor`, which asserts an absolute floor in the same corpus and the same probes. The corpus and `TestLadybugFTSFeatureParity` are left as they were.
-
-- `TestExpansionFieldCeiling` — the assertion was "the two redactions tie at 9/9", a behavior of the FTS5 prefix index. Without it, the morphological redaction falls to 8/9, while only the exact token redaction reaches 9/9. Rewritten to assert the real condition, which is another reason not to build the expansion field.
-
-- `TestFileSourceAtDoesNotMigrateTheIndex` → `TestFileSourceAtDoesNotMutateTheStore` more
-  `TestFileSourceAtLeavesTheWriteHandleFree`. The danger has changed: it was a schema migration that toppled `file_fts`; now it's the writer's vacancy, which a read-write daemon would take from.
-
-- Tests of `quoteToken`, `buildPhraseQuery`, `buildANDQuery`, `buildORQuery`,
-  `buildPrefixQuery` removed with functions — there are no explicit phrase, boolean, or wildcard to build.
-
-Quality measured: **14/16** on the lexical floor (compared to 13 in SQLite, which replaced it), and 11/11 at the decisive sonars of the hybrid.
+In the wiki, the same family: the title's trigram bag was initially weighted at 6.0,
+**above** the `body` field (1.0). Since the bag matches disjunctively, a single shared
+3-gram puts the document at rank 0 of it — and the query `credenciais`, a word that
+appears in the BODY of one document and in no title, ranked another document first. The
+wiki's trigram weights went below the weakest field (0.7 and 0.4), which is where the
+FTS5 design had them (a 0.7 pass against 1.5 for the term passes).
 
 ---
 
-⚠️ Measurement in the Real Corpus: The Drawing Does Not Scale in This Project
+## Two SWAP defects that SQLite was hiding
 
-Measured against the production shard cache of project `<private-corpus>`, reconstructing to an outline path—production was not touched.
+Both only showed up in the daemon's e2e, and neither is about search — they are about publishing the
+database. While the index was a SQLite file outside the swap, both were invisible: they only
+affected pages of the graph, which no test checked at that resolution. With the index inside the
+store, they became a total and immediate failure of search.
 
-39,429 files, 2,501,342 entities — 12.5 times the 200K entities of July measurement scale.
-This scale had never been measured.
+### 1. `AtomicSwapDB` left the engine's sidecars behind
 
-```plaintext
+It renamed the file and removed only `<path>.wal`. The other liblbug sidecars —
+`.shadow`, `.wal.checkpoint`, `.tmp` and the two checkpoint locks — are named after the
+PATH, not after the file's identity, so they survived the rename and stayed next to the
+NEW file describing the PREVIOUS incarnation. The next open recovered from
+them, on top of what had just been published.
+
+Measured: after a swap, `ladybugdb.shadow` at 1.1 MB and `ladybugdb.wal.checkpoint` at
+44 KB next to a `ladybugdb` of 2.5 MB. With the sidecars removed, the same store goes to
+516 KB.
+
+The fix names the suffixes instead of sweeping `<path>.*`, for the same reason the cleanup of an
+interrupted swap had to learn: a glob also catches the working copies and the sidecars
+of whatever comes next.
+
+### 2. The full rebuild built search into the file the rename had just detached
+
+`RebuildFromJSON` writes into a TEMPORARY database and publishes it by renaming it over production.
+`pipeline.go` called that rebuild and ONLY THEN built the search index, through the
+`lb` handle — which points at the file detached by the rename. Rows and FTS indexes all went
+there, and were discarded on the next open.
+
+The symptom was exactly what the test reported: `MATCH (n:SearchEntity) RETURN count(n)`
+returned 3 rows, `FileSourceAt` returned the file's text, and every `QUERY_FTS_INDEX`
+returned zero.
+
+Fixed with `RebuildFromJSONWithSearch`, which fills the search tables INSIDE the temporary
+database, before the rename. Graph and index are now published by the same operation.
+
+## A silent bug that died by construction
+
+`fts_sqlite.go:466`: `UpdateIncremental` inserted into `entity_trigram` **without the
+`name_tri` column**. The rebuild filled it in (line 347), the incremental did not. Every entity
+touched by an incremental lost its trigrams until the next full rebuild, and the abbreviation
+recall pass (`config` → `coreConf`) stopped reaching them, silently. Now the row is built in one
+place only (`entityRowFor`), so it is not expressible.
+
+---
+
+## Tests
+
+`internal/ast` and `internal/wiki` green with `-count=1`, with no build tag.
+
+Converted rather than deleted, because the expectation survives the change of engine:
+
+- `TestConsolidationQualityGate` (Ladybug × SQLite) **removed** — there is no second engine to
+  compare against, and a differential test with one side removed compares an implementation against
+  a toy. Its role belongs to `TestSearchIndexQualityFloor`, which asserts an absolute floor on the
+  same corpus and the same probes. The corpus and `TestLadybugFTSFeatureParity` stayed.
+- `TestExpansionFieldCeiling` — the assertion was "the two phrasings tie at 9/9", which is
+  behavior of FTS5's prefix index. Without it the morphological phrasing drops to 8/9 and only
+  the exact-token one reaches 9/9. Rewritten to assert the real condition, which is one more reason
+  not to build the expansion field.
+- `TestFileSourceAtDoesNotMigrateTheIndex` → `TestFileSourceAtDoesNotMutateTheStore` plus
+  `TestFileSourceAtLeavesTheWriteHandleFree`. The danger changed shape: it used to be a schema
+  migration that dropped `file_fts`; now it is the writer slot, which a read-write read would
+  take from the daemon.
+- Tests for `quoteToken`, `buildPhraseQuery`, `buildANDQuery`, `buildORQuery`,
+  `buildPrefixQuery` removed along with the functions — there is no phrase, explicit boolean or
+  wildcard to build.
+
+Quality measured: **14/16** on the lexical floor (against 13 for the SQLite it replaced) and 11/11 on
+the hybrid's decisive probes.
+
+---
+
+## ⚠️ MEASUREMENT ON THE REAL CORPUS: the design does NOT scale on this project
+
+Measured over the production shard cache of project `<private-corpus>`,
+rebuilding into a scratch path — production was not touched.
+
+**39,429 files, 2,501,342 entities** — 12.5× the 200k entities of July's measurement.
+That scale had never been measured.
+
 | | new (Ladybug) | old (SQLite) |
 |---|---|---|
-| store | 5.7 GB | 5.5 GB (873 MB graph + 4.65 GB index) |
+| store | 5.70 GB | 5.5 GB (873 MB graph + 4.65 GB index) |
 | full rebuild | 988 s (16.5 min) | — |
-| **incremental from one file** | **1.178 s (19.6 min)** | ~330 ms (measured in 200k, in-place) |
-| query | 487–778 ms | 50–146 ms (measured in 200k) |
+| **1-file incremental** | **1,178 s (19.6 min)** | ~330 ms (measured at 200k, in-place) |
+| query | 487–778 ms | 50–146 ms (measured at 200k) |
 | buffer pool required | **8 GiB** | — |
-```
 
-In the synthetic corpus, numbers are good and did not anticipate anything of this: 2000 files / 10,000 entities yield a full response in 2.30 seconds, an incremental response in 1.19 seconds, and a query response in just 69 milliseconds.
+On a synthetic corpus the numbers are good and anticipated none of this: 2000 files /
+10,000 entities give full 2.30 s, incremental 1.19 s, query 69 ms.
 
-Three problems, in order of severity
+### Three problems, in order of severity
 
-The incremental cost is 20 minutes per file, and it's SLOWER than the full rebuild. It copies 5.7 GB, mutates, drops, recreates the 9 FTS indices, closes, and performs a swap. The DROP+CREATE is Corpus — the same work of a complete build — and the copy comes above. For a daemon that reindexes on every save, it's impractical.
+**1. The incremental costs ~20 minutes per file, and it is SLOWER than the full rebuild.** It
+copies 5.7 GB, mutates, drops and recreates the 9 FTS indexes, closes and swaps. The DROP+CREATE is
+O(corpus) — the same work as a full build — and the copy comes on top. For a daemon
+that reindexes on every save, it is unviable.
 
-**2. Do not build with the buffer pool that the project departs from.** `boundedDBBufferPool` stalls at
-1 GiB per database (`dbBufferPoolCeil`); with it, the creation of `se_path` fails with
-*"Buffer manager exception: Unable to allocate memory! The buffer pool is full"*. The 988 above are with `GRAPHIT_DB_BUFFER_MB=8192`.
+**2. It does not build with the buffer pool the project ships.** `boundedDBBufferPool` clamps at
+1 GiB per database (`dbBufferPoolCeil`); with it, the creation of `se_path` dies with
+*"Buffer manager exception: Unable to allocate memory! The buffer pool is full"*. The 988 s
+above are with `GRAPHIT_DB_BUFFER_MB=8192`.
 
+**3. The disk gain did not exist.** 5.70 GB against 5.5 GB — a tie. The saving that motivated
+the whole migration did not show up on this corpus.
 
-3. Storage gain did not exist. 5.70 GB against 5.5 GB—tie. The savings that prompted the entire migration were absent from this corpus.
+### What that means
 
-What does this mean?
+The copy+swap reframing dissolved July's RELATIVE argument — the 330 ms were an
+in-place baseline, and in-place is no longer production's arrangement. It did not dissolve the
+ABSOLUTE one: liblbug does not maintain an FTS index on insert, so every write is O(corpus), and at
+2.5 M entities that is tens of minutes. That is the original blocker, measured at the scale that
+matters.
 
-The reenquadrage of copy+swap dissolved the RELATIVE argument of July — the 330 ms were baseline in-place, and in-place is no longer the production layout. It did not dissolve the ABSOLUTE: liblbug does not maintain index FTS during insert, so all writes are O(corpus), and 2.5 million entities take up dozens of minutes. This is the original block, measured by the scale that matters.
+What is solid and is not affected: search is CORRECT and better (14/16 against 13/16, and
+queries over the 2.5 M entities return results in 487–778 ms with a fresh handle); the
+wiki migrated well, because wikis are small and always rebuilt whole; SQLite left the
+binary; ICU left.
 
-What is solid and not affected: the search is CORRECT and better (14/16 against 13/16, and queries about the 2.5M entities return results in 487-778 ms with new handle); the wiki migrated well because wikis are small and always reconstructed from scratch; SQLite exited binary; ICU exited.
+### Cheapest path before any bigger decision
 
-The cheapest path before any major decision
+Cut FTS indexes. There are 9 today. The three that are expensive and low-value are `sf_source` (it
+indexes the entire text of ALL files), `se_path` (weight 1) and `se_type` (weight 2). Cutting to
+4–5 should reduce build and disk significantly and is measurable in one run. It stays
+O(corpus): it shrinks the 20 min, it does not eliminate them.
 
-Cutting FTS indices. Today is 9. The three expensive and low-value ones are `sf_source` (indexes the entire text of all files), `se_path` (weight 1) and `se_type` (weight 2). Cutting to 4-5 should significantly reduce build and disk usage, which is measurable in a single run. Continue
-(Corpus): Reduce the size by 20 minutes, not delete them.
+If that is not enough, the options are: raise the incremental's threshold a lot (reindex rarely and
+in batches, not per save); keep SQLite only for the AST index and leave the wiki on Ladybug; or
+wait for upstream — `TestLadybugFTSPerRowInsertIsReliable` is inverted exactly to
+warn when liblbug starts maintaining the index on insert.
 
-If not, the options are: to significantly increase the threshold of incremental (reindex only rarely and in batches, not by save); keep SQLite just for the AST index and leave the wiki on Ladybug; or wait upstream — `TestLadybugFTSPerRowInsertIsReliable` is exactly inverted to alert when liblbug starts maintaining the index during insert.
-
-**Trap of the harness, registered because it cost time:** consult through the handle `lb`
-after a `IncrementalRebuild` returns zero for everything. The swap renames above and the handle continues pointing to the detached inode — same family as the two swap defects above. A new handle on the same store responds normally.
+**A harness trap, recorded because it cost time:** querying through the `lb` handle
+AFTER an `IncrementalRebuild` returns zero for everything. The swap renames over it and the
+handle keeps pointing at the detached inode — same family as the two swap defects
+above. A fresh handle on the same store answers normally.
 
 ---
 
-## A ICU saiu junto
+## ICU left along with it
 
-The question raised at the same session. The answer REVERSES the premise that it would be there due to SQLite: ICU is not of either.
+A question raised in the same session. The answer INVERTS the premise that it was there because
+of SQLite: ICU belongs to neither of the two.
 
-- Version v0.17.0 of `liblbug.so` does not declare ICU in `NEEDED` (`libdl`, `libpthread`, `libssl`,
-  `libcrypto`, `libm`, `libgcc_s`, `libc`, `ld-linux`), and `strings -a` does not find it there, so it is also named `dlopen`.
-- The build documentation for LadybugDB does not list ICU on any platform.
-- SQLite was already discarded as a consumer: it was compiled only with the tag `fts5`, never `sqlite_icu`. Removing it did not change anything in the calculation.
-- Functional test, on Linux: remove all ICU files from an extracted runtime and run
-  `ast query --hybrid`, which exercises LadybugDB, text index, vector index, and ONNX once. It worked.
+- `liblbug.so` v0.17.0 does not declare ICU in `NEEDED` (`libdl`, `libpthread`, `libssl`,
+  `libcrypto`, `libm`, `libgcc_s`, `libc`, `ld-linux`) and `strings -a` does not find `libicu`
+  in it, so it is not `dlopen`ed by name either.
+- LadybugDB's build documentation does not list ICU on any platform.
+- SQLite was already ruled out as a consumer: it was compiled only with the `fts5` tag, never
+  `sqlite_icu`. Removing it changed nothing in the calculation.
+- Functional proof, on Linux: delete the ICU files from an extracted runtime and run
+  `ast query --hybrid`, which exercises LadybugDB, the text index, the vector index and ONNX at
+  once. It worked.
 
-Note: The inline references (`liblbug.so` to `ast query --hybrid`) are placeholders for actual code or documentation paths that should be replaced with the specific values in your translation context.
+Removed from all THREE platforms: the `find` for `libicu*` in `build-linux` and in `build-darwin`
+(plus the two `rm -f` that existed only to clean up the duplicates those globs
+produced), the `-licuuc -licuin -licudt` flags and the ICU includes in `build-windows` and in
+`build-windows-native`, the three copies of `/mingw64/bin/libicu*.dll`, and a
+`! -name "*icu*"` exclusion in the `find` that copies every DLL from the mingw sysroot.
 
-Removed from the THREE platforms: the `find` of `libicu*` in `build-linux` and `build-darwin` (along with the two `rm -f` that only existed to clean up the duplicates those globs produced), the flags `-licuuc -licuin -licudt` and includes from ICU in `build-windows` and `build-windows-native`, the three copies of `/mingw64/bin/libicu*.dll`, and an exclusion `! -name "*icu*"` in `find` that copies all DLLs from the sysroot of mingw.
+**macOS and Windows were not verified** — that requires an artifact from each platform, and the
+Engineer decided to remove it anyway and put it back if something breaks. The risk asymmetry
+is recorded in the Makefile comment: on macOS a missing dylib aborts the process at
+startup, so a break there is total, not partial. `libicu-dev` / `icu4c` may still be
+needed to COMPILE; that is a different thing and it did not change.
 
-**macOS and Windows were not verified** — this requires artifacts for each platform, and the Engineer decided to remove it even if something breaks. The asymmetry of risk is registered in the Makefile comment: on macOS, a dylib missing causes the process to abort at startup, so any failure there is total, not partial. `libicu-dev` / `icu4c` may still be necessary for COMPILING; this is another thing and it did not change.
-
-Value: 37-73 MiB on Linux, varying with the number of ICU major versions used by the build machine, because the glob command grabbed all.
+Value: 37–73 MiB on Linux, varying with how many ICU majors the build machine had,
+because the glob picked up all of them.

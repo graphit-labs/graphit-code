@@ -3,7 +3,7 @@
 # Ignore patterns above the project root do not apply
 
 Discovered on 2026-08-22 by removing the git dependency from the ignore mechanism
-(`docs/tasks/hub-em-s3-icebug-e-lancedb.md`, section "Four corrections coming from an actual `setup`").
+(`docs/tasks/hub-on-s3-icebug-and-lancedb.md`, section "Four corrections coming from an actual `setup`").
 **It's not regression** — it never worked; the correction only made the behavior honest and explicit.
 It is stated in test: `TestAnIgnoreFileAboveTheProjectDoesNotApply` on
 `internal/ignorer/ignorer_test.go`.

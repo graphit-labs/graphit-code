@@ -2,7 +2,7 @@
 
 # `Comment.uid` has 951 duplicate values despite being PRIMARY KEY
 
-Discovered on 2026-08-21 when writing the export icebug (`docs/tasks/hub-em-s3-icebug-e-lancedb.md`). It's not an export problem — it's a graph problem.
+Discovered on 2026-08-21 when writing the export icebug (`docs/tasks/hub-on-s3-icebug-and-lancedb.md`). It's not an export problem — it's a graph problem.
 
 ## O fato, medido
 

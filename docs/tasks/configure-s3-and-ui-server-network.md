@@ -186,7 +186,7 @@ Then the response omits Access-Control-Allow-Origin
 | `docs/specs/config_module.md` | Updated | Document keys, precedence, examples, fallback, storage caveat, and CORS risk. |
 | `docs/decisions/2026-08-24-credenciais-s3-e-rede-do-ui-server.md` | Created | Preserve the authentication and network-security decisions. |
 | `go.mod` | Updated | Promote the AWS credentials package to a direct dependency. |
-| `docs/tasks/backlog/testpipelinewritesimportnodestothegraph-pode-consultar-schem.md` | Created | Defer investigation of the independently observed AST race-test flake. |
+| `docs/tasks/backlog/testpipelinewritesimportnodestothegraph-can-query-empty-schema-under-race.md` | Created | Defer investigation of the independently observed AST race-test flake. |
 | `docs/guides/s3-and-ui-network.md` | Created | Canonical operator guide for S3 authentication and UI network security. |
 | `README.md` | Updated | Replace obsolete Git setup/collaboration claims and expose the new network guide. |
 | `docs/README.md` | Updated | Add the operator guide and correct Hub/Memory descriptions. |
@@ -215,7 +215,7 @@ Then the response omits Access-Control-Allow-Origin
 
 ## Technical Debt
 
-- `TestPipelineWritesImportNodesToTheGraph` observed an empty/mid-rebuild graph in one full race-enabled run, then passed 3/3 in isolation and in the complete retry. Investigation is recorded in `docs/tasks/backlog/testpipelinewritesimportnodestothegraph-pode-consultar-schem.md`; its assertion was not weakened.
+- `TestPipelineWritesImportNodesToTheGraph` observed an empty/mid-rebuild graph in one full race-enabled run, then passed 3/3 in isolation and in the complete retry. Investigation is recorded in `docs/tasks/backlog/testpipelinewritesimportnodestothegraph-can-query-empty-schema-under-race.md`; its assertion was not weakened.
 - Resolved in T8: `.github/workflows/release.yml` no longer passes the removed `DEFAULT_HUB_REPO`, and the native Windows target invoked by the release was restored without reintroducing cross-compilation.
 
 ## System Knowledge

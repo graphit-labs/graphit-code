@@ -1,133 +1,216 @@
-Task: Complexity of Cyclomatic for Real Tree Without Text Scan
+# Task: cyclomatic complexity by real tree, without text scanning
 
-Status completed (33 out of 45 languages; text scan removed permanently) on August 10, 2026.
+**Status: completed (33 of 45 languages; text scanning removed for good)** on 2026-08-10.
 
-## O problema
+## The problem
 
-The inline code (inline comment) never looked at the tree — it was in the original text of the entity with spaces on both sides.
-literal required around keywords (`" if "`, `" for "`, `" && "`, `"? "`, ...) in the raw form of the entity. False positive (comment and string literal inside the body) is considered as a branch — it's found by accident while checking the same `ComputeCyclomaticComplexity` after the first pass: its `if` is preceded by tab, not space, and the old scan simply didn't see it.
+`ComputeCyclomaticComplexity` (`internal/ast/parsers.go`) never looked at the tree — it counted
+keywords (`" if "`, `" for "`, `" && "`, `"? "`, ...) in the entity's raw text, with a literal
+space required on both sides. False positive (a comment and a string literal inside the body
+count as a branch) and false negative (tab indentation instead of a space already breaks the match —
+found by accident while checking `ComputeCyclomaticComplexity` itself after the first
+pass: its `if` is preceded by a tab, not a space, and the old scan simply did not see it).
 
-First pass of this task configured 14 languages and maintained text scanning as a fallback for the rest. Explicit request for continuation: **remove the fallback** – without hidden text scanning behind "language not configured," and configure what remains unconfigured.
+The first pass of this task configured 14 languages and kept the text scan as a fallback
+for the rest. Explicit request to continue: **remove the fallback** — no text scan
+hidden behind "language not configured" — and configure what had been left out.
 
-What exists now
+## What exists now
 
-Configuration by language (`internal/ast/query_loader.go`, `ExternalQueryFile.Complexity`):
+**Per-language config** (`internal/ast/query_loader.go`, `ExternalQueryFile.Complexity`):
 ```yaml
 complexity:
-Nodes named, one per occurrence
-Operators: ["&&", "||"]  # Tokens/operators, one occurrence each
+  node_types: [if_statement, for_statement, ...]   # nodes NOMEADOS, 1 por ocorrência
+  operators: ["&&", "||"]                           # tokens/texto de operador, 1 por ocorrência
 ```
-Without this block, the entity receives complexity level 1 — **not** falling into any text scan. `ComputeCyclomaticComplexity`, `branchKeywordsBytes`, and `lowerBufPool` were removed (`internal/ast/complexity_equiv_test.go`, `BenchmarkComputeCyclomaticComplexity` in `phase3_bench_test.go`).
+Without that block, the entity gets base complexity 1 — it **no** longer falls back to any text
+scan. `ComputeCyclomaticComplexity`, `branchKeywordsBytes`, `lowerBufPool` and the benchmark that
+existed only for them were deleted (`internal/ast/complexity_equiv_test.go`,
+`BenchmarkComputeCyclomaticComplexity` in `phase3_bench_test.go`).
 
-The two engines (`complexityMatcher` in `treesitter_adapter.go`, `antlrComplexityMatcher` in
-`antlr_adapter.go`) are walking on the real sub-tree of their own entity, adding 1 per node in
-`node_types` and 1 per leaf whose **text** (not the `Kind()`) is in `operators` — the text, not the kind, because Julia and Scala give every operator the same generic kind (`operator`, `operator_identifier`); only the text of the leaf tells what it is. Entering into a node whose kind is in
-`context_types` (a nested declaration) the descent for that entity is punctuated by its own authority, without inflating from outside.
+**The two engines** (`complexityMatcher` in `treesitter_adapter.go`, `antlrComplexityMatcher` in
+`antlr_adapter.go`) walk the entity's own real subtree, adding 1 per node in
+`node_types` and 1 per leaf whose **text** (not the `Kind()`) is in `operators` — the text, and not
+the kind, because Julia and Scala give every operator the same generic kind (`operator`,
+`operator_identifier`); only the leaf's text says which one it is. On entering a node whose kind is in
+`context_types` (a nested declaration) the descent stops — that entity is scored on its own
+account, without inflating the outer one.
 
-**The 28 configured languages** — each ___INLINE_26__/`operators` was checked against the real grammar, not chucked. The disposable harness is carrying each grammar via `NewDynGrammarLoader` (tree-sitter) or calling the `Driver.Parse` native (ANTLR – PL/SQL and COBOL 85 are pure Go without requiring a sidecar), spilling `Kind()`/`Rule` real samples of data: go, python, javascript, typescript, tsx, java, c, cpp, rust, ruby, php, kotlin, swift, dart, bash, groovy, haskell, julia, lua, objc, r, scala, zig, csharp, sql (tree-sitter, minimum – just `case`, without if/for/while in this dialect), hcl (`for_expr`/`conditional` of Terraform), plsql, cobol85 (via ANTLR).
+**The 28 configured languages** — every `node_types`/`operators` was checked against the
+real grammar, not guessed. A throwaway harness loading each grammar via
+`NewDynGrammarLoader` (tree-sitter) or calling the native `Driver.Parse` (ANTLR — PL/SQL and
+COBOL 85 are pure Go, no sidecar needed), dumping real `Kind()`/`Rule` values from a sample
+with if/elif/for/while/switch-case/try-catch/ternary/`&&`/`||`, deleted after extracting the
+data: go, python, javascript, typescript, tsx, java, c, cpp, rust, ruby, php, kotlin, swift,
+dart, bash, groovy, haskell, julia, lua, objc, r, scala, zig, csharp, sql (tree-sitter, minimal —
+only `case`, no if/for/while in that dialect), hcl (Terraform's `for_expr`/`conditional`), plsql,
+cobol85 (via ANTLR).
 
----
+Findings that would have been mistakes had they been guessed, besides the Julia/Scala problem already mentioned:
+- **Python/Ruby/PHP/Bash/Lua/Julia/PL/SQL do not reuse `if` for `elif`/`elsif`/`elseif`** —
+  they are their own nodes/rules; in the C-family languages (Go, JS, TS, Java, C, C++, Rust, Swift,
+  Dart, C#, Groovy, Objective-C, Scala, COBOL 85) the "else if" is already another if nested in the else branch,
+  so counting the `if` alone already counts the chain — confirmed by counting real occurrences, not just
+  by looking at the dump.
+- **Ruby uses the same `binary` kind for comparison and for `&&`/`||`** — which is why `binary` does not go
+  into `node_types`; the operator itself is a separate anonymous leaf token, handled by `operators`.
+- **Java/C/C++/Kotlin/Swift/Objective-C/C#/Zig reuse the same node for `case` and
+  `default`** — a switch/when with no `case` at all still adds 1 for the `default`/`else`. The deviation is
+  documented in each YAML's comment.
+- **PL/SQL and COBOL 85 count per WHEN, not per whole CASE/EVALUATE** —
+  `case_when_part_statement`/`evaluateWhen` per branch, and the `OTHER`/`ELSE` stays out, following the
+  same convention of not counting the default.
 
-**The 28 configured languages** — each ___INLINE_26__/`operators` was checked against the real grammar, not chucked. The disposable harness is carrying each grammar via `NewDynGrammarLoader` (tree-sitter) or calling the `Driver.Parse` native (ANTLR – PL/SQL and COBOL 85 are pure Go without requiring a sidecar), spilling `Kind()`/`Rule` real samples of data: go, python, javascript, typescript, tsx, java, c, cpp, rust, ruby, php, kotlin, swift, dart, bash, groovy, haskell, julia, lua, objc, r, scala, zig, csharp, sql (tree-sitter, minimum – just `case`, without if/for/while in this dialect), hcl (`for_expr`/`conditional` of Terraform), plsql, cobol85 (via ANTLR).
+## Second pass: Clojure, Elixir, PostgreSQL, T-SQL, DB2
 
-Assuming you meant to translate the code blocks and technical terms as well:
+Explicit request to continue: close the three SQL dialects that had been left unverified, and
+solve Clojure/Elixir instead of setting them aside for being structurally hard.
 
-```python
-They thought they had been making mistakes in their throw, plus the issue mentioned earlier:
-"None of Python, Ruby, PHP, Bash, Lua, Julia, PL/SQL, or any other language can reuse `if` for `elif`, `elsif`, and `elseif`."
-They are native nodes/rules; in languages of the family C (Go, JavaScript, TypeScript, Java, C, C++, Rust, Swift)
-Dart, C#, Groovy, Objective-C, Scala, COBOL 85) The "else if" is already another nested if in the else branch, so counting `if` only counts the chain — confirmed by counting occurrences, not just examining the dump.
-Ruby uses the same kind ``binary`` for comparison and for ``&&`/`||``. Therefore, ``binary`` does not enter into `__INLINE_4`; the operator itself is a token-stream anonymous part resolved by ``operators``.
-Java, C/C++, Kotlin, Swift/Objective-C, C#, Zig all reuse the same node for `case` and `default`, which adds 1 to `default`/`else` without a `case`. The documentation is documented in each YAML comment.
-PL/SQL and COBOL 85 count by WHEN, not by CASE/Evaluate in entirety.
-Inline 0 and Inline 1 are separated by the branch, while Inline 2 and Inline 3 remain outside, following the same convention of not counting the default.
-
-```
-
-Note: The original code blocks and markdown links were not provided in the Portuguese text.
-
-## Segunda passada: Clojure, Elixir, PostgreSQL, T-SQL, DB2
-
-Explicit request for continuation: close the three dialects of SQL that had been left unverified,
-and resolve Clojure/Elm in lieu of leaving them aside due to their structural difficulties.
-
-Clojure and Elixir needed a new mechanism. In both, __INLINE_57__/__INLINE_58__/__INLINE_59__/__INLINE_60__ are not distinct node kinds — they're the same "call" node kind as any other invocation, and only the first named child (the symbol-head in Clojure; the macro identifier in Elixir) indicates which one it is. __INLINE_61__/__INLINE_62__ couldn't express this — both look at the kind of the node itself, never at the text of a specific child. I added __INLINE_63__/__INLINE_64__:
+**Clojure and Elixir needed a new mechanism.** In both, `if`/`when`/`cond`/`case` are not
+distinct node kinds — they are the same "call" node as any other invocation, and only the
+**first named child** (the head symbol in Clojure; the macro identifier in Elixir)
+says which one it is. `node_types`/`operators` could not express that — both look at the node's own
+kind, never at the text of a specific child. I added `head_calls` to `ComplexityConfig`:
 ```yaml
 complexity:
   head_calls:
     node_type: list_lit   # (Clojure) ou "call" (Elixir)
     names: [if, when, cond, ...]
 ```
-The inline 65 has gained a third path: when entering a node whose kind is
-inline 66, looks at inline 67 and sums 1 if the text is in inline 68. Verified with real tree (dump of parent-child shape, not just count of kind) and with 4 test cases covering both — including the case of "cond"/"case" counting once per form, not once per clause (the clauses are alternate children of the same node, without their own node). Clojure inline 69/inline 70 enter as inline 71 (are called macros like any other); Elixir inline 72/inline 73/inline 74/inline 75 operators are truthy (node inline 76) and enter in inline 77, which already nests by leaf text.
+`complexityMatcher.score` gained a third path: on entering a node whose kind is
+`node_type`, it looks at `NamedChild(0)` and adds 1 if the text is in `names`. Verified with a
+real tree (a parent-child shape dump, not just a kind count) and with 4 test cases covering both —
+including the case of "cond"/"case" counting once per form, not once per clause (the
+clauses are alternating children of the same node, with no node of their own). Clojure's `and`/`or` come in
+as `head_calls` too (they are macro calls like any other); Elixir's `&&`/`||`/`and`/`or`
+are real operators (a `binary_operator` node) and go into `operators`, which already
+matches by leaf text.
 
-**PostgreSQL**: verified and **negative** — not an omission, but a definitive answer. This ANTLR grammar only understands the `CREATE FUNCTION` at the DDL level; everything after `AS $$ ... $$` is captured as a single string constant (`func_as -> sconst`). The PL/pgSQL inside `$$` never becomes a node that this grammar sees — unless you add an own PL/pgSQL grammar.
+**PostgreSQL**: checked and **negative** — this is not a gap, it is a definitive answer. That
+ANTLR grammar only understands `CREATE FUNCTION` at the DDL level; the whole body after
+`AS $$ ... $$` is captured as a single string constant (`func_as -> sconst`). The PL/pgSQL
+inside the `$$` never becomes a node that grammar sees — there is nothing to configure here
+unless a PL/pgSQL grammar of its own is added.
 
----
+**T-SQL**: `if_statement`, `while_statement`, `try_catch_statement` checked against the real
+ANTLR tree. T-SQL has no `FOR` (only `WHILE`), and `try_catch_statement` adds 1 for the whole
+TRY/CATCH pair, not 2. `CASE` and an `AND`/`OR` inside a condition were not exercised by the
+sample tested — they were left out for not having been verified, not out of guesswork.
 
-**PostgreSQL**: verified and **negative** — not an omission, but a definitive answer. This ANTLR grammar only understands the `CREATE FUNCTION` at the DDL level; everything after `AS $$ ... $$` is captured as a single string constant (`func_as -> sconst`). The PL/pgSQL inside `$$` never becomes a node that this grammar sees — unless you add an own PL/pgSQL grammar.
+**DB2**: only `if_statement` verified. Two sample attempts with WHILE/CASE after the IF did not
+advance the tree beyond the IF block — the lexer saw the WHILE/CASE/WHEN tokens, but the parser did not
+progress; either the sample's syntax was wrong for that dialect, or that grammar's coverage
+for those statements is limited. Left out instead of guessed — a real signal, only smaller than the
+other procedural SQL dialects here.
 
-T-SQL: `if_statement`, `while_statement`, and `try_catch_statement` verified against the tree
-ANTLR real. T-SQL does not have `FOR` (only `WHILE`), and `try_catch_statement` adds 1 to the TRY/CATCH integer counter, not 2. `CASE` and one `AND`/`OR` inside a condition were not exercised by the sample test — they remained outside because they were unverified, not because of an error.
+## Third pass: PostgreSQL for real, DB2 with the grammar fixed, Clojure per clause
 
-**DB2**: only INLINE 91 verified. Two attempts with WHILE/CASE after the IF did not advance beyond the block IF—lexer saw the tokens WHILE/CASE/WHEN but parser did not progress; or the syntax of the sample was wrong for this dialect, or coverage of that grammar for these statements is limited. It missed out instead of being chucked—real signal, just smaller than other procedural SQL dialects here.
+Request to continue: do not leave PostgreSQL/T-SQL/DB2 incomplete for "lack of grammar
+mapping" — fix the grammar where that is the case — and make Clojure/Elixir "catch everything" the way
+PL/SQL does.
 
-Third Pass: True PostgreSQL, DB2 with corrected grammar, Clojure per clause
+**PostgreSQL — attempted and reverted.** The attempt: `internal/ast/antlr/postgresql/plpgsql_splice.go`
+took the text between `$$...$$` (captured only as an opaque `sconst`) and reparsed it with the
+PL/SQL driver, attaching the result as a child of the string node — PL/pgSQL was designed on
+purpose to read like Oracle PL/SQL, so the PL/SQL parser recognizes PL/pgSQL's IF/LOOP/CASE
+without error. The problem, found by deliberately testing constructs that only exist in
+PL/pgSQL (`PERFORM`, `RAISE EXCEPTION '...'`, `RETURN QUERY`): the PL/SQL parser does not error on them
+— it recovers silently into whatever grammatical alternative is left (`PERFORM
+do_something()` read as a call to a function named `PERFORM`; `RAISE EXCEPTION '...'`
+turning into a subtree with no meaning at all), with no signal that anything went wrong. In the samples
+tested it did not go so far as to invent a false `if`/`loop`/`case` by accident, but nothing guarantees
+that for real PL/pgSQL in general — PERFORM/RAISE/RETURN QUERY are not rare cases, they are the daily
+bread of any PL/pgSQL function. A wrong number with no warning is worse than no number — reverted.
+PostgreSQL stays in the verified negative: that grammar sees the body as an opaque string,
+full stop, and has no `complexity:` configured.
 
-Continuation Request: Ensure that PostgreSQL/T-SQL/DB2 is not left incomplete due to "lack of grammar mapping" — correct the grammar where it applies — and have Clojure/Elixir "grab everything" as PL/SQL does.
+**T-SQL — it was missing config, not grammar.** `CASE`/`AND`/`OR` already existed as real
+rules/tokens (`case_expression`, `switch_section`, tokens `'AND'`/`'OR'`) — they just had not made it into the
+YAML because the previous verification test had a bug (it compared by the token's name, which comes
+in single quotes, `'AND'`, not by the text, which is `AND` — the matcher already uses the text, so it already
+worked, it just needed configuring). Added `switch_section` (per WHEN, not per whole CASE)
+and `operators: ["AND", "OR"]`.
 
-**PostgreSQL - tried and reverted.**
+**DB2 — it really was the grammar, and it was fixed.** `sql_procedure_body` reached
+`sql_procedure_statement`, which was `CALL | FOR | IF | todo` — four loose keywords, none
+carrying a body (`todo` is the placeholder the grammar itself uses for the parts that were never
+written — it has 55 occurrences in the file). `IF`/`WHILE`/`CASE` inside a `CREATE PROCEDURE`
+only reached the correct rules (`sql_constrol_statement`) by accident, via the parser's error
+recovery. `Db2Parser.g4` was edited — not just the YAML — and the Go parser was **regenerated** with the
+local `antlr-4.13.2-complete.jar` (the same version as the `// Code generated ... by ANTLR
+4.13.2` header that was already in the files, so no risk of version drift):
+- Completed `compound_sql_inlined`, which was literally `BEGIN todo END`.
+- Added `declare_variable_statement` — a local variable declaration had no rule
+  at all.
+- Added `assignment_statement` (`SET var = expr`) — the most common statement in a procedure
+  body also had no complete rule.
+- `sql_procedure_statement` redefined around those real rules, in place of the four-keyword
+  stub.
+- A separate ambiguity in `sql_schema_statement` — `create_procedure_statement` AND the three
+  branches it already covers itself (`create_procedure_external_statement | ...sourced... |
+  ...sql_statement`) listed as SEPARATE alternatives of the same rule — made the procedure's
+  body be silently discarded under full LL(*) when IF, WHILE and CASE appeared
+  together in the same body (no pair of the three triggered the bug on its own; isolated by bisection
+  in `TestDb2FullProcedure`). Duplicate removed, resolved.
+- Tested against regression: `TestDb2ExistingExtractionStillWorks` confirms that
+  `CREATE TABLE`/`CREATE VIEW` still extract the same; the full suite with nothing new in the
+  `fts5` failures.
 
-Attempt: `internal/ast/antlr/postgresql/plpgsql_splice.go`
+`db2.yaml` now has `if_statement`, `while_statement`, `case_statement` (once per CASE, not
+per WHEN — DB2 repeats the WHEN inside the same rule instance, not as a child of its own) and
+`operators: ["AND", "OR"]`.
 
-Captured text between **INLINE_78** (only captured as **INLINE_79** opaque) and reparse with the PL/SQL driver, attaching the result as a child of the string node — PL/pgSQL was designed specifically to read as PL/SQL from Oracle; thus, the PL/SQL parser recognizes IF/LOOP/CASE in PL/pgSQL without error. The problem, found by purposeful construction of constructs that only exist in PL/pgSQL (`PERFORM`, `RAISE EXCEPTION '...'`, `RETURN QUERY`): the PL/SQL parser does not err on them — it recovers silently to any grammatical alternative (`PERFORM do_something()` read as a call to a function named ` PERFORM`; ` RAISE EXCEPTION '...'` turning into a meaningless subtree), without any indication that something went wrong. In tests, this did not invent an **INLINE_86**/**INLINE_87**/**INLINE_88** false by accident, but nothing guarantees it for PL/pgSQL in general — PERFORM/RAISE/RETURN QUERY are not rare cases; they are everyday occurrences of any function PL/pgSQL. An incorrect number without warning is worse than having no number at all — reverted. PostgreSQL remains negative verified: this grammar sees the body as an opaque string, a period, and does not configure **INLINE_89**.
+**Clojure — cond/case now count per clause, not per form.** `ComplexityConfig`
+gained `pair_names`/`subject_pair_names` in `HeadCallConfig`: for forms whose clauses
+are alternating children with no node of their own, it counts pairs of children after the head instead of adding a
+fixed 1. `cond` has no subject before the pairs (`pair_names`, counts `n/2`); `case` has the value
+being matched as the first child after the head (`subject_pair_names`, counts `(n-1)/2` — integer
+division already discards a trailing default with no test of its own, without needing to handle that case
+separately). Verified with 3 real samples, including cond with `:else` and case with/without a default.
 
-Note: The original text contains several inline code blocks (denoted by ___INLINE_...___) that are preserved in their entirety without translation or modification.
+**Elixir — case/cond stay per form, on purpose, not for lack of trying.** The
+obvious equivalent would be to count `stab_clause` (it is how Elixir structures each arm of case/cond) —
+but `stab_clause` is the SAME node used by a single-clause function (`fn x -> x end`), so
+counting it directly would add 1 of complexity to every closure passed to `Enum.map`/`reduce`/etc,
+a pattern far more common than case/cond. Trading one inaccuracy for a worse one is not the fix
+worth making — documented in the YAML's comment, not left as a silent gap.
 
-T-SQL was missing the configuration, not grammatical. `CASE`/`AND`/`OR` already existed as real rules/tokens (`case_expression`, `switch_section`, tokens `'AND'`/`'OR'`) — they just hadn't entered the YAML because the previous verification test had a bug (comparing by the token's name, which comes between simple quotes, `'AND'`, not by the text, which is `AND` — the matcher already uses the text, so it was already working, just needed to configure). Added `switch_section` (by WHEN, not CASE entirely) and `operators: ["AND", "OR"]`.
+## Fourth pass: PostgreSQL, again — this time with the right grammar, not a borrowed one
 
-**DB2 — it was grammatical, and it was corrected.**
+The second pass's "verified negative" was true but incomplete: PostgreSQL's ANTLR grammar
+really does not see PL/pgSQL, but that does not mean no grammar sees it. Explicit
+request to continue: use ANTLR as the host (the DDL grammar that already exists) and a Tree-sitter
+as the guest for the PL/pgSQL body — the same form of embedding that XML→PL/SQL already proves works in
+`internal/ast/embedded_antlr_test.go`, adapted because the HOST side of that generic mechanism only
+knows how to consume Tree-sitter, not ANTLR.
 
-Inline 115 arrived at Inline 116, which was Inline 117 — four keywords floating around, none carrying a body (Inline 118 is the placeholder that the very grammar uses for parts that never were written — there are 55 occurrences in the file). /Inline 119/Inline 120/Inline 121 inside a `CREATE PROCEDURE` only arrived at rules correctly (Inline 123) by accident, via recovery of error from parser. Inline 124 was edited — not just YAML — and the Go parser was **regenerated** with the inline local (the same version of header `// Code generated ... by ANTLR 4.13.2` that already existed in the files, so there was no risk of version drift):
-- Completed Inline 126, which was literally Inline 127.
-- Added Inline 128 — local variable declaration without any rule.
-- Added Inline 129 (Inline 130) — the most common instruction of a procedure body also did not have a complete rule.
-- Inline 131 redefined around these real rules, in place of the stub for four keywords.
-- A separate ambiguity at Inline 132 — Inline 133 AND the three branches that he himself already covers (`create_procedure_external_statement | ...sourced... | ...sql_statement`) listed as alternatives SEPARATED to the same rule — made the procedure body silently discarded when IF, WHILE, and CASE appeared together in the same body (none of the three triggered the bug individually; isolated by bisecting at Inline 134). Removed the duplicate, resolved.
-- Tested against regression: Inline 135 confirms that Inline 136/Inline 137 continue extracting the same; complete suite without new failures in Inline 138.
+**The grammar**: `github.com/gmr/tree-sitter-postgres`, `plpgsql/` — MIT/BSD-3-Clause, code-generated
+from PostgreSQL's own Bison grammar for the SQL part, handwritten for the
+procedural part, with an external C scanner for dollar-quoting and context-sensitive keywords. Vendored
+in `internal/ast/treesitter/plpgsql/` following exactly the convention already used by every
+vendored Tree-sitter grammar here (`binding.go` with cgo, `parser.c.inc`/`scanner.c.inc` with the
+`.inc` extension so it is not picked up as a standalone C file, `tree_sitter/{alloc,array,parser}.h`).
+Verified, before trusting it, against exactly the constructs that broke the previous
+attempt — `PERFORM`, `RAISE EXCEPTION '...'`, `RETURN QUERY SELECT`, `FOREACH ... IN ARRAY` — with
+none of them producing an error node.
 
----
+**The mechanism**: it is not the YAML's generic `embedded:` (which creates a separate entity and would need
+a merge by name/line, error-prone), it is a direct splice in Go —
+`internal/ast/antlr/postgresql/plpgsql_splice.go`. `spliceCreateFunctionBodies` finds each
+`createfunc_opt_list`, reads the `LANGUAGE` item and the `AS` item (which carries the dollar-quoted body as
+`anysconst`); when the language is `plpgsql`, it reparses the body with the Tree-sitter grammar above,
+converts the subtree (`sitterToTreeNode`) into the same `antlrcommon.TreeNode` format the rest of the
+pipeline walks, and attaches it as an extra child of the `anysconst` node itself — no new entity, no merge
+step, because `anysconst` is already a descendant of `createfunctionstmt`, the same node the
+Function entity uses as its scope. `antlrComplexityMatcher.score` neither knows nor needs to know that that
+stretch of the tree came from a different parser; it just walks `Rule`/`Children`.
 
-**DB2 — it was grammatical, and it was corrected.**
+Bug found and fixed: the first version read the `LANGUAGE` value with `leafText(item)` — which
+includes the `LANGUAGE` token itself in the concatenation — producing `"languageplpgsql"` instead of
+`"plpgsql"`, so the comparison never matched and the splice never fired, silently. Fixed by
+reading only `leafText(item.Children[1])` (the value, skipping the keyword token).
 
-Inline 115 arrived at Inline 116, which was Inline 117 — four keywords floating around, none carrying a body (Inline 118 is the placeholder that the very grammar uses for parts that never were written — there are 55 occurrences in the file). /Inline 119/Inline 120/Inline 121 inside a `CREATE PROCEDURE` only arrived at rules correctly (Inline 123) by accident, via recovery of error from parser. Inline 124 was edited — not just YAML — and the Go parser was **regenerated** with the inline local (the same version of header `// Code generated ... by ANTLR 4.13.2` that already existed in the files, so there was no risk of version drift):
-- Completed Inline 126, which was literally Inline 127.
-- Added Inline 128 — local variable declaration without any rule.
-- Added Inline 129 (Inline 130) — the most common instruction of a procedure body also did not have a complete rule.
-- Inline 131 redefined around these real rules, in place of the stub for four keywords.
-- A separate ambiguity at Inline 132 — Inline 133 AND the three branches that he himself already covers (`create_procedure_external_statement | ...sourced... | ...sql_statement`) listed as alternatives SEPARATED to the same rule — made the procedure body silently discarded when IF, WHILE, and CASE appeared together in the same body (none of the three triggered the bug individually; isolated by bisecting at Inline 134). Removed the duplicate, resolved.
-- Tested against regression: Inline 135 confirms that Inline 136/Inline 137 continue extracting the same; complete suite without new failures in Inline 138.
-
-Now it has `if_statement`, `while_statement`, and `case_statement` (once per CASE, not by WHEN — DB2 repeats the WHEN within the same instance of a rule, not as a child).
-
-Clojure - `cond` and `case` pass now counting by clause rather than form. `ComplexityConfig` gained `pair_names` / `subject_pair_names` in `HeadCallConfig`: for forms whose clauses are alternated without a node, counts pairs of children after the head instead of summing 1 fixedly. `cond` has no subject before the pairs (`pair_names`, counts `n/2`); `case` has the value being married as its first child after the head (`subject_pair_names`, counts `(n-1)/2` - the whole division already discards a default final without test itself, needing no part to handle this case). Verified with 3 real samples including `cond` with `:else` and `case` with/without default.
-
-Elixir - cases and conditions are forms, not by design, but because they were never tried.  
-The obvious equivalent would be to count `stab_clause` (just like how Elixir structures each arm of a case/cond) — but `stab_clause` is the same node used by a unique clause function (__INLINE_157__), so counting directly adds 1 complexity to every closure passed to `Enum.map`/__INLINE_159__ etc., which is much more common than cases/conditions. Changing one mistake for another is not the right thing to do — documented in the YAML comment, not left as a silent gap.
-
-Fourth Day: PostgreSQL Again - This Time with Proper Grammar, Not Borrowed
-
-The "verified negative" of the second pass was indeed true but incomplete: PostgreSQL's ANTLR grammar actually does not recognize PL/pgSQL, but this doesn't mean that no grammar recognizes anything. Explicit request for continuation: use ANTLR as host (the DDL grammar already exists) and Tree-sitter as guest for the PL/pgSQL body — the same embedding method that XML→PL/SQL has proven to work in `internal/ast/embedded_antlr_test.go`, adapted because this generic mechanism's side-host only knows how to consume Tree-sitter, not ANTLR.
-
-**Grammar**: `github.com/gmr/tree-sitter-postgres`, `plpgsql/` — MIT/BSD-3-Clause, generated code from the PostgreSQL's own Bison grammar for SQL parts, hand-written for procedural parts with an external C scanner for dollar-quoting and context-sensitive keywords. Vendorized in `internal/ast/treesitter/plpgsql/` following exactly the convention already used by all vendorized grammars (`binding.go` using cgo, `parser.c.inc`/`scanner.c.inc` with extension __INLINE_167__ to avoid being asked as a standalone C file, `tree_sitter/{alloc,array,parser}.h`). Verified before trusting it against exactly the constructions that broke the previous attempt — `PERFORM`, `RAISE EXCEPTION '...'`, `RETURN QUERY SELECT`, `FOREACH ... IN ARRAY` — without any producing an error node.
-
-**Mechanism**: it is not the ___INLINE_173__ generic YAML (which creates a separate entity and would require merging by name/line, prone to errors), but a direct splice in Go — ___INLINE_174__. `spliceCreateFunctionBodies` finds each `createfunc_opt_list`, reads the item `LANGUAGE` and `AS` (which loads the dollar-quoted body as `anysconst`); when the language is `plpgsql`, reparsees the body with Grammar Tree-sitter above, converts the sub-tree (`sitterToTreeNode`) to the same format `antlrcommon.TreeNode` that the rest of the pipeline follows, and attaches as an extra child node of its own `anysconst` — without a new entity, without merge step, because `anysconst` is already a descendant of `createfunctionstmt`, the same node used by the Entity Function for scope. `antlrComplexityMatcher.score` does not know nor need to know that that part of the tree came from a different parser; it just goes `Rule`/`Children`.
-
-**Note**: Inline references are replaced with the actual content, and inline comments are removed.
-
-Bug found and fixed: The first version read the value of `LANGUAGE` with `leafText(item)` — which includes the very token `LANGUAGE` in the concatenation — producing `"languageplpgsql"` instead of `"plpgsql"`, so the comparison never matched and the splice never fired silently. Fixed by reading only `leafText(item.Children[1])` (the value, skipping the keyword token).
-
-`postgresql.yaml` ganhou:
+`postgresql.yaml` gained:
 ```yaml
 complexity:
   node_types:
@@ -139,36 +222,47 @@ complexity:
     - case_when
     - proc_exception
 ```
-Without __INLINE_196__ — the PL/pgSQL grammar treats every expression as a transparent span (intended for an SQL grammar injection pipeline that this pipeline does not consume), so there is no node for AND/OR to find without a second-level embedding that doesn’t exist here. `elsif_clause` is its own node (IF it does not re-raise ELSIF); __INLINE_198___ counts by WHEN, and the ELSE branch of CASE is not a second __INLINE_199__ (confirmed through testing, not assumed — same convention of "default doesn’t count" already used in several ANTLR dialects here). `proc_exception` also triggers for `WHEN OTHERS`, even with deviation.
+No `operators:` — the PL/pgSQL grammar treats every expression as an opaque span (designed for a
+separate SQL grammar injection that this pipeline does not consume), so there is no AND/OR node
+to find without a second level of embedding that does not exist here. `elsif_clause` is a node of its own (IF
+does not re-nest ELSIF); `case_when` counts per WHEN, and the CASE's ELSE branch is not a second `case_when`
+(confirmed by testing, not assumed — the same "the default does not count" convention already used in several
+ANTLR dialects here); `proc_exception` also fires for `WHEN OTHERS`, the same deviation.
 
-**Side effects in two conventions of the project, both resolved**: register `plpgsql` in
-`nativeGrammars` without a `queries/plpgsql.yaml` that breaks `TestEveryNativeGrammarHasQueries` — created by YAML (a query on `Variable` using DECLARE, plus the same block above to avoid duplicating the list elsewhere). The YAML without `context_types`/`parent_capture` breaks `TestEveryShippedGrammarDeclaresItsContainment` — `plpgsql` entered into `flatLanguages`
-(`internal/ast/containment_coverage_test.go`) with a documented reason: the real container is the
-`CREATE FUNCTION` of the external ANTLR tree, not something that the ANTLR tree itself knows to name.
+**Side effects on two project conventions, both resolved**: registering `plpgsql` in
+`nativeGrammars` without a `queries/plpgsql.yaml` breaks `TestEveryNativeGrammarHasQueries` — the
+YAML was created (a `Variable` query for the DECLARE, plus the same `complexity:` block above, so as not to
+duplicate the list elsewhere). The YAML without `context_types`/`parent_capture` breaks
+`TestEveryShippedGrammarDeclaresItsContainment` — `plpgsql` went into `flatLanguages`
+(`internal/ast/containment_coverage_test.go`) with the reason documented: the real container is the
+`CREATE FUNCTION` of the external ANTLR tree, not something plpgsql's own tree could name.
 
-Tested from end to end: `TestSpliceFindsRealPlpgsqlBranches`, `TestSpliceIgnoresNonPlpgsqlLanguages`,
+Tested end to end: `TestSpliceFindsRealPlpgsqlBranches`, `TestSpliceIgnoresNonPlpgsqlLanguages`,
 `TestSpliceDoesNotTouchOrdinaryStringConstants` (`plpgsql_splice_test.go`),
-`TestSpliceHandlesPlpgsqlSpecificConstructs` (PERFORM/RAISE EXCEPTION/RETURN QUERY/FOREACH, without
-error node), `TestExistingSchemaExtractionStillWorks` (`plpgsql_risky_test.go`, Common DDL does not
-deviate) and `TestComplexityPlpgsqlSplicedIntoPostgresqlEntity` (`internal/ast/complexity_plpgsql_test.go` — parses a real `CREATE FUNCTION` via `Driver.Parse`, finds the `createfunctionstmt`, runs
-`antlrComplexityMatcher.score` on it and checks the count: 5, not 6, because the ELSE of the CASE really does not sum).
+`TestSpliceHandlesPlpgsqlSpecificConstructs` (PERFORM/RAISE EXCEPTION/RETURN QUERY/FOREACH, with no
+error node), `TestExistingSchemaExtractionStillWorks` (`plpgsql_risky_test.go`, ordinary DDL does not
+regress) and `TestComplexityPlpgsqlSplicedIntoPostgresqlEntity` (`internal/ast/complexity_plpgsql_test.go`
+— parses a real `CREATE FUNCTION` via `Driver.Parse`, finds the `createfunctionstmt`, runs
+`antlrComplexityMatcher.score` on it and checks the count: 5, not 6, because the CASE's ELSE
+really does not add).
 
-What is left out has been documented in each YAML with the reason
+## What is still left out, documented in each YAML with the reason
 
 - **JSON, TOML, XML, YAML, CSS, GraphQL, Protobuf, Markdown, Dockerfile, HTML, Svelte, Vue** —
-  formats of data/config/markup without a concept of complexity; the `<script>` in HTML/Svelte/Vue is already counted as an entity of its own language (JS/TS), no need for anything here.
+  data/config/markup formats with no concept of complexity; HTML/Svelte/Vue's `<script>` is already
+  counted as an entity of its own language (JS/TS), nothing is needed here.
 
-Verification
+## Verification
 
 `TestComplexityWalksRealSyntaxTree`, `TestComplexityStopsAtNestedDeclaration` and
-`TestComplexityMatcherOffWithoutConfig` (`internal/ast/complexity_treesitter_test.go`), more
+`TestComplexityMatcherOffWithoutConfig` (`internal/ast/complexity_treesitter_test.go`), plus
 `TestComplexityHeadCallsClojureAndElixir` (`internal/ast/complexity_headcalls_test.go`,
-with the cases of `pair_names`/`subject_pair_names`) — all tree-sitter, even the humorous skip scheme
-of `BenchmarkTS_LangLookup_Dynamic` when `.so` is not extracted.
+with the `pair_names`/`subject_pair_names` cases) — all tree-sitter, the same scheme of graceful
+skipping as `BenchmarkTS_LangLookup_Dynamic` when the `.so` is not extracted.
 
-```csharp
-__INLINE_239__ + __INLINE_240__
-(__INLINE_241__) — ANTLR is statically embedded into the binary,
-without an external __INLINE_242__, so these run always, without conditional skip.
-__INLINE_243__ / __INLINE_244__ cleaned; __INLINE_245__ regression-free — failures of __INLINE_246__ are the same as those registered in previous tasks,
-not updated in files not touched by this.
+`TestCreateProcedureBodyParsesControlFlow` + `TestExistingSchemaExtractionStillWorks`
+(`internal/ast/antlr/db2/db2_procedure_test.go`) — ANTLR is statically embedded in the binary,
+with no external `.so`, so those always run, with no conditional skip.
+`go build ./...`/`go vet ./...` clean; `go test ./internal/ast/... ./internal/hub/...` with no
+new regression — the `fts5` failures are the same environment ones already recorded in earlier
+tasks, in search files this one did not touch.

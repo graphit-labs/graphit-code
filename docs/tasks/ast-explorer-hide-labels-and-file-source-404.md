@@ -1,272 +1,319 @@
 ---
-title: AST Explorer - did not filter a type of node, and "view source" returned 404
+title: AST Explorer — hiding a node type did not filter the graph, and "view source" returned 404
 status: done
 created: 2026-08-11
 updated: 2026-08-11
 tags: [ui, ast, uiserver, bugfix]
 ---
 
-# AST Explorer - hiding a node type did not filter the graph, and "View Source" returned 404
+# AST Explorer — hiding a node type did not filter the graph, and "view source" returned 404
 
 ## Objective
 
-Two visible defects in the AST Explorer of the UI Web (`graphit ui`), reported together:
+Two visible defects in the web UI's AST explorer (`graphit ui`), reported together:
 
-1. "Hiding a type of node on the side did not remove anything from the plotted graph."
-   The eye in the column "Node Labels" alternated between the visual state of the line (dashed, `EyeOff`), but the canvas remained with all the nodes.
-2. "The 'Open Source Code' responded 404."
-   `GET /api/file?path=internal%2Fast%2Fladybug_gc_pressure_test.go&project_dir=/home/…/graphit-code`
-→ Inline 3, for an indexed file.
+1. **Hiding a node type in the sidebar did not remove anything from the plotted graph.** The eye in
+   the "Node Labels" column toggled the row's visual state (struck through, `EyeOff`), but the
+   canvas still had all the nodes.
+2. **"Open Source Code" answered 404.**
+   `GET /api/file?path=internal%2Fast%2Fladybug_gc_pressure_test.go&project_dir=~/…/graphit-code`
+   → `{"error":"File source not found"}`, for a file that is indexed.
 
-The two have independent causes, both on the server (__INLINE_4__). No line of React needed to be changed.
+The two have independent causes, both on the server (`internal/ast/server.go`) — not one
+line of React had to change.
 
 ## Implementation Details
 
-Defect 1 — The name was carried by the node, not the graph label.
+### Defect 1 — the node's `label` carried the NAME, not the graph label
 
-
-___
-
-6 INLINE_6___ (7 INLINE_7___) was setting up the node like this:
+`buildGraphNode` (`internal/ast/server.go`) assembled the node like this:
 
 ```go
 "id": id, "name": displayName, "label": displayName,   // ← nome, duas vezes
-type: label,  // ← The label of the graph
+"type": label,                                          // ← o rótulo do grafo
 ```
 
-And `extractUserQueryGraph` — the constructor for the path query Cypher line entered in the bar—
+And `extractUserQueryGraph` — the builder for the path of a Cypher query typed into the bar —
 had exactly the same inversion (`"label": name`).
 
 The front-end expects the opposite. `GraphCanvas` filters with
-`hiddenLabels.has(n.label)`, and `hiddenLabels` is filled by `SchemaPanel`, which strips
-the labels from `/api/schema` — or, in other words, `label(n)`: `File`, `Function`, `Struct`. Comparing
-`Function` with `handleFile` never works, so **nothing was hidden**. The same `n.label`
-feeds three other things that were also broken in silence:
+`hiddenLabels.has(n.label)`, and `hiddenLabels` is filled by `SchemaPanel`, which takes
+the labels from `/api/schema` — that is, `label(n)`: `File`, `Function`, `Struct`. Comparing
+`Function` with `handleFile` never matches, so **nothing was hidden**. The same `n.label`
+feeds three other things that were also silently broken:
 
----
+| Use in `internal/ui/src/components/ast/GraphCanvas.tsx` | What it did before |
+|---|---|
+| `visibleNodes` → `hiddenLabels.has(n.label)` (line 124) | never hid anything |
+| `getNodeColor(n.label)` (lines 309, 595) | colour by entity name — the panel's colour picker had no effect, and the legend did not match the canvas |
+| `baseRadius(n)` (lines 57-58) | `File`/`Module`/`Package` never matched: every node with radius 6 |
+| `ExplorerPage.tsx:529,544` | the node card showed `LABEL: cli_reference.md` and a redundant "Kind" row |
 
-Note: Inline codes and markdown are preserved as is.
+Fix: `label` and `type` now both carry the graph label; `name` remains the display name.
+`type` was kept because `NodeTree.tsx` already depended on it
+(`n.type === 'File'`, `codeEntityTypes.has(n.type)`) — the front-end was internally
+inconsistent, one half reading `type` and the other `label`.
 
-Use in `internal/ui/src/components/ast/GraphCanvas.tsx` | What did he/she do before |
---- | ---
-`visibleNodes` → `hiddenLabels.has(n.label)` (line 124) | never hid |
-`getNodeColor(n.label)` (lines 309, 595) | color by name of entity — the color picker panel had no effect and the legend didn't match the canvas |
-`baseRadius(n)` (lines 57-58) | `File`/`Module`/`Package` never matched: all nodes with radius 6 |
-`ExplorerPage.tsx:529,544` | card of node showed `LABEL: cli_reference.md` and a redundant "Kind" line |
+### Defect 2 — `/api/file` ignored `project_dir`
 
-Note: The code blocks, markdown, file paths, and technical terms are unchanged.
+`handleFile` resolved the search index with
+`s.storePathFor(r.URL.Query().Get("context"))`, which only knows the project the server
+was started in. Everything else in the explorer (`/api/graph`, `/api/schema`,
+`/api/query`, `/api/search`) goes through `dbForContext`, which **honours** `project_dir`.
 
-Correction:
-___INLINE_32__ and ___INLINE_33__ now load the two labels of the graph; ___INLINE_34__ remains the display name. ___INLINE_35__ has been kept because ___INLINE_36__ already depended on it (___INLINE_37__, ___INLINE_38__). — The frontend was internally inconsistent, one half reading ___INLINE_39__ and the other ___INLINE_40__.
+The result is the exact symptom in the report: with the UI's project selector pointed at
+another project, the graph on screen comes from project B and clicking "view source" asks
+project A's index for project B's file — which it does not have. 404 on an indexed file.
 
-### Defeito 2 — `/api/file` ignorava `project_dir`
+Fixes:
 
-The inline 43 resolved the search index with
-inline 44, which only knows about the project in which the server was started. The rest of the explorer (inline 45, inline 46, inline 47, inline 48) passes through inline 49, which **honors** inline 50.
+- `requestedRoot(r)` (new) centralizes the "is it another project?" decision that
+  `dbForContext` made inline; `dbForContext` now uses it, with no behaviour change.
+- `storePathForRequest(r)` (new) gives the same answer as `dbForContext`, only as a
+  path — the file handler needs the path and not the handle, because the file's text
+  lives in the search index next to the database (`file_fts`), not in the graph.
+- Additional hardening: `DefaultLadybugConfig` builds `.graphit/ast/project/ladybugdb`
+  **relative to the process's CWD**. That is only the repo root when the server was
+  started from inside it — `graphit ui --repo <path>` from another directory is not.
+  When the path comes in relative, it is now resolved against the server's root.
 
-The result is the exact symptom of the report: when the project selector in the UI points to another project, the graph on the screen comes from project B and clicking "view source" asks for the file from project A — which doesn't exist. 404 on an indexed file.
-
-Corrections:
-
-- The new _INLINE_51__ centralizes the decision "is it another project?" that ___INLINE_52__ used inline; ___INLINE_53__ now uses it without changing behavior.
-- The new _INLINE_54__ gives the same response as ___INLINE_55__, just in a different way — the file handler needs the path, not the handle, because the text of the file is stored alongside the index (___INLINE_56__) on the server's root directory, not within the graph.
-- Additional hardening: _INLINE_57__ constructs ___INLINE_58__, relative to the process’s CWD. This is only the repo root when the server was started from inside it — ___INLINE_59__ in another directory isn't. When the path is relative, it now resolves against the server's root.
-
-Note: I've assumed that "___INLINE_51__" through "___INLINE_59__" are placeholders for specific inline code or variables that should be replaced with actual values when translating into English.
-
-No fallback for reading from disk was added: `handleFile` continues to serve only what is in the index, which is what prevents a path traversal (`path=../../../etc/passwd`) from becoming arbitrary reading.
+No fallback to reading from disk was added: `handleFile` still serves only what is in
+the index, which is what keeps a path traversal
+(`path=../../../etc/passwd`) from turning into an arbitrary read.
 
 ## Use Cases
 
-### UC-01: Hide/Show a Node Type in the Graph
-
-- **Actor**: User of the AST Explorer UI Web.
-- **Preconditions**: An open context in `/ast/explorer/<contextId>`, graph loaded.
+### UC-01: Hide/show a node type in the graph
+- **Actor**: user of the AST explorer in the web UI.
+- **Preconditions**: a context open at `/ast/explorer/<contextId>`, graph loaded.
 - **Main Flow**:
-  1. The "Schema" column header lists labels coming from `GET /api/schema`
+  1. The "Schema" tab of the left column lists the labels coming from `GET /api/schema`
      (`SchemaPanel`, `nodes[].label`).
-  2. User clicks on the eye icon of a line with a label → `onToggleLabel(label)`.
+  2. User clicks the eye icon on a label's row → `onToggleLabel(label)`.
   3. `ExplorerPage` adds/removes the label in `hiddenLabels` (new `Set`).
-  4. `GraphCanvas` recalculates `visibleNodes`/`visibleLinks` and calls `fg.graphData(...)`,
-     preserving the positions of nodes that remain visible.
+  4. `GraphCanvas` recomputes `visibleNodes`/`visibleLinks` and calls `fg.graphData(...)`,
+     preserving the positions of the nodes that stay visible.
 - **Alternative Flows**:
-  - The same path applies to "Clusters" and "Languages", which filter by
-    `n.properties.cluster` / `n.properties.lang` — these never were broken.
+  - The same path holds for "Clusters" and "Languages", which filter by
+    `n.properties.cluster` / `n.properties.lang` — those were never broken.
   - `hiddenLabels` is persisted in `localStorage` (`graphit_hidden_labels`) and reapplied
-    when reopening the explorer.
+    when the explorer is reopened.
 - **Error Scenarios**:
-  - Hiding all labels leaves the canvas empty; no exception — `graphData` accepts
+  - Hiding every label leaves the canvas empty; no exception — `graphData` accepts
     empty lists.
-  - Edges whose both ends are not visible sum together (filter in `visibleLinks`).
-- **Postconditions**: The canvas plots only nodes whose label is not in `hiddenLabels`.
-- **Affected Files**: `internal/ast/server.go` (`buildGraphNode`, `extractUserQueryGraph`), `internal/ui/src/components/ast/GraphCanvas.tsx`,
-  `internal/ui/src/components/ast/SchemaPanel.tsx`, `internal/ui/src/components/ast/ExplorerPage.tsx`.
+  - Edges whose two ends are not both visible disappear along with them (filter in `visibleLinks`).
+- **Postconditions**: the canvas plots only nodes whose label is not in `hiddenLabels`.
+- **Affected Files**: `internal/ast/server.go` (`buildGraphNode`,
+  `extractUserQueryGraph`), `internal/ui/src/components/ast/GraphCanvas.tsx`,
+  `internal/ui/src/components/ast/SchemaPanel.tsx`,
+  `internal/ui/src/components/ast/ExplorerPage.tsx`.
 
-### UC-02: Open Source Code of a Node
-
-**Actor**: User of the AST Explorer.
-**Preconditions**: Selected node that has **INLINE_88**, or file chosen in the "Tree" tab.
-**Main Flow**:
-1. Click on "Open Source Code" (or an entry in the tree) → `handleFileClick(path)`.
-2. `astApi.getFile(path, contextId, activeProjectDir)` → `GET /api/file?path=…&context=…&project_dir=…`.
-3. `handleFile` resolves the store with `storePathForRequest(r)` and reads the text from the index of
-   search with `FileSourceAt(store + SearchIndexSuffix, path)`.
-4. Right panel opens with content (`CodePanel`).
+### UC-02: Open a node's source code
+- **Actor**: user of the AST explorer.
+- **Preconditions**: a selected node that has `file`, or a file chosen in the "Tree" tab.
+- **Main Flow**:
+  1. Click on "Open Source Code" (or on a file row in the tree) →
+     `handleFileClick(path)`.
+  2. `astApi.getFile(path, contextId, activeProjectDir)` →
+     `GET /api/file?path=…&context=…&project_dir=…`.
+  3. `handleFile` resolves the store with `storePathForRequest(r)` and reads the text from
+     the search index with `FileSourceAt(store + SearchIndexSuffix, path)`.
+  4. The right panel opens with the content (`CodePanel`).
 - **Alternative Flows**:
-  - Without `project_dir`, or with `project_dir` equal to the root of the server: reads the store from the own project.
-  - With `context` from an imported context: reads the store from that context — global when it's the own project, `<project_dir>/.graphit/ast/<ctx>/ladybugdb` (with resolved symlink) when it's another project.
+  - Without `project_dir`, or with `project_dir` equal to the server's root: reads the
+    store of its own project.
+  - With the `context` of an imported context: reads that context's store — global when it
+    is the project itself, `<project_dir>/.graphit/ast/<ctx>/ladybugdb` (with the symlink
+    resolved) when it is another project.
 - **Error Scenarios**:
-  - `path` absent → 400 `path param required`.
-  - File not indexed in that project → 404 `File source not found`; the UI shows the toast "Failed to load file" and `// Could not load file content.`.
-- **Postconditions**: The right panel displays the source code of the project that the request named.
-- **Affected Files**:
-  - `internal/ast/server.go` (`handleFile`, `storePathForRequest`, `requestedRoot`), `internal/ui/src/api/ast.ts`,
-    `internal/ui/src/components/ast/ExplorerPage.tsx`.
-
-Note: The inline codes and placeholders are kept as is.
+  - `path` missing → 400 `path param required`.
+  - File not indexed in that project → 404 `File source not found`; the UI shows the
+    toast "Failed to load file" and `// Could not load file content.`.
+- **Postconditions**: the code panel shows the file of the project the request named.
+- **Affected Files**: `internal/ast/server.go` (`handleFile`, `storePathForRequest`,
+  `requestedRoot`), `internal/ui/src/api/ast.ts`,
+  `internal/ui/src/components/ast/ExplorerPage.tsx`.
 
 ## Test Cases & Acceptance Criteria
 
-Feature: Label of Node in Graph Payload
+### Feature: the node's label in the graph payload
+Ref: UC-01
 
-Scenario: A named node loads the graph label into `label`
+#### Scenario: a named node carries the graph label in `label`
 ```gherkin
-Given an edge of graph with label "Function" and name "handleFile"
-When the server sets up the node for the viewer
-Then the field "label" is "Function".
-And the field "type" is "Function."
-And the field "name" is "handleFile".
+Given a graph row whose label is "Function" and whose name is "handleFile"
+When the server assembles the node for the viewer
+Then the "label" field is "Function"
+  And the "type" field is "Function"
+  And the "name" field is "handleFile"
 ```
 
-Scenario: A file node without a path falls back to its own name as the path.
+#### Scenario: a file node with no path falls back to its own name as the path
 ```gherkin
-Given uma linha de grafo com label "File", nome "server.go" e path vazio
-When the server sets up the node for the viewer
-Then the field "label" is "File".
-And the field "file" is "server.go".
+Given a graph row with label "File", name "server.go" and an empty path
+When the server assembles the node for the viewer
+Then the "label" field is "File"
+  And the "file" field is "server.go"
 ```
 
-Scenario: A node without a name displays its own path
+#### Scenario: a node with no name displays its own path
 ```gherkin
-Given uma linha de grafo com label "Directory", nome vazio e path "internal/ast"
-When the server sets up the node for the viewer
-Then the field "name" is "internal/ast".
-And the field "label" is "Directory".
+Given a graph row with label "Directory", an empty name and path "internal/ast"
+When the server assembles the node for the viewer
+Then the "name" field is "internal/ast"
+  And the "label" field is "Directory"
 ```
 
-Scenario: Users coming from a user's Cypher query follow the same contract
+#### Scenario: nodes coming from a user's Cypher query follow the same contract
 ```gherkin
-Given um registro de query com Label "Function" e propriedade name "handleFile"
-When the user's query graph extractor builds the node
-Then the field "label" is "Function."
-And the field "name" is "handleFile".
+Given a query record with Label "Function" and the name property "handleFile"
+When the user query graph extractor assembles the node
+Then the "label" field is "Function"
+  And the "name" field is "handleFile"
 ```
 
-Scenario: Hide a label removes those nodes from the canvas
+#### Scenario: hiding a label removes those nodes from the canvas
 ```gherkin
-Given the open explorer with 308 plotted points, of which 115 have a label "File"
-When the user clicks on the "File" line in the schema panel
-The graph then has 193 nodes.
-And no plotted node has a label "File"
-When the user clicks on the "File" eye again
-The graph returns to having 308 nodes.
+Given the explorer open with 308 plotted nodes, of which 115 have label "File"
+When the user clicks the eye on the "File" row in the schema panel
+Then the plotted graph now has 193 nodes
+  And no plotted node has label "File"
+When the user clicks the eye on "File" again
+Then the plotted graph goes back to 308 nodes
 ```
 
-Feature: /api/file honors the project that the request names
+### Feature: /api/file honours the project the request names
+Ref: UC-02
 
-Scenario: Serving a File from Another Project
+#### Scenario: serving a file from another project
 ```gherkin
-Given um servidor iniciado no projeto A
-And project B has "internal/ast/ladybug_gc_pressure_test.go" in its search index.
-When chega GET /api/file com path desse arquivo e project_dir do projeto B
-The answer is 200.
-And the body carries the indexed content in project B.
+Given a server started in project A
+  And project B has "internal/ast/ladybug_gc_pressure_test.go" in its search index
+When a GET /api/file arrives with the path of that file and the project_dir of project B
+Then the response is 200
+  And the body carries the content indexed in project B
 ```
 
-Scenario Outline: Without project_dir, serves the own project
+#### Scenario Outline: without project_dir, it serves its own project
 ```gherkin
-Given um servidor iniciado no projeto A, que tem "cmd/main.go" indexado
-When chega GET /api/file com path "cmd/main.go" e "<query extra>"
-The answer is 200.
-And the body carries the indexed content in project A.
+Given a server started in project A, which has "cmd/main.go" indexed
+When a GET /api/file arrives with path "cmd/main.go" and "<extra query>"
+Then the response is 200
+  And the body carries the content indexed in project A
 
 Examples:
-  | query extra              |
-  | (nenhum)                 |
-  | project_dir=<root de A>  |
+  | extra query              |
+  | (none)                   |
+  | project_dir=<root of A>  |
   | context=__project__      |
-  | project_dir= (vazio)     |
+  | project_dir= (empty)     |
 ```
 
-Scenario: An artifact that is not in the requested project continues to be 404.
+#### Scenario: a file that is not in the requested project is still a 404
 ```gherkin
-Given um servidor iniciado no projeto A, que tem "cmd/main.go" indexado
-And project B doesn't have "cmd/main.go" in its index.
-When chega GET /api/file com path "cmd/main.go" e project_dir do projeto B
-The answer is 404.
+Given a server started in project A, which has "cmd/main.go" indexed
+  And project B does not have "cmd/main.go" in its index
+When a GET /api/file arrives with path "cmd/main.go" and the project_dir of project B
+Then the response is 404
 ```
 
-Scenario: Request without Path
+#### Scenario: request without path
 ```gherkin
-Given um servidor iniciado em qualquer projeto
-When it reaches GET /api/file without the path parameter
-The answer is 400.
+Given a server started in any project
+When a GET /api/file arrives without the path parameter
+Then the response is 400
 ```
 
-Scenario: The relative store is resolved against the server's root.
+#### Scenario: a relative store is resolved against the server's root
 ```gherkin
-Given a server with a repoPath of "/tmp/proj" and an backend pointing to the path
-      relativo ".graphit/ast/project/ladybugdb"
-When the server resolves the store of a request without project_dir
-The resolved path is "/tmp/proj/.graphit/ast/project/ladybugdb"
+Given a server whose repoPath is "/tmp/proj" and whose backend points at the relative
+      path ".graphit/ast/project/ladybugdb"
+When the server resolves the store for a request without project_dir
+Then the resolved path is "/tmp/proj/.graphit/ast/project/ladybugdb"
 ```
 
 ## Files Changed
 
 | File | Change | Reason |
 |---|---|---|
-| `internal/ast/server.go` | modified | `buildGraphNode` and `extractUserQueryGraph` now issue the graph label on `label`; `handleFile` now solves the store by `storePathForRequest`; new `requestedRoot` and `storePathForRequest`; `dbForContext` reuses `requestedRoot` |
-| `internal/ast/server_file_handler_test.go` | Created | Regression of cross-project 404, default path, legitimate 404 and relative store resolution |
-| `internal/ast/server_graph_node_test.go` | Created | Fixes the contract `name` = display / `label` = `type` = graph label, in both constructors |
+| `internal/ast/server.go` | Modified | `buildGraphNode` and `extractUserQueryGraph` now emit the graph label in `label`; `handleFile` now resolves the store through `storePathForRequest`; new `requestedRoot` and `storePathForRequest`; `dbForContext` reuses `requestedRoot` |
+| `internal/ast/server_file_handler_test.go` | Created | Regression for the cross-project 404, the default path, the legitimate 404 and relative store resolution |
+| `internal/ast/server_graph_node_test.go` | Created | Pins the contract `name` = display / `label` = `type` = graph label, in both builders |
 | `docs/tasks/ast-explorer-hide-labels-and-file-source-404.md` | Created | This record |
-
-The file has been modified. The 404 cross-project, standard path, legitimate 404, and relative store resolution regressions have been fixed. A new label is emitted by the graph's label in the inline section, while the store now uses a new inline section. The inline section reuses an existing inline section.
 
 ## Trade-offs & Decisions
 
-- **Correct on the server, not in the frontend.** The alternative was to replace `n.label` with `n.type` at the four points of `GraphCanvas`/`ExplorerPage`. It was discarded: `label` duplicated `name` exactly, there was no consumer for "label = name", and `NodeTree` already read `type` as a label. Correcting on the server makes the two fields consistent with the TypeScript interface (`GraphNode`) and with `/api/schema`, and fixes all four uses in one go without rebuilding the UI.
-- **`type` is kept duplicating `label`.** It could have been removed, but `NodeTree.tsx` depends on it, and `writeGraphResponse` uses `n["type"] == "file"` to build the list `files`. Keeping both is the compatible step; unifying is a registered debt below.
-- **`storePathForRequest` mirrors `dbForContext` instead of refactoring it.** `dbForContext` has five callers and zero test coverage, and the branch "same project, no context" returns an already opened handle (`s.db`), which does not have a corresponding equivalent path. The shared decision — "is this another project?" — was extracted to `requestedRoot`, exactly where both had diverged.
-- **No fallback for reading from disk in `handleFile`.** It would also resolve "file created after the last indexation", but it would open a path traversal on an endpoint that is now safe by construction (only serves what the index has). It remains as an explicit scope debt.
+- **Fix on the server, not in the front-end.** The alternative was to swap `n.label` for
+  `n.type` at the four points in `GraphCanvas`/`ExplorerPage`. It was discarded: `label`
+  duplicated `name` exactly, there was no consumer for "label = name", and `NodeTree`
+  already read `type` as the label. Fixing it on the server leaves both fields coherent
+  with the TypeScript interface (`GraphNode`) and with `/api/schema`, and fixes all four
+  uses at once without a UI rebuild.
+- **`type` kept duplicating `label`.** It could have been removed, but `NodeTree.tsx`
+  depends on it and `writeGraphResponse` uses `n["type"] == "file"` to build the `files`
+  list. Keeping both is the compatible step; unifying them is debt recorded below.
+- **`storePathForRequest` mirrors `dbForContext` instead of refactoring it.** `dbForContext`
+  has five callers and zero test coverage, and the "same project, no context" branch
+  returns the already-open handle (`s.db`), which has no equivalent path. Only the shared
+  decision — "is it another project?" — was extracted into `requestedRoot`, which is
+  exactly the point where the two had diverged.
+- **No fallback to reading from disk in `handleFile`.** It would also solve "file created
+  after the last indexing", but it would open path traversal on an endpoint that today is
+  safe by construction (it only serves what the index has). It stays as debt with an
+  explicit scope.
 
 ## Technical Debt
 
-- [ ] `GraphNode.type` and `GraphNode.label` now carry the same value. Unifying requires
+- [ ] `GraphNode.type` and `GraphNode.label` now carry the same value. Unifying them means
   touching `NodeTree.tsx` (`n.type === 'File'`, `codeEntityTypes`), `writeGraphResponse`
-  (`n["type"] == "file"`) and the interface in `internal/ui/src/api/ast.ts` — rebuild the bundle while it lasts. It never renders the line "Kind" because the condition is `type !== label`.
-- [ ] `handleExportBundle` continues to use `internal/ast/server.go` + `storePathFor("")`: always the server project, and would ignore `project_dir` if ever received. The current request body does not have this field, so it is not a bug — it is an undocumented UI limit.
-- [ ] The card of the selected node (`ExplorerPage.tsx:529`) uses `labelColor(label)` directly, ignoring the custom color in `nodeColors` that the canvas respects. It became visible only now that `label` is the true label.
-
-Note: Inline codes and Markdown are preserved as they are not translated.
+  (`n["type"] == "file"`) and the interface in `internal/ui/src/api/ast.ts` — and
+  rebuilding the bundle. As long as it lasts, `ExplorerPage.tsx:546` never renders the
+  "Kind" row, because the condition is `type !== label`.
+- [ ] `handleExportBundle` (`internal/ast/server.go`) still uses `storePathFor("")` +
+  `s.db`: it is always the server's project, and it would ignore `project_dir` if it ever
+  received one. Today the request body has no such field, so it is not a bug — it is an
+  undocumented limit in the UI.
+- [ ] `/api/file` has no fallback to disk: a file saved after the last indexing answers
+  404 until the daemon reindexes. If it is going to be solved, it has to come with path
+  containment against the project root.
+- [ ] The selected-node card (`ExplorerPage.tsx:529`) uses `labelColor(label)` directly,
+  ignoring the custom colour in `nodeColors` that the canvas respects. It only became
+  visible now that `label` is the real label.
 
 ## System Knowledge
 
-- **The text in the files is not on the graph.** It resides at `file_fts.source`, next to the database (`<dbPath>.search.sqlite`), and `FileSourceAt` reads it while being read-only deliberately outside of `OpenSearchIndex` — which runs `migrateSearchSchema` and drops `file_fts` when the schema version differs. Reading a source file can never destroy an index.
-- **The SQLite system's SQLite does not open this index:** `sqlite3 … "SELECT … FROM file_fts"` fails with `no such module: fts5`. To inspect, use the tools MCP (`ast_source`) or a Go binary with `-tags fts5`.
-- **Each request from the explorer loads `project_dir`**, even when it is itself a project — the `appStore` (zustand, persisted) maintains `activeProjectDir` and all of `astApi.*` passes. Any new handler must decide what to do with it; ignoring it is this task's bug.
+- **The files' text is not in the graph.** It lives in `file_fts.source`, in the sqlite
+  next to the database (`<dbPath>.search.sqlite`), and `FileSourceAt` reads it read-only,
+  deliberately outside `OpenSearchIndex` — which runs `migrateSearchSchema` and DROPs
+  `file_fts` when the schema version differs. Reading a source must never destroy the
+  index.
+- **The system sqlite does not open that index**: `sqlite3 … "SELECT … FROM file_fts"` fails
+  with `no such module: fts5`. To inspect it, use the MCP tools (`ast_source`) or a Go
+  binary with `-tags fts5`.
+- **Every explorer request carries `project_dir`**, even when it is its own project —
+  the `appStore` (zustand, persisted) keeps `activeProjectDir` and every `astApi.*` passes
+  it along. Any new handler has to decide what to do with it; ignoring it is the bug of
+  this task.
 - **`DefaultLadybugConfig().DBPath` is relative** (`.graphit/ast/project/ladybugdb`).
-  Handlers that derive from it need to anchor at the root of the server.
-- **`pkill -f "<binary> ui"` kills its own shell agent**, because the `bash -c` command line used by the agent's standard behavior. Killing by PID (via `pgrep`/`ss -lntp`) is the way.
-
-Note: The inline references are placeholders for actual file paths, database names, and other technical details that should be replaced with specific values when translating to English.
+  Handlers that derive a path from it need to anchor at the server's root.
+- **`pkill -f "<binário> ui"` kills the agent's own shell**, because the pattern matches the
+  command line of the `bash -c` that runs it. Killing by PID (via `pgrep`/`ss -lntp`) is
+  the way.
 
 ## Progress Log
 
 ### 2026-08-11
-- Reproduced the 404: two servers, INLINE_189, one in each project. The server from the neighboring project returns 318 graphit-code nodes (honors INLINE_191). The same INLINE_193 returns 404.
-- Reproduced the defect in the payload real: `{"label": "copy_test.go", "type": "File"}`.
-- Corrected three points; new tests written before validation, and confirmed red against old code (with INLINE_196 restored temporarily) and green against new code.
-- Cleaned up INLINE_200 in INLINE_201 and INLINE_202; suite INLINE_203 executed.
-- Verified end-to-end in the browser with binary compiled: clicking on "File" hides the plotted graph of 308 nodes → 193 nodes, then reappears back at 308. Clicking an item in the tree renders INLINE_204 → 200 and the right panel displays content. The node card now shows INLINE_205.
-
-Note: Inline codes have been replaced with INLINE_ placeholders for brevity.
+- The 404 reproduced: two `graphit ui` servers, one in each project. From the neighbouring
+  project's server, `/api/graph?project_dir=…/graphit-code` returns 318 nodes of
+  graphit-code (it honours `project_dir`) and `/api/file` with the same `project_dir`
+  returns 404.
+- The `label` defect reproduced in the real payload: `{"label": "copy_test.go", "type":
+  "File"}`.
+- `internal/ast/server.go` fixed at all three points; new tests written before validating,
+  and confirmed red against the old code (with `server.go` temporarily restored) and green
+  against the new one.
+- `go vet` clean in `internal/ast` and `internal/uiserver`; the `internal/ast` suite ran.
+- Verified end to end in the browser with a recompiled binary: hiding "File" takes the
+  plotted graph from 308 → 193 nodes, with zero `File` nodes left; showing it again goes
+  back to 308. Clicking a file in the tree fires `GET /api/file` → 200 and the right panel
+  renders the content. The node card now shows `LABEL: File`.

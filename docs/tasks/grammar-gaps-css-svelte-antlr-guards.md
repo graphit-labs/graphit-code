@@ -1,112 +1,154 @@
-CSS and Svelte are here, and the ANTLR issues have been closed.
+# CSS and Svelte come into existence, and the ANTLR loose ends close
 
-Closes outstanding issues in the `[declared-values-as-nodes]` section of `declared-values-as-nodes.md` and covers two grammars that were registered in the engine but never used.
+Closes the loose ends from [declared-values-as-nodes](declared-values-as-nodes.md) and
+covers two grammars that were registered in the engine and never used.
 
-## Problema
+## Problem
 
-CSS and Svelte had grammar registered but no queries.
+### 1. CSS and Svelte had a registered grammar and no queries
 
-The inline code is registered, and there was no __INLINE_3__ nor __INLINE_4__. The consequence is worse than "extracts little": the extension table is built from the `extensions` field of query files, so **no extensions were registered** for these two languages. Files `.css` and `.svelte` were even not discovered. All style sheets and all Svelte components in every indexed project were invisible to the graph and search.
+`treesitter_native.go` registers `"css"` and `"svelte"`, and neither `css.yaml` nor
+`svelte.yaml` existed. The consequence is worse than "extracts little": the extension table is
+built from the `extensions` field of the query files, so **no extension was registered**
+for those two languages. `.css` and `.svelte` files were not even discovered. Every stylesheet
+and every Svelte component of every indexed project was invisible to the graph and to search.
 
-Nothing was reported of the omission. It was found by comparing the keys of `nativeGrammars` with those of `language:` in the query files.
+Nothing reported the omission. It was found by comparing the keys of `nativeGrammars`
+against the `language:` of the query files.
 
-2. HTML did not have the same depth as the other languages.
+### 2. HTML did not have the same depth as the others
 
-The _INLINE_10_ and the body of a _INLINE_11_ or _INLINE_12_ inline were parsed and discarded. A _INLINE_13_ — the actual configuration, of the type sought — did not exist in the index.
+`<!DOCTYPE>` and the body of an inline `<script>` or `<style>` were parsed and
+discarded. A `<script>window.APP_ENV="prod"</script>` — real configuration, the
+kind people look for — did not exist in the index.
 
-3. Constants in PL/SQL were indexed as variables.
+### 3. PL/SQL constants were indexed as variables
 
-Already registered in the previous task: there is no rule `constant_declaration` in `PlSqlParser.g4`. A constant is a `variable_declaration` with the terminal `CONSTANT`, so the query written against `//constant_declaration` does not match anything and all constants fall into `Variable`.
+Already recorded in the previous task: there is no `constant_declaration` rule in
+`PlSqlParser.g4`. A constant is a `variable_declaration` with the `CONSTANT` terminal,
+so the query written against `//constant_declaration` matched nothing and
+every constant fell into `Variable`.
 
-Note: The code blocks, markdown, file paths, and technical terms have been preserved as per your request.
+### 4. PostgreSQL did not extract a column DEFAULT
 
-4. PostgreSQL does not extract default from column
+It had not been checked in the previous cut, precisely because the DB2 test
+showed the cost of writing a query on an assumption.
 
-The test of DB2 did not have to be verified in the previous cut, precisely because it showed the cost of writing queries by assumption.
+## Solution
 
-Solution
+### Engine: keyword guard in the ANTLR matcher
 
-Motor: Keyword guard in ANTLR Matcher
-
-The grammar of the ANTLR Patterns language gained a guard suffix:
+The ANTLR pattern language (`//regra`, `/regra`) gained a guard suffix:
 
 ```
-The variable is only assigned when the node has CONSTANT as its direct terminal.
-The variable is only assigned when it does not exist.
+//variable_declaration[CONSTANT]     casa só quando o nó tem CONSTANT como terminal direto
+//variable_declaration[!CONSTANT]    casa só quando não tem
 ```
 
-There exists because one grammar can write two different things with just one rule.
-The comparison ignores case — the SQL keyword appears in both forms in the real world. __INLINE_22__ separates __INLINE_23__ from __INLINE_24__ by it.
+It exists because a grammar can write two different things with a single rule.
+The comparison ignores case — an SQL keyword shows up both ways in the real
+world. `plsql.yaml` now separates `Constant` from `Variable` by it.
 
-### Motor: `name_capture` do ANTLR aceita caminho
+### Engine: ANTLR `name_capture` accepts a path
 
-The inline code is using the same `ruleByPath` that `value_capture` uses, so `identifier`, `a/b`, and `**/literal` mean the same as they do in the original text. There are no existing queries that change behavior: out of 329 occurrences of `name_capture` in the ANTLR files, 325 are set to the default `name`, and the other four are simple rule names.
+`extractNameFromMatch` used `ChildByRule`, a single direct child. It now uses the
+same `ruleByPath` as `value_capture`, so `identifier`, `a/b` and `**/literal`
+mean there what they mean over there. No existing query changes behavior:
+of the 329 occurrences of `name_capture` in the ANTLR files, 325 are the default `name`
+and the other four are plain rule names.
 
-New grammars
+### New grammars
 
-**`css.yaml`** — 18 patterns. Selectors for classes, IDs, elements, pseudo-classes,
-pseudo-elements, and attributes; declarations as key-value pairs (`CssProperty "color" → Value "#ff6600"`); custom properties with their own labels, which is what CSS has of variables; `@keyframes`, `@media` with the breakpoint, `@font-face`; `@import` routed as a dependency of truth (module node + IMPORTS, the same path as javascript.yaml); `var(--x)` and `url(...)` as references.
+**`css.yaml`** — 18 patterns. Class, id, element, pseudo-class,
+pseudo-element and attribute selectors; declarations as key/value pairs
+(`CssProperty "color" → Value "#ff6600"`); custom properties with a label of their own,
+which is what CSS has by way of variables; `@keyframes`, `@media` with the breakpoint,
+`@font-face`; `@import` routed as a real dependency (Module node + IMPORTS
+edge, the same path as javascript.yaml); `var(--x)` and `url(...)` as
+REFERENCES.
 
-Two details that the tree imposes:
+Two details the tree imposes:
 
-- **INLINE_43** is the same node as **INLINE_44**, which uses **INLINE_45**.
-  A non-bound pattern reports pseudo-class as a class. The patterns are bound, and the test proves that `:root` and `:hover` do not enter as `CssClass`.
-- Custom property "casa" also follows the generic declaration pattern, and there it would appear in both tables with the value hanging on what came first. Resolved with **INLINE_51** in the generic.
+- `:root` is `(pseudo_class_selector (class_name …))` — the **same** `class_name` node
+  that `.card` uses. A pattern not anchored on the selector reports a pseudo-class as a
+  class. The patterns are anchored, and the test proves that `:root` and `:hover` do not
+  come in as `CssClass`.
+- A custom property also matches the generic declaration pattern, and then
+  `--brand-color` would sit in both tables with the value hanging off whichever came
+  first. Solved with `(#not-match? @name "^--")` on the generic one.
 
-Note: The underscores (__) are placeholders for actual inline code or content that should be replaced with the appropriate values when translating to English.
+Labels carry the `Css` prefix where the plain word already means something else in the
+graph: a CSS class is not a Java class, a CSS property is not a C# property.
+`GraphQLField` had already set that precedent.
 
-Labels include the prefix __INLINE_52__ where simple words already mean something else in the graph: CSS classes are not Java classes, CSS properties are not C# properties. __INLINE_53__ has already set this precedent.
-
-**`svelte.yaml`** — 14 patterns. Labels identical to those of **`html.yaml`**, so that a question about markup does not need to know which of the two produced the node. Attributes with value cited and with expression value (`on:click={handle}` → `Attribute "on:click" → Value "handleClick"`), making "which component listens to this event" responsive; `{binding}` as REFERENCES; condition **`{#if}`** and **`{#each}` as node. The body of **`<script>`/`<style>` comes as a single **`raw_text` — not parsed as JS or CSS —, so it is registered as text of the element.
+**`svelte.yaml`** — 14 patterns. Labels identical to `html.yaml`'s, so that a
+question about markup does not need to know which of the two produced the node. Attributes with
+a quoted value and with an expression value (`on:click={handle}` → `Attribute "on:click"
+→ Value "handleClick"`), which makes "which component listens to this event"
+answerable; `{binding}` as REFERENCES; the condition of `{#if}` and `{#each}` as a node.
+The body of `<script>`/`<style>` arrives as a single `raw_text` — it is not parsed as JS
+or CSS —, so it is recorded as the element's text.
 
 ### HTML
 
-The element's text is set to __INLINE_63__ and __INLINE_64__, as inline content. A large body passes the value limit of the engine and is discarded; a line item, which is the common configuration for inline elements, becomes a node. The test also proves what was previously an assumption: attributes in script/style tags are captured, although __INLINE_67__ remains within __INLINE_68__ but not within __INLINE_69__.
+`doctype`, and the `raw_text` of `<script>` and `<style>` as the element's text. A
+large body exceeds the engine's value limit and is discarded; a one-line one, the
+common case of inline configuration, becomes a node. The test also proves what used to be an
+assumption: an attribute on a script/style tag is captured, even though the `start_tag` sits
+under `script_element` and not under `element`.
 
 ### PostgreSQL
 
-```python
-DEFAULT writes with `b_expr` and CHECK with `a_expr`, then `b_expr` already distinguishes DEFAULT from restriction:
-```
+`colconstraintelem` writes DEFAULT with `b_expr` and CHECK with `a_expr`, so naming
+`b_expr` already tells a default apart from a constraint:
 
 ```yaml
 value_capture: "colquallist/**/colconstraintelem/b_expr"
 ```
 
-What remains open
+## What remains open
 
-**DB2 Columns.** Root cause now known: `create_table_statement` of `Db2Parser.g4` in the list of columns does not have parentheses — the parentheses are groupingANTLR tokens, not tokens themselves — and still requires `create_table_opts+`, at least one option after the list. `CREATE TABLE T (C INT)` does not match, and the parser falls into error recovery mode, delivering the list as standalone terminals. Two lines in `.g4` need correction, but the generated Go parser is versioned and the repository has no regeneration target. I do not make changes blindly.
+**DB2 columns.** Root cause now known: `create_table_statement` in
+`Db2Parser.g4` does not have the parentheses of the column list — the parentheses there are
+ANTLR grouping, not tokens — and it also requires `create_table_opts+`, at least one
+option after the list. `CREATE TABLE T (C INT)` does not match and the parser falls into
+error recovery, delivering the list as loose terminals. A two-line fix in the
+`.g4`, but the generated Go parser is versioned and the repository has no regeneration
+target. I am not touching it blind.
 
----
+**Nesting** (`Pair → Pair`, `Mapping → Mapping`, TOML inline table) stays
+out, for the same reason as always: `entityUID` is name + context.
 
-Note: The inline codes (`create_table_statement` to `.g4`) are placeholders for actual code snippets or identifiers that should be replaced with the appropriate content in the translation process.
+## Verification
 
-Indentation (`Pair → Pair`, `Mapping → Mapping`, inline TOML table) follows
-out of the same reason as always: `entityUID` is name + context.
+- `TestEveryNativeGrammarHasQueries` — a new safety net: a grammar registered in
+  `treesitter_native.go` without a query file is now a test failure. It is the
+  defect that left CSS and Svelte idle, with nobody complaining.
+- `TestEveryShippedQueryPatternCompiles` — **576 patterns**, 0 failures
+- `TestCSSIsExtracted` — 14 node types, the key/value pairs, the `@import` down to the
+  IMPORTS edge in the cache, the REFERENCES from `var()` and `url()`, and the rejection of a
+  pseudo-class as a class
+- `TestSvelteIsExtracted` — element, quoted attribute, expression attribute,
+  condition, binding
+- `TestHTMLDetailIsExtracted` — doctype, attribute on a script tag, attribute without a
+  value, unquoted value, inline script and style body
+- `TestAntlrDeclaredDefaultsBecomeNodes` — now with postgresql, and with
+  `wantLabel` proving `C_MAX` as `Constant` and `V_URL` as `Variable`
 
-Verification
+The `./internal/...` and `./cmd/...` suite passes with `-tags fts5`.
 
-- `TestEveryNativeGrammarHasQueries` — new network: a registered grammar is passed as an inline query without a file, causing the test failure. This defect left CSS and Svelte idle, with no one complaining.
-- `TestEveryShippedQueryPatternCompiles` — 576 patterns, 0 failures
-- `TestCSSIsExtracted` — 14 types of nodes, key-value pairs (the `@import` until the IMPORTS in the cache), references to `var()` and `url()`, and rejection of pseudo-class as a class
-- `TestSvelteIsExtracted` — element, cited attribute, expression attribute, condition, binding
-- `TestHTMLDetailIsExtracted` — doctype, attribute inside script tag, empty attribute value, value without quotes, inline script body and style
-- `TestAntlrDeclaredDefaultsBecomeNodes` — now with postgresql, and with `wantLabel` proving `C_MAX` as `Constant` and `V_URL` as `Variable`
-
-Suite `./internal/...` and `./cmd/...` proceed with `-tags fts5`.
-
-The two new query files enter the distribution unchanged during build:
+The two new query files enter the distribution with no build change:
 `bundle_ast` in the Makefile copies `internal/ast/queries/*.yaml` by glob.
 
-## Arquivos modificados
+## Files modified
 
-- `internal/ast/antlr/common/matcher.go` stores `[KW]` / `[!KW]`, `segment.matches`
-- `internal/ast/antlr_adapter.go` uses `extractNameFromMatch`
-- `internal/ast/ladybug.go` CSS labels and `Doctype` in Cypher escape
+- `internal/ast/antlr/common/matcher.go` — `[KW]` / `[!KW]` guard, `segment.matches`
+- `internal/ast/antlr_adapter.go` — `extractNameFromMatch` uses `ruleByPath`
+- `internal/ast/ladybug.go` — CSS labels and `Doctype` in the Cypher escaping
 - `internal/ast/queries/css.yaml`, `internal/ast/queries/svelte.yaml` — new
-- `internal/ast/queries/html.yaml` doctype and inline bodies
-- `internal/ast/queries/plsql.yaml` stores `[CONSTANT]` / `[!CONSTANT]`
-- `internal/ast/queries/postgresql.yaml` DEFAULT column width
-- `internal/ast/css_test.go` new
-- `internal/ast/antlr_value_test.go` PostgreSQL and `wantLabel`
-- `docs/specs/ast_module.md` stores key word and `name_capture` from ANTLR
+- `internal/ast/queries/html.yaml` — doctype and inline bodies
+- `internal/ast/queries/plsql.yaml` — `[CONSTANT]` / `[!CONSTANT]` guard
+- `internal/ast/queries/postgresql.yaml` — column DEFAULT
+- `internal/ast/css_test.go` — new
+- `internal/ast/antlr_value_test.go` — postgresql and `wantLabel`
+- `docs/specs/ast_module.md` — keyword guard and ANTLR `name_capture`

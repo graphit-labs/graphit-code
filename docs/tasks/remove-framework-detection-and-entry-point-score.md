@@ -1,41 +1,89 @@
-Task: Remove detection of frameworks/ ecosystems and __INLINE_0__, leaving it for the agent.
+# Task: remove framework/ecosystem detection and `entry_point_score`, leaving that to the agent
 
-Status completed on August 9, 2026.
+**Status: done** on 2026-08-09.
 
-## O problema
+## The problem
 
-The AST module had two layers of heuristic whose sole consumer was an agent reading a sample query in the skill:
+The AST module had two layers of heuristics whose only consumer, in the whole codebase, was an
+agent reading a query example in the skill:
 
-- **Framework/Environment Detection** (`DetectFrameworks`, `DetectProjectConfig`) — scanned decorators, inheritance, imports, and the presence of files like `go.mod`/__INLINE_4___, and wrote the result only in the synthetic node environment `__config__` (__INLINE_6__, __INLINE_7__). Nothing beyond its own function called these functions, and nothing beyond a documented query returned by skill `RunEnrichment`. - **Skill Query** (`__config__`) — summed rules of name/decorator coming from 44 YAMLs of framework + all language YAMLs to score each `Function`/__INLINE_14__. Refined until the end: no search ranking, no automation without agent in loop (the "dream" is also an LLM agent, not a mechanical engine) depended on it — only the skill documentation taught the agent to run `__config__`.
+- **Framework/ecosystem detection** (`DetectFrameworks`, `DetectProjectConfig`) — scanned
+  decorators, inheritance, imports and the presence of files like `go.mod`/`package.json`, and wrote
+  the result only into the synthetic `__config__` node (`c.lang`, `c.source`). Nothing besides
+  `RunEnrichment` itself called those functions, and nothing besides one query documented in the skill read
+  `__config__` back.
+- **`entry_point_score`** (`ScoreEntryPoints`/`scoreFunctionYAML`) — summed name/decorator rules
+  coming from 44 framework YAMLs + every language YAML to score each `Function`/
+  `Method`. Traced to the end: no search ranking, no automation without an agent in the loop
+  (the "dream" is also an LLM agent, not a mechanical engine) depended on it — only the skill's
+  documentation, teaching the agent to run `WHERE f.entry_point_score > 50`.
 
-In other words: The two layers existed solely to save the agent exactly the work he already knows how to do for free — recognizing that `@RestController`/`app.get`/`Test*` are conventions of entry points in the framework being used, and doing this with real bugs found during the review: cumulative count without deduplication between language rules and framework rules, `exported_bonus`/`max_score` shared globally by "the last YAML loaded that set a value > 0 wins" (not breaking today because all 44 YAMLS use the same default 10/100), and the detection via decorator that would have been changed without error because LadybugDB doesn't have function `LEN()` (documented in `internal/ast/enrichment_tx_test.go`, now removed).
+That is: the two layers existed to save the agent exactly the work it already knows how
+to do for free — recognizing that `@RestController`/`app.get`/`Test*` are entry point conventions
+of the framework in use — and they did it with real bugs found during the review: cumulative counting
+without dedup between language and framework rules, `exported_bonus`/`max_score` shared
+globally by "the last YAML loaded that sets a value > 0 wins" (not breaking today only
+because all 44 YAMLs use the same 10/100 default), and the detection by decorator that stayed mute
+without an error because LadybugDB has no `LEN()` function (documented in
+`internal/ast/enrichment_tx_test.go`, now removed).
 
-Inline 23 was analyzed with the same rigor and **not** removed: it is also a heuristic (keyword count text, not real CFG — counts comments and string literals, depends on literal space around the keyword), but its role is different: needs to read the entire function body of the repository to produce a comparative ranking, which the agent does not recreate for free in a large investigation. The correction of comment blind spot (remove spans of `Comment` before counting) was left for later — it is not the scope of this task.
+`cyclomatic_complexity` was analysed with the same rigour and was **not** removed: it is also a
+heuristic (textual keyword counting, not a real CFG — it counts comments and string literals, and
+depends on literal whitespace around the keyword), but its role is different: it needs to read the body of
+every function in the repository to produce a comparative ranking, which the agent does not recreate for
+free in a large investigation. Fixing the comment blind spot (excluding the `Comment`
+spans before counting) was left for later — it is not the scope of this task.
 
-What was done
+## What was done
 
 **Go:**
-- Inline 25 deleted entirely (Inline 26, Inline 27, Inline 28, Inline 29, Inline 30, Inline 31), along with Inline 32, Inline 33, Inline 34.
-- Inline 35: removed Inline 36/Inline 37/Inline 38/Inline 39/Inline 40/Inline 41/Inline 42, Inline 43/Inline 44/Inline 45, the resolvers (the last one without any caller), the framework/loaders caches, and the fields Inline 49/Inline 50 of Inline 51.
-- Inline 52: columns Inline 53 (File) and Inline 54 (entities) removed from the DDL of LadybugDB.
-- Inline 55 / Inline 56: initialization/de.serialization of Inline 57; call to Inline 58 in full rebuild removed.
-- Inline 59: removed two calls to Inline 60 (rebuild incremental and inplace), associated timing metrics.
-- Inline 61 (source of Inline 62, which generates the skill): ~12 references to Inline 63/Inline 64/detection of framework were removed or rewritten to teach agent to name the convention of the framework in use (`f.is_exported AND (f.name = 'main' OR toLower(f.name) STARTS WITH 'test' OR toLower(f.name) CONTAINS 'handler')`) instead of searching for a pre-computed property.
-- Inline 65 / Inline 66: assertions adjusted to the real list of properties (without Inline 67, without Inline 68 in Inline 69).
-- Hub: artifact type Inline 70 removed (Inline 71, Inline 72 — three points —, Inline 73), since installing a framework YAML file no longer had any consumer.
+- `internal/ast/enrichment.go` deleted in its entirety (`DetectFrameworks`, `DetectProjectConfig`,
+  `ScoreEntryPoints`, `scoreFunctionYAML`, `compileImportRegex`, `RunEnrichment`), along with
+  `enrichment_test.go`, `enrichment_tx_test.go`, `enrichment_paging_test.go`.
+- `internal/ast/query_loader.go`: removed `FrameworkFile`/`DecoratorRule`/`HeritageRule`/
+  `ImportRule`/`EntryPointConfig`/`NameScoreRule`/`DecoratorScoreRule`, `EcosystemFile`/
+  `EcosystemEntry`/`EcosystemExtract`, the resolvers (`ResolveFrameworks`, `ResolveEcosystems`,
+  `ResolveAllLangConfigs` — this last one was left with no caller at all), the framework/ecosystem
+  loaders/caches, and the `EntryPoints`/`ImportDetection` fields of `ExternalQueryFile`.
+- `internal/ast/ladybug.go`: the `source` (File) and `entry_point_score` (entities) columns removed
+  from LadybugDB's DDL.
+- `internal/ast/rebuild_index.go` / `json_rebuild.go`: removed the initialization/serialization of
+  `entry_point_score`; removed the call to `RunEnrichment` in the full rebuild.
+- `internal/ast/incremental_rebuild.go`: removed the two calls to `RunEnrichment` (incremental
+  and in-place rebuild) and the associated timing metrics.
+- `internal/ast/rule.go` (source of `ASTRuleContent()`, which generates the skill): the ~12 references to
+  `entry_point_score`/`__config__`/framework detection were removed or rewritten to
+  teach the agent to name the convention of the framework in use (`f.is_exported AND (f.name = 'main'
+  OR toLower(f.name) STARTS WITH 'test' OR toLower(f.name) CONTAINS 'handler')`) instead of
+  looking for a precomputed property.
+- `internal/ast/rule_cypher_test.go` / `rule_schema_first_test.go`: assertions adjusted to the
+  real list of properties (without `entry_point_score`, without `source` on `File`).
+- Hub: the `framework` artifact type removed (`internal/hub/registry.go`, `service.go` — 3
+  places —, `reconcile.go`), since installing a framework YAML no longer had a consumer.
 
-YAML:
-- 44 files deleted and file `entry_points:` removed.
-- Block `entry_points:` (and `import_detection:` if present) removed from the 45 YAMLs of language in `internal/ast/queries/`, along with the preceding comment.
+**YAML:**
+- `internal/ast/frameworks/` (44 files) and `internal/ast/ecosystems.yaml` deleted.
+- The `entry_points:` block (and `import_detection:` when present) removed from the 45 language
+  YAMLs in `internal/ast/queries/`, along with the comment that preceded it.
 
-**Docs and Skills:**
-- **INLINE_79**, **INLINE_80**, **INLINE_81** — the three materialized copies, kept identical to the new **INLINE_82**.
-- **INLINE_83** — sections "🏗️ Framework YAML Configuration" and "🌍 Ecosystem YAML Configuration" removed completely; **INLINE_84**/**INLINE_85** removed from schema tables; simplified example directory tree.
-- **INLINE_86** — sections "Adding New Framework Support", "Customizing Framework Detection", "Customizing Entry Point Scoring", "Customizing Ecosystem Detection" and the two reference YAML files (Framework Files, Ecosystems File) removed; artifact Hub type count corrected from 11→10.
-- **INLINE_87** and **INLINE_88** — bullet/section of artifact "Framework Configs" removed.
-- **INLINE_89** — line in the decision table that mentioned **INLINE_90** adjusted to mention only **INLINE_91**, which still exists.
+**Docs and skill:**
+- `.claude/skills/graphit-ast/SKILL.md`, `.kiro/skills/graphit-ast/SKILL.md`,
+  `.agents/skills/graphit-ast/SKILL.md` — the three materialized copies, kept identical to the
+  new `ASTRuleContent()`.
+- `docs/specs/ast_module.md` — the "🏗️ Framework YAML Configuration" and "🌍 Ecosystem YAML
+  Configuration" sections removed completely; `source`/`entry_point_score` taken out of the
+  schema tables; example directory tree simplified.
+- `docs/guides/user_manual.md` — the "Adding New Framework Support", "Customizing Framework
+  Detection", "Customizing Entry Point Scoring", "Customizing Ecosystem Detection" sections and the two
+  YAML reference tables (Framework Files, Ecosystems File) removed; the Hub artifact type
+  count corrected from 11→10.
+- `README.md` and `docs/specs/hub_collaboration.md` — the bullet/section for the "Framework Configs"
+  artifact removed.
+- `docs/specs/embedded_language_parsing.md` — the row of the decision table that cited
+  `entry_point_score` adjusted to cite only `is_exported`, which still exists.
 
-Verification
+## Verification
 
-And `go build ./...` and `go vet ./...` are clean. `go test ./internal/ast/... ./internal/hub/...` passes —
-the failures of `no such module: fts5` are due to the environment (SQLite driver without FTS5 extension on this machine) and preexist in files not touched by this task.
+`go build ./...` and `go vet ./...` clean. `go test ./internal/ast/... ./internal/hub/...` passes —
+the `no such module: fts5` failures are environmental (SQLite driver without the FTS5 extension on this
+machine) and predate the change, in search files not touched by this task.

@@ -1,126 +1,122 @@
 ---
-Title: Load of Search Index by COPY and Built After Vector Index
+title: Loading the search index via COPY, and the vector index built afterwards
 status: done-with-caveat
 created: 2026-08-17
 updated: 2026-08-17
 tags: [ast, search, ladybug, vector, performance, copy]
 ---
 
-Index Search Load for COPY
+# Loading the search index via COPY
 
-Origin: The indexing index loading phase did not terminate. A measurement on a real corpus
-(39.429 arquivos, 2.501.342 entidades) ela cresceu 270 MB em 55 minutos e projetava mais de
-12 horas, o que inviabilizava qualquer rebuild completo.
+**Origin:** the search index load phase never finished. In one measurement over a real corpus
+(39,429 files, 2,501,342 entities) it grew by 270 MB in 55 minutes and projected more than
+12 hours, which made any full rebuild unfeasible.
 
 ---
 
-## A matriz, medida
+## The matrix, measured
 
-80.000 linhas, todas carregando `FLOAT[768]`:
+80,000 rows, all carrying `FLOAT[768]`:
 
-| arranjo | total |
+| arrangement | total |
 |---|---|
-"89 seconds after index after (default)"
-The sum of the inline index after (`cache_embeddings := false`) is 398 seconds.
-"Add the inline value followed by index."
-"Inline 0 + Index Before > 600 seconds (Interrupted)"
+| `COPY` + index afterwards (`cache_embeddings` default) | **89 s** |
+| `COPY` + index afterwards (`cache_embeddings := false`) | 398 s |
+| `UNWIND` + index afterwards | 440 s |
+| `COPY` + index **before** | **>600 s** (interrupted) |
 
-O mesmo `UNWIND` numa tabela **sem** coluna vetorial custa 48 µs/linha, contra 4.643 com
-She. The cost is in the driver converting each element of the vector to the parameter of the...
-Query - not in index.
+The same `UNWIND` on a table **without** a vector column costs 48 µs/row, against 4,643 with
+it. The cost is in the driver converting each element of the vector on its way into the query
+parameter — not in the index.
 
-And the order of the index stands on its own: with it in place, every insert maintains an HNSW and the cost is
-**superlinear** (10.088 µs/linha a 2.000, 17.202 a 20.000), enquanto construir depois fica
-Plan (~5, 500). `EnsureSchema` creates `se_vec` in an empty table with the comment that one
-Empty table accepts index, so order doesn't matter; just that cost and
-not correcting.
+And the index ordering counts on its own: with it in place, every insert maintains an HNSW and the
+cost is **superlinear** (10,088 µs/row at 2,000, 17,202 at 20,000), whereas building it afterwards
+stays flat (~5,500). `EnsureSchema` was creating `se_vec` on the empty table with a comment saying
+that an empty table accepts the index and therefore the order did not matter; it does matter, only
+as cost and not as correctness.
 
-## Resultado no corpus real
+## Result on the real corpus
 
-| fase | antes | depois |
+| phase | before | after |
 |---|---|---|
-Index search load | > 12 hours (projected) | **321 seconds** |
+| search index load | >12 h (projected) | **321 s** |
 
-Os quatro arquivos acima do teto de valor do `COPY` foram pela rota `UNWIND`, nomeados em
-log `Debug`.
+The four files above the `COPY` value ceiling went through the `UNWIND` route, named in a
+`Debug` log.
 
 ---
 
-What was forced upon implementation
+## What the implementation forced
 
-The extension **INLINE_0** became a hard dependency of the writing path. Without it, **INLINE_1** fails.
-no binder com `Cannot load from file type json`. Oito testes quebraram nisso antes de
-Passing it through with hard error, as it used to do with `fts` and `vector`.
+**The `json` extension became a hard dependency of the write path.** Without it, `COPY` fails in
+the binder with `Cannot load from file type json`. Eight tests broke on that before
+`EnsureSchema` started loading it with a hard error, as it already did for `fts` and `vector`.
 
-**`estimateRowBytes` contava um `FLOAT[768]` como 8 bytes**, como qualquer escalar, o que
-It transformed the byte budget into fiction for search lines. It started counting approximately 12 bytes per...
-Dimension, which is the cost in JSON text.
+**`estimateRowBytes` was counting a `FLOAT[768]` as 8 bytes**, like any scalar, which made the
+byte budget fiction for search rows. It now counts ~12 bytes per dimension, which is the cost in
+JSON text.
 
-The **INLINE 0** of JSON has a ceiling on its value, not in the document itself — and this corrects the lesson that
-`json_rebuild.go` tinha registrado:
+**JSON `COPY` has its ceiling on the VALUE, not on the document** — and that corrects the lesson
+`json_rebuild.go` had recorded:
 
-| documento | resultado |
+| document | result |
 |---|---|
-| 1 linha, source 16 MB (arquivo 29,8 MB) | ok |
-| 1 linha, source 32 MB (arquivo 59,7 MB) | **falha** |
-| 60 linhas de 1 MB (arquivo **111,9 MB**) | ok |
+| 1 row, source 16 MB (file 29.8 MB) | ok |
+| 1 row, source 32 MB (file 59.7 MB) | **fails** |
+| 60 rows of 1 MB (file **111.9 MB**) | ok |
 
-So, the lotto ticket budget isn't what needs shrinking. Above the ceiling is isolated by
-The variable `UNWIND` stores 32, 64, and 128 MB integers - `SearchFile.source` is the only copy.
-Elegant in text, then truncating would be worse than failing. The threshold
-It's about the value of CRU and purposeful conservative, because escaping JSON
-Expand the text in a way dependent on its content: XML doubles, as every `<` becomes `<`.
-
----
-
-The caveat, which is INLINE_0
-
-The fast index vector build loads all embeddings into memory. In the real corpus
-It "burst" a 8 GiB buffer pool - 2.5 million entities were approximately 7.7 GB of raw vector before.
-Any index structure — and production limits the pool to 1 GiB (inline_0__).
-
-Recovery is attempted only after failure and with an alert.
-Log: 73 times slower than 383 in 80,000 vectors, same quality of response. It's approximately 5x slower and is
-The difference between a search engine with semantic search and one without— that's why it's not a downgrade
-silencioso.
-
-This recovery route was not validated end to end in 2.5 million, because at that speed,
-
-Translation is already English, so it remains unchanged:
-
-"This recovery route was not validated end to end in 2.5 million, because at that speed,"
-Build project takes approximately 3.3 hours. What is validated in this scale is the load on the lines (321 s).
+So the batch budget is not what needs to shrink. A row above the ceiling goes on its own through
+`UNWIND`, which stores 32, 64 and 128 MB intact — `SearchFile.source` is the only queryable copy of
+the text, so truncating it to fit would be worse than failing. The threshold
+(`copyValueCeil`) is about the RAW value and is conservative on purpose, because JSON escaping
+expands the text in a content-dependent way: XML doubles, since every `<` becomes `<`.
 
 ---
 
-## As sondas, e o que cada uma sustenta
+## The caveat, which is the `done-with-caveat`
 
-They remain in the repository, all behind environment variable — none on `make ci`.
-There exist because several constants and orders of production code are not derivable from
-Reading: Without the probe, whoever finds `copyValueCeil` gets a comment and no way to access it.
-To reproduce the number.
+The fast vector index build loads every embedding into memory. On the real corpus that
+**blew up an 8 GiB buffer pool** — 2.5 M entities are ~7.7 GB of raw vector before any index
+structure — and production limits the pool to 1 GiB (`dbBufferPoolCeil`).
 
-| sonda | guarda | o que sustenta |
+The recovery is `cache_embeddings := false`, attempted **only after the failure** and with a warning
+in the log: 73 s against 383 s on 80,000 vectors, same answer quality. It is ~5x slower and it is
+the difference between a store with semantic search and one without — which is why it is not a
+silent downgrade.
+
+**That recovery route was not validated end to end at 2.5 M**, because at that rate the build
+projects ~3.3 hours. What is validated at that scale is the row load (321 s).
+
+---
+
+## The probes, and what each one supports
+
+They stay in the repository, all behind an environment variable — none of them runs in `make ci`.
+They exist because several constants and orderings in the production code are not derivable by
+reading: without the probe, whoever finds `copyValueCeil` has a comment and no way to reproduce
+the number.
+
+| probe | guard | what it supports |
 |---|---|---|
-| `vector_bulk_load_probe_test.go` | `GRAPHIT_VEC_BULK` | `COPY` no lugar de `UNWIND` (24x com coluna vetorial) |
-Index vector constructed AFTER loading (3.1x, and superlinear in the opposite direction)
-| `vector_index_memory_probe_test.go` | `GRAPHIT_VEC_MEM` | o retry com `cache_embeddings := false`, e o custo dele |
-The roof is priced by value, not by document.
-| `copy_format_value_ceiling_test.go` | `GRAPHIT_COPY_ROWSIZE` | Parquet carrega o valor que JSON e CSV recusam |
-| `copy_table_export_probe_test.go` | `GRAPHIT_COPY_ROWSIZE` | `RETURN n.*` e o prefixo de PKs nas arestas |
-Mapping Positional and Non-UTF-8 Byte Loss
-| `copy_format_probe_test.go` | `GRAPHIT_COPY_FORMATS` | Parquet/CSV/JSON empatam na carga; `COPY` × `UNWIND`; glob |
-| `fts_scaling_probe_test.go` | `GRAPHIT_FTS_SCALING` | custo do `CREATE_FTS_INDEX` por tamanho; `ATTACH (dbtype lbug)` |
-The table is | `fts_hotcold_probe_test.go` | `GRAPHIT_FTS_SCALING` | `CREATE_FTS_INDEX`; FTS does not traverse | `ATTACH` |
-Index Multi-Property; The Inverted Index is Not a Table
-| `shard_parquet_size_probe_test.go` | `GRAPHIT_SHARD_SIZE` | por que os shards LOCAIS continuam JSON |
-| `real_corpus_incremental_probe_test.go` | `GRAPHIT_REAL_CACHE` | rebuild e incremental por fase sobre um shard cache real |
+| `vector_bulk_load_probe_test.go` | `GRAPHIT_VEC_BULK` | `COPY` instead of `UNWIND` (24x with a vector column) |
+| `vector_index_order_probe_test.go` | `GRAPHIT_VEC_ORDER` | vector index built AFTER the load (3.1x, and superlinear the other way) |
+| `vector_index_memory_probe_test.go` | `GRAPHIT_VEC_MEM` | the retry with `cache_embeddings := false`, and its cost |
+| `copy_json_row_size_test.go` | `GRAPHIT_COPY_ROWSIZE` | `copyValueCeil` — the ceiling is per VALUE, not per document |
+| `copy_format_value_ceiling_test.go` | `GRAPHIT_COPY_ROWSIZE` | Parquet loads the value that JSON and CSV refuse |
+| `copy_table_export_probe_test.go` | `GRAPHIT_COPY_ROWSIZE` | `RETURN n.*` and the PK prefix on the edges |
+| `copy_parquet_fidelity_test.go` | `GRAPHIT_COPY_ROWSIZE` | POSITIONAL mapping, and the loss on non-UTF-8 bytes |
+| `copy_format_probe_test.go` | `GRAPHIT_COPY_FORMATS` | Parquet/CSV/JSON tie on load; `COPY` × `UNWIND`; glob |
+| `fts_scaling_probe_test.go` | `GRAPHIT_FTS_SCALING` | cost of `CREATE_FTS_INDEX` by size; `ATTACH (dbtype lbug)` |
+| `fts_hotcold_probe_test.go` | `GRAPHIT_FTS_SCALING` | `CREATE_FTS_INDEX` is O(table); FTS does not cross `ATTACH` |
+| `fts_shape_probe_test.go` | `GRAPHIT_FTS_SCALING` | multi-property index; the inverted index is not a table |
+| `shard_parquet_size_probe_test.go` | `GRAPHIT_SHARD_SIZE` | why the LOCAL shards remain JSON |
+| `real_corpus_incremental_probe_test.go` | `GRAPHIT_REAL_CACHE` | rebuild and incremental per phase over a real cache shard |
 
-## O que continua em aberto
+## What remains open
 
-The incremental of 1,178 s is not touched here: it's only the inserts for files.
-Changed and the cost is the DROP + CREATE of the nine FTS indices, which is O(corpus) because the engine doesn't
-There is partial construction. Measured as `CREATE_FTS_INDEX`, it costs O(lines * that table), and not
-Bank - with 400, 000 intact cold backups next to it, reconstructing five indices of a table of
-300 linhas leva 1,64 s —, o que sustenta um desenho de dois segmentos com tombstones e merge
-Periodical. Own task.
+The **incremental** at 1178 s is untouched by anything here: there the insert covers only the files
+that changed, and the cost is the DROP+CREATE of the nine FTS indexes, which is O(corpus) because
+the engine has no partial build. Measured that `CREATE_FTS_INDEX` costs O(rows *of that table*) and
+not O(database) — with 400,000 cold rows intact alongside, rebuilding 5 indexes of a 300-row table
+takes 1.64 s —, which supports a two-segment design with tombstones and periodic merge. Its own
+task.

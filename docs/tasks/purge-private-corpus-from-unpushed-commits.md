@@ -120,8 +120,8 @@ now-redundant sanitizing commit disappears.
       `docs/tasks/consolidate-search-into-ladybugdb-and-drop-sqlite.md` labelled "production
       shard cache". Opaque once names are gone, so low severity, but it is a real identifier.
 - [ ] **Two published Portuguese task logs carry the developer's absolute home path.**
-      `docs/tasks/corrigir-indexacao-no-projeto-errado.md` and
-      `docs/tasks/revisar-skills-e-mandates.md` on `origin/main`. This range already renames
+      `docs/tasks/fix-indexing-in-wrong-project.md` and
+      `docs/tasks/review-skills-and-mandates.md` on `origin/main`. This range already renames
       them to English and drops the paths, so the exposure stops going forward, but the
       published copies stay reachable by SHA. Same class as the schema identifiers above.
 - [ ] **No mechanical check before push.** Three scrubs in one month means the only control

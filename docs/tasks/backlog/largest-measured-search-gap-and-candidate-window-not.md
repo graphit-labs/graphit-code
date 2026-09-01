@@ -3,7 +3,7 @@
 # Candidate window is bottleneck, not sorting
 
 Discovered on 2026-08-23 when measuring cross-encoder with real inference
-(`docs/tasks/hub-em-s3-icebug-e-lancedb.md`, section "MEASURED with real inference";
+(`docs/tasks/hub-on-s3-icebug-and-lancedb.md`, section "MEASURED with real inference";
 `internal/ai/rerank_eval_test.go`, tag `rerankeval`). **Not a bug** — this is where the next gain of
 search quality is, measured, and it's cheaper than the path we were taking.
 
