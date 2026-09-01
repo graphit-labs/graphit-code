@@ -542,7 +542,7 @@ Scenario: A reordered provider response is mapped back to input order
 - User asked "está tudo documentado?" (is everything documented?). Ran `graphit_knowledge_lint`
   to check rather than assume — the project-wide report (244 pages, 129 pre-existing errors,
   unrelated to this task) surfaced one real mistake from this session: a memory I wrote
-  referenced `[[Embedding_é_100_LOCAL...]]` with a truncated "..." slug instead of the real
+  referenced a truncated “Embedding is 100% local…” memory title instead of the real
   one, made worse by having renamed that memory's title in the same turn (which changes its
   compiled slug). Fixed both the memory's wikilink and this doc's equivalent reference.
   Also brought this log up to the Full Task Log Template's mandatory bar for a feature this

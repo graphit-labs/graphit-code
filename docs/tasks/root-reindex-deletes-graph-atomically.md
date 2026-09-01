@@ -28,7 +28,7 @@ Two questions to answer, in this order:
 The project's memory already had two plausible candidates, and both were ruled out as the
 primary cause:
 
-- `[[graphit-cpu-ram-budget-is-per-pipeline-not-global]]` — N supervisors in the daemon
+- The documented per-pipeline CPU/RAM budget limitation — N supervisors in the daemon
   multiply CPU/RAM. Real, and present on this machine right now (daemon averaging 1027% CPU),
   but this **aggravates**, it doesn't explain: it would explain proportional slowness on any
   project, including the small one, which finishes in 28 s.
@@ -190,7 +190,7 @@ of tens of thousands of elements, when the same final state is reached by `--res
 `os.RemoveAll` (`runners.go:289-294`).
 
 The scope-by-prefix is correct and is the reason for the design — see
-`[[indexing-saves-to-the-right-project-and-reindex-returns-to-deleting]]`, where
+the earlier indexing-location and reindex-deletion investigation, where
 `DeleteRepository` stopped being a stub. The defect isn't the scope: it's that there's no short
 path for the case where the scope is the entire graph.
 
@@ -365,7 +365,7 @@ touched.
 **Why NOT map a root `--reindex` to `--reset`**, which would be the one-line fix: `--reset`
 does `os.RemoveAll(filepath.Dir(DBPath))`, and that directory contains `shards/` — 3 GB on the
 large corpus, with the embedding cache inside (see
-`[[shard-manifest-with-different-version-is-silently-discarded]]`). Recomputing embeddings for
+the recorded shard-manifest version mismatch behavior). Recomputing embeddings for
 ~2.5 M entities is orders of magnitude more expensive than the delete it's trying to avoid. The
 final state of the graph is the same; the total cost is not. The fix needs to empty the
 **graph** without touching the store.

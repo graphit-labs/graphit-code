@@ -51,7 +51,7 @@ Note: the **incremental** path already handled this correctly — `internal/ast/
 
 ### 3. `html.yaml` declared contexts but no `context_name_paths`
 
-Direct continuation of [Entities know their parent](../changelogs/20260802_entidades_conhecem_seu_pai_e_a_subida_e_memoizada.md), which added `context_name_paths` to `xml`, `json`, `yaml_lang`, and `svelte`. `html.yaml` was left out: it declares `element`, `script_element`, and `style_element` as contexts, but tree-sitter-html's `element` does not expose a `name` field — the name lives in the `start_tag`. Without the path, `nameNodeOf` returns nil, the container becomes **transparent**, and every HTML entity falls back onto File — precisely the silent failure that piece of work existed to kill.
+Direct continuation of [Entities know their parent](../changelogs/20260802_entities_know_their_parent_and_ascent_is_memoized.md), which added `context_name_paths` to `xml`, `json`, `yaml_lang`, and `svelte`. `html.yaml` was left out: it declares `element`, `script_element`, and `style_element` as contexts, but tree-sitter-html's `element` does not expose a `name` field — the name lives in the `start_tag`. Without the path, `nameNodeOf` returns nil, the container becomes **transparent**, and every HTML entity falls back onto File — precisely the silent failure that piece of work existed to kill.
 
 ### 4. Other grammars: callables that were not contexts
 

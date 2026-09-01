@@ -36,7 +36,6 @@ Note: The code block and markdown formatting have been preserved as requested.
 
 All in `internal/mcpstdio` through the two new helpers `anchorToProject` and `astConfigForProject`:
 
-Portuguese:
 | Site | Defect |
 |---|---|
 | Inline 28 (Inline 29) | The reported defect |
@@ -45,7 +44,6 @@ Portuguese:
 | Inline pipeline (Inline 38, Inline 39) | Cache of parse recorded in another project |
 | Inline 41 (Inline 42) | Returned _INLINE_43_ outside _Inline_44_
 
-English:
 The reported defect
 Idem; the inline 32 within inline 33 masked in reading
 Relative path relative **without** any inline 7 — erased the AST database of the cwd project
@@ -71,7 +69,6 @@ The phase 3 exists due to a detail in the DDL (`internal/ast/ladybug.go:208-214`
 
 The error began to rise in `tools_ast.go` — it was discarded with `_ =`.
 
-This translation maintains the structure and technical terms of the original Portuguese text, including inline code blocks.
 
 ## Use Cases
 
@@ -194,7 +191,6 @@ Then a contagem de cada label permanece inalterada
 
 ## Files Changed
 
-Portuguese:
 | File | Change | Reason |
 |---|---|---|
 | `internal/mcpstdio/context.go` | Modified | `anchorToProject` and `astConfigForProject`; `openASTDB`/`openASTDBReadWrite` stop using `chdir`; `resolveWikiDir` still returns |
@@ -206,7 +202,6 @@ Portuguese:
 | `internal/ast/writer_delete_repository_test.go` | Created | regression stub, including case without `path` |
 | `Makefile` | Modified | `test` without `-tags fts5` and swallowing the exit code; it ran `ci` before `vet` |
 
-English:
 The file has been modified. The changes are as follows:
 
 - Inline 107: The inline is updated, and Inline 108 and 109 use a different configuration that no longer requires Inline 112.

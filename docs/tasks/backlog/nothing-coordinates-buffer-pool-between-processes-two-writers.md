@@ -12,7 +12,6 @@ Inside/inside (internal/sysutil/gate.go) serializes the heavy pipelines **within
 
 ---
 
-This translation maintains the technical context and structure of the original Portuguese text, preserving code blocks, markdown formatting, file paths, and technical terms as specified.
 
 - one inline 5 of terminal competing with the indexer reindexing the same or another project
 - __INLINE_6__, which opens many read-write databases in a single process

@@ -37,7 +37,6 @@ Direct Motivation: The seventh positional parameter—line—is likely to remain
 Next to `cluster` and `lang`, changing two of them would not cause a compilation error.
 
 The line exits from two places around the node, as intended:
-Here is the translation:
 
 - Where the explorer reads, to jump;
 - Where the detail panel reads raw properties.
@@ -52,7 +51,6 @@ The `INLINE_0` does not have a label, and in LadybugDB, a property "links to an 
 Here's the translation:
 
 There is no table with any information about a graph that only has files and directories.
-**Brazilian Portuguese:** ``line_number``, and asking for column there does not return an empty column: returns
 `Binder exception: Cannot find property line_number for n`, que **derruba a query
 inteira** — ou seja, um 500 novo no explorer, exatamente o sintoma que as duas
 The previous corrections for this endpoint were removed.

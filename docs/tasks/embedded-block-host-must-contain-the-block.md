@@ -12,7 +12,6 @@ The hosting entity of a block must contain it.
 
 The assignment of a block to the hosting entity (`attributeToHostEntity` + `hostEntityAt`, `internal/ast/treesitter_embedded.go`) delivers **the upper brother**, not who hosts. In an XML orchestration with SQL inside an `<value>`, the DML edge is born in `Element` of `<key>` that precedes the value — tag name without identity, and the same node for all blocks in the file because the entity UID is `(path, name)`.
 
-This translation preserves the original technical content while converting it into idiomatic English.
 
 Practical consequence, reported by a consumer project: the question "what unit does this flow write into this table?" remains unanswered. Before attribution, the answer was the file; now it is an `<key>` — more precise in form but equally useless in content.
 
@@ -27,7 +26,6 @@ Error in the position of the block line. The caller passes `innerOffset` as "lin
    Every `Element` in this corpus has `end_line == line_number` — measured in live graph: no node from the file satisfies
    `line_number <= L <= end_line` for a line in the middle of a block. That is, **no custom grammar can declare significant unit** (the pass, the job, the processor) with sufficient extension to host the block. Fixing only item 1 replaces `<key>` by `<value>` — the own wrapper of the block, which says as much as the statement's text.
 
-This translation maintains the original technical content and structure while converting it into idiomatic English.
 
 ## Reasoning
 
@@ -260,7 +258,6 @@ Then the entity's span goes from the name node to the end of its parent node
 
 ## Files Changed
 
-Portuguese:
 | File | Change | Reason |
 |---|---|---|
 | `internal/ast/treesitter_embedded.go` | Modified | real interval of the block; continuity in `hostEntityAt` |
@@ -275,7 +272,6 @@ Portuguese:
 | `docs/specs/embedded_language_parsing.md` | Modified | section 3b: assignment to host, strict continuity, and an error on a line |
 | `docs/tasks/embedded-block-carries-its-own-language.md` | Modified | correction note about the version with defect described there |
 
-English:
 The file has been modified. The real interval of the block is now determined; continuity in the related field has been updated. The span of the entity comes from the declaration field when it is defined. In the query, `internal/ast/query_loader.go` has been modified to `NameIsData` and `HostLabels` respectively. There are no fixed lists of labels for `internal/ast/rebuild_index.go`; a new field has been documented in `docs/specs/ast_module.md`; section 3b: assignment to host, strict continuity, and an error on a line have been modified; the correction note about the version with defect described there has been updated.
 
 Outside this repository: the `ast.queries_dir` of the consumer project (grammar for project, `merge: true`).
@@ -286,7 +282,6 @@ Outside this repository: the `ast.queries_dir` of the consumer project (grammar 
 - **Continuity of the entire block, not just the first line.** More restrictive: a host that ends in the middle of the block becomes unchosen. This eliminates the wrapper without needing a list of labels.
 - **Nothing `host_labels`_.** It would be the second mechanism for the same purpose, and the rule of continuity already resolves. If ever two legitimate units nest and the innermost is not desired, there is a question — today it does not exist.
 
-This translation preserves the original structure, code blocks, markdown formatting, file paths, and technical terms as specified.
 
 ## Technical Debt
 

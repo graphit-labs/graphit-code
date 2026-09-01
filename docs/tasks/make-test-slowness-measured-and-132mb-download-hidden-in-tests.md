@@ -84,11 +84,9 @@ Each). Probably, that's why `-p 4` exists.
 
 The two most expensive tests of INLINE_0 are not waste and should not be cut off:
 `TestResetAntlrCachesRace` (13,0 s — 8 goroutines parseando enquanto 25 resets acontecem, sob
-Here is the translation:
 
 "`-race` and `TestLadybugStringIntegrityUnderGCPressure` (11, 6 seconds) are stress tests performing work"
 
-This translation maintains the technical nature of the original Portuguese text while rendering it in idiomatic English.
 real.
 
 ## Arquivos

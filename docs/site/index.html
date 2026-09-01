@@ -1,893 +1,190 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="en" data-theme="dark">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Graphit Code — Enterprise Collaboration Hub for AI-Guided Software</title>
-  <meta name="description" content="Transform your local development into a collaborative enterprise ecosystem. Graphit Code provides deterministic AST understanding, persistent memory, and ecosystem discovery with zero dependencies and 100% data privacy.">
-  <meta name="color-scheme" content="light dark">
-
-  <script>
-    {
-      const colorScheme = localStorage.getItem("color-scheme");
-      if (colorScheme) {
-        document.documentElement.classList.toggle('dark', colorScheme === 'dark');
-        document.querySelector('meta[name="color-scheme"]').content = colorScheme;
-      } else {
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        document.documentElement.classList.toggle('dark', prefersDark);
-      }
-    }
-  </script>
-
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Graphit gives coding agents structural code intelligence, durable memory, connected documentation, and reusable ecosystem context.">
+  <meta name="theme-color" content="#101311">
+  <title>Graphit Code — A system for coding agents</title>
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-
-  <style>
-    /* Robust Base CSS Architecture to Prevent Layout Breakage */
-    :root {
-      color-scheme: light dark;
-      --bg: #f8fafc;
-      --bg-glass: rgba(255, 255, 255, 0.75);
-      --fg: #0f172a;
-      --fg-muted: #475569;
-      --border: rgba(15, 23, 42, 0.1);
-      --border-glow: rgba(37, 99, 235, 0.3);
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --accent-1: #8b5cf6;
-      --accent-2: #06b6d4;
-      --accent-3: #10b981;
-      --accent-4: #f43f5e;
-      --card: rgba(255, 255, 255, 0.85);
-      --card-hover: rgba(255, 255, 255, 1);
-      
-      --glow-opacity: 0.15;
-      --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-      --shadow-lg: 0 20px 40px -10px rgba(0, 0, 0, 0.1);
-    }
-
-    .dark {
-      --bg: #030712;
-      --bg-glass: rgba(3, 7, 18, 0.75);
-      --fg: #f8fafc;
-      --fg-muted: #94a3b8;
-      --border: rgba(255, 255, 255, 0.1);
-      --border-glow: rgba(99, 102, 241, 0.4);
-      --primary: #3b82f6;
-      --primary-hover: #60a5fa;
-      --accent-1: #a855f7;
-      --accent-2: #22d3ee;
-      --accent-3: #34d399;
-      --accent-4: #fb7185;
-      --card: rgba(15, 23, 42, 0.65);
-      --card-hover: rgba(30, 41, 59, 0.85);
-      
-      --glow-opacity: 0.25;
-      --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-      --shadow-lg: 0 20px 40px -10px rgba(0, 0, 0, 0.8);
-    }
-
-    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: var(--bg);
-      color: var(--fg);
-      line-height: 1.6;
-      overflow-x: hidden;
-      transition: background-color 0.3s ease, color 0.3s ease;
-      -webkit-font-smoothing: antialiased;
-    }
-
-    h1, h2, h3, h4, h5, h6, .display-font {
-      font-family: 'Outfit', sans-serif;
-      line-height: 1.2;
-      letter-spacing: -0.02em;
-    }
-
-    a { text-decoration: none; color: inherit; }
-
-    /* ─── Immersive Background ─── */
-    .mesh-bg {
-      position: fixed; inset: 0; z-index: -1;
-      overflow: hidden; background: var(--bg);
-    }
-    .mesh-orb {
-      position: absolute; border-radius: 50%; filter: blur(120px);
-      opacity: var(--glow-opacity); animation: drift 25s infinite alternate ease-in-out;
-      pointer-events: none;
-    }
-    .orb-1 { width: 60vw; height: 60vw; background: var(--primary); top: -20%; left: -10%; }
-    .orb-2 { width: 50vw; height: 50vw; background: var(--accent-1); bottom: -10%; right: -10%; animation-delay: -5s; }
-    .orb-3 { width: 40vw; height: 40vw; background: var(--accent-2); top: 30%; left: 30%; animation-delay: -10s; }
-
-    @keyframes drift {
-      0% { transform: translate(0, 0) scale(1); }
-      100% { transform: translate(3%, 8%) scale(1.05); }
-    }
-
-    /* ─── Navigation ─── */
-    nav {
-      position: fixed; top: 0; width: 100%; z-index: 100;
-      background: var(--bg-glass);
-      backdrop-filter: blur(24px) saturate(1.5);
-      border-bottom: 1px solid var(--border);
-    }
-    .nav-container {
-      max-width: 1400px; margin: 0 auto; padding: 0 2rem;
-      height: 72px; display: flex; align-items: center; justify-content: space-between;
-    }
-    .brand { display: flex; align-items: center; gap: 0.75rem; font-size: 1.25rem; font-weight: 800; font-family: 'Outfit'; }
-    .brand img { width: 28px; height: 28px; }
-    .nav-links { display: flex; align-items: center; gap: 1.5rem; }
-    .nav-link { font-size: 0.95rem; font-weight: 600; color: var(--fg-muted); transition: color 0.2s; }
-    .nav-link:hover { color: var(--fg); }
-    .theme-toggle {
-      background: none; border: none; cursor: pointer; color: var(--fg-muted);
-      padding: 0.5rem; border-radius: 8px; transition: all 0.2s; display: flex;
-    }
-    .theme-toggle:hover { color: var(--fg); background: var(--border); }
-    .dark .icon-sun { display: block; }
-    .dark .icon-moon { display: none; }
-    .icon-sun { display: none; }
-    .icon-moon { display: block; }
-
-    /* ─── Layout Primitives ─── */
-    .container { max-width: 1400px; margin: 0 auto; padding: 8rem 2rem; }
-    
-    .glass-panel {
-      background: var(--card); backdrop-filter: blur(24px);
-      border: 1px solid var(--border); border-radius: 24px;
-      box-shadow: var(--shadow-lg); transition: all 0.4s;
-    }
-    .glass-panel:hover { border-color: var(--border-glow); transform: translateY(-4px); }
-
-    .section-header { text-align: center; margin-bottom: 4rem; max-width: 900px; margin-inline: auto; }
-    .section-header h2 { font-size: clamp(2rem, 5vw, 3.5rem); margin-bottom: 1rem; }
-    .section-header p { font-size: 1.125rem; color: var(--fg-muted); }
-
-    /* ─── Hero ─── */
-    .hero {
-      min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      text-align: center; padding: 10rem 2rem 4rem; position: relative;
-    }
-    .pill {
-      display: inline-flex; align-items: center; gap: 0.5rem;
-      padding: 0.5rem 1.25rem; border-radius: 99px;
-      background: rgba(37, 99, 235, 0.1); border: 1px solid var(--border-glow);
-      font-size: 0.875rem; font-weight: 700; color: var(--primary); margin-bottom: 2rem;
-    }
-    .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-3); animation: pulse 2s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-    
-    .hero h1 {
-      font-size: clamp(3rem, 8vw, 5.5rem); font-weight: 900;
-      margin-bottom: 1.5rem; max-width: 1200px;
-      background: linear-gradient(135deg, var(--fg) 30%, var(--fg-muted) 100%);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    }
-    .hero p { font-size: clamp(1.1rem, 2vw, 1.35rem); color: var(--fg-muted); max-width: 800px; margin-bottom: 3rem; }
-    
-    .btn-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
-    .btn {
-      display: inline-flex; align-items: center; gap: 0.5rem; padding: 1rem 2rem;
-      border-radius: 12px; font-size: 1.1rem; font-weight: 600; transition: all 0.3s;
-    }
-    .btn-primary { background: var(--primary); color: #fff; box-shadow: 0 4px 14px 0 rgba(37, 99, 235, 0.39); }
-    .btn-primary:hover { transform: translateY(-2px); background: var(--primary-hover); }
-    .btn-glass { background: var(--card); border: 1px solid var(--border); color: var(--fg); backdrop-filter: blur(12px); }
-    .btn-glass:hover { transform: translateY(-2px); background: var(--card-hover); }
-
-    /* ─── Problem / Solution (Robust Split Card) ─── */
-    .split-layout { display: flex; flex-direction: column; gap: 2rem; }
-    @media(min-width: 900px) { .split-layout { flex-direction: row; } }
-    
-    .split-card { flex: 1; padding: 3rem; display: flex; flex-direction: column; gap: 1.5rem; }
-    .split-card h3 { font-size: 2rem; }
-    .split-card ul { list-style: none; padding-left: 0; display: flex; flex-direction: column; gap: 1rem; }
-    .split-card li { font-size: 1.1rem; color: var(--fg-muted); position: relative; padding-left: 1.75rem; }
-    
-    .problem h3 { color: var(--accent-4); } 
-    .problem li::before { content: "✕"; color: var(--accent-4); font-weight: 900; position: absolute; left: 0; top: 0;}
-    
-    .solution h3 { color: var(--accent-3); } 
-    .solution li::before { content: "✓"; color: var(--accent-3); font-weight: 900; position: absolute; left: 0; top: 0;}
-
-    /* ─── Robust Bento Grid ─── */
-    .bento-grid { 
-      display: grid; 
-      grid-template-columns: 1fr; 
-      gap: 1.5rem; 
-    }
-    @media(min-width: 1024px) {
-      .bento-grid { grid-template-columns: repeat(12, 1fr); }
-      .bento-span-8 { grid-column: span 8; }
-      .bento-span-6 { grid-column: span 6; }
-      .bento-span-4 { grid-column: span 4; }
-      .bento-span-12 { grid-column: span 12; }
-    }
-    
-    .bento-item { padding: 3rem; display: flex; flex-direction: column; gap: 1.5rem; justify-content: space-between; overflow: hidden;}
-    .bento-item h3 { font-size: 2rem; }
-    .bento-item p { color: var(--fg-muted); font-size: 1.1rem; }
-    .bento-icon { width: 64px; height: 64px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 32px; flex-shrink: 0;}
-    
-    /* Gradients */
-    .bg-ast { background: linear-gradient(to bottom right, var(--card), rgba(6,182,212,0.05)); }
-    .bg-ast .bento-icon { background: rgba(6,182,212,0.1); color: var(--accent-2); }
-    
-    .bg-memory { background: linear-gradient(to bottom right, var(--card), rgba(244,63,94,0.05)); }
-    .bg-memory .bento-icon { background: rgba(244,63,94,0.1); color: var(--accent-4); }
-    
-    .bg-wiki { background: linear-gradient(to bottom right, var(--card), rgba(139,92,246,0.05)); }
-    .bg-wiki .bento-icon { background: rgba(139,92,246,0.1); color: var(--accent-1); }
-    
-    .bg-hub { background: linear-gradient(to bottom right, var(--card), rgba(16,185,129,0.05)); }
-    .bg-hub .bento-icon { background: rgba(16,185,129,0.1); color: var(--accent-3); }
-    
-    .bg-improvements { background: linear-gradient(to bottom right, var(--card), rgba(37,99,235,0.05)); }
-    .bg-improvements .bento-icon { background: rgba(37,99,235,0.1); color: var(--primary); }
-
-    .bento-visual { margin-top: auto; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); display: flex;}
-    .bento-visual img { width: 100%; height: auto; object-fit: cover; display: block; }
-
-    .hub-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
-    @media(min-width: 600px) { .hub-grid { grid-template-columns: repeat(4, 1fr); } }
-    
-    .hub-card { background: var(--bg); border: 1px solid var(--border); padding: 1.25rem; border-radius: 12px; }
-    .hub-card h4 { font-size: 1rem; margin-bottom: 0.25rem; }
-    .hub-card p { font-size: 0.85rem; color: var(--fg-muted); }
-
-    /* ─── Terminals ─── */
-    .terminal { background: #0f172a; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); width: 100%; }
-    .dark .terminal { background: #020617; }
-    .terminal-header { background: #1e293b; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 0.5rem; }
-    .dark .terminal-header { background: #0f172a; }
-    .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink:0; }
-    .dot.r { background: #ef4444; } .dot.y { background: #eab308; } .dot.g { background: #22c55e; }
-    .terminal-body { padding: 1.5rem; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; color: #f8fafc; line-height: 1.7; overflow-x: auto; white-space: nowrap; word-break: normal;}
-    .terminal-body .c { color: #64748b; } .terminal-body .cmd { color: #38bdf8; } .terminal-body .arg { color: #34d399; } .terminal-body .str { color: #facc15; }
-    .copy-btn { background: transparent; border: none; color: #64748b; cursor: pointer; padding: 4px; border-radius: 6px; transition: all 0.2s; display: flex; align-items: center; justify-content: center; }
-    .copy-btn:hover { color: #f8fafc; background: rgba(255,255,255,0.1); }
-    .grid-3 { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
-    @media(min-width: 768px) { .grid-3 { grid-template-columns: repeat(3, 1fr); } }
-    
-    .feature-card { padding: 2.5rem; display: flex; flex-direction: column; gap: 1rem; align-items: center; text-align: center; }
-    .feature-card .icon { font-size: 3rem; }
-    .feature-card h4 { font-size: 1.25rem; }
-    .feature-card p { color: var(--fg-muted); font-size: 1rem; }
-
-    /* ─── Arch Diagram (CSS Based) ─── */
-    .arch-diagram {
-      display: flex; flex-direction: column; gap: 1.5rem; max-width: 900px; margin: 0 auto;
-    }
-    .arch-box {
-      background: var(--card); border: 1px solid var(--border); border-radius: 16px;
-      padding: 1.5rem; text-align: center; font-weight: 600; color: var(--fg);
-    }
-    .arch-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;
-    }
-    .arch-item {
-      background: rgba(37, 99, 235, 0.05); border: 1px solid rgba(37, 99, 235, 0.2);
-      border-radius: 12px; padding: 1rem; font-size: 0.9rem; color: var(--fg-muted);
-      display: flex; flex-direction: column; gap: 0.5rem; justify-content: center;
-    }
-    .arch-item strong { color: var(--primary); font-size: 1.1rem;}
-    .arch-arrow { text-align: center; color: var(--fg-muted); font-size: 1.5rem; }
-
-    /* ─── Install Tabs ─── */
-    .install-tabs { display: flex; justify-content: center; gap: 0.5rem; margin-bottom: 2rem; flex-wrap: wrap; }
-    .install-tab { background: transparent; color: var(--fg-muted); border: 1px solid var(--border); padding: 0.75rem 2rem; border-radius: 12px; cursor: pointer; font-weight: 600; transition: all 0.2s; font-size: 1rem;}
-    .install-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-    .install-panel { display: none; max-width: 900px; margin: 0 auto; }
-    .install-panel.active { display: block; }
-
-    /* ─── Tags ─── */
-    .tag-container { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
-    .tag { font-size: 0.85rem; font-weight: 700; padding: 0.25rem 0.75rem; border-radius: 8px; background: rgba(37,99,235,0.1); color: var(--primary); border: 1px solid rgba(37,99,235,0.2); }
-
-    /* ─── Animations ─── */
-    .reveal { opacity: 0; transform: translateY(30px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1); }
-    .reveal.active { opacity: 1; transform: translateY(0); }
-
-    /* ─── Footer ─── */
-    footer { text-align: center; padding: 4rem 2rem; border-top: 1px solid var(--border); color: var(--fg-muted); }
-    footer a { color: var(--primary); font-weight: 600; }
-    footer a:hover { text-decoration: underline; }
-  </style>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="site.js"></script>
 </head>
 <body>
-  <div class="mesh-bg">
-    <div class="mesh-orb orb-1"></div>
-    <div class="mesh-orb orb-2"></div>
-    <div class="mesh-orb orb-3"></div>
-  </div>
-
-  <nav>
-    <div class="nav-container">
-      <a href="#" class="brand"><img src="assets/logo.svg" alt="Logo"> Graphit Code</a>
-      <div class="nav-links">
-        <a href="#vision" class="nav-link">Vision</a>
-        <a href="#harness" class="nav-link">The Harness</a>
-        <a href="#ecosystem" class="nav-link">Ecosystem</a>
-        <a href="#team-collab" class="nav-link">Team</a>
-        <a href="#install" class="nav-link">Install</a>
-        <a href="https://github.com/graphit-labs/graphit-code/tree/main/docs" class="nav-link">Docs</a>
-        <a href="https://github.com/sponsors/lainosantos" class="nav-link" style="color: var(--accent-4); display: flex; align-items: center; gap: 0.25rem;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-4);"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
-          Sponsor
-        </a>
-        <a href="https://github.com/graphit-labs/graphit-code" class="btn btn-primary" style="padding: 0.5rem 1.25rem; border-radius: 8px; font-size: 0.9rem;">⭐ GitHub</a>
-        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle Theme">
-          <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
-          <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
-        </button>
-      </div>
-    </div>
-  </nav>
-
-  <header class="hero reveal active">
-    <div class="pill"><span class="dot"></span>Enterprise Collaboration Hub</div>
-    <h1>Stop Repeating Yourself.<br>Start Collaborating.</h1>
-    <p>Whether you work solo or as part of a team, Graphit Code gives your AI agents <strong>deterministic code understanding, persistent memory, and seamless knowledge sharing</strong> across every project in your ecosystem.</p>
-    <div class="btn-group">
-      <a href="#install" class="btn btn-primary">Install Now</a>
-      <a href="https://github.com/graphit-labs/graphit-code" class="btn btn-glass">View on GitHub</a>
-      <a href="https://github.com/sponsors/lainosantos" class="btn btn-glass" style="border-color: var(--accent-4); color: var(--accent-4); gap: 0.25rem;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-4);"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
-        Sponsor
-      </a>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Graphit Code home">
+      <img src="assets/logo.svg" alt="" width="40" height="40">
+      <span><strong>Graphit</strong><small>CODE INTELLIGENCE</small></span>
+    </a>
+    <nav class="nav-links" id="site-nav" aria-label="Primary navigation">
+      <a href="#system">System</a>
+      <a href="#capabilities">Capabilities</a>
+      <a href="#install">Install</a>
+      <a href="#docs">Docs</a>
+    </nav>
+    <div class="header-actions">
+      <button class="icon-button" id="theme-toggle" type="button" aria-label="Switch color theme">
+        <span aria-hidden="true">◐</span>
+      </button>
+      <a class="button button-small button-ghost" href="https://github.com/graphit-labs/graphit-code">GitHub ↗</a>
+      <button class="menu-button" id="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
     </div>
   </header>
 
-  <section id="vision" class="container">
-    <div class="section-header reveal">
-      <h2>The Enterprise Paradigm Shift</h2>
-      <p>Without a harness, your agent starts from zero every session, hallucinates APIs, and forgets context.</p>
-    </div>
-    <div class="split-layout reveal">
-      <div class="glass-panel split-card problem">
-        <h3>The Old Way</h3>
-        <ul>
-          <li>"I already told you — error responses follow this format..."</li>
-          <li>Agent greps blindly — misses structure, invents APIs.</li>
-          <li>Hallucinates endpoints from sibling services it can't see.</li>
-          <li>No architecture awareness beyond the current file.</li>
-          <li>Knowledge dies when the conversation ends.</li>
-        </ul>
+  <main id="main">
+    <section class="hero section" id="top">
+      <div class="hero-copy reveal">
+        <div class="eyebrow"><span class="signal-dot"></span> Local-first agent harness <span class="release">v1.4.0</span></div>
+        <h1>Give your coding agent a <em>system</em>, not another prompt.</h1>
+        <p class="hero-lede">Graphit turns a repository into connected code structure, searchable knowledge, durable memory, and reusable context—then exposes it where your agent already works.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#install">Install Graphit <span>↓</span></a>
+          <a class="button button-secondary" href="https://github.com/graphit-labs/graphit-code">Explore the source <span>↗</span></a>
+        </div>
+        <div class="hero-proof" aria-label="Product principles">
+          <span>Go-native CLI</span><span>Local core</span><span>Multi-IDE</span><span>Open source</span>
+        </div>
       </div>
-      <div class="glass-panel split-card solution">
-        <h3>With Graphit Code</h3>
-        <ul>
-          <li><strong>Progressive Knowledge:</strong> Memory compounds session over session.</li>
-          <li><strong>Deterministic AST:</strong> Cypher queries map your real architecture.</li>
-          <li><strong>Ecosystem Discovery:</strong> Seamlessly queries sibling codebases.</li>
-          <li><strong>Team Collaboration:</strong> Share skills, rules, and MCPs globally.</li>
-          <li><strong>Self-Documenting:</strong> Auto-generated Wiki your agent reads first.</li>
-        </ul>
-      </div>
-    </div>
-  </section>
+      <figure class="product-frame reveal">
+        <div class="frame-bar"><span></span><span></span><span></span><code>graphit-labs/graphit-code · AST Explorer</code></div>
+        <img src="assets/observatory-ast-explorer.jpg" alt="Graphit AST Explorer visualizing the graphit-code repository">
+        <figcaption>Real project data from Graphit analyzing its own codebase.</figcaption>
+      </figure>
+    </section>
 
-  <section id="harness" class="container">
-    <div class="section-header reveal">
-      <h2>The Collaboration Engine</h2>
-      <p>Instant, auto-incremental, and zero-cost local LLM integration via your IDE.</p>
-    </div>
-    
-    <div class="bento-grid">
-      <!-- AST Explorer -->
-      <div class="glass-panel bento-item bento-span-8 bg-ast reveal">
-        <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
-        <h3>AST Graph Explorer</h3>
-        <p>Built for blazing fast <strong>Go performance</strong>. Parses every file using Tree-sitter into LadybugDB. Query deterministic code structures with Cypher. <strong>Eliminates hallucinations</strong> by grounding answers in exact structural truths, and drastically <strong>reduces LLM token usage</strong> by passing only precise nodes instead of massive files.</p>
-        <div style="margin-top: 0.5rem;">
-          <h4 style="font-size: 1rem; margin-bottom: 0.75rem; color: var(--fg-muted);">45 Supported Languages</h4>
-          <div style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
-            <span class="tag">Go</span>
-            <span class="tag">TypeScript</span>
-            <span class="tag">TSX</span>
-            <span class="tag">JavaScript</span>
-            <span class="tag">Python</span>
-            <span class="tag">Java</span>
-            <span class="tag">Rust</span>
-            <span class="tag">C</span>
-            <span class="tag">C++</span>
-            <span class="tag">C#</span>
-            <span class="tag">Kotlin</span>
-            <span class="tag">Swift</span>
-            <span class="tag">Dart</span>
-            <span class="tag">PHP</span>
-            <span class="tag">Ruby</span>
-            <span class="tag">SQL</span>
-            <span class="tag">XML</span>
-            <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">PL/SQL</span>
-            <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">PostgreSQL</span>
-            <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">DB2</span>
-            <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">T-SQL</span>
-            <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">COBOL 85</span>
-            <span class="tag">HTML</span>
-            <span class="tag">CSS</span>
-            <span class="tag">Vue</span>
-            <span class="tag">Svelte</span>
-            <span class="tag">Bash</span>
-            <span class="tag">Clojure</span>
-            <span class="tag">Dockerfile</span>
-            <span class="tag">Elixir</span>
-            <span class="tag">GraphQL</span>
-            <span class="tag">Groovy</span>
-            <span class="tag">Haskell</span>
-            <span class="tag">HCL</span>
-            <span class="tag">JSON</span>
-            <span class="tag">Julia</span>
-            <span class="tag">Lua</span>
-            <span class="tag">Markdown</span>
-            <span class="tag">Objective-C</span>
-            <span class="tag">Protocol Buffers</span>
-            <span class="tag">R</span>
-            <span class="tag">Scala</span>
-            <span class="tag">TOML</span>
-            <span class="tag">YAML</span>
-            <span class="tag">Zig</span>
-          </div>
-        </div>
-        <div style="margin-top: 1rem; display: flex; gap: 2rem; flex-wrap: wrap; font-size: 0.9rem; color: var(--fg-muted);">
-          <div><strong style="color: var(--fg);">Nodes:</strong> Functions, Methods, Classes, Structs, Interfaces, Traits, Enums, Types, Modules, Fields, Parameters, Variables</div>
-          <div><strong style="color: var(--fg);">Edges:</strong> CONTAINS, CALLS, IMPORTS, INHERITS, IMPLEMENTS, HAS_FIELD, READS_FIELD, WRITES_FIELD</div>
-        </div>
-        <div class="tag-container" style="margin-top: 0.75rem;">
-          <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">Full & Incremental Indexing</span>
-          <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">Cypher Queries</span>
-          <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">Hybrid Search (FTS + Semantic + Trigram)</span>
-          <span class="tag" style="background: rgba(6,182,212,0.1); color: var(--accent-2); border-color: rgba(6,182,212,0.3);">Customizable YAML Query Patterns</span>
-        </div>
-        <div class="terminal" style="margin-top: 1.5rem;">
-          <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
-          <div class="terminal-body">
-            <span class="c"># Query function call chains across the ecosystem</span><br>
-            <span class="cmd">graphit</span> <span class="arg">ast query</span> <span class="str">"MATCH (f:Function)-[:CALLS]-&gt;(t) RETURN f.name"</span>
-          </div>
-        </div>
-      </div>
+    <section class="signal-strip" aria-label="Graphit system signals">
+      <div><span>01</span><strong>AST</strong><small>structure & relationships</small></div>
+      <div><span>02</span><strong>MEMORY</strong><small>decisions that persist</small></div>
+      <div><span>03</span><strong>WIKI</strong><small>connected project knowledge</small></div>
+      <div><span>04</span><strong>HUB</strong><small>reusable ecosystem context</small></div>
+    </section>
 
-      <!-- Persistent Memory -->
-      <div class="glass-panel bento-item bento-span-4 bg-memory reveal">
-        <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="16" height="16" x="4" y="4" rx="2"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M20 15h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg></div>
-        <h3>Continuous Memory</h3>
-        <p>Your corrections and decisions persist automatically. Raw Markdown remains the source of truth, with optional S3-backed team sync and per-memory revision history. Dream can optionally mine conversations during idle time to extend this memory.</p>
-        <div class="bento-visual"><img src="assets/memory-explorer.png" alt="Memory Explorer"></div>
+    <section class="section system-section" id="system">
+      <div class="section-heading reveal">
+        <p class="kicker">The operating loop</p>
+        <h2>Context that compounds as the project evolves.</h2>
+        <p>Each Graphit module does one job well. Together they give agents a reliable way to understand, remember, connect, and operate.</p>
       </div>
+      <div class="system-flow">
+        <article class="flow-card reveal"><span>01 / UNDERSTAND</span><h3>Map the code</h3><p>Query symbols, callers, dependencies, imports, inheritance, complexity, and source through a structural graph.</p></article>
+        <article class="flow-card reveal"><span>02 / REMEMBER</span><h3>Keep the why</h3><p>Store corrections, decisions, conventions, and discoveries so the next session starts with project context.</p></article>
+        <article class="flow-card reveal"><span>03 / CONNECT</span><h3>Compile the docs</h3><p>Turn maintained documentation into a searchable wiki with provenance, confidence, and cross-references.</p></article>
+        <article class="flow-card reveal"><span>04 / OPERATE</span><h3>Bring it to the IDE</h3><p>Install the right rules, skills, MCP tools, languages, and shared artifacts for the active project and assistant.</p></article>
+      </div>
+    </section>
 
-      <!-- Collaboration Hub -->
-      <div class="glass-panel bento-item bento-span-12 bg-hub reveal">
-        <div style="display: flex; align-items: center; gap: 1rem;">
-          <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg></div>
-          <div>
-            <h3>The Enterprise Hub</h3>
-            <p style="margin: 0;">An S3-backed artifact registry. Import what your team knows, publish what you discover. Point setup to AWS S3 or a private S3-compatible endpoint to foster secure <strong>progressive knowledge</strong> across your entire IT team.</p>
-          </div>
-        </div>
-        <div class="hub-grid">
-          <div class="hub-card"><h4 style="color:var(--primary)">knowledge</h4><p>LLM Wikis</p></div>
-          <div class="hub-card"><h4 style="color:var(--accent-2)">ast</h4><p>Code Graphs</p></div>
-          <div class="hub-card"><h4 style="color:var(--accent-3)">skill</h4><p>Agent Skills</p></div>
-          <div class="hub-card"><h4 style="color:var(--accent-4)">rule</h4><p>Coding Standards</p></div>
-          <div class="hub-card"><h4 style="color:var(--accent-1)">agent</h4><p>Agent Profiles</p></div>
-          <div class="hub-card"><h4 style="color:#ef4444">mcp</h4><p>IDE Bridge Configs</p></div>
-          <div class="hub-card"><h4 style="color:#eab308">command</h4><p>Agent Actions</p></div>
-          <div class="hub-card"><h4 style="color:var(--primary)">power</h4><p>Bundled Artifacts</p></div>
-          <div class="hub-card"><h4 style="color:#84cc16">language</h4><p>Tree-sitter Grammars</p></div>
-          <div class="hub-card"><h4 style="color:#0ea5e9">framework</h4><p>Framework Configs</p></div>
-        </div>
-        <div class="bento-visual" style="margin-top: 1.5rem;"><img src="assets/hub-project-artifacts.png" alt="Hub Explorer"></div>
+    <section class="section showcase" id="capabilities">
+      <div class="section-heading reveal">
+        <p class="kicker">One observatory</p>
+        <h2>See the code and the knowledge around it.</h2>
       </div>
-      
-      <!-- LLM Wiki -->
-      <div class="glass-panel bento-item bento-span-8 bg-wiki reveal">
-        <div class="bento-icon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></div>
-        <h3>LLM Wiki & Visual Dashboard</h3>
-        <p>Designed explicitly for agents. Replaces opaque vector embeddings with deterministic <strong>self-discovery</strong> and explicit <strong>back-referencing</strong>. The agent organically navigates the wiki graph, guaranteeing 100% precise context retrieval without hallucinated semantic matches.</p>
-        <div class="bento-visual"><img src="assets/memory-explorer.png" alt="Knowledge Wiki"></div>
+      <div class="showcase-grid">
+        <figure class="product-frame showcase-shot reveal">
+          <div class="frame-bar"><span></span><span></span><span></span><code>Knowledge Explorer</code></div>
+          <img src="assets/observatory-knowledge-explorer.jpg" alt="Graphit Knowledge Explorer showing the graphit-code architecture documentation">
+          <figcaption><strong>Knowledge with provenance.</strong> Browse source-backed pages, confidence, links, and update history.</figcaption>
+        </figure>
+        <figure class="product-frame showcase-shot reveal">
+          <div class="frame-bar"><span></span><span></span><span></span><code>Memory Explorer</code></div>
+          <img src="assets/observatory-memory-explorer.jpg" alt="Graphit Memory Explorer showing a graphit-code design decision">
+          <figcaption><strong>Memory with intent.</strong> Keep the decisions and corrections that code alone cannot explain.</figcaption>
+        </figure>
       </div>
+      <div class="capability-grid">
+        <article class="capability-card reveal"><span>AST</span><h3>Structural code exploration</h3><p>Language-aware entities and relationships across Go, TypeScript, Python, Java, C, SQL, and more.</p></article>
+        <article class="capability-card reveal"><span>SEARCH</span><h3>Keyword + semantic retrieval</h3><p>Find precise names quickly, then traverse exact graph relationships instead of guessing from text similarity.</p></article>
+        <article class="capability-card reveal"><span>MEMORY</span><h3>Project and user scopes</h3><p>Keep repository-specific context separate from reusable personal conventions.</p></article>
+        <article class="capability-card reveal"><span>KNOWLEDGE</span><h3>Living documentation</h3><p>Search active guides, specs, architecture, decisions, and task history with traceable sources.</p></article>
+        <article class="capability-card reveal"><span>HUB</span><h3>Shareable artifacts</h3><p>Discover and distribute rules, skills, agents, MCP servers, languages, ASTs, and knowledge bundles.</p></article>
+        <article class="capability-card reveal"><span>OBSERVATORY</span><h3>One operational UI</h3><p>Inspect project context, explorers, daemon state, Dream, ecosystem projects, and live agent runs.</p></article>
+      </div>
+    </section>
 
-      <!-- Task Backlog -->
-      <div class="glass-panel bento-item bento-span-4 bg-improvements reveal">
-        <div class="bento-icon" style="color: var(--primary)"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg></div>
-        <h3>Task Backlog</h3>
-        <p>Record future project work as versioned documentation. Task registration works independently; Dream is only an optional background consumer.</p>
-        <div class="terminal" style="margin-top: auto;">
-          <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
-          <div class="terminal-body" style="padding: 1.25rem; white-space: normal;">
-            <span class="cmd" style="font-size: 0.85rem;">graphit backlog add</span><br>
-            <span class="c" style="font-size: 0.85rem;">Task recorded in docs/tasks/backlog.</span><br>
-            <span class="arg" style="font-size: 0.85rem;">Dream optional.</span>
-          </div>
+    <section class="section trust-section">
+      <div class="trust-panel reveal">
+        <div>
+          <p class="kicker">Clear trust boundary</p>
+          <h2>Local by default. Shareable when you choose.</h2>
+        </div>
+        <div class="trust-copy">
+          <p>Mutable code, docs, indexes, and memory sources stay on your machine. Optional S3-compatible storage can publish reusable artifacts across projects and teams.</p>
+          <ul>
+            <li><strong>Local core</strong><span>No hosted database is required for everyday operation.</span></li>
+            <li><strong>Explicit sharing</strong><span>Hub publishing and remote storage are configured separately.</span></li>
+            <li><strong>Network-aware UI</strong><span>The UI binds to loopback by default and is not an authentication layer.</span></li>
+          </ul>
         </div>
       </div>
+    </section>
 
-      <!-- MCP Agent Interface -->
-      <div class="glass-panel bento-item bento-span-8 bg-ast reveal" style="background: linear-gradient(to bottom right, var(--card), rgba(99,102,241,0.05));">
-        <div class="bento-icon" style="background: rgba(99,102,241,0.1); color: var(--accent-1);"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v12"/><path d="M6 12h12"/></svg></div>
-        <h3>MCP as Core Agent Interface</h3>
-        <p>AI Agents now interact with Graphit Code primarily via the <strong>Model Context Protocol (MCP)</strong> stdio interface. Exposes tree-sitter AST queries, persistent memories, wiki lookups, and lifecycle hooks natively. IDEs automatically configure and auto-start the stdio server, offering <strong>zero-latency execution</strong>.</p>
-        <div class="tag-container">
-          <span class="tag">Primary Interface</span>
-          <span class="tag">Zero-Latency Stdio</span>
-          <span class="tag">Standardized Schema</span>
+    <section class="section install-section" id="install">
+      <div class="section-heading reveal">
+        <p class="kicker">Start with one binary</p>
+        <h2>From repository to agent context.</h2>
+        <p>Install Graphit, initialize the project for your IDE, then let the daemon keep indexes current.</p>
+      </div>
+      <div class="install-console reveal">
+        <div class="install-tabs" role="tablist" aria-label="Installation method">
+          <button class="install-tab is-active" type="button" role="tab" aria-selected="true" data-tab="unix">macOS / Linux</button>
+          <button class="install-tab" type="button" role="tab" aria-selected="false" data-tab="windows">Windows</button>
+          <button class="install-tab" type="button" role="tab" aria-selected="false" data-tab="source">From source</button>
         </div>
-        <div class="terminal" style="margin-top: 1.5rem;">
-          <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
-          <div class="terminal-body">
-            <span class="c"># Runs as a stdio server for native agent interactions</span><br>
-            <span class="cmd">graphit</span> <span class="arg">mcp</span> <span class="str">--stdio</span>
-          </div>
+        <div class="command-panel is-active" data-panel="unix">
+          <button class="copy-button" type="button">Copy</button>
+          <pre><code>curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh
+cd your-project
+graphit init --ide codex
+graphit ui</code></pre>
+        </div>
+        <div class="command-panel" data-panel="windows" hidden>
+          <button class="copy-button" type="button">Copy</button>
+          <pre><code>irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
+cd your-project
+graphit init --ide codex
+graphit ui</code></pre>
+        </div>
+        <div class="command-panel" data-panel="source" hidden>
+          <button class="copy-button" type="button">Copy</button>
+          <pre><code>git clone https://github.com/graphit-labs/graphit-code.git
+cd graphit-code
+make install
+graphit setup</code></pre>
         </div>
       </div>
+    </section>
 
-      <!-- HTTP & Tunnels -->
-      <div class="glass-panel bento-item bento-span-4 bg-improvements reveal" style="background: linear-gradient(to bottom right, var(--card), rgba(16,185,129,0.05));">
-        <div class="bento-icon" style="background: rgba(16,185,129,0.1); color: var(--accent-3);"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.2 8.4c.5-1.5.5-3 0-4.5s-1.5-3-3-4.5M2.8 15.6c-.5 1.5-.5 3 0 4.5s1.5 3 3 4.5"/></svg></div>
-        <h3>MCP HTTP & Tunnels</h3>
-        <p>Deploy the harness as an HTTP service or use secure tunnels (like ngrok, localtunnel) to expose the local MCP endpoint, allowing remote cloud-based LLM agents to securely inspect and compile your local code graphs.</p>
-        <div class="terminal" style="margin-top: auto;">
-          <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
-          <div class="terminal-body" style="padding: 1.25rem;">
-            <span class="c"># Start HTTP MCP server</span><br>
-            <span class="cmd">graphit</span> <span class="arg">mcp</span> <span class="str">--http --port 8080</span><br><br>
-            <span class="c"># Securely tunnel via ngrok</span><br>
-            <span class="cmd">ngrok</span> <span class="arg">http</span> <span class="str">8080</span>
-          </div>
-        </div>
+    <section class="section docs-section" id="docs">
+      <div class="section-heading reveal">
+        <p class="kicker">Read by intent</p>
+        <h2>Evaluate, adopt, operate, extend.</h2>
       </div>
+      <div class="doc-grid">
+        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/getting_started.md"><span>01</span><h3>Getting started</h3><p>Install, initialize a project, and make the first AST, knowledge, and memory queries.</p><b>Open guide ↗</b></a>
+        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/user_manual.md"><span>02</span><h3>User manual</h3><p>Move from daily commands to explorers, shared artifacts, daemon operation, and troubleshooting.</p><b>Open manual ↗</b></a>
+        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/architecture/architecture_overview.md"><span>03</span><h3>Architecture</h3><p>Understand the launcher, core, local stores, compiled wikis, Hub, UI, and IDE adapters.</p><b>Open architecture ↗</b></a>
+        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/CONTRIBUTING.md"><span>04</span><h3>Contributing</h3><p>Build the project, follow repository conventions, run checks, and propose focused changes.</p><b>Contribute ↗</b></a>
+      </div>
+    </section>
 
-    </div>
-  </section>
-
-  <section id="ecosystem" class="container">
-    <div class="section-header reveal">
-      <h2>Ecosystem Discovery</h2>
-      <p>Your agent knows every project on your machine. Auto-configurable rules and smart routing keep context intact across all microservices.</p>
-    </div>
-    
-    <div class="terminal reveal" style="max-width: 1000px; margin: 0 auto 3rem;">
-      <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
-      <div class="terminal-body">
-        <span class="c"># Label your projects by team and domain</span><br>
-        <span class="cmd">graphit</span> <span class="arg">cluster</span> <span class="str">team backend</span><br>
-        <span class="cmd">graphit</span> <span class="arg">cluster</span> <span class="str">domain payments</span><br><br>
-        <span class="c"># The agent seamlessly queries sibling services to prevent hallucinating APIs</span><br>
-        <span class="cmd">graphit</span> <span class="arg">ast query</span> <span class="str">"MATCH (f:Function) WHERE f.name CONTAINS 'Validate' RETURN f.name"</span>
+    <section class="final-cta section reveal">
+      <img src="assets/logo.svg" alt="" width="72" height="72">
+      <p class="kicker">Graphit Code</p>
+      <h2>Build agents that can understand what came before.</h2>
+      <div class="hero-actions">
+        <a class="button button-primary" href="#install">Install Graphit</a>
+        <a class="button button-secondary" href="https://github.com/graphit-labs/graphit-code">View on GitHub ↗</a>
       </div>
-    </div>
-
-    <div class="grid-3 reveal">
-      <div class="glass-panel feature-card">
-        <div class="icon" style="color: var(--accent-2)"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
-        <h4>Query Sibling Code</h4>
-        <p>Perform AST Cypher queries across all discovered projects. Retrieve real function signatures across repo boundaries.</p>
-      </div>
-      <div class="glass-panel feature-card">
-        <div class="icon" style="color: var(--accent-1)"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="16" height="16" x="4" y="4" rx="2"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M20 15h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg></div>
-        <h4>Integrate from Knowledge</h4>
-        <p>The agent reads sibling wikis, memories, and architectures to understand enterprise conventions and auth flows natively.</p>
-      </div>
-      <div class="glass-panel feature-card">
-        <div class="icon" style="color: var(--accent-3)"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></div>
-        <h4>Flawless Integrations</h4>
-        <p>Reads actual routes and DTOs from sibling projects to generate precise integration code, completely eliminating API hallucinations.</p>
-      </div>
-    </div>
-  </section>
-  
-  <section id="pillars" class="container">
-    <div class="section-header reveal">
-      <h2>Built for Developers & Teams</h2>
-      <p>Uncompromising privacy, performance, and flexibility.</p>
-    </div>
-    <div class="grid-3 reveal">
-      <div class="glass-panel feature-card" style="padding: 2rem;">
-        <div class="icon" style="color: var(--accent-3); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
-        <h4>100% Private Data</h4>
-        <p>All syntactic trees, Cypher lookups, memories, and vector embeddings stay locally on your machine or private enterprise networks.</p>
-      </div>
-      <div class="glass-panel feature-card" style="padding: 2rem;">
-        <div class="icon" style="color: #eab308; font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
-        <h4>Custom Branding</h4>
-        <p>Compile white-labeled binaries with your company's name, custom environment variables, and pre-configured repository hubs.</p>
-      </div>
-      <div class="glass-panel feature-card" style="padding: 2rem;">
-        <div class="icon" style="color: var(--primary); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
-        <h4>Private Knowledge Ecosystems</h4>
-        <p>Whether you're a solo developer or a full team — point the Hub and shared memory to your own S3-compatible bucket during CLI setup to build a persistent, private knowledge backbone that grows smarter over time.</p>
-      </div>
-      <div class="glass-panel feature-card" style="padding: 2rem;">
-        <div class="icon" style="color: var(--accent-4); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></div>
-        <h4>Self-Contained</h4>
-        <p>Single binary, zero machine dependencies. Ready to deploy anywhere.</p>
-      </div>
-      <div class="glass-panel feature-card" style="padding: 2rem;">
-        <div class="icon" style="color: var(--accent-2); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg></div>
-        <h4>Zero API Keys</h4>
-        <p>Run agentic tasks keyless. Reuses the active sessions, credentials, and quotas of developers' existing IDE/CLI agents.</p>
-      </div>
-      <div class="glass-panel feature-card" style="padding: 2rem;">
-        <div class="icon" style="color: var(--primary); font-size: 2rem;"><svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/></svg></div>
-        <h4>Cross-Platform</h4>
-        <p>Linux, macOS, Windows. Seamless integrations for major IDEs.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- ─── PRIVATE TEAM COLLABORATION (Hero Feature) ─── -->
-  <section id="team-collab" class="container" style="padding-top: 4rem; padding-bottom: 4rem;">
-    <div class="section-header reveal">
-      <div class="pill" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.4); color: var(--accent-3);">
-        <span class="dot" style="background: var(--accent-3);"></span>Game-Changer
-      </div>
-      <h2>Private Knowledge Ecosystems</h2>
-      <p>The feature that sets Graphit Code apart. Configure a private <strong>S3-compatible bucket</strong> for Hub artifacts and shared memory — whether for personal use or an entire organization — and unlock a self-hosted ecosystem where AI agents <strong>share knowledge, learn from corrections, and enforce standards automatically</strong>.</p>
-    </div>
-
-    <div class="bento-grid reveal">
-      <!-- Hub Bucket -->
-      <div class="glass-panel bento-item bento-span-6 bg-hub" style="border: 2px solid rgba(16, 185, 129, 0.25);">
-        <div class="bento-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--accent-3);">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
-        </div>
-        <h3>🔗 Hub Bucket<br><small style="font-size: 0.55em; color: var(--fg-muted); font-weight: 400;">Your Artifact Center</small></h3>
-        <p>Point the Hub to <strong>AWS S3 or a private S3-compatible endpoint</strong> during <code style="background: var(--border); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em;">graphit setup</code>. It becomes the <strong>centralized registry</strong> for everything you share:</p>
-        <ul style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.75rem;">
-          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-3); font-weight: 900;">✓</span><strong>Coding Rules</strong> — Company-wide standards auto-injected into every IDE</li>
-          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-3); font-weight: 900;">✓</span><strong>Team Skills</strong> — Codified workflows every agent discovers</li>
-          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-3); font-weight: 900;">✓</span><strong>Knowledge Artifacts</strong> — API specs and integration docs</li>
-          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-3); font-weight: 900;">✓</span><strong>MCP Servers & Agent Profiles</strong> — Shared automation</li>
-        </ul>
-        <div class="tag-container">
-          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">Versioned Prefixes</span>
-          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">Private Bucket</span>
-          <span class="tag" style="background: rgba(16, 185, 129, 0.1); color: var(--accent-3); border-color: rgba(16, 185, 129, 0.3);">AWS-Compatible Auth</span>
-        </div>
-      </div>
-
-      <!-- Memory Prefix -->
-      <div class="glass-panel bento-item bento-span-6 bg-memory" style="border: 2px solid rgba(244, 63, 94, 0.25);">
-        <div class="bento-icon" style="background: rgba(244, 63, 94, 0.15); color: var(--accent-4);">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Z"/><path d="M12 6v6l4 2"/></svg>
-        </div>
-        <h3>🧠 Memory Prefix<br><small style="font-size: 0.55em; color: var(--fg-muted); font-weight: 400;">Persistent Intelligence</small></h3>
-        <p>The same bucket carries project and user scopes under a dedicated <strong>memory prefix</strong>. Your ecosystem gains <strong>shared persistent memory</strong> that compounds across every project and developer:</p>
-        <ul style="list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.75rem;">
-          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Corrections propagate</strong> — Fix once, the entire team learns</li>
-          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Conventions are learned once</strong> — Automatic consistency</li>
-          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Institutional knowledge persists</strong> — Zero onboarding friction</li>
-          <li style="font-size: 1rem; color: var(--fg-muted); padding-left: 1.75rem; position: relative;"><span style="position: absolute; left: 0; color: var(--accent-4); font-weight: 900;">✓</span><strong>Revision history</strong> — Tracked in memory metadata and archives</li>
-        </ul>
-        <div class="tag-container">
-          <span class="tag" style="background: rgba(244, 63, 94, 0.1); color: var(--accent-4); border-color: rgba(244, 63, 94, 0.3);">Progressive</span>
-          <span class="tag" style="background: rgba(244, 63, 94, 0.1); color: var(--accent-4); border-color: rgba(244, 63, 94, 0.3);">Team-Wide</span>
-          <span class="tag" style="background: rgba(244, 63, 94, 0.1); color: var(--accent-4); border-color: rgba(244, 63, 94, 0.3);">Auto-Refined</span>
-        </div>
-      </div>
-
-      <!-- Full-width collaboration flow -->
-      <div class="glass-panel bento-item bento-span-12" style="background: linear-gradient(135deg, var(--card), rgba(16, 185, 129, 0.08)); border: 2px solid rgba(16, 185, 129, 0.2); text-align: center;">
-        <h3 style="font-size: 1.5rem;">The Collaboration Flow</h3>
-        <p style="max-width: 700px; margin: 0 auto;">One-time setup. After that, every <code style="background: var(--border); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.9em;">graphit sync</code> propagates knowledge through the object store you control. Use a self-hosted S3-compatible endpoint when data must remain inside your network.</p>
-        <div class="terminal" style="margin-top: 1.5rem; max-width: 800px; margin-left: auto; margin-right: auto;">
-          <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
-          <div class="terminal-body" style="text-align: left;">
-            <span class="c"># One-time setup — configure your private object store</span><br>
-            <span class="cmd">graphit</span> <span class="arg">setup</span><br>
-            <span class="c"># → Hub bucket: graphit-team</span><br>
-            <span class="c"># → Endpoint: https://s3.company.internal</span><br>
-            <span class="c"># → Credentials: complete pair, or blank for the AWS provider chain</span><br><br>
-            <span class="c"># That's it. Every sync propagates team knowledge automatically.</span><br>
-            <span class="cmd">graphit</span> <span class="arg">sync</span>
-          </div>
-        </div>
-
-        <div style="display: flex; justify-content: center; gap: 2rem; margin-top: 2rem; flex-wrap: wrap;">
-          <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--accent-3); font-weight: 700;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            100% Private
-          </div>
-          <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--accent-2); font-weight: 700;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            Team-Wide Sync
-          </div>
-          <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--accent-1); font-weight: 700;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 14.14 14.14"/></svg>
-            Zero Cost
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="architecture" class="container">
-    <div class="section-header reveal">
-      <h2>Architecture</h2>
-      <p>Single Binary, Full Platform.</p>
-    </div>
-    <div class="arch-diagram reveal">
-      <div class="arch-box" style="border-color: var(--border-glow);">
-        Developer / IDE (Claude, Cursor, Gemini, Kiro)
-      </div>
-      <div class="arch-arrow">↓</div>
-      <div class="arch-box" style="text-align: left; padding: 2rem;">
-        <h4 style="text-align: center; margin-bottom: 1.5rem; font-size: 1.25rem;">graphit (Single Embedded Binary)</h4>
-        
-        <div class="arch-grid" style="margin-bottom: 1rem;">
-          <div class="arch-item"><strong>AST Graph</strong>LadybugDB + Tree-sitter</div>
-          <div class="arch-item"><strong>LLM Wiki</strong>Agents Search</div>
-          <div class="arch-item"><strong>Memory</strong>Local Raw + S3 Sync</div>
-        </div>
-        
-        <div class="arch-grid" style="margin-bottom: 1.5rem;">
-          <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>Hub Registry</strong>S3-Backed Persistence</div>
-          <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>Cluster</strong>Ecosystem Discovery</div>
-          <div class="arch-item" style="border-color: rgba(16,185,129,0.3);"><strong>MCP Server</strong>Primary Interface (Stdio/HTTP + Tunnels)</div>
-        </div>
-
-        <div class="arch-box" style="background: var(--bg); border: 1px solid var(--border);">
-          <strong>Web Dashboard</strong> (React + D3)<br>
-          <span style="font-size: 0.9rem; color: var(--fg-muted);">AST Explorer · Wiki · Memory · Hub Manager</span>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="install" class="container">
-    <div class="section-header reveal">
-      <h2>Install in Seconds</h2>
-      <p>Zero dependencies. Use GitHub Artifacts or compile via make.</p>
-    </div>
-    <div class="install-tabs reveal">
-      <button class="install-tab active" onclick="showTab('linux')">Linux</button>
-      <button class="install-tab" onclick="showTab('macos')">macOS</button>
-      <button class="install-tab" onclick="showTab('windows')">Windows</button>
-      <button class="install-tab" onclick="showTab('source')">Source</button>
-    </div>
-
-    <div id="tab-linux" class="install-panel active reveal">
-      <div class="terminal">
-        <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
-        <div class="terminal-body">
-          <span class="c"># One-liner installer (auto-detects OS &amp; arch, verifies checksum)</span><br>
-          <span class="cmd">curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash</span><br><br>
-          <span class="c"># Configure & Init</span><br>
-          <span class="cmd">graphit setup</span><br>
-          <span class="cmd">graphit init</span> <span class="arg">--ide</span> <span class="str">&lt;antigravity|gemini|claude|cursor|kiro|codex|opencode&gt;</span>
-        </div>
-      </div>
-    </div>
-    <div id="tab-macos" class="install-panel reveal">
-      <div class="terminal">
-        <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
-        <div class="terminal-body">
-          <span class="c"># One-liner installer (auto-detects OS &amp; arch, verifies checksum)</span><br>
-          <span class="cmd">curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash</span><br><br>
-          <span class="c"># Configure & Init</span><br>
-          <span class="cmd">graphit setup</span><br>
-          <span class="cmd">graphit init</span> <span class="arg">--ide</span> <span class="str">&lt;antigravity|gemini|claude|cursor|kiro|codex|opencode&gt;</span>
-        </div>
-      </div>
-    </div>
-    <div id="tab-windows" class="install-panel reveal">
-      <div class="terminal">
-        <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
-        <div class="terminal-body">
-          <span class="c"># One-liner installer (PowerShell 5.1+ — installs to PATH automatically)</span><br>
-          <span class="cmd">irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex</span><br><br>
-          <span class="c"># Configure &amp; Init</span><br>
-          <span class="cmd">graphit setup</span><br>
-          <span class="cmd">graphit init</span> <span class="arg">--ide</span> <span class="str">&lt;antigravity|gemini|claude|cursor|kiro|codex|opencode&gt;</span>
-        </div>
-      </div>
-    </div>
-    <div id="tab-source" class="install-panel reveal">
-      <div class="terminal">
-        <div class="terminal-header"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div></div>
-        <div class="terminal-body">
-          <span class="c"># Compile manually. Requires: Go 1.23+, Node.js 22+, Make, gcc/g++</span><br>
-          <span class="cmd">git clone https://github.com/graphit-labs/graphit-code.git</span><br>
-          <span class="cmd">cd graphit-code</span><br><br>
-          <span class="c"># Linux  → installs to /usr/local/bin/ (sudo if needed)</span><br>
-          <span class="cmd">make install</span><br>
-          <span class="c"># macOS  → installs to /usr/local/bin/ + fixes quarantine/codesign</span><br>
-          <span class="cmd">make install-darwin</span><br>
-          <span class="c"># Windows (MSYS2) → installs to C:\Program Files\graphit\ (admin if needed)</span><br>
-          <span class="cmd">make install-windows</span><br><br>
-          <span class="c"># All targets accept a custom dir: PREFIX=$HOME/.local/bin  or  PREFIX_WIN='C:\Tools\graphit'</span>
-        </div>
-      </div>
-    </div>
-  </section>
+    </section>
+  </main>
 
   <footer>
-    <div class="brand" style="justify-content: center; margin-bottom: 1rem;"><img src="assets/logo.svg" alt="Logo"> Graphit Code</div>
-    <p>A Powerful Agent Harness for Enterprise Software Ecosystems</p>
-    <div style="margin-top: 1.5rem; display: flex; justify-content: center; gap: 1.5rem;">
-      <a href="https://github.com/graphit-labs/graphit-code">GitHub</a>
-      <a href="https://github.com/graphit-labs/graphit-code/tree/main/docs">Documentation</a>
-      <a href="https://github.com/graphit-labs/graphit-code/releases">Releases</a>
-      <a href="https://github.com/sponsors/lainosantos" style="color: var(--accent-4); font-weight: 600;">Sponsor</a>
-      <a href="https://github.com/graphit-labs/graphit-code/blob/main/LICENSE">MIT License</a>
-    </div>
-    <p style="margin-top: 3rem; font-size: 0.875rem;">© 2024–2026 Graphit Labs. Built with Go, React, Tree-sitter, LadybugDB, and CodeRankEmbed.</p>
+    <div class="brand footer-brand"><img src="assets/logo.svg" alt="" width="32" height="32"><span><strong>Graphit</strong><small>CODE INTELLIGENCE</small></span></div>
+    <p>Open source infrastructure for context-aware coding agents.</p>
+    <p>© <span id="year">2026</span> Graphit Labs · Apache-2.0</p>
   </footer>
-
-  <script>
-    // Theme toggle
-    const themeToggleBtn = document.getElementById('theme-toggle');
-    themeToggleBtn.addEventListener('click', () => {
-      const isDark = document.documentElement.classList.contains('dark');
-      const newTheme = isDark ? 'light' : 'dark';
-      document.documentElement.classList.toggle('dark');
-      document.querySelector('meta[name="color-scheme"]').content = newTheme;
-      localStorage.setItem('color-scheme', newTheme);
-    });
-
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      if (!localStorage.getItem('color-scheme')) {
-        document.documentElement.classList.toggle('dark', e.matches);
-      }
-    });
-
-    // Install Tabs
-    window.showTab = function(name) {
-      document.querySelectorAll('.install-panel').forEach(p => p.classList.remove('active'));
-      document.querySelectorAll('.install-tab').forEach(t => t.classList.remove('active'));
-      document.getElementById('tab-' + name).classList.add('active');
-      event.target.classList.add('active');
-    };
-
-    // Scroll Reveals
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('active');
-        }
-      });
-    }, { threshold: 0.1 });
-
-    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
-
-    // Terminal Copy Buttons
-    document.querySelectorAll('.terminal').forEach(terminal => {
-      const header = terminal.querySelector('.terminal-header');
-      if (header) {
-        const dots = Array.from(header.querySelectorAll('.dot'));
-        if (dots.length > 0) {
-          const dotContainer = document.createElement('div');
-          dotContainer.style.display = 'flex';
-          dotContainer.style.gap = '0.5rem';
-          dots.forEach(dot => dotContainer.appendChild(dot));
-          header.appendChild(dotContainer);
-        }
-        
-        const copyBtn = document.createElement('button');
-        copyBtn.className = 'copy-btn';
-        copyBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
-        copyBtn.ariaLabel = "Copy code";
-        header.style.justifyContent = 'space-between';
-        header.appendChild(copyBtn);
-
-        copyBtn.addEventListener('click', () => {
-          const body = terminal.querySelector('.terminal-body');
-          if (body) {
-            navigator.clipboard.writeText(body.innerText).then(() => {
-              const originalHTML = copyBtn.innerHTML;
-              copyBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-              setTimeout(() => { copyBtn.innerHTML = originalHTML; }, 2000);
-            });
-          }
-        });
-      }
-    });
-  </script>
 </body>
 </html>

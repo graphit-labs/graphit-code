@@ -11,7 +11,6 @@ The global daemon (`internal/daemon`) discovers all the projects of `~/.graphit/
 - `fswatch` — every two minutes
 - `EmbeddingModule` — autonomous routine run by idle time
 
-This translation preserves the technical terms and structure of the original Portuguese text while converting it into idiomatic English.
 
 This means that a developer with dozens of projects registered over time
 maintains dozens of filesystem watchers and periodic loops running indefinitely,
@@ -64,7 +63,6 @@ Trade-offs & Decisions
 - `internal/daemon/syncmodule_test.go` — `TestSyncModule_ImplementsActivityReporter`.
 - All tests for `internal/daemon`, `internal/config`, and `cmd/graphit/commands` passed with `-race -count=8` (the package `daemon` alone) without flakes after fixing a latent race in the very same new tests.
 
-This translation preserves the structure, technical terms, code blocks, and markdown formatting of the original Portuguese text.
 
 ## Technical Debt
 

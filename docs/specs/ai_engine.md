@@ -166,7 +166,7 @@ constant, because that width is no longer always 768.
   overrides.
 - **Containment**: `encodeSingle` recovers from panics raised inside the
   tokenizer, marks that one text as unembeddable and keeps the batch aligned. See
-  [the crash-loop task log](../tasks/embedding-crash-loop-por-panic-do-tokenizador.md).
+  [the crash-loop task log](../tasks/embedding-crash-loop-due-to-tokenizer-panic.md).
 - **Dimensions**: fixed at 768 (`ai.EmbeddingDimensions`).
 
 ### Remote providers

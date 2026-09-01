@@ -25,7 +25,6 @@ The real test is ___INLINE_11__.
 
 ## A cadeia
 
-Sure! Here is the translation of your Portuguese text into idiomatic English:
 
 1. Someone bumps `shardCacheVersion` — I go to 2, they go to 3 and 4 on the same day. The manifest is discarded **by design**, and `jsonCache.Count()` goes to 0.
 2. The daemon sees an file change and calls `RunPipelineForPaths` just for it. Mode **scrobbled**: there's no discovery, because the watcher already knows what changed.

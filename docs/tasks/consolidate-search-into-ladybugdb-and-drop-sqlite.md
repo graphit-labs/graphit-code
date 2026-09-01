@@ -55,7 +55,6 @@ The 6 are SIGSEGV inside cgo, in `open`: the CHECKPOINT rewrites pages underneat
 
 Removed: `incrementalInPlace`, `inPlaceIncrementalEnabled`, `deleteFileDataChecked`, a flag, `internal/ast/incremental_mode_test.go` and `TestLadybugInPlaceWritesUnderCrossProcessReaders`. The measurement survives in the comment of `IncrementalRebuild`.
 
-This translation preserves the original structure and technical terms while converting the Portuguese text into idiomatic English.
 
 The index of the AST is inside the graph database.
 
@@ -157,7 +156,6 @@ The correction names suffixes instead of sweeping `<path>.*`, for the same reaso
 The code writes into a TEMPORARY database and renames it before publishing.
 Inline 98 referred to this rebuild as "rebuilding" and only then constructed the search index through handle Inline 99 — which points to the renamed file. All lines and FTS indices went there, and they were discarded on the next open.
 
-This translation maintains the technical details of database operations and indexing processes while translating the specific terms used in the original Portuguese text into idiomatic English.
 
 The symptom was exactly what the test reported: `MATCH (n:SearchEntity) RETURN count(n)` returned three lines, `FileSourceAt` returned the text from the file, and every `QUERY_FTS_INDEX` returned zero.
 
@@ -217,7 +215,6 @@ The incremental cost is 20 minutes per file, and it's SLOWER than the full rebui
 1 GiB per database (`dbBufferPoolCeil`); with it, the creation of `se_path` fails with
 *"Buffer manager exception: Unable to allocate memory! The buffer pool is full"*. The 988 above are with `GRAPHIT_DB_BUFFER_MB=8192`.
 
-This translation preserves the original structure and technical terms while translating the Portuguese text into idiomatic English.
 
 3. Storage gain did not exist. 5.70 GB against 5.5 GB—tie. The savings that prompted the entire migration were absent from this corpus.
 

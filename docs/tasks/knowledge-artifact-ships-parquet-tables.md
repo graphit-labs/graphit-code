@@ -34,7 +34,6 @@ What has changed
 
 **`internal/ladybugstore/transfer.go`, new.** Export and import tables from the catalog — **INLINE_4**, **INLINE_5**, **INLINE_6** — without knowing anything about AST or wiki. It exists because `internal/wiki` and `internal/ast` cannot be imported, which is the reason for the package's existence.
 
-This translation preserves the original meaning while adapting it to idiomatic English.
 
 Each module retains what is its own: **the indices of the tables it needs and in what order**.
 

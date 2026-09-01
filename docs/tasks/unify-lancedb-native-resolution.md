@@ -16,7 +16,6 @@ For those who need links, there are three distinct native processes today:
 
 Lib | Origin | Placement for Link/Testing
 |---|---|---|
-Here is the translation:
 
 Pre-built (release tarball from GitHub) inside the module Go (`go mod download` + extraction in `$GOMODCACHE/go-ladybug@vX/lib`), resolved by Cgo `${SRCDIR}/lib`
 ONNX Runtime is pre-built (official release) | `/tmp/onnxruntime-cache`; the CODE resolves at runtime: exe dir → `brand.RuntimeDir(version)` → `LD_LIBRARY_PATH` (`internal/ai/embedding_local.go`, same as YAMLs of queries and extensions)

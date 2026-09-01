@@ -119,14 +119,12 @@ Ref: `TestHandleBatchAbandonsTheQueueOnCancel` (already existing — he was the 
 
 ## Files Changed
 
-Portuguese:
 | File | Change | Reason |
 |---|---|---|
 | `internal/sysutil/gate.go` | Modified | Checked before the select, to cancel win free slot |
 | `internal/sysutil/gate_test.go` | Modified | New test case not covered: LIVRE + canceled context, 200 iterations |
 | `Makefile` | Modified | Target `vet` runs with `-unreachable=false` |
 
-English:
 The file has been modified. Before the select operation, a check was performed on the slot to ensure that it could be cancelled and won back if needed. A new test case for an uncovered scenario has also been added: a free slot combined with a canceled context, involving 200 iterations. The target variable `vet` now runs with `-unreachable=false`.
 
 ## Trade-offs & Decisions
@@ -135,14 +133,12 @@ The file has been modified. Before the select operation, a check was performed o
 - **200 iterations in the test.** An iteration of a 50/50 race passes half the time without proving anything; 200 leaves the chance for a false green in \(2^{-200}\).
 - **`-unreachable=false` globally instead of excluding packages.** Excluding `cmd/graphit-antlr-sidecar` was tried first and did not resolve — `internal/ast` imports the same grammars, and excluding it is not an option. Disabling the only analyzer that triggers costs less coverage than removing entire packages from the list.
 
-This translation preserves the technical terms, code blocks, markdown formatting, and other elements of the original Portuguese text while translating them into idiomatic English.
 
 ## Technical Debt
 
 - [ ] The 26 warnings of `ui-lint` (0 errors) continue to exist. They do not break the CI, and they have not been touched.
 - [ ] If another analyzer starts firing in the generated code, the trap returns. A structural solution would be not having the generated code in the same module, which is a different order of change.
 
-This translation preserves the original structure, syntax, and technical terms while converting the Portuguese text into idiomatic English.
 
 ## System Knowledge
 

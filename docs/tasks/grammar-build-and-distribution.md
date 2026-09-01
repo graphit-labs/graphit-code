@@ -38,14 +38,12 @@ Graphit uses two parsing backends — **Tree-sitter** and **ANTLR v4** — to su
 
 Both YAML query files and grammar binaries use the same priority:
 
-Portuguese:
 | Priority | YAML Queries | TS Grammars | ANTLR Grammars |
 | --- | :--- | :--- | :--- |
 | 1. Project | `.graphit/ast/queries/` | `.graphit/grammars/treesitter/` | `.graphit/grammars/antlr/` |
 | 2. Global | `~/.graphit/ast/queries/` | `~/.graphit/grammars/treesitter/` | `~/.graphit/grammars/antlr/` |
 | 3. Runtime | `~/.graphit/runtime/<v>/ast/queries/` | `~/.graphit/runtime/<v>/grammars/treesitter/` | `~/.graphit/runtime/<v>/grammars/antlr/` |
 
-English:
 
 ---
 
@@ -63,14 +61,12 @@ Output: __INLINE__ 12___
 
 The grammars are organized into three categories:
 
-Portuguese:
 | Category | Source | Variables |
 | :--- | :--- | :--- |
 | **A: smacker** | Inline 13 module (27 languages) | Inline 14 |
 | **B: External** | Go modules separated (6 languages) | Inline 15 |
 | **C: Local** | `internal/ast/treesitter/<lang>/` (4 languages) | `TS_GRAMMARS_LOCAL` |
 
-English:
 A: smacker
 - Inline 13 module (27 languages)
 - Inline 14

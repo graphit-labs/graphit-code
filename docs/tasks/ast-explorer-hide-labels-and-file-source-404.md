@@ -24,7 +24,6 @@ The two have independent causes, both on the server (__INLINE_4__). No line of R
 
 Defect 1 — The name was carried by the node, not the graph label.
 
-Here is the translation from Portuguese to idiomatic English:
 
 ___
 
@@ -224,7 +223,6 @@ The resolved path is "/tmp/proj/.graphit/ast/project/ladybugdb"
 
 ## Files Changed
 
-English:
 | File | Change | Reason |
 |---|---|---|
 | `internal/ast/server.go` | modified | `buildGraphNode` and `extractUserQueryGraph` now issue the graph label on `label`; `handleFile` now solves the store by `storePathForRequest`; new `requestedRoot` and `storePathForRequest`; `dbForContext` reuses `requestedRoot` |
@@ -232,7 +230,6 @@ English:
 | `internal/ast/server_graph_node_test.go` | Created | Fixes the contract `name` = display / `label` = `type` = graph label, in both constructors |
 | `docs/tasks/ast-explorer-hide-labels-and-file-source-404.md` | Created | This record |
 
-English:
 The file has been modified. The 404 cross-project, standard path, legitimate 404, and relative store resolution regressions have been fixed. A new label is emitted by the graph's label in the inline section, while the store now uses a new inline section. The inline section reuses an existing inline section.
 
 ## Trade-offs & Decisions

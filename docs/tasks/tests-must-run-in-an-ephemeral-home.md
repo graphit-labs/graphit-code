@@ -59,7 +59,7 @@ And it covers two cases that no in-process check can reach:
 2. **Git's own config.** A temporary repository reads `~/.gitconfig`, and on a real
    installation that config names a memory remote — which is how a test run ends up adding a
    live repository as `origin` and pushing test branches to it (see
-   [[A_flake_de_limpeza_não_era_o_gc_do_git_os_testes_falavam_com_o_remote_real]]).
+   the earlier cleanup-flake investigation, which established that the tests were talking to the real remote).
    `XDG_CONFIG_HOME` follows `HOME` because git prefers `$XDG_CONFIG_HOME/git/config`.
 
 A package that isolates `HOME` on its own still benefits: the `init()` runs before any

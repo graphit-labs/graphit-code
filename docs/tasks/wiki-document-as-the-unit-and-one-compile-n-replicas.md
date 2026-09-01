@@ -50,7 +50,7 @@ Output: `emitSections` emits the entire chunk without delay. A heading whose con
 Subsections produced an empty body, and that empty body turned into a page on the disk, a line in the text.
 `chunks` e linha em `chunks_fts`.
 
-Dos 261 vazios, 195 continham apenas a linha `**Parent:** [[slug]]` que o gerador
+Of the 261 empty pages, 195 contained only the generated parent-reference line.
 Injecting. The most affected titles: `Use Cases` 24/24 empty, `Progress Log` 19/19,
 `Changes` 20/20, `Test Cases & Acceptance Criteria` 23/24.
 
@@ -63,8 +63,8 @@ They shared the title with another chunk.
 
 ```
 knowledge_search("use cases for the daemon watcher")   ← antes
-  1. Use_Cases_20.md                    → **Parent:** [[Task-_Git-Based_Daemon...]]
-  2. Test_Cases_Acceptance_Criteria.md   → **Parent:** [[Task-_Git-Based_Daemon...]]
+  1. Use_Cases_20.md                    → parent: Git-based daemon task
+  2. Test_Cases_Acceptance_Criteria.md   → parent: Git-based daemon task
 ```
 
 Two blank pages in the first two positions.
@@ -79,15 +79,13 @@ Merging - the function only reconstructed INLINE_0. There was no fusion anywhere
 
 They were also computed for `SemanticChunk.Children`, `.Level`, `.StartByte`, and `.EndByte`.
 nunca lidos, e os offsets de `splitLargeSection` eram falsos
-Brazilian Portuguese:
 (`accumStart + len(textoTrimado)`, not the actual position in the document).
 
 ### O slug era posicional
 
 Inline 0 counted collisions Inline 1, Inline 2, ... in order of iteration, and Inline 3 was
 Ordered by `(docType, title)` with `sort.Slice`, which is not stable. Add one
-documento renumerava os outros e repontava silenciosamente todo `[[wikilink]]` e todo
-Here is the translation:
+document renumbered the others and silently repointed every legacy wiki reference and every
 
 "Already xrefed – no error, no log, no lint."
 
@@ -111,7 +109,6 @@ inteiro desaparecer quando o cliente falhava, e `_, _ = embedder.RunCycle(...)`
 He dismissed everything else. A non-uploading embedder was indistinguishable from a wiki already.
 embedado.
 
-Brazilian Portuguese to idiomatic English:
 
 It did not distinguish an empty index from an empty response.
 
@@ -133,7 +130,7 @@ SQLite devolvia as linhas.
 `content_hash` era `sha256(chunk.Body)` calculado **antes** de injetar o parent link,
 Linking and resolving wiki links, and writing on the page was interrupted when the hash appeared.
 She signed the document as it was, plus a new document titled "A" that references the original: Document A unchanged + New Document B titled "A".
-The variable `chunks.Body` in the bank received `[[B]]`, but `A.md` was not rewritten.
+The `chunks.Body` value in the database received a reference to page B, but `A.md` was not rewritten.
 `BuildCrossRefGraph` calcula backlinks **lendo os arquivos**.
 
 The memory had two compilations competing, and no replication for whoever reads
@@ -204,7 +201,6 @@ disk and auto-link/backlink do not become older.
 Directory Resolver
 
 `resolveWikiDBDir` e `resolveWikiEmbedDir` foram removidos. Sobrou
-Here is the translation:
 
 "`resolveWikiScopeDir` delegates to `resolveWikiDir` that indexers already use."
 The `RunWikiEmbeddingLoop` passed to receive targets instead of deriving them, and
@@ -228,7 +224,6 @@ ciclos in-project compilam no autoritativo e replicam para o projeto corrente.
 
 Signal instead of silence
 
-Brazilian Portuguese:
 - `openWikiForRead` refuses index without content and says it's an empty index, not a response.
   vazia.
 The mode INLINE_0 reports when it degraded to FTS and why.
@@ -282,7 +277,6 @@ File | Change
 |---|---|
 Removed - section break
 | `internal/wiki/docutil.go` | `SplitByH2Headers`, `SplitDoc`, `contentHash16` removidos |
-Here is the idiomatic English translation:
 
 "Each document equals one chunk; deterministic slug;mtime data from `updated`; sync log details in `writePageIfChanged`; receives slugs in `knowledgeIndexPage`."
 Inline 0: Schema V3 without Inline 1, Inline 2 in the Trigram, Inline 3 retention of sync_log, Inline 4 restore within transaction.
@@ -290,7 +284,6 @@ The constructor is delegated to the unique constructor.
 Inline 0: Inline 1: 800 → 1600; post-cycle checkpoint
 The element receives `[]EmbedTarget` with a hook; it does not derive any further path.
 | `internal/wiki/process_cache.go` | `CachedChunk.ParentTitle` removido |
-Brazilian Portuguese to idiomatic English:
 
 "_`internal/memory/replicate.go`_ | New - Replication, Exclusion of WAL, Target Deduplication"
 | `internal/memory/cycle.go` | ciclos compilam no autoritativo e replicam; `ReplicaErr` |
@@ -299,7 +292,6 @@ The port is now no longer dependent on the replica's raw direction.
 Pipe: after compilation, fan-out; `ReplicateMemoryScope`; logger
 | `internal/daemon/adapters.go` | `WikiEmbeddingModule` com alvos; `WikiEmbedTargets` |
 The inline comment is hidden, and it also honors the honorable exclusion in the initial copy.
-The output is already in idiomatic English, so no further translation is needed:
 
 "The inline 0 is a resolver; inline 1; hybrid degradation report uses the daemon's targets."
 The Portuguese sentence "embedding reports failure; restarts after memory cycle" translates to idiomatic English as:
@@ -322,7 +314,6 @@ Reindexed with the binary installed:
 | abaixo do piso de embedding | 340 (14,8%) | **0** |
 Average number of words: 82.6 | **1,197.8**
 Titles Duplicated | 668 (29%) | 0 |
-Brazilian Portuguese:
 | Slugs with numbers `_N` | Many | 0 |
 | `sync_log` | 306 entradas / 99 MB | 1 entrada / 37 KB |
 | tamanho do `wiki.db` | 117 MB | **8,3 MB** |
@@ -358,7 +349,6 @@ Mirror and was ignored precisely when destiny did not yet exist, which is the
 The working tree is durable, not staged. `CommitAndPush` does not delete anything.
 Of this machine's 11 worktrees, 9 are empty because those projects don't have them.
 Memory - not because they were emptied.
-Brazilian Portuguese to idiomatic English:
 
 **The `ListActiveProjects` filter looks for an existing lock file, not a live process.**
 It is doing GC on entries whose lockfile has disappeared. This list is correct for replication.
@@ -376,7 +366,6 @@ Normalized by L2. If the embedder doesn't normalize, the score of mode INLINE_0 
 Wrong (in INLINE_0, the RRF overrides and hides). Not verifiable here: ONNX.
 The runtime is not present on this machine.
 - [ ] As stopwords de `wikiStopwords` incluem `no`, `not`, `use`, `using`, `where`,
-Here is the translation:
 
 "`when`, `how`, and `why` - aggressive for technical documentation in AND/OR statements."
       prefix.

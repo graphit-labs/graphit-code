@@ -39,7 +39,7 @@ evidence comes from `graphit_knowledge_lint` on this project's own wiki (242 pag
 | `errors` | 834 | — |
 | `stalepages` | 240 / 242 | **Every** concept page. The linter reads `updated:`, which the OKF generator stopped emitting. Nothing is stale. |
 | `missingfrontmatter` | 241 | 240 of them are `missingfields:[updated]`. Same cause. |
-| `brokenlinks` | 354 | Mostly the `*Provenance: [docs/x.md](docs/x.md)*` line and body links to repo files, which `ResolveSlug` turns into phantom slugs like `..-..-internal-ast-pipeline.go`. |
+| `brokenlinks` | 354 | Mostly relative provenance links to files under `docs/` and body links to repository files, which `ResolveSlug` turns into phantom slugs like `..-..-internal-ast-pipeline.go`. |
 
 None of those 834 errors describe a real defect in the wiki. They describe consumers that
 were never updated when the producer changed.
@@ -53,10 +53,10 @@ were never updated when the producer changed.
 | A3 | `index.md` carries a full frontmatter block. Index files contain **no** frontmatter; the single exception is a bundle-root `index.md` that MAY carry `okf_version`. | §8 |
 | A4 | `okf_version: "0.2"` is never declared anywhere. | §12 |
 | A5 | `log.md` has frontmatter and uses `## [2026-08-21 15:04:05] sync \| Compiled N changes` headings. §9 requires date-grouped `## YYYY-MM-DD` headings, newest first, entries as `* **Update**: …`. | §9 |
-| A6 | **The memory index page was never converted at all.** `memoryIndexPage()` still emits `[[wikilinks]]` for every entry and pre-OKF frontmatter (`title`/`updated`/inline `tags: [..]`, no `type`). T2 of the prior task only touched `memoryEntityPageWithHash`. | §4.1, §6.1 |
+| A6 | **The memory index page was never converted at all.** `memoryIndexPage()` still emits legacy double-bracket links for every entry and pre-OKF frontmatter (`title`/`updated`/inline `tags: [..]`, no `type`). T2 of the prior task only touched `memoryEntityPageWithHash`. | §4.1, §6.1 |
 | A7 | `appendMemLog()` is pre-OKF for the same reason. | §9 |
 | A8 | Staleness is expressed as producer-specific `stale_since`/`stale_reason`; the lifecycle family defines `stale_after` (an absolute instant). Extensions are legal, but the specified field should be present when the concept is stale. | §5.5 |
-| A9 | Cosmetic but misleading: `AutoLinkContent`'s doc comment still says it inserts `[[slug\|term]]`; it emits `[label](slug.md)`. `bm25PreFilter` and `multi_search` still speak `[[slug]]` in the prompts they build for the model. | — |
+| A9 | Cosmetic but misleading: `AutoLinkContent`'s doc comment still describes the legacy double-bracket form, while it emits standard Markdown links. `bm25PreFilter` and `multi_search` still use the legacy terminology in the prompts they build for the model. | — |
 
 ### B. Our own consumers still read the pre-OKF shape
 
@@ -75,7 +75,7 @@ were never updated when the producer changed.
 | # | Finding | Effect |
 |---|---|---|
 | C1 | `WikiMarkdown` treats **any** non-external href as a wiki page: `if (href.startsWith('wiki://') \|\| !isExternal)`. That captures `#anchors` and the relative repo paths in the Provenance line. | in-page anchors navigate to a non-existent page; provenance links dead-end |
-| C2 | `WikiExplorerPage.preprocessContent` strips the preamble's cross-reference list by matching `- [[`. OKF cross-refs are `- [Title](slug.md)`. | the Cross-References list leaks into the rendered body, duplicating the sidebar |
+| C2 | `WikiExplorerPage.preprocessContent` strips only the legacy double-bracket preamble. OKF cross-references use standard Markdown links. | the Cross-References list leaks into the rendered body, duplicating the sidebar |
 
 ### D. Search is not token-frugal
 
@@ -100,7 +100,7 @@ targeted — which is exactly why the first call should not pre-pay for a previe
 - [x] **T2 — Stop treating repo paths as wiki links (`internal/wiki/crossref.go`)** —
   Spec: a markdown link is a wiki cross-reference only when its target is a flat page slug
   in the same bundle directory — no `/`, no `./`/`../`, no non-`.md` extension. Applies to
-  both `BuildCrossRefGraph` and `FindWikiLinks`. Constraint: legacy `[[wikilinks]]` parsing
+  both `BuildCrossRefGraph` and `FindWikiLinks`. Constraint: legacy double-bracket link parsing
   must keep working. Done when broken links drop from 354 to the genuinely-broken remainder.
 - [x] **T3 — UI server reads OKF frontmatter (`internal/uiserver/wiki_handler.go`)** —
   Spec: parse block-sequence `tags:`, read `sources:`/`- resource:` for the source field,
@@ -109,7 +109,7 @@ targeted — which is exactly why the first call should not pre-pay for a previe
 - [x] **T4 — UI renders OKF links correctly (`WikiMarkdown.tsx`, `WikiExplorerPage.tsx`)** —
   Spec: only a bare same-directory slug becomes a wiki navigation button; `#anchor` stays an
   anchor; a relative repo path renders as an inert link. The preamble stripper recognises
-  `- [Title](slug.md)` cross-reference lines.
+  standard Markdown cross-reference lines.
 - [x] **T5 — Generator emits conformant OKF (`internal/knowledge/wiki.go`, `internal/memory/wiki.go`)** —
   Spec: `generated: { by, at }` with an actor per §7; `sources:` entries as `- resource: …`;
   `stale_after` alongside the existing extension fields; `index.md` without frontmatter
@@ -135,7 +135,7 @@ targeted — which is exactly why the first call should not pre-pay for a previe
   ("estamos em dev"). The legacy readers added in T1 and T3 — `updated:`, the dotted
   `generated.at:`, inline `tags: [a, b]`, singular `source:` — were REMOVED rather than kept
   alongside the OKF readers, and the tests that pinned them were rewritten to pin the OKF
-  shape. Legacy `[[wikilink]]` parsing was kept, because it is an input format for
+  shape. Legacy double-bracket link parsing was kept, because it is an input format for
   hand-written source documents rather than a compatibility shim for our own artifacts.
 - Discovered while verifying: the frontmatter was not merely non-conformant in its field
   names, it did not PARSE. Folded-scalar descriptions and colons in titles broke the block
@@ -187,8 +187,8 @@ YAML syntax and leaves unambiguous values bare, so the block stays readable.
 `isBundlePageLink` (in `crossref.go`) decides. The rule is the wiki's own shape rather than
 a blocklist of URL schemes: a compiled wiki is FLAT — one directory of `<slug>.md` — so a
 target carrying a path separator, a directory hop, or a file-shaped extension other than
-`.md` cannot be a page in it. It is applied to `[[wikilinks]]` as well, because source
-documents under the docs tree contain hand-written `[[../architecture/x.md#section]]` links
+`.md` cannot be a page in it. It is applied to legacy double-bracket links as well, because source
+documents under the docs tree contain hand-written references to relative architecture pages
 and a body is copied into the page verbatim.
 
 ### No compatibility with the pre-OKF shape
@@ -200,7 +200,7 @@ only — not `generated.at`, not `updated`. `wiki_handler.go` reads block-sequen
 compiled artifact regenerated from its sources, so there is no old page to stay compatible
 with, and a fallback that is never exercised is a second definition of the format.
 
-Legacy `[[wikilink]]` PARSING stays, and that is not an exception to the above: it is an
+Legacy double-bracket link parsing stays, and that is not an exception to the above: it is an
 INPUT format. Documents under the docs tree are hand-written, some contain wikilinks, and
 `ResolveWikiLinksInBody` turns them into OKF links on the way in. Nothing GENERATES a
 wikilink any more.
@@ -217,7 +217,7 @@ wikilink any more.
 | broken links | 354 | 50 |
 
 The 50 remaining broken links are **true**: documents linking to `AGENTS.md`, `README.md`,
-`LICENSE`, `SECURITY.md` — repository root files that are not wiki pages — plus `[[Page_Name]]`
+`LICENSE`, `SECURITY.md` — repository root files that are not wiki pages — plus illustrative page-name
 placeholders inside the framework's own rule documentation. A flat `AGENTS.md` link is
 structurally indistinguishable from a page slug, so the only way to tell is that the page
 does not exist, which is exactly what the lint now reports. The 39 stale pages are documents
@@ -330,9 +330,9 @@ Implemented by `TestExtractPageMetaReadsOKFFrontmatter`,
 - [ ] The Hub has no `knowledge` artifact for OKF. Every future session will re-fetch the spec
   from GitHub or, worse, answer from model memory. Submitting one is the fix.
 - [ ] The AI-answer citation protocol in `internal/wiki/search.go` and `multi_search.go` still
-  uses `[[Page_Name]]` and `[source-id]/[[page]]`. Deliberately left alone: it is a PROMPT
+  uses illustrative page-name and source-scoped page placeholders. Deliberately left alone: it is a PROMPT
   protocol between the searcher and the model, never written to a bundle, and the
-  module-scoped form `[source]/[[page]]` has no OKF equivalent. Changing it means changing
+  module-scoped source/page form has no OKF equivalent. Changing it means changing
   the answer parser and `preprocessWikiLinks` in the UI at the same time.
 - [ ] `docs/tasks/2026-08-20-okf-wiki-compliance.md` claims 100% compliance and a full green
   test run. Both were true of the tests and false of the claim: the tests were updated to the

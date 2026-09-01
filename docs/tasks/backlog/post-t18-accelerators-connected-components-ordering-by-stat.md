@@ -14,7 +14,6 @@ Items, with each example resolving themself
 2. **Sort by direction/members based on the statistics of manifest** (`Rows`, members already exported).
    **IMPLEMENTED**: Members are iterated from smallest to largest (line 1157 in internal/ast/ladybug_icebug_canonical.go). Resolution: Boundary explosion when anchoring outbound on a hub (Errorf has ~3.911 callers).
 
-This translation maintains the original meaning while using idiomatic English phrasing.
 
 5. **Bidirectional in the planner** when both endpoints have selective predicates.
    Resolve: `WHERE c.name CONTAINS 'Handler' AND t.uid IN [...]` without exploding the

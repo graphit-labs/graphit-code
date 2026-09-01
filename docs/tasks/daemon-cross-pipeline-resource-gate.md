@@ -319,7 +319,6 @@ And `hookDebounce` is a duration that the command `sync` can interpret.
 
 ## Files Changed
 
-Here is the translation from Brazilian Portuguese to idiomatic English:
 
 ```markdown
 | File | Change | Reason |

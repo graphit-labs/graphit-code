@@ -217,7 +217,6 @@ Translation: The selector was a node KIND, and this does not express the problem
 `embeddedTextNode`, `embeddedAttrValue`, and constants
 `attribute_name`/`attribute_value`.
 
-This translation maintains the technical terms and structure of the original Portuguese text while converting it into idiomatic English.
 
 The ORDER has become part of the design: the first block whose pattern fits a body
 the **reclaim**, and the reclaim occurs in marriage, before language resolves. This is what allows an optional attribute to fit into two patterns without special cases,
@@ -266,7 +265,6 @@ Taking advantage of, **INLINE_115** gained **INLINE_116**, and the tables read b
 
 Decided: the tree-sitter is the default parser for `.sql`, and an inline dialect project opts-in to `ast.grammar` (`{"ast": {"grammar": ".sql=antlr-plsql"}}`), which is persistent and respected by the daemon, not just the flag `--grammar`.
 
-This translation maintains the technical terms and structure of the original Portuguese text while converting it into idiomatic English.
 
 This changed the scope of the repair: if tree-sitter parses most of the `.sql`, it needs to cover what a `.sql` has. Therefore, in addition to `create_table`, `columns`, `create_index`, and the complete DML — `SELECTS`, `INSERTS`, `UPDATES`, `DELETES`, `ALTERS` — with the same edge types of the ANTLR dialects, "who reads this table" is a single question. Measured: ANSI DDL from 1 to 4 (parity with ANTLR), PL/SQL from 1 to 3 against 4 of ANTLR, missing only `Procedure` — exactly the case of opt-in.
 
@@ -318,14 +316,12 @@ The cost is quadratic for `content` and repeats in each ancestor.
 
 Measured in an 888 KB XML document (~500K lines):
 
-Portuguese:
 | pattern | resultado |
 |---|---|
 | without anchor, with external wrapper | **aborted in 60 seconds**, 2 matches |
 | only anchor between the two elements | 44 matches in **13.5 seconds** |
 | fully anchored | 44 matches in **327 milliseconds** |
 
-English:
 
 Without anchors, the inline 143 house CADA element of the document and, for each one, searches for a pair between the children of inline 144 — a quadratic search that repeats in every ancestor of a deep tree. The anchors inline 145 make positional marriage possible.
 
@@ -395,7 +391,6 @@ Symmetric to UC-13, and valid for any language with a top-level call— not just
 ```
 File app.js       -[:CALLS]-> init             (init() de topo em JavaScript)
 Function boot     -[:CALLS]-> init             (contida, inalterada)
-Brazilian Portuguese to idiomatic English:
 
 "Create file 'carga.sql' and establish a call relationship with 'p_carga_diaria' in the anonymous PL/SQL block."
 Procedure p_principal -[:CALLS]-> p_log        (contida, inalterada)

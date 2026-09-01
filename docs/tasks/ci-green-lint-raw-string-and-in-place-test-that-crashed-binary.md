@@ -33,7 +33,6 @@ inline comment 17 was red due to the same three findings. They passed over raw s
 
 ---
 
-This is an idiomatic English translation of the provided Portuguese text, preserving technical terms and code blocks as requested.
 
 The symptom was __LINE__ 18 in __FILE__ 19, without traceback or any __ERROR__ — the binary terminated after approximately 106 seconds, almost the same time as a single iteration that passes.
 
@@ -62,13 +61,11 @@ The test was behind the same switch that controls what it measures. With __INLIN
 
 ## Arquivos
 
-Portuguese:
 | File | Change | Reason |
 |---|---|---|
 | `internal/ast/ladybug.go` | Modified | 3 regular expressions for raw string (`staticcheck S1007`) |
 | `internal/ast/ladybug_crossprocess_test.go` | Modified | In-place test now requires `GRAPHIT_INPLACE_INCREMENTAL=1`; corrected file header |
 
-English:
 The Portuguese text is already in idiomatic English. No translation was necessary.
 
 Verification

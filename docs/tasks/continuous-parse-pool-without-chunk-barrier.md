@@ -42,7 +42,6 @@ The heap pressure check has become an atomic shared counter (`sinceCheck`): ever
 **2. Inline 25 - Grammar race in the global project sprint.**
 Found by the new test running on ___Inline_26__, and **prior to this task:** the queue has always been a contender.
 
-This translation preserves the original structure, code blocks, markdown formatting, file paths, and technical terms as requested.
 
 ```go
 if a.projectDir != "" && antlrGrammarProjectDir == "" {
@@ -161,14 +160,12 @@ And the world has its own directory.
 
 ## Files Changed
 
-Portuguese:
 | File | Change | Reason |
 |---|---|---|
 | `internal/ast/pipeline.go` | Modified | Pool continuous in place of chunks with barrier; shared atomic counter for pressure check; comment `antlrCacheCheckInterval` updated |
 | `internal/ast/antlr_adapter.go` | Modified | `antlrGrammarProjectDir` stored by RWMutex with test-and-set; contract `ResetAntlrCaches` corrected |
 | `internal/ast/pipeline_reset_inflight_test.go` | Created | Covers reset of cache with real parses from ANTLR in full pipeline |
 
-English:
 
 ## Trade-offs & Decisions
 

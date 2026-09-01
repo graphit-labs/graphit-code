@@ -75,13 +75,11 @@ The filter operates only on the **inherited environment**. `buildCmd` appends th
 
 ## Arquivos alterados
 
-Portuguese:
 | File | Change | Reason |
 |---|---|---|
 | `internal/git/cli_backend.go` | Modified | _Inline_46__ in `buildCmd` |
 | `internal/git/hook_env_test.go` | Created | Regression with linked worktree and hook environment |
 
-English:
 
 ## Conhecimento do sistema
 
@@ -95,11 +93,9 @@ $ readlink /proc/3835364/exe
 
 Who ran the new binary was the **daemon**, which restarts itself automatically when it detects a version change — and the daemon is what executes Git's memory operations, which fixed the insert to work without touching the session. Before concluding that a fix didn't take, check `readlink /proc/<pid>/exe`: `(deleted)` is the answer.
 
-This translation preserves the technical terms and structure of the original Portuguese text while converting it into idiomatic English.
 
 The daemon's log records the race between the two things, and it is benign:
 
-This translation preserves the meaning of the original Portuguese text while using idiomatic English. The technical term "daemon" was kept unchanged as it refers to a system process in Unix-like operating systems. The phrase "benign" was also kept as it describes something without causing harm or distress.
 
 ```
 Error replacing process with core binary: text file busy
@@ -113,6 +109,5 @@ This term refers to the accumulated technical debt in software development proje
 
 Debt of expertise
 
-English:
 
 - [ ] The daemon can still be started via a hook and inherit its environment. The filter resolves the consequence — no Git command from this package is affected — but the process continues to load variables that are not its own, and any future code that calls `git` without passing through `internal/git` returns to having the problem. The root fix is to sanitize the daemon's environment when spawning it.

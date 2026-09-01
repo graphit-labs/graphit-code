@@ -367,10 +367,10 @@ store's manifest is `v6` while the source tree is at `shardCacheVersion = 7`
 
 Then **"✓ All entities up to date"** is reported in 0.07 seconds by `graphit ast embed`, because
 `CountPending` legitimately returns 0 for an empty cache. That success message is the same one a genuinely up-to-date store produces. Diagnosis: compare `v` in `<store>/manifest.json` against `shardCacheVersion`. This is pre-existing and independent of this task — `make install` plus a reindex clears it. Related:
-[[Changed what the parser produces | Bumpe shardCacheVersion | cache is keyed by hash of content]]
+When parser output changes, bump `shardCacheVersion`; the cache is keyed by content hash.
 
 The Query YAMLs reach a running binary through the extracted runtime, not the source tree. Editing `internal/ast/queries/*.yaml` changes nothing for an installed binary until the launcher re-extracts them to `~/.graphit/runtime/<version>/ast/queries` (the Makefile copies them into `cmd/launcher/runtime/ast/queries` at build time). Tests read that same extracted directory, which is why every embedder test here stages its own project-level grammar for an invented language instead of asserting on `go` — asserting on a shipped language would be asserting on whatever this machine last installed. Related:
-[[Query_YAMLs_are_not_go-embed_in_the_internal_AST_binary_is_read_FROM_THE_PREVIOUS_EXTRACTION_IN_GRAPHIT_RUNTIME]]
+Query YAML files are loaded from the extracted runtime rather than embedded in the internal AST binary.
 
 **A property binds in Cypher when any candidate label has it.** Not relevant to the
 code changed here, but confirmed again while reading the schema: `Comment` carries

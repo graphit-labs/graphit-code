@@ -61,7 +61,6 @@ named by itself — that's what puts it in the search index — contained by the
 The inline 61 exists because the inline 62 cannot express these grammars:
 he climbs up the tree and reads the field ___inline_63___ of the ancestor, and ___inline_64___ of the tree-sitter-xml, ___inline_65___ of the tree-sitter-json, and ___inline_66___ of the tree-sitter-html do not have a field with this name. Naming the capture declares the containment that the pattern already has instead of trying to rederive it.
 
-This translation maintains the technical terms and structure from the original Portuguese text while translating it into idiomatic English.
 
 Indices are resolved once during the compilation of the query (`compiledQueryEntry.NameIdx/ValueIdx/ParentIdx`). They are not resolved by matching; the comparison in the warm path is read from `uint32` instead.
 

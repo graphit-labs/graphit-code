@@ -211,13 +211,11 @@ The inline comment reads:
 
 | `internal/ast/resources.go` | Modified | The roof and fraction of the buffer pool by paper; the registered measurement in the note |
 | `internal/ast/ladybug.go` | Modified | `openOnce` passa `ReadOnly`; backend grava o pool efetivo, exposto por `BufferPoolBytes()` |
-Here is the translation:
 
 "_`internal/ast/search_index.go`_ | Modified | _`ftsBuildError`_ - exhaustion of the pool now says the number and output"
 
 This appears to be describing a modification or change in a system, possibly related to an algorithm or process involving pools. The text suggests that when the pool's exhaustion is reached, it starts reporting both the number and the output.
 _______ | Modified | contract by paper: large writer, limited reader, default small intact, expires v.
-Brazilian Portuguese to idiomatic English:
 
 "Created | Sondage | Measures minimum pool size by corpus size"
 | `docs/tasks/fts-build-starved-by-a-flat-buffer-pool-ceiling.md` | Created | este registro |

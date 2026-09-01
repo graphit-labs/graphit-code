@@ -11,7 +11,6 @@ The diagnosis
 
 Inline 4 is Inline 5. Running one target per turn:
 
-Portuguese:
 | target | result before |
 |---|---|
 | `ui` | ✓ (npm ci + vite, 7 s) |
@@ -21,11 +20,9 @@ Portuguese:
 | `test` | ✗ — `internal/ast` failed |
 | `ui-lint` | ✓ — 26 warnings, 0 errors (eslint exits with 0) |
 
-English:
 The target has been successfully updated using npm ci and vite. This process took only 7 seconds. golangci-lint version 2.12.2 was used without any issues. There were no vulnerabilities detected in the code that could be called by the application. The ESLint tool did not report any errors or warnings during this update.
 
 In other words: a single point of failure, within `test`.
-This translation maintains the structure and meaning while using more idiomatic English.
 
 Root cause of `make test`
 
@@ -47,7 +44,6 @@ The previous commit, `763fe938` ("fix: AST indexing schema error"), rewrote
 The test, set up by hand by the `sondaSchema`, declared `SchemaInfo` without
 `HasParams: true`. Under the new semantics, this means "no edge HAS_PARAMETER", and the seed creates exactly one. The test is out of date; production is correct — `ParamOwnerLabels` populates `rebuild_index.go:151-163` from the real owner of each parameter and filters by `paramOwnerSet` before passing it along.
 
-Note: I've replaced the inline references with underscores (_) to maintain the original structure while translating.
 
 Correction: Declare the owner, as __INLINE_30__ has already done for HAS_FIELD.
 
@@ -111,7 +107,6 @@ Technical Debit
 - [ ] `build-linux` packs all `libicu*.so.[0-9]*` found in `/usr/lib` and `/lib`: on this machine, sonames 74 **and** 78 enter, along with `libicutest` and `libicutu`, which the binary does not use. The weight is under 517 MB.
 - [ ] `install` runs `mkdir -p $(PREFIX)` without `sudo` before deciding whether it needs `sudo` on `cp`. If the `PREFIX` does not exist and the parent directory is not writable, make aborts there, before reaching the privileged branch. It affects a new `PREFIX` in root path.
 
-This translation preserves the original structure, code blocks, markdown formatting, file paths, and technical terms as requested.
 
 ## Conhecimento do sistema
 

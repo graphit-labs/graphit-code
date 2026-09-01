@@ -18,7 +18,7 @@ It replaces the git repository described in
 registry, one orphan branch per artifact version, `refs/events/*` telemetry, rule
 distribution on `main`, and memory worktrees — all map onto key prefixes here. Implemented by
 `internal/hub` over `internal/s3store`; tracked in
-[the migration task log](../tasks/hub-em-s3-icebug-e-lancedb.md).
+[the migration task log](../tasks/hub-on-s3-icebug-and-lancedb.md).
 
 ## Location and credentials
 

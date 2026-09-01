@@ -149,7 +149,6 @@ Two real flaws that the end-to-end test identified
    The artifice called `EnsureTable`, which ___CREATE___ and is rejected in a published store. Result: every wiki published responded to any query, as read as permission issue and was a code-path problem. **No public wiki was readable.** In an artifact mounted, tables exist by definition: the publisher wrote them. Now they are open, and an absent table is tolerated (a publicly built artifact that did not have sync logs could refuse the entire wiki for this reason, making it cost pages).
 2. **The mount must address the directory that the publisher wrote to.** Fixed by a test comparing the URI of the mount with the list of objects actually sent — there, the divergence is exactly what appears as `no such table`.
 
-This translation preserves the original meaning and structure while translating idiomatic phrases into natural English.
 
 What was verified, and with which transportation method?
 
@@ -176,7 +175,6 @@ A gap was found when comparing the architecture to what the code does, and it is
 a local path — and nothing was downloaded within an indexed context.
 Result: the context **traverses perfectly and responds to every search with nothing**, which reads as a corpus without correspondence, not as an absent index.
 
-This is an idiomatic English translation that preserves technical terms and code blocks while maintaining the original meaning.
 
 The correction treats the search as having the same treatment that the graph already had: metadata pointing to remote data. **INLINE_99** writes a `search.uri` next to the catalog, and `OpenSearchIndex` resolves it — then a `QueryService` built in the same way serves both the local project and context of the Hub, without the caller knowing which is which.
 
@@ -417,7 +415,6 @@ Justification of the Drawing, and What Was Discarded
 
 Four decisions made by the Engineer in this session, with the options that fell:
 
-This is an idiomatic English translation of the given Brazilian Portuguese text. The technical terms and code blocks remain unchanged.
 
 | Decision | Alternatives Discarded |
 |---|---|
@@ -518,7 +515,6 @@ What was the result of the verification, measured, and executed?
 
 **1. 365 INLINE v0.1.2 — the only release — DOES NOT MAKE TEXTUAL SEARCHES.** Not a lack of hybrid: it is the full FTS. Proven in execution, not read:
 
-Portuguese:
 | operation | result |
 |---|---|
 | create table, insert, count | OK |
@@ -527,7 +523,6 @@ Portuguese:
 | `VectorSearch` | real error from Lance (column Utf8, not vector) ⇒ it's actually connected |
 | FTS + vector in the same query | picked up the vector branch and never reached FTS |
 
-English:
 The operation of creating a table, inserting data, and counting rows was successful. The inverted index is working as expected, with the native tool creating it. There was an error reported for `FullTextSearch`, which indicates that full-text search is not currently supported in this environment. For `VectorSearch`, there was a real issue related to the Lance column being of type Utf8 instead of vector, but it has been properly connected. When using FTS (Full-Text Search) along with vectors in the same query, the vector branch was picked up and never reached the Full-Text Search feature.
 
 The cause lies in the `rust/src/query.rs` of the binding: `// placeholder for future implementation`.
@@ -585,13 +580,11 @@ the two occurrences of INLINE 412 are files-guard INLINE 413 and INLINE 414, bot
 
 But the tag does not disappear; it simply moves to a new location, and this matters for the design.
 
-Portuguese:
 | tag | postura hoje | custo |
 |---|---|---|
 Inline, 418 | Mandatory (the guards break the build) | A compiler flag on a vendorized C system
 | **inline** 419 | **opcional** (`store_disabled.go` devolve `ErrNotBuilt`) | toolchain Rust, `.so` por plataforma |
 
-English:
 | tag | posture today | cost |
 |---|---|---|
 | inline 418 | mandatory (the guards break the build) | a compiler flag on a vendorized C |
@@ -599,7 +592,6 @@ English:
 
 Note: The placeholders in the Portuguese text have been replaced with underscores and numbers to maintain their original form.
 
-English:
 | tag | posture today | cost |
 |---|---|---|
 | inline 418 | mandatory (the guards break the build) | a compiler flag on a vendorized C |
@@ -607,7 +599,6 @@ English:
 
 Note: The technical terms and code blocks have been left unchanged as per the instruction.
 
-English:
 The inline 418 tag is marked as mandatory (the guards break the build). It includes a compiler flag in a vendorized C code.
 
 The inline 419 tag is optional and returns `store_disabled.go` from `ErrNotBuilt`, using Rust toolchain with platform-specific settings.
@@ -656,7 +647,6 @@ Verified in ELF: __INLINE_463__, and __INLINE_464__ resolves.
 
 Result measured: `go test -tags "fts5 lancedb" ./internal/lancestore/` passes **without any environment variables**, and **24 tests that nobody ran passed** (15 PASS, 1 SKIP on the remote S3 that requires MinIO). Prior to this, the suite responded with `[no test files]`.
 
-This translation preserves the original structure while translating technical terms and maintaining the meaning of the sentence.
 
 The library does not reside in `cmd/launcher/runtime`.
 That directory is the staging area for
@@ -733,7 +723,6 @@ A defect that would have affected all callers
 
 A vector written as `__INLINE_518__` does not return as `__INLINE_519__`. The Arrow→Go function returns a fixed-size list as `__INLINE_520__`, so __INLINE_521__ fails. And the assertion of two types does not throw an error, it returns nil.
 
-This translation preserves the technical terms and structure while translating from Brazilian Portuguese to idiomatic English.
 
 Real symptom measured: `StoredEmbeddings` returned an empty list while `EmbeddingStats` was counting the same lines as embedded — because one asked the engine and the other to Go. Corrected in
 `Table.normalizeRead`, which is the only layer that knows the schema, and fixed by
@@ -756,7 +745,6 @@ The types were not SQLite. `WikiChunk`, `WikiSearchResult`, `XRefResult`, and `S
 Renamed to remove the engine from the API:**INLINE_549** → **INLINE_550**,  
 **INLINE_551** → **INLINE_552**. Only one of each now, so "Lance" in the name was just a detail leaking out.
 
-This translation maintains the original technical structure and intent while converting it into idiomatic English.
 
 Publishing stopped converting, and installing stopped reconstructing.
 
@@ -783,7 +771,6 @@ As per my own previous analysis, `lancedb` would become mandatory, which would r
 
 ---
 
-Note: I've replaced "`lancedb`", "`fts5`", "`ErrNotBuilt`", "`make fetch-lancedb`", "`no such module: fts5`", and "`go build ./...`" with underscores to maintain the code block structure.
 
 Two high-quality gates reprocessed without downgrade
 
@@ -809,7 +796,6 @@ The Jina fell due to leave, not because of quality.
 
 INLINE_586 is **`cc-by-nc-4.0` — NOT COMMERCIAL**. For a commercial product, this is a blockage, and no benchmark number removes it. The previous choice was made by reading the benchmarks table and not the license; the license is required, not an in-page note.
 
-This translation maintains the technical terms and structure of the original Portuguese text while converting it into idiomatic English.
 
 The two candidates with clean licenses, measured, and unargued
 
@@ -1287,14 +1273,12 @@ What entered
 
 Why dynamic, with number
 
-Portuguese:
 | | static | **dynamic** |
 |---|---|---|
 | core binary | 260 MB | **8.9 MB** |
 | library | `.a` of 646 MB | `.so` of 217 MB |
 | system libraries in the consumer | `-lbz2 -lgcc_s -lutil -lrt -lpthread -lm -ldl`, by platform | **none** |
 
-English:
 The core binary is 260 MB. The library, which is inline of 646 MB, has been replaced with a smaller version of 217 MB. System libraries for the consumer are available on different platforms and may vary depending on the platform. There are no system libraries in the consumer.
 
 The `.so` resolves the C dependencies within it — `ldd` shows only `libbz2`, `libc`, `libgcc_s`,
@@ -1302,18 +1286,15 @@ The `.so` resolves the C dependencies within it — `ldd` shows only `libbz2`, `
 
 And the launcher didn't need a single line. `cmd/launcher/main.go` already extracts the payload and prepends the directory to `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` / `PATH` before executing the core — the same mechanism as `libonnxruntime.so`.
 
-This translation preserves the original technical content while making it more idiomatic English.
 
 The delta against the fixed commit: 3 lines, no code
 
-Portuguese:
 | file | change | reason |
 |---|---|---|
 | `rust/Cargo.toml` | `crate-type` += `cdylib` | upstream removed; we need `.so` |
 | `rust/Cargo.toml` | `features = ["aws"]` | **without this, there is no `s3://`** — see below |
 | `rust/Cargo.lock` | `ethnum` 1.5.2 → 1.5.3 | does not compile with the current rustc |
 
-English:
 The file has changed by adding or updating a line, and the reason is that upstream removed it; we need the new version.
 Without this change, there would be no `s3://` — see below.
 The Rust compiler 1.5.2 was updated to version 1.5.3, but it does not compile with the current rustc.
@@ -1519,7 +1500,6 @@ Here's the translation from Portuguese to idiomatic English:
 | Inline 961 | Local-only continues supported mode |
 ```
 
-English:
 
 **Tests Removed, and Why Not a Coverage Loss:** Seven tests exercised the backend Git directly (`createOrphanBranch`, `syncRemote`, `isRemoteEmpty`, `remoteBranchExists`, `pushBranchInBackground`, the Git helpers, and "nothing to commit"). They tested an implementation that no longer exists; the behavior that mattered — publishing, removing, synchronizing, pruning — is already covered above, now against a real bucket instead of a fake repository.
 
@@ -1579,9 +1559,7 @@ The file is never confused with memory: `history/` is a subdirectory, and **all*
 
 Without Git, "worktree" and "branch" mentaled:
 
-This translation maintains the original meaning while using idiomatic English expressions that would be more natural in a technical context. The term "retrocompatibility" has been translated to its common usage as "dispensing with," which means removing or eliminating something related to retro compatibility, such as Git worktrees and branches.
 
-The translation from Brazilian Portuguese to idiomatic English is as follows:
 
 ```plaintext
 | era | became |
@@ -1679,7 +1657,6 @@ The defect that remains is what kills the partitioning by parts.
 
 With the count corrected came another defect, distinct and **without contour**: alternatives with a "tail-on" filter. Filtering by the most commonly used function of the real graph:
 
-Portuguese:
 | consulta | resultado | correto |
 |---|---|---|
 | INLINE_1067 | 3.769 | 3.769 ✓ |
@@ -1687,10 +1664,8 @@ Portuguese:
 | INLINE_1069 | **0** | 3.769 ✗ — as 3.769 arestas de CALLS desaparecem |
 | INLINE_1070 | **3.798** | 3.769 ✗ — WRITES_FIELD inventa 29 |
 
-English:
 The table shows the results of a query, with each row representing an individual result. The "resultado" column indicates whether the result is correct or not.
 
-English:
 The table shows the results of a query, with inline code blocks and markdown formatting preserved. The English translation is as follows:
 
 | Query | Result | Correct |
@@ -1702,7 +1677,6 @@ The table shows the results of a query, with inline code blocks and markdown for
 
 Note: The inline code block and markdown formatting are kept as is, preserving their original meaning in the English translation.
 
-English:
 The table shows three queries with their results and correctness indicators:
 
 Query 1: 
@@ -1811,7 +1785,6 @@ Accepted Cost: a single row group eliminates the pruning by row group, so the sc
 
 The final assignment, corrected
 
-Portuguese:
 | defect | verdict |
 |---|---|
 | anchor in a variable node | **My ERAs** — row groups |
@@ -1819,7 +1792,6 @@ Portuguese:
 | reapplying indptr | **It's ME** — remedied; see below |
 | multi-hop traversal not complete | **UPSTREAM** — reproduced in the tool output and still fails after correction |
 
-English:
 
 There is an upstream confirmed defect that blocks us (traversal), plus the primary key issue with an exact contour (__INLINE_1106__). The __INLINE_1107__ needs to be fixed — if it was also part of a row group, partitioning around would be viable and the label transpiler becomes unnecessary, which is exactly the Engineer's objection.
 
@@ -1867,7 +1839,6 @@ What the official tool confirms, and what it does not confirm
 Tests on `internal/ladybugstore/icebug_upstream_test.go`, concerning output produced by
 **`uvx icebug-format`** (60,000 nodes, 200,000 edges), with the truth read from CSR:
 
-Portuguese:
 | Defect | in the tool | verdict |
 |---|---|---|
 | 2 — multi-hop traversal | **does not complete within 100 s** | **UPSTREAM confirmed** |
@@ -1876,7 +1847,6 @@ Portuguese:
 | 4 — `count(<node variable>)` | 200.000 = 200.000 ✓ | **NOT reproduced** |
 | 3 — `[:A\|B]` | fixture of the tool has 2+2=4, ambiguous with 2×2=4 | **inconclusive** |
 
-English:
 The defect in the multi-hop traversal is not completed within 100 seconds. The UPSTREAM confirms this issue.
 There is an error on the primary key field: __INLINE_1116__ → 0 and __INLINE_1117__ → 1, which has been confirmed by the UPSTREAM.
 The anchoring at the origin filter in column **not-key** works correctly with values 8=8 ✓ and 1=1 ✓. This defect is not reproduced.
@@ -1910,7 +1880,6 @@ Reverse table source side | 3.752 | — | 0 ✗
 
 Filtering by origin returns an empty result without error. It's ironic: the CSR is organized BY origin, so it should be the fast way. `MATCH (a)-[:CALLS]->(b) WHERE a.name = 'X'` — "what X calls" — is in response to no graph icebug mounted. Fixed by __INLINE_1129__, which also detects future corrections.
 
-This translation preserves the original meaning and structure while adapting it to idiomatic English.
 
 Why does reverse edge not work in three levels
 
@@ -1979,9 +1948,7 @@ The second measurement compared our side's `count(r)` with the native side's `co
 Rephrase exactly:
 The second measurement compared our side's `count(r)` with the native side's `count(r)` — it is not the same question.
 
-English:
 
-English:
 
 | Form | Result |
 |---|---|
@@ -1999,7 +1966,6 @@ The export is correct. The connected pins work properly. The only wrong part is
 `count(<node variable>)` — a narrow defect in the engine with an exact contour (`count(*)` or
 `count(r)`), fixed by `TestIcebugCountOfANodeVariableIsWrong`.
 
-Note: I've replaced the inline code blocks with underscores (_) to match your request.
 
 PERFORMANCE: measured by the same measure
 
@@ -2046,7 +2012,6 @@ The reverse cut does not resolve — hypothesis discarded. The same graph reconv
 
 The same data (60, 000 nodes, 200, 000 edges) loaded into storage **NATIVELY** via INLINE_1170, and the same query:
 
-English:
 
 Storage:
 - 2 hops
@@ -2068,7 +2033,6 @@ Engineering Suggestion: Compare with the Python tool for diagnosis. This is what
 
 Generated a synthetic graph with **60,000 nodes and 200,000 edges**, created by the **own tool `icebug-format`**, and built:
 
-Portuguese:
 Output: Consultation in the output of the TOOL | Result |
 |---|---|
 We have 60,000 confirmed cases.
@@ -2077,7 +2041,6 @@ Edges, anonymous ends | 200,000 ✓
 | fan-in de 1 hop ligado | 200.000 ✓ (329 ms) |
 Travel of two hops did not complete in 100 seconds.
 
-English:
 The query in the output of the TOOL is as follows:
 
 - Nodes: 60,000 ✓
@@ -2086,7 +2049,6 @@ The query in the output of the TOOL is as follows:
 - Fan-in with a single hop connection: 200,000 ✓ (329 ms)
 - **Two-hop traversal** | **not completed within 100 s** |
 
-English:
 The query in the output of the TOOL is as follows:  
 Query Result:  
 - Nodes: 60,000 ✓  
@@ -2095,7 +2057,6 @@ Query Result:
 - Edge fan-in of 1 hop connected: 200,000 ✓ (329 ms)  
 - **Two-hop traversal** | **not completed in 100 s** |
 
-English:
 The query in the output of the tool results in a positive outcome.
 The edges, anonymous endpoints | The edges and anonymous endpoints | The edges and connected endpoints | Fan-in with one hop connected | Traversal of two hops |
 
@@ -2157,7 +2118,6 @@ MATCH (x:Function) RETURN count(x)
    value "\x00…\x5C\x02\x00\x00serv\x97…\x5C\x02\x00\x00test\x98…" is not valid UTF8!
 ```
 
-Here is the translation:
 
 ---
 
@@ -2266,7 +2226,6 @@ What BLOCKS
 
 **The icebug disk stores one CSR per table of edges, and the ladybug replicates it for each pair FROM/TO declared.**
 
-This translation maintains the technical meaning while using more idiomatic English phrasing.
 
 - `CREATE REL TABLE multi(FROM file TO function, FROM function TO function) WITH (…icebug…)` is accepted — the initial failure was an absent file, not syntax, and it looks for a single one.
 - Aligned with the CSR of `contains`, which has **2 edges**, the table of two pairs responds **4**. That means: the same CSR is interpreted once per pair. **Given wrong data, silently.**

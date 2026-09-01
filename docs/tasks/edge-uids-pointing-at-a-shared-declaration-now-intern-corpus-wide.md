@@ -42,7 +42,7 @@ What is still true and still structural (see `internal/ast/icebug_rebuild.go` an
   come from. This is a consequence of icebug being a global CSR: a node's id is the dense
   index inside its label's Parquet table, so assigning ids for one changed file still
   requires knowing that label's full current node set. See
-  [the icebug rebuild still holds the whole corpus live](the-icebug-rebuild-holds-the-whole-parse-cache-live-in-entri.md)
+  [the icebug rebuild still holds the whole corpus live](backlog/the-icebug-rebuild-holds-the-whole-parse-cache-live-in-entri.md)
   (open, unresolved by this task).
 - While writing Parquets, `exportDirectWithReverse` (`internal/ast/direct_icebug.go:47`) makes
   one sequential pass per node label plus one per (relationship type, from-label, to-label)

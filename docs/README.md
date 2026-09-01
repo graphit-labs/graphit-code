@@ -1,62 +1,76 @@
----
-title: "Graphit Code Documentation"
-description: "Unified documentation hub for Graphit Code, containing onboarding guides, developer references, and architecture specifications."
-content-type: guide
-audience: developers
-keywords:
-  - documentation
-  - index
-  - guides
-  - specifications
----
+# Graphit Code Documentation
 
-# Graphit Code Documentation Hub
+Graphit connects four kinds of project context: code structure, maintained documentation, durable memory, and reusable ecosystem artifacts. This hub routes you to the current guidance for each job without mixing it with historical implementation records.
 
-Welcome to the official documentation for Graphit Code — **A Powerful Agent Harness for Enterprise Software Ecosystems**.
-It synchronizes codebase structure (AST), persistent memory, and shared team specifications to keep local and remote AI agents aligned.
+![Graphit Knowledge Explorer showing this project's architecture](site/assets/observatory-knowledge-explorer.jpg)
 
-This documentation is divided into three key areas:
-1. **User and Operator Guides** — Instructions on installing, setting up, and using Graphit Code.
-2. **Architecture Overview** — High-level designs explaining how the launcher, CLI, and visual layers interconnect.
-3. **Module Specifications** — Technical deep-dives into each subsystem.
+## Choose your path
 
----
+| I want to… | Start here | Continue with |
+|---|---|---|
+| Install Graphit and initialize a repository | [Getting Started](guides/getting_started.md) | [CLI Reference](guides/cli_reference.md) |
+| Use Graphit day to day | [User Manual](guides/user_manual.md) | [Troubleshooting](guides/troubleshooting.md) |
+| Configure an agent or MCP client | [MCP Tools Reference](guides/mcp_tools_reference.md) | [Retrieval Architecture](guides/retrieval_architecture.md) |
+| Understand system boundaries | [Architecture Overview](architecture/architecture_overview.md) | [Storage Layout](architecture/storage_layout.md) |
+| Operate shared storage or networked UI | [S3 and UI Network](guides/s3-and-ui-network.md) | [Hub S3 Object Layout](specs/hub-s3-object-layout.md) |
+| Customize a private distribution | [Private Brand Customization](guides/private_brand_customization.md) | [Configuration Specification](specs/config_module.md) |
+| Contribute to the project | [Contributing](../CONTRIBUTING.md) | [Repository README](../README.md) |
 
-## 📖 User and Operator Guides
+## Guides
 
-Follow these manuals to get started and master Graphit Code:
+Guides explain workflows from a user or operator perspective.
 
-- **[Getting Started](guides/getting_started.md)**: Install, configure development environments, and initialize Graphit Code.
-- **[CLI Command Reference](guides/cli_reference.md)**: Detailed reference sheet of all commands and options.
-- **[User Manual](guides/user_manual.md)**: Operator manual for writing wikis, managing memories, using the registry hub, and navigating the 3D dashboard.
-- **[S3 Credentials & UI Network](guides/s3-and-ui-network.md)**: Optional setup credentials, AWS provider-chain fallback, secret storage, UI bind address, exact-origin CORS, and deployment security.
-- **[Private Branding & Customization](guides/private_brand_customization.md)**: Build custom branded binaries, configure private hubs, and deploy 100% private developer harnesses.
-  - 🏆 **[Private Team Collaboration](guides/private_brand_customization.md#-setting-up-private-collaboration-ecosystems)**: Configure a private S3-compatible bucket for the **Hub** and shared **Memory** prefixes, keeping artifacts and team knowledge inside the infrastructure you control.
+- [Getting Started](guides/getting_started.md) — installation, setup, project initialization, first sync, and the Observatory.
+- [User Manual](guides/user_manual.md) — everyday AST, knowledge, memory, Hub, daemon, Dream, and ecosystem workflows.
+- [CLI Command Reference](guides/cli_reference.md) — commands, flags, aliases, and expected effects.
+- [MCP Tools Reference](guides/mcp_tools_reference.md) — agent-facing tool contracts and required parameters.
+- [Retrieval Architecture](guides/retrieval_architecture.md) — when to search, read source, traverse a graph, or use live search.
+- [Ignore Files](guides/ignore_files.md) — source and documentation exclusion behavior.
+- [S3 Credentials and UI Network](guides/s3-and-ui-network.md) — optional remote storage, credentials, binding, CORS, and security boundaries.
+- [Private Brand Customization](guides/private_brand_customization.md) — branded binaries and private collaboration environments.
+- [Troubleshooting](guides/troubleshooting.md) — common operational failures and diagnostics.
 
----
+## Architecture
 
-## 🏗️ System Architecture
+- [System Architecture Overview](architecture/architecture_overview.md) — launcher, core engine, modules, daemon, UI, Hub, and IDE adapters.
+- [Storage Layout](architecture/storage_layout.md) — global stores, project records, contexts, caches, and published data.
 
-Understand how the Graphit Code system is structured:
+## Module specifications
 
-- **[System Architecture Overview](architecture/architecture_overview.md)**: Explanation of binary wrappers, decoupling, persistence, and IDE integrations.
-- **[Storage Layout](architecture/storage_layout.md)**: Where every compiled artifact lives — one copy per identity, in the global directory — and what stays in a project.
+Specifications describe current module behavior and technical contracts.
 
----
+- [AST Module](specs/ast_module.md)
+- [Wiki Module](specs/wiki_module.md)
+- [Memory Module](specs/memory_module.md)
+- [Hub Collaboration](specs/hub_collaboration.md)
+- [Hub S3 Object Layout](specs/hub-s3-object-layout.md)
+- [Configuration Module](specs/config_module.md)
+- [Daemon Module](specs/daemon_module.md)
+- [Dream Module](specs/dream_module.md)
+- [Task Backlog](specs/backlog.md)
+- [UI Dashboard](specs/ui_dashboard.md)
+- [AI Engine](specs/ai_engine.md)
+- [Cluster Discovery](specs/cluster_microservices.md)
 
-## 🔧 Subsystem Specifications
+## Historical records
 
-Explore the engineering specifications of each internal package:
+The following areas are intentionally preserved as chronological evidence:
 
-- **[AST Module Specification](specs/ast_module.md)**: LadybugDB graph schema, Cypher translation, language syntax trees, and hybrid FTS/semantic search.
-- **[Wiki Module Specification](specs/wiki_module.md)**: Obsidian wiki, BM25 indices, Louvain community detection, and fuzzy reference resolution.
-- **[Memory Module Specification](specs/memory_module.md)**: Local raw project/user memories, S3 publication, compiled wikis, cycles, and memory rules.
-- **[Hub Collaboration Specification](specs/hub_collaboration.md)**: S3-backed registry managers, lockfile metadata tracking, and artifact publishing.
-- **[Hub S3 Object Layout](specs/hub-s3-object-layout.md)**: Exact key prefixes, schemas, publication order, and authentication contract.
-- **[Configuration Module Specification](specs/config_module.md)**: Layered precedence, global/project storage, compiled defaults, and all supported keys.
-- **[Daemon Module Specification](specs/daemon_module.md)**: Background daemon, shared embedding model client, OS schedulers, and replacement spawns.
-- **[Dream Module Specification](specs/dream_module.md)**: Autonomous skill generation, conversation mining, skill effectiveness evaluation, and knowledge extraction.
-- **[Task Backlog Specification](specs/backlog.md)**: Future work recorded independently in the documentation tree, its storage and configuration, and the CLI/MCP/HTTP surfaces that manage it.
-- **[UI Dashboard Specification](specs/ui_dashboard.md)**: Vite-React application, Force-Directed 3D canvas, state stores, and uiserver handlers.
-- **[AI Engine Specification](specs/ai_engine.md)**: Model manager, embedding backends (local, proxy, lazy), and Cypher AI helpers.
-- **[Cluster Discovery Specification](specs/cluster_microservices.md)**: Sibling project registration, multi-service navigation, and cross-project query delegations.
+- `tasks/` — implementation logs, investigations, measurements, and unfinished debt.
+- `changelogs/` — feature and migration history.
+- `decisions/` — accepted architectural decisions and their trade-offs.
+- `reports/` and `testing/` — point-in-time validation evidence.
+
+Historical records may describe superseded behavior. For current usage, prefer guides, architecture pages, and module specifications; follow links into history when you need rationale or provenance.
+
+## Documentation conventions
+
+- Maintained documentation and the root README are written in English.
+- User workflows belong in `guides/`; system boundaries in `architecture/`; module contracts in `specs/`.
+- Every implementation task opens and maintains a task log under `tasks/`.
+- Commands and file paths use code formatting; security limitations are stated next to the relevant configuration.
+- Screenshots should use the current Graphite Observatory UI and a first-party Graphit Code project context.
+
+## Keep the wiki current
+
+The daemon watches the documentation tree and rebuilds the local knowledge wiki after edits. Use `graphit sync` when you need an explicit all-system checkpoint across AST, knowledge, memory, and Hub.

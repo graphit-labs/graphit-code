@@ -40,7 +40,7 @@ tool opens for that project. An imported context compiles to
   Lists all indexed pages, computed community clusters, "God Nodes" (the most connected documents), and global network metrics.
 - **`log.md`**: An updates timeline tracking modified files.
 - **Wikilink Parsing**:
-  The indexer parses Obsidian-style double brackets `[[Target_Page]]`.
+  The indexer parses legacy Obsidian-style double-bracket page references.
   It registers references as edges in a temporary graph to analyze connections.
 
 ### Indexed Scope
@@ -197,7 +197,7 @@ so every write had to drop and recreate all seven — see
 Four things about the shape are worth knowing:
 
 **Cross-references are rows, not edges.** A wiki link may point at a page that does not exist — a
-`[[wikilink]]` written before its target, or a page since deleted. Anything requiring both
+reference written before its target, or a page since deleted. Anything requiring both
 endpoints would silently drop exactly the dangling links a docs lint exists to report. `FindXRefs`
 walks them in Go, with a visited set. This has now survived a round trip through TWO storage
 engines unchanged, which is the best evidence the reasoning was about the data and not the storage.
@@ -341,4 +341,4 @@ sequenceDiagram
 3. **Execution**:
    The search engine reads the requested files from disk, appends them to the context, and invokes the AI client again.
 4. **Synthesis**:
-   Once the AI client has sufficient context, it responds with a synthesized Markdown document including inline citations (e.g. `[[Page_Name]]`).
+   Once the AI client has sufficient context, it responds with a synthesized Markdown document including inline page citations.

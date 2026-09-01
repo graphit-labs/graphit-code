@@ -59,7 +59,7 @@ The server deliberately avoids the SDK's `StdioTransport` helper, which hardcode
 
 | Type / Function | Description |
 |---|---|
-| `safeTool[T any](handler)` | Generic wrapper adding panic recovery and background daemon auto-start to every tool handler. |
+| `safeTool(handler)` | Generic wrapper adding panic recovery and background daemon auto-start to every typed tool handler. |
 | `textResult(text string)` | Returns a `CallToolResult` with a single `TextContent` payload. |
 | `errResult(err error)` | Returns the error directly to the MCP framework for standard error rendering. |
 | `jsonResult(v any)` | Marshals `v` as indented JSON and returns it as `TextContent`. |
@@ -89,7 +89,7 @@ Tools are registered via `mcp.AddTool(server, toolDefinition, handlerFunc)`. Eac
 
 ### The `safeTool` Wrapper
 
-Every handler is wrapped with `safeTool[T]()`, which:
+Every handler is wrapped with `safeTool()`, which:
 
 1. **Recovers from panics** — catches `recover()` in a deferred function and converts it to a structured error (`"internal error (panic): %v"`).
 2. **Ensures the daemon is running** — calls `daemon.EnsureRunning()` before every tool invocation, mirroring the CLI's behavior. Failures are logged to stderr but do not block the tool.

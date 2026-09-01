@@ -11,7 +11,6 @@ Crash loop of the embedding module - a library panic brought down the entire pro
 ## Objective
 
 The module `embedding` of the daemon was restarting in a loop since July 29, 2026 - 66 occurrences on
-Here is the translation from Brazilian Portuguese to idiomatic English:
 
 "`~/.graphit/daemon/daemon.log`, with exponential backoff up to 30 seconds and indefinite retry:"
 
@@ -169,11 +168,9 @@ It contains the stack trace.
 
 | File | Change | Reason |
 |---|---|---|
-Here is the translation:
 
 | `internal/ai/embedding_local.go` | Modified | `encodeSingle` converts panic into an error; `EmbedBatch` degrades to text; `tk` turns into interface `textEncoder`; stores in `mask` and extracts from the vector |
 
-This translation maintains the structure and technical terms of the original Portuguese text, preserving its meaning while rendering it in idiomatic English.
 Created | Covers containment of panic and entirely unencodable lot |
 | `internal/daemon/project.go` | Modificado | `runProtected` inclui `debug.Stack()` no erro |
 The two tests of `runProtected` compared the message by exact equality; they now require a prefix plus presence on the stack.

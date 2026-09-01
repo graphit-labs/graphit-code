@@ -71,7 +71,6 @@ Limiting the scan wasn't enough either. The same 500 returned, with the query al
 
 ---
 
-This translation maintains the technical terminology and structure while translating from Portuguese to idiomatic English.
 
 Measured column by column, with the corrected query running against the corpus:
 
@@ -125,7 +124,6 @@ The graph is 34 times larger and the query is 1.2-1.4x slower. The cost remains 
 Translation:
 The graph is 34 times larger and the query is 1.2-1.4x slower. The cost remains almost constant relative to volume — so it's not a scan, and an index doesn't reach: an index reduces how many rows you visit; this query already visits 300 rows. What she pays is:
 
-This translation maintains the original meaning while using idiomatic English for better readability in context.
 
 1. **Fan-out of tables.** The graph has 24 node labels, 9 types of edges, and 33 physical tables.
    `MATCH (n)-[r]->(m)` without a label becomes an operator by combination (origin × relation × destination) that exists in the schema. The cost per operator is paid once for each, regardless of whether there are 300 or 3 million nodes. It's the jump B→C (0,014 → 0,17 seconds), and it's what line E confirms: fixing labels returns the time to C.
@@ -138,7 +136,6 @@ What the expansion delivered, measured: **293 directories**, all __inline__ 44__
 Correction: the query **stops expanding**. It becomes a scan and projection, nothing more.
 The connectivity now passes entirely through ___INLINE_45__, whose budget has increased from 300 to 1000 — the cost of it is the same fan-out paid once, so 1000 costs what 300 would have cost (~0.19 seconds measured in both). The two budgets now became constants `graphSampleNodes` and `graphSampleEdges`, closing the debt of the literal `300`.
 
-Note: I've replaced some technical terms with more idiomatic English equivalents as requested.
 
 With this, INLINE\_49 returned to its original conditional form: the override existed solely to repair the marker of ID-E-Label that expansion produced, and without expansion there is no marker at all.
 

@@ -9,12 +9,12 @@ tags: [wiki, knowledge, memory, okf, refactor, mcp]
 # Wiki 100% OKF (Open Knowledge Format) Compliance
 
 ## Objective
-Refactor the Graphit wiki generator (for knowledge wiki, memory wiki, index.md, and log.md) to strictly adhere to the Open Knowledge Format (OKF v0.2) open specification published by Google Cloud. Replace Obsidian/Karpathy `[[wikilinks]]` and non-standard frontmatter with OKF frontmatter (`type`, `generated.at`, `sources`, `description`, etc.) and standard Markdown graph links (`[Title](slug.md)`). Maintain 100% functionality for SQLite database indexing (`wiki.db`) and MCP search/retrieval tools (`graphit_knowledge_search`, `graphit_memory_search`, `graphit_wiki_search`, `graphit_wiki_source`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`).
+Refactor the Graphit wiki generator (for knowledge wiki, memory wiki, index.md, and log.md) to strictly adhere to the Open Knowledge Format (OKF v0.2) open specification published by Google Cloud. Replace legacy double-bracket links and non-standard frontmatter with OKF frontmatter (`type`, `generated.at`, `sources`, `description`, etc.) and standard Markdown graph links. Maintain 100% functionality for SQLite database indexing (`wiki.db`) and MCP search/retrieval tools (`graphit_knowledge_search`, `graphit_memory_search`, `graphit_wiki_search`, `graphit_wiki_source`, `graphit_wiki_browse`, `graphit_wiki_xrefs`, `graphit_wiki_log`).
 
 ## Plan & Task Breakdown
 - [x] **T1 — Update OKF Frontmatter & Markdown Generator (`internal/knowledge/wiki.go`)**: Implemented `type`, `generated.at`, `sources`, `description`, `id`, `tags` in `knowledgeEntityPage()`, `knowledgeIndexPage()`, and `appendKnowledgeLog()`.
 - [x] **T2 — Update OKF Frontmatter in Memory Generator (`internal/memory/wiki.go`)**: Updated `memoryEntityPageWithHash()` to emit OKF frontmatter (`type`, `generated.at`, `sources`, `id`, `description`, `tags`).
-- [x] **T3 — Dual Link Parsing & Standard Link Generation (`internal/wiki/crossref.go`, `resolve.go`, `autolink.go`)**: Supported extracting cross-references and resolving both OKF standard links `[label](target.md)` and legacy `[[wikilinks]]`.
+- [x] **T3 — Dual Link Parsing & Standard Link Generation (`internal/wiki/crossref.go`, `resolve.go`, `autolink.go`)**: Supported extracting cross-references and resolving both OKF standard Markdown links and legacy double-bracket links.
 - [x] **T4 — Database Indexing & MCP Compatibility (`internal/wiki/store.go`, `fts.go`, `search.go`, `internal/mcpstdio/`)**: Guaranteed `WikiDB` indexes OKF frontmatter fields and all MCP search/navigation tools function seamlessly.
 - [x] **T5 — Frontend UI Link Parsing (`internal/ui/src/components/wiki/WikiMarkdown.tsx`)**: Supported rendering standard OKF markdown links as `wiki://` protocol in UI.
 - [x] **T6 — Test Verification & Validation**: Ran full non-cached test suite (`go test -count=1 -tags fts5 ...`) across all internal packages with 100% pass rate.
@@ -26,7 +26,7 @@ Refactor the Graphit wiki generator (for knowledge wiki, memory wiki, index.md, 
 | `internal/memory/wiki.go` | Modified | Updated memory wiki pages to OKF v0.2 format |
 | `internal/wiki/crossref.go` | Modified | Supported standard Markdown links alongside wikilinks in crossref extraction and backlink injection |
 | `internal/wiki/resolve.go` | Modified | Resolved wikilinks and Markdown links to canonical slugs |
-| `internal/wiki/autolink.go` | Modified | Generated standard OKF Markdown links `[label](slug.md)` |
+| `internal/wiki/autolink.go` | Modified | Generated standard OKF Markdown links to canonical page slugs |
 | `internal/ui/src/components/wiki/WikiMarkdown.tsx` | Modified | Rendered standard Markdown links to `wiki://` protocol in UI |
 | `internal/knowledge/knowledge_test.go` | Modified | Updated test assertions for OKF links |
 | `internal/knowledge/knowledge_coverage_test.go` | Modified | Updated test assertions for OKF frontmatter and links |
@@ -35,7 +35,7 @@ Refactor the Graphit wiki generator (for knowledge wiki, memory wiki, index.md, 
 
 ## Key Decisions
 - **OKF v0.2 Standard Compliance**: Adopted mandatory `type` field, `generated.at` (ISO 8601), `sources` array, `id`, and `description` in YAML frontmatter.
-- **Dual Link Resolution**: Generated standard Markdown links `[Title](slug.md)` while maintaining backward-compatible parsing for any legacy `[[wikilinks]]` in raw user source files.
+- **Dual Link Resolution**: Generated standard Markdown links while maintaining backward-compatible parsing for legacy double-bracket links in raw user source files.
 - **Full MCP Tool Support**: Kept `WikiDB` FTS indexing and MCP tools intact so AI agents can query and retrieve source exclusively via MCP tools.
 
 ## Correction (2026-08-29)
@@ -57,7 +57,7 @@ What was wrong, in short:
 - `log.md` kept a frontmatter block and `## [timestamp] sync | …` headings instead of the
   date-grouped structure of §9.
 - **T2 was incomplete**: only `memoryEntityPageWithHash` was converted. The memory
-  `index.md` still emitted `[[wikilinks]]` and pre-OKF frontmatter, and the memory log was
+  `index.md` still emitted legacy double-bracket links and pre-OKF frontmatter, and the memory log was
   never touched.
 - The frontmatter frequently did not PARSE at all — a folded-scalar description or a colon
   in a title broke the block — which fails §11 conformance criterion 1 before any field

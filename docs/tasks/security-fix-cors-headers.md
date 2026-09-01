@@ -62,4 +62,4 @@ default, and `*` is an explicit unsafe allow-all choice. The unified listener no
 `ui.host` and defaults to `0.0.0.0`; this does not weaken CORS, but it makes the lack of UI
 authentication operationally important. See
 [S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md) and the
-[decision record](../decisions/2026-08-24-credenciais-s3-e-rede-do-ui-server.md).
+[decision record](../decisions/2026-08-24-s3-credentials-and-ui-server-network.md).

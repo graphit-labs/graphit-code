@@ -1,135 +1,166 @@
----
-title: "UI Dashboard Specification"
-description: "Technical specification of the React web dashboard, 3D D3 canvas visualization, state stores, and Go HTTP handlers."
-content-type: reference
-audience: developers
-keywords:
-  - UI
-  - React
-  - Vite
-  - 3D graph
-  - D3
-  - uiserver
-prerequisites:
-  - "docs/architecture/architecture_overview.md"
-related:
-  - "docs/specs/ast_module.md"
-  - "docs/specs/wiki_module.md"
----
-
 # UI Dashboard Specification
 
-The dashboard provides a visual interface for managing Graphit Code.
-It features interactive 3D code graphs, documentation trees, and artifact registries.
+The Graphite Observatory is the embedded web interface for Graphit Code. It presents the same project, context, registry, daemon, knowledge, memory, and AST state exposed by the CLI and MCP tools.
 
----
+## Scope
 
-## 🎨 Frontend Stack: Vite + React + Tailwind
+The UI provides:
 
-The visual application is located inside `internal/ui/` and is structured as a Single Page Application:
+- workspace and IDE selection;
+- Hub registry, local artifacts, and publication workflows;
+- project and imported knowledge explorers;
+- project, user, and imported memory explorers;
+- project and imported AST explorers;
+- live multi-source agent sessions;
+- daemon, Dream, and ecosystem status.
 
-- **Build Tool**: Vite (`vite.config.ts`), configured to output compiled assets to `internal/ui/dist/` for Go embedding.
-- **Styling**: Tailwind CSS (`tailwind.config.js`) + PostCSS.
-- **State Management**: Zustand-backed store (`appStore.ts`) tracking project workspaces, select nodes, search histories, active page contexts, and UI toasts.
-- **API Client**: Axios wrapper communicating with backend handlers (`src/api/`).
+It does not add authentication, replace network controls, or maintain an independent copy of domain data.
 
-### Visual language and responsive behavior
+## Frontend architecture
 
-The dashboard uses the **Graphite Observatory** visual system. Its dark graphite navigation
-acts as a stable instrument rail, while the workspace uses paper-like neutral surfaces, a
-low-contrast coordinate grid, phosphor-green primary actions, and IBM Plex Mono for technical
-metadata. The same semantic tokens drive light and dark themes; component behavior does not
-depend on a theme-specific branch.
+The SPA lives in `internal/ui/`.
 
-The responsive contract is:
+| Concern | Implementation |
+|---|---|
+| Build | Vite |
+| UI | React + TypeScript |
+| Styling | Tailwind CSS plus semantic CSS tokens |
+| State | Zustand stores with selective persistence |
+| HTTP | Axios-based API modules |
+| Markdown | Rendered wiki and memory pages with navigable references |
+| Graph | D3 force simulation and canvas rendering |
+| Packaging | Production assets embedded into the Go binary |
 
-- Below the `md` breakpoint, the global navigation becomes a modal drawer and retains every
-  route, registry type filter, project/IDE switcher, and theme control.
-- The Live Search artifact picker and session console stack vertically below the `lg`
-  breakpoint. The picker remains independently scrollable and the console is never hidden
-  beyond the viewport.
-- AST and Wiki explorers start with their index rail collapsed on mobile. Users can expand it
-  with the same control used on desktop; query and canvas/content surfaces keep the remaining
-  width.
-- All interactive elements use a visible keyboard focus ring, motion honors
-  `prefers-reduced-motion`, and global loading/toast states announce themselves without
-  changing the underlying feature flow.
+`npm run build` writes `internal/ui/dist/`. The Go UI server embeds that output and serves it with same-origin API routes.
 
----
+## Visual system
 
-## 🌐 Go HTTP Server: Unified uiserver
+Graphite Observatory uses:
 
-The backend server is implemented inside `internal/uiserver/`:
+- a theme-independent graphite navigation rail;
+- paper-like neutral workspace surfaces in light mode;
+- deep graphite workspace surfaces in dark mode;
+- phosphor green for primary signals and mint for secondary technical states;
+- Manrope for hierarchy and IBM Plex Mono for technical metadata;
+- a low-contrast coordinate grid and restrained instrument framing;
+- the product `brand-glyph` as the favicon and primary identity mark.
 
-- **Unified Server (`unified_server.go`)**:
-  Serves the React static files compiled by Vite using Go's `embed` package:
-  ```go
-  //go:embed all:dist
-  var embeddedUI embed.FS
-  ```
-  It dynamically resolves server paths and binds API routes.
+Semantic tokens define meaning across both themes. New features extend existing tokens instead of introducing route-specific palettes.
 
-### Network binding and origin policy
+## Responsive contract
 
-`graphit ui` selects a free port and binds it on the resolved `ui.host`. The built-in
-default is `0.0.0.0`; `GRAPHIT_UI_HOST`, project config, or global config can override it
-through the standard precedence chain. The embedded frontend uses same-origin `/api`
-URLs, so it works through a LAN hostname or reverse proxy without calling the browser's
-own localhost.
+- Below `md`, global navigation becomes a modal drawer with every route, workspace/IDE control, filter, and theme action preserved.
+- Below `lg`, Live Search stacks its artifact picker and session console.
+- AST and wiki rails may collapse so the canvas or document remains usable on narrow screens.
+- Full-screen explorers must not introduce horizontal page overflow.
+- Keyboard focus remains visible.
+- Motion honors `prefers-reduced-motion`.
+- Loading and toast states communicate status without removing the underlying route context.
 
-Every endpoint is wrapped by one CORS policy. With no `ui.allowed_origins` override,
-empty/same-origin requests and localhost loopback origins are accepted. A configured
-comma-separated list replaces that default with exact origins; `*` is an explicit
-allow-all value. The UI server has no authentication, and CORS is not access control for
-non-browser clients. Restrict `ui.host` or place reachable deployments behind a firewall,
-VPN, or authenticated TLS proxy. See
-[S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md).
-- **Wiki Handlers (`wiki_handler.go`)**:
-  Exposes JSON endpoints:
-  - `GET /api/wiki/modules?project_dir=`: Returns the wikis browsable for that project — its documentation wiki, its two memory scopes, and every context it has imported.
-  - `GET /api/wiki/pages?dir=`: Returns the page list of one wiki directory.
-  - `GET /api/wiki/page?dir=&path=`: Returns raw page contents and metadata.
-  - `GET /api/wiki/search?dir=&q=`: BM25 search inside one wiki.
-  - `POST /api/wiki/ai-search`: Single-wiki AI search. Multi-turn agentic search over several sources is the live search, under `/api/live`.
+## Workspace identity
 
-  **Module discovery resolves, it does not scan.** Every wiki lives once in the global
-  brand directory keyed by identity, so `discoverModules` asks `internal/store` where each
-  one is: `store.KnowledgeProjectDir` for the project's documentation,
-  `store.MemoryWikiDir` for the `project` and `user` memory scopes,
-  `store.KnowledgeContextDirIn` for each context named in the project's lockfile, and the
-  memory worktree set for imported memory contexts. Nothing under the project directory is
-  probed — a wiki left at the pre-centralization path (`<project>/.graphit/knowledge/project`)
-  is deliberately not reported.
+The app store loads registered projects from `GET /api/global-projects` and persists the selected project directory under the `graphit-app-state` browser key.
 
-  The module `id` is the UI's contract, not an implementation detail: the sidebar builds its
-  Memory section from ids prefixed `memory-`, and the Knowledge Contexts page filters on
-  `knowledge` and `knowledge/`. The `context` field is what the explorer route is built from
-  (`/memory/explorer/<context>`), and `project`/`user` are what the cards style as
-  project-scoped.
+Every project-scoped request must use the active project directory or context. Because the selection survives browser sessions, explorer screens must display the active project clearly enough for a user to verify it before interpreting data.
 
----
+Switching projects updates:
 
-## 📊 Visual Interactive Modules
+- project name and identity;
+- Knowledge, AST, and Memory navigation entries;
+- Hub target context;
+- explorer API parameters;
+- ecosystem and system views that depend on project scope.
 
-### 1. 3D Force-Directed AST Canvas
-- **Technology**: `d3-force-3d` engine.
-- **Execution**: Renders the AST database structures in a three-dimensional spatial canvas.
-- **Data Load**: The component `GraphCanvas.tsx` queries nodes (files, classes, methods) and edges, binding them to a physics model with force constraints (charge, link distance, center gravity).
-- **Relationship names**: Every user-facing edge type comes from the active project/context's
-  `<store>/graph.icebug/icebug.json`. `CanonicalRelGroup.Type` is the public name used by the
-  query translator, schema rail, filters and canvas; physical member-table names remain an
-  Icebug storage detail and must never cross the Explorer API boundary. Resolution is scoped
-  to `project_dir`/context and cannot use a global or frontend-owned map.
-- **Interactions**:
-  - Hovering highlights connected neighbors (e.g. parent directories and child functions).
-  - Clicking extracts node parameters and lists them inside `NodeTree.tsx`.
+## Main experiences
 
-### 2. Wiki Explorer Layout
-- **Component**: `WikiExplorerPage.tsx`.
-- **Render**: Splits the interface into a file navigation tree (`WikiTree.tsx`), a content markdown viewer, and a search panel.
-- **Semantic Tags**: Automatically converts Obsidian wikilinks into SPA routes.
+### AST Explorer
 
-### 3. Registry Hub Page
-- **Component**: `RegistryPage.tsx`.
-- **Function**: Communicates with the hub service to display catalogs of rules and skills.
-- **Upload Modal**: `SubmitModal.tsx` packages rulesets and publishes them to the configured S3-backed Hub registry.
+The AST Explorer contains:
+
+- a schema rail grouped by language and entity type;
+- friendly relationship filters;
+- Cypher and AI-assisted query modes;
+- example queries;
+- a two- or three-dimensional graph canvas;
+- zoom, fit, reset, physics, and layer controls;
+- node details and source navigation.
+
+User-facing relationship names are resolved dynamically from the active project or context's `graph.icebug/icebug.json` manifest. `CanonicalRelGroup.Type` is the public name used by the translator, schema rail, filters, and canvas. Physical edge-table names are internal Icebug storage details and must not cross the explorer API boundary.
+
+The mapping is scoped to `project_dir` or imported context; the frontend must not maintain a global hard-coded relationship map.
+
+### Knowledge and Memory Explorers
+
+Both explorers share a document workspace:
+
+- an index rail;
+- back and forward navigation;
+- keyword and AI-assisted search modes;
+- source-backed page rendering;
+- metadata chips;
+- provenance and cross-reference navigation;
+- a refresh action.
+
+Knowledge shows maintained project or imported documentation. Memory shows project, user, or imported memory scopes. Search results are page titles; selecting a title loads the page content.
+
+### Hub
+
+The Hub routes present:
+
+- registry browsing and filters;
+- project-installed artifacts;
+- artifact details and version metadata;
+- install, update, uninstall, and publish actions where supported.
+
+Remote operations depend on configured Hub storage and credentials.
+
+### Live Search
+
+Live Search lets the user choose compatible artifacts, select a target IDE, enter a prompt, and observe a streamed agent run inside an ephemeral project. Recent sessions and execution status remain visible without mixing them into persistent project stores.
+
+### System views
+
+- **Daemon** exposes process status and recent operational information.
+- **Dream** exposes configuration and session/report state.
+- **Ecosystem** lists registered projects, labels, and active project identity.
+
+## Go server boundary
+
+`internal/uiserver/`:
+
+- serves the embedded SPA;
+- resolves the active project and imported contexts;
+- exposes JSON handlers for AST, wiki, memory, Hub, live search, daemon, Dream, and ecosystem operations;
+- applies one UI host and exact-origin CORS configuration;
+- returns domain-friendly names rather than storage implementation names.
+
+The built-in UI host is the IPv4 loopback address. The frontend uses same-origin `/api` URLs so it continues to work behind a correctly configured reverse proxy.
+
+The server has no authentication. CORS limits browser origins but does not authorize non-browser clients. See [S3 Credentials and UI Network Configuration](../guides/s3-and-ui-network.md).
+
+## Error and loading behavior
+
+- Requests increment and decrement a shared loading counter.
+- The global working indicator remains visible while at least one request is active.
+- Route-level empty and error states explain what is missing and provide a relevant retry or navigation action.
+- Switching projects must not render stale data as if it belongs to the new project.
+- A failed context load retains enough route identity for the user to recover.
+
+## Acceptance criteria
+
+- Every documented route is reachable from desktop and mobile navigation.
+- Light and dark modes preserve the same semantic hierarchy.
+- The active project is visible on project-scoped surfaces.
+- AST relationship names match the active manifest's friendly names.
+- Screenshot and public documentation examples use the current Graphite Observatory UI.
+- The production bundle builds with `npm run build`.
+- The embedded server serves the SPA and same-origin API calls.
+- The default network configuration remains local; documentation does not present CORS as authentication.
+
+## Reference captures
+
+![AST Explorer](../site/assets/observatory-ast-explorer.jpg)
+
+![Knowledge Explorer](../site/assets/observatory-knowledge-explorer.jpg)
+
+![Memory Explorer](../site/assets/observatory-memory-explorer.jpg)

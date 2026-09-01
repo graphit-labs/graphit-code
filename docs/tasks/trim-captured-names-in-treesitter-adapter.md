@@ -31,11 +31,9 @@ The survey was conducted using the project's own __INLINE_0 loader, not by
 
 Translation: The investigation was carried out with the project's own __INLINE_0 loader, not through.
 text marriage listing all queries `type: relation` that do not declare
-Here is the translation:
 
 Neither of these. They are **361**. Grouped by the type of node that
 
-This translation maintains the structure and meaning of the original Portuguese sentence while rendering it in idiomatic English.
 capturam:
 
 Number: Captured
@@ -125,7 +123,6 @@ The code runs **always** and covers the case where (2) does not run.
   4. nome vazio depois do trim descarta o match
 - **Alternative Flows**:
 Identifier Tag: The trim method is an identity operation, behaving exactly as before.
-Brazilian Portuguese:
 - Queries ANTLR: already normalized by `dataText` in the ANTLR adapter, do not proceed here.
 - **Error Scenarios**:
 The name that used to be just space is now discarded by the same _INLINE_0_.
@@ -185,16 +182,12 @@ The manifesto is discarded, and all files are reparsed.
 | File | Change | Reason |
 |---|---|---|
 | `internal/ast/treesitter_adapter.go` | Modified | `strings.TrimSpace` no nome capturado, sempre — corrige a classe |
-Here is the translation:
 
 "_`internal/ast/queries/svelte.yaml`_ | Modified | _`parent_capture`_ not bound: names the element and links to normalization"
 
-This translation maintains the structure of the original Portuguese text while rendering it in idiomatic English. The placeholders "`internal/ast/queries/svelte.yaml`" and "`parent_capture`" are kept as they are, likely referring to specific identifiers or variables within a code snippet.
-Here is the translation:
 
 "_`internal/ast/shard_cache.go`_ | Modified | _`shardCacheVersion`_ → 3, otherwise the correction does not reach already indexed project"
 
-This translation maintains the structure and meaning of the original Portuguese text while making it more idiomatic in English.
 | `internal/ast/css_test.go` | Modified | `TestSvelteBindingIsNormalised` e `TestPaddedAttributeReferenceIsNormalised` |
 
 ## Trade-offs & Decisions

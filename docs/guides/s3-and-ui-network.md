@@ -159,4 +159,4 @@ graphit config --get ui.allowed_origins
 
 See also [Configuration Module](../specs/config_module.md),
 [Hub S3 Object Layout](../specs/hub-s3-object-layout.md), and the
-[network and credential decision record](../decisions/2026-08-24-credenciais-s3-e-rede-do-ui-server.md).
+[network and credential decision record](../decisions/2026-08-24-s3-credentials-and-ui-server-network.md).

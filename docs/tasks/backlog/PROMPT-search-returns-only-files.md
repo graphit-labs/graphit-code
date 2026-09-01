@@ -57,7 +57,6 @@ How do you know it worked?
 - **A new test with an imbalanced corpus** — many files, few entities per file — fails with the current code. Without this correction, the tests do not have a save: existing tests (INLINE_42, INLINE_43) pass today precisely because the corpus is small.
 - **INLINE_44** remains at 11/11 strict and 5/5 recall, while **INLINE_45** improves to 8/8 plus recall. If either of them rises, be wary: it might be masking the metric instead of improving the search.
 
-This translation preserves the original technical content and structure, including code blocks, markdown formatting, and technical terms such as "corpus" and "recall."
 
 ---
 
@@ -67,7 +66,6 @@ Reproduction
 
 In an indexed store before the engine swap (~44 KB inline and a ~47 INLINE),:
 
-This translation maintains the original structure and technical terms while converting the Brazilian Portuguese text into idiomatic English.
 
 ```
 graphit ast index      # responde "770 files up to date (no changes detected)"
