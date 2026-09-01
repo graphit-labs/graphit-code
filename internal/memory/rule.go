@@ -510,7 +510,7 @@ func MandateTrigger() string {
 		"ALWAYS consult this skill: search memory at session start BEFORE your first response, and again before implementing changes, proposing an approach, or when stuck. This is unconditional — there is no \"only if relevant\" escape. This framework IS your memory; NEVER use IDE/model native memory.\n"+
 			"SEARCH ANSWERS WITH TITLES, NOT WITH MEMORIES. A search result is a slug, a title, a type and a score — it carries no memory text, deliberately, so that the tokens go on the one or two memories you actually decide to open rather than on twenty previews. Choosing is yours: read the titles, pick, then call "+brand.MCPToolRef("wiki", "source")+" with `wiki: \"memory\"` on what you picked. Acting on a search result alone is acting on a title you never read. `preview: true` buys a short excerpt per hit when two titles genuinely do not separate — it is the exception.",
 		[]string{
-			"the session just started and you have not yet searched memory — before the first response, not after it",
+			"the session just started and you have not yet searched memory — before the first response, not after it. This is the ONE skill that is due at session start; every other module waits for a trigger of its own to fire",
 			"you are about to propose an approach, a design, or a plan",
 			"you are stuck, or the second attempt at something is failing the way the first did",
 			"the user corrected you, stated a preference, or told you how they want something done",

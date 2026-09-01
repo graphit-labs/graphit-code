@@ -288,6 +288,32 @@ Examples of INVALID fallback (protocol violations):
 | **a sibling project in the ecosystem** | Call `graphit_knowledge_search` or `graphit_wiki_search` with **that project's `dir` as `project_dir`** — it has its own compiled wiki |
 | **imported context** (hub artifact) | Call `graphit_knowledge_search` (context: "<name>") |
 | **multi-source** (project + memory) | Call `graphit_wiki_search` (wikis: ["project", "memory"]) |
+| **a Hub artifact, with no project at all** | Call `graphit_knowledge_search` (context: "<id>@<version>") and **no `project_dir`** |
+
+### Reading a Hub artifact with no project
+
+**`project_dir` is optional on the read tools** — `graphit_knowledge_search`, `graphit_wiki_browse`, `graphit_wiki_source`, `graphit_wiki_xrefs`, `graphit_wiki_log` — for the case where there is no
+checkout to name: an agent reaching this server over HTTP, working from Hub artifacts alone.
+Install the artifact with no project, then address it by its **qualified identifier**:
+
+```
+graphit_hub_install(id: "<artifact-id>@<version>")
+graphit_knowledge_search(context: "<artifact-id>@<version>", query: "<question>")
+graphit_wiki_source(context: "<artifact-id>@<version>", path: "<slug from the search>")
+```
+
+Two rules come with it:
+
+- **Without `project_dir`, `context` is not optional** for the knowledge wiki: there is no
+  project wiki to fall back on, so a call with neither is refused rather than answered with
+  nothing — an empty answer would read as a fact about the documentation.
+- **The memory wiki is the exception, and needs neither.** Its user scope is keyed by the
+  machine, so `graphit_wiki_source(path: "<slug>", wiki: "memory")` works with no project at all
+  and serves your user memory. A request for the *project* scope without a project is served
+  from the user scope, and the answer says so.
+
+Writing is still project-only: indexing, linting, exporting and installing a context into a
+project all need one.
 
 ### 🔒 There is no wiki inside the project — the page file is not yours to open
 

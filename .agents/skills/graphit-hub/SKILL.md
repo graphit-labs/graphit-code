@@ -133,6 +133,60 @@ graphit_hub_install(project_dir: "/path/to/project", id: "<artifact-id>", ide: "
 `id` accepts an `@version` suffix (`stripe-knowledge@2.1.0`) to pin a version. Without it
 you get the latest.
 
+#### Installing with NO project at all
+
+**`project_dir` is optional here, and omitting it is not a degraded install.** Every
+compiled store in this framework is already global and keyed by id plus version, so a
+project-less install puts the artifact in exactly the same place; what changes is only
+where its membership is recorded — the global lock rather than a project's lockfile.
+```
+graphit_hub_install(id: "<artifact-id>@<version>")
+```
+
+Use it when there is no checkout to install into — you are reaching this server over HTTP
+and want to read an artifact, not to set a project up. Afterwards the artifact is addressed
+by its **qualified identifier** instead of by a project:
+```
+graphit_ast_query(context: "<artifact-id>@<version>", query: "MATCH (f:Function) RETURN f.name, f.path")
+graphit_knowledge_search(context: "<artifact-id>@<version>", query: "<question>")
+graphit_hub_content(id: "<artifact-id>@<version>")
+```
+
+Two consequences worth knowing before you rely on it:
+
+- **The global scope is READ-ONLY for graphs and wikis.** Indexing or embedding needs a
+  project, because opening a store read-write CREATES it and there is no identity to key
+  one by. Installing and reading are what a project-less caller does.
+- **A project cannot reach a global install it never claimed.** The fallback fires only
+  when `project_dir` is genuinely absent; membership is still the record that decides what
+  a project may query. Working inside a project? Install it there.
+
+### 4b. Reading what a rule, skill, command or agent SAYS
+
+An `ast` artifact is read through the graph and a `knowledge` artifact through the wiki.
+The instruction-carrying types have no query tool, and their materialised copy only exists
+inside a project's IDE directory — so `graphit_hub_content` serves their files directly:
+```
+graphit_hub_content(id: "<artifact-id>@<version>")
+graphit_hub_content(id: "<artifact-id>", type: "skill", path: "SKILL.md")
+graphit_hub_content(project_dir: "/path/to/project", id: "<artifact-id>")
+```
+
+**One artifact is often several files** — a skill is a `SKILL.md` plus whatever it
+references — so the answer is a map **keyed by the artifact-relative path**, with each
+file's text as the value, plus `canonical` naming the entry-point file to read first. Ask
+for one file with `path` when you already know which you want.
+
+`project_dir` is optional and it narrows rather than enables: with one, THAT project's
+claim decides the version, so the answer is what the project actually has installed.
+Without one, the global installs are read and the `id` may carry an `@version` — and it
+must, when several versions are installed, because two versions are two different
+artifacts and this refuses to guess between them.
+
+Types served: `rule`, `skill`, `command`, `agent`. An `ast` or `knowledge` id is refused
+by name, pointing at `graphit_ast_source` and `graphit_wiki_source` — those are mounted
+rather than downloaded, so they have no file tree to return.
+
 ### 5. Uninstall
 To remove an artifact you installed — wrong artifact, or a dependency that is gone — call `graphit_hub_uninstall`:
 ```

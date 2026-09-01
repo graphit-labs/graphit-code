@@ -1436,7 +1436,7 @@ func MandateTrigger() string {
 		[]string{
 			"you are about to start a task of any size — the task log is the FIRST artifact of it, written before the work, never a report you assemble at the end",
 			"you finished a step, changed direction, hit a blocker, or learned something that changes the plan — the log is updated at that moment, not when the task ends",
-			"you are resuming after an interruption or after the user asked for changes or corrections — read the existing task log before you touch anything, and re-open this skill instead of continuing from what you remember",
+			"you are resuming after an interruption or after the user asked for changes or corrections — read the existing task log before you touch anything, and re-apply this skill's protocol instead of continuing from what you remember (re-apply it; if you already read the skill this session there is nothing to open again)",
 			"you need certainty that what a tool returns is current — the automatic reindex lands after the write, so call " + brand.MCPToolRef("sync") + " and let it finish before you decide anything on the result",
 			"you are about to grep, glob, or read files under the docs tree to find something",
 			"you are about to open a wiki page as a file — you cannot: the wiki is global and outside your workspace, so " + brand.MCPToolRef("wiki", "source") + " is the only way to read a page",

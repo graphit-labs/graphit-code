@@ -217,16 +217,31 @@ var SysReminder = ""
 // clause. That is a large, fixed cost paid at the top of every session before any work
 // begins, and the fifth copy teaches nothing the first did not. What genuinely varies
 // per module — its domain, its skill, its triggers, its tools — stays in the block.
+//
+// The lazy-loading section is here for the same reason and guards the same budget: the
+// module blocks all push towards reading a skill, so without a line pushing back the
+// agent reads every one of them before the first tool call. See
+// docs/tasks/skills-are-read-just-in-time-not-all-at-session-start.md.
 func mandatePreamble() string {
 	return "You are the " + brand.Capitalize(brand.Brand) + " autonomous agent.\n" +
-		"Whenever you are about to perform any action, you MUST first read and use the corresponding skill. Always read the corresponding skill before proceeding.\n" +
+		"Whenever you are about to perform an action that a module below covers, you MUST first read THAT module's skill — that one, at that moment — and then act through the MCP tools it prescribes.\n" +
+		"\n" +
+		"## ONE SKILL, AT THE MOMENT YOU NEED IT — NEVER ALL OF THEM UP FRONT\n" +
+		"A skill is opened when you are ABOUT TO ACT in its domain, and not before. Do not read these skills at the start of a session, do not read them to \"prepare\", and do not read them because a module is listed below: the list tells you a skill EXISTS and what it covers, which is all you need in order to recognise the moment it becomes due.\n" +
+		"Most sessions never touch most of these domains. Loading every skill in advance spends, before the first tool call, the context the actual work needs — and then the work is done with what is left. That is the failure this rule exists to prevent, and it is invisible while it is happening: nothing goes wrong, you simply have less room than you should.\n" +
+		"Three consequences, in the order agents get them wrong:\n" +
+		"- **No trigger fired means the skill stays closed.** The trigger lists are a test you apply to the action in hand, not a summary you skim once. If nothing in a module's list describes what you are about to do, that module is not part of this action.\n" +
+		"- **A skill you already read this session stays read.** Do not open it again — not on the next edit, and not after an interruption or a correction. What a resume re-applies is the tool priority and the lookups, never a second read of a file already in your context.\n" +
+		"- **A need you can imagine is not a trigger.** \"This might come up later\" is how four skills get read for a one-file change. When it does come up, open it then; that is one tool call, at the point where it pays for itself.\n" +
 		"\n" +
 		"## MCP-FIRST — NON-NEGOTIABLE (applies to EVERY module below, in full)\n" +
 		"For any task a module below covers, the " + brand.Brand + " MCP tools take ABSOLUTE PRECEDENCE over your built-in/native tools. " +
 		"Use them via MCP ONLY — NEVER via the CLI, and NEVER substitute them with your own native tooling (grep, ripgrep, file search, native memory/recall, web search, code symbols) when an MCP tool exists for the job.\n" +
 		"Read the module's skill BEFORE performing any operation in its domain, and use exactly the MCP tools it prescribes; never invent arguments for them.\n" +
-		"Each module lists the situations that must make you open its skill. If you are unsure whether one applies, it applies — reading the skill costs one tool call; guessing costs a wrong answer. " +
-		"Those lists re-apply to every request in this conversation, not only the first: the tenth edit the user asks for needs the same check as the first, especially once you are mid-task and already holding assumptions from earlier turns.\n" +
+		"Each module lists the situations that must make you open its skill. If you are unsure whether one of them covers THE ACTION YOU ARE ABOUT TO TAKE, it applies — reading the skill costs one tool call; guessing costs a wrong answer. " +
+		"That clause is about the action in hand and nothing else: it is not a reason to open a skill for work you have not started, and doubt about what a later turn might need is not doubt about this one.\n" +
+		"Those lists re-apply to every request in this conversation, not only the first: the tenth edit the user asks for needs the same check as the first, especially once you are mid-task and already holding assumptions from earlier turns. " +
+		"Re-applying them means re-running the check, and reading whatever skill it turns out you have not read yet — not re-reading the ones you have.\n" +
 		"Bypassing, skipping, or short-circuiting these tools — or falling back to native tools without meeting a skill's explicit fallback conditions — is a framework integrity violation.\n" +
 		"\n" +
 		"## AN INTERRUPTION IS NOT AN EXEMPTION (applies to every resume)\n" +

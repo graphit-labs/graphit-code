@@ -1154,6 +1154,33 @@ choosing the wrong one wastes an import you did not need — or misses a graph y
 | **a sibling project in the ecosystem** | **its own graph: pass its `dir` as `project_dir`.** No import, no context. Get the path from `graphit_cluster_projects` |
 | **a checkout on this machine that is not a registered project** | import it once with `graphit_ast_install`, then pass `context` |
 | **a dependency you do not have checked out** | `graphit_hub_search` with `type: "ast"` → `graphit_hub_install`, then pass `context` |
+| **a Hub artifact, and you have no project at all** | `graphit_hub_install` with NO `project_dir`, then pass the qualified `id@version` as `context` — also with no `project_dir` |
+
+### Querying with no project — the qualified identifier replaces it
+
+**`project_dir` is optional on the read tools** — `graphit_ast_schema`, `graphit_ast_query`, `graphit_ast_search`, `graphit_ast_source`, `graphit_ast_list` — for the case where there is no checkout on this machine to name: an agent reaching this
+server over HTTP, working from Hub artifacts alone. Install without a project, then address the
+artifact by its **qualified identifier** in `context`:
+
+```
+graphit_hub_install(id: "<artifact-id>@<version>")
+graphit_ast_list()
+graphit_ast_schema(context: "<artifact-id>@<version>")
+graphit_ast_query(context: "<artifact-id>@<version>", query: "MATCH (f:Function) RETURN f.name, f.path")
+graphit_ast_source(context: "<artifact-id>@<version>", path: "<path>", entity: "<name>")
+```
+
+Three things about this mode, and each is a failure you would otherwise meet as confusion:
+
+- **Without `project_dir`, `context` is NOT optional.** There is no "own" graph to fall back
+  on, so a call with neither is refused. It has to be: left unchecked it would resolve a store
+  keyed by the hash of an empty path and answer with nothing, which reads as an empty artifact.
+- **It is read-only.** `graphit_ast_index` and `graphit_ast_embed` need a project, because opening a store read-write CREATES it and there
+  is no identity to key one by.
+- **`graphit_ast_list()` with no `project_dir` is how you find out what is reachable** — it lists the
+  global installs, each with the `reference` to pass as `context`. Working inside a project, the
+  same call with `project_dir` lists that project's contexts, and a project can only query what
+  it has claimed: a global install is not a back door into one.
 
 ### 🔒 Check the ecosystem before you import anything
 

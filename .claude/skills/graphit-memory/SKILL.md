@@ -60,6 +60,29 @@ Do this before changing anything over there, and before explaining why it behave
 Its code shows *what*; its memories are the only record of *why*, and reading the source will
 not reconstruct a decision someone made deliberately.
 
+### And with no project at all, memory still works
+
+**`project_dir` is optional on every memory tool that reads or writes a scope** — search,
+list, important, insert, update, delete, promote, demote, index. Omitting it serves the **user**
+scope, which is keyed by this machine rather than by a project, so it is a real scope and not a
+consolation prize:
+
+```
+graphit_memory_search(query: "<what you are about to assume>")
+graphit_memory_insert(title: "<title>", content: "<body>")
+graphit_wiki_source(path: "<slug>", wiki: "memory")
+```
+
+This is for the caller that has no checkout to name — an agent reaching this server over HTTP.
+Two things to know:
+
+- **A request for the `project` scope with no `project_dir` is served from the user scope, and
+  the answer says so.** A project scope is keyed by a project identity; there is none. It is a
+  redirect rather than a refusal because the session-start search happens before an agent knows
+  whether it has a project, and failing that call would lose whatever it was about to record.
+- **`graphit_memory_export`, and the imported-context tools, still need a project.** They act on the
+  project memory store, which does not exist without one.
+
 ## 🔒 This Framework IS Your Memory — No Other Exists
 
 - **ALWAYS** use the `graphit_memory_insert` tool (passing absolute `project_dir` parameter) to persist facts across sessions.
