@@ -67,7 +67,7 @@ func exportDirectWithReverse(ri *rebuildIndex, outDir, storageURI string, filter
 	}
 
 	// Rows per label come from the same sources the file-backed rebuild used (see
-	// rebuild_index.go) — fileNodeJSON, dirNodeJSON, entityJSON plus the stub
+	// rebuild_index.go) — streamFileNodes, streamDirNodes, streamEntities plus the stub
 	// writers — so the exported data is identical to what a populated store had.
 	//
 	// SAFETY: this ORDER is load-bearing and is not the write order. The stub writers
@@ -759,10 +759,6 @@ func labelInBatches(ri *rebuildIndex, label string) (map[string]any, bool) {
 
 // ---------- node rows ----------
 
-func nodeRowsFor(ri *rebuildIndex, label string) []map[string]any {
-	return collectRows(func(emit func(map[string]any)) { streamNodeRowsFor(ri, label, emit) })
-}
-
 func streamNodeRowsFor(ri *rebuildIndex, label string, emit func(map[string]any)) {
 	switch label {
 	case "File":
@@ -1156,38 +1152,6 @@ func writeIndptrDirect(dest string, edges []csrEdgeDirect, nodeCount uint64) err
 			pb.Append(ptr[i])
 		}
 	})
-}
-
-func appendArrowValueDirect(b array.Builder, v any) {
-	if v == nil {
-		b.AppendNull()
-		return
-	}
-	switch bb := b.(type) {
-	case *array.StringBuilder:
-		bb.Append(fmt.Sprint(v))
-	case *array.LargeStringBuilder:
-		bb.Append(fmt.Sprint(v))
-	case *array.Int64Builder:
-		switch n := v.(type) {
-		case int64:
-			bb.Append(n)
-		case int:
-			bb.Append(int64(n))
-		case int32:
-			bb.Append(int64(n))
-		default:
-			bb.Append(0)
-		}
-	case *array.BooleanBuilder:
-		if x, ok := v.(bool); ok {
-			bb.Append(x)
-		} else {
-			bb.AppendNull()
-		}
-	default:
-		b.AppendNull()
-	}
 }
 
 func copyIcebugFile(src, dst string) error {

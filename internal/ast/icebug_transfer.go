@@ -130,16 +130,6 @@ func splitCypherStatements(src string) []string {
 	return out
 }
 
-func firstDDLLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	if len(s) > 160 {
-		return s[:160] + "…"
-	}
-	return s
-}
-
 // backendConn adapts a LadybugBackend to the transfer package's Conn.
 //
 // It exists so the export can run on a handle the caller already holds: the engine allows

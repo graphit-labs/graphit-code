@@ -451,3 +451,45 @@ coluna), comentários e skeleton de arquivo em ordem de linha, parâmetros em or
 imports em ordem de declaração. A linha da tabela do contrato que dizia que ordenação não existe
 virou ✅ com a ressalva da chave projetada, e a forma única no texto ganhou a cláusula opcional.
 Segue em 137 exemplos, 0 recusados.
+
+### 2026-09-01 — validação no MCP e commit
+
+Reinstalado (`make install`), launcher re-extraiu, daemon reiniciou. Tudo abaixo foi
+EXECUTADO no MCP contra o grafo real, não inferido do parser:
+
+| Verificação | Resultado |
+|---|---|
+| `ORDER BY e.line_number` em traversal | 17 funções em ordem real de linha (34, 53, 80 …), não lexical |
+| `ORDER BY e.line_number DESC LIMIT 3` | as três últimas, em ordem decrescente |
+| `ORDER BY` por coluna não projetada | recusado, nomeando a causa e o fix |
+| arquivo-sonda `.sql` indexado pelo watcher | **um** nó `File`, path relativo |
+| varredura do grafo por path absoluto | zero linhas |
+| entidade da sonda | `path` relativo |
+| preamble antigo plantado no `AGENTS.md` | reescrito pelo `graphit sync` |
+
+Suíte: `go test ./...` inteira verde. Sonda removida do repo.
+
+**Commit `0ca631a` na main**, 20 arquivos. `internal/ast/pipeline.go` estava compartilhado com
+outra sessão do usuário, então foi feito split cirúrgico: dos 8 hunks do arquivo, os 3 da
+normalização de path foram para o index via `git apply --cached` de um patch filtrado, e os 5
+da outra sessão (ordem de resolução de cluster, nota sobre `preparedEntries`) ficaram
+intactos no working tree. O conteúdo do index foi verificado com `git checkout-index` para
+diretório temporário: compila e passa os testes dos três pacotes afetados.
+
+Deliberadamente FORA do commit, confirmado pelo usuário como de outras sessões: `go.mod`,
+`go.sum`, `.github/workflows/{ci,release}.yml`, `.golangci.yml`, `Makefile`, `install.sh`,
+`Dockerfile`, `.dockerignore`, `cmd/graphit/commands/{runners,setup}.go` e seus testes,
+`internal/ast/{direct_icebug,icebug_transfer,node_columns,rebuild_index}.go`,
+`internal/ast/ladybug_icebug_traversal_test.go`, `internal/ast/node_columns_test.go`, e os task
+logs `make-ci-and-github-ci-green-and-fast.md` e `dockerfile-and-non-interactive-setup.md`.
+
+## Status final
+
+Todos os itens fechados: T1–T14. Debt que permanece aberto e NÃO foi endereçado:
+
+- [ ] `rule.go` de `knowledge`, `memory` e `hub` não auditados contra o lint de query. Se algum
+  ensina Cypher, está sujeito ao mesmo defeito, e o lint de T8 é reaproveitável.
+- [ ] Ranking agregado sobre os 8 tipos lógicos (fan-in, fan-out, módulos mais importados,
+  dead code varrendo o grafo) segue indisponível. `ORDER BY` resolveu ordenação, não
+  agrupamento: continua sendo preciso projetar uma ponta só e não se pode contar por nó.
+  A skill diz isso hoje, o que é honesto, mas é capacidade ausente.

@@ -74,8 +74,10 @@ func kindOfNodeValue(v any) nodeColumnKind {
 	}
 }
 
-// nodeInt64 mirrors what appendArrowValueDirect writes into an Int64Builder: the widths it
-// names, and zero for everything else that still counts as an integer to inferTypeFor.
+// nodeInt64 accepts the three widths an entity row actually carries and answers zero for
+// every other value that inferTypeFor still classified as an integer. The permissive
+// default is deliberate: inferTypeFor decides the column type from the FIRST row, so a
+// later row of an unexpected width must not be able to fail the write.
 func nodeInt64(v any) int64 {
 	switch n := v.(type) {
 	case int64:

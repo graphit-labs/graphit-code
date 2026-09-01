@@ -262,15 +262,6 @@ func sameStrings(got, want []string) bool {
 	return true
 }
 
-func bundleSchema(t *testing.T, storeDir string) string {
-	t.Helper()
-	raw, err := bundleSchemaBytes(storeDir)
-	if err != nil {
-		t.Fatalf("read schema: %v", err)
-	}
-	return string(raw)
-}
-
 func bundleSchemaBytes(storeDir string) ([]byte, error) {
 	for _, p := range []string{
 		filepath.Join(storeDir, "schema.cypher"),

@@ -40,14 +40,51 @@ jobs:
       - name: Create UI dist placeholder
         run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 
+      # This gate runs `make vet` and `make test`, both of which build with -tags lancedb and
+      # therefore depend on lancedb-native — which, with no installed runtime to link against,
+      # git-clones lancedb-go and runs cargo. The toolchain and the caches were missing here
+      # while ci.yml had them, so the job that gates every release artifact was the slowest and
+      # the most fragile of the two. Keys are identical to ci.yml's on purpose: the two
+      # workflows then share one cache entry.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache LanceDB native build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/lancedb-native-cache
+          key: lancedb-linux-amd64-${{ hashFiles('Makefile') }}
+          restore-keys: |
+            lancedb-linux-amd64-
+
+      - name: Cache ONNX Runtime and embedding model
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/onnxruntime-cache
+            /tmp/graphit-model-cache
+          key: test-deps-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: |
+            test-deps-${{ runner.os }}-
+
+      - name: Validate workflow files
+        run: make actionlint
+
       - name: Vet
         run: make vet
 
+      # No --build-tags: the list lives in .golangci.yml, which is what `make lint` reads too.
       - name: Lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12.2
           args: --timeout=5m
+
+      - name: Vulnerability scan
+        run: make vulncheck
 
       - name: Configure git identity
         run: |

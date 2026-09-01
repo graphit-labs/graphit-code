@@ -52,12 +52,14 @@ func referenceColumnsForLabel(label string, rows []map[string]any) ([]ladybug.Fi
 	return cols, referencePrimaryKey(label, rows)
 }
 
+// NOTE: only the FIRST row decides the key, mirroring how the production writer infers a
+// table's shape. A `for … { break }` said the same thing, but read as a loop.
 func referencePrimaryKey(label string, rows []map[string]any) string {
-	for _, r := range rows {
-		if _, ok := r["path"]; ok && (label == "File" || label == "Directory") {
-			return "path"
-		}
-		break
+	if len(rows) == 0 {
+		return "uid"
+	}
+	if _, ok := rows[0]["path"]; ok && (label == "File" || label == "Directory") {
+		return "path"
 	}
 	return "uid"
 }
@@ -219,8 +221,8 @@ func TestNodeColumnsMatchTheRowMapTable(t *testing.T) {
 	}
 }
 
-// sameCell compares what the streaming column stores against what appendArrowValueDirect
-// would have written from the raw map value, for the column's declared type.
+// sameCell compares what the streaming column stores against what the raw map value
+// coerces to, for the column's declared type.
 func sameCell(cypherType string, got, want any) bool {
 	switch cypherType {
 	case "INT64":

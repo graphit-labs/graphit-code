@@ -398,7 +398,7 @@ func (ri *rebuildIndex) scan() {
 	// guaranteed to name a label any entity carries: 75121 Table->Column edges
 	// against zero Table entities made LadybugDB reject the whole rel table group
 	// ("Table Table does not exist") and abort the rebuild, losing the entire
-	// graph. The writer already drops these edges — see containsEntityJSON — so
+	// graph. The writer already drops these edges — see streamContainsEntity — so
 	// filtering here costs nothing and keeps the DDL buildable.
 	for p := range containsSet {
 		if labelSet[p[0]] && labelSet[p[1]] {
@@ -436,28 +436,6 @@ func (ri *rebuildIndex) scan() {
 	}
 }
 
-func (ri *rebuildIndex) schemaInfo() SchemaInfo {
-	return SchemaInfo{
-		Labels:                  ri.labels,
-		ContainsPairs:           ri.containsPairs,
-		CallerLabels:            ri.callerLabels,
-		CalleeLabels:            ri.calleeLabels,
-		DMLTypes:                ri.dmlTypes,
-		DMLTargetLabels:         ri.dmlTargetLabels,
-		DMLSourceLabels:         ri.dmlSourceLabels,
-		ParamOwnerLabels:        ri.paramOwnerLabels,
-		FieldOwnerLabels:        ri.fieldOwnerLabels,
-		FieldAccessSourceLabels: ri.fieldAccessSourceLabels,
-		InheritLabels:           ri.inheritLabels,
-		DecoratorOwnerLabels:    ri.decoratorOwnerLabels,
-		AnnotationKinds:         ri.annotationKinds,
-		HasFields:               ri.hasFields,
-		HasParams:               ri.hasParams,
-		HasInherits:             ri.hasInherits,
-		HasDecorators:           ri.hasDecorators,
-	}
-}
-
 // collectRows materializes a streamed row producer. The streaming form is the real one:
 // the export never holds a label's rows as a slice, and these collectors exist so callers
 // that genuinely want the whole table — tests, and the delta probe — share one
@@ -481,10 +459,6 @@ func (ri *rebuildIndex) streamFileNodes(emit func(map[string]any)) {
 			"lang": fe.entry.Language, "cluster": fe.entry.Cluster,
 		})
 	}
-}
-
-func (ri *rebuildIndex) dirNodeJSON(clusterPathMap map[string]string, defaultCluster string) []map[string]any {
-	return collectRows(func(emit func(map[string]any)) { ri.streamDirNodes(clusterPathMap, defaultCluster, emit) })
 }
 
 func (ri *rebuildIndex) streamDirNodes(clusterPathMap map[string]string, defaultCluster string, emit func(map[string]any)) {
@@ -546,10 +520,6 @@ func (ri *rebuildIndex) streamEntities(label string, emit func(map[string]any)) 
 			}
 		}
 	}
-}
-
-func (ri *rebuildIndex) moduleJSON() []map[string]any {
-	return collectRows(ri.streamModules)
 }
 
 func (ri *rebuildIndex) streamModules(emit func(map[string]any)) {
@@ -647,10 +617,6 @@ func (ri *rebuildIndex) streamStubFunctions(emit func(map[string]any)) {
 	}
 }
 
-func (ri *rebuildIndex) stubClassJSON() []map[string]any {
-	return collectRows(ri.streamStubClasses)
-}
-
 func (ri *rebuildIndex) streamStubClasses(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, inh := range fe.entry.Inheritance {
@@ -660,10 +626,6 @@ func (ri *rebuildIndex) streamStubClasses(emit func(map[string]any)) {
 			}
 		}
 	}
-}
-
-func (ri *rebuildIndex) stubInterfaceJSON() []map[string]any {
-	return collectRows(ri.streamStubInterfaces)
 }
 
 func (ri *rebuildIndex) streamStubInterfaces(emit func(map[string]any)) {
@@ -692,10 +654,6 @@ func (ri *rebuildIndex) resolveFieldTarget(name, lang string) string {
 		return d.uid
 	}
 	return name
-}
-
-func (ri *rebuildIndex) stubFieldJSON() []map[string]any {
-	return collectRows(ri.streamStubFields)
 }
 
 func (ri *rebuildIndex) streamStubFields(emit func(map[string]any)) {
@@ -791,10 +749,6 @@ func (ri *rebuildIndex) streamStubTables(emit func(map[string]any)) {
 	}
 }
 
-func (ri *rebuildIndex) annotationNodeJSON(kind string) []map[string]any {
-	return collectRows(func(emit func(map[string]any)) { ri.streamAnnotationNodes(kind, emit) })
-}
-
 func (ri *rebuildIndex) streamAnnotationNodes(kind string, emit func(map[string]any)) {
 	seen := make(map[string]bool)
 	for _, fe := range ri.fileEntries {
@@ -821,10 +775,6 @@ func (ri *rebuildIndex) streamAnnotationNodes(kind string, emit func(map[string]
 			}
 		}
 	}
-}
-
-func (ri *rebuildIndex) paramEdgeJSON(callerLabel string) []map[string]any {
-	return collectRows(func(emit func(map[string]any)) { ri.streamParamEdges(callerLabel, emit) })
 }
 
 func (ri *rebuildIndex) streamParamEdges(callerLabel string, emit func(map[string]any)) {
@@ -861,10 +811,6 @@ func (ri *rebuildIndex) streamParamEdges(callerLabel string, emit func(map[strin
 	}
 }
 
-func (ri *rebuildIndex) fieldEdgeJSON(parentType string) []map[string]any {
-	return collectRows(func(emit func(map[string]any)) { ri.streamFieldEdges(parentType, emit) })
-}
-
 func (ri *rebuildIndex) streamFieldEdges(parentType string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, f := range fe.entry.Fields {
@@ -877,10 +823,6 @@ func (ri *rebuildIndex) streamFieldEdges(parentType string, emit func(map[string
 			}
 		}
 	}
-}
-
-func (ri *rebuildIndex) importEdgeJSON() []map[string]any {
-	return collectRows(ri.streamImportEdges)
 }
 
 func (ri *rebuildIndex) streamImportEdges(emit func(map[string]any)) {
@@ -942,10 +884,6 @@ func (ri *rebuildIndex) streamCallEdges(callerLabel, calleeLabel string, emit fu
 	}
 }
 
-func (ri *rebuildIndex) inheritEdgeJSON(relType, fromLabel, toLabel string) []map[string]any {
-	return collectRows(func(emit func(map[string]any)) { ri.streamInheritEdges(relType, fromLabel, toLabel, emit) })
-}
-
 func (ri *rebuildIndex) streamInheritEdges(relType, fromLabel, toLabel string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, inh := range fe.entry.Inheritance {
@@ -963,13 +901,9 @@ func (ri *rebuildIndex) streamInheritEdges(relType, fromLabel, toLabel string, e
 	}
 }
 
-// fieldAccessEdgeJSON takes the source label because a method reads fields as much as
-// a function does — in Go, more. The COPY pinned Function as the source, so every
-// access made from inside a method had no group to be written into.
-func (ri *rebuildIndex) fieldAccessEdgeJSON(write bool, srcLabel string) []map[string]any {
-	return collectRows(func(emit func(map[string]any)) { ri.streamFieldAccessEdges(write, srcLabel, emit) })
-}
-
+// srcLabel is a parameter because a method reads fields as much as a function does — in
+// Go, more. The COPY this replaced pinned Function as the source, so every access made
+// from inside a method had no group to be written into.
 func (ri *rebuildIndex) streamFieldAccessEdges(write bool, srcLabel string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, fa := range fe.entry.FieldAccess {
@@ -1025,10 +959,6 @@ func (ri *rebuildIndex) streamDMLEdges(relType, srcLabel, tgtLabel string, emit 
 	}
 }
 
-func (ri *rebuildIndex) annotationEdgeJSON(kind, ownerLabel string) []map[string]any {
-	return collectRows(func(emit func(map[string]any)) { ri.streamAnnotationEdges(kind, ownerLabel, emit) })
-}
-
 func (ri *rebuildIndex) streamAnnotationEdges(kind, ownerLabel string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, ent := range fe.entry.Entities {
@@ -1048,10 +978,6 @@ func (ri *rebuildIndex) streamAnnotationEdges(kind, ownerLabel string, emit func
 	}
 }
 
-func (ri *rebuildIndex) containsFileEntityJSON(label string) []map[string]any {
-	return collectRows(func(emit func(map[string]any)) { ri.streamContainsFileEntity(label, emit) })
-}
-
 func (ri *rebuildIndex) streamContainsFileEntity(label string, emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		for _, ent := range fe.entry.Entities {
@@ -1060,10 +986,6 @@ func (ri *rebuildIndex) streamContainsFileEntity(label string, emit func(map[str
 			}
 		}
 	}
-}
-
-func (ri *rebuildIndex) containsDirDirJSON() []map[string]any {
-	return collectRows(ri.streamContainsDirDir)
 }
 
 func (ri *rebuildIndex) streamContainsDirDir(emit func(map[string]any)) {
@@ -1077,10 +999,6 @@ func (ri *rebuildIndex) streamContainsDirDir(emit func(map[string]any)) {
 	}
 }
 
-func (ri *rebuildIndex) containsDirFileJSON() []map[string]any {
-	return collectRows(ri.streamContainsDirFile)
-}
-
 func (ri *rebuildIndex) streamContainsDirFile(emit func(map[string]any)) {
 	for _, fe := range ri.fileEntries {
 		parent := filepath.Dir(fe.relPath)
@@ -1090,10 +1008,6 @@ func (ri *rebuildIndex) streamContainsDirFile(emit func(map[string]any)) {
 			})
 		}
 	}
-}
-
-func (ri *rebuildIndex) containsEntityJSON(parentLabel, childLabel string) []map[string]any {
-	return collectRows(func(emit func(map[string]any)) { ri.streamContainsEntity(parentLabel, childLabel, emit) })
 }
 
 func (ri *rebuildIndex) streamContainsEntity(parentLabel, childLabel string, emit func(map[string]any)) {

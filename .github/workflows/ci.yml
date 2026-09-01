@@ -6,9 +6,14 @@ on:
   pull_request:
     branches: [main, develop]
 
+# `code-quality: write` used to sit here. It is not a GitHub permission scope, and an
+# unknown key in `permissions` is not ignored: GitHub rejects the whole file, so every job
+# below silently never ran. `contents: read` is all the jobs need — checkout reads the
+# repository, and the Codecov upload authenticates with CODECOV_TOKEN rather than with the
+# workflow token. `actionlint` catches this class of mistake, which is why it is now a
+# target in the Makefile (`make actionlint`, part of `make ci`).
 permissions:
   contents: read
-  code-quality: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -30,6 +35,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Same packages the test and build jobs install. This job builds the LanceDB native from
+      # Rust source, whose -sys crates go looking for a C toolchain and pkg-config, and the
+      # three jobs having different system state is how one of them fails for a reason that has
+      # nothing to do with the code it is checking.
+      - name: Install CGO dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
+
       - name: Create UI dist placeholder
         run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 
@@ -50,9 +64,18 @@ jobs:
           restore-keys: |
             lancedb-linux-amd64-
 
+      # First, and by itself, because it is the check that guards this file. It costs
+      # milliseconds and it is the reason the jobs below run at all — an unknown key under
+      # `permissions` made GitHub reject the whole workflow, silently.
+      - name: Validate workflow files
+        run: make actionlint
+
       - name: Vet
         run: make vet
 
+      # No `--build-tags` argument here on purpose: the tags come from `run.build-tags` in
+      # .golangci.yml, the same list `make lint` uses. Passing them here would reintroduce
+      # exactly the divergence that let this job lint a build the local loop never checks.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
@@ -104,13 +127,33 @@ jobs:
           restore-keys: |
             lancedb-linux-amd64-
 
+      # `make test` depends on setup-lbug and fetch-ort-linux, and it runs the embedding model.
+      # None of those three change between runs, and until this cache existed the job
+      # re-downloaded the ONNX Runtime tarball and a 132 MB model on EVERY run — which is both
+      # the slowest part of the job and its most likely way to fail for reasons unrelated to
+      # the code. The build-check job had already cached the runtime; the test job had not.
+      #
+      # The key carries the Makefile hash because that is where ORT_VERSION and the model
+      # pin live, so bumping either invalidates the cache instead of serving a stale artifact.
+      # liblbug arrives through the Go module cache, which setup-go already caches.
+      - name: Cache ONNX Runtime and embedding model
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/onnxruntime-cache
+            /tmp/graphit-model-cache
+          key: test-deps-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: |
+            test-deps-${{ runner.os }}-
+
       - name: Run tests
         run: make test
 
+      # Pinned, like govulncheck and actionlint: an @latest tool is a third-party release that
+      # can turn this job red with no commit in this repository to explain it. `go run` keeps
+      # it out of the module graph and serves it from the build cache on later runs.
       - name: Convert coverage to Cobertura XML
-        run: |
-          go install github.com/boumenot/gocover-cobertura@latest
-          gocover-cobertura < coverage.out > coverage.xml
+        run: go run github.com/boumenot/gocover-cobertura@v1.5.0 < coverage.out > coverage.xml
 
       - name: Upload coverage report
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -182,14 +225,40 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install CGO dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
+
       - name: Create UI dist placeholder
         run: mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      # govulncheck type-checks every package before it looks at anything, so it needs
+      # -tags lancedb for the same reason vet and lint do — without it internal/ast and
+      # internal/wiki resolve to a build-guard file and the load aborts on an undefined
+      # symbol, which reads like a broken tool rather than a missing flag. The tag comes
+      # with lancedb-native, which `make vulncheck` depends on.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache LanceDB native build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/lancedb-native-cache
+          key: lancedb-linux-amd64-${{ hashFiles('Makefile') }}
+          restore-keys: |
+            lancedb-linux-amd64-
+
+      # `make vulncheck` rather than a `go install …@latest` step: the version is pinned in
+      # the Makefile, so this job and a developer's machine run the same scanner, and the
+      # binary comes out of the build cache instead of being resolved over the network on
+      # every run. @latest also meant a new govulncheck release could turn this job red with
+      # no commit to explain it.
       - name: Run govulncheck
-        run: govulncheck ./...
+        run: make vulncheck
 
   # ── Build verification ─────────────────────────────────────────────────────
   build-check:
@@ -218,11 +287,13 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libicu-dev pkg-config
 
-      - name: Set up Zig
-        run: |
-          ZIG_VERSION=0.16.0
-          curl -sSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" | tar -xJ -C /tmp
-          echo "/tmp/zig-x86_64-linux-${ZIG_VERSION}" >> $GITHUB_PATH
+      # There used to be a "Set up Zig" step here, downloading and unpacking Zig 0.16.0 on
+      # every run. Nothing consumed it: `make build-linux` sets no CC or CXX that points at
+      # it, and the build is native amd64, not cross-compiled. It was left over from an
+      # earlier cross-compilation attempt and was already recorded as debt in
+      # docs/changelogs/20260728_make_ci_and_make_install_functional.md.
+      #
+      # If cross-compilation returns, the step comes back WITH the CC/CXX that use it.
 
       # The build pulls the ONNX Runtime and liblbug from two different
       # external hosts. None of that changes between runs, and one CDN
@@ -240,6 +311,26 @@ jobs:
           key: build-deps-${{ runner.os }}-${{ hashFiles('Makefile') }}
           restore-keys: |
             build-deps-${{ runner.os }}-
+
+      # `make build-linux` depends on lancedb-native, and in a CI checkout there is no
+      # installed runtime to link against — so the target falls through to `fetch-lancedb`,
+      # which git-clones lancedb-go and runs `cargo build --release`. That is minutes of Rust
+      # compilation, and without the cargo caches below it was paid on every single run. The
+      # lint, test and security jobs already cached it; this job, the one that actually builds,
+      # did not.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache LanceDB native build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/lancedb-native-cache
+          key: lancedb-linux-amd64-${{ hashFiles('Makefile') }}
+          restore-keys: |
+            lancedb-linux-amd64-
 
       - name: Build
         run: make build-linux
@@ -265,5 +356,7 @@ jobs:
       - name: Build UI
         run: make ui
 
+      # `make ui-lint` rather than the npm command directly, so this job and the local loop
+      # cannot drift apart over an eslint flag.
       - name: Lint UI
-        run: cd internal/ui && npm run lint
+        run: make ui-lint

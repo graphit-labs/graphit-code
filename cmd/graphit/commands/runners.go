@@ -393,70 +393,38 @@ func runASTIndex(targetPaths []string, workers int, reset bool, reindex bool, cl
 		OnProgress:       indexProgressReporter(p),
 	}
 
-	// Determine if this is an incremental add (existing DB, no --reset, no --reindex)
-	// vs a full index (--reset or --reindex or no existing DB)
-	isIncremental := !reset && !reindex
-	if isIncremental {
-		if _, err := os.Stat(ladybugCfg.IcebugDir); os.IsNotExist(err) {
-			isIncremental = false
+	// DECISION: incremental vs. full is NOT decided here. It used to be — an `isIncremental`
+	// flag stat'ed the icebug directory and picked one of two branches — but the two branches
+	// had become byte-for-byte identical, because the only thing that actually distinguishes
+	// the two runs is `ForceRebuild: reset || reindex` above, which the pipeline reads for
+	// itself. Keeping the fork meant a reader had to diff forty lines to discover it said
+	// nothing.
+	//
+	// The pipeline root is the working directory in both cases, so shard paths and cache
+	// keys are relative to the project root and a later incremental run finds them.
+	wd, _ := os.Getwd()
+	projectRoot := wd
+
+	var allFiles []string
+	for _, absPath := range absPaths {
+		files, e := collectFilesForPath(absPath, projectRoot)
+		if e != nil {
+			return fmt.Errorf("collecting files for %s: %w", absPath, e)
 		}
+		allFiles = append(allFiles, files...)
 	}
 
-	var finalResult *ast.PipelineResult
-
-	if isIncremental && len(absPaths) > 0 {
-		// Incremental add: only index the specified new paths
-		// Use project root as pipeline root so cache keys match
-		wd, _ := os.Getwd()
-		projectRoot := wd
-
-		var allFiles []string
-		for _, absPath := range absPaths {
-			files, e := collectFilesForPath(absPath, projectRoot)
-			if e != nil {
-				return fmt.Errorf("collecting files for %s: %w", absPath, e)
-			}
-			allFiles = append(allFiles, files...)
-		}
-
-		pipeOpts.ChangedPaths = make([]string, len(allFiles))
-		for i, f := range allFiles {
-			rel, _ := filepath.Rel(projectRoot, f)
-			pipeOpts.ChangedPaths[i] = rel
-		}
-		pipeOpts.DeletedPaths = []string{}
-
-		finalResult, err = ast.RunPipelineForPaths(ctx, db, projectRoot, pipeOpts.ChangedPaths, pipeOpts.DeletedPaths, pipeOpts)
-	} else {
-		// Full index (reset/reindex or first time): use project root as pipeline root
-		// and specify all files via ChangedPaths so shard paths are relative to project root
-		wd, _ := os.Getwd()
-		projectRoot := wd
-
-		var allFiles []string
-		for _, absPath := range absPaths {
-			files, e := collectFilesForPath(absPath, projectRoot)
-			if e != nil {
-				return fmt.Errorf("collecting files for %s: %w", absPath, e)
-			}
-			allFiles = append(allFiles, files...)
-		}
-
-		pipeOpts.ChangedPaths = make([]string, len(allFiles))
-		for i, f := range allFiles {
-			rel, _ := filepath.Rel(projectRoot, f)
-			pipeOpts.ChangedPaths[i] = rel
-		}
-		pipeOpts.DeletedPaths = []string{}
-
-		finalResult, err = ast.RunPipelineForPaths(ctx, db, projectRoot, pipeOpts.ChangedPaths, pipeOpts.DeletedPaths, pipeOpts)
+	pipeOpts.ChangedPaths = make([]string, len(allFiles))
+	for i, f := range allFiles {
+		rel, _ := filepath.Rel(projectRoot, f)
+		pipeOpts.ChangedPaths[i] = rel
 	}
-	if err != nil {
-		return err
-	}
+	pipeOpts.DeletedPaths = []string{}
 
-	// The last progress line is transient and nothing after an error path
-	// would erase it.
+	finalResult, err := ast.RunPipelineForPaths(ctx, db, projectRoot, pipeOpts.ChangedPaths, pipeOpts.DeletedPaths, pipeOpts)
+
+	// The last progress line is transient and nothing after an error path would erase it,
+	// so EndProgress runs BEFORE the error is returned, not after.
 	p.EndProgress()
 	if err != nil {
 		return err

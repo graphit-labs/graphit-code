@@ -87,6 +87,21 @@ LANCEDB_LIB := $(LANCEDB_LIB_DIR)/$(LANCEDB_LIB_NAME)
 GO_PKGS_SKIP    := /antlr/|/treesitter/|/node_modules/
 GO_PKGS_PARSERS := /antlr/|/treesitter/
 
+# Pinned so the check is reproducible and cacheable. See the `vulncheck` target for why
+# @latest is not an option, and the `security` job in .github/workflows/ci.yml, which runs
+# `make vulncheck` rather than declaring its own version.
+GOVULNCHECK_VERSION := v1.7.0
+ACTIONLINT_VERSION  := v1.7.7
+
+# `go test -p N` builds and runs N packages at a time. It was hardcoded to 4, which is
+# correct on a GitHub runner and wasteful on a workstation: on 20 cores it left 16 idle
+# while internal/ast (106 s of execution, on top of linking 1.29M lines of generated ANTLR)
+# ran alone. Capped at 8 rather than nproc because the race detector multiplies the memory
+# each concurrent test binary holds, and the cap is what keeps a 20-core machine from
+# swapping. Override on the command line when you know better: `make test GO_TEST_P=16`.
+NPROC     := $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+GO_TEST_P ?= $(shell if [ "$(NPROC)" -gt 8 ]; then echo 8; else echo "$(NPROC)"; fi)
+
 # Must satisfy the ORT_API_VERSION the onnxruntime_go binding in go.mod compiles
 # against (v1.31.0 declares 26). A runtime older than that aborts at
 # InitializeEnvironment with "requested API version [26] is not available", which
@@ -435,8 +450,19 @@ endef
 
 
 
+# The go.mod written into node_modules is the fix for a long-standing local/CI divergence,
+# and it is not a hack for its own sake: one of the UI's transitive packages (flatted) ships
+# Go sources, so after `npm ci` the parent module's `./...` pattern starts matching a
+# third-party package. `go list` skips any directory that declares its own module, so one
+# stub file removes the whole tree from `./...` for EVERY go tool at once — vet, test,
+# golangci-lint and govulncheck — instead of each of them carrying its own grep. It is
+# regenerated here because npm owns the directory and wipes it.
+#
+# GO_PKGS_SKIP still names /node_modules/ as a belt-and-braces measure, for a checkout where
+# npm ran before this target existed.
 ui:
 	cd internal/ui && npm ci --prefer-offline
+	@printf 'module nodemodules\n\ngo 1.26\n' > internal/ui/node_modules/go.mod
 	cd internal/ui && npm run build
 
 ui-dev:
@@ -784,12 +810,12 @@ test: setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	echo "  → Running tests with race detector (project code)…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
 	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -race -tags "$(LOCAL_TAGS)" -coverprofile=coverage.out -covermode=atomic -p 4 \
+	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -race -tags "$(LOCAL_TAGS)" -coverprofile=coverage.out -covermode=atomic -p $(GO_TEST_P) \
 		$$(go list ./... | grep -Ev "$(GO_PKGS_SKIP)") || status=1; \
 	echo "  → Running tests without race detector (generated parsers, appended)…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
 	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -tags "$(LOCAL_TAGS)" -coverprofile=coverage-parsers.out -covermode=atomic -p 4 \
+	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -tags "$(LOCAL_TAGS)" -coverprofile=coverage-parsers.out -covermode=atomic -p $(GO_TEST_P) \
 		$$(go list ./... | grep -E "$(GO_PKGS_PARSERS)" | grep -v "/node_modules/") || status=1; \
 	if [ -f coverage-parsers.out ]; then \
 		tail -n +2 coverage-parsers.out >> coverage.out; \
@@ -807,12 +833,12 @@ test-short: setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	echo "  → Running tests with race detector (-short, skips heavy model/LanceDB)…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
 	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -short -race -tags "$(LOCAL_TAGS)" -coverprofile=coverage.out -covermode=atomic -p 4 \
+	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -short -race -tags "$(LOCAL_TAGS)" -coverprofile=coverage.out -covermode=atomic -p $(GO_TEST_P) \
 		$$(go list ./... | grep -Ev "$(GO_PKGS_SKIP)") || status=1; \
 	echo "  → Running tests without race detector (generated parsers, -short)…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
 	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -short -tags "$(LOCAL_TAGS)" -coverprofile=coverage-parsers.out -covermode=atomic -p 4 \
+	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -short -tags "$(LOCAL_TAGS)" -coverprofile=coverage-parsers.out -covermode=atomic -p $(GO_TEST_P) \
 		$$(go list ./... | grep -E "$(GO_PKGS_PARSERS)" | grep -v "/node_modules/") || status=1; \
 	if [ -f coverage-parsers.out ]; then \
 		tail -n +2 coverage-parsers.out >> coverage.out; \
@@ -820,16 +846,39 @@ test-short: setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	fi; \
 	exit $$status
 
+# No --build-tags here on purpose. The tags live in .golangci.yml, which is the one file both
+# this target and the GitHub lint job read; passing the flag here OVERRODE that list and is
+# exactly how local lint (lancedb) and CI lint (the stale fts5 from the config) came to
+# analyse two different builds. See the comment on `run.build-tags` in .golangci.yml.
 lint: lancedb-native
-	golangci-lint run --build-tags "$(LOCAL_TAGS)" ./...
+	golangci-lint run ./...
 
 # govulncheck loads and type-checks the packages before it looks at anything, so it
 # needs BUILD_TAGS for the same reason vet and lint do. Without the tag, internal/ast
 # and internal/wiki resolved to a `!fts5` guard file instead of the package, and the
 # load aborts on the undefined guard symbol before a single vulnerability is reported —
 # which reads like a broken tool rather than a missing flag.
-vulncheck:
-	go run golang.org/x/vuln/cmd/govulncheck@latest -tags "$(LOCAL_TAGS)" ./...
+#
+# The version is PINNED, not @latest. `@latest` resolves over the network on every run — so
+# the check is neither reproducible nor cacheable, and a new govulncheck release turns a green
+# pipeline red without a commit. Pinned, the binary is built once and then served from the
+# build cache; the vulnerability DATABASE is still fetched live, which is the part that has to
+# be current. Bump GOVULNCHECK_VERSION deliberately.
+#
+# lancedb-native is a prerequisite for the same reason it is one for vet, lint and test: the
+# tag is not optional, and every tool that type-checks with it needs the native resolvable.
+vulncheck: lancedb-native
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) -tags "$(LOCAL_TAGS)" ./...
+
+# actionlint validates the GitHub workflow files, and it is in `ci` because of a defect it
+# would have caught the day it was introduced: `permissions: code-quality: write` is not a
+# GitHub permission scope, GitHub rejects a workflow file containing an unknown one, and a
+# rejected file does not fail — it never runs. The repository showed no CI runs at all, which
+# looks like "nothing to report" rather than like six missing jobs.
+#
+# Cheap enough to be unconditional: one pinned binary, milliseconds per file.
+actionlint:
+	@go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -no-color .github/workflows/*.yml
 
 ui-lint:
 	cd internal/ui && npm run lint
@@ -854,23 +903,26 @@ fmt:
 vet: lancedb-native
 	go vet -tags "$(LOCAL_TAGS)" -unreachable=false $$(go list -tags "$(LOCAL_TAGS)" ./... | grep -Ev "$(GO_PKGS_SKIP)")
 
-# ci-fast is the PR gate: vet/lint/ui-lint in parallel and tests with -short (skips model download and heavy LanceDB paths).
+# ci-fast is the PR gate: static checks in parallel and tests with -short (skips model download and heavy LanceDB paths).
 ci-fast: lancedb-native
-	@echo "  → Running vet, lint, ui-lint in parallel (vulncheck and full test are ci-full)…"
-	@$(MAKE) -j3 vet lint ui-lint
+	@echo "  → Running actionlint, vet, lint, ui-lint in parallel (vulncheck and full test are ci)…"
+	@$(MAKE) -j4 actionlint vet lint ui-lint
 	@$(MAKE) test-short
 
+# `ui` runs first and alone because vet, lint and test all need internal/ui/dist to exist —
+# it is embedded — and because it is what creates internal/ui/node_modules, whose go.mod stub
+# has to be in place before any go tool expands ./...
 ci: lancedb-native
-	@echo "  → Building UI then running vet/lint/vulncheck/ui-lint in parallel, then full test…"
+	@echo "  → Building UI, then actionlint/vet/lint/vulncheck/ui-lint in parallel, then full test…"
 	@$(MAKE) ui
-	@$(MAKE) -j4 vet lint vulncheck ui-lint
+	@$(MAKE) -j5 actionlint vet lint vulncheck ui-lint
 	@$(MAKE) test
 	@echo ""
 	@echo "  ✅ All CI checks passed."
 	@echo ""
 
 
-check: vet lint vulncheck test
+check: actionlint vet lint vulncheck test
 	@echo ""
 	@echo "  ✅ Go checks passed (vet + lint + vulncheck + test)."
 	@echo ""

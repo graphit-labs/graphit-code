@@ -729,8 +729,9 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		engineStats[langKey]++
 
 		if jsonCache != nil && !dryRun {
-			// Resolve cluster for this specific file
-			fileCluster := resolveClusterForPath(r.pf.Path, abs, opts.ClusterPathMap, opts.Cluster)
+			// NOTE: the cluster is resolved AFTER r.pf.Path is corrected below, never before.
+			// A parser may report only the basename, and resolving against that picks the
+			// default cluster for a file that a path rule should have placed elsewhere.
 			// Fix the Path on ParsedFile to use the correct relative path from ChangedPaths
 			// The parser may only set the basename; we need the correct relative path for cache keys
 			fAbs, _ := filepath.Abs(r.pf.Path)
@@ -742,7 +743,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				// Set the correct absolute path so ConvertToCache computes the right relPath
 				r.pf.Path = filepath.Join(abs, correctRelPath)
 			}
-			fileCluster = resolveClusterForPath(r.pf.Path, abs, opts.ClusterPathMap, opts.Cluster)
+			fileCluster := resolveClusterForPath(r.pf.Path, abs, opts.ClusterPathMap, opts.Cluster)
 			entry := ConvertToCache(r.pf, abs, opts.IndexSource, fileCluster)
 			if entry != nil {
 				relPath := correctRelPath
@@ -866,7 +867,11 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		} else {
 			graphTiming, err = rebuildIcebugFromPreparedWithDeltaTimed(ctx, jsonCache, preparedEntries, nil, nil, opts.Cluster, abs, opts.Logger, false, bundleDir, reverseEdges)
 		}
-		preparedEntries = nil
+		// NOTE: there is deliberately no `preparedEntries = nil` here. It looks like it
+		// releases the corpus before the search phase, and it does not: the variable is
+		// never read past this point, so Go's precise stack maps already treat it as dead
+		// and the assignment frees nothing. When stagedSearch is in play the slice is also
+		// held by stagedSearch.Complete, which no local assignment can reach.
 		writePhases.GraphPrepare = graphTiming.Prepare
 		writePhases.GraphExport = graphTiming.Export
 		writePhases.GraphPublish = graphTiming.Publish
@@ -896,7 +901,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 				if serr != nil {
 					err = fmt.Errorf("publish staged search index: %w", serr)
 					if rollbackErr := graphPublication.Rollback(); rollbackErr != nil {
-						err = fmt.Errorf("%w; rollback graph: %v", err, rollbackErr)
+						err = fmt.Errorf("%w; rollback graph: %w", err, rollbackErr)
 					}
 				} else {
 					graphPublication.Commit()
@@ -960,7 +965,7 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 		}
 		if err != nil && graphPublication != nil && graphPublication.active {
 			if rollbackErr := graphPublication.Rollback(); rollbackErr != nil {
-				err = fmt.Errorf("%w; rollback graph: %v", err, rollbackErr)
+				err = fmt.Errorf("%w; rollback graph: %w", err, rollbackErr)
 			}
 		}
 		if err != nil {

@@ -1,7 +1,21 @@
 version: "2"
 run:
+  # This is the ONLY place the lint build tags are declared, and it is deliberate.
+  #
+  # It used to say `fts5`, a tag that no longer exists — Makefile:43 records that SQLite and
+  # its `fts5` tag are gone and that `lancedb` replaced them. Meanwhile `make lint` passed
+  # `--build-tags lancedb` on the command line, which OVERRIDES this list, and the GitHub
+  # lint job passed no tags at all and therefore used it. Local and remote lint were
+  # analysing two different builds: everything behind `//go:build lancedb`
+  # (internal/lancestore/cgo_lancedb.go and friends) was never linted in CI.
+  #
+  # Both callers now read this list, so there is nothing left to drift. The Makefile comments
+  # at :828 and :852 describe what a wrong tag costs: internal/ast and internal/wiki resolve
+  # to a build-guard file instead of the package, so the checker misses every real diagnostic
+  # in them and then stops on an undefined guard symbol — which reads like a broken tool
+  # rather than a missing flag. Keep this in step with BUILD_TAGS in the Makefile.
   build-tags:
-    - fts5
+    - lancedb
 linters:
   enable:
     - gosec
