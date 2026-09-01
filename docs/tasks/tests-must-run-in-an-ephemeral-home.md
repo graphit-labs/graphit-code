@@ -32,7 +32,7 @@ had a mtime from the current day, so the pollution was ongoing, not historical.
 
 `path-<hash>` is the key of a project **without a lockfile** (`store.pathStoreID`: `sha256` of
 the first 16 hex characters of the absolute path). A real project has a ULID — on this machine
-only `01KSH1...` (graphit-code) and `<private-corpus>` (private-corpus). Every `path-*` was a
+there are only two, graphit-code and the private corpus. Every `path-*` was a
 temporary test directory.
 
 Isolation coverage before: **17 of 44 packages** touched `HOME` in some test, with 6 different
@@ -186,7 +186,7 @@ would do.
       the defer runs. With `brand`'s floor in place, most of them can simply be deleted.
 - [x] The **82 `path-*` directories** (160 MB) have already been removed from the Engineer's
       `~/.graphit` — `find ~/.graphit -maxdepth 3 -name 'path-*'` returns **0**, and only the
-      two real-project ULID keys remain (`01KSH1…` graphit-code, `<private-corpus>` private-corpus).
+      two real-project ULID keys remain, graphit-code's and the private corpus's.
 - [ ] The **2 orphan branches in `memory.lock.json` are still there** — this item was closed
       by mistake in an earlier revision of this section, which checked only the `path-*`
       directories and assumed the rest. `memory/project/test-proj` still references 4 deleted

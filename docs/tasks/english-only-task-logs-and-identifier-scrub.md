@@ -497,7 +497,7 @@ Sanitised as required: the developer home path became `/home/you/.../mandate.go`
 the defect the passage documents. One metavariable was translated — `ENDS WITH '<arquivo>'`
 became `'<file>'` — following the precedent already set for `LOAD EXTENSION '<caminho>'`.
 The two ULIDs in the file (`01M1DGYP5JG0ZNYSVYHDB1M5RK`, `01KZWFC40QFEP8TDCVBV3MT51Z`) are this
-project's own memory ids, not the `<private-corpus>` private-corpus class, so they were left as they are.
+project's own memory ids, not the scrubbed private-corpus class, so they were left as they are.
 
 ---
 
