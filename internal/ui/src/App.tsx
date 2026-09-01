@@ -5,6 +5,7 @@ import { useAppStore } from './store/appStore'
 import { lazy, Suspense, useEffect } from 'react'
 import { LoadingSpinner } from './components/shared/LoadingSpinner'
 import { GlobalLoader } from './components/shared/GlobalLoader'
+import { agentFeaturesEnabled } from '@/lib/utils'
 
 const RegistryPage = lazy(() => import('./components/hub/RegistryPage'))
 const ProjectArtifactsPage = lazy(() => import('./components/hub/ProjectArtifactsPage'))
@@ -98,8 +99,8 @@ export default function App() {
                     <Route path="/hub/upload" element={<UploadPage />} />
                     <Route path="/ast/contexts" element={<ContextsPage />} />
                     <Route path="/knowledge/contexts" element={<KnowledgeContextsPage />} />
-                    <Route path="/live" element={<LiveSearchPage />} />
-                    <Route path="/wiki" element={<Navigate to="/live" replace />} />
+                    <Route path="/live" element={agentFeaturesEnabled() ? <LiveSearchPage /> : <Navigate to="/hub/registry" replace />} />
+                    <Route path="/wiki" element={<Navigate to={agentFeaturesEnabled() ? "/live" : "/knowledge/explorer"} replace />} />
                     <Route path="/system/daemon" element={<DaemonDashboard />} />
                     <Route path="/system/dream" element={<DreamDashboard />} />
                     <Route path="/system/ecosystem" element={<EcosystemDashboard />} />

@@ -78,10 +78,6 @@ func SetGlobalS3Credentials(accessKeyID, secretAccessKey string) error {
 	return SaveGlobalConfig(cfg)
 }
 
-func IsSecretConfigKey(key string) bool {
-	return key == "hub.secret_access_key"
-}
-
 // normalizePrefix strips the leading and trailing slashes a user naturally types, so every
 // key built from the prefix joins with exactly one separator.
 func normalizePrefix(prefix string) string {

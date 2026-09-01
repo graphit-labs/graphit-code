@@ -14,6 +14,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
@@ -35,7 +36,13 @@ type Server struct {
 
 func NewServerOnPort(db GraphDB, repoPath string, port int) (*Server, error) {
 
-	aiClient, _ := ai.NewClientFromConfig()
+	// The agent client is not even constructed when the module is off. Building it would shell out
+	// to exec.LookPath for nothing, and leaving it nil is what makes the handler's existing
+	// nil-check the single place that refuses the request.
+	var aiClient ai.Client
+	if config.AgentFeaturesEnabled(nil, config.LoadProjectConfig(repoPath)) {
+		aiClient, _ = ai.NewClientFromConfig()
+	}
 
 	s := &Server{
 		db:       db,

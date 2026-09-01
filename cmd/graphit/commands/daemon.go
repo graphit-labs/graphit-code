@@ -249,7 +249,12 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 			mcpHandler.ServeHTTP(w, r)
 		})
 
-		listener, listenErr := net.Listen("tcp", "127.0.0.1:0")
+		// Host and port are configuration now. The defaults reproduce the previous behaviour
+		// exactly — loopback, kernel-assigned port — and a container overrides both, because it
+		// must publish the port and must know its number before the process starts.
+		mcpHost := config.ResolveMCPHost(nil, nil)
+		mcpPort := config.ResolveMCPPort(nil, nil)
+		listener, listenErr := net.Listen("tcp", net.JoinHostPort(mcpHost, strconv.Itoa(mcpPort)))
 		if listenErr != nil {
 			return
 		}
@@ -351,6 +356,13 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 		d.AddGlobalModule(daemon.NewEmbedServer(sharedEmbedClient))
 	}
 	d.AddGlobalModule(daemon.NewMemorySyncModule())
+
+	// Opt-in, and the case it exists for is a container: there, one process has to bring up the
+	// MCP server AND serve the UI, and it is PID 1. On a workstation `graphit ui` remains the way
+	// to get a UI, which is why this is off unless asked for.
+	if config.DaemonServesUI(nil, nil) {
+		d.AddGlobalModule(newDaemonUIModule(""))
+	}
 
 	discoverFn := func() ([]daemon.ProjectInfo, error) {
 		mgr, mgrErr := hub.NewGlobalLockManager()

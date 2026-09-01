@@ -69,7 +69,27 @@ curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/inst
 irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
 ```
 
-The installers detect the platform, download the latest archive, verify its SHA-256 checksum, and install the launcher in a user directory. See the [getting started guide](docs/guides/getting_started.md) for manual downloads, custom paths, and source builds.
+The installers detect the platform, download the latest archive, verify its SHA-256 checksum, and install the launcher in a user directory. Pin a release with `--version <tag>`. See the [getting started guide](docs/guides/getting_started.md) for manual downloads, custom paths, and source builds.
+
+### Run it as a server, for any AI agent
+
+The root `Dockerfile` builds a server: the daemon as PID 1, publishing an **MCP endpoint** and the UI.
+
+**Any MCP-capable AI agent connects to it** — Claude Code, Codex, Gemini, Cursor, OpenCode, Copilot, Kiro, or your own client. The agent runs wherever the developer is and brings its own model; the server supplies the code graphs, documentation wikis and memory it reasons over. One container serves a team, and nobody indexes anything locally.
+
+```bash
+docker build -t graphit-code .
+
+docker run -d --name graphit \
+  -p 127.0.0.1:8080:8080 \
+  -p 127.0.0.1:8081:8081 \
+  -v graphit-global:/opt/graphit \
+  graphit-code
+```
+
+Point a client at `http://your-server:8081/mcp` with `Authorization: Bearer <key>`; the UI's daemon page shows the key with a copy button. The server holds no source checkouts and needs none — it answers about Hub artifacts, addressed by name and version.
+
+Neither port is authenticated, so publish both to the host loopback as above and read [Running Graphit Code as a server in a container](docs/guides/container.md) before exposing them.
 
 ## First run
 

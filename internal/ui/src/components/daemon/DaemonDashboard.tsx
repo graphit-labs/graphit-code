@@ -1,12 +1,28 @@
 import { useEffect, useState } from 'react'
 import { daemonApi, type DaemonStatus } from '@/api/daemon'
-import { Terminal, Square, Activity, FileText, RefreshCw, Cpu, Calendar, Server } from 'lucide-react'
+import { Terminal, Square, Activity, FileText, RefreshCw, Cpu, Calendar, Server, Copy, Check, Plug } from 'lucide-react'
 import { showToast } from '@/hooks/useToast'
 
 export default function DaemonDashboard() {
   const [status, setStatus] = useState<DaemonStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [stopping, setStopping] = useState(false)
+  const [copiedKey, setCopiedKey] = useState(false)
+
+  // Pointing an external MCP client at this daemon needs the endpoint AND the bearer key, and the
+  // key lives in a 0600 file in the global directory that a browser cannot read. Copying it is the
+  // whole reason it is served.
+  const copyMcpKey = async () => {
+    if (!status?.mcp_key) return
+    try {
+      await navigator.clipboard.writeText(status.mcp_key)
+      setCopiedKey(true)
+      showToast('MCP auth key copied to clipboard', 'success')
+      setTimeout(() => setCopiedKey(false), 2000)
+    } catch {
+      showToast('Could not copy the MCP auth key', 'error')
+    }
+  }
 
   const fetchStatus = async (silent = false) => {
     if (!silent) setLoading(true)
@@ -227,16 +243,71 @@ export default function DaemonDashboard() {
                       {status.mcp_endpoint}
                     </span>
                   </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-muted-foreground">MCP Auth</span>
-                    <span className="font-medium text-success">Bearer Key</span>
+                  <div className="flex justify-between items-center gap-2 py-1">
+                    <span className="text-muted-foreground shrink-0">MCP Auth</span>
+                    {status.mcp_key ? (
+                      <button
+                        onClick={copyMcpKey}
+                        title="Copy the MCP bearer key to the clipboard"
+                        className="flex items-center gap-1.5 min-w-0 px-2 py-1 rounded-lg border border-border/50 hover:bg-accent/50 transition-all font-mono text-[10px] text-primary"
+                      >
+                        {copiedKey ? <Check className="w-3 h-3 shrink-0 text-success" /> : <Copy className="w-3 h-3 shrink-0" />}
+                        <span className="truncate">{copiedKey ? 'Copied' : maskKey(status.mcp_key)}</span>
+                      </button>
+                    ) : (
+                      <span className="font-medium text-success">Bearer Key</span>
+                    )}
                   </div>
                 </>
               )}
             </div>
           </div>
+
+          {/* The endpoint and key above are only useful if you know what to do with them. Anyone
+              landing on this page is one copy away from wiring up an agent, and saying so here is
+              cheaper than hoping they find the guide. */}
+          {status?.mcp_endpoint && (
+            <div className="glass-panel p-5 rounded-2xl space-y-3">
+              <div className="flex items-center gap-2">
+                <Plug className="w-4 h-4 text-primary shrink-0" />
+                <h3 className="font-heading font-semibold text-sm">Connect an AI agent</h3>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Any MCP-capable agent can use this server — Claude Code, Codex, Gemini, Cursor,
+                OpenCode, Copilot, Kiro, or your own client. The agent brings its own model; this
+                server supplies the code graphs, documentation wikis and memory it reasons over.
+              </p>
+              <div className="bg-black/30 p-3 rounded-lg font-mono text-[10px] text-foreground overflow-x-auto">
+                <pre className="whitespace-pre">{`{
+  "mcpServers": {
+    "graphit": {
+      "url": "${status.mcp_endpoint}",
+      "headers": { "Authorization": "Bearer <key>" }
+    }
+  }
+}`}</pre>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Copy the key from <span className="text-foreground font-medium">MCP Auth</span> above.
+                It is regenerated every time the daemon restarts, which also revokes every key handed
+                out before.
+              </p>
+              <p className="text-[11px] text-warning/90 leading-relaxed">
+                Reaching this from another machine means publishing the port. The endpoint checks the
+                bearer key; this UI does not check anything, so keep it off untrusted networks.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
+}
+
+// maskKey shows enough of the key to tell two daemons apart and no more. The full value goes to
+// the clipboard, never to the screen: a bearer token rendered in full is one screen-share away
+// from being someone else's.
+function maskKey(key: string): string {
+  if (key.length <= 12) return '••••••••'
+  return `${key.slice(0, 6)}…${key.slice(-4)}`
 }

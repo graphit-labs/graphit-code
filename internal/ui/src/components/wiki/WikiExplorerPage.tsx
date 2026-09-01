@@ -12,7 +12,7 @@ import {
   RefreshCw, ExternalLink, Clock, Layers, Users, Zap, GitBranch, ArrowLeft, ArrowRight,
   Wand2, Loader2, Send, X
 } from 'lucide-react'
-import { cn, wikiLinkFriendlyName } from '@/lib/utils'
+import { cn, wikiLinkFriendlyName, agentFeaturesEnabled } from '@/lib/utils'
 import { useAppStore } from '@/store/appStore'
 
 const LS = {
@@ -413,6 +413,9 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
   const [loading, setLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [view, setView] = useState<'browse' | 'search' | 'ai-search'>('browse')
+  // One flag covers both the knowledge and the memory explorer, because they are one component
+  // over one route: /api/wiki/ai-search, reached with a different moduleFilter.
+  const aiEnabled = agentFeaturesEnabled()
   const [searchMode, setSearchMode] = useState<'keyword' | 'ai'>('keyword')
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [navHistory, setNavHistory] = useState<{ path: string; title: string }[]>([])
@@ -527,11 +530,12 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
 
   const runSearch = useCallback(async () => {
     if (!selectedModule || !searchQ.trim()) return
-    const searchTitle = searchMode === 'ai' ? `AI: ${searchQ}` : `Search: ${searchQ}`
+    const aiRequested = searchMode === 'ai' && aiEnabled
+    const searchTitle = aiRequested ? `AI: ${searchQ}` : `Search: ${searchQ}`
     setNavHistory([{ path: '__search__', title: searchTitle }])
     setNavIndex(0)
     setSelectedPage(null)
-    if (searchMode === 'ai') {
+    if (aiRequested) {
       setAiLoading(true)
       setView('ai-search')
       try {
@@ -546,7 +550,7 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
       const rs = await searchWiki(selectedModule.path, searchQ)
       setSearchResults(rs); setView('search')
     }
-  }, [selectedModule, searchQ, searchMode])
+  }, [selectedModule, searchQ, searchMode, aiEnabled])
 
   const handleRefresh = useCallback(async () => {
     if (!selectedModule) return
@@ -866,17 +870,19 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
               >
                 <Search className="w-3.5 h-3.5" /> Keyword Search
               </button>
-              <button
-                onClick={() => setSearchMode('ai')}
-                className={cn(
-                  'flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all',
-                  searchMode === 'ai'
-                    ? 'bg-background shadow-sm text-foreground font-bold border border-border/20 scale-[1.02]'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                <Wand2 className="w-3.5 h-3.5 text-primary" /> AI Insights Search
-              </button>
+              {aiEnabled && (
+                <button
+                  onClick={() => setSearchMode('ai')}
+                  className={cn(
+                    'flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-all',
+                    searchMode === 'ai'
+                      ? 'bg-background shadow-sm text-foreground font-bold border border-border/20 scale-[1.02]'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <Wand2 className="w-3.5 h-3.5 text-primary" /> AI Insights Search
+                </button>
+              )}
             </div>
 
             <div className="relative group/input">

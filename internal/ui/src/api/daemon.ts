@@ -11,6 +11,7 @@ export interface DaemonStatus {
   mcp_port?: number
   mcp_endpoint?: string
   mcp_key_file?: string
+  mcp_key?: string
 }
 
 export const daemonApi = {

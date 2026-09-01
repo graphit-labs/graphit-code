@@ -2,11 +2,18 @@
 # Graphit Code Installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash
 # Or:    curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | bash -s -- --dir ~/.local/bin
+# Or:    curl -fsSL .../install.sh | VERSION=v1.4.0 bash -s -- --dir /usr/local/bin
 set -e
 
 REPO="graphit-labs/graphit-code"
 BIN_NAME="graphit"
 INSTALL_DIR="${HOME}/.local/bin"
+
+# VERSION pins the release tag. Empty means "resolve the latest tag from the GitHub API",
+# which is what an interactive install wants and what a reproducible one — a container image,
+# a pipeline — must be able to opt out of. A pinned tag still goes through checksum
+# verification below; pinning selects WHICH artifact, it does not skip verifying it.
+VERSION="${VERSION:-}"
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 while [ "$#" -gt 0 ]; do
@@ -23,10 +30,23 @@ while [ "$#" -gt 0 ]; do
       INSTALL_DIR="${1#--dir=}"
       shift
       ;;
+    --version)
+      if [ -z "$2" ]; then
+        printf "Error: --version requires a release tag argument\n" >&2
+        exit 1
+      fi
+      VERSION="$2"
+      shift 2
+      ;;
+    --version=*)
+      VERSION="${1#--version=}"
+      shift
+      ;;
     --help|-h)
-      printf "Usage: install.sh [--dir <install-dir>]\n"
+      printf "Usage: install.sh [--dir <install-dir>] [--version <release-tag>]\n"
       printf "\n"
-      printf "  --dir <path>   Install graphit to this directory (default: \$HOME/.local/bin)\n"
+      printf "  --dir <path>       Install graphit to this directory (default: \$HOME/.local/bin)\n"
+      printf "  --version <tag>    Install this release tag instead of the latest (env: VERSION)\n"
       exit 0
       ;;
     *)
@@ -111,9 +131,13 @@ printf "━━━━━━━━━━━━━━━━━━━━━━━━
 check_deps
 detect_platform
 
-info "Fetching latest version..."
-fetch_latest_version
-success "Latest version: $VERSION"
+if [ -n "$VERSION" ]; then
+  success "Pinned version: $VERSION"
+else
+  info "Fetching latest version..."
+  fetch_latest_version
+  success "Latest version: $VERSION"
+fi
 
 ARCHIVE_NAME="${BIN_NAME}-${PLATFORM}.tar.gz"
 BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"

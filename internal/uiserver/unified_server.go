@@ -27,6 +27,7 @@ type UnifiedServer struct {
 	projectName    string
 	mux            *http.ServeMux
 	live           *LiveHandler
+	agentFeatures  bool
 }
 
 func NewUnifiedServer(
@@ -65,13 +66,22 @@ func NewUnifiedServer(
 	wikiHandler := NewWikiHandler(hubSvc)
 	wikiHandler.RegisterAPIRoutes(mux)
 
-	// Each session runs inside an ephemeral project that prep builds for it: a
-	// lockfile, the framework's rules and skills, the MCP server, and the chosen
-	// artifacts indexed and ready to query.
-	liveMgr := livesearch.NewManagerFromConfig("", prep.Prepare)
-	liveMgr.SetReclaim(prep.Reclaim)
-	liveHandler := NewLiveHandler(liveMgr)
-	liveHandler.RegisterAPIRoutes(mux)
+	// Live search is the heaviest of the agent-dependent features and the only one whose routes
+	// are not registered at all when the module is off: the others have a handler that refuses,
+	// but a live session also prepares an ephemeral project and spawns a process, so there is
+	// nothing worth keeping reachable. A request to /api/live/* then 404s, which is the honest
+	// answer — the feature is not here.
+	agentFeatures := config.AgentFeaturesEnabled(nil, projectCfg)
+	var liveHandler *LiveHandler
+	if agentFeatures {
+		// Each session runs inside an ephemeral project that prep builds for it: a
+		// lockfile, the framework's rules and skills, the MCP server, and the chosen
+		// artifacts indexed and ready to query.
+		liveMgr := livesearch.NewManagerFromConfig("", prep.Prepare)
+		liveMgr.SetReclaim(prep.Reclaim)
+		liveHandler = NewLiveHandler(liveMgr)
+		liveHandler.RegisterAPIRoutes(mux)
+	}
 
 	daemonDreamHandler := NewDaemonDreamHandler(hubSvc)
 	daemonDreamHandler.RegisterAPIRoutes(mux)
@@ -80,6 +90,7 @@ func NewUnifiedServer(
 	s := &UnifiedServer{
 		port: port, host: host, allowedOrigins: allowedOrigins,
 		projectName: projectName, mux: mux, live: liveHandler,
+		agentFeatures: agentFeatures,
 	}
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -148,10 +159,15 @@ func (s *UnifiedServer) handleUI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "UI not found: "+err.Error(), 500)
 		return
 	}
+	// __AGENT_FEATURES__ is injected rather than fetched because the UI must never OFFER a
+	// feature it cannot deliver — not even for the one render before a capabilities request comes
+	// back. A button that appears and then disappears is worse than one that was never there, and
+	// a button that stays and fails is worse still.
 	injection := fmt.Sprintf(`<script>
   window.__APP_MODE__ = "unified";
   window.__PROJECT_NAME__ = %q;
-</script>`, s.projectName)
+  window.__AGENT_FEATURES__ = %t;
+</script>`, s.projectName, s.agentFeatures)
 	data = bytes.Replace(data, []byte("</head>"), []byte(injection+"</head>"), 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = w.Write(data)

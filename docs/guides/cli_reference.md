@@ -43,6 +43,55 @@ the configured S3-compatible Hub, and downloads shared runtime assets.
 ```bash
 graphit setup
 ```
+
+**Every question also has a flag, and a question whose flag is supplied is not asked.** Answer one
+thing on the command line and setup asks about the rest; answer everything it reaches and it needs
+no terminal at all, which is how it runs in a container or a pipeline. There is no separate
+non-interactive switch — silence is the consequence of having answered, not a mode.
+
+```bash
+# one answer given, the rest still asked
+graphit setup --ide cursor
+
+# nothing left to ask: a local-only hub, so region, endpoint and credentials are
+# never reached, and both providers are local
+graphit setup --hub-bucket "" --ide cursor --cli cursor-agent \
+  --embedding-provider local --rerank-provider local
+```
+
+An empty value **is** an answer: it clears that key. Omitting the flag leaves the key untouched. The
+distinction matters for the credential pair — `--hub-access-key-id ""` clears both halves, while
+passing neither credential flag leaves a stored pair alone.
+
+**Flags:**
+
+| Flag | Sets | Notes |
+|---|---|---|
+| `--hub-bucket <string>` | `hub.bucket` | Empty selects local-only mode, which also skips the region, endpoint and credential questions |
+| `--hub-region <string>` | `hub.region` | |
+| `--hub-endpoint <string>` | `hub.endpoint` | For MinIO and other S3-compatible servers |
+| `--hub-access-key-id <string>` | `hub.access_key_id` | Both credential flags are needed; either one empty clears the pair |
+| `--hub-secret-access-key <string>` | `hub.secret_access_key` | Prefer `GRAPHIT_HUB_SECRET_ACCESS_KEY` — a value passed here is stored in plain text |
+| `--ide <string>` | `ide` | Default IDE |
+| `--cli <string>` | `cli` | Default CLI for the AI fallback |
+| `--embedding-provider <string>` | `ai.embedding.provider` | `local`, `openai`, `openai-compatible`, `cohere`, `voyage`, `google` |
+| `--embedding-model <string>` | `ai.embedding.model` | Empty for the provider's own default |
+| `--embedding-base-url <string>` | `ai.embedding.base_url` | Required by `--embedding-provider openai-compatible` |
+| `--embedding-api-key <string>` | `ai.embedding.api_key` | Prefer `GRAPHIT_AI_EMBEDDING_API_KEY` |
+| `--rerank-provider <string>` | `ai.rerank.provider` | `local`, `cohere`, `voyage`, `jina` |
+| `--rerank-model <string>` | `ai.rerank.model` | Empty for the provider's own default |
+| `--rerank-api-key <string>` | `ai.rerank.api_key` | Prefer `GRAPHIT_AI_RERANK_API_KEY` |
+
+A provider other than `local` reaches three further questions — model, base URL, API key — so a
+fully scripted run with a remote provider has to answer all three. Passing an api-key flag as the
+empty string is how to say "store no key here" without being asked; the provider then reads its own
+environment variable at run time.
+
+Nothing is softened by answering in advance. An unreachable hub bucket and, for the local embedding
+provider, a failed model download both fail the command rather than leaving a half installation
+reporting success. See [Run as a Server in a Container](container.md) for a complete scripted
+invocation.
+
 When a Hub bucket is entered, setup optionally asks for an S3 access key and secret. A
 complete pair is saved globally; leaving either prompt blank removes both explicit keys
 and keeps the AWS SDK provider chain active. The secret is not echoed, but it is stored as

@@ -13,6 +13,7 @@ Graphit connects four kinds of project context: code structure, maintained docum
 | Configure an agent or MCP client | [MCP Tools Reference](guides/mcp_tools_reference.md) | [Retrieval Architecture](guides/retrieval_architecture.md) |
 | Understand system boundaries | [Architecture Overview](architecture/architecture_overview.md) | [Storage Layout](architecture/storage_layout.md) |
 | Operate shared storage or networked UI | [S3 and UI Network](guides/s3-and-ui-network.md) | [Hub S3 Object Layout](specs/hub-s3-object-layout.md) |
+| Serve a team over MCP from a container | [Run as a Server in a Container](guides/container.md) | [MCP Tools Reference](guides/mcp_tools_reference.md) |
 | Customize a private distribution | [Private Brand Customization](guides/private_brand_customization.md) | [Configuration Specification](specs/config_module.md) |
 | Contribute to the project | [Contributing](../CONTRIBUTING.md) | [Repository README](../README.md) |
 
@@ -27,6 +28,7 @@ Guides explain workflows from a user or operator perspective.
 - [Retrieval Architecture](guides/retrieval_architecture.md) — when to search, read source, traverse a graph, or use live search.
 - [Ignore Files](guides/ignore_files.md) — source and documentation exclusion behavior.
 - [S3 Credentials and UI Network](guides/s3-and-ui-network.md) — optional remote storage, credentials, binding, CORS, and security boundaries.
+- [Run as a Server in a Container](guides/container.md) — the root `Dockerfile`: an MCP endpoint any AI agent can connect to, the daemon as PID 1, and serving Hub artifacts with no checkout on the server.
 - [Private Brand Customization](guides/private_brand_customization.md) — branded binaries and private collaboration environments.
 - [Troubleshooting](guides/troubleshooting.md) — common operational failures and diagnostics.
 

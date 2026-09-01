@@ -301,8 +301,9 @@ when it is turned on; it does not turn reranking on by itself.
 The completion dispatcher (`internal/ai/ai.go`) routes text synthesis prompts. This
 is a **separate stack from embedding**, and the one place where work does leave the
 machine: `NewClientFromConfig` resolves a locally installed **agent CLI** — the
-`ai.cli` key, defaulting through `config.DefaultCLI()`, with `claude`, `gemini`,
-`codex` and `cursor-agent` among the known binaries — and shells out to it. There
+`ai.cli` key, defaulting through `config.DefaultCLI()` and ultimately to
+`config.FallbackCLI` (`opencode`), with `opencode`, `claude`, `gemini`, `codex` and
+`cursor-agent` among the known binaries — and shells out to it. There
 is no HTTP API client and no API key handling here either; whatever the chosen CLI
 sends upstream is that CLI's business.
 

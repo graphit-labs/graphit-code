@@ -23,6 +23,7 @@
     <nav class="nav-links" id="site-nav" aria-label="Primary navigation">
       <a href="#system">System</a>
       <a href="#capabilities">Capabilities</a>
+      <a href="#server">Server</a>
       <a href="#install">Install</a>
       <a href="#docs">Docs</a>
     </nav>
@@ -46,7 +47,7 @@
           <a class="button button-secondary" href="https://github.com/graphit-labs/graphit-code">Explore the source <span>↗</span></a>
         </div>
         <div class="hero-proof" aria-label="Product principles">
-          <span>Go-native CLI</span><span>Local core</span><span>Multi-IDE</span><span>Open source</span>
+          <span>Go-native CLI</span><span>Local core</span><span>Any MCP agent</span><span>Open source</span>
         </div>
       </div>
       <figure class="product-frame reveal">
@@ -116,7 +117,44 @@
             <li><strong>Local core</strong><span>No hosted database is required for everyday operation.</span></li>
             <li><strong>Explicit sharing</strong><span>Hub publishing and remote storage are configured separately.</span></li>
             <li><strong>Network-aware UI</strong><span>The UI binds to loopback by default and is not an authentication layer.</span></li>
+            <li><strong>Serve it when you want to</strong><span>Run the same core as a container: an MCP endpoint your whole team's agents connect to.</span></li>
           </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section showcase" id="server">
+      <div class="section-heading reveal">
+        <p class="kicker">Run it for the whole team</p>
+        <h2>One server. Any AI agent, over MCP.</h2>
+        <p>The repository ships a Dockerfile that runs Graphit as a server: the daemon publishing an MCP endpoint and the Observatory. Your agent connects from wherever you work, brings its own model, and reads the code graphs, documentation and memory the server holds.</p>
+      </div>
+      <div class="capability-grid">
+        <article class="capability-card reveal"><span>ANY CLIENT</span><h3>Whatever speaks MCP</h3><p>Claude Code, Codex, Gemini, Cursor, OpenCode, Copilot, Kiro, or your own client. An HTTP URL and a bearer token is the whole integration.</p></article>
+        <article class="capability-card reveal"><span>NO CHECKOUT</span><h3>Artifacts, not paths</h3><p>The server answers about published knowledge and AST artifacts, addressed by name and version. It holds no source and needs none.</p></article>
+        <article class="capability-card reveal"><span>ONE INDEX</span><h3>Indexed once, for everyone</h3><p>Parsing, embedding and wiki compilation happen on the server. Nobody on the team pays for them again on a laptop.</p></article>
+      </div>
+      <div class="command-panel is-active reveal" style="margin-top:1.4rem">
+        <button class="copy-button" type="button">Copy</button>
+        <pre><code>docker build -t graphit-code .
+docker run -d --name graphit \
+  -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
+  -v graphit-global:/opt/graphit \
+  graphit-code</code></pre>
+      </div>
+      <div class="trust-panel reveal" style="margin-top:1.4rem">
+        <div>
+          <p class="kicker">Point your agent at it</p>
+          <h2>Two values, and it is wired.</h2>
+        </div>
+        <div class="trust-copy">
+          <p>The endpoint and its bearer key are on the Observatory's daemon page, with a copy button. The key is regenerated on every daemon restart, which revokes every key handed out before it.</p>
+          <ul>
+            <li><strong>URL</strong><span>http://your-server:8081/mcp</span></li>
+            <li><strong>Header</strong><span>Authorization: Bearer &lt;key&gt;</span></li>
+            <li><strong>Read the guide first</strong><span>Neither port is authenticated. Keep them off untrusted networks or put a proxy in front.</span></li>
+          </ul>
+          <p><a class="button button-small button-ghost" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/container.md">Server guide ↗</a></p>
         </div>
       </div>
     </section>
@@ -125,12 +163,13 @@
       <div class="section-heading reveal">
         <p class="kicker">Start with one binary</p>
         <h2>From repository to agent context.</h2>
-        <p>Install Graphit, initialize the project for your IDE, then let the daemon keep indexes current.</p>
+        <p>Install Graphit, initialize the project for your IDE, then let the daemon keep indexes current — or skip the install and run it as a server your agents connect to.</p>
       </div>
       <div class="install-console reveal">
         <div class="install-tabs" role="tablist" aria-label="Installation method">
           <button class="install-tab is-active" type="button" role="tab" aria-selected="true" data-tab="unix">macOS / Linux</button>
           <button class="install-tab" type="button" role="tab" aria-selected="false" data-tab="windows">Windows</button>
+          <button class="install-tab" type="button" role="tab" aria-selected="false" data-tab="docker">Docker server</button>
           <button class="install-tab" type="button" role="tab" aria-selected="false" data-tab="source">From source</button>
         </div>
         <div class="command-panel is-active" data-panel="unix">
@@ -146,6 +185,15 @@ graphit ui</code></pre>
 cd your-project
 graphit init --ide codex
 graphit ui</code></pre>
+        </div>
+        <div class="command-panel" data-panel="docker" hidden>
+          <button class="copy-button" type="button">Copy</button>
+          <pre><code>docker build -t graphit-code .
+docker run -d --name graphit \
+  -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
+  -v graphit-global:/opt/graphit \
+  graphit-code
+docker exec graphit cat /opt/graphit/runtime/daemon/mcp.key</code></pre>
         </div>
         <div class="command-panel" data-panel="source" hidden>
           <button class="copy-button" type="button">Copy</button>
@@ -166,7 +214,8 @@ graphit setup</code></pre>
         <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/getting_started.md"><span>01</span><h3>Getting started</h3><p>Install, initialize a project, and make the first AST, knowledge, and memory queries.</p><b>Open guide ↗</b></a>
         <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/user_manual.md"><span>02</span><h3>User manual</h3><p>Move from daily commands to explorers, shared artifacts, daemon operation, and troubleshooting.</p><b>Open manual ↗</b></a>
         <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/architecture/architecture_overview.md"><span>03</span><h3>Architecture</h3><p>Understand the launcher, core, local stores, compiled wikis, Hub, UI, and IDE adapters.</p><b>Open architecture ↗</b></a>
-        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/CONTRIBUTING.md"><span>04</span><h3>Contributing</h3><p>Build the project, follow repository conventions, run checks, and propose focused changes.</p><b>Contribute ↗</b></a>
+        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/docs/guides/container.md"><span>04</span><h3>Run as a server</h3><p>Serve a team from one container: an MCP endpoint any AI agent connects to, plus the Observatory.</p><b>Open server guide ↗</b></a>
+        <a class="doc-card reveal" href="https://github.com/graphit-labs/graphit-code/blob/main/CONTRIBUTING.md"><span>05</span><h3>Contributing</h3><p>Build the project, follow repository conventions, run checks, and propose focused changes.</p><b>Contribute ↗</b></a>
       </div>
     </section>
 

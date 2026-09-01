@@ -178,6 +178,94 @@ graphit config --global --unset hub.access_key_id
 graphit config --global --unset hub.secret_access_key
 ```
 
+### Feature and process modules: `modules.agent`, `modules.daemon_ui`
+
+Both follow the ordinary `modules.<name>` convention, so each gets an environment variable and both
+config layers for free.
+
+**`modules.agent`** gates every feature that needs a coding-agent CLI installed on the machine — not
+an API key, not an embedding model, but a binary the framework shells out to. It is ON by default.
+
+| Disabled feature | Route |
+|---|---|
+| Natural-language Cypher in the AST explorer | `POST /api/generate-cypher` |
+| AI search in the knowledge explorer | `POST /api/wiki/ai-search` |
+| AI search in the memory explorer | the same route — one component over one endpoint |
+| Live search | `/api/live/*`, which is not registered at all when the module is off |
+
+Each of those reaches `ai.NewClientFromConfig`, which only ever returns a CLI resolved from `PATH`.
+There is no HTTP fallback behind it, so without a binary they cannot degrade — only fail. The flag is
+the operator saying "there is no agent here and there will not be one", which is exactly the position
+a container image is in.
+
+It deliberately does **not** cover anything running on local ONNX embeddings or on the graph alone:
+`GET /api/search` (BM25 + vector hybrid), `GET /api/wiki/search` (BM25), and every Cypher, graph,
+complexity and dead-code route keep working, as does the whole MCP tool surface.
+
+The UI reads the same flag, injected into the page by the server as `window.__AGENT_FEATURES__`
+rather than fetched, and does not render the controls. Injection rather than a request is the point:
+the UI must never offer a feature it cannot deliver, not even for the one frame before a capability
+response arrives.
+
+**`modules.daemon_ui`** makes the daemon serve the unified UI for as long as it runs, as one of its
+supervised global modules. It is **opt-in** — listed in `OptInModules` beside `dream` — because on a
+workstation the UI is something you start with `graphit ui` and close when you are done, and a
+background process silently holding port 8080 is not what anyone asks the daemon for. A container is
+the case it exists for: there one process must both own the MCP server and serve the UI, and it is
+PID 1.
+
+### The daemon's MCP listener: `mcp.host` and `mcp.port`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `mcp.host` | `127.0.0.1` | The interface the daemon's MCP server binds |
+| `mcp.port` | `0` | The port, or `0` for a kernel-assigned one |
+
+Both defaults reproduce exactly what the daemon did before these keys existed. The endpoint is
+authenticated by a bearer key, but a key is not a reason to publish a port: the stdio proxy every IDE
+uses reaches it over loopback.
+
+A container needs the opposite of an ephemeral port — one known before the process starts, so it can
+be declared in the image and mapped on the host. The chosen port is published to
+`<DaemonDir>/mcp.port` either way, and the bearer key to `<DaemonDir>/mcp.key` (mode `0600`),
+regenerated on every daemon start.
+
+An unparseable or out-of-range `mcp.port` falls back to `0` rather than failing the daemon. That is
+deliberate: in a container the daemon is PID 1, so refusing to start over a typo in one key would
+take the indexers and both servers down with it instead of producing a diagnostic.
+
+### Secret keys: environment-supplied and redacted
+
+Three keys hold a credential, and they are declared in one place — `config.SecretConfigKeys`:
+
+| Key | Environment variable |
+|---|---|
+| `hub.secret_access_key` | `GRAPHIT_HUB_SECRET_ACCESS_KEY` |
+| `ai.embedding.api_key` | `GRAPHIT_AI_EMBEDDING_API_KEY` |
+| `ai.rerank.api_key` | `GRAPHIT_AI_RERANK_API_KEY` |
+
+Two properties follow from that list rather than from anything remembered per call site:
+
+- **Every one of them resolves from its environment variable**, through the ordinary
+  `ResolveConfig` chain, where the environment outranks both the project lockfile and the global
+  config file. This is what lets a container or a pipeline supply a credential without writing it
+  to disk — and an *empty* variable is skipped rather than treated as an answer, so declaring the
+  variables empty for discoverability does not blank a stored value.
+- **Every one of them is redacted** by `graphit config get` and `graphit config --list`, because
+  `IsSecretConfigKey` is derived from the list. This is the gap it closed: redaction previously
+  knew about `hub.secret_access_key` alone, so the two AI provider keys — which `setup` stores —
+  were printed in clear.
+
+`hub.access_key_id` is deliberately **not** on the list. An access key ID is an identifier, not a
+secret; AWS treats only the other half of the pair as confidential, and redacting it would hide the
+value an operator most often needs to read back when working out which credentials a machine is
+using. `ConfigEnvVar(key)` returns the variable name for any key, so help text and documentation
+name it instead of spelling out the rule and drifting from it — and secrets use the same derivation
+as every other key rather than a scheme of their own.
+
+The AI providers additionally accept their own native variables when the Graphit key is unset —
+`OPENAI_API_KEY`, `COHERE_API_KEY`, `VOYAGE_API_KEY`, `GOOGLE_API_KEY` / `GEMINI_API_KEY`.
+
 ### Unified UI network access: `ui.host` and `ui.allowed_origins`
 
 The unified UI server binds to `127.0.0.1` by default. `ui.host` can publish it on
@@ -621,7 +709,7 @@ Stored at `~/.graphit/config.json`. The `AppDir()` function resolves `~/.graphit
 func ResolveIDE(flagValue string, inlineCfg, projectCfg ConfigMap) string
 ```
 
-Priority: flag → `ResolveConfig("ide", ...)` → fallback `"claude"`.
+Priority: flag → `ResolveConfig("ide", ...)` → `config.FallbackIDE`, which is `"opencode"`.
 
 ```go
 func ResolveProjectIDE(flagValue string, inlineCfg, projectCfg ConfigMap, lockfileIDEs []string) string
@@ -640,7 +728,7 @@ Extended resolution that also considers:
 func ResolveCLI(flagValue string, inlineCfg, projectCfg ConfigMap, resolvedIDE string) string
 ```
 
-Priority: flag → `ResolveConfig("cli", ...)` → `CLIForIDE(resolvedIDE)` → fallback `"claude"`.
+Priority: flag → `ResolveConfig("cli", ...)` → `CLIForIDE(resolvedIDE)` → `config.FallbackCLI`, which is `"opencode"`.
 
 The `CLIForIDE()` mapping:
 
@@ -662,12 +750,20 @@ fallback discovery.
 
 - `DefaultIDE()` calls `ResolveIDE("", nil, nil)`. With no inline or project maps in
   that call, the effective order is `GRAPHIT_IDE` → global `ide` → compiled `ide` →
-  terminal fallback `claude`.
+  `config.FallbackIDE`.
 - `DefaultCLI()` calls `ResolveCLI("", nil, nil, DefaultIDE())`. Its effective order is
   `GRAPHIT_CLI` → global `cli` → compiled `cli` → CLI mapped from the fully resolved
-  default IDE → terminal fallback `claude`.
+  default IDE → `config.FallbackCLI`.
 - Interactive setup uses `DefaultIDE()` and `DefaultCLI()` as the prompt defaults and
   persists the accepted values as global `ide` and `cli`, respectively.
+
+**The two fallbacks are named constants, not literals.** `config.FallbackIDE` and
+`config.FallbackCLI` are both `"opencode"`, and they are constants because this value is read at
+the bottom of five different resolution paths — `ResolveIDE`, `resolveAmbientIDE`, `ResolveCLI`,
+the unified UI server, and `CLIForIDE`'s pairing. As separate string literals they could be changed
+one at a time, and the result would not fail: the paths would simply disagree about what the default
+is, which nothing reports. `TestFallbackIDEAndCLIAgree` pins the invariant that `FallbackCLI` is the
+CLI `CLIForIDE` pairs with `FallbackIDE`.
 
 AI CLI discovery adds one more layer after configuration resolution. `NewClientFromConfig()`
 first honors the legacy/specific global `ai.cli` key; when absent, it passes `DefaultCLI()`
@@ -705,7 +801,13 @@ Hub artifacts and shared memories use one resolved S3 configuration. There is no
 | `ResolveHubS3(inline, project)` | Return the complete `S3Config`; static credentials are active only as a pair. |
 | `HubS3Config()` | Resolve S3 configuration without inline/project overrides. |
 | `SetGlobalS3Credentials(access, secret)` | Persist a complete global pair or remove both keys. |
-| `IsSecretConfigKey(key)` | Identify values that CLI output must redact. |
+| `IsSecretConfigKey(key)` | Identify values that CLI output must redact; derived from `SecretConfigKeys`. |
+| `ConfigEnvVar(key)` | The environment variable that supplies a key. **The** derivation — `ResolveConfig` calls it, and anything that needs to name a variable calls it rather than rebuilding the rule. |
+| `AgentFeaturesEnabled(inline, project)` | Whether the agent-CLI-dependent features may be offered. |
+| `DaemonServesUI(inline, project)` | Whether the daemon should run the unified UI itself. |
+| `ResolveMCPHost` / `ResolveMCPPort` | The daemon's MCP bind address. |
+| `SecretConfigKeys` | The canonical list of credential keys. |
+| `SecretConfigEnvVars()` | The environment variable for each secret key, in `SecretConfigKeys` order; derived with `ConfigEnvVar`. |
 
 The object-key contract is documented in
 [Hub S3 Object Layout](hub-s3-object-layout.md).

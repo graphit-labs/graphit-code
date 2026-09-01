@@ -14,7 +14,7 @@ func TestPromptEmbeddingProviderDefaultsToLocalOnBlankInput(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 	p := output.NewPrinter("")
 
-	got, err := promptEmbeddingProvider(p, bufio.NewReader(strings.NewReader("\n")))
+	got, err := promptEmbeddingProvider(p, bufio.NewReader(strings.NewReader("\n")), setupAnswers{})
 	if err != nil {
 		t.Fatalf("promptEmbeddingProvider: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestPromptEmbeddingProviderStoresModelAndAPIKeyForANamedProvider(t *testing
 	p := output.NewPrinter("")
 
 	input := "openai\ntext-embedding-3-small\nsk-test-key\n"
-	got, err := promptEmbeddingProvider(p, bufio.NewReader(strings.NewReader(input)))
+	got, err := promptEmbeddingProvider(p, bufio.NewReader(strings.NewReader(input)), setupAnswers{})
 	if err != nil {
 		t.Fatalf("promptEmbeddingProvider: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestPromptEmbeddingProviderOpenAICompatibleRequiresABaseURL(t *testing.T) {
 	p := output.NewPrinter("")
 
 	input := "openai-compatible\n\n\n"
-	if _, err := promptEmbeddingProvider(p, bufio.NewReader(strings.NewReader(input))); err == nil {
+	if _, err := promptEmbeddingProvider(p, bufio.NewReader(strings.NewReader(input)), setupAnswers{}); err == nil {
 		t.Fatal("expected an error for openai-compatible with no base URL")
 	}
 }
@@ -61,7 +61,7 @@ func TestPromptEmbeddingProviderOpenAICompatibleStoresBaseURLAndSkipsAPIKey(t *t
 	p := output.NewPrinter("")
 
 	input := "openai-compatible\n\nhttp://localhost:11434/v1\n\n"
-	got, err := promptEmbeddingProvider(p, bufio.NewReader(strings.NewReader(input)))
+	got, err := promptEmbeddingProvider(p, bufio.NewReader(strings.NewReader(input)), setupAnswers{})
 	if err != nil {
 		t.Fatalf("promptEmbeddingProvider: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestPromptRerankProviderDefaultsToLocalOnBlankInput(t *testing.T) {
 	t.Setenv(brand.EnvVar("GLOBAL_DIR"), t.TempDir())
 	p := output.NewPrinter("")
 
-	got, err := promptRerankProvider(p, bufio.NewReader(strings.NewReader("\n")))
+	got, err := promptRerankProvider(p, bufio.NewReader(strings.NewReader("\n")), setupAnswers{})
 	if err != nil {
 		t.Fatalf("promptRerankProvider: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestPromptRerankProviderStoresModelAndAPIKeyForANamedProvider(t *testing.T)
 	p := output.NewPrinter("")
 
 	input := "cohere\nrerank-english-v3.0\nsk-rerank-key\n"
-	got, err := promptRerankProvider(p, bufio.NewReader(strings.NewReader(input)))
+	got, err := promptRerankProvider(p, bufio.NewReader(strings.NewReader(input)), setupAnswers{})
 	if err != nil {
 		t.Fatalf("promptRerankProvider: %v", err)
 	}

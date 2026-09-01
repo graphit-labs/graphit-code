@@ -212,6 +212,18 @@ func getCompiledDefaults() ConfigMap {
 	return parsedDefaults
 }
 
+// ConfigEnvVar returns the environment variable that supplies a config key: the brand prefix,
+// the key upper-cased, dots turned into underscores. `hub.bucket` becomes GRAPHIT_HUB_BUCKET.
+//
+// This is THE derivation — ResolveConfig calls it, so every key in the codebase gets an
+// environment variable from here with no registration step. Anything that needs to NAME the
+// variable — help text, an error message, documentation, a container image — calls this rather
+// than rebuilding the rule, because a second implementation of a string transformation is a
+// second thing to keep in step and nothing would report the day they diverged.
+func ConfigEnvVar(key string) string {
+	return brand.EnvPrefix() + "_" + strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(key), ".", "_"))
+}
+
 func ResolveConfig(key string, inlineCfg, projectCfg ConfigMap) string {
 
 	if inlineCfg != nil {
@@ -220,8 +232,7 @@ func ResolveConfig(key string, inlineCfg, projectCfg ConfigMap) string {
 		}
 	}
 
-	envKey := brand.EnvPrefix() + "_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
-	if val := os.Getenv(envKey); val != "" {
+	if val := os.Getenv(ConfigEnvVar(key)); val != "" {
 		return val
 	}
 
@@ -243,6 +254,23 @@ func ResolveConfig(key string, inlineCfg, projectCfg ConfigMap) string {
 	return ""
 }
 
+// FallbackIDE and FallbackCLI are the last resort of every IDE/CLI resolution: what the framework
+// uses when no flag, no inline map, no environment variable, no project lockfile, no global config
+// and no compiled-in default has an opinion.
+//
+// They are constants, and named, because this value is read at the bottom of FIVE different
+// resolution paths — ResolveIDE, resolveAmbientIDE, ResolveCLI, the unified UI server, and
+// CLIForIDE's pairing. As three separate string literals they could be changed one at a time, and
+// the result would not fail: the paths would simply disagree about what the default is, which is
+// the kind of divergence nothing reports.
+//
+// The two are kept consistent by CLIForIDE: FallbackIDE's paired CLI IS FallbackCLI, and
+// TestFallbackIDEAndCLIAgree fails if that stops being true.
+const (
+	FallbackIDE = "opencode"
+	FallbackCLI = "opencode"
+)
+
 func ResolveIDE(flagValue string, inlineCfg, projectCfg ConfigMap) string {
 
 	if flagValue != "" {
@@ -253,7 +281,7 @@ func ResolveIDE(flagValue string, inlineCfg, projectCfg ConfigMap) string {
 		return val
 	}
 
-	return "claude"
+	return FallbackIDE
 }
 
 func ResolveProjectIDE(flagValue string, inlineCfg, projectCfg ConfigMap, lockfileIDEs []string) string {
@@ -304,7 +332,7 @@ func resolveAmbientIDE() string {
 		return val
 	}
 
-	return "claude"
+	return FallbackIDE
 }
 
 func DefaultIDE() string {
@@ -327,7 +355,7 @@ func ResolveCLI(flagValue string, inlineCfg, projectCfg ConfigMap, resolvedIDE s
 		}
 	}
 
-	return "claude"
+	return FallbackCLI
 }
 
 func DefaultCLI() string {
@@ -603,8 +631,15 @@ func ResolveKnowledgeExtensions(inlineCfg, projectCfg ConfigMap) map[string]bool
 	return m
 }
 
+// OptInModules are the modules that are OFF unless explicitly enabled. Every other module is on
+// by default, so `modules.<name>` reads as an enabled flag whose absence means "yes".
+//
+// Both entries here run something the user did not ask for at the moment they would run it:
+// dream works overnight against an agent CLI, and daemon_ui makes a background process hold a
+// port and serve a web application. Defaults that surprising have to be chosen, not inherited.
 var OptInModules = []string{
 	"dream",
+	DaemonUIModule,
 }
 
 func IsModuleDisabled(module string, inlineCfg, projectCfg ConfigMap) bool {

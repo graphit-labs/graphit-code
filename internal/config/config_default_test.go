@@ -185,8 +185,8 @@ func TestResolveIDEAndCLI(t *testing.T) {
 	}
 
 	ide = ResolveIDE("", nil, nil)
-	if ide != "claude" { // default fallback
-		t.Errorf("expected default fallback to be 'claude', got %q", ide)
+	if ide != FallbackIDE {
+		t.Errorf("expected default fallback to be %q, got %q", FallbackIDE, ide)
 	}
 
 	if CLIForIDE("antigravity") != "agy" {
@@ -225,15 +225,15 @@ func TestResolveIDEAndCLI(t *testing.T) {
 	}
 
 	cli = ResolveCLI("", nil, nil, "")
-	if cli != "claude" {
-		t.Errorf("expected default CLI to be 'claude', got %q", cli)
+	if cli != FallbackCLI {
+		t.Errorf("expected default CLI to be %q, got %q", FallbackCLI, cli)
 	}
 
-	if DefaultIDE() != "claude" {
-		t.Errorf("expected DefaultIDE to be 'claude', got %q", DefaultIDE())
+	if DefaultIDE() != FallbackIDE {
+		t.Errorf("expected DefaultIDE to be %q, got %q", FallbackIDE, DefaultIDE())
 	}
-	if DefaultCLI() != "claude" {
-		t.Errorf("expected DefaultCLI to be 'claude', got %q", DefaultCLI())
+	if DefaultCLI() != FallbackCLI {
+		t.Errorf("expected DefaultCLI to be %q, got %q", FallbackCLI, DefaultCLI())
 	}
 }
 
@@ -675,13 +675,13 @@ func TestUncoveredBranches(t *testing.T) {
 		t.Errorf("expected default_ide, got %q", ide)
 	}
 
-	// 5c. resolveAmbientIDE fallback to "claude"
+	// 5c. resolveAmbientIDE falls back to FallbackIDE
 	CompiledDefaults = ""
 	parsedDefaults = nil
 	defaultsOnce = sync.Once{}
 	ide = ResolveProjectIDE("", nil, nil, nil)
-	if ide != "claude" {
-		t.Errorf("expected fallback to claude, got %q", ide)
+	if ide != FallbackIDE {
+		t.Errorf("expected fallback to %q, got %q", FallbackIDE, ide)
 	}
 
 	err = SetGlobalConfigValue("some.global.key", "resolved_global_val")

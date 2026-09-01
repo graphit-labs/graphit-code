@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { astApi } from '@/api/ast'
 import { showToast } from '@/hooks/useToast'
-import { cn } from '@/lib/utils'
+import { cn, agentFeaturesEnabled } from '@/lib/utils'
 import { Code2, Loader2, Send, ChevronUp, ChevronDown, Sparkles } from 'lucide-react'
 
 type Mode = 'cypher' | 'nl'
@@ -26,6 +26,10 @@ const EXAMPLE_QUERIES = [
 ]
 
 export function QueryBar({ contextId, projectDir, onQueryResult, loading, setLoading, collapsed, onCollapsedClick: _onCollapsedClick }: QueryBarProps) {
+  // With no agent CLI on the server there is no NL mode to offer, and the toggle is not
+  // rendered at all rather than rendered disabled: a control that exists and refuses teaches
+  // nothing, while its absence matches the server's actual shape.
+  const aiEnabled = agentFeaturesEnabled()
   const [mode, setMode] = useState<Mode>('cypher')
   const [query, setQuery] = useState('')
   const [generating, setGenerating] = useState(false)
@@ -53,7 +57,7 @@ export function QueryBar({ contextId, projectDir, onQueryResult, loading, setLoa
 
   const handleGenerate = async () => {
     const prompt = query.trim()
-    if (!prompt || mode !== 'nl') return
+    if (!prompt || mode !== 'nl' || !aiEnabled) return
     setGenerating(true)
     try {
       const result = await astApi.generateCypher(prompt, contextId, projectDir)
@@ -96,18 +100,20 @@ export function QueryBar({ contextId, projectDir, onQueryResult, loading, setLoa
           <Code2 className="w-3.5 h-3.5" />
           Cypher
         </button>
-        <button
-          onClick={() => setMode('nl')}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200',
-            mode === 'nl'
-              ? 'bg-card text-primary shadow-[0_2px_8px_rgba(0,0,0,0.06)] border border-border/40'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          <Sparkles className="w-3.5 h-3.5 text-primary" />
-          AI Assistant
-        </button>
+        {aiEnabled && (
+          <button
+            onClick={() => setMode('nl')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200',
+              mode === 'nl'
+                ? 'bg-card text-primary shadow-[0_2px_8px_rgba(0,0,0,0.06)] border border-border/40'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-primary" />
+            AI Assistant
+          </button>
+        )}
       </div>
 
       {}

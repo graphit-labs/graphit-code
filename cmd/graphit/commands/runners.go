@@ -731,7 +731,7 @@ func runUnifiedServe(repoPath string) error {
 
 	ide := os.Getenv(brand.EnvVar("IDE"))
 	if ide == "" {
-		ide = "claude"
+		ide = config.FallbackIDE
 	}
 
 	if repoPath == "" {

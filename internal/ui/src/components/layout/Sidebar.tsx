@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { cn } from '@/lib/utils'
+import { cn, agentFeaturesEnabled } from '@/lib/utils'
 import { useTheme } from '@/hooks/useTheme'
 import { useAppStore } from '@/store/appStore'
 import { ProjectSwitcher } from './ProjectSwitcher'
@@ -183,15 +183,19 @@ export function Sidebar({ onClose }: SidebarProps) {
       <ProjectSwitcher />
 
       <nav className="flex-1 overflow-y-auto px-3.5 py-4 space-y-1 scrollbar-none relative z-10">
-        <div className="mb-5">
-          <PrimaryNavItem
-            to="/live"
-            icon={<Search className="w-4 h-4" />}
-            label="Live Search"
-            hint="Search across every signal"
-            onClick={close}
-          />
-        </div>
+        {/* Live search runs an agent CLI on the server; with none installed the whole page is a
+            dead end, so the entry is not offered rather than offered and broken. */}
+        {agentFeaturesEnabled() && (
+          <div className="mb-5">
+            <PrimaryNavItem
+              to="/live"
+              icon={<Search className="w-4 h-4" />}
+              label="Live Search"
+              hint="Search across every signal"
+              onClick={close}
+            />
+          </div>
+        )}
 
         {}
         <NavSection title="Hub">

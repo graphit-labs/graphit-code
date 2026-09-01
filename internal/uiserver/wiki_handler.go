@@ -16,6 +16,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
+	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
@@ -76,7 +77,13 @@ type WikiHandler struct {
 }
 
 func NewWikiHandler(hubSvc *hub.HubService) *WikiHandler {
-	client, _ := ai.NewClientFromConfig()
+	// Left nil when the agent module is off, which is what makes handleAISearch refuse. The
+	// deterministic BM25 route beside it is untouched: /api/wiki/search needs no agent and keeps
+	// working, so a container without one still has a searchable wiki.
+	var client ai.Client
+	if config.AgentFeaturesEnabled(nil, nil) {
+		client, _ = ai.NewClientFromConfig()
+	}
 	return &WikiHandler{aiClient: client, hubSvc: hubSvc}
 }
 

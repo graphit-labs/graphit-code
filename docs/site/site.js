@@ -22,8 +22,12 @@ navigation?.querySelectorAll('a').forEach((link) => {
   })
 })
 
+// Scoped to the install console on purpose. A global '.command-panel' query also collects the
+// standalone snippets elsewhere on the page, and since those carry no data-panel the tab handler
+// would compute active === false and hide them the first time anyone clicked a tab.
+const installConsole = document.querySelector('.install-console')
 const tabs = [...document.querySelectorAll('.install-tab')]
-const panels = [...document.querySelectorAll('.command-panel')]
+const panels = installConsole ? [...installConsole.querySelectorAll('.command-panel')] : []
 tabs.forEach((tab) => {
   tab.addEventListener('click', () => {
     tabs.forEach((item) => {

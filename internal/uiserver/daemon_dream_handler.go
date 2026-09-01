@@ -2,9 +2,11 @@ package uiserver
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -48,6 +50,18 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 		MCPPort         int       `json:"mcp_port,omitempty"`
 		MCPEndpoint     string    `json:"mcp_endpoint,omitempty"`
 		MCPKeyFile      string    `json:"mcp_key_file,omitempty"`
+		// MCPKey is the bearer token itself, so the UI can offer a copy button — pointing an
+		// external MCP client at this daemon needs the endpoint AND the key, and reading a
+		// 0600 file out of the global directory is not something a browser can do.
+		//
+		// SECURITY: this endpoint has no authentication of its own; it is protected only by the
+		// UI server's bind address and CORS policy. Anyone who can reach the UI port can
+		// therefore read the MCP bearer key. That is a smaller step than it sounds — the same
+		// port already exposes every project's graph, wiki and memory over unauthenticated
+		// routes, so it grants no access the caller did not already have — but it is the reason
+		// the UI must stay behind a loopback bind or an authenticating proxy. See
+		// docs/guides/s3-and-ui-network.md.
+		MCPKey string `json:"mcp_key,omitempty"`
 	}
 	res.PIDFilePath = pid.Path()
 	res.SchedulerStatus = daemon.SchedulerStatus()
@@ -70,9 +84,15 @@ func (h *DaemonDreamHandler) handleDaemonStatus(w http.ResponseWriter, r *http.R
 
 	if port, err := mcpproxy.ReadPort(daemonctl.PortFilePath()); err == nil {
 		res.MCPPort = port
-		res.MCPEndpoint = fmt.Sprintf("http://127.0.0.1:%d/mcp", port)
+		// The advertised host is the one the daemon was told to bind, not a hardcoded loopback:
+		// a container publishes the MCP port, and an endpoint saying 127.0.0.1 would be wrong
+		// for every client outside it.
+		res.MCPEndpoint = fmt.Sprintf("http://%s/mcp", net.JoinHostPort(config.ResolveMCPHost(nil, nil), strconv.Itoa(port)))
 	}
 	res.MCPKeyFile = daemonctl.KeyFilePath()
+	if key, err := mcpproxy.ReadKey(daemonctl.KeyFilePath()); err == nil {
+		res.MCPKey = key
+	}
 
 	writeJSON(w, res)
 }

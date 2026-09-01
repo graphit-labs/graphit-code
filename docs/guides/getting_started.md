@@ -27,6 +27,13 @@ Use a custom installation directory when needed:
 curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh -s -- --dir ~/.local/bin
 ```
 
+Pin a release instead of taking the newest, which is what a reproducible install or a container
+image needs. The archive's SHA-256 is verified either way:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh -s -- --version v0.1.26
+```
+
 ### Windows PowerShell
 
 ```powershell
@@ -79,6 +86,8 @@ Open the displayed loopback URL. The workspace selector should identify the curr
 ![Graphit AST Explorer analyzing graphit-code](../site/assets/observatory-ast-explorer.jpg)
 
 The UI is not an authentication layer. Keep the default loopback binding for local use; read [S3 Credentials and UI Network Configuration](s3-and-ui-network.md) before making it reachable over a network.
+
+To serve a whole team instead of one machine, run it as a container: the daemon as PID 1, publishing an MCP endpoint that any AI agent can connect to plus this same UI. See [Run as a Server in a Container](container.md).
 
 ## 6. Verify the agent tools
 

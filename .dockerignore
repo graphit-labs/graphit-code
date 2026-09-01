@@ -1,0 +1,9 @@
+# The image installs the published release rather than building from source, so the only file
+# the build context needs is the installer. Everything else is excluded — which keeps the
+# context at a few kilobytes instead of shipping the whole checkout, coverage.out and .git to
+# the daemon on every build.
+#
+# Ordering matters: the catch-all comes first, the exception after it.
+*
+
+!install.sh
