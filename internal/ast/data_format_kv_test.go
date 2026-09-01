@@ -84,7 +84,7 @@ func TestJSONKeysAndValuesAreBothNodes(t *testing.T) {
 }
 
 func TestYAMLKeysAndValuesAreBothNodes(t *testing.T) {
-	projectDir := stageGrammar(t, "yaml_lang", "tree-sitter-yaml", ".yaml", "yaml_lang.yaml")
+	projectDir := stageGrammar(t, "yaml", "tree-sitter-yaml", ".yaml", "yaml.yaml")
 	got := nodesOf(parseFixture(t, projectDir, "a.yaml", `name: graphit
 port: 5432
 database:
@@ -323,7 +323,7 @@ func stageDataFormats(t *testing.T) string {
 	for _, g := range []struct{ lang, grammar, ext, file string }{
 		{"xml", "tree-sitter-xml", ".xml", "xml.yaml"},
 		{"json", "tree-sitter-json", ".json", "json.yaml"},
-		{"yaml_lang", "tree-sitter-yaml", ".yaml", "yaml_lang.yaml"},
+		{"yaml", "tree-sitter-yaml", ".yaml", "yaml.yaml"},
 		{"toml", "tree-sitter-toml", ".toml", "toml.yaml"},
 	} {
 		body, err := os.ReadFile(filepath.Join("queries", g.file))

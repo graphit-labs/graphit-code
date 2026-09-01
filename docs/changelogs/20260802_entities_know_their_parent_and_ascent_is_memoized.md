@@ -3,7 +3,7 @@
 **Date:** 2026-08-02
 **Scope:** `internal/ast/treesitter_context.go` (new),
 `internal/ast/treesitter_adapter.go`, `internal/ast/query_loader.go`,
-`internal/ast/queries/{xml,json,yaml_lang,svelte}.yaml`,
+`internal/ast/queries/{xml,json,yaml,svelte}.yaml`,
 `internal/ast/treesitter_context_test.go` (new),
 `internal/ast/containment_coverage_test.go` (new),
 `internal/ast/data_format_kv_test.go`, `internal/ast/css_test.go`

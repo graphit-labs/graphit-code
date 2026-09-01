@@ -117,7 +117,7 @@ func TestJSONMemberIsContainedByEnclosingMember(t *testing.T) {
 }
 
 func TestYAMLMappingIsContainedByEnclosingMapping(t *testing.T) {
-	projectDir := stageGrammar(t, "yaml_lang", "tree-sitter-yaml", ".yaml", "yaml_lang.yaml")
+	projectDir := stageGrammar(t, "yaml", "tree-sitter-yaml", ".yaml", "yaml.yaml")
 	pf := parseFixture(t, projectDir, "a.yaml", "server:\n  database:\n    host: db.example.com\n")
 	got := nodesOf(pf)
 

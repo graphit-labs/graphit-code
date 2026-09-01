@@ -193,8 +193,8 @@ graphit config ast.grammars_whitelist go,sql
 ```
 
 Both keys are comma-separated. A name matches the language, the grammar, or the
-grammar without its `tree-sitter-` / `antlr-` prefix — so `yaml`, `yaml_lang` and
-`tree-sitter-yaml` all name the same language. When the whitelist is non-empty it
+grammar without its `tree-sitter-` / `antlr-` prefix — so `yaml` and
+`tree-sitter-yaml` both name the same language. When the whitelist is non-empty it
 is exhaustive, and the blacklist still subtracts from it. Semantics and precedence:
 [config_module](../specs/config_module.md#turning-grammars-off-astgrammars_blacklist-and-astgrammars_whitelist);
 enforcement and what happens to nodes already indexed:

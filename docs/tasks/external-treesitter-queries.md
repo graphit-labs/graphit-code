@@ -42,7 +42,6 @@ Here's the translation:
 
 ### Key Functions
 
-Portuguese:
 | Function | Description |
 | -------- | ------------ |
 | `LoadExternalQueries()` | Loads from `.graphit/ast/queries/` (project) |
@@ -51,7 +50,6 @@ Portuguese:
 | `resolveQueriesForLang()` | Chain: project > user > runtime |
 | `mergedQueriesFor()` | Resolves + validates + caches (thread-safe) |
 
-English:
 The function loads data from the specified source. The first three functions load data from a project, while the fourth function loads data from a user global context. The fifth function chains together these sources to form a single chain: project > user > runtime. The sixth function ensures thread safety by resolving, validating, and caching the loaded data.
 
 ## Verification

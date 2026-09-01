@@ -409,7 +409,7 @@ func TestDataFormatCollectionsAndCDATA(t *testing.T) {
 	})
 
 	t.Run("yaml flow sequences", func(t *testing.T) {
-		projectDir := stageGrammar(t, "yaml_lang", "tree-sitter-yaml", ".yaml", "yaml_lang.yaml")
+		projectDir := stageGrammar(t, "yaml", "tree-sitter-yaml", ".yaml", "yaml.yaml")
 		got := nodesOf(parseFixture(t, projectDir, "a.yaml", "ports: [80, 443]\n"))
 		wantNode(t, got, "Value", "80", "ports", "Mapping")
 		wantNode(t, got, "Value", "443", "ports", "Mapping")

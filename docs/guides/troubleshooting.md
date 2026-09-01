@@ -765,7 +765,7 @@ knowledge wiki not found
    graphit ast index
    ```
 3. **A typo in either key is silent.** An entry matching no known grammar is deliberately inert — the lists are read in processes that may not have a grammar pack installed yet — so `ast.grammars_blacklst` (or `pyton`) disables nothing and reports nothing. Verify the key name letter by letter against `graphit config --list`; a value you set that does not appear there went to a different key.
-4. The name has to match the language, the grammar, or the grammar without its `tree-sitter-` / `antlr-` prefix. `yaml`, `yaml_lang` and `tree-sitter-yaml` are the same language; `yml` is none of them.
+4. The name has to match the language, the grammar, or the grammar without its `tree-sitter-` / `antlr-` prefix. `yaml` and `tree-sitter-yaml` are the same language; `yml` is neither.
 5. Neither key set and the language still absent? Then it is one of the other two axes — no query file claims the extension, or a path pattern excludes it. See [ignore_files](ignore_files.md#excluding-a-language-rather-than-a-path).
 6. Nodes from before the key was set survive a **scoped** index (`--path`), because the tree is never walked and nothing can be pruned. A full `graphit ast index` removes them.
 

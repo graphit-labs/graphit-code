@@ -1,4 +1,4 @@
-language: yaml_lang
+language: yaml
 grammar: tree-sitter-yaml
 extensions: [".yaml", ".yml"]
 queries:

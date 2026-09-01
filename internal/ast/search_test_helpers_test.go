@@ -98,8 +98,9 @@ func abbrevCorpusNamesOnly() []gateEntity {
 // abbrevProbes are the three directions of partial match, shared by every measurement of
 // abbreviation recall.
 
-// stageGrammar is stageLang for languages whose grammar name is not derivable
-// from the language name — yaml_lang uses tree-sitter-yaml.
+// stageGrammar is stageLang with an explicit grammar identity. It also covers
+// languages whose grammar name is not derivable from the language name, such as
+// csharp using tree-sitter-c_sharp.
 func stageGrammar(t *testing.T, langName, grammar, ext, queryFile string) string {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join("queries", queryFile))

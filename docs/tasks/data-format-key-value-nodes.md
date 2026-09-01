@@ -39,7 +39,6 @@ Motor: Three Roles per Query
 
 **INLINE_53** won four optional fields, and **INLINE_54** mirrored them in the same order (the gap between the two is positional):
 
-Portuguese:
 | Field | Effect |
 |---|---|
 | `value_capture` | captures the value of the entity |
@@ -47,7 +46,6 @@ Portuguese:
 | `parent_capture` | captures the name of what contains the entity |
 | `parent_label` | label of this node |
 
-English:
 The fields capture the following effects:
 
 - `value_capture`: Captures the value of the entity.
@@ -139,7 +137,17 @@ Suite `./internal/...` with `-tags fts5` passes. `TestHybridSearchQualityFloor` 
   __NOINDEX__ fallback grammar by `grammar`
 - `internal/ast/cache_convert.go` - ordered iteration, dedupe by `uid`+`label`
 - `internal/ast/ladybug.go` - new escape list labels in Cypher
-- `internal/ast/queries/xml.yaml`, `json.yaml`, `yaml_lang.yaml`, `toml.yaml`,
+- `internal/ast/queries/xml.yaml`, `json.yaml`, `yaml.yaml`, `toml.yaml`,
   `html.yaml`, `hcl.yaml`
 - `internal/ast/data_format_kv_test.go` - new
 - `docs/specs/ast_module.md` - documented query schema
+
+## 2026-08-31 — YAML identity cleanup
+
+The shipped YAML query now uses `language: yaml` and the filename `yaml.yaml`.
+The older `yaml_lang` identifier existed only to avoid colliding conceptually with
+the query-file format; it leaked that implementation detail into AST results,
+configuration examples, tests, and documentation. The grammar remains
+`tree-sitter-yaml`, so parsing and extension coverage are unchanged.
+
+Verification: `go test ./internal/ast` passes.

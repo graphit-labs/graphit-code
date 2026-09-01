@@ -60,12 +60,12 @@ It would also make the caches lie: `belowProjectCache` is a single-entry cache
 with no project key.
 
 **What the lists match.** A query file carries both a `language:` and a
-`grammar:`, and they are frequently different (`language: yaml_lang`,
+`grammar:`, and they are frequently different (`language: yaml`,
 `grammar: tree-sitter-yaml`; `language: plsql`, `grammar: antlr-plsql`). A name in
 either list matches if it equals, case-insensitively, any of: the language name,
 the grammar name, or the grammar name with its `tree-sitter-` / `antlr-` prefix
-stripped. So `yaml`, `yaml_lang` and `tree-sitter-yaml` all disable the same
-language, which is what someone writing the list actually means.
+stripped. So `yaml` and `tree-sitter-yaml` both disable the same language, which
+is what someone writing the list actually means.
 
 ## Plan & Task Breakdown
 
@@ -321,9 +321,8 @@ Then the answer is false
 Examples:
   | entry             |
   | yaml              |
-  | yaml_lang         |
   | tree-sitter-yaml  |
-  | YAML_LANG         |
+  | YAML              |
   |  yaml             |
 ```
 
@@ -409,8 +408,8 @@ Then the next lookup for the blacklisted extension answers false
   a hard failure of the whole index.
 - **The lists match language *or* grammar, with the prefix optional.** Strictly
   matching only `grammar:` would be more precise and would make `yaml` — the
-  obvious thing to write — silently do nothing, because that language is called
-  `yaml_lang`. Precision that fails the obvious input is not precision.
+  obvious thing to write — depend on prefix stripping. Accepting the language
+  name directly keeps the configuration aligned with what users see.
 - **`TreeSitterSupportedExtensions()` is left unfiltered.** It has no
   `projectDir` and feeds the HTTP `/parsers/status` endpoint, which reports what
   the engine can do, not what a given project has switched on.

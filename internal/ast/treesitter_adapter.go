@@ -100,12 +100,10 @@ func resolveTreeSitterLang(langName, grammarName string) (*sitter.Language, erro
 	if loadErr != nil {
 		lang = NativeLanguage(langName)
 		if lang == nil {
-			// The language name is not always the grammar name. yaml_lang.yaml
-			// declares `language: yaml_lang` — the identifier is qualified
-			// because "yaml" is also the query files' own format — and
-			// `grammar: tree-sitter-yaml`. Looking up only the language name
-			// meant .yaml and .yml resolved no grammar at all and were never
-			// parsed. The grammar field already names the grammar; use it.
+			// The language name is not always the grammar name. csharp.yaml,
+			// for example, declares `language: csharp` and
+			// `grammar: tree-sitter-c_sharp`. The grammar field already names
+			// the native grammar; use it when the public language name does not.
 			lang = NativeLanguage(strings.TrimPrefix(grammarName, "tree-sitter-"))
 		}
 		if lang == nil {

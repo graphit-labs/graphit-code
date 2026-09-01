@@ -420,12 +420,12 @@ graphit config ast.grammars_whitelist go,sql
 ```
 
 **What the names match.** A grammar query file carries both a `language:` and a
-`grammar:`, and the two are frequently different — `language: yaml_lang` with
+`grammar:`, and the two are frequently different — `language: yaml` with
 `grammar: tree-sitter-yaml`, `language: plsql` with `grammar: antlr-plsql`. An
 entry matches, case-insensitively and after trimming whitespace, if it equals
 **any** of three names: the language, the grammar, or the grammar without its
-`tree-sitter-` / `antlr-` prefix. So `yaml`, `yaml_lang` and `tree-sitter-yaml`
-all disable the same language, which is what someone writing the list means.
+`tree-sitter-` / `antlr-` prefix. So `yaml` and `tree-sitter-yaml` both disable
+the same language, which is what someone writing the list means.
 
 **An unknown name is inert.** `ast.grammars_blacklist=cobol` on a machine with no
 COBOL grammar disables nothing and reports nothing. This is deliberate: the lists

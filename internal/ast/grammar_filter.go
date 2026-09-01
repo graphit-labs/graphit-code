@@ -62,9 +62,9 @@ func (f grammarFilter) keepFiles(files []ExternalQueryFile) []ExternalQueryFile 
 // grammarAliases is every name a language answers to: its own name, its grammar
 // name, and that grammar name without the backend prefix.
 //
-// The three differ often enough that matching only one of them would make the
-// obvious entry do nothing — yaml_lang.yaml declares `language: yaml_lang` and
-// `grammar: tree-sitter-yaml`, so "yaml" matches neither.
+// The three differ often enough that matching only one of them would make an
+// obvious entry do nothing — csharp.yaml declares `language: csharp` and
+// `grammar: tree-sitter-c_sharp`, whose bare grammar name is `c_sharp`.
 func grammarAliases(language, grammar string) []string {
 	aliases := make([]string, 0, 3)
 	if l := normalizeGrammarName(language); l != "" {

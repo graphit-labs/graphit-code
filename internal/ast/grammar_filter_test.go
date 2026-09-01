@@ -100,8 +100,8 @@ func TestGrammarBlacklistRemovesTheExtension(t *testing.T) {
 	}
 }
 
-// Every name the language answers to disables it. The three differ in practice —
-// yaml_lang / tree-sitter-yaml / yaml — and an entry that matched only one of
+// Every name the language answers to disables it. The three differ in this fixture —
+// fable_lang / tree-sitter-fable / fable — and an entry that matched only one of
 // them would make the obvious input do nothing.
 func TestGrammarBlacklistMatchesLanguageGrammarAndBareGrammar(t *testing.T) {
 	for _, entry := range []string{
@@ -266,7 +266,7 @@ func TestGrammarAliasesCoverTheDefaultedGrammarName(t *testing.T) {
 		qf   ExternalQueryFile
 		want string
 	}{
-		{"declared grammar", ExternalQueryFile{Language: "yaml_lang", Grammar: "tree-sitter-yaml"}, "tree-sitter-yaml"},
+		{"declared grammar", ExternalQueryFile{Language: "yaml", Grammar: "tree-sitter-yaml"}, "tree-sitter-yaml"},
 		{"defaulted tree-sitter", ExternalQueryFile{Language: "go"}, "tree-sitter-go"},
 		{"defaulted antlr", ExternalQueryFile{Language: "plsql", Parser: "antlr4"}, "antlr-plsql"},
 		{"no language", ExternalQueryFile{}, ""},
@@ -280,7 +280,7 @@ func TestGrammarAliasesCoverTheDefaultedGrammarName(t *testing.T) {
 	}
 
 	filter := grammarFilter{blacklist: map[string]bool{"yaml": true}}
-	if filter.allowsFile(ExternalQueryFile{Language: "yaml_lang", Grammar: "tree-sitter-yaml"}) {
+	if filter.allowsFile(ExternalQueryFile{Language: "yaml", Grammar: "tree-sitter-yaml"}) {
 		t.Error("the bare grammar name must match the prefixed one")
 	}
 	if !filter.allowsFile(ExternalQueryFile{Language: "yaml_other", Grammar: "tree-sitter-yamlish"}) {

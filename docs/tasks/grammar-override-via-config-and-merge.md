@@ -22,7 +22,7 @@ then owning every future fix to it. Worse, the copy silently takes over the fiel
 it does not restate: a copy that forgets `extensions` unregisters the language
 (`rebuildExtTables` and `projectTsExtMap` build the extension tables from that
 field alone), and one that forgets `grammar` sends `resolveTreeSitterLang` looking
-for `tree-sitter-<language name>`, which for `yaml_lang` does not exist. Both fail
+for `tree-sitter-<language name>`, which for `csharp` does not exist. Both fail
 by silence: files of that language stop being discovered, with no error anywhere.
 
 ## Root Cause

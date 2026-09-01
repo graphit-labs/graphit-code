@@ -482,8 +482,8 @@ var grammarsWithoutDefaultQueries = map[string]string{
 // no extension is registered for it, so files in that language are not discovered,
 // and nothing reports the omission. CSS and Svelte both sat like that.
 //
-// c_sharp, proto and yaml are named differently in the two places on purpose —
-// their query files declare `language: csharp` / `protobuf` / `yaml_lang` with the
+// c_sharp and proto are named differently in the two places on purpose —
+// their query files declare `language: csharp` / `protobuf` with the
 // real grammar in the `grammar` field — so they are matched through it.
 func TestEveryNativeGrammarHasQueries(t *testing.T) {
 	declared := map[string]bool{}
