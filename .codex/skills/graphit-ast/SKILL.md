@@ -34,11 +34,11 @@ containment hierarchy — pre-indexed and instantly queryable.
 | Your tool | AST equivalent | Why AST wins |
 |---|---|---|
 | `grep -r "functionName" src/` | Call `graphit_ast_query` with `query: "MATCH (f:Function {name: 'functionName'}) RETURN f.path, f.line_number"` | AST: O(1) indexed lookup. Grep: O(n) scan, false positives in comments/strings |
-| Semantic search for "who calls X" | Call `graphit_ast_query` with `query: "MATCH (a)-[:CALLS]->(b {name: 'X'}) RETURN a.name, a.path"` | AST: exact CALLS edges. Semantic: guesses from text proximity |
+| Semantic search for "who calls X" | Call `graphit_ast_query` with `query: "MATCH (a)-[:CALLS]->(b:Function {name: 'X'}) RETURN DISTINCT a.name, a.path"` | AST: exact CALLS edges. Semantic: guesses from text proximity |
 | IDE code symbols / go-to-definition | Call `graphit_ast_query` with `query: "MATCH (n:Class {name: 'X'}) RETURN n.path, n.line_number"` | AST: works across files, languages, and imported contexts |
-| Reading files to understand structure | Call `graphit_ast_query` with `query: "MATCH (f:File {path: 'X'})-[:CONTAINS]->(e) RETURN label(e), e.name"` | AST: instant file skeleton. File reading: manual, token-heavy |
-| `grep` for import usage | Call `graphit_ast_query` with `query: "MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'X'}) RETURN f.path"` | AST: pre-resolved import graph. Grep: regex on `import` statements |
-| Searching for class hierarchy | Call `graphit_ast_query` with `query: "MATCH (a:Class)-[:INHERITS*]->(b:Class {name: 'X'}) RETURN a.name"` | AST: transitive closure in one query. Manual: file-by-file tracing |
+| Reading files to understand structure | Call `graphit_ast_query` with `query: "MATCH (f:File {path: 'X'})-[:CONTAINS]->(e:Function) RETURN DISTINCT e.name, e.line_number ORDER BY e.line_number"` | AST: instant file skeleton. File reading: manual, token-heavy |
+| `grep` for import usage | Call `graphit_ast_query` with `query: "MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'X'}) RETURN DISTINCT f.path"` | AST: pre-resolved import graph. Grep: regex on `import` statements |
+| Searching for class hierarchy | Call `graphit_ast_query` with `query: "MATCH (a:Class)-[:INHERITS*]->(b:Class {name: 'X'}) RETURN DISTINCT a.name"` | AST: transitive closure in one query. Manual: file-by-file tracing |
 
 ### 🔒 When you MUST use the AST graph (MANDATORY — no exceptions)
 
@@ -47,21 +47,20 @@ To execute any Cypher queries below, call the `graphit_ast_query` tool (passing 
 | Scenario | What to do (Cypher query) | What NOT to do |
 |---|---|---|
 | **Finding where a function is defined** | `MATCH (f:Function {name: 'X'}) RETURN f.path, f.line_number` | ❌ Don't grep for `function X` or `def X` |
-| **Finding who calls a function** | `MATCH (a)-[:CALLS]->(b:Function {name: 'X'}) RETURN a.name, a.path` | ❌ Don't grep for the function name across all files |
-| **Understanding what a function calls** | `MATCH (a:Function {name: 'X'})-[:CALLS]->(b) RETURN b.name, label(b)` | ❌ Don't read the function source and manually trace calls |
-| **Finding all classes in a module** | `MATCH (f:File)-[:CONTAINS]->(c:Class) WHERE f.path STARTS WITH 'src/services/' RETURN c.name` | ❌ Don't list directory and read each file |
-| **Tracing class inheritance** | `MATCH (a:Class)-[:INHERITS*]->(b:Class {name: 'Base'}) RETURN a.name, a.path` | ❌ Don't grep for `extends Base` across files |
-| **Finding imports of a module** | `MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'react'}) RETURN f.path` | ❌ Don't grep for `import.*react` |
+| **Finding who calls a function** | `MATCH (a)-[:CALLS]->(b:Function {name: 'X'}) RETURN DISTINCT a.name, a.path` | ❌ Don't grep for the function name across all files |
+| **Understanding what a function calls** | `MATCH (a:Function {name: 'X'})-[:CALLS]->(b) RETURN DISTINCT b.name, b.path` | ❌ Don't read the function source and manually trace calls |
+| **Finding all classes in a module** | `MATCH (f:File)-[:CONTAINS]->(c:Class) WHERE f.path STARTS WITH 'src/services/' RETURN DISTINCT c.name` | ❌ Don't list directory and read each file |
+| **Tracing class inheritance** | `MATCH (a:Class)-[:INHERITS*]->(b:Class {name: 'Base'}) RETURN DISTINCT a.name, a.path` | ❌ Don't grep for `extends Base` across files |
+| **Finding imports of a module** | `MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'react'}) RETURN DISTINCT f.path` | ❌ Don't grep for `import.*react` |
 | **Assessing impact of a change** | Query all CALLS/IMPORTS/INHERITS edges pointing to the changed entity | ❌ Don't manually search for usages file by file |
 | **Before editing a function, method, or entity — ANY edit, not only a planned refactor** | Query its callers, its callees, and whether a test reaches it — see the Pre-Edit Impact Check below | ❌ Don't edit based on "I read it and it looks self-contained" |
-| **Understanding file structure** | `MATCH (f:File {path: 'X'})-[:CONTAINS]->(e) RETURN label(e), e.name, e.line_number` | ❌ Don't read the entire file to understand its structure |
-| **Finding DML dependencies** | `MATCH (p:Procedure)-[:SELECTS]->(t:Table) RETURN p.name, t.name` | ❌ Don't grep for `SELECT.*FROM` in SQL files |
+| **Understanding file structure** | `MATCH (f:File {path: 'X'})-[:CONTAINS]->(e:Function) RETURN DISTINCT e.name, e.line_number` — one query per label you care about | ❌ Don't read the entire file to understand its structure |
+| **Finding DML dependencies** | `MATCH (p:Procedure {name: 'X'})-[:SELECTS]->(t:Table) RETURN DISTINCT t.name` | ❌ Don't grep for `SELECT.*FROM` in SQL files |
 | **Checking complexity** | `MATCH (f:Function) WHERE f.cyclomatic_complexity > 10 RETURN f.name, f.cyclomatic_complexity` | ❌ Don't manually count branches in source code |
 | **Finding unused code** | Collect called names, then exclude declarations: `MATCH ()-[:CALLS]->(s:Function) WITH collect(DISTINCT s.name) AS called MATCH (f:Function) WHERE f.is_stub = false AND NOT f.name IN called RETURN f.name, f.path` | ❌ Don't grep for function names — and prefer this name-based form over `NOT ()-[:CALLS]->(f)`, which also counts the calls that stayed on a stub |
 | **Refactoring impact analysis** | Query all inbound edges (CALLS, INHERITS, IMPORTS) to the target entity | ❌ Don't assume you know all usages from reading a few files |
 | **Finding entry points** | `MATCH (f:Function) WHERE f.is_exported AND (f.name = 'main' OR toLower(f.name) STARTS WITH 'test' OR toLower(f.name) CONTAINS 'handler') RETURN f.name, f.path` — adjust the name/decorator pattern to the framework actually in use, which you already know | ❌ Don't invent a scoring property — the graph has no precomputed entry-point score; reason about the framework's own conventions |
-| **Tracing self/this calls** | `MATCH (a)-[r:CALLS]->(b) WHERE r.receiver_type <> '' RETURN a.name, b.name, r.receiver_type` | ❌ Don't read source to trace method dispatch — graph has receiver_type on CALLS edges |
-| **Finding interface implementors** | `MATCH (c:Class)-[:IMPLEMENTS]->(i:Interface {name: 'X'}) RETURN c.name` | ❌ Don't grep for `implements X` — graph has IMPLEMENTS edges |
+| **Finding interface implementors** | `MATCH (c:Class)-[:IMPLEMENTS]->(i:Interface {name: 'X'}) RETURN DISTINCT c.name` — only where the grammar emits IMPLEMENTS; check the schema first | ❌ Don't grep for `implements X` |
 
 ## 🔒 MANDATORY: Before You Edit — the Pre-Edit Impact Check
 
@@ -70,22 +69,34 @@ entity — not only for a deliberate refactor, but for a change that looks like 
 query the graph first.** "I read the function and it looks self-contained" is an opinion about
 text you happened to see; the questions below have actual answers, and only the graph has them.
 
-**1. Who calls it, and who calls them — the blast radius.** Use multi-label matching on the
-target if you are not certain of its exact label (Function vs Method, Class vs Struct):
+**1. Who calls it, and who calls them — the blast radius.** Name the relationship type and pin
+the target's label. If you are not certain whether the target is a Function or a Method, run it
+once per label — that is two cheap queries, not a reason to leave the type off:
 ```
-MATCH (dependent)-[r]->(target) WHERE (label(target) = 'Function' OR label(target) = 'Method') AND target.name = 'X' RETURN dependent.name, label(dependent) AS type, type(r) AS relation, dependent.path
+MATCH (caller)-[:CALLS]->(t:Function {name: 'X'}) RETURN DISTINCT caller.name, caller.path
+MATCH (caller)-[:CALLS]->(t:Method {name: 'X'}) RETURN DISTINCT caller.name, caller.path
+
+# just the number, when that is the whole question
+MATCH (caller)-[:CALLS]->(t:Function {name: 'X'}) RETURN count(DISTINCT caller.uid) AS callers
 ```
 Every row is a caller whose behavior may change the moment you change `X`. Zero rows is itself
 an answer — it means the entity is unreferenced by anything this graph can see, which is
 different from "safe", not a synonym for it: check entry points and exported status before
 treating it as dead.
 
+> 🔒 **Never leave the relationship type off to "catch every kind of edge".** An untyped
+> `-[r]->` does not fail — it resolves against the PHYSICAL member tables, including the
+> reverse ones, and answers with rows that look right and are not: the end you meant to
+> project comes back as the other end, `type(r)` leaks an internal table name like
+> `reads_field__function_field_reverse`, and the actual callers are absent. A refusal you can
+> see; this you cannot. One query per relationship type, always.
+
 **2. Is it tested — the safety net you would otherwise be editing without.** This graph has no
 `is_test` flag and no `TESTS` edge; test coverage is call evidence. A test is a function whose
 name matches this project's test convention (`Test*`, `test_*`, `*_test`, `*Test`, depending on
 language and framework) that reaches the target via `CALLS`, directly or transitively:
 ```
-MATCH (caller)-[:CALLS*1..3]->(t) WHERE ((label(t) = 'Function' OR label(t) = 'Method') AND t.name = 'X') AND toLower(caller.name) CONTAINS 'test' RETURN DISTINCT caller.name, caller.path
+MATCH (caller)-[:CALLS*1..3]->(t:Function {name: 'X'}) WHERE toLower(caller.name) CONTAINS 'test' RETURN DISTINCT caller.name, caller.path
 ```
 **Zero rows here is not "nothing to worry about" — it is the opposite: no test will tell you
 if your edit broke this.** Say that explicitly, and either treat the change with the extra care
@@ -93,14 +104,17 @@ that implies, or write the missing test before you change the behavior it would 
 
 **3. What it depends on, so the edit does not silently drop something it needs:**
 ```
-MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND f.name = 'X' MATCH (f)-[:CALLS]->(callee) RETURN callee.name, label(callee) AS type, callee.path
+MATCH (f:Function {name: 'X'})-[:CALLS]->(callee) RETURN DISTINCT callee.name, callee.path
 ```
 
-**4. If it is a type, interface, or field — who else moves with it:**
+**4. If it is a type, interface, or field — who else moves with it.** One query per
+relationship type; `READS_FIELD` and `WRITES_FIELD` are two questions, and the second one is
+the one that changes behavior:
 ```
-MATCH (impl)-[:IMPLEMENTS]->(i:Interface {name: 'X'}) RETURN impl.name, impl.path
-MATCH (child)-[:INHERITS]->(parent:Class {name: 'X'}) RETURN child.name, child.path
-MATCH (accessor)-[r]->(f:Field {name: 'X'}) WHERE type(r) IN ['READS_FIELD', 'WRITES_FIELD'] RETURN accessor.name, type(r) AS access_type, accessor.path
+MATCH (impl)-[:IMPLEMENTS]->(i:Interface {name: 'X'}) RETURN DISTINCT impl.name, impl.path
+MATCH (child)-[:INHERITS]->(parent:Class {name: 'X'}) RETURN DISTINCT child.name, child.path
+MATCH (reader)-[:READS_FIELD]->(f:Field {name: 'X'}) RETURN DISTINCT reader.name, reader.path
+MATCH (writer)-[:WRITES_FIELD]->(f:Field {name: 'X'}) RETURN DISTINCT writer.name, writer.path
 ```
 
 **This check is not one-and-done for the session.** A follow-up request to touch a *different*
@@ -213,39 +227,42 @@ graph is here; the cookbook further down expands every one of them.
 `READS_FIELD`, `WRITES_FIELD`, and the SQL DML/DDL set.
 ```bash
 # what does this function actually depend on, one hop out
-MATCH (f:Function {name: 'ProcessOrder'})-[:CALLS]->(callee) RETURN callee.name, label(callee) AS type, callee.path
+MATCH (f:Function {name: 'ProcessOrder'})-[:CALLS]->(callee) RETURN DISTINCT callee.name, callee.path
 
 # and the reverse: what depends on it
-MATCH (caller)-[:CALLS]->(f:Function {name: 'ProcessOrder'}) RETURN caller.name, caller.path
+MATCH (caller)-[:CALLS]->(f:Function {name: 'ProcessOrder'}) RETURN DISTINCT caller.name, caller.path
 ```
 
 **2. Find usage — the real one, not a text match.** Text search finds the name in comments,
 strings and unrelated identifiers. The graph finds *call edges*.
 ```bash
 # direct callers
-MATCH (caller)-[:CALLS]->(t:Function {name: 'ValidateToken'}) RETURN caller.name, label(caller) AS type, caller.path
+MATCH (caller)-[:CALLS]->(t:Function {name: 'ValidateToken'}) RETURN DISTINCT caller.name, caller.path
 
 # transitive — everything that can reach it within three hops
 MATCH (caller)-[:CALLS*1..3]->(t:Function {name: 'ValidateToken'}) RETURN DISTINCT caller.name, caller.path
 
-# usage of a type, by any kind of edge
-MATCH (user)-[r]->(c:Class {name: 'UserService'}) RETURN user.name, type(r) AS relationship, user.path
+# usage of a type: one query per relationship type you care about
+MATCH (user)-[:CALLS]->(c:Class {name: 'UserService'}) RETURN DISTINCT user.name, user.path
+MATCH (user)-[:INHERITS]->(c:Class {name: 'UserService'}) RETURN DISTINCT user.name, user.path
 ```
 
 **3. Refactoring — the blast radius, before you touch anything.** This is the question you
 cannot answer by reading: *what else moves if I change this?*
 ```bash
-# every inbound edge to the thing you are about to change, of every kind
-MATCH (dependent)-[r]->(target:Function {name: 'calculateTotal'}) RETURN dependent.name, type(r) AS relation, dependent.path
+# who calls it — one query per relationship type, never an untyped -[r]->
+MATCH (dependent)-[:CALLS]->(target:Function {name: 'calculateTotal'}) RETURN DISTINCT dependent.name, dependent.path
 
-# safe to delete? the count IS the answer
-MATCH (caller)-[:CALLS]->(t:Function {name: 'legacyHelper'}) RETURN count(caller) AS callers
+# safe to delete? the count IS the answer — and count needs the .uid, not the variable
+MATCH (caller)-[:CALLS]->(t:Function {name: 'legacyHelper'}) RETURN count(DISTINCT caller.uid) AS callers
 
 # renaming an interface: implementors first, then who calls into them
-MATCH (impl)-[:IMPLEMENTS]->(i:Interface {name: 'PaymentGateway'}) RETURN impl.name, impl.path
+MATCH (impl)-[:IMPLEMENTS]->(i:Interface {name: 'PaymentGateway'}) RETURN DISTINCT impl.name, impl.path
 
-# moving a file: which of its entities have dependents outside it
-MATCH (f:File {path: 'internal/util/helpers.go'})-[:CONTAINS]->(e) OPTIONAL MATCH (outside)-[r]->(e) WHERE outside.path <> f.path RETURN e.name, count(outside) AS external_dependents ORDER BY external_dependents DESC
+# moving a file: what it declares, then who outside it calls each name — two queries,
+# because ranking the dependents in one is not available (see the shape rule below)
+MATCH (f:File {path: 'internal/util/helpers.go'})-[:CONTAINS]->(e:Function) RETURN DISTINCT e.name
+MATCH (outside)-[:CALLS]->(t:Function {name: 'Helper'}) RETURN DISTINCT outside.name, outside.path
 ```
 
 **4. Complexity and risk — computed at index time, so it is one query away.**
@@ -254,14 +271,14 @@ MATCH (f:File {path: 'internal/util/helpers.go'})-[:CONTAINS]->(e) OPTIONAL MATC
 # the refactoring backlog, ordered
 MATCH (f:Function) WHERE f.cyclomatic_complexity > 15 RETURN f.name, f.cyclomatic_complexity, f.path ORDER BY f.cyclomatic_complexity DESC
 
-# complex AND unreachable — the worst combination, and invisible to any text tool.
-# Sanity-check the results yourself against the framework's own entry-point conventions
-# (main, test names, route/handler decorators) before calling anything dead.
-MATCH ()-[:CALLS]->(s:Function) WITH collect(DISTINCT s.name) AS called MATCH (f:Function) WHERE f.is_stub = false AND NOT f.name IN called AND f.cyclomatic_complexity > 10 RETURN f.name, f.cyclomatic_complexity, f.path ORDER BY f.cyclomatic_complexity DESC
-
-# which files concentrate the complexity
-MATCH (file:File)-[:CONTAINS]->(f:Function) RETURN file.path, count(f) AS functions, sum(f.cyclomatic_complexity) AS total ORDER BY total DESC
+# the stubs — names called here but declared nowhere in this corpus
+MATCH (f:Function) WHERE f.is_stub = true RETURN f.name, f.lang ORDER BY f.name
 ```
+
+> **Dead-code detection is NOT one of these queries, and the shape rule below says why.**
+> It needs the set of all called names, which is a traversal with nothing filtering its
+> starting end — refused. Per-entity you can still ask it: pick a candidate and count its
+> callers with `count(DISTINCT caller.uid)`. A sweep over the whole graph is not available.
 
 **5. Understanding a system you have never read.** Start from the outside and walk inwards —
 a few queries replace hours of file-by-file reading, and they cannot miss a path the way
@@ -274,28 +291,34 @@ MATCH (f:File) RETURN f.lang, count(f) AS files ORDER BY files DESC
 # so name the patterns yourself instead of looking for a precomputed score
 MATCH (f:Function) WHERE f.is_exported AND (f.name = 'main' OR toLower(f.name) STARTS WITH 'test' OR toLower(f.name) CONTAINS 'handler') RETURN f.name, f.path
 
-# the busiest functions — high fan-in means everything depends on them
-MATCH (caller)-[:CALLS]->(f:Function) RETURN f.name, f.path, count(caller) AS callers ORDER BY callers DESC LIMIT 20
+# the most complex functions — a node-only query, so it ranks and limits normally
+MATCH (f:Function) WHERE f.cyclomatic_complexity > 10 RETURN f.name, f.path, f.cyclomatic_complexity ORDER BY f.cyclomatic_complexity DESC LIMIT 20
 
-# the hubs by fan-out — these are the orchestrators worth reading first
-MATCH (f:Function)-[:CALLS]->(callee) RETURN f.name, f.path, count(callee) AS calls ORDER BY calls DESC LIMIT 20
+# a module's public surface — one query per label, no ranking
+MATCH (file:File)-[:CONTAINS]->(e:Function) WHERE file.path STARTS WITH 'internal/auth/' RETURN DISTINCT e.name, e.path
 
-# a module's public surface, without opening a file
-MATCH (file:File)-[:CONTAINS]->(e) WHERE file.path STARTS WITH 'internal/auth/' AND e.is_exported AND label(e) IN ['Function', 'Method', 'Struct', 'Class', 'Interface', 'Type', 'Constant'] RETURN file.path, label(e) AS type, e.name ORDER BY file.path
-
-# what this project depends on, ordered by how much of it depends on each
-MATCH (file:File)-[:IMPORTS]->(m:Module) RETURN m.name, count(file) AS imported_by ORDER BY imported_by DESC LIMIT 30
+# which files import a given module
+MATCH (file:File)-[:IMPORTS]->(m:Module {name: 'net/http'}) RETURN DISTINCT file.path
 ```
 
-Note what these have in common: **`count`, `sum`, `ORDER BY` and `DISTINCT` work.** You are
-not limited to lookups — you can ask the graph to rank, aggregate and compare, which is how
-one query answers a question that would otherwise be a survey. `label(n) IN [...]`,
-`STARTS WITH`, `CONTAINS`, `OPTIONAL MATCH` and `UNION ALL` all work too.
+> **Ranking by fan-in or fan-out is not available**, and this is the limit worth internalising
+> rather than rediscovering: *"the busiest functions"* and *"the dependencies most depended on"*
+> both need a count grouped per node across the whole graph, which is a traversal that projects
+> two ends and filters neither. Both are refused. Ranking works on **node-only** queries —
+> `cyclomatic_complexity` above — because those never traverse.
+
+Note what divides these: **ranking and aggregation belong to the node-only queries.** On those,
+`count`, `sum`, `ORDER BY`, `LIMIT`, `label(n) IN [...]`, `STARTS WITH`, `CONTAINS`,
+`OPTIONAL MATCH` and `UNION ALL` all work. On a **traversal** they do not: it answers with the
+set of nodes reached from a filtered starting point, `DISTINCT` is mandatory, and `count(b.uid)`
+is the only aggregate. The shape rule below states this once, in full — read it before writing
+your first traversal, not after it is refused.
 
 > ⚠️ **`is_exported` is set on `Comment` nodes as well as declarations.** Filtering by it alone
-> returns the file's comments along with its API — which is why the query above also pins the
-> labels with `label(e) IN [...]`. Whenever a filter is about *declarations*, say which labels
-> you mean; the graph holds more kinds of node than the property name suggests.
+> returns the file's comments along with its API. In a node-only query, pin the labels with
+> `label(e) IN [...]`; in a traversal, pin the label in the pattern instead — one query per
+> label. Whenever a filter is about *declarations*, say which labels you mean; the graph holds
+> more kinds of node than the property name suggests.
 
 ## Phased Graph Exploration
 
@@ -345,11 +368,11 @@ bind.
 | `n.doc`, `n.comment`, `n.comments` | invented name | `n.docstring` — or match a `Comment` node, whose `name` IS the comment text |
 | `n.is_public`, `n.visibility`, `n.public` | invented name | `n.is_exported` |
 | `n.body`, `n.code`, `n.text`, `n.content` | source text is not on entity nodes | `graphit_ast_source` |
-| `n.params`, `n.args`, `n.signature`, `n.arity` | parameters are nodes, not a property | `MATCH (n)-[:HAS_PARAMETER]->(p:Parameter) RETURN p.name` |
+| `n.params`, `n.args`, `n.signature`, `n.arity` | parameters are nodes, not a property | `MATCH (n:Function {name: 'X'})-[:HAS_PARAMETER]->(p:Parameter) RETURN DISTINCT p.name` |
 | `n.returns`, `n.return_type` | not indexed | read the declaration with `graphit_ast_source` |
 | `n.is_test`, `n.is_dead`, `n.is_used` | no such flags exist | name convention + `CALLS` evidence — see the Pre-Edit Impact Check |
 | `n.package`, `n.module`, `n.namespace` | invented name | `n.context` / `n.class_context`, or the containing `File.path` |
-| `n.callers`, `n.callees`, `n.dependencies` | edges are not properties | `MATCH (caller)-[:CALLS]->(n) RETURN count(caller)` |
+| `n.callers`, `n.callees`, `n.dependencies` | edges are not properties | `MATCH (caller)-[:CALLS]->(n:Function {name: 'X'}) RETURN count(DISTINCT caller.uid)` |
 | `r.line`, `r.file` on a relationship | edges have their own property set | `r.line_number`, `r.source_file` |
 
 #### `Binder exception: Cannot find property X for n` — the recovery protocol
@@ -377,13 +400,52 @@ query that was already correct:
 
 #### `canonical catalog: ...` — a refusal, and it names the rule
 
-A mounted/remote graph — a Hub context, an imported bundle — stores each label as its own
-table, so a traversal over a LOGICAL relationship type (`CALLS`, `CONTAINS`) is answered by
-a dedicated planner, and anything it cannot preserve exactly fails closed rather than
-running a plan that would enumerate the whole component.
+**This is the normal path, not an edge case for imported graphs.** Every graph here — this
+project's own included — stores each label as its own table, so a traversal over a LOGICAL
+relationship type is answered by a dedicated planner, and anything it cannot preserve exactly
+fails closed rather than running a plan that would enumerate the whole component. The logical
+types are `CALLS`, `CONTAINS`, `HAS_FIELD`, `HAS_PARAMETER`, `IMPORTS`, `READS_FIELD`,
+`REFERENCES` and `WRITES_FIELD`, and for them **the planner is the only route**: rewriting the
+query with `WITH`, `UNION` or a second `MATCH` does not get around it, it is refused too.
+
+**So there is exactly ONE shape that works over those types. Memorise it:**
+
+```
+MATCH (anchor)-[:TYPE]->(reached) [WHERE ...] RETURN DISTINCT reached.<prop> [, reached.<prop>]
+                                              [ORDER BY reached.<prop> [DESC]] [LIMIT n]
+MATCH (anchor)-[:TYPE]->(reached) [WHERE ...] RETURN count([DISTINCT] reached.uid)
+```
+
+with **one end filtered** — the end you do not project — plus an optional
+`ORDER BY`/`LIMIT` over what came back. Everything else about a traversal is a consequence of
+that shape:
+
+| You want | Works? |
+|---|---|
+| `RETURN DISTINCT b.name, b.path` | ✅ several properties of the projected end |
+| `RETURN count(b.uid)` / `count(DISTINCT b.uid)` | ✅ — but `count(b)` is refused, the `.uid` is required |
+| `RETURN DISTINCT b.name` without filtering `a` | ❌ the starting end must be filtered |
+| `RETURN a.name, b.name` | ❌ exactly one end, never both |
+| `RETURN DISTINCT label(b), b.name` | ❌ pin the label in the pattern, one query per label |
+| `RETURN b.name` without `DISTINCT` | ❌ the answer is a set, so `DISTINCT` is mandatory |
+| `... ORDER BY b.line_number DESC LIMIT 10` | ✅ — but the sort key must be a property you PROJECT |
+| `RETURN DISTINCT b.name ORDER BY b.line_number` | ❌ ordering by a column the query does not project |
+| `WHERE a.path <> b.path` | ❌ a predicate may not compare the two ends |
+| `sum(...)`, `collect(...)`, arithmetic | ❌ only plain property projection or the count |
+| `-[r]->` with no type | ⚠️ **worse than refused** — see the warning in the Pre-Edit check |
+
+**`ORDER BY` sorts the rows the traversal returned, so the key has to be among them.** Project
+what you sort by — `RETURN DISTINCT e.name, e.line_number ORDER BY e.line_number` — and an
+alias works as the key too. Numbers sort numerically, so `line_number` orders 9 before 10.
+
+**A node-only query is unaffected by all of it.** `MATCH (f:Function) WHERE ... RETURN f.name,
+f.cyclomatic_complexity ORDER BY f.cyclomatic_complexity DESC LIMIT 20` works exactly as
+written: `label(n)`, aggregation and grouping are all fine when nothing is traversed.
+That is the division to keep in mind — **traversals answer targeted questions about a known
+entity; node-only queries answer surveys.**
 
 **The message names the rule you broke and the query that works — read it and rewrite once.**
-The two you will meet:
+The two you will meet most:
 1. **`a label is not projectable here`** — the label IS the table, so a traversal over a
    logical type has no label column. Pin the label in the PATTERN and run one query per
    label: `MATCH (f:File)-[:CONTAINS]->(e:Function) ... RETURN DISTINCT e.name`, not
@@ -429,7 +491,7 @@ is not a node of unknown origin, it is a known call to something outside the cor
 
 **What this means for your queries:**
 
-1. **Inbound `CALLS` on a declaration is meaningful.** `MATCH (caller)-[:CALLS]->(f:Function {name: 'X'}) RETURN count(caller)`
+1. **Inbound `CALLS` on a declaration is meaningful.** `MATCH (caller)-[:CALLS]->(f:Function {name: 'X'}) RETURN count(DISTINCT caller.uid)`
    answers how many callers `X` has. An ambiguous or external name is the case where it will
    not, and `is_stub` is how you tell.
 2. **Filtering a call target by `path` still needs care.** A stub has none, so add
@@ -440,7 +502,7 @@ is not a node of unknown origin, it is a known call to something outside the cor
 
 ```bash
 # who calls X — now a direct traversal, including through to the callee's file
-MATCH (caller)-[:CALLS]->(t) WHERE (label(t) = 'Function' OR label(t) = 'Method') AND t.name = 'Apply' RETURN caller.name, caller.path
+MATCH (caller)-[:CALLS]->(t:Function {name: 'Apply'}) RETURN DISTINCT caller.name, caller.path
 
 # uncalled declarations — dead code candidates. Name-based comparison still catches the
 # unresolved remainder, so it stays the safer form; cross-check survivors against the
@@ -603,22 +665,22 @@ Once you know the exact names and labels from Phase 2, construct the final query
 Common queries to pass in `query` parameter:
 ```bash
 # Who calls this function?
-MATCH (a:Function)-[:CALLS]->(b:Function {name: 'ExactName'}) RETURN a.name, a.path
+MATCH (a:Function)-[:CALLS]->(b:Function {name: 'ExactName'}) RETURN DISTINCT a.name, a.path
 
 # What does this function call?
-MATCH (a:Function {name: 'ExactName'})-[:CALLS]->(b) RETURN b.name, label(b)
+MATCH (a:Function {name: 'ExactName'})-[:CALLS]->(b) RETURN DISTINCT b.name, b.path
 
 # Class inheritance chain
-MATCH (a:Class)-[:INHERITS*]->(b:Class {name: 'BaseClass'}) RETURN a.name, a.path
+MATCH (a:Class)-[:INHERITS*]->(b:Class {name: 'BaseClass'}) RETURN DISTINCT a.name, a.path
 
 # All entities in a file
-MATCH (f:File {path: 'src/main.go'})-[:CONTAINS]->(e) RETURN label(e) as type, e.name, e.line_number ORDER BY e.line_number
+MATCH (f:File {path: 'src/main.go'})-[:CONTAINS]->(e:Function) RETURN DISTINCT e.name, e.line_number ORDER BY e.line_number
 
 # Import graph — who imports this module?
-MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'react'}) RETURN f.path
+MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'react'}) RETURN DISTINCT f.path
 
 # DML dependencies — what tables does this procedure touch?
-MATCH (p:Procedure {name: 'processOrder'})-[r]->(t:Table) RETURN type(r), t.name
+MATCH (p:Procedure {name: 'processOrder'})-[:SELECTS]->(t:Table) RETURN DISTINCT t.name
 
 # Find unused functions (no callers)
 MATCH ()-[:CALLS]->(s:Function) WITH collect(DISTINCT s.name) AS called MATCH (f:Function) WHERE f.is_stub = false AND NOT f.name IN called RETURN f.name, f.path
@@ -629,11 +691,8 @@ MATCH (f:Function) WHERE f.cyclomatic_complexity > 10 RETURN f.name, f.cyclomati
 # Entry points — no precomputed score; name the framework's own conventions yourself
 MATCH (f:Function) WHERE f.is_exported AND (f.name = 'main' OR toLower(f.name) STARTS WITH 'test' OR toLower(f.name) CONTAINS 'handler') RETURN f.name, f.path
 
-# Receiver type — trace self/this method calls to their owning class
-MATCH (a:Function)-[r:CALLS]->(b:Function) WHERE r.receiver_type IS NOT NULL AND r.receiver_type <> '' RETURN a.name, b.name, r.receiver_type
-
 # Interface implementations — who implements interface X?
-MATCH (c:Class)-[:IMPLEMENTS]->(i:Interface {name: 'Handler'}) RETURN c.name, c.path
+MATCH (c:Class)-[:IMPLEMENTS]->(i:Interface {name: 'Handler'}) RETURN DISTINCT c.name, c.path
 ```
 
 ### 📖 Graph Exploration Cookbook — IDE-like Operations
@@ -645,20 +704,21 @@ use in IDEs. **Always prefer these graph queries over text-based tools.**
 
 Query templates to run with `graphit_ast_query`:
 ```bash
-# Direct callers of a function/method
-MATCH (caller)-[:CALLS]->(target:Function {name: 'ProcessPayment'}) RETURN caller.name, label(caller) AS type, caller.path
+# Direct callers of a function — run it again with (target:Method {...}) for methods
+MATCH (caller)-[:CALLS]->(target:Function {name: 'ProcessPayment'}) RETURN DISTINCT caller.name, caller.path
 
 # All callers, including indirect (transitive call chain up to 3 levels)
 MATCH (caller)-[:CALLS*1..3]->(target:Function {name: 'Validate'}) RETURN DISTINCT caller.name, caller.path
 
-# Who uses a class? (instantiation, inheritance, field type references)
-MATCH (user)-[r]->(c:Class {name: 'UserService'}) RETURN user.name, label(user) AS user_type, type(r) AS relationship
+# Who uses a class? One query per relationship type — never an untyped -[r]->
+MATCH (user)-[:CALLS]->(c:Class {name: 'UserService'}) RETURN DISTINCT user.name, user.path
+MATCH (user)-[:INHERITS]->(c:Class {name: 'UserService'}) RETURN DISTINCT user.name, user.path
 
 # Who uses a module/package? (import tracking)
-MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'express'}) RETURN f.path, f.name
+MATCH (f:File)-[:IMPORTS]->(m:Module {name: 'express'}) RETURN DISTINCT f.path
 
-# and WHERE the dependency is pulled in — the statement site, with its line
-MATCH (f:File)-[:CONTAINS]->(s) WHERE label(s) IN ['Import', 'Include', 'Export'] AND s.name CONTAINS 'express' RETURN f.path, label(s) AS form, s.name, s.line_number ORDER BY f.path
+# and WHERE the dependency is pulled in — the statement site, one query per form
+MATCH (f:File {path: 'src/server.js'})-[:CONTAINS]->(s:Import) RETURN DISTINCT s.name, s.line_number ORDER BY s.line_number
 ```
 
 > **A dependency is in the graph twice, and the two halves answer different questions.**
@@ -671,42 +731,45 @@ MATCH (f:File)-[:CONTAINS]->(s) WHERE label(s) IN ['Import', 'Include', 'Export'
 > are not the same statement: **`Import`** for `import x` / `use` / `require`,
 > **`Include`** for a C preprocessor `#include`, **`Export`** for a JavaScript
 > `export ... from './x'`. All three produce the `IMPORTS` edge. So filter by the label
-> when the form matters, and use `label(s) IN ['Import', 'Include', 'Export']` — or just
-> the edge — when it does not.
+> when the form matters. In a traversal the label goes in the PATTERN — `(s:Import)` — so
+> covering all three forms is three queries, not one `label(s) IN [...]` filter.
 
 #### 2. Find Implementors — Who implements an interface/trait?
 
 Query templates to run with `graphit_ast_query`:
 ```bash
-# Direct implementors of an interface
-MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'Repository'}) RETURN impl.name, label(impl) AS type, impl.path
+# Direct implementors of an interface — one query per implementor label
+MATCH (impl:Class)-[:IMPLEMENTS]->(iface:Interface {name: 'Repository'}) RETURN DISTINCT impl.name, impl.path
+MATCH (impl:Struct)-[:IMPLEMENTS]->(iface:Interface {name: 'Repository'}) RETURN DISTINCT impl.name, impl.path
 
-# All implementors of a trait (works for Go interfaces, Java interfaces, Dart abstract classes)
-MATCH (impl)-[:IMPLEMENTS]->(t:Trait {name: 'Serializable'}) RETURN impl.name, impl.path
+# All implementors of a trait, where the language has traits rather than interfaces
+MATCH (impl)-[:IMPLEMENTS]->(t:Trait {name: 'Serializable'}) RETURN DISTINCT impl.name, impl.path
 
 # Implementors of an interface, then their callers — two queries, because IMPLEMENTS and CALLS
-# cannot be joined through one node. Step 1 gives you paths; step 2 uses the names you found.
-MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'Handler'}) RETURN impl.name, impl.path
-
-# Interface + all concrete method dispatch (receiver_type tracking)
-MATCH (caller)-[r:CALLS]->(method:Function) WHERE r.receiver_type CONTAINS 'Service' RETURN caller.name, method.name, r.receiver_type, caller.path
+# cannot be joined through one node. Step 1 gives you names; step 2 uses them.
+MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'Handler'}) RETURN DISTINCT impl.name, impl.path
+MATCH (caller)-[:CALLS]->(m:Method {name: 'ServeHTTP'}) RETURN DISTINCT caller.name, caller.path
 ```
+
+> ⚠️ **`IMPLEMENTS` and `INHERITS` are not emitted by every grammar.** A query naming a
+> relationship type this project's graph does not have fails with `Table X does not exist`,
+> and the error lists the types that DO exist — which is your answer, not a reason to grep.
+> Call `graphit_ast_schema` first when you are about to rely on either.
 
 #### 3. Call Hierarchy — Upstream and Downstream
 
 Query templates to run with `graphit_ast_query`:
 ```bash
 # Outgoing calls — what does this function call? (call tree downward)
-MATCH (f:Function {name: 'HandleRequest'})-[:CALLS]->(callee) RETURN callee.name, label(callee) AS type
+MATCH (f:Function {name: 'HandleRequest'})-[:CALLS]->(callee) RETURN DISTINCT callee.name, callee.path
 
 # Incoming calls — who calls this function? (call tree upward)
-MATCH (caller)-[:CALLS]->(f:Function {name: 'SaveOrder'}) RETURN caller.name, label(caller) AS type, caller.path
+MATCH (caller)-[:CALLS]->(f:Function {name: 'SaveOrder'}) RETURN DISTINCT caller.name, caller.path
 
-# Full bidirectional call context (called by + calls)
-MATCH (caller)-[:CALLS]->(f:Function {name: 'ProcessItem'}) RETURN 'called_by' AS direction, caller.name, caller.path UNION ALL MATCH (f:Function {name: 'ProcessItem'})-[:CALLS]->(callee) RETURN 'calls' AS direction, callee.name, callee.path
-
-# Method call chain — trace self/this method calls through receiver types
-MATCH (a:Function)-[r:CALLS]->(b:Function) WHERE r.receiver_type = 'OrderService' RETURN a.name AS caller, b.name AS method, a.path
+# Both directions is TWO queries — a UNION over a traversal is refused, so run them
+# separately and label the two result sets yourself
+MATCH (caller)-[:CALLS]->(f:Function {name: 'ProcessItem'}) RETURN DISTINCT caller.name, caller.path
+MATCH (f:Function {name: 'ProcessItem'})-[:CALLS]->(callee) RETURN DISTINCT callee.name, callee.path
 ```
 
 #### 4. Inheritance & Type Hierarchy
@@ -714,36 +777,38 @@ MATCH (a:Function)-[r:CALLS]->(b:Function) WHERE r.receiver_type = 'OrderService
 Query templates to run with `graphit_ast_query`:
 ```bash
 # Direct subclasses of a class
-MATCH (child:Class)-[:INHERITS]->(parent:Class {name: 'BaseController'}) RETURN child.name, child.path
+MATCH (child:Class)-[:INHERITS]->(parent:Class {name: 'BaseController'}) RETURN DISTINCT child.name, child.path
 
 # Full inheritance chain (transitive — all ancestors)
-MATCH (c:Class {name: 'AdminController'})-[:INHERITS*]->(ancestor:Class) RETURN ancestor.name, ancestor.path
+MATCH (c:Class {name: 'AdminController'})-[:INHERITS*]->(ancestor:Class) RETURN DISTINCT ancestor.name, ancestor.path
 
 # Full inheritance tree (transitive — all descendants of a base class)
-MATCH (descendant:Class)-[:INHERITS*]->(base:Class {name: 'AbstractEntity'}) RETURN descendant.name, descendant.path
+MATCH (descendant:Class)-[:INHERITS*]->(base:Class {name: 'AbstractEntity'}) RETURN DISTINCT descendant.name, descendant.path
 
-# Combined: class hierarchy + interface implementations
-MATCH (c:Class {name: 'UserRepository'})-[r]->(target) WHERE type(r) IN ['INHERITS', 'IMPLEMENTS'] RETURN type(r) AS relation, target.name, label(target) AS target_type
+# Hierarchy plus interfaces is TWO queries, one per relationship type
+MATCH (c:Class {name: 'UserRepository'})-[:INHERITS]->(parent:Class) RETURN DISTINCT parent.name, parent.path
+MATCH (c:Class {name: 'UserRepository'})-[:IMPLEMENTS]->(iface:Interface) RETURN DISTINCT iface.name, iface.path
 ```
 
 #### 5. Containment — File/Class/Package Structure
 
 Query templates to run with `graphit_ast_query`:
 ```bash
-# All entities defined in a file (file skeleton)
-MATCH (f:File)-[:CONTAINS]->(e) WHERE f.path ENDS WITH 'service.go' RETURN label(e) AS type, e.name, e.line_number ORDER BY e.line_number
+# A file's skeleton — one query per label, each in line order
+MATCH (f:File {path: 'internal/order/service.go'})-[:CONTAINS]->(e:Function) RETURN DISTINCT e.name, e.line_number ORDER BY e.line_number
+MATCH (f:File {path: 'internal/order/service.go'})-[:CONTAINS]->(e:Struct) RETURN DISTINCT e.name, e.line_number ORDER BY e.line_number
 
 # All methods of a class
-MATCH (c:Class {name: 'OrderService'})-[:CONTAINS]->(m:Function) RETURN m.name, m.line_number, m.is_exported
+MATCH (c:Class {name: 'OrderService'})-[:CONTAINS]->(m:Method) RETURN DISTINCT m.name, m.line_number, m.is_exported ORDER BY m.line_number
 
 # All fields/properties of a class
-MATCH (c:Class {name: 'User'})-[:HAS_FIELD]->(f:Field) RETURN f.name, f.value
+MATCH (c:Class {name: 'User'})-[:HAS_FIELD]->(f:Field) RETURN DISTINCT f.name, f.value
 
 # All classes in a directory/module
-MATCH (f:File)-[:CONTAINS]->(c:Class) WHERE f.path STARTS WITH 'src/services/' RETURN c.name, f.path
+MATCH (f:File)-[:CONTAINS]->(c:Class) WHERE f.path STARTS WITH 'src/services/' RETURN DISTINCT c.name, c.path
 
 # Package/namespace structure
-MATCH (p:Package)-[:CONTAINS]->(e) RETURN p.name AS package, label(e) AS type, e.name
+MATCH (p:Package {name: 'order'})-[:CONTAINS]->(e:Function) RETURN DISTINCT e.name, e.path
 ```
 
 #### 6. Field & Property Access Tracking
@@ -751,75 +816,90 @@ MATCH (p:Package)-[:CONTAINS]->(e) RETURN p.name AS package, label(e) AS type, e
 Query templates to run with `graphit_ast_query`:
 ```bash
 # Who reads a specific field?
-MATCH (reader)-[:READS_FIELD]->(f:Field {name: 'balance'}) RETURN reader.name, label(reader) AS type, reader.path
+MATCH (reader)-[:READS_FIELD]->(f:Field {name: 'balance'}) RETURN DISTINCT reader.name, reader.path
 
 # Who writes/modifies a specific field?
-MATCH (writer)-[:WRITES_FIELD]->(f:Field {name: 'status'}) RETURN writer.name, label(writer) AS type, writer.path
+MATCH (writer)-[:WRITES_FIELD]->(f:Field {name: 'status'}) RETURN DISTINCT writer.name, writer.path
 
 # All field access (read + write) for a given entity
-MATCH (accessor)-[r]->(f:Field {name: 'email'}) WHERE type(r) IN ['READS_FIELD', 'WRITES_FIELD'] RETURN accessor.name, type(r) AS access_type, accessor.path
+MATCH (reader)-[:READS_FIELD]->(f:Field {name: 'email'}) RETURN DISTINCT reader.name, reader.path
+MATCH (writer)-[:WRITES_FIELD]->(f:Field {name: 'email'}) RETURN DISTINCT writer.name, writer.path
 ```
+
+> **Read and write are two queries, and that is a feature of the question.** `type(r)` cannot
+> be projected and a predicate on `r` is refused, so there is no single query that labels each
+> accessor. Run both: the write set is the one that changes behavior.
 
 #### 7. DML & Database Dependency Tracking
 
 Query templates to run with `graphit_ast_query`:
 ```bash
 # What tables does a procedure/function read from?
-MATCH (p:Procedure {name: 'getCustomerOrders'})-[:SELECTS]->(t:Table) RETURN t.name
+MATCH (p:Procedure {name: 'getCustomerOrders'})-[:SELECTS]->(t:Table) RETURN DISTINCT t.name
 
 # What procedures INSERT into a specific table? (write impact)
-MATCH (writer)-[:INSERTS]->(t:Table {name: 'audit_log'}) RETURN writer.name, label(writer) AS type, writer.path
+MATCH (writer)-[:INSERTS]->(t:Table {name: 'audit_log'}) RETURN DISTINCT writer.name, writer.path
 
-# Full DML dependency map for a table (who reads, writes, updates, deletes?)
-MATCH (entity)-[r]->(t:Table {name: 'orders'}) WHERE type(r) IN ['SELECTS', 'INSERTS', 'UPDATES', 'DELETES'] RETURN entity.name, type(r) AS operation, label(entity) AS entity_type
+# Full DML map for a table — ONE QUERY PER OPERATION, because type(r) is not projectable
+MATCH (entity)-[:SELECTS]->(t:Table {name: 'orders'}) RETURN DISTINCT entity.name, entity.path
+MATCH (entity)-[:INSERTS]->(t:Table {name: 'orders'}) RETURN DISTINCT entity.name, entity.path
+MATCH (entity)-[:UPDATES]->(t:Table {name: 'orders'}) RETURN DISTINCT entity.name, entity.path
+MATCH (entity)-[:DELETES]->(t:Table {name: 'orders'}) RETURN DISTINCT entity.name, entity.path
 
-# DDL impact — who creates/alters/drops this table?
-MATCH (entity)-[r]->(t:Table {name: 'users'}) WHERE type(r) IN ['CREATES', 'ALTERS', 'DROPS'] RETURN entity.name, type(r) AS ddl_op, entity.path
+# DDL impact — same rule, one query per operation
+MATCH (entity)-[:CREATES]->(t:Table {name: 'users'}) RETURN DISTINCT entity.name, entity.path
+MATCH (entity)-[:ALTERS]->(t:Table {name: 'users'}) RETURN DISTINCT entity.name, entity.path
+MATCH (entity)-[:DROPS]->(t:Table {name: 'users'}) RETURN DISTINCT entity.name, entity.path
 ```
 
 > 🔒 **A DML query that returns NOTHING, or only readers, is the one result you must not
 > take at face value.** "Nobody writes to this table" is a conclusion with consequences,
 > and the failure mode here is not a missing edge — it is an edge that resolved to a
 > different node than you matched on. Before concluding absence, ask where the edges of
-> that file actually went:
+> that file actually went — by asking the same question with the OTHER end pinned to a File,
+> which is what an unresolved target falls back to:
 ```bash
-MATCH (a)-[r]->(b) WHERE r.source_file = 'path/to/file' RETURN type(r), label(a) AS src, label(b) AS dst, count(*) AS n ORDER BY n DESC
+MATCH (p:Procedure {name: 'PRC_X'})-[:INSERTS]->(f:File) RETURN DISTINCT f.path
 ```
-> `File → File` on a DML type means the target NAME did not resolve to a declaration, so
-> it fell back to the file. The usual causes: the table is genuinely not declared in this
-> corpus, or the statement was parsed by an embedded grammar (SQL inside XML, inside a
-> string) whose declarations live under another language. Either way the edge exists and
-> your `:Table` pattern could not see it.
+> A hit here means the target NAME did not resolve to a declaration, so it fell back to the
+> file. The usual causes: the table is genuinely not declared in this corpus, or the statement
+> was parsed by an embedded grammar (SQL inside XML, inside a string) whose declarations live
+> under another language. Either way the edge exists and your `:Table` pattern could not see
+> it. What you cannot do is survey it — `r.source_file` is an edge property, and a predicate
+> on the relationship is refused, so there is no "where did this file's edges go" sweep.
 
 > **"Is this rule enforced by the database, or only by the application?"** — an index
 > carries what answers that, so answer it from the graph rather than from the DDL:
 ```bash
-MATCH (i:Index)-[:REFERENCES]->(t:Table {name: 'PEDIDO_ITEM'}) RETURN i.name, i.value AS unique_marker
-MATCH (i:Index {name: 'IU_PEDIDO_PROD'})-[:CONTAINS]->(c:Column) RETURN c.name ORDER BY c.line_number
+MATCH (i:Index)-[:REFERENCES]->(t:Table {name: 'PEDIDO_ITEM'}) RETURN DISTINCT i.name, i.value
+MATCH (i:Index {name: 'IU_PEDIDO_PROD'})-[:CONTAINS]->(c:Column) RETURN DISTINCT c.name, c.line_number ORDER BY c.line_number
 ```
 > `i.value = 'UNIQUE'` is the marker, and it is EMPTY on a non-unique index — so treat
-> the empty case as "not unique", not as "unknown". The covered columns come back in
-> declaration order, which is semantic: a composite index serves a query that leads with
-> its first column and not one that leads with its second.
+> the empty case as "not unique", not as "unknown". The covered columns matter in
+> declaration order, which is semantic — a composite index serves a query that leads with
+> its first column and not one that leads with its second — so ORDER BY `line_number`, and
+> note that the key has to be projected for the sort to see it.
 
 #### 8. Refactoring Impact Analysis
 
 Query templates to run with `graphit_ast_query`:
 ```bash
-# COMPLETE impact of renaming/changing a function — all inbound edges
-MATCH (dependent)-[r]->(target:Function {name: 'calculateTotal'}) RETURN dependent.name, label(dependent) AS dep_type, type(r) AS relation, dependent.path
+# Impact of renaming/changing a function — one query per inbound relationship type
+MATCH (dependent)-[:CALLS]->(target:Function {name: 'calculateTotal'}) RETURN DISTINCT dependent.name, dependent.path
 
-# COMPLETE impact of changing an interface — implementors + callers of implementors
-MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'PaymentGateway'}) RETURN impl.name, impl.path UNION ALL MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'PaymentGateway'}) MATCH (caller)-[:CALLS]->(m:Function) WHERE m.path = impl.path RETURN caller.name AS name, caller.path AS path
+# Impact of changing an interface — implementors, then the callers of what they implement
+MATCH (impl)-[:IMPLEMENTS]->(iface:Interface {name: 'PaymentGateway'}) RETURN DISTINCT impl.name, impl.path
+MATCH (caller)-[:CALLS]->(m:Method {name: 'Charge'}) RETURN DISTINCT caller.name, caller.path
 
 # Safe-to-delete check — is this function called anywhere?
-MATCH (caller)-[:CALLS]->(t:Function {name: 'legacyHelper'}) RETURN count(caller) AS caller_count
+MATCH (caller)-[:CALLS]->(t:Function {name: 'legacyHelper'}) RETURN count(DISTINCT caller.uid) AS caller_count
 
-# Move-file impact — step 1: what the file declares (CALLS and CONTAINS cannot be joined, so this is two queries)
-MATCH (f:File {path: 'src/utils/helpers.go'})-[:CONTAINS]->(e) WHERE label(e) IN ['Function', 'Method', 'Struct', 'Class', 'Interface', 'Type'] RETURN e.name, label(e) AS type
+# Move-file impact — step 1: what the file declares, one query per label
+MATCH (f:File {path: 'src/utils/helpers.go'})-[:CONTAINS]->(e:Function) RETURN DISTINCT e.name
 
-# Move-file impact — step 2: who outside the file calls those names (paste them into the IN list)
-MATCH (outside)-[:CALLS]->(t:Function) WHERE t.name IN ['Helper', 'Format'] AND outside.path <> 'src/utils/helpers.go' RETURN t.name, count(outside) AS external_dependents ORDER BY external_dependents DESC
+# Move-file impact — step 2: for each name from step 1, who calls it. Ranking the
+# dependents in one query is not available, so count them one name at a time.
+MATCH (outside)-[:CALLS]->(t:Function {name: 'Helper'}) RETURN count(DISTINCT outside.uid) AS dependents
 ```
 
 #### 9. Comments — searchable, without grep
@@ -829,24 +909,22 @@ Query templates to run with `graphit_ast_query`:
 # Find a marker anywhere in the codebase's comments
 MATCH (c:Comment) WHERE toLower(c.name) CONTAINS toLower('TODO') RETURN c.name, c.path, c.line_number ORDER BY c.path
 
-# Every comment in one file, in reading order — the commentary of a file as a document
-MATCH (f:File)-[:CONTAINS]->(c:Comment) WHERE f.path ENDS WITH 'handler.go' RETURN c.line_number, c.name ORDER BY c.line_number
+# Every comment in one file, in reading order
+MATCH (f:File {path: 'internal/auth/handler.go'})-[:CONTAINS]->(c:Comment) RETURN DISTINCT c.line_number, c.name ORDER BY c.line_number
 
-# File skeleton with its commentary interleaved: comments and declarations, by line
-MATCH (f:File {path: 'internal/auth/handler.go'})-[:CONTAINS]->(e) RETURN label(e) AS type, e.name, e.line_number ORDER BY e.line_number
+# The declarations of the same file, to interleave with the comments above
+MATCH (f:File {path: 'internal/auth/handler.go'})-[:CONTAINS]->(e:Function) RETURN DISTINCT e.name, e.line_number ORDER BY e.line_number
 
 # Commented-out code left behind (a comment that reads like a statement)
 MATCH (c:Comment) WHERE c.name CONTAINS '(' AND c.name CONTAINS ')' AND c.name CONTAINS ';' RETURN c.path, c.line_number, c.name
 
-# Which files carry a licence header
-MATCH (f:File)-[:CONTAINS]->(c:Comment) WHERE c.line_number = 1 AND toLower(c.name) CONTAINS 'copyright' RETURN f.path
-
-# Comments near a declaration you care about — same file, adjacent lines
-MATCH (f:File)-[:CONTAINS]->(fn:Function {name: 'ValidateToken'}) MATCH (f)-[:CONTAINS]->(c:Comment) WHERE c.end_line >= fn.line_number - 3 AND c.end_line < fn.line_number RETURN c.name, c.line_number
+# A licence header in a specific file
+MATCH (f:File {path: 'internal/auth/handler.go'})-[:CONTAINS]->(c:Comment) RETURN DISTINCT c.name, c.line_number
 ```
 
-The last one exists because the file-and-line arithmetic is currently how you connect a
-comment to what it documents: pair them through their shared `File` and their line numbers.
+Connecting a comment to what it documents is file-and-line arithmetic you do on the results:
+fetch the comments and the declarations of the same file — two queries, above, each ordered by
+line — and pair them yourself. A traversal cannot join them in one query.
 
 #### 10. Cross-Cutting Queries
 
@@ -859,22 +937,21 @@ MATCH (f:Function) WHERE f.is_exported AND (f.name = 'main' OR toLower(f.name) S
 # Find all functions with high complexity (candidates for refactoring)
 MATCH (f:Function) WHERE f.cyclomatic_complexity > 15 RETURN f.name, f.cyclomatic_complexity, f.path ORDER BY f.cyclomatic_complexity DESC
 
-# Find orphan functions (never called — dead code candidates; check survivors against
-# the framework's entry-point conventions before trusting the list)
-MATCH ()-[:CALLS]->(s:Function) WITH collect(DISTINCT s.name) AS called MATCH (f:Function) WHERE f.is_stub = false AND NOT f.name IN called RETURN f.name, f.path
+# The external surface — names called here but declared nowhere in this corpus
+MATCH (f:Function) WHERE f.is_stub = true RETURN f.name, f.lang ORDER BY f.name
 
-# Cross-language dependencies (e.g., Go calling a function defined in SQL)
-MATCH (caller)-[:CALLS]->(callee) WHERE caller.lang <> callee.lang RETURN caller.name, caller.lang, callee.name, callee.lang, caller.path
-
-# Which modules the project leans on hardest (IMPORTS only — mixing edge types matches nothing)
-MATCH (f:File)-[:IMPORTS]->(m:Module) RETURN m.name, count(f) AS imported_by ORDER BY imported_by DESC LIMIT 30
-
-# Annotation/decorator usage — find all entities with a specific annotation
-MATCH (a:Annotation {name: 'Deprecated'})<-[:CONTAINS]-(owner) RETURN label(owner) AS type, owner.name, owner.path
+# Is one specific function dead? Count its callers. A whole-graph sweep is not available.
+MATCH (caller)-[:CALLS]->(t:Function {name: 'suspectHelper'}) RETURN count(DISTINCT caller.uid) AS callers
 
 # Parameter analysis — what parameters does a function expect?
-MATCH (f:Function {name: 'createUser'})-[:HAS_PARAMETER]->(p:Parameter) RETURN p.name, p.value, p.line_number
+MATCH (f:Function {name: 'createUser'})-[:HAS_PARAMETER]->(p:Parameter) RETURN DISTINCT p.name, p.value, p.line_number ORDER BY p.line_number
 ```
+
+> **Three questions this section used to promise and cannot deliver**, each for the same
+> reason — they need a traversal that filters neither end, ranks, or reads an edge property:
+> *orphan functions across the graph*, *cross-language call pairs* (`caller.lang <> callee.lang`
+> compares the two ends), and *the most-imported modules*. Ask them per entity instead, or
+> answer the shape of the repository with node-only queries.
 
 ### Phase 4: Source Code Extraction
 
@@ -1028,7 +1105,7 @@ graphit_ast_search(project_dir: "/path/to/project", query: "sync pipeline")
 graphit_ast_query(project_dir: "/path/to/project", query: "MATCH (f) WHERE (label(f) = 'Function' OR label(f) = 'Method') AND toLower(f.name) CONTAINS 'sync' RETURN f.name, f.path, f.line_number, label(f) AS type")
 
 # Step 4b: Call chain
-graphit_ast_query(project_dir: "/path/to/project", query: "MATCH (a:Function {name: 'RunSync'})-[:CALLS]->(b) RETURN b.name, label(b) AS type, b.path")
+graphit_ast_query(project_dir: "/path/to/project", query: "MATCH (a:Function {name: 'RunSync'})-[:CALLS]->(b) RETURN DISTINCT b.name, b.path")
 
 # Step 5: Read implementation
 graphit_ast_source(project_dir: "/path/to/project", path: "internal/sync/pipeline.go", entity: "RunSync")

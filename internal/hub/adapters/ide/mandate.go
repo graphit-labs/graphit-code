@@ -25,6 +25,10 @@ const mandateHashCacheFile = "mandate.hash"
 type mandateHashCache struct {
 	Hashes map[string]string `json:"hashes"` // triggerTag → SHA256 of triggerContent
 	Mtimes map[string]int64  `json:"mtimes"` // triggerTag → AGENTS.md mtime (UnixNano) at last write
+	// Preamble is the SHA256 of mandatePreamble() as it stood at the last write.
+	// SAFETY: without it every fast path below compares only per-module trigger
+	// content, so a preamble-only change propagates to no project.
+	Preamble string `json:"preamble"`
 }
 
 func loadMandateHashCache(rulesDir string) *mandateHashCache {
@@ -226,13 +230,25 @@ func mandatePreamble() string {
 		"Bypassing, skipping, or short-circuiting these tools — or falling back to native tools without meeting a skill's explicit fallback conditions — is a framework integrity violation.\n" +
 		"\n" +
 		"## AN INTERRUPTION IS NOT AN EXEMPTION (applies to every resume)\n" +
-		"Being interrupted, corrected, redirected, or asked to change, fix or redo work does not suspend anything above — it re-applies all of it. Before you touch the work again: re-open the skill for the domain you are re-entering, re-run its lookups, and keep the " + brand.Brand + " MCP tools ahead of your native ones exactly as on the first turn.\n" +
+		"Being interrupted, corrected, redirected, or asked to change, fix or redo work does not suspend anything above — it re-applies all of it. Before you touch the work again: keep the " + brand.Brand + " MCP tools ahead of your native ones exactly as on the first turn.\n" +
 		"This is where the rule is most often dropped, and not out of confusion: a correction feels like continuation and it arrives with urgency, so the native tool is the one that comes to hand. It is also the moment your assumptions are least reliable — the user just changed a premise the earlier work rested on, so what you were about to do next is a guess until the tools confirm it again. Resuming from memory of what you believed before the interruption is the same violation as never having read the skill.\n" +
 		"\n" +
 		"## AUTOMATIC INDEXING LAGS THE CHANGE — SYNC IS HOW YOU GET CERTAINTY\n" +
 		"The daemon reindexes on its own, but it does so AFTER the write and with a short delay. A tool called inside that window answers from an index that does not yet hold what was just written, and it answers with exactly the confidence it would have if it did: from where you are standing, a stale result and a current one look the same.\n" +
 		"So whenever you need to be CERTAIN that what these tools return reflects the current state — before deciding anything on the basis of a result, before reporting work as done, and after any change that did not come from your own edits (a pull, a checkout, a rebase, a restore) — call " + brand.MCPToolRef("sync") + " for the project and let it finish. That single call brings the knowledge index, the memory index and the AST index into step; when only one of the three is in doubt, the module skills name the narrower tool.\n" +
 		"What this does NOT mean is a sync after every edit: mid-session the watcher already covers that, and each skill says when the targeted tool is the better call.\n"
+}
+
+func mandatePreambleHash() string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(mandatePreamble())))
+}
+
+func fileCarriesCurrentPreamble(fileContent string) bool {
+	inner := readMandateContentFromString(fileContent)
+	if inner == "" {
+		return false
+	}
+	return strings.Contains(inner, strings.TrimSpace(mandatePreamble()))
 }
 
 func mandateTag() string {
@@ -273,7 +289,9 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 	_ = os.MkdirAll(hashCacheDir, 0o755)
 	hashCache := loadMandateHashCache(hashCacheDir)
 	newHash := fmt.Sprintf("%x", sha256.Sum256([]byte(triggerContent)))
-	if storedHash, ok := hashCache.Hashes[triggerTag]; ok && storedHash == newHash {
+	preambleHash := mandatePreambleHash()
+	preambleUnchanged := hashCache.Preamble == preambleHash
+	if storedHash, ok := hashCache.Hashes[triggerTag]; ok && storedHash == newHash && preambleUnchanged {
 		if fi, err := os.Stat(targetPath); err == nil {
 			cachedMtime := hashCache.Mtimes[triggerTag]
 			if fi.ModTime().UnixNano() == cachedMtime {
@@ -284,7 +302,8 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 				triggers := parseTriggers(inner)
 				if currentContent, ok := triggers[triggerTag]; ok {
 					if fmt.Sprintf("%x", sha256.Sum256([]byte(currentContent))) == newHash &&
-						triggersInCanonicalOrder(string(data)) {
+						triggersInCanonicalOrder(string(data)) &&
+						fileCarriesCurrentPreamble(string(data)) {
 						hashCache.Mtimes[triggerTag] = fi.ModTime().UnixNano()
 						saveMandateHashCache(hashCacheDir, hashCache)
 						return nil
@@ -311,8 +330,9 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 	reCurrent := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(triggerTag) + `>(.*?)</` + regexp.QuoteMeta(triggerTag) + `>`)
 	if !hasLegacy {
 		if m := reCurrent.FindStringSubmatch(inner); m != nil && m[1] == triggerContent &&
-			triggersInCanonicalOrder(fileContent) {
+			triggersInCanonicalOrder(fileContent) && fileCarriesCurrentPreamble(fileContent) {
 			hashCache.Hashes[triggerTag] = newHash
+			hashCache.Preamble = preambleHash
 			saveMandateHashCache(hashCacheDir, hashCache)
 			return nil
 		}
@@ -359,6 +379,7 @@ func UpsertMandateTrigger(projectDir, ideName, triggerTag, triggerContent string
 
 	// Update hash + mtime cache after a successful write.
 	hashCache.Hashes[triggerTag] = newHash
+	hashCache.Preamble = preambleHash
 	if fi, err := os.Stat(targetPath); err == nil {
 		hashCache.Mtimes[triggerTag] = fi.ModTime().UnixNano()
 	}
@@ -377,20 +398,26 @@ func RemoveMandateTrigger(projectDir, ideName, triggerTag string) error {
 		return nil
 	}
 
-	re := regexp.MustCompile(`(?s)<` + regexp.QuoteMeta(triggerTag) + `>.*?</` + regexp.QuoteMeta(triggerTag) + `>\n?`)
-	cleaned := re.ReplaceAllString(inner, "")
-	cleaned = strings.TrimSpace(cleaned)
+	triggers := parseTriggers(inner)
+	delete(triggers, triggerTag)
 
-	// Check if any triggers remain.
-	hasRules := regexp.MustCompile(`<\w+_rule>`).MatchString(cleaned)
+	hashCacheDir := brand.ProjectRuntimePath(projectDir)
+	hashCache := loadMandateHashCache(hashCacheDir)
+	delete(hashCache.Hashes, triggerTag)
+	delete(hashCache.Mtimes, triggerTag)
 
-	if !hasRules {
+	body := assembleTriggers(triggers)
+	if !regexp.MustCompile(`<\w+_rule>`).MatchString(body) {
 		return RemoveMandate(projectDir, ideName)
 	}
 
 	_, _ = gitblk.RemoveBlockStyled(targetPath, mandateTag(), false, gitblk.XMLBlockStyle)
 
-	block := "<" + mandateTag() + ">\n" + cleaned + "\n</" + mandateTag() + ">"
+	// The remaining triggers are reassembled around a freshly generated preamble.
+	// SAFETY: reusing the inner content verbatim carried a stale preamble forward,
+	// which is a second way generated instructions drift from the binary.
+	assembled := strings.TrimSpace(mandatePreamble() + "\n\n" + body)
+	block := "<" + mandateTag() + ">\n" + assembled + "\n</" + mandateTag() + ">"
 
 	rest := ""
 	if data, err := os.ReadFile(targetPath); err == nil {
@@ -404,7 +431,16 @@ func RemoveMandateTrigger(projectDir, ideName, triggerTag string) error {
 		out = block + "\n"
 	}
 
-	return os.WriteFile(targetPath, []byte(out), 0o644)
+	if err := os.WriteFile(targetPath, []byte(out), 0o644); err != nil {
+		return err
+	}
+
+	hashCache.Preamble = mandatePreambleHash()
+	for tag := range hashCache.Mtimes {
+		delete(hashCache.Mtimes, tag)
+	}
+	saveMandateHashCache(hashCacheDir, hashCache)
+	return nil
 }
 
 func RemoveMandate(projectDir, ideName string) error {

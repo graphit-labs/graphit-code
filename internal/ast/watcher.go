@@ -114,8 +114,12 @@ func (w *Watcher) reindex(ctx context.Context, batch fswatch.Batch) {
 			removed = append(removed, filepath.ToSlash(rel))
 		}
 	}
-	if len(batch.Changed) == 0 && len(removed) == 0 {
+	// Changed goes through the same conversion as removed. The pipeline normalizes either
+	// form, but handing it two lists that mean different things is how the absolute-path
+	// duplicate File node got in.
+	changed := repoRelativePaths(w.rootPath, batch.Changed)
+	if len(changed) == 0 && len(removed) == 0 {
 		return
 	}
-	_, _ = RunPipelineForPaths(ctx, w.db, w.rootPath, batch.Changed, removed, pipeOpts)
+	_, _ = RunPipelineForPaths(ctx, w.db, w.rootPath, changed, removed, pipeOpts)
 }

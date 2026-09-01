@@ -81,7 +81,7 @@ func TestClassifyBatch(t *testing.T) {
 			name:      "code at the root, docs dir defaulted to the project root",
 			docsDir:   ".",
 			changed:   []string{"criada.sql"},
-			wantAstCh: []string{abs("criada.sql")},
+			wantAstCh: []string{"criada.sql"},
 		},
 		{
 			// The overlap: a structured document has a grammar as well as a wiki
@@ -89,7 +89,7 @@ func TestClassifyBatch(t *testing.T) {
 			name:       "a structured document under docs reaches both indexers",
 			docsDir:    "docs",
 			changed:    []string{"docs/openapi.yaml"},
-			wantAstCh:  []string{abs("docs/openapi.yaml")},
+			wantAstCh:  []string{"docs/openapi.yaml"},
 			wantKnowdg: true,
 		},
 		{
@@ -165,7 +165,7 @@ func TestClassifyBatch(t *testing.T) {
 			name:      "a dotfile that is not inside a dot directory is still source",
 			docsDir:   ".",
 			changed:   []string{".hidden.sql"},
-			wantAstCh: []string{abs(".hidden.sql")},
+			wantAstCh: []string{".hidden.sql"},
 		},
 	}
 

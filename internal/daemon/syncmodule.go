@@ -197,12 +197,16 @@ func classifyBatch(batch fswatch.Batch, projectDir, docsPath string, knowledgeEx
 			if !ast.HasParserForExtensionIn(projectDir, ext) {
 				continue
 			}
+			// Both lists are repo-relative, because that is what the parse cache and the
+			// graph are keyed by. Handing the changed list over absolute used to make the
+			// pipeline store absolute paths and grow a duplicate File node per edited
+			// file; the pipeline normalizes defensively now, and this keeps the two
+			// lists saying the same kind of thing.
 			if removed {
-				// The parse cache is keyed by repo-relative path.
 				t.astRemoved = append(t.astRemoved, filepath.ToSlash(rel))
 				continue
 			}
-			t.astChanged = append(t.astChanged, p)
+			t.astChanged = append(t.astChanged, filepath.ToSlash(rel))
 		}
 	}
 	classify(batch.Changed, false)

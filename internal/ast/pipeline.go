@@ -187,6 +187,32 @@ func RunPipelineForPaths(ctx context.Context, db GraphDB, rootPath string, chang
 	return RunPipeline(ctx, db, rootPath, opts)
 }
 
+// repoRelativePaths converts caller-supplied paths to slash-separated paths relative to
+// the project root, accepting either form on the way in.
+//
+// A path that resolves outside the root is left as it came: it is not part of this repo,
+// so there is no relative form for it, and silently rewriting it would be worse than
+// passing it through for the discovery filters to reject.
+func repoRelativePaths(root string, paths []string) []string {
+	if len(paths) == 0 {
+		return paths
+	}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if !filepath.IsAbs(p) {
+			out = append(out, filepath.ToSlash(filepath.Clean(p)))
+			continue
+		}
+		rel, err := filepath.Rel(root, p)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			out = append(out, p)
+			continue
+		}
+		out = append(out, filepath.ToSlash(rel))
+	}
+	return out
+}
+
 func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs string, parser LanguageParser, t0 time.Time, opts PipelineOptions) (*PipelineResult, error) {
 	// scoped: the caller named the changed/deleted paths, so the tree walk and
 	// the stat-every-file pass are unnecessary.
@@ -278,15 +304,26 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 	var deletedFiles []string
 	fileHashes := make(map[string]string, len(files))
 
+	// ChangedPaths arrive in either form: repo-relative from the CLI, ABSOLUTE from a
+	// watcher (the daemon sync module and the in-process watcher both hand over what the
+	// filesystem reported). Normalize against the project root HERE, once, so that the two
+	// entry points cannot disagree about what a path means.
+	//
+	// SAFETY: never normalize with filepath.Abs, which resolves against the PROCESS working
+	// directory. The daemon's working directory is not the project, and it serves several
+	// projects at once, so it cannot chdir into one. When ChangedPaths were absolute this
+	// map ended up sending an absolute path to itself, the stored path became absolute, and
+	// the graph grew a SECOND File node for a file it already had — the duplicate then made
+	// traversals anchored on File{path} answer with another file's children.
+	opts.ChangedPaths = repoRelativePaths(abs, opts.ChangedPaths)
+
 	// Build maps for correct cache keys:
 	// 1. absolute path -> relative path (for exact matches)
 	// 2. basename -> relative path (fallback for when parser only gives basename)
 	absToRel := make(map[string]string)
 	baseToRel := make(map[string]string)
 	for _, rel := range opts.ChangedPaths {
-		if absPath, err := filepath.Abs(rel); err == nil {
-			absToRel[absPath] = rel
-		}
+		absToRel[filepath.Join(abs, rel)] = rel
 		baseToRel[filepath.Base(rel)] = rel
 	}
 
@@ -303,8 +340,15 @@ func runFileWorkerPool(ctx context.Context, db GraphDB, writer *GraphWriter, abs
 			type hres struct {
 				path, hash string
 			}
+			// The files to read are named ABSOLUTELY, resolved from the root rather than
+			// from the working directory; only the path that gets STORED is repo-relative.
+			// Keying fileHashes absolutely also makes the later lookup hit, which used to
+			// miss and recompute SHA-256 for every file in the batch.
 			parallelForEach(opts.ChangedPaths, SafeWorkers(0),
-				func(p string) hres { return hres{p, fileContentHash(p)} },
+				func(rel string) hres {
+					p := filepath.Join(abs, rel)
+					return hres{p, fileContentHash(p)}
+				},
 				func(r hres) {
 					if r.hash == "" {
 						return // unreadable/vanished — skip rather than index garbage

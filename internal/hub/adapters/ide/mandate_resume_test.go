@@ -18,7 +18,8 @@ func TestMandatePreambleReAppliesAfterAnInterruption(t *testing.T) {
 
 	for _, want := range []string{
 		"AN INTERRUPTION IS NOT AN EXEMPTION",
-		"re-open the skill for the domain you are re-entering",
+		"it re-applies all of it",
+		"ahead of your native ones exactly as on the first turn",
 	} {
 		if !strings.Contains(preamble, want) {
 			t.Errorf("mandate preamble does not tell the agent to re-apply the mandate on resume: missing %q", want)

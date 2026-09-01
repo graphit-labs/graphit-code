@@ -23,16 +23,30 @@ import (
 // hand the query to an upstream recursive plan that MEASURED enumerates the whole graph.
 
 var (
+	// The tail CONSUMES the arguments of ORDER BY and LIMIT rather than just their
+	// keywords. Matching the keyword alone left the arguments inside the projection, where
+	// they were rejected as "not a plain property projection" — a refusal that named the
+	// wrong rule and hid a clause the planner is able to honour.
 	canonicalTraversalPattern = regexp.MustCompile(`(?is)^\s*MATCH\s+(\([^)]*\))\s*-\s*\[\s*(?:([A-Za-z_][A-Za-z0-9_]*)\s*)?:\s*` +
 		"`?([A-Za-z_][A-Za-z0-9_]*)`?" +
 		`(?:\s*(\*)?\s*(?:(\d+)\s*)?(?:\.\.\s*(\d+))?)?\s*\]\s*(->|-)\s*(\([^)]*\))` +
-		`(?:\s+WHERE\s+(.+?))?\s+RETURN\s+(DISTINCT\s+)?((?:.|\n)*?)(?:\s+(?:ORDER\s+BY|LIMIT)\b|\s*;\s*|\s*)$`)
+		`(?:\s+WHERE\s+(.+?))?\s+RETURN\s+(DISTINCT\s+)?((?:.|\n)*?)` +
+		`(?:\s+ORDER\s+BY\s+((?:.|\n)+?))?(?:\s+LIMIT\s+(\d+))?\s*;?\s*$`)
 	canonicalCountPattern      = regexp.MustCompile(`(?is)^count\s*\(\s*(distinct\s+)?([A-Za-z_][A-Za-z0-9_]*)\.uid\s*\)(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?$`)
 	canonicalProjectionPattern = regexp.MustCompile(`(?is)^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)(\s+AS\s+([A-Za-z_][A-Za-z0-9_]*))?$`)
-	// canonicalTraversalTail strips trailing `ORDER BY ...` (and LIMIT) from the
-	// RETURN projection, because a traversal's ordering is applied by the caller
-	// over the materialized set, not by the engine over mounted object files.
+	// canonicalOrderTermPattern reads one ORDER BY term: `x.prop`, `alias`, either with an
+	// optional direction. The term is resolved against the projection, never against the
+	// table, because the sort runs over the materialized rows.
+	canonicalOrderTermPattern = regexp.MustCompile(`(?is)^([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)(?:\s+(ASC|DESC))?$`)
 )
+
+// canonicalOrderKey is one resolved ORDER BY term: the RECORD COLUMN to read and the
+// direction to read it in. Resolution happens at parse time so that a term naming
+// something the query does not project is refused before any work is done.
+type canonicalOrderKey struct {
+	column string
+	desc   bool
+}
 
 type canonicalPlan struct {
 	anchor, reached  icebugNodePattern
@@ -46,6 +60,9 @@ type canonicalPlan struct {
 	count            bool
 	anchorPreds      []string
 	reachedPreds     []string
+	orderBy          []canonicalOrderKey
+	limit            int
+	hasLimit         bool
 }
 
 func (k *LadybugBackend) tryCanonicalBoundedTraversal(
@@ -163,11 +180,11 @@ func (k *LadybugBackend) finishCanonicalTraversal(ctx context.Context, plan cano
 		return &QueryResult{Records: []QueryRecord{{"count": int64(len(uids))}}}, true, nil
 	}
 	if column, ok := plan.uidProjection(); ok {
-		result := &QueryResult{Records: make([]QueryRecord, 0, len(uids))}
+		records := make([]QueryRecord, 0, len(uids))
 		for _, uid := range uids {
-			result.Records = append(result.Records, QueryRecord{column: uid})
+			records = append(records, QueryRecord{column: uid})
 		}
-		return result, true, nil
+		return &QueryResult{Records: applyCanonicalOrdering(plan, records)}, true, nil
 	}
 	reachedProps := append(append([]string{}, plan.reached.properties...), plan.reachedPreds...)
 	reachedProps = append(reachedProps, plan.returnClause)
@@ -213,11 +230,11 @@ func (k *LadybugBackend) finishCanonicalTraversal(ctx context.Context, plan cano
 		}
 	}
 	sort.Slice(collected, func(i, j int) bool { return collected[i].key < collected[j].key })
-	result := &QueryResult{Records: make([]QueryRecord, 0, len(collected))}
+	records := make([]QueryRecord, 0, len(collected))
 	for _, c := range collected {
-		result.Records = append(result.Records, c.record)
+		records = append(records, c.record)
 	}
-	return result, true, nil
+	return &QueryResult{Records: applyCanonicalOrdering(plan, records)}, true, nil
 }
 
 func (k *LadybugBackend) canonicalGroup(relType string) *ladybug.CanonicalRelGroup {
@@ -316,6 +333,135 @@ func (p canonicalPlan) uidProjection() (string, bool) {
 	return "", false
 }
 
+// resolveCanonicalOrder turns an ORDER BY clause into record columns to sort on.
+//
+// A term must name something the query PROJECTS, by its text or its alias. Ordering by a
+// column the projection does not carry would mean widening the projection behind the
+// caller's back and hiding the extra column again, so it is refused with the fix stated.
+func resolveCanonicalOrder(clause string, projected map[string]string, reachedVar string,
+) ([]canonicalOrderKey, *canonicalRefusal) {
+	var keys []canonicalOrderKey
+	for _, raw := range splitCommaList(clause) {
+		term := strings.TrimSpace(raw)
+		if term == "" {
+			continue
+		}
+		om := canonicalOrderTermPattern.FindStringSubmatch(term)
+		if om == nil {
+			return nil, &canonicalRefusal{
+				what: "`" + term + "` is not an ORDER BY term this planner can read.",
+				fix:  "Order by a projected property or its alias, optionally with ASC or DESC.",
+			}
+		}
+		column, ok := projected[strings.ToLower(om[1])]
+		if !ok {
+			return nil, &canonicalRefusal{
+				what: "ORDER BY names `" + om[1] + "`, which this query does not project, and the sort runs " +
+					"over the rows the traversal materialized rather than over the table.",
+				fix: "Project it — `RETURN DISTINCT " + reachedVar + "." +
+					strings.TrimPrefix(om[1], reachedVar+".") + ", ... ORDER BY " + om[1] + "` — or order by something you do project.",
+			}
+		}
+		keys = append(keys, canonicalOrderKey{
+			column: column,
+			desc:   strings.EqualFold(strings.TrimSpace(om[2]), "DESC"),
+		})
+	}
+	return keys, nil
+}
+
+// compareCanonicalValues orders two record values of unknown dynamic type. Numbers compare
+// numerically — a lexical compare would put line 10 before line 9 — strings compare
+// lexically, and a missing value sorts first so that a null never lands in the middle of an
+// otherwise ordered column.
+func compareCanonicalValues(a, b any) int {
+	if a == nil || b == nil {
+		switch {
+		case a == nil && b == nil:
+			return 0
+		case a == nil:
+			return -1
+		default:
+			return 1
+		}
+	}
+	af, aNum := canonicalNumeric(a)
+	bf, bNum := canonicalNumeric(b)
+	if aNum && bNum {
+		switch {
+		case af < bf:
+			return -1
+		case af > bf:
+			return 1
+		default:
+			return 0
+		}
+	}
+	as, bs := fmt.Sprintf("%v", a), fmt.Sprintf("%v", b)
+	return strings.Compare(as, bs)
+}
+
+func canonicalNumeric(v any) (float64, bool) {
+	switch n := v.(type) {
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case uint32:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
+	case float32:
+		return float64(n), true
+	case float64:
+		return n, true
+	}
+	return 0, false
+}
+
+// applyCanonicalOrdering sorts the materialized rows and truncates them to LIMIT.
+//
+// The canonical key stays as the final tiebreak even when ORDER BY is present: two rows
+// equal on every sort key would otherwise come back in whatever order the batched member
+// queries happened to produce, which is not stable across runs.
+func applyCanonicalOrdering(plan canonicalPlan, records []QueryRecord) []QueryRecord {
+	if len(plan.orderBy) > 0 {
+		keys := make([]string, len(records))
+		for i, r := range records {
+			keys[i] = icebugRecordKey(r)
+		}
+		indexed := make([]int, len(records))
+		for i := range indexed {
+			indexed[i] = i
+		}
+		sort.SliceStable(indexed, func(x, y int) bool {
+			i, j := indexed[x], indexed[y]
+			for _, key := range plan.orderBy {
+				c := compareCanonicalValues(records[i][key.column], records[j][key.column])
+				if c == 0 {
+					continue
+				}
+				if key.desc {
+					return c > 0
+				}
+				return c < 0
+			}
+			return keys[i] < keys[j]
+		})
+		ordered := make([]QueryRecord, len(records))
+		for x, i := range indexed {
+			ordered[x] = records[i]
+		}
+		records = ordered
+	}
+	if plan.hasLimit && plan.limit < len(records) {
+		records = records[:plan.limit]
+	}
+	return records
+}
+
 // canonicalRefusal names the rule a query broke and the form that works instead. The
 // planner knows which of its rules rejected a query; returning a bare bool threw that
 // away and left the caller guessing at the reason from the query text.
@@ -371,6 +517,15 @@ func parseCanonicalTraversal(cypher string) (canonicalPlan, *canonicalRefusal, b
 		directionless: m[7] == "-",
 		distinct:      strings.TrimSpace(m[10]) != "",
 		returnClause:  strings.TrimSpace(m[11]),
+	}
+	orderClause := strings.TrimSpace(m[12])
+	if raw := strings.TrimSpace(m[13]); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit < 0 {
+			return refuse("the LIMIT `"+raw+"` is not a non-negative integer.", "Write a whole number.")
+		}
+		plan.limit = limit
+		plan.hasLimit = true
 	}
 	if m[4] == "" {
 		// A BARE relationship pattern is exactly one hop.
@@ -429,6 +584,10 @@ func parseCanonicalTraversal(cypher string) (canonicalPlan, *canonicalRefusal, b
 		// Every projected item must be `reached.prop [AS alias]`; the materializer runs them
 		// per node, so anything richer (collect, arithmetic, paths) would silently change
 		// semantics and is refused instead.
+		//
+		// projected maps every name the caller may legitimately sort by — the projection text
+		// and its alias — to the column the RECORD will actually carry.
+		projected := map[string]string{}
 		for _, item := range splitCommaList(returnClause) {
 			pm := canonicalProjectionPattern.FindStringSubmatch(item)
 			if pm == nil {
@@ -444,7 +603,25 @@ func parseCanonicalTraversal(cypher string) (canonicalPlan, *canonicalRefusal, b
 				return refuse("a label is not projectable here: on a canonical catalog the label IS the physical table.",
 					"Pin the label in the pattern instead: `(:"+"Function)`.")
 			}
+			column := pm[1] + "." + pm[2]
+			if alias := strings.TrimSpace(pm[4]); alias != "" {
+				column = alias
+				projected[strings.ToLower(alias)] = column
+			}
+			projected[strings.ToLower(pm[1]+"."+pm[2])] = column
 		}
+		if orderClause != "" {
+			keys, refusal := resolveCanonicalOrder(orderClause, projected, reachedVar)
+			if refusal != nil {
+				refusal.relType = relType
+				return canonicalPlan{}, refusal, false
+			}
+			plan.orderBy = keys
+		}
+	}
+	if orderClause != "" && plan.count {
+		return refuse("ORDER BY has nothing to order here: the RETURN is a count, which is a single row.",
+			"Drop the ORDER BY, or project the nodes instead of counting them.")
 	}
 
 	for _, predicate := range splitTopLevel(strings.TrimSpace(m[9]), "AND") {

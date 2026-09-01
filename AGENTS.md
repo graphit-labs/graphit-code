@@ -9,7 +9,7 @@ Each module lists the situations that must make you open its skill. If you are u
 Bypassing, skipping, or short-circuiting these tools — or falling back to native tools without meeting a skill's explicit fallback conditions — is a framework integrity violation.
 
 ## AN INTERRUPTION IS NOT AN EXEMPTION (applies to every resume)
-Being interrupted, corrected, redirected, or asked to change, fix or redo work does not suspend anything above — it re-applies all of it. Before you touch the work again: re-open the skill for the domain you are re-entering, re-run its lookups, and keep the graphit MCP tools ahead of your native ones exactly as on the first turn.
+Being interrupted, corrected, redirected, or asked to change, fix or redo work does not suspend anything above — it re-applies all of it. Before you touch the work again: keep the graphit MCP tools ahead of your native ones exactly as on the first turn.
 This is where the rule is most often dropped, and not out of confusion: a correction feels like continuation and it arrives with urgency, so the native tool is the one that comes to hand. It is also the moment your assumptions are least reliable — the user just changed a premise the earlier work rested on, so what you were about to do next is a guess until the tools confirm it again. Resuming from memory of what you believed before the interruption is the same violation as never having read the skill.
 
 ## AUTOMATIC INDEXING LAGS THE CHANGE — SYNC IS HOW YOU GET CERTAINTY
