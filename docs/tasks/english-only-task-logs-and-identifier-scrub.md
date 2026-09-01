@@ -1,6 +1,6 @@
 ---
 title: Translate the remaining Portuguese task logs and scrub machine-specific identifiers from history
-status: in-progress
+status: done
 created: 2026-09-01
 updated: 2026-09-01
 tags: [docs, i18n, git, security]
@@ -571,3 +571,72 @@ its inbound references repointed.
   Translating recorded speech would misattribute words.
 - [ ] Portuguese comments inside quoted Go source stay as they are — they are what the source
   file actually says.
+
+---
+
+## T6'/T7' DONE — the history rewrite, and what proved it surgical (2026-09-01)
+
+Two commits landed before the rewrite: the restoration and translation, then the scrub of the
+working tree on its own, so the four-line security change is readable without the large editorial
+diff around it.
+
+### The log of a cleanup is a leak, and it was caught before the rewrite
+
+One of the translation batches appended a verification note to **this file** and, in describing
+the rule it had followed, wrote the scrubbed ULID prefix into the prose. It was committed. The
+enumeration step caught it — this file appeared in the list of paths the history touches, which is
+not where the log of the cleanup belongs.
+
+This is the exact failure recorded from a previous cleanup: the document about the leak
+reintroduces every string it is removing, in a new file, because quoting the offending line reads
+like evidence. Fixed, and the scrub commit amended so its claim to have cleared the tree is true.
+**The lesson repeats because it does not feel like a mistake while it is happening.** Name the
+class; never the string.
+
+### The rewrite
+
+`filter-branch --index-filter` over the 55 commits, with the substitution script in `/tmp` — a
+script written inside the repository would become part of the tree it is cleaning and would
+contain exactly what is being removed. `--index-filter`, never `--tree-filter`: the tree carries
+~3.5 GB of generated grammars. The filter reads only the five paths the history actually touched,
+enumerated by walking `git rev-list`, because 23 of these files were renamed inside this range and
+today's paths are not the historical ones. The filter ends in `true`, since a no-op path returns
+non-zero and would abort the run.
+
+### The proof
+
+| Check | Result |
+|---|---|
+| `HEAD`'s tree before and after the rewrite | **byte-identical** (`2a25749f`) |
+| both classes, word-boundary grep, in each of the 55 commits | **0 of 55** |
+| corpus name, employer, Oracle identifiers, NiFi | 0 |
+| credential patterns in the range's added lines | 0 |
+| `git fsck` | clean |
+| `go build ./...` | passes |
+
+The identical tree is what proves the rewrite was surgical: the substitution is a no-op on an
+already-clean `HEAD`, so an unchanged tree means it touched history and nothing else. Had it
+differed, the rewrite would have altered something outside its scope.
+
+### The one `-S` hit, and why it is not a leak
+
+`git log -S` reported one commit for the home-path class. It is the deletion-scores-like-an-insertion
+trap: `-S` counts a CHANGE in occurrences, not an addition. Both diff lines are `-`, and the tree
+of that commit contains zero occurrences — it is the commit that removed the strings. Confirmed
+before treating it as clean, which is the discipline this class of check requires.
+
+## What remains, and none of it is fixable by another commit here
+
+- [ ] **The PAT in `.git/config`** — plaintext in the origin URL, flagged 2026-08-03 and still
+  present. The highest-severity item of the whole audit and the only one needing no rewrite:
+  rotate it and move to SSH or a credential helper.
+- [ ] **3 orphan pre-scrub commits still public** — reachable by SHA without authentication, only
+  GitHub support can GC them.
+- [ ] **The home-path class is already in `origin/main`** (2 files, 6 commits in its history) from
+  before this range. Rewriting locally does not recover published objects; this range stops the
+  propagation, which is all a client can do.
+- [ ] **`refs/original/refs/heads/main` and the two `refs/recover/*`** hold the pre-rewrite and
+  pre-squash objects. The recovery refs have served their purpose — the originals are restored and
+  committed — so they can be expired, but that is destructive and was left for the user.
+- [ ] **No automated guard.** A hook was declined on 2026-08-30, so the pre-push survey stays
+  manual. Five audits have now found the range re-broken within days each time.
