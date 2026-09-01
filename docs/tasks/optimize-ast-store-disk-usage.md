@@ -2,7 +2,7 @@
 title: Optimize AST store disk usage (shards, source text and embeddings)
 status: done
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-31
 tags: [ast, storage, shards, lancedb, icebug, disk]
 ---
 
@@ -137,6 +137,96 @@ become the source for rebuilding the graph — both trade disk for `O(corpus)` r
   shard and neither the embedding text (byte-identical) nor `files.lance` regresses.
   Invariant: the manifest hash is the sole arbiter that the bytes on disk are still the bytes
   that were parsed; on divergence the path must reparse rather than embed the wrong text.
+- [x] **T4 — Compress the standalone embedding sidecar with Zstandard** — Spec: keep the
+  durable per-file embedding cache separate from the nodes/edges shards, but make
+  `internal/ast/shard_emb_cache.go` encode and decode its exact float32 binary payload through
+  the same Zstandard mechanism already used by the rest of the shard store. Update the cache
+  tests and storage documentation. Done when: a written embedding cache is verifiably a
+  Zstandard frame, round-trips every float32 bit exactly, rejects corrupt compressed input,
+  and the relevant AST tests pass. Invariant: compression is lossless; the content hash,
+  UID mapping, vector dimension, atomic temp-file rename, and rebuild-restoration semantics
+  remain unchanged. Because this is derived development data that never shipped, the code
+  recognizes only `.emb.zst`; it has no suffix constant, reader, migration, conversion, or
+  cleanup branch for raw `.emb` files.
+- [x] **T5 — Remove the redundant GEMB payload magic** — Spec: remove `shardEmbMagic` from
+  `internal/ast/shard_emb_cache.go`, bump the development-only payload to version 5, and make
+  the decompressed `.emb.zst` payload start directly with the little-endian `version u16`.
+  Update the framing assertion, task documentation, and the persistent format decision.
+  Done when: no code or current-format documentation mentions a GEMB magic field, the first
+  two decompressed bytes encode version 5, exact float32 round-trip and rebuild restoration
+  remain unchanged, and the AST tests pass. Invariant: no reader or migration for version 4.
+
+## Use Cases
+
+### UC-04: Persist and restore embeddings from a compressed shard sidecar
+- **Actor**: AST embedding pipeline and AST rebuild pipeline.
+- **Preconditions**: the project cache directory is writable; vectors have the configured
+  `ai.EmbeddingDimensions`; the caller supplies the current file content hash.
+- **Main Flow**:
+  1. `ShardEmbCache.Set` records vectors by relative path, UID, and content hash.
+  2. `ShardEmbCache.Save` serializes payload version 5 with exact little-endian float32 values.
+  3. `writeEmbShard` wraps the payload in one Zstandard frame and atomically renames the
+     temporary file to `<relPath>.emb.zst`.
+  4. `NewShardEmbCache` scans only `.emb.zst`, `readEmbShard` decompresses and validates the
+     payload, and `Get` returns a vector only for the matching content hash.
+- **Alternative Flows**:
+  - Files whose names do not end in `.emb.zst`, including raw `.emb`, are ignored and left
+    untouched; there is no compatibility or cleanup path for a development-only old format.
+  - A changed content hash makes the cached vectors unavailable and lets the normal pipeline
+    recompute them.
+- **Error Scenarios**:
+  - An unreadable, corrupt, dimension-mismatched, or invalid-version `.emb.zst` is rejected
+    and removed as a corrupt current-format cache.
+  - A write or atomic rename failure is returned to the caller.
+- **Postconditions**: the durable sidecar is a valid Zstandard frame; successful round trips
+  preserve every float32 bit and rebuild can restore the same vectors without model work.
+- **Affected Files**: `internal/ast/shard_emb_cache.go`,
+  `internal/ast/shard_emb_cache_test.go`.
+
+## Test Cases & Acceptance Criteria
+
+### Feature: Compressed embedding shard sidecar
+Ref: UC-04
+
+#### Scenario: Exact vector round trip through Zstandard
+```gherkin
+Given two 768-dimensional float32 vectors stored for "pkg/svc.go" with hash "h1"
+When ShardEmbCache.Save writes the sidecar and NewShardEmbCache reopens it
+Then the file is a Zstandard frame whose decompressed payload starts with version 5
+  And every returned float32 value is bit-identical to its input
+```
+
+#### Scenario: Corrupt current-format frame is rejected
+```gherkin
+Given "shards/a.go.emb.zst" contains the bytes "not a zstandard frame"
+When NewShardEmbCache opens the cache
+Then no vector is loaded from that file
+  And the corrupt ".emb.zst" file is removed
+```
+
+#### Scenario: Raw development artifact has no compatibility path
+```gherkin
+Given "shards/a.go.emb" contains the bytes "development artifact outside the current format"
+When NewShardEmbCache opens the cache
+Then no vector is loaded from that file
+  And the raw ".emb" file remains byte-identical and present
+```
+
+#### Scenario: Changed source hash invalidates a vector
+```gherkin
+Given "a.go::E" is cached for content hash "h1"
+When the caller requests it with content hash "h2"
+Then ShardEmbCache.Get returns no vector
+```
+
+## Files Changed
+
+| File | Change | Reason |
+|---|---|---|
+| `internal/ast/shard_emb_cache.go` | Modified | Write/read version-first payload v5 inside `.emb.zst` and recognize no legacy suffix. |
+| `internal/ast/shard_emb_cache_test.go` | Modified | Pin Zstandard framing, exactness, corruption handling, and raw `.emb` non-recognition. |
+| `docs/architecture/storage_layout.md` | Modified | Document `.emb.zst` beside the compressed node/edge shards. |
+| `docs/tasks/optimize-ast-store-disk-usage.md` | Modified | Record T4 decisions, tests, measurement, and final state. |
 
 ## Trade-offs & Decisions
 
@@ -159,7 +249,8 @@ become the source for rebuilding the graph — both trade disk for `O(corpus)` r
   technically possible; no, it does not pay off in this form.
 - **No backward compatibility, no data migration.** The Engineer's instruction: we are in
   dev. When a derived artifact's format changes, bump the version and let the old material be
-  discarded and rebuilt from source. T3 originally shipped with a whole migration machinery
+  ignored and rebuilt from source; the current code must not name, read, migrate, convert, or
+  delete the superseded format. T3 originally shipped with a whole migration machinery
   (`shardManifest.Stripped`, `shardStripVersion`, `stripShards()`, plus a test for it); all of
   it was deleted in favour of one line — `shardCacheVersion` 9 → 10.
 
@@ -547,3 +638,56 @@ files and 318 retained versions to 33 and 38.
 Two things worth separating: the `emb.json` removal is a one-time reclaim of a duplicate, while
 the compaction and the leak fix are ONGOING — before them, both grew without bound for the life
 of the store.
+
+### 2026-08-31 — T4 opened after the Engineer's clarification
+
+- The previous clarification only recorded that `.emb` is a standalone file and not already
+  inside a `.zst`. That missed the requested behavior.
+- The Engineer clarified the target: the standalone `.emb` cache itself must be compressed
+  with Zstandard, just like the rest of the shard storage.
+- T4 is now open. The next steps are to identify the existing shard compression helper via
+  the AST graph, change the embedding cache read/write boundary, add exactness/corruption
+  tests, update storage documentation, and measure the result before closing the task.
+- The first implementation wrote `<relPath>.emb.zst` as an independent Zstandard frame
+  containing the versioned GEMB payload and discarded raw `<relPath>.emb` files as stale.
+  The compression part remained; the cleanup part was later rejected and removed because it
+  was itself a legacy-format branch, as recorded below.
+- `TestEmbShardRoundTripIsExact` continues to pin bit-identical vectors;
+  `TestEmbShardIsZstdCompressedAndCompact` pins the frame and size reduction on a compressible
+  payload; `TestEmbShardDropsACorruptZstdFrame` pins fail-closed cleanup. Verification and a
+  real-store size measurement remain pending.
+- The first focused test attempt did not compile because the new compression test used
+  `fmt.Sprintf` without importing `fmt`. No test executed and no behavior was assessed; the
+  missing import was added before retrying.
+- Focused embedding-sidecar tests now pass: exact float32 round-trip, Zstandard framing and
+  effective compression on a compressible payload, corrupt-frame cleanup, and content-hash
+  invalidation. Broader AST verification and real-store measurement remain pending.
+- Full AST verification passes with LanceDB enabled:
+  `go test -tags lancedb ./internal/ast -count=1` completed in 132.478 seconds. This includes
+  the rebuild path that restores vectors from the durable cache.
+- Read-only measurement over the current project's 825 raw `.emb` files: 49,137,423 bytes
+  become 45,821,309 bytes through independent Zstandard level-1 frames, a 3,316,114-byte
+  (6.7%) reduction. Float32 embeddings are high-entropy, so their measured ratio is much
+  smaller than the 14.8x measured for node/edge JSON; consistency and bounded per-file frames
+  remain the reason to use the same mechanism.
+- The Engineer corrected the implementation again: recognizing `.emb` only to delete it is
+  still a legacy code path. Because this format never left development, T4 now removes
+  `legacyShardEmbSuffix` and its startup cleanup branch entirely. The cache knows only
+  `.emb.zst`; any pre-existing `.emb` file is outside the current format and is left untouched.
+- `legacyShardEmbSuffix` and the `.emb` deletion branch were removed. The new
+  `TestEmbShardIgnoresRawEmbFiles` pins both halves of the development-only rule: a raw
+  `.emb` file is neither loaded nor modified by `NewShardEmbCache`.
+- Final verification after removing the legacy branch passed:
+  `go test ./internal/ast -run 'TestEmbShard(...)' -count=1`,
+  `go test -tags lancedb ./internal/ast -count=1` (100.729 seconds), and
+  `go vet -tags lancedb ./internal/ast`.
+- The Engineer requested removal of `shardEmbMagic` after confirming it was only a redundant
+  inner payload signature. T5 reopens the task: `.emb.zst` remains the outer type marker and
+  the payload will start directly with version 5, without compatibility for GEMB v4.
+- `shardEmbMagic` and both write/read operations for the four-byte signature were removed.
+  `shardEmbVersion` is now 5 and the decompressed payload starts at byte zero with its
+  little-endian version. The compression test now asserts that header directly; verification
+  remains pending.
+- T5 verification passed: focused embedding-sidecar tests, including exact float32 round-trip
+  and version-first framing; `go test -tags lancedb ./internal/ast -count=1` in 56.266 seconds;
+  and `go vet -tags lancedb ./internal/ast`.

@@ -90,7 +90,10 @@ Things worth knowing before you set it:
 │   │   │   └── icebug.json                      canonical manifest v2
 │   │   ├── search.lance/                    the search index — text, terms, vectors
 │   │   ├── manifest.json                    parse-shard manifest
-│   │   └── shards/…                         parse + embedding shards
+│   │   └── shards/                          independently compressed per-file caches
+│   │       ├── <relPath>.nodes.json.zst     parsed entities
+│   │       ├── <relPath>.edges.json.zst     parsed relationships
+│   │       └── <relPath>.emb.zst            exact float32 embedding cache in a Zstandard frame
 │   ├── context/<name>/                  a locally imported code graph — same icebug filesystem layout
 │   │   └── graph.icebug/ + search.lance/ …
 │   ├── hub/<context-id>/<version>/      a Hub code graph, MOUNTED per version

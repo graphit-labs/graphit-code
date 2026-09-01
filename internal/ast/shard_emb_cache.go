@@ -1,7 +1,7 @@
 package ast
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -27,10 +27,7 @@ import (
 // differ before and after a rebuild. That is a change to search behaviour and would need a
 // measurement, not an assumption.
 
-const (
-	shardEmbMagic   = "GEMB"
-	shardEmbVersion = 3
-)
+const shardEmbVersion = 5
 
 type ShardEmbCache struct {
 	dir   string
@@ -60,8 +57,7 @@ func NewShardEmbCache(cacheDir string, parseCache *ShardCache) (*ShardEmbCache, 
 		if err != nil || info.IsDir() {
 			return nil
 		}
-		const suffix = shardEmbSuffix
-		if !hasFileSuffix(path, suffix) {
+		if !hasFileSuffix(path, shardEmbSuffix) {
 			return nil
 		}
 
@@ -69,11 +65,11 @@ func NewShardEmbCache(cacheDir string, parseCache *ShardCache) (*ShardEmbCache, 
 		if relErr != nil {
 			return nil
 		}
-		relPath := rel[:len(rel)-len(suffix)]
+		relPath := rel[:len(rel)-len(shardEmbSuffix)]
 
 		loaded, loadErr := readEmbShard(path)
 		if loadErr != nil {
-			// Unreadable or written by an older format: drop it rather than carry it.
+			// An unreadable cache is dropped rather than carried.
 			// The vectors are recomputable, which is the whole reason this is a cache.
 			_ = os.Remove(path)
 			return nil
@@ -89,7 +85,7 @@ func NewShardEmbCache(cacheDir string, parseCache *ShardCache) (*ShardEmbCache, 
 	return ec, nil
 }
 
-const shardEmbSuffix = ".emb"
+const shardEmbSuffix = ".emb.zst"
 
 func (ec *ShardEmbCache) prune(parseCache *ShardCache) {
 	parseCache.mu.Lock()
@@ -159,8 +155,9 @@ func (ec *ShardEmbCache) shardPath(relPath string) string {
 
 // ---------- the on-disk format ----------
 //
-// magic "GEMB" | version u16 | dim u16 | hash len u16 | hash | count u32
-// then count records of: uid len u16 | uid | dim x float32 little-endian
+// One independent Zstandard frame containing:
+// version u16 | dim u16 | hash len u16 | hash | count u32
+// then count records of: uid len u16 | uid | dim x float32 little-endian.
 //
 // Fixed dimension in the header rather than per record: every vector this model produces has
 // the same width, and storing it once is what makes a record exactly len(uid)+2+dim*4 bytes.
@@ -169,26 +166,23 @@ func writeEmbShard(path string, emb *shardEmb) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	var raw bytes.Buffer
+	if err := encodeEmbShard(&raw, emb); err != nil {
+		return err
+	}
+	compressed := shardZstdEncoder.EncodeAll(raw.Bytes(), nil)
 	tmp := path + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
+	if err := os.WriteFile(tmp, compressed, 0o644); err != nil {
 		return err
 	}
-
-	if err := encodeEmbShard(f, emb); err != nil {
-		_ = f.Close()
+	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, path)
+	return nil
 }
 
-func encodeEmbShard(f *os.File, emb *shardEmb) error {
-	w := bufio.NewWriter(f)
+func encodeEmbShard(w io.Writer, emb *shardEmb) error {
 	var err error
 	put := func(v any) {
 		if err == nil {
@@ -207,7 +201,6 @@ func encodeEmbShard(f *os.File, emb *shardEmb) error {
 	dim := ai.ResolveConfiguredEmbeddingDimensions()
 
 	hash := []byte(emb.Hash)
-	putBytes([]byte(shardEmbMagic))
 	put(uint16(shardEmbVersion))
 	put(uint16(dim))
 	put(uint16(len(hash)))
@@ -227,7 +220,7 @@ func encodeEmbShard(f *os.File, emb *shardEmb) error {
 	if err != nil {
 		return err
 	}
-	return w.Flush()
+	return nil
 }
 
 func countWritable(vecs map[string][]float32, dim int) int {
@@ -241,17 +234,16 @@ func countWritable(vecs map[string][]float32, dim int) int {
 }
 
 func readEmbShard(path string) (*shardEmb, error) {
-	f, err := os.Open(path)
+	compressed, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = f.Close() }()
-	r := bufio.NewReader(f)
-
-	magic := make([]byte, len(shardEmbMagic))
-	if _, err := io.ReadFull(r, magic); err != nil || string(magic) != shardEmbMagic {
-		return nil, fmt.Errorf("emb shard %s: not an embedding shard", path)
+	raw, err := shardZstdDecoder.DecodeAll(compressed, nil)
+	if err != nil {
+		return nil, fmt.Errorf("decompress emb shard %s: %w", path, err)
 	}
+	r := bytes.NewReader(raw)
+
 	var version, dim, hashLen uint16
 	if err := binary.Read(r, binary.LittleEndian, &version); err != nil {
 		return nil, err

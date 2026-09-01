@@ -1,6 +1,9 @@
 package ast
 
 import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -58,35 +61,88 @@ func TestEmbShardRoundTripIsExact(t *testing.T) {
 	}
 }
 
-// The binary format is the whole point: the JSON it replaces cost 3.1x for the same numbers.
-func TestEmbShardIsBinaryAndCompact(t *testing.T) {
+func TestEmbShardIsZstdCompressedAndCompact(t *testing.T) {
 	dir := t.TempDir()
 	cache, err := NewShardEmbCache(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	const rel = "a.go"
-	const n = 10
-	for i := 0; i < n; i++ {
-		cache.Set(rel, "a.go::E", "h1", testVector(i))
+	for i := 0; i < 8; i++ {
+		cache.Set(rel, fmt.Sprintf("a.go::E%d", i), "h1", make([]float32, ai.EmbeddingDimensions))
 	}
-	// One uid, so one record — overwriting is what an entity re-embedded looks like.
-	cache.Set(rel, "a.go::Other", "h1", testVector(99))
 	if err := cache.Save(); err != nil {
 		t.Fatal(err)
 	}
 
-	info, err := os.Stat(filepath.Join(dir, "shards", rel+shardEmbSuffix))
+	encoded, err := os.ReadFile(filepath.Join(dir, "shards", rel+shardEmbSuffix))
 	if err != nil {
 		t.Fatalf("the shard was not written: %v", err)
 	}
-	// Two records: header + 2 x (2 + len(uid) + dim*4). Anything near the JSON size means
-	// the numbers are being written as text again.
-	floor := int64(2 * ai.EmbeddingDimensions * 4)
-	ceiling := floor + 512
-	if info.Size() < floor || info.Size() > ceiling {
-		t.Errorf("shard is %d bytes; two %d-dim float32 vectors should be %d..%d",
-			info.Size(), ai.EmbeddingDimensions, floor, ceiling)
+	if !bytes.HasPrefix(encoded, []byte{0x28, 0xb5, 0x2f, 0xfd}) {
+		t.Fatalf("embedding sidecar is not a Zstandard frame: prefix %x", encoded[:min(4, len(encoded))])
+	}
+	raw, err := shardZstdDecoder.DecodeAll(encoded, nil)
+	if err != nil {
+		t.Fatalf("decompress: %v", err)
+	}
+	if len(raw) < 2 {
+		t.Fatalf("decompressed payload is too short for the version header: %d bytes", len(raw))
+	}
+	if got := binary.LittleEndian.Uint16(raw[:2]); got != shardEmbVersion {
+		t.Fatalf("decompressed payload version = %d, want %d", got, shardEmbVersion)
+	}
+	if len(encoded) >= len(raw) {
+		t.Fatalf("compressible embedding payload grew: compressed=%d raw=%d", len(encoded), len(raw))
+	}
+}
+
+func TestEmbShardDropsACorruptZstdFrame(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "shards", "a.go"+shardEmbSuffix)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("not a zstandard frame"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cache, err := NewShardEmbCache(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cache.Get("a.go", "a.go::E", "h1"); got != nil {
+		t.Fatal("corrupt embedding sidecar was loaded")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("corrupt embedding sidecar was not removed: %v", err)
+	}
+}
+
+func TestEmbShardIgnoresRawEmbFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "shards", "a.go.emb")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("development artifact outside the current format")
+	if err := os.WriteFile(path, want, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cache, err := NewShardEmbCache(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cache.Get("a.go", "a.go::E", "h1"); got != nil {
+		t.Fatal("raw .emb file was loaded")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("raw .emb file was modified or removed: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("raw .emb file changed: got %q, want %q", got, want)
 	}
 }
 
