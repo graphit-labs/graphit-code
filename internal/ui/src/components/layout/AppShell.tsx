@@ -62,41 +62,37 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
-  const sidebar = useResizable(256, 200, 480, 'right', 'graphit_main_sidebar_width')
+  const sidebar = useResizable(272, 236, 420, 'right', 'graphit_main_sidebar_width')
 
   return (
     <div
-      className="flex min-h-screen bg-background text-foreground relative overflow-hidden"
+      className="app-frame flex min-h-screen bg-background text-foreground relative overflow-hidden"
       style={{ '--sidebar-width': `${sidebar.size}px` } as React.CSSProperties}
     >
-      {}
-      <div className="radial-glow glow-primary -top-40 -right-20 w-[500px] h-[500px]" />
-      <div className="radial-glow glow-info -bottom-40 -left-20 w-[600px] h-[600px]" />
+      <div className="workspace-grid" aria-hidden="true" />
+      <div className="workspace-beacon" aria-hidden="true" />
 
-      {}
       <aside className="hidden md:flex shrink-0 flex-col fixed inset-y-0 left-0 z-30 w-[var(--sidebar-width)]">
         <Sidebar />
-        
-        {}
         <div
-          className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/50 transition-colors z-40 group"
+          className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-[#b9fb63]/60 transition-colors z-40 group"
           onMouseDown={sidebar.onMouseDown}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize navigation"
         >
-          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-full bg-border/40 group-hover:bg-primary/75 opacity-0 group-hover:opacity-100 transition-opacity" />
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-10 rounded-full bg-white/10 group-hover:bg-[#b9fb63] opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
       </aside>
 
-      {}
       <MobileSidebar />
 
-      {}
       <main className="flex-1 min-h-screen flex flex-col relative z-10 md:ml-[var(--sidebar-width)]">
-        <div className="flex-1 w-full max-w-[1600px] mx-auto px-4 md:px-8">
+        <div className="flex-1 w-full max-w-[1680px] mx-auto px-3 sm:px-5 lg:px-8">
           {children}
         </div>
       </main>
 
-      {}
       <ToastContainer />
     </div>
   )

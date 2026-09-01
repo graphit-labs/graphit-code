@@ -91,14 +91,14 @@ export default function UploadPage() {
   const inputCls = 'w-full px-3.5 py-2.5 rounded-xl border border-border/50 bg-background/50 backdrop-blur-sm text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/80 transition-all duration-200'
 
   return (
-    <div className="w-full max-w-3xl mx-auto px-4 md:px-8 py-10 relative animate-in fade-in duration-300">
-      <div className="absolute -top-24 -right-24 w-72 h-72 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
+    <div className="w-full max-w-3xl mx-auto px-1 sm:px-2 lg:px-4 py-8 lg:py-12 relative animate-in fade-in duration-300">
 
       <div className="flex items-center gap-4 mb-8 pb-6 border-b border-border/40 relative z-10">
         <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
           <CloudUpload className="w-6 h-6 text-primary" />
         </div>
         <div>
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary font-semibold mb-1">Hub / publish</p>
           <h1 className="text-3xl font-heading font-bold tracking-tight text-foreground">Upload Artifact</h1>
           <p className="text-[14px] text-muted-foreground mt-1 leading-relaxed">
             Upload a <strong className="text-foreground font-semibold">.zip</strong> file to publish a new artifact or update an existing one. Choose scope below.

@@ -237,16 +237,7 @@ func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	edgesQ := `MATCH ()-[r]->() RETURN DISTINCT label(r) as type, count(r) as count ORDER BY count DESC LIMIT 20`
-	edgesRes, _ := db.Query(ctx, edgesQ, nil)
-
-	edgeStats := make([]map[string]any, 0)
-	for _, r := range edgesRes.Records {
-		edgeStats = append(edgeStats, map[string]any{
-			"type":  r["type"],
-			"count": r["count"],
-		})
-	}
+	edgeStats := schemaEdgeStats(ctx, db)
 
 	nodeLabels := make([]string, 0, len(nodeStats))
 	for _, ns := range nodeStats {
@@ -269,6 +260,29 @@ func (s *Server) handleSchema(w http.ResponseWriter, r *http.Request) {
 		"edge_types":  edgeTypes,
 		"backend":     db.BackendType(),
 	})
+}
+
+func schemaEdgeStats(ctx context.Context, db GraphDB) []map[string]any {
+	if provider, ok := db.(relationshipStatsProvider); ok {
+		if stats, canonical := provider.logicalRelationshipStats(); canonical {
+			out := make([]map[string]any, 0, len(stats))
+			for _, stat := range stats {
+				out = append(out, map[string]any{"type": stat.Type, "count": stat.Count})
+			}
+			return out
+		}
+	}
+
+	edgesQ := `MATCH ()-[r]->() RETURN DISTINCT label(r) as type, count(r) as count ORDER BY count DESC LIMIT 20`
+	edgesRes, _ := db.Query(ctx, edgesQ, nil)
+	edgeStats := make([]map[string]any, 0, len(edgesRes.Records))
+	for _, record := range edgesRes.Records {
+		edgeStats = append(edgeStats, map[string]any{
+			"type":  record["type"],
+			"count": record["count"],
+		})
+	}
+	return edgeStats
 }
 
 // schemaLangGroups renders SchemaLangGroups as the JSON the explorer's Schema panel
@@ -522,7 +536,20 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	normalizeGraphEdgeTypes(db, edges)
 	writeGraphResponse(w, nodesMap, edges, tabCols, tabRows, isUserQuery)
+}
+
+func normalizeGraphEdgeTypes(db GraphDB, edges []map[string]any) {
+	namer, ok := db.(relationshipTypeNamer)
+	if !ok {
+		return
+	}
+	for _, edge := range edges {
+		if physical, ok := edge["type"].(string); ok {
+			edge["type"] = namer.logicalRelationshipType(physical)
+		}
+	}
 }
 
 func resolveGraphQuery(cypherQuery, repoPath, defaultQuery string) (cypher string, isUserQuery bool) {

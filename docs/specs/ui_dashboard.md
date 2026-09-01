@@ -33,6 +33,28 @@ The visual application is located inside `internal/ui/` and is structured as a S
 - **State Management**: Zustand-backed store (`appStore.ts`) tracking project workspaces, select nodes, search histories, active page contexts, and UI toasts.
 - **API Client**: Axios wrapper communicating with backend handlers (`src/api/`).
 
+### Visual language and responsive behavior
+
+The dashboard uses the **Graphite Observatory** visual system. Its dark graphite navigation
+acts as a stable instrument rail, while the workspace uses paper-like neutral surfaces, a
+low-contrast coordinate grid, phosphor-green primary actions, and IBM Plex Mono for technical
+metadata. The same semantic tokens drive light and dark themes; component behavior does not
+depend on a theme-specific branch.
+
+The responsive contract is:
+
+- Below the `md` breakpoint, the global navigation becomes a modal drawer and retains every
+  route, registry type filter, project/IDE switcher, and theme control.
+- The Live Search artifact picker and session console stack vertically below the `lg`
+  breakpoint. The picker remains independently scrollable and the console is never hidden
+  beyond the viewport.
+- AST and Wiki explorers start with their index rail collapsed on mobile. Users can expand it
+  with the same control used on desktop; query and canvas/content surfaces keep the remaining
+  width.
+- All interactive elements use a visible keyboard focus ring, motion honors
+  `prefers-reduced-motion`, and global loading/toast states announce themselves without
+  changing the underlying feature flow.
+
 ---
 
 ## 🌐 Go HTTP Server: Unified uiserver
@@ -93,6 +115,11 @@ VPN, or authenticated TLS proxy. See
 - **Technology**: `d3-force-3d` engine.
 - **Execution**: Renders the AST database structures in a three-dimensional spatial canvas.
 - **Data Load**: The component `GraphCanvas.tsx` queries nodes (files, classes, methods) and edges, binding them to a physics model with force constraints (charge, link distance, center gravity).
+- **Relationship names**: Every user-facing edge type comes from the active project/context's
+  `<store>/graph.icebug/icebug.json`. `CanonicalRelGroup.Type` is the public name used by the
+  query translator, schema rail, filters and canvas; physical member-table names remain an
+  Icebug storage detail and must never cross the Explorer API boundary. Resolution is scoped
+  to `project_dir`/context and cannot use a global or frontend-owned map.
 - **Interactions**:
   - Hovering highlights connected neighbors (e.g. parent directories and child functions).
   - Clicking extracts node parameters and lists them inside `NodeTree.tsx`.

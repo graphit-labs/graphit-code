@@ -276,14 +276,15 @@ export default function LiveSearchPage() {
   const canAsk = session?.state === 'ready' && question.trim().length > 0
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 md:px-8 py-8 animate-in fade-in duration-300">
+    <div className="w-full max-w-7xl mx-auto px-1 sm:px-2 lg:px-4 py-8 lg:py-10 animate-in fade-in duration-300">
       {/* Top Banner Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-6 border-b border-border/40">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 shadow-sm">
             <Radio className={cn('w-6 h-6 text-primary', busy && 'animate-pulse')} />
           </div>
-          <div>
+          <div className="min-w-0">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary font-semibold mb-1">Agent workspace / multi-source</p>
             <h1 className="text-3xl font-heading font-bold tracking-tight text-foreground">Live Search</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Streamed autonomous agent running on throwaway projects with your selected artifacts
@@ -320,12 +321,12 @@ export default function LiveSearchPage() {
       </div>
 
       {/* Main Flex Layout: Sidebar (Collapsible) + Console (Expands smoothly) */}
-      <div className="flex gap-6 h-[calc(100vh-250px)] min-h-[580px] transition-all duration-300">
+      <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 h-auto lg:h-[calc(100vh-220px)] min-h-0 lg:min-h-[500px] transition-all duration-300">
         {/* Left Sidebar Pane */}
         <aside
           className={cn(
-            'flex flex-col min-h-0 glass-panel rounded-2xl border border-border/40 overflow-hidden shadow-sm transition-all duration-300 ease-in-out shrink-0',
-            sidebarCollapsed ? 'w-16 p-2 items-center' : 'w-80 lg:w-96 p-4',
+            'flex flex-col min-h-0 max-h-[430px] lg:max-h-none glass-panel rounded-2xl border border-border/40 overflow-hidden shadow-sm transition-all duration-300 ease-in-out shrink-0',
+            sidebarCollapsed ? 'w-full lg:w-16 p-2 items-center' : 'w-full lg:w-96 p-4',
           )}
         >
           {sidebarCollapsed ? (
@@ -523,7 +524,7 @@ export default function LiveSearchPage() {
         </aside>
 
         {/* Right Main Session Console (expands to take all remaining width) */}
-        <section className="flex-1 flex flex-col min-h-0 min-w-0 glass-panel rounded-2xl border border-border/40 overflow-hidden shadow-sm transition-all duration-300">
+        <section className="flex-1 flex flex-col min-h-[560px] lg:min-h-0 min-w-0 glass-panel rounded-2xl border border-border/40 overflow-hidden shadow-sm transition-all duration-300">
           {/* Console Header */}
           <div className="px-6 py-3.5 border-b border-border/40 bg-card/40 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 min-w-0">
@@ -698,5 +699,3 @@ export default function LiveSearchPage() {
     </div>
   )
 }
-
-

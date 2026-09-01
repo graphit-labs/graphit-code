@@ -142,13 +142,14 @@ export default function DreamDashboard() {
   }
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 md:px-8 py-10 animate-in fade-in duration-300">
+    <div className="w-full max-w-7xl mx-auto px-1 sm:px-2 lg:px-4 py-8 lg:py-12 animate-in fade-in duration-300">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 pb-6 border-b border-border/40">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
             <Sparkles className="w-6 h-6 text-primary" />
           </div>
           <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary font-semibold mb-1">Runtime / autonomous</p>
             <h1 className="text-3xl font-heading font-bold tracking-tight text-foreground">Dream</h1>
             <p className="text-[14px] text-muted-foreground mt-1">
               Autonomous knowledge mining and agent-artifact improvement while you sleep

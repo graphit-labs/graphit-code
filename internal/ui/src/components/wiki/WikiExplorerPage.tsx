@@ -427,7 +427,7 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
   
   const left = useResizable(280, 200, 480, 'right', 'graphit_wiki_left_width')
   const [leftCollapsed, setLeftCollapsed] = useState(
-    () => LS.get<boolean>('graphit_wiki_left_collapsed', false)
+    () => window.matchMedia('(max-width: 767px)').matches || LS.get<boolean>('graphit_wiki_left_collapsed', false)
   )
 
   const explorerBase = moduleFilter === 'knowledge'
@@ -688,7 +688,7 @@ export default function WikiExplorerPage({ moduleFilter, autoSelectProject }: Wi
   const hasWiki = modules.length > 0
 
   return (
-    <div className="flex h-screen bg-background text-foreground overflow-hidden animate-in fade-in duration-200">
+    <div className="explorer-frame flex h-screen bg-background text-foreground overflow-hidden animate-in fade-in duration-200">
       <div
         className={cn(
           'flex flex-col border-r border-border/40 bg-card/45 backdrop-blur-2xl shrink-0 relative transition-all duration-300 ease-in-out z-20',

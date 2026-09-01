@@ -12,19 +12,19 @@ export function ToastContainer() {
   }
 
   const colors = {
-    success: 'bg-emerald-600',
-    error: 'bg-red-600',
-    info: 'bg-blue-600',
+    success: 'border-[#b9fb63]/50 text-[#d9ffad]',
+    error: 'border-red-400/50 text-red-200',
+    info: 'border-cyan-300/50 text-cyan-100',
   }
 
   return (
-    <div className="fixed top-5 right-5 z-[9999] flex flex-col gap-2 pointer-events-none">
+    <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none" role="status" aria-live="polite">
       {toasts.map((toast) => (
         <div
           key={toast.id}
           className={cn(
-            'pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-lg text-white text-sm font-medium',
-            'shadow-lg max-w-sm animate-slide-in-right',
+            'pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-lg bg-[#161a18]/95 backdrop-blur-xl border text-sm font-semibold',
+            'shadow-2xl max-w-sm animate-slide-in-right',
             colors[toast.type],
           )}
         >
@@ -33,6 +33,7 @@ export function ToastContainer() {
           <button
             onClick={() => removeToast(toast.id)}
             className="opacity-70 hover:opacity-100 transition-opacity"
+            aria-label="Dismiss notification"
           >
             <X className="w-3.5 h-3.5" />
           </button>

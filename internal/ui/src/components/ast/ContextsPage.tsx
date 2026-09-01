@@ -157,7 +157,7 @@ export default function ContextsPage() {
   const importedCtx = contexts.filter((c) => c.type === 'import')
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 md:px-8 py-10">
+    <div className="w-full max-w-7xl mx-auto px-1 sm:px-2 lg:px-4 py-8 lg:py-12 animate-in fade-in duration-300">
       {}
       <div className="flex items-center justify-between gap-4 mb-10 pb-6 border-b border-border/40">
         <div className="flex items-center gap-4">
@@ -165,6 +165,7 @@ export default function ContextsPage() {
             <Layers className="w-6 h-6 text-primary" />
           </div>
           <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary font-semibold mb-1">Code graph / sources</p>
             <h1 className="text-3xl font-heading font-extrabold tracking-tight text-foreground">
               AST Contexts
             </h1>

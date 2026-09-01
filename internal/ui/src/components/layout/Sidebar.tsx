@@ -51,17 +51,17 @@ function NavItem({ to, icon, label, badge, end, onClick }: NavItemProps) {
       onClick={onClick}
       className={({ isActive }) =>
         cn(
-          'relative flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-300',
+          'group relative flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-semibold transition-all duration-200',
           isActive
-            ? 'bg-primary/10 text-primary border-l-2 border-primary pl-3 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.03)]'
-            : 'text-muted-foreground hover:text-foreground hover:bg-accent/40 hover:translate-x-0.5',
+            ? 'bg-[#b9fb63] text-[#101311] shadow-[0_8px_22px_-14px_rgba(185,251,99,0.9)]'
+            : 'text-white/56 hover:text-white hover:bg-white/[0.07]',
         )
       }
     >
-      <span className="w-4 shrink-0 flex items-center justify-center transition-transform duration-300 group-hover:scale-110">{icon}</span>
+      <span className="w-5 h-5 rounded-md shrink-0 flex items-center justify-center border border-current/10 bg-current/[0.04] transition-transform duration-200 group-hover:scale-105">{icon}</span>
       <span className="flex-1 truncate">{label}</span>
       {badge != null && badge > 0 && (
-        <span className="ml-auto bg-primary text-primary-foreground text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm animate-pulse">
+        <span className="ml-auto bg-[#101311] text-[#b9fb63] text-[10px] font-bold px-2 py-0.5 rounded-full">
           {badge}
         </span>
       )}
@@ -71,11 +71,11 @@ function NavItem({ to, icon, label, badge, end, onClick }: NavItemProps) {
 
 function NavSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="mb-6">
-      <p className="px-3.5 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-2">
+    <div className="mb-5">
+      <p className="px-3 py-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-white/28 mb-1.5">
         {title}
       </p>
-      <div className="flex flex-col gap-1">{children}</div>
+      <div className="flex flex-col gap-0.5">{children}</div>
     </div>
   )
 }
@@ -103,21 +103,21 @@ function PrimaryNavItem({
       onClick={onClick}
       className={({ isActive }) =>
         cn(
-          'group relative flex items-center gap-3 px-3.5 py-3 rounded-xl border transition-all duration-300 overflow-hidden',
+          'group relative flex items-center gap-3 p-3 rounded-xl border transition-all duration-200 overflow-hidden',
           isActive
-            ? 'bg-gradient-to-r from-primary/20 to-purple-500/15 border-primary/40 text-foreground shadow-[0_2px_12px_-4px_rgba(59,130,246,0.4)]'
-            : 'bg-gradient-to-r from-primary/10 to-purple-500/[0.06] border-primary/20 text-foreground hover:border-primary/40 hover:from-primary/15 hover:to-purple-500/10',
+            ? 'bg-[#b9fb63] border-[#b9fb63] text-[#101311] shadow-[0_14px_32px_-18px_rgba(185,251,99,0.8)]'
+            : 'bg-[#b9fb63]/[0.07] border-[#b9fb63]/20 text-white hover:bg-[#b9fb63]/[0.12] hover:border-[#b9fb63]/40',
         )
       }
     >
-      <span className="absolute -top-6 -right-6 w-16 h-16 bg-primary/10 rounded-full blur-2xl pointer-events-none" />
-      <span className="w-8 h-8 shrink-0 rounded-lg bg-gradient-to-br from-primary/25 to-purple-500/20 border border-primary/25 flex items-center justify-center text-primary transition-transform duration-300 group-hover:scale-105">
+      <span className="absolute -top-7 -right-5 w-20 h-20 rounded-full border border-current/10 pointer-events-none" />
+      <span className="w-8 h-8 shrink-0 rounded-lg border border-current/20 bg-current/[0.06] flex items-center justify-center transition-transform duration-200 group-hover:scale-105">
         {icon}
       </span>
       <span className="flex flex-col min-w-0 relative z-10">
-        <span className="text-sm font-bold tracking-tight truncate">{label}</span>
+        <span className="text-sm font-extrabold tracking-tight truncate">{label}</span>
         {hint && (
-          <span className="text-[10px] text-muted-foreground/70 truncate leading-tight">{hint}</span>
+          <span className="text-[10px] opacity-55 truncate leading-tight font-medium">{hint}</span>
         )}
       </span>
     </NavLink>
@@ -166,40 +166,31 @@ export function Sidebar({ onClose }: SidebarProps) {
   const close = () => onClose?.()
 
   return (
-    <div className="flex flex-col h-full bg-card/60 backdrop-blur-2xl border-r border-border/40 relative">
-      {}
-      <div className="absolute -top-24 -left-24 w-48 h-48 bg-primary/5 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="px-5 py-5 border-b border-border/40 relative overflow-hidden">
-        <div className="absolute -top-12 -left-12 w-24 h-24 bg-primary/10 rounded-full blur-2xl pointer-events-none" />
-        
-        <div className="flex items-center gap-3 font-heading font-bold text-base text-foreground relative z-10">
-          <img
-            src="/logo.svg"
-            alt="Graphit Code Logo"
-            className="w-10 h-10 object-contain shrink-0 filter drop-shadow-[0_2px_8px_rgba(59,130,246,0.25)] hover:scale-[1.05] transition-transform duration-300"
-          />
+    <div className="app-sidebar flex flex-col h-full relative overflow-hidden">
+      <div className="px-5 pt-5 pb-4 border-b border-white/[0.08] relative z-10">
+        <div className="flex items-center gap-3 font-heading font-bold text-base relative z-10">
+          <div className="brand-glyph" aria-hidden="true" />
           <div className="flex flex-col min-w-0">
-            <span className="gradient-text font-bold tracking-tight text-[17px] leading-tight truncate">
-              Graphit Code
+            <span className="font-extrabold tracking-[-0.04em] text-[17px] leading-tight truncate text-white">
+              Graphit
             </span>
-            <span className="text-[9px] text-muted-foreground/60 uppercase tracking-widest font-extrabold leading-none mt-0.5 font-sans">
-              Knowledge Engine
+            <span className="font-mono text-[8px] text-[#b9fb63]/70 uppercase tracking-[0.18em] font-semibold leading-none mt-1">
+              Code intelligence
             </span>
           </div>
+          <span className="ml-auto self-start mt-0.5 font-mono text-[8px] uppercase tracking-wider text-white/25">OS</span>
         </div>
       </div>
 
       <ProjectSwitcher />
 
-      <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-2 scrollbar-none relative z-10">
-        {}
-        <div className="mb-6">
+      <nav className="flex-1 overflow-y-auto px-3.5 py-4 space-y-1 scrollbar-none relative z-10">
+        <div className="mb-5">
           <PrimaryNavItem
             to="/live"
             icon={<Search className="w-4 h-4" />}
             label="Live Search"
-            hint="Any hub artifact, streamed"
+            hint="Search across every signal"
             onClick={close}
           />
         </div>
@@ -305,14 +296,14 @@ export function Sidebar({ onClose }: SidebarProps) {
           />
         </NavSection>
 
-        {}
         {isRegistry && (
           <>
-            <div className="border-t border-border/30 my-4" />
+            <div className="border-t border-white/[0.08] my-4" />
             <div className="mb-4">
               <button
-                className="flex items-center justify-between w-full px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 hover:text-foreground transition-colors"
+                className="flex items-center justify-between w-full px-3 py-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-white/30 hover:text-white transition-colors"
                 onClick={() => setShowTypeFilters((v) => !v)}
+                aria-expanded={showTypeFilters}
               >
                 <span className="flex items-center gap-1.5">
                   Type Filter
@@ -324,7 +315,7 @@ export function Sidebar({ onClose }: SidebarProps) {
                 )}
               </button>
               {showTypeFilters && (
-                <div className="flex flex-col gap-1 mt-2 pl-1.5 border-l border-border/30 ml-2">
+                <div className="grid grid-cols-2 gap-1 mt-2">
                   {TYPE_FILTERS.map((f) => (
                     <button
                       key={f.value}
@@ -333,16 +324,16 @@ export function Sidebar({ onClose }: SidebarProps) {
                         close()
                       }}
                       className={cn(
-                        'flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs text-left transition-all duration-200',
+                        'flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] text-left transition-all duration-200',
                         typeFilter === f.value
-                          ? 'bg-primary/10 text-primary font-semibold'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-accent/40',
+                          ? 'bg-white text-[#101311] font-bold'
+                          : 'text-white/48 hover:text-white hover:bg-white/[0.07]',
                       )}
                     >
-                      <span className="w-4 shrink-0 flex items-center justify-center text-muted-foreground/60">
+                      <span className="w-4 shrink-0 flex items-center justify-center opacity-60">
                         {f.icon}
                       </span>
-                      {f.label}
+                      <span className="truncate">{f.label}</span>
                     </button>
                   ))}
                 </div>
@@ -352,14 +343,14 @@ export function Sidebar({ onClose }: SidebarProps) {
         )}
       </nav>
 
-      {}
-      <div className="px-4 pb-4 border-t border-border/40 pt-4 flex flex-col gap-1 relative z-10">
+      <div className="px-3.5 pb-3.5 border-t border-white/[0.08] pt-3 flex flex-col gap-1 relative z-10">
         <button
           onClick={toggle}
-          className="flex items-center gap-2.5 w-full px-3.5 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-all duration-200"
+          className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg text-xs font-semibold text-white/48 hover:text-white hover:bg-white/[0.07] transition-all duration-200"
         >
-          {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-blue-500" />}
+          {theme === 'dark' ? <Sun className="w-4 h-4 text-[#ffd56a]" /> : <Moon className="w-4 h-4 text-[#b9fb63]" />}
           <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
+          <span className="ml-auto font-mono text-[8px] uppercase tracking-wider text-white/20">Theme</span>
         </button>
       </div>
     </div>
@@ -371,8 +362,9 @@ export function MobileSidebar() {
   return (
     <>
       <button
-        className="fixed top-4 left-4 z-50 md:hidden bg-card/85 backdrop-blur border border-border/50 rounded-xl p-2.5 shadow-md hover:scale-105 transition-all duration-200"
+        className="fixed top-3 left-3 z-50 md:hidden bg-[#161a18] text-[#b9fb63] border border-white/10 rounded-lg p-2.5 shadow-xl hover:scale-105 transition-all duration-200"
         onClick={() => setOpen(true)}
+        aria-label="Open navigation"
       >
         <Menu className="w-4 h-4" />
       </button>
@@ -386,8 +378,9 @@ export function MobileSidebar() {
           <div className="fixed inset-y-0 left-0 z-50 w-72 md:hidden animate-in slide-in-from-left duration-300">
             <div className="h-full relative">
               <button
-                className="absolute top-4 right-4 z-50 p-2 rounded-xl bg-card border border-border/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-all duration-200"
+                className="absolute top-4 right-4 z-50 p-2 rounded-lg bg-white/[0.06] border border-white/10 hover:bg-white/10 text-white/55 hover:text-white transition-all duration-200"
                 onClick={() => setOpen(false)}
+                aria-label="Close navigation"
               >
                 <X className="w-3.5 h-3.5" />
               </button>

@@ -141,7 +141,7 @@ export default function RegistryPage() {
   }
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 md:px-8 py-10 animate-in fade-in duration-300">
+    <div className="w-full max-w-7xl mx-auto px-1 sm:px-2 lg:px-4 py-8 lg:py-12 animate-in fade-in duration-300">
       {}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 pb-6 border-b border-border/40">
         <div className="flex items-center gap-4">
@@ -149,6 +149,7 @@ export default function RegistryPage() {
             <Compass className="w-6 h-6 text-primary" />
           </div>
           <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-primary font-semibold mb-1">Hub / catalog</p>
             <h1 className="text-3xl font-heading font-bold tracking-tight text-foreground">Registry</h1>
             <p className="text-[14px] text-muted-foreground mt-1">
               Community artifacts — skills, rules, agents and more

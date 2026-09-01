@@ -115,7 +115,7 @@ export default function ExplorerPage() {
   const [tabularData, setTabularData] = useState<{ columns: string[]; rows: unknown[][] } | null>(null)
   const [leftTab, setLeftTab] = useState<LeftTab>('schema')
   const [leftCollapsed, setLeftCollapsed] = useState(
-    () => LS.get<boolean>('graphit_left_collapsed', false)
+    () => window.matchMedia('(max-width: 767px)').matches || LS.get<boolean>('graphit_left_collapsed', false)
   )
   const [rightVisible, setRightVisible] = useState(false)
   const [physicsPanel, setPhysicsPanel] = useState(false)
@@ -135,7 +135,7 @@ export default function ExplorerPage() {
   const [physics, setPhysics] = useState(() => loadPhysics(is3D))
 
   const [queryBarCollapsed, setQueryBarCollapsed] = useState(
-    () => LS.get<boolean>('graphit_querybar_collapsed', false)
+    () => window.matchMedia('(max-width: 767px)').matches || LS.get<boolean>('graphit_querybar_collapsed', false)
   )
   const [loading, setLoading] = useState(true)
   const [queryLoading, setQueryLoading] = useState(false)
@@ -288,7 +288,7 @@ export default function ExplorerPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background/95">
+    <div className="explorer-frame flex h-screen overflow-hidden bg-background/95">
 
       {}
       <div
