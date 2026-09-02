@@ -220,6 +220,13 @@ func (s *applyState) setImportant(id string, important bool) {
 	}
 }
 
+func (s *applyState) setMandatory(id string, mandatory bool) {
+	if snap, ok := s.present[id]; ok {
+		snap.Mandatory = mandatory
+		s.present[id] = snap
+	}
+}
+
 func (s *applyState) count() int { return len(s.present) }
 
 // applyGroupAction folds a duplicate group or resolves a contradiction.
@@ -302,9 +309,33 @@ func applyGroupAction(action ConsolidationAction, state *applyState, w MemoryWri
 				Type: action.Type, Kept: keepID,
 				Err: fmt.Sprintf("preserving importance: %v", err),
 			})
+			return
 		} else {
 			state.setImportant(keepID, true)
 		}
+	}
+	anyMandatory := false
+	for _, m := range members {
+		if m.Mandatory {
+			anyMandatory = true
+			break
+		}
+	}
+	if anyMandatory && !keptSnap.Mandatory {
+		mandatoryWriter, ok := w.(interface{ MarkMandatory(string) error })
+		if !ok {
+			outcome.Failed = append(outcome.Failed, AppliedAction{
+				Type: action.Type, Kept: keepID, Err: "preserving mandatory status: memory writer has no mandatory operation",
+			})
+			return
+		}
+		if err := mandatoryWriter.MarkMandatory(keepID); err != nil {
+			outcome.Failed = append(outcome.Failed, AppliedAction{
+				Type: action.Type, Kept: keepID, Err: fmt.Sprintf("preserving mandatory status: %v", err),
+			})
+			return
+		}
+		state.setMandatory(keepID, true)
 	}
 
 	var removed []string
@@ -464,10 +495,14 @@ func applyDelete(action ConsolidationAction, state *applyState, w MemoryWriter, 
 	// important by a human or by an agent acting on one, and no unattended
 	// analysis outranks that. Removing it is possible, but only as part of a merge
 	// or a resolution, where its content survives in another memory.
-	if snap.Important {
+	if snap.Important || snap.Mandatory {
+		classification := "important"
+		if snap.Mandatory {
+			classification = "mandatory"
+		}
 		outcome.Skipped = append(outcome.Skipped, AppliedAction{
 			Type: action.Type, Kept: id, Title: snap.Title, Reason: action.Reason,
-			Skipped: "memory is marked important — a bare delete cannot remove it; fold it into another memory instead",
+			Skipped: "memory is marked " + classification + " — a bare delete cannot remove it; fold it into another memory instead",
 		})
 		return
 	}

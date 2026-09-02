@@ -4,8 +4,12 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
 )
 
 // T2.1 of docs/tasks/lancedb-is-the-only-store-for-knowledge-and-memory.md.
@@ -25,6 +29,33 @@ func tableAt(t *testing.T) *MemoryTable {
 	return tbl
 }
 
+func TestOpenMemoryTableResetsAnIncompatibleDevelopmentSchema(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	expected := memoryTableSchema(ai.ResolveConfiguredEmbeddingDimensions())
+	legacy := lancestore.Schema{Fields: append([]lancestore.Field(nil), expected.Fields...)}
+	legacy.Fields = legacy.Fields[:len(legacy.Fields)-1]
+	store, err := lancestore.Open(ctx, lancestore.Config{URI: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := store.CreateTable(ctx, memoryTableName, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = old.Close()
+	_ = store.Close()
+
+	table, err := OpenMemoryTable(ctx, dir)
+	if err != nil {
+		t.Fatalf("opening incompatible store: %v", err)
+	}
+	defer func() { _ = table.Close() }()
+	if !table.table.Schema().Equal(expected) {
+		t.Fatalf("schema was not reset: %+v", table.table.Schema())
+	}
+}
+
 // A record with every field set, so a dropped column shows up rather than reading as an empty
 // optional.
 func fullRecord() MemoryRecord {
@@ -36,6 +67,7 @@ func fullRecord() MemoryRecord {
 		Type:        "decision",
 		Tags:        []string{"memory", "project", "decision", "storage"},
 		Important:   true,
+		Mandatory:   true,
 		CreatedAt:   "2026-07-01T00:00:00Z",
 		UpdatedAt:   "2026-08-15T12:30:00Z",
 		Revision:    3,
@@ -159,6 +191,111 @@ func TestPutReplacesAndDeleteRemoves(t *testing.T) {
 	}
 }
 
+func TestListLiveAndRevisionsReadPastOneEnginePage(t *testing.T) {
+	ctx := context.Background()
+	table := tableAt(t)
+	oldPageSize := memoryReadPageSize
+	memoryReadPageSize = 2
+	t.Cleanup(func() { memoryReadPageSize = oldPageSize })
+
+	records := make([]MemoryRecord, 0, 7)
+	for i := 0; i < 5; i++ {
+		r := fullRecord()
+		r.ID = fmt.Sprintf("memory-%02d", i)
+		r.Title = r.ID
+		records = append(records, r)
+	}
+	for i := 0; i < 2; i++ {
+		r := fullRecord()
+		r.RevisionID = fmt.Sprintf("%04d", i+1)
+		r.Superseded = true
+		records = append(records, r)
+	}
+	if err := table.Put(ctx, records...); err != nil {
+		t.Fatalf("writing records: %v", err)
+	}
+
+	all, err := table.List(ctx)
+	if err != nil || len(all) != 7 {
+		t.Fatalf("List() returned %d records (err %v), want all 7", len(all), err)
+	}
+	live, err := table.Live(ctx)
+	if err != nil || len(live) != 5 {
+		t.Fatalf("Live() returned %d records (err %v), want all 5", len(live), err)
+	}
+	revisions, err := table.Revisions(ctx, fullRecord().ID)
+	if err != nil || len(revisions) != 2 {
+		t.Fatalf("Revisions() returned %d records (err %v), want both revisions", len(revisions), err)
+	}
+}
+
+func TestMandatoryReadAndContextSearchExclusion(t *testing.T) {
+	ctx := context.Background()
+	table := tableAt(t)
+	mandatory := fullRecord()
+	mandatory.ID = "mandatory-memory"
+	mandatory.Title = "Mandatory protocol"
+	mandatory.Body = "session-protocol-token applies everywhere"
+	mandatory.Mandatory = true
+	ordinary := mandatory
+	ordinary.ID = "ordinary-memory"
+	ordinary.Title = "Ordinary detail"
+	ordinary.Mandatory = false
+	if err := table.Put(ctx, mandatory, ordinary); err != nil {
+		t.Fatalf("writing memories: %v", err)
+	}
+
+	loaded, err := table.Mandatory(ctx)
+	if err != nil || len(loaded) != 1 || loaded[0].ID != mandatory.ID {
+		t.Fatalf("Mandatory() = %+v (err %v), want only %q", loaded, err, mandatory.ID)
+	}
+
+	wikiDir := filepath.Join(t.TempDir(), "wiki")
+	if _, err := GenerateMemoryWikiFromTable(ctx, table, wikiDir); err != nil {
+		t.Fatalf("building wiki: %v", err)
+	}
+	results := SearchChains(ctx, wikiDir, "session-protocol-token", 10, true)
+	if len(results) != 1 || results[0].MemoryID != ordinary.ID {
+		t.Fatalf("search excluding mandatory = %+v, want only %q", results, ordinary.ID)
+	}
+}
+
+func TestMandatoryMarkAndUnmarkAreIndependentFromImportance(t *testing.T) {
+	ctx := context.Background()
+	tableDir := filepath.Join(t.TempDir(), "table")
+	svc := NewMemoryService(MemoryScopeProject, "scope", &MemoryStore{})
+	svc.tableURI = tableDir
+	svc.wikiDir = filepath.Join(t.TempDir(), "wiki")
+	id, err := svc.AddMemory("Foundation", "Always load this.", MemoryOpts{Important: true})
+	if err != nil {
+		t.Fatalf("adding memory: %v", err)
+	}
+	if err := svc.MarkMandatory(id); err != nil {
+		t.Fatalf("marking mandatory: %v", err)
+	}
+	table, err := OpenMemoryTable(ctx, tableDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, found, err := table.Get(ctx, id)
+	_ = table.Close()
+	if err != nil || !found || !record.Mandatory || !record.Important {
+		t.Fatalf("after mark: %+v found=%v err=%v", record, found, err)
+	}
+	if err := svc.UnmarkMandatory(id); err != nil {
+		t.Fatalf("unmarking mandatory: %v", err)
+	}
+	table, err = OpenMemoryTable(ctx, tableDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, found, err = table.Get(ctx, id)
+	_ = table.Close()
+	if err != nil || !found || record.Mandatory || !record.Important {
+		t.Fatalf("after unmark: %+v found=%v err=%v", record, found, err)
+	}
+}
+
 // ---------- the migration ----------
 
 // A record must survive the round trip with EVERY field, and the field list is the point.
@@ -220,6 +357,7 @@ func TestAMemoryRecordSurvivesTheRoundTripWithEveryField(t *testing.T) {
 		{"Body", want.Body, got.Body},
 		{"Type", want.Type, got.Type},
 		{"Important", want.Important, got.Important},
+		{"Mandatory", want.Mandatory, got.Mandatory},
 		{"CreatedAt", want.CreatedAt, got.CreatedAt},
 		{"UpdatedAt", want.UpdatedAt, got.UpdatedAt},
 		{"Revision", want.Revision, got.Revision},

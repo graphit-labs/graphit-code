@@ -12,14 +12,14 @@ The retrieval system is organized into three tiers of increasing sophistication:
 
 ### Tier 1: Direct ranked search
 
-**Tools:** `graphit_memory_search`
+**Tools:** `graphit_memory_mandatory`, `graphit_memory_search`
 
 Ranked matching over the compiled memory wiki, which lives once in the global brand directory. This tier is:
 
 - **Lightweight** — one indexed query
 - **No AI** — engine-ranked text matching
 - **Fast** — no source-file scan
-- **Best for** — quick keyword lookups, checking if a memory exists
+- **Best for** — unconditional session context followed by quick contextual lookup
 
 ```
 ~/.graphit/
@@ -93,6 +93,7 @@ Uses an AI model to synthesize answers from wiki pages found via BM25 retrieval.
 | `graphit_wiki_xrefs` | wiki | single wiki cross-refs | LanceDB `index.lance/` | No | `wiki` (project or memory) |
 | `graphit_wiki_log` | wiki | single wiki sync history | LanceDB `index.lance/` | No | `wiki` (project or memory) |
 | `graphit_memory_search` | memory | compiled memory wiki | LanceDB BM25 | No | `scope` (project or user) |
+| `graphit_memory_mandatory` | memory | authoritative live memory table | LanceDB filter, no ranking | No | `scope` (project or user) |
 | `graphit_memory_query` | memory | memory wiki | AI + BM25 | Yes | `scope`, `context` |
 
 > [!NOTE]
@@ -112,8 +113,11 @@ Controls which authoritative memory scope is projected and searched.
 | `"user"` | Personal cross-project memories | local or S3 `memory/user/<hash>` table |
 
 ```jsonc
+// Phase 1: load every unconditional memory, with no query
+graphit_memory_mandatory(scope: "project")
+
 // Search project memories (default)
-graphit_memory_search(query: "auth flow", scope: "project")
+graphit_memory_search(query: "auth flow", scope: "project", exclude_mandatory: true)
 
 // Search personal memories across all projects
 graphit_memory_search(query: "preferred patterns", scope: "user")

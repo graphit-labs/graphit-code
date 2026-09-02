@@ -21,6 +21,10 @@ import (
 
 const memoryTableName = "memories"
 
+// memoryReadPageSize bounds each engine batch, not the result set. Tests lower it to prove that
+// the public complete reads walk every page.
+var memoryReadPageSize = 1024
+
 // MemoryRecord is one memory, live or archived, with every field the markdown file carried.
 //
 // The field list is the complete persistence contract; authored metadata must not depend on the
@@ -40,6 +44,7 @@ type MemoryRecord struct {
 	Tags  []string
 
 	Important bool
+	Mandatory bool
 	CreatedAt string
 	UpdatedAt string
 	Revision  int
@@ -86,6 +91,7 @@ func (r MemoryRecord) Markdown() string {
 		ProjectID:  r.ProjectID,
 		Type:       r.Type,
 		Important:  r.Important,
+		Mandatory:  r.Mandatory,
 		CreatedAt:  r.CreatedAt,
 		UpdatedAt:  r.UpdatedAt,
 		Revision:   r.Revision,
@@ -111,6 +117,7 @@ func memoryTableSchema(vectorDim int) lancestore.Schema {
 		// memory a join — the same reasoning the wiki's sync log uses for its three slug lists.
 		{Name: "tags_json", Type: lancestore.FieldString, Nullable: true},
 		{Name: "important", Type: lancestore.FieldBool},
+		{Name: "mandatory", Type: lancestore.FieldBool},
 		{Name: "created_at", Type: lancestore.FieldString, Nullable: true},
 		{Name: "updated_at", Type: lancestore.FieldString, Nullable: true},
 		{Name: "revision", Type: lancestore.FieldInt64},
@@ -133,6 +140,7 @@ func memoryTableIndexes() []lancestore.Index {
 		// what makes "the live memories only" a scan the engine skips.
 		{Column: "superseded", Kind: lancestore.IndexScalarBitmap},
 		{Column: "important", Kind: lancestore.IndexScalarBitmap},
+		{Column: "mandatory", Kind: lancestore.IndexScalarBitmap},
 	}
 }
 
@@ -157,10 +165,25 @@ func OpenMemoryTable(ctx context.Context, uri string) (*MemoryTable, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening the memory store at %s: %w", uri, err)
 	}
-	tbl, err := st.EnsureTable(ctx, memoryTableName, memoryTableSchema(ai.ResolveConfiguredEmbeddingDimensions()))
+	expected := memoryTableSchema(ai.ResolveConfiguredEmbeddingDimensions())
+	tbl, err := st.EnsureTable(ctx, memoryTableName, expected)
 	if err != nil {
 		_ = st.Close()
 		return nil, fmt.Errorf("opening the memories table at %s: %w", uri, err)
+	}
+	if !tbl.Schema().Equal(expected) {
+		// Development-stage contract: test data is disposable and no schema migration survives. A
+		// writable S3 memory table follows the same rule as a local one.
+		_ = tbl.Close()
+		if err := st.DropTable(ctx, memoryTableName); err != nil {
+			_ = st.Close()
+			return nil, fmt.Errorf("resetting incompatible memories table at %s: %w", uri, err)
+		}
+		tbl, err = st.CreateTable(ctx, memoryTableName, expected)
+		if err != nil {
+			_ = st.Close()
+			return nil, fmt.Errorf("recreating memories table at %s: %w", uri, err)
+		}
 	}
 	return &MemoryTable{store: st, table: tbl}, nil
 }
@@ -180,8 +203,7 @@ func (t *MemoryTable) Count(ctx context.Context) (int64, error) {
 
 // Put writes records, replacing any that share a key.
 //
-// `Upsert` is delete-then-append, so the ORDER matters and it is the storage's own: deleting first
-// means a rewritten memory cannot leave a stale copy of itself behind.
+// `Upsert` is one atomic merge, so a rewrite cannot expose a missing head between two commits.
 func (t *MemoryTable) Put(ctx context.Context, records ...MemoryRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -229,13 +251,9 @@ func (t *MemoryTable) Get(ctx context.Context, key string) (MemoryRecord, bool, 
 // List reads every record, live memories first and then archived revisions, each group ordered by
 // key so the answer is stable across calls.
 func (t *MemoryTable) List(ctx context.Context) ([]MemoryRecord, error) {
-	hits, err := t.table.Search(ctx, lancestore.Query{Filter: "revision >= 0", Limit: 100000})
+	out, err := t.readAll(ctx, "revision >= 0")
 	if err != nil {
 		return nil, fmt.Errorf("listing the memory store: %w", err)
-	}
-	out := make([]MemoryRecord, 0, len(hits))
-	for _, h := range hits {
-		out = append(out, recordFromRow(h.Row))
 	}
 	sortMemoryRecords(out)
 	return out, nil
@@ -244,13 +262,19 @@ func (t *MemoryTable) List(ctx context.Context) ([]MemoryRecord, error) {
 // Live reads the current memories, excluding archived revisions — the catalogue of what this scope
 // knows, which is what every listing surface wants.
 func (t *MemoryTable) Live(ctx context.Context) ([]MemoryRecord, error) {
-	hits, err := t.table.Search(ctx, lancestore.Query{Filter: "superseded = false", Limit: 100000})
+	out, err := t.readAll(ctx, "superseded = false")
 	if err != nil {
 		return nil, fmt.Errorf("listing the live memories: %w", err)
 	}
-	out := make([]MemoryRecord, 0, len(hits))
-	for _, h := range hits {
-		out = append(out, recordFromRow(h.Row))
+	sortMemoryRecords(out)
+	return out, nil
+}
+
+// Mandatory reads the unconditional session-start set directly from the authoritative table.
+func (t *MemoryTable) Mandatory(ctx context.Context) ([]MemoryRecord, error) {
+	out, err := t.readAll(ctx, "superseded = false AND mandatory = true")
+	if err != nil {
+		return nil, fmt.Errorf("listing mandatory memories: %w", err)
 	}
 	sortMemoryRecords(out)
 	return out, nil
@@ -263,18 +287,32 @@ func (t *MemoryTable) Live(ctx context.Context) ([]MemoryRecord, error) {
 // "0001" precedes every ULID. Sorting by `revision_id` preserves exactly that, which is what lets a
 // forward walk keep working for legacy archives.
 func (t *MemoryTable) Revisions(ctx context.Context, id string) ([]MemoryRecord, error) {
-	hits, err := t.table.Search(ctx, lancestore.Query{
-		Filter: fmt.Sprintf("id = %s AND superseded = true", sqlQuoteMemory(id)), Limit: 10000,
-	})
+	out, err := t.readAll(ctx, fmt.Sprintf("id = %s AND superseded = true", sqlQuoteMemory(id)))
 	if err != nil {
 		return nil, fmt.Errorf("reading the revisions of %q: %w", id, err)
 	}
-	out := make([]MemoryRecord, 0, len(hits))
-	for _, h := range hits {
-		out = append(out, recordFromRow(h.Row))
-	}
 	sort.Slice(out, func(i, j int) bool { return out[i].RevisionID < out[j].RevisionID })
 	return out, nil
+}
+
+func (t *MemoryTable) readAll(ctx context.Context, filter string) ([]MemoryRecord, error) {
+	pageSize := memoryReadPageSize
+	if pageSize < 1 {
+		pageSize = 1024
+	}
+	out := make([]MemoryRecord, 0, pageSize)
+	for offset := 0; ; offset += pageSize {
+		hits, err := t.table.Search(ctx, lancestore.Query{Filter: filter, Limit: pageSize, Offset: offset})
+		if err != nil {
+			return nil, err
+		}
+		for _, h := range hits {
+			out = append(out, recordFromRow(h.Row))
+		}
+		if len(hits) < pageSize {
+			return out, nil
+		}
+	}
 }
 
 // Maintain folds new rows into the indexes and reclaims what a rewrite left behind.
@@ -343,6 +381,7 @@ func memoryRow(r MemoryRecord) (lancestore.Row, error) {
 		"type":         r.Type,
 		"tags_json":    tags,
 		"important":    r.Important,
+		"mandatory":    r.Mandatory,
 		"created_at":   r.CreatedAt,
 		"updated_at":   r.UpdatedAt,
 		"revision":     int64(revision),
@@ -373,6 +412,7 @@ func recordFromRow(row map[string]any) MemoryRecord {
 		Body:        memStr(row["body"]),
 		Type:        memStr(row["type"]),
 		Important:   memBool(row["important"]),
+		Mandatory:   memBool(row["mandatory"]),
 		CreatedAt:   memStr(row["created_at"]),
 		UpdatedAt:   memStr(row["updated_at"]),
 		Revision:    int(memI64(row["revision"])),
@@ -434,6 +474,7 @@ func recordFromMarkdown(rel string, data []byte) (MemoryRecord, bool) {
 		Type:        fm.Type,
 		Tags:        fm.Tags,
 		Important:   fm.Important,
+		Mandatory:   fm.Mandatory,
 		CreatedAt:   fm.CreatedAt,
 		UpdatedAt:   fm.UpdatedAt,
 		Revision:    fm.Revision,

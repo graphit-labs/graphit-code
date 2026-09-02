@@ -2730,3 +2730,147 @@ are not build-constrained; the CI and supported build deliberately use `-tags la
 `graphit_sync` then completed successfully after the code, current documentation, task log, and
 persistent-memory corrections were in place. The AST, project wiki, and memory wiki therefore all
 describe the LanceDB-only state before the final commit.
+
+### 2026-09-02 (debt-closure pass opened)
+
+The user asked to resolve every current debt rather than leave the completed architecture with
+known sharp edges. This pass keeps the no-compatibility rule: existing test/development indexes may
+be reset, and no adapter for the former schema or disabled non-Lance store will be introduced.
+
+Plan and acceptance criteria:
+
+1. Replace delete-then-append `Table.Upsert` with LanceDB's single merge-insert transaction and pin
+   replacement/append/concurrent behavior in tests.
+2. Give authoritative memory tables a production maintenance owner with a due-time gate, avoiding
+   compaction on every request and duplicate maintenance of the user scope.
+3. Replace the 100,000-row `MemoryTable.List`/`Live` cap with complete paged reads in deterministic
+   key order, proven by a small injectable page size in tests.
+4. Stop duplicating `body` into `search_body`: store body once, store metadata search terms
+   separately, run both one-column FTS queries, and fuse their rankings deterministically without
+   sacrificing body or title/slug recall.
+5. Store tags as a first-class wiki chunk column and make UI/page/export readers consume that column
+   rather than synthesizing tags.
+6. Make conventional `go test ./...` pass without creating a fallback store: Lance-dependent test
+   files use the `lancedb` build constraint, while disabled-build capability tests remain available.
+7. Eliminate `TestOnHubImport` teardown races by isolating asynchronous work and waiting for it;
+   validate repeatedly under `-race`.
+
+Done means both `go test -count=1 ./...` and the CI-equivalent `make test` pass, the complete
+LanceDB-tagged suite passes uncached, lint/build gates pass, and the real MinIO publication/mount E2E
+passes against an isolated bucket that is removed afterwards.
+
+### 2026-09-02 (scope expanded: mandatory memories)
+
+The user added a distinct relevance state while the debt pass was open. A memory may now be
+`mandatory`, meaning every agent must load it to understand the system, current state, or standing
+instructions. This is not an alias for `important`: important memories remain explicitly promoted
+reference material, while mandatory memories form the unconditional first phase of session recall.
+
+The initial memory protocol therefore has two ordered calls:
+
+1. an unsearched mandatory-memory read, returning the complete mandatory set for the scope;
+2. the existing contextual search, with an explicit option that excludes mandatory memories already
+   loaded by phase one.
+
+This pass will add the field to the authoritative Lance schema and every write/read/render path,
+expose exact mandatory list/promote/demote operations through the service and MCP contract, and
+teach both the generated mandate and memory skill to classify memories conservatively. Agents must
+also maintain the set: promote memories whose system/state/instruction context must always be
+present and remove the mandatory mark when that condition stops being true. Search tests will prove
+that the exclusion flag removes mandatory rows without weakening ordinary contextual recall. As the
+project is in development and all current data is disposable, schema mismatch resets the affected
+local test store; no migration or compatibility reader will be added.
+
+### 2026-09-02 (atomic writes, complete reads, first-class relevance/search metadata)
+
+The storage and retrieval half of the debt pass is implemented and its focused LanceDB suites pass:
+
+- `Table.Upsert` is now one Lance `MergeInsert` transaction; the regression test requires a mixed
+  update/insert batch to advance exactly one table version.
+- memory list, live-list, and revision reads page until exhaustion instead of truncating at 100,000
+  or 10,000 rows; a two-row test page proves all three APIs cross page boundaries.
+- `mandatory` is a distinct authoritative column and frontmatter field, with explicit mark/unmark
+  service operations and complete mandatory reads directly from the table.
+- wiki chunks now persist `mandatory` and the producer's exact `tags` list. Page export and the UI
+  consume those columns instead of reconstructing a lossy approximation.
+- the duplicated `search_body` column is gone. The canonical `body` and compact `search_terms`
+  columns each have FTS; deterministic RRF fuses body and metadata rankings. Memory search can apply
+  `mandatory = false` before ranking for the second session-start phase.
+- because compatibility is intentionally out of scope, an incompatible writable table is dropped and
+  recreated; an incompatible immutable published wiki asks to be republished.
+
+Focused tagged tests pass for lancestore, memory, wiki, knowledge, UI server, and MCP. Remaining work
+is daemon ownership, public CLI/MCP and generated-instruction coverage for mandatory, the no-tag and
+async-flake fixes, and all repository/MinIO gates.
+
+### 2026-09-02 (maintenance owner, mandatory protocol, and conventional test boundary)
+
+The remaining implementation debts are now closed in code:
+
+- the daemon owns periodic memory-table maintenance per project and exactly once for the global user
+  scope. It runs an immediate due-time check, then checks on a bounded interval, and reports storage
+  failures through the supervisor instead of silently abandoning maintenance.
+- CLI and MCP expose mandatory insertion, complete mandatory listing, mark, and unmark operations.
+  The contextual search contract accepts `exclude_mandatory`, so it cannot return rows already loaded
+  by the mandatory phase.
+- the generated mandate and memory skill now require the two calls in order: first an unsearched,
+  complete mandatory read; then contextual search with mandatory rows excluded. They explicitly
+  distinguish `mandatory` from `important` and require agents to add or remove the mandatory mark as
+  the underlying unconditional system/state/instruction requirement changes.
+- consolidation preserves a mandatory mark across merges, refuses to delete mandatory memories, and
+  treats a writer incapable of preserving that relevance state as a hard failure.
+- `OnHubImport` returns a completion signal, allowing tests and callers that need lifecycle certainty
+  to wait for all asynchronous writes instead of racing temporary-directory cleanup.
+- tests that exercise actual Lance-backed behavior now declare the `lancedb` build constraint. This
+  makes the conventional no-tag suite validate the disabled capability surface without pretending a
+  fallback data store exists; the tagged suite remains the authoritative integration suite.
+
+Focused suites for the new storage, memory, wiki, daemon, command, UI, and MCP contracts pass. The
+next milestone is the complete uncached build/test/lint/race matrix and real MinIO E2E, followed by
+syncing generated instructions and persistent project memory.
+
+The conventional and full LanceDB-tagged suites now both pass uncached. Mandatory consolidation is
+also covered explicitly: a merged survivor inherits the mandatory contract without being made
+important, and an unattended delete suggestion cannot remove a mandatory memory. The first lint run
+then exposed and removed one unreferenced pre-refactor wiki helper plus a test-style warning; neither
+changed the public behavior.
+
+### 2026-09-02 (all debt-closure gates green)
+
+The implementation and documentation are complete. Current memory, wiki, MCP, CLI, daemon, Dream,
+and retrieval specifications now describe mandatory memory as an independent contract, the ordered
+two-phase initial recall, exact stored tags, split body/metadata FTS, and periodic maintenance
+ownership.
+
+Verification completed successfully:
+
+- `go test -count=1 ./...`
+- `go test -tags lancedb -count=1 ./...`
+- `go build ./...`
+- `go build -tags lancedb ./...`
+- `make lint` — zero issues
+- `make test` — complete project suite under the race detector, plus generated parsers
+- `go test -tags lancedb -race -count=10 -run '^TestOnHubImport$' ./internal/memory`
+- live MinIO publication/mount E2E at `http://localhost:9000`, including direct `s3://` search,
+  page retrieval, missing-page behavior, listing, and cross-references
+
+The MinIO run used the isolated bucket `graphit-lancedb-e2e-01m1mandatory`. Every object and the
+bucket itself were removed after the passing test; no user bucket or persistent test fixture was
+reused. No migration or compatibility layer was introduced: incompatible development schemas are
+reset when writable, and immutable published schemas require republishing.
+
+Final diff review closed two additional lifecycle edges before commit: global user-memory
+maintenance now honors `modules.memory=false`, just like project maintenance, and any failure to
+preserve either importance or mandatory status during consolidation stops the group action before a
+member is removed. A table-driven regression covers both relevance-failure paths.
+
+The no-migration development policy is also pinned by real-Lance regressions: opening an
+incompatible authoritative memory table or local wiki drops the stale table set and recreates the
+exact current schema. This prevents a future compatibility shim from returning silently.
+
+After the final review fixes, `go test -count=1 ./...`, the focused LanceDB schema/config/relevance
+suites, `make lint`, and the complete `make test` race run all passed again. The generated-rule tests
+assert that both the mandate trigger and memory skill source carry the ordered mandatory/search
+protocol, exclusion flag, classification operations, and unmark maintenance instruction. Three
+superseded project memories were corrected in place and the mandatory-memory decision was persisted
+as project memory `01M1HAVDFE88WRB94PSXFF6G5F` before the final graph/wiki/memory sync.

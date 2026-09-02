@@ -100,6 +100,21 @@ type Schema struct {
 	Fields []Field
 }
 
+// Equal reports whether two schemas have the same fields in the same order. Table formats in this
+// project are intentionally versionless during development: callers use this exact comparison to
+// reject or reset a stale test table instead of pretending a partial schema is compatible.
+func (s Schema) Equal(other Schema) bool {
+	if len(s.Fields) != len(other.Fields) {
+		return false
+	}
+	for i := range s.Fields {
+		if s.Fields[i] != other.Fields[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // Field looks a column up by name.
 func (s Schema) Field(name string) (Field, bool) {
 	for _, f := range s.Fields {

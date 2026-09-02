@@ -492,6 +492,7 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 			// day of the last sync.
 			Updated:     doc.updatedAt,
 			Important:   important,
+			Tags:        knowledgeWikiTags(doc.docType, important, doc.staleSince != ""),
 			StaleSince:  doc.staleSince,
 			StaleReason: doc.staleReason,
 		})
@@ -541,6 +542,20 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	// renders the page for whoever wants the file.
 
 	return result, nil
+}
+
+func knowledgeWikiTags(docType string, important, stale bool) []string {
+	tags := []string{"wiki"}
+	if docType != "" {
+		tags = append(tags, docType)
+	}
+	if important {
+		tags = append(tags, "important")
+	}
+	if stale {
+		tags = append(tags, "stale")
+	}
+	return tags
 }
 
 // knowledgePageEdges is the graph input: each page's slug, title, and the slugs it points at.

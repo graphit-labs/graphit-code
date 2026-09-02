@@ -318,10 +318,9 @@ func (t *Table) DeleteByKey(ctx context.Context, keyColumn string, keys []string
 
 // Upsert replaces the rows sharing a key and appends the rest.
 //
-// It is delete-then-append rather than a merge, because that is what the storage offers, and
-// the ORDER matters: deleting first means a re-indexed file cannot leave a stale copy of itself
-// behind. The window between the two is why this is not safe to run concurrently against the
-// same keys, which the incremental indexer guarantees by being single-writer.
+// It is one atomic Lance merge: matching keys are updated and new keys are inserted in the same
+// table version. A caller never observes the keyless crash window of the former delete-then-append
+// implementation.
 func (t *Table) Upsert(ctx context.Context, keyColumn string, rows []Row) error {
 	if t.store.readOnly {
 		return ErrReadOnly
@@ -329,22 +328,38 @@ func (t *Table) Upsert(ctx context.Context, keyColumn string, rows []Row) error 
 	if len(rows) == 0 {
 		return nil
 	}
-	keys := make([]string, 0, len(rows))
 	for _, r := range rows {
 		v, ok := r[keyColumn]
 		if !ok {
 			return fmt.Errorf("lancestore: upsert row has no %q", keyColumn)
 		}
-		s, ok := v.(string)
-		if !ok {
+		if _, ok := v.(string); !ok {
 			return fmt.Errorf("lancestore: upsert key %q is %T, want string", keyColumn, v)
 		}
-		keys = append(keys, s)
 	}
-	if err := t.DeleteByKey(ctx, keyColumn, keys); err != nil {
+	rec, err := recordOf(t.schema, rows)
+	if err != nil {
 		return err
 	}
-	return t.Append(ctx, rows)
+	defer rec.Release()
+
+	// MergeInsert is ONE Lance transaction. The old implementation deleted the keys and appended
+	// their replacements as two commits, which left a real crash window where a key did not exist.
+	// Build the merge builder inside the retry so a conflict retry is derived from the refreshed
+	// table snapshot rather than resubmitting a builder tied to the version that lost.
+	what := fmt.Sprintf("upserting %d rows into %s", len(rows), t.name)
+	if err := withCommitRetry(ctx, what,
+		func() error {
+			_, mergeErr := t.tbl.MergeInsert([]string{keyColumn}).
+				WhenMatchedUpdateAll(nil).
+				WhenNotMatchedInsertAll().
+				Execute(ctx, []arrow.Record{rec})
+			return mergeErr
+		},
+		func() error { return t.refreshToLatest(ctx) }); err != nil {
+		return fmt.Errorf("lancestore: %s: %w", what, err)
+	}
+	return nil
 }
 
 const deleteBatch = 256

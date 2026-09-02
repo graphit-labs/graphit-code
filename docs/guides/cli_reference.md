@@ -355,6 +355,7 @@ graphit memory <subcommand> [flags]
   - `--user`: Save to user scope.
   - `--project`: Link user memory to active project.
   - `--important`: Surface in IDE rules.
+  - `--mandatory`: Require unconditional session-start recall.
   - `--type <type>`: convention, correction, decision, tension, fact, or skill.
   - `--tags <list>`: Comma-separated tags.
   - `--context <name>`: Target context.
@@ -369,9 +370,15 @@ graphit memory <subcommand> [flags]
   - `--user`: Target user scope.
 - `important`: List important memories.
   - `--user`: User scope.
+- `mandatory`: List every mandatory memory with complete content, without search.
+  - `--user`: User scope.
 - `promote <id>`: Mark memory as important.
   - `--user`: User scope.
 - `demote <id>`: Remove important status.
+  - `--user`: User scope.
+- `mark-mandatory <id>`: Require unconditional recall for a memory.
+  - `--user`: User scope.
+- `unmark-mandatory <id>`: Stop unconditional recall when the requirement no longer applies.
   - `--user`: User scope.
 - `consolidate`: Find and resolve duplicate, contradicting and stale memories.
   - `--user`: User scope.
@@ -379,8 +386,8 @@ graphit memory <subcommand> [flags]
 
 The analysis runs on the agent CLI from `ai.cli`; every change is then applied in Go
 under invariants the analysis cannot override — content is always carried into a
-surviving memory before anything is removed, importance and classification survive a
-merge, an important memory is never deleted outright, the last memory in a scope is
+surviving memory before anything is removed, importance, mandatory status, and classification
+survive a merge, an important or mandatory memory is never deleted outright, the last memory in a scope is
 never deleted, and every refusal is reported with its reason. Without an AI CLI, only
 the deterministic staleness check runs.
 

@@ -189,31 +189,6 @@ func SearchWikiFrom(ctx context.Context, client AIClient, db *WikiDB, query stri
 	return result, nil
 }
 
-// searchCompiledWiki asks the compiled index, and says whether that index was in a
-// position to answer at all.
-//
-// The second return value separates two situations that an empty result set conflates,
-// and the distinction outlived the markdown fallback it was introduced for:
-//
-//   - the index holds chunks, so it is AUTHORITATIVE. Its empty answer is a real "no
-//     matches" for this query.
-//   - the index holds nothing, so it has not been compiled yet: a fresh project, or a
-//     document written in the seconds before the daemon rebuilds. Nothing is wrong with
-//     the query — there is simply no wiki yet to ask.
-//
-// Deciding that on `len(results) > 0` is what made an empty or stale index invisible, so
-// callers that would present a miss to a user check this flag first. `bm25PreFilter` is
-// the one that still needs it: it emits no pre-filter block at all rather than an empty
-// one, because an empty block reads as "the wiki ranked nothing for you".
-func searchCompiledWiki(ctx context.Context, wikiDir, query string, topN int) (results []WikiSearchResult, authoritative bool) {
-	db, err := OpenWikiDB(ctx, wikiDir)
-	if err != nil {
-		return nil, false
-	}
-	defer db.Close()
-	return searchCompiledWikiFrom(ctx, db, query, topN)
-}
-
 func searchCompiledWikiFrom(ctx context.Context, db *WikiDB, query string, topN int) (results []WikiSearchResult, authoritative bool) {
 	if db == nil {
 		return nil, false
@@ -263,7 +238,20 @@ func bm25PreFilterFrom(ctx context.Context, db *WikiDB, query string, topN int) 
 // rather than a symptom. `searchCompiledWiki` still separates "no index" from "no answer",
 // which is the distinction that remains meaningful.
 func BM25Search(ctx context.Context, wikiDir, query string, topN int) []BM25Result {
-	compiled, _ := searchCompiledWiki(ctx, wikiDir, query, topN)
+	return BM25SearchWithOptions(ctx, wikiDir, query, topN, WikiSearchOptions{})
+
+}
+
+func BM25SearchWithOptions(ctx context.Context, wikiDir, query string, topN int, opts WikiSearchOptions) []BM25Result {
+	db, err := OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = db.Close() }()
+	compiled, err := db.SearchWithOptions(ctx, query, topN, opts)
+	if err != nil {
+		return nil
+	}
 	return wikiFTSToB25Results(compiled)
 }
 
@@ -286,6 +274,7 @@ func wikiFTSToB25Results(ftsResults []WikiSearchResult) []BM25Result {
 			RevisionID: r.RevisionID,
 			Superseded: r.Superseded,
 			CurrentID:  r.CurrentID,
+			Mandatory:  r.Mandatory,
 		})
 	}
 	return results

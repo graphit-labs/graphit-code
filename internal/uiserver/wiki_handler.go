@@ -297,9 +297,8 @@ func contextLabel(name string, idNames map[string]string) string {
 // those fields is a column on `chunks`, and every one of those parsers existed only because the
 // value had been serialised into a file on the way here.
 //
-// The one field with no column is `tags`, and it is derived rather than dropped: the generators
-// wrote `[knowledge|memory, <type>]`, so the type and the importance flag are what the tag list
-// carried.
+// Tags are a first-class chunk column too. The explorer consumes the exact producer-owned list;
+// deriving it here used to discard user memory tags and lifecycle tags.
 
 // listWikiPages lists a wiki's pages from its index.
 func listWikiPages(ctx context.Context, wikiDir string) ([]WikiPageMeta, error) {
@@ -353,13 +352,7 @@ func chunkPageMeta(c wiki.WikiChunk, outbound []string) WikiPageMeta {
 	if title == "" {
 		title = c.Slug
 	}
-	tags := []string{}
-	if c.DocType != "" {
-		tags = append(tags, c.DocType)
-	}
-	if c.Important {
-		tags = append(tags, "important")
-	}
+	tags := append([]string(nil), c.Tags...)
 	if outbound == nil {
 		outbound = []string{}
 	}

@@ -174,16 +174,34 @@ func TestUpsertReplacesByKey(t *testing.T) {
 	}
 	populate(t, tbl)
 
+	beforeCount, err := tbl.Count(ctx)
+	if err != nil {
+		t.Fatalf("count before upsert: %v", err)
+	}
+	beforeVersion, err := tbl.CurrentVersion(ctx)
+	if err != nil {
+		t.Fatalf("version before upsert: %v", err)
+	}
 	changed := Row{"uid": "u2", "path": "b.go", "name": "MemoryStoreRenamed",
 		"body": "the memory store moved to object storage", "line": int64(21),
 		"is_dependency": false, "embedding": []float32{0, 0.9, 0.1, 0}}
-	if err := tbl.Upsert(ctx, "uid", []Row{changed}); err != nil {
+	added := Row{"uid": "u7", "path": "g.go", "name": "MemoryTable",
+		"body": "a new table row", "line": int64(70),
+		"is_dependency": false, "embedding": []float32{0.1, 0.1, 0.1, 0.7}}
+	if err := tbl.Upsert(ctx, "uid", []Row{changed, added}); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	if n, err := tbl.Count(ctx); err != nil || n != int64(len(testRows)) {
-		t.Fatalf("count after upsert = %d, %v; want %d — the row was added, not replaced",
-			n, err, len(testRows))
+	if n, err := tbl.Count(ctx); err != nil || n != beforeCount+1 {
+		t.Fatalf("count after upsert = %d, %v; want %d — matched and new rows were not merged",
+			n, err, beforeCount+1)
+	}
+	afterVersion, err := tbl.CurrentVersion(ctx)
+	if err != nil {
+		t.Fatalf("version after upsert: %v", err)
+	}
+	if afterVersion != beforeVersion+1 {
+		t.Fatalf("upsert advanced version %d -> %d, want exactly one transaction", beforeVersion, afterVersion)
 	}
 	hits, err := tbl.Search(ctx, Query{Text: "object storage", TextColumn: "body", Limit: 3})
 	if err != nil {

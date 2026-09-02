@@ -116,11 +116,17 @@ safely:
 - **Importance is never lost.** If any member of a merged group was important, the
   survivor is important — the analysis picks the survivor for content reasons and
   has no reason to preserve this.
+- **Mandatory status is never lost.** If any member must be loaded at every session,
+  the survivor inherits that contract independently from importance. A writer that
+  cannot preserve it causes the action to fail before any member is removed.
 - **Classification is never lost.** The survivor keeps the most specific type in the
   group: `correction` > `convention` > `decision` > `tension` > `skill` > `fact`.
 - **An important memory is never deleted by a suggestion.** Importance was set by a
   human, or by an agent acting for one. Removing it is possible only through a merge
   or resolution, where its content survives elsewhere.
+- **A mandatory memory is never deleted by a suggestion.** It may leave the mandatory
+  set only through an explicit unmark after the unconditional requirement ends, or
+  through a merge whose survivor first inherits the status.
 - **The store is never emptied.** The last remaining memory in a scope is never
   deleted.
 - **The survivor is written before the others are removed.** Reversed, a failure
@@ -130,7 +136,7 @@ safely:
   corpus.
 
 Staleness is detected deterministically (unrevised for more than 90 days, skipping
-important memories) and always proposes *review*, never deletion — age is evidence
+important and mandatory memories) and always proposes *review*, never deletion — age is evidence
 that a memory has not been revised, not that it is wrong. With no replacement
 content proposed, it surfaces in the report as a refusal for an agent with context
 to resolve.

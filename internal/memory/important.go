@@ -21,6 +21,10 @@ func IsImportantContent(content string) bool {
 	return ParseMemoryFrontmatter(content).Important
 }
 
+func IsMandatoryContent(content string) bool {
+	return ParseMemoryFrontmatter(content).Mandatory
+}
+
 type ImportantEntry struct {
 	ID      string
 	Title   string
@@ -29,12 +33,27 @@ type ImportantEntry struct {
 	created string
 }
 
+// MandatoryEntry contains the complete memory because mandatory recall is an unconditional read,
+// not a title-only search followed by selective page loading.
+type MandatoryEntry = ImportantEntry
+
 // ListImportantMemories is the scope's promoted memories, read from its store.
 //
 // `Path` is the path form a memory would have had — `<id>.md`. It is no longer a location, and it is
 // kept because it is what identifies a memory to callers that display or link one; the store has no
 // files to point at.
 func ListImportantMemories(scope string) ([]ImportantEntry, error) {
+	return listMemoriesByRelevance(scope, false)
+}
+
+// ListMandatoryMemories reads the authoritative table directly and returns every live mandatory
+// memory in stable store order. It deliberately bypasses the compiled wiki so session-start recall
+// cannot miss a newly marked instruction while indexing catches up.
+func ListMandatoryMemories(scope string) ([]MandatoryEntry, error) {
+	return listMemoriesByRelevance(scope, true)
+}
+
+func listMemoriesByRelevance(scope string, mandatory bool) ([]ImportantEntry, error) {
 	uri := TableURIForScope(scope)
 	if uri == "" {
 		return nil, nil
@@ -46,16 +65,21 @@ func ListImportantMemories(scope string) ([]ImportantEntry, error) {
 	}
 	defer func() { _ = tbl.Close() }()
 
-	records, err := tbl.Live(ctx)
+	var records []MemoryRecord
+	if mandatory {
+		records, err = tbl.Mandatory(ctx)
+	} else {
+		records, err = tbl.Live(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
-	important := make([]ImportantEntry, 0)
+	entries := make([]ImportantEntry, 0)
 	for _, rec := range records {
-		if !rec.Important {
+		if !mandatory && !rec.Important {
 			continue
 		}
-		important = append(important, ImportantEntry{
+		entries = append(entries, ImportantEntry{
 			ID:      rec.ID,
 			Title:   rec.Title,
 			Content: strings.TrimSpace(rec.Body),
@@ -63,7 +87,7 @@ func ListImportantMemories(scope string) ([]ImportantEntry, error) {
 			created: rec.CreatedAt,
 		})
 	}
-	return important, nil
+	return entries, nil
 }
 
 func extractBodyAfterFrontmatter(content string) string {

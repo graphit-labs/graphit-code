@@ -20,12 +20,13 @@ import (
 // transforms still operate on, and `recordFromMarkdown` is the same function the service stores
 // through.
 type fakeWriter struct {
-	stored   map[string]string
-	updates  []string
-	removals []string
-	promotes []string
-	demotes  []string
-	failOn   map[string]error
+	stored    map[string]string
+	updates   []string
+	removals  []string
+	promotes  []string
+	demotes   []string
+	mandatory []string
+	failOn    map[string]error
 }
 
 func newFakeWriter() *fakeWriter {
@@ -111,6 +112,19 @@ func (f *fakeWriter) DemoteMemory(id string) error {
 		return err
 	}
 	f.demotes = append(f.demotes, id)
+	return nil
+}
+
+func (f *fakeWriter) MarkMandatory(id string) error {
+	if err := f.failOn["mandatory:"+id]; err != nil {
+		return err
+	}
+	current, ok := f.stored[id]
+	if !ok {
+		return os.ErrNotExist
+	}
+	f.stored[id] = withMandatoryFlag(current, true)
+	f.mandatory = append(f.mandatory, id)
 	return nil
 }
 
@@ -216,6 +230,39 @@ func TestApplyConsolidation_MergePreservesImportance(t *testing.T) {
 	}
 }
 
+// Mandatory is independent from importance and is also a group invariant: if any
+// folded memory must be loaded at every session, its survivor must keep that contract.
+func TestApplyConsolidation_MergePreservesMandatory(t *testing.T) {
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Ordinary", "a", "fact", false)
+	writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Always load", "b", "decision", false)
+	w.stored["01BBBBBBBBBBBBBBBBBBBBBBBB"] = withMandatoryFlag(w.stored["01BBBBBBBBBBBBBBBBBBBBBBBB"], true)
+
+	report := &ConsolidationReport{
+		TotalMemories: 2,
+		Duplicates: []ConsolidationAction{{
+			Type:       ActionMerge,
+			MemoryIDs:  []string{"01AAAAAAAAAAAAAAAAAAAAAAAA", "01BBBBBBBBBBBBBBBBBBBBBBBB"},
+			KeepID:     "01AAAAAAAAAAAAAAAAAAAAAAAA",
+			NewContent: "merged",
+		}},
+	}
+
+	if _, err := ApplyConsolidation(context.Background(), "project", report, w); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	fm, _, important := readMemory(t, w, "01AAAAAAAAAAAAAAAAAAAAAAAA")
+	if !fm.Mandatory {
+		t.Error("survivor must retain the mandatory contract")
+	}
+	if important {
+		t.Error("preserving mandatory must not promote importance")
+	}
+	if exists(w, "01BBBBBBBBBBBBBBBBBBBBBBBB") {
+		t.Error("folded mandatory memory should be removed after its status reaches the survivor")
+	}
+}
+
 // With no merged content supplied, the union is built from the members rather than
 // the action being skipped or — as it once did — the model's one-line justification
 // being written in place of both bodies.
@@ -309,6 +356,37 @@ func TestApplyConsolidation_RefusesToDeleteImportantMemory(t *testing.T) {
 	}
 	if !strings.Contains(outcome.Skipped[0].Skipped, "important") {
 		t.Errorf("refusal reason should explain importance, got %q", outcome.Skipped[0].Skipped)
+	}
+}
+
+func TestApplyConsolidation_RefusesToDeleteMandatoryMemory(t *testing.T) {
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Always load", "must survive", "decision", false)
+	w.stored["01AAAAAAAAAAAAAAAAAAAAAAAA"] = withMandatoryFlag(w.stored["01AAAAAAAAAAAAAAAAAAAAAAAA"], true)
+	writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Other", "filler", "fact", false)
+
+	report := &ConsolidationReport{
+		TotalMemories: 2,
+		Suggestions: []ConsolidationAction{{
+			Type:      ActionDelete,
+			MemoryIDs: []string{"01AAAAAAAAAAAAAAAAAAAAAAAA"},
+			KeepID:    "01AAAAAAAAAAAAAAAAAAAAAAAA",
+			Reason:    "looks obsolete",
+		}},
+	}
+
+	outcome, err := ApplyConsolidation(context.Background(), "project", report, w)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !exists(w, "01AAAAAAAAAAAAAAAAAAAAAAAA") {
+		t.Fatal("a mandatory memory must not be deleted by a suggestion")
+	}
+	if len(outcome.Skipped) != 1 {
+		t.Fatalf("the refusal must be reported, got %d skipped", len(outcome.Skipped))
+	}
+	if !strings.Contains(outcome.Skipped[0].Skipped, "mandatory") {
+		t.Errorf("refusal reason should explain mandatory status, got %q", outcome.Skipped[0].Skipped)
 	}
 }
 
@@ -444,6 +522,60 @@ func TestApplyConsolidation_FailedSurvivorWriteKeepsEveryMemory(t *testing.T) {
 		if !exists(w, id) {
 			t.Errorf("memory %s was lost", id)
 		}
+	}
+}
+
+func TestApplyConsolidation_FailedRelevancePreservationKeepsEveryMemory(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(*fakeWriter)
+	}{
+		{
+			name: "important",
+			setup: func(w *fakeWriter) {
+				writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Protected", "b", "fact", true)
+				w.failOn["promote:01AAAAAAAAAAAAAAAAAAAAAAAA"] = os.ErrPermission
+			},
+		},
+		{
+			name: "mandatory",
+			setup: func(w *fakeWriter) {
+				writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Protected", "b", "fact", false)
+				w.stored["01BBBBBBBBBBBBBBBBBBBBBBBB"] = withMandatoryFlag(w.stored["01BBBBBBBBBBBBBBBBBBBBBBBB"], true)
+				w.failOn["mandatory:01AAAAAAAAAAAAAAAAAAAAAAAA"] = os.ErrPermission
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newFakeWriter()
+			writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Survivor", "a", "fact", false)
+			tc.setup(w)
+			report := &ConsolidationReport{
+				TotalMemories: 2,
+				Duplicates: []ConsolidationAction{{
+					Type:       ActionMerge,
+					MemoryIDs:  []string{"01AAAAAAAAAAAAAAAAAAAAAAAA", "01BBBBBBBBBBBBBBBBBBBBBBBB"},
+					KeepID:     "01AAAAAAAAAAAAAAAAAAAAAAAA",
+					NewContent: "merged",
+				}},
+			}
+
+			outcome, err := ApplyConsolidation(context.Background(), "project", report, w)
+			if err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+			if len(outcome.Failed) != 1 {
+				t.Fatalf("expected relevance failure, got %+v", outcome.Failed)
+			}
+			if len(w.removals) != 0 {
+				t.Fatalf("relevance failure removed memories: %v", w.removals)
+			}
+			for _, id := range []string{"01AAAAAAAAAAAAAAAAAAAAAAAA", "01BBBBBBBBBBBBBBBBBBBBBBBB"} {
+				if !exists(w, id) {
+					t.Errorf("memory %s was lost", id)
+				}
+			}
+		})
 	}
 }
 

@@ -27,6 +27,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub"
 	"github.com/graphit-labs/graphit-code/internal/mcpproxy"
 	"github.com/graphit-labs/graphit-code/internal/mcpstdio"
+	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
@@ -190,6 +191,7 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 		disableSync := config.IsModuleDisabled("sync", nil, projectCfg)
 		disableEmbedding := cfg.DisableEmbedding || sharedEmbedClient == nil || config.IsModuleDisabled("embedding", nil, projectCfg)
 		disableDream := cfg.DisableDream || config.IsModuleDisabled("dream", nil, projectCfg)
+		disableMemory := config.IsModuleDisabled("memory", nil, projectCfg)
 
 		cacheDir := store.ASTProjectDir(projectDir)
 
@@ -210,6 +212,11 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 			}
 			ide := config.ResolveProjectIDE("", nil, projectCfg, lockfileIDEs)
 			modules = append(modules, daemon.NewDreamModule(projectDir, ide))
+		}
+		if !disableMemory && lf != nil && lf.Project.ID != "" {
+			modules = append(modules, daemon.NewMemoryMaintenanceModule(
+				memory.TableURIFor("project", lf.Project.ID), 15*time.Minute,
+			))
 		}
 
 		return modules, closerFns, nil
@@ -355,9 +362,20 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 	// A memory watcher used to be registered here as well. It watched the root every scope's raw
 	// markdown directory lived under and recompiled the wiki of whichever scope changed. There is no
 	// markdown and no directory to watch: a write commits to the scope's table and recompiles the
-	// wiki inline, and a table in object storage produces no local event to notice at all.
+	// wiki inline, and a table in object storage produces no local event to notice at all. The user
+	// table still needs one maintenance owner; this loop is global so several project supervisors do
+	// not compact the same authoritative table concurrently.
 	if sharedEmbedClient != nil {
 		d.AddGlobalModule(daemon.NewEmbedServer(sharedEmbedClient))
+	}
+	if !config.IsModuleDisabled("memory", nil, nil) {
+		if userID, userErr := memory.UserScopeID(); userErr == nil && userID != "" {
+			d.AddGlobalModule(daemon.NewMemoryMaintenanceModule(
+				memory.TableURIFor("user", userID), 15*time.Minute,
+			))
+		} else if userErr != nil {
+			p.Warn("user memory maintenance is disabled: %v", userErr)
+		}
 	}
 
 	// Opt-in, and the case it exists for is a container: there, one process has to bring up the

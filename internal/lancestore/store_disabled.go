@@ -48,6 +48,7 @@ func (s *Store) EnsureTable(_ context.Context, _ string, _ Schema) (*Table, erro
 
 func (t *Table) Close() error                                  { return nil }
 func (t *Table) Name() string                                  { return "" }
+func (t *Table) Schema() Schema                                { return Schema{} }
 func (t *Table) Count(_ context.Context) (int64, error)        { return 0, ErrNotBuilt }
 func (t *Table) Append(_ context.Context, _ []Row) error       { return ErrNotBuilt }
 func (t *Table) DeleteWhere(_ context.Context, _ string) error { return ErrNotBuilt }

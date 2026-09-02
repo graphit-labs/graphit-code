@@ -49,13 +49,17 @@ const chainOverFetch = 4
 //     with Superseded set and Current naming the live memory. The old text is what matched, so
 //     hiding it would lose the answer; the annotation is what lets the agent decide whether to
 //     read the revision, the current memory, or both.
-func SearchChains(ctx context.Context, wikiDir, query string, topN int) []ChainResult {
+func SearchChains(ctx context.Context, wikiDir, query string, topN int, excludeMandatory ...bool) []ChainResult {
 	fetch := topN
 	if fetch > 0 {
 		fetch *= chainOverFetch
 	}
 
-	hits := wiki.BM25Search(ctx, wikiDir, query, fetch)
+	opts := wiki.WikiSearchOptions{}
+	if len(excludeMandatory) > 0 {
+		opts.ExcludeMandatory = excludeMandatory[0]
+	}
+	hits := wiki.BM25SearchWithOptions(ctx, wikiDir, query, fetch, opts)
 	resolved := resolveChains(hits)
 	out := collapseChains(resolved)
 

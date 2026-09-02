@@ -1,3 +1,5 @@
+//go:build lancedb
+
 package uiserver
 
 import (

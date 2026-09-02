@@ -28,6 +28,36 @@ func newWikiForTest(t *testing.T) *WikiDB {
 	return db
 }
 
+func TestOpenWikiResetsAnIncompatibleDevelopmentSchema(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir() + "/index.lance"
+	expected := lanceChunksSchema(ai.ResolveConfiguredEmbeddingDimensions())
+	legacy := lancestore.Schema{Fields: append([]lancestore.Field(nil), expected.Fields...)}
+	legacy.Fields = legacy.Fields[:len(legacy.Fields)-1]
+	store, err := lancestore.Open(ctx, lancestore.Config{URI: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := store.CreateTable(ctx, lanceChunksTable, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = old.Close()
+	_ = store.Close()
+
+	db, err := OpenWikiDBAt(ctx, lancestore.Config{URI: dir})
+	if err != nil {
+		t.Fatalf("opening incompatible wiki: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.ensureTables(ctx); err != nil {
+		t.Fatalf("ensuring current wiki tables: %v", err)
+	}
+	if !db.chunks.Schema().Equal(expected) {
+		t.Fatalf("schema was not reset: %+v", db.chunks.Schema())
+	}
+}
+
 func lanceChunk(slug, title, summary, body string) WikiChunk {
 	return WikiChunk{
 		Slug: slug, Title: title, Summary: summary, Body: body,
@@ -89,6 +119,49 @@ func TestLanceWikiRebuildAndKeywordSearch(t *testing.T) {
 	}
 	if !hasSlug(lanceSlugsOf(got), "memory-scopes") {
 		t.Errorf("the title did not find its page: %v", lanceSlugsOf(got))
+	}
+}
+
+func TestWikiStoresTagsWithoutDuplicatingBodyInSearchTerms(t *testing.T) {
+	ctx := context.Background()
+	db := newWikiForTest(t)
+	chunk := lanceChunk("metadata-only-title", "Metadata Only Title", "summary", "unique-body-token")
+	chunk.Tags = []string{"wiki", "reference", "user-tag"}
+	chunk.Mandatory = true
+	row := buildChunkRow(chunk, nil)
+	if strings.Contains(row[lanceWikiTerms].(string), "unique-body-token") {
+		t.Fatal("search_terms duplicates the body")
+	}
+	if err := db.Sync(ctx, []WikiChunk{chunk}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.Chunk(ctx, chunk.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Mandatory || strings.Join(got.Tags, ",") != "wiki,reference,user-tag" {
+		t.Fatalf("stored metadata = mandatory:%v tags:%v", got.Mandatory, got.Tags)
+	}
+	for _, query := range []string{"unique-body-token", "metadata only title", "user-tag"} {
+		results, err := db.Search(ctx, query, 5)
+		if err != nil || len(results) != 1 || results[0].Slug != chunk.Slug {
+			t.Fatalf("search %q = %+v (err %v)", query, results, err)
+		}
+	}
+	excluded, err := db.SearchWithOptions(ctx, "unique-body-token", 5, WikiSearchOptions{ExcludeMandatory: true})
+	if err != nil || len(excluded) != 0 {
+		t.Fatalf("mandatory exclusion = %+v (err %v), want none", excluded, err)
+	}
+}
+
+func TestWikiRRFIsDeterministicOnTies(t *testing.T) {
+	a := WikiSearchResult{Slug: "a"}
+	b := WikiSearchResult{Slug: "b"}
+	for range 10 {
+		got := fuseWikiRankings(2, []WikiSearchResult{b, a}, []WikiSearchResult{a, b})
+		if len(got) != 2 || got[0].Slug != "a" || got[1].Slug != "b" {
+			t.Fatalf("tied RRF order = %v, want slug order [a b]", lanceSlugsOf(got))
+		}
 	}
 }
 

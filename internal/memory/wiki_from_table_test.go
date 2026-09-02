@@ -1,3 +1,5 @@
+//go:build lancedb
+
 package memory
 
 import (

@@ -50,6 +50,7 @@ type MemoryEntry struct {
 	Scope     MemoryScope
 	ScopeID   string
 	Important bool
+	Mandatory bool
 	Type      MemoryType
 	Tags      []string
 }
@@ -217,6 +218,7 @@ func (m *MemoryService) ensureWikiDir() {
 type MemoryOpts struct {
 	ProjectID string
 	Important bool
+	Mandatory bool
 	Type      MemoryType
 	Tags      []string
 }
@@ -236,7 +238,8 @@ func (m *MemoryService) AddMemory(title, body string, opts MemoryOpts) (string, 
 	if memType == "" {
 		memType = MemoryTypeFact
 	}
-	content := buildMemoryFile(id, title, body, string(m.scope), m.scopeID, assocProject, opts.Important, string(memType), opts.Tags)
+	content := buildMemoryFileWithRelevance(id, title, body, string(m.scope), m.scopeID, assocProject,
+		opts.Important, opts.Mandatory, string(memType), opts.Tags)
 
 	ctx := context.Background()
 	tbl, err := m.openTable(ctx)
@@ -449,14 +452,30 @@ func archiveKeyFromPath(archiveRel string) string {
 }
 
 func (m *MemoryService) PromoteMemory(id string) error {
-	return m.changeRelevance(id, true)
+	return m.changeImportance(id, true)
 }
 
 func (m *MemoryService) DemoteMemory(id string) error {
-	return m.changeRelevance(id, false)
+	return m.changeImportance(id, false)
 }
 
-func (m *MemoryService) changeRelevance(id string, promote bool) error {
+func (m *MemoryService) MarkMandatory(id string) error {
+	return m.changeMandatory(id, true)
+}
+
+func (m *MemoryService) UnmarkMandatory(id string) error {
+	return m.changeMandatory(id, false)
+}
+
+func (m *MemoryService) changeImportance(id string, promote bool) error {
+	return m.changeRelevance(id, "importance", promote)
+}
+
+func (m *MemoryService) changeMandatory(id string, mandatory bool) error {
+	return m.changeRelevance(id, "mandatory", mandatory)
+}
+
+func (m *MemoryService) changeRelevance(id, field string, enabled bool) error {
 	if m.store == nil {
 		return fmt.Errorf("memory repository not configured — run '%s setup' first", brand.BinName())
 	}
@@ -480,17 +499,35 @@ func (m *MemoryService) changeRelevance(id string, promote bool) error {
 	// No revision is archived: importance is not a content change. The early return matters for the
 	// same reason — a no-op promote must not produce a write, or every idempotent call would add a
 	// dataset version to a store whose version history is the recovery path D2 accepted.
-	if IsImportantContent(data) == promote {
+	fm, parsed := ParseMemoryFrontmatterOK(data)
+	if !parsed {
+		return fmt.Errorf("refusing to change %s of %q: its frontmatter did not parse", field, id)
+	}
+	current := fm.Important
+	if field == "mandatory" {
+		current = fm.Mandatory
+	}
+	if current == enabled {
 		return nil
 	}
 
-	if err := m.putMarkdown(ctx, tbl, relPath, withImportantFlag(data, promote)); err != nil {
+	updated := withImportantFlag(data, enabled)
+	if field == "mandatory" {
+		updated = withMandatoryFlag(data, enabled)
+	}
+	if err := m.putMarkdown(ctx, tbl, relPath, updated); err != nil {
 		return fmt.Errorf("storing the relevance change: %w", err)
 	}
 
 	verb := "promote"
-	if !promote {
+	if field == "mandatory" {
+		verb = "mark_mandatory"
+	}
+	if !enabled {
 		verb = "demote"
+		if field == "mandatory" {
+			verb = "unmark_mandatory"
+		}
 	}
 
 	if err := m.syncWikiAfterWrite(); err != nil {
@@ -532,6 +569,7 @@ func (m *MemoryService) ListMemories() ([]MemoryEntry, error) {
 			Scope:     m.scope,
 			ScopeID:   m.scopeID,
 			Important: rec.Important,
+			Mandatory: rec.Mandatory,
 			Type:      MemoryType(rec.Type),
 			Tags:      rec.Tags,
 		})
@@ -588,6 +626,10 @@ func (m *MemoryService) IndexMemories(ctx context.Context) error {
 }
 
 func buildMemoryFile(id, title, body, scope, scopeID, origProjectID string, important bool, memType string, userTags []string) string {
+	return buildMemoryFileWithRelevance(id, title, body, scope, scopeID, origProjectID, important, false, memType, userTags)
+}
+
+func buildMemoryFileWithRelevance(id, title, body, scope, scopeID, origProjectID string, important, mandatory bool, memType string, userTags []string) string {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	tagSet := []string{"memory", scope}
@@ -604,6 +646,7 @@ func buildMemoryFile(id, title, body, scope, scopeID, origProjectID string, impo
 		ProjectID: origProjectID,
 		Type:      memType,
 		Important: important,
+		Mandatory: mandatory,
 		CreatedAt: now,
 		UpdatedAt: now,
 		Tags:      tagSet,
@@ -627,6 +670,7 @@ type MemoryFrontmatter struct {
 	ProjectID string `yaml:"project_id,omitempty"`
 	Type      string `yaml:"type,omitempty"`
 	Important bool   `yaml:"important,omitempty"`
+	Mandatory bool   `yaml:"mandatory,omitempty"`
 	CreatedAt string `yaml:"created_at,omitempty"`
 	UpdatedAt string `yaml:"updated_at"`
 
@@ -860,6 +904,17 @@ func withImportantFlag(content string, important bool) string {
 		return content
 	}
 	fm.Important = important
+	return renderMemoryFile(fm, extractBodyAfterFrontmatter(content))
+}
+
+// withMandatoryFlag is the mandatory-state counterpart of withImportantFlag. The two fields are
+// independent: making a memory unconditional does not silently alter its importance ranking.
+func withMandatoryFlag(content string, mandatory bool) string {
+	fm, parsed := ParseMemoryFrontmatterOK(content)
+	if !parsed {
+		return content
+	}
+	fm.Mandatory = mandatory
 	return renderMemoryFile(fm, extractBodyAfterFrontmatter(content))
 }
 

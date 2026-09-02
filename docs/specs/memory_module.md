@@ -48,9 +48,11 @@ local table and wiki; it does not delete the remote table another machine may st
 
 ## Record schema and revision chain
 
-`MemoryRecord` carries all authored fields: identity, title, body, type, tags, importance, timestamps,
-scope identity, revision links, content hash, and embedding. The embedding column travels with a
-remote table and removes the need for a separate vector cache.
+`MemoryRecord` carries all authored fields: identity, title, body, type, tags, importance, mandatory
+status, timestamps, scope identity, revision links, content hash, and embedding. `important` and
+`mandatory` are independent: important marks curated reference material; mandatory means the full
+memory must be loaded unconditionally at session start. The embedding column travels with a remote
+table and removes the need for a separate vector cache.
 
 A memory is one chain across all revisions, identified by a stable ULID:
 
@@ -74,8 +76,22 @@ Every archived revision is compiled into the memory wiki and is searchable and r
 - if only an archived revision matched, it is returned as `superseded` with the current memory id;
 - `top_k` is applied after collapse, so it counts distinct memories rather than rows.
 
-Catalogue surfaces such as `memory_list` and `memory_important` return live records only. Chain
-metadata is stored as columns, so retrieval never opens a source file to discover identity.
+Catalogue surfaces such as `memory_list`, `memory_important`, and `memory_mandatory` return live
+records only. `memory_mandatory` reads the authoritative table directly and returns complete content;
+it is not a ranked search. Chain metadata is stored as columns, so retrieval never opens a source
+file to discover identity.
+
+## Initial recall protocol
+
+An agent starts memory recall with two ordered operations:
+
+1. call `graphit_memory_mandatory` with no query and read every returned memory;
+2. call `graphit_memory_search` for the current context with `exclude_mandatory: true`.
+
+The exclusion prevents the contextual ranking window from repeating memories already loaded in full.
+Agents mark system facts, current state, or standing instructions mandatory only when they must be
+present in every session, and unmark them when that unconditional requirement ends. Importance alone
+does not imply mandatory recall, and mandatory status does not imply importance.
 
 ## Memory content format
 
@@ -91,6 +107,7 @@ tags: ["go", "testing"]
 created_at: 2026-08-24T12:00:00Z
 updated_at: 2026-08-24T12:00:00Z
 important: true
+mandatory: true
 revision: 3
 updated_by: "unit-id"
 ---
@@ -131,10 +148,15 @@ write authoritative LanceDB row → synchronize the local wiki projection
 ```
 
 Consolidation reads records, deduplicates or resolves them, applies table mutations, and recompiles
-the same scope. It never treats the query projection as authored data.
+the same scope. A survivor inherits both importance and mandatory status independently; bare delete
+suggestions cannot remove either an important or a mandatory memory. It never treats the query
+projection as authored data.
 
 ## Daemon behavior
 
 Memory writes synchronize their affected scope directly. The daemon no longer watches a raw-memory
-filesystem tree and no longer runs a separate pull/publish loop. A remote table is already the
-shared source; a local-only table remains entirely local.
+filesystem tree and no longer runs a separate pull/publish loop. It does own periodic table
+maintenance: one loop per active project scope and exactly one machine-wide loop for the user scope.
+Each loop checks immediately and then every 15 minutes; the table's due-time gate decides whether to
+fold indexes, compact fragments, and prune versions. Empty tables are skipped and failures reach the
+supervisor. A remote table is already the shared source; a local-only table remains entirely local.

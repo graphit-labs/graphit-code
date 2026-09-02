@@ -16,11 +16,38 @@ func TestMemoryRuleContentTeachesEveryMemoryTool(t *testing.T) {
 
 	for _, action := range []string{
 		"search", "insert", "update", "delete", "list", "important",
-		"promote", "demote", "index", "schema", "export", "remove", "sync",
+		"promote", "demote", "mandatory", "mark_mandatory", "unmark_mandatory",
+		"index", "schema", "export", "remove", "sync",
 	} {
 		if !strings.Contains(content, brand.MCPToolName("memory", action)) {
 			t.Errorf("memory skill never mentions %s", brand.MCPToolName("memory", action))
 		}
+	}
+}
+
+func TestMemoryRuleRequiresTwoPhaseInitialRecallAndMandatoryMaintenance(t *testing.T) {
+	t.Parallel()
+	content := RuleContent(nil)
+	mandatory := brand.MCPToolName("memory", "mandatory")
+	search := brand.MCPToolName("memory", "search")
+	beforeSearch, _, foundSearch := strings.Cut(content, search)
+	if !foundSearch || !strings.Contains(beforeSearch, mandatory) {
+		t.Fatal("session protocol does not put mandatory recall before contextual search")
+	}
+	for _, want := range []string{
+		"with NO query",
+		"exclude_mandatory: true",
+		brand.MCPToolName("memory", "mark_mandatory"),
+		brand.MCPToolName("memory", "unmark_mandatory"),
+		"unconditional requirement no longer",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("memory skill is missing mandatory protocol text %q", want)
+		}
+	}
+	trigger := MandateTrigger()
+	if !strings.Contains(trigger, mandatory) || !strings.Contains(trigger, "exclude_mandatory: true") {
+		t.Fatal("generated mandate does not carry the two-phase initial protocol")
 	}
 }
 

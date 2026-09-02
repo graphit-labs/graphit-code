@@ -1462,7 +1462,7 @@ func newMemorySvcForContext(contextName string) (*memory.MemoryService, error) {
 	return svc, nil
 }
 
-func runMemoryAdd(title, content string, userScope, linkProject, important bool, memType string, tags string) error {
+func runMemoryAdd(title, content string, userScope, linkProject, important, mandatory bool, memType string, tags string) error {
 	p := output.NewPrinter("")
 
 	svc, projectID, err := newMemorySvc(userScope)
@@ -1493,6 +1493,7 @@ func runMemoryAdd(title, content string, userScope, linkProject, important bool,
 	slug, err := svc.AddMemory(title, content, memory.MemoryOpts{
 		ProjectID: assocProject,
 		Important: important,
+		Mandatory: mandatory,
 		Type:      memory.MemoryType(memType),
 		Tags:      tagList,
 	})
@@ -1509,6 +1510,9 @@ func runMemoryAdd(title, content string, userScope, linkProject, important bool,
 	}
 	if important {
 		scopeLabel += " [important]"
+	}
+	if mandatory {
+		scopeLabel += " [mandatory]"
 	}
 	if memType != "" {
 		scopeLabel += " [" + memType + "]"
@@ -1751,6 +1755,31 @@ func runMemoryImportantList(userScope bool) error {
 	return nil
 }
 
+func runMemoryMandatoryList(userScope bool) error {
+	p := output.NewPrinter("")
+	scope := "project"
+	if userScope {
+		scope = "user"
+	}
+	entries, err := memory.ListMandatoryMemories(scope)
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		p.Info("No mandatory memories found in %s scope.", scope)
+		return nil
+	}
+	for _, entry := range entries {
+		p.ListItem("[%s] %s", entry.ID, entry.Title)
+		if entry.Content != "" {
+			p.Data(entry.Content)
+			p.Blank()
+		}
+	}
+	p.Count("mandatory memory", len(entries))
+	return nil
+}
+
 func runMemoryPromote(id string, userScope bool) error {
 	p := output.NewPrinter("")
 
@@ -1783,6 +1812,26 @@ func runMemoryDemote(id string, userScope bool) error {
 	}
 	p.Success("Memory %q demoted (no longer important)", id)
 
+	refreshModuleRule("memory", "", "")
+	return nil
+}
+
+func runMemoryMandatoryChange(id string, userScope, enabled bool) error {
+	p := output.NewPrinter("")
+	svc, _, err := newMemorySvc(userScope)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = svc.Close() }()
+	if enabled {
+		err = svc.MarkMandatory(id)
+	} else {
+		err = svc.UnmarkMandatory(id)
+	}
+	if err != nil {
+		return err
+	}
+	p.Success("Memory %q mandatory=%t", id, enabled)
 	refreshModuleRule("memory", "", "")
 	return nil
 }

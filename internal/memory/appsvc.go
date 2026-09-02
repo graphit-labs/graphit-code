@@ -17,6 +17,7 @@ type MemoryInsertOpts struct {
 	Tags      string
 	Scope     string
 	Important bool
+	Mandatory bool
 }
 
 // MemoryAppService centralises memory operations shared across views (CLI, MCP, UI).
@@ -73,6 +74,7 @@ func (s *MemoryAppService) InsertValidated(opts MemoryInsertOpts) (string, error
 
 	slug, err := svc.AddMemory(opts.Title, opts.Content, MemoryOpts{
 		Important: opts.Important,
+		Mandatory: opts.Mandatory,
 		Type:      MemoryType(opts.Type),
 		Tags:      tags,
 	})

@@ -53,6 +53,8 @@ func memDocFromRecord(rec MemoryRecord) memDoc {
 		title:       rec.Title,
 		createdAt:   rec.CreatedAt,
 		important:   rec.Important,
+		mandatory:   rec.Mandatory,
+		tags:        append([]string(nil), rec.Tags...),
 		body:        rec.Body,
 		filename:    rel,
 		memType:     rec.Type,
@@ -137,6 +139,8 @@ func compileMemoryWiki(ctx context.Context, docs []memDoc, wikiDir string, logge
 			Updated:     now,
 			Created:     doc.createdAt,
 			Important:   doc.important,
+			Mandatory:   doc.mandatory,
+			Tags:        memoryWikiTags(doc),
 			ContentHash: doc.contentHash,
 			// The chain, as columns. A memory id is the entity: every revision of a memory shares
 			// it, which is what lets the index answer "these two hits are one memory".
@@ -186,6 +190,37 @@ func compileMemoryWiki(ctx context.Context, docs []memDoc, wikiDir string, logge
 	}
 
 	return result
+}
+
+func memoryWikiTags(doc memDoc) []string {
+	tags := []string{"wiki"}
+	if doc.memType != "" {
+		tags = append(tags, doc.memType)
+	}
+	tags = append(tags, doc.tags...)
+	if doc.superseded {
+		tags = append(tags, "superseded")
+	}
+	if doc.important {
+		tags = append(tags, "important")
+	}
+	if doc.mandatory {
+		tags = append(tags, "mandatory")
+	}
+	return uniqueStrings(tags)
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 // firstLogger picks the optional logger a caller passed, if any.
@@ -256,6 +291,8 @@ type memDoc struct {
 	title       string
 	createdAt   string
 	important   bool
+	mandatory   bool
+	tags        []string
 	body        string
 	filename    string
 	memType     string

@@ -22,6 +22,8 @@ type WikiChunk struct {
 	WordCount   int
 	Updated     string
 	Important   bool
+	Mandatory   bool
+	Tags        []string
 
 	// Supersession — the same four fields on every wiki, because "this page is an older version
 	// of that one" is not a memory concept. A memory's revision chain is one instance of it; an
@@ -75,6 +77,7 @@ type BM25Result struct {
 	RevisionID string
 	Superseded bool
 	CurrentID  string
+	Mandatory  bool
 }
 
 // WikiSearchResult is a single result from a wiki search.
@@ -93,6 +96,7 @@ type WikiSearchResult struct {
 	RevisionID string
 	Superseded bool
 	CurrentID  string
+	Mandatory  bool
 }
 
 // BrowseFilter controls Browse() output.

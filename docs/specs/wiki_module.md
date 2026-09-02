@@ -125,7 +125,7 @@ prevents empty heading fragments from entering retrieval.
 
 | Table | Holds |
 |---|---|
-| `chunks` | one row per chunk: the page, its search document, and its vector as a COLUMN |
+| `chunks` | one row per page: canonical body, compact metadata search terms, exact tags, relevance flags, and embedding columns |
 | `xrefs` | cross-references, as `source_slug` → `target_slug` |
 | `sync_log` | the sync timeline; readers return at most the configured recent window |
 | `meta` | maintenance timestamps and store metadata |
@@ -157,6 +157,12 @@ deletes only rows that disappeared, and upserts only rows whose compiled value c
 unchanged row keeps its embedding. Cross-reference sources are updated by the same delta rule.
 New rows are folded into existing indexes, and compaction/version pruning run on a maintenance
 schedule rather than on every sync.
+
+**Body is stored once.** Full-text indexes target `body` and `search_terms` separately. The latter
+contains title, slug, summary, breadcrumb, type, tags, and their grams, but never repeats the body.
+Queries run once per column and deterministic reciprocal-rank fusion combines the two rankings. Tags
+are persisted as authored producer metadata and are consumed by page, export, and UI readers rather
+than reconstructed later.
 
 **The sync log is append-only history.** Incremental writes never drop it; catalogue and export
 surfaces read its newest entries directly from the table.

@@ -52,8 +52,11 @@ Examples:
 		newMemoryDeleteCmd(),
 		newMemorySearchCmd(),
 		newMemoryImportantCmd(),
+		newMemoryMandatoryCmd(),
 		newMemoryPromoteCmd(),
 		newMemoryDemoteCmd(),
+		newMemoryMarkMandatoryCmd(),
+		newMemoryUnmarkMandatoryCmd(),
 		newMemoryConsolidateCmd(),
 		newModuleRuleCmd("memory"),
 	)
@@ -214,6 +217,7 @@ func newMemoryInsertCmd() *cobra.Command {
 		userScope   bool
 		linkProject bool
 		important   bool
+		mandatory   bool
 		memType     string
 		tags        string
 	)
@@ -225,7 +229,8 @@ func newMemoryInsertCmd() *cobra.Command {
 Without --user: scoped to the current project (default).
 With --user: global user memory (cross-project).
 With --user --project: user memory explicitly linked to the current project.
-With --important: mark as important (surfaced in IDE rule).
+With --important: mark as important.
+With --mandatory: load unconditionally at every session start.
 With --type: classify the memory (convention, correction, decision, tension, fact, skill).
 With --tags: add cross-cutting tags (comma-separated).
 
@@ -237,13 +242,14 @@ Examples:
   ` + brand.BinName() + ` memory insert "fix: restart dev server after .env change" --type skill`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMemoryAdd(args[0], content, userScope, linkProject, important, memType, tags)
+			return runMemoryAdd(args[0], content, userScope, linkProject, important, mandatory, memType, tags)
 		},
 	}
 	cmd.Flags().StringVar(&content, "content", "", "Memory body text (optional; title is sufficient)")
 	cmd.Flags().BoolVar(&userScope, "user", false, "User scope (cross-project)")
 	cmd.Flags().BoolVar(&linkProject, "project", false, "Associate user memory with the current project (requires --user)")
 	cmd.Flags().BoolVar(&important, "important", false, "Mark as important (surfaced in IDE rule)")
+	cmd.Flags().BoolVar(&mandatory, "mandatory", false, "Mark as mandatory for unconditional session-start recall")
 	cmd.Flags().StringVar(&memType, "type", "", "Memory type: convention, correction, decision, tension, fact, skill")
 	cmd.Flags().StringVar(&tags, "tags", "", "Comma-separated tags for cross-cutting grouping")
 	registerMemoryTypeFlagCompletion(cmd)
@@ -347,6 +353,19 @@ Examples:
 	return cmd
 }
 
+func newMemoryMandatoryCmd() *cobra.Command {
+	var userScope bool
+	cmd := &cobra.Command{
+		Use:   "mandatory",
+		Short: "List mandatory memories with their content",
+		Long: `List every mandatory memory directly from the authoritative store, without search.
+These memories form the unconditional first phase of session-start recall.`,
+		RunE: func(cmd *cobra.Command, args []string) error { return runMemoryMandatoryList(userScope) },
+	}
+	cmd.Flags().BoolVar(&userScope, "user", false, "List mandatory user-scope memories")
+	return cmd
+}
+
 func newMemoryPromoteCmd() *cobra.Command {
 	var userScope bool
 	cmd := &cobra.Command{
@@ -384,6 +403,34 @@ Examples:
 		},
 	}
 	cmd.Flags().BoolVar(&userScope, "user", false, "Demote a user-scope memory")
+	return cmd
+}
+
+func newMemoryMarkMandatoryCmd() *cobra.Command {
+	var userScope bool
+	cmd := &cobra.Command{
+		Use:   "mark-mandatory <id>",
+		Short: "Make a memory part of unconditional session-start recall",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMemoryMandatoryChange(args[0], userScope, true)
+		},
+	}
+	cmd.Flags().BoolVar(&userScope, "user", false, "Change a user-scope memory")
+	return cmd
+}
+
+func newMemoryUnmarkMandatoryCmd() *cobra.Command {
+	var userScope bool
+	cmd := &cobra.Command{
+		Use:   "unmark-mandatory <id>",
+		Short: "Remove a memory from unconditional session-start recall",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMemoryMandatoryChange(args[0], userScope, false)
+		},
+	}
+	cmd.Flags().BoolVar(&userScope, "user", false, "Change a user-scope memory")
 	return cmd
 }
 

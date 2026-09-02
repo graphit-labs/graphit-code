@@ -68,6 +68,7 @@ type okfPageFrontmatter struct {
 	Cluster     *int           `yaml:"cluster,omitempty"`
 	ClusterName string         `yaml:"cluster_name,omitempty"`
 	Important   bool           `yaml:"important,omitempty"`
+	Mandatory   bool           `yaml:"mandatory,omitempty"`
 	StaleAfter  string         `yaml:"stale_after,omitempty"`
 	StaleSince  string         `yaml:"stale_since,omitempty"`
 	StaleReason string         `yaml:"stale_reason,omitempty"`
@@ -176,6 +177,7 @@ func pageFrontmatter(c WikiChunk, actor string) okfPageFrontmatter {
 		Breadcrumb:  c.Breadcrumb,
 		ClusterName: c.ClusterName,
 		Important:   c.Important,
+		Mandatory:   c.Mandatory,
 		RevisionID:  c.RevisionID,
 		Revision:    c.Revision,
 		Previous:    c.Previous,
@@ -206,10 +208,7 @@ func pageFrontmatter(c WikiChunk, actor string) okfPageFrontmatter {
 	if c.Source != "" {
 		fm.Sources = []okfSourceRef{{Resource: c.Source}}
 	}
-	fm.Tags = []string{"wiki"}
-	if c.DocType != "" {
-		fm.Tags = append(fm.Tags, c.DocType)
-	}
+	fm.Tags = append([]string(nil), c.Tags...)
 	if c.ClusterID >= 0 {
 		cluster := c.ClusterID
 		fm.Cluster = &cluster
@@ -221,12 +220,6 @@ func pageFrontmatter(c WikiChunk, actor string) okfPageFrontmatter {
 		fm.StaleAfter = c.StaleSince
 		fm.StaleSince = c.StaleSince
 		fm.StaleReason = c.StaleReason
-	}
-	if c.Superseded {
-		fm.Tags = append(fm.Tags, "superseded")
-	}
-	if c.Important {
-		fm.Tags = append(fm.Tags, "important")
 	}
 	return fm
 }

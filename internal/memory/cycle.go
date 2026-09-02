@@ -78,11 +78,14 @@ func SyncContextFromMemoryRepo(ctx context.Context, contextName string) *CycleRe
 // It took a project directory and a store provider, and needs neither now: a context's memories are
 // a table at a prefix derived from its NAME, so there is nothing to locate per project and nothing
 // to download before reading.
-func OnHubImport(ctx context.Context, contextName string, logger *slog.Logger) {
+func OnHubImport(ctx context.Context, contextName string, logger *slog.Logger) <-chan struct{} {
 	log := slogutil.Resolve(logger)
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		if res := SyncContextFromMemoryRepo(ctx, contextName); res.Err != nil {
 			log.Warn("hub import context failed", "context", contextName, "error", res.Err)
 		}
 	}()
+	return done
 }

@@ -148,6 +148,7 @@ type memorySnapshot struct {
 	Type      string
 	CreatedAt string
 	Important bool
+	Mandatory bool
 }
 
 // RunConsolidation analyses a scope's memories and returns a plan. It writes
@@ -196,6 +197,7 @@ func snapshotsFromRecords(records []MemoryRecord) []memorySnapshot {
 			Type:      rec.Type,
 			CreatedAt: rec.CreatedAt,
 			Important: rec.Important,
+			Mandatory: rec.Mandatory,
 		})
 	}
 	sort.Slice(memories, func(i, j int) bool { return memories[i].ID < memories[j].ID })
@@ -251,7 +253,7 @@ func detectStaleMemories(memories []memorySnapshot) []ConsolidationAction {
 	var stale []ConsolidationAction
 
 	for _, m := range memories {
-		if m.Important || m.CreatedAt == "" {
+		if m.Important || m.Mandatory || m.CreatedAt == "" {
 			continue
 		}
 		t, err := time.Parse(time.RFC3339, m.CreatedAt)
@@ -388,6 +390,7 @@ func renderMemoryCorpus(memories []memorySnapshot) string {
 		_, _ = fmt.Fprintf(&b, "Type: %s\n", m.Type)
 		_, _ = fmt.Fprintf(&b, "Created: %s\n", m.CreatedAt)
 		_, _ = fmt.Fprintf(&b, "Important: %v\n", m.Important)
+		_, _ = fmt.Fprintf(&b, "Mandatory: %v\n", m.Mandatory)
 		if m.Body != "" {
 			_, _ = fmt.Fprintf(&b, "Content:\n%s\n", truncateBody(m.Body))
 		}

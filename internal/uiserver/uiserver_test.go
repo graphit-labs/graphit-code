@@ -1,3 +1,5 @@
+//go:build lancedb
+
 package uiserver
 
 import (
@@ -418,15 +420,13 @@ func TestHandlePage_NotFound(t *testing.T) {
 // The page endpoint serves METADATA FROM COLUMNS.
 //
 // It used to parse the frontmatter of the file it had just read: `type`, `tags`, `confidence`, and the
-// first `sources[].resource`. All four are columns, so this fixture sets the columns — and `tags`,
-// which has no column, is derived from the type and the importance flag, since that is what the
-// generators put in the tag list.
+// first `sources[].resource`. All five are columns, so this fixture sets them directly.
 func TestHandlePage_ReturnsMetaAndContent(t *testing.T) {
 	tmp := t.TempDir()
 	content := "# Rich Page\n\nSee [Other Page](Other_Page.md).\n\nMore content here with words."
 	if err := indexChunk(t, tmp, wiki.WikiChunk{
 		Slug: "rich", Title: "Rich Page", Body: content, DocType: "document",
-		Source: "auto", Confidence: 0.9, Important: true,
+		Source: "auto", Confidence: 0.9, Important: true, Tags: []string{"document", "important"},
 		WordCount: len(strings.Fields(content)), ClusterID: -1,
 	}); err != nil {
 		t.Fatal(err)
@@ -458,7 +458,7 @@ func TestHandlePage_ReturnsMetaAndContent(t *testing.T) {
 		t.Errorf("Confidence = %f; want 0.9", page.Confidence)
 	}
 	if len(page.Tags) != 2 || page.Tags[0] != "document" || page.Tags[1] != "important" {
-		t.Errorf("Tags = %v; want [document important] derived from the columns", page.Tags)
+		t.Errorf("Tags = %v; want stored [document important] tags", page.Tags)
 	}
 	if page.Content != content {
 		t.Errorf("Content mismatch")

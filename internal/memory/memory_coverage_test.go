@@ -1,3 +1,5 @@
+//go:build lancedb
+
 package memory
 
 import (
@@ -599,10 +601,8 @@ func TestOnHubImport(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("GRAPHIT_HUB_BUCKET", "")
 	t.Setenv("HOME", t.TempDir())
-	// OnHubImport spawns a goroutine — we just test it doesn't panic
-	OnHubImport(ctx, "test-context", nil)
-	// Give goroutine time to finish
-	time.Sleep(50 * time.Millisecond)
+	// The completion handle makes temp-directory teardown deterministic.
+	<-OnHubImport(ctx, "test-context", nil)
 }
 
 func TestDetectStaleMemories_BadDateFormat(t *testing.T) {

@@ -20,6 +20,7 @@ type memoryInsertInput struct {
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	LinkProject bool   `json:"link_project,omitempty" jsonschema:"Link user memory to project identity"`
 	Important   bool   `json:"important,omitempty" jsonschema:"Mark as important"`
+	Mandatory   bool   `json:"mandatory,omitempty" jsonschema:"Mark as mandatory; mandatory memories are loaded unconditionally at session start"`
 	Tags        string `json:"tags,omitempty" jsonschema:"Comma-separated tags"`
 }
 
@@ -44,18 +45,27 @@ type memoryListInput struct {
 }
 
 type memorySearchInput struct {
-	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
-	Query       string `json:"query" jsonschema:"Keywords to search for in the memory wiki using BM25"`
-	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
-	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
-	Preview     *bool  `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the memory is read with wiki_source (wiki: memory) when the agent decides it needs it"`
-	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ProjectDir       string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	Query            string `json:"query" jsonschema:"Keywords to search for in the memory wiki using BM25"`
+	Scope            string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
+	TopK             int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
+	Preview          *bool  `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the memory is read with wiki_source (wiki: memory) when the agent decides it needs it"`
+	AiOptimized      *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+	ExcludeMandatory bool   `json:"exclude_mandatory,omitempty" jsonschema:"Exclude mandatory memories already loaded by the initial mandatory-memory call"`
 }
 
 type memoryImportantInput struct {
 	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
 	Scope       string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
+}
+
+type memoryMandatoryInput = memoryImportantInput
+
+type memoryMandatoryChangeInput struct {
+	ProjectDir string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit for the global scope, which serves your user memory."`
+	ID         string `json:"id" jsonschema:"Memory ID (required)"`
+	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 }
 
 type memoryPromoteInput struct {
@@ -132,6 +142,7 @@ func registerMemoryTools(server *mcp.Server) {
 			slug, err = svc.AddMemory(input.Title, input.Content, memory.MemoryOpts{
 				ProjectID: assocProject,
 				Important: input.Important,
+				Mandatory: input.Mandatory,
 				Type:      memory.MemoryType(input.Type),
 				Tags:      tagList,
 			})
@@ -257,7 +268,7 @@ func registerMemoryTools(server *mcp.Server) {
 
 		var results []memory.ChainResult
 		err = withProjectDir(projectDir, func() error {
-			results = memory.SearchChains(ctx, wikiDir, input.Query, input.TopK)
+			results = memory.SearchChains(ctx, wikiDir, input.Query, input.TopK, input.ExcludeMandatory)
 			return nil
 		})
 		if err != nil {
@@ -275,6 +286,69 @@ func registerMemoryTools(server *mcp.Server) {
 		}
 		return jsonResult(results)
 	}))
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: brand.MCPToolName("memory", "mandatory"),
+		Description: "Return every mandatory memory with full content, without search. " +
+			"This is phase one of session-start recall and must run before contextual memory_search.",
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryMandatoryInput) (*mcp.CallToolResult, any, error) {
+		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		scope := "project"
+		if input.Scope == "user" {
+			scope = "user"
+		}
+		var entries []memory.MandatoryEntry
+		err = withProjectDir(projectDir, func() error {
+			var listErr error
+			entries, listErr = memory.ListMandatoryMemories(scope)
+			return listErr
+		})
+		if err != nil {
+			return errResult(err)
+		}
+		if aiOpt(input.AiOptimized) {
+			return toonResult(entries)
+		}
+		return jsonResult(entries)
+	}))
+
+	for _, spec := range []struct {
+		name        string
+		description string
+		enabled     bool
+	}{
+		{"mark_mandatory", "Mark a memory as mandatory for unconditional session-start recall.", true},
+		{"unmark_mandatory", "Remove mandatory status when unconditional recall is no longer required.", false},
+	} {
+		spec := spec
+		mcp.AddTool(server, &mcp.Tool{
+			Name: brand.MCPToolName("memory", spec.name), Description: spec.description,
+		}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryMandatoryChangeInput) (*mcp.CallToolResult, any, error) {
+			projectDir, err := resolveProjectDirOptional(input.ProjectDir)
+			if err != nil {
+				return errResult(err)
+			}
+			userScope := scopeFromString(input.Scope)
+			err = withProjectDir(projectDir, func() error {
+				svc, svcErr := newMemorySvc(userScope, projectDir)
+				if svcErr != nil {
+					return svcErr
+				}
+				defer func() { _ = svc.Close() }()
+				if spec.enabled {
+					return svc.MarkMandatory(input.ID)
+				}
+				return svc.UnmarkMandatory(input.ID)
+			})
+			if err != nil {
+				return errResult(err)
+			}
+			return textResult(fmt.Sprintf("Memory %q mandatory=%t", input.ID, spec.enabled))
+		}))
+	}
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "important"),
@@ -384,7 +458,7 @@ func registerMemoryTools(server *mcp.Server) {
 		Name:        brand.MCPToolName("memory", "schema"),
 		Description: "Show the authoritative memory table schema.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySchemaInput) (*mcp.CallToolResult, any, error) {
-		return textResult("Memory Table Schema\nPrimary key: key\nCore columns: id, revision_id, superseded, title, body, type, tags_json\nLifecycle columns: created_at, updated_at, revision, previous, next, updated_by\nScope columns: scope, scope_id, project_id\nVector column: embedding")
+		return textResult("Memory Table Schema\nPrimary key: key\nCore columns: id, revision_id, superseded, title, body, type, tags_json, important, mandatory\nLifecycle columns: created_at, updated_at, revision, previous, next, updated_by\nScope columns: scope, scope_id, project_id\nVector column: embedding")
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{

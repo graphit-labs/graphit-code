@@ -186,17 +186,17 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 
 | Tool | Description |
 |---|---|
-| `graphit_memory_insert` | Add a new memory with type, scope, tags, and importance. |
+| `graphit_memory_insert` | Add a new memory with type, scope, tags, importance, and mandatory status. |
 | `graphit_memory_update` | Update title or content of an existing memory. |
 | `graphit_memory_delete` | Delete a memory by ID. |
 | `graphit_memory_list` | List all memories in project or user scope. |
-| `graphit_memory_search` | Ranked search across the compiled LanceDB memory wiki. |
-| `graphit_memory_query` | AI-powered memory search with synthesized response. |
+| `graphit_memory_search` | Ranked search across the compiled LanceDB memory wiki; can exclude mandatory rows already loaded. |
+| `graphit_memory_mandatory` | Return every mandatory live memory with full content and no search query. |
+| `graphit_memory_mark_mandatory` | Require unconditional session-start recall for one memory. |
+| `graphit_memory_unmark_mandatory` | Remove that requirement when it no longer applies. |
 | `graphit_memory_important` | List all memories marked as important. |
 | `graphit_memory_promote` | Promote a memory to important status. |
 | `graphit_memory_demote` | Demote a memory from important status. |
-| `graphit_memory_consolidate` | Analyze memory wiki for staleness, duplicates, and contradictions. Supports auto-apply. |
-
 | `graphit_memory_index` | Regenerate the semantic wiki index of memory store. |
 | `graphit_memory_schema` | Show the memory graph schema. |
 | `graphit_memory_remove` | Remove a memory context sync connection. |

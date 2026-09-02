@@ -22,6 +22,63 @@ type EmbeddingModule struct {
 	cacheDir string
 }
 
+const defaultMemoryMaintenanceInterval = 15 * time.Minute
+
+// MemoryMaintenanceModule is the single maintenance owner of one authoritative memory table.
+// Writes stay independent and cheap; this daemon loop folds fragments into indexes, compacts them,
+// and prunes physical table versions according to the memory retention policy.
+type MemoryMaintenanceModule struct {
+	uri      string
+	interval time.Duration
+	maintain func(context.Context, string) error
+}
+
+func NewMemoryMaintenanceModule(uri string, interval time.Duration) *MemoryMaintenanceModule {
+	if interval <= 0 {
+		interval = defaultMemoryMaintenanceInterval
+	}
+	return &MemoryMaintenanceModule{uri: uri, interval: interval, maintain: maintainMemoryTable}
+}
+
+func (m *MemoryMaintenanceModule) Name() string { return "memory_maintenance" }
+
+func (m *MemoryMaintenanceModule) Start(ctx context.Context) error {
+	if m.uri == "" {
+		return nil
+	}
+	if err := m.maintain(ctx, m.uri); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(m.interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if err := m.maintain(ctx, m.uri); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func maintainMemoryTable(ctx context.Context, uri string) error {
+	table, err := memory.OpenMemoryTable(ctx, uri)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = table.Close() }()
+	count, err := table.Count(ctx)
+	if err != nil || count == 0 {
+		return err
+	}
+	if err := table.EnsureIndexes(ctx); err != nil {
+		return err
+	}
+	return table.Maintain(ctx)
+}
+
 func NewEmbeddingModule(rootPath string, interval time.Duration, cacheDir string) *EmbeddingModule {
 	if interval <= 0 {
 		interval = 2 * time.Minute

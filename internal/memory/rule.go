@@ -19,6 +19,10 @@ func RuleContent(contexts []string) string {
 	memUpdate := brand.MCPToolName("memory", "update")
 	memSearch := brand.MCPToolName("memory", "search")
 	memSearchRef := brand.MCPToolRef("memory", "search")
+	memMandatory := brand.MCPToolName("memory", "mandatory")
+	memMandatoryRef := brand.MCPToolRef("memory", "mandatory")
+	memMarkMandatory := brand.MCPToolName("memory", "mark_mandatory")
+	memUnmarkMandatory := brand.MCPToolName("memory", "unmark_mandatory")
 
 	memPromote := brand.MCPToolName("memory", "promote")
 	memDemote := brand.MCPToolName("memory", "demote")
@@ -46,9 +50,10 @@ func RuleContent(contexts []string) string {
 		"**These steps are MANDATORY. Execute them BEFORE responding to the user's first message.**",
 		"**Skipping them means you WILL repeat mistakes the user already corrected.**",
 		"",
-		"1. Call " + memSearchRef + " with context from the user's request to find relevant memories",
-		"2. If relevant memories found, read the entity page(s) and follow their guidance",
-		"3. Only then proceed with the user's request",
+		"1. Call " + memMandatoryRef + " with NO query. It returns every mandatory memory with full content; read and apply all of them",
+		"2. Call " + memSearchRef + " with context from the user's request and `exclude_mandatory: true`",
+		"3. If relevant memories are found, read the selected entity page(s) and follow their guidance",
+		"4. Only then proceed with the user's request",
 		"",
 		"> If the memory wiki does not exist yet (new project), skip and proceed.",
 		"",
@@ -80,7 +85,7 @@ func RuleContent(contexts []string) string {
 		"| **Before proposing** architecture or technical approach | Decisions, tensions, conventions that constrain options | Avoid contradicting prior decisions the user already made |",
 		"| **User seems frustrated** or repeats an instruction | Corrections about your behavior | You may be ignoring a correction already memorized |",
 		"",
-		"**How to search:** call "+memSearchRef+" tool (passing absolute `project_dir` parameter)",
+		"**How to search:** call "+memSearchRef+" with `exclude_mandatory: true` (passing absolute `project_dir` parameter)",
 		"",
 		"### Another project's memories are readable too",
 		"",
@@ -100,7 +105,7 @@ func RuleContent(contexts []string) string {
 		"### And with no project at all, memory still works",
 		"",
 		"**`project_dir` is optional on every memory tool that reads or writes a scope** — search,",
-		"list, important, insert, update, delete, promote, demote, index. Omitting it serves the **user**",
+		"list, important, mandatory, insert, update, delete, promote, demote, mark/unmark mandatory, index. Omitting it serves the **user**",
 		"scope, which is keyed by this machine rather than by a project, so it is a real scope and not a",
 		"consolation prize:",
 		"",
@@ -151,6 +156,7 @@ func RuleContent(contexts []string) string {
 		"|---|---|---|",
 		"| **Recalling any project knowledge** | Call "+memSearchRef+" → read the page | ❌ Don't answer from model memory or guess |",
 		"| **Persisting a fact/decision/correction** | Call "+memInsertRef+" | ❌ Don't rely on native/model memory to \"remember\" |",
+		"| **Loading unconditional context** | Call `"+memMandatory+"` with no query | ❌ Don't hope a keyword search happens to rank mandatory instructions |",
 		"| **Listing what is known** | Call `"+memList+"` / `"+memImportant+"` | ❌ Don't `ls`/read the memory directory |",
 		"| **Replacing an outdated memory** | Call `"+memUpdate+"` to rewrite it in place | ❌ Don't edit `.md` files directly, and don't delete-then-insert — that loses the id, importance and tags |",
 		"",
@@ -252,6 +258,19 @@ func RuleContent(contexts []string) string {
 		"",
 		"Default type when `type` is omitted: `fact`.",
 		"",
+		"## Mandatory Is a Separate State",
+		"",
+		"`important` means high-value reference material. `mandatory` means the memory must be in every",
+		"agent's context before it interprets any request. Mark a memory mandatory only when it carries",
+		"system-wide operating state, a standing instruction, or foundational context whose absence can",
+		"make an otherwise reasonable task response wrong. A useful convention or hard-won fix is usually",
+		"important, not mandatory.",
+		"",
+		"Maintain this classification whenever you read it. If the unconditional requirement no longer",
+		"holds, first update the memory if its truth changed, then call `"+memUnmarkMandatory+"`. If an",
+		"ordinary memory becomes required for every future session, call `"+memMarkMandatory+"`. Never",
+		"leave a stale mandatory memory loaded forever merely because it was once foundational.",
+		"",
 		"## 📖 How to Retrieve Memories",
 		"",
 		"**ALWAYS use the MCP tools.** The wiki is compiled, BM25-indexed and pre-optimized for",
@@ -292,12 +311,13 @@ func RuleContent(contexts []string) string {
 		"| Search memories by keyword/context | "+memSearchRef+" | Ranked over the compiled wiki — and it answers with TITLES, not with memory text |",
 		"| List all memories | `"+memList+"` | Structured catalog, grouped by type — reads the store, so it sees writes the wiki has not compiled yet |",
 		"| List important memories only | `"+memImportant+"` | High-priority conventions, corrections |",
+		"| Load mandatory memories | `"+memMandatory+"` | Complete, unsearched phase-one session context read directly from the authoritative store |",
 	)
 
 	lines = append(lines,
 		"",
 		"**Retrieval steps:**",
-		"1. Call "+memSearchRef+" with query context — get ranked results",
+		"1. After the mandatory call, call "+memSearchRef+" with query context and `exclude_mandatory: true` — get ranked non-mandatory results",
 		"   > ⚠️ **What comes back is a LIST OF TITLES, not memories.** Each hit is a slug, a title,",
 		"   > a type and a score. There is no memory text in it, by design: a search exists so you",
 		"   > can decide WHICH memory to open, and that decision is made on the title. Reading is",
@@ -421,7 +441,12 @@ func RuleContent(contexts []string) string {
 		memDelete+"(project_dir: \"/path/to/project\", id: \"<id>\")",
 		"",
 		"# Search (lightweight, no AI)",
-		memSearch+"(project_dir: \"/path/to/project\", query: \"<term>\")",
+		memSearch+"(project_dir: \"/path/to/project\", query: \"<term>\", exclude_mandatory: true)",
+		"",
+		"# Mandatory phase and classification maintenance",
+		memMandatory+"(project_dir: \"/path/to/project\")",
+		memMarkMandatory+"(project_dir: \"/path/to/project\", id: \"<id>\")",
+		memUnmarkMandatory+"(project_dir: \"/path/to/project\", id: \"<id>\")",
 		"",
 		"# Promote/demote importance",
 		memPromote+"(project_dir: \"/path/to/project\", id: \"<id>\")",
@@ -536,7 +561,7 @@ func RuleContent(contexts []string) string {
 		"",
 		"## ⚡ Reindex After Writes — automatic, but not instant",
 		"",
-		"After any write (`insert`, `delete`, `update`, `promote`, `demote`), the auto-cycle",
+		"After any write (`insert`, `delete`, `update`, `promote`, `demote`, `mark_mandatory`, `unmark_mandatory`), the auto-cycle",
 		"runs automatically. If it fails, trigger manually calling the "+memIndexRef+" tool (passing absolute `project_dir` parameter).",
 		"",
 		"**\"Automatic\" means eventually, not immediately.** The recompile lands after the write, so",
@@ -560,9 +585,10 @@ func RuleContent(contexts []string) string {
 		"4. **Capture trade-offs, not just facts.** \"We chose X over Y because Z\" > \"We use X\".",
 		"5. **Handle contradictions when you see them.** Update the memory that is true; never leave two conflicting memories behind for a later session to trip over. Same for duplicates and for memories the codebase has outgrown — fixing them is part of reading them, not separate work.",
 		"6. **Promote critical memories.** Conventions, corrections, and constraints should be marked important.",
-		"7. **NEVER just say \"understood\" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate whether it should be memorized. If it contains a convention, preference, correction, workflow, fact, or any persistent knowledge, create a memory immediately. Only skip memorization if the instruction is purely about an ephemeral, one-shot action with no future relevance.",
-		"8. **Memorize your own reasoning about the system.** When you read code, trace a call flow, or analyze how a module works, you MUST create a memory of what you learned. This includes: how components interact, why something behaves unexpectedly, what a non-obvious function does, and any pattern or constraint you discover independently — even without the user saying anything.",
-		"9. **Never discard an insight.** If you understood something non-trivial while analyzing the system, store it. The next session will start blind — your analysis notes must be externalized into memory to survive.",
+		"7. **Classify and maintain mandatory memories.** Foundational system state and standing instructions that every session needs are mandatory; unmark them as soon as unconditional recall is no longer justified.",
+		"8. **NEVER just say \"understood\" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate whether it should be memorized. If it contains a convention, preference, correction, workflow, fact, or any persistent knowledge, create a memory immediately. Only skip memorization if the instruction is purely about an ephemeral, one-shot action with no future relevance.",
+		"9. **Memorize your own reasoning about the system.** When you read code, trace a call flow, or analyze how a module works, you MUST create a memory of what you learned. This includes: how components interact, why something behaves unexpectedly, what a non-obvious function does, and any pattern or constraint you discover independently — even without the user saying anything.",
+		"10. **Never discard an insight.** If you understood something non-trivial while analyzing the system, store it. The next session will start blind — your analysis notes must be externalized into memory to survive.",
 	)
 
 	return strings.Join(lines, "\n") + "\n"
@@ -575,10 +601,10 @@ func MandateTrigger() string {
 		"Memory Management",
 		memorySkillName,
 		"memory",
-		"ALWAYS consult this skill: search memory at session start BEFORE your first response, and again before implementing changes, proposing an approach, or when stuck. This is unconditional — there is no \"only if relevant\" escape. This framework IS your memory; NEVER use IDE/model native memory.\n"+
+		"ALWAYS consult this skill: at session start BEFORE your first response, first load mandatory memory without a query, then search contextual memory with mandatory results excluded. Search again before implementing changes, proposing an approach, or when stuck. This is unconditional — there is no \"only if relevant\" escape. This framework IS your memory; NEVER use IDE/model native memory.\n"+
 			"SEARCH ANSWERS WITH TITLES, NOT WITH MEMORIES. A search result is a slug, a title, a type and a score — it carries no memory text, deliberately, so that the tokens go on the one or two memories you actually decide to open rather than on twenty previews. Choosing is yours: read the titles, pick, then call "+brand.MCPToolRef("wiki", "source")+" with `wiki: \"memory\"` on what you picked. Acting on a search result alone is acting on a title you never read. `preview: true` buys a short excerpt per hit when two titles genuinely do not separate — it is the exception.",
 		[]string{
-			"the session just started and you have not yet searched memory — before the first response, not after it. This is the ONE skill that is due at session start; every other module waits for a trigger of its own to fire",
+			"the session just started and you have not yet completed BOTH initial calls — first " + brand.MCPToolRef("memory", "mandatory") + " without a query, then " + brand.MCPToolRef("memory", "search") + " with `exclude_mandatory: true` — before the first response, not after it. This is the ONE skill that is due at session start; every other module waits for a trigger of its own to fire",
 			"you are about to propose an approach, a design, or a plan",
 			"you are stuck, or the second attempt at something is failing the way the first did",
 			"the user corrected you, stated a preference, or told you how they want something done",
@@ -592,7 +618,7 @@ func MandateTrigger() string {
 			"a search result is marked `superseded` — it is an OLD revision of the memory named in `current`, so read that one before you state anything about how the system behaves today",
 			"the question is how a belief in this project CHANGED — what a memory said before a correction, or why it was revised. Every superseded revision is searchable and the chain is walkable through `previous`; do not answer that from the current memory alone",
 		},
-		[]string{"memory_search", "memory_insert", "memory_update", "memory_list", "memory_important", "memory_promote", "memory_demote", "memory_delete", "memory_index", "memory_schema", "memory_sync", "memory_remove", "wiki_source"},
+		[]string{"memory_mandatory", "memory_search", "memory_insert", "memory_update", "memory_list", "memory_important", "memory_promote", "memory_demote", "memory_mark_mandatory", "memory_unmark_mandatory", "memory_delete", "memory_index", "memory_schema", "memory_sync", "memory_remove", "wiki_source"},
 	)
 }
 
@@ -622,7 +648,7 @@ func InstallSkill(projectDir, ideName string) error {
 	}
 	contexts := AllContextDirs()
 	skillContent := brand.ResolveModuleSkill("memory", RuleContent(contexts))
-	frontmatter, err := ide.SkillFrontmatter(memorySkillName, "Persistent memory across sessions — this framework IS your memory. MANDATORY at conversation start: search memory before responding. Use when: user corrects, teaches, explains, instructs, or guides you; you complete a task, fix a bug, or make a design decision; you discover something unexpected or infer a non-obvious pattern; you are stuck or implementing significant changes (check prior constraints); memory maintenance (gc, consolidation, promote/demote).")
+	frontmatter, err := ide.SkillFrontmatter(memorySkillName, "Persistent memory across sessions — this framework IS your memory. MANDATORY at conversation start: load mandatory memories without search, then search contextual memories while excluding mandatory ones. Use when: user corrects, teaches, explains, instructs, or guides you; you complete a task, fix a bug, or make a design decision; you discover something unexpected or infer a non-obvious pattern; you are stuck or implementing significant changes; memory classification maintenance (important and mandatory).")
 	if err != nil {
 		return err
 	}
