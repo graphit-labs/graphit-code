@@ -717,6 +717,11 @@ type WikiSearchOptions struct {
 }
 
 func (w *WikiDB) SearchWithOptions(ctx context.Context, query string, topK int, opts WikiSearchOptions) ([]WikiSearchResult, error) {
+	var err error
+	topK, err = w.resolveSearchLimit(ctx, topK)
+	if err != nil {
+		return nil, err
+	}
 	text := WikiQueryText(query)
 	if text == "" {
 		return nil, nil
@@ -736,6 +741,11 @@ func (w *WikiDB) SearchWithOptions(ctx context.Context, query string, topK int, 
 
 // SemanticSearch runs the vector half.
 func (w *WikiDB) SemanticSearch(ctx context.Context, vec []float32, topK int) ([]WikiSearchResult, error) {
+	var err error
+	topK, err = w.resolveSearchLimit(ctx, topK)
+	if err != nil {
+		return nil, err
+	}
 	return w.search(ctx, lancestore.Query{
 		Vector: vec, VectorColumn: lanceWikiVector, Limit: topK,
 	})
@@ -747,6 +757,11 @@ func (w *WikiDB) SemanticSearch(ctx context.Context, vec []float32, topK int) ([
 // had 331 lines of Go doing reciprocal-rank fusion across seven weighted passes, and every one of
 // them was a ranking decision made outside the thing that owns ranking.
 func (w *WikiDB) HybridSearch(ctx context.Context, query string, vec []float32, topK int) ([]WikiSearchResult, error) {
+	var err error
+	topK, err = w.resolveSearchLimit(ctx, topK)
+	if err != nil {
+		return nil, err
+	}
 	text := WikiQueryText(query)
 	if text == "" && len(vec) == 0 {
 		// Neither channel has anything to search with. Empty, not an error — see Search.
@@ -774,10 +789,37 @@ func (w *WikiDB) HybridSearch(ctx context.Context, query string, vec []float32, 
 }
 
 func wikiCandidateLimit(topK int) int {
-	if topK <= 0 {
-		return lancestore.DefaultLimit
+	maxInt := int(^uint(0) >> 1)
+	if topK > maxInt/4 {
+		return maxInt
 	}
 	return topK * 4
+}
+
+// resolveSearchLimit makes the public zero value mean what the API promises: all matching rows.
+// Lance's own zero means DefaultLimit, so it must never cross this boundary unchanged.
+func (w *WikiDB) resolveSearchLimit(ctx context.Context, topK int) (int, error) {
+	if topK < 0 {
+		return 0, fmt.Errorf("top_k cannot be negative")
+	}
+	if topK > 0 {
+		return topK, nil
+	}
+	if err := w.ensureTables(ctx); err != nil {
+		return 0, err
+	}
+	n, err := w.chunks.Count(ctx)
+	if err != nil {
+		return 0, err
+	}
+	maxInt := int64(^uint(0) >> 1)
+	if n > maxInt {
+		return int(maxInt), nil
+	}
+	if n == 0 {
+		return 1, nil
+	}
+	return int(n), nil
 }
 
 func wikiSearchFilter(opts WikiSearchOptions) string {

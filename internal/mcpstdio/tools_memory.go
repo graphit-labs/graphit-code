@@ -10,6 +10,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/memory"
+	page "github.com/graphit-labs/graphit-code/internal/pagination"
 )
 
 type memoryInsertInput struct {
@@ -49,6 +50,8 @@ type memorySearchInput struct {
 	Query            string `json:"query" jsonschema:"Keywords to search for in the memory wiki using BM25"`
 	Scope            string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 	TopK             int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
+	PageSize         int    `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor           string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
 	Preview          *bool  `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the memory is read with wiki_source (wiki: memory) when the agent decides it needs it"`
 	AiOptimized      *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 	ExcludeMandatory bool   `json:"exclude_mandatory,omitempty" jsonschema:"Exclude mandatory memories already loaded by the initial mandatory-memory call"`
@@ -244,6 +247,9 @@ func registerMemoryTools(server *mcp.Server) {
 			"Answers with memory titles and scores, not memory text: pick the memory from the titles, then read it with " +
 			brand.MCPToolName("wiki", "source") + " and wiki: \"memory\". Pass preview=true only when the titles are not enough to choose.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySearchInput) (*mcp.CallToolResult, any, error) {
+		if input.TopK < 0 {
+			return errResult(fmt.Errorf("top_k cannot be negative"))
+		}
 		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
@@ -254,6 +260,14 @@ func registerMemoryTools(server *mcp.Server) {
 		scope := "project"
 		if userScope {
 			scope = "user"
+		}
+		window, err := openPage(input.PageSize, input.Cursor, input.TopK, 20, struct {
+			Tool, ProjectDir, Scope, Query string
+			TopK                           int
+			ExcludeMandatory               bool
+		}{"memory_search", projectDir, scope, input.Query, input.TopK, input.ExcludeMandatory})
+		if err != nil {
+			return errResult(err)
 		}
 
 		// resolveWikiDir applies the ephemeral redirect itself, so scope stays as
@@ -268,23 +282,24 @@ func registerMemoryTools(server *mcp.Server) {
 
 		var results []memory.ChainResult
 		err = withProjectDir(projectDir, func() error {
-			results = memory.SearchChains(ctx, wikiDir, input.Query, input.TopK, input.ExcludeMandatory)
+			results = memory.SearchChains(ctx, wikiDir, input.Query, window.FetchLimit, input.ExcludeMandatory)
 			return nil
 		})
 		if err != nil {
 			return errResult(err)
 		}
+		paged := page.Finish(window, results)
 		if aiOpt(input.AiOptimized) {
-			out := memory.FormatChainResultsTOON(results, wantPreview(input.Preview))
+			out := paginationTOON(memory.FormatChainResultsTOON(paged.Results, wantPreview(input.Preview)), paged.NextCursor)
 			if notice != "" {
 				return textResult(notice + "\n" + out)
 			}
 			return textResult(out)
 		}
 		if notice != "" {
-			return noticeResult(notice, results, false)
+			return noticeResult(notice, paged, false)
 		}
-		return jsonResult(results)
+		return jsonResult(paged)
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{

@@ -13,6 +13,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/memory"
+	page "github.com/graphit-labs/graphit-code/internal/pagination"
 	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
@@ -32,6 +33,8 @@ type astQueryInput struct {
 	ProjectDir  string `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to query a globally installed artifact, naming it in context as id@version."`
 	Query       string `json:"query" jsonschema:"Cypher query to execute against the AST graph database"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to query instead of the default project"`
+	PageSize    int    `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); independent of any LIMIT in the Cypher query"`
+	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact query"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
@@ -94,6 +97,8 @@ type astSearchInput struct {
 	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 15)"`
 	Mode        string `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to search"`
+	PageSize    int    `json:"page_size,omitempty" jsonschema:"Results per page (max: 100); top_k remains the total-result cap"`
+	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
 
@@ -194,15 +199,32 @@ func registerASTTools(server *mcp.Server) {
 		}
 		defer func() { _ = db.Close() }()
 
-		result, err := db.Query(ctx, input.Query, nil)
+		window, err := openPage(input.PageSize, input.Cursor, 0, 20, struct {
+			Tool, ProjectDir, Context, Query string
+		}{"ast_query", projectDir, input.Context, input.Query})
 		if err != nil {
 			return errResult(err)
 		}
 
-		if aiOpt(input.AiOptimized) {
-			return textResult(ast.FormatRecordsTOON(result.Records))
+		var paged page.Page[ast.QueryRecord]
+		if pager, ok := db.(ast.QueryPager); ok {
+			result, qerr := pager.QueryPage(ctx, input.Query, nil, window.Offset, window.PageSize+1)
+			if qerr != nil {
+				return errResult(qerr)
+			}
+			paged = page.FinishFetched(window, result.Records)
+		} else {
+			result, qerr := db.Query(ctx, input.Query, nil)
+			if qerr != nil {
+				return errResult(qerr)
+			}
+			paged = page.Finish(window, result.Records)
 		}
-		return jsonResult(result.Records)
+
+		if aiOpt(input.AiOptimized) {
+			return textResult(paginationTOON(ast.FormatRecordsTOON(paged.Results), paged.NextCursor))
+		}
+		return jsonResult(paged)
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -500,8 +522,11 @@ func registerASTTools(server *mcp.Server) {
 		}
 		defer func() { _ = db.Close() }()
 
+		if input.TopK < 0 {
+			return errResult(fmt.Errorf("top_k cannot be negative"))
+		}
 		topK := input.TopK
-		if topK <= 0 {
+		if topK == 0 {
 			topK = 15
 		}
 
@@ -509,20 +534,28 @@ func registerASTTools(server *mcp.Server) {
 		if mode == "" {
 			mode = "hybrid"
 		}
+		window, err := openPage(input.PageSize, input.Cursor, topK, topK, struct {
+			Tool, ProjectDir, Context, Query, Mode string
+			TopK                                   int
+		}{"ast_search", projectDir, input.Context, input.Query, mode, topK})
+		if err != nil {
+			return errResult(err)
+		}
 
 		qs := ast.NewQueryService(db)
 		defer qs.Close()
 
 		switch mode {
 		case "fts":
-			results, err := qs.FullTextSearch(ctx, input.Query, topK)
+			results, err := qs.FullTextSearch(ctx, input.Query, window.FetchLimit)
 			if err != nil {
 				return errResult(err)
 			}
+			paged := page.Finish(window, results)
 			if aiOpt(input.AiOptimized) {
-				return textResult(ast.FormatSearchResultsTOON(results))
+				return textResult(paginationTOON(ast.FormatSearchResultsTOON(paged.Results), paged.NextCursor))
 			}
-			return jsonResult(results)
+			return jsonResult(paged)
 
 		case "semantic":
 			embClient, err := ai.NewEmbeddingClientFromConfig()
@@ -530,28 +563,30 @@ func registerASTTools(server *mcp.Server) {
 				return errResult(err)
 			}
 			qs.SetEmbeddingClient(embClient)
-			results, err := qs.SemanticSearch(ctx, input.Query, topK, "")
+			results, err := qs.SemanticSearch(ctx, input.Query, window.FetchLimit, "")
 			if err != nil {
 				return errResult(err)
 			}
+			paged := page.Finish(window, results)
 			if aiOpt(input.AiOptimized) {
-				return textResult(ast.FormatSearchResultsTOON(results))
+				return textResult(paginationTOON(ast.FormatSearchResultsTOON(paged.Results), paged.NextCursor))
 			}
-			return jsonResult(results)
+			return jsonResult(paged)
 
 		default:
 			embClient, embErr := ai.NewEmbeddingClientFromConfig()
 			if embErr == nil {
 				qs.SetEmbeddingClient(embClient)
 			}
-			results, err := qs.HybridSearch(ctx, input.Query, topK)
+			results, err := qs.HybridSearch(ctx, input.Query, window.FetchLimit)
 			if err != nil {
 				return errResult(err)
 			}
+			paged := page.Finish(window, results)
 			if aiOpt(input.AiOptimized) {
-				return textResult(ast.FormatSearchResultsTOON(results))
+				return textResult(paginationTOON(ast.FormatSearchResultsTOON(paged.Results), paged.NextCursor))
 			}
-			return jsonResult(results)
+			return jsonResult(paged)
 		}
 	}))
 }

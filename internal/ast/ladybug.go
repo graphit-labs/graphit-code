@@ -814,6 +814,69 @@ func (k *LadybugBackend) Query(ctx context.Context, cypher string, params map[st
 	return ladybugResultToQueryResult(res)
 }
 
+// QueryPage executes the same public query contract as Query but consumes only offset+limit rows
+// from the engine iterator. Canonical traversals are already materialized by their bounded planner,
+// so those are sliced after planning; direct engine queries stop after the look-ahead row.
+func (k *LadybugBackend) QueryPage(ctx context.Context, cypher string, params map[string]any, offset, limit int) (*QueryResult, error) {
+	if offset < 0 || limit <= 0 {
+		return nil, fmt.Errorf("invalid query page offset=%d limit=%d", offset, limit)
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if err := k.ensureConnected(); err != nil {
+		return nil, err
+	}
+	if k.canonical != nil {
+		cypher = sanitizeCanonicalUIDEquality(cypher)
+		cypher = sanitizeCanonicalPKEquality(k.canonical, cypher)
+		if res, handled, err := k.tryCanonicalBoundedTraversal(ctx, cypher, params); handled {
+			if err != nil {
+				var refusal *canonicalRefusal
+				if errors.As(err, &refusal) {
+					return nil, refusal
+				}
+				return nil, fmt.Errorf("ladybug query: %w", err)
+			}
+			return sliceQueryResult(res, offset, limit), nil
+		}
+		if namesLogicalRel(k.canonical, cypher) {
+			var members []string
+			for _, g := range k.canonical.RelGroups {
+				members = append(members, g.Type)
+			}
+			return nil, fmt.Errorf("canonical catalog: a query over %v must be a single "+
+				"`MATCH (a)-[:TYPE]->(b) [WHERE ...] RETURN DISTINCT b.property | count([DISTINCT] b.uid)`, "+
+				"with one end filtered; this query is not that shape, and the planner is the only route for "+
+				"these types", members)
+		}
+	}
+
+	res, err := k.runQuery(cypher, params)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			return &QueryResult{}, nil
+		}
+		if hint := k.explainBinderErrorLocked(err); hint != "" {
+			return nil, fmt.Errorf("ladybug query: %w — %s", err, hint)
+		}
+		return nil, fmt.Errorf("ladybug query: %w", err)
+	}
+	defer res.Close()
+	return ladybugResultToQueryPage(res, offset, limit)
+}
+
+func sliceQueryResult(result *QueryResult, offset, limit int) *QueryResult {
+	if offset >= len(result.Records) {
+		return &QueryResult{}
+	}
+	end := offset + limit
+	if end > len(result.Records) {
+		end = len(result.Records)
+	}
+	return &QueryResult{Records: append([]QueryRecord(nil), result.Records[offset:end]...)}
+}
+
 // explainBinderErrorLocked turns an engine error into the answer to the question it
 // raises, or "" when it has nothing to add. The caller must hold k.mu.
 func (k *LadybugBackend) explainBinderErrorLocked(err error) string {
@@ -1196,6 +1259,39 @@ func ladybugResultToQueryResult(res *lbug.QueryResult) (*QueryResult, error) {
 				defer func() {
 					if r := recover(); r != nil {
 
+						record[col] = nil
+					}
+				}()
+				val, err := tuple.GetValue(uint64(i))
+				if err == nil {
+					record[col] = normalizeLadybugValue(val)
+				}
+			}()
+		}
+		qr.Records = append(qr.Records, record)
+	}
+	return qr, nil
+}
+
+func ladybugResultToQueryPage(res *lbug.QueryResult, offset, limit int) (*QueryResult, error) {
+	qr := &QueryResult{}
+	cols := res.GetColumnNames()
+	seen := 0
+	for res.HasNext() && len(qr.Records) < limit {
+		tuple, err := res.Next()
+		if err != nil {
+			break
+		}
+		if seen < offset {
+			seen++
+			continue
+		}
+		seen++
+		record := make(QueryRecord, len(cols))
+		for i, col := range cols {
+			func() {
+				defer func() {
+					if recover() != nil {
 						record[col] = nil
 					}
 				}()

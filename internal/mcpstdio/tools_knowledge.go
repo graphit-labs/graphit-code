@@ -10,6 +10,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
+	page "github.com/graphit-labs/graphit-code/internal/pagination"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
@@ -28,6 +29,8 @@ type knowledgeSearchInput struct {
 	Query       string `json:"query" jsonschema:"Keywords to search for in the knowledge wiki using BM25"`
 	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (0 = no limit)"`
 	Context     string `json:"context,omitempty" jsonschema:"Named imported context to search"`
+	PageSize    int    `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
 	Preview     *bool  `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the page is read with wiki_source when the agent decides it needs it"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
 }
@@ -116,7 +119,18 @@ func registerKnowledgeTools(server *mcp.Server) {
 			brand.MCPToolName("wiki", "source") + ", which slices. Pass preview=true only when the titles are not enough to choose. " +
 			"Without project_dir, pass the globally installed artifact's qualified identifier (id@version) as context.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input knowledgeSearchInput) (*mcp.CallToolResult, any, error) {
+		if input.TopK < 0 {
+			return errResult(fmt.Errorf("top_k cannot be negative"))
+		}
 		projectDir, err := resolveArtifactScope(input.ProjectDir, input.Context)
+		if err != nil {
+			return errResult(err)
+		}
+
+		window, err := openPage(input.PageSize, input.Cursor, input.TopK, 20, struct {
+			Tool, ProjectDir, Context, Query string
+			TopK                             int
+		}{"knowledge_search", projectDir, input.Context, input.Query, input.TopK})
 		if err != nil {
 			return errResult(err)
 		}
@@ -128,16 +142,17 @@ func registerKnowledgeTools(server *mcp.Server) {
 				return oerr
 			}
 			defer func() { _ = db.Close() }()
-			results = wiki.BM25SearchFrom(ctx, db, input.Query, input.TopK)
+			results = wiki.BM25SearchFrom(ctx, db, input.Query, window.FetchLimit)
 			return nil
 		})
 		if err != nil {
 			return errResult(err)
 		}
+		paged := page.Finish(window, results)
 		if aiOpt(input.AiOptimized) {
-			return textResult(wiki.FormatBM25ResultsTOON(results, wantPreview(input.Preview)))
+			return textResult(paginationTOON(wiki.FormatBM25ResultsTOON(paged.Results, wantPreview(input.Preview)), paged.NextCursor))
 		}
-		return jsonResult(results)
+		return jsonResult(paged)
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{

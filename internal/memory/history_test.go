@@ -4,6 +4,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -254,6 +255,38 @@ func TestSearchCollapsesAChainToItsCurrentRevision(t *testing.T) {
 			t.Logf("hit %s superseded=%v current=%s", r.Path, r.Superseded, r.Current)
 		}
 		t.Error("a superseded revision that matched alone was not returned with the current memory id")
+	}
+}
+
+func TestSearchChainsWidensUntilTopKDistinctMemories(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	svc := newLocalService(t)
+	id, err := svc.AddMemory("Long history", "cursor-chain-marker revision 0", MemoryOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 25; i++ {
+		if err := svc.UpdateMemory(id, "Long history", fmt.Sprintf("cursor-chain-marker revision %d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range 3 {
+		if _, err := svc.AddMemory(fmt.Sprintf("Other %d", i), "cursor-chain-marker distinct", MemoryOpts{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wikiDir := filepath.Join(t.TempDir(), "wiki")
+	compileFromTable(t, svc, wikiDir)
+	results := SearchChains(context.Background(), wikiDir, "cursor-chain-marker", 4)
+	if len(results) != 4 {
+		t.Fatalf("got %d distinct chains after widening, want 4", len(results))
+	}
+	seen := map[string]bool{}
+	for _, result := range results {
+		if seen[result.MemoryID] {
+			t.Fatalf("duplicate chain %q in %+v", result.MemoryID, results)
+		}
+		seen[result.MemoryID] = true
 	}
 }
 

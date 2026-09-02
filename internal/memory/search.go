@@ -50,23 +50,38 @@ const chainOverFetch = 4
 //     hiding it would lose the answer; the annotation is what lets the agent decide whether to
 //     read the revision, the current memory, or both.
 func SearchChains(ctx context.Context, wikiDir, query string, topN int, excludeMandatory ...bool) []ChainResult {
-	fetch := topN
-	if fetch > 0 {
-		fetch *= chainOverFetch
-	}
-
 	opts := wiki.WikiSearchOptions{}
 	if len(excludeMandatory) > 0 {
 		opts.ExcludeMandatory = excludeMandatory[0]
 	}
-	hits := wiki.BM25SearchWithOptions(ctx, wikiDir, query, fetch, opts)
-	resolved := resolveChains(hits)
-	out := collapseChains(resolved)
 
-	if topN > 0 && len(out) > topN {
-		out = out[:topN]
+	// A fixed over-fetch factor is only a starting point: one chain may have arbitrarily many
+	// matching revisions. Keep widening the deterministic prefix until there are enough distinct
+	// chains or the index proves it is exhausted. This is what makes both topN and cursor look-ahead
+	// exact after collapse rather than best effort.
+	fetch := 20
+	maxInt := int(^uint(0) >> 1)
+	if topN > 0 {
+		if topN > maxInt/chainOverFetch {
+			fetch = maxInt
+		} else if topN*chainOverFetch > fetch {
+			fetch = topN * chainOverFetch
+		}
 	}
-	return out
+	for {
+		hits := wiki.BM25SearchWithOptions(ctx, wikiDir, query, fetch, opts)
+		out := collapseChains(resolveChains(hits))
+		if topN > 0 && len(out) >= topN {
+			return out[:topN]
+		}
+		if len(hits) < fetch {
+			return out
+		}
+		if fetch > maxInt/2 {
+			return out
+		}
+		fetch *= 2
+	}
 }
 
 // resolveChains attaches the chain metadata to each hit.

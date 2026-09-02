@@ -26,6 +26,12 @@ type GraphDB interface {
 	Close() error
 }
 
+// QueryPager is implemented by graph engines that can stop their result iterator after one page.
+// limit includes the caller's look-ahead row; the returned records start after offset.
+type QueryPager interface {
+	QueryPage(ctx context.Context, cypher string, params map[string]any, offset, limit int) (*QueryResult, error)
+}
+
 type BatchQuery struct {
 	Cypher string
 	Params map[string]any

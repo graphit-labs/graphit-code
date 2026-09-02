@@ -888,6 +888,11 @@ func (s *SearchIndex) ensureTables(ctx context.Context) error {
 // share a word with the query would otherwise outrank the function the user was looking for, and
 // there is no single relevance scale on which "this file" and "this function" compare.
 func (s *SearchIndex) Search(ctx context.Context, query string, topK int) ([]SearchResult, error) {
+	var err error
+	topK, err = s.resolveSearchLimit(ctx, topK, true)
+	if err != nil {
+		return nil, err
+	}
 	return s.search(ctx, lancestore.Query{
 		Text: LanceQueryText(query), TextColumn: lanceBodyColumn, Limit: topK,
 	}, topK)
@@ -901,6 +906,11 @@ func (s *SearchIndex) SemanticSearch(ctx context.Context, vec []float32, topK in
 		return nil, nil
 	}
 	if err := s.ensureTables(ctx); err != nil {
+		return nil, err
+	}
+	var err error
+	topK, err = s.resolveSearchLimit(ctx, topK, false)
+	if err != nil {
 		return nil, err
 	}
 	hits, err := s.entities.Search(ctx, lancestore.Query{
@@ -933,10 +943,46 @@ func (s *SearchIndex) HybridSearch(ctx context.Context, query string, vec []floa
 		}
 		return s.Search(ctx, query, topK)
 	}
+	var err error
+	topK, err = s.resolveSearchLimit(ctx, topK, true)
+	if err != nil {
+		return nil, err
+	}
 	return s.search(ctx, lancestore.Query{
 		Text: LanceQueryText(query), TextColumn: lanceBodyColumn,
 		Vector: vec, VectorColumn: lanceVectorColumn, Limit: topK,
 	}, topK)
+}
+
+func (s *SearchIndex) resolveSearchLimit(ctx context.Context, topK int, includeFiles bool) (int, error) {
+	if topK < 0 {
+		return 0, fmt.Errorf("top_k cannot be negative")
+	}
+	if topK > 0 {
+		return topK, nil
+	}
+	if err := s.ensureTables(ctx); err != nil {
+		return 0, err
+	}
+	n, err := s.entities.Count(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if includeFiles {
+		files, err := s.files.Count(ctx)
+		if err != nil {
+			return 0, err
+		}
+		n += files
+	}
+	maxInt := int64(^uint(0) >> 1)
+	if n > maxInt {
+		return int(maxInt), nil
+	}
+	if n == 0 {
+		return 1, nil
+	}
+	return int(n), nil
 }
 
 // search queries entities, then files, and puts entities first.

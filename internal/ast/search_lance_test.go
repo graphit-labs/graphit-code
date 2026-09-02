@@ -12,6 +12,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	page "github.com/graphit-labs/graphit-code/internal/pagination"
 )
 
 // The port of the two write paths onto LanceDB, tested through the same door the daemon uses.
@@ -148,6 +149,59 @@ func TestLanceRebuildIndexesFilesAndEntities(t *testing.T) {
 	}
 	if got := searchNames(t, idx, "swaps it in", 5); !hasName(got, "SyncRegistry") {
 		t.Errorf("searching the docstring did not find its entity: %v", got)
+	}
+}
+
+func TestASTSearchZeroTopKReallyMeansUnlimited(t *testing.T) {
+	ctx := context.Background()
+	idx := newLanceIndexForTest(t)
+	entities := make([]cachedEntity, 0, 25)
+	for i := range 25 {
+		entities = append(entities, cachedEntity{
+			Name: fmt.Sprintf("Item%02d", i), Docstring: "quasarspindlemarker", Line: i + 1,
+		})
+	}
+	cache := newShardCacheForTest(t, entryWith("fixture.go", "package fixture", entities...))
+	if err := idx.RebuildFromCache(ctx, cache, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := idx.Search(ctx, "quasarspindlemarker", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 25 {
+		t.Fatalf("top_k=0 returned %d entities, want all 25", len(got))
+	}
+
+	var cursor string
+	var pagedNames []string
+	for {
+		window, err := page.Open(page.Spec{PageSize: 2, Cursor: cursor, Total: 5, Bind: "ast-fts"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		prefix, err := idx.Search(ctx, "quasarspindlemarker", window.FetchLimit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		current := page.Finish(window, prefix)
+		for _, result := range current.Results {
+			pagedNames = append(pagedNames, result.Name)
+		}
+		cursor = current.NextCursor
+		if cursor == "" {
+			break
+		}
+	}
+	if len(pagedNames) != 5 {
+		t.Fatalf("paged FTS returned %d results, want top_k total cap 5", len(pagedNames))
+	}
+	seen := map[string]bool{}
+	for _, name := range pagedNames {
+		if seen[name] {
+			t.Fatalf("paged FTS repeated %q: %v", name, pagedNames)
+		}
+		seen[name] = true
 	}
 }
 

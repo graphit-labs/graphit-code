@@ -14,6 +14,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	page "github.com/graphit-labs/graphit-code/internal/pagination"
 	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
@@ -23,7 +24,9 @@ type wikiSearchInput struct {
 	Wikis       []string `json:"wikis,omitempty" jsonschema:"Wiki sources to search (project, memory, or project IDs from ecosystem)"`
 	HubRefs     []string `json:"hub_refs,omitempty" jsonschema:"Hub knowledge artifact references to include (format: artifact-id@version)"`
 	SessionID   string   `json:"session_id,omitempty" jsonschema:"Session ID to continue an existing conversation"`
-	TopK        int      `json:"top_k,omitempty" jsonschema:"BM25 results per wiki source (0 = no limit)"`
+	TopK        int      `json:"top_k,omitempty" jsonschema:"Maximum results across all merged wiki sources (0 = no limit)"`
+	PageSize    int      `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); top_k remains the total-result cap across merged sources"`
+	Cursor      string   `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
 	ProjectDir  string   `json:"project_dir,omitempty" jsonschema:"Project directory. Omit to search only wikis=[\"memory\"] or hub_refs."`
 	Mode        string   `json:"mode,omitempty" jsonschema:"Search mode: hybrid (default, combines BM25 + semantic via RRF), fts (BM25 only), semantic (vector only)"`
 	Preview     *bool    `json:"preview,omitempty" jsonschema:"Set to true to include a short text excerpt per hit. Default false: a search answers with titles, and the page is read with wiki_source when the agent decides it needs it"`
@@ -75,6 +78,29 @@ type wikiSourceInput struct {
 	Before      int    `json:"before,omitempty" jsonschema:"Number of context lines before each pattern match"`
 	After       int    `json:"after,omitempty" jsonschema:"Number of context lines after each pattern match"`
 	LineNumbers bool   `json:"line_numbers,omitempty" jsonschema:"Include line numbers in the output (default: false)"`
+}
+
+func setWikiResultSource(results []wiki.WikiSearchResult, source string) {
+	for i := range results {
+		if results[i].Source == "" {
+			results[i].Source = source
+		}
+	}
+}
+
+func sortWikiResults(results []wiki.WikiSearchResult) {
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		if results[i].Source != results[j].Source {
+			return results[i].Source < results[j].Source
+		}
+		if results[i].Slug != results[j].Slug {
+			return results[i].Slug < results[j].Slug
+		}
+		return results[i].Title < results[j].Title
+	})
 }
 
 // resolveWikiScopeDirContext is resolveWikiScopeDir for an imported context.
@@ -176,14 +202,12 @@ func registerWikiTools(server *mcp.Server) {
 			brand.MCPToolName("wiki", "source") + ", which slices. Pass preview=true only when the titles are not enough to choose. " +
 			"Without project_dir, only wikis=[\"memory\"] and hub_refs are searchable, because every other source names a project.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input wikiSearchInput) (*mcp.CallToolResult, any, error) {
+		if input.TopK < 0 {
+			return errResult(fmt.Errorf("top_k cannot be negative"))
+		}
 		projectDir, err := resolveProjectDirOptional(input.ProjectDir)
 		if err != nil {
 			return errResult(err)
-		}
-
-		topK := input.TopK
-		if topK <= 0 {
-			topK = 15
 		}
 
 		mode := input.Mode
@@ -215,6 +239,15 @@ func registerWikiTools(server *mcp.Server) {
 				}
 			}
 		}
+		window, err := openPage(input.PageSize, input.Cursor, input.TopK, 20, struct {
+			Tool, ProjectDir, Query, Mode, SessionID string
+			Wikis, HubRefs                           []string
+			TopK                                     int
+		}{"wiki_search", projectDir, input.Query, mode, input.SessionID, wikis, input.HubRefs, input.TopK})
+		if err != nil {
+			return errResult(err)
+		}
+		topK := window.FetchLimit
 
 		switch mode {
 		case "fts":
@@ -229,22 +262,22 @@ func registerWikiTools(server *mcp.Server) {
 				results, err := wikiDB.Search(ctx, input.Query, topK)
 				_ = wikiDB.Close()
 				if err == nil {
+					setWikiResultSource(results, scope)
 					allResults = append(allResults, results...)
 				}
 			}
 			if len(allResults) == 0 && len(skipped) > 0 {
 				return errResult(fmt.Errorf("%s", strings.Join(skipped, "; ")))
 			}
-			sort.Slice(allResults, func(i, j int) bool {
-				return allResults[i].Score > allResults[j].Score
-			})
+			sortWikiResults(allResults)
 			if len(allResults) > topK {
 				allResults = allResults[:topK]
 			}
+			paged := page.Finish(window, allResults)
 			if aiOpt(input.AiOptimized) {
-				return textResult(wiki.FormatSearchResultsTOON(allResults, wantPreview(input.Preview)))
+				return textResult(paginationTOON(wiki.FormatSearchResultsTOON(paged.Results, wantPreview(input.Preview)), paged.NextCursor))
 			}
-			return jsonResult(allResults)
+			return jsonResult(paged)
 
 		case "semantic":
 			embClient, err := ai.NewEmbeddingClientFromConfig()
@@ -266,22 +299,22 @@ func registerWikiTools(server *mcp.Server) {
 				results, err := wikiDB.SemanticSearch(ctx, queryVec, topK)
 				_ = wikiDB.Close()
 				if err == nil {
+					setWikiResultSource(results, scope)
 					allResults = append(allResults, results...)
 				}
 			}
 			if len(allResults) == 0 && len(skipped) > 0 {
 				return errResult(fmt.Errorf("%s", strings.Join(skipped, "; ")))
 			}
-			sort.Slice(allResults, func(i, j int) bool {
-				return allResults[i].Score > allResults[j].Score
-			})
+			sortWikiResults(allResults)
 			if len(allResults) > topK {
 				allResults = allResults[:topK]
 			}
+			paged := page.Finish(window, allResults)
 			if aiOpt(input.AiOptimized) {
-				return textResult(wiki.FormatSearchResultsTOON(allResults, wantPreview(input.Preview)))
+				return textResult(paginationTOON(wiki.FormatSearchResultsTOON(paged.Results, wantPreview(input.Preview)), paged.NextCursor))
 			}
-			return jsonResult(allResults)
+			return jsonResult(paged)
 
 		default: // hybrid
 			// Try to get embedding client; fall back to FTS-only if unavailable.
@@ -316,6 +349,7 @@ func registerWikiTools(server *mcp.Server) {
 				}
 				_ = wikiDB.Close()
 				if err == nil {
+					setWikiResultSource(results, scope)
 					allResults = append(allResults, results...)
 				}
 			}
@@ -324,24 +358,23 @@ func registerWikiTools(server *mcp.Server) {
 			}
 
 			// Sort merged results by score descending and trim.
-			sort.Slice(allResults, func(i, j int) bool {
-				return allResults[i].Score > allResults[j].Score
-			})
+			sortWikiResults(allResults)
 			if len(allResults) > topK {
 				allResults = allResults[:topK]
 			}
+			paged := page.Finish(window, allResults)
 			if aiOpt(input.AiOptimized) {
-				out := wiki.FormatSearchResultsTOON(allResults, wantPreview(input.Preview))
+				out := wiki.FormatSearchResultsTOON(paged.Results, wantPreview(input.Preview))
 				if degraded != "" {
 					out += fmt.Sprintf("\n\nNOTE: hybrid degraded to full-text only — %s. "+
 						"Semantic ranking contributed nothing to these results.\n", degraded)
 				}
-				return textResult(out)
+				return textResult(paginationTOON(out, paged.NextCursor))
 			}
 			if degraded != "" {
-				return jsonResult(map[string]any{"results": allResults, "degraded": degraded})
+				return jsonResult(map[string]any{"results": paged.Results, "next_cursor": paged.NextCursor, "degraded": degraded})
 			}
-			return jsonResult(allResults)
+			return jsonResult(paged)
 		}
 	}))
 

@@ -165,6 +165,25 @@ func TestWikiRRFIsDeterministicOnTies(t *testing.T) {
 	}
 }
 
+func TestWikiSearchZeroTopKReallyMeansUnlimited(t *testing.T) {
+	ctx := context.Background()
+	db := newWikiForTest(t)
+	chunks := make([]WikiChunk, 0, 25)
+	for i := range 25 {
+		chunks = append(chunks, lanceChunk(fmt.Sprintf("page-%02d", i), fmt.Sprintf("Page %02d", i), "", "shared-unlimited-marker"))
+	}
+	if err := db.Sync(ctx, chunks, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.Search(ctx, "shared-unlimited-marker", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 25 {
+		t.Fatalf("top_k=0 returned %d rows, want all 25", len(got))
+	}
+}
+
 // The slug carries the title of a page whose title may have been written later, so a query that
 // matches only the slug has to land.
 func TestLanceWikiSlugIsSearchable(t *testing.T) {
