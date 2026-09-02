@@ -2401,3 +2401,44 @@ logged. `TestMemoryService_NoGitStore_Errors` keeps every write in its list and 
   two-live-mechanism swap, D4 (the Parquet bundle dies), and the `BundleDir == WikiIndexDirName` trap.
 - [ ] **T4** — incremental by `Upsert`/`DeleteByKey` instead of `RebuildDB` dropping four tables.
 - [ ] **T5** — rules, specs, ADR, and the memories that still describe a wiki as three artifacts.
+
+### 2026-09-02 (the migration retired, and T0+T1+T2 committed as 832e5bd)
+
+The user settled the one thing holding the migration open: the other scopes in the raw store are
+dev test data, so nothing needed carrying across. `migrate.go`, `graphit memory migrate` (both forms)
+and its five tests are deleted, and the linter then found the three file enumerators that only it
+used — `isMemorySourceFile`, `memorySourceFileNames`, `historySourceFileNames`.
+
+**One test was rescued rather than deleted, and the distinction is the one this task kept meeting.**
+`TestAMemoryRecordSurvivesTheRoundTripWithEveryField` was swept up because it compared canonical
+hashes through the migration's helper — but its SUBJECT is the `memories` schema, which is live and
+is the whole of T2.1's guarantee. Rewritten to compare field by field, which is stricter than the
+hash: it names WHICH field was lost instead of only that one was.
+
+`internal/ast` failed once in a full run and passed alone and on re-run — a flake, noted rather than
+chased.
+
+Committed as **832e5bd**, 102 files, +8092/−6371. One commit, deliberately: the boundaries are
+interleaved in the same files — `wiki/pipeline.go` carries both a legacy deletion and the publish bug
+fix, `internal/memory/*` carries the legacy sweep and all of T2 — so splitting them would produce
+intermediate commits that may not build.
+
+## Remaining after 832e5bd
+
+- [ ] **The last raw-store threads.** Four are load-bearing and were left out to keep the commit
+  reviewable, each with its own decision:
+  - `ScopeStore` and its whole file surface have ZERO production callers. Mechanical deletion;
+    `unused` cannot see it because they are exported methods.
+  - `memory.ContextNames()` lists imported contexts from `store.MemoryRawRoot()`, which no longer
+    exists — **it answers empty now**, so context listing is silently broken until it reads
+    `MemoryTableRoot()`.
+  - `internal/daemon/memorysyncmodule.go` watches the raw root for file changes. There are no files;
+    a write recompiles inline through `syncToLocalFast`, so the module is vestigial.
+  - `consolidate_apply.go` keeps its apply state under `LocalDir()`. That needs a home — the table
+    directory.
+- [ ] **T3** — knowledge builds into a local table and publishes by writing it to S3: the two live
+  publish mechanisms collapse, D4 (the Parquet bundle dies), and the `BundleDir == WikiIndexDirName`
+  trap where the exclusion predicate and the bundle directory share a name and mean opposites.
+- [ ] **T4** — incremental by `Upsert`/`DeleteByKey` instead of `RebuildDB` dropping four tables.
+- [ ] **T5** — rules, specs, ADR, and the memories that still describe a wiki as three artifacts.
+
