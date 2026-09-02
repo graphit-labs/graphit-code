@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -258,31 +257,6 @@ func TestParseMemoryMeta_NonExistentFile(t *testing.T) {
 	}
 	if createdAt != "" {
 		t.Errorf("expected empty createdAt, got %q", createdAt)
-	}
-}
-
-func TestFirstLine(t *testing.T) {
-	tests := []struct {
-		name string
-		body string
-		want string
-	}{
-		{"empty", "", ""},
-		{"single line", "Hello world", "Hello world"},
-		{"skip heading", "# Heading\n\nActual content", "Actual content"},
-		{"skip blank", "\n\n\nContent after blanks", "Content after blanks"},
-		{"truncate long line", strings.Repeat("X", 200), strings.Repeat("X", 120) + "…"},
-		{"skip heading then body", "# H1\nBody text", "Body text"},
-		{"all headings", "# H1\n## H2\n### H3", ""},
-		{"whitespace only lines", "  \n\t\n   \n", ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := firstLine(tc.body)
-			if got != tc.want {
-				t.Errorf("firstLine(%q) = %q; want %q", tc.body, got, tc.want)
-			}
-		})
 	}
 }
 
@@ -574,93 +548,6 @@ func TestDetectStaleMemories_Empty(t *testing.T) {
 
 // ListMemories (filesystem-based via MemoryService)
 
-func TestListMemories(t *testing.T) {
-	dir := t.TempDir()
-
-	impContent := `---
-title: Important Memory
-important: true
-created_at: 2026-05-20T00:00:00Z
----
-
-# Important Memory
-
-Details.`
-	writeMemFile(t, dir, "ABC.md", impContent)
-
-	normContent := `---
-title: Normal Memory
-created_at: 2026-05-21T00:00:00Z
----
-
-# Normal Memory
-
-Content.`
-	writeMemFile(t, dir, "DEF.md", normContent)
-
-	// Create a non-md file (should be skipped)
-	writeMemFile(t, dir, "notes.txt", "not a memory")
-
-	// Create a subdirectory (should be skipped)
-	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-
-	svc := &MemoryService{
-		scope:    MemoryScopeProject,
-		scopeID:  "test-proj",
-		localDir: dir,
-	}
-
-	memories, err := svc.ListMemories()
-	if err != nil {
-		t.Fatalf("ListMemories: %v", err)
-	}
-	if len(memories) != 2 {
-		t.Fatalf("expected 2 memories, got %d", len(memories))
-	}
-
-	// Check that we correctly identified important vs normal
-	var foundImportant, foundNormal bool
-	for _, m := range memories {
-		if m.ID == "ABC" && m.Important && m.Title == "Important Memory" {
-			foundImportant = true
-		}
-		if m.ID == "DEF" && !m.Important && m.Title == "Normal Memory" {
-			foundNormal = true
-		}
-	}
-	if !foundImportant {
-		t.Error("expected to find important memory with ID 'ABC'")
-	}
-	if !foundNormal {
-		t.Error("expected to find normal memory with ID 'DEF'")
-	}
-}
-
-func TestListMemories_EmptyDir(t *testing.T) {
-	dir := t.TempDir()
-	svc := &MemoryService{localDir: dir}
-	memories, err := svc.ListMemories()
-	if err != nil {
-		t.Fatalf("ListMemories: %v", err)
-	}
-	if len(memories) != 0 {
-		t.Errorf("expected 0 memories, got %d", len(memories))
-	}
-}
-
-func TestListMemories_NonExistentDir(t *testing.T) {
-	svc := &MemoryService{localDir: "/nonexistent/path/xyz"}
-	memories, err := svc.ListMemories()
-	if err != nil {
-		t.Fatalf("ListMemories should return nil for non-existent dir, got error: %v", err)
-	}
-	if memories != nil {
-		t.Errorf("expected nil, got %v", memories)
-	}
-}
-
 func TestListImportantInDir(t *testing.T) {
 	dir := t.TempDir()
 
@@ -722,162 +609,6 @@ func TestListImportantInDir_NonExistent(t *testing.T) {
 	}
 }
 
-func TestGenerateMemoryWiki(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-
-	mem1 := `---
-title: Convention Alpha
-type: convention
-created_at: 2026-05-20T00:00:00Z
----
-
-# Convention Alpha
-
-Always follow alpha pattern.`
-
-	mem2 := `---
-title: Fact Beta
-type: fact
-created_at: 2026-05-21T00:00:00Z
-important: true
----
-
-# Fact Beta
-
-Beta is the second letter.`
-
-	writeMemFile(t, rawDir, "MEM1.md", mem1)
-	writeMemFile(t, rawDir, "MEM2.md", mem2)
-
-	ctx := context.Background()
-	result, err := GenerateMemoryWiki(ctx, rawDir, wikiDir)
-	if err != nil {
-		t.Fatalf("GenerateMemoryWiki: %v", err)
-	}
-	if result.ArticlesWritten != 2 {
-		t.Errorf("ArticlesWritten = %d; want 2", result.ArticlesWritten)
-	}
-
-	// Verify entity pages were written to wikiDir
-	entries, readErr := os.ReadDir(wikiDir)
-	if readErr != nil {
-		t.Fatalf("reading wiki dir: %v", readErr)
-	}
-	if len(entries) < 2 {
-		t.Errorf("expected at least 2 files in wiki dir, got %d", len(entries))
-	}
-}
-
-func TestGenerateMemoryWiki_EmptyDir(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-
-	ctx := context.Background()
-	result, err := GenerateMemoryWiki(ctx, rawDir, wikiDir)
-	if err != nil {
-		t.Fatalf("GenerateMemoryWiki: %v", err)
-	}
-	if result.ArticlesWritten != 0 {
-		t.Errorf("ArticlesWritten = %d; want 0", result.ArticlesWritten)
-	}
-}
-
-func TestGenerateMemoryWiki_NonExistentRawDir(t *testing.T) {
-	wikiDir := t.TempDir()
-	ctx := context.Background()
-	result, err := GenerateMemoryWiki(ctx, "/nonexistent/raw", wikiDir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.ArticlesWritten != 0 {
-		t.Errorf("ArticlesWritten = %d; want 0", result.ArticlesWritten)
-	}
-}
-
-func TestGenerateMemoryWiki_SkipsIndexAndLog(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-
-	// These should be skipped during wiki generation
-	writeMemFile(t, rawDir, "index.md", "---\ntitle: Index\n---\n")
-	writeMemFile(t, rawDir, "log.md", "---\ntitle: Log\n---\n")
-	writeMemFile(t, rawDir, "Memory_Wiki_Something.md", "---\ntitle: Wiki\n---\n")
-
-	// This one should be processed
-	writeMemFile(t, rawDir, "VALID.md", "---\ntitle: Valid Memory\n---\n# Valid Memory\n\nContent.")
-
-	ctx := context.Background()
-	result, err := GenerateMemoryWiki(ctx, rawDir, wikiDir)
-	if err != nil {
-		t.Fatalf("GenerateMemoryWiki: %v", err)
-	}
-	if result.ArticlesWritten != 1 {
-		t.Errorf("ArticlesWritten = %d; want 1", result.ArticlesWritten)
-	}
-}
-
-// RunCycle (filesystem-based)
-
-func TestRunCycle_NonExistentRawDir(t *testing.T) {
-	ctx := context.Background()
-	result := RunCycle(ctx, "test-scope", "/nonexistent/raw/dir", t.TempDir())
-	if result.Scope != "test-scope" {
-		t.Errorf("Scope = %q; want 'test-scope'", result.Scope)
-	}
-	if result.Err != nil {
-		t.Errorf("expected nil error, got: %v", result.Err)
-	}
-	if result.WikiFiles != 0 {
-		t.Errorf("WikiFiles = %d; want 0", result.WikiFiles)
-	}
-}
-
-func TestRunCycle_WithValidData(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-
-	content := `---
-title: Test Memory
-type: fact
-created_at: 2026-05-20T00:00:00Z
----
-
-# Test Memory
-
-Content for testing.`
-	writeMemFile(t, rawDir, "TEST1.md", content)
-
-	ctx := context.Background()
-	result := RunCycle(ctx, "project", rawDir, wikiDir)
-	if result.Err != nil {
-		t.Fatalf("RunCycle error: %v", result.Err)
-	}
-	if result.WikiFiles != 1 {
-		t.Errorf("WikiFiles = %d; want 1", result.WikiFiles)
-	}
-}
-
-func TestMemoryBranch(t *testing.T) {
-	tests := []struct {
-		scope   string
-		scopeID string
-		want    string
-	}{
-		{"project", "abc123", "memory/project/abc123"},
-		{"user", "userhash", "memory/user/userhash"},
-		{"my-context", "ctx-id", "memory/project/my-context"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.scope+"_"+tc.scopeID, func(t *testing.T) {
-			got := memoryBranch(tc.scope, tc.scopeID)
-			if got != tc.want {
-				t.Errorf("memoryBranch(%q, %q) = %q; want %q", tc.scope, tc.scopeID, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestScopePrefix(t *testing.T) {
 	tests := []struct {
 		scope   MemoryScope
@@ -898,41 +629,6 @@ func TestScopePrefix(t *testing.T) {
 		})
 	}
 }
-
-func TestMemoryEntityPage(t *testing.T) {
-	page := memoryEntityPageWithHash("ID1", "Test Memory", "2026-05-20T00:00:00Z", true, "Content here.", "convention", "")
-	checks := []struct {
-		desc   string
-		substr string
-	}{
-		{"title frontmatter", "title: Test Memory"},
-		{"id frontmatter", "id: ID1"},
-		{"H1 heading", "# Test Memory"},
-		{"body", "Content here."},
-		{"important note", "⭐ **Important memory**"},
-		{"type frontmatter", "type: convention"},
-		{"tags memory", "- memory"},
-		{"tags important", "- important"},
-		{"tags convention", "- convention"},
-	}
-	for _, c := range checks {
-		if !strings.Contains(page, c.substr) {
-			t.Errorf("[%s] page should contain %q", c.desc, c.substr)
-		}
-	}
-}
-
-func TestMemoryEntityPage_NotImportant(t *testing.T) {
-	page := memoryEntityPageWithHash("ID2", "Simple", "", false, "Body.", "", "")
-	if strings.Contains(page, "Important memory") {
-		t.Error("should not contain important badge")
-	}
-	if strings.Contains(page, "**Type:**") {
-		t.Error("should not contain type badge when type is empty")
-	}
-}
-
-// RenderImportantBlock (filesystem-based with listImportantInDir)
 
 func TestRenderImportantBlock_Inline(t *testing.T) {
 	dir := t.TempDir()
@@ -1014,56 +710,11 @@ func TestMemoryService_NoGitStore_Errors(t *testing.T) {
 		t.Error("DemoteMemory should error without gitStore")
 	}
 
-	err = svc.SyncToLocal()
-	if err == nil {
-		t.Error("SyncToLocal should error without gitStore")
-	}
-}
-
-func TestAppendMemLog_NewFile(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	appendMemLog(logPath, 5, 3, nil)
-
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	content := string(data)
-	if !strings.Contains(content, "# Memory Wiki Update Log") {
-		t.Error("should contain header")
-	}
-	if strings.HasPrefix(strings.TrimSpace(content), "---") {
-		t.Error("log.md must not carry frontmatter (OKF §8/§9)")
-	}
-	if !strings.Contains(content, "5 memories, 3 article(s) written") {
-		t.Error("should contain the counts")
-	}
-}
-
-func TestAppendMemLog_ExistingFile(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	appendMemLog(logPath, 3, 2, nil)
-	appendMemLog(logPath, 5, 4, nil)
-
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	content := string(data)
-
-	// Both compiles land under the same date heading, newest first.
-	if !strings.Contains(content, "5 memories, 4 article(s) written") {
-		t.Error("should contain latest entry")
-	}
-	if !strings.Contains(content, "3 memories, 2 article(s) written") {
-		t.Error("should keep the earlier entry")
-	}
-	if n := strings.Count(content, "## "+time.Now().UTC().Format("2006-01-02")); n != 1 {
-		t.Errorf("same-day entries must share one date heading; got %d", n)
+	// SyncToLocal is deliberately NOT in this list any more. Every call above is a WRITE, and a
+	// write with no store must refuse. SyncToLocal only recompiles, and it runs after a write that
+	// already succeeded — erroring there would report a stored memory as unstored.
+	if err := svc.SyncToLocal(); err != nil {
+		t.Errorf("recompiling must not fail: %v", err)
 	}
 }
 

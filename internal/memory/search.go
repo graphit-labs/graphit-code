@@ -3,8 +3,6 @@ package memory
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/wiki"
@@ -58,7 +56,7 @@ func SearchChains(ctx context.Context, wikiDir, query string, topN int) []ChainR
 	}
 
 	hits := wiki.BM25Search(ctx, wikiDir, query, fetch)
-	resolved := resolveChains(wikiDir, hits)
+	resolved := resolveChains(hits)
 	out := collapseChains(resolved)
 
 	if topN > 0 && len(out) > topN {
@@ -69,15 +67,16 @@ func SearchChains(ctx context.Context, wikiDir, query string, topN int) []ChainR
 
 // resolveChains attaches the chain metadata to each hit.
 //
-// It comes out of the index: `entity_id`, `revision_id`, `superseded` and `current_id` are columns
-// on the chunks table, so a hit already carries its chain and this function reads no files. It used
-// to open each hit's page and parse its frontmatter — correct, and a file read per hit for
-// something the index could have projected.
+// It comes out of the index and only out of the index: `entity_id`, `revision_id`, `superseded` and
+// `current_id` are columns on the chunks table, so a hit already carries its chain and this
+// function reads nothing. It used to open each hit's page and parse its frontmatter — correct, and
+// a file read per hit for something the index could project.
 //
-// The page frontmatter is still written, and is still the fallback here: the markdown scan that
-// answers before a wiki has ever been compiled has no columns to project, and a memory written
-// seconds ago is found by exactly that path.
-func resolveChains(wikiDir string, hits []wiki.BM25Result) []ChainResult {
+// There was a fallback to that frontmatter read for hits with no `entity_id`, which existed for the
+// markdown scan that answered before a wiki had ever been compiled. That scan is gone and so is
+// this: an empty `entity_id` now means the row genuinely has no chain — a page from a wiki that is
+// not a memory scope — and it is answered as one result rather than as a lookup failure.
+func resolveChains(hits []wiki.BM25Result) []ChainResult {
 	out := make([]ChainResult, 0, len(hits))
 	for _, hit := range hits {
 		cr := ChainResult{
@@ -87,28 +86,12 @@ func resolveChains(wikiDir string, hits []wiki.BM25Result) []ChainResult {
 			Superseded: hit.Superseded,
 			Current:    hit.CurrentID,
 		}
-		if cr.MemoryID == "" {
-			cr = chainFromPage(wikiDir, hit)
-		}
 		if cr.Superseded && cr.Current == "" {
 			cr.Current = cr.MemoryID
 		}
 		out = append(out, cr)
 	}
 	return out
-}
-
-// chainFromPage resolves a hit's chain from its compiled page, for the markdown-scan path.
-func chainFromPage(wikiDir string, hit wiki.BM25Result) ChainResult {
-	cr := ChainResult{BM25Result: hit}
-	fields := pageChainFields(wikiDir, hit.Path)
-	cr.MemoryID = fields[PageFieldMemoryID]
-	cr.RevisionID = fields[PageFieldRevisionID]
-	cr.Superseded = strings.EqualFold(fields[PageFieldSuperseded], "true")
-	if cr.Superseded {
-		cr.Current = fields[PageFieldCurrent]
-	}
-	return cr
 }
 
 // collapseChains keeps one result per chain, preferring the current revision.
@@ -139,29 +122,6 @@ func collapseChains(results []ChainResult) []ChainResult {
 		}
 	}
 	return kept
-}
-
-// pageChainFields reads the chain frontmatter of one compiled page.
-func pageChainFields(wikiDir, pagePath string) map[string]string {
-	fields := map[string]string{}
-	if pagePath == "" {
-		return fields
-	}
-
-	full := filepath.Join(wikiDir, filepath.FromSlash(pagePath))
-	if filepath.Ext(full) == "" {
-		full += ".md"
-	}
-	if _, err := os.Stat(full); err != nil {
-		return fields
-	}
-
-	for _, key := range []string{PageFieldMemoryID, PageFieldSuperseded, PageFieldCurrent, PageFieldRevisionID} {
-		if v := wiki.ReadFrontmatterField(full, key); v != "" {
-			fields[key] = v
-		}
-	}
-	return fields
 }
 
 // FormatChainResultsTOON renders memory search results in the compact TOON shape.

@@ -31,9 +31,10 @@ func Open(_ context.Context, _ Config) (*Store, error) { return nil, ErrNotBuilt
 // NOT error, so a caller can degrade deliberately instead of discovering it from an error.
 func Available() bool { return false }
 
-func (s *Store) Close() error { return nil }
-func (s *Store) Remote() bool { return false }
-func (s *Store) URI() string  { return "" }
+func (s *Store) Close() error   { return nil }
+func (s *Store) Remote() bool   { return false }
+func (s *Store) ReadOnly() bool { return false }
+func (s *Store) URI() string    { return "" }
 
 func (s *Store) TableNames(_ context.Context) ([]string, error)        { return nil, ErrNotBuilt }
 func (s *Store) DropTable(_ context.Context, _ string) error           { return ErrNotBuilt }
@@ -70,3 +71,10 @@ func (t *Table) Compact(context.Context) (CompactionResult, error) {
 func (t *Table) PruneVersions(context.Context, time.Duration) (PruneResult, error) {
 	return PruneResult{}, ErrNotBuilt
 }
+
+// The time-travel surface is unavailable without the lancedb tag.
+func (t *Table) Versions(context.Context) ([]Version, error)    { return nil, ErrNotBuilt }
+func (t *Table) CheckoutVersion(context.Context, uint64) error  { return ErrNotBuilt }
+func (t *Table) CheckoutLatest(context.Context) error           { return ErrNotBuilt }
+func (t *Table) RestoreVersion(context.Context, uint64) error   { return ErrNotBuilt }
+func (t *Table) CurrentVersion(context.Context) (uint64, error) { return 0, ErrNotBuilt }

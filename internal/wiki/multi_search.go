@@ -55,7 +55,7 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 		// The catalogue comes from the index. It used to be `index.md` read off disk, a page
 		// rewritten on every build; the table already knows every slug, so the overview is a
 		// query and cannot disagree with what is searchable.
-		overview := wikiOverview(ctx, src.Dir)
+		overview := WikiOverview(ctx, src.Dir)
 		if overview == "" {
 			continue
 		}
@@ -123,7 +123,7 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 			return result, nil
 		}
 
-		pages := parseMultiPageList(reply, cfg.Sources)
+		pages := parseMultiPageList(ctx, reply, cfg.Sources)
 		if len(pages) == 0 {
 
 			result.Answer = reply
@@ -276,7 +276,7 @@ type multiPageRequest struct {
 	dir      string
 }
 
-func parseMultiPageList(reply string, sources []WikiSource) []multiPageRequest {
+func parseMultiPageList(ctx context.Context, reply string, sources []WikiSource) []multiPageRequest {
 
 	sourceMap := make(map[string]WikiSource, len(sources))
 	for _, s := range sources {
@@ -335,7 +335,7 @@ func parseMultiPageList(reply string, sources []WikiSource) []multiPageRequest {
 				continue
 			}
 			for _, src := range sources {
-				if content, _ := loadWikiPage(src.Dir, page); content != "" {
+				if content, _ := loadWikiPageFromIndex(ctx, src.Dir, page); content != "" {
 					requests = append(requests, multiPageRequest{
 						sourceID: src.ID,
 						page:     page,
@@ -350,12 +350,12 @@ func parseMultiPageList(reply string, sources []WikiSource) []multiPageRequest {
 	return requests
 }
 
-// wikiOverview renders a wiki's catalogue from its index, replacing the generated `index.md`.
+// WikiOverview renders a wiki's catalogue from its index, replacing the generated `index.md`.
 //
 // Titles and types, not bodies: it exists so the model can choose which pages to ask for, which
 // is what the index page was for, and a body per page would spend the budget the choice is
 // supposed to save.
-func wikiOverview(ctx context.Context, wikiDir string) string {
+func WikiOverview(ctx context.Context, wikiDir string) string {
 	db, err := OpenWikiDB(ctx, wikiDir)
 	if err != nil {
 		return ""

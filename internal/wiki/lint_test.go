@@ -1,8 +1,7 @@
 package wiki
 
 import (
-	"fmt"
-	"os"
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,32 +52,59 @@ func TestSummary(t *testing.T) {
 	})
 }
 
+// The lint reads the INDEX, so its fixtures are indexed wikis rather than page files. What each
+// check reads is now a column: `doc_type` for OKF's required field, `title`/`summary` for the
+// recommended ones, `word_count` for an empty page, `updated`/`stale_since` for staleness.
+
+// lintChunk is a page that passes every check, so a test can break exactly one thing.
+func lintChunk(slug, title string) WikiChunk {
+	return WikiChunk{
+		Slug:      slug,
+		Title:     title,
+		Body:      "content here with enough words to pass the empty page check and then some more",
+		Summary:   "a summary",
+		DocType:   "document",
+		WordCount: 15,
+		Updated:   time.Now().Format("2006-01-02"),
+		ClusterID: -1,
+	}
+}
+
+func indexedWikiWithXRefs(t *testing.T, chunks []WikiChunk, xrefs map[string][]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := RebuildDB(context.Background(), dir, chunks, xrefs, nil, nil); err != nil {
+		t.Fatalf("building the lint fixture index: %v", err)
+	}
+	return dir
+}
+
 func TestLintWiki(t *testing.T) {
 	t.Parallel()
 
 	t.Run("clean_wiki", func(t *testing.T) {
 		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "index.md", "# Index\n[[alpha]] [[beta]]")
-		writeFile(t, dir, "alpha.md", fmPage("Alpha", "alpha content here with enough words to pass empty check and more text"))
-		writeFile(t, dir, "beta.md", fmPage("Beta", "beta content here with enough words to pass empty check and more text"))
+		dir := indexedWikiWithXRefs(t,
+			[]WikiChunk{lintChunk("alpha", "Alpha"), lintChunk("beta", "Beta")},
+			map[string][]string{"alpha": {"beta"}, "beta": {"alpha"}})
 
-		report, err := LintWiki(dir, LintConfig{})
+		report, err := LintWiki(context.Background(), dir, LintConfig{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if report.TotalPages != 3 {
-			t.Errorf("TotalPages = %d, want 3", report.TotalPages)
+		if report.TotalPages != 2 {
+			t.Errorf("TotalPages = %d, want 2", report.TotalPages)
+		}
+		if report.Errors != 0 {
+			t.Errorf("Errors = %d, want 0 (report: %+v)", report.Errors, report)
 		}
 	})
 
 	t.Run("orphan_detection", func(t *testing.T) {
 		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "index.md", "# Index\nNothing linked.")
-		writeFile(t, dir, "orphan.md", fmPage("Orphan", "orphan content here with enough words to not be empty page verified"))
+		dir := indexedWikiWithXRefs(t, []WikiChunk{lintChunk("orphan", "Orphan")}, nil)
 
-		report, err := LintWiki(dir, LintConfig{})
+		report, err := LintWiki(context.Background(), dir, LintConfig{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -89,10 +115,10 @@ func TestLintWiki(t *testing.T) {
 
 	t.Run("broken_links", func(t *testing.T) {
 		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "page.md", fmPage("Page", "[[nonexistent]] link here with enough words to pass empty check"))
+		dir := indexedWikiWithXRefs(t, []WikiChunk{lintChunk("page", "Page")},
+			map[string][]string{"page": {"nonexistent"}})
 
-		report, err := LintWiki(dir, LintConfig{})
+		report, err := LintWiki(context.Background(), dir, LintConfig{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -101,14 +127,13 @@ func TestLintWiki(t *testing.T) {
 		}
 	})
 
-	t.Run("stale_pages", func(t *testing.T) {
+	t.Run("stale_by_age", func(t *testing.T) {
 		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "index.md", "# Index\n[[stale]]")
-		staleContent := "---\ntype: document\ntitle: Stale\ngenerated: { by: process:graphit-knowledge-wiki, at: 2020-01-01 }\n---\n# Stale\nStale page content here with enough words to pass the empty page check."
-		writeFile(t, dir, "stale.md", staleContent)
+		old := lintChunk("stale", "Stale")
+		old.Updated = "2020-01-01"
+		dir := indexedWikiWithXRefs(t, []WikiChunk{old}, nil)
 
-		report, err := LintWiki(dir, LintConfig{StaleDays: 30})
+		report, err := LintWiki(context.Background(), dir, LintConfig{StaleDays: 30})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -117,12 +142,50 @@ func TestLintWiki(t *testing.T) {
 		}
 	})
 
+	t.Run("stale_since_beats_the_window", func(t *testing.T) {
+		t.Parallel()
+		// The compiler CONCLUDED this page is stale — its source or a dependency changed — so no
+		// staleDays window makes it fresh. Its `updated` is today, which is exactly the case where
+		// an age-only check would report it as fine.
+		flagged := lintChunk("flagged", "Flagged")
+		flagged.StaleSince = time.Now().Format("2006-01-02")
+		flagged.StaleReason = "source changed"
+		dir := indexedWikiWithXRefs(t, []WikiChunk{flagged}, nil)
+
+		report, err := LintWiki(context.Background(), dir, LintConfig{StaleDays: 3650})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(report.StalePages) != 1 {
+			t.Errorf("StalePages = %v, want [flagged]", report.StalePages)
+		}
+	})
+
+	t.Run("no_updated_is_not_stale", func(t *testing.T) {
+		t.Parallel()
+		// A page whose age is unknown is not a page known to be old, and OKF §11 forbids rejecting
+		// a concept over a missing optional field.
+		undated := lintChunk("undated", "Undated")
+		undated.Updated = ""
+		dir := indexedWikiWithXRefs(t, []WikiChunk{undated}, nil)
+
+		report, err := LintWiki(context.Background(), dir, LintConfig{StaleDays: 1})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(report.StalePages) != 0 {
+			t.Errorf("StalePages = %v, want none", report.StalePages)
+		}
+	})
+
 	t.Run("empty_pages", func(t *testing.T) {
 		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "empty.md", fmPage("Empty", "short"))
+		thin := lintChunk("empty", "Empty")
+		thin.Body = "short"
+		thin.WordCount = 1
+		dir := indexedWikiWithXRefs(t, []WikiChunk{thin}, nil)
 
-		report, err := LintWiki(dir, LintConfig{})
+		report, err := LintWiki(context.Background(), dir, LintConfig{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -131,224 +194,168 @@ func TestLintWiki(t *testing.T) {
 		}
 	})
 
-	t.Run("missing_frontmatter_fields", func(t *testing.T) {
+	t.Run("missing_required_type_is_an_error", func(t *testing.T) {
 		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "page.md", "---\ntitle: Test\n---\n# Page\nContent here with enough words to not be empty page with many more words.")
+		untyped := lintChunk("page", "Page")
+		untyped.DocType = ""
+		dir := indexedWikiWithXRefs(t, []WikiChunk{untyped}, nil)
 
-		report, err := LintWiki(dir, LintConfig{})
+		report, err := LintWiki(context.Background(), dir, LintConfig{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if len(report.MissingFields) == 0 {
-			t.Error("expected missing fields (tags, updated)")
+			t.Fatal("expected `type` to be reported as missing")
+		}
+		if report.MissingFields[0].MissingFields[0] != "type" {
+			t.Errorf("missing = %v, want [type]", report.MissingFields[0].MissingFields)
 		}
 	})
 
-	t.Run("invalid_dir", func(t *testing.T) {
+	t.Run("missing_recommended_fields_are_not_errors", func(t *testing.T) {
 		t.Parallel()
-		_, err := LintWiki(filepath.Join(t.TempDir(), "nonexistent"), LintConfig{})
+		// §11: a consumer MUST NOT reject a document for a missing optional field, so these land in
+		// WeakFields and leave Errors alone.
+		weak := lintChunk("page", "Page")
+		weak.Title = ""
+		weak.Summary = ""
+		dir := indexedWikiWithXRefs(t, []WikiChunk{weak},
+			map[string][]string{"page": {"page"}})
+
+		report, err := LintWiki(context.Background(), dir, LintConfig{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(report.WeakFields) != 1 || len(report.WeakFields[0].MissingFields) != 2 {
+			t.Fatalf("WeakFields = %+v, want one page missing title and description", report.WeakFields)
+		}
+		// The only error is the orphan, which a self-reference cannot fix.
+		if report.Errors != len(report.Orphans) {
+			t.Errorf("Errors = %d, want only the %d orphan(s)", report.Errors, len(report.Orphans))
+		}
+	})
+
+	t.Run("no_index_is_refused", func(t *testing.T) {
+		t.Parallel()
+		// Opening a store CREATES it, so a directory with no wiki must not lint as a clean one.
+		_, err := LintWiki(context.Background(), filepath.Join(t.TempDir(), "nonexistent"), LintConfig{})
 		if err == nil {
-			t.Error("expected error for invalid dir")
+			t.Error("expected an error for a wiki that holds no pages")
 		}
 	})
 }
 
-func TestLintWikiWithFix(t *testing.T) {
+func TestParseFMInstant(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	writeFile(t, dir, "source.md", fmPage("Source", "[[target]] reference with enough words to pass the empty page check and more"))
-	writeFile(t, dir, "target.md", fmPage("Target", "target content here with enough words to pass the empty page check and more"))
+	tests := []struct {
+		name string
+		raw  string
+		ok   bool
+	}{
+		{"date", "2026-08-29", true},
+		{"rfc3339", "2026-08-29T10:11:12Z", true},
+		{"quoted", "\"2026-08-29\"", true},
+		{"space_separated", "2026-08-29 10:11:12", true},
+		{"garbage", "not-a-date", false},
+		{"empty", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if _, ok := parseFMInstant(tt.raw); ok != tt.ok {
+				t.Errorf("parseFMInstant(%q) ok = %v, want %v", tt.raw, ok, tt.ok)
+			}
+		})
+	}
+}
 
-	report, err := LintWiki(dir, LintConfig{Fix: true})
+// 🔒 THE SELF-FULFILLING CACHE, pinned so it cannot come back.
+//
+// FastPathCheck used to ask the process cache whether any document had changed. The generation pass
+// populates that cache with each document's NEW hash BEFORE calling the check, so the check asked a
+// question it had already answered: `HasChanged` said no for every entry, including a document that
+// had just been edited, and the rebuild was skipped in 110 ms.
+//
+// It was invisible for as long as search could fall back to scanning the `.md` pages, because those
+// were rewritten from the fresh sources. Making the index the single artifact removed the mask, and
+// the bug reproduced on the first edit to a real document.
+//
+// This test reproduces exactly that arrangement: a cache that already agrees with the new hash, and
+// an index that does not. The fast path must refuse.
+func TestFastPathCheckIgnoresAProcessCacheThatAlreadyAgrees(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	const slug = "edited"
+	const oldHash = "1111111111111111"
+	const newHash = "2222222222222222"
+
+	// The index holds the document at its OLD hash — the state the last rebuild left.
+	dir := indexedWikiWithXRefs(t, []WikiChunk{{
+		Slug: slug, Title: "Edited", Body: "the previously indexed body", DocType: "document",
+		ContentHash: oldHash, WordCount: 4, ClusterID: -1,
+	}}, nil)
+
+	cache, err := NewWikiProcessCache(dir)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("process cache: %v", err)
+	}
+	// Exactly what the generation pass does before calling the check: record the NEW hash.
+	cache.Store("docs/edited.md", newHash, []CachedChunk{{
+		Title: "Edited", Body: "the freshly read body", ContentHash: newHash,
+	}})
+
+	entries := []DocHashEntry{{CacheKey: "docs/edited.md", ContentHash: newHash, Slug: slug}}
+
+	if FastPathCheck(ctx, dir, entries, cache) {
+		t.Fatal("the fast path skipped a rebuild for an EDITED document — it is trusting the cache " +
+			"the same pass just populated instead of the index")
 	}
 
-	if report.FixesApplied == 0 {
-		t.Error("expected fixes to be applied (backlinks)")
+	// And it does skip once the index actually holds that hash, or the check would never let a
+	// genuinely unchanged corpus through and the incremental would be pointless.
+	current := indexedWikiWithXRefs(t, []WikiChunk{{
+		Slug: slug, Title: "Edited", Body: "the freshly read body", DocType: "document",
+		ContentHash: newHash, WordCount: 4, ClusterID: -1,
+	}}, nil)
+	currentCache, err := NewWikiProcessCache(current)
+	if err != nil {
+		t.Fatalf("process cache: %v", err)
 	}
-
-	data, _ := os.ReadFile(filepath.Join(dir, "target.md"))
-	if !strings.Contains(string(data), "## Backlinks") {
-		t.Error("expected backlinks section after fix")
+	if !FastPathCheck(ctx, current, entries, currentCache) {
+		t.Error("the fast path refused a corpus the index already holds at the same hash")
 	}
 }
 
-func TestCheckFrontmatter(t *testing.T) {
+// A document the index has never seen, and one it holds that no entry claims, are both changes the
+// fast path has to notice — they used to be two separate conditions and are now one comparison.
+func TestFastPathCheckNoticesAdditionsAndDeletions(t *testing.T) {
 	t.Parallel()
-	// OKF v0.2 §11 requires exactly one field of a concept document: a non-empty `type`.
-	// Anything else is RECOMMENDED, and §11 forbids a consumer rejecting a document for
-	// missing an optional field — so `title`, `tags` and `updated` are not failures.
-	tests := []struct {
-		name    string
-		content string
-		wantLen int
-	}{
-		{
-			"okf_minimum_is_type_alone",
-			"---\ntype: specification\n---\n# Body",
-			0,
-		},
-		{
-			"generated_page_shape",
-			"---\ntype: document\ntitle: Test\ngenerated: { by: process:graphit-knowledge-wiki, at: 2026-08-29 }\ntags:\n  - knowledge\n---\n# Body",
-			0,
-		},
-		{
-			"recommended_fields_alone_are_not_conformant",
-			"---\ntitle: Test\ndescription: A page\n---\n# Body",
-			1,
-		},
-		{
-			"no_frontmatter",
-			"# Body\nNo frontmatter.",
-			1,
-		},
+	ctx := context.Background()
+
+	const hash = "3333333333333333"
+	chunk := func(slug string) WikiChunk {
+		return WikiChunk{
+			Slug: slug, Title: slug, Body: "body of " + slug, DocType: "document",
+			ContentHash: hash, WordCount: 3, ClusterID: -1,
+		}
+	}
+	dir := indexedWikiWithXRefs(t, []WikiChunk{chunk("alpha"), chunk("beta")}, nil)
+	cache, err := NewWikiProcessCache(dir)
+	if err != nil {
+		t.Fatalf("process cache: %v", err)
+	}
+	entry := func(slug string) DocHashEntry {
+		return DocHashEntry{CacheKey: "docs/" + slug + ".md", ContentHash: hash, Slug: slug}
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := checkFrontmatter(tt.content)
-			if len(got) != tt.wantLen {
-				t.Errorf("checkFrontmatter() missing fields = %v (len %d), want len %d", got, len(got), tt.wantLen)
-			}
-		})
+	if !FastPathCheck(ctx, dir, []DocHashEntry{entry("alpha"), entry("beta")}, cache) {
+		t.Fatal("an unchanged corpus must take the fast path")
 	}
-}
-
-func TestExtractFrontmatter(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		content string
-		want    string
-	}{
-		{
-			"valid",
-			"---\ntitle: Test\ntags: [a]\n---\n# Body",
-			"title: Test\ntags: [a]",
-		},
-		{
-			"no_frontmatter",
-			"# Body\nNo frontmatter.",
-			"",
-		},
-		{
-			"unclosed",
-			"---\ntitle: Test\nno closing",
-			"title: Test\nno closing",
-		},
-		{
-			"empty_frontmatter",
-			"---\n---\n# Body",
-			"",
-		},
+	if FastPathCheck(ctx, dir, []DocHashEntry{entry("alpha"), entry("beta"), entry("gamma")}, cache) {
+		t.Error("a document the index has never seen must not take the fast path")
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := extractFrontmatter(tt.content)
-			if got != tt.want {
-				t.Errorf("extractFrontmatter() = %q, want %q", got, tt.want)
-			}
-		})
+	if FastPathCheck(ctx, dir, []DocHashEntry{entry("alpha")}, cache) {
+		t.Error("an indexed document that no entry claims — a deletion — must not take the fast path")
 	}
-}
-
-func TestIsStale(t *testing.T) {
-	t.Parallel()
-
-	today := time.Now().Format("2006-01-02")
-	oldDate := "2020-01-01"
-
-	tests := []struct {
-		name      string
-		content   string
-		staleDays int
-		want      bool
-	}{
-		{
-			"recent_not_stale",
-			fmt.Sprintf("---\ntype: document\ngenerated: { by: process:x, at: %s }\n---\nBody", today),
-			30,
-			false,
-		},
-		{
-			"old_is_stale",
-			fmt.Sprintf("---\ntype: document\ngenerated: { by: process:x, at: %s }\n---\nBody", oldDate),
-			30,
-			true,
-		},
-		{
-			// A page whose age is unknown is not a page known to be old. Reporting it as
-			// stale invents a fact, and §11 forbids rejecting a concept over a missing
-			// optional field — which `generated` is.
-			"no_date_is_not_stale",
-			"---\ntype: document\ntitle: T\n---\nBody",
-			30,
-			false,
-		},
-		{
-			"invalid_date_format",
-			"---\ntype: document\ngenerated: { by: process:x, at: not-a-date }\n---\nBody",
-			30,
-			false,
-		},
-		{
-			"okf_generated_inline_mapping_recent",
-			fmt.Sprintf("---\ntype: document\ngenerated: { by: process:graphit-knowledge-wiki, at: %s }\n---\nBody", today),
-			30,
-			false,
-		},
-		{
-			"okf_generated_inline_mapping_old",
-			fmt.Sprintf("---\ntype: document\ngenerated: { by: process:graphit-knowledge-wiki, at: %s }\n---\nBody", oldDate),
-			30,
-			true,
-		},
-		{
-			"okf_generated_block_mapping_old",
-			fmt.Sprintf("---\ntype: document\ngenerated:\n  by: process:graphit-knowledge-wiki\n  at: %s\n---\nBody", oldDate),
-			30,
-			true,
-		},
-		{
-			// §5.5: an absolute instant beats any window the caller passes in.
-			"stale_after_in_the_past_wins",
-			fmt.Sprintf("---\ntype: document\nstale_after: %s\ngenerated: { by: process:x, at: %s }\n---\nBody", oldDate, today),
-			30,
-			true,
-		},
-		{
-			"stale_after_in_the_future_wins",
-			fmt.Sprintf("---\ntype: document\nstale_after: %s\ngenerated: { by: process:x, at: %s }\n---\nBody",
-				time.Now().AddDate(1, 0, 0).Format("2006-01-02"), oldDate),
-			30,
-			false,
-		},
-		{
-			"quoted_date",
-			fmt.Sprintf("---\ntype: document\ngenerated: { by: process:x, at: \"%s\" }\n---\nBody", today),
-			30,
-			false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got := isStale(tt.content, tt.staleDays)
-			if got != tt.want {
-				t.Errorf("isStale() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func fmPage(title, body string) string {
-	today := time.Now().Format("2006-01-02")
-	return fmt.Sprintf("---\ntype: document\ntitle: %s\ngenerated: { by: process:graphit-knowledge-wiki, at: %s }\ntags:\n  - test\n---\n# %s\n%s", title, today, title, body)
 }

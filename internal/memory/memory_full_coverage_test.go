@@ -12,28 +12,19 @@ import (
 
 // memory_git_store.go — using real git init in TempDir
 
-// Initialisation creates the raw directory root and nothing else.
+// EnsureInitialised has nothing to create, and that is the assertion.
 //
-// It used to run `git init`, write a bootstrap commit, configure a remote and prune refs, and the
-// test asserted a `.git` had appeared. There is no repository now, so the assertion is the
-// directory — and no git binary is required, which is why the skip is gone too.
-func TestMemoryStore_EnsureInitialised_Full(t *testing.T) {
-	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
-
-	if err := store.EnsureInitialised(); err != nil {
+// It asserted that the raw directory root EXISTS afterwards. That directory is retired: a scope's
+// store is a Lance table and opening one creates it, so preparing a directory in advance would only
+// recreate the raw store's shape after its contents were deleted.
+func TestEnsureInitialisedCreatesNothing(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "raw")
+	st := &MemoryStore{rawBase: base}
+	if err := st.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
 	}
-	info, err := os.Stat(wtBase)
-	if err != nil || !info.IsDir() {
-		t.Fatalf("expected the raw directory root to exist: %v", err)
-	}
-	if store.Configured() {
-		t.Error("a store with no bucket must report itself unconfigured")
-	}
-	// Idempotent.
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("second EnsureInitialised: %v", err)
+	if _, err := os.Stat(base); !os.IsNotExist(err) {
+		t.Errorf("the raw directory root was created: %v", err)
 	}
 }
 
@@ -54,36 +45,6 @@ func TestMemoryStore_PublishWithoutRemoteIsANoop(t *testing.T) {
 	WaitForPendingPushes()
 	if _, err := w.ReadFile("a.md"); err != nil {
 		t.Errorf("the raw directory is the truth and must still hold the file: %v", err)
-	}
-}
-
-// A leftover .git from the worktree this replaced must never be uploaded, and must not appear in
-// an extraction either.
-func TestMemoryStoreSkipsLeftoverGitMetadata(t *testing.T) {
-	store := &MemoryStore{rawBase: filepath.Join(t.TempDir(), "wt")}
-	w, err := store.OpenScopeLocal("memory/project/p1")
-	if err != nil {
-		t.Fatalf("open scope: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(w.Dir(), ".git", "refs"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(w.Dir(), ".git", "HEAD"), []byte("ref: refs/heads/x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.WriteFile("mem.md", []byte("# m")); err != nil {
-		t.Fatal(err)
-	}
-
-	dest := filepath.Join(t.TempDir(), "out")
-	if err := store.ExtractScopeDir("memory/project/p1", ".", dest); err != nil {
-		t.Fatalf("ExtractScopeDir: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dest, ".git")); !os.IsNotExist(err) {
-		t.Errorf("git metadata leaked into the extraction: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dest, "mem.md")); err != nil {
-		t.Errorf("the memory itself did not survive extraction: %v", err)
 	}
 }
 
@@ -679,51 +640,6 @@ func TestMemoryService_IndexMemories_Coverage(t *testing.T) {
 	}
 }
 
-func TestSyncToLocalInternal_NilStore_Coverage(t *testing.T) {
-	svc := &MemoryService{scope: MemoryScopeProject, scopeID: "test"}
-	err := svc.syncToLocalInternal(true)
-	if err == nil {
-		t.Error("expected error with nil gitStore")
-	}
-	if !strings.Contains(err.Error(), "not configured") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestSyncToLocalInternal_Fast_Coverage(t *testing.T) {
-	svc := &MemoryService{scope: MemoryScopeProject, scopeID: "test"}
-	err := svc.syncToLocalInternal(false)
-	if err == nil {
-		t.Error("expected error with nil gitStore")
-	}
-}
-
-func TestSyncAndCycle_StoreError_Coverage(t *testing.T) {
-	ctx := context.Background()
-	store := &mockStoreProviderCov{extractErr: fmt.Errorf("extract failed")}
-	result := SyncAndCycle(ctx, "project", "test-id", store, nil)
-	if result.Scope != "project" {
-		t.Errorf("Scope = %q", result.Scope)
-	}
-}
-
-type mockStoreProviderCov struct {
-	extractErr error
-}
-
-func (m *mockStoreProviderCov) ExtractScopeDir(_, _, _ string) error {
-	return m.extractErr
-}
-
-func TestSyncContextFromMemoryRepo_StoreError_Coverage(t *testing.T) {
-	ctx := context.Background()
-	store := &mockStoreProviderCov{extractErr: fmt.Errorf("extract failed")}
-	result := SyncContextFromMemoryRepo(ctx, "test-ctx", t.TempDir(), store, nil)
-	if result.Scope != "test-ctx" {
-		t.Errorf("Scope = %q", result.Scope)
-	}
-}
-
 func TestEnsureWikiIndexExists_CreatesNew(t *testing.T) {
 	// Use a temp dir to create a wiki dir that doesn't exist yet
 	baseDir := t.TempDir()
@@ -744,50 +660,6 @@ func TestEnsureWikiIndexExists_CreatesNew(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "Memory Wiki") {
 		t.Error("missing header")
-	}
-}
-
-func TestGenerateMemoryWiki_WithImportantMemories(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-
-	writeMemFile(t, rawDir, "MEM1.md", "---\ntitle: Regular\ntype: fact\ncreated_at: 2026-01-01T00:00:00Z\n---\n\n# Regular\n\nRegular body.")
-	writeMemFile(t, rawDir, "IMP1.md", "---\ntitle: Important One\nimportant: true\ntype: convention\ncreated_at: 2026-01-02T00:00:00Z\n---\n\n# Important One\n\nVery important.")
-
-	ctx := context.Background()
-	result, err := GenerateMemoryWiki(ctx, rawDir, wikiDir)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if result.ArticlesWritten != 2 {
-		t.Errorf("ArticlesWritten = %d; want 2", result.ArticlesWritten)
-	}
-
-	// Check entity pages were written to wiki dir
-	entries, readErr := os.ReadDir(wikiDir)
-	if readErr != nil {
-		t.Fatalf("reading wiki dir: %v", readErr)
-	}
-	if len(entries) < 2 {
-		t.Errorf("expected at least 2 files in wiki dir, got %d", len(entries))
-	}
-}
-
-// wiki.go — memoryEntityPage dates and stale calculations
-
-func TestMemoryEntityPage_RecentDate(t *testing.T) {
-	recentDate := time.Now().Add(-1 * 24 * time.Hour).Format(time.RFC3339)
-	page := memoryEntityPageWithHash("RECENT", "Recent Memory", recentDate, false, "Body.", "fact", "")
-	if strings.Contains(page, "Stale memory") {
-		t.Error("should NOT contain stale warning for 1-day-old memory")
-	}
-}
-
-func TestMemoryEntityPage_CreatedAtDate(t *testing.T) {
-	date := "2026-01-15T12:00:00Z"
-	page := memoryEntityPageWithHash("ID", "Title", date, false, "Body.", "fact", "")
-	if !strings.Contains(page, "created: ") {
-		t.Error("expected created date in page")
 	}
 }
 
@@ -939,18 +811,6 @@ func TestAIConsolidation_ParsesFencedJSON(t *testing.T) {
 }
 
 // wiki.go — memoryEntityPage with all type emojis
-
-func TestMemoryEntityPage_EachType(t *testing.T) {
-	types := []string{"convention", "correction", "decision", "tension", "fact", "skill"}
-	for _, memType := range types {
-		t.Run(memType, func(t *testing.T) {
-			page := memoryEntityPageWithHash("ID", "Title", "", false, "Body.", memType, "")
-			if !strings.Contains(page, "**Type:** "+memType) {
-				t.Errorf("expected type badge for %s", memType)
-			}
-		})
-	}
-}
 
 func TestScopeStore_WriteFileSubdir_Coverage(t *testing.T) {
 	dir := t.TempDir()

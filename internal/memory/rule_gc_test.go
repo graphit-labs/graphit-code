@@ -54,18 +54,25 @@ func TestMemoryRuleContentCoversEachSanitisationCase(t *testing.T) {
 	}
 }
 
-// Two statements in the same skill disagreed about what memory_search reads: one
-// said raw .md files, another said a pre-compiled index. It searches the compiled
-// wiki through FTS5 — which is also why a memory written seconds ago may not
-// surface yet, a symptom the agent needs the right model to explain.
+// Two statements in the same skill disagreed about what memory_search reads: one said raw .md
+// files, another said a pre-compiled index. It searches the compiled wiki, ranked by BM25 — which
+// is also why a memory written seconds ago may not surface yet, a symptom the agent needs the
+// right model to explain.
+//
+// The engine is asserted by name because this text has been wrong twice, and both times it told
+// the agent to expect behaviour the code does not have: it claimed SQLite FTS5 long after the
+// index became LanceDB, and it claimed a fallback to scanning markdown that was deleted with the
+// pages.
 func TestMemoryRuleContentDescribesSearchAccurately(t *testing.T) {
 	t.Parallel()
 	content := RuleContent(nil)
 
-	if strings.Contains(content, "searches raw `.md` memory files") {
-		t.Error("skill still claims memory_search scans raw .md files")
+	for _, gone := range []string{"searches raw `.md` memory files", "FTS5", "SQLite"} {
+		if strings.Contains(content, gone) {
+			t.Errorf("skill still describes memory search in terms of %q", gone)
+		}
 	}
-	if !strings.Contains(content, "FTS5") {
-		t.Error("skill does not say memory_search runs over the compiled wiki via FTS5")
+	if !strings.Contains(content, "BM25") {
+		t.Error("skill does not say memory_search is BM25-ranked over the compiled wiki")
 	}
 }

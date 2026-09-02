@@ -112,27 +112,30 @@ func BuildDBFromCache(ctx context.Context, wikiDir string) (int, error) {
 // IsDerivedFile reports whether an entry in a wiki directory is rebuildable from the
 // shards beside it, and therefore not worth carrying anywhere.
 //
-// Only the database is: it is the largest thing in the directory and BuildDBFromCache
-// reconstructs it in seconds. The pages and the shards are not derived in any sense
-// that matters here — the pages are what a reader opens, and the shards are what the
-// database is rebuilt FROM.
+// Only the index is: it is the largest thing in the directory and BuildDBFromCache
+// reconstructs it in seconds. The shards are not derived in any sense that matters
+// here — they are what the index is rebuilt FROM.
+//
+// 🔒 IT MATCHES ANY COMPONENT OF THE PATH, NOT JUST THE LAST ONE, and that is the whole
+// correctness of it. The index used to be a single file, so testing `filepath.Base` was
+// enough; it is a DIRECTORY now, and a base-only test says false for everything inside it
+// — `index.lance/chunks.lance/_indices/…/part_0_invert.lance` has base `part_0_invert.lance`.
+// Callers walk recursively and ask per entry, so a base-only answer published the entire
+// index: every FTS fragment, every transaction log, every version manifest, in the exact
+// artifact whose whole point was to leave it behind.
+//
+// This shipped, and it was invisible because the test that guarded it asserted the absence
+// of `wiki.db` — true for the wrong reason once the name changed. Assert against
+// WikiIndexDirName, never a literal.
 func IsDerivedFile(rel string) bool {
-	base := strings.ToLower(filepath.Base(rel))
-	if base == WikiIndexDirName || strings.HasPrefix(base, WikiIndexDirName+"-") {
-		return true
+	for _, part := range strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == filepath.Separator }) {
+		part = strings.ToLower(part)
+		if part == WikiIndexDirName || strings.HasPrefix(part, WikiIndexDirName+"-") {
+			return true
+		}
 	}
-	// The SQLite index this replaced, and its write-ahead log siblings.
-	//
-	// STILL EXCLUDED even though nothing reads them any more, and that is the point: every
-	// machine that indexed before the change has a wiki.db sitting in its wiki directory, and
-	// the alternative to naming it here is that the wiki INDEXES ITS OWN OLD DATABASE as a
-	// source document. Nothing deletes it — this project keeps no migration — so nothing else
-	// would stop that.
-	return base == legacySQLiteIndexName || strings.HasPrefix(base, legacySQLiteIndexName+"-")
+	return false
 }
-
-// legacySQLiteIndexName is what the wiki index was called when it was a SQLite file.
-const legacySQLiteIndexName = "wiki.db"
 
 // ContentHash computes a truncated SHA256 hash for content deduplication.
 // Used by all wiki consumers for incremental cache tracking.

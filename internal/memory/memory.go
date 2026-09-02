@@ -61,6 +61,7 @@ type MemoryService struct {
 	scopeID  string
 	store    *MemoryStore
 	localDir string
+	tableURI string
 	wikiDir  string
 }
 
@@ -83,10 +84,83 @@ func newMemorySvcInternal(scope MemoryScope, scopeID, localDir string, store *Me
 		localDir: localDir,
 		wikiDir:  MemoryWikiGlobalDir(string(scope), scopeID),
 	}
+	svc.tableURI = MemoryTableURI(svc.ScopePrefix(), TableDirFor(tableScope(scope, scopeID)))
 	if store != nil {
 		store.Logger = svc.Logger
 	}
 	return svc
+}
+
+// tableScope is the (scope, scopeID) pair a scope's LOCAL directories are named from.
+//
+// An imported context names both halves after itself — RawDirFor(name, name) — while the project and
+// user scopes use their scope word and their id. Deriving it here keeps the table directory and the
+// raw directory named from one rule, so a scope can never own two differently-named directories.
+func tableScope(scope MemoryScope, scopeID string) (string, string) {
+	if scope == MemoryScopeContext {
+		return scopeID, scopeID
+	}
+	return string(scope), scopeID
+}
+
+// openTable opens this scope's store for one operation.
+//
+// Per operation rather than held on the service, matching what OpenScopeLocal did: a write is a
+// short transaction against object storage, and a long-lived handle would pin a dataset version for
+// the life of the process — which is what makes a reader answer from a snapshot taken before every
+// write it is about to be asked about.
+func (m *MemoryService) openTable(ctx context.Context) (*MemoryTable, error) {
+	uri := m.resolveTableURI()
+	if uri == "" {
+		return nil, fmt.Errorf("memory store not configured — run '%s setup' first", brand.BinName())
+	}
+	return OpenMemoryTable(ctx, uri)
+}
+
+// resolveTableURI is the scope's store location, derived when the field is not set.
+//
+// The field is an OVERRIDE, not a cache: it exists so a test can point a scope at a temporary
+// directory instead of the machine's real store. Deriving when it is empty is not a fallback in the
+// sense this project forbids — there is one location for a scope and this computes it from the same
+// two inputs the constructor uses. What it removes is the possibility of a service that was built
+// without going through the constructor answering "not configured" about a scope that is perfectly
+// well defined.
+func (m *MemoryService) resolveTableURI() string {
+	if m.tableURI != "" {
+		return m.tableURI
+	}
+	if m.scopeID == "" {
+		return ""
+	}
+	return MemoryTableURI(m.ScopePrefix(), TableDirFor(tableScope(m.scope, m.scopeID)))
+}
+
+// putMarkdown writes content that one of the content transforms produced.
+//
+// 🔒 THE MARKDOWN IS A TRANSIT FORMAT HERE, NOT A FILE. Nothing is written to disk: the four content
+// transforms — buildMemoryFile, updatedMemoryContent, archivedRevisionContent, withImportantFlag —
+// keep operating on text, and this converts their output into the row that is actually stored.
+//
+// Keeping them is deliberate. They carry the revision, previous/next and classification bookkeeping
+// that a data-loss bug was once found in, and recordFromMarkdown enforces the guard that came out of
+// it: a frontmatter that does not parse is REFUSED rather than re-rendered from an empty struct.
+// Rewriting all four to operate on MemoryRecord directly is the cleaner end state and belongs in a
+// slice of its own, with tests, not in the one that moves the storage.
+func (m *MemoryService) putMarkdown(ctx context.Context, tbl *MemoryTable, rel, content string) error {
+	rec, ok := recordFromMarkdown(rel, []byte(content))
+	if !ok {
+		return fmt.Errorf("refusing to store %s: its frontmatter did not parse", rel)
+	}
+	return tbl.Put(ctx, rec)
+}
+
+// readMarkdown renders a stored record back into the text the content transforms expect.
+func (m *MemoryService) readMarkdown(ctx context.Context, tbl *MemoryTable, key string) (string, bool, error) {
+	rec, ok, err := tbl.Get(ctx, key)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	return rec.Markdown(), true, nil
 }
 
 func (m *MemoryService) Close() error { return nil }
@@ -94,6 +168,10 @@ func (m *MemoryService) Close() error { return nil }
 func (m *MemoryService) LocalDir() string { return m.localDir }
 
 func (m *MemoryService) WikiDir() string { return m.wikiDir }
+
+// TableURI is where this scope's store table lives: an `s3://` prefix when a bucket is configured,
+// a local directory when there is not. See MemoryTableURI for why both forms exist.
+func (m *MemoryService) TableURI() string { return m.resolveTableURI() }
 
 func (m *MemoryService) ScopePrefix() string {
 	switch m.scope {
@@ -158,22 +236,15 @@ func (m *MemoryService) AddMemory(title, body string, opts MemoryOpts) (string, 
 	}
 	content := buildMemoryFile(id, title, body, string(m.scope), m.scopeID, assocProject, opts.Important, string(memType), opts.Tags)
 
-	scopePath := m.ScopePrefix()
-	scope, err := m.store.OpenScopeLocal(scopePath)
+	ctx := context.Background()
+	tbl, err := m.openTable(ctx)
 	if err != nil {
-		return "", fmt.Errorf("opening the memory scope: %w", err)
+		return "", err
 	}
+	defer func() { _ = tbl.Close() }()
 
-	if err := scope.WriteFile(MemoryFileName(id), []byte(content)); err != nil {
-		return "", fmt.Errorf("writing memory file: %w", err)
-	}
-
-	msg := fmt.Sprintf("memory: add %s (%s/%s) [%s]", id, m.scope, m.scopeID, memType)
-	if opts.Important {
-		msg += " [important]"
-	}
-	if err := scope.Publish(msg); err != nil {
-		return "", fmt.Errorf("committing memory: %w", err)
+	if err := m.putMarkdown(ctx, tbl, MemoryFileName(id), content); err != nil {
+		return "", fmt.Errorf("storing the memory: %w", err)
 	}
 
 	if err := m.syncToLocalFast(); err != nil {
@@ -201,27 +272,31 @@ func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string) erro
 		return fmt.Errorf("memory repository not configured — run '%s setup' first", brand.BinName())
 	}
 
-	scopePath := m.ScopePrefix()
-	scope, err := m.store.OpenScopeLocal(scopePath)
+	ctx := context.Background()
+	tbl, err := m.openTable(ctx)
 	if err != nil {
-		return fmt.Errorf("opening the memory scope: %w", err)
+		return err
 	}
+	defer func() { _ = tbl.Close() }()
 
 	relPath := MemoryFileName(id)
-	data, err := scope.ReadFile(relPath)
+	data, ok, err := m.readMarkdown(ctx, tbl, id)
 	if err != nil {
+		return fmt.Errorf("reading memory %q: %w", id, err)
+	}
+	if !ok {
 		return fmt.Errorf("memory %q not found", id)
 	}
 
 	// Archive the version being replaced BEFORE overwriting it, and point the new one at the
 	// archive. This is the history the git repository used to carry: object storage has no commit
 	// to hang it on, so the chain lives in the memory itself.
-	archived, err := m.archiveRevision(scope, id, string(data), MemoryFileName(id))
+	archived, err := m.archiveRevision(ctx, tbl, id, data, relPath)
 	if err != nil {
 		return err
 	}
 
-	content := updatedMemoryContent(string(data), memoryUpdate{
+	content := updatedMemoryContent(data, memoryUpdate{
 		ID:       id,
 		Scope:    string(m.scope),
 		ScopeID:  m.scopeID,
@@ -231,13 +306,8 @@ func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string) erro
 		Previous: archived,
 	})
 
-	if err := scope.WriteFile(relPath, []byte(content)); err != nil {
-		return fmt.Errorf("writing updated memory: %w", err)
-	}
-
-	msg := fmt.Sprintf("memory: update %s (%s/%s)", id, m.scope, m.scopeID)
-	if err := scope.Publish(msg); err != nil {
-		return fmt.Errorf("committing update: %w", err)
+	if err := m.putMarkdown(ctx, tbl, relPath, content); err != nil {
+		return fmt.Errorf("storing the updated memory: %w", err)
 	}
 
 	if err := m.syncToLocalFast(); err != nil {
@@ -251,32 +321,29 @@ func (m *MemoryService) RemoveMemory(id string) error {
 		return fmt.Errorf("memory repository not configured — run '%s setup' first", brand.BinName())
 	}
 
-	scopePath := m.ScopePrefix()
-	scope, err := m.store.OpenScopeLocal(scopePath)
+	ctx := context.Background()
+	tbl, err := m.openTable(ctx)
 	if err != nil {
-		return fmt.Errorf("opening the memory scope: %w", err)
+		return err
 	}
+	defer func() { _ = tbl.Close() }()
 
-	relPath := MemoryFileName(id)
+	if _, ok, getErr := tbl.Get(ctx, id); getErr != nil {
+		return fmt.Errorf("reading memory %q: %w", id, getErr)
+	} else if !ok {
+		return fmt.Errorf("memory %q not found", id)
+	}
 
 	// Archive the version being deleted, so the trail survives the deletion — which is what the
 	// git repository did, where a removed file stayed reachable in history.
 	//
 	// Nothing points AT the archive afterwards: the memory that would have carried the `previous`
-	// field is the one being removed. So a deleted memory's chain is found by its id under
-	// `history/<id>/`, not by following a pointer.
-	m.archiveBeforeDelete(scope, id, relPath)
+	// field is the one being removed. So a deleted memory's chain is found by its id, through
+	// MemoryTable.Revisions, not by following a pointer.
+	m.archiveBeforeDelete(ctx, tbl, id)
 
-	if err := scope.RemoveFile(relPath); err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("memory %q not found", id)
-		}
-		return fmt.Errorf("removing memory file: %w", err)
-	}
-
-	msg := fmt.Sprintf("memory: remove %s (%s/%s)", id, m.scope, m.scopeID)
-	if err := scope.Publish(msg); err != nil {
-		return fmt.Errorf("committing removal: %w", err)
+	if err := tbl.Delete(ctx, id); err != nil {
+		return fmt.Errorf("removing the memory: %w", err)
 	}
 
 	if err := m.syncToLocalFast(); err != nil {
@@ -292,16 +359,13 @@ func (m *MemoryService) RemoveMemory(id string) error {
 // The archive's `next` is left empty, because nothing replaced this revision — the chain ends
 // here, and its head is gone. That is what tells a later reader the difference between a
 // superseded revision and the last state of a deleted memory.
-func (m *MemoryService) archiveBeforeDelete(scope *ScopeStore, id string, candidates ...string) {
-	for _, rel := range candidates {
-		data, err := scope.ReadFile(rel)
-		if err != nil {
-			continue
-		}
-		if _, err := m.archiveRevision(scope, id, string(data), ""); err != nil {
-			m.log().Warn("archiving before delete failed", "id", id, "error", err)
-		}
+func (m *MemoryService) archiveBeforeDelete(ctx context.Context, tbl *MemoryTable, id string) {
+	data, ok, err := m.readMarkdown(ctx, tbl, id)
+	if err != nil || !ok {
 		return
+	}
+	if _, err := m.archiveRevision(ctx, tbl, id, data, ""); err != nil {
+		m.log().Warn("archiving before delete failed", "id", id, "error", err)
 	}
 }
 
@@ -310,15 +374,18 @@ func (m *MemoryService) archiveBeforeDelete(scope *ScopeStore, id string, candid
 // nextPath is what replaced this revision: the live memory's file name on an update, empty on a
 // delete. The archive that was previously the newest is repointed forward at this one, which is
 // what keeps the chain walkable in both directions rather than only backwards.
-func (m *MemoryService) archiveRevision(scope *ScopeStore, id, content, nextPath string) (string, error) {
+func (m *MemoryService) archiveRevision(ctx context.Context, tbl *MemoryTable, id, content, nextPath string) (string, error) {
 	revisionID := NewRevisionID()
 	archived := HistoryPath(id, revisionID)
 
-	if err := scope.WriteFile(archived, []byte(archivedRevisionContent(id, content, revisionID, nextPath))); err != nil {
+	// The path is passed as the record's `rel`, which is what makes recordFromMarkdown mark the row
+	// superseded and recover its revision id — the same derivation the migration used, so a native
+	// archive and a migrated one are indistinguishable rows.
+	if err := m.putMarkdown(ctx, tbl, archived, archivedRevisionContent(id, content, revisionID, nextPath)); err != nil {
 		return "", fmt.Errorf("archiving the previous revision: %w", err)
 	}
 
-	m.repointArchiveNext(scope, ParseMemoryFrontmatter(content).Previous, archived)
+	m.repointArchiveNext(ctx, tbl, ParseMemoryFrontmatter(content).Previous, archived)
 	return archived, nil
 }
 
@@ -328,15 +395,25 @@ func (m *MemoryService) archiveRevision(scope *ScopeStore, id, content, nextPath
 // A failure is logged and swallowed on purpose: the chain degrades to what it was before `next`
 // existed — walkable backwards, and with the head still named by every archive's `id` — which is
 // not worth failing a write the caller asked for.
-func (m *MemoryService) repointArchiveNext(scope *ScopeStore, archiveRel, nextPath string) {
+// repointArchiveNext moves an older archive's forward pointer onto the revision that now follows it.
+//
+// `archiveRel` is a `history/<id>/<rev>.md` PATH, because that is what `previous` holds — in the 84
+// migrated records that already carry one and in every archive written since. The path is an
+// IDENTIFIER now rather than a location: the row key it names is derived from it, which is why the
+// values were carried across the migration verbatim instead of being rewritten.
+func (m *MemoryService) repointArchiveNext(ctx context.Context, tbl *MemoryTable, archiveRel, nextPath string) {
 	if archiveRel == "" {
 		return
 	}
-	data, err := scope.ReadFile(archiveRel)
-	if err != nil {
+	key := archiveKeyFromPath(archiveRel)
+	if key == "" {
 		return
 	}
-	fm, parsed := ParseMemoryFrontmatterOK(string(data))
+	data, ok, err := m.readMarkdown(ctx, tbl, key)
+	if err != nil || !ok {
+		return
+	}
+	fm, parsed := ParseMemoryFrontmatterOK(data)
 	if !parsed {
 		// SAFETY: a forward pointer is not worth the classification of the revision it is on.
 		m.log().Warn("archive frontmatter unreadable; leaving it alone", "archive", archiveRel)
@@ -349,10 +426,24 @@ func (m *MemoryService) repointArchiveNext(scope *ScopeStore, archiveRel, nextPa
 	if fm.RevisionID == "" {
 		fm.RevisionID = RevisionIDFromHistoryPath(archiveRel)
 	}
-	body := extractBodyAfterFrontmatter(string(data))
-	if err := scope.WriteFile(archiveRel, []byte(renderMemoryFile(fm, body))); err != nil {
+	body := extractBodyAfterFrontmatter(data)
+	if err := m.putMarkdown(ctx, tbl, archiveRel, renderMemoryFile(fm, body)); err != nil {
 		m.log().Warn("repointing the previous archive failed", "archive", archiveRel, "error", err)
 	}
+}
+
+// archiveKeyFromPath turns a `history/<id>/<rev>.md` path into the row key that holds it.
+//
+// It mirrors MemoryRecord.Key for an archived revision, and it uses the SAME two derivations the
+// migration used — the chain id from the directory, the revision id from the file name — so a
+// pointer written before the store was a table still resolves.
+func archiveKeyFromPath(archiveRel string) string {
+	id := chainIDFromHistoryPath(archiveRel)
+	rev := RevisionIDFromHistoryPath(archiveRel)
+	if id == "" || rev == "" {
+		return ""
+	}
+	return id + "/" + rev
 }
 
 func (m *MemoryService) PromoteMemory(id string) error {
@@ -368,37 +459,36 @@ func (m *MemoryService) changeRelevance(id string, promote bool) error {
 		return fmt.Errorf("memory repository not configured — run '%s setup' first", brand.BinName())
 	}
 
-	scopePath := m.ScopePrefix()
-	scope, err := m.store.OpenScopeLocal(scopePath)
+	ctx := context.Background()
+	tbl, err := m.openTable(ctx)
 	if err != nil {
-		return fmt.Errorf("opening the memory scope: %w", err)
+		return err
 	}
+	defer func() { _ = tbl.Close() }()
 
 	relPath := MemoryFileName(id)
-
-	data, err := scope.ReadFile(relPath)
+	data, ok, err := m.readMarkdown(ctx, tbl, id)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("memory %q not found", id)
-		}
-		return fmt.Errorf("reading memory file: %w", err)
+		return fmt.Errorf("reading memory %q: %w", id, err)
+	}
+	if !ok {
+		return fmt.Errorf("memory %q not found", id)
 	}
 
-	if IsImportantContent(string(data)) == promote {
+	// No revision is archived: importance is not a content change. The early return matters for the
+	// same reason — a no-op promote must not produce a write, or every idempotent call would add a
+	// dataset version to a store whose version history is the recovery path D2 accepted.
+	if IsImportantContent(data) == promote {
 		return nil
 	}
 
-	if err := scope.WriteFile(relPath, []byte(withImportantFlag(string(data), promote))); err != nil {
-		return fmt.Errorf("writing memory file: %w", err)
+	if err := m.putMarkdown(ctx, tbl, relPath, withImportantFlag(data, promote)); err != nil {
+		return fmt.Errorf("storing the relevance change: %w", err)
 	}
 
 	verb := "promote"
 	if !promote {
 		verb = "demote"
-	}
-	msg := fmt.Sprintf("memory: %s %s (%s/%s)", verb, id, m.scope, m.scopeID)
-	if err := scope.Publish(msg); err != nil {
-		return fmt.Errorf("committing relevance change: %w", err)
 	}
 
 	if err := m.syncToLocalFast(); err != nil {
@@ -407,110 +497,85 @@ func (m *MemoryService) changeRelevance(id string, promote bool) error {
 	return nil
 }
 
+// ListMemories is the catalogue of what this scope knows: its LIVE memories, never the archived
+// revisions of them.
+//
+// It reads the store rather than the compiled wiki, which is what makes it the read that cannot be
+// behind: a memory written a moment ago is here before search can see it, and that difference is
+// documented in the memory protocol as the reason to list when confirming a write.
+//
+// The id no longer needs recovering. It used to be taken from the file name and then corrected from
+// the file's own frontmatter — `MemoryIDFor(data, name)` — because a name could disagree with what
+// the memory declared, and that disagreement is what forked 184 memories into twins. A row has one
+// id and it is the declared one.
 func (m *MemoryService) ListMemories() ([]MemoryEntry, error) {
-	rawDir := m.localDir
-	entries, err := os.ReadDir(rawDir)
+	ctx := context.Background()
+	tbl, err := m.openTable(ctx)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
+		return nil, err
+	}
+	defer func() { _ = tbl.Close() }()
+
+	records, err := tbl.Live(ctx)
+	if err != nil {
 		return nil, err
 	}
 
-	var memories []MemoryEntry
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-		name := e.Name()
-		absPath := filepath.Join(rawDir, name)
-		title, createdAt, important := parseMemoryHeader(absPath)
-		id := MemoryIDFromFileName(name)
-		if data, err := os.ReadFile(absPath); err == nil {
-			id = MemoryIDFor(string(data), name)
-		}
+	memories := make([]MemoryEntry, 0, len(records))
+	for _, rec := range records {
 		memories = append(memories, MemoryEntry{
-			ID:        id,
-			Title:     title,
-			CreatedAt: createdAt,
+			ID:        rec.ID,
+			Title:     rec.Title,
+			CreatedAt: rec.CreatedAt,
 			Scope:     m.scope,
 			ScopeID:   m.scopeID,
-			Important: important,
+			Important: rec.Important,
+			Type:      MemoryType(rec.Type),
+			Tags:      rec.Tags,
 		})
 	}
 	return memories, nil
 }
 
+// SyncToLocal recompiles this scope's wiki from its store.
+//
+// THERE IS NOTHING LEFT TO SYNC, and the name is kept only because callers use it. It used to pull
+// the remote prefix into a local raw directory and then compile from those files, with a fast path
+// that skipped the network and a slow one that did not — a distinction that meant something while
+// the truth was a directory that could be behind a bucket. The store IS the bucket now: a read is
+// already current, so the only work left is the compile.
 func (m *MemoryService) SyncToLocal() error {
-	// Fast path: with no remote configured the raw directory is the only source there is,
-	// so an existing one goes straight to indexing. There is nothing to sync from.
-	if m.store != nil && !m.store.Configured() {
-		scopePath := m.ScopePrefix()
-		if m.store.HasLocalScope(scopePath) {
-			rawDir := m.store.ScopeDir(scopePath)
-			m.localDir = rawDir
-			m.wikiDir = MemoryWikiGlobalDir(string(m.scope), m.scopeID)
-			m.ensureWikiDir()
-			ctx := context.Background()
-			if err := m.IndexMemories(ctx); err != nil {
-				m.log().Warn("wiki indexing failed", "scope", m.scope, "scopeID", m.scopeID, "error", err)
-			}
-			return nil
-		}
-	}
-	return m.syncToLocalInternal(false)
-}
-
-func (m *MemoryService) syncToLocalFast() error {
-	return m.syncToLocalInternal(true)
-}
-
-func (m *MemoryService) syncToLocalInternal(skipNetwork bool) error {
-	if m.store == nil {
-		return fmt.Errorf("memory repository not configured")
-	}
-
-	scopePath := m.ScopePrefix()
-	var scope *ScopeStore
-	var err error
-	if skipNetwork {
-		scope, err = m.store.OpenScopeLocal(scopePath)
-	} else {
-		scope, err = m.store.OpenScope(scopePath)
-	}
-	if err != nil {
-		return fmt.Errorf("opening the memory scope: %w", err)
-	}
-	wtDir := scope.Dir()
-
-	m.localDir = wtDir
-
 	m.wikiDir = MemoryWikiGlobalDir(string(m.scope), m.scopeID)
 	m.ensureWikiDir()
-
-	ctx := context.Background()
-	if err := m.IndexMemories(ctx); err != nil {
+	if err := m.IndexMemories(context.Background()); err != nil {
 		m.log().Warn("wiki indexing failed", "scope", m.scope, "scopeID", m.scopeID, "error", err)
 	}
 	return nil
 }
 
+// syncToLocalFast is what the write paths call after a write.
+//
+// It is SyncToLocal, and the two are no longer different: the "fast" one skipped the network. Kept as
+// a separate name because the write paths read better for it — a write recompiles, it does not sync.
+func (m *MemoryService) syncToLocalFast() error {
+	return m.SyncToLocal()
+}
+
 func (m *MemoryService) IndexMemories(ctx context.Context) error {
-	rawDir := m.localDir
-	if _, err := os.Stat(rawDir); os.IsNotExist(err) {
-		return nil
+	// THE REPAIR PASS IS GONE, and it is gone because the defect it healed cannot happen.
+	//
+	// It folded twin memories — 184 of them — that a write path had forked by recovering an id from
+	// a FILE NAME. A row is keyed by the id the memory declares, so two twins collapse into one row
+	// on upsert and there is nothing left to fold. It ran on every index because the twins lived in
+	// the shared bucket and each clone had to heal itself; a defect that cannot be expressed needs
+	// no funnel.
+	tbl, err := m.openTable(ctx)
+	if err != nil {
+		return err
 	}
+	defer func() { _ = tbl.Close() }()
 
-	// Repair before compiling, so a forked twin never reaches the wiki. It runs here rather than
-	// in a one-off command because the twins live in the shared bucket: every clone that pulls
-	// them has to heal itself, and this is the funnel every index goes through.
-	if report, err := m.RepairForkedMemories(); err != nil {
-		m.log().Warn("memory repair failed; compiling anyway", "error", err)
-	} else if report.Changed() {
-		m.log().Info("memory repair folded forked ids", "scope", m.scope, "result", report.String())
-	}
-
-	if _, err := GenerateMemoryWiki(ctx, rawDir, m.wikiDir); err != nil {
+	if _, err := GenerateMemoryWikiFromTable(ctx, tbl, m.wikiDir); err != nil {
 		return fmt.Errorf("generating memory wiki: %w", err)
 	}
 	return nil
@@ -886,4 +951,14 @@ func parseMemoryHeader(path string) (title, createdAt string, important bool) {
 
 func ParseMemoryMetaPublic(path string) (title, createdAt string) {
 	return parseMemoryMeta(path)
+}
+
+// sameMemoryBody compares two memories by BODY only, ignoring their frontmatter.
+//
+// It survived the retirement of repair.go because the question it answers is not about repair: two
+// revisions of one memory differ in their frontmatter on every write — revision, updated_at,
+// previous — so "did the text actually change" needs the frontmatter excluded.
+func sameMemoryBody(a, b string) bool {
+	return strings.TrimSpace(extractBodyAfterFrontmatter(a)) ==
+		strings.TrimSpace(extractBodyAfterFrontmatter(b))
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
+	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
@@ -94,19 +95,9 @@ func (w *WikiDB) DBPath() string {
 	return w.store.URI()
 }
 
-// Checkpoint used to fold SQLite's write-ahead log into the database file, because replication
-// copies the file and deliberately not its log — so skipping it shipped chunks without their
-// embeddings.
-//
-// IT IS A NO-OP NOW, and deliberately kept rather than deleted at the call sites: Lance has no
-// separate log to fold. A write produces a new immutable version of the dataset, so what is on
-// disk after a write is already the whole truth and a copy of the directory is complete. Removing
-// the call would be correct too; keeping it is what tells the next reader that the concern was
-// considered rather than forgotten.
-func (w *WikiDB) Checkpoint() {}
-
-// Compact merges the fragments a burst of writes leaves behind. Unlike Checkpoint this does
-// something, but nothing depends on it for correctness.
+// Compact merges the fragments a burst of writes leaves behind. Nothing depends on it for
+// correctness — a write is already durable and complete without it, because Lance produces a new
+// immutable version rather than a file plus a log to fold in.
 func (w *WikiDB) Compact(ctx context.Context) error {
 	if err := w.ensureTables(ctx); err != nil {
 		return err
@@ -118,10 +109,15 @@ func (w *WikiDB) Compact(ctx context.Context) error {
 // lanceWikiVersionRetention is how long a superseded dataset version survives before pruning.
 //
 // NOT zero. Lance is MVCC: a reader answers from the snapshot it opened, so compaction never
-// takes a query down, but pruning a version a live reader still holds does. Nothing here uses
-// time travel, so retention beyond a margin for in-flight reads buys nothing and costs the whole
-// superseded copy.
-const lanceWikiVersionRetention = 15 * time.Minute
+// takes a query down, but pruning a version a live reader still holds does.
+//
+// IT IS A POLICY NOW, not a constant, and the reason is the premise this used to state: "nothing
+// here uses time travel, so retention beyond a margin for in-flight reads buys nothing". That is
+// true of the knowledge wiki, which is rebuilt from `docs/` and whose recovery path is therefore
+// its sources. It is NOT true of a store holding the only copy of its data, where the version
+// history IS the recovery path and the retention is the length of the safety net — proved
+// restorable in internal/lancestore. `wiki.version_retention` is how the two are told apart.
+func lanceWikiVersionRetention() time.Duration { return config.WikiVersionRetention() }
 
 // Maintain reclaims the disk a rebuild leaves behind: dead rows still occupying their fragments,
 // and superseded versions kept for a time travel nobody performs.
@@ -157,7 +153,7 @@ func (w *WikiDB) Maintain(ctx context.Context) {
 				"fragments_removed", res.FragmentsRemoved, "fragments_added", res.FragmentsAdded,
 				"duration_ms", time.Since(t0).Milliseconds())
 		}
-		if res, err := t.table.PruneVersions(ctx, lanceWikiVersionRetention); err != nil {
+		if res, err := t.table.PruneVersions(ctx, lanceWikiVersionRetention()); err != nil {
 			w.log().Warn("pruning superseded wiki index versions", "table", t.name, "error", err)
 		} else if res.OldVersions > 0 {
 			w.log().Info("superseded wiki index versions pruned", "table", t.name,
@@ -194,6 +190,19 @@ func lanceChunksSchema(vectorDim int) lancestore.Schema {
 		{Name: "revision_id", Type: lancestore.FieldString, Nullable: true},
 		{Name: "superseded", Type: lancestore.FieldBool},
 		{Name: "current_id", Type: lancestore.FieldString, Nullable: true},
+		// The rest of what was page frontmatter and nowhere else.
+		//
+		// The compiled page carried `revision`, `previous`, `next`, `created`, and the three
+		// staleness fields; the explorer and the memory protocol read them off it. With no page
+		// there is no other record, so removing the page without these columns would drop facts
+		// quietly — a stale page and a fresh one look identical without `stale_since`, and a
+		// revision chain with no `previous` is a chain that cannot be walked.
+		{Name: "revision", Type: lancestore.FieldInt64},
+		{Name: "previous", Type: lancestore.FieldString, Nullable: true},
+		{Name: "next", Type: lancestore.FieldString, Nullable: true},
+		{Name: "created", Type: lancestore.FieldString, Nullable: true},
+		{Name: "stale_since", Type: lancestore.FieldString, Nullable: true},
+		{Name: "stale_reason", Type: lancestore.FieldString, Nullable: true},
 		{Name: lanceWikiBody, Type: lancestore.FieldString},
 		{Name: lanceWikiVector, Type: lancestore.FieldVector, Dim: vectorDim, Nullable: true},
 	}}
@@ -361,6 +370,12 @@ func buildChunkRow(c WikiChunk, vec []float32) lancestore.Row {
 		"revision_id":   c.RevisionID,
 		"superseded":    c.Superseded,
 		"current_id":    c.CurrentID,
+		"revision":      int64(c.Revision),
+		"previous":      c.Previous,
+		"next":          c.Next,
+		"created":       c.Created,
+		"stale_since":   c.StaleSince,
+		"stale_reason":  c.StaleReason,
 		lanceWikiBody:   wikiSearchBody(c),
 		lanceWikiVector: nil,
 	}
@@ -872,8 +887,21 @@ func (w *WikiDB) directTargets(ctx context.Context, slug string) []string {
 	return out
 }
 
+// PageTitles maps every indexed slug to its title, projected so no body is read.
+//
+// It is the cheap half of Chunks, for the callers that need the page SET and its labels: the
+// cross-reference graph, and anything rendering a list of links.
+func (w *WikiDB) PageTitles(ctx context.Context) (map[string]string, error) {
+	if err := w.ensureTables(ctx); err != nil {
+		return nil, err
+	}
+	return w.slugTitles(ctx)
+}
+
 func (w *WikiDB) slugTitles(ctx context.Context) (map[string]string, error) {
-	hits, err := w.chunks.Search(ctx, lancestore.Query{Filter: "word_count >= 0", Limit: 100000})
+	hits, err := w.chunks.Search(ctx, lancestore.Query{
+		Filter: "word_count >= 0", Columns: []string{"slug", "title"}, Limit: 100000,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1096,24 +1124,142 @@ func (w *WikiDB) VectorsBySource(ctx context.Context) (map[string][]float32, err
 	return out, nil
 }
 
-// PageBody returns one page's text and title from the index.
+// Chunk returns one page's whole row, and it is the only way a page is read.
 //
-// ErrPageNotFound when the slug is absent, so a caller can offer the list of what is there —
-// exactly as the file-backed path does.
-func (w *WikiDB) PageBody(ctx context.Context, slug string) (body, title string, err error) {
+// There was a `PageBody` beside it returning just the text and the title, which is what a page read
+// used to be. It went when a read started carrying the page's frontmatter again: rebuilding the
+// header needs every column, so the narrow reader had no caller left. Keeping it would have left two
+// ways to read a page differing in what they return — the shape of drift this line of work removes.
+func (w *WikiDB) Chunk(ctx context.Context, slug string) (*WikiChunk, error) {
 	if err := w.ensureTables(ctx); err != nil {
-		return "", "", err
+		return nil, err
 	}
 	hits, err := w.chunks.Search(ctx, lancestore.Query{
 		Filter: fmt.Sprintf("slug = %s", lanceQuote(slug)), Limit: 1,
 	})
 	if err != nil {
-		return "", "", fmt.Errorf("reading wiki page %q: %w", slug, err)
+		return nil, fmt.Errorf("reading wiki page %q: %w", slug, err)
 	}
 	if len(hits) == 0 {
-		return "", "", fmt.Errorf("%w: %s", ErrPageNotFound, slug)
+		return nil, fmt.Errorf("%w: %s", ErrPageNotFound, slug)
 	}
-	return str(hits[0].Row["body"]), str(hits[0].Row["title"]), nil
+	c := rowToChunk(hits[0].Row)
+	return &c, nil
+}
+
+// Chunks returns every page's whole row, sorted by slug.
+//
+// It carries the bodies, so it is the expensive read of this file and the callers are the two that
+// genuinely need every page: the lint that audits them and the markdown export that renders them.
+// Anything that only needs names and types wants Browse, and anything that only needs change
+// detection wants PageHashes.
+func (w *WikiDB) Chunks(ctx context.Context) ([]WikiChunk, error) {
+	if err := w.ensureTables(ctx); err != nil {
+		return nil, err
+	}
+	hits, err := w.chunks.Search(ctx, lancestore.Query{Filter: "word_count >= 0", Limit: 100000})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]WikiChunk, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, rowToChunk(h.Row))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+	return out, nil
+}
+
+// PageHashes maps every indexed slug to its content hash.
+//
+// Projected, not selected whole: `Query.Columns` keeps the bodies out of the answer, which matters
+// because this is the query a generator runs on every build to decide what was added, changed and
+// deleted. It replaced an `os.ReadDir` of the wiki directory plus a frontmatter read per page.
+func (w *WikiDB) PageHashes(ctx context.Context) (map[string]string, error) {
+	if err := w.ensureTables(ctx); err != nil {
+		return nil, err
+	}
+	hits, err := w.chunks.Search(ctx, lancestore.Query{
+		Filter:  "word_count >= 0",
+		Columns: []string{"slug", "content_hash"},
+		Limit:   100000,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(hits))
+	for _, h := range hits {
+		if s := str(h.Row["slug"]); s != "" {
+			out[s] = str(h.Row["content_hash"])
+		}
+	}
+	return out, nil
+}
+
+// AllXRefs returns the whole outbound edge set, source slug to target slugs.
+//
+// FindXRefs answers one slug's neighbourhood; this answers the graph, which is what a lint or an
+// export needs before it can say anything about orphans and broken links.
+func (w *WikiDB) AllXRefs(ctx context.Context) (map[string][]string, error) {
+	if err := w.ensureTables(ctx); err != nil {
+		return nil, err
+	}
+	if w.xrefs == nil {
+		return map[string][]string{}, nil
+	}
+	// A filter-only query needs SOME predicate, and `source_slug` is non-nullable, so this one is
+	// the always-true form for a table with no numeric column to compare — the same trick Browse
+	// uses with `word_count >= 0`.
+	hits, err := w.xrefs.Search(ctx, lancestore.Query{
+		Filter: "source_slug IS NOT NULL", Limit: 200000,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]string)
+	for _, h := range hits {
+		src := str(h.Row["source_slug"])
+		tgt := str(h.Row["target_slug"])
+		if src == "" || tgt == "" {
+			continue
+		}
+		out[src] = append(out[src], tgt)
+	}
+	for k := range out {
+		sort.Strings(out[k])
+	}
+	return out, nil
+}
+
+// rowToChunk is the inverse of buildChunkRow, and belongs beside it for the same reason there is
+// only one constructor: a column added to one and forgotten in the other is a field that reads as
+// empty everywhere without anything failing.
+func rowToChunk(row map[string]any) WikiChunk {
+	return WikiChunk{
+		Slug:        str(row["slug"]),
+		Title:       str(row["title"]),
+		Body:        str(row["body"]),
+		Summary:     str(row["summary"]),
+		DocType:     str(row["doc_type"]),
+		Source:      str(row["source"]),
+		Breadcrumb:  str(row["breadcrumb"]),
+		ClusterID:   int(i64(row["cluster_id"])),
+		ClusterName: str(row["cluster_name"]),
+		Confidence:  flt(row["confidence"]),
+		ContentHash: str(row["content_hash"]),
+		WordCount:   int(i64(row["word_count"])),
+		Updated:     str(row["updated"]),
+		Important:   boolOf(row["important"]),
+		EntityID:    str(row["entity_id"]),
+		RevisionID:  str(row["revision_id"]),
+		Superseded:  boolOf(row["superseded"]),
+		CurrentID:   str(row["current_id"]),
+		Revision:    int(i64(row["revision"])),
+		Previous:    str(row["previous"]),
+		Next:        str(row["next"]),
+		Created:     str(row["created"]),
+		StaleSince:  str(row["stale_since"]),
+		StaleReason: str(row["stale_reason"]),
+	}
 }
 
 // Slugs lists every page in the index, sorted.

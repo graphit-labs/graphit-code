@@ -56,9 +56,10 @@ func TestBuildDBFromCacheNeedsNoSourceDocuments(t *testing.T) {
 		map[string]string{"docs/overview.md": "Overview"},
 	)
 
-	// Nothing but the cache is present: no pages, no sources, no database.
-	if _, err := os.Stat(filepath.Join(dir, "wiki.db")); err == nil {
-		t.Fatal("the fixture already has a database; this test would prove nothing")
+	// Nothing but the cache is present: no sources, no index. Named by the constant — this guard
+	// exists to stop the test proving nothing, so it must not itself pass for the wrong reason.
+	if _, err := os.Stat(filepath.Join(dir, WikiIndexDirName)); err == nil {
+		t.Fatal("the fixture already has an index; this test would prove nothing")
 	}
 
 	n, err := BuildDBFromCache(context.Background(), dir)

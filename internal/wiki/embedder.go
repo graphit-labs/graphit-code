@@ -146,13 +146,6 @@ func (e *WikiEmbedder) RunCycle(ctx context.Context, wikiDir string) (int, error
 
 	e.log().Info("wiki embedding cycle", "embedded", done)
 
-	// Vectors were written in WAL mode. Replication copies the database file and
-	// deliberately not its log, so fold the log in now or every replica of this wiki
-	// gets the chunks without their embeddings.
-	if done > 0 {
-		db.Checkpoint()
-	}
-
 	// Auto-export embeddings to per-file shards for cache persistence.
 	if done > 0 {
 		if pc, err := NewWikiProcessCache(wikiDir); err == nil {

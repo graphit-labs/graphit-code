@@ -28,7 +28,7 @@ func Reclaim(sessionID string) {
 	_ = os.RemoveAll(store.ASTProjectDirByID(sessionID))
 	_ = os.RemoveAll(store.KnowledgeProjectDirByID(sessionID))
 	_ = os.RemoveAll(store.MemoryWikiDir(string(memory.MemoryScopeProject), sessionID))
-	_ = os.RemoveAll(store.MemoryRawDir(string(memory.MemoryScopeProject), sessionID))
+	_ = os.RemoveAll(store.MemoryTableDir(string(memory.MemoryScopeProject), sessionID))
 
 	// The memory scope is the one that reached outside the global directory: opening
 	// it created an orphan branch and a worktree in the shared memory repository, so

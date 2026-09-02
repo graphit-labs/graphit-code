@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,9 +30,41 @@ type ImportantEntry struct {
 	created string
 }
 
+// ListImportantMemories is the scope's promoted memories, read from its store.
+//
+// `Path` is the path form a memory would have had — `<id>.md`. It is no longer a location, and it is
+// kept because it is what identifies a memory to callers that display or link one; the store has no
+// files to point at.
 func ListImportantMemories(scope string) ([]ImportantEntry, error) {
-	dir := RawDir(scope)
-	return listImportantInDir(dir)
+	uri := TableURIForScope(scope)
+	if uri == "" {
+		return nil, nil
+	}
+	ctx := context.Background()
+	tbl, err := OpenMemoryTable(ctx, uri)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tbl.Close() }()
+
+	records, err := tbl.Live(ctx)
+	if err != nil {
+		return nil, err
+	}
+	important := make([]ImportantEntry, 0)
+	for _, rec := range records {
+		if !rec.Important {
+			continue
+		}
+		important = append(important, ImportantEntry{
+			ID:      rec.ID,
+			Title:   rec.Title,
+			Content: strings.TrimSpace(rec.Body),
+			Path:    MemoryFileName(rec.ID),
+			created: rec.CreatedAt,
+		})
+	}
+	return important, nil
 }
 
 func listImportantInDir(dir string) ([]ImportantEntry, error) {

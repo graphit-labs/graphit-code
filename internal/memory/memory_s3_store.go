@@ -46,12 +46,6 @@ import (
 //     the same memory races, and there last-writer-wins is what `rebase -X ours` approximated.
 const memoryPrefix = "memory"
 
-// gitDirName is skipped on upload and on copy.
-//
-// Nothing here creates it any more. It is skipped because a directory that was a git worktree
-// before this change still holds one, and uploading it would publish git internals as memories.
-const gitDirName = ".git"
-
 var (
 	memRevisionCacheMu  sync.Mutex
 	memRevisionCacheMap = map[string]memRevisionEntry{}
@@ -128,17 +122,18 @@ func (m *MemoryStore) Configured() bool { return m.objects != nil }
 // Dir is the root holding every scope's raw directory.
 func (m *MemoryStore) Dir() string { return m.rawBase }
 
-// EnsureInitialised creates the raw directory root.
+// EnsureInitialised has nothing left to initialise.
 //
-// There is no repository to initialise, so this no longer runs `git init`, writes a bootstrap
-// commit, configures a remote or prunes refs — the eight git invocations that used to happen
-// before the first memory could be read are gone.
-func (m *MemoryStore) EnsureInitialised() error {
-	if err := os.MkdirAll(m.rawBase, 0o755); err != nil {
-		return fmt.Errorf("creating memory directory root: %w", err)
-	}
-	return nil
-}
+// It ran eight git invocations once — `git init`, a bootstrap commit, a remote, a prune — before the
+// first memory could be read. Those went when memory left git. Then it created the raw directory
+// root, and that went too: a scope's store is a Lance table, and opening one CREATES it, so there is
+// no directory to prepare in advance.
+//
+// Creating it anyway was not harmless. With the raw store retired the directory came back empty on
+// every run, which reads as "the raw store is still a thing" to anyone looking at the global
+// directory — and it is the kind of residue that makes a later reader restore a mechanism instead of
+// deleting its last thread.
+func (m *MemoryStore) EnsureInitialised() error { return nil }
 
 // EnsureInitialisedFast is EnsureInitialised. It survives as a separate name because callers choose
 // between them to mean "skip the network", and initialisation no longer touches it at all.
@@ -365,20 +360,11 @@ func (s *ScopeStore) Publish(reason string) error {
 	return nil
 }
 
-// uploadDir uploads the raw directory, skipping leftover git metadata.
-//
-// It does not use s3store.UploadDir because that walks everything, and a raw directory that was a
-// worktree before this change still holds a `.git`.
+// uploadDir uploads every file in the raw directory under the scope's key.
 func (s *ScopeStore) uploadDir(ctx context.Context, key string) error {
 	return filepath.WalkDir(s.dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
-		}
-		if d.Name() == gitDirName {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
 		}
 		if d.IsDir() {
 			return nil
@@ -416,17 +402,11 @@ func (s *ScopeStore) Prune() error {
 	return nil
 }
 
-// copyDirRecursive copies a tree, skipping leftover git metadata and preserving file modes.
+// copyDirRecursive copies a tree, preserving file modes.
 func copyDirRecursive(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
-		}
-		if d.Name() == gitDirName {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
 		}
 		rel, relErr := filepath.Rel(src, path)
 		if relErr != nil {

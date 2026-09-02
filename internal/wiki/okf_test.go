@@ -44,26 +44,28 @@ func TestIsBundlePageLinkRejectsPathsAndFragments(t *testing.T) {
 	}
 }
 
-func TestBuildCrossRefGraphIgnoresProvenanceLinks(t *testing.T) {
+// The 354 phantom broken links are still kept out, one step earlier than before.
+//
+// The graph used to re-extract links by reading the rendered pages, so this filter had to hold
+// inside the graph builder. The builder is handed resolved edges now, and the filter runs where the
+// edges are produced: ExtractCrossRefs → FindWikiLinks → isBundlePageLink. Same guarantee, asserted
+// at the place that can still get it wrong.
+func TestCrossRefExtractionIgnoresProvenanceAndRepoPaths(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	page := "---\ntype: document\ntitle: A\n---\n\n# A\n\n" +
-		"*Provenance: [docs/specs/a.md](docs/specs/a.md)*\n\n" +
+	body := "*Provenance: [docs/specs/a.md](docs/specs/a.md)*\n\n" +
 		"See [B](B.md) and the code in [pipeline.go](../../internal/ast/pipeline.go).\n"
-	if err := os.WriteFile(filepath.Join(dir, "A.md"), []byte(page), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "B.md"), []byte("---\ntype: document\n---\n\n# B\n"), 0o644); err != nil {
-		t.Fatal(err)
+
+	refs := ExtractCrossRefs("---\ntype: document\ntitle: A\n---\n\n# A\n\n" + body)
+	if len(refs) != 1 || refs[0] != "B" {
+		t.Fatalf("cross-refs = %v; want exactly [B] — a repo path is not a page", refs)
 	}
 
-	graph, err := BuildCrossRefGraph(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := graph.Outbound["A"]
-	if len(out) != 1 || out[0] != "B" {
-		t.Errorf("outbound = %v; want exactly [B] — a repo path is not a page", out)
+	graph := BuildCrossRefGraphFromRefs([]PageEdges{
+		{Slug: "A", Title: "A", Targets: refs},
+		{Slug: "B", Title: "B"},
+	})
+	if out := graph.Outbound["A"]; len(out) != 1 || out[0] != "B" {
+		t.Errorf("outbound = %v; want exactly [B]", out)
 	}
 	if broken := BrokenLinks(graph); len(broken) != 0 {
 		t.Errorf("broken links = %v; want none", broken)

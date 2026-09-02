@@ -1158,27 +1158,18 @@ func runKnowledgeSync(contextName string) error {
 func runKnowledgeList() error {
 	p := output.NewPrinter("")
 	wikiDir := knowledge.WikiDir()
-	entries, err := os.ReadDir(wikiDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			p.Info("No knowledge wiki found. Run '%s knowledge index' first.", brand.BinName())
-			return nil
-		}
-		return fmt.Errorf("list: %w", err)
+	// The index is the list. This used to read the wiki directory and skip the two reserved page
+	// names; neither the pages nor the reserved names exist, and a slug in the index is exactly a
+	// document a search can reach.
+	slugs := wiki.ListPagesAt(context.Background(), wikiDir)
+	if len(slugs) == 0 {
+		p.Info("No knowledge wiki found. Run '%s knowledge index' first.", brand.BinName())
+		return nil
 	}
-	var count int
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-		name := strings.TrimSuffix(e.Name(), ".md")
-		if name == "index" || name == "log" {
-			continue
-		}
-		p.ListItem("%s", name)
-		count++
+	for _, slug := range slugs {
+		p.ListItem("%s", slug)
 	}
-	p.Count("document", count)
+	p.Count("document", len(slugs))
 	return nil
 }
 
@@ -1279,7 +1270,7 @@ func runKnowledgeImport(name string, reset, useLouvain bool) error {
 	task := p.StartTask("Importing knowledge context %q...", name)
 
 	// What the context carries is the COMPILED wiki, so nothing is generated here:
-	// the pages and the embedding vectors arrive together and only the search index
+	// the shards and the embedding vectors arrive together and only the search index
 	// has to be built from them.
 	task.Update("Fetching compiled wiki from %s...", hub.ContextPrefix("knowledge", name))
 	dir, err := knowledge.ResetContextWiki(name)
@@ -1311,8 +1302,7 @@ func runKnowledgeImport(name string, reset, useLouvain bool) error {
 		p.StepWarn("Registering context %q: %v", name, err)
 	}
 
-	memStore, _ := memory.NewMemoryStore()
-	memory.OnHubImport(ctx, name, wd, memStore, nil)
+	memory.OnHubImport(ctx, name, nil)
 	p.Step("Memory auto-cycle triggered for context %q (background)", name)
 
 	p.Success("Context %q ready", name)
@@ -1332,7 +1322,7 @@ func runKnowledgeClean() error {
 	return nil
 }
 
-func runKnowledgeLint(contextName string, deep, fix bool, staleDays int) error {
+func runKnowledgeLint(contextName string, staleDays int) error {
 	p := output.NewPrinter("")
 
 	wikiDir := knowledge.WikiDir()
@@ -1347,13 +1337,9 @@ func runKnowledgeLint(contextName string, deep, fix bool, staleDays int) error {
 
 	p.Running("Auditing knowledge wiki…")
 
-	cfg := wiki.LintConfig{
-		Deep:      deep,
-		Fix:       fix,
-		StaleDays: staleDays,
-	}
+	cfg := wiki.LintConfig{StaleDays: staleDays}
 
-	report, err := wiki.LintWiki(wikiDir, cfg)
+	report, err := wiki.LintWiki(context.Background(), wikiDir, cfg)
 	if err != nil {
 		return fmt.Errorf("lint failed: %w", err)
 	}
@@ -1393,10 +1379,6 @@ func runKnowledgeLint(contextName string, deep, fix bool, staleDays int) error {
 		for _, fi := range report.MissingFields {
 			p.ListItem("%s.md — missing: %s", fi.Page, strings.Join(fi.MissingFields, ", "))
 		}
-	}
-
-	if report.FixesApplied > 0 {
-		p.Success("Applied %d fix(es)", report.FixesApplied)
 	}
 
 	return nil
@@ -1685,11 +1667,11 @@ func runMemoryIndex(userScope, reset bool) error {
 	//
 	// It exists because an ordinary index cannot repair an index that is wrong for a
 	// reason other than a changed memory: generation skips any source whose content hash
-	// is unchanged, so a wiki that is empty while its pages and shards are present and
-	// current is precisely the state a re-run reports "completed" over without touching.
+	// is unchanged, so a wiki that is empty while its shards are present and current is
+	// precisely the state a re-run reports "completed" over without touching.
 	//
-	// Nothing discarded here is source. The memories are in their own git worktree; pages,
-	// chunks and vectors are all derived from them.
+	// Nothing discarded here is source. The memories live in their own store, outside the
+	// wiki; the chunks and the vectors are all derived from them.
 	if reset {
 		if _, rerr := wiki.ResetDir(svc.WikiDir()); rerr != nil {
 			return fmt.Errorf("clearing the memory wiki: %w", rerr)
@@ -1697,7 +1679,7 @@ func runMemoryIndex(userScope, reset bool) error {
 		p.Step("Cleared %s", svc.WikiDir())
 	}
 
-	task := p.StartTask("Indexing memories → %s...", svc.LocalDir())
+	task := p.StartTask("Indexing memories from %s...", svc.TableURI())
 	if err := svc.IndexMemories(ctx); err != nil {
 		task.Fail("Memory indexing failed: %v", err)
 		return err
@@ -1880,11 +1862,11 @@ func runMemoryExport() error {
 
 func runMemoryRemoveContext(contextName string) error {
 	p := output.NewPrinter("")
-	// An imported memory context is a branch of the shared memory repository, so
-	// what is dropped is this machine's copy of it: its worktree and its compiled
-	// wiki, both global. There is no project-local copy left to remove.
+	// An imported memory context is a prefix of the shared memory store, so what is
+	// dropped is this machine's copy of it: its raw directory and its compiled wiki,
+	// both global. There is no project-local copy left to remove.
 	if err := os.RemoveAll(memory.RawDirFor(contextName, contextName)); err != nil {
-		return fmt.Errorf("removing memory context worktree: %w", err)
+		return fmt.Errorf("removing memory context directory: %w", err)
 	}
 	if err := os.RemoveAll(memory.MemoryWikiGlobalDir(contextName, contextName)); err != nil {
 		return fmt.Errorf("removing memory context wiki: %w", err)
@@ -2188,7 +2170,7 @@ func runKnowledgeExport() error {
 	prefix := hub.ContextPrefix("knowledge", lf.Project.ID)
 	p.Running("Exporting knowledge to %s…", prefix)
 
-	// The rebuildable database is left behind: wiki.db is derived, it is the largest thing
+	// The rebuildable index is left behind: it is derived, it is the largest thing
 	// in the directory, and a consumer rebuilds it from the shards in seconds. Staging into
 	// a temporary directory is what lets that exclusion happen before anything is uploaded.
 	staged, err := os.MkdirTemp("", brand.TempDirPrefix("knowledge-export"))
@@ -2203,7 +2185,7 @@ func runKnowledgeExport() error {
 	if err := st.PublishContextDir(ctx, "knowledge", lf.Project.ID, "wiki", staged); err != nil {
 		return fmt.Errorf("publishing wiki: %w", err)
 	}
-	p.Step("wiki/ → %s/wiki (pages + shards, without the rebuildable database)", prefix)
+	p.Step("wiki/ → %s/wiki (shards, without the rebuildable index)", prefix)
 
 	p.Success("Knowledge exported to %s", prefix)
 	p.Step("Other projects can import with: %s knowledge install %s", brand.BinName(), lf.Project.ID)
@@ -2513,6 +2495,50 @@ func runWikiSource(page, wikiScope, contextName, projectDir string, req textslic
 	}
 
 	p.Data(result.Source)
+	return nil
+}
+
+// runWikiExport renders a compiled wiki back into Markdown, on demand.
+//
+// The generators no longer write pages, so this is the only thing that produces them — and it
+// produces them where the caller asks rather than inside the wiki directory, which is the
+// difference that keeps the index the single artifact.
+func runWikiExport(wikiScope, contextName, projectDir, outDir string) error {
+	ctx := context.Background()
+	p := output.NewPrinter("")
+
+	if projectDir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("getting working directory: %w", err)
+		}
+		projectDir = wd
+	}
+	abs, err := filepath.Abs(projectDir)
+	if err != nil {
+		return fmt.Errorf("resolving project directory: %w", err)
+	}
+
+	wikiDir, err := wikiDirForScope(wikiScope, contextName, abs)
+	if err != nil {
+		return err
+	}
+
+	moduleTag := "knowledge"
+	if wikiScope == "memory" {
+		moduleTag = "memory"
+	}
+
+	p.Running("Exporting the %s wiki to Markdown…", moduleTag)
+	result, err := wiki.ExportMarkdown(ctx, wikiDir, outDir, moduleTag)
+	if err != nil {
+		return fmt.Errorf("export failed: %w", err)
+	}
+
+	p.Success("Exported %d page(s) to %s", result.Pages, result.OutputDir)
+	if result.HasLog {
+		p.Step("log.md written from the sync history")
+	}
 	return nil
 }
 

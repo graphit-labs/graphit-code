@@ -392,7 +392,7 @@ func TestParseMultiPageList(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := parseMultiPageList(tt.reply, sources)
+			got := parseMultiPageList(context.Background(), tt.reply, sources)
 			if len(got) != tt.want {
 				t.Errorf("parseMultiPageList() = %d results, want %d (for %q)", len(got), tt.want, tt.reply)
 			}
@@ -400,16 +400,21 @@ func TestParseMultiPageList(t *testing.T) {
 	}
 }
 
+// A bare page name with no [source-id] prefix is resolved by asking each wiki's INDEX whether it
+// holds that page. It used to be resolved by an os.ReadFile of `<dir>/Design.md`, so this fixture
+// moved from writing a page to building one.
 func TestParseMultiPageList_FallbackSearch(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	writeFile(t, dir, "Design.md", "# Design\nContent.")
+	dir := indexedWiki(t, []WikiChunk{{
+		Slug: "Design", Title: "Design", Body: "Content.", DocType: "document",
+		WordCount: 1, ClusterID: -1,
+	}})
 
 	sources := []WikiSource{
 		{ID: "knowledge", Label: "Knowledge", Dir: dir},
 	}
 
-	got := parseMultiPageList("Design", sources)
+	got := parseMultiPageList(context.Background(), "Design", sources)
 	if len(got) != 1 {
 		t.Errorf("expected fallback search to find Design, got %d results", len(got))
 	}

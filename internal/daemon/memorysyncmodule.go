@@ -100,9 +100,20 @@ func (m *MemorySyncModule) recompile(ctx context.Context, rawRoot string, batch 
 
 	for _, scopePath := range scopes {
 		rawDir := scopeDir(rawRoot, scopePath)
-		if _, err := os.Stat(filepath.Join(rawDir, ".git")); err != nil {
-			continue
-		}
+		// 🔒 THERE WAS A `.git` CHECK HERE, AND IT SKIPPED EVERY SCOPE.
+		//
+		// It read `os.Stat(<rawDir>/.git)` and `continue`d on failure — a liveness test from when a
+		// memory scope was a git worktree. Memory left git behind, so nothing creates `.git` any
+		// more, and the gate became a condition that is false for every scope: measured on this
+		// machine at the time, 4 of 5 raw
+		// directories have none, including this project's own. The daemon has therefore not
+		// recompiled a memory wiki since git was removed, and it failed as a NO-OP — no error, no
+		// log line, just a watcher that noticed every write and did nothing with it.
+		//
+		// Nothing replaces it because nothing needs to: `memory.RunCycle` already stats rawDir and
+		// returns an empty result when it is absent, so the existence check lives where the work is
+		// rather than in a gate that has to be kept in step with how a scope is created.
+		//
 		// A lost-events batch has no reliable path list, so every scope is
 		// recompiled; otherwise only the ones with a changed file under them.
 		if !batch.Rescan && !anyUnder(touched, rawDir) {
@@ -110,7 +121,7 @@ func (m *MemorySyncModule) recompile(ctx context.Context, rawRoot string, batch 
 		}
 		scope, scopeID := parseScopePath(scopePath)
 		wikiDir := memory.MemoryWikiGlobalDir(scope, scopeID)
-		if res := memory.RunCycle(ctx, scope, rawDir, wikiDir); res.Err != nil {
+		if res := memory.RunCycle(ctx, scope, memory.TableURIFor(scope, scopeID), wikiDir); res.Err != nil {
 			m.log().Warn("memory wiki compile failed", "scope", scope, "scope_id", scopeID, "error", res.Err)
 			continue
 		}

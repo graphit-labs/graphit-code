@@ -85,12 +85,12 @@ func TestHandleSearch_FallbackExerciseSnippetBoundaries(t *testing.T) {
 	tmp := t.TempDir()
 
 	// Create a short file where query appears near position 0 (start boundary)
-	if err := os.WriteFile(filepath.Join(tmp, "start.md"), []byte("xfind is at start"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "start.md", "xfind is at start"); err != nil {
 		t.Fatal(err)
 	}
 	// Create a file where query appears near the end
 	long := strings.Repeat("a", 300) + "xfind" + "b"
-	if err := os.WriteFile(filepath.Join(tmp, "end.md"), []byte(long), 0o644); err != nil {
+	if err := indexPage(t, tmp, "end.md", long); err != nil {
 		t.Fatal(err)
 	}
 

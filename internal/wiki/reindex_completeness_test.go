@@ -102,22 +102,97 @@ func TestStatPreCheck_DetectsSourceFileTheCacheNeverSaw(t *testing.T) {
 		t.Fatalf("closing wiki db: %v", err)
 	}
 
-	if !StatPreCheck(baseDir, wikiDir, cache, StatPreCheckOpts{
+	if !StatPreCheck(context.Background(), baseDir, wikiDir, cache, StatPreCheckOpts{
 		CurrentSourceFiles: func() []string { return []string{"known.md"} },
 	}) {
 		t.Error("StatPreCheck = false with the only source file cached and stat-unchanged; want true")
 	}
 
-	if StatPreCheck(baseDir, wikiDir, cache, StatPreCheckOpts{
+	if StatPreCheck(context.Background(), baseDir, wikiDir, cache, StatPreCheckOpts{
 		CurrentSourceFiles: func() []string { return []string{"known.md", "brand-new.md"} },
 	}) {
 		t.Error("StatPreCheck = true with a source file absent from the cache; the addition is invisible")
 	}
 
 	// A rename keeps the count identical, so the count alone is not enough.
-	if StatPreCheck(baseDir, wikiDir, cache, StatPreCheckOpts{
+	if StatPreCheck(context.Background(), baseDir, wikiDir, cache, StatPreCheckOpts{
 		CurrentSourceFiles: func() []string { return []string{"renamed.md"} },
 	}) {
 		t.Error("StatPreCheck = true after a rename; want false")
+	}
+}
+
+// 🔒 A CACHE THAT SAYS "ALREADY PROCESSED" BESIDE AN INDEX THAT NEVER RECEIVED THE WORK.
+//
+// This is the state that made `knowledge index` report "0 articles" in 27 ms over an index missing a
+// document that had been edited, and keep reporting it on every subsequent run. The mechanism is
+// structural rather than a one-off: the generation pass writes the process cache — hashes and
+// mtimes — BEFORE it rebuilds the index, so anything that stops the pass in between (a crash, a
+// cancelled context, a bug in a later gate) leaves exactly this arrangement. Every file then
+// stat-matches, no hash is computed, and the pre-check waves the run through.
+//
+// The old gate could not see it: it asked only whether the index had ANY rows.
+func TestStatPreCheckRefusesAnIndexThatDoesNotMatchTheCache(t *testing.T) {
+	baseDir := t.TempDir()
+	wikiDir := t.TempDir()
+
+	path := filepath.Join(baseDir, "edited.md")
+	if err := os.WriteFile(path, []byte("# edited\n\nthe new body\n"), 0o644); err != nil {
+		t.Fatalf("writing the source: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+
+	cache, err := NewWikiProcessCache(wikiDir)
+	if err != nil {
+		t.Fatalf("NewWikiProcessCache: %v", err)
+	}
+	// The cache is current with the file — the state a poisoned run leaves behind.
+	cache.Store("edited.md", "new-hash", []CachedChunk{{Title: "edited", ContentHash: "new-hash"}})
+	cache.StoreMtime("edited.md", info.ModTime().UnixNano(), info.Size())
+
+	// The index still holds the PREVIOUS content. It is populated, so the old emptiness check is
+	// satisfied and cannot be what saves this.
+	db, err := OpenWikiDB(context.Background(), wikiDir)
+	if err != nil {
+		t.Fatalf("OpenWikiDB: %v", err)
+	}
+	if err := db.Rebuild(context.Background(), []WikiChunk{{
+		Slug: "edited", Title: "edited", Body: "the old body", ContentHash: "old-hash",
+	}}, nil, &SyncLogEntry{Timestamp: "2026-09-01T00:00:00Z", TotalDocs: 1}, nil); err != nil {
+		t.Fatalf("populating the index: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("closing: %v", err)
+	}
+
+	if StatPreCheck(context.Background(), baseDir, wikiDir, cache, StatPreCheckOpts{
+		CurrentSourceFiles: func() []string { return []string{"edited.md"} },
+	}) {
+		t.Fatal("StatPreCheck = true while the index holds a different hash than the cache claims " +
+			"was processed — a poisoned cache makes the staleness permanent")
+	}
+
+	// And once the index catches up, the pre-check does its job again — otherwise the incremental
+	// would rebuild on every run and the gate would be pointless.
+	db, err = OpenWikiDB(context.Background(), wikiDir)
+	if err != nil {
+		t.Fatalf("reopening: %v", err)
+	}
+	if err := db.Rebuild(context.Background(), []WikiChunk{{
+		Slug: "edited", Title: "edited", Body: "the new body", ContentHash: "new-hash",
+	}}, nil, &SyncLogEntry{Timestamp: "2026-09-01T00:00:01Z", TotalDocs: 1}, nil); err != nil {
+		t.Fatalf("rebuilding: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("closing: %v", err)
+	}
+
+	if !StatPreCheck(context.Background(), baseDir, wikiDir, cache, StatPreCheckOpts{
+		CurrentSourceFiles: func() []string { return []string{"edited.md"} },
+	}) {
+		t.Error("StatPreCheck = false with the index holding exactly what the cache claims; want true")
 	}
 }

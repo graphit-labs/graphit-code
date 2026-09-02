@@ -2,7 +2,6 @@ package wiki
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"unicode"
 
@@ -101,31 +100,6 @@ func FrontmatterField(content, field string) (string, bool) {
 		return value.Value, value.Value != ""
 	}
 	return "", false
-}
-
-// ReadFrontmatterField reads a single YAML frontmatter field from a .md file.
-// Returns "" if the file doesn't exist, the field is absent, or the file
-// doesn't start with "---".
-func ReadFrontmatterField(path, field string) string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	content := string(data)
-	if value, ok := FrontmatterField(content, field); ok {
-		return value
-	}
-	block, ok := FrontmatterBlock(content)
-	if !ok {
-		return ""
-	}
-	prefix := field + ": "
-	for _, line := range strings.Split(block, "\n") {
-		if strings.HasPrefix(line, prefix) {
-			return strings.TrimSpace(line[len(prefix):])
-		}
-	}
-	return ""
 }
 
 // StripFrontmatter removes YAML frontmatter (--- ... ---) from the beginning

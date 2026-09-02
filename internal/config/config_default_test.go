@@ -860,3 +860,74 @@ func TestResolveProjectActivityWindow_InvalidFallsBackToDefault(t *testing.T) {
 		t.Errorf("ResolveProjectActivityWindow() = %v; want default %v on invalid input", got, defaultProjectActivityWindow)
 	}
 }
+
+// Retention is a POLICY because two kinds of store want different answers: the knowledge wiki is
+// rebuilt from docs/ and keeps a margin for in-flight readers, while a store holding the only copy
+// of its data wants a window long enough to be a recovery path.
+func TestResolveWikiVersionRetention(t *testing.T) {
+	if got := ResolveWikiVersionRetention(nil, nil); got != defaultWikiVersionRetention {
+		t.Errorf("unset = %s, want the %s default", got, defaultWikiVersionRetention)
+	}
+
+	long := ConfigMap{"wiki": map[string]any{"version_retention": "72h"}}
+	if got := ResolveWikiVersionRetention(long, nil); got != 72*time.Hour {
+		t.Errorf("72h = %s, want 72h", got)
+	}
+
+	// A SUB-SECOND WINDOW IS REFUSED, and this is measured rather than defensive: the engine prunes
+	// nothing at all below one second — it reports zero old versions while they plainly exist — so
+	// honouring "1ms" would silently disable pruning while reading as the most aggressive setting
+	// available.
+	for _, bad := range []string{"1ms", "999ms", "0", "-5m", "not-a-duration"} {
+		cfg := ConfigMap{"wiki": map[string]any{"version_retention": bad}}
+		if got := ResolveWikiVersionRetention(cfg, nil); got != defaultWikiVersionRetention {
+			t.Errorf("%q = %s, want the %s default", bad, got, defaultWikiVersionRetention)
+		}
+	}
+
+	// Exactly one second is the floor and is honoured.
+	atFloor := ConfigMap{"wiki": map[string]any{"version_retention": "1s"}}
+	if got := ResolveWikiVersionRetention(atFloor, nil); got != time.Second {
+		t.Errorf("1s = %s, want 1s", got)
+	}
+}
+
+// 🔒 THE MEMORY STORE'S RETENTION IS A DIFFERENT NUMBER FROM THE WIKI'S, and this pins that they
+// cannot be collapsed back into one key.
+//
+// The wiki's fifteen minutes is a margin for in-flight readers of a derived index — a pruned version
+// costs a rebuild. The memory store is the only copy of what it holds, so its history is the recovery
+// path D2 accepted, and the retention is the length of the safety net. Sharing one key honours D2's
+// letter and breaks it in fact: a bad pass noticed the next morning finds nothing to roll back to.
+func TestResolveMemoryVersionRetentionIsIndependentOfTheWikis(t *testing.T) {
+	if got := ResolveMemoryVersionRetention(nil, nil); got != defaultMemoryVersionRetention {
+		t.Errorf("unset = %s, want the %s default", got, defaultMemoryVersionRetention)
+	}
+	if defaultMemoryVersionRetention <= defaultWikiVersionRetention {
+		t.Errorf("the memory store's default retention (%s) must comfortably exceed the wiki's (%s) — "+
+			"it is a recovery window, not a reader margin",
+			defaultMemoryVersionRetention, defaultWikiVersionRetention)
+	}
+
+	// Setting one must not move the other.
+	onlyWiki := ConfigMap{"wiki": map[string]any{"version_retention": "1h"}}
+	if got := ResolveMemoryVersionRetention(onlyWiki, nil); got != defaultMemoryVersionRetention {
+		t.Errorf("the wiki's key moved the memory store's retention to %s", got)
+	}
+	onlyMemory := ConfigMap{"memory": map[string]any{"version_retention": "2160h"}}
+	if got := ResolveMemoryVersionRetention(onlyMemory, nil); got != 2160*time.Hour {
+		t.Errorf("memory.version_retention = %s, want 2160h", got)
+	}
+	if got := ResolveWikiVersionRetention(onlyMemory, nil); got != defaultWikiVersionRetention {
+		t.Errorf("the memory key moved the wiki's retention to %s", got)
+	}
+
+	// The same measured one-second floor: below it the engine prunes nothing at all, so honouring a
+	// smaller value would silently disable pruning.
+	for _, bad := range []string{"1ms", "0", "-5m", "nonsense"} {
+		cfg := ConfigMap{"memory": map[string]any{"version_retention": bad}}
+		if got := ResolveMemoryVersionRetention(cfg, nil); got != defaultMemoryVersionRetention {
+			t.Errorf("%q = %s, want the default", bad, got)
+		}
+	}
+}

@@ -361,7 +361,24 @@ func MemoryRawRoot() string { return globalOr("", "memory-raw") }
 // source of truth the wiki is compiled from, and where a memory arriving from the
 // remote lands.
 func MemoryRawDir(scope, scopeID string) string {
+	return filepath.Join(MemoryRawRoot(), memoryScopeSegment(scope, scopeID))
+}
+
+// MemoryTableRoot is the parent of every scope's local memory table.
+func MemoryTableRoot() string { return globalOr("", "memory-table") }
+
+// MemoryTableDir is where a scope's Lance table lives when there is no bucket to put it in.
+//
+// It is NOT the raw markdown store under another name: it holds the table and nothing else, and
+// no code reads a file out of it. With a bucket configured the table lives in object storage
+// instead — see memory.MemoryTableURI, which decides between the two.
+func MemoryTableDir(scope, scopeID string) string {
+	return filepath.Join(MemoryTableRoot(), memoryScopeSegment(scope, scopeID))
+}
+
+// memoryScopeSegment is the single directory name a scope maps to, shared by every local memory
+// artifact so two of them can never disagree about which directory a scope owns.
+func memoryScopeSegment(scope, scopeID string) string {
 	branch := fmt.Sprintf("memory/%s/%s", scope, scopeID)
-	safe := strings.NewReplacer("/", "-", " ", "_").Replace(branch)
-	return filepath.Join(MemoryRawRoot(), safe)
+	return strings.NewReplacer("/", "-", " ", "_").Replace(branch)
 }

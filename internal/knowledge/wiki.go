@@ -11,11 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/ignorer"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 )
 
 type WikiResult struct {
@@ -203,14 +200,14 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 
 	// STAT PRE-CHECK (shared AST pattern via wiki.StatPreCheck)
 	// If all cached source files are stat-unchanged, no document was added and
-	// wiki.db exists, skip the full rebuild entirely.
+	// the index already holds content, skip the full rebuild entirely.
 	// Both ignore files are watched: editing either changes what is in scope, and
 	// a stat-unchanged tree would otherwise skip the rebuild that has to notice.
 	watchFiles := []string{KnowledgeIgnoreFile}
 	if rel, relErr := filepath.Rel(absRoot, walkRoot); relErr == nil && rel != "." {
 		watchFiles = append(watchFiles, filepath.Join(rel, KnowledgeIgnoreFile))
 	}
-	if wiki.StatPreCheck(absRoot, wikiDir, processCache, wiki.StatPreCheckOpts{
+	if wiki.StatPreCheck(ctx, absRoot, wikiDir, processCache, wiki.StatPreCheckOpts{
 		WatchFiles:         watchFiles,
 		CurrentSourceFiles: func() []string { return knowledgeSourceRelPaths(candidates) },
 	}) {
@@ -396,16 +393,14 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 
 	result := &WikiResult{OutputDir: wikiDir}
 
-	// Read existing slugs on disk to identify deletions.
-	existingSlugs := make(map[string]bool)
-	if entries, err := os.ReadDir(wikiDir); err == nil {
-		for _, entry := range entries {
-			if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
-				continue
-			}
-			slug := strings.TrimSuffix(entry.Name(), ".md")
-			existingSlugs[slug] = true
-		}
+	// What the index already holds, which is what "added", "updated" and "deleted" are measured
+	// against. This used to be an `os.ReadDir` of the wiki directory: the pages were the record of
+	// what existed, so a page on disk meant an indexed document. The pages are not written any
+	// more, and the index was always the better answer — it is the set a search can reach, and it
+	// carries each page's content hash, which the directory listing did not.
+	indexedHashes, err := wiki.IndexedPageHashes(ctx, wikiDir)
+	if err != nil {
+		return nil, fmt.Errorf("reading the compiled index: %w", err)
 	}
 
 	// First pass: resolve slugs and map titles (cheap — no I/O).
@@ -443,8 +438,8 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		}
 	}
 
-	// FAST PATH: use wiki.FastPathCheck which checks processCache (O(1) per
-	// entry — no disk I/O) and a single ReadDir to detect deletions.
+	// FAST PATH: use wiki.FastPathCheck which checks processCache (O(1) per entry — no disk I/O)
+	// and the index's own slug set to detect deletions.
 	// Only enter the full pipeline if something actually changed.
 	fastEntries := make([]wiki.DocHashEntry, len(docs))
 	for i, doc := range docs {
@@ -470,37 +465,11 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		return result, nil
 	}
 
-	// Fallback for processCache == nil: check frontmatter hashes from disk.
-	if _, dbStatErr := os.Stat(filepath.Join(wikiDir, "wiki.db")); dbStatErr == nil && processCache == nil {
-		newSlugsCheck := make(map[string]bool, len(docs))
-		allHashesMatch := true
-		for i, doc := range docs {
-			slug := docSlugs[i]
-			newSlugsCheck[slug] = true
-			if doc.contentHash != "" {
-				path := filepath.Join(wikiDir, slug+".md")
-				if wiki.ReadFrontmatterField(path, "content_hash") != doc.contentHash {
-					allHashesMatch = false
-					break
-				}
-			} else {
-				allHashesMatch = false
-				break
-			}
-		}
-		if allHashesMatch {
-			noDeletes := true
-			for slug := range existingSlugs {
-				if !newSlugsCheck[slug] {
-					noDeletes = false
-					break
-				}
-			}
-			if noDeletes {
-				return result, nil
-			}
-		}
-	}
+	// There was a second skip gate here, for `processCache == nil`: it read the `content_hash`
+	// out of each page's frontmatter and compared it against the source. It is gone rather than
+	// ported to the index, because FastPathCheck above already asks the index the same question —
+	// the only thing this branch did that the fast path does not is work without a process cache,
+	// and a build with no cache is a build that has to run.
 
 	// Full pipeline: something changed or first run.
 	compiledTargets := wiki.BuildAutoLinkTargets(titlesMap)
@@ -510,6 +479,24 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	var updated []string
 	docDetails := make(map[string]wiki.LogDocDetails)
 
+	// NO PAGE IS WRITTEN, and nothing is pruned.
+	//
+	// This loop used to end in `writePageIfChanged(<wikiDir>/<slug>.md, knowledgeEntityPage(doc))`,
+	// followed by an `os.Remove` sweep over the slugs no document claimed any more. Both are gone:
+	// RebuildDB below receives these same documents and is the only place one becomes readable, so
+	// the page was a second copy of it — written, pruned, and then read back by the cross-reference
+	// pass, the lint and the explorer, all of which now read the index instead.
+	//
+	// What the loop still does is the part that was never about files: autolinking a body against
+	// every other document's title, which is why the body indexed for a document is not simply its
+	// source text.
+	//
+	// added/updated/deleted are decided by comparing against the index, and the comparison is on
+	// the SOURCE content hash. `writePageIfChanged` compared rendered bytes, which counted a
+	// document as "updated" when a sibling was added and changed its autolinks. That distinction
+	// existed to avoid a pointless file write; there is no file to write, and RebuildDB rewrites
+	// every row regardless, so the cheaper and more honest signal is whether the document itself
+	// changed.
 	for i := range docs {
 		slug := docSlugs[i]
 		newSlugs[slug] = true
@@ -537,32 +524,30 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		// Resolve manual/child wikilinks in the body to their resolved slugs
 		docs[i].body = wiki.ResolveWikiLinksInBody(docs[i].body, titlesMap)
 
-		written, existed := writePageIfChanged(filepath.Join(wikiDir, slug+".md"), knowledgeEntityPage(docs[i]))
-		if !written {
-			continue
-		}
-		if existed {
-			updated = append(updated, slug)
-		} else {
+		indexedHash, wasIndexed := indexedHashes[slug]
+		switch {
+		case !wasIndexed:
 			added = append(added, slug)
+		case indexedHash != docs[i].contentHash:
+			updated = append(updated, slug)
+		default:
+			continue
 		}
 		result.ArticlesWritten++
 	}
 
-	// Prune deleted files
 	var deleted []string
-	for slug := range existingSlugs {
+	for slug := range indexedHashes {
 		if !newSlugs[slug] {
 			deleted = append(deleted, slug)
-			_ = os.Remove(filepath.Join(wikiDir, slug+".md"))
 		}
 	}
 
-	// Skip expensive phases if nothing ended up changing.
-	_, dbStatErr2 := os.Stat(filepath.Join(wikiDir, "wiki.db"))
-	dbExists := dbStatErr2 == nil
+	// Skip the expensive phases if nothing ended up changing. The gate is the index having
+	// content, not a file existing beside it: an index that is present and empty is the state
+	// both skip paths used to get permanently stuck in — see wiki.IndexHasContent.
 	nothingChanged := result.ArticlesWritten == 0 && len(deleted) == 0
-	if nothingChanged && dbExists {
+	if nothingChanged && wiki.IndexHasContent(ctx, wikiDir) {
 		return result, nil
 	}
 
@@ -581,23 +566,22 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		}
 		_ = processCache.Save()
 	}
-	indexContent := knowledgeIndexPage(docs, docSlugs, nil)
-	if err := os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(indexContent), 0o644); err != nil {
-		return result, err
-	}
+	// `index.md` is not written. It was a catalogue of slugs, titles, types and clusters,
+	// rewritten in full on every build — and rewritten twice more below, once for the clusters and
+	// once for the staleness. Everything on it is a column, so the catalogue is a Browse query:
+	// `wiki.WikiOverview` renders it for the AI consultation cycle, `graphit wiki browse` for a
+	// person, and `graphit wiki export` writes the page itself for whoever wants the tree.
 
+	// The cross-reference graph is built from the edges this pass just resolved, not by reading
+	// pages back and re-extracting their links with two regexes. Same edge set — it is the one
+	// written to the `xrefs` table below — derived once, by the pass that owns it.
 	var graph *wiki.CrossRefGraph
 	if !crossRefsOK {
-		var graphErr error
-		graph, graphErr = wiki.BuildCrossRefGraph(wikiDir)
-		if graphErr == nil {
-			xrefResult, _ := wiki.InjectBacklinks(wikiDir, graph)
-			if xrefResult != nil {
-				result.BacklinksAdded = xrefResult.BacklinksAdded
-				result.OrphanPages = xrefResult.OrphanPages
-				result.BrokenLinks = xrefResult.BrokenLinks
-			}
-		}
+		graph = wiki.BuildCrossRefGraphFromRefs(knowledgePageEdges(docs, docSlugs))
+		stats := wiki.CrossRefStats(graph)
+		result.BacklinksAdded = stats.BacklinksAdded
+		result.OrphanPages = stats.OrphanPages
+		result.BrokenLinks = stats.BrokenLinks
 	}
 
 	// Phase 2: Community detection
@@ -625,7 +609,11 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 			// Persist cluster assignments for reuse when cross-refs are unchanged.
 			saveClusterCache(wikiDir, slugToCluster, slugToClusterName)
 
-			// Assign cluster info to docs
+			// The cluster lands on the document, and that is the whole of it. There used to be a
+			// second pass here re-rendering every clustered page and a third rewriting index.md,
+			// because the cluster had to reach the file after the file had already been written.
+			// It reaches the `cluster_id`/`cluster_name` columns instead, and those are filled
+			// from these same documents when the chunks are built below.
 			for i := range docs {
 				slug := docSlugs[i]
 				if cid, ok := slugToCluster[slug]; ok {
@@ -635,19 +623,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 					docs[i].cluster = -1
 				}
 			}
-
-			// Re-generate entity pages with cluster info
-			for i := range docs {
-				slug := docSlugs[i]
-				if docs[i].cluster < 0 {
-					continue
-				}
-				writePageIfChanged(filepath.Join(wikiDir, slug+".md"), knowledgeEntityPage(docs[i]))
-			}
-
-			// Re-generate index with clusters
-			indexContent = knowledgeIndexPage(docs, docSlugs, communities)
-			_ = os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(indexContent), 0o644)
 		}
 	}
 
@@ -665,28 +640,21 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	stalePages := DetectStalePages(oldManifest, newManifest, graph)
 	if len(stalePages) > 0 {
 		result.StalePages = len(stalePages)
-		// Apply stale info to docs and re-generate affected pages
+		// Staleness lands on the document and travels into the `stale_since`/`stale_reason`
+		// columns with everything else. The re-render of the affected pages, and the third
+		// rewrite of index.md that followed it, are gone with the pages.
 		for i := range docs {
-			slug := docSlugs[i]
-			if info, ok := stalePages[slug]; ok {
+			if info, ok := stalePages[docSlugs[i]]; ok {
 				docs[i].staleSince = info.Since
 				docs[i].staleReason = info.Reason
-				writePageIfChanged(filepath.Join(wikiDir, slug+".md"), knowledgeEntityPage(docs[i]))
 			}
 		}
-		// Re-generate index with stale info
-		indexContent = knowledgeIndexPage(docs, docSlugs, communities)
-		_ = os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte(indexContent), 0o644)
 	}
 	SaveManifest(wikiDir, newManifest)
 
 	// Phase 4: Lint
-	var sourcePaths []string
-	for _, doc := range docs {
-		sourcePaths = append(sourcePaths, doc.path)
-	}
 	if graph != nil {
-		lintResult := LintKnowledgeWiki(wikiDir, graph, sourcePaths)
+		lintResult := LintKnowledgeWiki(graph, docs, docSlugs)
 		if lintResult != nil {
 			result.LintFindings = len(lintResult.Findings)
 		}
@@ -718,10 +686,12 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 			Confidence:  confidence,
 			ContentHash: doc.contentHash,
 			WordCount:   wc,
-			// The source's date, matching the page's frontmatter. Stamping "today"
-			// here made every row claim it was updated on the day of the last sync.
-			Updated:   doc.updatedAt,
-			Important: important,
+			// The source's date. Stamping "today" here made every row claim it was updated on the
+			// day of the last sync.
+			Updated:     doc.updatedAt,
+			Important:   important,
+			StaleSince:  doc.staleSince,
+			StaleReason: doc.staleReason,
 		})
 
 		if len(doc.crossRefs) > 0 {
@@ -786,119 +756,29 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		_ = processCache.Save()
 	}
 
-	if len(added) > 0 || len(updated) > 0 || len(deleted) > 0 {
-		appendKnowledgeLog(filepath.Join(wikiDir, "log.md"), len(docs), result.ArticlesWritten, result.BacklinksAdded, added, updated, deleted, touchedDetails)
-	}
+	// `log.md` is not appended. The same information — the timestamp, the counts, and the three
+	// slug lists with their titles and summaries — is the `sync_log` row written above by
+	// RebuildDB; `graphit wiki log` and `graphit_wiki_log` read it, and `graphit wiki export`
+	// renders the page for whoever wants the file.
 
 	return result, nil
 }
 
-// writePageIfChanged writes page to path only when the bytes differ from what is
-// already there, and reports whether it wrote and whether the file existed.
+// knowledgePageEdges is the graph input: each page's slug, title, and the slugs it points at.
 //
-// The comparison is against the RENDERED page, not against the source document's
-// content hash, and that difference is the point. A page carries more than its
-// source: autolinks resolved against every other document's title, injected
-// backlinks, cluster and staleness annotations. Deciding by source hash left a
-// page un-rewritten when a SIBLING document was added — the source was untouched,
-// so the hash matched — while the database row was rebuilt from the fresh body.
-// The file and the index then disagreed, and since backlinks are computed by
-// reading the files, the stale side was the one feeding the graph.
-//
-// This only works because the page is a deterministic function of its inputs;
-// `updated:` comes from the source file's mtime, never from time.Now().
-func writePageIfChanged(path, page string) (written, existed bool) {
-	existing, readErr := os.ReadFile(path)
-	existed = readErr == nil
-	if existed && string(existing) == page {
-		return false, true
-	}
-	if err := os.WriteFile(path, []byte(page), 0o644); err != nil {
-		return false, existed
-	}
-	return true, existed
-}
-
-func knowledgeEntityPage(doc knowledgeDoc) string {
-	var b strings.Builder
-	now := doc.updatedAt
-	if now == "" {
-		now = time.Now().UTC().Format("2006-01-02")
-	}
-	confidence := computeDocConfidence(doc)
-	slug := wiki.SafeSlug(doc.title)
-	if slug == "" {
-		slug = wiki.SafeSlug(doc.path)
-	}
-
-	b.WriteString("---\n")
-	_, _ = fmt.Fprintf(&b, "type: %s\n", wiki.YAMLScalar(doc.docType))
-	_, _ = fmt.Fprintf(&b, "title: %s\n", wiki.YAMLScalar(doc.title))
-	wiki.WriteOKFGenerated(&b, wiki.OKFActor("knowledge"), now)
-	wiki.WriteOKFSources(&b, doc.path)
-	if doc.summary != "" {
-		summaryEscaped := strings.ReplaceAll(doc.summary, "\n", " ")
-		_, _ = fmt.Fprintf(&b, "description: %s\n", wiki.YAMLScalar(summaryEscaped))
-	}
-	_, _ = fmt.Fprintf(&b, "tags:\n  - knowledge\n  - %s\n", wiki.YAMLScalar(doc.docType))
-	_, _ = fmt.Fprintf(&b, "id: %s\n", wiki.YAMLScalar(slug))
-	_, _ = fmt.Fprintf(&b, "confidence: %.2f\n", confidence)
-	_, _ = fmt.Fprintf(&b, "content_hash: %s\n", doc.contentHash)
-	if doc.breadcrumb != "" {
-		_, _ = fmt.Fprintf(&b, "breadcrumb: %s\n", wiki.YAMLScalar(doc.breadcrumb))
-	}
-	if doc.cluster >= 0 {
-		_, _ = fmt.Fprintf(&b, "cluster: %d\n", doc.cluster)
-		_, _ = fmt.Fprintf(&b, "cluster_name: %s\n", wiki.YAMLScalar(doc.clusterName))
-	}
-	if doc.staleSince != "" {
-		// stale_after is the lifecycle field OKF specifies (§5.5): an absolute instant, so
-		// staleness is `now >= stale_after` with no reference to when the page was read. The
-		// page is already stale when this branch runs, so the instant it became stale IS the
-		// threshold. stale_since and stale_reason stay as producer extensions (§4.1) because
-		// the reason has no OKF field and the UI already reads them.
-		_, _ = fmt.Fprintf(&b, "stale_after: %s\n", wiki.YAMLScalar(doc.staleSince))
-		_, _ = fmt.Fprintf(&b, "stale_since: %s\n", wiki.YAMLScalar(doc.staleSince))
-		_, _ = fmt.Fprintf(&b, "stale_reason: %s\n", wiki.YAMLScalar(doc.staleReason))
-	}
-	b.WriteString("---\n\n")
-	_, _ = fmt.Fprintf(&b, "# %s\n\n", doc.title)
-	if doc.staleSince != "" {
-		_, _ = fmt.Fprintf(&b, "> ⚠️ **Stale since %s** — %s. Content may be outdated.\n\n", doc.staleSince, doc.staleReason)
-	}
-	if doc.breadcrumb != "" {
-		_, _ = fmt.Fprintf(&b, "*📍 %s*\n\n", doc.breadcrumb)
-	}
-	if doc.summary != "" {
-		_, _ = fmt.Fprintf(&b, "> %s\n\n", doc.summary)
-	}
-	_, _ = fmt.Fprintf(&b, "**Source:** `%s`  \n", doc.path)
-	_, _ = fmt.Fprintf(&b, "**Type:** %s  \n", doc.docType)
-	_, _ = fmt.Fprintf(&b, "**Confidence:** %.0f%%\n\n", confidence*100)
-
-	_, _ = fmt.Fprintf(&b, "*Provenance: [%s](%s)*\n\n", doc.path, doc.path)
-
-	if len(doc.crossRefs) > 0 {
-		b.WriteString("## Cross-References\n\n")
+// The targets are `SafeSlug`-resolved here for the same reason they are resolved that way when the
+// `xrefs` table is written a few lines below — the two must agree, or the graph and the table
+// disagree about what a link means.
+func knowledgePageEdges(docs []knowledgeDoc, slugs []string) []wiki.PageEdges {
+	out := make([]wiki.PageEdges, 0, len(docs))
+	for i, doc := range docs {
+		targets := make([]string, 0, len(doc.crossRefs))
 		for _, ref := range doc.crossRefs {
-			s := wiki.SafeSlug(ref)
-			_, _ = fmt.Fprintf(&b, "- [%s](%s.md)\n", ref, s)
+			targets = append(targets, wiki.SafeSlug(ref))
 		}
-		b.WriteString("\n")
+		out = append(out, wiki.PageEdges{Slug: slugs[i], Title: doc.title, Targets: targets})
 	}
-
-	if doc.body != "" {
-		body := wiki.StripFrontmatter(doc.body)
-		b.WriteString("## Content\n\n")
-		if doc.isMarkdown {
-			b.WriteString(body + "\n\n")
-		} else {
-			lang := wiki.ExtToLang(filepath.Ext(doc.path))
-			_, _ = fmt.Fprintf(&b, "```%s\n%s\n```\n\n", lang, body)
-		}
-	}
-	b.WriteString("---\n")
-	return b.String()
+	return out
 }
 
 func computeDocConfidence(doc knowledgeDoc) float64 {
@@ -937,177 +817,6 @@ func computeDocConfidence(doc knowledgeDoc) float64 {
 		score = 1.0
 	}
 	return score
-}
-
-func knowledgeIndexPage(docs []knowledgeDoc, slugs []string, communities []KnowledgeCommunity) string {
-	var b strings.Builder
-	now := time.Now().UTC().Format("2006-01-02")
-	// §8: an index file carries NO frontmatter, with exactly one exception — a bundle-root
-	// index.md MAY declare okf_version, and §12 makes that the only place a bundle may declare
-	// it at all. A compiled wiki is its own bundle root, so this index is that one file.
-	// The full metadata block that used to sit here (type/title/description/tags/id) was not
-	// merely unnecessary; it made index.md non-conformant, and nothing read it: the explorer
-	// takes the index title from the H1 and its type from the reserved filename.
-	_, _ = fmt.Fprintf(&b, "---\nokf_version: \"%s\"\n---\n\n", wiki.OKFVersion)
-	b.WriteString("# Knowledge Wiki Index\n\n")
-	_, _ = fmt.Fprintf(&b, "> %s knowledge wiki. **Start here.** Scan the catalog below, then follow Markdown links to drill into specific pages.\n", brand.DisplayName)
-	_, _ = fmt.Fprintf(&b, "> Check [log](log.md) for the timeline of updates. Last updated: %s\n\n", now)
-
-	staleCount := 0
-	for _, doc := range docs {
-		if doc.staleSince != "" {
-			staleCount++
-		}
-	}
-
-	if len(communities) > 0 {
-		_, _ = fmt.Fprintf(&b, "**%d documents** in **%d clusters**", len(docs), len(communities))
-	} else {
-		_, _ = fmt.Fprintf(&b, "**%d documents**", len(docs))
-	}
-	if staleCount > 0 {
-		_, _ = fmt.Fprintf(&b, " · ⚠️ **%d stale**", staleCount)
-	}
-	b.WriteString("\n\n---\n\n")
-
-	// Build doc lookup by slug, and the reverse for rendering entries.
-	docBySlug := make(map[string]knowledgeDoc, len(docs))
-	slugByPath := make(map[string]string, len(docs))
-	for i, doc := range docs {
-		slug := wiki.SafeSlug(doc.title)
-		if i < len(slugs) && slugs[i] != "" {
-			slug = slugs[i]
-		}
-		docBySlug[slug] = doc
-		slugByPath[doc.path] = slug
-	}
-
-	writeDocEntry := func(doc knowledgeDoc) {
-		s := slugByPath[doc.path]
-		linkTitle := doc.title
-		if linkTitle == "" {
-			linkTitle = s
-		}
-		link := fmt.Sprintf("[%s](%s.md)", linkTitle, s)
-		badge := fmt.Sprintf("`%s`", doc.docType)
-		staleMarker := ""
-		if doc.staleSince != "" {
-			staleMarker = " ⚠️"
-		}
-		if doc.summary != "" {
-			summary := doc.summary
-			if len(summary) > 80 {
-				summary = summary[:80] + "…"
-			}
-			_, _ = fmt.Fprintf(&b, "- %s — %s %s%s\n", link, summary, badge, staleMarker)
-		} else {
-			_, _ = fmt.Fprintf(&b, "- %s %s%s\n", link, badge, staleMarker)
-		}
-	}
-
-	if len(communities) > 0 {
-		// Cluster-based layout
-		b.WriteString("## Clusters\n\n")
-
-		clusteredSlugs := make(map[string]bool)
-		for _, comm := range communities {
-			_, _ = fmt.Fprintf(&b, "### 🔗 %s (%d pages, cohesion: %.0f%%)\n\n",
-				comm.Label, len(comm.Members), comm.Cohesion*100)
-			for _, slug := range comm.Members {
-				clusteredSlugs[slug] = true
-				if doc, ok := docBySlug[slug]; ok {
-					writeDocEntry(doc)
-				} else {
-					_, _ = fmt.Fprintf(&b, "- [%s](%s.md)\n", slug, slug)
-				}
-			}
-			b.WriteString("\n")
-		}
-
-		// Unclustered docs
-		var unclustered []knowledgeDoc
-		for _, doc := range docs {
-			if !clusteredSlugs[slugByPath[doc.path]] {
-				unclustered = append(unclustered, doc)
-			}
-		}
-		if len(unclustered) > 0 {
-			_, _ = fmt.Fprintf(&b, "### 📄 Unclustered (%d pages)\n\n", len(unclustered))
-			for _, doc := range unclustered {
-				writeDocEntry(doc)
-			}
-			b.WriteString("\n")
-		}
-	} else {
-		// Fallback: type-based layout (no communities detected)
-		b.WriteString("## Documents\n\n")
-
-		byType := make(map[string][]knowledgeDoc)
-		for _, doc := range docs {
-			byType[doc.docType] = append(byType[doc.docType], doc)
-		}
-		var types []string
-		for t := range byType {
-			types = append(types, t)
-		}
-		sort.Strings(types)
-
-		for _, docType := range types {
-			_, _ = fmt.Fprintf(&b, "### %s\n\n", cases.Title(language.English).String(docType))
-			for _, doc := range byType[docType] {
-				writeDocEntry(doc)
-			}
-			b.WriteString("\n")
-		}
-	}
-
-	b.WriteString("## How to Navigate\n\n")
-	b.WriteString("1. **Start here** — scan the catalog above for the topic you need.\n")
-	b.WriteString("2. **Follow links** — each page has Markdown links to related pages.\n")
-	b.WriteString("3. **Check backlinks** — each page lists what links *to* it (inbound references).\n")
-	b.WriteString("4. **Check the log** — [log](log.md) shows the timeline of wiki updates.\n\n")
-	b.WriteString("---\n")
-	_, _ = fmt.Fprintf(&b, "*Generated by %s · %s*\n", brand.DisplayName, now)
-	return b.String()
-}
-
-func appendKnowledgeLog(logPath string, totalDocs, articlesWritten, backlinksAdded int, added, updated, deleted []string, details map[string]wiki.LogDocDetails) {
-	now := time.Now().UTC()
-	dateNow := now.Format("2006-01-02")
-	totalChanges := len(added) + len(updated) + len(deleted)
-
-	label := func(slug string) string {
-		title := slug
-		if d, ok := details[slug]; ok && d.Title != "" {
-			title = d.Title
-		}
-		line := fmt.Sprintf("[%s](%s.md)", title, slug)
-		if d, ok := details[slug]; ok && d.Summary != "" {
-			summary := d.Summary
-			if len(summary) > 120 {
-				summary = summary[:120] + "…"
-			}
-			line += " — " + summary
-		}
-		return line
-	}
-
-	entries := []wiki.LogEntry{{
-		Kind: wiki.LogUpdate,
-		Text: fmt.Sprintf("Compiled %d change(s) at %s UTC — %d document(s), %d page(s) written, %d backlink(s) injected.",
-			totalChanges, now.Format("15:04:05"), totalDocs, articlesWritten, backlinksAdded),
-	}}
-	for _, slug := range added {
-		entries = append(entries, wiki.LogEntry{Kind: wiki.LogCreation, Text: "Added " + label(slug)})
-	}
-	for _, slug := range updated {
-		entries = append(entries, wiki.LogEntry{Kind: wiki.LogUpdate, Text: "Updated " + label(slug)})
-	}
-	for _, slug := range deleted {
-		entries = append(entries, wiki.LogEntry{Kind: wiki.LogDeprecation, Text: fmt.Sprintf("Removed `%s`.", slug)})
-	}
-
-	_ = wiki.AppendOKFLogEntries(logPath, "Knowledge Wiki Update Log", dateNow, entries)
 }
 
 // knowledgeDoc is one source document — the whole file, never a slice of one.

@@ -81,9 +81,11 @@ func TestAPublishedWikiInstallsWithoutItsSources(t *testing.T) {
 		"docs/billing.md":  "# Billing\n\nBilling handles invoices and dunning.\n",
 	})
 
-	// What travels must be pages and shards, and never the database.
-	if _, err := os.Stat(filepath.Join(published, "wiki.db")); !os.IsNotExist(err) {
-		t.Error("the rebuildable database was published")
+	// What travels is the shard tree, and never the index — it is rebuilt from the shards.
+	// Named by the constant, because asserting a literal file name that no longer exists is an
+	// assertion that passes for the wrong reason.
+	if _, err := os.Stat(filepath.Join(published, wiki.WikiIndexDirName)); !os.IsNotExist(err) {
+		t.Error("the rebuildable index was published")
 	}
 	if _, err := os.Stat(filepath.Join(published, "shards")); err != nil {
 		t.Fatalf("no shards were published, so the consumer would have to recompile: %v", err)
@@ -170,14 +172,15 @@ func TestReinstallDropsAPageThePublisherDeleted(t *testing.T) {
 	}
 }
 
-func hasPage(t *testing.T, dir, titleFragment string) bool {
+// hasPage asks the INDEX whether a context holds a page whose slug carries the fragment.
+//
+// It used to look for `<something><fragment><something>.md` in the directory, which is the shape the
+// publication no longer has: it carries the tables and nothing else, because a page is read out of
+// `chunks.body` rather than opened as a file.
+func hasPage(t *testing.T, dir, slugFragment string) bool {
 	t.Helper()
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if !e.IsDir() && strings.Contains(e.Name(), titleFragment) && strings.HasSuffix(e.Name(), ".md") {
+	for _, slug := range wiki.ListPagesAt(context.Background(), dir) {
+		if strings.Contains(slug, slugFragment) {
 			return true
 		}
 	}

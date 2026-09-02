@@ -3,8 +3,6 @@ package wiki
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -35,34 +33,20 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 		cfg.MaxTurns = 6
 	}
 
-	// Try WikiDB catalog first, fall back to index.md.
-	var indexContent []byte
-	if db, dbErr := OpenWikiDB(ctx, cfg.WikiDir); dbErr == nil {
-		entries, browseErr := db.Browse(ctx, BrowseFilter{Limit: 100})
-		db.Close()
-		if browseErr == nil && len(entries) > 0 {
-			var b strings.Builder
-			b.WriteString("# Wiki Catalog\n\n")
-			for _, e := range entries {
-				fmt.Fprintf(&b, "- [[%s]] — %s\n", e.Slug, e.Summary)
-			}
-			indexContent = []byte(b.String())
-		}
-	}
-	if len(indexContent) == 0 {
-		indexPath := filepath.Join(cfg.WikiDir, "index.md")
-		var err error
-		indexContent, err = os.ReadFile(indexPath)
-		if err != nil {
-			return nil, fmt.Errorf("wiki not found at %s — run '%s index' first", cfg.WikiDir, cfg.ModuleTag)
-		}
+	// The catalogue comes from the index, and there is no second place to get it from. It used to
+	// fall back to reading `index.md` off disk when a Browse returned nothing — a page the build
+	// rewrote every time, so the fallback could only ever answer with what the index already knew,
+	// or with something staler.
+	catalogue := WikiOverview(ctx, cfg.WikiDir)
+	if catalogue == "" {
+		return nil, fmt.Errorf("wiki not found at %s — run '%s index' first", cfg.WikiDir, cfg.ModuleTag)
 	}
 
 	systemPrompt := buildSearchSystemPrompt(cfg.ModuleTag)
 	result := &SearchResult{}
 
-	context_ := fmt.Sprintf("=== index.md ===\n%s", string(indexContent))
-	result.TokensSent += len(indexContent) / 4
+	context_ := fmt.Sprintf("=== catalogue ===\n%s", catalogue)
+	result.TokensSent += len(catalogue) / 4
 
 	if cfg.UseBM25 {
 		bm25Ctx := bm25PreFilter(ctx, cfg.WikiDir, query, cfg.BM25TopN)
@@ -138,7 +122,7 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 		var loaded []string
 		foundAny := false
 		for _, page := range pages {
-			content, resolvedSlug := loadWikiPage(cfg.WikiDir, page)
+			content, resolvedSlug := loadWikiPageFromIndex(ctx, cfg.WikiDir, page)
 			if content != "" {
 				foundAny = true
 				if !loadedPages[resolvedSlug] {
@@ -196,21 +180,19 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 // searchCompiledWiki asks the compiled index, and says whether that index was in a
 // position to answer at all.
 //
-// The second return value is the whole point, and it used to be missing. The markdown
-// files are the source of truth and the SQLite index is a compiled cache of them — see
-// OpenWikiDB, which gitignores the database as a derived artifact — so there are two
-// genuinely different situations behind an empty result:
+// The second return value separates two situations that an empty result set conflates,
+// and the distinction outlived the markdown fallback it was introduced for:
 //
 //   - the index holds chunks, so it is AUTHORITATIVE. Its empty answer is a real "no
-//     matches", and re-asking the markdown would only manufacture hits that the index
-//     deliberately did not rank.
+//     matches" for this query.
 //   - the index holds nothing, so it has not been compiled yet: a fresh project, or a
-//     page written in the seconds before the daemon rebuilds. Only the markdown can
-//     answer, and scanning it is why a memory is findable the moment it is written.
+//     document written in the seconds before the daemon rebuilds. Nothing is wrong with
+//     the query — there is simply no wiki yet to ask.
 //
-// Deciding this on `len(results) > 0` conflated the two, which is what made an empty or
-// stale index invisible: every miss quietly came back from the other engine, so nothing
-// ever surfaced that the index had no content.
+// Deciding that on `len(results) > 0` is what made an empty or stale index invisible, so
+// callers that would present a miss to a user check this flag first. `bm25PreFilter` is
+// the one that still needs it: it emits no pre-filter block at all rather than an empty
+// one, because an empty block reads as "the wiki ranked nothing for you".
 func searchCompiledWiki(ctx context.Context, wikiDir, query string, topN int) (results []WikiSearchResult, authoritative bool) {
 	db, err := OpenWikiDB(ctx, wikiDir)
 	if err != nil {
@@ -339,63 +321,12 @@ func parsePageList(reply string) []string {
 	return pages
 }
 
-func loadWikiPage(wikiDir, page string) (string, string) {
-	candidates := []string{
-		filepath.Join(wikiDir, page+".md"),
-		filepath.Join(wikiDir, SafeSlug(page)+".md"),
-	}
-	for _, p := range candidates {
-		data, err := os.ReadFile(p)
-		if err == nil {
-			slug := strings.TrimSuffix(filepath.Base(p), ".md")
-			return string(data), slug
-		}
-	}
-
-	// Fallback to fuzzy matching using trigrams
-	if bestMatch := findBestFuzzyMatch(wikiDir, page); bestMatch != "" {
-		p := filepath.Join(wikiDir, bestMatch+".md")
-		data, err := os.ReadFile(p)
-		if err == nil {
-			return string(data), bestMatch
-		}
-	}
-
-	return "", ""
-}
-
-func findBestFuzzyMatch(wikiDir, targetPage string) string {
-	targetClean := CleanForFuzzy(targetPage)
-	if targetClean == "" {
-		return ""
-	}
-
-	entries, err := os.ReadDir(wikiDir)
-	if err != nil {
-		return ""
-	}
-
-	bestMatch := ""
-	bestScore := 0.0
-
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
-			continue
-		}
-		slug := strings.TrimSuffix(entry.Name(), ".md")
-		if slug == "index" || slug == "log" {
-			continue
-		}
-
-		score := TrigramSimilarity(targetClean, CleanForFuzzy(slug))
-		if score > bestScore {
-			bestScore = score
-			bestMatch = slug
-		}
-	}
-
-	if bestScore >= 0.65 {
-		return bestMatch
-	}
-	return ""
-}
+// loadWikiPage and findBestFuzzyMatch are GONE, and what they did is worth knowing before
+// concluding something was dropped.
+//
+// loadWikiPage tried `<dir>/<page>.md`, then `<dir>/<SafeSlug(page)>.md`, then a trigram search
+// over the directory listing at a 0.65 threshold. `loadWikiPageFromIndex` — in multi_search.go —
+// goes through ReadPageAt, which keeps the two affordances that mattered: a slug is matched
+// case-insensitively on a miss, and a trailing `.md` in any casing is trimmed. What it does not
+// keep is the fuzzy match, because the model is now handed the catalogue as slugs and asked for
+// slugs, and a wrong one is answered with the list of what exists.

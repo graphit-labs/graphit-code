@@ -356,51 +356,6 @@ func TestMemoryService_EnsureInitialised_NilStore(t *testing.T) {
 	}
 }
 
-func TestMemoryService_IndexMemories_NonExistent(t *testing.T) {
-	svc := &MemoryService{localDir: "/nonexistent/dir"}
-	ctx := context.Background()
-	err := svc.IndexMemories(ctx)
-	if err != nil {
-		t.Errorf("IndexMemories with non-existent dir should return nil: %v", err)
-	}
-}
-
-func TestMemoryService_IndexMemories_WithDir(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-
-	writeMemFile(t, rawDir, "MEM1.md", `---
-title: Test
-type: fact
----
-
-# Test
-
-Body.`)
-
-	svc := &MemoryService{localDir: rawDir, wikiDir: wikiDir}
-	ctx := context.Background()
-	if err := svc.IndexMemories(ctx); err != nil {
-		t.Fatalf("IndexMemories: %v", err)
-	}
-	// Check wiki was generated
-	entries, readErr := os.ReadDir(wikiDir)
-	if readErr != nil {
-		t.Fatalf("reading wiki dir: %v", readErr)
-	}
-	if len(entries) < 1 {
-		t.Error("expected at least 1 file in wiki dir")
-	}
-}
-
-func TestMemoryService_SyncToLocal_NilStore(t *testing.T) {
-	svc := &MemoryService{}
-	err := svc.SyncToLocal()
-	if err == nil {
-		t.Error("expected error with nil gitStore")
-	}
-}
-
 // Store locations — one copy each, all global
 func TestMemoryWikiGlobalDir(t *testing.T) {
 	got := MemoryWikiGlobalDir("project", "abc123")
@@ -506,21 +461,6 @@ func TestAllContextDirs(t *testing.T) {
 		// told apart from the project and user scopes.
 		t.Errorf("AllContextDirs = %v, want [my-context]", got)
 	}
-}
-
-func TestEnsureWikiIndexExists_AlreadyExists(t *testing.T) {
-	dir := t.TempDir()
-	wikiDir := filepath.Join(dir, ".graphit", "memory", "project")
-	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(wikiDir, "index.md"), []byte("existing"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// An unknown scope resolves to a wiki dir that does not exist, which is the
-	// early-return path: nothing is written and nothing panics.
-	EnsureWikiIndexExists("nonexistent-scope", nil)
 }
 
 func TestRunConsolidation_NonExistentDir(t *testing.T) {
@@ -671,54 +611,20 @@ func TestAiConsolidation_Error(t *testing.T) {
 	}
 }
 
-func TestAiConsolidation_BodyNotEmpty(t *testing.T) {
-	ctx := context.Background()
-	// Test that non-empty body is included in prompt building
-	memories := []memorySnapshot{
-		{ID: "ID1", Title: "M1", Body: ""},
-		{ID: "ID2", Title: "M2", Body: "Some body content"},
-	}
-	client := &mockAIClient{response: `{"duplicates": [], "contradictions": [], "suggestions": []}`}
-	report, err := aiConsolidation(ctx, client, memories, nil)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if report == nil {
-		t.Fatal("expected non-nil report")
-	}
-}
-
-type mockStoreProvider struct {
-	extractErr error
-}
-
-func (m *mockStoreProvider) ExtractScopeDir(_, _, _ string) error {
-	return m.extractErr
-}
-
-func TestSyncContextFromMemoryRepo_NilStore(t *testing.T) {
-	ctx := context.Background()
-	result := SyncContextFromMemoryRepo(ctx, "test-context", t.TempDir(), nil, nil)
+// Compiling an imported context needs only its NAME.
+//
+// This replaces three tests that differed only in the store provider they passed — nil, a working
+// one, and one that failed to extract. That parameter is gone with the download it drove: a context's
+// memories are a table at a prefix derived from its name, so there is nothing to provide.
+func TestSyncContextFromMemoryRepoNeedsOnlyTheName(t *testing.T) {
+	t.Setenv("GRAPHIT_HUB_BUCKET", "")
+	t.Setenv("HOME", t.TempDir())
+	result := SyncContextFromMemoryRepo(context.Background(), "test-context")
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-}
-
-func TestSyncContextFromMemoryRepo_WithStore(t *testing.T) {
-	ctx := context.Background()
-	store := &mockStoreProvider{}
-	result := SyncContextFromMemoryRepo(ctx, "test-context", t.TempDir(), store, nil)
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-}
-
-func TestSyncContextFromMemoryRepo_WithStoreError(t *testing.T) {
-	ctx := context.Background()
-	store := &mockStoreProvider{extractErr: fmt.Errorf("err")}
-	result := SyncContextFromMemoryRepo(ctx, "test-context", t.TempDir(), store, nil)
-	if result == nil {
-		t.Fatal("expected non-nil result")
+	if result.Err != nil {
+		t.Errorf("compiling an empty context must not error: %v", result.Err)
 	}
 }
 
@@ -920,169 +826,6 @@ func listRecentInDir(dir string, limit int) ([]ImportantEntry, error) {
 	return all, nil
 }
 
-func TestMemoryEntityPage_StaleWarning(t *testing.T) {
-	oldDate := time.Now().Add(-60 * 24 * time.Hour).Format(time.RFC3339)
-	page := memoryEntityPageWithHash("ID", "Old Memory", oldDate, false, "Body.", "fact", "")
-	if !strings.Contains(page, "Stale memory") {
-		t.Error("expected stale memory warning for 60-day-old memory")
-	}
-}
-
-func TestMemoryEntityPage_UnknownTypeEmoji(t *testing.T) {
-	page := memoryEntityPageWithHash("ID", "Custom Type", "", false, "Body.", "custom-type", "")
-	if !strings.Contains(page, "📄") {
-		t.Error("expected fallback emoji for unknown type")
-	}
-}
-
-func TestMemoryEntityPage_NoBody(t *testing.T) {
-	page := memoryEntityPageWithHash("ID", "Title", "", false, "", "fact", "")
-	if !strings.Contains(page, "# Title") {
-		t.Error("should contain title")
-	}
-}
-
-func TestMemoryEntityPage_NoCreatedAt(t *testing.T) {
-	page := memoryEntityPageWithHash("ID", "Title", "", false, "Body.", "", "")
-	if strings.Contains(page, "created:") {
-		t.Error("should not contain created when empty")
-	}
-}
-
-// memoryIndexPage: untyped memories, important prefix, empty/no-body summaries
-
-func TestMemoryIndexPage_WithUntypedMemories(t *testing.T) {
-	docs := []memDoc{
-		{id: "1", title: "Untyped", createdAt: "2026-01-01T00:00:00Z", memType: "", body: "Some body"},
-		{id: "2", title: "Important Untyped", createdAt: "2026-01-02T00:00:00Z", memType: "", important: true, body: "Important body"},
-	}
-	content := memoryIndexPage(docs)
-	if !strings.Contains(content, "Other Memories") {
-		t.Error("should contain 'Other Memories' section for untyped")
-	}
-	if !strings.Contains(content, "⭐") {
-		t.Error("should contain star prefix for important")
-	}
-}
-
-func TestMemoryIndexPage_EmptyBody(t *testing.T) {
-	docs := []memDoc{
-		{id: "1", title: "No Body", createdAt: "2026-01-01T00:00:00Z", memType: "fact", body: ""},
-	}
-	content := memoryIndexPage(docs)
-	if !strings.Contains(content, "No_Body") {
-		t.Error("should contain title link")
-	}
-}
-
-func TestMemoryIndexPage_ImportantSection(t *testing.T) {
-	docs := []memDoc{
-		{id: "1", title: "Important One", important: true, memType: "convention", body: "Important body content"},
-		{id: "2", title: "Normal One", important: false, memType: "fact", body: "Normal body"},
-	}
-	content := memoryIndexPage(docs)
-	if !strings.Contains(content, "⭐ Important Memories") {
-		t.Error("should contain important section")
-	}
-	if !strings.Contains(content, "1 important") {
-		t.Error("should show 1 important count")
-	}
-}
-
-func TestMemoryIndexPage_NoImportant(t *testing.T) {
-	docs := []memDoc{
-		{id: "1", title: "Normal", memType: "fact", body: "Body"},
-	}
-	content := memoryIndexPage(docs)
-	if !strings.Contains(content, "0 important") {
-		t.Error("should show 0 important")
-	}
-}
-
-func TestMemoryIndexPage_ImportantWithNoBody(t *testing.T) {
-	docs := []memDoc{
-		{id: "1", title: "Important No Body", important: true, memType: "convention", body: ""},
-	}
-	content := memoryIndexPage(docs)
-	// Verify the page was generated (contains header at minimum)
-	if content == "" {
-		t.Error("should not be empty")
-	}
-	// The title may appear as a link, slug, or plain text depending on implementation
-	if !strings.Contains(content, "Important") && !strings.Contains(content, "important") {
-		t.Error("should contain some reference to the important memory")
-	}
-}
-
-// appendMemLog: with existing content that has separator
-
-func TestAppendMemLog_WithSeparator(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	initialContent := "---\ntitle: Memory Wiki Log\ntags: [memory, log]\n---\n\n# Memory Wiki Log\n\n> Append-only\n\n---\nOld entry here.\n"
-	if err := os.WriteFile(logPath, []byte(initialContent), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	appendMemLog(logPath, 10, 8, nil)
-
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := string(data)
-	if !strings.Contains(content, "10 memories, 8 article(s) written") {
-		t.Error("should contain new entry")
-	}
-	if !strings.Contains(content, "Old entry here") {
-		t.Error("should preserve old content")
-	}
-}
-
-func TestAppendMemLog_NoSeparator(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	// Create file WITHOUT the --- separator (no SplitN parts[1])
-	if err := os.WriteFile(logPath, []byte("Some content without separator"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	appendMemLog(logPath, 3, 2, nil)
-
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := string(data)
-	if !strings.Contains(content, "3 memories, 2 article(s) written") {
-		t.Error("should contain new entry")
-	}
-}
-
-// GenerateMemoryWiki: with logger, with write error (readonly dir)
-
-func TestGenerateMemoryWiki_WithLogger(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-
-	writeMemFile(t, rawDir, "MEM1.md", `---
-title: Test
-type: fact
----
-
-# Test
-
-Body.`)
-
-	ctx := context.Background()
-	_, err := GenerateMemoryWiki(ctx, rawDir, wikiDir, nil) // passing nil logger
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-}
-
 func TestRunProjectCycle(t *testing.T) {
 	result := RunProjectCycle(context.Background())
 	// Result depends on CWD, just verify no panic
@@ -1100,9 +843,10 @@ func TestRunUserCycle(t *testing.T) {
 
 func TestOnHubImport(t *testing.T) {
 	ctx := context.Background()
-	store := &mockStoreProvider{}
+	t.Setenv("GRAPHIT_HUB_BUCKET", "")
+	t.Setenv("HOME", t.TempDir())
 	// OnHubImport spawns a goroutine — we just test it doesn't panic
-	OnHubImport(ctx, "test-context", t.TempDir(), store, nil)
+	OnHubImport(ctx, "test-context", nil)
 	// Give goroutine time to finish
 	time.Sleep(50 * time.Millisecond)
 }

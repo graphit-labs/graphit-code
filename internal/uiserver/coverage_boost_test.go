@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -14,7 +12,7 @@ func TestHandleSearch_FallbackLinearSearch(t *testing.T) {
 	tmp := t.TempDir()
 
 	content := "ab"
-	if err := os.WriteFile(filepath.Join(tmp, "tiny.md"), []byte(content), 0o644); err != nil {
+	if err := indexPage(t, tmp, "tiny.md", content); err != nil {
 		t.Fatal(err)
 	}
 

@@ -2,7 +2,6 @@ package wiki
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -63,54 +62,4 @@ func WriteOKFSources(b *strings.Builder, resources ...string) {
 		}
 		_, _ = fmt.Fprintf(b, "  - resource: %s\n", r)
 	}
-}
-
-// YAMLScalar renders a free-text value as a YAML scalar that always parses.
-//
-// This is the first conformance criterion, not a nicety: §11 requires that every concept
-// document contain a PARSEABLE YAML frontmatter block, and these blocks are assembled by
-// string concatenation rather than by a YAML encoder. Free text walks straight into that.
-// A description lifted from a source document's own folded scalar arrives as
-// `> Where every compiled artifact lives`, and `description: > Where ...` is a block scalar
-// header with trailing content — a parse error that takes the WHOLE frontmatter with it,
-// including the `type` the spec requires. A title containing `: ` breaks it the same way.
-//
-// Values that are already unambiguous are left bare, because a wiki page is read by people
-// as often as by parsers and quoting everything makes the block harder to scan. Anything
-// that could be read as YAML syntax — an indicator character, a key separator, a comment,
-// a bare boolean or number, leading or trailing space — is quoted and escaped.
-func YAMLScalar(v string) string {
-	if v == "" {
-		return `""`
-	}
-	if needsYAMLQuoting(v) {
-		return strconv.Quote(v)
-	}
-	return v
-}
-
-func needsYAMLQuoting(v string) bool {
-	if strings.TrimSpace(v) != v {
-		return true
-	}
-	if strings.ContainsAny(v, "\n\r\t") {
-		return true
-	}
-	// Indicator characters are only special in the FIRST position of a plain scalar.
-	if strings.ContainsRune(`-?:,[]{}#&*!|>'"%@`+"`", rune(v[0])) {
-		return true
-	}
-	// A key separator or an inline comment anywhere ends the scalar early.
-	if strings.Contains(v, ": ") || strings.HasSuffix(v, ":") || strings.Contains(v, " #") {
-		return true
-	}
-	// A plain scalar that would be read as something other than a string.
-	switch strings.ToLower(v) {
-	case "true", "false", "yes", "no", "on", "off", "null", "~":
-		return true
-	}
-	if _, err := strconv.ParseFloat(v, 64); err == nil {
-		return true
-	}
-	return false
 }

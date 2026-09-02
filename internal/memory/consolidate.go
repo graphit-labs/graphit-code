@@ -158,7 +158,46 @@ func RunConsolidation(ctx context.Context, scope string, aiClient ai.Client) (*C
 	// The scope's own wiki is where its embeddings live, and they are what lets a
 	// batched analysis put near-duplicates in the same prompt. Resolved here because
 	// this is the only layer that knows the scope.
-	return consolidateDirWithVectors(ctx, RawDir(scope), aiClient, loadMemoryVectors(ctx, WikiDir(scope)))
+	//
+	// 🔒 IT READS THE STORE, NOT A DIRECTORY. This was the reader T2.3 missed: it kept calling
+	// `RawDir(scope)` after the raw store stopped receiving writes, and the symptom was not an error
+	// — `loadMemorySnapshots` on a missing directory returns "nothing to consolidate", so the pass
+	// reported success over zero memories. A no-op that looks like a clean run.
+	uri := TableURIForScope(scope)
+	if uri == "" {
+		return &ConsolidationReport{}, nil
+	}
+	tbl, err := OpenMemoryTable(ctx, uri)
+	if err != nil {
+		return nil, fmt.Errorf("opening the memory store: %w", err)
+	}
+	defer func() { _ = tbl.Close() }()
+
+	records, err := tbl.Live(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the memories: %w", err)
+	}
+	memories := make([]memorySnapshot, 0, len(records))
+	for _, rec := range records {
+		memories = append(memories, memorySnapshot{
+			ID:        rec.ID,
+			Title:     titleOrID(rec.Title, rec.ID),
+			Body:      strings.TrimSpace(rec.Body),
+			Type:      rec.Type,
+			CreatedAt: rec.CreatedAt,
+			Important: rec.Important,
+		})
+	}
+	return consolidateSnapshots(ctx, memories, aiClient, loadMemoryVectors(ctx, WikiDir(scope))), nil
+}
+
+// titleOrID falls back to the id, because a memory with no title still has to be nameable in a
+// consolidation plan the user is asked to approve.
+func titleOrID(title, id string) string {
+	if title == "" {
+		return id
+	}
+	return title
 }
 
 // consolidateDir is RunConsolidation against an explicit directory. Resolving the
@@ -181,10 +220,18 @@ func consolidateDirWithVectors(ctx context.Context, dir string, aiClient ai.Clie
 		}
 		return nil, err
 	}
+	return consolidateSnapshots(ctx, memories, aiClient, vecs), nil
+}
 
+// consolidateSnapshots is the analysis itself, over memories already loaded.
+//
+// Source-agnostic on purpose, the same way compileMemoryWiki is: RunConsolidation reads them from the
+// store and the directory form reads them from files, and neither difference reaches the logic that
+// detects staleness, duplicates and contradictions.
+func consolidateSnapshots(ctx context.Context, memories []memorySnapshot, aiClient ai.Client, vecs map[string][]float32) *ConsolidationReport {
 	report := &ConsolidationReport{TotalMemories: len(memories)}
 	if len(memories) == 0 {
-		return report, nil
+		return report
 	}
 
 	report.Stale = detectStaleMemories(memories)
@@ -197,7 +244,7 @@ func consolidateDirWithVectors(ctx context.Context, dir string, aiClient ai.Clie
 			// string nobody reads cannot carry that.
 			report.AIAnalysis = fmt.Sprintf("AI analysis failed: %v", err)
 			report.AIFailed = true
-			return report, nil
+			return report
 		}
 		report.Duplicates = aiReport.Duplicates
 		report.Contradictions = aiReport.Contradictions
@@ -205,7 +252,7 @@ func consolidateDirWithVectors(ctx context.Context, dir string, aiClient ai.Clie
 		report.AIAnalysis = aiReport.AIAnalysis
 	}
 
-	return report, nil
+	return report
 }
 
 func loadMemorySnapshots(dir string) ([]memorySnapshot, error) {

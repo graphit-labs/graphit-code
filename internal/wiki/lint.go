@@ -1,20 +1,21 @@
 package wiki
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
 
+// LintConfig is what the audit can be told to do differently. Only staleness is a choice: every
+// other finding is read off the index, which either has the edge or does not.
+//
+// There is deliberately no repair option. The one mechanically repairable finding used to be a
+// page missing the `## Backlinks` section its inbound references entitled it to; there is no page
+// to repair now, and the `xrefs` table cannot be missing an edge the graph knows about, because
+// the graph is built FROM it.
 type LintConfig struct {
-	Deep bool
-
-	Fix bool
-
 	StaleDays int
 }
 
@@ -28,9 +29,8 @@ type LintReport struct {
 	// WeakFields lists pages missing a RECOMMENDED OKF field. It is reported and never
 	// counted in Errors: OKF v0.2 §11 forbids rejecting a concept over an optional field,
 	// so these are quality hints, not conformance failures.
-	WeakFields   []FieldIssue
-	Errors       int
-	FixesApplied int
+	WeakFields []FieldIssue
+	Errors     int
 }
 
 type FieldIssue struct {
@@ -49,13 +49,43 @@ func (r *LintReport) Summary() string {
 	return fmt.Sprintf("⚠ %d pages — %d issue(s) found", r.TotalPages, r.Errors)
 }
 
-func LintWiki(wikiDir string, cfg LintConfig) (*LintReport, error) {
+// LintWiki audits a compiled wiki.
+//
+// It reads the INDEX, not a directory of pages. Every check it makes was a text scan over a
+// rendered page — frontmatter parsed with regexes, the body's words counted after stripping the
+// frontmatter and the backlinks section — and every one of those facts is a column: `doc_type` is
+// OKF's one required field, `title` and `summary` are the recommended ones, `word_count` was
+// computed at compile time from the same body, and staleness is what the compiler decided rather
+// than something re-derived from a date in a file.
+func LintWiki(ctx context.Context, wikiDir string, cfg LintConfig) (*LintReport, error) {
 	report := &LintReport{}
 
-	graph, err := BuildCrossRefGraph(wikiDir)
+	db, err := OpenWikiDB(ctx, wikiDir)
 	if err != nil {
-		return nil, fmt.Errorf("building cross-ref graph: %w", err)
+		return nil, fmt.Errorf("opening the wiki index: %w", err)
 	}
+	defer func() { _ = db.Close() }()
+
+	chunks, err := db.Chunks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the indexed pages: %w", err)
+	}
+	// An empty index is REFUSED rather than reported as a clean wiki. Opening a store creates it,
+	// so a lint pointed at a directory that holds no wiki would otherwise answer
+	// "0 pages — no issues found", which is the most misleading answer available here.
+	if len(chunks) == 0 {
+		return nil, fmt.Errorf("the wiki at %s holds no pages — index it first", wikiDir)
+	}
+	edges, err := db.AllXRefs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the cross-references: %w", err)
+	}
+
+	pages := make([]PageEdges, 0, len(chunks))
+	for _, c := range chunks {
+		pages = append(pages, PageEdges{Slug: c.Slug, Title: c.Title, Targets: edges[c.Slug]})
+	}
+	graph := BuildCrossRefGraphFromRefs(pages)
 
 	report.TotalPages = len(graph.AllPages)
 
@@ -65,45 +95,28 @@ func LintWiki(wikiDir string, cfg LintConfig) (*LintReport, error) {
 	report.BrokenLinks = BrokenLinks(graph)
 	report.Errors += len(report.BrokenLinks)
 
-	for page := range graph.AllPages {
-		if page == "index" || page == "log" {
-			continue
-		}
-
-		filePath := filepath.Join(wikiDir, page+".md")
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			continue
-		}
-		content := string(data)
-
-		if cfg.StaleDays > 0 {
-			if isStale(content, cfg.StaleDays) {
-				report.StalePages = append(report.StalePages, page)
-				report.Errors++
-			}
-		}
-
-		body := StripFrontmatter(content)
-		body = stripBacklinksSection(body)
-		wordCount := len(strings.Fields(body))
-		if wordCount <= 10 {
-			report.EmptyPages = append(report.EmptyPages, page)
+	for _, c := range chunks {
+		if cfg.StaleDays > 0 && chunkIsStale(c, cfg.StaleDays) {
+			report.StalePages = append(report.StalePages, c.Slug)
 			report.Errors++
 		}
 
-		missing := checkFrontmatter(content)
-		if len(missing) > 0 {
+		if c.WordCount <= 10 {
+			report.EmptyPages = append(report.EmptyPages, c.Slug)
+			report.Errors++
+		}
+
+		if missing := missingRequiredChunkFields(c); len(missing) > 0 {
 			report.MissingFields = append(report.MissingFields, FieldIssue{
-				Page:          page,
+				Page:          c.Slug,
 				MissingFields: missing,
 			})
 			report.Errors++
 		}
 
-		if weak := missingRecommendedFields(content); len(weak) > 0 {
+		if weak := missingRecommendedChunkFields(c); len(weak) > 0 {
 			report.WeakFields = append(report.WeakFields, FieldIssue{
-				Page:          page,
+				Page:          c.Slug,
 				MissingFields: weak,
 			})
 		}
@@ -112,128 +125,58 @@ func LintWiki(wikiDir string, cfg LintConfig) (*LintReport, error) {
 	sort.Strings(report.StalePages)
 	sort.Strings(report.EmptyPages)
 
-	if cfg.Fix {
-
-		xrefResult, err := InjectBacklinks(wikiDir, graph)
-		if err == nil {
-			report.FixesApplied += xrefResult.BacklinksAdded
-		}
-	}
-
 	return report, nil
 }
 
-// reFMField matches a top-level frontmatter key. The character class is not `\w`
-// because OKF keys are not all bare words: a producer may write `generated.at` or
-// `usage_window`, and `\w+` stops at the dot, so the key reads as absent rather than
-// as present-with-a-dotted-name. This project shipped exactly that: every page carried
-// a key the scanner could not see.
-var reFMField = regexp.MustCompile(`(?m)^([A-Za-z_][\w.-]*):`)
-
-// requiredFields is OKF's conformance contract, not this project's taste.
+// missingRequiredChunkFields reports OKF's conformance contract, on columns.
 //
-// OKF v0.2 §11 requires one thing of a concept document: a parseable frontmatter block
-// containing a non-empty `type`. Everything else — `title`, `description`, `tags`,
-// `sources`, `generated` — is RECOMMENDED, and §11 is explicit that a consumer MUST NOT
-// reject a document for missing an optional field.
-//
-// The list used to be {title, tags, updated}, which predates OKF and outlived it: after
-// the generator moved to `generated.at` no page carried `updated` any more, so the lint
-// reported 240 of 242 pages as malformed while the wiki was fine.
-var requiredFields = []string{"type"}
-
-// recommendedFields are reported separately: their absence is a quality signal, never a
-// conformance failure, so they must not be counted as errors.
-var recommendedFields = []string{"title", "description"}
-
-func checkFrontmatter(content string) []string {
-	fm := extractFrontmatter(content)
-	if fm == "" {
-		return requiredFields
-	}
-
-	present := make(map[string]bool)
-	for _, m := range reFMField.FindAllStringSubmatch(fm, -1) {
-		present[strings.ToLower(m[1])] = true
-	}
-
+// OKF v0.2 §11 requires exactly one thing of a concept document: a non-empty `type`. Everything
+// else is RECOMMENDED, and §11 is explicit that a consumer MUST NOT reject a document over an
+// optional field.
+func missingRequiredChunkFields(c WikiChunk) []string {
 	var missing []string
-	for _, f := range requiredFields {
-		if !present[f] {
-			missing = append(missing, f)
-		}
+	if strings.TrimSpace(c.DocType) == "" {
+		missing = append(missing, "type")
 	}
 	return missing
 }
 
-func missingRecommendedFields(content string) []string {
-	fm := extractFrontmatter(content)
-	if fm == "" {
-		return recommendedFields
-	}
-	present := make(map[string]bool)
-	for _, m := range reFMField.FindAllStringSubmatch(fm, -1) {
-		present[strings.ToLower(m[1])] = true
-	}
+// missingRecommendedChunkFields reports the quality hints, which are never counted as errors.
+func missingRecommendedChunkFields(c WikiChunk) []string {
 	var missing []string
-	for _, f := range recommendedFields {
-		if !present[f] {
-			missing = append(missing, f)
-		}
+	if strings.TrimSpace(c.Title) == "" {
+		missing = append(missing, "title")
+	}
+	if strings.TrimSpace(c.Summary) == "" {
+		missing = append(missing, "description")
 	}
 	return missing
 }
 
-func extractFrontmatter(content string) string {
-	trimmed := strings.TrimSpace(content)
-	if !strings.HasPrefix(trimmed, "---") {
-		return ""
+// chunkIsStale answers the two questions the frontmatter readers asked, in the order OKF gives
+// them: an explicit staleness instant wins, and age is the fallback.
+//
+// `stale_since` is what the compiler concluded — the source or a dependency changed — so it is a
+// decision, not a date to compare against a window, and a page carrying one is stale at any
+// staleDays. `updated` is the source's own date, and a page with none is NOT reported: §11 forbids
+// rejecting a concept over a missing optional field, and a page whose age is unknown is not a page
+// known to be old.
+func chunkIsStale(c WikiChunk, staleDays int) bool {
+	if strings.TrimSpace(c.StaleSince) != "" {
+		return true
 	}
-	lines := strings.Split(trimmed, "\n")
-	var fmLines []string
-	started := false
-	for _, line := range lines {
-		t := strings.TrimSpace(line)
-		if t == "---" {
-			if !started {
-				started = true
-				continue
-			}
-			break
-		}
-		if started {
-			fmLines = append(fmLines, line)
-		}
+	t, ok := parseFMInstant(c.Updated)
+	if !ok {
+		return false
 	}
-	return strings.Join(fmLines, "\n")
+	return time.Since(t).Hours() > float64(staleDays*24)
 }
 
-// The two shapes OKF allows for the trust family's timestamp (§5.2): `generated` is a
-// mapping, written inline or as a block. There is no flat `generated.at` key and no
-// `updated` key — the first was this project's misreading of the spec's prose path
-// notation, the second predates OKF entirely. Neither is read: the wiki is regenerated
-// from its sources, so there is no old page to stay compatible with.
-var (
-	reFMGeneratedInline = regexp.MustCompile(`(?m)^generated:\s*\{[^}]*\bat:\s*([^,}]+)`)
-	reFMGeneratedBlock  = regexp.MustCompile(`(?m)^generated:\s*$[\s\S]*?^\s+at:\s*(.+)$`)
-)
-
-// generatedAt reads the instant a page's content last meaningfully changed (§5.2).
-func generatedAt(fm string) (time.Time, bool) {
-	for _, re := range []*regexp.Regexp{reFMGeneratedInline, reFMGeneratedBlock} {
-		m := re.FindStringSubmatch(fm)
-		if m == nil {
-			continue
-		}
-		if t, ok := parseFMInstant(m[1]); ok {
-			return t, true
-		}
-	}
-	return time.Time{}, false
-}
-
-var reFMStaleAfter = regexp.MustCompile(`(?m)^stale_after:\s*(.+)$`)
-
+// parseFMInstant reads the date shapes a page's `updated` column can carry.
+//
+// It is what is left of a family of frontmatter regexes — `generated`, inline and block,
+// `stale_after`, `updated` — that parsed a rendered page to recover facts the compiler already
+// knew. The compiler writes them as columns now, so only the date parsing survived.
 func parseFMInstant(raw string) (time.Time, bool) {
 	s := strings.TrimSpace(raw)
 	s = strings.Trim(s, "\"'")
@@ -244,23 +187,4 @@ func parseFMInstant(raw string) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
-}
-
-func isStale(content string, staleDays int) bool {
-	fm := extractFrontmatter(content)
-
-	if m := reFMStaleAfter.FindStringSubmatch(fm); m != nil {
-		if t, ok := parseFMInstant(m[1]); ok {
-			return !time.Now().Before(t)
-		}
-	}
-
-	t, ok := generatedAt(fm)
-	if !ok {
-		// No timestamp at all. OKF §11 forbids rejecting a concept for a missing
-		// optional field, and a page whose age is unknown is not a page known to be
-		// old — reporting it as stale is inventing a fact.
-		return false
-	}
-	return time.Since(t).Hours() > float64(staleDays*24)
 }

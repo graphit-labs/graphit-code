@@ -1,6 +1,7 @@
 package uiserver
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/store"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
 // The tests in this file pin one property: /api/wiki/modules reports the wikis the
@@ -51,19 +53,27 @@ func initProject(t *testing.T, projectDir, name string) {
 	}
 }
 
-// writeWiki creates a compiled-wiki directory holding the named pages.
+// writeWiki compiles a wiki holding the named pages.
+//
+// It used to drop one `.md` file per name into the directory, which is what the handler counted.
+// The handler counts INDEXED pages, and reports HasLog from the `sync_log` table rather than from the
+// existence of a `log.md` — so the fixture records one sync, which is what a compiled wiki always has.
 func writeWiki(t *testing.T, dir string, pages ...string) {
 	t.Helper()
 	if dir == "" {
 		t.Fatal("empty wiki directory — the store resolved nothing")
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir %s: %v", dir, err)
-	}
+	chunks := make([]wiki.WikiChunk, 0, len(pages))
 	for _, p := range pages {
-		if err := os.WriteFile(filepath.Join(dir, p), []byte("# "+p), 0o644); err != nil {
-			t.Fatalf("write %s: %v", p, err)
-		}
+		slug := strings.TrimSuffix(p, ".md")
+		chunks = append(chunks, wiki.WikiChunk{
+			Slug: slug, Title: slug, Body: "# " + p, DocType: "document",
+			WordCount: 2, ClusterID: -1,
+		})
+	}
+	entry := &wiki.SyncLogEntry{TotalDocs: len(chunks), ArticlesWritten: len(chunks)}
+	if err := wiki.RebuildDB(context.Background(), dir, chunks, nil, entry, nil); err != nil {
+		t.Fatalf("compiling the wiki at %s: %v", dir, err)
 	}
 }
 
@@ -108,7 +118,7 @@ func TestProjectWikisResolveFromTheGlobalStore(t *testing.T) {
 		t.Errorf("knowledge pages = %d; want 3", kn.Pages)
 	}
 	if !kn.HasLog {
-		t.Error("knowledge hasLog = false; a log.md was written")
+		t.Error("knowledge hasLog = false; the fixture recorded a sync")
 	}
 
 	mem, ok := moduleByID(modules, "memory-project")

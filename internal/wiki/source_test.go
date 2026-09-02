@@ -58,6 +58,10 @@ func TestReadPageResolvesSlugCaseInsensitivelyAndWithoutExtension(t *testing.T) 
 
 // The slicing is the same as the code-source tool's, which is the point: an agent
 // reading a wiki page should not have to pull the whole file to see part of it.
+//
+// It applies to the WHOLE page, frontmatter included, exactly as it did when the page was a file —
+// so `head` now shows the header. Asserting only that a late term is absent would pass for the
+// wrong reason, so this pins where the first lines actually come from.
 func TestReadPageSlicesLikeTheSourceTool(t *testing.T) {
 	t.Parallel()
 	dir := probeWiki(t)
@@ -68,6 +72,12 @@ func TestReadPageSlicesLikeTheSourceTool(t *testing.T) {
 	}
 	if strings.Contains(got.Source, "anfibolio") {
 		t.Errorf("head:4 returned more than the first four lines:\n%s", got.Source)
+	}
+	if !strings.HasPrefix(got.Source, "---\n") {
+		t.Errorf("head:4 must start at the page's first line, which is the frontmatter delimiter:\n%s", got.Source)
+	}
+	if !strings.Contains(got.Source, "type: specification") {
+		t.Errorf("head:4 lost the header the page opens with:\n%s", got.Source)
 	}
 
 	got, err = ReadPageAt(context.Background(), dir, "1._Granada_Module", textslice.Request{Pattern: "xenolito", Before: 1, After: 1})
@@ -155,5 +165,117 @@ func TestFirstHeadingSkipsFrontmatter(t *testing.T) {
 	}
 	if got := firstHeading("no heading here\n"); got != "" {
 		t.Errorf("firstHeading = %q, want empty", got)
+	}
+}
+
+// 🔒 THE MEMORY PROTOCOL'S CHAIN WALK, which is the instruction this restored.
+//
+// The memory skill tells an agent to read `previous` / `next` off a revision's page — literally
+// `graphit_wiki_source(path: "<slug>", wiki: "memory", pattern: "previous", after: 1)`. That
+// returned nothing from the moment page reads moved to the index, because a read became the `body`
+// column and the chain lived in the header. Six columns were added so the facts survived; this is
+// the test that the SURFACE survived too, so the documented call works rather than the
+// documentation being reworded to describe the loss.
+func TestReadPageCarriesTheRevisionChainTheMemoryProtocolReadsOffIt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	archived := WikiChunk{
+		Slug:        "Some_memory--r0001",
+		Title:       "Some memory",
+		Body:        "What: the earlier wording.\n",
+		DocType:     "fact",
+		Source:      "history/01ENTITY/0001.md",
+		WordCount:   4,
+		ClusterID:   -1,
+		Created:     "2026-07-01T00:00:00Z",
+		ContentHash: "abc123",
+		EntityID:    "01ENTITY",
+		RevisionID:  "0001",
+		Superseded:  true,
+		CurrentID:   "01ENTITY",
+		Revision:    2,
+		Previous:    "0000",
+		Next:        "01ENTITY.md",
+	}
+	if err := RebuildDB(context.Background(), dir, []WikiChunk{archived}, nil, nil, nil); err != nil {
+		t.Fatalf("building the index: %v", err)
+	}
+
+	whole, err := ReadPageAt(context.Background(), dir, "Some_memory--r0001", textslice.Request{})
+	if err != nil {
+		t.Fatalf("reading the page: %v", err)
+	}
+
+	// Every field the protocol names, under the name it names it by.
+	for _, want := range []string{
+		"type: fact",
+		"id: 01ENTITY",
+		"superseded: true",
+		"current: 01ENTITY",
+		"revision_id: \"0001\"",
+		"revision: 2",
+		"previous: \"0000\"",
+		"next: 01ENTITY.md",
+		"created: \"2026-07-01T00:00:00Z\"",
+	} {
+		if !strings.Contains(whole.Source, want) {
+			t.Errorf("the page read is missing %q:\n%s", want, whole.Source)
+		}
+	}
+	// And the body is still there — the header is added, not substituted.
+	if !strings.Contains(whole.Source, "the earlier wording") {
+		t.Errorf("the page read lost its body:\n%s", whole.Source)
+	}
+
+	// The exact call the skill prescribes.
+	sliced, err := ReadPageAt(context.Background(), dir, "Some_memory--r0001",
+		textslice.Request{Pattern: "previous", After: 1})
+	if err != nil {
+		t.Fatalf("pattern read: %v", err)
+	}
+	if len(sliced.Matches) == 0 {
+		t.Fatalf("pattern \"previous\" found nothing — the documented chain walk is broken:\n%s", sliced.Source)
+	}
+	if !strings.Contains(sliced.Source, "0000") {
+		t.Errorf("the pattern read did not surface the previous revision:\n%s", sliced.Source)
+	}
+
+	// A page with no chain carries no chain keys, so a knowledge page is not littered with empty
+	// memory fields.
+	plain := probeWiki(t)
+	got, err := ReadPageAt(context.Background(), plain, "wollastonita", textslice.Request{})
+	if err != nil {
+		t.Fatalf("reading a chainless page: %v", err)
+	}
+	for _, absent := range []string{"superseded:", "previous:", "next:", "revision:", "current:"} {
+		if strings.Contains(got.Source, absent) {
+			t.Errorf("a page with no revision chain must not carry %q:\n%s", absent, got.Source)
+		}
+	}
+}
+
+// The header a read produces has to PARSE, for the same reason the exported one does: a title
+// containing `: ` is what made 47 memories unreadable, and an agent reading a page back through
+// FrontmatterField gets nothing from a block that does not parse.
+func TestReadPageHeaderParsesEvenForAHostileTitle(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if err := RebuildDB(context.Background(), dir, []WikiChunk{{
+		Slug: "hostile", Title: "Storage: where every artifact lives", Body: "body\n",
+		DocType: "decision", Summary: "> a folded scalar header", WordCount: 1, ClusterID: -1,
+	}}, nil, nil, nil); err != nil {
+		t.Fatalf("building the index: %v", err)
+	}
+
+	got, err := ReadPageAt(context.Background(), dir, "hostile", textslice.Request{})
+	if err != nil {
+		t.Fatalf("reading: %v", err)
+	}
+	title, ok := FrontmatterField(got.Source, "title")
+	if !ok {
+		t.Fatalf("the read page's frontmatter does not parse:\n%s", got.Source)
+	}
+	if title != "Storage: where every artifact lives" {
+		t.Errorf("title = %q; the colon must survive the round trip", title)
 	}
 }

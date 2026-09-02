@@ -118,7 +118,7 @@ func ReadPageFrom(ctx context.Context, db *WikiDB, page string, req textslice.Re
 		return nil, fmt.Errorf("page %q is not a slug: pass the slug a search returned, not a path", page)
 	}
 
-	body, title, err := db.PageBody(ctx, slug)
+	chunk, err := db.Chunk(ctx, slug)
 	if errors.Is(err, ErrPageNotFound) {
 		// Slugs are generated from titles, so the one a human types rarely matches the casing
 		// the generator produced. The file-backed reader resolved this with a case-insensitive
@@ -126,19 +126,38 @@ func ReadPageFrom(ctx context.Context, db *WikiDB, page string, req textslice.Re
 		// disappears silently. Only on a miss, so the hit path stays one indexed lookup.
 		if resolved, ok := resolveSlugCaseInsensitively(ctx, db, slug); ok {
 			slug = resolved
-			body, title, err = db.PageBody(ctx, slug)
+			chunk, err = db.Chunk(ctx, slug)
 		}
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	sliced, err := textslice.Apply(body, req)
+	// A PAGE IS ITS FRONTMATTER AND ITS BODY, and this is where that was quietly lost.
+	//
+	// When page reads moved off the file and onto the index, this returned the `body` column alone —
+	// so everything the header carried became unreachable through the tool that exists to read a
+	// page. That is not a cosmetic loss: the memory protocol instructs an agent to walk a revision
+	// chain by reading `previous` / `next` off the page, and the instruction silently stopped
+	// working. Rebuilding the header from the columns restores what an `os.ReadFile` of the compiled
+	// `.md` used to return, and the slicing below applies to the whole page exactly as it did then.
+	//
+	// No flag, and no second shape of "read a page": a dual-read path is the thing this line of work
+	// exists to remove, and the header is a dozen short lines against a body measured in hundreds.
+	header, headerErr := RenderPageHeader(*chunk, "")
+	if headerErr != nil {
+		return nil, headerErr
+	}
+	// `page` is the caller's reference; this is the page ITSELF.
+	fullPage := header + "\n" + chunk.Body
+
+	sliced, err := textslice.Apply(fullPage, req)
 	if err != nil {
 		return nil, err
 	}
+	title := chunk.Title
 	if title == "" {
-		title = firstHeading(body)
+		title = firstHeading(chunk.Body)
 	}
 	return &PageResult{
 		Page:       slug,

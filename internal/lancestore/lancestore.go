@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ErrNotBuilt is returned by every operation when the binary was compiled without the
@@ -280,6 +281,39 @@ type PruneResult struct {
 	BytesRemoved int64
 	OldVersions  int64
 }
+
+// Version is one entry in a table's history.
+//
+// Lance is MVCC: every write produces a new immutable version and the previous one stays until
+// it is pruned. That makes the history a RECOVERY MECHANISM and not only a curiosity — a
+// destructive write is undone by restoring the version before it, which is what lets a store
+// with no second copy of its data still be recoverable.
+type Version struct {
+	// Version is the dataset version number, which is what Checkout and Restore take.
+	Version uint64
+	// Timestamp is when the version was created.
+	Timestamp time.Time
+	// Metadata is whatever the writer attached to the commit, if anything.
+	Metadata map[string]string
+}
+
+// ErrNoTimeTravel is returned when the backend's table does not implement the optional
+// version-history capability.
+//
+// It is a NAMED error rather than a panic or a generic failure because the capability is
+// genuinely optional in the binding: `contracts.ITableTimeTravel` is layered beside `ITable`
+// and reached by type assertion, so a backend can legitimately lack it. A caller that depends
+// on rollback has to be able to detect that and say so, rather than discovering it as a nil
+// dereference.
+var ErrNoTimeTravel = errors.New("lancestore: this table does not support version history")
+
+// ErrCommitConflict is returned when a write lost a commit race and the retries ran out.
+//
+// Concurrent writers to the same table are expected on a shared remote store: Lance commits by
+// writing a manifest, so two writers that commit at the same moment produce one winner and one
+// conflict. The retry loop absorbs the ordinary case; this error is what a caller sees when the
+// contention outlasted it.
+var ErrCommitConflict = errors.New("lancestore: the write lost its commit race and the retries ran out")
 
 // DefaultLimit is used when a Query sets no Limit.
 const DefaultLimit = 20

@@ -165,40 +165,6 @@ func TestMemoryPullOnAnEmptyScopeIsNotAnError(t *testing.T) {
 	}
 }
 
-// Leftover git metadata must never be published. Anyone upgrading in place has a `.git` inside
-// their raw directory, left by the worktree this replaces.
-func TestMemoryPublishSkipsLeftoverGitMetadata(t *testing.T) {
-	st, fake := newFakeBackedMemoryStore(t)
-
-	const branch = "memory/project/proj-3"
-	w, err := st.OpenScopeLocal(branch)
-	if err != nil {
-		t.Fatalf("open scope: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(w.Dir(), ".git", "refs", "heads"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(w.Dir(), ".git", "HEAD"), []byte("ref: refs/heads/x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.WriteFile("mem.md", []byte("# m")); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.Publish("one memory beside a stale .git"); err != nil {
-		t.Fatal(err)
-	}
-	WaitForPendingPushes()
-
-	for _, key := range fake.Keys() {
-		if strings.Contains(key, ".git") {
-			t.Errorf("git metadata was published: %s", key)
-		}
-	}
-	if _, ok := fake.Object("memory/project/proj-3/mem.md"); !ok {
-		t.Error("the memory itself was not published")
-	}
-}
-
 // The branch-to-prefix translation is the identity, so the layout the git branches described is
 // preserved exactly. A leading `memory/` must not be doubled.
 func TestRemotePrefixMatchesTheBranchLayout(t *testing.T) {

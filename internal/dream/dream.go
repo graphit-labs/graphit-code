@@ -317,7 +317,9 @@ func (r *Runner) runMemoryConsolidation(ctx context.Context) []*memory.Consolida
 	var outcomes []*memory.ConsolidationOutcome
 
 	for _, scope := range []string{"project", "user"} {
-		if memory.RawDir(scope) == "" {
+		// The gate is the scope's IDENTITY, not a directory: an empty URI means the scope has no id
+		// to resolve yet, which is the only case where there is nothing to consolidate.
+		if memory.TableURIForScope(scope) == "" {
 			continue
 		}
 

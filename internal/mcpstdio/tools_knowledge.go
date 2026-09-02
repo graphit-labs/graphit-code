@@ -44,8 +44,6 @@ type knowledgeSchemaInput struct {
 
 type knowledgeLintInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
-	Deep        bool   `json:"deep,omitempty" jsonschema:"Enable AI-assisted contradiction detection"`
-	Fix         bool   `json:"fix,omitempty" jsonschema:"Auto-repair fixable issues (backlinks)"`
 	StaleDays   int    `json:"stale_days,omitempty" jsonschema:"Mark pages older than N days as stale"`
 	Context     string `json:"context,omitempty" jsonschema:"Lint an imported context by name"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set to false to get verbose JSON instead of compact TOON format (default: true)"`
@@ -184,11 +182,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 			return errResult(fmt.Errorf("knowledge wiki not found"))
 		}
 
-		cfg := wiki.LintConfig{
-			Deep:      input.Deep,
-			Fix:       input.Fix,
-			StaleDays: input.StaleDays,
-		}
+		cfg := wiki.LintConfig{StaleDays: input.StaleDays}
 		if cfg.StaleDays <= 0 {
 			cfg.StaleDays = 30
 		}
@@ -196,7 +190,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		var report *wiki.LintReport
 		err = withProjectDir(projectDir, func() error {
 			var lerr error
-			report, lerr = wiki.LintWiki(wikiDir, cfg)
+			report, lerr = wiki.LintWiki(ctx, wikiDir, cfg)
 			return lerr
 		})
 		if err != nil {
@@ -237,8 +231,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 			}
 			// The branch pair is keyed by the same project id, so importing a
 			// project's documentation also brings the memories that explain it.
-			memStore, _ := memory.NewMemoryStore()
-			memory.OnHubImport(ctx, input.Name, projectDir, memStore, nil)
+			memory.OnHubImport(ctx, input.Name, nil)
 			return nil
 		})
 		if err != nil {
@@ -371,7 +364,7 @@ func registerKnowledgeTools(server *mcp.Server) {
 		}
 		defer func() { _ = os.RemoveAll(staged) }()
 
-		if err := exportWikiToWorktree(wikiDir, staged); err != nil {
+		if err := stageWikiForPublish(wikiDir, staged); err != nil {
 			return errResult(err)
 		}
 		if err := st.PublishContextDir(ctx, "knowledge", lf.Project.ID, "wiki", staged); err != nil {
@@ -460,15 +453,15 @@ func installKnowledgeContext(ctx context.Context, st *hub.S3Store, name string) 
 	return knowledge.IndexContextWiki(ctx, name)
 }
 
-// exportWikiToWorktree mirrors a compiled wiki into a hub worktree, leaving the
-// database behind.
+// stageWikiForPublish mirrors a compiled wiki into a staging directory, leaving the index
+// behind.
 //
-// wiki.db is derived and it is the largest thing in the directory; the shards beside
-// it are what a consumer actually needs, and it rebuilds the database from them in
+// The Lance index is derived and it is the largest thing in the directory; the shards
+// beside it are what a consumer actually needs, and it rebuilds the index from them in
 // seconds. Mirroring rather than copying is what makes a deleted page disappear from
-// the branch instead of outliving its source.
-func exportWikiToWorktree(wikiDir, worktreeDir string) error {
-	dest := filepath.Join(worktreeDir, "wiki")
+// the published prefix instead of outliving its source.
+func stageWikiForPublish(wikiDir, stagingDir string) error {
+	dest := filepath.Join(stagingDir, "wiki")
 	if err := paths.SyncCopyDirExcept(wikiDir, dest, wiki.IsDerivedFile); err != nil {
 		return fmt.Errorf("publishing wiki %s: %w", wikiDir, err)
 	}

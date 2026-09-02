@@ -429,11 +429,12 @@ func registerMemoryTools(server *mcp.Server) {
 		if err != nil {
 			return errResult(err)
 		}
-		// An imported memory context is a branch of the shared memory repository, so
-		// what is dropped is this machine's copy of it: its worktree and its
-		// compiled wiki, both global. There is no project-local copy any more.
+		// An imported memory context is a prefix of the shared memory store, so what is
+		// dropped is this machine's copy of it: its local table directory and its compiled
+		// wiki, both global. With a bucket configured the table is remote and is NOT dropped —
+		// it belongs to the project that published it, and this only un-imports it here.
 		_ = projectDir
-		if err := os.RemoveAll(memory.RawDirFor(cleanCtx, cleanCtx)); err != nil {
+		if err := os.RemoveAll(memory.TableDirFor(cleanCtx, cleanCtx)); err != nil {
 			return errResult(err)
 		}
 		if err := os.RemoveAll(memory.MemoryWikiGlobalDir(cleanCtx, cleanCtx)); err != nil {

@@ -689,6 +689,81 @@ func ResolveProjectActivityWindow(inlineCfg, projectCfg ConfigMap) time.Duration
 	return d
 }
 
+// defaultWikiVersionRetention is how long a superseded wiki index version survives.
+//
+// FIFTEEN MINUTES IS A MARGIN FOR IN-FLIGHT READERS, not a backup window, and the difference is
+// what makes this configurable. Lance is MVCC: a reader answers from the snapshot it opened, so
+// pruning a version somebody is still reading takes their query down. Fifteen minutes comfortably
+// exceeds the longest read this process performs, and beyond that a retained version costs a full
+// superseded copy on disk for a time travel the knowledge wiki never performs — it is rebuilt from
+// `docs/`, so its recovery path is the sources.
+//
+// A store with NO second copy of its data is the case that wants a longer window: there the history
+// IS the recovery path, and the retention is the length of the safety net. Proved restorable in
+// internal/lancestore (TestAnEarlierVersionIsRestorableAfterADestructiveWrite).
+const defaultWikiVersionRetention = 15 * time.Minute
+
+// ResolveWikiVersionRetention returns how long a superseded wiki index version is kept before a
+// maintenance pass may reclaim it. Configurable via wiki.version_retention, a Go duration string.
+//
+// A value BELOW ONE SECOND is rejected in favour of the default, and that is measured rather than
+// defensive: the engine prunes nothing at all for a sub-second window — it reports zero old
+// versions while they plainly exist — so accepting "1ms" would silently disable pruning while
+// looking like an aggressive setting.
+func ResolveWikiVersionRetention(inlineCfg, projectCfg ConfigMap) time.Duration {
+	val := ResolveConfig("wiki.version_retention", inlineCfg, projectCfg)
+	if val == "" {
+		return defaultWikiVersionRetention
+	}
+	d, err := time.ParseDuration(val)
+	if err != nil || d < time.Second {
+		return defaultWikiVersionRetention
+	}
+	return d
+}
+
+// WikiVersionRetention is ResolveWikiVersionRetention against the resolved configuration.
+func WikiVersionRetention() time.Duration { return ResolveWikiVersionRetention(nil, nil) }
+
+// defaultMemoryVersionRetention is how long a superseded version of the MEMORY STORE survives.
+//
+// THIRTY DAYS, AND IT IS A DIFFERENT KIND OF NUMBER FROM THE WIKI'S FIFTEEN MINUTES. The wiki's
+// retention is a margin for in-flight readers: its index is derived, so a pruned version costs
+// nothing but a rebuild. The memory store is the only copy of what it holds — the markdown raw
+// store that used to be its second copy is being retired — so its version history IS the recovery
+// path, and the retention is the LENGTH OF THE SAFETY NET.
+//
+// That is the decision D2 rests on: version retention was accepted as memory's recovery mechanism
+// only because a rollback was proved to work through `lancestore`. Reusing the wiki's fifteen
+// minutes here would have honoured the letter of that and broken it in fact — a bad pass discovered
+// the next morning would find nothing to roll back to.
+//
+// Thirty days rather than unbounded because a retained version holds a full superseded copy of the
+// table, and "keep everything forever" is a disk-growth policy pretending to be a safety policy. A
+// month is long enough for a mistake to be noticed by a person.
+const defaultMemoryVersionRetention = 30 * 24 * time.Hour
+
+// ResolveMemoryVersionRetention returns how long a superseded version of the memory store is kept.
+// Configurable via memory.version_retention, a Go duration string.
+//
+// The one-second floor is the same measured constraint the wiki's has: the engine prunes nothing at
+// all below a second, so honouring a smaller value would silently disable pruning while reading as
+// the most aggressive setting available.
+func ResolveMemoryVersionRetention(inlineCfg, projectCfg ConfigMap) time.Duration {
+	val := ResolveConfig("memory.version_retention", inlineCfg, projectCfg)
+	if val == "" {
+		return defaultMemoryVersionRetention
+	}
+	d, err := time.ParseDuration(val)
+	if err != nil || d < time.Second {
+		return defaultMemoryVersionRetention
+	}
+	return d
+}
+
+// MemoryVersionRetention is ResolveMemoryVersionRetention against the resolved configuration.
+func MemoryVersionRetention() time.Duration { return ResolveMemoryVersionRetention(nil, nil) }
+
 // ParseGrammarOverrides parses a comma-separated grammar override string
 // into a map[string]string. Format: ".ext=grammar-name,.ext2=grammar-name2".
 // Returns nil if s is empty or contains no valid pairs.

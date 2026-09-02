@@ -478,9 +478,8 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 			defer func() { _ = os.RemoveAll(prepared) }()
 			publishPath = prepared
 		} else {
-			// Not fatal: publishing the directory as it stands still carries the pages
-			// and the shards, which is what a consumer knew how to index before tables
-			// travelled at all.
+			// Not fatal: publishing the directory as it stands still carries the shards,
+			// which is what a consumer knew how to index before tables travelled at all.
 			slog.Warn("knowledge-publish: table export unavailable, publishing shards",
 				"error", err)
 		}
@@ -960,17 +959,19 @@ func copyFileWithBrand(src, dst string) error {
 
 // prepareKnowledgePublish stages what a knowledge artifact carries.
 //
-// It publishes the wiki's own TABLES as Parquet instead of the shards, for the same reason
-// an AST artifact does: the artifact is written by one project, pinned by its version and
-// never compiled by a consumer, so having every consumer re-derive the same frozen index
-// repeats work for a value already computed.
+// It publishes the wiki's own TABLES as Parquet, for the same reason an AST artifact does: the
+// artifact is written by one project, pinned by its version and never compiled by a consumer, so
+// having every consumer re-derive the same frozen index repeats work for a value already computed.
 //
-// The PAGES still travel. They are not derived in any sense that matters — they are what a
-// reader opens, and nothing reconstructs them without the sources, which stay in the
-// publishing project's own repository.
+// THE TABLES ARE ALL OF IT. A loop here also copied every `.md` beside them, on the reasoning that
+// the pages were what a reader opens and nothing could reconstruct them without the sources. Both
+// halves of that stopped being true: the pages are not written at all, and a page IS reconstructed
+// from the tables — `ReadPageFrom` reads `chunks.body`, which is how a mounted artifact has been
+// answering `wiki_source` since before this change. Leaving the loop in would have staged nothing
+// and reported success.
 //
-// A memory wiki never reaches here, and must not: it is read-and-write and multi-writer, so
-// it carries its source and a consumer extends it.
+// A memory wiki never reaches here, and must not: it is read-and-write and multi-writer, so it
+// carries its source and a consumer extends it.
 func prepareKnowledgePublish(ctx context.Context, srcDir string) (string, error) {
 	tmpDir, err := os.MkdirTemp("", brand.TempDirPrefix("kn-pub"))
 	if err != nil {
@@ -979,27 +980,6 @@ func prepareKnowledgePublish(ctx context.Context, srcDir string) (string, error)
 	if _, err := wiki.ExportToParquet(ctx, srcDir, wiki.BundlePath(tmpDir)); err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return "", err
-	}
-
-	// The pages, and nothing else: the shards are what the tables replace, and the
-	// database is derived.
-	entries, err := os.ReadDir(srcDir)
-	if err != nil {
-		_ = os.RemoveAll(tmpDir)
-		return "", err
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
-			continue
-		}
-		data, readErr := os.ReadFile(filepath.Join(srcDir, e.Name()))
-		if readErr != nil {
-			continue
-		}
-		if err := os.WriteFile(filepath.Join(tmpDir, e.Name()), data, 0o644); err != nil {
-			_ = os.RemoveAll(tmpDir)
-			return "", err
-		}
 	}
 	return tmpDir, nil
 }

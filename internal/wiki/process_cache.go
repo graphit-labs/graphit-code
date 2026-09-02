@@ -25,7 +25,7 @@ const wikiProcessCacheVersion = 2
 // WikiProcessCache stores the processed chunks and embedding vectors of each
 // source file, keyed by content hash. When a source file has not changed, its
 // chunks and embeddings are reused instead of being re-parsed and re-embedded.
-// The cache is the source of truth — wiki.db is always rebuilt from it.
+// The cache is the source of truth — the index is always rebuilt from it.
 //
 // Every file in the cache belongs to exactly one source file:
 //
@@ -97,7 +97,7 @@ type cachedFileEmbeds struct {
 // deliberately COMPLETE: every field of a WikiChunk that cannot be derived from
 // the cache key or from the body is stored here.
 //
-// That completeness is what lets a consumer build wiki.db from the shards alone,
+// That completeness is what lets a consumer build the index from the shards alone,
 // with the source documents nowhere on the machine — which is how a published
 // knowledge wiki is installed. Anything left out of this struct is silently lost
 // on such an install, so a field that reaches the database belongs here.
@@ -439,7 +439,7 @@ func (wc *WikiProcessCache) StoreDerived(relPath string, d DerivedChunkFields) {
 // with the cross-reference map, WITHOUT reading a single source document.
 //
 // This is what makes a published wiki installable: the producer ships the shards,
-// and the consumer builds its own wiki.db from them. A file with no recorded slug
+// and the consumer builds its own index from them. A file with no recorded slug
 // is skipped rather than guessed — a chunk with no page is unreachable, and
 // inventing a slug would make it collide with a real one.
 func (wc *WikiProcessCache) LoadAllChunks() ([]WikiChunk, map[string][]string) {

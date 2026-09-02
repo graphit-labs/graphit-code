@@ -16,219 +16,6 @@ import (
 //
 // Measured in this repository's project scope before the fix: 496 files for 312 ids.
 
-func twinFile(t *testing.T, w *ScopeStore, name, id, title, body string) {
-	t.Helper()
-	content := "---\nid: " + id + "\ntitle: " + title +
-		"\nscope: project\nscope_id: p\ntype: fact\nimportant: true\nrevision: 1\ntags: [memory, project, fact]\n---\n\n# " +
-		title + "\n\n" + body + "\n"
-	if err := w.WriteFile(name, []byte(content)); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// A twin whose body is already in the live memory carries nothing, so it is removed.
-func TestRepairRemovesATwinWhoseBodyAlreadyExists(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
-
-	id, err := svc.AddMemory("Shared", "identical body", MemoryOpts{Type: MemoryTypeFact})
-	if err != nil {
-		t.Fatal(err)
-	}
-	twinFile(t, w, id+"_important_.md", id+"_important_", "Shared", "identical body")
-
-	report, err := svc.RepairForkedMemories()
-	if err != nil {
-		t.Fatalf("RepairForkedMemories: %v", err)
-	}
-	if len(report.Removed) != 1 {
-		t.Errorf("removed %v, want exactly the twin", report.Removed)
-	}
-	if len(report.Archived) != 0 {
-		t.Errorf("archived %v, want nothing — the body was not unique", report.Archived)
-	}
-	if _, err := w.ReadFile(id + "_important_.md"); !os.IsNotExist(err) {
-		t.Errorf("the twin survived: %v", err)
-	}
-	if _, err := w.ReadFile(MemoryFileName(id)); err != nil {
-		t.Errorf("the live memory was removed instead of the twin: %v", err)
-	}
-}
-
-// A twin whose body exists nowhere is knowledge, so it becomes a superseded revision of the chain
-// rather than a deletion.
-func TestRepairArchivesADivergentTwin(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
-
-	id, err := svc.AddMemory("Diverged", "the live body", MemoryOpts{Type: MemoryTypeFact})
-	if err != nil {
-		t.Fatal(err)
-	}
-	twinFile(t, w, id+"_important_.md", id+"_important_", "Diverged elsewhere", "a rewrite that exists nowhere else")
-
-	report, err := svc.RepairForkedMemories()
-	if err != nil {
-		t.Fatalf("RepairForkedMemories: %v", err)
-	}
-	if len(report.Archived) != 1 {
-		t.Fatalf("archived %v, want exactly one revision", report.Archived)
-	}
-	if _, err := w.ReadFile(id + "_important_.md"); !os.IsNotExist(err) {
-		t.Errorf("the twin survived: %v", err)
-	}
-
-	archived, err := w.ReadFile(report.Archived[0])
-	if err != nil {
-		t.Fatalf("the archived revision cannot be read: %v", err)
-	}
-	if !strings.Contains(string(archived), "a rewrite that exists nowhere else") {
-		t.Error("the archive does not hold the twin's content")
-	}
-
-	fm := ParseMemoryFrontmatter(string(archived))
-	if fm.ID != id {
-		t.Errorf("archived id = %q, want the chain id %q — the corrupted id must not survive", fm.ID, id)
-	}
-	if fm.Next != MemoryFileName(id) {
-		t.Errorf("archived next = %q, want %q", fm.Next, MemoryFileName(id))
-	}
-	if !fm.IsArchivedRevision() {
-		t.Error("the archive does not report itself as a superseded revision")
-	}
-}
-
-// With no live memory for the chain the twin is the only copy, so deleting it would be the loss
-// this repair exists to prevent.
-func TestRepairPromotesAnOrphanTwin(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
-	if err := svc.EnsureInitialised(); err != nil {
-		t.Fatal(err)
-	}
-
-	id := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	twinFile(t, w, id+"_important_.md", id+"_important_", "Orphan", "the only copy of this knowledge")
-
-	report, err := svc.RepairForkedMemories()
-	if err != nil {
-		t.Fatalf("RepairForkedMemories: %v", err)
-	}
-	if len(report.Promoted) != 1 {
-		t.Fatalf("promoted %v, want exactly one", report.Promoted)
-	}
-
-	live, err := w.ReadFile(MemoryFileName(id))
-	if err != nil {
-		t.Fatalf("the orphan was not promoted to the live memory: %v", err)
-	}
-	fm := ParseMemoryFrontmatter(string(live))
-	if fm.ID != id {
-		t.Errorf("promoted id = %q, want %q", fm.ID, id)
-	}
-	if fm.IsArchivedRevision() {
-		t.Error("the promoted memory still reports itself as a superseded revision")
-	}
-	if !strings.Contains(string(live), "the only copy of this knowledge") {
-		t.Error("the promoted memory lost its content")
-	}
-	if _, err := w.ReadFile(id + "_important_.md"); !os.IsNotExist(err) {
-		t.Errorf("the twin survived promotion: %v", err)
-	}
-}
-
-// A twin's own history directory belongs to the chain it was forked from.
-func TestRepairFoldsAForkedHistoryDirectory(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
-
-	id, err := svc.AddMemory("With forked history", "live body", MemoryOpts{Type: MemoryTypeFact})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	forked := HistoryDirFor(id+"_important_") + "/0001.md"
-	twinFile(t, w, forked, id+"_important_", "Old forked revision", "content only the forked history has")
-
-	report, err := svc.RepairForkedMemories()
-	if err != nil {
-		t.Fatalf("RepairForkedMemories: %v", err)
-	}
-	if len(report.Archived) != 1 {
-		t.Fatalf("archived %v, want the forked revision folded into the chain", report.Archived)
-	}
-	if _, err := w.ReadFile(forked); !os.IsNotExist(err) {
-		t.Errorf("the forked revision survived in its own directory: %v", err)
-	}
-
-	archived, err := w.ReadFile(report.Archived[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(archived), "content only the forked history has") {
-		t.Error("folding the forked history lost its content")
-	}
-	if got := ParseMemoryFrontmatter(string(archived)).ID; got != id {
-		t.Errorf("folded revision id = %q, want the chain id %q", got, id)
-	}
-}
-
-// It runs on every index, so doing nothing has to be the cheap and silent case.
-func TestRepairIsIdempotent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
-
-	id, err := svc.AddMemory("Clean", "body", MemoryOpts{Type: MemoryTypeFact})
-	if err != nil {
-		t.Fatal(err)
-	}
-	twinFile(t, w, id+"_important_.md", id+"_important_", "Clean", "a divergent body")
-
-	first, err := svc.RepairForkedMemories()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !first.Changed() {
-		t.Fatal("the first pass reported no change, but there was a twin")
-	}
-
-	second, err := svc.RepairForkedMemories()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.Changed() {
-		t.Errorf("the second pass changed something: %s", second)
-	}
-}
-
-// The two guards that stop the fork recurring, tested at the compile boundary: a forked name is
-// not a memory, and one declared id compiles to one page.
-func TestForkedFilesDoNotCompileIntoTheWiki(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
-
-	id, err := svc.AddMemory("Only me", "body", MemoryOpts{Type: MemoryTypeFact})
-	if err != nil {
-		t.Fatal(err)
-	}
-	twinFile(t, w, id+"_important_.md", id+"_important_", "Only me", "twin body")
-
-	wikiDir := filepath.Join(t.TempDir(), "wiki")
-	if _, err := GenerateMemoryWiki(context.Background(), w.Dir(), wikiDir); err != nil {
-		t.Fatalf("GenerateMemoryWiki: %v", err)
-	}
-
-	live, superseded, ids := indexedMemoryPages(t, wikiDir)
-	if live != 1 || superseded != 0 {
-		t.Errorf("indexed %d live and %d superseded rows, want 1 and 0 — the twin reached the index", live, superseded)
-	}
-	for _, got := range ids {
-		if got != id {
-			t.Errorf("indexed entity_id %q, want the chain id %q", got, id)
-		}
-	}
-}
-
 // indexedMemoryPages reports how many live and superseded rows the compiled index holds.
 //
 // It replaced globbing `*.md` in the wiki directory: pages are not written any more, and the
@@ -285,31 +72,11 @@ func TestIsForkedMemoryFileName(t *testing.T) {
 	}
 }
 
-func TestChainIDOf(t *testing.T) {
-	const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	tests := []struct {
-		content string
-		name    string
-		want    string
-	}{
-		{"", id + ".md", id},
-		{"", id + "_important_.md", id},
-		{"---\nid: " + id + "_important_\n---\n", "whatever.md", id},
-		{"---\nid: " + id + "\n---\n", id + "_important_.md", id},
-		{"", "not-an-id.md", ""},
-	}
-	for _, tc := range tests {
-		if got := chainIDOf(tc.content, tc.name); got != tc.want {
-			t.Errorf("chainIDOf(%q, %q) = %q, want %q", tc.content, tc.name, got, tc.want)
-		}
-	}
-}
-
 // A search result budget must count memories, not index rows: collapsing a chain after ranking
 // would otherwise silently shrink the answer.
 func TestTopKCountsDistinctMemories(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
+	svc, _ := newLocalService(t)
 
 	for _, title := range []string{"alpha", "beta", "gamma"} {
 		id, err := svc.AddMemory(title, "quokka marker "+title+" first", MemoryOpts{})
@@ -324,9 +91,7 @@ func TestTopKCountsDistinctMemories(t *testing.T) {
 	}
 
 	wikiDir := filepath.Join(t.TempDir(), "wiki")
-	if _, err := GenerateMemoryWiki(context.Background(), w.Dir(), wikiDir); err != nil {
-		t.Fatal(err)
-	}
+	compileFromTable(t, svc, wikiDir)
 
 	results := SearchChains(context.Background(), wikiDir, "quokka marker", 3)
 	if len(results) != 3 {
@@ -451,7 +216,7 @@ func TestQuoteUnquotedScalarsLeavesGoodLinesAlone(t *testing.T) {
 // resolves the chain, it did not touch them.
 func TestChainResolvesFromTheIndexAndNotFromThePages(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
+	svc, _ := newLocalService(t)
 
 	id, err := svc.AddMemory("Column-resolved", "the marker word wombat and an old detail", MemoryOpts{Type: MemoryTypeFact})
 	if err != nil {
@@ -462,9 +227,7 @@ func TestChainResolvesFromTheIndexAndNotFromThePages(t *testing.T) {
 	}
 
 	wikiDir := filepath.Join(t.TempDir(), "wiki")
-	if _, err := GenerateMemoryWiki(context.Background(), w.Dir(), wikiDir); err != nil {
-		t.Fatal(err)
-	}
+	compileFromTable(t, svc, wikiDir)
 
 	// Blank every page. The index keeps its columns; the frontmatter is gone.
 	pages, err := filepath.Glob(filepath.Join(wikiDir, "*.md"))

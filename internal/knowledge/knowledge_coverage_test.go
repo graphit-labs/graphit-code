@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
@@ -191,233 +191,6 @@ func TestComputeDocConfidence(t *testing.T) {
 	}
 }
 
-func TestKnowledgeEntityPage(t *testing.T) {
-	doc := knowledgeDoc{
-		title:       "Test Page",
-		path:        "docs/test.md",
-		summary:     "A summary",
-		docType:     "specification",
-		body:        "---\ntitle: T\n---\nBody content here",
-		contentHash: "abc123",
-		crossRefs:   []string{"other-page"},
-	}
-	page := knowledgeEntityPage(doc)
-	if !strings.Contains(page, "title: Test Page") {
-		t.Error("missing title in page")
-	}
-	if !strings.Contains(page, "type: specification") {
-		t.Error("missing type in page")
-	}
-	if !strings.Contains(page, "sources:") || !strings.Contains(page, "docs/test.md") {
-		t.Error("missing sources in page")
-	}
-	if !strings.Contains(page, "content_hash: abc123") {
-		t.Error("missing content_hash in page")
-	}
-	if !strings.Contains(page, "> A summary") {
-		t.Error("missing summary in page")
-	}
-	if !strings.Contains(page, "## Cross-References") {
-		t.Error("missing cross-refs section")
-	}
-	if !strings.Contains(page, "[other-page](other-page.md)") {
-		t.Error("missing cross-ref link")
-	}
-	if !strings.Contains(page, "## Content") {
-		t.Error("missing content section")
-	}
-	if !strings.Contains(page, "Body content here") {
-		t.Error("missing body content")
-	}
-}
-
-func TestKnowledgeEntityPageNoSummaryNoCrossRefs(t *testing.T) {
-	doc := knowledgeDoc{
-		title:       "Bare Page",
-		path:        "bare.md",
-		docType:     "document",
-		body:        "",
-		contentHash: "xyz",
-	}
-	page := knowledgeEntityPage(doc)
-	if strings.Contains(page, "> ") && strings.Contains(page, "Bare") {
-		t.Error("should not have summary for bare page")
-	}
-	if strings.Contains(page, "## Cross-References") {
-		t.Error("should not have cross-refs section")
-	}
-	if strings.Contains(page, "## Content") {
-		t.Error("should not have content section for empty body")
-	}
-}
-
-func TestKnowledgeIndexPage(t *testing.T) {
-	docs := []knowledgeDoc{
-		{title: "Auth Module", path: "docs/auth.md", summary: "Handles auth", docType: "specification"},
-		{title: "Setup Guide", path: "docs/setup.md", summary: "", docType: "guide"},
-		{title: "DB Architecture", path: "docs/db.md", summary: strings.Repeat("z", 100), docType: "architecture"},
-	}
-	page := knowledgeIndexPage(docs, nil, nil)
-	if !strings.Contains(page, "# Knowledge Wiki") {
-		t.Error("missing title")
-	}
-	if !strings.Contains(page, "**3 documents**") {
-		t.Error("missing document count")
-	}
-	if !strings.Contains(page, "### Specification") {
-		t.Error("missing specification section")
-	}
-	if !strings.Contains(page, "### Guide") {
-		t.Error("missing guide section")
-	}
-	if !strings.Contains(page, "### Architecture") {
-		t.Error("missing architecture section")
-	}
-	if !strings.Contains(page, "[Auth Module](Auth_Module.md)") {
-		t.Error("missing auth link")
-	}
-	if !strings.Contains(page, "Handles auth") {
-		t.Error("missing auth summary")
-	}
-	// Guide has no summary → should show badge
-	if !strings.Contains(page, "`guide`") {
-		t.Error("missing badge fallback for guide without summary")
-	}
-	// Long summary should be truncated
-	if !strings.Contains(page, "…") {
-		t.Error("expected truncated summary with ellipsis")
-	}
-}
-
-func TestAppendKnowledgeLog(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	details := map[string]wiki.LogDocDetails{
-		"page_a": {Title: "Page A", Summary: "A summary"},
-		"page_b": {Title: "Page B", Summary: strings.Repeat("x", 130)},
-		"page_c": {Title: "Page C", Summary: ""},
-	}
-
-	// First call — creates the log file
-	appendKnowledgeLog(logPath, 10, 5, 3,
-		[]string{"page_a", "page_b"},
-		[]string{"page_c"},
-		[]string{"page_d"},
-		details,
-	)
-
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("failed to read log: %v", err)
-	}
-	content := string(data)
-	// OKF §9: a log is date-grouped under `## YYYY-MM-DD`, newest first, and its entries
-	// are prose led by a bold kind word. It carries no frontmatter — §11 exempts the
-	// reserved filenames, and the block the pre-OKF writer put here made log.md the one
-	// file in the bundle claiming to be a concept document.
-	if !strings.Contains(content, "# Knowledge Wiki Update Log") {
-		t.Error("missing log header")
-	}
-	if strings.HasPrefix(strings.TrimSpace(content), "---") {
-		t.Error("log.md must not carry frontmatter (OKF §8/§9)")
-	}
-	today := time.Now().UTC().Format("2006-01-02")
-	if !strings.Contains(content, "## "+today) {
-		t.Errorf("missing ISO 8601 date heading %q", "## "+today)
-	}
-	if !strings.Contains(content, "* **Creation**: Added ") {
-		t.Error("missing Creation entry for an added page")
-	}
-	if !strings.Contains(content, "* **Update**: Updated ") {
-		t.Error("missing Update entry for an updated page")
-	}
-	if !strings.Contains(content, "* **Deprecation**: Removed ") {
-		t.Error("missing Deprecation entry for a removed page")
-	}
-	if !strings.Contains(content, "Page A") {
-		t.Error("missing page A title")
-	}
-	if !strings.Contains(content, "A summary") {
-		t.Error("missing page A summary")
-	}
-	// page_b has a very long summary → should be truncated
-	if !strings.Contains(content, "…") {
-		t.Error("missing truncated summary")
-	}
-	// page_c has empty summary
-	if !strings.Contains(content, "Page C") {
-		t.Error("missing page C")
-	}
-
-	// Second call — appends to existing file
-	appendKnowledgeLog(logPath, 12, 2, 1,
-		nil,
-		[]string{"page_a"},
-		nil,
-		details,
-	)
-	data2, _ := os.ReadFile(logPath)
-	content2 := string(data2)
-	if strings.Count(content2, "# Knowledge Wiki Update Log") != 1 {
-		t.Error("should not duplicate header")
-	}
-	// Two syncs on the same day share one date heading — a heading per compile is not a
-	// log anybody reads a month of.
-	if strings.Count(content2, "## "+today) != 1 {
-		t.Errorf("same-day entries must share one date heading; got %d", strings.Count(content2, "## "+today))
-	}
-	if strings.Count(content2, "* **Update**: Compiled ") < 2 {
-		t.Error("should have two compile entries")
-	}
-}
-
-func TestAppendKnowledgeLogNoDetails(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	// Added/updated pages without details
-	appendKnowledgeLog(logPath, 2, 2, 0,
-		[]string{"unknown_page"},
-		[]string{"other_unknown"},
-		nil,
-		map[string]wiki.LogDocDetails{},
-	)
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("failed to read log: %v", err)
-	}
-	content := string(data)
-	if !strings.Contains(content, "[unknown_page](unknown_page.md)") {
-		t.Error("missing unknown_page fallback format")
-	}
-	if !strings.Contains(content, "[other_unknown](other_unknown.md)") {
-		t.Error("missing other_unknown fallback format")
-	}
-}
-
-func TestAppendKnowledgeLogNoSeparator(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	// Write a file without a "---" separator
-	_ = os.WriteFile(logPath, []byte("# Some log\nold content\n"), 0o644)
-
-	appendKnowledgeLog(logPath, 1, 1, 0,
-		[]string{"page_x"},
-		nil, nil,
-		map[string]wiki.LogDocDetails{"page_x": {Title: "Page X", Summary: "Summary X"}},
-	)
-	data, _ := os.ReadFile(logPath)
-	content := string(data)
-	if !strings.Contains(content, "old content") {
-		t.Error("should preserve old content")
-	}
-	if !strings.Contains(content, "Page X") {
-		t.Error("should append new entry")
-	}
-}
-
 func TestUniqueKSlug(t *testing.T) {
 	used := map[string]bool{}
 	s1 := wiki.UniqueSlug("page", used)
@@ -590,13 +363,11 @@ func TestGenerateKnowledgeWiki(t *testing.T) {
 		t.Errorf("expected output dir %q, got %q", wikiDir, result.OutputDir)
 	}
 
-	// Index should exist
-	indexData, err := os.ReadFile(filepath.Join(wikiDir, "index.md"))
-	if err != nil {
-		t.Fatal("index.md should exist")
-	}
-	if !strings.Contains(string(indexData), "Knowledge Wiki") {
-		t.Error("index should contain Knowledge Wiki header")
+	// The catalogue is the index, not an `index.md`. Both documents must be reachable by slug,
+	// which is what the generated index page used to list.
+	slugs := indexedKnowledgeSlugs(t, wikiDir)
+	if len(slugs) < 2 {
+		t.Fatalf("expected at least 2 indexed pages, got %v", slugs)
 	}
 
 	// Run again — articles are regenerated because timestamp in frontmatter changes
@@ -633,23 +404,59 @@ func TestGenerateKnowledgeWikiUpdatesAndDeletes(t *testing.T) {
 	}
 	_ = result2
 
-	// page2 wiki file should be removed - find any file matching Page Two slug
-	var page2Exists bool
-	if entries, err := os.ReadDir(wikiDir); err == nil {
-		for _, e := range entries {
-			if strings.Contains(strings.ToLower(e.Name()), "page_two") || strings.Contains(strings.ToLower(e.Name()), "pagetwo") {
-				page2Exists = true
-			}
+	// The deleted document is gone from the INDEX, which is the only place a page exists. This
+	// used to look for a leftover `Page_Two.md` and then discard the answer.
+	for _, slug := range indexedKnowledgeSlugs(t, wikiDir) {
+		if strings.Contains(strings.ToLower(slug), "page_two") {
+			t.Errorf("the deleted document is still indexed as %q", slug)
 		}
 	}
-	_ = page2Exists
 
-	// Log file should exist and mention updates and removals
-	logData, _ := os.ReadFile(filepath.Join(wikiDir, "log.md"))
-	logStr := string(logData)
-	if !strings.Contains(logStr, "* **Update**: Compiled ") {
-		t.Error("log should contain a compile entry")
+	// The history is the `sync_log` table, which is what `log.md` was rendered from. It records
+	// the update and the deletion of the second run.
+	db, err := wiki.OpenWikiDB(context.Background(), wikiDir)
+	if err != nil {
+		t.Fatalf("opening the index: %v", err)
 	}
+	defer db.Close()
+	entries, err := db.QuerySyncLog(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("reading the sync log: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("the sync log records no entry for either run")
+	}
+	var sawUpdate, sawDelete bool
+	for _, e := range entries {
+		sawUpdate = sawUpdate || len(e.Updated) > 0
+		sawDelete = sawDelete || len(e.Deleted) > 0
+	}
+	if !sawUpdate {
+		t.Error("the sync log records no updated page")
+	}
+	if !sawDelete {
+		t.Error("the sync log records no deleted page")
+	}
+}
+
+// indexedKnowledgeSlugs is what a glob of `*.md` used to answer: which pages this wiki holds.
+func indexedKnowledgeSlugs(t *testing.T, wikiDir string) []string {
+	t.Helper()
+	slugs := wiki.ListPagesAt(context.Background(), wikiDir)
+	if slugs == nil {
+		t.Fatalf("no compiled index at %s", wikiDir)
+	}
+	return slugs
+}
+
+// indexedKnowledgeBody reads one indexed page's text.
+func indexedKnowledgeBody(t *testing.T, wikiDir, slug string) string {
+	t.Helper()
+	res, err := wiki.ReadPageAt(context.Background(), wikiDir, slug, textslice.Request{})
+	if err != nil {
+		t.Fatalf("reading page %q: %v", slug, err)
+	}
+	return res.Source
 }
 
 func TestGenerateKnowledgeWikiMkdirError(t *testing.T) {
@@ -689,27 +496,14 @@ func TestGenerateKnowledgeWikiKeepsDocumentWhole(t *testing.T) {
 		t.Errorf("one document must produce one page, got %d", result.ArticlesWritten)
 	}
 
-	pages, err := filepath.Glob(filepath.Join(wikiDir, "*.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var docPages []string
-	for _, p := range pages {
-		switch filepath.Base(p) {
-		case "index.md", "log.md":
-			continue
-		}
-		docPages = append(docPages, p)
-	}
+	// One indexed page, and no reserved names to skip: `index` and `log` were generated files in
+	// the same directory, and there is no directory.
+	docPages := indexedKnowledgeSlugs(t, wikiDir)
 	if len(docPages) != 1 {
 		t.Fatalf("expected a single document page, got %v", docPages)
 	}
 
-	page, err := os.ReadFile(docPages[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := string(page)
+	body := indexedKnowledgeBody(t, wikiDir, docPages[0])
 	if strings.Contains(body, "**Parent:**") {
 		t.Error("a whole document has no parent page to point at")
 	}
@@ -1154,88 +948,6 @@ func TestGenerateKnowledgeWikiIgnoredFile(t *testing.T) {
 	}
 }
 
-func TestAppendKnowledgeLogUpdatedWithLongSummary(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	details := map[string]wiki.LogDocDetails{
-		"upd_page": {Title: "Updated Page", Summary: strings.Repeat("y", 130)},
-	}
-
-	appendKnowledgeLog(logPath, 1, 1, 0,
-		nil,
-		[]string{"upd_page"},
-		nil,
-		details,
-	)
-	data, _ := os.ReadFile(logPath)
-	content := string(data)
-	if !strings.Contains(content, "* **Update**: Updated [Updated Page](upd_page.md)") {
-		t.Error("missing Update entry for the updated page")
-	}
-	if !strings.Contains(content, "…") {
-		t.Error("long summary should be truncated with ellipsis")
-	}
-}
-
-func TestAppendKnowledgeLogUpdatedWithNoSummary(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	details := map[string]wiki.LogDocDetails{
-		"upd_nosummary": {Title: "No Summary Page", Summary: ""},
-	}
-
-	appendKnowledgeLog(logPath, 1, 1, 0,
-		nil,
-		[]string{"upd_nosummary"},
-		nil,
-		details,
-	)
-	data, _ := os.ReadFile(logPath)
-	content := string(data)
-	if !strings.Contains(content, "No Summary Page") {
-		t.Error("should contain title without summary")
-	}
-}
-
-func TestAppendKnowledgeLogUpdatedNoDetails(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	appendKnowledgeLog(logPath, 1, 1, 0,
-		nil,
-		[]string{"upd_unknown"},
-		nil,
-		map[string]wiki.LogDocDetails{},
-	)
-	data, _ := os.ReadFile(logPath)
-	content := string(data)
-	if !strings.Contains(content, "[upd_unknown](upd_unknown.md)") {
-		t.Error("should fallback to slug-only format")
-	}
-}
-
-func TestAppendKnowledgeLogAddedNoSummary(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	details := map[string]wiki.LogDocDetails{
-		"added_nosummary": {Title: "Added No Summary", Summary: ""},
-	}
-
-	appendKnowledgeLog(logPath, 1, 1, 0,
-		[]string{"added_nosummary"},
-		nil, nil,
-		details,
-	)
-	data, _ := os.ReadFile(logPath)
-	content := string(data)
-	if !strings.Contains(content, "Added No Summary") {
-		t.Error("should contain title for added page without summary")
-	}
-}
-
 func TestAutoLinkLineRegexCompileError(t *testing.T) {
 	// Test with a target term that would create an invalid regex (shouldn't happen
 	// with QuoteMeta, but the error path at line 730-731 exists)
@@ -1350,30 +1062,6 @@ func TestGenerateKnowledgeWikiDeletion(t *testing.T) {
 }
 
 // Wiki generation: idempotent content (no timestamp changes)
-
-func TestGenerateKnowledgeWikiContentUnchanged(t *testing.T) {
-	// Generate wiki twice in quick succession, simulating the "content unchanged" path.
-	// Due to time.Now() in knowledgeEntityPage, content always changes, so the
-	// "exists && content == page" path at line 187 is hard to trigger naturally.
-	// But we can still verify the logic executes.
-	rootDir := t.TempDir()
-	wikiDir := filepath.Join(rootDir, ".wiki")
-	_ = os.WriteFile(filepath.Join(rootDir, "doc.md"), []byte("# Doc\nContent"), 0o644)
-
-	_, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Run again immediately
-	result2, err := GenerateKnowledgeWiki(context.Background(), rootDir, wikiDir, nil, WikiScope{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = result2
-}
-
-// EnsureContextCopy with permission errors
 
 func TestComputeDocConfidenceExactlyMaximum(t *testing.T) {
 	// Make sure the cap is reachable by adding more components

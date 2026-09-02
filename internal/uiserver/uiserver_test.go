@@ -10,324 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
-
-func TestExtractPageMeta(t *testing.T) {
-	tests := []struct {
-		name       string
-		relPath    string
-		content    string
-		wantTitle  string
-		wantType   string
-		wantTags   int
-		wantSource string
-	}{
-		{
-			name:      "index page",
-			relPath:   "index.md",
-			content:   "# Main Index\n\nSome content here",
-			wantTitle: "Main Index",
-			wantType:  "index",
-		},
-		{
-			name:      "log page",
-			relPath:   "log.md",
-			content:   "# Change Log\n\n- entry 1",
-			wantTitle: "Change Log",
-			wantType:  "log",
-		},
-		{
-			name:      "community page",
-			relPath:   "community-hub.md",
-			content:   "# Community Hub\n\nCommunity content",
-			wantTitle: "Community Hub",
-			wantType:  "community",
-		},
-		{
-			name:      "god-node page",
-			relPath:   "god-node-core.md",
-			content:   "# God Node Core\n\nCore content",
-			wantTitle: "God Node Core",
-			wantType:  "god-node",
-		},
-		{
-			name:      "regular entity",
-			relPath:   "some-entity.md",
-			content:   "# My Entity\n\nDetails here",
-			wantTitle: "My Entity",
-			wantType:  "entity",
-		},
-		{
-			name:      "no h1 uses filename",
-			relPath:   "no-heading.md",
-			content:   "Some content without a heading",
-			wantTitle: "no-heading",
-			wantType:  "entity",
-		},
-		{
-			name:      "with tags",
-			relPath:   "tagged.md",
-			content:   "---\ntype: document\ntags:\n  - foo\n  - bar\n  - baz\n---\n# Tagged\n\nContent",
-			wantTitle: "Tagged",
-			wantType:  "document",
-			wantTags:  3,
-		},
-		{
-			name:       "with source",
-			relPath:    "sourced.md",
-			content:    "---\ntype: document\nsources:\n  - resource: manual\n---\n# Sourced\n\nContent",
-			wantTitle:  "Sourced",
-			wantType:   "document",
-			wantSource: "manual",
-		},
-		{
-			name:    "with confidence",
-			relPath: "confident.md",
-			content: "---\nconfidence: 0.95\n---\n# Confident\n\nContent",
-		},
-		{
-			name:    "nested path",
-			relPath: "sub/nested-page.md",
-			content: "# Nested Page\n\nSub content",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			meta := extractPageMeta(tt.relPath, tt.content)
-			if tt.wantTitle != "" && meta.Title != tt.wantTitle {
-				t.Errorf("Title = %q; want %q", meta.Title, tt.wantTitle)
-			}
-			if tt.wantType != "" && meta.Type != tt.wantType {
-				t.Errorf("Type = %q; want %q", meta.Type, tt.wantType)
-			}
-			if tt.wantTags > 0 && len(meta.Tags) != tt.wantTags {
-				t.Errorf("Tags count = %d; want %d (tags: %v)", len(meta.Tags), tt.wantTags, meta.Tags)
-			}
-			if tt.wantSource != "" && meta.Source != tt.wantSource {
-				t.Errorf("Source = %q; want %q", meta.Source, tt.wantSource)
-			}
-			if meta.Path != tt.relPath {
-				t.Errorf("Path = %q; want %q", meta.Path, tt.relPath)
-			}
-		})
-	}
-}
-
-func TestExtractPageMeta_WordCount(t *testing.T) {
-	content := "# Title\n\nOne two three four five"
-	meta := extractPageMeta("test.md", content)
-	if meta.WordCount < 5 {
-		t.Errorf("WordCount = %d; want >= 5", meta.WordCount)
-	}
-}
-
-func TestExtractPageMeta_Confidence(t *testing.T) {
-	content := "---\nconfidence: 0.85\n---\n# Test\n\nContent"
-	meta := extractPageMeta("test.md", content)
-	if meta.Confidence != 0.85 {
-		t.Errorf("Confidence = %f; want 0.85", meta.Confidence)
-	}
-}
-
-func TestExtractPageMeta_Links(t *testing.T) {
-	content := "# Page\n\nSee [[Other Page]] and [[Another]]."
-	meta := extractPageMeta("linked.md", content)
-	if len(meta.Links) != 2 {
-		t.Errorf("Links count = %d; want 2 (links: %v)", len(meta.Links), meta.Links)
-	}
-}
-
-func TestExtractPageMeta_NoTags(t *testing.T) {
-	content := "# Simple\n\nNo tags here"
-	meta := extractPageMeta("simple.md", content)
-	if len(meta.Tags) != 0 {
-		t.Errorf("Tags count = %d; want 0", len(meta.Tags))
-	}
-}
-
-func TestExtractPageMeta_EmptyContent(t *testing.T) {
-	meta := extractPageMeta("empty.md", "")
-	if meta.Title != "empty" {
-		t.Errorf("Title = %q; want %q", meta.Title, "empty")
-	}
-	if meta.WordCount != 0 {
-		t.Errorf("WordCount = %d; want 0", meta.WordCount)
-	}
-	if meta.Type != "entity" {
-		t.Errorf("Type = %q; want %q", meta.Type, "entity")
-	}
-}
-
-func TestExtractPageMeta_InvalidConfidence(t *testing.T) {
-	content := "---\nconfidence: notanumber\n---\n# Test"
-	meta := extractPageMeta("test.md", content)
-	if meta.Confidence != 0 {
-		t.Errorf("Confidence = %f; want 0 for invalid value", meta.Confidence)
-	}
-}
-
-func TestListWikiPages(t *testing.T) {
-	tmp := t.TempDir()
-
-	pages := map[string]string{
-		"index.md":         "# Index\n\nWelcome",
-		"log.md":           "# Log\n\n- entry",
-		"some-entity.md":   "# Entity\n\nDetails",
-		"not-markdown.txt": "plain text",
-	}
-	for name, content := range pages {
-		if err := os.WriteFile(filepath.Join(tmp, name), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	result, err := listWikiPages(tmp)
-	if err != nil {
-		t.Fatalf("listWikiPages error: %v", err)
-	}
-
-	// Should only include .md files
-	if len(result) != 3 {
-		t.Errorf("page count = %d; want 3", len(result))
-	}
-
-	// Verify sorting: all types have rank 1, so sorted alphabetically by path
-	// Paths: index.md, log.md, some-entity.md
-	if len(result) >= 3 {
-		if result[0].Path != "index.md" {
-			t.Errorf("first page path = %q; want %q", result[0].Path, "index.md")
-		}
-		if result[1].Path != "log.md" {
-			t.Errorf("second page path = %q; want %q", result[1].Path, "log.md")
-		}
-		if result[2].Path != "some-entity.md" {
-			t.Errorf("third page path = %q; want %q", result[2].Path, "some-entity.md")
-		}
-	}
-}
-
-func TestListWikiPages_SortOrder(t *testing.T) {
-	tmp := t.TempDir()
-
-	// Create pages of various types to verify full sort order
-	files := map[string]string{
-		"entity-z.md":      "# Entity Z",
-		"entity-a.md":      "# Entity A",
-		"community-hub.md": "# Community Hub",
-		"log.md":           "# Log",
-		"index.md":         "# Index",
-	}
-	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(tmp, name), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	result, err := listWikiPages(tmp)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(result) != 5 {
-		t.Fatalf("page count = %d; want 5", len(result))
-	}
-
-	// Expected order: community(0), then rank 1 sorted by path: entity-a.md, entity-z.md, index.md, log.md
-	expectedTypes := []string{"community", "entity", "entity", "index", "log"}
-	for i, et := range expectedTypes {
-		if result[i].Type != et {
-			t.Errorf("result[%d].Type = %q; want %q", i, result[i].Type, et)
-		}
-	}
-
-	// Same-rank entities should be sorted by path
-	if result[1].Path >= result[2].Path {
-		t.Errorf("entities not sorted by path: %q >= %q", result[1].Path, result[2].Path)
-	}
-}
-
-func TestListWikiPages_NestedDir(t *testing.T) {
-	tmp := t.TempDir()
-
-	// Create nested structure
-	sub := filepath.Join(tmp, "sub")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tmp, "root.md"), []byte("# Root"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(sub, "nested.md"), []byte("# Nested"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := listWikiPages(tmp)
-	if err != nil {
-		t.Fatalf("listWikiPages error: %v", err)
-	}
-	if len(result) != 2 {
-		t.Errorf("page count = %d; want 2", len(result))
-	}
-}
-
-func TestListWikiPages_EmptyDir(t *testing.T) {
-	tmp := t.TempDir()
-	result, err := listWikiPages(tmp)
-	if err != nil {
-		t.Fatalf("listWikiPages error: %v", err)
-	}
-	if len(result) != 0 {
-		t.Errorf("page count = %d; want 0", len(result))
-	}
-}
-
-func TestCountMarkdownFiles(t *testing.T) {
-	tmp := t.TempDir()
-	sub := filepath.Join(tmp, "sub")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Write 2 .md files and 1 .txt file
-	for _, f := range []string{"a.md", "b.md"} {
-		if err := os.WriteFile(filepath.Join(tmp, f), []byte("content"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(sub, "c.md"), []byte("nested"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tmp, "d.txt"), []byte("text"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	count := countMarkdownFiles(tmp)
-	if count != 3 {
-		t.Errorf("countMarkdownFiles = %d; want 3", count)
-	}
-}
-
-func TestCountMarkdownFiles_Empty(t *testing.T) {
-	tmp := t.TempDir()
-	count := countMarkdownFiles(tmp)
-	if count != 0 {
-		t.Errorf("countMarkdownFiles = %d; want 0", count)
-	}
-}
-
-func TestCountMarkdownFiles_OnlyNonMdFiles(t *testing.T) {
-	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "readme.txt"), []byte("text"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tmp, "config.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	count := countMarkdownFiles(tmp)
-	if count != 0 {
-		t.Errorf("countMarkdownFiles = %d; want 0 for non-md files only", count)
-	}
-}
 
 func TestResolveDir(t *testing.T) {
 	tmp := t.TempDir()
@@ -608,7 +293,7 @@ func TestHandlePages_FileNotDir(t *testing.T) {
 
 func TestHandlePages_ValidDir(t *testing.T) {
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "test.md"), []byte("# Test"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "test.md", "# Test"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -661,7 +346,7 @@ func TestHandlePage_MissingParams(t *testing.T) {
 func TestHandlePage_ValidPage(t *testing.T) {
 	tmp := t.TempDir()
 	content := "# My Page\n\nSome content here"
-	if err := os.WriteFile(filepath.Join(tmp, "mypage.md"), []byte(content), 0o644); err != nil {
+	if err := indexPage(t, tmp, "mypage.md", content); err != nil {
 		t.Fatal(err)
 	}
 
@@ -730,10 +415,20 @@ func TestHandlePage_NotFound(t *testing.T) {
 	}
 }
 
+// The page endpoint serves METADATA FROM COLUMNS.
+//
+// It used to parse the frontmatter of the file it had just read: `type`, `tags`, `confidence`, and the
+// first `sources[].resource`. All four are columns, so this fixture sets the columns — and `tags`,
+// which has no column, is derived from the type and the importance flag, since that is what the
+// generators put in the tag list.
 func TestHandlePage_ReturnsMetaAndContent(t *testing.T) {
 	tmp := t.TempDir()
-	content := "---\ntype: document\ntags:\n  - test\n  - wiki\nconfidence: 0.9\nsources:\n  - resource: auto\n---\n# Rich Page\n\nSee [Other Page](Other_Page.md).\n\nMore content here with words."
-	if err := os.WriteFile(filepath.Join(tmp, "rich.md"), []byte(content), 0o644); err != nil {
+	content := "# Rich Page\n\nSee [Other Page](Other_Page.md).\n\nMore content here with words."
+	if err := indexChunk(t, tmp, wiki.WikiChunk{
+		Slug: "rich", Title: "Rich Page", Body: content, DocType: "document",
+		Source: "auto", Confidence: 0.9, Important: true,
+		WordCount: len(strings.Fields(content)), ClusterID: -1,
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -762,8 +457,8 @@ func TestHandlePage_ReturnsMetaAndContent(t *testing.T) {
 	if page.Confidence != 0.9 {
 		t.Errorf("Confidence = %f; want 0.9", page.Confidence)
 	}
-	if len(page.Tags) != 2 {
-		t.Errorf("Tags = %v; want 2 tags", page.Tags)
+	if len(page.Tags) != 2 || page.Tags[0] != "document" || page.Tags[1] != "important" {
+		t.Errorf("Tags = %v; want [document important] derived from the columns", page.Tags)
 	}
 	if page.Content != content {
 		t.Errorf("Content mismatch")
@@ -834,10 +529,10 @@ func TestHandleSearch_MissingDir(t *testing.T) {
 func TestHandleSearch_WithResults(t *testing.T) {
 	tmp := t.TempDir()
 
-	if err := os.WriteFile(filepath.Join(tmp, "page1.md"), []byte("# Architecture\n\nThis page discusses architecture patterns"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "page1.md", "# Architecture\n\nThis page discusses architecture patterns"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "page2.md"), []byte("# Other Topic\n\nUnrelated content"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "page2.md", "# Other Topic\n\nUnrelated content"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -866,10 +561,10 @@ func TestHandleSearch_MultipleResults(t *testing.T) {
 	tmp := t.TempDir()
 
 	// Create pages that both match "golang"
-	if err := os.WriteFile(filepath.Join(tmp, "page1.md"), []byte("# Go Programming\n\nLearn golang golang golang here"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "page1.md", "# Go Programming\n\nLearn golang golang golang here"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "page2.md"), []byte("# More Go\n\nMore about golang"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "page2.md", "# More Go\n\nMore about golang"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -900,7 +595,7 @@ func TestHandleSearch_MultipleResults(t *testing.T) {
 
 func TestHandleSearch_NoMatch(t *testing.T) {
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "page.md"), []byte("# Hello\n\nWorld"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "page.md", "# Hello\n\nWorld"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -984,10 +679,10 @@ func TestHandleAISearch_NoAIClient(t *testing.T) {
 
 func TestHandleAISearch_WithFakeAI(t *testing.T) {
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "index.md"), []byte("# Index\n\nMain wiki index"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "index.md", "# Index\n\nMain wiki index"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "topic.md"), []byte("---\ntags: [arch]\n---\n# Topic\n\nSome architecture info"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "topic.md", "---\ntags: [arch]\n---\n# Topic\n\nSome architecture info"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1026,7 +721,7 @@ func TestHandleAISearch_WithFakeAI(t *testing.T) {
 
 func TestHandleAISearch_AIReturnsFencedJSON(t *testing.T) {
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "doc.md"), []byte("# Doc\n\nContent"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "doc.md", "# Doc\n\nContent"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1053,7 +748,7 @@ func TestHandleAISearch_AIReturnsFencedJSON(t *testing.T) {
 
 func TestHandleAISearch_AIReturnsPlainText(t *testing.T) {
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "doc.md"), []byte("# Doc\n\nContent"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "doc.md", "# Doc\n\nContent"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1080,7 +775,7 @@ func TestHandleAISearch_AIReturnsPlainText(t *testing.T) {
 
 func TestHandleAISearch_AIError(t *testing.T) {
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "doc.md"), []byte("# Doc\n\nContent"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "doc.md", "# Doc\n\nContent"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1107,7 +802,7 @@ func TestHandleAISearch_FrontmatterStripping(t *testing.T) {
 	tmp := t.TempDir()
 	// Create a page with frontmatter that should be stripped from catalog
 	longFM := "---\ntitle: Test\ntags: [a, b]\n---\n# Test Page\n\nActual content here that is pretty long " + strings.Repeat("word ", 100)
-	if err := os.WriteFile(filepath.Join(tmp, "test.md"), []byte(longFM), 0o644); err != nil {
+	if err := indexPage(t, tmp, "test.md", longFM); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1128,7 +823,7 @@ func TestHandleAISearch_FrontmatterStripping(t *testing.T) {
 
 func TestHandleAISearch_ValidatesResultPaths(t *testing.T) {
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "real.md"), []byte("# Real\n\nContent"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "real.md", "# Real\n\nContent"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1220,10 +915,10 @@ func TestHandleSearch_FallbackSearch(t *testing.T) {
 	// Create pages — BM25 may or may not find them depending on content structure.
 	// The fallback search (lines 184-218) kicks in when BM25 returns no results.
 	// Use a very specific query that BM25 might miss but raw text search will find.
-	if err := os.WriteFile(filepath.Join(tmp, "page1.md"), []byte("# Title\n\nThis is xyz123uniquetoken content"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "page1.md", "# Title\n\nThis is xyz123uniquetoken content"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "page2.md"), []byte("# Other\n\nDifferent xyz123uniquetoken text and more xyz123uniquetoken"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "page2.md", "# Other\n\nDifferent xyz123uniquetoken text and more xyz123uniquetoken"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1254,7 +949,7 @@ func TestHandleSearch_LongContent(t *testing.T) {
 
 	// Create a page with very long content to exercise snippet extraction boundary cases
 	longContent := "# Long Page\n\n" + strings.Repeat("word ", 500) + "uniquetoken" + strings.Repeat(" filler", 500)
-	if err := os.WriteFile(filepath.Join(tmp, "long.md"), []byte(longContent), 0o644); err != nil {
+	if err := indexPage(t, tmp, "long.md", longContent); err != nil {
 		t.Fatal(err)
 	}
 

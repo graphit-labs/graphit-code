@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -432,100 +431,6 @@ func TestMemoryService_DemoteMemory_NilStore(t *testing.T) {
 	}
 }
 
-func TestMemoryService_ListMemories_WithDir(t *testing.T) {
-	dir := t.TempDir()
-
-	writeMemFile(t, dir, "MEM1.md", `---
-title: Normal Memory
-created_at: 2026-01-01T00:00:00Z
----
-
-# Normal Memory
-
-Body.`)
-
-	writeMemFile(t, dir, "MEM2.md", `---
-important: true
-title: Important Memory
-created_at: 2026-01-02T00:00:00Z
----
-
-# Important Memory
-
-Important body.`)
-
-	// Non-md file (should be skipped)
-	writeMemFile(t, dir, "notes.txt", "not a memory")
-
-	// Subdirectory (should be skipped)
-	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	svc := &MemoryService{
-		localDir: dir,
-		scope:    MemoryScopeProject,
-		scopeID:  "test-id",
-	}
-
-	memories, err := svc.ListMemories()
-	if err != nil {
-		t.Fatalf("ListMemories: %v", err)
-	}
-	if len(memories) != 2 {
-		t.Fatalf("expected 2 memories, got %d", len(memories))
-	}
-
-	// Check that important flag is set correctly
-	foundNormal := false
-	foundImportant := false
-	for _, m := range memories {
-		if m.ID == "MEM1" {
-			foundNormal = true
-			if m.Important {
-				t.Error("MEM1 should not be important")
-			}
-			if m.Title != "Normal Memory" {
-				t.Errorf("MEM1 title = %q", m.Title)
-			}
-		}
-		if m.ID == "MEM2" {
-			foundImportant = true
-			if !m.Important {
-				t.Error("MEM2 should be important")
-			}
-		}
-	}
-	if !foundNormal {
-		t.Error("did not find MEM1")
-	}
-	if !foundImportant {
-		t.Error("did not find MEM2")
-	}
-}
-
-func TestMemoryService_ListMemories_NonExistentDir(t *testing.T) {
-	svc := &MemoryService{localDir: "/nonexistent/path/xyz"}
-	memories, err := svc.ListMemories()
-	if err != nil {
-		t.Fatalf("expected nil error for non-existent dir, got: %v", err)
-	}
-	if memories != nil {
-		t.Errorf("expected nil, got %v", memories)
-	}
-}
-
-func TestMemoryService_ListMemories_EmptyDir(t *testing.T) {
-	svc := &MemoryService{localDir: t.TempDir()}
-	memories, err := svc.ListMemories()
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if len(memories) != 0 {
-		t.Errorf("expected 0, got %d", len(memories))
-	}
-}
-
 func TestBuildMemoryFile_Boost(t *testing.T) {
 	content := buildMemoryFile(
 		"TEST-ID", "Test Title", "Test body content",
@@ -741,30 +646,6 @@ func TestUniqueMemSlug_Boost(t *testing.T) {
 	}
 }
 
-func TestFirstLine_Boost(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"empty", "", ""},
-		{"only headers", "# Title\n## Sub", ""},
-		{"body after header", "# Title\nSome content here", "Some content here"},
-		{"blank lines then body", "\n\nContent below", "Content below"},
-		{"long line truncated", strings.Repeat("x", 200), strings.Repeat("x", 120) + "…"},
-		{"exactly 120 chars", strings.Repeat("y", 120), strings.Repeat("y", 120)},
-		{"121 chars", strings.Repeat("z", 121), strings.Repeat("z", 120) + "…"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := firstLine(tc.input)
-			if got != tc.want {
-				t.Errorf("firstLine(%q) = %q; want %q", tc.input, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestParseMemoryType_Boost(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -780,280 +661,6 @@ func TestParseMemoryType_Boost(t *testing.T) {
 			got := parseMemoryType(tc.content)
 			if got != tc.want {
 				t.Errorf("parseMemoryType = %q; want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestMemoryEntityPage_FullRendering(t *testing.T) {
-	// Recent date (no stale warning)
-	recentDate := time.Now().Add(-5 * 24 * time.Hour).Format(time.RFC3339)
-	page := memoryEntityPageWithHash("ID123", "My Title", recentDate, true, "Body content.", "convention", "")
-
-	if !strings.Contains(page, "title: My Title") {
-		t.Error("should contain title in frontmatter")
-	}
-	if !strings.Contains(page, "id: ID123") {
-		t.Error("should contain id in frontmatter")
-	}
-	if !strings.Contains(page, "important") {
-		t.Error("should contain 'important' tag")
-	}
-	if !strings.Contains(page, "convention") {
-		t.Error("should contain type")
-	}
-	if !strings.Contains(page, "⭐") {
-		t.Error("should have important star marker")
-	}
-	if !strings.Contains(page, "🏗️") {
-		t.Error("should have convention emoji")
-	}
-	if !strings.Contains(page, "Body content.") {
-		t.Error("should contain body")
-	}
-	if strings.Contains(page, "Stale memory") {
-		t.Error("recent memory should not have stale warning")
-	}
-}
-
-func TestMemoryEntityPage_AllTypeEmojis(t *testing.T) {
-	types := map[string]string{
-		"convention": "🏗️",
-		"correction": "🔧",
-		"decision":   "📐",
-		"tension":    "⚡",
-		"fact":       "📋",
-		"skill":      "🛠️",
-		"unknown":    "📄",
-	}
-	for typ, emoji := range types {
-		page := memoryEntityPageWithHash("ID", "Title", "", false, "Body", typ, "")
-		if !strings.Contains(page, emoji) {
-			t.Errorf("type %q should produce emoji %s", typ, emoji)
-		}
-	}
-}
-
-func TestMemoryEntityPage_NoType(t *testing.T) {
-	page := memoryEntityPageWithHash("ID", "Title", "", false, "Body", "", "")
-	if strings.Contains(page, "**Type:**") {
-		t.Error("should not have type annotation when type is empty")
-	}
-}
-
-func TestGenerateMemoryWiki_FullCycle(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-	ctx := context.Background()
-
-	writeMemFile(t, rawDir, "MEM1.md", `---
-title: Convention One
-type: convention
-created_at: 2026-01-01T00:00:00Z
----
-
-# Convention One
-
-Use gofmt always.`)
-
-	writeMemFile(t, rawDir, "MEM2.md", `---
-important: true
-title: Important Decision
-type: decision
-created_at: 2026-01-02T00:00:00Z
----
-
-# Important Decision
-
-We decided to use Go modules.`)
-
-	writeMemFile(t, rawDir, "MEM3.md", `---
-title: Untyped Memory
-created_at: 2026-01-03T00:00:00Z
----
-
-# Untyped Memory
-
-No type field.`)
-
-	// Index and log files should be skipped
-	writeMemFile(t, rawDir, "index.md", "---\ntitle: Index\n---\nOld index content")
-	writeMemFile(t, rawDir, "log.md", "---\ntitle: Log\n---\nOld log content")
-
-	// Non-md should be skipped
-	writeMemFile(t, rawDir, "notes.txt", "not a memory")
-
-	result, err := GenerateMemoryWiki(ctx, rawDir, wikiDir)
-	if err != nil {
-		t.Fatalf("GenerateMemoryWiki: %v", err)
-	}
-
-	if result.ArticlesWritten != 3 {
-		t.Errorf("ArticlesWritten = %d; want 3", result.ArticlesWritten)
-	}
-
-	// The memories are in the INDEX, not in page files — no pages are written.
-	live, _, _ := indexedMemoryPages(t, wikiDir)
-	if live != 3 {
-		t.Errorf("indexed %d live memories, want 3", live)
-	}
-}
-
-func TestGenerateMemoryWiki_NonExistentRawDir_Boost(t *testing.T) {
-	wikiDir := t.TempDir()
-	ctx := context.Background()
-
-	result, err := GenerateMemoryWiki(ctx, "/nonexistent/raw/dir", wikiDir)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if result.ArticlesWritten != 0 {
-		t.Errorf("expected 0 articles, got %d", result.ArticlesWritten)
-	}
-}
-
-func TestGenerateMemoryWiki_DuplicateTitles(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-	ctx := context.Background()
-
-	// Create memories with identical titles (tests uniqueMemSlug)
-	writeMemFile(t, rawDir, "MEM1.md", `---
-title: Same Title
-type: fact
----
-
-# Same Title
-
-Body 1.`)
-
-	writeMemFile(t, rawDir, "MEM2.md", `---
-title: Same Title
-type: fact
----
-
-# Same Title
-
-Body 2.`)
-
-	result, err := GenerateMemoryWiki(ctx, rawDir, wikiDir)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if result.ArticlesWritten != 2 {
-		t.Errorf("ArticlesWritten = %d; want 2", result.ArticlesWritten)
-	}
-}
-
-func TestGenerateMemoryWiki_SkipsMemoryWikiPrefixed(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-	ctx := context.Background()
-
-	writeMemFile(t, rawDir, "Memory_Wiki_whatever.md", "should be skipped")
-	writeMemFile(t, rawDir, "MEM1.md", `---
-title: Real Memory
-type: fact
----
-
-# Real Memory
-
-Body.`)
-
-	result, err := GenerateMemoryWiki(ctx, rawDir, wikiDir)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if result.ArticlesWritten != 1 {
-		t.Errorf("ArticlesWritten = %d; want 1 (Memory_Wiki_ prefix should be skipped)", result.ArticlesWritten)
-	}
-}
-
-func TestAppendMemLog_NewFile_Boost(t *testing.T) {
-	dir := t.TempDir()
-	logPath := filepath.Join(dir, "log.md")
-
-	appendMemLog(logPath, 5, 3, nil)
-
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	content := string(data)
-
-	// OKF §9 shape: no frontmatter, an H1, `## YYYY-MM-DD` sections, prose entries.
-	if !strings.Contains(content, "# Memory Wiki Update Log") {
-		t.Error("should contain header for new file")
-	}
-	if strings.HasPrefix(strings.TrimSpace(content), "---") {
-		t.Error("log.md must not carry frontmatter (OKF §8/§9)")
-	}
-	if !strings.Contains(content, "## "+time.Now().UTC().Format("2006-01-02")) {
-		t.Error("should group entries under an ISO 8601 date heading")
-	}
-	if !strings.Contains(content, "5 memories, 3 article(s) written") {
-		t.Error("should contain the counts")
-	}
-}
-
-func TestRunCycle_WithRawDir(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-	ctx := context.Background()
-
-	writeMemFile(t, rawDir, "MEM1.md", `---
-title: Test Memory
-type: fact
----
-
-# Test Memory
-
-Body.`)
-
-	result := RunCycle(ctx, "project", rawDir, wikiDir)
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-	if result.Scope != "project" {
-		t.Errorf("Scope = %q", result.Scope)
-	}
-	if result.WikiFiles != 1 {
-		t.Errorf("WikiFiles = %d; want 1", result.WikiFiles)
-	}
-	if result.Err != nil {
-		t.Errorf("Err = %v", result.Err)
-	}
-}
-
-func TestRunCycle_NonExistentRawDir_Boost(t *testing.T) {
-	result := RunCycle(context.Background(), "test", "/nonexistent/raw", t.TempDir())
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-	if result.Err != nil {
-		t.Errorf("non-existent rawDir should not error, got: %v", result.Err)
-	}
-	if result.WikiFiles != 0 {
-		t.Errorf("WikiFiles = %d; want 0", result.WikiFiles)
-	}
-}
-
-func TestMemoryBranch_Boost(t *testing.T) {
-	tests := []struct {
-		scope   string
-		scopeID string
-		want    string
-	}{
-		{"project", "proj-id", "memory/project/proj-id"},
-		{"user", "user-hash", "memory/user/user-hash"},
-		{"my-context", "ctx-id", "memory/project/my-context"},
-		{"custom", "abc", "memory/project/custom"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.scope+"/"+tc.scopeID, func(t *testing.T) {
-			got := memoryBranch(tc.scope, tc.scopeID)
-			if got != tc.want {
-				t.Errorf("memoryBranch(%q, %q) = %q; want %q", tc.scope, tc.scopeID, got, tc.want)
 			}
 		})
 	}
@@ -1207,52 +814,6 @@ func TestMemoryTypeConstants_Boost(t *testing.T) {
 	}
 }
 
-func TestMemoryIndexPage_AllTypesSections(t *testing.T) {
-	docs := []memDoc{
-		{id: "1", title: "Convention One", memType: "convention", body: "conv body", important: true},
-		{id: "2", title: "Correction One", memType: "correction", body: "corr body"},
-		{id: "3", title: "Decision One", memType: "decision", body: "dec body"},
-		{id: "4", title: "Tension One", memType: "tension", body: "tens body"},
-		{id: "5", title: "Skill One", memType: "skill", body: "skill body"},
-		{id: "6", title: "Fact One", memType: "fact", body: "fact body"},
-		{id: "7", title: "Untyped One", memType: "", body: "untyped body"},
-	}
-
-	content := memoryIndexPage(docs)
-
-	// Check all type sections are present
-	expectedSections := []string{
-		"Conventions", "Corrections", "Decisions", "Tensions", "Skills", "Facts", "Other Memories",
-	}
-	for _, section := range expectedSections {
-		if !strings.Contains(content, section) {
-			t.Errorf("index should contain %q section", section)
-		}
-	}
-
-	// Check important section
-	if !strings.Contains(content, "Important Memories") {
-		t.Error("should contain Important Memories section")
-	}
-
-	// Check memory count
-	if !strings.Contains(content, "7 memories") {
-		t.Error("should show 7 memories count")
-	}
-}
-
-func TestMemoryIndexPage_Empty(t *testing.T) {
-	content := memoryIndexPage(nil)
-	if !strings.Contains(content, "Memory Wiki") {
-		t.Error("should contain header even for empty docs")
-	}
-	if !strings.Contains(content, "0 memories") {
-		t.Error("should show 0 memories")
-	}
-}
-
-// paths.go — EnsureScopeDirs error paths
-
 func TestEnsureScopeDirs_WithValidProjectDir(t *testing.T) {
 	dir := t.TempDir()
 	err := EnsureScopeDirs("project", dir)
@@ -1301,49 +862,18 @@ func TestImportantFlagRoundTrip_Boost(t *testing.T) {
 	}
 }
 
-func TestMemoryService_SyncToLocalFast_NilStore(t *testing.T) {
+// Recompiling after a write must NOT fail the write.
+//
+// This asserted the opposite — that `syncToLocalFast` errors when the store is unusable — and that
+// was right while it also did the syncing: a failed pull meant the local copy was wrong. It only
+// recompiles now, and it runs AFTER a write that already succeeded, so turning a failed recompile
+// into an error would report a stored memory as unstored. The failure is logged instead.
+func TestSyncToLocalDoesNotFailAWriteThatAlreadySucceeded(t *testing.T) {
 	svc := &MemoryService{}
-	err := svc.syncToLocalFast()
-	if err == nil {
-		t.Error("expected error with nil gitStore")
-	}
-	if !strings.Contains(err.Error(), "not configured") {
-		t.Errorf("error = %v", err)
+	if err := svc.syncToLocalFast(); err != nil {
+		t.Errorf("recompiling must not fail the write it follows: %v", err)
 	}
 }
-
-func TestGenerateMemoryWiki_UnreadableFile(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-	ctx := context.Background()
-
-	writeMemFile(t, rawDir, "MEM1.md", `---
-title: Readable
-type: fact
----
-
-# Readable
-
-Body.`)
-
-	unreadable := filepath.Join(rawDir, "MEM2.md")
-	if err := os.WriteFile(unreadable, []byte("content"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.Chmod(unreadable, 0o000)
-	defer func() { _ = os.Chmod(unreadable, 0o644) }()
-
-	result, err := GenerateMemoryWiki(ctx, rawDir, wikiDir)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	// Should process the readable file and skip the unreadable one
-	if result.ArticlesWritten < 1 {
-		t.Errorf("ArticlesWritten = %d; want at least 1", result.ArticlesWritten)
-	}
-}
-
-// consolidate.go — RunConsolidation with memories that have no created_at
 
 func TestDetectStaleMemories_EmptyCreatedAt(t *testing.T) {
 	memories := []memorySnapshot{

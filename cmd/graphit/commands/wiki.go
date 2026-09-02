@@ -24,6 +24,7 @@ Commands:
   log        Show wiki sync history
   xrefs      Show cross-references for an entity
   source     Read a wiki page's content (head/tail, line ranges, pattern search)
+  export     Render the wiki as a directory of Markdown pages
 
 Examples:
   ` + brand.BinName() + ` wiki search "how does auth work?"
@@ -34,7 +35,8 @@ Examples:
   ` + brand.BinName() + ` wiki browse --wiki project
   ` + brand.BinName() + ` wiki log --limit 5
   ` + brand.BinName() + ` wiki xrefs "auth-flow"
-  ` + brand.BinName() + ` wiki source "auth-flow"`,
+  ` + brand.BinName() + ` wiki source "auth-flow"
+  ` + brand.BinName() + ` wiki export --out ./wiki-md`,
 	}
 
 	cmd.AddCommand(
@@ -46,8 +48,43 @@ Examples:
 		newWikiXRefsCmd(),
 		newWikiEmbedCmd(),
 		newWikiSourceCmd(),
+		newWikiExportCmd(),
 	)
 
+	return cmd
+}
+
+func newWikiExportCmd() *cobra.Command {
+	var (
+		wikiScope   string
+		contextName string
+		projectDir  string
+		outDir      string
+	)
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Render the wiki as a directory of Markdown pages",
+		Long: `Render a compiled wiki into a directory of Obsidian-compatible Markdown:
+one <slug>.md per page with OKF frontmatter, plus index.md and log.md.
+
+The wiki itself is stored in LanceDB — the frontmatter is columns, the body is a
+column, the cross-references and the sync history are tables. This command exists
+for the consumer that cannot query any of that: a person who wants the wiki in an
+editor, in Obsidian, or committed to a repository.
+
+Examples:
+  ` + brand.BinName() + ` wiki export --out ./wiki-md
+  ` + brand.BinName() + ` wiki export --wiki memory --out ./memory-md
+  ` + brand.BinName() + ` wiki export --context team-platform --out ./ctx-md`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWikiExport(wikiScope, contextName, projectDir, outDir)
+		},
+	}
+	cmd.Flags().StringVar(&wikiScope, "wiki", "project", "Wiki scope: project or memory")
+	cmd.Flags().StringVar(&contextName, "context", "", "Imported context name, or the memory scope")
+	cmd.Flags().StringVar(&projectDir, "project-dir", "", "Project directory (defaults to the working directory)")
+	cmd.Flags().StringVar(&outDir, "out", "", "Directory to write the Markdown into (required)")
+	_ = cmd.MarkFlagRequired("out")
 	return cmd
 }
 

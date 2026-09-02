@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 )
@@ -15,15 +14,24 @@ type CycleResult struct {
 	Err       error
 }
 
-func RunCycle(ctx context.Context, scope, rawDir, wikiDir string) *CycleResult {
+func RunCycle(ctx context.Context, scope, tableURI, wikiDir string) *CycleResult {
 	res := &CycleResult{Scope: scope}
 
-	if _, err := os.Stat(rawDir); os.IsNotExist(err) {
-
+	if tableURI == "" {
 		return res
 	}
 
-	wikiRes, err := GenerateMemoryWiki(ctx, rawDir, wikiDir)
+	// There is no existence check ahead of this. The raw directory had one — a scope with no
+	// directory had nothing to compile — but opening a table CREATES it, so the equivalent question
+	// is answered by the row count, and an empty scope compiles to an empty wiki in one query.
+	tbl, err := OpenMemoryTable(ctx, tableURI)
+	if err != nil {
+		res.Err = fmt.Errorf("opening the memory store (%s): %w", scope, err)
+		return res
+	}
+	defer func() { _ = tbl.Close() }()
+
+	wikiRes, err := GenerateMemoryWikiFromTable(ctx, tbl, wikiDir)
 	if err != nil {
 		res.Err = fmt.Errorf("memory wiki (%s): %w", scope, err)
 		return res
@@ -52,32 +60,28 @@ func runScopeCycle(ctx context.Context, scope string) *CycleResult {
 	if scopeID == "" {
 		return &CycleResult{Scope: scope}
 	}
-	return RunCycle(ctx, scope, RawDirFor(scope, scopeID), MemoryWikiGlobalDir(scope, scopeID))
+	return RunCycle(ctx, scope, TableURIFor(scope, scopeID), MemoryWikiGlobalDir(scope, scopeID))
 }
 
-type MemoryStoreProvider interface {
-	ExtractScopeDir(scopePath, relDir, targetDir string) error
+// SyncContextFromMemoryRepo compiles an imported context's wiki from that context's table.
+//
+// It used to DOWNLOAD the context first: a `MemoryStoreProvider` materialised the remote prefix into
+// a local raw directory and the compile then read those files. Both the interface and the download
+// are gone — the table at `memory/project/<name>` is read where it lives, which is the point of the
+// store being in object storage.
+func SyncContextFromMemoryRepo(ctx context.Context, contextName string) *CycleResult {
+	return RunCycle(ctx, contextName, ContextTableURI(contextName), contextWikiDir(contextName))
 }
 
-func SyncContextFromMemoryRepo(ctx context.Context, contextName, _ string, provider MemoryStoreProvider, logger *slog.Logger) *CycleResult {
+// OnHubImport compiles a freshly imported context's memory wiki, in the background.
+//
+// It took a project directory and a store provider, and needs neither now: a context's memories are
+// a table at a prefix derived from its NAME, so there is nothing to locate per project and nothing
+// to download before reading.
+func OnHubImport(ctx context.Context, contextName string, logger *slog.Logger) {
 	log := slogutil.Resolve(logger)
-	rawDir := RawDirFor(contextName, contextName)
-	scopePath := fmt.Sprintf("memory/project/%s", contextName)
-
-	if provider != nil {
-		if err := provider.ExtractScopeDir(scopePath, ".", rawDir); err != nil {
-			log.Warn("sync context: extract scope failed", "context", contextName, "scope", scopePath, "error", err)
-		}
-	}
-
-	return RunCycle(ctx, contextName, rawDir, contextWikiDir(contextName))
-}
-
-func OnHubImport(ctx context.Context, contextName, projectDir string, store MemoryStoreProvider, logger *slog.Logger) {
-	log := slogutil.Resolve(logger)
-
 	go func() {
-		if res := SyncContextFromMemoryRepo(ctx, contextName, projectDir, store, logger); res.Err != nil {
+		if res := SyncContextFromMemoryRepo(ctx, contextName); res.Err != nil {
 			log.Warn("hub import context failed", "context", contextName, "error", res.Err)
 		}
 	}()

@@ -291,8 +291,6 @@ func newKnowledgeListCmd() *cobra.Command {
 
 func newKnowledgeLintCmd() *cobra.Command {
 	var (
-		deep      bool
-		fix       bool
 		staleDays int
 		context   string
 	)
@@ -307,19 +305,13 @@ func newKnowledgeLintCmd() *cobra.Command {
   • Empty pages: entities with minimal content (≤ 10 words)
   • Missing frontmatter: required YAML fields (title, tags, updated)
 
-With --fix: auto-repairs broken backlinks by re-injecting cross-references.
-With --deep: enables AI-assisted contradiction detection (uses tokens).
-
 Examples:
   ` + brand.BinName() + ` knowledge lint
-  ` + brand.BinName() + ` knowledge lint --fix
-  ` + brand.BinName() + ` knowledge lint --deep --stale-days 7`,
+  ` + brand.BinName() + ` knowledge lint --stale-days 7`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runKnowledgeLint(context, deep, fix, staleDays)
+			return runKnowledgeLint(context, staleDays)
 		},
 	}
-	cmd.Flags().BoolVar(&deep, "deep", false, "Enable AI-assisted contradiction detection")
-	cmd.Flags().BoolVar(&fix, "fix", false, "Auto-repair fixable issues (backlinks)")
 	cmd.Flags().IntVar(&staleDays, "stale-days", 30, "Mark pages older than N days as stale")
 	cmd.Flags().StringVar(&context, "context", "", "Lint an imported context by name")
 	return cmd

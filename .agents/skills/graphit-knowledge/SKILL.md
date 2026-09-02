@@ -248,7 +248,7 @@ on **raw, unstructured text** — they cannot match the precision of a compiled 
 | `grep -r "keyword" .graphit/knowledge/` | Brute-force scan on a compiled database; ignores all structure |
 | Reading docs/ files directly without searching wiki first | Skips the pre-compiled summary, wastes tokens on raw content |
 | Using semantic search to find project docs | Wiki search is faster and more precise than embedding search |
-| Reading all .md files in wiki/ sequentially | Token bomb; wiki search returns only relevant results |
+| Opening page after page instead of searching | Token bomb; a search returns only what ranked, and the wiki has no files to walk anyway |
 | Skipping frontmatter and reading body only | Misses confidence, provenance, type, and freshness metadata |
 | Ignoring cross-references and grepping for reverse refs | Cross-refs are pre-computed; grep is O(n) and noisy |
 | Answering project questions from model memory | Model memory is stale; wiki is incrementally compiled from truth |
@@ -409,14 +409,17 @@ with types and confidence.
 ```
 graphit_knowledge_lint(project_dir: "/path/to/project")
 graphit_knowledge_lint(project_dir: "/path/to/project", stale_days: 90)
-graphit_knowledge_lint(project_dir: "/path/to/project", fix: true)
 ```
 
-Reports orphan pages, broken links, missing backlinks and stale pages (default: older than
-30 days). `fix: true` repairs what is mechanically repairable — backlinks — and nothing else;
-a broken `[[wikilink]]` needs a human decision about which page was meant. `deep: true` adds
-AI-assisted contradiction detection and costs a model call per candidate, so ask for it
-deliberately.
+Reports orphan pages, broken links and stale pages (default: older than 30 days).
+`stale_days` is the only knob: every other finding is read off the index, which either has
+the edge or does not.
+
+**It reports and never repairs, and that is not a missing feature.** The one mechanically
+repairable finding used to be a page whose `## Backlinks` section did not match its inbound
+references — and there is no page to repair now, nor can the `xrefs` table be missing an edge
+the graph knows about, because the graph is built FROM it. A broken `[[wikilink]]` is the
+remaining class, and it needs a human decision about which page was meant.
 
 Run it when a documentation task is finished and you want to know whether what you wrote
 actually connected to the rest of the wiki.
@@ -1159,7 +1162,7 @@ a compiled, cross-referenced wiki.
 | `grep -r "keyword" docs/` | Brute-force on raw specs; ignores compiled wiki |
 | Reading .yaml/.proto files directly without checking wiki first | Skips pre-compiled summary; wastes tokens on raw verbose content |
 | Using semantic search to find integration docs | Wiki search is faster and more precise |
-| Reading all .md files in wiki/ sequentially | Token bomb; wiki search returns only relevant results |
+| Opening page after page instead of searching | Token bomb; a search returns only what ranked, and the wiki has no files to walk anyway |
 | Ignoring cross-references and grepping for `$ref` | Cross-refs are pre-computed; grep is O(n) and misses non-$ref references |
 | Guessing API field names from model memory | Model memory is stale; wiki compiles from spec truth |
 

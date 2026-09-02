@@ -16,7 +16,7 @@ import (
 func TestHandleSearch_CaseInsensitive(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "page.md"), []byte("# Test Page\n\nHello WORLD content"), 0o644); err != nil {
+	if err := indexPage(t, tmp, "page.md", "# Test Page\n\nHello WORLD content"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -43,7 +43,7 @@ func TestHandleSearch_SnippetBoundary(t *testing.T) {
 	tmp := t.TempDir()
 	// Place query token at the very beginning of the file
 	content := "uniquestart this is some content after the token"
-	if err := os.WriteFile(filepath.Join(tmp, "start.md"), []byte(content), 0o644); err != nil {
+	if err := indexPage(t, tmp, "start.md", content); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,7 +103,7 @@ func TestHandlePages_SymlinkedDir(t *testing.T) {
 	if err := os.MkdirAll(realDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(realDir, "page.md"), []byte("# Symlinked"), 0o644); err != nil {
+	if err := indexPage(t, realDir, "page.md", "# Symlinked"); err != nil {
 		t.Fatal(err)
 	}
 	linkDir := filepath.Join(tmp, "link")
@@ -183,15 +183,17 @@ func TestHandlePage_AbsolutePathTraversal(t *testing.T) {
 	}
 }
 
-func TestHandlePage_DeepNestedPath(t *testing.T) {
+// A WIKI IS FLAT, so a path-shaped reference addresses nothing.
+//
+// This test used to assert the opposite: it wrote `sub/deep/deep.md` under the wiki directory and
+// asked for it by that relative path, because the handler joined the path onto the directory and read
+// the file. There is no directory and no nesting — `path` is a slug, a key in a column — so the
+// nested form is a 404 and the slug is what resolves.
+func TestHandlePage_APathIsNotASlug(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	deepDir := filepath.Join(tmp, "sub", "deep")
-	if err := os.MkdirAll(deepDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	content := "# Deep Page\n\nContent at depth 2"
-	if err := os.WriteFile(filepath.Join(deepDir, "deep.md"), []byte(content), 0o644); err != nil {
+	if err := indexPage(t, tmp, "deep.md", content); err != nil {
 		t.Fatal(err)
 	}
 
@@ -199,14 +201,21 @@ func TestHandlePage_DeepNestedPath(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/wiki/page", corsJSON(h.handlePage))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/wiki/page?dir="+tmp+"&path=sub/deep/deep.md", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d; want %d", w.Code, http.StatusOK)
+	get := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/wiki/page?dir="+tmp+"&path="+path, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		return w
 	}
 
+	if w := get("sub/deep/deep.md"); w.Code != http.StatusNotFound {
+		t.Errorf("nested path status = %d; want %d", w.Code, http.StatusNotFound)
+	}
+
+	w := get("deep.md")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; want %d", w.Code, http.StatusOK)
+	}
 	var page WikiPageContent
 	if err := json.NewDecoder(w.Body).Decode(&page); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -278,74 +287,6 @@ func TestHandleAISearch_ManyPages(t *testing.T) {
 }
 
 // Utility function tests
-
-func TestListWikiPages_OnlyNonMdFiles(t *testing.T) {
-	t.Parallel()
-	tmp := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmp, "readme.txt"), []byte("text"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tmp, "config.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	pages, err := listWikiPages(tmp)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if len(pages) != 0 {
-		t.Errorf("expected 0 pages for non-md-only dir, got %d", len(pages))
-	}
-}
-
-func TestExtractPageMeta_MultipleH1(t *testing.T) {
-	t.Parallel()
-	// Should use the first H1
-	content := "# First Title\n\nSome content\n\n# Second Title\n\nMore content"
-	meta := extractPageMeta("multi-h1.md", content)
-	if meta.Title != "First Title" {
-		t.Errorf("Title = %q; want %q (should use first H1)", meta.Title, "First Title")
-	}
-}
-
-func TestExtractPageMeta_FrontmatterOnly(t *testing.T) {
-	t.Parallel()
-	content := "---\ntype: document\ntags:\n  - a\n  - b\nconfidence: 0.7\nsources:\n  - resource: automated\n---\nNo heading here but some body text."
-	meta := extractPageMeta("fm-only.md", content)
-	// Title should fall back to filename without extension
-	if meta.Title != "fm-only" {
-		t.Errorf("Title = %q; want %q", meta.Title, "fm-only")
-	}
-	if len(meta.Tags) != 2 {
-		t.Errorf("Tags count = %d; want 2", len(meta.Tags))
-	}
-	if meta.Confidence != 0.7 {
-		t.Errorf("Confidence = %f; want 0.7", meta.Confidence)
-	}
-	if meta.Source != "automated" {
-		t.Errorf("Source = %q; want %q", meta.Source, "automated")
-	}
-}
-
-func TestCountMarkdownFiles_DeepNesting(t *testing.T) {
-	t.Parallel()
-	tmp := t.TempDir()
-	deepDir := filepath.Join(tmp, "a", "b", "c")
-	if err := os.MkdirAll(deepDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(deepDir, "deep.md"), []byte("# Deep"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(tmp, "root.md"), []byte("# Root"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	count := countMarkdownFiles(tmp)
-	if count != 2 {
-		t.Errorf("countMarkdownFiles = %d; want 2 (deep + root)", count)
-	}
-}
 
 func TestResolveDir_ExistingDir(t *testing.T) {
 	t.Parallel()

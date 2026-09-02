@@ -9,33 +9,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-func TestLintMalformedFrontmatter(t *testing.T) {
-	t.Parallel()
-	wikiDir := t.TempDir()
-
-	// File with opening --- but no closing ---
-	_ = os.WriteFile(filepath.Join(wikiDir, "malformed.md"),
-		[]byte("---\ntitle: Broken\ntype: specification\ncontent_hash: abc123\nno closing delimiter here\n"), 0o644)
-
-	graph := &wiki.CrossRefGraph{
-		AllPages: map[string]bool{"malformed": true},
-		Outbound: map[string][]string{},
-		Inbound:  map[string][]string{},
-		Titles:   map[string]string{"malformed": "Broken"},
-	}
-
-	// The function should not panic on malformed frontmatter.
-	// strings.Index(content[4:], "---") returns -1 → fm = content[:6]
-	result := LintKnowledgeWiki(wikiDir, graph, nil)
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-	// Should still have findings (missing fields, etc.)
-	if result.TotalPages != 1 {
-		t.Errorf("expected 1 total page, got %d", result.TotalPages)
-	}
-}
-
 func TestDetectStalePagesTransitive(t *testing.T) {
 	t.Parallel()
 
@@ -121,17 +94,6 @@ func TestKnowledgeRuleContentSnapshot(t *testing.T) {
 
 	// Verify the contexts parameter is accepted without error
 	_ = content
-}
-
-func TestLintKnowledgeWikiNilGraph(t *testing.T) {
-	t.Parallel()
-	result := LintKnowledgeWiki("", nil, nil)
-	if result == nil {
-		t.Fatal("expected non-nil result for nil graph")
-	}
-	if len(result.Findings) != 0 {
-		t.Errorf("expected no findings for nil graph, got %d", len(result.Findings))
-	}
 }
 
 func TestDetectStalePagesNilManifests(t *testing.T) {
@@ -240,60 +202,80 @@ func TestSaveManifestMarshalAndReload(t *testing.T) {
 	}
 }
 
-func TestLintKnowledgeWikiFullScenario(t *testing.T) {
-	wikiDir := t.TempDir()
+// The lint takes the DOCUMENTS the build compiled, not a wiki directory. Its fixtures are therefore
+// knowledgeDoc values rather than page files: the checks it makes — missing `title`/`type`/
+// `content_hash`, staleness, an empty body — read fields that were only ever written into the page
+// because the page was the medium.
 
-	// Valid page with all fields
-	_ = os.WriteFile(filepath.Join(wikiDir, "good.md"),
-		[]byte("---\ntitle: Good Page\ntype: specification\ncontent_hash: abc\n---\n## Content\nBody here."), 0o644)
+func lintDoc(title, path, docType, hash string) knowledgeDoc {
+	return knowledgeDoc{title: title, path: path, docType: docType, contentHash: hash, body: "Body here."}
+}
 
-	// Page missing frontmatter entirely
-	_ = os.WriteFile(filepath.Join(wikiDir, "nofm.md"),
-		[]byte("# No Frontmatter\nJust body."), 0o644)
-
-	// Valid page that is stale
-	_ = os.WriteFile(filepath.Join(wikiDir, "stale.md"),
-		[]byte("---\ntitle: Stale Page\ntype: guide\ncontent_hash: def\nstale_since: 2026-01-01\n---\n## Content\nOld content."), 0o644)
-
-	graph := &wiki.CrossRefGraph{
-		AllPages: map[string]bool{"good": true, "nofm": true, "stale": true, "index": true, "log": true},
-		Outbound: map[string][]string{
-			"good": {"nonexistent"},
-		},
-		Inbound: map[string][]string{},
-		Titles:  map[string]string{},
+func TestLintKnowledgeWikiNilGraph(t *testing.T) {
+	t.Parallel()
+	result := LintKnowledgeWiki(nil, nil, nil)
+	if result == nil {
+		t.Fatal("expected non-nil result for nil graph")
 	}
+	if len(result.Findings) != 0 {
+		t.Errorf("expected no findings for nil graph, got %d", len(result.Findings))
+	}
+}
 
-	result := LintKnowledgeWiki(wikiDir, graph, []string{"good.go", "uncited.go"})
+func TestLintKnowledgeWikiFullScenario(t *testing.T) {
+	t.Parallel()
+	docs := []knowledgeDoc{
+		lintDoc("Good Page", "docs/good.md", "specification", "abc"),
+		// No title and no content_hash — two missing-field findings on one page.
+		lintDoc("", "docs/nofm.md", "guide", ""),
+		lintDoc("Stale Page", "docs/stale.md", "guide", "def"),
+		// An empty body is the "no content section" finding, which used to be the absence of a
+		// `## Content` heading in the rendered page.
+		{title: "Hollow", path: "docs/hollow.md", docType: "document", contentHash: "ghi"},
+	}
+	docs[2].staleSince = "2026-01-01"
+	docs[2].staleReason = "source changed"
+	slugs := []string{"good", "nofm", "stale", "hollow"}
+
+	graph := wiki.BuildCrossRefGraphFromRefs([]wiki.PageEdges{
+		{Slug: "good", Title: "Good Page", Targets: []string{"nonexistent"}},
+		{Slug: "nofm", Title: "No Frontmatter"},
+		{Slug: "stale", Title: "Stale Page"},
+		{Slug: "hollow", Title: "Hollow"},
+	})
+
+	result := LintKnowledgeWiki(graph, docs, slugs)
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	if result.TotalPages != 5 {
-		t.Errorf("expected 5 total pages, got %d", result.TotalPages)
+	if result.TotalPages != 4 {
+		t.Errorf("expected 4 total pages, got %d", result.TotalPages)
 	}
 	if result.StalePages != 1 {
 		t.Errorf("expected 1 stale page, got %d", result.StalePages)
 	}
 
-	// Check for broken link finding
-	var hasBrokenLink bool
-	for _, f := range result.Findings {
-		if strings.Contains(f.Message, "broken link") {
-			hasBrokenLink = true
+	has := func(page, fragment string) bool {
+		for _, f := range result.Findings {
+			if f.Page == page && strings.Contains(f.Message, fragment) {
+				return true
+			}
 		}
+		return false
 	}
-	if !hasBrokenLink {
+	if !has("good", "broken link") {
 		t.Error("expected broken link finding for [[nonexistent]]")
 	}
-
-	// Check for missing frontmatter finding
-	var hasMissingFM bool
-	for _, f := range result.Findings {
-		if f.Page == "nofm" && strings.Contains(f.Message, "missing frontmatter") {
-			hasMissingFM = true
-		}
+	if !has("nofm", "missing frontmatter field: title") {
+		t.Error("expected a missing-title finding for the nofm page")
 	}
-	if !hasMissingFM {
-		t.Error("expected missing frontmatter finding for nofm page")
+	if !has("nofm", "missing frontmatter field: content_hash") {
+		t.Error("expected a missing-content_hash finding for the nofm page")
+	}
+	if !has("hollow", "no content section") {
+		t.Error("expected a no-content finding for the hollow page")
+	}
+	if !has("nofm", "orphan page") {
+		t.Error("expected an orphan finding for a page nothing references")
 	}
 }

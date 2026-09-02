@@ -1172,11 +1172,11 @@ func syncLogError(module, format string, args ...any) {
 func runMemoryMaintenance(ctx context.Context, projectDir string) {
 	_ = projectDir
 	for _, scope := range []string{"project", "user"} {
-		dir := memory.RawDir(scope)
-		if dir == "" {
+		wikiDir := memory.WikiDir(scope)
+		if wikiDir == "" {
 			continue
 		}
-		memory.RunCycle(ctx, scope, dir, memory.WikiDir(scope))
+		memory.RunCycle(ctx, scope, memory.TableURIForScope(scope), wikiDir)
 	}
 }
 

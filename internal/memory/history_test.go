@@ -11,8 +11,9 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 )
 
-// newLocalService wires a memory service to a local-only store, which is all the history chain
-// needs: the chain is written into the raw directory, and Publish uploads it as ordinary files.
+// newLocalService wires a memory service to a store with no bucket, so its table is a local
+// directory. The chain lives in that table: a superseded revision is a row, not a file under
+// `history/`.
 func newLocalService(t *testing.T) (*MemoryService, *ScopeStore) {
 	t.Helper()
 	t.Setenv("GRAPHIT_HUB_BUCKET", "")
@@ -23,6 +24,7 @@ func newLocalService(t *testing.T) (*MemoryService, *ScopeStore) {
 		scopeID:  "proj-1",
 		localDir: t.TempDir(),
 		store:    st,
+		tableURI: filepath.Join(t.TempDir(), "table"),
 	}
 	w, err := st.OpenScopeLocal(svc.ScopePrefix())
 	if err != nil {
@@ -34,17 +36,14 @@ func newLocalService(t *testing.T) (*MemoryService, *ScopeStore) {
 // A memory is born at revision 1, with the unit that wrote it and no previous version.
 func TestMemoryStartsAtRevisionOneWithNoPrevious(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
+	svc, _ := newLocalService(t)
 
 	id, err := svc.AddMemory("First", "the body", MemoryOpts{})
 	if err != nil {
 		t.Fatalf("AddMemory: %v", err)
 	}
 
-	data, err := w.ReadFile(MemoryFileName(id))
-	if err != nil {
-		t.Fatalf("reading the memory: %v", err)
-	}
+	data := mustReadStored(t, svc, MemoryFileName(id))
 	fm := ParseMemoryFrontmatter(string(data))
 
 	if fm.Revision != 1 {
@@ -62,25 +61,19 @@ func TestMemoryStartsAtRevisionOneWithNoPrevious(t *testing.T) {
 // path. Following `previous` must land on a file holding exactly what the memory said before.
 func TestUpdateArchivesThePreviousVersionAndPointsAtIt(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
+	svc, _ := newLocalService(t)
 
 	id, err := svc.AddMemory("First title", "first body", MemoryOpts{Type: MemoryTypeFact})
 	if err != nil {
 		t.Fatalf("AddMemory: %v", err)
 	}
-	before, err := w.ReadFile(MemoryFileName(id))
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := mustReadStored(t, svc, MemoryFileName(id))
 
 	if err := svc.UpdateMemory(id, "Second title", "second body"); err != nil {
 		t.Fatalf("UpdateMemory: %v", err)
 	}
 
-	after, err := w.ReadFile(MemoryFileName(id))
-	if err != nil {
-		t.Fatal(err)
-	}
+	after := mustReadStored(t, svc, MemoryFileName(id))
 	fm := ParseMemoryFrontmatter(string(after))
 
 	if fm.Revision != 2 {
@@ -89,7 +82,7 @@ func TestUpdateArchivesThePreviousVersionAndPointsAtIt(t *testing.T) {
 	if fm.Title != "Second title" {
 		t.Errorf("title = %q, want the new one", fm.Title)
 	}
-	if want := onlyArchivePath(t, w, id); fm.Previous != want {
+	if want := onlyArchivePath(t, svc, id); fm.Previous != want {
 		t.Fatalf("previous = %q, want %q", fm.Previous, want)
 	}
 	if fm.Next != "" {
@@ -100,10 +93,7 @@ func TestUpdateArchivesThePreviousVersionAndPointsAtIt(t *testing.T) {
 	}
 
 	// The pointer has to resolve, and the archive has to hold what the memory said before.
-	archived, err := w.ReadFile(fm.Previous)
-	if err != nil {
-		t.Fatalf("previous points at %q which cannot be read: %v", fm.Previous, err)
-	}
+	archived := mustReadStored(t, svc, fm.Previous)
 	if !sameMemoryBody(string(archived), string(before)) {
 		t.Errorf("the archived revision is not what the memory said before:\n--- archived\n%s\n--- before\n%s",
 			archived, before)
@@ -130,18 +120,9 @@ func TestUpdateArchivesThePreviousVersionAndPointsAtIt(t *testing.T) {
 
 // onlyArchivePath returns the single archived revision of a chain, failing when there is not
 // exactly one. Archive names are ULIDs, so a test cannot spell one — it asks the store.
-func onlyArchivePath(t *testing.T, w *ScopeStore, id string) string {
+func onlyArchivePath(t *testing.T, svc *MemoryService, id string) string {
 	t.Helper()
-	entries, err := w.ListDir(HistoryDirFor(id))
-	if err != nil {
-		t.Fatalf("listing the history of %s: %v", id, err)
-	}
-	var found []string
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".md" {
-			found = append(found, HistoryDirFor(id)+"/"+e.Name())
-		}
-	}
+	found := archivePaths(t, svc, id)
 	if len(found) != 1 {
 		t.Fatalf("history of %s holds %d revisions, want 1: %v", id, len(found), found)
 	}
@@ -151,7 +132,7 @@ func onlyArchivePath(t *testing.T, w *ScopeStore, id string) string {
 // Three writes make a chain that walks all the way back.
 func TestRevisionChainWalksBackToTheFirstVersion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
+	svc, _ := newLocalService(t)
 
 	id, err := svc.AddMemory("v1", "body one", MemoryOpts{})
 	if err != nil {
@@ -164,10 +145,7 @@ func TestRevisionChainWalksBackToTheFirstVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	data, err := w.ReadFile(MemoryFileName(id))
-	if err != nil {
-		t.Fatal(err)
-	}
+	data := mustReadStored(t, svc, MemoryFileName(id))
 
 	titles := []string{}
 	for content := string(data); ; {
@@ -176,10 +154,7 @@ func TestRevisionChainWalksBackToTheFirstVersion(t *testing.T) {
 		if fm.Previous == "" {
 			break
 		}
-		raw, readErr := w.ReadFile(fm.Previous)
-		if readErr != nil {
-			t.Fatalf("chain broken at %q: %v", fm.Previous, readErr)
-		}
+		raw := mustReadStored(t, svc, fm.Previous)
 		content = string(raw)
 		if len(titles) > 5 {
 			t.Fatal("the chain does not terminate")
@@ -210,9 +185,9 @@ func TestArchivedRevisionsAreCompiledButNotListed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	archivePath := onlyArchivePath(t, w, id)
-	if _, err := w.ReadFile(archivePath); err != nil {
-		t.Fatalf("expected an archived revision: %v", err)
+	archivePath := onlyArchivePath(t, svc, id)
+	if _, ok := readStored(t, svc, archivePath); !ok {
+		t.Fatal("expected an archived revision")
 	}
 
 	svc.localDir = w.Dir()
@@ -225,10 +200,7 @@ func TestArchivedRevisionsAreCompiledButNotListed(t *testing.T) {
 	}
 
 	wikiDir := filepath.Join(t.TempDir(), "wiki")
-	res, err := GenerateMemoryWiki(context.Background(), w.Dir(), wikiDir)
-	if err != nil {
-		t.Fatalf("GenerateMemoryWiki: %v", err)
-	}
+	res := compileFromTable(t, svc, wikiDir)
 	if res.ArticlesWritten != 2 {
 		t.Errorf("the wiki has %d articles, want 2 — the live memory and its superseded revision", res.ArticlesWritten)
 	}
@@ -243,7 +215,7 @@ func TestArchivedRevisionsAreCompiledButNotListed(t *testing.T) {
 // say nothing about the old one. This is the property that made it safe to compile history at all.
 func TestSearchCollapsesAChainToItsCurrentRevision(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
+	svc, _ := newLocalService(t)
 
 	// zarquon is in both revisions, so a query for it matches the whole chain. plesiosaur is only
 	// in the first, so a query for it reaches a revision the current memory cannot answer.
@@ -256,9 +228,7 @@ func TestSearchCollapsesAChainToItsCurrentRevision(t *testing.T) {
 	}
 
 	wikiDir := filepath.Join(t.TempDir(), "wiki")
-	if _, err := GenerateMemoryWiki(context.Background(), w.Dir(), wikiDir); err != nil {
-		t.Fatalf("GenerateMemoryWiki: %v", err)
-	}
+	compileFromTable(t, svc, wikiDir)
 
 	results := SearchChains(context.Background(), wikiDir, "zarquon", 10)
 	if len(results) != 1 {
@@ -298,7 +268,7 @@ func TestSearchCollapsesAChainToItsCurrentRevision(t *testing.T) {
 // pointer is the one that went away.
 func TestRemoveArchivesTheDeletedVersion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
+	svc, _ := newLocalService(t)
 
 	id, err := svc.AddMemory("Doomed", "body", MemoryOpts{})
 	if err != nil {
@@ -308,13 +278,10 @@ func TestRemoveArchivesTheDeletedVersion(t *testing.T) {
 		t.Fatalf("RemoveMemory: %v", err)
 	}
 
-	if _, err := w.ReadFile(MemoryFileName(id)); !os.IsNotExist(err) {
-		t.Errorf("the memory itself should be gone, got %v", err)
+	if _, ok := readStored(t, svc, MemoryFileName(id)); ok {
+		t.Error("the live memory should be gone from the store")
 	}
-	archived, err := w.ReadFile(onlyArchivePath(t, w, id))
-	if err != nil {
-		t.Fatalf("the deleted version was not archived: %v", err)
-	}
+	archived := mustReadStored(t, svc, onlyArchivePath(t, svc, id))
 	if !strings.Contains(string(archived), "Doomed") {
 		t.Error("the archive does not hold the deleted memory")
 	}
@@ -350,7 +317,7 @@ func TestAMemoryWithoutARevisionIsTreatedAsTheFirst(t *testing.T) {
 // names the live memory.
 func TestRevisionChainWalksForwardToTheLiveMemory(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
+	svc, _ := newLocalService(t)
 
 	id, err := svc.AddMemory("f1", "body one", MemoryOpts{})
 	if err != nil {
@@ -363,16 +330,7 @@ func TestRevisionChainWalksForwardToTheLiveMemory(t *testing.T) {
 	}
 
 	// Start at the oldest revision and walk `next` until the live memory.
-	entries, err := w.ListDir(HistoryDirFor(id))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".md" {
-			names = append(names, e.Name())
-		}
-	}
+	names := archivePaths(t, svc, id)
 	if len(names) != 2 {
 		t.Fatalf("history holds %d revisions, want 2", len(names))
 	}
@@ -381,10 +339,7 @@ func TestRevisionChainWalksForwardToTheLiveMemory(t *testing.T) {
 	hops := 0
 	at := HistoryDirFor(id) + "/" + names[0]
 	for {
-		data, readErr := w.ReadFile(at)
-		if readErr != nil {
-			t.Fatalf("chain broken at %q: %v", at, readErr)
-		}
+		data := mustReadStored(t, svc, at)
 		fm := ParseMemoryFrontmatter(string(data))
 		if fm.Next == "" {
 			break
@@ -468,4 +423,83 @@ func resolvePath(t *testing.T, p string) string {
 		return p
 	}
 	return resolved
+}
+
+// readStored is what `w.ReadFile(rel)` used to be: the markdown of a STORED RECORD.
+//
+// The argument is still a PATH — `<id>.md` for a live memory, `history/<id>/<rev>.md` for an archive
+// — because that is what the chain's `previous` and `next` fields hold, and the row key is derived
+// from it. After T2.2 the path is an identifier, not a location.
+func readStored(t *testing.T, svc *MemoryService, rel string) (string, bool) {
+	t.Helper()
+	ctx := context.Background()
+	tbl, err := svc.openTable(ctx)
+	if err != nil {
+		t.Fatalf("openTable: %v", err)
+	}
+	defer func() { _ = tbl.Close() }()
+
+	key := MemoryIDFromFileName(rel)
+	if isHistorySource(rel) {
+		key = archiveKeyFromPath(rel)
+	}
+	rec, ok, err := tbl.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("Get(%q): %v", key, err)
+	}
+	if !ok {
+		return "", false
+	}
+	return rec.Markdown(), true
+}
+
+// mustReadStored fails when the record is absent.
+func mustReadStored(t *testing.T, svc *MemoryService, rel string) string {
+	t.Helper()
+	content, ok := readStored(t, svc, rel)
+	if !ok {
+		t.Fatalf("no stored record for %q", rel)
+	}
+	return content
+}
+
+func compileFromTable(t *testing.T, svc *MemoryService, wikiDir string) *WikiResult {
+	t.Helper()
+	ctx := context.Background()
+	tbl, err := svc.openTable(ctx)
+	if err != nil {
+		t.Fatalf("openTable: %v", err)
+	}
+	defer func() { _ = tbl.Close() }()
+
+	res, err := GenerateMemoryWikiFromTable(ctx, tbl, wikiDir)
+	if err != nil {
+		t.Fatalf("GenerateMemoryWikiFromTable: %v", err)
+	}
+	return res
+}
+
+// archivePaths lists a chain's archived revisions as `history/<id>/<rev>.md` paths, oldest first.
+//
+// It replaces listing `history/<id>/` on disk. The ORDER is the property that matters and it is
+// preserved: MemoryTable.Revisions sorts by revision_id, which is what the lexicographic order of
+// the file names gave — a zero-padded counter and a ULID are each ordered by age.
+func archivePaths(t *testing.T, svc *MemoryService, id string) []string {
+	t.Helper()
+	ctx := context.Background()
+	tbl, err := svc.openTable(ctx)
+	if err != nil {
+		t.Fatalf("openTable: %v", err)
+	}
+	defer func() { _ = tbl.Close() }()
+
+	revs, err := tbl.Revisions(ctx, id)
+	if err != nil {
+		t.Fatalf("reading the revisions of %s: %v", id, err)
+	}
+	out := make([]string, 0, len(revs))
+	for _, r := range revs {
+		out = append(out, HistoryPath(id, r.RevisionID))
+	}
+	return out
 }

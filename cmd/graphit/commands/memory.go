@@ -80,7 +80,7 @@ an index that is empty or wrong for a reason OTHER than a changed memory is
 exactly what it cannot repair.
 
 Discarding the wiki is safe because none of it is source. The memories live in
-their own git worktree; the wiki is derived from them.
+their own store, outside the wiki; the wiki is derived from them.
 
 To re-index an imported context, use '` + brand.BinName() + ` memory sync --context <name>'.
 

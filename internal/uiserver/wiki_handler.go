@@ -4,13 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/ai"
@@ -122,7 +119,7 @@ func (h *WikiHandler) handlePages(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "dir not found or not a directory", http.StatusBadRequest)
 		return
 	}
-	pages, err := listWikiPages(absDir)
+	pages, err := listWikiPages(r.Context(), absDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -143,22 +140,29 @@ func (h *WikiHandler) handlePage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid dir", http.StatusBadRequest)
 		return
 	}
-	absPage := filepath.Join(absWiki, filepath.Clean("/"+pagePath))
-	if !strings.HasPrefix(absPage, absWiki) {
-		http.Error(w, "path traversal denied", http.StatusForbidden)
+
+	// The page comes out of the index, so `path` is a SLUG rather than a location. The traversal
+	// check that used to guard the os.ReadFile is gone with the read: there is no directory to
+	// escape, and ReadPageFrom refuses anything carrying a separator as a malformed reference —
+	// which is the same protection arriving as a better error.
+	db, err := wiki.OpenWikiDB(r.Context(), absWiki)
+	if err != nil {
+		http.Error(w, "wiki index not found", http.StatusNotFound)
 		return
 	}
+	defer db.Close()
 
-	data, err := os.ReadFile(absPage)
+	slug := strings.TrimSuffix(strings.TrimPrefix(filepath.ToSlash(pagePath), "/"), ".md")
+	chunk, err := db.Chunk(r.Context(), slug)
 	if err != nil {
 		http.Error(w, "page not found", http.StatusNotFound)
 		return
 	}
-	content := string(data)
-	meta := extractPageMeta(filepath.Base(absPage), content)
+	links, _ := db.AllXRefs(r.Context())
+
 	writeJSON(w, WikiPageContent{
-		WikiPageMeta: meta,
-		Content:      content,
+		WikiPageMeta: chunkPageMeta(*chunk, links[chunk.Slug]),
+		Content:      chunk.Body,
 	})
 }
 
@@ -170,73 +174,19 @@ func (h *WikiHandler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Try SQLite FTS5 first (faster, richer results)
-	if db, err := wiki.OpenWikiDB(r.Context(), wikiDir); err == nil {
-		defer db.Close()
-		ftsResults, err := db.Search(r.Context(), query, 30)
-		if err == nil && len(ftsResults) > 0 {
-			var results []SearchResult
-			for _, r := range ftsResults {
-				results = append(results, SearchResult{
-					Path:    r.Slug + ".md",
-					Title:   r.Title,
-					Snippet: r.Snippet,
-					Score:   int(r.Score * 100),
-				})
-			}
-			writeJSON(w, results)
-			return
-		}
-	}
-
+	// One engine, one answer. There were three stacked here: the index's own full-text search,
+	// then a BM25 pass, then a substring scan over every page file. The third is gone with the
+	// pages, and the second went with it — `wiki.BM25Search` reads the same index this already
+	// opened, so it was a second query for the same rows.
+	results := []SearchResult{}
 	bm25Results := wiki.BM25Search(r.Context(), wikiDir, query, 30)
-	if len(bm25Results) > 0 {
-		var results []SearchResult
-		for _, br := range bm25Results {
-			results = append(results, SearchResult{
-				Path:    br.Path,
-				Title:   br.Title,
-				Snippet: br.Snippet,
-				Score:   int(br.Score * 100),
-			})
-		}
-		writeJSON(w, results)
-		return
-	}
-
-	queryLower := strings.ToLower(query)
-	pages, err := listWikiPages(wikiDir)
-	if err != nil {
-		writeJSON(w, []SearchResult{})
-		return
-	}
-
-	var results []SearchResult
-	for _, pg := range pages {
-		absPage := filepath.Join(wikiDir, pg.Path)
-		data, err := os.ReadFile(absPage)
-		if err != nil {
-			continue
-		}
-		content := strings.ToLower(string(data))
-		if !strings.Contains(content, queryLower) {
-			continue
-		}
-		idx := strings.Index(content, queryLower)
-		start := max(0, idx-60)
-		end := min(len(content), idx+120)
-		snippet := "…" + strings.TrimSpace(string(data)[start:end]) + "…"
-		score := strings.Count(content, queryLower)
+	for _, br := range bm25Results {
 		results = append(results, SearchResult{
-			Path:    pg.Path,
-			Title:   pg.Title,
-			Snippet: snippet,
-			Score:   score,
+			Path:    br.Path,
+			Title:   br.Title,
+			Snippet: br.Snippet,
+			Score:   int(br.Score * 100),
 		})
-	}
-	sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })
-	if len(results) > 30 {
-		results = results[:30]
 	}
 	writeJSON(w, results)
 }
@@ -256,9 +206,9 @@ func (h *WikiHandler) handleSearch(w http.ResponseWriter, r *http.Request) {
 // Which documentation contexts a project may read is a per-project record, not a
 // directory listing: they are claims in its lockfile, resolved per origin, because a
 // listing of the global wiki root would report every context anybody on this machine
-// ever installed. Memory contexts are the deliberate exception — one is a branch of the
-// shared memory repository, so the worktree set is the record and there is no second
-// one to consult.
+// ever installed. Memory contexts are the deliberate exception — one is a prefix of the
+// shared memory store, so the set of raw directories IS the record and there is no
+// second one to consult.
 func discoverModules(projectDir string) []WikiModule {
 	if projectDir == "" {
 		projectDir, _ = os.Getwd()
@@ -276,18 +226,21 @@ func discoverModules(projectDir string) []WikiModule {
 		if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
 			return
 		}
-		pages := countMarkdownFiles(resolved)
+		// The page count and the log both come from the index. They used to be a WalkDir counting
+		// `.md` files and an `os.Stat` of `log.md` — so a wiki whose pages had not been written yet
+		// reported as having none, and one written by this build would have reported as having
+		// nothing at all.
+		pages, hasLog := indexedModuleStats(resolved)
 		if requirePages && pages == 0 {
 			return
 		}
-		_, hasLog := os.Stat(filepath.Join(resolved, "log.md"))
 		modules = append(modules, WikiModule{
 			ID:      id,
 			Label:   label,
 			Path:    resolved,
 			Context: contextName,
 			Pages:   pages,
-			HasLog:  hasLog == nil,
+			HasLog:  hasLog,
 		})
 	}
 
@@ -335,107 +288,41 @@ func contextLabel(name string, idNames map[string]string) string {
 	return name
 }
 
-var reH1 = regexp.MustCompile(`(?m)^#\s+(.+)$`)
-var reFMConfidence = regexp.MustCompile(`(?m)^confidence:\s*([0-9.]+)`)
-
-// Frontmatter readers for the shape OKF specifies.
+// THE EXPLORER READS COLUMNS, NOT FRONTMATTER.
 //
-// `tags` is a block sequence and provenance is `sources` (plural) whose entries carry a
-// REQUIRED `resource` (§5.1). The explorer used to read `tags: [a, b]` and a singular
-// `source:` — the pre-OKF shapes — which is why every page here showed no tags and no
-// source once the generator moved. Those readers are gone rather than kept alongside:
-// the wiki is a compiled artifact, regenerated from its sources, so there is no old page
-// left to read.
-var (
-	reFMTags     = regexp.MustCompile(`(?m)^tags:\s*$((?:\n[ \t]*-[ \t]*.+)+)`)
-	reFMType     = regexp.MustCompile(`(?m)^type:\s*(.+)$`)
-	reFMSources  = regexp.MustCompile(`(?m)^sources:\s*$((?:\n[ \t]*-[ \t]*.+|\n[ \t]{2,}\w[\w.-]*:.+)+)`)
-	reFMListItem = regexp.MustCompile(`(?m)^[ \t]*-[ \t]*(.+)$`)
-	reFMResource = regexp.MustCompile(`(?m)^[ \t]*-?[ \t]*resource:\s*(.+)$`)
-)
+// What used to be here was a small YAML dialect: five regexes for `tags`, `type`, `sources` with
+// its required `resource`, and `confidence`, plus a hand-written frontmatter-block extractor so a
+// `type:` line inside a fenced code sample in the body could not be mistaken for metadata, plus an
+// unquoter for the escaping the generator applied so the block would parse at all. Every one of
+// those fields is a column on `chunks`, and every one of those parsers existed only because the
+// value had been serialised into a file on the way here.
+//
+// The one field with no column is `tags`, and it is derived rather than dropped: the generators
+// wrote `[knowledge|memory, <type>]`, so the type and the importance flag are what the tag list
+// carried.
 
-// frontmatterBlock returns the leading YAML block, so a `type:` or `tags:` line inside the
-// page BODY — a code sample, a quoted example — cannot be mistaken for metadata.
-func frontmatterBlock(content string) string {
-	trimmed := strings.TrimLeft(content, "\ufeff \t\r\n")
-	if !strings.HasPrefix(trimmed, "---") {
-		return ""
+// listWikiPages lists a wiki's pages from its index.
+func listWikiPages(ctx context.Context, wikiDir string) ([]WikiPageMeta, error) {
+	db, err := wiki.OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return nil, err
 	}
-	rest := trimmed[3:]
-	if i := strings.Index(rest, "\n"); i >= 0 {
-		rest = rest[i+1:]
-	} else {
-		return ""
-	}
-	if end := strings.Index(rest, "\n---"); end >= 0 {
-		return rest[:end]
-	}
-	return rest
-}
+	defer db.Close()
 
-func parseFMTags(fm string) []string {
-	tags := make([]string, 0)
-	if m := reFMTags.FindStringSubmatch(fm); m != nil {
-		for _, item := range reFMListItem.FindAllStringSubmatch(m[1], -1) {
-			if tag := unquoteFMScalar(item[1]); tag != "" {
-				tags = append(tags, tag)
-			}
-		}
+	chunks, err := db.Chunks(ctx)
+	if err != nil {
+		return nil, err
 	}
-	return tags
-}
+	links, err := db.AllXRefs(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-// unquoteFMScalar undoes the quoting the generator applies to free-text values so that the
-// frontmatter block always parses as YAML.
-func unquoteFMScalar(raw string) string {
-	v := strings.TrimSpace(raw)
-	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
-		if unquoted, err := strconv.Unquote(v); err == nil {
-			return unquoted
-		}
+	pages := make([]WikiPageMeta, 0, len(chunks))
+	for _, c := range chunks {
+		pages = append(pages, chunkPageMeta(c, links[c.Slug]))
 	}
-	return strings.Trim(v, `"'`)
-}
-
-// parseFMSource returns the page's first provenance path, which is what the explorer shows.
-func parseFMSource(fm string) string {
-	m := reFMSources.FindStringSubmatch(fm)
-	if m == nil {
-		return ""
-	}
-	if r := reFMResource.FindStringSubmatch(m[1]); r != nil {
-		return unquoteFMScalar(r[1])
-	}
-	return ""
-}
-
-func listWikiPages(wikiDir string) ([]WikiPageMeta, error) {
-	var pages []WikiPageMeta
-	err := filepath.WalkDir(wikiDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			// Skip cache shard directories — not wiki content.
-			if d.Name() == "shards" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if filepath.Ext(path) != ".md" {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		rel, _ := filepath.Rel(wikiDir, path)
-		meta := extractPageMeta(rel, string(data))
-		pages = append(pages, meta)
-		return nil
-	})
 	sort.Slice(pages, func(i, j int) bool {
-
 		rank := func(p WikiPageMeta) int {
 			switch p.Type {
 			case "community":
@@ -450,67 +337,41 @@ func listWikiPages(wikiDir string) ([]WikiPageMeta, error) {
 		}
 		return pages[i].Path < pages[j].Path
 	})
-	return pages, err
+	return pages, nil
 }
 
-func extractPageMeta(relPath, content string) WikiPageMeta {
-	name := filepath.Base(relPath)
-	nameNoExt := strings.TrimSuffix(name, ".md")
-
-	fm := frontmatterBlock(content)
-
-	// The reserved filenames win over frontmatter: OKF §3.1 gives `index.md` and `log.md`
-	// their meaning by NAME, and §8 says an index carries no frontmatter to read anyway.
-	// For everything else the frontmatter `type` is the answer, because it is the one field
-	// OKF requires (§4.1) and the filename prefixes below are this project's own convention,
-	// which an imported bundle has no reason to follow.
-	pageType := "entity"
-	switch {
-	case name == "index.md":
-		pageType = "index"
-	case name == "log.md":
-		pageType = "log"
-	case strings.HasPrefix(nameNoExt, "community-"):
-		pageType = "community"
-	case strings.HasPrefix(nameNoExt, "god-node-"):
-		pageType = "god-node"
-	default:
-		if m := reFMType.FindStringSubmatch(fm); m != nil {
-			if t := unquoteFMScalar(m[1]); t != "" {
-				pageType = t
-			}
-		}
+// chunkPageMeta projects one indexed page into what the explorer displays.
+//
+// `Path` keeps the `<slug>.md` shape the frontend already uses to address a page, and the page
+// endpoint accepts it with or without the extension.
+func chunkPageMeta(c wiki.WikiChunk, outbound []string) WikiPageMeta {
+	pageType := c.DocType
+	if pageType == "" {
+		pageType = "entity"
 	}
-
-	title := nameNoExt
-	if m := reH1.FindStringSubmatch(content); m != nil {
-		title = strings.TrimSpace(m[1])
+	title := c.Title
+	if title == "" {
+		title = c.Slug
 	}
-
-	tags := parseFMTags(fm)
-
-	links := wiki.FindWikiLinks(content)
-
-	words := len(strings.Fields(content))
-
-	var confidence float64
-	if m := reFMConfidence.FindStringSubmatch(content); m != nil {
-		if v, err := strconv.ParseFloat(m[1], 64); err == nil {
-			confidence = v
-		}
+	tags := []string{}
+	if c.DocType != "" {
+		tags = append(tags, c.DocType)
 	}
-
-	source := parseFMSource(fm)
-
+	if c.Important {
+		tags = append(tags, "important")
+	}
+	if outbound == nil {
+		outbound = []string{}
+	}
 	return WikiPageMeta{
-		Path:       relPath,
+		Path:       c.Slug + ".md",
 		Title:      title,
 		Type:       pageType,
-		WordCount:  words,
-		Links:      links,
+		WordCount:  c.WordCount,
+		Links:      outbound,
 		Tags:       tags,
-		Confidence: confidence,
-		Source:     source,
+		Confidence: c.Confidence,
+		Source:     c.Source,
 	}
 }
 
@@ -521,15 +382,22 @@ func resolveDir(dir string) string {
 	return dir
 }
 
-func countMarkdownFiles(dir string) int {
-	count := 0
-	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, _ error) error {
-		if !d.IsDir() && filepath.Ext(d.Name()) == ".md" {
-			count++
-		}
-		return nil
-	})
-	return count
+// indexedModuleStats reports how many pages a wiki holds and whether it has a sync history.
+//
+// `HasLog` was the existence of `log.md`. The equivalent fact is whether `sync_log` has rows, which
+// is what that page was rendered from.
+func indexedModuleStats(wikiDir string) (pages int, hasLog bool) {
+	ctx := context.Background()
+	db, err := wiki.OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return 0, false
+	}
+	defer db.Close()
+	chunks, _, _, logEntries, err := db.Stats(ctx)
+	if err != nil {
+		return 0, false
+	}
+	return chunks, logEntries > 0
 }
 
 func (h *WikiHandler) handleAISearch(w http.ResponseWriter, r *http.Request) {
@@ -553,34 +421,34 @@ func (h *WikiHandler) handleAISearch(w http.ResponseWriter, r *http.Request) {
 
 	bm25Results := wiki.BM25Search(r.Context(), body.Dir, body.Query, 15)
 
-	pages, err := listWikiPages(body.Dir)
+	db, err := wiki.OpenWikiDB(r.Context(), body.Dir)
+	if err != nil {
+		writeJSON(w, AISearchResponse{Error: "wiki index not found: " + err.Error()})
+		return
+	}
+	defer db.Close()
+	chunks, err := db.Chunks(r.Context())
 	if err != nil {
 		writeJSON(w, AISearchResponse{Error: "failed to list pages: " + err.Error()})
 		return
 	}
 
+	// The catalogue's excerpt is the indexed body, cut at 300 characters — the same 300 as before.
+	// It used to be produced by reading the page file and stripping its frontmatter by hand, which
+	// is the one thing the excerpt never wanted.
+	pages := make([]WikiPageMeta, 0, len(chunks))
 	var catalog strings.Builder
 	catalog.WriteString("=== Wiki Page Catalog ===\n")
-	for _, pg := range pages {
-		absPage := filepath.Join(body.Dir, pg.Path)
-		data, err := os.ReadFile(absPage)
-		if err != nil {
-			continue
-		}
-		content := string(data)
+	for _, c := range chunks {
+		pg := chunkPageMeta(c, nil)
+		pages = append(pages, pg)
 
-		if strings.HasPrefix(content, "---") {
-			if idx := strings.Index(content[3:], "---"); idx > 0 {
-				content = content[idx+6:]
-			}
-		}
-		content = strings.TrimSpace(content)
-
-		if len(content) > 300 {
-			content = content[:300] + "…"
+		excerpt := strings.TrimSpace(c.Body)
+		if len(excerpt) > 300 {
+			excerpt = excerpt[:300] + "…"
 		}
 		fmt.Fprintf(&catalog, "\n--- Page: %s (type: %s, path: %s) ---\n%s\n",
-			pg.Title, pg.Type, pg.Path, content)
+			pg.Title, pg.Type, pg.Path, excerpt)
 	}
 
 	if len(bm25Results) > 0 {

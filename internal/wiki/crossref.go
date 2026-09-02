@@ -1,8 +1,8 @@
 package wiki
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -20,79 +20,69 @@ type CrossRefGraph struct {
 }
 
 type CrossRefResult struct {
-	TotalPages     int
-	TotalLinks     int
+	TotalPages  int
+	TotalLinks  int
+	OrphanPages int
+	BrokenLinks int
+
+	// BacklinksAdded counts the pages the graph gives at least one inbound reference to.
+	//
+	// It used to count FILE WRITES: a pass appended a `## Backlinks` section into each page and
+	// this was how many it rewrote. There are no pages to rewrite, and the `xrefs` table already
+	// holds both directions of every edge — `FindXRefs` answers inbound without anything having
+	// been written into a body. The name is kept because `sync_log.backlinks_added` is the column
+	// it feeds and the quantity is the same one a reader cared about: how much of the wiki is
+	// reachable from somewhere else.
 	BacklinksAdded int
-	OrphanPages    int
-	BrokenLinks    int
 }
 
 var reXRefWikiLink = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 var reXRefMdLink = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 
-var reWikiH1 = regexp.MustCompile(`(?m)^#\s+(.+)$`)
+// PageEdges is one page's identity and the pages it points at, as the producer already knows them.
+//
+// The generator resolves a document's cross-references while it is compiling it — autolinks
+// included — and writes exactly this set to the `xrefs` table. Handing it here is what replaced
+// re-reading every rendered page and re-extracting the links with two regexes: the same edges,
+// derived once, by the pass that owns them.
+type PageEdges struct {
+	Slug    string
+	Title   string
+	Targets []string
+}
 
-func BuildCrossRefGraph(wikiDir string) (*CrossRefGraph, error) {
+// BuildCrossRefGraphFromRefs assembles the graph from resolved edges.
+//
+// Targets are slugs already: the caller resolved them, because the caller is the only side that
+// knows which title a link meant. Self-references and duplicates are dropped here rather than at
+// every call site, and a target that names no page is KEPT — that is what makes it a broken link
+// instead of a missing one.
+func BuildCrossRefGraphFromRefs(pages []PageEdges) *CrossRefGraph {
 	graph := &CrossRefGraph{
 		Outbound: make(map[string][]string),
 		Inbound:  make(map[string][]string),
-		AllPages: make(map[string]bool),
-		Titles:   make(map[string]string),
+		AllPages: make(map[string]bool, len(pages)),
+		Titles:   make(map[string]string, len(pages)),
 	}
 
-	entries, err := os.ReadDir(wikiDir)
-	if err != nil {
-		return nil, fmt.Errorf("reading wiki dir: %w", err)
-	}
-
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
+	for _, p := range pages {
+		if p.Slug == "" {
 			continue
 		}
-		slug := strings.TrimSuffix(e.Name(), ".md")
-		graph.AllPages[slug] = true
-
-		data, err := os.ReadFile(filepath.Join(wikiDir, e.Name()))
-		if err != nil {
-			continue
-		}
-		content := string(data)
-
-		if m := reWikiH1.FindStringSubmatch(content); m != nil {
-			graph.Titles[slug] = strings.TrimSpace(m[1])
+		graph.AllPages[p.Slug] = true
+		if p.Title != "" {
+			graph.Titles[p.Slug] = p.Title
 		} else {
-			graph.Titles[slug] = slug
+			graph.Titles[p.Slug] = p.Slug
 		}
 
-		contentNoBacklinks := stripBacklinksSection(content)
-		matchesWiki := reXRefWikiLink.FindAllStringSubmatch(contentNoBacklinks, -1)
-		matchesMd := reXRefMdLink.FindAllStringSubmatch(contentNoBacklinks, -1)
-		seen := make(map[string]bool)
-
-		for _, m := range matchesWiki {
-			target := m[1]
-			if !isBundlePageLink(target) {
+		seen := make(map[string]bool, len(p.Targets))
+		for _, target := range p.Targets {
+			if target == "" || target == p.Slug || seen[target] {
 				continue
 			}
-			resolvedTarget := ResolveSlug(target)
-			if resolvedTarget == "" || resolvedTarget == slug || seen[resolvedTarget] {
-				continue
-			}
-			seen[resolvedTarget] = true
-			graph.Outbound[slug] = append(graph.Outbound[slug], resolvedTarget)
-		}
-
-		for _, m := range matchesMd {
-			rawTarget := m[2]
-			if !isBundlePageLink(rawTarget) {
-				continue
-			}
-			resolvedTarget := ResolveSlug(rawTarget)
-			if resolvedTarget == "" || resolvedTarget == slug || seen[resolvedTarget] {
-				continue
-			}
-			seen[resolvedTarget] = true
-			graph.Outbound[slug] = append(graph.Outbound[slug], resolvedTarget)
+			seen[target] = true
+			graph.Outbound[p.Slug] = append(graph.Outbound[p.Slug], target)
 		}
 	}
 
@@ -101,35 +91,57 @@ func BuildCrossRefGraph(wikiDir string) (*CrossRefGraph, error) {
 			graph.Inbound[target] = append(graph.Inbound[target], source)
 		}
 	}
-
 	for k := range graph.Outbound {
 		sort.Strings(graph.Outbound[k])
 	}
 	for k := range graph.Inbound {
 		sort.Strings(graph.Inbound[k])
 	}
-
-	return graph, nil
+	return graph
 }
 
-func InjectBacklinks(wikiDir string, graph *CrossRefGraph) (*CrossRefResult, error) {
-	result := &CrossRefResult{
-		TotalPages: len(graph.AllPages),
+// BuildCrossRefGraphFromIndex assembles the graph for a caller that holds only a wiki directory.
+//
+// The pages come from `chunks` and the edges from `xrefs`, which is where the producer wrote them.
+// Lint is the reason this exists: it audits a compiled wiki it did not build, so it has no
+// in-memory edge set to be handed.
+func BuildCrossRefGraphFromIndex(ctx context.Context, wikiDir string) (*CrossRefGraph, error) {
+	db, err := OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return nil, err
 	}
+	defer func() { _ = db.Close() }()
+
+	titles, err := db.PageTitles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	edges, err := db.AllXRefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	pages := make([]PageEdges, 0, len(titles))
+	for slug, title := range titles {
+		pages = append(pages, PageEdges{Slug: slug, Title: title, Targets: edges[slug]})
+	}
+	sort.Slice(pages, func(i, j int) bool { return pages[i].Slug < pages[j].Slug })
+	return BuildCrossRefGraphFromRefs(pages), nil
+}
+
+// CrossRefStats reports what the graph says about the wiki's connectedness.
+//
+// It replaced `InjectBacklinks`, which computed exactly these four numbers and then, as a side
+// effect, appended a `## Backlinks` section into every page with an inbound reference. The numbers
+// were the useful half; the writing was the duplication this work removes.
+func CrossRefStats(graph *CrossRefGraph) *CrossRefResult {
+	if graph == nil {
+		return &CrossRefResult{}
+	}
+	result := &CrossRefResult{TotalPages: len(graph.AllPages)}
 
 	for _, targets := range graph.Outbound {
 		result.TotalLinks += len(targets)
-	}
-
-	for page := range graph.AllPages {
-		hasInbound := len(graph.Inbound[page]) > 0
-		hasOutbound := len(graph.Outbound[page]) > 0
-		if !hasInbound && !hasOutbound {
-			result.OrphanPages++
-		}
-	}
-
-	for _, targets := range graph.Outbound {
 		for _, target := range targets {
 			if !graph.AllPages[target] {
 				result.BrokenLinks++
@@ -138,29 +150,16 @@ func InjectBacklinks(wikiDir string, graph *CrossRefGraph) (*CrossRefResult, err
 	}
 
 	for page := range graph.AllPages {
-		inbound := graph.Inbound[page]
-		if len(inbound) == 0 {
-			continue
-		}
-
-		filePath := filepath.Join(wikiDir, page+".md")
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			continue
-		}
-
-		content := string(data)
-		newContent := injectBacklinksSection(content, inbound, graph.Titles)
-
-		if newContent != content {
-			if err := os.WriteFile(filePath, []byte(newContent), 0o644); err != nil {
-				continue
-			}
+		if len(graph.Inbound[page]) > 0 {
 			result.BacklinksAdded++
+			continue
+		}
+		if len(graph.Outbound[page]) == 0 {
+			result.OrphanPages++
 		}
 	}
 
-	return result, nil
+	return result
 }
 
 func OrphanPages(graph *CrossRefGraph) []string {
@@ -339,6 +338,12 @@ func ResolveSlug(rawLink string) string {
 	return SafeSlug(target)
 }
 
+// The backlinks section belongs to EXPORT now, not to compilation.
+//
+// It used to be appended into every compiled page by a pass that read the page, rewrote it, and
+// counted the writes. The `xrefs` table holds both directions of every edge, so nothing needs a
+// section in a body to answer "what links here". What still wants one is a markdown tree handed to
+// Obsidian, which has no index to query — see ExportMarkdown.
 const backlinksHeader = "## Backlinks"
 const backlinksSeparator = "\n" + backlinksHeader + "\n"
 

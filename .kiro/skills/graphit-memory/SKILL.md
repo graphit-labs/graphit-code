@@ -104,8 +104,8 @@ Two things to know:
 |---|---|---|
 | Model/native "memory" or recall | Call `graphit_memory_search`, then read the wiki page | Native memory is ephemeral and per-session; the wiki survives across sessions and agents |
 | Remembering facts "in your head" | Call `graphit_memory_insert` to persist | Your context is wiped between sessions — unpersisted knowledge is lost |
-| `grep`/ripgrep over memory `.md` files | Call `graphit_memory_search` | FTS5-ranked over the compiled wiki (~200 tokens) vs scanning raw files |
-| Reading a memory `index.md` directly | Call `graphit_memory_search` or `graphit_memory_list` | There is no memory directory in the project to read; the wiki is global, compiled and ranked |
+| `grep`/ripgrep over memory files | Call `graphit_memory_search` | BM25-ranked over the compiled wiki (~200 tokens) vs scanning anything |
+| Reading every memory to find one | Call `graphit_memory_search` or `graphit_memory_list` | Search ranks and answers with titles; listing reads the store. Opening pages one by one is the cost both exist to avoid |
 | Opening a memory page with your file-read tool | Call `graphit_wiki_source` with `wiki: "memory"` | Takes the project as a parameter, so it reaches memories outside your workspace — and slices a long memory down to the part you asked for |
 
 ### 🔒 When you MUST use the memory MCP tools (MANDATORY — no exceptions)
@@ -217,9 +217,10 @@ Default type when `type` is omitted: `fact`.
 
 ## 📖 How to Retrieve Memories
 
-**ALWAYS use MCP tools — NEVER read index.md files directly.**
-The wiki database is compiled, BM25-indexed, and pre-optimized for retrieval.
-Reading raw .md files is slower, wastes tokens, and bypasses ranking.
+**ALWAYS use the MCP tools.** The wiki is compiled, BM25-indexed and pre-optimized for
+retrieval, and it is the only thing there is to read: a memory is a row, not a file you
+could open instead. Searching costs a fraction of what walking the store would, and it is
+ranked — which walking never is.
 
 ### 🔒 There is no memory directory in the project
 
@@ -242,12 +243,11 @@ sibling project's memories.
 
 **Scope parameter:** `scope: "project"` (default) = project-specific memories. `scope: "user"` = personal cross-project memories.
 
-**What `graphit_memory_search` actually searches:** the **compiled memory wiki**, through SQLite
-FTS5, falling back to an in-memory BM25 index over the wiki when the FTS database is not
-there. It does **not** scan your raw `.md` files, which is the whole reason it is ranked and
-cheap — and the reason a memory written seconds ago may not surface yet: it is in the store,
-but the wiki has not recompiled. When you know something was just written and search misses
-it, that is the explanation; `graphit_memory_index` forces the rebuild.
+**What `graphit_memory_search` actually searches:** the **compiled memory wiki** — its BM25 index,
+and nothing else. There is no second path: it does **not** scan raw files, which is the whole
+reason it is ranked and cheap — and the reason a memory written seconds ago may not surface
+yet: it is written, but the wiki has not recompiled. When you know something was just written
+and search misses it, that is the explanation; `graphit_memory_index` forces the rebuild.
 
 | What you need | MCP tool | Why |
 |---|---|---|

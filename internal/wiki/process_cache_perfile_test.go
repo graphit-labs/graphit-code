@@ -268,16 +268,28 @@ func TestStorePreservesTheSlugAcrossAContentChange(t *testing.T) {
 	}
 }
 
-// Only the database is derived. The pages and the shards are what a consumer needs.
-func TestIsDerivedFileNamesOnlyTheDatabase(t *testing.T) {
+// Only the index is derived. The shards are what a consumer needs, because the index is rebuilt
+// FROM them — so anything shard-shaped has to survive the filter.
+func TestIsDerivedFileNamesOnlyTheIndex(t *testing.T) {
 	t.Parallel()
-	for _, derived := range []string{"wiki.db", "wiki.db-wal", "wiki.db-shm", "WIKI.DB"} {
+	for _, derived := range []string{
+		WikiIndexDirName,
+		WikiIndexDirName + "-scratch",
+		strings.ToUpper(WikiIndexDirName),
+		filepath.Join("nested", WikiIndexDirName),
+		// Anything INSIDE the index directory. A base-only check answers false for every one
+		// of these, which published the whole index — see IsDerivedFile. Callers walk
+		// recursively and ask per entry, so these are the paths that actually reach it.
+		filepath.Join(WikiIndexDirName, "chunks.lance", "data", "part_0.lance"),
+		filepath.Join(WikiIndexDirName, "chunks.lance", "_transactions", "0-abc.txn"),
+		filepath.Join(WikiIndexDirName, "chunks.lance", "_versions", "1.manifest"),
+		WikiIndexDirName + "/chunks.lance/_indices/uuid/part_0_invert.lance",
+	} {
 		if !IsDerivedFile(derived) {
 			t.Errorf("IsDerivedFile(%q) = false, want true", derived)
 		}
 	}
 	for _, kept := range []string{
-		"index.md", "log.md", "Some_Page.md",
 		filepath.Join("shards", "docs", "a.md.wiki.json"),
 		filepath.Join("shards", "docs", "a.md.emb.json"),
 		filepath.Join("shards", "docs", "a.md.meta.json"),

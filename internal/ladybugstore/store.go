@@ -90,18 +90,6 @@ func (s *Store) Close() error {
 	return nil
 }
 
-// Checkpoint flushes the write-ahead log into the store file.
-func (s *Store) Checkpoint() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.conn == nil {
-		return
-	}
-	if res, err := s.conn.Query("CHECKPOINT"); err == nil {
-		res.Close()
-	}
-}
-
 // Exec runs a statement and discards its result.
 func (s *Store) Exec(cypher string, params map[string]any) error {
 	res, err := s.run(cypher, params)

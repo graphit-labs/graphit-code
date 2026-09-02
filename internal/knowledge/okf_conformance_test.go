@@ -12,13 +12,19 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// OKF v0.2 §11 states conformance as three checkable properties. This is that check, run
-// against a wiki the generator actually produced rather than against a hand-written sample.
+// OKF v0.2 §11 states conformance as three checkable properties. This is that check, run against
+// markdown the pipeline actually produced rather than against a hand-written sample.
 //
-// It exists because the previous OKF pass was verified by updating the tests to the new
-// output — which proves the output did not change unexpectedly, and proves nothing about
-// the spec. Every assertion below cites the section it enforces.
-func TestGeneratedWikiConformsToOKF(t *testing.T) {
+// It exists because the previous OKF pass was verified by updating the tests to the new output —
+// which proves the output did not change unexpectedly, and proves nothing about the spec. Every
+// assertion below cites the section it enforces.
+//
+// WHAT CHANGED: the generator no longer writes markdown, so the subject is the EXPORT. The
+// conformance is the same conformance and matters for the same reason — the exported tree is what an
+// Obsidian vault or a git repository receives — and it is now asserted against a renderer that
+// marshals its frontmatter with a YAML encoder instead of assembling it with Fprintf, which is what
+// the `Storage: where it lives` case below is really testing.
+func TestExportedWikiConformsToOKF(t *testing.T) {
 	src := t.TempDir()
 	docs := filepath.Join(src, "docs")
 	if err := os.MkdirAll(filepath.Join(docs, "architecture"), 0o755); err != nil {
@@ -36,8 +42,13 @@ func TestGeneratedWikiConformsToOKF(t *testing.T) {
 	write("architecture/storage.md", "---\ntitle: \"Storage: where it lives\"\ndescription: >\n  Where every artifact lives\n---\n\n# Storage\n\nSee [pipeline.go](../../internal/ast/pipeline.go) and [Routing](routing.md).\n")
 	write("architecture/routing.md", "# Routing\n\nRoutes.\n")
 
+	wikiDir := t.TempDir()
+	if _, err := GenerateKnowledgeWiki(context.Background(), src, wikiDir, nil, WikiScope{}); err != nil {
+		t.Fatal(err)
+	}
+
 	out := t.TempDir()
-	if _, err := GenerateKnowledgeWiki(context.Background(), src, out, nil, WikiScope{}); err != nil {
+	if _, err := wiki.ExportMarkdown(context.Background(), wikiDir, out, "knowledge"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -154,11 +165,11 @@ func TestGeneratedPagesDoNotCrossReferenceRepositoryPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out := t.TempDir()
-	if _, err := GenerateKnowledgeWiki(context.Background(), src, out, nil, WikiScope{}); err != nil {
+	wikiDir := t.TempDir()
+	if _, err := GenerateKnowledgeWiki(context.Background(), src, wikiDir, nil, WikiScope{}); err != nil {
 		t.Fatal(err)
 	}
-	graph, err := wiki.BuildCrossRefGraph(out)
+	graph, err := wiki.BuildCrossRefGraphFromIndex(context.Background(), wikiDir)
 	if err != nil {
 		t.Fatal(err)
 	}

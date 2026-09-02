@@ -29,6 +29,12 @@ type Store struct {
 	conn   contracts.IConnection
 	uri    string
 	remote bool
+	// readOnly is what every write guard tests, and it is NOT the same as remote.
+	//
+	// It used to be: the guards read `remote` directly, so object storage meant "somebody else's
+	// published artifact" and nothing could write to `s3://`. A memory scope whose table lives
+	// in the bucket needs the second half of that to be a choice — see Config.Writable.
+	readOnly bool
 
 	mu     sync.Mutex
 	tables map[string]*Table
@@ -61,14 +67,27 @@ func Open(ctx context.Context, cfg Config) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lancestore: connecting to %s: %w", cfg.URI, err)
 	}
-	return &Store{conn: conn, uri: cfg.URI, remote: cfg.IsRemote(), tables: map[string]*Table{}}, nil
+	return &Store{
+		conn:     conn,
+		uri:      cfg.URI,
+		remote:   cfg.IsRemote(),
+		readOnly: cfg.ReadOnly(),
+		tables:   map[string]*Table{},
+	}, nil
 }
 
 // URI is where this store lives.
 func (s *Store) URI() string { return s.uri }
 
-// Remote reports whether this store is a published version read over the network.
+// Remote reports whether this store lives in object storage rather than in a directory.
+//
+// It does NOT mean read-only, and the difference is load-bearing: a maintenance pass skips a
+// remote store because pruning somebody else's published version is not this process's business,
+// while a memory scope opened writable is remote AND writable. Use ReadOnly for permission.
 func (s *Store) Remote() bool { return s.remote }
+
+// ReadOnly reports whether this store refuses writes.
+func (s *Store) ReadOnly() bool { return s.readOnly }
 
 // Close releases the connection and every open table.
 func (s *Store) Close() error {
@@ -102,7 +121,7 @@ func (s *Store) TableNames(ctx context.Context) ([]string, error) {
 // nothing. Returning an error here made the rebuild fail on its very first run with
 // `Table 'files' was not found`, which reads like corruption rather than like an empty store.
 func (s *Store) DropTable(ctx context.Context, name string) error {
-	if s.remote {
+	if s.readOnly {
 		return ErrReadOnly
 	}
 	if err := s.conn.DropTable(ctx, name); err != nil && !isMissingTable(err) {
@@ -119,7 +138,7 @@ func (s *Store) DropTable(ctx context.Context, name string) error {
 // local-write against the target URI, which is why this guard lives on the store and not on the
 // URI scheme.
 func (s *Store) CreateTable(ctx context.Context, name string, schema Schema) (*Table, error) {
-	if s.remote {
+	if s.readOnly {
 		return nil, ErrReadOnly
 	}
 	if err := schema.Validate(); err != nil {
@@ -223,7 +242,7 @@ func (t *Table) Count(ctx context.Context) (int64, error) {
 
 // Append adds rows. It does NOT replace anything — see Upsert for that.
 func (t *Table) Append(ctx context.Context, rows []Row) error {
-	if t.store.remote {
+	if t.store.readOnly {
 		return ErrReadOnly
 	}
 	if len(rows) == 0 {
@@ -235,15 +254,21 @@ func (t *Table) Append(ctx context.Context, rows []Row) error {
 	}
 	defer rec.Release()
 
-	if err := t.tbl.Add(ctx, rec, nil); err != nil {
-		return fmt.Errorf("lancestore: appending %d rows to %s: %w", len(rows), t.name, err)
+	// The retry is around the COMMIT, and the record is built once outside it: rebuilding the
+	// Arrow batch per attempt would allocate the whole payload again for a conflict that is about
+	// the manifest, not the data.
+	what := fmt.Sprintf("appending %d rows to %s", len(rows), t.name)
+	if err := withCommitRetry(ctx, what,
+		func() error { return t.tbl.Add(ctx, rec, nil) },
+		func() error { return t.refreshToLatest(ctx) }); err != nil {
+		return fmt.Errorf("lancestore: %s: %w", what, err)
 	}
 	return nil
 }
 
 // DeleteWhere removes every row matching a SQL predicate.
 func (t *Table) DeleteWhere(ctx context.Context, filter string) error {
-	if t.store.remote {
+	if t.store.readOnly {
 		return ErrReadOnly
 	}
 	if strings.TrimSpace(filter) == "" {
@@ -251,8 +276,11 @@ func (t *Table) DeleteWhere(ctx context.Context, filter string) error {
 		// accident means to delete nothing, and emptying the index silently is unrecoverable.
 		return errors.New("lancestore: DeleteWhere needs a filter; use DeleteWhere(\"true\") to mean everything")
 	}
-	if err := t.tbl.Delete(ctx, filter); err != nil {
-		return fmt.Errorf("lancestore: deleting from %s where %s: %w", t.name, filter, err)
+	what := fmt.Sprintf("deleting from %s where %s", t.name, filter)
+	if err := withCommitRetry(ctx, what,
+		func() error { return t.tbl.Delete(ctx, filter) },
+		func() error { return t.refreshToLatest(ctx) }); err != nil {
+		return fmt.Errorf("lancestore: %s: %w", what, err)
 	}
 	return nil
 }
@@ -263,7 +291,7 @@ func (t *Table) DeleteWhere(ctx context.Context, filter string) error {
 // arbitrary text — a path with an apostrophe in it would otherwise end the literal and change
 // the predicate.
 func (t *Table) DeleteByKey(ctx context.Context, keyColumn string, keys []string) error {
-	if t.store.remote {
+	if t.store.readOnly {
 		return ErrReadOnly
 	}
 	if len(keys) == 0 {
@@ -278,8 +306,11 @@ func (t *Table) DeleteByKey(ctx context.Context, keyColumn string, keys []string
 			quoted = append(quoted, sqlQuote(k))
 		}
 		filter := fmt.Sprintf("%s IN (%s)", quoteIdent(keyColumn), strings.Join(quoted, ", "))
-		if err := t.tbl.Delete(ctx, filter); err != nil {
-			return fmt.Errorf("lancestore: deleting %d keys from %s: %w", len(batch), t.name, err)
+		what := fmt.Sprintf("deleting %d keys from %s", len(batch), t.name)
+		if err := withCommitRetry(ctx, what,
+			func() error { return t.tbl.Delete(ctx, filter) },
+			func() error { return t.refreshToLatest(ctx) }); err != nil {
+			return fmt.Errorf("lancestore: %s: %w", what, err)
 		}
 	}
 	return nil
@@ -292,7 +323,7 @@ func (t *Table) DeleteByKey(ctx context.Context, keyColumn string, keys []string
 // behind. The window between the two is why this is not safe to run concurrently against the
 // same keys, which the incremental indexer guarantees by being single-writer.
 func (t *Table) Upsert(ctx context.Context, keyColumn string, rows []Row) error {
-	if t.store.remote {
+	if t.store.readOnly {
 		return ErrReadOnly
 	}
 	if len(rows) == 0 {
@@ -334,13 +365,15 @@ const deleteBatch = 256
 // The SQLite index had no equivalent choice: it maintained its FTS tables with triggers and paid
 // per row, on the write.
 func (t *Table) FoldNewRowsIntoIndexes(ctx context.Context) error {
-	if t.store.remote {
+	if t.store.readOnly {
 		return ErrReadOnly
 	}
-	if _, err := t.tbl.OptimizeWithAction(ctx, contracts.OptimizeAction{
-		Kind: contracts.OptimizeIndex,
-	}); err != nil {
-		return fmt.Errorf("lancestore: folding new rows into %s's indexes: %w", t.name, err)
+	what := fmt.Sprintf("folding new rows into %s's indexes", t.name)
+	if err := withCommitRetry(ctx, what, func() error {
+		_, err := t.tbl.OptimizeWithAction(ctx, contracts.OptimizeAction{Kind: contracts.OptimizeIndex})
+		return err
+	}, func() error { return t.refreshToLatest(ctx) }); err != nil {
+		return fmt.Errorf("lancestore: %s: %w", what, err)
 	}
 	return nil
 }
@@ -349,19 +382,30 @@ func (t *Table) FoldNewRowsIntoIndexes(ctx context.Context) error {
 // deleted rows. Separate from FoldNewRowsIntoIndexes because it is about layout rather than
 // searchability: skipping it makes reads slower, skipping the other makes them WRONG.
 func (t *Table) Compact(ctx context.Context) (CompactionResult, error) {
-	if t.store.remote {
+	if t.store.readOnly {
 		return CompactionResult{}, ErrReadOnly
 	}
 	materialize := true
-	stats, err := t.tbl.OptimizeWithAction(ctx, contracts.OptimizeAction{
-		Kind: contracts.OptimizeCompact,
-		// Without this, a deleted row leaves a tombstone and its bytes stay in the
-		// fragment. An incremental deletes by path on every change, so the tombstones are
-		// not an edge case here — they are the steady state.
-		Compaction: contracts.CompactionParams{MaterializeDeletions: &materialize},
-	})
+	// THIS IS THE OPERATION THAT ACTUALLY RACES. Measured on MinIO: four writers appending,
+	// deleting and upserting onto one remote table produced zero conflicts, while three
+	// compacting it produced six — `This Rewrite transaction was preempted by concurrent
+	// transaction Rewrite`. Two processes maintaining the same table is not exotic here: the
+	// daemon does it per project, and a shared memory scope would have one per unit.
+	var stats *contracts.OptimizeStats
+	what := fmt.Sprintf("compacting %s", t.name)
+	err := withCommitRetry(ctx, what, func() error {
+		var optErr error
+		stats, optErr = t.tbl.OptimizeWithAction(ctx, contracts.OptimizeAction{
+			Kind: contracts.OptimizeCompact,
+			// Without this, a deleted row leaves a tombstone and its bytes stay in the
+			// fragment. An incremental deletes by path on every change, so the tombstones are
+			// not an edge case here — they are the steady state.
+			Compaction: contracts.CompactionParams{MaterializeDeletions: &materialize},
+		})
+		return optErr
+	}, func() error { return t.refreshToLatest(ctx) })
 	if err != nil {
-		return CompactionResult{}, fmt.Errorf("lancestore: compacting %s: %w", t.name, err)
+		return CompactionResult{}, fmt.Errorf("lancestore: %s: %w", what, err)
 	}
 	var out CompactionResult
 	if stats != nil && stats.Compaction != nil {
@@ -398,19 +442,25 @@ func derefInt64(p *int64) int64 {
 // versions plainly exist. One second reclaimed 126 versions and 97% of a table's bytes in the
 // same fixture. Anything below a second is not a small window, it is no window.
 func (t *Table) PruneVersions(ctx context.Context, olderThan time.Duration) (PruneResult, error) {
-	if t.store.remote {
+	if t.store.readOnly {
 		return PruneResult{}, ErrReadOnly
 	}
 	if olderThan <= 0 {
 		return PruneResult{}, fmt.Errorf("lancestore: pruning %s: olderThan must be positive, got %s", t.name, olderThan)
 	}
 	deleteUnverified := true
-	stats, err := t.tbl.OptimizeWithAction(ctx, contracts.OptimizeAction{
-		Kind:  contracts.OptimizePrune,
-		Prune: contracts.PruneParams{OlderThan: olderThan, DeleteUnverified: &deleteUnverified},
-	})
+	var stats *contracts.OptimizeStats
+	what := fmt.Sprintf("pruning %s", t.name)
+	err := withCommitRetry(ctx, what, func() error {
+		var optErr error
+		stats, optErr = t.tbl.OptimizeWithAction(ctx, contracts.OptimizeAction{
+			Kind:  contracts.OptimizePrune,
+			Prune: contracts.PruneParams{OlderThan: olderThan, DeleteUnverified: &deleteUnverified},
+		})
+		return optErr
+	}, func() error { return t.refreshToLatest(ctx) })
 	if err != nil {
-		return PruneResult{}, fmt.Errorf("lancestore: pruning %s: %w", t.name, err)
+		return PruneResult{}, fmt.Errorf("lancestore: %s: %w", what, err)
 	}
 	var out PruneResult
 	if stats != nil && stats.Prune != nil {
@@ -427,7 +477,7 @@ func (t *Table) PruneVersions(ctx context.Context, olderThan time.Duration) (Pru
 // A full-text query needs IndexInvertedText on its column and returns NOTHING without one, so
 // this is not an optimisation step that can be deferred.
 func (t *Table) EnsureIndexes(ctx context.Context, indexes ...Index) error {
-	if t.store.remote {
+	if t.store.readOnly {
 		return ErrReadOnly
 	}
 	existing := map[string]bool{}
@@ -464,7 +514,7 @@ func (t *Table) EnsureIndexes(ctx context.Context, indexes ...Index) error {
 
 // DropIndex removes one index when it exists.
 func (t *Table) DropIndex(ctx context.Context, idx Index) error {
-	if t.store.remote {
+	if t.store.readOnly {
 		return ErrReadOnly
 	}
 	name := indexName(idx)

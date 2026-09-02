@@ -3,8 +3,6 @@ package wiki
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -27,14 +25,18 @@ func (m *mockAIClient) Complete(_ context.Context, _, _ string) (string, error) 
 	return r, nil
 }
 
+// A compiled index, not a directory of pages — including the catalogue, which used to be the
+// `index.md` fixture and is now a Browse over these same rows.
 func setupWikiDir(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	writeFile(t, dir, "index.md", "# Wiki Index\n\nPages:\n- [[Architecture]]\n- [[Setup]]\n- [[API_Reference]]")
-	writeFile(t, dir, "Architecture.md", "# Architecture\nThe system uses microservices architecture with event-driven communication.")
-	writeFile(t, dir, "Setup.md", "# Setup\nInstall dependencies using go mod tidy. Configure the database.")
-	writeFile(t, dir, "API_Reference.md", "# API Reference\nThe API exposes REST endpoints for CRUD operations.")
-	return dir
+	return indexedWiki(t, []WikiChunk{
+		{Slug: "Architecture", Title: "Architecture", DocType: "architecture", ClusterID: -1,
+			Body: "The system uses microservices architecture with event-driven communication.", WordCount: 9},
+		{Slug: "Setup", Title: "Setup", DocType: "guide", ClusterID: -1,
+			Body: "Install dependencies using go mod tidy. Configure the database.", WordCount: 9},
+		{Slug: "API_Reference", Title: "API Reference", DocType: "api", ClusterID: -1,
+			Body: "The API exposes REST endpoints for CRUD operations.", WordCount: 8},
+	})
 }
 
 func TestSearchWiki_DirectAnswer(t *testing.T) {
@@ -107,7 +109,7 @@ func TestSearchWiki_MissingIndex(t *testing.T) {
 		MaxTurns: 5,
 	})
 	if err == nil {
-		t.Error("expected error for missing index.md")
+		t.Error("expected error for a wiki with no compiled index")
 	}
 }
 
@@ -393,65 +395,6 @@ func TestParsePageList(t *testing.T) {
 	}
 }
 
-func TestLoadWikiPage(t *testing.T) {
-	t.Parallel()
-
-	t.Run("existing_page", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "Architecture.md", "# Architecture\nContent here.")
-
-		content, slug := loadWikiPage(dir, "Architecture")
-		if content == "" {
-			t.Error("expected content for existing page")
-		}
-		if slug != "Architecture" {
-			t.Errorf("slug = %q, want 'Architecture'", slug)
-		}
-	})
-
-	t.Run("nonexistent_page", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-
-		content, slug := loadWikiPage(dir, "nonexistent_xyz")
-		if content != "" {
-			t.Errorf("expected empty content for nonexistent page, got %q", content)
-		}
-		if slug != "" {
-			t.Errorf("expected empty slug, got %q", slug)
-		}
-	})
-
-	t.Run("safe_filename_fallback", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "Hello_World.md", "# Hello World\nContent.")
-
-		content, slug := loadWikiPage(dir, "Hello World")
-		if content == "" {
-			t.Error("expected SafeFilename fallback to find the page")
-		}
-		if slug != "Hello_World" {
-			t.Errorf("slug = %q, want 'Hello_World'", slug)
-		}
-	})
-
-	t.Run("fuzzy_match", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "Architecture_Overview.md", "# Architecture Overview\nContent.")
-
-		content, slug := loadWikiPage(dir, "architectur_overview")
-		if content == "" {
-			t.Error("expected fuzzy match to find similar page")
-		}
-		if slug == "" {
-			t.Error("expected non-empty slug from fuzzy match")
-		}
-	})
-}
-
 func TestCleanForFuzzy(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -538,74 +481,6 @@ func TestTrigramSimilarity(t *testing.T) {
 	}
 }
 
-func TestFindBestFuzzyMatch(t *testing.T) {
-	t.Parallel()
-
-	t.Run("finds_similar", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "Architecture_Overview.md", "content")
-		writeFile(t, dir, "Setup_Guide.md", "content")
-
-		match := findBestFuzzyMatch(dir, "Architecture_Overviw")
-		if match != "Architecture_Overview" {
-			t.Errorf("match = %q, want 'Architecture_Overview'", match)
-		}
-	})
-
-	t.Run("no_match_too_different", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "alpha.md", "content")
-
-		match := findBestFuzzyMatch(dir, "zzzzxyzzy")
-		if match != "" {
-			t.Errorf("expected no match, got %q", match)
-		}
-	})
-
-	t.Run("empty_target", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "page.md", "content")
-
-		match := findBestFuzzyMatch(dir, "")
-		if match != "" {
-			t.Errorf("expected empty for empty target, got %q", match)
-		}
-	})
-
-	t.Run("empty_dir", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-
-		match := findBestFuzzyMatch(dir, "something")
-		if match != "" {
-			t.Errorf("expected empty for empty dir, got %q", match)
-		}
-	})
-
-	t.Run("skips_index_and_log", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		writeFile(t, dir, "index.md", "content")
-		writeFile(t, dir, "log.md", "content")
-
-		match := findBestFuzzyMatch(dir, "index")
-		if match != "" {
-			t.Errorf("expected to skip index, got %q", match)
-		}
-	})
-
-	t.Run("invalid_dir", func(t *testing.T) {
-		t.Parallel()
-		match := findBestFuzzyMatch(filepath.Join(t.TempDir(), "nonexistent"), "target")
-		if match != "" {
-			t.Errorf("expected empty for invalid dir, got %q", match)
-		}
-	})
-}
-
 func TestSearchWiki_FinalSynthesisError(t *testing.T) {
 	t.Parallel()
 	dir := setupWikiDir(t)
@@ -672,29 +547,5 @@ func TestExtractSnippet_EndBounds(t *testing.T) {
 	snippet := extractSnippet(content, "end")
 	if snippet == "" {
 		t.Error("expected non-empty snippet")
-	}
-}
-
-func TestLoadWikiPage_InvalidDir(t *testing.T) {
-	t.Parallel()
-	content, slug := loadWikiPage(filepath.Join(t.TempDir(), "noexist"), "page")
-	if content != "" || slug != "" {
-		t.Error("expected empty results for invalid dir")
-	}
-}
-
-func TestLoadWikiPage_Subdirectory(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	subdir := filepath.Join(dir, "subdir")
-	if err := os.MkdirAll(subdir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Subdirectories should be skipped by fuzzy match (only .md files)
-	writeFile(t, dir, "page.md", "# Page\nContent.")
-
-	content, _ := loadWikiPage(dir, "page")
-	if content == "" {
-		t.Error("expected to find page.md")
 	}
 }

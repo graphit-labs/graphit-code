@@ -1,30 +1,31 @@
 package wiki
 
 import (
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 )
 
-func TestBuildCrossRefGraph(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	writeFile(t, dir, "alpha.md", "# Alpha\nSee [[beta]] and [[gamma]].")
-	writeFile(t, dir, "beta.md", "# Beta\nReferences [[alpha]].")
-	writeFile(t, dir, "gamma.md", "# Gamma\nStandalone page.")
+// The graph is built from RESOLVED EDGES, so these tests hand it edges instead of writing page
+// files and letting two regexes rediscover them. The extraction those regexes do is still tested —
+// TestFindWikiLinks below — it just is not how the graph is assembled any more.
 
-	graph, err := BuildCrossRefGraph(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+func refs(slug, title string, targets ...string) PageEdges {
+	return PageEdges{Slug: slug, Title: title, Targets: targets}
+}
+
+func TestBuildCrossRefGraphFromRefs(t *testing.T) {
+	t.Parallel()
+	graph := BuildCrossRefGraphFromRefs([]PageEdges{
+		refs("alpha", "Alpha", "beta", "gamma"),
+		refs("beta", "Beta", "alpha"),
+		refs("gamma", "Gamma"),
+	})
 
 	if len(graph.AllPages) != 3 {
 		t.Errorf("AllPages = %d, want 3", len(graph.AllPages))
 	}
 
-	// alpha links to beta and gamma
 	outAlpha := graph.Outbound["alpha"]
 	sort.Strings(outAlpha)
 	if len(outAlpha) != 2 {
@@ -43,130 +44,82 @@ func TestBuildCrossRefGraph(t *testing.T) {
 	}
 }
 
-func TestBuildCrossRefGraph_DedupLinks(t *testing.T) {
+func TestBuildCrossRefGraphFromRefs_DedupLinks(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	writeFile(t, dir, "page.md", "# Page\n[[target]] and again [[target]].")
-	writeFile(t, dir, "target.md", "# Target\nContent.")
-
-	graph, err := BuildCrossRefGraph(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	graph := BuildCrossRefGraphFromRefs([]PageEdges{
+		refs("page", "Page", "target", "target"),
+		refs("target", "Target"),
+	})
 
 	if len(graph.Outbound["page"]) != 1 {
 		t.Errorf("expected deduplicated outbound, got %v", graph.Outbound["page"])
 	}
 }
 
-func TestBuildCrossRefGraph_SelfLinkIgnored(t *testing.T) {
+func TestBuildCrossRefGraphFromRefs_SelfLinkIgnored(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	writeFile(t, dir, "self.md", "# Self\n[[self]] reference.")
-
-	graph, err := BuildCrossRefGraph(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	graph := BuildCrossRefGraphFromRefs([]PageEdges{refs("self", "Self", "self")})
 
 	if len(graph.Outbound["self"]) != 0 {
 		t.Errorf("self-links should be ignored, got %v", graph.Outbound["self"])
 	}
 }
 
-func TestBuildCrossRefGraph_NoH1Title(t *testing.T) {
+func TestBuildCrossRefGraphFromRefs_NoTitleFallsBackToSlug(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	writeFile(t, dir, "notitle.md", "No heading here, just text.")
-
-	graph, err := BuildCrossRefGraph(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	graph := BuildCrossRefGraphFromRefs([]PageEdges{refs("notitle", "")})
 
 	if graph.Titles["notitle"] != "notitle" {
 		t.Errorf("title = %q, want 'notitle' (slug fallback)", graph.Titles["notitle"])
 	}
 }
 
-func TestBuildCrossRefGraphInvalidDir(t *testing.T) {
+func TestBuildCrossRefGraphFromRefs_UnknownTargetIsABrokenLink(t *testing.T) {
 	t.Parallel()
-	_, err := BuildCrossRefGraph(filepath.Join(t.TempDir(), "nonexistent"))
-	if err == nil {
-		t.Error("expected error for non-existent dir")
+	graph := BuildCrossRefGraphFromRefs([]PageEdges{refs("page", "Page", "missing")})
+
+	// The target is KEPT even though no page has that slug. That is what makes it reportable as a
+	// broken link rather than silently absent.
+	if len(graph.Outbound["page"]) != 1 || graph.Outbound["page"][0] != "missing" {
+		t.Fatalf("outbound = %v, want [missing]", graph.Outbound["page"])
+	}
+	if stats := CrossRefStats(graph); stats.BrokenLinks != 1 {
+		t.Errorf("BrokenLinks = %d, want 1", stats.BrokenLinks)
 	}
 }
 
-func TestInjectBacklinks(t *testing.T) {
+func TestCrossRefStats(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	writeFile(t, dir, "alpha.md", "# Alpha\nSee [[beta]].")
-	writeFile(t, dir, "beta.md", "# Beta\nSome content.")
+	graph := BuildCrossRefGraphFromRefs([]PageEdges{
+		refs("alpha", "Alpha", "beta"),
+		refs("beta", "Beta"),
+		refs("lonely", "Lonely"),
+	})
 
-	graph, err := BuildCrossRefGraph(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	stats := CrossRefStats(graph)
+	if stats.TotalPages != 3 {
+		t.Errorf("TotalPages = %d, want 3", stats.TotalPages)
 	}
-
-	result, err := InjectBacklinks(dir, graph)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if stats.TotalLinks != 1 {
+		t.Errorf("TotalLinks = %d, want 1", stats.TotalLinks)
 	}
-
-	if result.BacklinksAdded == 0 {
-		t.Error("expected at least one backlink to be added")
+	// beta is the only page with an inbound reference; alpha has an outbound one, which is enough
+	// to keep it out of the orphan count; lonely has neither.
+	if stats.BacklinksAdded != 1 {
+		t.Errorf("BacklinksAdded = %d, want 1", stats.BacklinksAdded)
 	}
-
-	data, err := os.ReadFile(filepath.Join(dir, "beta.md"))
-	if err != nil {
-		t.Fatalf("reading beta.md: %v", err)
+	if stats.OrphanPages != 1 {
+		t.Errorf("OrphanPages = %d, want 1", stats.OrphanPages)
 	}
-	if !strings.Contains(string(data), "## Backlinks") {
-		t.Error("expected backlinks section in beta.md")
-	}
-	if !strings.Contains(string(data), "(alpha.md)") {
-		t.Error("expected alpha.md in beta.md backlinks")
+	if stats.BrokenLinks != 0 {
+		t.Errorf("BrokenLinks = %d, want 0", stats.BrokenLinks)
 	}
 }
 
-func TestInjectBacklinks_AllPagesGetBacklinks(t *testing.T) {
+func TestCrossRefStatsNilGraph(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	writeFile(t, dir, "source.md", "# Source\n[[page]]")
-	writeFile(t, dir, "page.md", "# Page\nContent.")
-
-	graph, err := BuildCrossRefGraph(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	_, err = InjectBacklinks(dir, graph)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// page should have backlinks from source
-	data, _ := os.ReadFile(filepath.Join(dir, "page.md"))
-	if !strings.Contains(string(data), "## Backlinks") {
-		t.Error("expected backlinks in page.md")
-	}
-}
-
-func TestInjectBacklinks_Idempotent(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	writeFile(t, dir, "a.md", "# A\n[[b]]")
-	writeFile(t, dir, "b.md", "# B\nContent.")
-
-	graph, _ := BuildCrossRefGraph(dir)
-	_, _ = InjectBacklinks(dir, graph)
-
-	// Run again — should detect no change
-	graph2, _ := BuildCrossRefGraph(dir)
-	result2, _ := InjectBacklinks(dir, graph2)
-
-	if result2.BacklinksAdded != 0 {
-		t.Errorf("expected 0 additional backlinks on second run, got %d", result2.BacklinksAdded)
+	if stats := CrossRefStats(nil); stats.TotalPages != 0 {
+		t.Errorf("a nil graph must report nothing, got %+v", stats)
 	}
 }
 

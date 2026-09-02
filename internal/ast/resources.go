@@ -31,7 +31,7 @@ const (
 	// The number below was set by something that no longer runs here. The write
 	// ceiling was raised from 1 GiB for CREATE_FTS_INDEX, which held its whole term
 	// dictionary in the pool; the full-text index has since moved out of this engine
-	// and into the SQLite sidecar, so nothing in this process builds one any more.
+	// and into the Lance search index, so nothing in this process builds one any more.
 	// It is left at 8 GiB deliberately and with the reason stated: the pool is a
 	// lazily-grown maximum, so an unused headroom costs nothing, and lowering it
 	// would be an unmeasured change to the COPY path dressed up as a cleanup. What
@@ -115,8 +115,8 @@ func AntlrHeapBudget() uint64 {
 //	400k entities    ~1 GiB — marginal: passed one run, failed the next at se_tri
 //	1.0M entities     3 GiB — 1 GiB, 1.5 GiB and 2 GiB each failed, at a different index every time
 //
-// The full-text index has since moved to the SQLite sidecar, so that consumer is
-// gone and this ceiling now bounds the bulk COPY alone — which has never been
+// The full-text index has since moved to the Lance search index, so that consumer
+// is gone and this ceiling now bounds the bulk COPY alone — which has never been
 // measured against it. Anyone tempted to lower it back should measure the COPY
 // path first; the old numbers do not apply, and neither does the old failure.
 func boundedDBBufferPool(def uint64, readOnly bool) uint64 {

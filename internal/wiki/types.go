@@ -33,6 +33,29 @@ type WikiChunk struct {
 	RevisionID string // this revision's own address within the entity; empty on the current one
 	Superseded bool   // this page is an older revision, not what the project holds now
 	CurrentID  string // the EntityID to read for the current version; set only when Superseded
+
+	// Revision, and the two links that make the chain walkable in both directions. `Previous` is
+	// the revision this one replaced, `Next` the one that replaced it — absent on the current
+	// revision, which is what defines it as the head.
+	//
+	// They were page frontmatter, which is where the memory protocol still tells an agent to read
+	// them from. That stopped being reachable when page reads moved to the index, because a read
+	// returns the body: the chain was in the file's frontmatter and the frontmatter was not
+	// indexed. These columns are where it lives now.
+	Revision int
+	Previous string
+	Next     string
+
+	// Created is when the thing the page is about came into existence, as opposed to `Updated`,
+	// which is when the source it was compiled from last changed.
+	Created string
+
+	// Staleness — the source this page was compiled from, or something it depends on, changed
+	// after the page was written. Columns rather than page frontmatter for the same reason as
+	// everything else here: the page is no longer written, so frontmatter is not a place a fact
+	// can live.
+	StaleSince  string
+	StaleReason string
 }
 
 // BM25Result is one ranked hit, as knowledge_search and memory_search return them.

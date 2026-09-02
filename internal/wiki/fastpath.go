@@ -20,116 +20,105 @@ type DocHashEntry struct {
 	Slug string
 }
 
-// FastPathCheck reports whether the wiki is already up-to-date and the full
-// generation pipeline can be skipped.
+// FastPathCheck reports whether the wiki is already up-to-date and the full generation pipeline
+// can be skipped.
 //
-// It returns true when ALL of the following hold:
-//  1. wiki.db already exists in wikiDir.
-//  2. processCache is non-nil and every entry's content hash is unchanged
-//     according to the cache manifest (O(1) per entry — no disk reads).
-//  3. The set of .md pages in wikiDir matches the set of entry slugs EXACTLY —
-//     no page was deleted, and no entry is still missing its page.
+// It returns true when the INDEX holds exactly the given entries, at exactly the given content
+// hashes — no more, no fewer, none stale.
 //
-// When FastPathCheck returns true the caller should call processCache.Save()
-// and return early without regenerating any pages or rebuilding the DB.
+// 🔒 IT MUST NOT ASK THE PROCESS CACHE, AND THAT IS THE WHOLE POINT OF THIS FUNCTION'S HISTORY.
 //
-// SAFETY: the slug comparison in (3) must stay bidirectional. The cache is
-// populated by the same generation pass that then calls this function, so on a
-// virgin wikiDir condition (2) is vacuously satisfied — only the missing pages
-// reveal that nothing has been generated yet.
+// It used to, and the check was worthless: the generation pass calls `processCache.Store` with each
+// document's NEW hash while assembling the documents, and only then calls this. So by the time the
+// question was asked, the cache had already been told the answer — `HasChanged` returned false for
+// every entry, including the one the user had just edited. A document could be edited and its
+// rebuild skipped, silently, in 110 ms.
+//
+// That defect was present for as long as the cache check was, and it was INVISIBLE because search
+// fell back to scanning the `.md` pages: the pages were rewritten from the fresh sources, so a
+// stale index was answered around. Deleting that fallback — which is what made the index the single
+// artifact — turned a masked bug into a visible one, and reproduced it on the first edit.
+//
+// The rule the fix follows is the one the previous incident already wrote down: **the evidence that
+// work is unnecessary has to come from OUTSIDE the thing the same pass populates.** The index is
+// that outside: it is written by `RebuildDB` at the end of the pass, so what it holds is what the
+// LAST pass achieved, and `content_hash` is the source hash the row was built from.
+//
+// Deletions, additions and edits are therefore all one comparison, rather than three conditions
+// that each covered one case:
+//
+//	an entry the index has never seen   -> a new document
+//	an index slug no entry claims       -> a deleted document
+//	a hash that differs                 -> an edited document
+//
+// It costs one store open and one PROJECTED query per generation — not per file — on a path whose
+// purpose is to be nearly free. The store open was already being paid for the emptiness check.
 func FastPathCheck(ctx context.Context, wikiDir string, entries []DocHashEntry, cache *WikiProcessCache) bool {
 	if cache == nil {
 		return false
 	}
 
-	// (1) The DB must already exist AND hold something.
-	//
-	// Existence alone is what this used to ask, and it left a state the fast path could
-	// never escape: a store that is present but empty satisfies every other condition —
-	// the hashes still match because the sources did not change, and the pages are all on
-	// disk because they were generated — so generation is skipped, the DB is never built,
-	// and every later run skips again. `memory index` reported "complete" in 0.0s over a
-	// 16 KB store with 152 pages beside it, and search silently fell back to scanning the
-	// markdown.
-	//
-	// Two different bugs landed in that state, which is why the check is here rather than
-	// at either of their sites: a pre-migration SQLite file that could not be opened at
-	// all, and a rebuild whose error was discarded. The fast path is where they became
-	// permanent.
-	//
-	// This costs one store open per generation — not per file — on a path whose whole
-	// purpose is to be nearly free. That is the deliberate trade: the alternative is a
-	// check on file SIZE, which needs a magic threshold and would go wrong quietly the
-	// first time an empty store's footprint changes.
+	// An index that is present but EMPTY is a state the fast path used to be unable to escape:
+	// every other condition was satisfied — the sources had not changed and the pages were on
+	// disk — so generation was skipped, the index was never built, and every later run skipped
+	// again. `memory index` reported "complete" in 0.0 s over a 16 KB store with 152 pages beside
+	// it. Two unrelated bugs landed in that state, which is why the check is at the gate rather
+	// than at either of their sites: the gate is what made them permanent.
 	if !IndexHasContent(ctx, wikiDir) {
 		return false
 	}
 
-	// (2) Check that every source file is cached at its current hash.
-	newSlugs := make(map[string]bool, len(entries))
-	for _, e := range entries {
-		newSlugs[e.Slug] = true
-		if e.ContentHash == "" {
-			return false
-		}
-		// HasChanged is O(1) — reads from the in-memory manifest.
-		if cache.HasChanged(e.CacheKey, e.ContentHash) {
-			return false
-		}
-	}
-
-	// (3) The INDEX must hold exactly the current entries.
-	//
-	// This used to list the `.md` pages in wikiDir, which is where deletions were detected. The
-	// pages are not written any more, so the set to compare against is the index's own — which is
-	// also the set that matters: what a search can answer with.
-	indexed, err := indexedSlugs(ctx, wikiDir)
+	indexed, err := IndexedPageHashes(ctx, wikiDir)
 	if err != nil {
 		return false
 	}
-	if len(indexed) != len(newSlugs) {
+	if len(indexed) != len(entries) {
 		return false
 	}
-	for slug := range newSlugs {
-		if !indexed[slug] {
+	for _, e := range entries {
+		if e.ContentHash == "" {
+			// A document with no hash cannot be proved unchanged, so it is treated as changed.
+			return false
+		}
+		if indexed[e.Slug] != e.ContentHash {
 			return false
 		}
 	}
-
 	return true
 }
 
-// indexedSlugs is the set of slugs the compiled index holds.
-func indexedSlugs(ctx context.Context, wikiDir string) (map[string]bool, error) {
+// IndexedPageHashes is what a generator compares against to decide what was added, changed and
+// deleted: every indexed slug with the content hash it was compiled from.
+//
+// It replaced an `os.ReadDir` of the wiki directory. The listing answered a weaker question — which
+// pages had been WRITTEN — and answering the stronger one meant reading each page's frontmatter for
+// its hash. Both are one projected query now.
+//
+// A wiki with no index yet is not an error: it is a first build, and every document is new.
+func IndexedPageHashes(ctx context.Context, wikiDir string) (map[string]string, error) {
+	if !IndexHasContent(ctx, wikiDir) {
+		return map[string]string{}, nil
+	}
 	db, err := OpenWikiDB(ctx, wikiDir)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = db.Close() }()
-
-	slugs, err := db.Slugs(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]bool, len(slugs))
-	for _, s := range slugs {
-		out[s] = true
-	}
-	return out, nil
+	return db.PageHashes(ctx)
 }
 
 // IndexHasContent reports whether wikiDir holds an index worth skipping a rebuild for.
 //
-// It asks whether the store has ROWS, not whether the file exists, and that distinction is
-// the whole reason it exists. Both skip gates — StatPreCheck and FastPathCheck — used to
-// end in `os.Stat(wiki.db) == nil`, which produces a state neither can escape: a store that
-// is present but empty satisfies every other condition, because the sources did not change
-// and the pages were generated. Generation is skipped, the index is never built, and every
-// later run skips again.
+// It asks whether the store has ROWS, not whether it exists on disk, and that distinction is
+// the whole reason it exists. Both skip gates — StatPreCheck and FastPathCheck — used to end
+// in a bare existence check, which produces a state neither can escape: a store that is
+// present but empty satisfies every other condition, because the sources did not change. The
+// rebuild is skipped, the index is never built, and every later run skips again for the same
+// reason.
 //
-// Observed: `memory index` reporting "complete" in 0.0 s over a 16 KB store with 152 pages
-// beside it, while search silently fell back to scanning the markdown. Two unrelated bugs
-// landed there — a pre-migration SQLite file that could not be opened, and a rebuild whose
+// Observed before the fix: `memory index` reporting "complete" in 0.0 s over a 16 KB store
+// holding nothing, and search finding no memories in a project that had 152. Two unrelated
+// bugs landed in that state — an index file that could not be opened, and a rebuild whose
 // error was discarded — which is why the check belongs at the gate rather than at either
 // site: the gate is what made them permanent.
 //
