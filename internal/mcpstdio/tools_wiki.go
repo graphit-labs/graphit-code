@@ -647,22 +647,12 @@ func registerWikiTools(server *mcp.Server) {
 		}
 
 		wikiDir := resolveWikiDir(module, projectDir, contextName)
-		result, err := wiki.ReadPage(wikiDir, input.Path, textslice.Request{
-			Head:        input.Head,
-			Tail:        input.Tail,
-			StartLine:   input.StartLine,
-			EndLine:     input.EndLine,
-			Pattern:     input.Pattern,
-			IsRegex:     input.IsRegex,
-			Before:      input.Before,
-			After:       input.After,
-			LineNumbers: input.LineNumbers,
-		})
+		result, err := wiki.ReadPageAt(ctx, wikiDir, input.Path, slice)
 		if err != nil {
 			// A wrong slug is the common mistake, so name what is actually there
 			// rather than leaving the agent to guess or fall back to a file read.
 			// A refused reference keeps its own reason instead.
-			if pages := wiki.ListPages(wikiDir); errors.Is(err, wiki.ErrPageNotFound) && len(pages) > 0 {
+			if pages := wiki.ListPagesAt(ctx, wikiDir); errors.Is(err, wiki.ErrPageNotFound) && len(pages) > 0 {
 				sort.Strings(pages)
 				shown := pages
 				suffix := ""

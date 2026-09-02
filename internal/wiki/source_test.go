@@ -1,8 +1,8 @@
 package wiki
 
 import (
+	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,14 +13,7 @@ import (
 func probeWiki(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-
-	page := `---
-title: Granada Module
-type: specification
-confidence: 0.9
----
-
-# Granada Module
+	body := `# Granada Module
 
 Granada issues xenolito tokens.
 
@@ -28,11 +21,13 @@ Granada issues xenolito tokens.
 
 The anfibolio path is the slow one.
 `
-	if err := os.WriteFile(filepath.Join(dir, "1._Granada_Module.md"), []byte(page), 0o644); err != nil {
-		t.Fatalf("writing probe page: %v", err)
+	chunks := []WikiChunk{
+		{Slug: "1._Granada_Module", Title: "Granada Module", Body: body,
+			DocType: "specification", Confidence: 0.9, WordCount: 12},
+		{Slug: "wollastonita", Title: "Wollastonita", Body: "# Wollastonita\n", WordCount: 1},
 	}
-	if err := os.WriteFile(filepath.Join(dir, "wollastonita.md"), []byte("# Wollastonita\n"), 0o644); err != nil {
-		t.Fatalf("writing probe page: %v", err)
+	if err := RebuildDB(context.Background(), dir, chunks, nil, nil, nil); err != nil {
+		t.Fatalf("building the probe index: %v", err)
 	}
 	return dir
 }
@@ -50,13 +45,13 @@ func TestReadPageResolvesSlugCaseInsensitivelyAndWithoutExtension(t *testing.T) 
 		"1._granada_module",
 		"1._GRANADA_MODULE.MD",
 	} {
-		got, err := ReadPage(dir, page, textslice.Request{})
+		got, err := ReadPageAt(context.Background(), dir, page, textslice.Request{})
 		if err != nil {
-			t.Errorf("ReadPage(%q) failed: %v", page, err)
+			t.Errorf("ReadPageAt(context.Background(), %q) failed: %v", page, err)
 			continue
 		}
 		if got.Title != "Granada Module" {
-			t.Errorf("ReadPage(%q) title = %q, want the first heading", page, got.Title)
+			t.Errorf("ReadPageAt(context.Background(), %q) title = %q, want the first heading", page, got.Title)
 		}
 	}
 }
@@ -67,7 +62,7 @@ func TestReadPageSlicesLikeTheSourceTool(t *testing.T) {
 	t.Parallel()
 	dir := probeWiki(t)
 
-	got, err := ReadPage(dir, "1._Granada_Module", textslice.Request{Head: 4})
+	got, err := ReadPageAt(context.Background(), dir, "1._Granada_Module", textslice.Request{Head: 4})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -75,7 +70,7 @@ func TestReadPageSlicesLikeTheSourceTool(t *testing.T) {
 		t.Errorf("head:4 returned more than the first four lines:\n%s", got.Source)
 	}
 
-	got, err = ReadPage(dir, "1._Granada_Module", textslice.Request{Pattern: "xenolito", Before: 1, After: 1})
+	got, err = ReadPageAt(context.Background(), dir, "1._Granada_Module", textslice.Request{Pattern: "xenolito", Before: 1, After: 1})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -98,17 +93,17 @@ func TestReadPageRefusesToEscapeTheWikiDirectory(t *testing.T) {
 		"..",
 		filepath.Join("..", "outside.md"),
 	} {
-		_, err := ReadPage(dir, page, textslice.Request{})
+		_, err := ReadPageAt(context.Background(), dir, page, textslice.Request{})
 		if err == nil {
-			t.Errorf("ReadPage(%q) must be refused", page)
+			t.Errorf("ReadPageAt(context.Background(), %q) must be refused", page)
 			continue
 		}
 		if errors.Is(err, ErrPageNotFound) {
-			t.Errorf("ReadPage(%q) was reported as merely missing; a refusal must keep its own reason", page)
+			t.Errorf("ReadPageAt(context.Background(), %q) was reported as merely missing; a refusal must keep its own reason", page)
 		}
 	}
 
-	if _, err := ReadPage(dir, filepath.Join(dir, "1._Granada_Module.md"), textslice.Request{}); err == nil {
+	if _, err := ReadPageAt(context.Background(), dir, filepath.Join(dir, "1._Granada_Module.md"), textslice.Request{}); err == nil {
 		t.Error("an absolute path must be refused — the page is relative to the wiki directory")
 	}
 }
@@ -120,7 +115,7 @@ func TestReadPageReportsAMissingPageDistinctly(t *testing.T) {
 	t.Parallel()
 	dir := probeWiki(t)
 
-	_, err := ReadPage(dir, "does-not-exist", textslice.Request{})
+	_, err := ReadPageAt(context.Background(), dir, "does-not-exist", textslice.Request{})
 	if !errors.Is(err, ErrPageNotFound) {
 		t.Errorf("a missing page must be ErrPageNotFound, got %v", err)
 	}
@@ -129,10 +124,10 @@ func TestReadPageReportsAMissingPageDistinctly(t *testing.T) {
 func TestReadPageRejectsEmptyInput(t *testing.T) {
 	t.Parallel()
 
-	if _, err := ReadPage("", "granada", textslice.Request{}); err == nil {
+	if _, err := ReadPageAt(context.Background(), "", "granada", textslice.Request{}); err == nil {
 		t.Error("an unbuilt wiki must be reported rather than read")
 	}
-	if _, err := ReadPage(probeWiki(t), "  ", textslice.Request{}); err == nil {
+	if _, err := ReadPageAt(context.Background(), probeWiki(t), "  ", textslice.Request{}); err == nil {
 		t.Error("a blank page reference must be rejected")
 	}
 }
@@ -141,7 +136,7 @@ func TestListPagesNamesWhatIsThere(t *testing.T) {
 	t.Parallel()
 	dir := probeWiki(t)
 
-	pages := ListPages(dir)
+	pages := ListPagesAt(context.Background(), dir)
 	if len(pages) != 2 {
 		t.Fatalf("got %d pages, want 2: %v", len(pages), pages)
 	}

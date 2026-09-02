@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/textslice"
@@ -27,151 +25,6 @@ type PageResult struct {
 	StartLine  int               `json:"start_line,omitempty"`
 	EndLine    int               `json:"end_line,omitempty"`
 	Matches    []textslice.Match `json:"matches,omitempty"`
-}
-
-// ReadPage returns the content of one wiki page, sliced according to req.
-//
-// It exists because an agent is frequently confined to its own workspace, and a
-// wiki page it needs may live under another project's directory. Every other wiki
-// tool already takes the project as a parameter and reads on the agent's behalf;
-// reading the page itself was the one step that fell back to a direct file read,
-// which is exactly the step that fails across projects.
-//
-// page accepts what the other wiki tools hand back: a slug ("auth-flow"), the same
-// slug with its extension, or a path relative to the wiki directory. Lookup is
-// case-insensitive, because a slug that came from a title rarely matches the file
-// name exactly.
-func ReadPage(wikiDir, page string, req textslice.Request) (*PageResult, error) {
-	if wikiDir == "" {
-		return nil, fmt.Errorf("wiki directory not found — the wiki may not have been built yet")
-	}
-	if strings.TrimSpace(page) == "" {
-		return nil, fmt.Errorf("page is required")
-	}
-
-	file, err := resolvePageFile(wikiDir, page)
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return nil, fmt.Errorf("reading wiki page %q: %w", page, err)
-	}
-
-	sliced, err := textslice.Apply(string(data), req)
-	if err != nil {
-		return nil, err
-	}
-
-	rel, relErr := filepath.Rel(wikiDir, file)
-	if relErr != nil {
-		rel = filepath.Base(file)
-	}
-
-	return &PageResult{
-		Page:       strings.TrimSuffix(rel, ".md"),
-		File:       rel,
-		Title:      firstHeading(string(data)),
-		Source:     sliced.Source,
-		TotalLines: sliced.TotalLines,
-		StartLine:  sliced.StartLine,
-		EndLine:    sliced.EndLine,
-		Matches:    sliced.Matches,
-	}, nil
-}
-
-// ListPages returns the page names available in wikiDir, so a caller that guessed
-// wrong can be told what does exist instead of just "not found".
-func ListPages(wikiDir string) []string {
-	entries, err := os.ReadDir(wikiDir)
-	if err != nil {
-		return nil
-	}
-	var pages []string
-	for _, e := range entries {
-		if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ".md") {
-			continue
-		}
-		pages = append(pages, strings.TrimSuffix(e.Name(), filepath.Ext(e.Name())))
-	}
-	return pages
-}
-
-// resolvePageFile maps a caller-supplied page reference onto a file inside
-// wikiDir, refusing anything that escapes it.
-func resolvePageFile(wikiDir, page string) (string, error) {
-	if filepath.IsAbs(page) {
-		return "", fmt.Errorf("page must be relative to the wiki directory, got absolute path %q", page)
-	}
-
-	cleaned := filepath.Clean(filepath.FromSlash(page))
-	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("page %q escapes the wiki directory", page)
-	}
-
-	base, err := filepath.Abs(wikiDir)
-	if err != nil {
-		return "", err
-	}
-
-	candidates := []string{cleaned}
-	if !strings.EqualFold(filepath.Ext(cleaned), ".md") {
-		candidates = append(candidates, cleaned+".md")
-	}
-
-	for _, c := range candidates {
-		full := filepath.Join(base, c)
-		if !withinDir(base, full) {
-			return "", fmt.Errorf("page %q escapes the wiki directory", page)
-		}
-		if info, statErr := os.Stat(full); statErr == nil && !info.IsDir() {
-			return full, nil
-		}
-	}
-
-	// Wiki file names are generated from titles, so an exact match is the
-	// exception rather than the rule. Fall back to a case-insensitive scan.
-	if match := findPageInsensitive(base, cleaned); match != "" {
-		return match, nil
-	}
-
-	return "", fmt.Errorf("%w: %q in %s", ErrPageNotFound, page, wikiDir)
-}
-
-func findPageInsensitive(base, cleaned string) string {
-	dir := filepath.Join(base, filepath.Dir(cleaned))
-	if !withinDir(base, dir) {
-		return ""
-	}
-	wanted := strings.ToLower(filepath.Base(cleaned))
-	wantedMD := wanted
-	if !strings.HasSuffix(wantedMD, ".md") {
-		wantedMD += ".md"
-	}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		name := strings.ToLower(e.Name())
-		if name == wanted || name == wantedMD {
-			return filepath.Join(dir, e.Name())
-		}
-	}
-	return ""
-}
-
-func withinDir(base, target string) bool {
-	rel, err := filepath.Rel(base, target)
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // firstHeading returns the page's first markdown heading, skipping YAML
@@ -209,7 +62,42 @@ func firstHeading(content string) string {
 // If that ever becomes many chunks per page, this returns the first and is wrong; the invariant is
 // asserted by TestReadPageFromIndexReturnsTheWholePage.
 
-// ReadPageFrom reads a page out of an open index, applying the same slicing as ReadPage.
+// ReadPageAt opens the index at wikiDir and reads one page out of it.
+//
+// This is the only way a page is read. It replaced a file-backed twin that did `os.ReadFile`
+// on `<wikiDir>/<slug>.md`, which existed because the pages were the source of truth — they
+// are not, and they are not written any more, so there is nothing to open.
+//
+// The mounted-from-the-Hub case is no longer special. It used to be the one path that had to
+// come out of the index, since a published context downloads nothing; now every path does, and
+// the only difference between a local wiki and a published one is the URI the store opens.
+func ReadPageAt(ctx context.Context, wikiDir, page string, req textslice.Request) (*PageResult, error) {
+	if wikiDir == "" {
+		return nil, fmt.Errorf("wiki directory not found — the wiki may not have been built yet")
+	}
+	db, err := OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening the wiki index: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	return ReadPageFrom(ctx, db, page, req)
+}
+
+// ListPagesAt lists the slugs the index at wikiDir holds, so a caller that guessed a slug wrong
+// can be told what does exist.
+func ListPagesAt(ctx context.Context, wikiDir string) []string {
+	if wikiDir == "" {
+		return nil
+	}
+	db, err := OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = db.Close() }()
+	return ListPagesFrom(ctx, db)
+}
+
+// ReadPageFrom reads a page out of an open index, applying the same slicing as ReadPageAt.
 func ReadPageFrom(ctx context.Context, db *WikiDB, page string, req textslice.Request) (*PageResult, error) {
 	if db == nil {
 		return nil, fmt.Errorf("wiki index not open")
@@ -217,9 +105,30 @@ func ReadPageFrom(ctx context.Context, db *WikiDB, page string, req textslice.Re
 	if strings.TrimSpace(page) == "" {
 		return nil, fmt.Errorf("page is required")
 	}
-	slug := strings.TrimSuffix(strings.TrimSpace(page), ".md")
+	slug := trimPageExt(strings.TrimSpace(page))
+
+	// A page reference is a SLUG — a key in a column — so a separator or a parent reference is a
+	// malformed reference rather than a page that happens to be missing.
+	//
+	// Nothing can escape anything any more: there is no directory to walk, so this is no longer a
+	// containment check. It survives because the distinction it draws is still useful — a caller
+	// that mistyped a slug is helped by the list of what exists, and a caller that passed a path
+	// is helped by being told it passed a path.
+	if strings.ContainsAny(slug, `/\`) || slug == ".." || strings.HasPrefix(slug, "..") {
+		return nil, fmt.Errorf("page %q is not a slug: pass the slug a search returned, not a path", page)
+	}
 
 	body, title, err := db.PageBody(ctx, slug)
+	if errors.Is(err, ErrPageNotFound) {
+		// Slugs are generated from titles, so the one a human types rarely matches the casing
+		// the generator produced. The file-backed reader resolved this with a case-insensitive
+		// directory match; a column filter is exact, so the tolerance has to be kept here or it
+		// disappears silently. Only on a miss, so the hit path stays one indexed lookup.
+		if resolved, ok := resolveSlugCaseInsensitively(ctx, db, slug); ok {
+			slug = resolved
+			body, title, err = db.PageBody(ctx, slug)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -243,8 +152,22 @@ func ReadPageFrom(ctx context.Context, db *WikiDB, page string, req textslice.Re
 	}, nil
 }
 
+// resolveSlugCaseInsensitively finds the indexed slug that differs from want only in casing.
+func resolveSlugCaseInsensitively(ctx context.Context, db *WikiDB, want string) (string, bool) {
+	slugs, err := db.Slugs(ctx)
+	if err != nil {
+		return "", false
+	}
+	for _, s := range slugs {
+		if strings.EqualFold(s, want) {
+			return s, true
+		}
+	}
+	return "", false
+}
+
 // ListPagesFrom returns the slugs an open index holds, so a caller that guessed wrong can be told
-// what does exist. Same purpose as ListPages, different source.
+// what does exist.
 func ListPagesFrom(ctx context.Context, db *WikiDB) []string {
 	if db == nil {
 		return nil
@@ -254,4 +177,16 @@ func ListPagesFrom(ctx context.Context, db *WikiDB) []string {
 		return nil
 	}
 	return slugs
+}
+
+// trimPageExt drops a trailing `.md` in any casing.
+//
+// The extension is tolerated because every wiki tool hands slugs back with one, and its casing
+// is tolerated for the same reason the slug's is: a human retypes what they saw, not what the
+// generator produced.
+func trimPageExt(page string) string {
+	if len(page) >= 3 && strings.EqualFold(page[len(page)-3:], ".md") {
+		return page[:len(page)-3]
+	}
+	return page
 }

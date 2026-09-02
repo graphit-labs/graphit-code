@@ -3,8 +3,7 @@ package wiki
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"strings"
 )
 
@@ -53,15 +52,16 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 
 	var contextBuilder strings.Builder
 	for _, src := range cfg.Sources {
-		indexPath := filepath.Join(src.Dir, "index.md")
-		indexContent, err := os.ReadFile(indexPath)
-		if err != nil {
-
+		// The catalogue comes from the index. It used to be `index.md` read off disk, a page
+		// rewritten on every build; the table already knows every slug, so the overview is a
+		// query and cannot disagree with what is searchable.
+		overview := wikiOverview(ctx, src.Dir)
+		if overview == "" {
 			continue
 		}
-		_, _ = fmt.Fprintf(&contextBuilder, "=== [%s] index.md (%s) ===\n%s\n\n",
-			src.ID, src.Label, string(indexContent))
-		result.TokensSent += len(indexContent) / 4
+		_, _ = fmt.Fprintf(&contextBuilder, "=== [%s] catalogue (%s) ===\n%s\n\n",
+			src.ID, src.Label, overview)
+		result.TokensSent += len(overview) / 4
 	}
 
 	context_ := contextBuilder.String()
@@ -142,7 +142,7 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 		var loaded []string
 		foundAny := false
 		for _, pg := range pages {
-			content, resolvedSlug := loadWikiPage(pg.dir, pg.page)
+			content, resolvedSlug := loadWikiPageFromIndex(ctx, pg.dir, pg.page)
 			if content != "" {
 				foundAny = true
 				if !loadedPages[resolvedSlug] {
@@ -348,4 +348,47 @@ func parseMultiPageList(reply string, sources []WikiSource) []multiPageRequest {
 	}
 
 	return requests
+}
+
+// wikiOverview renders a wiki's catalogue from its index, replacing the generated `index.md`.
+//
+// Titles and types, not bodies: it exists so the model can choose which pages to ask for, which
+// is what the index page was for, and a body per page would spend the budget the choice is
+// supposed to save.
+func wikiOverview(ctx context.Context, wikiDir string) string {
+	db, err := OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = db.Close() }()
+
+	entries, err := db.Browse(ctx, BrowseFilter{ClusterID: -1, Limit: 500})
+	if err != nil || len(entries) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	for _, e := range entries {
+		_, _ = fmt.Fprintf(&b, "- [[%s]]", e.Slug)
+		if e.Title != "" && e.Title != e.Slug {
+			_, _ = fmt.Fprintf(&b, " — %s", e.Title)
+		}
+		if e.DocType != "" {
+			_, _ = fmt.Fprintf(&b, " (%s)", e.DocType)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// loadWikiPageFromIndex fetches one requested page out of a wiki's index.
+//
+// It replaced loadWikiPage, which did os.ReadFile on `<dir>/<slug>.md`. The pages are not written
+// any more, so a multi-wiki loop that read them found nothing and answered in one turn.
+func loadWikiPageFromIndex(ctx context.Context, wikiDir, page string) (content, slug string) {
+	res, err := ReadPageAt(ctx, wikiDir, page, textslice.Request{})
+	if err != nil {
+		return "", ""
+	}
+	return res.Source, res.Page
 }

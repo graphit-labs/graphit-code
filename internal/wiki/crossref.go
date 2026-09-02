@@ -30,6 +30,8 @@ type CrossRefResult struct {
 var reXRefWikiLink = regexp.MustCompile(`\[\[([^\]]+)\]\]`)
 var reXRefMdLink = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 
+var reWikiH1 = regexp.MustCompile(`(?m)^#\s+(.+)$`)
+
 func BuildCrossRefGraph(wikiDir string) (*CrossRefGraph, error) {
 	graph := &CrossRefGraph{
 		Outbound: make(map[string][]string),
@@ -56,7 +58,7 @@ func BuildCrossRefGraph(wikiDir string) (*CrossRefGraph, error) {
 		}
 		content := string(data)
 
-		if m := reBM25H1.FindStringSubmatch(content); m != nil {
+		if m := reWikiH1.FindStringSubmatch(content); m != nil {
 			graph.Titles[slug] = strings.TrimSpace(m[1])
 		} else {
 			graph.Titles[slug] = slug

@@ -3,7 +3,6 @@ package wiki
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -246,84 +245,26 @@ func bm25PreFilter(ctx context.Context, wikiDir, query string, topN int) string 
 		return b.String()
 	}
 
-	// Not compiled yet: rank the markdown, which is the source of truth. The heading
-	// names the engine, so a reader can tell which one answered.
-	idx, err := NewBM25Index(wikiDir, DefaultBM25Config())
-	if err != nil || idx.totalDocs == 0 {
-		return ""
-	}
-
-	results := idx.Search(query, topN)
-	if len(results) == 0 {
-		return ""
-	}
-
-	var b strings.Builder
-	b.WriteString("=== BM25 Relevant Pages (pre-filtered) ===\n")
-	_, _ = fmt.Fprintf(&b, "Query: %q — top %d by BM25 relevance:\n\n", query, len(results))
-
-	for i, r := range results {
-		_, _ = fmt.Fprintf(&b, "%d. [[%s]]", i+1, strings.TrimSuffix(r.Path, ".md"))
-		if r.Title != "" {
-			_, _ = fmt.Fprintf(&b, " — %s", r.Title)
-		}
-		_, _ = fmt.Fprintf(&b, " (score: %.3f)\n", r.Score)
-	}
-
-	return b.String()
+	// Nothing compiled, nothing to pre-filter. There is no second opinion to fall back to:
+	// the index IS the wiki.
+	return ""
 }
 
-// BM25Search searches a wiki, from the compiled index when there is one and from the
-// markdown itself when there is not.
+// BM25Search searches a wiki's compiled index.
 //
-// Both paths rank by BM25 — the index through FTS5's bm25(), the scan through the Go
-// implementation in bm25.go — so the name describes the ranking, not one engine. Which
-// path answers is decided by searchCompiledWiki: see it for why an empty index and an
-// empty ANSWER are not the same thing.
+// THERE IS NO SECOND PATH. It used to fall back to ranking the markdown pages in Go when the
+// index had not been built or had nothing for the query, and that fallback existed because the
+// pages were the source of truth and the index could be BEHIND them — a state this project has
+// shipped, where a stale pre-check left new pages unindexed and every session ran without
+// recall while believing the project had no memories.
 //
-// An authoritative miss still falls through to the scan, and that is deliberate. The
-// tempting change is to report it as a real miss, which reads cleaner and is wrong here:
-// an index can hold content and still be BEHIND the files it indexes, and this project
-// has already shipped that exact state — a stale pre-check left new pages unindexed while
-// old ones were present, so every session ran without recall while believing the project
-// simply had no memories. The scan is the net under that.
-//
-// What was missing was not the fallback but the signal, so the disagreement is now said
-// out loud: an index that ranked nothing for a query the markdown answers is stale, and
-// that is worth a warning naming the diagnostic instead of a silent second opinion.
+// The index is the wiki now. There are no pages for it to be behind, so the net has nothing to
+// catch: an empty answer means the index is empty or the query missed, and both are the truth
+// rather than a symptom. `searchCompiledWiki` still separates "no index" from "no answer",
+// which is the distinction that remains meaningful.
 func BM25Search(ctx context.Context, wikiDir, query string, topN int) []BM25Result {
-	compiled, authoritative := searchCompiledWiki(ctx, wikiDir, query, topN)
-	if authoritative && len(compiled) > 0 {
-		return wikiFTSToB25Results(compiled)
-	}
-
-	scanned := scanMarkdownBM25(wikiDir, query, topN)
-	if authoritative && len(scanned) > 0 {
-		slog.Warn("wiki index is behind its markdown: it ranked nothing for a query the files answer",
-			"wiki_dir", wikiDir, "hits_from_markdown", len(scanned),
-			"diagnose", "SELECT count(*) FROM chunks in wiki.db, then reindex")
-	}
-	return scanned
-}
-
-// scanMarkdownBM25 ranks the markdown files directly, which is what answers before the
-// wiki has ever been compiled — and, for a memory, within the seconds between writing it
-// and the daemon rebuilding.
-func scanMarkdownBM25(wikiDir, query string, topN int) []BM25Result {
-	idx, err := NewBM25Index(wikiDir, DefaultBM25Config())
-	if err != nil {
-		return nil
-	}
-	results := idx.Search(query, topN)
-
-	for i := range results {
-		content, _ := loadWikiPage(wikiDir, strings.TrimSuffix(results[i].Path, ".md"))
-		if content != "" {
-			results[i].Snippet = extractSnippet(content, query)
-		}
-	}
-
-	return results
+	compiled, _ := searchCompiledWiki(ctx, wikiDir, query, topN)
+	return wikiFTSToB25Results(compiled)
 }
 
 func wikiFTSToB25Results(ftsResults []WikiSearchResult) []BM25Result {

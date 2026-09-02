@@ -35,6 +35,25 @@ type WikiChunk struct {
 	CurrentID  string // the EntityID to read for the current version; set only when Superseded
 }
 
+// BM25Result is one ranked hit, as knowledge_search and memory_search return them.
+//
+// It outlived the Go BM25 index it was named for — that ranked the markdown pages and was
+// deleted with them. The name stays because the ranking is still BM25, now the engine's.
+type BM25Result struct {
+	Path    string
+	Title   string
+	DocType string
+	Score   float64
+	Snippet string
+
+	// Supersession, carried out of the index so a caller can collapse an entity's revisions
+	// without a second lookup.
+	EntityID   string
+	RevisionID string
+	Superseded bool
+	CurrentID  string
+}
+
 // WikiSearchResult is a single result from a wiki search.
 type WikiSearchResult struct {
 	Slug       string

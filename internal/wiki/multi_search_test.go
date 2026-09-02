@@ -8,17 +8,28 @@ import (
 
 func setupMultiWikiDirs(t *testing.T) (string, string) {
 	t.Helper()
-	dir1 := t.TempDir()
-	writeFile(t, dir1, "index.md", "# Knowledge Wiki\n\nPages:\n- [[Design]]\n- [[API]]")
-	writeFile(t, dir1, "Design.md", "# Design\nThe system follows clean architecture patterns.")
-	writeFile(t, dir1, "API.md", "# API\nREST endpoints for operations.")
 
-	dir2 := t.TempDir()
-	writeFile(t, dir2, "index.md", "# Memory Wiki\n\nPages:\n- [[Decisions]]\n- [[Conventions]]")
-	writeFile(t, dir2, "Decisions.md", "# Decisions\nWe chose Go for performance reasons.")
-	writeFile(t, dir2, "Conventions.md", "# Conventions\nUse snake_case for file names.")
-
+	// Two compiled indexes, not two directories of pages: the index IS the wiki, and the
+	// markdown scan these fixtures used to feed was deleted with the page output.
+	dir1 := indexedWiki(t, []WikiChunk{
+		{Slug: "Design", Title: "Design", Body: "The system follows clean architecture patterns.", DocType: "specification", WordCount: 6},
+		{Slug: "API", Title: "API", Body: "REST endpoints for operations.", DocType: "specification", WordCount: 4},
+	})
+	dir2 := indexedWiki(t, []WikiChunk{
+		{Slug: "Decisions", Title: "Decisions", Body: "We chose Go for performance reasons.", DocType: "decision", WordCount: 6},
+		{Slug: "Conventions", Title: "Conventions", Body: "Use snake_case for file names.", DocType: "convention", WordCount: 5},
+	})
 	return dir1, dir2
+}
+
+// indexedWiki builds a compiled wiki in a temp directory and returns it.
+func indexedWiki(t *testing.T, chunks []WikiChunk) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := RebuildDB(context.Background(), dir, chunks, nil, nil, nil); err != nil {
+		t.Fatalf("building the probe index: %v", err)
+	}
+	return dir
 }
 
 func TestSearchMultiWiki_NoSources(t *testing.T) {

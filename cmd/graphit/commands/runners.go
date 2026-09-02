@@ -2490,12 +2490,12 @@ func runWikiSource(page, wikiScope, contextName, projectDir string, req textslic
 		return err
 	}
 
-	result, err := wiki.ReadPage(wikiDir, page, req)
+	result, err := wiki.ReadPageAt(context.Background(), wikiDir, page, req)
 	if err != nil {
 		// Only a mistyped slug is helped by a list of alternatives. A rejected
 		// reference — one escaping the wiki directory — needs its own reason kept.
 		if errors.Is(err, wiki.ErrPageNotFound) {
-			if pages := wiki.ListPages(wikiDir); len(pages) > 0 {
+			if pages := wiki.ListPagesAt(context.Background(), wikiDir); len(pages) > 0 {
 				sort.Strings(pages)
 				p.StepWarn("%v", err)
 				p.Info("Pages in this wiki:")
