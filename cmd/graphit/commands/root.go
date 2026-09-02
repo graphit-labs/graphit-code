@@ -10,7 +10,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/config"
 	"github.com/graphit-labs/graphit-code/internal/daemon"
 	"github.com/graphit-labs/graphit-code/internal/hub"
-	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/version"
@@ -81,7 +80,9 @@ func Execute() {
 
 	err := rootCmd.Execute()
 
-	memory.WaitForPendingPushes()
+	// Memory used to need a wait here too: a write uploaded its markdown object in the background,
+	// so exiting immediately could lose the memory the command had just reported as saved. A write
+	// is a table commit now, and it is finished before the write path returns.
 	hub.WaitForPendingEvents()
 
 	if err != nil {

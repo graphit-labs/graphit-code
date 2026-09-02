@@ -1,9 +1,6 @@
 package memory
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -179,84 +176,6 @@ More content.`,
 				t.Errorf("extractBodyAfterFrontmatter:\n  got:  %q\n  want: %q", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestParseMemoryMeta(t *testing.T) {
-	tests := []struct {
-		name      string
-		content   string
-		wantTitle string
-		wantDate  string
-	}{
-		{
-			name: "with frontmatter title and created_at",
-			content: `---
-title: My Important Memory
-created_at: 2026-05-26T10:30:00Z
----
-
-# My Important Memory
-
-Details here.`,
-			wantTitle: "My Important Memory",
-			wantDate:  "2026-05-26T10:30:00Z",
-		},
-		{
-			name: "frontmatter title no created_at",
-			content: `---
-title: No Date Memory
----
-
-# No Date Memory
-
-Content.`,
-			wantTitle: "No Date Memory",
-			wantDate:  "",
-		},
-		{
-			name: "H1 title fallback (no frontmatter title key)",
-			content: `# Standalone Title
-
-Content here.`,
-			wantTitle: "Standalone Title",
-			wantDate:  "",
-		},
-		{
-			name:      "empty file",
-			content:   "",
-			wantTitle: "", // will fall back to filename base
-		},
-		{
-			name:    "no title at all",
-			content: "Some random content without title or heading",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := t.TempDir()
-			path := filepath.Join(dir, "test_memory.md")
-			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
-				t.Fatalf("WriteFile: %v", err)
-			}
-			gotTitle, gotDate := ParseMemoryMetaPublic(path)
-			if tc.wantTitle != "" && gotTitle != tc.wantTitle {
-				t.Errorf("title = %q; want %q", gotTitle, tc.wantTitle)
-			}
-			if tc.wantDate != "" && gotDate != tc.wantDate {
-				t.Errorf("createdAt = %q; want %q", gotDate, tc.wantDate)
-			}
-		})
-	}
-}
-
-func TestParseMemoryMeta_NonExistentFile(t *testing.T) {
-	title, createdAt := ParseMemoryMetaPublic("/nonexistent/path/does_not_exist.md")
-	if title != "does_not_exist.md" {
-		t.Errorf("expected filename fallback, got %q", title)
-	}
-	if createdAt != "" {
-		t.Errorf("expected empty createdAt, got %q", createdAt)
 	}
 }
 
@@ -548,67 +467,6 @@ func TestDetectStaleMemories_Empty(t *testing.T) {
 
 // ListMemories (filesystem-based via MemoryService)
 
-func TestListImportantInDir(t *testing.T) {
-	dir := t.TempDir()
-
-	impContent := `---
-title: Critical Rule
-important: true
----
-
-# Critical Rule
-
-Always do X before Y.`
-	writeMemFile(t, dir, "RULE1.md", impContent)
-
-	normContent := `---
-title: Normal Fact
----
-
-# Normal Fact
-
-Regular content.`
-	writeMemFile(t, dir, "FACT1.md", normContent)
-
-	results, err := listImportantInDir(dir)
-	if err != nil {
-		t.Fatalf("listImportantInDir: %v", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 important, got %d", len(results))
-	}
-	if results[0].ID != "RULE1" {
-		t.Errorf("ID = %q; want 'RULE1'", results[0].ID)
-	}
-	if results[0].Title != "Critical Rule" {
-		t.Errorf("Title = %q; want 'Critical Rule'", results[0].Title)
-	}
-	if !strings.Contains(results[0].Content, "Always do X before Y") {
-		t.Error("expected content to include body text")
-	}
-}
-
-func TestListImportantInDir_Empty(t *testing.T) {
-	dir := t.TempDir()
-	results, err := listImportantInDir(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(results) != 0 {
-		t.Errorf("expected 0, got %d", len(results))
-	}
-}
-
-func TestListImportantInDir_NonExistent(t *testing.T) {
-	results, err := listImportantInDir("/nonexistent/path")
-	if err != nil {
-		t.Fatalf("expected nil error for non-existent dir, got: %v", err)
-	}
-	if results != nil {
-		t.Errorf("expected nil, got %v", results)
-	}
-}
-
 func TestScopePrefix(t *testing.T) {
 	tests := []struct {
 		scope   MemoryScope
@@ -627,48 +485,6 @@ func TestScopePrefix(t *testing.T) {
 				t.Errorf("ScopePrefix() = %q; want %q", got, tc.want)
 			}
 		})
-	}
-}
-
-func TestRenderImportantBlock_Inline(t *testing.T) {
-	dir := t.TempDir()
-	content := `---
-title: Critical Rule
-important: true
----
-
-# Critical Rule
-
-Always follow this rule.`
-	writeMemFile(t, dir, "RULE1.md", content)
-
-	// We test listImportantInDir + rendering inline since RenderImportantBlock
-	// uses global scope resolution that depends on project state.
-	entries, err := listImportantInDir(dir)
-	if err != nil {
-		t.Fatalf("listImportantInDir: %v", err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1, got %d", len(entries))
-	}
-
-	// Build a block similar to RenderImportantBlock
-	var b strings.Builder
-	b.WriteString("## 📌 Key Project Memories\n\n")
-	for _, e := range entries {
-		_, _ = fmt.Fprintf(&b, "### %s\n", e.Title)
-		_, _ = fmt.Fprintf(&b, "*ID: `%s`*\n\n", e.ID)
-		if e.Content != "" {
-			b.WriteString(e.Content + "\n")
-		}
-		b.WriteString("\n")
-	}
-	block := b.String()
-	if !strings.Contains(block, "Critical Rule") {
-		t.Error("block should contain memory title")
-	}
-	if !strings.Contains(block, "RULE1") {
-		t.Error("block should contain memory ID")
 	}
 }
 
@@ -751,17 +567,6 @@ func TestMemoryEntry_Fields(t *testing.T) {
 	}
 }
 
-func TestRawDirFor(t *testing.T) {
-	got := RawDirFor("project", "abc123")
-	// Should contain "memory-raw" and sanitized branch name
-	if !strings.Contains(got, "memory-raw") {
-		t.Errorf("expected path to contain 'memory-wt', got %q", got)
-	}
-	if !strings.Contains(got, "memory-project-abc123") {
-		t.Errorf("expected path to contain 'memory-project-abc123', got %q", got)
-	}
-}
-
 func TestMemoryScopeConstants(t *testing.T) {
 	if MemoryScopeProject != "project" {
 		t.Errorf("MemoryScopeProject = %q", MemoryScopeProject)
@@ -804,71 +609,6 @@ func TestConsolidationAction_Fields(t *testing.T) {
 	}
 	if len(a.MemoryIDs) != 2 {
 		t.Errorf("MemoryIDs len = %d", len(a.MemoryIDs))
-	}
-}
-
-func TestCopyDirRecursive(t *testing.T) {
-	srcDir := t.TempDir()
-	dstDir := t.TempDir()
-
-	writeMemFile(t, srcDir, "file1.txt", "content1")
-	subdir := filepath.Join(srcDir, "sub")
-	if err := os.MkdirAll(subdir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	writeMemFile(t, subdir, "file2.txt", "content2")
-
-	if err := copyDirRecursive(srcDir, dstDir); err != nil {
-		t.Fatalf("copyDirRecursive: %v", err)
-	}
-
-	// Verify
-	data1, err := os.ReadFile(filepath.Join(dstDir, "file1.txt"))
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(data1) != "content1" {
-		t.Errorf("file1 content = %q", string(data1))
-	}
-
-	data2, err := os.ReadFile(filepath.Join(dstDir, "sub", "file2.txt"))
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(data2) != "content2" {
-		t.Errorf("file2 content = %q", string(data2))
-	}
-}
-
-func TestCopyFileData(t *testing.T) {
-	srcDir := t.TempDir()
-	dstDir := t.TempDir()
-
-	srcPath := filepath.Join(srcDir, "source.txt")
-	dstPath := filepath.Join(dstDir, "dest.txt")
-
-	if err := os.WriteFile(srcPath, []byte("hello copy"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	if err := copyFileData(srcPath, dstPath, 0o644); err != nil {
-		t.Fatalf("copyFileData: %v", err)
-	}
-
-	data, err := os.ReadFile(dstPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(data) != "hello copy" {
-		t.Errorf("content = %q", string(data))
-	}
-}
-
-func TestCopyFileData_NonExistentSource(t *testing.T) {
-	dstDir := t.TempDir()
-	err := copyFileData("/nonexistent/source.txt", filepath.Join(dstDir, "dest.txt"), 0o644)
-	if err == nil {
-		t.Error("expected error for non-existent source")
 	}
 }
 
@@ -915,12 +655,5 @@ func TestImportanceIsNotEncodedInTheFileName(t *testing.T) {
 	}
 	if name := MemoryFileName("MEM1"); name != "MEM1.md" {
 		t.Errorf("MemoryFileName for an important memory = %q; want the plain id", name)
-	}
-}
-
-func writeMemFile(t *testing.T, dir, name, content string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-		t.Fatalf("writeMemFile(%s): %v", name, err)
 	}
 }

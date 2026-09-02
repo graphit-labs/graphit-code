@@ -1,20 +1,26 @@
 package memory
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
 )
 
 // MemoryWriter is the subset of MemoryService that applying a consolidation plan
-// needs. Every mutation goes through it rather than through os.WriteFile, so each
-// change goes through the memory store and the wiki is reindexed — a plan
-// applied by writing the raw directory directly leaves the remote and the search index
-// describing a store that no longer exists.
+// needs. Every mutation goes through it rather than through the store directly, so each
+// change is recorded and the wiki is recompiled — a plan applied by writing storage
+// directly leaves the search index describing a store that no longer exists.
+//
+// 🔒 IT READS THE STORE, IT DOES NOT NAME A DIRECTORY. `LocalDir() string` used to be the first
+// method here, and ApplyConsolidation loaded the plan's starting state by enumerating the markdown
+// files in it. When the raw store was retired that directory kept existing as a name and stopped
+// having files, so every action was refused with "memory no longer exists" — a plan that applied
+// nothing, reported as a clean run. The same failure RunConsolidation had, one layer down.
 type MemoryWriter interface {
-	LocalDir() string
+	// LiveMemories is the scope's live records, which is what the plan is verified against.
+	LiveMemories(ctx context.Context) ([]MemoryRecord, error)
 	UpdateMemory(id, newTitle, newBody string) error
 	// UpdateMemoryTyped also sets the type, so a survivor can inherit the most
 	// specific classification in its group.
@@ -138,7 +144,7 @@ var typePriority = map[string]int{
 // It never trusts the plan about anything it can verify itself: which memories
 // exist, which are important, what their content is. The plan proposes; this
 // function decides.
-func ApplyConsolidation(scope string, report *ConsolidationReport, w MemoryWriter) (*ConsolidationOutcome, error) {
+func ApplyConsolidation(ctx context.Context, scope string, report *ConsolidationReport, w MemoryWriter) (*ConsolidationOutcome, error) {
 	outcome := &ConsolidationOutcome{Scope: scope}
 	if report == nil {
 		return outcome, nil
@@ -151,7 +157,7 @@ func ApplyConsolidation(scope string, report *ConsolidationReport, w MemoryWrite
 		return outcome, fmt.Errorf("memory writer not configured")
 	}
 
-	state, err := loadApplyState(w.LocalDir())
+	state, err := loadApplyState(ctx, w)
 	if err != nil {
 		return outcome, fmt.Errorf("reading memory store: %w", err)
 	}
@@ -181,26 +187,23 @@ func ApplyConsolidation(scope string, report *ConsolidationReport, w MemoryWrite
 	return outcome, nil
 }
 
-// applyState is the store as it is on disk, refreshed as actions mutate it, so a
+// applyState is the store as it actually is, refreshed as actions mutate it, so a
 // later action cannot operate on a memory an earlier one removed.
 type applyState struct {
-	dir     string
 	present map[string]memorySnapshot
 }
 
-func loadApplyState(dir string) (*applyState, error) {
-	snapshots, err := loadMemorySnapshots(dir)
+func loadApplyState(ctx context.Context, w MemoryWriter) (*applyState, error) {
+	records, err := w.LiveMemories(ctx)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &applyState{dir: dir, present: map[string]memorySnapshot{}}, nil
-		}
 		return nil, err
 	}
+	snapshots := snapshotsFromRecords(records)
 	present := make(map[string]memorySnapshot, len(snapshots))
 	for _, s := range snapshots {
 		present[s.ID] = s
 	}
-	return &applyState{dir: dir, present: present}, nil
+	return &applyState{present: present}, nil
 }
 
 func (s *applyState) get(id string) (memorySnapshot, bool) {

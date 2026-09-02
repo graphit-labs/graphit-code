@@ -349,13 +349,16 @@ func runDaemonCore(noEmbedding, noDream bool, logPath string) (closeMCP func(), 
 
 	d := daemon.New(cfg, builder)
 
-	// Global, not per-project: one memory root covering every scope — a project's own and the
-	// user's — and one ONNX session every process on the machine shares. Both used to run as
-	// bare goroutines with their error discarded and no restart.
+	// Global, not per-project: one ONNX session every process on the machine shares. It used to run
+	// as a bare goroutine with its error discarded and no restart.
+	//
+	// A memory watcher used to be registered here as well. It watched the root every scope's raw
+	// markdown directory lived under and recompiled the wiki of whichever scope changed. There is no
+	// markdown and no directory to watch: a write commits to the scope's table and recompiles the
+	// wiki inline, and a table in object storage produces no local event to notice at all.
 	if sharedEmbedClient != nil {
 		d.AddGlobalModule(daemon.NewEmbedServer(sharedEmbedClient))
 	}
-	d.AddGlobalModule(daemon.NewMemorySyncModule())
 
 	// Opt-in, and the case it exists for is a container: there, one process has to bring up the
 	// MCP server AND serve the UI, and it is PID 1. On a workstation `graphit ui` remains the way

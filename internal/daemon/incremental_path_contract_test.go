@@ -49,20 +49,7 @@ func TestClassifyBatchEmitsRepoRelativeASTPaths(t *testing.T) {
 	}
 }
 
-// Memory's contract is the opposite one, on purpose: anyUnder answers "does this batch touch
-// this scope directory", which only works on absolute paths. Nothing from the batch is ever
-// persisted, so there is no relative form to convert to — and converting would break the
-// scope selection instead of fixing anything.
-func TestMemoryScopeSelectionUsesAbsoluteBatchPaths(t *testing.T) {
-	t.Parallel()
-
-	root := t.TempDir()
-	scope := filepath.Join(root, "project-01ABC")
-
-	if !anyUnder([]string{filepath.Join(scope, "memories", "m.md")}, scope) {
-		t.Error("an absolute path inside the scope was not detected, so the scope would never recompile")
-	}
-	if anyUnder([]string{filepath.Join(root, "other-scope", "m.md")}, scope) {
-		t.Error("a path in a sibling scope was treated as inside this one")
-	}
-}
+// Memory used to have the opposite contract here, and it is gone with the watcher that needed it:
+// `anyUnder` answered "does this batch touch this scope's directory" over absolute paths, to pick
+// which memory wiki to recompile. A memory write recompiles its own wiki inline now, so no batch is
+// ever classified against a memory scope.

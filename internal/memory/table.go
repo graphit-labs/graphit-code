@@ -311,6 +311,7 @@ func (t *MemoryTable) Revisions(ctx context.Context, id string) ([]MemoryRecord,
 // index, where a pruned version costs a rebuild and nothing more. This store is the only copy of
 // what it holds — the markdown raw store that was its second copy is being retired — so its version
 // history is the recovery path D2 accepted, and the retention is the length of the safety net.
+// (The markdown store that was that second copy is now gone entirely.)
 // Sharing one key would have honoured D2's letter while breaking it in fact: a bad pass noticed the
 // next morning would have found nothing left to roll back to.
 func (t *MemoryTable) Maintain(ctx context.Context) error {

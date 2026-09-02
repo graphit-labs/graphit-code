@@ -29,10 +29,6 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	// Anything still uploading has to finish before the process exits, or it writes into
-	// directories the test framework has already removed.
-	WaitForPendingPushes()
-
 	// Cleaned up here rather than with defer: os.Exit does not run deferred functions, so a defer
 	// would leak this directory on every run.
 	if home != "" {

@@ -312,7 +312,7 @@ func TestPreparingASessionCompilesNothingOfItsOwn(t *testing.T) {
 		store.KnowledgeProjectDirByID(s.ID()),
 		store.ASTProjectDirByID(s.ID()),
 		store.MemoryWikiDir("project", s.ID()),
-		store.MemoryRawDir("project", s.ID()),
+		store.MemoryTableDir("project", s.ID()),
 	} {
 		if _, err := os.Stat(dir); err == nil {
 			t.Errorf("the session acquired a store of its own at %s", dir)

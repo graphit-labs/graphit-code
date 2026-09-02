@@ -9,14 +9,14 @@ import (
 )
 
 // seedResidue creates what an older version of this code left behind for a session:
-// the three stores keyed by its ID, plus the memory worktree.
+// the three stores keyed by its ID, plus its memory table.
 func seedResidue(t *testing.T, sessionID string) []string {
 	t.Helper()
 	dirs := []string{
 		store.ASTProjectDirByID(sessionID),
 		store.KnowledgeProjectDirByID(sessionID),
 		store.MemoryWikiDir("project", sessionID),
-		store.MemoryRawDir("project", sessionID),
+		store.MemoryTableDir("project", sessionID),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {

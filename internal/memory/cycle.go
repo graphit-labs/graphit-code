@@ -48,7 +48,7 @@ func RunUserCycle(ctx context.Context) *CycleResult {
 	return runScopeCycle(ctx, "user")
 }
 
-// runScopeCycle compiles a scope's raw directory into its wiki.
+// runScopeCycle compiles a scope's table into its wiki.
 //
 // There is one compile and one destination. Two earlier arrangements are gone: it
 // used to compile straight into a project-local replica while the daemon compiled

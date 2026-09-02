@@ -129,16 +129,16 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 
 	global := filepath.Join(home, brand.DotDir())
 	cases := map[string]string{
-		"ast project":       ASTProjectDir(projectDir),
+		"ast project":        ASTProjectDir(projectDir),
 		"ast project bundle": ASTProjectIcebugDir(projectDir),
-		"ast context":       ASTContextDir("other-repo"),
+		"ast context":        ASTContextDir("other-repo"),
 		"ast context bundle": ASTContextIcebugDir("other-repo"),
-		"ast hub":           ASTHubDir("01PUB", "1.2.3"),
-		"ast hub bundle":    ASTHubIcebugDir("01PUB", "1.2.3"),
-		"knowledge project": KnowledgeProjectDir(projectDir),
-		"knowledge context": KnowledgeContextDir("some-docs"),
-		"memory wiki":       MemoryWikiDir("project", "01ACME"),
-		"memory worktree":   MemoryRawDir("project", "01ACME"),
+		"ast hub":            ASTHubDir("01PUB", "1.2.3"),
+		"ast hub bundle":     ASTHubIcebugDir("01PUB", "1.2.3"),
+		"knowledge project":  KnowledgeProjectDir(projectDir),
+		"knowledge context":  KnowledgeContextDir("some-docs"),
+		"memory wiki":        MemoryWikiDir("project", "01ACME"),
+		"memory table":       MemoryTableDir("project", "01ACME"),
 	}
 	for label, got := range cases {
 		rel, err := filepath.Rel(global, got)
@@ -156,17 +156,26 @@ func TestEveryStoreLivesUnderTheGlobalDirectory(t *testing.T) {
 	// The exact shapes, so a rename of the layout is a deliberate decision rather
 	// than a silent one that orphans every store on every machine.
 	want := map[string]string{
-		ASTProjectIcebugDir(projectDir):    filepath.Join(global, "ast", "project", "01ACME", "graph.icebug"),
-		ASTContextIcebugDir("Other Repo"):  filepath.Join(global, "ast", "context", "other-repo", "graph.icebug"),
-		ASTHubIcebugDir("01PUB", "1.2.3"):  filepath.Join(global, "ast", "hub", "01pub", "1.2.3", "graph.icebug"),
-		KnowledgeProjectDir(projectDir):    filepath.Join(global, "wiki", "knowledge", "project", "01ACME"),
-		KnowledgeContextDir("Some Docs"):   filepath.Join(global, "wiki", "knowledge", "context", "some-docs"),
-		MemoryWikiDir("user", "abc123"):    filepath.Join(global, "wiki", "memory", "user", "abc123"),
-		MemoryRawDir("project", "01ACME"):  filepath.Join(global, "memory-raw", "memory-project-01ACME"),
+		ASTProjectIcebugDir(projectDir):     filepath.Join(global, "ast", "project", "01ACME", "graph.icebug"),
+		ASTContextIcebugDir("Other Repo"):   filepath.Join(global, "ast", "context", "other-repo", "graph.icebug"),
+		ASTHubIcebugDir("01PUB", "1.2.3"):   filepath.Join(global, "ast", "hub", "01pub", "1.2.3", "graph.icebug"),
+		KnowledgeProjectDir(projectDir):     filepath.Join(global, "wiki", "knowledge", "project", "01ACME"),
+		KnowledgeContextDir("Some Docs"):    filepath.Join(global, "wiki", "knowledge", "context", "some-docs"),
+		MemoryWikiDir("user", "abc123"):     filepath.Join(global, "wiki", "memory", "user", "abc123"),
+		MemoryTableDir("project", "01ACME"): filepath.Join(global, "memory-table", "memory-project-01ACME"),
 	}
 	for got, expected := range want {
 		if got != expected {
 			t.Errorf("got %q, want %q", got, expected)
+		}
+	}
+
+	// The ABSENCE of the retired one, alongside the presence of its replacement. A raw markdown
+	// store used to sit under `memory-raw`, and asserting only that the table is where it should be
+	// would stay green if something started writing the old root again beside it.
+	for label, got := range cases {
+		if strings.Contains(got, "memory-raw") {
+			t.Errorf("%s = %q resolves into the retired raw memory store", label, got)
 		}
 	}
 }

@@ -138,13 +138,10 @@ func TestAddGlobalModuleRegisters(t *testing.T) {
 	}
 }
 
-// The two modules this exists for must satisfy the contract, or they cannot be registered.
+// The module this exists for must satisfy the contract, or it cannot be registered. There were two:
+// the other watched the memory raw store, which no longer exists.
 func TestGlobalModulesImplementWatchModule(t *testing.T) {
-	var _ WatchModule = NewMemorySyncModule()
 	var _ WatchModule = NewEmbedServer(nil)
-	if NewMemorySyncModule().Name() != "memory-sync" {
-		t.Error("the memory watcher must name itself for the log")
-	}
 	if NewEmbedServer(nil).Name() != "embed-server" {
 		t.Error("the embedding server must name itself for the log")
 	}

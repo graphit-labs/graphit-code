@@ -13,7 +13,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/dream"
 	"github.com/graphit-labs/graphit-code/internal/hub"
-	"github.com/graphit-labs/graphit-code/internal/memory"
 )
 
 var ErrReplace = errors.New("daemon: replacement required")
@@ -361,7 +360,6 @@ func (d *Daemon) shutdown() {
 
 	d.event("success", "Daemon stopped")
 
-	memory.WaitForPendingPushes()
 	hub.WaitForPendingEvents()
 
 	d.log("daemon stopped")

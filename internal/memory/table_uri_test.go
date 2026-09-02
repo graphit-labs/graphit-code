@@ -71,15 +71,21 @@ func TestAContextResolvesToTheProjectPrefixRemotelyAndADoubledNameLocally(t *tes
 	}
 }
 
-// The table directory and the raw directory of one scope must be named from the same pair, or a
-// scope owns two differently-named directories and nothing notices.
-func TestTableDirAndRawDirShareTheScopeSegment(t *testing.T) {
-	rawBase := filepath.Base(RawDirFor("project", "01ABC"))
-	tableBase := filepath.Base(TableDirFor("project", "01ABC"))
-	if rawBase != tableBase {
-		t.Errorf("raw dir segment %q != table dir segment %q", rawBase, tableBase)
+// A context's two local artifacts are named from the doubled pair, so the table directory and the
+// wiki directory agree about which scope they belong to. The check used to be against the raw
+// markdown store's segment, which is the pair that no longer exists.
+func TestAContextsLocalArtifactsAreNamedFromTheDoubledScope(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("GRAPHIT_HUB_BUCKET", "")
+
+	if got, want := filepath.Base(TableDirFor("shared-notes", "shared-notes")),
+		"memory-shared-notes-shared-notes"; got != want {
+		t.Errorf("table dir segment = %q, want %q", got, want)
 	}
-	if filepath.Dir(RawDirFor("project", "01ABC")) == filepath.Dir(TableDirFor("project", "01ABC")) {
-		t.Error("the raw store and the table share a parent directory; they must be separate roots")
+	if got, want := MemoryWikiGlobalDir("shared-notes", "shared-notes"),
+		store.MemoryWikiDir("shared-notes", "shared-notes"); got != want {
+		t.Errorf("wiki dir = %q, want %q", got, want)
 	}
 }

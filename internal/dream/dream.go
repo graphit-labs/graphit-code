@@ -347,7 +347,7 @@ func (r *Runner) runMemoryConsolidation(ctx context.Context) []*memory.Consolida
 			continue
 		}
 
-		outcome, err := memory.ApplyConsolidation(scope, report, svc)
+		outcome, err := memory.ApplyConsolidation(ctx, scope, report, svc)
 		_ = svc.Close()
 		if err != nil {
 			r.log("dream: memory consolidation (%s) apply error: %v", scope, err)

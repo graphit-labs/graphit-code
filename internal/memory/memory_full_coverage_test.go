@@ -14,178 +14,23 @@ import (
 
 // EnsureInitialised has nothing to create, and that is the assertion.
 //
-// It asserted that the raw directory root EXISTS afterwards. That directory is retired: a scope's
-// store is a Lance table and opening one creates it, so preparing a directory in advance would only
-// recreate the raw store's shape after its contents were deleted.
+// It asserted that the store's local root EXISTS afterwards, back when that root held markdown a
+// compile read. Opening a Lance table creates it, so preparing a directory in advance buys nothing —
+// and an empty root left behind on every run reads as though the retired store were still a thing.
 func TestEnsureInitialisedCreatesNothing(t *testing.T) {
-	base := filepath.Join(t.TempDir(), "raw")
-	st := &MemoryStore{rawBase: base}
+	base := filepath.Join(t.TempDir(), "tables")
+	st := &MemoryStore{tableBase: base}
 	if err := st.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
 	}
 	if _, err := os.Stat(base); !os.IsNotExist(err) {
-		t.Errorf("the raw directory root was created: %v", err)
-	}
-}
-
-// Publish with no remote configured is a no-op that must not error, because local-only is a
-// supported mode and every memory write ends in a Publish.
-func TestMemoryStore_PublishWithoutRemoteIsANoop(t *testing.T) {
-	store := &MemoryStore{rawBase: filepath.Join(t.TempDir(), "wt")}
-	w, err := store.OpenScopeLocal("memory/project/p1")
-	if err != nil {
-		t.Fatalf("open scope: %v", err)
-	}
-	if err := w.WriteFile("a.md", []byte("# a")); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if err := w.Publish("adding a"); err != nil {
-		t.Fatalf("Publish with no remote must not fail: %v", err)
-	}
-	WaitForPendingPushes()
-	if _, err := w.ReadFile("a.md"); err != nil {
-		t.Errorf("the raw directory is the truth and must still hold the file: %v", err)
-	}
-}
-
-func TestMemoryStore_OpenScopeLocal_Full(t *testing.T) {
-	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	branch := "memory/project/test-proj"
-	wt, err := store.OpenScopeLocal(branch)
-	if err != nil {
-		t.Fatalf("OpenScopeLocal: %v", err)
-	}
-	if wt == nil {
-		t.Fatal("expected non-nil worktree")
-	}
-	if wt.Dir() == "" {
-		t.Error("expected non-empty dir")
-	}
-
-	if err := wt.WriteFile("test.md", []byte("hello")); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	// Read it back
-	data, err := wt.ReadFile("test.md")
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(data) != "hello" {
-		t.Errorf("content = %q", string(data))
-	}
-
-	// CommitAndPush (without remote — push will be skipped)
-	if err := wt.Publish("test commit"); err != nil {
-		t.Fatalf("CommitAndPush: %v", err)
-	}
-
-	// Second call to OpenScopeLocal should reuse existing worktree
-	wt2, err := store.OpenScopeLocal(branch)
-	if err != nil {
-		t.Fatalf("second OpenScopeLocal: %v", err)
-	}
-	if wt2.Dir() != wt.Dir() {
-		t.Errorf("expected same worktree dir, got %q vs %q", wt2.Dir(), wt.Dir())
-	}
-}
-
-func TestMemoryStore_ExtractScopeDir_Full(t *testing.T) {
-	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	branch := "memory/project/extract-test"
-	wt, err := store.OpenScopeLocal(branch)
-	if err != nil {
-		t.Fatalf("OpenScopeLocal: %v", err)
-	}
-
-	if err := wt.WriteFile("data/test.md", []byte("extracted")); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	if err := wt.Publish("add data"); err != nil {
-		t.Fatalf("CommitAndPush: %v", err)
-	}
-
-	// Extract
-	destDir := filepath.Join(t.TempDir(), "dest")
-	if err := store.ExtractScopeDir(branch, "data", destDir); err != nil {
-		t.Fatalf("ExtractScopeDir: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(destDir, "test.md"))
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(data) != "extracted" {
-		t.Errorf("content = %q; want 'extracted'", string(data))
-	}
-}
-
-func TestMemoryStore_ExtractScopeDir_NonExistentSubdir(t *testing.T) {
-	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	branch := "memory/project/no-subdir"
-	_, err := store.OpenScopeLocal(branch)
-	if err != nil {
-		t.Fatalf("OpenScopeLocal: %v", err)
-	}
-
-	destDir := filepath.Join(t.TempDir(), "empty-dest")
-	if err := store.ExtractScopeDir(branch, "nonexistent", destDir); err != nil {
-		t.Fatalf("ExtractScopeDir: %v", err)
-	}
-	if _, err := os.Stat(destDir); err != nil {
-		t.Errorf("expected destDir to exist: %v", err)
-	}
-}
-
-func TestMemoryStore_Prune_Full(t *testing.T) {
-	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
-
-	if err := store.EnsureInitialised(); err != nil {
-		t.Fatalf("EnsureInitialised: %v", err)
-	}
-
-	branch := "memory/project/prune-test"
-	wt, err := store.OpenScopeLocal(branch)
-	if err != nil {
-		t.Fatalf("OpenScopeLocal: %v", err)
-	}
-
-	wtDir := wt.Dir()
-	if _, err := os.Stat(wtDir); err != nil {
-		t.Fatalf("worktree dir should exist: %v", err)
-	}
-
-	if err := wt.Prune(); err != nil {
-		t.Fatalf("Prune: %v", err)
-	}
-
-	if _, err := os.Stat(wtDir); !os.IsNotExist(err) {
-		t.Error("expected worktree dir to be removed after Prune")
+		t.Errorf("the local table root was created: %v", err)
 	}
 }
 
 func TestMemoryStore_RegisterDeregisterScope_Full(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
+	store := &MemoryStore{tableBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -240,7 +85,7 @@ func TestMemoryStore_RegisterDeregisterScope_Full(t *testing.T) {
 
 func TestMemoryStore_ValidateScopeRefs_Full(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
+	store := &MemoryStore{tableBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -269,7 +114,7 @@ func TestMemoryStore_ValidateScopeRefs_Full(t *testing.T) {
 
 func TestMemoryStore_DeregisterScope_NotFound(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
+	store := &MemoryStore{tableBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
@@ -284,48 +129,53 @@ func TestMemoryStore_DeregisterScope_NotFound(t *testing.T) {
 	}
 }
 
-// Pruning a scope removes its raw directory and nothing else.
+// Pruning a scope removes its local TABLE directory and nothing else.
 //
-// It used to also delete a branch ref, and the test created an orphan branch to have one. There
-// is no ref now: the directory and the lock entry are this machine's whole record of a scope.
+// It used to delete a branch ref, then a raw markdown directory, and this test staged whichever of
+// those the code of the day created. The table is what a scope has locally now — and it is the only
+// copy of its memories when there is no bucket, which is why the assertion names the directory the
+// scope actually stores into rather than any directory the prune happens to remove.
 // The remote prefix must survive, because another machine may still be using the scope.
 func TestMemoryStore_PruneLocalBranch_Full(t *testing.T) {
-	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
+	tableBase := filepath.Join(t.TempDir(), "tables")
+	store := &MemoryStore{tableBase: tableBase}
 	t.Setenv("HOME", t.TempDir()) // isolate from the developer's global lock file
 
-	const branch = "memory/prune/target"
-	w, err := store.OpenScopeLocal(branch)
-	if err != nil {
-		t.Fatalf("open scope: %v", err)
+	const scopePath = "memory/prune/target"
+	dir := store.scopeDir(scopePath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if err := w.WriteFile("m.md", []byte("# m")); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "data.lance"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	store.pruneLocalScope(branch)
+	store.pruneLocalScope(scopePath)
 
-	if _, err := os.Stat(store.ScopeDir(branch)); !os.IsNotExist(err) {
-		t.Errorf("expected the raw directory to be gone, got %v", err)
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("expected the table directory to be gone, got %v", err)
+	}
+	// The scope's directory name is the one the store itself derives, so the two spellings of it
+	// cannot drift apart: a prune that removed a differently-named directory would be a no-op.
+	if dir != filepath.Join(tableBase, "memory-prune-target") {
+		t.Errorf("scopeDir = %q, want the flattened scope path under the table root", dir)
 	}
 }
 
-// memory.go — MemoryService operations with ScopeStore (via git)
+// memory.go — MemoryService operations against a local table
 
 func TestMemoryService_AddUpdateRemoveMemory_WithGitStore(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
+	store := &MemoryStore{tableBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
 	}
 
-	localDir := t.TempDir()
 	svc := &MemoryService{
-		scope:    MemoryScopeProject,
-		scopeID:  "test-proj",
-		localDir: localDir,
-		store:    store,
+		scope:   MemoryScopeProject,
+		scopeID: "test-proj",
+		store:   store,
 	}
 
 	id, err := svc.AddMemory("Test Title", "Test body content", MemoryOpts{})
@@ -359,18 +209,16 @@ func TestMemoryService_AddUpdateRemoveMemory_WithGitStore(t *testing.T) {
 
 func TestMemoryService_AddMemory_WithTypeAndTags(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
+	store := &MemoryStore{tableBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
 	}
 
-	localDir := t.TempDir()
 	svc := &MemoryService{
-		scope:    MemoryScopeProject,
-		scopeID:  "test-proj",
-		localDir: localDir,
-		store:    store,
+		scope:   MemoryScopeProject,
+		scopeID: "test-proj",
+		store:   store,
 	}
 
 	id, err := svc.AddMemory("Typed Memory", "Body with type", MemoryOpts{
@@ -388,18 +236,16 @@ func TestMemoryService_AddMemory_WithTypeAndTags(t *testing.T) {
 
 func TestMemoryService_SyncToLocal_WithGitStore(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
+	store := &MemoryStore{tableBase: wtBase}
 
 	if err := store.EnsureInitialised(); err != nil {
 		t.Fatalf("EnsureInitialised: %v", err)
 	}
 
-	localDir := t.TempDir()
 	svc := &MemoryService{
-		scope:    MemoryScopeProject,
-		scopeID:  "test-proj",
-		localDir: localDir,
-		store:    store,
+		scope:   MemoryScopeProject,
+		scopeID: "test-proj",
+		store:   store,
 	}
 
 	id, err := svc.AddMemory("Sync Test", "Body content for sync", MemoryOpts{})
@@ -418,14 +264,12 @@ func TestMemoryService_SyncToLocal_WithGitStore(t *testing.T) {
 
 func TestMemoryService_EnsureInitialised_WithGitStore(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
-	store := &MemoryStore{rawBase: wtBase}
+	store := &MemoryStore{tableBase: wtBase}
 
-	localDir := t.TempDir()
 	svc := &MemoryService{
-		scope:    MemoryScopeProject,
-		scopeID:  "test-proj",
-		localDir: localDir,
-		store:    store,
+		scope:   MemoryScopeProject,
+		scopeID: "test-proj",
+		store:   store,
 	}
 
 	err := svc.EnsureInitialised()
@@ -504,22 +348,18 @@ func TestWikiDir_Coverage(t *testing.T) {
 	_ = dir
 }
 
-func TestRawDir_Coverage(t *testing.T) {
-	dir := RawDir("project")
-	// dir may be empty if global dir is not configured
-	_ = dir
-}
-
-// consolidate.go — RunConsolidation edge cases (helper-based)
+// consolidate.go — the analysis, over a corpus handed to it. RunConsolidation reads that corpus
+// from the scope's table; nothing below depends on where it came from.
 
 func TestRunConsolidation_WithAIClient_Coverage(t *testing.T) {
-	dir := t.TempDir()
 	now := time.Now().UTC()
 	date1 := now.Add(-2 * 24 * time.Hour).Format(time.RFC3339)
 	date2 := now.Add(-3 * 24 * time.Hour).Format(time.RFC3339)
 
-	writeMemFile(t, dir, "MEM1.md", fmt.Sprintf("---\ntitle: Memory One\ntype: fact\ncreated_at: %s\n---\n\n# Memory One\n\nContent of memory one.", date1))
-	writeMemFile(t, dir, "MEM2.md", fmt.Sprintf("---\ntitle: Memory Two\ntype: fact\ncreated_at: %s\n---\n\n# Memory Two\n\nContent of memory two.", date2))
+	corpus := []memorySnapshot{
+		{ID: "MEM1", Title: "Memory One", Body: "Content of memory one.", Type: "fact", CreatedAt: date1},
+		{ID: "MEM2", Title: "Memory Two", Body: "Content of memory two.", Type: "fact", CreatedAt: date2},
+	}
 
 	aiResponse := `## DUPLICATES
 - MERGE [MEM1XXXXXXXXXXX] and [MEM2XXXXXXXXXXX]: Same content
@@ -532,11 +372,7 @@ None found
 
 	client := &fakeAIClient{response: aiResponse}
 
-	ctx := context.Background()
-	report, err := consolidateDir(ctx, dir, client)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
+	report := consolidateSnapshots(context.Background(), corpus, client, nil)
 	if report.TotalMemories != 2 {
 		t.Errorf("TotalMemories = %d; want 2", report.TotalMemories)
 	}
@@ -546,16 +382,16 @@ None found
 }
 
 func TestRunConsolidation_AIClientError_Coverage(t *testing.T) {
-	dir := t.TempDir()
 	date := time.Now().Add(-2 * 24 * time.Hour).Format(time.RFC3339)
-	writeMemFile(t, dir, "MEM1.md", fmt.Sprintf("---\ntitle: Mem1\ncreated_at: %s\n---\n\n# Mem1\n\nBody 1.", date))
-	writeMemFile(t, dir, "MEM2.md", fmt.Sprintf("---\ntitle: Mem2\ncreated_at: %s\n---\n\n# Mem2\n\nBody 2.", date))
+	corpus := []memorySnapshot{
+		{ID: "MEM1", Title: "Mem1", Body: "Body 1.", CreatedAt: date},
+		{ID: "MEM2", Title: "Mem2", Body: "Body 2.", CreatedAt: date},
+	}
 
 	client := &fakeAIClient{err: fmt.Errorf("AI unavailable")}
-	ctx := context.Background()
-	report, err := consolidateDir(ctx, dir, client)
-	if err != nil {
-		t.Fatalf("should not return error, got: %v", err)
+	report := consolidateSnapshots(context.Background(), corpus, client, nil)
+	if !report.AIFailed {
+		t.Error("a failed analysis must be flagged, not only described in prose")
 	}
 	if !strings.Contains(report.AIAnalysis, "AI analysis failed") {
 		t.Errorf("expected AI failure message, got %q", report.AIAnalysis)
@@ -563,16 +399,11 @@ func TestRunConsolidation_AIClientError_Coverage(t *testing.T) {
 }
 
 func TestRunConsolidation_SingleMemory_Coverage(t *testing.T) {
-	dir := t.TempDir()
 	date := time.Now().Add(-2 * 24 * time.Hour).Format(time.RFC3339)
-	writeMemFile(t, dir, "SINGLE.md", fmt.Sprintf("---\ntitle: Single\ncreated_at: %s\n---\n\n# Single\n\nBody.", date))
+	corpus := []memorySnapshot{{ID: "SINGLE", Title: "Single", Body: "Body.", CreatedAt: date}}
 
 	client := &fakeAIClient{response: "should not be called"}
-	ctx := context.Background()
-	report, err := consolidateDir(ctx, dir, client)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
+	report := consolidateSnapshots(context.Background(), corpus, client, nil)
 	if report.TotalMemories != 1 {
 		t.Errorf("expected 1 memory")
 	}
@@ -582,16 +413,13 @@ func TestRunConsolidation_SingleMemory_Coverage(t *testing.T) {
 }
 
 func TestRunConsolidation_ImportantMemory_Coverage(t *testing.T) {
-	dir := t.TempDir()
 	date := time.Now().Add(-120 * 24 * time.Hour).Format(time.RFC3339)
-	writeMemFile(t, dir, "IMP.md", fmt.Sprintf("---\ntitle: Important\ncreated_at: %s\nimportant: true\n---\n\n# Important\n\nBody of important memory.", date))
-	writeMemFile(t, dir, "NORM.md", fmt.Sprintf("---\ntitle: Normal\ncreated_at: %s\n---\n\n# Normal\n\nBody of normal memory.", date))
-
-	ctx := context.Background()
-	report, err := consolidateDir(ctx, dir, nil)
-	if err != nil {
-		t.Fatalf("error: %v", err)
+	corpus := []memorySnapshot{
+		{ID: "IMP", Title: "Important", Body: "Body of important memory.", CreatedAt: date, Important: true},
+		{ID: "NORM", Title: "Normal", Body: "Body of normal memory.", CreatedAt: date},
 	}
+
+	report := consolidateSnapshots(context.Background(), corpus, nil, nil)
 	if report.TotalMemories != 2 {
 		t.Errorf("expected 2 memories, got %d", report.TotalMemories)
 	}
@@ -610,56 +438,35 @@ func (f *fakeAIClient) Complete(_ context.Context, _, _ string) (string, error) 
 	return f.response, f.err
 }
 
+// Indexing compiles what the STORE holds. It used to be given markdown files in a temp directory
+// and asserted that the wiki directory was non-empty afterwards — which stayed green once the
+// compile started reading the table instead, because the Lance index directory is itself an entry.
+// So this seeds through the service and counts the indexed rows.
 func TestMemoryService_IndexMemories_Coverage(t *testing.T) {
-	rawDir := t.TempDir()
-	wikiDir := t.TempDir()
-
-	writeMemFile(t, rawDir, "MEM1.md", "---\ntitle: Test\ntype: fact\n---\n\n# Test\n\nBody content.")
-	writeMemFile(t, rawDir, "MEM2.md", "---\ntitle: Important\nimportant: true\n---\n\n# Important\n\nImportant body.")
+	t.Setenv("GRAPHIT_HUB_BUCKET", "")
+	wikiDir := filepath.Join(t.TempDir(), "wiki")
 
 	svc := &MemoryService{
 		scope:    MemoryScopeProject,
 		scopeID:  "test",
-		localDir: rawDir,
+		store:    &MemoryStore{tableBase: filepath.Join(t.TempDir(), "tables")},
+		tableURI: filepath.Join(t.TempDir(), "table"),
 		wikiDir:  wikiDir,
 	}
+	if _, err := svc.AddMemory("Test", "Body content.", MemoryOpts{Type: MemoryTypeFact}); err != nil {
+		t.Fatalf("AddMemory: %v", err)
+	}
+	if _, err := svc.AddMemory("Important", "Important body.", MemoryOpts{Important: true}); err != nil {
+		t.Fatalf("AddMemory: %v", err)
+	}
 
-	ctx := context.Background()
-	err := svc.IndexMemories(ctx)
-	if err != nil {
+	if err := svc.IndexMemories(context.Background()); err != nil {
 		t.Fatalf("IndexMemories: %v", err)
 	}
 
-	// Check that wiki files were created
-	entries, readErr := os.ReadDir(wikiDir)
-	if readErr != nil {
-		t.Fatalf("reading wiki dir: %v", readErr)
-	}
-	if len(entries) < 1 {
-		t.Error("expected at least 1 file in wiki dir")
-	}
-}
-
-func TestEnsureWikiIndexExists_CreatesNew(t *testing.T) {
-	// Use a temp dir to create a wiki dir that doesn't exist yet
-	baseDir := t.TempDir()
-	wikiDir := filepath.Join(baseDir, "wiki")
-	_ = os.MkdirAll(wikiDir, 0o755)
-	indexPath := filepath.Join(wikiDir, "index.md")
-
-	// Call EnsureWikiIndexExists with a scope that maps to a non-existing wiki dir
-	// Since it uses global path resolution, we test creating the file manually
-	content := fmt.Sprintf("---\ntitle: Memory Wiki (%s)\ntags: [memory, %s]\n---\n\n# Memory Wiki\n\n*(No memories indexed yet.)*\n", "test", "test")
-	if err := os.WriteFile(indexPath, []byte(content), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-
-	data, err := os.ReadFile(indexPath)
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
-	if !strings.Contains(string(data), "Memory Wiki") {
-		t.Error("missing header")
+	live, superseded, _ := indexedMemoryPages(t, wikiDir)
+	if live != 2 || superseded != 0 {
+		t.Errorf("indexed %d live and %d superseded rows, want 2 and 0", live, superseded)
 	}
 }
 
@@ -811,22 +618,6 @@ func TestAIConsolidation_ParsesFencedJSON(t *testing.T) {
 }
 
 // wiki.go — memoryEntityPage with all type emojis
-
-func TestScopeStore_WriteFileSubdir_Coverage(t *testing.T) {
-	dir := t.TempDir()
-	wt := &ScopeStore{dir: dir, scopePath: "test"}
-
-	if err := wt.WriteFile("sub/dir/test.md", []byte("nested")); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(dir, "sub", "dir", "test.md"))
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(data) != "nested" {
-		t.Errorf("content = %q", string(data))
-	}
-}
 
 func TestMemoryAppService_InsertValidated_EmptyTitle(t *testing.T) {
 	svc := NewMemoryAppService("/some/project")

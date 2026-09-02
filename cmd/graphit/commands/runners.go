@@ -1014,7 +1014,7 @@ func runASTImport(sourcePath, name string, reset bool, workers int) error {
 			if err := memsvc.SyncToLocal(); err != nil {
 				p.StepWarn("Memory context %q: %v", name, err)
 			} else {
-				p.Step("Memory context synced → %s", memsvc.LocalDir())
+				p.Step("Memory context compiled from %s", memsvc.TableURI())
 			}
 			_ = memsvc.Close()
 		}
@@ -1863,10 +1863,11 @@ func runMemoryExport() error {
 func runMemoryRemoveContext(contextName string) error {
 	p := output.NewPrinter("")
 	// An imported memory context is a prefix of the shared memory store, so what is
-	// dropped is this machine's copy of it: its raw directory and its compiled wiki,
-	// both global. There is no project-local copy left to remove.
-	if err := os.RemoveAll(memory.RawDirFor(contextName, contextName)); err != nil {
-		return fmt.Errorf("removing memory context directory: %w", err)
+	// dropped is this machine's copy of it: its local table directory and its compiled wiki,
+	// both global. The remote prefix survives — another unit may still be reading it — and
+	// there is no project-local copy left to remove.
+	if err := os.RemoveAll(memory.TableDirFor(contextName, contextName)); err != nil {
+		return fmt.Errorf("removing memory context table: %w", err)
 	}
 	if err := os.RemoveAll(memory.MemoryWikiGlobalDir(contextName, contextName)); err != nil {
 		return fmt.Errorf("removing memory context wiki: %w", err)
@@ -1965,7 +1966,7 @@ func runMemoryConsolidate(userScope, dryRun bool) error {
 	}
 	defer func() { _ = svc.Close() }()
 
-	outcome, err := memory.ApplyConsolidation(scope, report, svc)
+	outcome, err := memory.ApplyConsolidation(ctx, scope, report, svc)
 	if err != nil {
 		return err
 	}

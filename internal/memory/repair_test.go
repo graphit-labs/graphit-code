@@ -76,7 +76,7 @@ func TestIsForkedMemoryFileName(t *testing.T) {
 // would otherwise silently shrink the answer.
 func TestTopKCountsDistinctMemories(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, _ := newLocalService(t)
+	svc := newLocalService(t)
 
 	for _, title := range []string{"alpha", "beta", "gamma"} {
 		id, err := svc.AddMemory(title, "quokka marker "+title+" first", MemoryOpts{})
@@ -216,7 +216,7 @@ func TestQuoteUnquotedScalarsLeavesGoodLinesAlone(t *testing.T) {
 // resolves the chain, it did not touch them.
 func TestChainResolvesFromTheIndexAndNotFromThePages(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, _ := newLocalService(t)
+	svc := newLocalService(t)
 
 	id, err := svc.AddMemory("Column-resolved", "the marker word wombat and an old detail", MemoryOpts{Type: MemoryTypeFact})
 	if err != nil {

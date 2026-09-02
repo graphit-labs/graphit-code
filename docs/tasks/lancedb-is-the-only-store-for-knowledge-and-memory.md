@@ -165,7 +165,7 @@ of T1.
   Constraint: this is the reversible half and it lands on its own, before anything touches the
   memory store.
 
-- [ ] **T2 — Memory writes go straight to the table; the raw store retires.** Spec:
+- [x] **T2 — Memory writes go straight to the table; the raw store retires.** DONE 2026-09-02. Spec:
   `internal/memory`. `AddMemory`/`UpdateMemory`/`RemoveMemory`/`Promote`/`Demote` become
   `Upsert`/`DeleteByKey` on the scope's table, with retry. The revision chain stays exactly as
   it is — `entity_id`/`revision_id`/`superseded`/`current_id` are already columns, so an
@@ -2442,3 +2442,126 @@ intermediate commits that may not build.
 - [ ] **T4** — incremental by `Upsert`/`DeleteByKey` instead of `RebuildDB` dropping four tables.
 - [ ] **T5** — rules, specs, ADR, and the memories that still describe a wiki as three artifacts.
 
+### 2026-09-02 (session opened on the remainder after 832e5bd)
+
+Resumed from `## Remaining after 832e5bd`. Order for this session, chosen so the one DEFECT lands
+before any planned work — a silently-empty listing gets read as "memory contexts do not work", and
+the longer it sits the more likely someone concludes that:
+
+- [ ] **R1 — `memory.ContextNames()` points at `MemoryTableRoot()`.** Spec: `internal/memory`
+  (`paths.go`/wherever `ContextNames` lives) plus a regression test. Done means listing an imported
+  memory context answers with its name again. Constraint: `ContextNamesFrom` recognises a context by
+  the flattened `memory-<scope>-<id>` name with `scope == id`; the table directory reuses that
+  segment, so the PARSE must not change — only the root it enumerates.
+- [ ] **R2 — delete the `ScopeStore` file surface.** Spec: `OpenScope`, `OpenScopeLocal`,
+  `WriteFile`, `ReadFile`, `RemoveFile`, `ListDir`, `Pull`, `Publish`, `uploadDir`,
+  `copyDirRecursive`, `HasLocalScope`, `ScopeDir`, `remoteRevision`. Done means they are gone and
+  both builds are green. Constraint: `unused` cannot see exported methods, so the zero-caller claim
+  is verified against the graph, per name, before each deletion — not assumed from the earlier note.
+- [ ] **R3 — delete `internal/daemon/memorysyncmodule.go`.** Done means the daemon still registers
+  its remaining modules and no test references the removed one.
+- [ ] **R4 — `consolidate_apply.go` apply state moves to the table directory.**
+- [ ] **T3**, **T4**, **T5** as specified above. T3 starts by separating `BundleDir` from
+  `WikiIndexDirName`, before either mechanism is touched.
+
+### 2026-09-02 (R1–R4 done — and the defect was bigger than one root, in both directions)
+
+**R1 was not a one-line fix, and the fix named in the plan would have been wrong.** The plan said to
+point `AllContextDirs` at `MemoryTableRoot()` because the table directory reuses the flattened
+`memory-<scope>-<id>` segment, so the parse would not have to change. Running the installed CLI
+against the real global directory is what disproved it: **with a bucket configured — which is the
+normal configuration, and the one this machine runs in — a scope has NO local table directory at
+all.** The table is `s3://<bucket>/<prefix>/memory/<scope>/<id>` and nothing is written locally for
+it. `~/.graphit/memory-table/` does not exist here, while `graphit memory list` answers perfectly.
+So keying the listing on the table root fixes the undefined root and still answers empty.
+
+The record of an imported memory context is its **compiled wiki**, `wiki/memory/<name>/<name>`,
+because being local is what that artifact is for — it is what a search opens, so it exists in both
+configurations. `ContextNamesFrom` now enumerates `store.MemoryWikiRoot()` and recognises a context
+as the scope whose two path segments are equal, which is the same doubling test in the nested layout
+instead of the flattened one. `cutPrefix` and `doubledName` went with the flattened parse.
+
+**And the same defect existed on the WRITE side, which is why it was worth chasing past the plan.**
+`newMemorySvcInternal` derived `wikiDir` from `string(scope)`, and for a context that is the literal
+word `"context"` — so `NewMemoryServiceForContext(name, …).SyncToLocal()` compiled into
+`wiki/memory/context/<name>` while every reader of a context's memories looks in
+`wiki/memory/<name>/<name>`: the UI's picker, `SyncContextFromMemoryRepo`, and the removal path.
+Three call sites compile through the service — `runASTImport`, the MCP `ast_install`, and the MCP
+memory-context sync — so all three produced a wiki nobody opens. The fingerprint was an **empty
+`~/.graphit/wiki/memory/context/` directory** in the global store, which is what `ensureWikiDir`
+left behind. `tableScope` is now `localScope` and names BOTH local artifacts, so the compile and the
+listing cannot disagree again.
+
+**R4 was a silent no-op of the same family, not a homeless state file.** The plan described
+`consolidate_apply.go` as keeping apply state under `LocalDir()` and needing a new home. It is not
+state that is kept: `loadApplyState` LOADED the plan's starting state by enumerating markdown files
+in that directory. With no files, every action was refused with "memory no longer exists" — a
+consolidation that applied nothing and reported a clean run. Exactly the failure `RunConsolidation`
+had before T2.3, one layer down, and the reason it survived T2.3 is that the reader is behind an
+interface. `MemoryWriter.LocalDir() string` is now `LiveMemories(ctx) ([]MemoryRecord, error)`,
+`ApplyConsolidation` takes a `context.Context`, and `MemoryService.LiveMemories` is the service-level
+read. `snapshotsFromRecords` is now the ONE mapping from rows to the analysis's view, shared by the
+pass that plans and the pass that applies.
+
+**A fourth silent breakage found on the way:** `pruneLocalScope` removed the raw directory, so
+reclaiming a scope deleted its bookkeeping and left its table — the only copy of its memories with
+no bucket — behind. It removes the table directory now.
+
+**And one trap removed rather than found:** `SyncToLocal` re-derived `m.wikiDir` on every call. That
+was a no-op for a service built by the constructor, which sets the same value, and it silently
+discarded the field as an override for anything that set it directly — a test pointing a scope at a
+chosen wiki directory got the machine's real one from the first write onwards. It cost me a
+debugging round on a converted test; the assignment is gone.
+
+Deleted with R2/R3: `ScopeStore` and its entire file surface, `MemoryStore`'s S3 client (a scope's
+table reaches storage through its own URI, so the second client could only answer "is a bucket
+configured", which is `config.HubS3Config().Configured()`), `remoteRevision` and its listing cache,
+`ExtractScopeDir`, `copyDirRecursive`/`copyFileData`, `pendingPushes`/`WaitForPendingPushes` and its
+two call sites — a table commit finishes before the write path returns, so there is nothing left to
+wait for on exit. `internal/daemon/memorysyncmodule.go` and the free functions only it used
+(`anyUnder`, `scopeDir`, `parseScopePath`). `memory_s3_store.go` became `memory_store.go`, which is
+what it now is. In `internal/memory`: `RawDir`, `RawDirForScope`, `RawDirFor`, `RawScope`,
+`RawScopesIn`, `TableURIForRawScope`, `listImportantInDir`, `parseMemoryMeta`, `parseMemoryHeader`,
+`ParseMemoryMetaPublic`, `loadMemorySnapshots`, `consolidateDir`, `consolidateDirWithVectors`,
+`MemoryService.localDir`/`LocalDir`. In `internal/store`: `MemoryRawRoot`, `MemoryRawDir`.
+
+**Tests: 56 deleted, 8 converted, 3 added.** The deletions are all coverage tests whose SUBJECT left
+with the subsystem — the ScopeStore file surface, the directory-based consolidation loader, the
+markdown-directory readers, and four `ListRecentMemories`/`RenderImportantBlock`/`RenderRecentBlock`
+tests that turned out to exercise **test-local reimplementations of production functions that no
+longer exist at all**. The conversions kept their subject: `consolidateSnapshots` is handed a corpus
+directly, `fakeWriter` holds markdown in a map and produces records through the same
+`recordFromMarkdown` the service stores through, and the store-layout test asserts
+`MemoryTableDir` **plus the absence of `memory-raw`** in every resolved path. The new
+`TestAllContextDirs` seeds both wrong roots fully populated and requires them to yield nothing
+before it seeds the right one.
+
+Verified: `go build ./...` and `-tags lancedb`, `go test -tags lancedb -count=1 ./...` (all packages),
+`make lint` 0 issues, `gofmt` clean, `make install`, and `graphit memory list` against the real store.
+Note for the next session: `go test` WITHOUT `-tags lancedb` fails 23 tests in `internal/memory` on
+`main` as well — the package's tests need the tag, and that is pre-existing, not a regression.
+
+### 2026-09-02 (resumed after the R1–R4 implementation stopped before T3)
+
+The preceding session completed and verified R1–R4, updated this log, and then stopped during the
+read-only investigation of T3. Its working tree is intentionally preserved. No T3 source change had
+landed when this session resumed.
+
+The investigation established the two live knowledge-publish mechanisms that T3 must collapse:
+
+- the versioned Hub artifact path calls `prepareKnowledgePublish` → `wiki.ExportToParquet`, but the
+  function no longer converts anything — it copies `index.lance` under the artifact prefix, and a
+  `lancedb` build already mounts that index directly from S3;
+- the legacy context-export path calls `stageWikiForPublish` → `PublishContextDir`, publishes process
+  cache shards, downloads them, and runs `BuildDBFromCache`. This violates the established invariant
+  that shards are local build artifacts and LanceDB is the published queryable artifact;
+- the MCP form of that legacy path stages a `wiki/` child and then publishes it under a prefix that
+  already ends in `wiki`, yielding `contexts/knowledge/<id>/wiki/wiki/...`; the CLI form stages the
+  contents directly. The collapse removes this double-`wiki` defect rather than preserving either
+  spelling;
+- `BundleDir == WikiIndexDirName` currently gives one name two opposite meanings: the directory that
+  must be copied as the artifact and the directory excluded as derived output. T3 separates those
+  concepts before deleting the obsolete transfer/import surface.
+
+Next: revalidate callers and tests against the current AST graph, commit the completed R1–R4 slice as
+its own reviewable unit, then implement T3 without mixing the memory cleanup with the publish rewrite.

@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -177,6 +175,18 @@ func RunConsolidation(ctx context.Context, scope string, aiClient ai.Client) (*C
 	if err != nil {
 		return nil, fmt.Errorf("reading the memories: %w", err)
 	}
+	memories := snapshotsFromRecords(records)
+	return consolidateSnapshots(ctx, memories, aiClient, loadMemoryVectors(ctx, WikiDir(scope))), nil
+}
+
+// snapshotsFromRecords is the one mapping from stored rows onto the analysis's view of them, shared
+// by the pass that PLANS and the pass that APPLIES so the two can never disagree about what a
+// memory's title, body or importance is.
+//
+// The order is the store's, and it is made deterministic here rather than relied upon: batching a
+// large corpus into several prompts is reproducible only if the input order is, and a diff of two
+// consolidation runs is unreadable otherwise.
+func snapshotsFromRecords(records []MemoryRecord) []memorySnapshot {
 	memories := make([]memorySnapshot, 0, len(records))
 	for _, rec := range records {
 		memories = append(memories, memorySnapshot{
@@ -188,7 +198,8 @@ func RunConsolidation(ctx context.Context, scope string, aiClient ai.Client) (*C
 			Important: rec.Important,
 		})
 	}
-	return consolidateSnapshots(ctx, memories, aiClient, loadMemoryVectors(ctx, WikiDir(scope))), nil
+	sort.Slice(memories, func(i, j int) bool { return memories[i].ID < memories[j].ID })
+	return memories
 }
 
 // titleOrID falls back to the id, because a memory with no title still has to be nameable in a
@@ -200,34 +211,11 @@ func titleOrID(title, id string) string {
 	return title
 }
 
-// consolidateDir is RunConsolidation against an explicit directory. Resolving the
-// scope is the only thing RunConsolidation adds, and separating them is what lets a
-// test exercise this logic instead of reimplementing it — four test helpers used to
-// carry their own copy of the loop below, which meant they asserted against a
-// duplicate that could drift from what production does.
-func consolidateDir(ctx context.Context, dir string, aiClient ai.Client) (*ConsolidationReport, error) {
-	return consolidateDirWithVectors(ctx, dir, aiClient, nil)
-}
-
-// consolidateDirWithVectors is consolidateDir with the scope's embeddings in hand.
-// Nil vectors are a valid state — a scope that has not been embedded yet — and the
-// batching falls back to arrival order.
-func consolidateDirWithVectors(ctx context.Context, dir string, aiClient ai.Client, vecs map[string][]float32) (*ConsolidationReport, error) {
-	memories, err := loadMemorySnapshots(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &ConsolidationReport{}, nil
-		}
-		return nil, err
-	}
-	return consolidateSnapshots(ctx, memories, aiClient, vecs), nil
-}
-
 // consolidateSnapshots is the analysis itself, over memories already loaded.
 //
-// Source-agnostic on purpose, the same way compileMemoryWiki is: RunConsolidation reads them from the
-// store and the directory form reads them from files, and neither difference reaches the logic that
-// detects staleness, duplicates and contradictions.
+// Source-agnostic on purpose, the same way compileMemoryWiki is: nothing about detecting staleness,
+// duplicates and contradictions depends on where the memories came from, which is what lets a test
+// hand it a corpus directly instead of staging one somewhere first.
 func consolidateSnapshots(ctx context.Context, memories []memorySnapshot, aiClient ai.Client, vecs map[string][]float32) *ConsolidationReport {
 	report := &ConsolidationReport{TotalMemories: len(memories)}
 	if len(memories) == 0 {
@@ -253,52 +241,6 @@ func consolidateSnapshots(ctx context.Context, memories []memorySnapshot, aiClie
 	}
 
 	return report
-}
-
-func loadMemorySnapshots(dir string) ([]memorySnapshot, error) {
-	if dir == "" {
-		return nil, os.ErrNotExist
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	var memories []memorySnapshot
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-		name := e.Name()
-		absPath := filepath.Join(dir, name)
-		data, readErr := os.ReadFile(absPath)
-		if readErr != nil {
-			continue
-		}
-		// The declared id, never the file name: a consolidation pass feeds these ids straight
-		// into UpdateMemoryTyped, so an id read off a suffixed name would write a twin under
-		// that suffix instead of updating the memory.
-		id := MemoryIDFor(string(data), name)
-		fm := ParseMemoryFrontmatter(string(data))
-		important := fm.Important
-		title := fm.Title
-		if title == "" {
-			title = id
-		}
-
-		memories = append(memories, memorySnapshot{
-			ID:        id,
-			Title:     title,
-			Body:      strings.TrimSpace(extractBodyAfterFrontmatter(string(data))),
-			Type:      fm.Type,
-			CreatedAt: fm.CreatedAt,
-			Important: important,
-		})
-	}
-
-	// Stable order so batching is reproducible and a diff of two runs is readable.
-	sort.Slice(memories, func(i, j int) bool { return memories[i].ID < memories[j].ID })
-	return memories, nil
 }
 
 // detectStaleMemories flags memories old enough to be worth re-reading. It

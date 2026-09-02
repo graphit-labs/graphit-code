@@ -16,7 +16,6 @@ func svcWithTable(t *testing.T, records ...MemoryRecord) *MemoryService {
 	svc := &MemoryService{
 		scope:    MemoryScopeProject,
 		scopeID:  "test-id",
-		localDir: t.TempDir(),
 		wikiDir:  filepath.Join(t.TempDir(), "wiki"),
 		tableURI: filepath.Join(t.TempDir(), "table"),
 	}

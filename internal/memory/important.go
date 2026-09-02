@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -62,43 +61,6 @@ func ListImportantMemories(scope string) ([]ImportantEntry, error) {
 			Content: strings.TrimSpace(rec.Body),
 			Path:    MemoryFileName(rec.ID),
 			created: rec.CreatedAt,
-		})
-	}
-	return important, nil
-}
-
-func listImportantInDir(dir string) ([]ImportantEntry, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var important []ImportantEntry
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-		name := e.Name()
-		absPath := filepath.Join(dir, name)
-		data, err := os.ReadFile(absPath)
-		if err != nil {
-			continue
-		}
-		if !IsImportantContent(string(data)) {
-			continue
-		}
-
-		title, _ := parseMemoryMeta(absPath)
-		content := extractBodyAfterFrontmatter(string(data))
-
-		important = append(important, ImportantEntry{
-			ID:      MemoryIDFor(string(data), name),
-			Title:   title,
-			Content: strings.TrimSpace(content),
-			Path:    absPath,
 		})
 	}
 	return important, nil

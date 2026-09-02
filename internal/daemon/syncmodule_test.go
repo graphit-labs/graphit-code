@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
@@ -112,45 +111,6 @@ func TestSyncModule_ImplementsActivityReporter(t *testing.T) {
 	m.onActivity()
 	if !called {
 		t.Error("expected the wired callback to run")
-	}
-}
-
-func TestScopeDir(t *testing.T) {
-	tests := []struct {
-		name     string
-		wtBase   string
-		branch   string
-		contains string
-	}{
-		{
-			name:     "simple branch",
-			wtBase:   "/tmp/wt",
-			branch:   "main",
-			contains: "main",
-		},
-		{
-			name:     "branch with slashes",
-			wtBase:   "/tmp/wt",
-			branch:   "memory/project/abc",
-			contains: "memory-project-abc",
-		},
-		{
-			name:     "branch with spaces",
-			wtBase:   "/tmp/wt",
-			branch:   "feature branch",
-			contains: "feature_branch",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := scopeDir(tc.wtBase, tc.branch)
-			if !strings.Contains(got, tc.contains) {
-				t.Errorf("expected path to contain %q, got %q", tc.contains, got)
-			}
-			if !strings.HasPrefix(got, tc.wtBase) {
-				t.Errorf("expected path to start with %q, got %q", tc.wtBase, got)
-			}
-		})
 	}
 }
 

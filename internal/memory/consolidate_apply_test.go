@@ -1,18 +1,26 @@
 package memory
 
 import (
+	"context"
 	"os"
-	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
 
-// fakeWriter implements MemoryWriter over a real directory, using the same render
-// and parse helpers as MemoryService. A mock that only recorded calls would pass
-// while the files on disk were wrong, and "the files on disk are still right" is
-// the whole property under test.
+// fakeWriter implements MemoryWriter over an in-memory store of markdown, using the same render,
+// update and parse helpers MemoryService uses. A mock that only recorded calls would pass while the
+// stored memories were wrong, and "the stored memories are still right" is the whole property under
+// test.
+//
+// IT HELD REAL FILES IN A TEMP DIRECTORY UNTIL THE RAW STORE WAS RETIRED, which was faithful while
+// production wrote files and became the opposite the moment it stopped: apply read its starting
+// state by enumerating a directory, so a fake that kept one could not have caught the directory
+// going away. The markdown itself is NOT a leftover — it is the transit format the four content
+// transforms still operate on, and `recordFromMarkdown` is the same function the service stores
+// through.
 type fakeWriter struct {
-	dir      string
+	stored   map[string]string
 	updates  []string
 	removals []string
 	promotes []string
@@ -20,18 +28,26 @@ type fakeWriter struct {
 	failOn   map[string]error
 }
 
-func newFakeWriter(dir string) *fakeWriter {
-	return &fakeWriter{dir: dir, failOn: map[string]error{}}
+func newFakeWriter() *fakeWriter {
+	return &fakeWriter{stored: map[string]string{}, failOn: map[string]error{}}
 }
 
-func (f *fakeWriter) LocalDir() string { return f.dir }
-
-func (f *fakeWriter) path(id string) string {
-	p := filepath.Join(f.dir, MemoryFileName(id))
-	if _, err := os.Stat(p); err == nil {
-		return p
+func (f *fakeWriter) LiveMemories(_ context.Context) ([]MemoryRecord, error) {
+	ids := make([]string, 0, len(f.stored))
+	for id := range f.stored {
+		ids = append(ids, id)
 	}
-	return ""
+	sort.Strings(ids)
+
+	records := make([]MemoryRecord, 0, len(ids))
+	for _, id := range ids {
+		rec, ok := recordFromMarkdown(MemoryFileName(id), []byte(f.stored[id]))
+		if !ok {
+			return nil, os.ErrInvalid
+		}
+		records = append(records, rec)
+	}
+	return records, nil
 }
 
 func (f *fakeWriter) UpdateMemory(id, newTitle, newBody string) error {
@@ -42,45 +58,38 @@ func (f *fakeWriter) UpdateMemoryTyped(id, newTitle, newBody, memType string) er
 	if err := f.failOn["update:"+id]; err != nil {
 		return err
 	}
-	path := f.path(id)
-	if path == "" {
+	current, ok := f.stored[id]
+	if !ok {
 		return os.ErrNotExist
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	content := updatedMemoryContent(string(data), memoryUpdate{
+	f.stored[id] = updatedMemoryContent(current, memoryUpdate{
 		ID: id, Scope: "project", ScopeID: "test",
 		NewTitle: newTitle, NewBody: newBody, NewType: memType,
 	})
 	f.updates = append(f.updates, id)
-	return os.WriteFile(path, []byte(content), 0o644)
+	return nil
 }
 
 func (f *fakeWriter) RemoveMemory(id string) error {
 	if err := f.failOn["remove:"+id]; err != nil {
 		return err
 	}
-	path := f.path(id)
-	if path == "" {
+	if _, ok := f.stored[id]; !ok {
 		return os.ErrNotExist
 	}
+	delete(f.stored, id)
 	f.removals = append(f.removals, id)
-	return os.Remove(path)
+	return nil
 }
 
 func (f *fakeWriter) setRelevance(id string, promote bool) error {
-	path := f.path(id)
-	if path == "" {
+	current, ok := f.stored[id]
+	if !ok {
 		return os.ErrNotExist
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
 	// Mirrors changeRelevance: the flag in the frontmatter is the only thing that moves.
-	return os.WriteFile(path, []byte(withImportantFlag(string(data), promote)), 0o644)
+	f.stored[id] = withImportantFlag(current, promote)
+	return nil
 }
 
 func (f *fakeWriter) PromoteMemory(id string) error {
@@ -105,46 +114,40 @@ func (f *fakeWriter) DemoteMemory(id string) error {
 	return nil
 }
 
-func writeMemory(t *testing.T, dir, id, title, body, memType string, important bool, tags ...string) {
-	t.Helper()
+func writeMemory(f *fakeWriter, id, title, body, memType string, important bool, tags ...string) {
 	tagSet := append([]string{"memory", "project"}, tags...)
 	if memType != "" {
 		tagSet = append(tagSet, memType)
 	}
-	content := renderMemoryFile(MemoryFrontmatter{
+	f.stored[id] = renderMemoryFile(MemoryFrontmatter{
 		ID: id, Title: title, Scope: "project", ScopeID: "test",
 		Type: memType, Important: important,
 		CreatedAt: "2026-01-01T00:00:00Z", Tags: tagSet,
 	}, body)
-	if err := os.WriteFile(filepath.Join(dir, MemoryFileName(id)), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
 }
 
-func readMemory(t *testing.T, dir, id string) (MemoryFrontmatter, string, bool) {
+func readMemory(t *testing.T, f *fakeWriter, id string) (MemoryFrontmatter, string, bool) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, MemoryFileName(id)))
-	if err != nil {
-		t.Fatalf("memory %q not found in %s", id, dir)
+	content, ok := f.stored[id]
+	if !ok {
+		t.Fatalf("memory %q is not in the store", id)
 	}
-	fm := ParseMemoryFrontmatter(string(data))
-	return fm, extractBodyAfterFrontmatter(string(data)), fm.Important
+	fm := ParseMemoryFrontmatter(content)
+	return fm, extractBodyAfterFrontmatter(content), fm.Important
 }
 
-func exists(t *testing.T, dir, id string) bool {
-	t.Helper()
-	_, err := os.Stat(filepath.Join(dir, MemoryFileName(id)))
-	return err == nil
+func exists(f *fakeWriter, id string) bool {
+	_, ok := f.stored[id]
+	return ok
 }
 
 // The merge the model asked for, applied: one survivor carrying the supplied
 // content, the other memory gone.
 func TestApplyConsolidation_MergeFoldsIntoSurvivor(t *testing.T) {
-	dir := t.TempDir()
-	writeMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA", "First", "first body", "fact", false)
-	writeMemory(t, dir, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Second", "second body", "fact", false)
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "First", "first body", "fact", false)
+	writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Second", "second body", "fact", false)
 
-	w := newFakeWriter(dir)
 	report := &ConsolidationReport{
 		TotalMemories: 2,
 		Duplicates: []ConsolidationAction{{
@@ -157,7 +160,7 @@ func TestApplyConsolidation_MergeFoldsIntoSurvivor(t *testing.T) {
 		}},
 	}
 
-	outcome, err := ApplyConsolidation("project", report, w)
+	outcome, err := ApplyConsolidation(context.Background(), "project", report, w)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -165,10 +168,10 @@ func TestApplyConsolidation_MergeFoldsIntoSurvivor(t *testing.T) {
 		t.Fatalf("expected 1 applied action, got %d (skipped=%d failed=%d)",
 			len(outcome.Applied), len(outcome.Skipped), len(outcome.Failed))
 	}
-	if exists(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA") {
+	if exists(w, "01AAAAAAAAAAAAAAAAAAAAAAAA") {
 		t.Error("the folded memory should be gone")
 	}
-	fm, body, _ := readMemory(t, dir, "01BBBBBBBBBBBBBBBBBBBBBBBB")
+	fm, body, _ := readMemory(t, w, "01BBBBBBBBBBBBBBBBBBBBBBBB")
 	if fm.Title != "Merged" {
 		t.Errorf("title = %q; want Merged", fm.Title)
 	}
@@ -181,11 +184,10 @@ func TestApplyConsolidation_MergeFoldsIntoSurvivor(t *testing.T) {
 // enough to be important, the memory replacing them all is important. The analysis
 // picks the survivor for content reasons and has no reason to preserve this.
 func TestApplyConsolidation_MergePreservesImportance(t *testing.T) {
-	dir := t.TempDir()
-	writeMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Ordinary", "a", "fact", false)
-	writeMemory(t, dir, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Critical", "b", "correction", true)
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Ordinary", "a", "fact", false)
+	writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Critical", "b", "correction", true)
 
-	w := newFakeWriter(dir)
 	report := &ConsolidationReport{
 		TotalMemories: 2,
 		Duplicates: []ConsolidationAction{{
@@ -197,11 +199,11 @@ func TestApplyConsolidation_MergePreservesImportance(t *testing.T) {
 		}},
 	}
 
-	if _, err := ApplyConsolidation("project", report, w); err != nil {
+	if _, err := ApplyConsolidation(context.Background(), "project", report, w); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
-	fm, _, importantOnDisk := readMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA")
+	fm, _, importantOnDisk := readMemory(t, w, "01AAAAAAAAAAAAAAAAAAAAAAAA")
 	if !importantOnDisk {
 		t.Error("survivor must be stored as important — importance is a property of the group")
 	}
@@ -218,11 +220,10 @@ func TestApplyConsolidation_MergePreservesImportance(t *testing.T) {
 // the action being skipped or — as it once did — the model's one-line justification
 // being written in place of both bodies.
 func TestApplyConsolidation_MergeWithoutSuppliedContentKeepsEverything(t *testing.T) {
-	dir := t.TempDir()
-	writeMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA", "First", "detail unique to A", "fact", false)
-	writeMemory(t, dir, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Second", "detail unique to B", "fact", false)
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "First", "detail unique to A", "fact", false)
+	writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Second", "detail unique to B", "fact", false)
 
-	w := newFakeWriter(dir)
 	report := &ConsolidationReport{
 		TotalMemories: 2,
 		Duplicates: []ConsolidationAction{{
@@ -233,11 +234,11 @@ func TestApplyConsolidation_MergeWithoutSuppliedContentKeepsEverything(t *testin
 		}},
 	}
 
-	if _, err := ApplyConsolidation("project", report, w); err != nil {
+	if _, err := ApplyConsolidation(context.Background(), "project", report, w); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
-	_, body, _ := readMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA")
+	_, body, _ := readMemory(t, w, "01AAAAAAAAAAAAAAAAAAAAAAAA")
 	for _, want := range []string{"detail unique to A", "detail unique to B"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("merged body lost %q:\n%s", want, body)
@@ -249,11 +250,10 @@ func TestApplyConsolidation_MergeWithoutSuppliedContentKeepsEverything(t *testin
 }
 
 func TestApplyConsolidation_ContradictionKeepsTheRecommendedMemory(t *testing.T) {
-	dir := t.TempDir()
-	writeMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Outdated", "the old truth", "decision", false)
-	writeMemory(t, dir, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Current", "the new truth", "decision", false)
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Outdated", "the old truth", "decision", false)
+	writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Current", "the new truth", "decision", false)
 
-	w := newFakeWriter(dir)
 	report := &ConsolidationReport{
 		TotalMemories: 2,
 		Contradictions: []ConsolidationAction{{
@@ -265,14 +265,14 @@ func TestApplyConsolidation_ContradictionKeepsTheRecommendedMemory(t *testing.T)
 		}},
 	}
 
-	if _, err := ApplyConsolidation("project", report, w); err != nil {
+	if _, err := ApplyConsolidation(context.Background(), "project", report, w); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
-	if exists(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA") {
+	if exists(w, "01AAAAAAAAAAAAAAAAAAAAAAAA") {
 		t.Error("the superseded memory should be removed")
 	}
-	_, body, _ := readMemory(t, dir, "01BBBBBBBBBBBBBBBBBBBBBBBB")
+	_, body, _ := readMemory(t, w, "01BBBBBBBBBBBBBBBBBBBBBBBB")
 	if !strings.Contains(body, "the new truth") {
 		t.Errorf("survivor should state the current truth, got %q", body)
 	}
@@ -283,11 +283,10 @@ func TestApplyConsolidation_ContradictionKeepsTheRecommendedMemory(t *testing.T)
 // A bare delete cannot remove an important memory. Importance was set by a human,
 // or by an agent acting for one, and no unattended analysis outranks it.
 func TestApplyConsolidation_RefusesToDeleteImportantMemory(t *testing.T) {
-	dir := t.TempDir()
-	writeMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Critical", "must survive", "correction", true)
-	writeMemory(t, dir, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Other", "filler", "fact", false)
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Critical", "must survive", "correction", true)
+	writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Other", "filler", "fact", false)
 
-	w := newFakeWriter(dir)
 	report := &ConsolidationReport{
 		TotalMemories: 2,
 		Suggestions: []ConsolidationAction{{
@@ -298,11 +297,11 @@ func TestApplyConsolidation_RefusesToDeleteImportantMemory(t *testing.T) {
 		}},
 	}
 
-	outcome, err := ApplyConsolidation("project", report, w)
+	outcome, err := ApplyConsolidation(context.Background(), "project", report, w)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	if !exists(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA") {
+	if !exists(w, "01AAAAAAAAAAAAAAAAAAAAAAAA") {
 		t.Fatal("an important memory must not be deleted by a suggestion")
 	}
 	if len(outcome.Skipped) != 1 {
@@ -316,10 +315,9 @@ func TestApplyConsolidation_RefusesToDeleteImportantMemory(t *testing.T) {
 // An empty memory store is indistinguishable from a project that never had one, and
 // a corpus of one is exactly when the analysis is least reliable.
 func TestApplyConsolidation_RefusesToDeleteLastMemory(t *testing.T) {
-	dir := t.TempDir()
-	writeMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Only", "the only one", "fact", false)
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Only", "the only one", "fact", false)
 
-	w := newFakeWriter(dir)
 	report := &ConsolidationReport{
 		TotalMemories: 1,
 		Suggestions: []ConsolidationAction{{
@@ -329,11 +327,11 @@ func TestApplyConsolidation_RefusesToDeleteLastMemory(t *testing.T) {
 		}},
 	}
 
-	outcome, err := ApplyConsolidation("project", report, w)
+	outcome, err := ApplyConsolidation(context.Background(), "project", report, w)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	if !exists(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA") {
+	if !exists(w, "01AAAAAAAAAAAAAAAAAAAAAAAA") {
 		t.Error("refused to empty the store, but the memory is gone")
 	}
 	if len(outcome.Skipped) != 1 {
@@ -344,10 +342,9 @@ func TestApplyConsolidation_RefusesToDeleteLastMemory(t *testing.T) {
 // A stale flag is a prompt to re-read, not a rewrite. Applying it with no proposed
 // content would mean inventing the replacement.
 func TestApplyConsolidation_StaleWithoutContentIsReportedNotApplied(t *testing.T) {
-	dir := t.TempDir()
-	writeMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Aging", "original body", "fact", false)
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Aging", "original body", "fact", false)
 
-	w := newFakeWriter(dir)
 	report := &ConsolidationReport{
 		TotalMemories: 1,
 		Stale: []ConsolidationAction{{
@@ -358,7 +355,7 @@ func TestApplyConsolidation_StaleWithoutContentIsReportedNotApplied(t *testing.T
 		}},
 	}
 
-	outcome, err := ApplyConsolidation("project", report, w)
+	outcome, err := ApplyConsolidation(context.Background(), "project", report, w)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -368,7 +365,7 @@ func TestApplyConsolidation_StaleWithoutContentIsReportedNotApplied(t *testing.T
 	if len(outcome.Skipped) != 1 {
 		t.Fatalf("the flag should surface as a refusal, got %d", len(outcome.Skipped))
 	}
-	_, body, _ := readMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA")
+	_, body, _ := readMemory(t, w, "01AAAAAAAAAAAAAAAAAAAAAAAA")
 	if body != "original body" {
 		t.Errorf("body should be untouched, got %q", body)
 	}
@@ -377,12 +374,11 @@ func TestApplyConsolidation_StaleWithoutContentIsReportedNotApplied(t *testing.T
 // Actions naming a memory an earlier action already folded away must not resurrect
 // it or fail loudly — the apply step re-reads its own effects as it goes.
 func TestApplyConsolidation_SkipsActionsOnAlreadyRemovedMemories(t *testing.T) {
-	dir := t.TempDir()
-	writeMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA", "A", "a", "fact", false)
-	writeMemory(t, dir, "01BBBBBBBBBBBBBBBBBBBBBBBB", "B", "b", "fact", false)
-	writeMemory(t, dir, "01CCCCCCCCCCCCCCCCCCCCCCCC", "C", "c", "fact", false)
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "A", "a", "fact", false)
+	writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "B", "b", "fact", false)
+	writeMemory(w, "01CCCCCCCCCCCCCCCCCCCCCCCC", "C", "c", "fact", false)
 
-	w := newFakeWriter(dir)
 	report := &ConsolidationReport{
 		TotalMemories: 3,
 		Duplicates: []ConsolidationAction{{
@@ -399,7 +395,7 @@ func TestApplyConsolidation_SkipsActionsOnAlreadyRemovedMemories(t *testing.T) {
 		}},
 	}
 
-	outcome, err := ApplyConsolidation("project", report, w)
+	outcome, err := ApplyConsolidation(context.Background(), "project", report, w)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -418,11 +414,10 @@ func TestApplyConsolidation_SkipsActionsOnAlreadyRemovedMemories(t *testing.T) {
 // between the two steps loses the content permanently; in this order the worst case
 // is a duplicate that survives to the next cycle.
 func TestApplyConsolidation_FailedSurvivorWriteKeepsEveryMemory(t *testing.T) {
-	dir := t.TempDir()
-	writeMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA", "A", "a", "fact", false)
-	writeMemory(t, dir, "01BBBBBBBBBBBBBBBBBBBBBBBB", "B", "b", "fact", false)
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "A", "a", "fact", false)
+	writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "B", "b", "fact", false)
 
-	w := newFakeWriter(dir)
 	w.failOn["update:01AAAAAAAAAAAAAAAAAAAAAAAA"] = os.ErrPermission
 
 	report := &ConsolidationReport{
@@ -435,7 +430,7 @@ func TestApplyConsolidation_FailedSurvivorWriteKeepsEveryMemory(t *testing.T) {
 		}},
 	}
 
-	outcome, err := ApplyConsolidation("project", report, w)
+	outcome, err := ApplyConsolidation(context.Background(), "project", report, w)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -446,18 +441,17 @@ func TestApplyConsolidation_FailedSurvivorWriteKeepsEveryMemory(t *testing.T) {
 		t.Errorf("nothing may be removed when the survivor write failed, removed %v", w.removals)
 	}
 	for _, id := range []string{"01AAAAAAAAAAAAAAAAAAAAAAAA", "01BBBBBBBBBBBBBBBBBBBBBBBB"} {
-		if !exists(t, dir, id) {
+		if !exists(w, id) {
 			t.Errorf("memory %s was lost", id)
 		}
 	}
 }
 
 func TestApplyConsolidation_PromoteAndDemote(t *testing.T) {
-	dir := t.TempDir()
-	writeMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Rising", "a", "convention", false)
-	writeMemory(t, dir, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Falling", "b", "fact", true)
+	w := newFakeWriter()
+	writeMemory(w, "01AAAAAAAAAAAAAAAAAAAAAAAA", "Rising", "a", "convention", false)
+	writeMemory(w, "01BBBBBBBBBBBBBBBBBBBBBBBB", "Falling", "b", "fact", true)
 
-	w := newFakeWriter(dir)
 	report := &ConsolidationReport{
 		TotalMemories: 2,
 		Suggestions: []ConsolidationAction{
@@ -466,17 +460,17 @@ func TestApplyConsolidation_PromoteAndDemote(t *testing.T) {
 		},
 	}
 
-	outcome, err := ApplyConsolidation("project", report, w)
+	outcome, err := ApplyConsolidation(context.Background(), "project", report, w)
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	if len(outcome.Applied) != 2 {
 		t.Fatalf("expected 2 applied, got %d", len(outcome.Applied))
 	}
-	if _, _, important := readMemory(t, dir, "01AAAAAAAAAAAAAAAAAAAAAAAA"); !important {
+	if _, _, important := readMemory(t, w, "01AAAAAAAAAAAAAAAAAAAAAAAA"); !important {
 		t.Error("promote did not take effect")
 	}
-	if _, _, important := readMemory(t, dir, "01BBBBBBBBBBBBBBBBBBBBBBBB"); important {
+	if _, _, important := readMemory(t, w, "01BBBBBBBBBBBBBBBBBBBBBBBB"); important {
 		t.Error("demote did not take effect")
 	}
 }

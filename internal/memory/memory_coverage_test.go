@@ -6,72 +6,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/store"
 )
 
 // ScopeStore (filesystem-only, no real git)
 
-func TestScopeStore_WriteReadRemoveListDir(t *testing.T) {
-	dir := t.TempDir()
-	wt := &ScopeStore{dir: dir, scopePath: "memory/project/test"}
-
-	if wt.Dir() != dir {
-		t.Errorf("Dir() = %q; want %q", wt.Dir(), dir)
-	}
-
-	if err := wt.WriteFile("hello.md", []byte("content")); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	if err := wt.WriteFile("sub/nested.md", []byte("nested")); err != nil {
-		t.Fatalf("WriteFile nested: %v", err)
-	}
-
-	data, err := wt.ReadFile("hello.md")
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(data) != "content" {
-		t.Errorf("ReadFile content = %q; want 'content'", string(data))
-	}
-
-	_, err = wt.ReadFile("nonexistent.md")
-	if err == nil {
-		t.Error("expected error for non-existent file")
-	}
-
-	entries, err := wt.ListDir(".")
-	if err != nil {
-		t.Fatalf("ListDir: %v", err)
-	}
-	if len(entries) < 2 { // hello.md and sub/
-		t.Errorf("expected at least 2 entries, got %d", len(entries))
-	}
-
-	if err := wt.RemoveFile("hello.md"); err != nil {
-		t.Fatalf("RemoveFile: %v", err)
-	}
-	_, err = wt.ReadFile("hello.md")
-	if err == nil {
-		t.Error("expected error after removing file")
-	}
-
-	err = wt.RemoveFile("nonexistent.md")
-	if err == nil {
-		t.Error("expected error when removing non-existent file")
-	}
-}
-
 // MemoryStore helpers (filesystem parts)
 
 func TestScopeDir(t *testing.T) {
-	store := &MemoryStore{rawBase: "/wt-base"}
+	store := &MemoryStore{tableBase: "/wt-base"}
 	tests := []struct {
 		branch string
 		want   string
@@ -91,45 +40,13 @@ func TestScopeDir(t *testing.T) {
 }
 
 func TestMemoryStore_Dir(t *testing.T) {
-	store := &MemoryStore{rawBase: "/test/repo"}
+	store := &MemoryStore{tableBase: "/test/repo"}
 	if store.Dir() != "/test/repo" {
 		t.Errorf("Dir() = %q; want '/test/repo'", store.Dir())
 	}
 }
 
 // copyDirRecursive: error on filepath.Walk (missing rel path)
-
-func TestCopyDirRecursive_EmptyDir(t *testing.T) {
-	src := t.TempDir()
-	dst := t.TempDir()
-	if err := copyDirRecursive(src, dst); err != nil {
-		t.Fatalf("copyDirRecursive empty: %v", err)
-	}
-}
-
-func TestCopyFileData_CreateSubDir(t *testing.T) {
-	srcDir := t.TempDir()
-	dstDir := t.TempDir()
-
-	srcPath := filepath.Join(srcDir, "src.txt")
-	dstPath := filepath.Join(dstDir, "sub", "dst.txt")
-
-	if err := os.WriteFile(srcPath, []byte("data"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := copyFileData(srcPath, dstPath, 0o644); err != nil {
-		t.Fatalf("copyFileData: %v", err)
-	}
-
-	data, err := os.ReadFile(dstPath)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(data) != "data" {
-		t.Errorf("content = %q; want 'data'", string(data))
-	}
-}
 
 func TestMemoryBranchLockFileOps(t *testing.T) {
 	// Override globalDir so all paths resolve to our temp dir
@@ -138,7 +55,7 @@ func TestMemoryBranchLockFileOps(t *testing.T) {
 	t.Setenv("HOME", dir)
 	defer func() { _ = os.Setenv("HOME", origHome) }()
 
-	store := &MemoryStore{rawBase: filepath.Join(dir, "wt")}
+	store := &MemoryStore{tableBase: filepath.Join(dir, "wt")}
 
 	if err := store.RegisterScope("memory/project/test", "ref1"); err != nil {
 		t.Fatalf("RegisterScope: %v", err)
@@ -243,7 +160,7 @@ func TestActiveBranches_Empty(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	store := &MemoryStore{rawBase: filepath.Join(dir, "wt")}
+	store := &MemoryStore{tableBase: filepath.Join(dir, "wt")}
 	branches, err := store.activeScopes()
 	if err != nil {
 		t.Fatalf("activeBranches: %v", err)
@@ -257,7 +174,7 @@ func TestValidateScopeRefs(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	store := &MemoryStore{rawBase: filepath.Join(dir, "wt")}
+	store := &MemoryStore{tableBase: filepath.Join(dir, "wt")}
 
 	// Register a branch with "user" ref (always alive)
 	if err := store.RegisterScope("branch-user", "user"); err != nil {
@@ -292,7 +209,7 @@ func TestValidateScopeRefs_NoCleaning(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
-	store := &MemoryStore{rawBase: filepath.Join(dir, "wt")}
+	store := &MemoryStore{tableBase: filepath.Join(dir, "wt")}
 
 	// Register with "user" ref only (never cleaned)
 	if err := store.RegisterScope("branch-user", "user"); err != nil {
@@ -330,16 +247,6 @@ func TestNewMemoryServiceForContext(t *testing.T) {
 	}
 	if svc.scope != MemoryScopeContext {
 		t.Errorf("scope = %q; want 'context'", svc.scope)
-	}
-}
-
-func TestMemoryService_LocalDir_WikiDir(t *testing.T) {
-	svc := &MemoryService{localDir: "/test/local", wikiDir: "/test/wiki"}
-	if svc.LocalDir() != "/test/local" {
-		t.Errorf("LocalDir() = %q", svc.LocalDir())
-	}
-	if svc.WikiDir() != "/test/wiki" {
-		t.Errorf("WikiDir() = %q", svc.WikiDir())
 	}
 }
 
@@ -409,57 +316,75 @@ func TestWikiDirFunc(t *testing.T) {
 		t.Errorf("unexpected context wiki dir %q", got)
 	}
 }
-func TestRawDirFunc(t *testing.T) {
-	// An unrecognised scope name IS a context name, so it resolves to a worktree
-	// path. What must not happen is the old behaviour: returning "" because the
-	// project had no replica yet, which made the raw store — the source of truth —
-	// unreachable until something had already compiled from it.
-	got := RawDir("nonexistent-scope-" + fmt.Sprintf("%d", time.Now().UnixNano()))
-	if got == "" {
-		t.Error("a context scope must resolve to a worktree path without a replica")
-	}
-	if !strings.Contains(got, "memory-raw") {
-		t.Errorf("expected a worktree path, got %q", got)
-	}
-}
-func TestRawDirForScope_EmptyWhenScopeIDUnresolvable(t *testing.T) {
-	// "project" reads its id from the lockfile in the working directory. Without one
-	// there is no scope, and no scope means no path — that is the real guard, and the
-	// only case that should come back empty.
-	t.Chdir(t.TempDir())
-	if got := RawDirForScope("project"); got != "" {
-		t.Errorf("expected empty without a resolvable project id, got %q", got)
-	}
-}
-func TestRawDirFor_EmptyGlobalDir(t *testing.T) {
-	// With HOME set, GlobalDir returns a path so this always has a value
-	got := RawDirFor("project", "abc")
-	if got == "" {
-		t.Error("expected non-empty")
-	}
-}
 
-// AllContextDirs — the worktree set IS the record of imported memory contexts
+// AllContextDirs — the set of compiled memory WIKIS is the record of imported memory contexts.
+//
+// It used to enumerate the raw markdown store, and when that root stopped existing this answered
+// empty rather than failing: `os.ReadDir` on a missing directory and on a machine with no imported
+// contexts are the same answer. So the guard asserts through the store helpers rather than against
+// literals, and it asserts the ABSENCE of the two roots that must NOT decide this — the retired raw
+// store, and the local table root, which holds nothing at all when a bucket is configured.
 func TestAllContextDirs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("GRAPHIT_HUB_BUCKET", "acme-hub")
 
-	wtRoot := filepath.Dir(RawDirFor("project", "x"))
-	for _, name := range []string{
-		"memory-project-01ACME", "memory-user-abc123", "memory-my-context-my-context", "stray",
-	} {
-		if err := os.MkdirAll(filepath.Join(wtRoot, name), 0o755); err != nil {
-			t.Fatal(err)
+	mkdirs := func(dirs ...string) {
+		for _, d := range dirs {
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 
+	// Neither of the roots that must not decide this may produce a context, even fully populated.
+	// With a bucket configured the table root is where a context has NO local directory at all.
+	mkdirs(
+		filepath.Join(home, brand.DotDir(), "memory-raw", "memory-raw-context-raw-context"),
+		filepath.Join(home, brand.DotDir(), "memory-table", "memory-table-context-table-context"),
+	)
+	if got := AllContextDirs(); len(got) != 0 {
+		t.Fatalf("AllContextDirs = %v, want none — only the compiled wiki is the record", got)
+	}
+
+	// The wiki layout: `wiki/memory/<scope>/<id>`, where a context is the scope whose halves match.
+	mkdirs(
+		store.MemoryWikiDir("project", "01ACME"),
+		store.MemoryWikiDir("user", "abc123"),
+		store.MemoryWikiDir("my-context", "my-context"),
+		store.MemoryWikiDir("half-installed", "something-else"),
+	)
 	got := AllContextDirs()
 	if len(got) != 1 || got[0] != "my-context" {
-		// A context's worktree carries its name twice — memory-<name>-<name> — and
-		// that doubling is both how the name survives a hyphen and how a context is
-		// told apart from the project and user scopes.
 		t.Errorf("AllContextDirs = %v, want [my-context]", got)
+	}
+}
+
+// A context service must compile into the SAME wiki directory that every reader of a context opens.
+// It did not: the wiki was named from the scope WORD, which for a context is the literal "context",
+// so the compile wrote `wiki/memory/context/<name>` and the readers looked in
+// `wiki/memory/<name>/<name>`. Nothing failed — the wiki simply went somewhere nobody reads.
+func TestAContextServiceCompilesIntoTheDirectoryItsReadersOpen(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	svc := NewMemoryServiceForContext("shared-notes", nil)
+	want := MemoryWikiGlobalDir("shared-notes", "shared-notes")
+	if got := svc.WikiDir(); got != want {
+		t.Errorf("context wiki dir = %q, want %q", got, want)
+	}
+	if strings.Contains(filepath.ToSlash(svc.WikiDir()), "/memory/context/") {
+		t.Error("the wiki was named from the scope word, so no reader will find it")
+	}
+
+	// And the same directory is what the listing recognises as an installed context.
+	if err := os.MkdirAll(svc.WikiDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := AllContextDirs(); len(got) != 1 || got[0] != "shared-notes" {
+		t.Errorf("AllContextDirs = %v, want [shared-notes] — the compile and the listing disagree", got)
 	}
 }
 
@@ -474,64 +399,32 @@ func TestRunConsolidation_NonExistentDir(t *testing.T) {
 	}
 }
 
-func TestRunConsolidation_EmptyDir(t *testing.T) {
-	dir := t.TempDir()
-	// Create a "scope" dir that RawDir would point to
-	// We need to test via a local wrapper since RunConsolidation uses RawDir(scope)
-	ctx := context.Background()
-	report, err := consolidateDir(ctx, dir, nil)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
+func TestConsolidationOfAnEmptyCorpusProposesNothing(t *testing.T) {
+	report := consolidateSnapshots(context.Background(), nil, nil, nil)
 	if report.TotalMemories != 0 {
 		t.Errorf("expected 0, got %d", report.TotalMemories)
 	}
+	if report.HasActions() {
+		t.Error("an empty corpus must propose nothing")
+	}
 }
 
-func TestRunConsolidation_WithMemories(t *testing.T) {
-	dir := t.TempDir()
-	ctx := context.Background()
-
+// The analysis is handed its corpus, which is why it does not care where the memories were stored.
+// It used to be reached through a directory loader — the same shape RunConsolidation had before it
+// read the table — so these cases went through markdown files in a temp dir.
+func TestStaleDetectionSkipsImportantMemories(t *testing.T) {
 	oldDate := time.Now().Add(-120 * 24 * time.Hour).Format(time.RFC3339)
 
-	// Normal memory
-	writeMemFile(t, dir, "MEM1.md", fmt.Sprintf(`---
-title: Normal Memory
-created_at: %s
----
+	report := consolidateSnapshots(context.Background(), []memorySnapshot{
+		{ID: "MEM1", Title: "Normal Memory", Body: "This is a normal memory body.", CreatedAt: oldDate},
+		{ID: "MEM2", Title: "Important Memory", Body: "Important body.", CreatedAt: oldDate, Important: true},
+	}, nil, nil)
 
-# Normal Memory
-
-This is a normal memory body.`, oldDate))
-
-	// Important memory (skipped by stale detection)
-	writeMemFile(t, dir, "MEM2.md", fmt.Sprintf(`---
-title: Important Memory
-important: true
-created_at: %s
----
-
-# Important Memory
-
-Important body.`, oldDate))
-
-	// Non-md file (skipped)
-	writeMemFile(t, dir, "notes.txt", "not a memory")
-
-	// Directory (skipped)
-	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	report, err := consolidateDir(ctx, dir, nil)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
 	if report.TotalMemories != 2 {
 		t.Errorf("TotalMemories = %d; want 2", report.TotalMemories)
 	}
 	if len(report.Stale) != 1 {
-		t.Errorf("Stale count = %d; want 1", len(report.Stale))
+		t.Errorf("Stale count = %d; want 1 — an important memory is not flagged for age", len(report.Stale))
 	}
 }
 
@@ -688,144 +581,6 @@ func TestRemoveSkill_EmptyProjectDir(t *testing.T) {
 	_ = err
 }
 
-func TestListRecentMemories(t *testing.T) {
-	dir := t.TempDir()
-
-	// Create normal memories with different dates
-	writeMemFile(t, dir, "MEM1.md", `---
-title: First Memory
-created_at: 2026-05-20T00:00:00Z
----
-
-# First Memory
-
-First body.`)
-
-	writeMemFile(t, dir, "MEM2.md", `---
-title: Second Memory
-created_at: 2026-05-21T00:00:00Z
----
-
-# Second Memory
-
-Second body.`)
-
-	// Important memory should be skipped
-	writeMemFile(t, dir, "MEM3.md", `---
-important: true
-title: Important Memory
-created_at: 2026-05-22T00:00:00Z
----
-
-# Important Memory
-
-Important body.`)
-
-	// Non-md should be skipped
-	writeMemFile(t, dir, "notes.txt", "not a memory")
-
-	// Directory should be skipped
-	if err := os.Mkdir(filepath.Join(dir, "subdir"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	entries, err := listRecentInDir(dir, 10)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 recent, got %d", len(entries))
-	}
-	// Should be sorted by created desc (newest first)
-	if entries[0].created < entries[1].created {
-		t.Error("expected newest first")
-	}
-}
-
-func TestListRecentMemories_Limit(t *testing.T) {
-	dir := t.TempDir()
-	for i := 0; i < 5; i++ {
-		writeMemFile(t, dir, fmt.Sprintf("MEM%d.md", i), fmt.Sprintf(`---
-title: Memory %d
-created_at: 2026-05-0%dT00:00:00Z
----
-
-# Memory %d
-
-Body %d.`, i, i+1, i, i))
-	}
-
-	entries, err := listRecentInDir(dir, 3)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if len(entries) != 3 {
-		t.Errorf("expected 3 entries with limit, got %d", len(entries))
-	}
-}
-
-func TestListRecentMemories_Empty(t *testing.T) {
-	dir := t.TempDir()
-	entries, err := listRecentInDir(dir, 10)
-	if err != nil {
-		t.Fatalf("error: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("expected 0, got %d", len(entries))
-	}
-}
-
-func TestListRecentMemories_NonExistent(t *testing.T) {
-	entries, err := listRecentInDir("/nonexistent/path", 10)
-	if err != nil {
-		t.Fatalf("expected nil error, got: %v", err)
-	}
-	if entries != nil {
-		t.Errorf("expected nil, got %v", entries)
-	}
-}
-
-// listRecentInDir is a test helper that replicates ListRecentMemories logic on a dir.
-func listRecentInDir(dir string, limit int) ([]ImportantEntry, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var all []ImportantEntry
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-			continue
-		}
-		name := e.Name()
-		id := MemoryIDFromFileName(name)
-		absPath := filepath.Join(dir, name)
-		data, err := os.ReadFile(absPath)
-		if err != nil {
-			continue
-		}
-		if IsImportantContent(string(data)) {
-			continue
-		}
-		title, createdAt := parseMemoryMeta(absPath)
-		content := extractBodyAfterFrontmatter(string(data))
-		all = append(all, ImportantEntry{
-			ID: id, Title: title, Content: strings.TrimSpace(content),
-			Path: absPath, created: createdAt,
-		})
-	}
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].created > all[j].created
-	})
-	if len(all) > limit {
-		all = all[:limit]
-	}
-	return all, nil
-}
-
 func TestRunProjectCycle(t *testing.T) {
 	result := RunProjectCycle(context.Background())
 	// Result depends on CWD, just verify no panic
@@ -851,18 +606,6 @@ func TestOnHubImport(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 }
 
-func TestParseMemoryMeta_EmptyContentFallbackToFilename(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "my_file.md")
-	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	title, _ := parseMemoryMeta(path)
-	if title != "my_file" {
-		t.Errorf("expected 'my_file' as fallback, got %q", title)
-	}
-}
-
 func TestDetectStaleMemories_BadDateFormat(t *testing.T) {
 	memories := []memorySnapshot{
 		{ID: "1", Title: "Bad Date", CreatedAt: "not-a-date", Important: false},
@@ -875,14 +618,9 @@ func TestDetectStaleMemories_BadDateFormat(t *testing.T) {
 
 // SelectiveFetch (no-op tests)
 
-func TestWaitForPendingPushes(t *testing.T) {
-	// Should return immediately when no pushes are pending
-	WaitForPendingPushes()
-}
-
 func TestNewMemorySvcInternal_WithStore(t *testing.T) {
-	store := &MemoryStore{rawBase: "/repo"}
-	svc := newMemorySvcInternal(MemoryScopeProject, "id", "/local", store)
+	store := &MemoryStore{tableBase: "/repo"}
+	svc := newMemorySvcInternal(MemoryScopeProject, "id", store)
 	if svc == nil {
 		t.Fatal("expected non-nil svc")
 	}
@@ -905,14 +643,6 @@ func TestMemoryStore_Log(t *testing.T) {
 	logger := store.log()
 	if logger == nil {
 		t.Error("expected non-nil logger from slogutil.Resolve")
-	}
-}
-
-func TestScopeStore_Log(t *testing.T) {
-	wt := &ScopeStore{}
-	logger := wt.log()
-	if logger == nil {
-		t.Error("expected non-nil logger")
 	}
 }
 
@@ -959,51 +689,6 @@ func TestExtractBodyAfterFrontmatter_Coverage(t *testing.T) {
 	}
 }
 
-func TestListImportantInDir_UnreadableFile(t *testing.T) {
-	dir := t.TempDir()
-	fname := MemoryFileName("test-id")
-	fpath := filepath.Join(dir, fname)
-	_ = os.WriteFile(fpath, []byte("data"), 0644)
-	_ = os.Chmod(fpath, 0000)
-	defer func() { _ = os.Chmod(fpath, 0644) }()
-
-	entries, err := listImportantInDir(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Should skip unreadable file
-	if len(entries) != 0 {
-		t.Errorf("expected 0 entries for unreadable file, got %d", len(entries))
-	}
-}
-
-func TestListRecentInDir_NonexistentDir(t *testing.T) {
-	entries, err := listRecentInDir("/nonexistent/path/that/doesnt/exist", 10)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("expected 0 entries, got %d", len(entries))
-	}
-}
-
-func TestListImportantInDir_NonexistentDir(t *testing.T) {
-	entries, err := listImportantInDir("/nonexistent/path/that/doesnt/exist")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Errorf("expected 0 entries, got %d", len(entries))
-	}
-}
-
-func TestAllContextDirs_Coverage(t *testing.T) {
-	// With default paths, this will return whatever is in .graphit/memory
-	result := AllContextDirs()
-	// Just verify it doesn't panic — result depends on current env
-	_ = result
-}
-
 // WikiDir, RawDirForScope, RawDirFor
 
 // An unknown scope name IS a context name, so it resolves — the wiki dir is derived
@@ -1020,29 +705,6 @@ func TestWikiDir_UnknownScopeIsAContext(t *testing.T) {
 	}
 }
 
-func TestRawDirForScope_ContextNeedsNoReplica(t *testing.T) {
-	// Pinning the bootstrapping fix: a scope resolves to its worktree with nothing
-	// on disk in the project yet.
-	t.Chdir(t.TempDir())
-	dir := RawDirForScope("some-context")
-	if dir == "" {
-		t.Fatal("a context scope must resolve without a project replica")
-	}
-	if !strings.Contains(dir, "memory-raw") {
-		t.Errorf("expected a worktree path, got %q", dir)
-	}
-}
-
-func TestRawDirFor_Coverage(t *testing.T) {
-	dir := RawDirFor("project", "test-scope")
-	if dir == "" {
-		t.Error("expected non-empty dir")
-	}
-	if !strings.Contains(dir, "memory-raw") {
-		t.Errorf("expected path to contain 'memory-wt', got %q", dir)
-	}
-}
-
 func TestEnsureScopeDirs_EmptyProjectDir_Coverage(t *testing.T) {
 	err := EnsureScopeDirs("project", "")
 	if err != nil {
@@ -1055,13 +717,6 @@ func TestEnsureScopeDirs_WithProjectDir_Coverage(t *testing.T) {
 	err := EnsureScopeDirs("project", dir)
 	if err != nil {
 		t.Fatalf("EnsureScopeDirs error: %v", err)
-	}
-}
-
-func TestRawDir_ContextScopeResolves(t *testing.T) {
-	dir := RawDir("nonexistent-scope-12345")
-	if dir == "" {
-		t.Error("a context scope resolves to a worktree path")
 	}
 }
 

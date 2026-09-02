@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -60,7 +59,6 @@ type MemoryService struct {
 	scope    MemoryScope
 	scopeID  string
 	store    *MemoryStore
-	localDir string
 	tableURI string
 	wikiDir  string
 }
@@ -68,35 +66,41 @@ type MemoryService struct {
 func (m *MemoryService) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
 
 func NewMemoryService(scope MemoryScope, scopeID string, store *MemoryStore) *MemoryService {
-	return newMemorySvcInternal(scope, scopeID, RawDirFor(string(scope), scopeID), store)
+	return newMemorySvcInternal(scope, scopeID, store)
 }
 
 func NewMemoryServiceForContext(contextName string, store *MemoryStore) *MemoryService {
-	return newMemorySvcInternal(MemoryScopeContext, contextName,
-		RawDirFor(contextName, contextName), store)
+	return newMemorySvcInternal(MemoryScopeContext, contextName, store)
 }
 
-func newMemorySvcInternal(scope MemoryScope, scopeID, localDir string, store *MemoryStore) *MemoryService {
+func newMemorySvcInternal(scope MemoryScope, scopeID string, store *MemoryStore) *MemoryService {
 	svc := &MemoryService{
-		scope:    scope,
-		scopeID:  scopeID,
-		store:    store,
-		localDir: localDir,
-		wikiDir:  MemoryWikiGlobalDir(string(scope), scopeID),
+		scope:   scope,
+		scopeID: scopeID,
+		store:   store,
+		wikiDir: MemoryWikiGlobalDir(localScope(scope, scopeID)),
 	}
-	svc.tableURI = MemoryTableURI(svc.ScopePrefix(), TableDirFor(tableScope(scope, scopeID)))
+	svc.tableURI = MemoryTableURI(svc.ScopePrefix(), TableDirFor(localScope(scope, scopeID)))
 	if store != nil {
 		store.Logger = svc.Logger
 	}
 	return svc
 }
 
-// tableScope is the (scope, scopeID) pair a scope's LOCAL directories are named from.
+// localScope is the (scope, scopeID) pair a scope's LOCAL artifacts are named from — both its wiki
+// and its table directory.
 //
-// An imported context names both halves after itself — RawDirFor(name, name) — while the project and
-// user scopes use their scope word and their id. Deriving it here keeps the table directory and the
-// raw directory named from one rule, so a scope can never own two differently-named directories.
-func tableScope(scope MemoryScope, scopeID string) (string, string) {
+// An imported context names both halves after itself, while the project and user scopes use their
+// scope word and their id. That doubling is what lets AllContextDirs recognise a context by its
+// directory name alone, rather than by matching the names of the other two scopes.
+//
+// 🔒 THE WIKI USED TO BE NAMED FROM `string(scope)` INSTEAD, and for a context that is the literal
+// word "context" — so a service built by NewMemoryServiceForContext compiled into
+// `wiki/memory/context/<name>` while every reader of a context's memories looked in
+// `wiki/memory/<name>/<name>`: the UI's picker, `SyncContextFromMemoryRepo`, and the removal path
+// that deletes a context. Compiling through the service therefore produced a wiki nothing opened,
+// and left an empty `wiki/memory/context/` directory behind as the only sign of it.
+func localScope(scope MemoryScope, scopeID string) (string, string) {
 	if scope == MemoryScopeContext {
 		return scopeID, scopeID
 	}
@@ -132,7 +136,7 @@ func (m *MemoryService) resolveTableURI() string {
 	if m.scopeID == "" {
 		return ""
 	}
-	return MemoryTableURI(m.ScopePrefix(), TableDirFor(tableScope(m.scope, m.scopeID)))
+	return MemoryTableURI(m.ScopePrefix(), TableDirFor(localScope(m.scope, m.scopeID)))
 }
 
 // putMarkdown writes content that one of the content transforms produced.
@@ -164,8 +168,6 @@ func (m *MemoryService) readMarkdown(ctx context.Context, tbl *MemoryTable, key 
 }
 
 func (m *MemoryService) Close() error { return nil }
-
-func (m *MemoryService) LocalDir() string { return m.localDir }
 
 func (m *MemoryService) WikiDir() string { return m.wikiDir }
 
@@ -537,6 +539,20 @@ func (m *MemoryService) ListMemories() ([]MemoryEntry, error) {
 	return memories, nil
 }
 
+// LiveMemories is the scope's live records, bodies included.
+//
+// ListMemories answers the same question for a catalogue — id, title, type, importance — and
+// deliberately drops the bodies, because listing 400 memories does not need 400 bodies. This is for
+// the caller that has to compare CONTENT: consolidation, which decides what duplicates what.
+func (m *MemoryService) LiveMemories(ctx context.Context) ([]MemoryRecord, error) {
+	tbl, err := m.openTable(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tbl.Close() }()
+	return tbl.Live(ctx)
+}
+
 // SyncToLocal recompiles this scope's wiki from its store.
 //
 // THERE IS NOTHING LEFT TO SYNC, and the name is kept only because callers use it. It used to pull
@@ -544,8 +560,11 @@ func (m *MemoryService) ListMemories() ([]MemoryEntry, error) {
 // that skipped the network and a slow one that did not — a distinction that meant something while
 // the truth was a directory that could be behind a bucket. The store IS the bucket now: a read is
 // already current, so the only work left is the compile.
+// It does NOT re-derive m.wikiDir. It used to, on every call, which was a no-op for a service built
+// by the constructor — that sets the same value — and silently discarded the field as an OVERRIDE
+// for anything that set it directly, so a caller pointing a scope at a chosen wiki directory got the
+// machine's real one from the first write onwards.
 func (m *MemoryService) SyncToLocal() error {
-	m.wikiDir = MemoryWikiGlobalDir(string(m.scope), m.scopeID)
 	m.ensureWikiDir()
 	if err := m.IndexMemories(context.Background()); err != nil {
 		m.log().Warn("wiki indexing failed", "scope", m.scope, "scopeID", m.scopeID, "error", err)
@@ -920,37 +939,6 @@ func renderMemoryFile(fm MemoryFrontmatter, body string) string {
 		}
 	}
 	return b.String()
-}
-
-func parseMemoryMeta(path string) (title, createdAt string) {
-	title, createdAt, _ = parseMemoryHeader(path)
-	return title, createdAt
-}
-
-func parseMemoryHeader(path string) (title, createdAt string, important bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return filepath.Base(path), "", false
-	}
-	content := string(data)
-	fm := ParseMemoryFrontmatter(content)
-	title = fm.Title
-	if title == "" {
-		for _, line := range strings.Split(content, "\n") {
-			if strings.HasPrefix(line, "# ") {
-				title = strings.TrimPrefix(line, "# ")
-				break
-			}
-		}
-	}
-	if title == "" {
-		title = MemoryIDFromFileName(path)
-	}
-	return title, fm.CreatedAt, fm.Important
-}
-
-func ParseMemoryMetaPublic(path string) (title, createdAt string) {
-	return parseMemoryMeta(path)
 }
 
 // sameMemoryBody compares two memories by BODY only, ignoring their frontmatter.

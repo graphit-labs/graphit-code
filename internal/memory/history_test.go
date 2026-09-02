@@ -14,29 +14,22 @@ import (
 // newLocalService wires a memory service to a store with no bucket, so its table is a local
 // directory. The chain lives in that table: a superseded revision is a row, not a file under
 // `history/`.
-func newLocalService(t *testing.T) (*MemoryService, *ScopeStore) {
+func newLocalService(t *testing.T) *MemoryService {
 	t.Helper()
 	t.Setenv("GRAPHIT_HUB_BUCKET", "")
 
-	st := &MemoryStore{rawBase: filepath.Join(t.TempDir(), "raw")}
-	svc := &MemoryService{
+	return &MemoryService{
 		scope:    MemoryScopeProject,
 		scopeID:  "proj-1",
-		localDir: t.TempDir(),
-		store:    st,
+		store:    &MemoryStore{tableBase: filepath.Join(t.TempDir(), "tables")},
 		tableURI: filepath.Join(t.TempDir(), "table"),
 	}
-	w, err := st.OpenScopeLocal(svc.ScopePrefix())
-	if err != nil {
-		t.Fatalf("open scope: %v", err)
-	}
-	return svc, w
 }
 
 // A memory is born at revision 1, with the unit that wrote it and no previous version.
 func TestMemoryStartsAtRevisionOneWithNoPrevious(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, _ := newLocalService(t)
+	svc := newLocalService(t)
 
 	id, err := svc.AddMemory("First", "the body", MemoryOpts{})
 	if err != nil {
@@ -61,7 +54,7 @@ func TestMemoryStartsAtRevisionOneWithNoPrevious(t *testing.T) {
 // path. Following `previous` must land on a file holding exactly what the memory said before.
 func TestUpdateArchivesThePreviousVersionAndPointsAtIt(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, _ := newLocalService(t)
+	svc := newLocalService(t)
 
 	id, err := svc.AddMemory("First title", "first body", MemoryOpts{Type: MemoryTypeFact})
 	if err != nil {
@@ -132,7 +125,7 @@ func onlyArchivePath(t *testing.T, svc *MemoryService, id string) string {
 // Three writes make a chain that walks all the way back.
 func TestRevisionChainWalksBackToTheFirstVersion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, _ := newLocalService(t)
+	svc := newLocalService(t)
 
 	id, err := svc.AddMemory("v1", "body one", MemoryOpts{})
 	if err != nil {
@@ -175,7 +168,7 @@ func TestRevisionChainWalksBackToTheFirstVersion(t *testing.T) {
 // memories only, and the two pages must not share a slug.
 func TestArchivedRevisionsAreCompiledButNotListed(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, w := newLocalService(t)
+	svc := newLocalService(t)
 
 	id, err := svc.AddMemory("Only one", "body", MemoryOpts{})
 	if err != nil {
@@ -190,7 +183,6 @@ func TestArchivedRevisionsAreCompiledButNotListed(t *testing.T) {
 		t.Fatal("expected an archived revision")
 	}
 
-	svc.localDir = w.Dir()
 	list, err := svc.ListMemories()
 	if err != nil {
 		t.Fatalf("ListMemories: %v", err)
@@ -215,7 +207,7 @@ func TestArchivedRevisionsAreCompiledButNotListed(t *testing.T) {
 // say nothing about the old one. This is the property that made it safe to compile history at all.
 func TestSearchCollapsesAChainToItsCurrentRevision(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, _ := newLocalService(t)
+	svc := newLocalService(t)
 
 	// zarquon is in both revisions, so a query for it matches the whole chain. plesiosaur is only
 	// in the first, so a query for it reaches a revision the current memory cannot answer.
@@ -268,7 +260,7 @@ func TestSearchCollapsesAChainToItsCurrentRevision(t *testing.T) {
 // pointer is the one that went away.
 func TestRemoveArchivesTheDeletedVersion(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, _ := newLocalService(t)
+	svc := newLocalService(t)
 
 	id, err := svc.AddMemory("Doomed", "body", MemoryOpts{})
 	if err != nil {
@@ -317,7 +309,7 @@ func TestAMemoryWithoutARevisionIsTreatedAsTheFirst(t *testing.T) {
 // names the live memory.
 func TestRevisionChainWalksForwardToTheLiveMemory(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	svc, _ := newLocalService(t)
+	svc := newLocalService(t)
 
 	id, err := svc.AddMemory("f1", "body one", MemoryOpts{})
 	if err != nil {

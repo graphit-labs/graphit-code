@@ -163,7 +163,8 @@ func (m *MemoryStore) ValidateScopeRefs() (int, error) {
 //
 // The caller is responsible for knowing the scope is disposable. Nothing here checks, because
 // nothing here can: a scope holding a session's memories and one holding a team's are the same
-// shape. And it is LOCAL ONLY — the remote prefix survives, as it does for ScopeStore.Prune.
+// shape. And it is LOCAL ONLY — the remote prefix survives, because another unit may still be
+// reading the table it addresses.
 func (m *MemoryStore) PruneScope(scope, scopeID string) error {
 	if scope == "" || scopeID == "" {
 		return fmt.Errorf("memory scope and id are required")
@@ -181,14 +182,18 @@ func (m *MemoryStore) PruneScope(scope, scopeID string) error {
 	return nil
 }
 
-// pruneLocalScope removes a scope's raw directory.
+// pruneLocalScope removes a scope's local table directory.
 //
 // It used to also run `git branch -D`. There is no branch now, and no ref to delete: the
 // directory and the lock entry are the whole of this unit's record of the scope.
+//
+// 🔒 IT REMOVES THE TABLE, and it used to remove the raw markdown directory — which stopped
+// existing without this noticing, so reclaiming a scope left the only copy of its data behind while
+// deleting the bookkeeping that said the scope was there.
 func (m *MemoryStore) pruneLocalScope(scopePath string) {
 	dir := m.scopeDir(scopePath)
 	if err := os.RemoveAll(dir); err != nil {
-		m.log().Warn("prune: remove raw directory failed", "dir", dir, "error", err)
+		m.log().Warn("prune: remove table directory failed", "dir", dir, "error", err)
 	}
 }
 

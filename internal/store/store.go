@@ -9,7 +9,7 @@
 //	<global>/wiki/knowledge/project/<project-id>/       the project's documentation wiki
 //	<global>/wiki/knowledge/context/<name>/             an imported documentation wiki
 //	<global>/wiki/memory/<scope>/<scope-id>/            a memory wiki
-//	<global>/memory-raw/memory-<scope>-<scope-id>/      the raw memory markdown
+//	<global>/memory-table/memory-<scope>-<scope-id>/    a memory's Lance table, when there is no bucket
 //
 // Nothing is copied into a project. A project used to carry a replica of each of
 // these, which cost disk, cost a compile per copy, and needed sync logic whose only
@@ -303,8 +303,6 @@ func ASTHubDir(contextID, version string) string {
 	return filepath.Join(ASTHubRoot(), SanitizeName(contextID), SanitizeSegment(version))
 }
 
-
-
 // ASTHubIcebugDir is the cached icebug bundle for a Hub context (when materialized locally).
 func ASTHubIcebugDir(contextID, version string) string {
 	return filepath.Join(ASTHubDir(contextID, version), "graph.icebug")
@@ -348,20 +346,13 @@ func KnowledgeHubDir(contextID, version string) string {
 	return filepath.Join(KnowledgeHubRoot(), SanitizeName(contextID), SanitizeSegment(version))
 }
 
+// MemoryWikiRoot is the parent of every memory scope's compiled wiki.
+func MemoryWikiRoot() string { return globalOr("", "wiki", "memory") }
+
 // MemoryWikiDir is the compiled wiki of one memory scope. Scopes are "project",
 // "user", or the name of an imported context.
 func MemoryWikiDir(scope, scopeID string) string {
-	return globalOr("", "wiki", "memory", SanitizeSegment(scope), SanitizeSegment(scopeID))
-}
-
-// MemoryRawRoot is the parent of every scope's raw memory directory.
-func MemoryRawRoot() string { return globalOr("", "memory-raw") }
-
-// MemoryRawDir is the directory holding a scope's raw memory markdown — the
-// source of truth the wiki is compiled from, and where a memory arriving from the
-// remote lands.
-func MemoryRawDir(scope, scopeID string) string {
-	return filepath.Join(MemoryRawRoot(), memoryScopeSegment(scope, scopeID))
+	return filepath.Join(MemoryWikiRoot(), SanitizeSegment(scope), SanitizeSegment(scopeID))
 }
 
 // MemoryTableRoot is the parent of every scope's local memory table.

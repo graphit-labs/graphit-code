@@ -15,7 +15,6 @@ import (
 //	s3://<bucket>/<prefix>/memory/<scope>/<id>  the Lance table — the truth, when there is a bucket
 //	<global>/memory-table/memory-<scope>-<id>/  the Lance table — the truth, when there is not
 //	<global>/wiki/memory/<scope>/<id>/          the compiled wiki — what search opens
-//	<global>/memory-raw/memory-<scope>-<id>/    the raw markdown — RETIRING, see T2.4
 //
 // There used to be a third: a replica of the wiki inside every project that read it,
 // which is what `memory_search` actually opened. It bought nothing and cost a fan-out
@@ -44,12 +43,6 @@ func WikiDir(scope string) string {
 	return WikiDirFor(wd, scope)
 }
 
-// RawDir is the directory holding a scope's raw memories, for the project in the
-// working directory.
-func RawDir(scope string) string {
-	return RawDirForScope(scope)
-}
-
 // resolveScopeIDIn returns the real scope identifier for a scope, for one project.
 // For "project": the project's lockfile ID. For "user": the hash of the git identity.
 // For a context scope: the scope name itself.
@@ -71,25 +64,6 @@ func resolveScopeIDIn(projectDir, scope string) string {
 func resolveScopeID(scope string) string {
 	wd, _ := os.Getwd()
 	return resolveScopeIDIn(wd, scope)
-}
-
-// RawDirForScope locates the directory holding a scope's raw memories.
-//
-// It does NOT require anything to have been compiled first. It used to require the
-// project replica to exist, and that made the raw store — the source of truth, the
-// thing the remote syncs into — unreachable in a project that had not been compiled
-// yet: no replica, so no raw dir, so no compile, so no replica. A fresh clone could
-// not bootstrap its own memories.
-func RawDirForScope(scope string) string {
-	scopeID := resolveScopeID(scope)
-	if scopeID == "" {
-		return ""
-	}
-	return RawDirFor(scope, scopeID)
-}
-
-func RawDirFor(scope, scopeID string) string {
-	return store.MemoryRawDir(scope, scopeID)
 }
 
 // MemoryTableURI is where the Lance table of the scope at scopePath lives.
@@ -118,8 +92,8 @@ func MemoryTableURI(scopePath, localDir string) string {
 	return localDir
 }
 
-// TableDirFor is the local table directory of a scope, mirroring RawDirFor so the two artifacts of
-// one scope are always named from the same pair.
+// TableDirFor is the local table directory of a scope. It is named from the (scope, scopeID) pair
+// so that a scope can never own two differently-named directories.
 func TableDirFor(scope, scopeID string) string {
 	return store.MemoryTableDir(scope, scopeID)
 }
@@ -129,9 +103,9 @@ func TableURIFor(scope, scopeID string) string {
 	return MemoryTableURI("memory/"+scope+"/"+scopeID, TableDirFor(scope, scopeID))
 }
 
-// TableURIForScope is TableURIFor with the scope id resolved from the working directory, mirroring
-// RawDirForScope. It answers empty when the scope has no identity yet, which a caller must treat as
-// "nothing to compile" rather than as a local path.
+// TableURIForScope is TableURIFor with the scope id resolved from the working directory. It answers
+// empty when the scope has no identity yet, which a caller must treat as "nothing to compile" rather
+// than as a local path.
 func TableURIForScope(scope string) string {
 	scopeID := resolveScopeID(scope)
 	if scopeID == "" {
@@ -150,94 +124,34 @@ func ContextTableURI(name string) string {
 	return MemoryTableURI("memory/project/"+name, TableDirFor(name, name))
 }
 
-// RawScope is one scope found in the raw store root, named by its directory.
-type RawScope struct {
-	Scope   string
-	ScopeID string
-	Dir     string
-}
-
-// RawScopesIn lists every scope the raw store root holds, whichever project it belongs to.
-//
-// 🔒 IT EXISTS SO THE RAW STORE CAN BE RETIRED WITHOUT STRANDING ANYBODY'S MEMORIES. The store is
-// GLOBAL and shared by every project on the machine, while `graphit memory migrate` resolves one
-// scope from a project's lockfile — so migrating project by project can only reach the projects that
-// are still checked out and registered. Measured on the machine this was written on: five scopes in
-// the raw store, three of them belonging to projects the global lock no longer knows, two of those
-// holding 15 real memories. Deleting the store after migrating only the current project would have
-// destroyed them.
-//
-// The scope's TARGET does not need the project either: a table's URI is built from the scope id, so
-// a directory name is enough to migrate what it holds.
-//
-// The name is the flattened scope path — `memory-<scope>-<id>` — and it is parsed the same way
-// ContextNamesFrom parses it: an imported context has scope == id, so its remainder splits into two
-// equal halves, and anything else is `project` or `user` followed by an id that contains no hyphen.
-func RawScopesIn(rawRoot string) []RawScope {
-	entries, err := os.ReadDir(rawRoot)
-	if err != nil {
-		return nil
-	}
-	var out []RawScope
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		rest, ok := cutPrefix(e.Name(), "memory-")
-		if !ok || strings.HasPrefix(rest, ".") {
-			continue
-		}
-		dir := filepath.Join(rawRoot, e.Name())
-		if name, doubled := doubledName(rest); doubled {
-			out = append(out, RawScope{Scope: name, ScopeID: name, Dir: dir})
-			continue
-		}
-		scope, id, found := strings.Cut(rest, "-")
-		if !found || scope == "" || id == "" {
-			continue
-		}
-		out = append(out, RawScope{Scope: scope, ScopeID: id, Dir: dir})
-	}
-	return out
-}
-
-// TableURIForRawScope is where a scope found in the raw store belongs in object storage.
-func TableURIForRawScope(s RawScope) string {
-	if s.Scope == s.ScopeID {
-		return ContextTableURI(s.ScopeID)
-	}
-	return TableURIFor(s.Scope, s.ScopeID)
-}
-
-// ContextNamesFrom lists the imported memory contexts a raw directory root holds.
+// ContextNamesFrom lists the imported memory contexts a memory WIKI root holds.
 //
 // Memory contexts have no per-project registry, and should not have one: a context's
-// memories are a prefix in the shared memory bucket, and the set of local directories
+// memories are a prefix in the shared memory bucket, and the set of local artifacts
 // is the record of which prefixes this unit has. Scoping them per project would need a
 // second record of the same fact.
 //
-// The name is recovered from the directory, which is the scope path with its separators
-// flattened: `memory/<scope>/<id>` becomes `memory-<scope>-<id>`. A flattened name is
-// ambiguous in general — a scope may contain a hyphen — but not for a context, whose
-// scope and id are the SAME string, so the remainder splits into two equal halves.
-// That equality is also what tells a context apart from the project and user scopes
-// without matching their names.
-func ContextNamesFrom(rawRoot string) []string {
-	entries, err := os.ReadDir(rawRoot)
+// 🔒 THE WIKI IS THAT RECORD, AND IT IS THE ONLY CANDIDATE THAT ALWAYS EXISTS. A scope has two
+// artifacts and the other one is conditional: with a bucket configured — the normal case — the table
+// is `s3://…/memory/project/<name>` and NOTHING is written locally for it. The wiki is always local,
+// because being local is what it is for: it is what a search opens.
+//
+// The name is recovered from the layout `wiki/memory/<scope>/<id>`, where a context is the scope
+// whose two halves are the SAME string. That equality is what tells a context apart from `project`
+// and `user` without matching their names — and, before the layout mattered, it was also what let a
+// context's name survive containing a hyphen.
+func ContextNamesFrom(wikiRoot string) []string {
+	entries, err := os.ReadDir(wikiRoot)
 	if err != nil {
 		return nil
 	}
 	var contexts []string
 	for _, e := range entries {
-		if !e.IsDir() {
+		name := e.Name()
+		if !e.IsDir() || strings.HasPrefix(name, ".") {
 			continue
 		}
-		rest, ok := cutPrefix(e.Name(), "memory-")
-		if !ok || strings.HasPrefix(rest, ".") {
-			continue
-		}
-		name, ok := doubledName(rest)
-		if !ok {
+		if info, err := os.Stat(filepath.Join(wikiRoot, name, name)); err != nil || !info.IsDir() {
 			continue
 		}
 		contexts = append(contexts, name)
@@ -245,33 +159,20 @@ func ContextNamesFrom(rawRoot string) []string {
 	return contexts
 }
 
-func cutPrefix(s, prefix string) (string, bool) {
-	if !strings.HasPrefix(s, prefix) {
-		return s, false
-	}
-	return s[len(prefix):], true
-}
-
-// doubledName reports the half of "<x>-<x>", which is how a context's directory name
-// carries its name twice — once as the scope and once as the id.
-func doubledName(s string) (string, bool) {
-	if len(s) < 3 || len(s)%2 == 0 {
-		return "", false
-	}
-	mid := len(s) / 2
-	if s[mid] != '-' {
-		return "", false
-	}
-	left, right := s[:mid], s[mid+1:]
-	if left != right {
-		return "", false
-	}
-	return left, true
-}
-
 // AllContextDirs lists the imported memory contexts on this machine, by name.
+//
+// 🔒 IT ENUMERATES THE WIKI ROOT, and it used to enumerate the raw markdown store's root. When that
+// store was retired the root stopped existing, so this answered EMPTY — with no error, because a
+// missing directory and a machine with no imported contexts are the same answer from os.ReadDir. The
+// UI's wiki picker consequently listed no memory contexts at all: see uiserver.discoverModules,
+// which resolves each name it gets from here to MemoryWikiGlobalDir(name, name) — the same directory
+// this now recognises them by, which is why the two cannot disagree any more.
+//
+// The table root is NOT the replacement, and that is the part worth reading twice: it holds a
+// directory per scope only when there is no bucket, so keying the listing on it would have fixed the
+// undefined root and left the listing empty in the configuration everything actually runs in.
 func AllContextDirs() []string {
-	return ContextNamesFrom(store.MemoryRawRoot())
+	return ContextNamesFrom(store.MemoryWikiRoot())
 }
 
 // EnsureScopeDirs creates the wiki directory of a scope so that a reader opening it
