@@ -935,20 +935,16 @@ func TestScanMCPArtifacts_WithServers(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	coreServer := brand.MCPServerName("code-stdio")
-	managedKey := brand.ManagedMCPKey()
 
-	t.Run("with managed filter", func(t *testing.T) {
+	t.Run("all project servers are discoverable", func(t *testing.T) {
 		t.Parallel()
 		p := filepath.Join(dir, "mcp1.json")
-		data := fmt.Sprintf(`{
-			"mcpServers":{"%s":{},"my-server":{},"other-server":{}},
-			"%s":{"my-server":{}}
-		}`, coreServer, managedKey)
+		data := fmt.Sprintf(`{"mcpServers":{"%s":{},"my-server":{},"other-server":{}}}`, coreServer)
 		_ = os.WriteFile(p, []byte(data), 0o644)
 
 		result := scanMCPArtifacts(p)
-		if len(result) != 1 {
-			t.Errorf("expected 1 result, got %d", len(result))
+		if len(result) != 2 {
+			t.Errorf("expected 2 non-core project servers, got %d", len(result))
 		}
 	})
 

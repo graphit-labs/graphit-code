@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "\"/usr/local/bin/graphit\" _session-hook --format session-start",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

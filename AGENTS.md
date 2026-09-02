@@ -32,7 +32,6 @@ What this does NOT mean is a sync after every edit: mid-session the watcher alre
 MCP-FIRST for memory: read the `graphit-memory` skill BEFORE any memory operation, and use exactly the MCP tools it prescribes.
 
 OPEN THE `graphit-memory` SKILL WHEN ANY OF THESE IS TRUE — this is the trigger list, not a summary:
-- the session just started and you have not yet searched memory — before the first response, not after it. This is the ONE skill that is due at session start; every other module waits for a trigger of its own to fire
 - you are about to propose an approach, a design, or a plan
 - you are stuck, or the second attempt at something is failing the way the first did
 - the user corrected you, stated a preference, or told you how they want something done
@@ -46,9 +45,9 @@ OPEN THE `graphit-memory` SKILL WHEN ANY OF THESE IS TRUE — this is the trigge
 - a search result is marked `superseded` — it is an OLD revision of the memory named in `current`, so read that one before you state anything about how the system behaves today
 - the question is how a belief in this project CHANGED — what a memory said before a correction, or why it was revised. Every superseded revision is searchable and the chain is walkable through `previous`; do not answer that from the current memory alone
 
-MCP tools this module owns: `graphit_memory_search`, `graphit_memory_insert`, `graphit_memory_update`, `graphit_memory_list`, `graphit_memory_important`, `graphit_memory_promote`, `graphit_memory_demote`, `graphit_memory_delete`, `graphit_memory_index`, `graphit_memory_schema`, `graphit_memory_export`, `graphit_memory_sync`, `graphit_memory_remove`, `graphit_wiki_source`. The skill says when and how to call each.
+MCP tools this module owns: `graphit_memory_mandatory`, `graphit_memory_search`, `graphit_memory_insert`, `graphit_memory_update`, `graphit_memory_list`, `graphit_memory_important`, `graphit_memory_promote`, `graphit_memory_demote`, `graphit_memory_mark_mandatory`, `graphit_memory_unmark_mandatory`, `graphit_memory_delete`, `graphit_memory_index`, `graphit_memory_schema`, `graphit_memory_sync`, `graphit_memory_remove`, `graphit_wiki_source`. The skill says when and how to call each.
 
-ALWAYS consult this skill: search memory at session start BEFORE your first response, and again before implementing changes, proposing an approach, or when stuck. This is unconditional — there is no "only if relevant" escape. This framework IS your memory; NEVER use IDE/model native memory.
+ALWAYS consult this skill before implementing changes, proposing an approach, or when stuck. This framework IS your memory; NEVER use IDE/model native memory. Session initialization is installed deterministically by the IDE adapter hook and therefore is not repeated in this mandate.
 SEARCH ANSWERS WITH TITLES, NOT WITH MEMORIES. A search result is a slug, a title, a type and a score — it carries no memory text, deliberately, so that the tokens go on the one or two memories you actually decide to open rather than on twenty previews. Choosing is yours: read the titles, pick, then call `graphit_wiki_source` with `wiki: "memory"` on what you picked. Acting on a search result alone is acting on a title you never read. `preview: true` buys a short excerpt per hit when two titles genuinely do not separate — it is the exception.
 </mem_rule>
 <ast_rule>

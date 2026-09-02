@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "graphit-code-stdio-mcp": {
+      "command": [
+        "/usr/local/bin/graphit",
+        "mcp",
+        "--stdio"
+      ],
+      "enabled": true,
+      "environment": {},
+      "type": "local"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "graphit-memory-session-start": {
+    "PreInvocation": [
+      {
+        "command": "\"/usr/local/bin/graphit\" _session-hook --format first-invocation",
+        "timeout": 10,
+        "type": "command"
+      }
+    ]
+  }
+}

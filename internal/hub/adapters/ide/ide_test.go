@@ -189,44 +189,6 @@ func TestExpandHome(t *testing.T) {
 	})
 }
 
-func TestProjectIDFrom(t *testing.T) {
-	t.Parallel()
-
-	t.Run("nil map", func(t *testing.T) {
-		t.Parallel()
-		if got := projectIDFrom(nil); got != "" {
-			t.Errorf("expected empty, got %q", got)
-		}
-	})
-
-	t.Run("empty map", func(t *testing.T) {
-		t.Parallel()
-		if got := projectIDFrom(map[string]map[string]string{}); got != "" {
-			t.Errorf("expected empty, got %q", got)
-		}
-	})
-
-	t.Run("with project_id", func(t *testing.T) {
-		t.Parallel()
-		m := map[string]map[string]string{
-			"art1": {"type": "rule", "project_id": "proj-123"},
-		}
-		if got := projectIDFrom(m); got != "proj-123" {
-			t.Errorf("got %q, want proj-123", got)
-		}
-	})
-
-	t.Run("no project_id key", func(t *testing.T) {
-		t.Parallel()
-		m := map[string]map[string]string{
-			"art1": {"type": "rule"},
-		}
-		if got := projectIDFrom(m); got != "" {
-			t.Errorf("expected empty, got %q", got)
-		}
-	})
-}
-
 func TestFindMCPJSON(t *testing.T) {
 	t.Parallel()
 
@@ -349,8 +311,99 @@ func TestNewGeminiAdapter(t *testing.T) {
 	if a.cfg.RootDirName != ".gemini" {
 		t.Errorf("RootDirName = %q, want .gemini", a.cfg.RootDirName)
 	}
-	if len(a.cfg.MCPExtraPaths) == 0 {
-		t.Error("expected MCPExtraPaths")
+	if a.cfg.MCPFilePath != "{active_project_dir}/.gemini/settings.json" {
+		t.Errorf("MCPFilePath = %q, want project Gemini settings", a.cfg.MCPFilePath)
+	}
+	if len(a.cfg.MCPExtraPaths) != 0 {
+		t.Error("project-scoped Gemini MCP must not write global fallback paths")
+	}
+}
+
+func TestAdaptersInstallHubMCPAtTheNarrowestSupportedScope(t *testing.T) {
+	t.Setenv("GRAPHIT_LAUNCHER_PATH", "/opt/graphit/bin/graphit")
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	tests := []struct {
+		name          string
+		projectPath   string
+		globalPath    string
+		projectScoped bool
+	}{
+		{name: "antigravity", projectPath: filepath.Join(".agents", "mcp_config.json"), globalPath: filepath.Join(homeDir, ".gemini", "config", "mcp_config.json"), projectScoped: true},
+		{name: "cursor", projectPath: filepath.Join(".cursor", "mcp.json"), globalPath: filepath.Join(homeDir, ".cursor", "mcp.json"), projectScoped: true},
+		{name: "claude", projectPath: ".mcp.json", globalPath: filepath.Join(homeDir, ".claude.json"), projectScoped: true},
+		{name: "kiro", projectPath: filepath.Join(".kiro", "settings", "mcp.json"), globalPath: filepath.Join(homeDir, ".kiro", "settings", "mcp.json"), projectScoped: true},
+		{name: "codex", projectPath: filepath.Join(".codex", "config.toml"), globalPath: filepath.Join(homeDir, ".codex", "config.toml"), projectScoped: true},
+		{name: "opencode", projectPath: "opencode.json", globalPath: filepath.Join(homeDir, ".config", "opencode", "opencode.json"), projectScoped: true},
+		{name: "gemini", projectPath: filepath.Join(".gemini", "settings.json"), globalPath: filepath.Join(homeDir, ".gemini", "settings.json"), projectScoped: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			artifactDir := filepath.Join(projectDir, "hub-mcp")
+			if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			artifact := `{"hub-server":{"command":"hub-command","args":["serve"]}}`
+			if err := os.WriteFile(filepath.Join(artifactDir, "mcp.json"), []byte(artifact), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			installed := map[string]map[string]string{
+				"hub-mcp": {"type": "mcp", "path": artifactDir, "project_id": "scope-test"},
+			}
+			adapter := GetAdapter(tc.name)
+			pp := &paths.ProjectPaths{ActiveProjectDir: projectDir}
+			if err := adapter.Sync(installed, pp, "scope-test"); err != nil {
+				t.Fatal(err)
+			}
+
+			target := tc.globalPath
+			if tc.projectScoped {
+				target = filepath.Join(projectDir, tc.projectPath)
+				if _, err := os.Stat(tc.globalPath); !os.IsNotExist(err) {
+					t.Fatalf("adapter wrote global MCP config %s despite project support", tc.globalPath)
+				}
+			}
+			content, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatalf("reading MCP config %s: %v", target, err)
+			}
+			if !strings.Contains(string(content), "hub-server") {
+				t.Fatalf("Hub MCP was not installed in %s: %s", target, content)
+			}
+			if !strings.Contains(string(content), brand.MCPServerName("code-stdio")) {
+				t.Fatalf("Graphit MCP was not installed in %s: %s", target, content)
+			}
+			if strings.Contains(string(content), "ManagedMcpKeys") {
+				t.Fatalf("project MCP config contains cross-project ownership metadata: %s", content)
+			}
+			if tc.name == "opencode" {
+				var config map[string]any
+				if err := json.Unmarshal(content, &config); err != nil {
+					t.Fatal(err)
+				}
+				if _, ok := config["mcpServers"]; ok {
+					t.Fatalf("OpenCode config duplicated native MCP entries into mcpServers: %s", content)
+				}
+				mcp, _ := config["mcp"].(map[string]any)
+				if mcp["hub-server"] == nil || mcp[brand.MCPServerName("code-stdio")] == nil {
+					t.Fatalf("OpenCode native mcp object is incomplete: %s", content)
+				}
+			}
+
+			if err := adapter.Remove(pp, installed); err != nil {
+				t.Fatal(err)
+			}
+			remaining, err := os.ReadFile(target)
+			if err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(remaining), "hub-server") || strings.Contains(string(remaining), brand.MCPServerName("code-stdio")) {
+				t.Fatalf("managed MCPs remained after adapter removal in %s: %s", target, remaining)
+			}
+		})
 	}
 }
 
@@ -754,7 +807,7 @@ func TestReconcileMCPFile(t *testing.T) {
 
 	t.Run("empty target path", func(t *testing.T) {
 		t.Parallel()
-		if err := reconcileMCPFile("", "proj", map[string]any{}); err != nil {
+		if err := reconcileMCPFile("", filepath.Join(t.TempDir(), "manifest.json"), map[string]any{}); err != nil {
 			t.Errorf("expected nil error for empty path, got: %v", err)
 		}
 	})
@@ -763,11 +816,12 @@ func TestReconcileMCPFile(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		target := filepath.Join(dir, "mcp.json")
+		manifest := filepath.Join(dir, "manifest.json")
 
 		servers := map[string]any{
 			"server1": map[string]any{"command": "echo"},
 		}
-		if err := reconcileMCPFile(target, "proj-1", servers); err != nil {
+		if err := reconcileMCPFile(target, manifest, servers); err != nil {
 			t.Fatal(err)
 		}
 
@@ -780,10 +834,13 @@ func TestReconcileMCPFile(t *testing.T) {
 			t.Error("expected server1 in mcpServers")
 		}
 
-		managedKey := brand.ManagedMCPKey()
-		managed, _ := parsed[managedKey].(map[string]any)
-		if managed == nil || managed["server1"] == nil {
-			t.Error("expected server1 in managed keys")
+		legacyKey := "_" + brand.Brand + "ManagedMcpKeys"
+		if _, ok := parsed[legacyKey]; ok {
+			t.Error("project MCP config must not contain cross-project ownership metadata")
+		}
+		names, err := mcpManifestNames(manifest)
+		if err != nil || len(names) != 1 || names[0] != "server1" {
+			t.Fatalf("local MCP manifest = %v, %v; want [server1]", names, err)
 		}
 	})
 
@@ -791,6 +848,7 @@ func TestReconcileMCPFile(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		target := filepath.Join(dir, "mcp.json")
+		manifest := filepath.Join(dir, "manifest.json")
 
 		existing := map[string]any{
 			"mcpServers": map[string]any{
@@ -803,7 +861,7 @@ func TestReconcileMCPFile(t *testing.T) {
 		servers := map[string]any{
 			"new-server": map[string]any{"command": "new-cmd"},
 		}
-		if err := reconcileMCPFile(target, "proj-1", servers); err != nil {
+		if err := reconcileMCPFile(target, manifest, servers); err != nil {
 			t.Fatal(err)
 		}
 
@@ -820,18 +878,20 @@ func TestReconcileMCPFile(t *testing.T) {
 		}
 	})
 
-	t.Run("remove claims", func(t *testing.T) {
+	t.Run("replace prior project servers", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		target := filepath.Join(dir, "mcp.json")
+		manifest := filepath.Join(dir, "manifest.json")
 
-		servers := map[string]any{
+		first := map[string]any{
 			"my-server": map[string]any{"command": "cmd"},
 		}
-		_ = reconcileMCPFile(target, "proj-1", servers)
-
-		// Then remove all claims for proj-1
-		_ = reconcileMCPFile(target, "proj-1", map[string]any{})
+		_ = reconcileMCPFile(target, manifest, first)
+		second := map[string]any{
+			"new-server": map[string]any{"command": "new-cmd"},
+		}
+		_ = reconcileMCPFile(target, manifest, second)
 
 		data, _ := os.ReadFile(target)
 		var parsed map[string]any
@@ -839,33 +899,38 @@ func TestReconcileMCPFile(t *testing.T) {
 
 		mcpServers, _ := parsed["mcpServers"].(map[string]any)
 		if mcpServers["my-server"] != nil {
-			t.Error("expected my-server to be removed when no claims remain")
+			t.Error("expected stale project server to be removed")
+		}
+		if mcpServers["new-server"] == nil {
+			t.Error("expected current project server to be installed")
 		}
 	})
 
-	t.Run("multi-project claims preserve server", func(t *testing.T) {
+	t.Run("remove project servers", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		target := filepath.Join(dir, "mcp.json")
+		manifest := filepath.Join(dir, "manifest.json")
 
 		servers := map[string]any{
-			"shared-server": map[string]any{"command": "cmd"},
+			"my-server": map[string]any{"command": "cmd"},
 		}
-		_ = reconcileMCPFile(target, "proj-1", servers)
-		_ = reconcileMCPFile(target, "proj-2", servers)
-
-		// Remove proj-1 claims
-		_ = reconcileMCPFile(target, "proj-1", map[string]any{})
+		_ = reconcileMCPFile(target, manifest, servers)
+		_ = reconcileMCPFile(target, manifest, map[string]any{})
 
 		data, _ := os.ReadFile(target)
 		var parsed map[string]any
 		_ = json.Unmarshal(data, &parsed)
 
 		mcpServers, _ := parsed["mcpServers"].(map[string]any)
-		if mcpServers["shared-server"] == nil {
-			t.Error("expected shared-server to remain (proj-2 still claims it)")
+		if mcpServers["my-server"] != nil {
+			t.Error("expected project server to be removed")
+		}
+		if _, err := os.Stat(manifest); !os.IsNotExist(err) {
+			t.Fatalf("local MCP manifest remained after removal: %v", err)
 		}
 	})
+
 }
 
 // InjectManagedBlock / RemoveManagedBlock
@@ -1227,12 +1292,11 @@ func TestOpenCodeAdapter_Sync(t *testing.T) {
 	var parsed map[string]any
 	_ = json.Unmarshal(data, &parsed)
 
-	// OpenCode writes both "mcp" and "mcpServers"
 	if parsed["mcp"] == nil {
 		t.Error("expected 'mcp' key in config")
 	}
-	if parsed["mcpServers"] == nil {
-		t.Error("expected 'mcpServers' key in config")
+	if _, ok := parsed["mcpServers"]; ok {
+		t.Error("OpenCode config must use only its native 'mcp' key")
 	}
 }
 
@@ -1284,14 +1348,12 @@ func TestOpenCodeAdapter_Remove_PreservesOtherKeys(t *testing.T) {
 	mcpTarget := filepath.Join(dir, "opencode.json")
 	a.cfg.MCPFilePath = mcpTarget
 
-	// Write a config with extra user keys in "mcp" and "mcpServers"
+	// Write a config with a user-owned MCP and an unrelated setting.
 	existing := map[string]any{
 		"mcp": map[string]any{
 			"user-mcp": map[string]any{"type": "local"},
 		},
-		"mcpServers": map[string]any{
-			"user-server": map[string]any{"command": "echo"},
-		},
+		"theme": "dark",
 	}
 	data, _ := json.Marshal(existing)
 	_ = os.WriteFile(mcpTarget, data, 0o644)
@@ -1312,9 +1374,8 @@ func TestOpenCodeAdapter_Remove_PreservesOtherKeys(t *testing.T) {
 		t.Error("expected user-mcp to be preserved")
 	}
 
-	servers, _ := parsed["mcpServers"].(map[string]any)
-	if servers == nil || servers["user-server"] == nil {
-		t.Error("expected user-server to be preserved")
+	if parsed["theme"] != "dark" {
+		t.Error("expected unrelated OpenCode setting to be preserved")
 	}
 }
 
@@ -1593,7 +1654,8 @@ func TestFolderBasedAdapter_CopyArtifact(t *testing.T) {
 func TestCodexAdapter_RemoveCodexMCP_FileNotExist(t *testing.T) {
 	t.Parallel()
 	a := NewCodexAdapter()
-	err := a.removeCodexMCP(filepath.Join(t.TempDir(), "nonexistent.toml"))
+	dir := t.TempDir()
+	err := a.removeCodexMCP(dir, filepath.Join(dir, "nonexistent.toml"), nil)
 	if err != nil {
 		t.Errorf("expected nil error for nonexistent file, got: %v", err)
 	}
@@ -1606,7 +1668,7 @@ func TestCodexAdapter_RemoveCodexMCP_InvalidTOML(t *testing.T) {
 	_ = os.WriteFile(target, []byte("not valid toml [[["), 0o644)
 
 	a := NewCodexAdapter()
-	err := a.removeCodexMCP(target)
+	err := a.removeCodexMCP(dir, target, nil)
 	if err != nil {
 		t.Errorf("expected nil error for invalid TOML, got: %v", err)
 	}
@@ -1623,7 +1685,7 @@ func TestCodexAdapter_RemoveCodexMCP_EmptyServersDeleted(t *testing.T) {
 	_ = a.Sync(map[string]map[string]string{}, pp, "proj-1")
 
 	// Remove → mcp_servers section should be removed entirely
-	_ = a.removeCodexMCP(target)
+	_ = a.removeCodexMCP(dir, target, nil)
 	data, _ := os.ReadFile(target)
 	if strings.Contains(string(data), "mcp_servers") {
 		t.Error("expected mcp_servers section to be deleted when empty")

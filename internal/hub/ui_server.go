@@ -419,8 +419,6 @@ func scanMCPArtifacts(mcpPath string) []map[string]any {
 		return nil
 	}
 
-	managed, _ := conf[brand.ManagedMCPKey()].(map[string]any)
-
 	coreServer := brand.MCPServerName("code-stdio")
 
 	var results []map[string]any
@@ -429,11 +427,6 @@ func scanMCPArtifacts(mcpPath string) []map[string]any {
 			continue
 		}
 
-		if managed != nil {
-			if _, ok := managed[name]; !ok {
-				continue
-			}
-		}
 		results = append(results, map[string]any{
 			"local_id":  name,
 			"type":      "mcp",

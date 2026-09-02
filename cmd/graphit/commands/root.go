@@ -26,7 +26,7 @@ var rootCmd = &cobra.Command{
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 
 		name := cmd.Name()
-		if name == "daemon" || name == "setup" || name == "uninstall" || name == "self-update" || name == "_internal" {
+		if name == "daemon" || name == "setup" || name == "uninstall" || name == "self-update" || name == "_internal" || name == "_session-hook" {
 			return
 		}
 
@@ -68,6 +68,7 @@ func init() {
 		newDaemonCmd(),
 		newMCPCmd(),
 		newClusterCmd(),
+		newSessionHookCmd(),
 	)
 
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Enable verbose output")

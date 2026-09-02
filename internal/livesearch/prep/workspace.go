@@ -183,11 +183,9 @@ func countNoun(n int, noun string) string {
 
 // writeLockfile creates the project identity.
 //
-// The identity is written explicitly rather than left to SaveLockfile, for two
-// reasons. It must not be empty: reconcileMCPFile treats the project ID as a claim
-// on each MCP server and deletes any server nothing claims, so an empty ID would
-// have the entry written and then removed in the same pass. And SaveLockfile would
-// otherwise call resolveProjectIdentity, which runs `git remote get-url origin` in
+// The identity is written explicitly rather than left to SaveLockfile because
+// SaveLockfile would otherwise call resolveProjectIdentity, which runs
+// `git remote get-url origin` in
 // the directory — a command that walks UP the tree, so on a machine where the home
 // directory is itself a git repository the throwaway project would be named after
 // the user's dotfiles.
@@ -291,12 +289,10 @@ func mcpServers(ws, ideName string) map[string]any {
 
 // localMCPFile is where an IDE reads MCP servers that belong to a project.
 //
-// The adapters cannot answer this: every MCPFilePath they declare is under the home
-// directory, and writing the ephemeral project there would be wrong twice. It would
-// add a throwaway project's claim to the user's real configuration, and
-// reconcileMCPFile is an unlocked read-modify-write — so two sessions created in the
-// same moment can drop each other's claims, and a claim lost is a server deleted
-// from under the user's own project.
+// Normal projects receive these paths through their IDE adapter. Live search writes
+// its minimal configuration directly because the ephemeral workspace does not need
+// the adapter's complete artifact and hook lifecycle. In either case, the target is
+// project-local and never the user's home-level IDE configuration.
 //
 // Only the IDEs whose project-level convention is known are listed. An IDE that is
 // missing is reported rather than guessed at, because a config written to the wrong

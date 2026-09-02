@@ -70,6 +70,12 @@ The MCP stdio server exposes the same project capabilities to coding agents. Too
 - AST queries traverse exact graph relationships;
 - memory tools persist structured context.
 
+Each concrete IDE adapter installs and removes its own project-local native lifecycle hook whenever that IDE supports project hooks. Hook paths live in each adapter's `FolderConfig` beside its other native paths, while event names, configuration shapes, and hook lifecycle remain in the concrete adapter; the folder-based adapter has no hook routing or IDE identity. Only the semantic protocol and format-neutral JSON/file reconciliation helpers are shared. The injected protocol is intentionally ordered: load the complete mandatory set with `graphit_memory_mandatory`, derive context from the current request and run `graphit_memory_search` with `exclude_mandatory: true`, then read the selected pages through `graphit_wiki_source`. This startup invariant belongs to executable adapter configuration rather than to the generated mandate; the mandate retains only the just-in-time memory triggers used later in a session.
+
+Claude, Codex, Cursor, Gemini, and Kiro use their native session-start event. Antigravity maps the invariant to its first `PreInvocation`, and OpenCode combines its `session.created` event with the first system-prompt transform for that session. Adapter removal removes only the Graphit-owned hook entry or file.
+
+The same scope rule applies to MCP installation, including MCP artifacts installed from the Hub. Antigravity writes `.agents/mcp_config.json`; Claude writes `.mcp.json`; Cursor writes `.cursor/mcp.json`; Kiro writes `.kiro/settings/mcp.json`; Codex writes `.codex/config.toml`; OpenCode writes only its native `mcp` object in `opencode.json`; and Gemini shares `.gemini/settings.json` with its hook configuration. All targets are project-local and are reconciled by the owning adapter. Native IDE files contain no cross-project ownership metadata. A project-local runtime manifest records only the server names written by Graphit so later sync/removal can preserve user-owned entries; no compatibility reader exists for older configuration shapes.
+
 ### Daemon
 
 One machine-wide daemon supervises registered projects, receives file events, schedules incremental AST and wiki maintenance, coordinates local embedding work, and runs configured Dream activity. It reduces repeated cold starts but does not remove the need for explicit checkpoints after bulk external changes.

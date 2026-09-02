@@ -1,6 +1,6 @@
 ---
 name: graphit-memory
-description: 'Persistent memory across sessions — this framework IS your memory. MANDATORY at conversation start: search memory before responding. Use when: user corrects, teaches, explains, instructs, or guides you; you complete a task, fix a bug, or make a design decision; you discover something unexpected or infer a non-obvious pattern; you are stuck or implementing significant changes (check prior constraints); memory maintenance (gc, consolidation, promote/demote).'
+description: 'Persistent memory across sessions — this framework IS your memory. MANDATORY at conversation start: load mandatory memories without search, then search contextual memories while excluding mandatory ones. Use when: user corrects, teaches, explains, instructs, or guides you; you complete a task, fix a bug, or make a design decision; you discover something unexpected or infer a non-obvious pattern; you are stuck or implementing significant changes; memory classification maintenance (important and mandatory).'
 ---
 
 # Memory Management Rule
@@ -12,9 +12,10 @@ description: 'Persistent memory across sessions — this framework IS your memor
 **These steps are MANDATORY. Execute them BEFORE responding to the user's first message.**
 **Skipping them means you WILL repeat mistakes the user already corrected.**
 
-1. Call `graphit_memory_search` with context from the user's request to find relevant memories
-2. If relevant memories found, read the entity page(s) and follow their guidance
-3. Only then proceed with the user's request
+1. Call `graphit_memory_mandatory` with NO query. It returns every mandatory memory with full content; read and apply all of them
+2. Call `graphit_memory_search` with context from the user's request and `exclude_mandatory: true`
+3. If relevant memories are found, read the selected entity page(s) and follow their guidance
+4. Only then proceed with the user's request
 
 > If the memory wiki does not exist yet (new project), skip and proceed.
 
@@ -43,7 +44,7 @@ in these situations — proactively, without being asked:
 | **Before proposing** architecture or technical approach | Decisions, tensions, conventions that constrain options | Avoid contradicting prior decisions the user already made |
 | **User seems frustrated** or repeats an instruction | Corrections about your behavior | You may be ignoring a correction already memorized |
 
-**How to search:** call `graphit_memory_search` tool (passing absolute `project_dir` parameter)
+**How to search:** call `graphit_memory_search` with `exclude_mandatory: true` (passing absolute `project_dir` parameter)
 
 ### Another project's memories are readable too
 
@@ -63,7 +64,7 @@ not reconstruct a decision someone made deliberately.
 ### And with no project at all, memory still works
 
 **`project_dir` is optional on every memory tool that reads or writes a scope** — search,
-list, important, insert, update, delete, promote, demote, index. Omitting it serves the **user**
+list, important, mandatory, insert, update, delete, promote, demote, mark/unmark mandatory, index. Omitting it serves the **user**
 scope, which is keyed by this machine rather than by a project, so it is a real scope and not a
 consolation prize:
 
@@ -114,6 +115,7 @@ Two things to know:
 |---|---|---|
 | **Recalling any project knowledge** | Call `graphit_memory_search` → read the page | ❌ Don't answer from model memory or guess |
 | **Persisting a fact/decision/correction** | Call `graphit_memory_insert` | ❌ Don't rely on native/model memory to "remember" |
+| **Loading unconditional context** | Call `graphit_memory_mandatory` with no query | ❌ Don't hope a keyword search happens to rank mandatory instructions |
 | **Listing what is known** | Call `graphit_memory_list` / `graphit_memory_important` | ❌ Don't `ls`/read the memory directory |
 | **Replacing an outdated memory** | Call `graphit_memory_update` to rewrite it in place | ❌ Don't edit `.md` files directly, and don't delete-then-insert — that loses the id, importance and tags |
 
@@ -215,6 +217,19 @@ Every memory has a `type` that determines how it is stored and surfaced:
 
 Default type when `type` is omitted: `fact`.
 
+## Mandatory Is a Separate State
+
+`important` means high-value reference material. `mandatory` means the memory must be in every
+agent's context before it interprets any request. Mark a memory mandatory only when it carries
+system-wide operating state, a standing instruction, or foundational context whose absence can
+make an otherwise reasonable task response wrong. A useful convention or hard-won fix is usually
+important, not mandatory.
+
+Maintain this classification whenever you read it. If the unconditional requirement no longer
+holds, first update the memory if its truth changed, then call `graphit_memory_unmark_mandatory`. If an
+ordinary memory becomes required for every future session, call `graphit_memory_mark_mandatory`. Never
+leave a stale mandatory memory loaded forever merely because it was once foundational.
+
 ## 📖 How to Retrieve Memories
 
 **ALWAYS use the MCP tools.** The wiki is compiled, BM25-indexed and pre-optimized for
@@ -255,9 +270,10 @@ and search misses it, that is the explanation; `graphit_memory_index` forces the
 | Search memories by keyword/context | `graphit_memory_search` | Ranked over the compiled wiki — and it answers with TITLES, not with memory text |
 | List all memories | `graphit_memory_list` | Structured catalog, grouped by type — reads the store, so it sees writes the wiki has not compiled yet |
 | List important memories only | `graphit_memory_important` | High-priority conventions, corrections |
+| Load mandatory memories | `graphit_memory_mandatory` | Complete, unsearched phase-one session context read directly from the authoritative store |
 
 **Retrieval steps:**
-1. Call `graphit_memory_search` with query context — get ranked results
+1. After the mandatory call, call `graphit_memory_search` with query context and `exclude_mandatory: true` — get ranked non-mandatory results
    > ⚠️ **What comes back is a LIST OF TITLES, not memories.** Each hit is a slug, a title,
    > a type and a score. There is no memory text in it, by design: a search exists so you
    > can decide WHICH memory to open, and that decision is made on the title. Reading is
@@ -381,7 +397,12 @@ graphit_memory_update(project_dir: "/path/to/project", id: "<id>", content: "<ne
 graphit_memory_delete(project_dir: "/path/to/project", id: "<id>")
 
 # Search (lightweight, no AI)
-graphit_memory_search(project_dir: "/path/to/project", query: "<term>")
+graphit_memory_search(project_dir: "/path/to/project", query: "<term>", exclude_mandatory: true)
+
+# Mandatory phase and classification maintenance
+graphit_memory_mandatory(project_dir: "/path/to/project")
+graphit_memory_mark_mandatory(project_dir: "/path/to/project", id: "<id>")
+graphit_memory_unmark_mandatory(project_dir: "/path/to/project", id: "<id>")
 
 # Promote/demote importance
 graphit_memory_promote(project_dir: "/path/to/project", id: "<id>")
@@ -496,7 +517,7 @@ When the user's new instruction contradicts an existing memory:
 
 ## ⚡ Reindex After Writes — automatic, but not instant
 
-After any write (`insert`, `delete`, `update`, `promote`, `demote`), the auto-cycle
+After any write (`insert`, `delete`, `update`, `promote`, `demote`, `mark_mandatory`, `unmark_mandatory`), the auto-cycle
 runs automatically. If it fails, trigger manually calling the `graphit_memory_index` tool (passing absolute `project_dir` parameter).
 
 **"Automatic" means eventually, not immediately.** The recompile lands after the write, so
@@ -520,6 +541,7 @@ Two consequences worth acting on:
 4. **Capture trade-offs, not just facts.** "We chose X over Y because Z" > "We use X".
 5. **Handle contradictions when you see them.** Update the memory that is true; never leave two conflicting memories behind for a later session to trip over. Same for duplicates and for memories the codebase has outgrown — fixing them is part of reading them, not separate work.
 6. **Promote critical memories.** Conventions, corrections, and constraints should be marked important.
-7. **NEVER just say "understood" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate whether it should be memorized. If it contains a convention, preference, correction, workflow, fact, or any persistent knowledge, create a memory immediately. Only skip memorization if the instruction is purely about an ephemeral, one-shot action with no future relevance.
-8. **Memorize your own reasoning about the system.** When you read code, trace a call flow, or analyze how a module works, you MUST create a memory of what you learned. This includes: how components interact, why something behaves unexpectedly, what a non-obvious function does, and any pattern or constraint you discover independently — even without the user saying anything.
-9. **Never discard an insight.** If you understood something non-trivial while analyzing the system, store it. The next session will start blind — your analysis notes must be externalized into memory to survive.
+7. **Classify and maintain mandatory memories.** Foundational system state and standing instructions that every session needs are mandatory; unmark them as soon as unconditional recall is no longer justified.
+8. **NEVER just say "understood" or confirm comprehension.** When the user gives an instruction, ALWAYS evaluate whether it should be memorized. If it contains a convention, preference, correction, workflow, fact, or any persistent knowledge, create a memory immediately. Only skip memorization if the instruction is purely about an ephemeral, one-shot action with no future relevance.
+9. **Memorize your own reasoning about the system.** When you read code, trace a call flow, or analyze how a module works, you MUST create a memory of what you learned. This includes: how components interact, why something behaves unexpectedly, what a non-obvious function does, and any pattern or constraint you discover independently — even without the user saying anything.
+10. **Never discard an insight.** If you understood something non-trivial while analyzing the system, store it. The next session will start blind — your analysis notes must be externalized into memory to survive.

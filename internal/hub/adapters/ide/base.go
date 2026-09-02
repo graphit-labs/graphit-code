@@ -45,6 +45,7 @@ type FolderConfig struct {
 	SkillsDir     string
 	AgentsDir     string
 	AgentsFile    string
+	HookFilePath  string
 	MCPFilePath   string
 	MCPExtraPaths []string
 	MCPCustomSync bool
@@ -102,7 +103,7 @@ func NewFolderBasedAdapter(cfg FolderConfig) *FolderBasedAdapter {
 func (a *FolderBasedAdapter) Sync(
 	installed map[string]map[string]string,
 	pp *paths.ProjectPaths,
-	projectID string,
+	_ string,
 ) error {
 	baseDir := a.baseDir(pp.ActiveProjectDir)
 
@@ -168,12 +169,7 @@ func (a *FolderBasedAdapter) Sync(
 			}
 
 		case "mcp":
-			for _, mp := range a.cfg.allMCPPaths() {
-				mcpTarget := os.ExpandEnv(strings.ReplaceAll(mp,
-					"{active_project_dir}", pp.ActiveProjectDir))
-				mcpTarget, _ = expandHome(mcpTarget)
-				_ = a.syncMCP(eid, sourcePath, mcpTarget, projectID, installed)
-			}
+			continue
 		}
 	}
 
@@ -185,10 +181,8 @@ func (a *FolderBasedAdapter) Sync(
 	}
 
 	for _, mp := range a.cfg.allMCPPaths() {
-		mcpTarget := os.ExpandEnv(strings.ReplaceAll(mp,
-			"{active_project_dir}", pp.ActiveProjectDir))
-		mcpTarget, _ = expandHome(mcpTarget)
-		_ = a.syncAllMCP(mcpTarget, projectID, installed)
+		mcpTarget, _ := resolveConfiguredPath(mp, pp.ActiveProjectDir)
+		_ = a.syncAllMCP(pp.ActiveProjectDir, mcpTarget, installed)
 	}
 
 	return nil
@@ -238,12 +232,19 @@ func (a *FolderBasedAdapter) Remove(pp *paths.ProjectPaths, installed map[string
 	}
 
 	for _, mp := range a.cfg.allMCPPaths() {
-		mcpTarget := os.ExpandEnv(strings.ReplaceAll(mp,
-			"{active_project_dir}", pp.ActiveProjectDir))
-		mcpTarget, _ = expandHome(mcpTarget)
-		_ = a.removeMCPClaims(mcpTarget, projectIDFrom(installed), installed)
+		mcpTarget, _ := resolveConfiguredPath(mp, pp.ActiveProjectDir)
+		_ = a.removeMCPConfig(pp.ActiveProjectDir, mcpTarget, installed)
 	}
 	return nil
+}
+
+func (a *FolderBasedAdapter) folderBasedAdapter() *FolderBasedAdapter {
+	return a
+}
+
+func resolveConfiguredPath(configuredPath, projectDir string) (string, error) {
+	configuredPath = strings.ReplaceAll(configuredPath, "{active_project_dir}", projectDir)
+	return expandHome(os.ExpandEnv(configuredPath))
 }
 
 func (a *FolderBasedAdapter) ScanLocal(projectDir string) []LocalArtifact {
@@ -354,19 +355,78 @@ func DesiredMCPServers(installed map[string]map[string]string) map[string]any {
 	return desiredServers
 }
 
-func (a *FolderBasedAdapter) syncAllMCP(mcpTarget, projectID string, installed map[string]map[string]string) error {
-	return reconcileMCPFile(mcpTarget, projectID, DesiredMCPServers(installed))
+func mcpManifestNames(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	if err := json.Unmarshal(data, &names); err != nil {
+		return nil, err
+	}
+	return names, nil
 }
 
-func (a *FolderBasedAdapter) syncMCP(eid, sourcePath, mcpTarget, projectID string, installed map[string]map[string]string) error {
-	return a.syncAllMCP(mcpTarget, projectID, installed)
+func saveMCPManifest(path string, desired map[string]any) error {
+	if len(desired) == 0 {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	names := make([]string, 0, len(desired))
+	for name := range desired {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	data, err := json.Marshal(names)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
-func (a *FolderBasedAdapter) removeMCPClaims(mcpTarget, projectID string, _ map[string]map[string]string) error {
-	return reconcileMCPFile(mcpTarget, projectID, map[string]any{})
+func mcpManifestPath(projectDir, adapter string) string {
+	return brand.ProjectRuntimePath(projectDir, "cache", "mcp", adapter+".json")
 }
 
-func reconcileMCPFile(mcpTarget, projectID string, desiredServers map[string]any) error {
+func (a *FolderBasedAdapter) mcpManifestPath(projectDir string) string {
+	adapter := strings.TrimPrefix(a.cfg.RootDirName, ".")
+	if adapter == "" {
+		adapter = "project"
+	}
+	return mcpManifestPath(projectDir, adapter)
+}
+
+func (a *FolderBasedAdapter) syncAllMCP(projectDir, mcpTarget string, installed map[string]map[string]string) error {
+	return reconcileMCPFile(mcpTarget, a.mcpManifestPath(projectDir), DesiredMCPServers(installed))
+}
+
+func (a *FolderBasedAdapter) removeMCPConfig(projectDir, mcpTarget string, installed map[string]map[string]string) error {
+	return reconcileMCPFileWithPrevious(
+		mcpTarget,
+		a.mcpManifestPath(projectDir),
+		map[string]any{},
+		DesiredMCPServers(installed),
+	)
+}
+
+func reconcileMCPFile(mcpTarget, manifestPath string, desiredServers map[string]any) error {
+	return reconcileMCPFileWithPrevious(mcpTarget, manifestPath, desiredServers, nil)
+}
+
+func reconcileMCPFileWithPrevious(
+	mcpTarget string,
+	manifestPath string,
+	desiredServers map[string]any,
+	fallbackPrevious map[string]any,
+) error {
 	if mcpTarget == "" {
 		return nil
 	}
@@ -383,66 +443,36 @@ func reconcileMCPFile(mcpTarget, projectID string, desiredServers map[string]any
 		existingServers = map[string]any{}
 	}
 
-	managed := map[string][]string{}
-	if raw, ok := targetData[brand.ManagedMCPKey()].(map[string]any); ok {
-		for k, v := range raw {
-			if refs, ok := v.([]any); ok {
-				strs := make([]string, 0, len(refs))
-				for _, r := range refs {
-					if s, ok := r.(string); ok {
-						strs = append(strs, s)
-					}
-				}
-				managed[k] = strs
-			}
-		}
+	previous, err := mcpManifestNames(manifestPath)
+	if err != nil {
+		return err
+	}
+	for name := range fallbackPrevious {
+		previous = append(previous, name)
+	}
+	for _, name := range previous {
+		delete(existingServers, name)
 	}
 
-	for k, refs := range managed {
-		updated := refs[:0]
-		for _, ref := range refs {
-			if ref != projectID {
-				updated = append(updated, ref)
-			}
-		}
-		managed[k] = updated
+	for name, server := range desiredServers {
+		existingServers[name] = server
 	}
-
-	for key, conf := range desiredServers {
-		if _, ok := managed[key]; !ok {
-			managed[key] = []string{}
-		}
-		alreadyClaimed := false
-		for _, ref := range managed[key] {
-			if ref == projectID {
-				alreadyClaimed = true
-				break
-			}
-		}
-		if !alreadyClaimed && projectID != "" {
-			managed[key] = append(managed[key], projectID)
-		}
-		existingServers[key] = conf
+	if len(existingServers) == 0 {
+		delete(targetData, "mcpServers")
+	} else {
+		targetData["mcpServers"] = existingServers
 	}
-
-	for k, refs := range managed {
-		if len(refs) == 0 {
-			delete(existingServers, k)
-			delete(managed, k)
-		}
-	}
-
-	targetData["mcpServers"] = existingServers
-	targetData[brand.ManagedMCPKey()] = managed
 
 	out, err := json.MarshalIndent(targetData, "", "  ")
 	if err != nil {
 		return err
 	}
-	if existing, readErr := os.ReadFile(mcpTarget); readErr == nil && string(existing) == string(out)+"\n" {
-		return nil
+	if existing, readErr := os.ReadFile(mcpTarget); readErr != nil || string(existing) != string(out)+"\n" {
+		if err := os.WriteFile(mcpTarget, append(out, '\n'), 0o644); err != nil {
+			return err
+		}
 	}
-	return os.WriteFile(mcpTarget, append(out, '\n'), 0o644)
+	return saveMCPManifest(manifestPath, desiredServers)
 }
 
 func (a *FolderBasedAdapter) baseDir(projectDir string) string {
@@ -619,18 +649,6 @@ func findMCPJSON(artifactPath string) string {
 		p := filepath.Join(artifactPath, name)
 		if _, err := os.Stat(p); err == nil {
 			return p
-		}
-	}
-	return ""
-}
-
-func projectIDFrom(installed map[string]map[string]string) string {
-	if installed == nil {
-		return ""
-	}
-	for _, edata := range installed {
-		if id := edata["project_id"]; id != "" {
-			return id
 		}
 	}
 	return ""

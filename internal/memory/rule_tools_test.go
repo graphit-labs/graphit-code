@@ -25,7 +25,7 @@ func TestMemoryRuleContentTeachesEveryMemoryTool(t *testing.T) {
 	}
 }
 
-func TestMemoryRuleRequiresTwoPhaseInitialRecallAndMandatoryMaintenance(t *testing.T) {
+func TestMemorySkillKeepsTheProtocolWhileTheMandateDelegatesStartupToHooks(t *testing.T) {
 	t.Parallel()
 	content := RuleContent(nil)
 	mandatory := brand.MCPToolName("memory", "mandatory")
@@ -46,8 +46,11 @@ func TestMemoryRuleRequiresTwoPhaseInitialRecallAndMandatoryMaintenance(t *testi
 		}
 	}
 	trigger := MandateTrigger()
-	if !strings.Contains(trigger, mandatory) || !strings.Contains(trigger, "exclude_mandatory: true") {
-		t.Fatal("generated mandate does not carry the two-phase initial protocol")
+	if strings.Contains(trigger, "BOTH initial calls") || strings.Contains(trigger, "at session start BEFORE") || strings.Contains(trigger, "exclude_mandatory: true") {
+		t.Fatal("generated mandate duplicates the two-phase protocol owned by adapter hooks")
+	}
+	if !strings.Contains(trigger, "installed deterministically by the IDE adapter hook") {
+		t.Fatal("generated mandate does not explain where session initialization moved")
 	}
 }
 

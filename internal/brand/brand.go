@@ -71,8 +71,6 @@ func MCPToolRef(parts ...string) string { return "`" + MCPToolName(parts...) + "
 
 func TempDirPrefix(module string) string { return Brand + "-" + module + "-" }
 
-func ManagedMCPKey() string { return "_" + Brand + "ManagedMcpKeys" }
-
 // processStartDir is the working directory as it was before anything in this process
 // could change it.
 //

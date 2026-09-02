@@ -76,8 +76,7 @@ func TestPrepareGivesTheProjectANonEmptyIdentityOfItsOwn(t *testing.T) {
 		t.Fatalf("decoding the lockfile: %v", err)
 	}
 
-	// An empty project ID makes reconcileMCPFile delete every server it just
-	// wrote, because nothing claims them.
+	// The ephemeral project still needs an identity for its lockfile-backed stores.
 	if lf.Project.ID == "" {
 		t.Fatal("the ephemeral project has no ID")
 	}
@@ -162,9 +161,8 @@ func TestPrepareWritesAProjectLocalMCPConfigNotAGlobalOne(t *testing.T) {
 		t.Fatal("the server has no command")
 	}
 
-	// The user's real configuration must be untouched. Writing there would add a
-	// throwaway project's claim to a file that reconcileMCPFile rewrites without a
-	// lock, so concurrent sessions could delete a server a real project depends on.
+	// The user's real configuration must be untouched. The ephemeral workspace owns
+	// its MCP file and concurrent sessions must never rewrite a real project's file.
 	for _, global := range []string{
 		filepath.Join(home, ".claude.json"),
 		filepath.Join(home, ".cursor", "mcp.json"),
