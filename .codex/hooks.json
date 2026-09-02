@@ -9,6 +9,16 @@
           }
         ]
       }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "\"/usr/local/bin/graphit\" _session-hook --format subagent-start",
+            "type": "command"
+          }
+        ]
+      }
     ]
   }
 }

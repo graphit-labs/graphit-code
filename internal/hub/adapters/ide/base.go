@@ -181,8 +181,13 @@ func (a *FolderBasedAdapter) Sync(
 	}
 
 	for _, mp := range a.cfg.allMCPPaths() {
-		mcpTarget, _ := resolveConfiguredPath(mp, pp.ActiveProjectDir)
-		_ = a.syncAllMCP(pp.ActiveProjectDir, mcpTarget, installed)
+		mcpTarget, err := resolveConfiguredPath(mp, pp.ActiveProjectDir)
+		if err != nil {
+			return fmt.Errorf("resolving MCP config path %q: %w", mp, err)
+		}
+		if err := a.syncAllMCP(pp.ActiveProjectDir, mcpTarget, installed); err != nil {
+			return fmt.Errorf("syncing MCP config %s: %w", mcpTarget, err)
+		}
 	}
 
 	return nil

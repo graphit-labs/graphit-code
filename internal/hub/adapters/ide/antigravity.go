@@ -7,7 +7,10 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 )
 
-const antigravityManagedHookName = "graphit-memory-session-start"
+const (
+	antigravityManagedHookName = "graphit-memory-session-start"
+	antigravitySearchGuardName = "graphit-native-search-guard"
+)
 
 type AntigravityAdapter struct {
 	*FolderBasedAdapter
@@ -65,6 +68,9 @@ func (a *AntigravityAdapter) syncSessionStartHook(projectDir string) error {
 			"timeout": 10,
 		}},
 	}
+	if existing, ok := root[antigravitySearchGuardName]; ok && containsManagedCommand(existing, "guard-antigravity") {
+		delete(root, antigravitySearchGuardName)
+	}
 	return writeJSONObject(path, root)
 }
 
@@ -79,6 +85,9 @@ func (a *AntigravityAdapter) removeSessionStartHook(projectDir string) error {
 	}
 	if existing, ok := root[antigravityManagedHookName]; ok && containsManagedCommand(existing, sessionhook.FormatFirstInvocation, "antigravity") {
 		delete(root, antigravityManagedHookName)
+	}
+	if existing, ok := root[antigravitySearchGuardName]; ok && containsManagedCommand(existing, "guard-antigravity") {
+		delete(root, antigravitySearchGuardName)
 	}
 	return writeOrRemoveJSONObject(path, root)
 }

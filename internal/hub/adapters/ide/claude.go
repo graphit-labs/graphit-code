@@ -73,12 +73,18 @@ func (a *ClaudeAdapter) syncSessionStartHook(projectDir string) error {
 	if err != nil {
 		return err
 	}
-	return reconcileGroupedCommandHook(
+	if err := reconcileGroupedCommandHook(
 		path,
 		"SessionStart",
 		sessionhook.FormatSessionStart,
 		"claude",
-	)
+	); err != nil {
+		return err
+	}
+	if err := reconcileGroupedCommandHook(path, "SubagentStart", sessionhook.FormatSubagentStart); err != nil {
+		return err
+	}
+	return removeGroupedCommandHook(path, "PreToolUse", "guard-claude")
 }
 
 func (a *ClaudeAdapter) removeSessionStartHook(projectDir string) error {
@@ -86,10 +92,16 @@ func (a *ClaudeAdapter) removeSessionStartHook(projectDir string) error {
 	if err != nil {
 		return err
 	}
-	return removeGroupedCommandHook(
+	if err := removeGroupedCommandHook(
 		path,
 		"SessionStart",
 		sessionhook.FormatSessionStart,
 		"claude",
-	)
+	); err != nil {
+		return err
+	}
+	if err := removeGroupedCommandHook(path, "SubagentStart", sessionhook.FormatSubagentStart); err != nil {
+		return err
+	}
+	return removeGroupedCommandHook(path, "PreToolUse", "guard-claude")
 }

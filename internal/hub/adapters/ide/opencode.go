@@ -188,27 +188,40 @@ func (a *OpenCodeAdapter) syncSessionStartHook(projectDir string) error {
 		return err
 	}
 
-	prompt := strconv.Quote(sessionhook.Protocol())
+	fallback := strconv.Quote(sessionhook.Protocol())
+	invariant := strconv.Quote(sessionhook.CoreInvariant())
+	executable := strconv.Quote(getGraphitExecutable())
 	content := opencodeManagedMarker + "\n" +
 		"const initializedSessions = new Set()\n" +
-		"const startedSessions = new Set()\n\n" +
-		"export const GraphitMemorySessionStart = async () => ({\n" +
+		"\n" +
+		"export const GraphitLifecycle = async ({ directory }) => {\n" +
+		"  const invariant = " + invariant + "\n" +
+		"  const loadBootstrap = () => {\n" +
+		"    let bootstrap = " + fallback + "\n" +
+		"    try {\n" +
+		"      const result = Bun.spawnSync([" + executable + ", \"_session-hook\", \"--format\", \"plain-context\"], { cwd: directory })\n" +
+		"      if (result.exitCode === 0) bootstrap = result.stdout.toString().trim() || bootstrap\n" +
+		"    } catch {}\n" +
+		"    return bootstrap\n" +
+		"  }\n" +
+		"  return {\n" +
 		"  event: async ({ event }) => {\n" +
-		"    if (event.type === \"session.created\") startedSessions.add(event.properties.info.id)\n" +
 		"    if (event.type === \"session.deleted\") {\n" +
-		"      startedSessions.delete(event.properties.info.id)\n" +
 		"      initializedSessions.delete(event.properties.info.id)\n" +
 		"    }\n" +
 		"  },\n" +
 		"  \"experimental.chat.system.transform\": async (input, output) => {\n" +
-		"    if (!input.sessionID || initializedSessions.has(input.sessionID)) return\n" +
+		"    if (!input.sessionID) return\n" +
+		"    const context = initializedSessions.has(input.sessionID) ? invariant : loadBootstrap()\n" +
 		"    initializedSessions.add(input.sessionID)\n" +
-		"    startedSessions.delete(input.sessionID)\n" +
-		"    const protocol = " + prompt + "\n" +
-		"    if (output.system.length === 0) output.system.push(protocol)\n" +
-		"    else output.system.splice(0, 1, `${output.system[0]}\\n\\n${protocol}`)\n" +
+		"    if (output.system.length === 0) output.system.push(context)\n" +
+		"    else output.system.splice(0, 1, `${output.system[0]}\\n\\n${context}`)\n" +
 		"  },\n" +
-		"})\n"
+		"  \"experimental.session.compacting\": async (_input, output) => {\n" +
+		"    output.context.push(invariant)\n" +
+		"  },\n" +
+		"  }\n" +
+		"}\n"
 	return writeFileAtomically(path, []byte(content), 0o644)
 }
 

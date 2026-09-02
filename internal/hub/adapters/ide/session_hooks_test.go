@@ -92,7 +92,13 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 			}
 			configContent := string(second)
 			protocolContent := configContent
-			if tc.adapter != "kiro" && tc.adapter != "opencode" {
+			if tc.adapter == "kiro" {
+				payload, err := sessionhook.Render(sessionhook.FormatPlainContext, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				protocolContent = string(payload)
+			} else if tc.adapter != "opencode" {
 				if strings.Count(configContent, "_session-hook --format "+tc.format) != 1 {
 					t.Fatalf("expected one managed command hook: %s", configContent)
 				}
@@ -115,8 +121,32 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 			if strings.Index(protocolContent, "graphit_memory_mandatory") >= strings.Index(protocolContent, "graphit_memory_search") {
 				t.Fatalf("mandatory recall must precede contextual search: %s", protocolContent)
 			}
-			if tc.adapter == "opencode" && (!strings.Contains(configContent, `event.type === "session.created"`) || !strings.Contains(configContent, `experimental.chat.system.transform`)) {
-				t.Fatalf("OpenCode plugin must capture session creation and inject before its first model call: %s", configContent)
+			if !strings.Contains(protocolContent, "default native tools") {
+				t.Fatalf("%s bootstrap must preserve native fallback when Graphit MCP tools are unavailable: %s", tc.adapter, protocolContent)
+			}
+			if tc.adapter == "opencode" && (!strings.Contains(configContent, `Bun.spawnSync`) || !strings.Contains(configContent, `experimental.chat.system.transform`) || !strings.Contains(configContent, `experimental.session.compacting`)) {
+				t.Fatalf("OpenCode plugin must load memory and inject at model/compaction boundaries: %s", configContent)
+			}
+			if tc.adapter == "kiro" && strings.Count(configContent, "_session-hook --format plain-context") != 2 {
+				t.Fatalf("Kiro must cover IDE SessionStart and CLI AgentSpawn: %s", configContent)
+			}
+			if tc.adapter == "gemini" && !strings.Contains(configContent, "BeforeAgent") {
+				t.Fatalf("Gemini must reassert the invariant before every agent turn: %s", configContent)
+			}
+			if (tc.adapter == "claude" || tc.adapter == "codex") && !strings.Contains(configContent, "SubagentStart") {
+				t.Fatalf("%s must bootstrap subagents: %s", tc.adapter, configContent)
+			}
+			if tc.adapter == "cursor" {
+				for _, required := range []string{"preToolUse", "cursor-subagent-task", `"matcher": "Task"`} {
+					if !strings.Contains(configContent, required) {
+						t.Fatalf("Cursor subagent protocol injection is incomplete; missing %q: %s", required, configContent)
+					}
+				}
+			}
+			for _, forbidden := range []string{"guard-", "cursor-subagent-gate", `"failClosed": true`, "nativeDiscoveryTools", `tool.execute.before`, "blocked by Graphit"} {
+				if strings.Contains(configContent, forbidden) {
+					t.Fatalf("%s must allow native fallback; found obsolete blocker %q: %s", tc.adapter, forbidden, configContent)
+				}
 			}
 			if tc.seed != "" && !strings.Contains(configContent, "user-token") {
 				t.Fatalf("user configuration was discarded: %s", configContent)
@@ -201,5 +231,87 @@ func TestAdapterHookReplacesLegacyCentralizedCommand(t *testing.T) {
 	}
 	if !strings.Contains(string(content), "user-token") {
 		t.Fatalf("user hook was discarded: %s", content)
+	}
+}
+
+func TestAdapterSyncRemovesBlockingHooksAndKeepsNativeFallback(t *testing.T) {
+	t.Setenv("GRAPHIT_LAUNCHER_PATH", "/opt/graphit/bin/graphit")
+
+	tests := []struct {
+		name string
+		path string
+		seed string
+		sync func(string) error
+	}{
+		{
+			name: "claude",
+			path: filepath.Join(".claude", "settings.json"),
+			seed: `{"hooks":{"PreToolUse":[{"matcher":"Bash|Grep|Glob","hooks":[{"type":"command","command":"graphit _session-hook --format guard-claude"}]}]}}`,
+			sync: NewClaudeAdapter().syncSessionStartHook,
+		},
+		{
+			name: "codex",
+			path: filepath.Join(".codex", "hooks.json"),
+			seed: `{"hooks":{"PreToolUse":[{"matcher":"Bash|Grep|Glob","hooks":[{"type":"command","command":"graphit _session-hook --format guard-claude"}]}]}}`,
+			sync: NewCodexAdapter().syncSessionStartHook,
+		},
+		{
+			name: "gemini",
+			path: filepath.Join(".gemini", "settings.json"),
+			seed: `{"hooks":{"BeforeTool":[{"matcher":"run_shell_command|grep_search","hooks":[{"type":"command","command":"graphit _session-hook --format guard-gemini"}]}]}}`,
+			sync: NewGeminiAdapter().syncSessionStartHook,
+		},
+		{
+			name: "cursor",
+			path: filepath.Join(".cursor", "hooks.json"),
+			seed: `{"version":1,"hooks":{"preToolUse":[{"command":"graphit _session-hook --format cursor-subagent-task","matcher":"Task","failClosed":true},{"command":"graphit _session-hook --format guard-cursor","matcher":"Grep|Glob","failClosed":true}],"subagentStart":[{"command":"graphit _session-hook --format cursor-subagent-gate","failClosed":true}],"beforeShellExecution":[{"command":"graphit _session-hook --format guard-cursor","failClosed":true}]}}`,
+			sync: NewCursorAdapter().syncSessionStartHook,
+		},
+		{
+			name: "kiro",
+			path: filepath.Join(".kiro", "hooks", "graphit-memory.json"),
+			seed: `{"version":"v1","hooks":[{"name":"graphit-native-search-guard","trigger":"PreToolUse","action":{"type":"command","command":"graphit _session-hook --format guard-kiro"}}]}`,
+			sync: NewKiroAdapter().syncSessionStartHook,
+		},
+		{
+			name: "antigravity",
+			path: filepath.Join(".agents", "hooks.json"),
+			seed: `{"graphit-native-search-guard":{"PreToolUse":[{"hooks":[{"type":"command","command":"graphit _session-hook --format guard-antigravity"}]}]}}`,
+			sync: NewAntigravityAdapter().syncSessionStartHook,
+		},
+		{
+			name: "opencode",
+			path: filepath.Join(".opencode", "plugins", opencodeManagedHookFile),
+			seed: opencodeManagedMarker + "\nconst nativeDiscoveryTools = new Set([\"grep\"])\n",
+			sync: NewOpenCodeAdapter().syncSessionStartHook,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			target := filepath.Join(projectDir, tc.path)
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(target, []byte(tc.seed), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := tc.sync(projectDir); err != nil {
+				t.Fatal(err)
+			}
+			content, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{"guard-", "cursor-subagent-gate", `"failClosed": true`, "nativeDiscoveryTools", "blocked by Graphit"} {
+				if strings.Contains(string(content), forbidden) {
+					t.Fatalf("obsolete blocker %q remained after sync: %s", forbidden, content)
+				}
+			}
+			if tc.name == "cursor" && !strings.Contains(string(content), "cursor-subagent-task") {
+				t.Fatalf("Cursor lost its non-blocking subagent protocol injection: %s", content)
+			}
+		})
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -185,6 +186,60 @@ func TestSyncIDEAdapterTargetsTheGivenProjectNotTheWorkingDirectory(t *testing.T
 		if _, err := os.Stat(unexpected); !os.IsNotExist(err) {
 			t.Errorf("adapter wrote outside the explicit project: %s", unexpected)
 		}
+	}
+}
+
+func TestSyncIDEAdapterReconcilesMCPAndHooksTogether(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	tests := []struct {
+		ide      string
+		hookPath string
+		mcpPath  string
+	}{
+		{ide: "antigravity", hookPath: filepath.Join(".agents", "hooks.json"), mcpPath: filepath.Join(".agents", "mcp_config.json")},
+		{ide: "cursor", hookPath: filepath.Join(".cursor", "hooks.json"), mcpPath: filepath.Join(".cursor", "mcp.json")},
+		{ide: "claude", hookPath: filepath.Join(".claude", "settings.json"), mcpPath: ".mcp.json"},
+		{ide: "kiro", hookPath: filepath.Join(".kiro", "hooks", "graphit-memory.json"), mcpPath: filepath.Join(".kiro", "settings", "mcp.json")},
+		{ide: "codex", hookPath: filepath.Join(".codex", "hooks.json"), mcpPath: filepath.Join(".codex", "config.toml")},
+		{ide: "opencode", hookPath: filepath.Join(".opencode", "plugins", "graphit-memory-session-start.js"), mcpPath: "opencode.json"},
+		{ide: "gemini", hookPath: filepath.Join(".gemini", "settings.json"), mcpPath: filepath.Join(".gemini", "settings.json")},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.ide, func(t *testing.T) {
+			projectDir := t.TempDir()
+			lf := &Lockfile{
+				Project:   ProjectIdentity{ID: "sync-mcp-hooks-" + tc.ide},
+				Artifacts: make(map[ArtifactType]map[string]*LockfileArtifactMeta),
+			}
+
+			const oldExecutable = "/opt/graphit-old/bin/graphit"
+			const newExecutable = "/opt/graphit-new/bin/graphit"
+			t.Setenv("GRAPHIT_LAUNCHER_PATH", oldExecutable)
+			if err := SyncIDEAdapter(tc.ide, projectDir, lf); err != nil {
+				t.Fatalf("first sync: %v", err)
+			}
+
+			t.Setenv("GRAPHIT_LAUNCHER_PATH", newExecutable)
+			if err := SyncIDEAdapter(tc.ide, projectDir, lf); err != nil {
+				t.Fatalf("second sync: %v", err)
+			}
+
+			for surface, rel := range map[string]string{"hook": tc.hookPath, "MCP": tc.mcpPath} {
+				path := filepath.Join(projectDir, rel)
+				content, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("read %s surface %s: %v", surface, path, err)
+				}
+				if !strings.Contains(string(content), newExecutable) {
+					t.Errorf("%s surface was not updated by sync: %s", surface, content)
+				}
+				if strings.Contains(string(content), oldExecutable) {
+					t.Errorf("%s surface kept the previous executable after sync: %s", surface, content)
+				}
+			}
+		})
 	}
 }
 

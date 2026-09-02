@@ -94,12 +94,18 @@ func (a *GeminiAdapter) syncSessionStartHook(projectDir string) error {
 	if err != nil {
 		return err
 	}
-	return reconcileGroupedCommandHook(
+	if err := reconcileGroupedCommandHook(
 		path,
 		"SessionStart",
 		sessionhook.FormatSessionStart,
 		"gemini",
-	)
+	); err != nil {
+		return err
+	}
+	if err := reconcileGroupedCommandHook(path, "BeforeAgent", sessionhook.FormatBeforeAgent); err != nil {
+		return err
+	}
+	return removeGroupedCommandHook(path, "BeforeTool", "guard-gemini")
 }
 
 func (a *GeminiAdapter) removeSessionStartHook(projectDir string) error {
@@ -107,10 +113,16 @@ func (a *GeminiAdapter) removeSessionStartHook(projectDir string) error {
 	if err != nil {
 		return err
 	}
-	return removeGroupedCommandHook(
+	if err := removeGroupedCommandHook(
 		path,
 		"SessionStart",
 		sessionhook.FormatSessionStart,
 		"gemini",
-	)
+	); err != nil {
+		return err
+	}
+	if err := removeGroupedCommandHook(path, "BeforeAgent", sessionhook.FormatBeforeAgent); err != nil {
+		return err
+	}
+	return removeGroupedCommandHook(path, "BeforeTool", "guard-gemini")
 }

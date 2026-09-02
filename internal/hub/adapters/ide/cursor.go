@@ -47,12 +47,24 @@ func (a *CursorAdapter) syncSessionStartHook(projectDir string) error {
 	if err != nil {
 		return err
 	}
-	return reconcileDirectCommandHook(
+	if err := reconcileDirectCommandHook(
 		path,
 		"sessionStart",
 		sessionhook.FormatAdditionalContext,
 		"cursor",
-	)
+	); err != nil {
+		return err
+	}
+	if err := reconcileDirectCommandHookMatched(path, "preToolUse", "Task", sessionhook.FormatCursorSubagentTask); err != nil {
+		return err
+	}
+	if err := removeDirectCommandHook(path, "subagentStart", "cursor-subagent-gate"); err != nil {
+		return err
+	}
+	if err := removeDirectCommandHook(path, "preToolUse", "guard-cursor"); err != nil {
+		return err
+	}
+	return removeDirectCommandHook(path, "beforeShellExecution", "guard-cursor")
 }
 
 func (a *CursorAdapter) removeSessionStartHook(projectDir string) error {
@@ -60,10 +72,22 @@ func (a *CursorAdapter) removeSessionStartHook(projectDir string) error {
 	if err != nil {
 		return err
 	}
-	return removeDirectCommandHook(
+	if err := removeDirectCommandHook(
 		path,
 		"sessionStart",
 		sessionhook.FormatAdditionalContext,
 		"cursor",
-	)
+	); err != nil {
+		return err
+	}
+	if err := removeDirectCommandHook(path, "preToolUse", sessionhook.FormatCursorSubagentTask); err != nil {
+		return err
+	}
+	if err := removeDirectCommandHook(path, "subagentStart", "cursor-subagent-gate"); err != nil {
+		return err
+	}
+	if err := removeDirectCommandHook(path, "preToolUse", "guard-cursor"); err != nil {
+		return err
+	}
+	return removeDirectCommandHook(path, "beforeShellExecution", "guard-cursor")
 }

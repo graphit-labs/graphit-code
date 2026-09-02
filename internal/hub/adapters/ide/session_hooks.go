@@ -31,6 +31,10 @@ func isManagedSessionCommand(value any, format string, legacyAdapters ...string)
 }
 
 func reconcileDirectCommandHook(path, event, format string, legacyAdapters ...string) error {
+	return reconcileDirectCommandHookMatched(path, event, "", format, legacyAdapters...)
+}
+
+func reconcileDirectCommandHookMatched(path, event, matcher, format string, legacyAdapters ...string) error {
 	root, err := readJSONObject(path)
 	if err != nil {
 		return err
@@ -44,7 +48,11 @@ func reconcileDirectCommandHook(path, event, format string, legacyAdapters ...st
 		return fmt.Errorf("reconciling %s: %w", path, err)
 	}
 	entries = filterDirectCommandHooks(entries, format, legacyAdapters...)
-	entries = append(entries, map[string]any{"command": sessionHookCommand(format)})
+	entry := map[string]any{"command": sessionHookCommand(format)}
+	if matcher != "" {
+		entry["matcher"] = matcher
+	}
+	entries = append(entries, entry)
 	hooks[event] = entries
 	root["version"] = 1
 	root["hooks"] = hooks
@@ -91,6 +99,10 @@ func filterDirectCommandHooks(entries []any, format string, legacyAdapters ...st
 }
 
 func reconcileGroupedCommandHook(path, event, format string, legacyAdapters ...string) error {
+	return reconcileGroupedCommandHookMatched(path, event, "", format, legacyAdapters...)
+}
+
+func reconcileGroupedCommandHookMatched(path, event, matcher, format string, legacyAdapters ...string) error {
 	root, err := readJSONObject(path)
 	if err != nil {
 		return err
@@ -104,12 +116,16 @@ func reconcileGroupedCommandHook(path, event, format string, legacyAdapters ...s
 		return fmt.Errorf("reconciling %s: %w", path, err)
 	}
 	groups = filterGroupedCommandHooks(groups, format, legacyAdapters...)
-	groups = append(groups, map[string]any{
+	group := map[string]any{
 		"hooks": []any{map[string]any{
 			"type":    "command",
 			"command": sessionHookCommand(format),
 		}},
-	})
+	}
+	if matcher != "" {
+		group["matcher"] = matcher
+	}
+	groups = append(groups, group)
 	hooks[event] = groups
 	root["hooks"] = hooks
 	return writeJSONObject(path, root)

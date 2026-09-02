@@ -206,7 +206,9 @@ auto-generated values and interactive prompts.`,
 			p.Success("Project initialized successfully")
 
 			p.Running("Synchronizing project...")
-			runSyncPhase1(ctx, wd, []string{ide}, p)
+			if err := runSyncPhase1(ctx, wd, []string{ide}, p); err != nil {
+				return err
+			}
 			spawnBackgroundSync(wd, ide)
 
 			return nil
@@ -748,7 +750,9 @@ Designed to be run as fire-and-forget: ` + brand.BinName() + ` sync &`,
 				idesToSync = hub.FilterSupportedIDEs(lf.IDEs)
 			}
 
-			runSyncPhase1(ctx, wd, idesToSync, p)
+			if err := runSyncPhase1(ctx, wd, idesToSync, p); err != nil {
+				return err
+			}
 			stampSync(wd)
 
 			noBg, _ := cmd.Flags().GetBool("no-background")
@@ -946,8 +950,9 @@ func runSyncHeavyTasks(ctx context.Context, wd string, p *output.Printer) {
 // runSyncPhase1 runs the synchronous sync tasks (AST reindex, knowledge/memory
 // wiki reindex, hub/memory repo sync, IDE rules & adapter, git hooks).
 // It is used by both the "init" and "sync" commands.
-func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *output.Printer) {
+func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *output.Printer) error {
 	projectCfg := loadProjectConfigFromDir(wd)
+	var adapterSyncErr error
 
 	if !config.IsModuleDisabled("ast", nil, projectCfg) {
 		task := p.StartTask("Reindexing AST graph...")
@@ -1070,7 +1075,7 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 	}
 	task.Done("IDE rules updated")
 
-	task = p.StartTask("Syncing IDE adapter...")
+	task = p.StartTask("Syncing IDE MCP and hooks...")
 	lf, lfErr := hub.LoadLockfile(filepath.Join(wd, brand.LockFileName()))
 	if lfErr == nil && lf != nil {
 		var syncErrs []string
@@ -1080,12 +1085,16 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 			}
 		}
 		if len(syncErrs) > 0 {
-			task.Fail("IDE adapters sync failed: %s", strings.Join(syncErrs, "; "))
+			task.Fail("IDE MCP and hooks sync failed: %s", strings.Join(syncErrs, "; "))
+			adapterSyncErr = fmt.Errorf("syncing IDE MCP and hooks: %s", strings.Join(syncErrs, "; "))
 		} else {
-			task.Done("IDE adapter synced")
+			task.Done("IDE MCP and hooks synced")
 		}
+	} else if lfErr != nil {
+		task.Fail("IDE MCP and hooks sync failed: %v", lfErr)
+		adapterSyncErr = fmt.Errorf("reading lockfile for IDE sync: %w", lfErr)
 	} else {
-		task.Done("No lockfile — skipping IDE adapter sync")
+		task.Done("No lockfile — skipping IDE MCP and hooks sync")
 	}
 
 	task = p.StartTask("Syncing git hooks...")
@@ -1104,7 +1113,11 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 		}
 	}
 
+	if adapterSyncErr != nil {
+		return adapterSyncErr
+	}
 	p.Success("Sync complete")
+	return nil
 }
 
 func spawnBackgroundSync(wd, ide string) {

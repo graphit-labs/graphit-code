@@ -2,13 +2,23 @@
   "hooks": [
     {
       "action": {
-        "prompt": "Graphit deterministic session initialization: complete this protocol before responding to the first user request or taking any other action.\n1. Call `graphit_memory_mandatory` with no query and consume every mandatory memory it returns.\n2. Derive a contextual query from the current user request, then call `graphit_memory_search` with that query and `exclude_mandatory: true`.\n3. Select the relevant contextual results and read their full content with `graphit_wiki_source` using `wiki: \"memory\"` before acting.\nIf the memory store does not exist yet, proceed after the tool reports that condition. Execute this initialization exactly once for this session.",
-        "type": "agent"
+        "command": "\"/usr/local/bin/graphit\" _session-hook --format plain-context",
+        "type": "command"
       },
       "description": "Initialize Graphit memory before the first response.",
       "enabled": true,
       "name": "graphit-memory-session-start",
       "trigger": "SessionStart"
+    },
+    {
+      "action": {
+        "command": "\"/usr/local/bin/graphit\" _session-hook --format plain-context",
+        "type": "command"
+      },
+      "description": "Initialize Graphit memory when the CLI agent starts.",
+      "enabled": true,
+      "name": "graphit-memory-session-start-cli",
+      "trigger": "AgentSpawn"
     }
   ],
   "version": "v1"

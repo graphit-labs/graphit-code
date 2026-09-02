@@ -1,11 +1,13 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 	"github.com/spf13/cobra"
 )
@@ -23,9 +25,21 @@ func newSessionHookCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("reading session hook input: %w", err)
 			}
-			payload, err := sessionhook.Render(format, input)
+			mandatory, loaded := "", false
+			if hookInputNeedsMandatory(format, input) {
+				mandatory, loaded = loadMandatoryHookContext()
+			}
+			var payload []byte
+			if loaded {
+				payload, err = sessionhook.RenderWithMandatory(format, input, mandatory)
+			} else {
+				payload, err = sessionhook.Render(format, input)
+			}
 			if err != nil {
 				return err
+			}
+			if len(payload) == 0 {
+				return nil
 			}
 			_, err = fmt.Fprintln(cmd.OutOrStdout(), string(payload))
 			return err
@@ -34,6 +48,40 @@ func newSessionHookCmd() *cobra.Command {
 	cmd.Flags().StringVar(&format, "format", "", "session hook output format")
 	_ = cmd.MarkFlagRequired("format")
 	return cmd
+}
+
+func hookInputNeedsMandatory(format string, input []byte) bool {
+	switch strings.ToLower(format) {
+	case sessionhook.FormatFirstInvocation:
+		var event struct {
+			InvocationNum *int `json:"invocationNum"`
+		}
+		return json.Unmarshal(input, &event) == nil && event.InvocationNum != nil && *event.InvocationNum == 0
+	case sessionhook.FormatSessionStart, sessionhook.FormatAdditionalContext,
+		sessionhook.FormatPlainContext, sessionhook.FormatSubagentStart,
+		sessionhook.FormatCursorSubagentTask:
+		return true
+	default:
+		return false
+	}
+}
+
+func loadMandatoryHookContext() (string, bool) {
+	return loadMandatoryHookContextWith(memory.ListMandatoryMemories)
+}
+
+func loadMandatoryHookContextWith(list func(string) ([]memory.MandatoryEntry, error)) (string, bool) {
+	var sections []string
+	for _, scope := range []string{"project", "user"} {
+		entries, err := list(scope)
+		if err != nil {
+			return "", false
+		}
+		for _, entry := range entries {
+			sections = append(sections, fmt.Sprintf("### %s memory: %s\n%s", scope, entry.Title, entry.Content))
+		}
+	}
+	return strings.Join(sections, "\n\n"), true
 }
 
 func readSessionHookInput(input io.Reader, format string) ([]byte, error) {

@@ -149,6 +149,9 @@ func syncIDEAdapter(ide string, pp *paths.ProjectPaths, lf *Lockfile) error {
 
 	flat := buildInstalledFlat(lf, pp, lf.Project.ID)
 
+	// The concrete adapter owns one reconciliation unit: generated artifacts,
+	// project-local MCP configuration, and native IDE hooks. Keeping the call
+	// unified ensures every init/update/sync refreshes all three surfaces.
 	return adapter.Sync(flat, pp, lf.Project.ID)
 }
 

@@ -144,7 +144,7 @@ func registerLifecycleTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("sync"),
-		Description: "Sync and reindex all local modules, AST DB, memory wikis, and update IDE rules.",
+		Description: "Sync and reindex all local modules, AST DB, memory wikis, IDE rules, MCP configuration, and native IDE hooks.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input syncInput) (*mcp.CallToolResult, any, error) {
 		projectDir, err := resolveProjectDir(input.ProjectDir)
 		if err != nil {
@@ -244,10 +244,20 @@ func registerLifecycleTools(server *mcp.Server) {
 			removeRetiredImprovementsGuidance(projectDir, targetIDE)
 		}
 
-		// 6. Sync IDE adapters for all IDEs
-		if lf, err := hub.LoadLockfile(filepath.Join(projectDir, brand.LockFileName())); err == nil && lf != nil {
+		// 6. Reconcile each IDE adapter as one unit: artifacts, MCP, and hooks.
+		lf, lockErr := hub.LoadLockfile(filepath.Join(projectDir, brand.LockFileName()))
+		if lockErr != nil {
+			return errResult(fmt.Errorf("reading lockfile for IDE sync: %w", lockErr))
+		}
+		if lf != nil {
+			var syncErrs []string
 			for _, targetIDE := range idesToSync {
-				_ = hub.SyncIDEAdapter(targetIDE, projectDir, lf)
+				if err := hub.SyncIDEAdapter(targetIDE, projectDir, lf); err != nil {
+					syncErrs = append(syncErrs, fmt.Sprintf("%s: %v", targetIDE, err))
+				}
+			}
+			if len(syncErrs) > 0 {
+				return errResult(fmt.Errorf("syncing IDE MCP and hooks: %s", strings.Join(syncErrs, "; ")))
 			}
 		}
 

@@ -7,7 +7,10 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/sessionhook"
 )
 
-const kiroManagedHookName = "graphit-memory-session-start"
+const (
+	kiroManagedHookName = "graphit-memory-session-start"
+	kiroSearchGuardName = "graphit-native-search-guard"
+)
 
 type KiroAdapter struct {
 	*FolderBasedAdapter
@@ -59,15 +62,25 @@ func (a *KiroAdapter) syncSessionStartHook(projectDir string) error {
 	if err != nil {
 		return fmt.Errorf("reconciling %s: %w", path, err)
 	}
-	hooks = filterNamedHooks(hooks, kiroManagedHookName)
+	hooks = filterNamedHooks(filterNamedHooks(filterNamedHooks(hooks, kiroManagedHookName), kiroManagedHookName+"-cli"), kiroSearchGuardName)
 	hooks = append(hooks, map[string]any{
 		"name":        kiroManagedHookName,
 		"description": "Initialize Graphit memory before the first response.",
 		"enabled":     true,
 		"trigger":     "SessionStart",
 		"action": map[string]any{
-			"type":   "agent",
-			"prompt": sessionhook.Protocol(),
+			"type":    "command",
+			"command": sessionHookCommand(sessionhook.FormatPlainContext),
+		},
+	})
+	hooks = append(hooks, map[string]any{
+		"name":        kiroManagedHookName + "-cli",
+		"description": "Initialize Graphit memory when the CLI agent starts.",
+		"enabled":     true,
+		"trigger":     "AgentSpawn",
+		"action": map[string]any{
+			"type":    "command",
+			"command": sessionHookCommand(sessionhook.FormatPlainContext),
 		},
 	})
 	root["version"] = "v1"
@@ -88,7 +101,7 @@ func (a *KiroAdapter) removeSessionStartHook(projectDir string) error {
 	if !ok {
 		return nil
 	}
-	remaining := filterNamedHooks(hooks, kiroManagedHookName)
+	remaining := filterNamedHooks(filterNamedHooks(filterNamedHooks(hooks, kiroManagedHookName), kiroManagedHookName+"-cli"), kiroSearchGuardName)
 	if len(remaining) == 0 {
 		delete(root, "hooks")
 	} else {

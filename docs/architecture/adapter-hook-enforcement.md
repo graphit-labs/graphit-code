@@ -1,0 +1,120 @@
+---
+title: Adapter hook enforcement
+type: architecture
+status: active
+updated: 2026-09-02
+tags: [adapters, hooks, mandates, skills, enforcement]
+---
+
+# Adapter hook enforcement
+
+## Objetivo
+
+O Graphit usa hooks para executar garantias observáveis e mantém instruções somente para decisões que exigem interpretação. A fronteira é deliberada:
+
+- **hook**: evento e entrada são objetivos; a ação pode ser executada ou bloqueada sem julgamento;
+- **mandate**: reconhece poucas formas de pedido que o host não classifica semanticamente;
+- **skill**: ensina o fluxo decisório apenas depois que o domínio se torna relevante;
+- **schema da tool**: continua sendo a referência de argumentos; não é copiado para a skill.
+
+Mais prosa não transforma uma obrigação em garantia. Da mesma forma, um hook não deve bloquear trabalho legítimo com uma classificação que ele não consegue provar.
+
+## Garantias executadas pelos hooks
+
+### Bootstrap de memória
+
+O comando oculto `_session-hook` lê diretamente as tabelas autoritativas de memória dos escopos `project` e `user`. O conteúdo obrigatório é injetado no primeiro contexto do agente; portanto, a chamada inicial de `graphit_memory_mandatory` não depende mais do modelo. Se a tabela não puder ser aberta, o payload volta ao protocolo MCP e declara a chamada necessária.
+
+A busca contextual permanece semântica: a skill manda pesquisar o pedido atual, escolher pelos títulos e ler somente as páginas relevantes. O hook não escolhe memórias por score como se relevância fosse uma certeza mecânica.
+
+### Reinjeção de invariantes
+
+`CoreInvariant` contém apenas roteamento Graphit-first, carregamento just-in-time de uma skill e fallback. Se a MCP tool exigida não estiver disponível no agente atual, ele continua com suas tools nativas padrão. A única substituição proibida é chamar o CLI do Graphit como se fosse MCP. O texto é curto o bastante para limites repetidos de lifecycle e não repete procedimentos dos módulos.
+
+### Subagentes: três garantias diferentes
+
+Um subagente só está corretamente coberto quando três camadas independentes estão satisfeitas:
+
+1. **Entrega da instrução** — o contexto isolado recebe o protocolo Graphit. Herança da conversa ou do arquivo de regras nunca é presumida quando o host oferece um boundary próprio.
+2. **Visibilidade da tool** — o runtime inclui os servidores MCP Graphit no registro de tools do filho. Essa camada pertence ao host e pode ser reduzida por `tools`, `disallowedTools`, permissões, `includeMcpJson` ou configuração cloud.
+3. **Roteamento de uso** — hooks entregam a preferência Graphit-first. Uma tool não exposta não pode ser criada por um prompt; por isso a ausência libera as ferramentas padrão do host em vez de bloquear o trabalho.
+
+`SubagentProtocol` é autocontido e marcado por `GRAPHIT_SUBAGENT_PROTOCOL_V1`. Claude e Codex o recebem em `SubagentStart`. Cursor não permite contexto adicional nesse evento, então o adapter tenta injetar o protocolo no input de `Task` por `preToolUse`. Esse hook é deliberadamente fail-open: se a versão do host não aplicar `updated_input`, o filho ainda nasce e usa suas tools nativas.
+
+O Graphit preserva allowlists de subagentes pertencentes ao usuário. Alterá-las silenciosamente poderia conceder acesso que foi removido de propósito. Quando uma allowlist exclui Graphit, o subagente mantém o trabalho com as tools permitidas pelo host.
+
+Há um limite externo incontornável: hooks do projeto precisam estar habilitados e o workspace precisa ser confiável. Cursor Cloud ainda executa turnos exploratórios somente leitura antes de carregar hooks do repositório. Nenhum arquivo do projeto consegue aplicar Graphit-first antes de o próprio host carregá-lo; nesse intervalo, o agente opera normalmente com as capacidades padrão. Para usar Graphit também no cloud, o MCP precisa estar configurado na camada de time/enterprise do host.
+
+### Fallback nativo
+
+Os adapters não bloqueiam tools nativas. O payload de um hook de tool use não prova que `graphit_ast_*` está realmente exposto naquele agente ou subagente; negar `Grep`, `Glob`, `rg` ou equivalentes poderia impedir todo o trabalho. O mandate e a skill dão precedência ao Graphit quando disponível e autorizam as tools padrão quando ele não está.
+
+Para código local suportado, a skill ainda orienta AST-first. Conteúdo não indexado, formato não suportado ou indisponibilidade da tool usam descoberta nativa diretamente. Contextos importados continuam sem fallback nativo porque seu source não está no workspace do agente.
+
+## Matriz por adapter
+
+| Adapter | Instrução no subagente | Visibilidade das MCP tools | Fallback e limite |
+|---|---|---|---|
+| Claude Code | `SubagentStart` injeta `SubagentProtocol`; não depende de `CLAUDE.md`, que alguns built-ins não carregam. | O filho herda as tools do pai, salvo filtros/background e `tools`/`disallowedTools` do agente customizado. | Uma allowlist que remova MCP deixa o filho usar suas tools nativas permitidas. |
+| Codex | `SubagentStart` injeta `SubagentProtocol` como contexto de developer. | O adapter instala MCP no projeto; a disponibilidade no filho ainda depende da superfície Codex que realizou o spawn. | Sem Graphit no registro do filho, permanecem as tools padrão dessa superfície. |
+| Cursor | `preToolUse(Task)` tenta injetar o protocolo sem bloquear o spawn. | Filho local herda todas as tools do pai. Filho cloud usa MCPs configurados para o time, não os MCPs locais. | Ausência de Graphit ou falha de reescrita mantém o subagente nativo; não há gate em `subagentStart`. |
+| Gemini CLI | `BeforeAgent` reaplica o invariante em cada loop de agente; o bootstrap principal vem de `SessionStart`. | Agente customizado sem `tools` herda o pai; uma lista explícita pode excluir `mcp_*`/`mcp_server_*`. | Configuração restrita continua com os built-ins configurados. |
+| Kiro | Steering é compartilhado; `SessionStart` cobre IDE e `AgentSpawn` cobre CLI. | Subagentes compartilham MCP e permissões do projeto; perfil customizado pode desligar `includeMcpJson` ou declarar MCPs próprios. | Sem MCP do projeto, o perfil continua com suas tools nativas. |
+| Antigravity | `PreInvocation` reinjeta o invariante em toda invocação que carregue os hooks do projeto; a documentação não expõe um evento próprio de subagente. | Clones dinâmicos podem herdar toolset; agente estático controla `tools` e `mcpServers`, vazios por padrão. | Execuções fora dos hooks do projeto ou sem MCP continuam com o toolset definido pelo host. |
+| OpenCode | `experimental.chat.system.transform` inicializa cada `sessionID`, incluindo sessões filhas, e a compactação reinjeta o invariante. | A configuração MCP é do projeto, mas permissões específicas do agente podem negar tools MCP. | Permissão que negue MCP mantém as tools permitidas para esse agente; o plugin não bloqueia alternativas. |
+
+Cada adapter concreto possui sync, remoção, formato e path do seu host. `FolderBasedAdapter` não conhece eventos nem formatos de hooks.
+
+## Contrato de sincronização
+
+`graphit sync` reconcilia cada adapter como uma única unidade de lifecycle: artifacts gerados, configuração MCP local ao projeto e hooks nativos da IDE. Isso ocorre em toda sincronização, não apenas no `init`. O writer substitui entradas Graphit anteriores pelo estado atual, preserva entradas pertencentes ao usuário e precisa ser idempotente.
+
+Uma atualização parcial não pode ser anunciada como sucesso. Falhas de resolução ou escrita do MCP, assim como falhas de parsing ou escrita dos hooks, sobem por `SyncIDEAdapter`; tanto o CLI quanto a tool `graphit_sync` devolvem erro. O teste integrado troca o executável Graphit entre duas sincronizações e verifica, nos sete adapters, que MCP e hooks recebem o valor novo e descartam o antigo.
+
+## O que permanece semântico
+
+Não é seguro automatizar sem um modelo:
+
+- construir uma consulta Cypher adequada, escolher fonte e avaliar impacto de edição;
+- decidir qual artifact do Hub é relevante ou quando documentação externa é necessária;
+- selecionar quais resultados de memória/wiki devem ser lidos;
+- decidir se uma descoberta é durável, duplicada, contraditória ou merece promoção;
+- produzir e manter um task log que explique objetivo, decisões, progresso e dívida;
+- decidir quando freshness precisa ser provada antes de uma conclusão.
+
+Esses itens permanecem nos mandates/skills, mas sem manuais de schemas, justificativas genéricas ou exemplos repetitivos.
+
+## Modelo de orçamento
+
+- O preâmbulo residente tem limite testado de 1.600 bytes.
+- Cada mandate de módulo tem limite próprio e contém apenas request-shapes + tools de entrada.
+- Cada skill compacta tem um teto absoluto testado entre 5 e 6,5 KB; a geração real também é comparada ao baseline abaixo.
+- Toda tool do módulo continua aparecendo uma vez no `Tool index`; detalhes de argumentos vêm do schema publicado pela própria tool.
+- Reinjeções repetidas usam somente `CoreInvariant`; o bootstrap completo ocorre uma vez por sessão/subagente.
+
+### Resultado medido
+
+Medição dos artifacts Codex antes/depois da sincronização desta mudança:
+
+| Artifact | Antes | Depois | Redução |
+|---|---:|---:|---:|
+| `graphit-ast/SKILL.md` | 89.269 B | 3.013 B | 96,6% |
+| `graphit-hub/SKILL.md` | 29.611 B | 2.190 B | 92,6% |
+| `graphit-knowledge/SKILL.md` | 70.539 B | 2.941 B | 95,8% |
+| `graphit-memory/SKILL.md` | 38.380 B | 3.010 B | 92,2% |
+| `AGENTS.md` | 20.255 B | 4.055 B | 80,0% |
+
+As quatro skills juntas caíram de 227.799 para 11.154 bytes (95,1%). Somando o mandate residente, o conjunto caiu de 248.054 para 15.209 bytes (93,9%). Bytes são usados como métrica determinística de regressão; tokens variam conforme o tokenizer do host.
+
+## Fontes oficiais verificadas
+
+- [Claude Code hooks](https://code.claude.com/docs/en/hooks)
+- [Claude Code subagents](https://code.claude.com/docs/en/sub-agents)
+- [OpenAI Codex hooks](https://learn.chatgpt.com/docs/hooks)
+- [Cursor hooks](https://prod.cursor.com/docs/hooks) e [Cursor subagents](https://prod.cursor.com/docs/subagents)
+- [Gemini CLI hooks reference](https://geminicli.com/docs/hooks/reference/) e [Gemini CLI subagents](https://geminicli.com/docs/core/subagents/)
+- [Kiro hooks](https://kiro.dev/docs/hooks/), [triggers](https://kiro.dev/docs/hooks/types/) e [Kiro subagents](https://kiro.dev/docs/chat/subagents/)
+- [Google Antigravity hooks](https://antigravity.google/docs/ide/hooks/) e [Antigravity subagents](https://www.antigravity.google/docs/subagents/)
+- [OpenCode plugins/hooks](https://opencode.ai/docs/plugins/) e [OpenCode agents](https://opencode.ai/docs/agents/)
+
+As capacidades foram verificadas em 2026-09-02. Mudanças de fornecedor devem alterar primeiro esta matriz e seus testes de adapter; nunca devem ser simuladas por uma abstração comum que o host não suporta.
