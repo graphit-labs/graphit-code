@@ -3,7 +3,6 @@ package wiki
 import (
 	"context"
 	"os"
-	"path/filepath"
 )
 
 // Fast-path helper — shared by wiki generators
@@ -79,32 +78,44 @@ func FastPathCheck(ctx context.Context, wikiDir string, entries []DocHashEntry, 
 		}
 	}
 
-	// (3) The pages on disk must correspond exactly to the current entries.
-	existing, err := os.ReadDir(wikiDir)
+	// (3) The INDEX must hold exactly the current entries.
+	//
+	// This used to list the `.md` pages in wikiDir, which is where deletions were detected. The
+	// pages are not written any more, so the set to compare against is the index's own — which is
+	// also the set that matters: what a search can answer with.
+	indexed, err := indexedSlugs(ctx, wikiDir)
 	if err != nil {
 		return false
 	}
-	existingSlugs := make(map[string]bool, len(existing))
-	for _, f := range existing {
-		if f.IsDir() {
-			continue
-		}
-		name := f.Name()
-		if filepath.Ext(name) != ".md" {
-			continue
-		}
-		existingSlugs[name[:len(name)-3]] = true // trim ".md"
-	}
-	if len(existingSlugs) != len(newSlugs) {
+	if len(indexed) != len(newSlugs) {
 		return false
 	}
 	for slug := range newSlugs {
-		if !existingSlugs[slug] {
+		if !indexed[slug] {
 			return false
 		}
 	}
 
 	return true
+}
+
+// indexedSlugs is the set of slugs the compiled index holds.
+func indexedSlugs(ctx context.Context, wikiDir string) (map[string]bool, error) {
+	db, err := OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+
+	slugs, err := db.Slugs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(slugs))
+	for _, s := range slugs {
+		out[s] = true
+	}
+	return out, nil
 }
 
 // IndexHasContent reports whether wikiDir holds an index worth skipping a rebuild for.

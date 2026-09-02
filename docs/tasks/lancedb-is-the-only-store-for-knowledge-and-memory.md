@@ -237,3 +237,38 @@ generators, `crossref.InjectBacklinks` writing into files, `FastPathCheck`/`Stat
 the directory, `lint.go`, `okf_log.go`'s `log.md`, `uiserver/wiki_handler.go` serving pages from
 disk, `dream/prompt.go` pointing the agent at `index.md`, and `hub/service.go` detecting a wiki
 by `index.md`. Then `wiki_export` for whoever wants markdown on demand.
+
+### 2026-09-01 (T1, slice 2: the memory wiki stops writing pages)
+
+- **`FastPathCheck` compares against the index, not the directory.** Condition (3) listed the
+  `.md` files in `wikiDir` to detect deletions; it now reads the index's own slug set
+  (`indexedSlugs`), which is both what exists and what a search can answer with. Its test was
+  rewritten accordingly and renamed `TestFastPathCheck_FalseUntilTheIndexHoldsEveryEntry`.
+- **`GenerateMemoryWiki` writes no pages and prunes nothing.** The render loop and the
+  `keepFiles` sweep are gone. `ArticlesWritten` now counts the documents the rebuild carries
+  rather than the files a loop created, which preserves its meaning for every caller that reports
+  it and for the sync-log decision.
+- **Peripheral consumers of the generated pages fixed:**
+  - `internal/hub/service.go` `publishedWikiDir` recognised a published wiki by `index.md`. It
+    now looks for the compiled index — a wiki published after this change would not have been
+    found otherwise, which is a bug this pass created and closed in the same breath.
+  - `internal/dream/prompt.go` instructed the agent to read
+    `<dot>/knowledge/project/index.md` and the two memory `index.md` files. It now names the MCP
+    tools, because a path instruction would send the agent to something that does not exist.
+- **`internal/memory/okf_conformance_test.go` deleted.** It asserted that the generated markdown
+  pages conform to OKF; OKF describes a markdown bundle, and there is no bundle. The conformance
+  that still matters — one chunk per document, supersession columns — is covered by
+  `TestReadPageFromIndexReturnsTheWholePage` and the chain tests.
+- Memory tests moved from globbing `*.md` to querying the index, via a new
+  `indexedMemoryPages` helper that reports live and superseded row counts.
+- `go test -tags lancedb ./...` green, `make lint` 0 issues.
+
+**Still open in T1, and it is one coherent piece rather than leftovers:** the knowledge generator
+uses the PAGES as its medium for phases 2–4. `wiki.BuildCrossRefGraph(wikiDir)` builds the graph
+by reading page files, `InjectBacklinks` writes backlinks into them, autolinks are resolved into
+page text, and the cluster and staleness passes re-render pages — with `writePageIfChanged`
+carrying a comment about why the file and the index must not disagree. Restructuring that means
+building the cross-reference graph from `newOutRefs`, which the pipeline already computes in
+memory for the cache, and letting `xrefs` be the only edge store. `internal/uiserver/wiki_handler.go`
+is the other half: it serves pages, `log.md` and directory listings straight off disk in six
+places. Neither is a small edit and neither should be started without its own pass.

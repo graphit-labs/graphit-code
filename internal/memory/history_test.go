@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
 // newLocalService wires a memory service to a local-only store, which is all the history chain
@@ -234,26 +233,9 @@ func TestArchivedRevisionsAreCompiledButNotListed(t *testing.T) {
 		t.Errorf("the wiki has %d articles, want 2 — the live memory and its superseded revision", res.ArticlesWritten)
 	}
 
-	pages, err := filepath.Glob(filepath.Join(wikiDir, "*.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var supersededPages, livePages int
-	for _, p := range pages {
-		if filepath.Base(p) == "index.md" || filepath.Base(p) == "log.md" {
-			continue
-		}
-		if wiki.ReadFrontmatterField(p, PageFieldSuperseded) == "true" {
-			supersededPages++
-			if got := wiki.ReadFrontmatterField(p, PageFieldCurrent); got != id {
-				t.Errorf("superseded page names current = %q, want the chain id %q", got, id)
-			}
-			continue
-		}
-		livePages++
-	}
-	if livePages != 1 || supersededPages != 1 {
-		t.Errorf("compiled %d live and %d superseded pages, want 1 and 1", livePages, supersededPages)
+	live, superseded, _ := indexedMemoryPages(t, wikiDir)
+	if live != 1 || superseded != 1 {
+		t.Errorf("indexed %d live and %d superseded rows, want 1 and 1", live, superseded)
 	}
 }
 

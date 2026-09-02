@@ -892,13 +892,10 @@ No type field.`)
 		t.Errorf("ArticlesWritten = %d; want 3", result.ArticlesWritten)
 	}
 
-	// Check entity pages were written to wiki dir
-	entries, readErr := os.ReadDir(wikiDir)
-	if readErr != nil {
-		t.Fatalf("reading wiki dir: %v", readErr)
-	}
-	if len(entries) < 3 {
-		t.Errorf("expected at least 3 files in wiki dir, got %d", len(entries))
+	// The memories are in the INDEX, not in page files — no pages are written.
+	live, _, _ := indexedMemoryPages(t, wikiDir)
+	if live != 3 {
+		t.Errorf("indexed %d live memories, want 3", live)
 	}
 }
 

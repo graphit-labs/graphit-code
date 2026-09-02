@@ -14,7 +14,7 @@ import (
 // evidence the cache cannot fabricate — the pages on disk, and the set of
 // source files that actually exist.
 
-func TestFastPathCheck_FalseUntilEveryEntryHasItsPage(t *testing.T) {
+func TestFastPathCheck_FalseUntilTheIndexHoldsEveryEntry(t *testing.T) {
 	wikiDir := t.TempDir()
 
 	cache, err := NewWikiProcessCache(wikiDir)
@@ -43,26 +43,26 @@ func TestFastPathCheck_FalseUntilEveryEntryHasItsPage(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatalf("closing wiki db: %v", err)
 	}
+	// The deletion check compares the entries against the INDEX's slug set, not against pages on
+	// disk — there are none. An entry the index does not hold, and an entry set larger than the
+	// index, both have to defeat the fast path.
+	const fixtureSlug = "Mem"
 
-	entries := []DocHashEntry{{CacheKey: "mem.md", ContentHash: "h1", Slug: "Mem"}}
-
-	if FastPathCheck(context.Background(), wikiDir, entries, cache) {
-		t.Error("FastPathCheck = true on a virgin wiki dir; the page has not been generated yet")
+	if FastPathCheck(context.Background(), wikiDir, []DocHashEntry{
+		{CacheKey: "mem.md", ContentHash: "h1", Slug: "NotIndexed"},
+	}, cache) {
+		t.Error("FastPathCheck = true for an entry the index does not hold")
 	}
 
-	pagePath := filepath.Join(wikiDir, "Mem.md")
-	if err := os.WriteFile(pagePath, []byte("page"), 0o644); err != nil {
-		t.Fatalf("writing page: %v", err)
-	}
-	if !FastPathCheck(context.Background(), wikiDir, entries, cache) {
-		t.Error("FastPathCheck = false with the page present and the hash unchanged; want true")
+	indexed := []DocHashEntry{{CacheKey: "mem.md", ContentHash: "h1", Slug: fixtureSlug}}
+	if !FastPathCheck(context.Background(), wikiDir, indexed, cache) {
+		t.Error("FastPathCheck = false with the row indexed and the hash unchanged; want true")
 	}
 
-	if err := os.WriteFile(filepath.Join(wikiDir, "Orphan.md"), []byte("page"), 0o644); err != nil {
-		t.Fatalf("writing orphan page: %v", err)
-	}
-	if FastPathCheck(context.Background(), wikiDir, entries, cache) {
-		t.Error("FastPathCheck = true with a page that has no entry; the deletion check regressed")
+	cache.Store("extra.md", "h2", []CachedChunk{{Title: "Extra", ContentHash: "h2"}})
+	orphaned := []DocHashEntry{indexed[0], {CacheKey: "extra.md", ContentHash: "h2", Slug: "Extra"}}
+	if FastPathCheck(context.Background(), wikiDir, orphaned, cache) {
+		t.Error("FastPathCheck = true with more entries than the index holds; the deletion check regressed")
 	}
 }
 

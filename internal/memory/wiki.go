@@ -193,8 +193,8 @@ func GenerateMemoryWiki(ctx context.Context, rawDir, wikiDir string, logger ...*
 		slugs[i] = wiki.UniqueSlug(doc.slugBase(), usedSlugs)
 	}
 
-	// FAST PATH: use wiki.FastPathCheck — checks processCache (O(1) per entry,
-	// no disk I/O) and a single ReadDir to detect deletions.
+	// FAST PATH: use wiki.FastPathCheck — checks processCache (O(1) per entry) and the index's
+	// own slug set to detect deletions.
 	fastEntries := make([]wiki.DocHashEntry, len(docs))
 	for i, doc := range docs {
 		fastEntries[i] = wiki.DocHashEntry{
@@ -208,40 +208,19 @@ func GenerateMemoryWiki(ctx context.Context, rawDir, wikiDir string, logger ...*
 		return result, nil
 	}
 
-	for i, doc := range docs {
-		slug := slugs[i]
-		path := filepath.Join(wikiDir, slug+".md")
-		// Only write if content hash changed — avoids I/O when wiki is up to date.
-		// We read the existing file's content_hash from frontmatter.
-		if doc.contentHash != "" {
-			if existingHash := wiki.ReadFrontmatterField(path, "content_hash"); existingHash == doc.contentHash {
-				continue
-			}
-		}
-		page := memoryEntityPage(doc)
-		if err := os.WriteFile(path, []byte(page), 0o644); err != nil {
-			continue
-		}
-		result.ArticlesWritten++
-	}
+	// NO PAGES ARE WRITTEN, and nothing is pruned.
+	//
+	// There used to be a loop here rendering `<slug>.md` per memory and a pass deleting the pages
+	// no memory claimed any more. Both are gone: `RebuildDB` below receives these same docs and is
+	// the only place a memory becomes readable, so the page was a second copy of it — written,
+	// pruned, and then read by a fallback that existed because the two could disagree.
+	//
+	// ArticlesWritten now counts the documents the rebuild carries rather than the files a loop
+	// created. It keeps its meaning for every caller that reports it, and it is what decides
+	// whether a sync log entry is written below.
+	result.ArticlesWritten = len(docs)
 
-	// Remove stale wiki pages that no longer correspond to any memory in the raw dir.
-	keepFiles := map[string]bool{}
-	for slug := range usedSlugs {
-		keepFiles[slug+".md"] = true
-	}
-	if existing, readErr := os.ReadDir(wikiDir); readErr == nil {
-		for _, e := range existing {
-			if e.IsDir() || filepath.Ext(e.Name()) != ".md" {
-				continue
-			}
-			if !keepFiles[e.Name()] {
-				_ = os.Remove(filepath.Join(wikiDir, e.Name()))
-			}
-		}
-	}
-
-	// Build WikiDB for FTS5 search
+	// Build the compiled index — the only artifact.
 	wikiChunks := make([]wiki.WikiChunk, 0, len(docs))
 	for i, doc := range docs {
 		now := time.Now().UTC().Format("2006-01-02")

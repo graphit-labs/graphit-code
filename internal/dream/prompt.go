@@ -87,8 +87,13 @@ func buildDreamContext(projectDir, sessionID, ide string) string {
 
 	b.WriteString("### Phase 1: OBSERVE — Understand the System\n\n")
 	b.WriteString("Before analyzing anything, build a complete understanding of the project:\n\n")
-	_, _ = fmt.Fprintf(&b, "1. Read the project's knowledge wiki (`%s/knowledge/project/index.md`)\n", brand.DotDir())
-	_, _ = fmt.Fprintf(&b, "2. Read ALL project and user memories (`%s/memory/project/index.md` and `%s/memory/user/index.md`)\n", brand.DotDir(), brand.DotDir())
+	// Tools, not paths. These used to be `index.md` files in the wiki directory; the wiki is a
+	// compiled index now and there is no page to open, so an instruction naming a path would send
+	// the agent to something that is not there.
+	_, _ = fmt.Fprintf(&b, "1. Search the project's knowledge wiki with %s, then read the pages you pick with %s\n",
+		brand.MCPToolRef("knowledge", "search"), brand.MCPToolRef("wiki", "source"))
+	_, _ = fmt.Fprintf(&b, "2. List ALL project and user memories with %s (`scope: \"project\"` and `scope: \"user\"`) and read them with %s (`wiki: \"memory\"`)\n",
+		brand.MCPToolRef("memory", "list"), brand.MCPToolRef("wiki", "source"))
 	b.WriteString("3. Query the AST graph to understand code structure, public APIs, and module boundaries\n")
 	b.WriteString("4. Scan installed IDE artifacts — list ALL existing skills, rules, and commands in the project\n")
 	b.WriteString("5. Study architectural decisions (ADRs) in `docs/decisions/` if they exist\n")

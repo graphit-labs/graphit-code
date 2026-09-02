@@ -950,11 +950,13 @@ func (s *HubService) UninstallAll(ctx context.Context, ide, projectDir string) e
 // An artifact published by `knowledge export` carries it under `wiki/`, next to
 // whatever else its author chose to include. One submitted with `hub submit
 // --local-path <a wiki dir>` IS the wiki. Both shapes are legitimate, and telling
-// them apart by looking for the index is more honest than demanding a convention the
+// them apart by looking for the compiled index is more honest than demanding a convention the
 // publisher never agreed to.
 func publishedWikiDir(cloneDir string) string {
 	sub := filepath.Join(cloneDir, "wiki")
-	if _, err := os.Stat(filepath.Join(sub, "index.md")); err == nil {
+	// Recognised by the index, which is the artifact. It used to be `index.md`, a generated page
+	// that is no longer written — so a wiki published after that change would not have been found.
+	if _, err := os.Stat(wiki.WikiIndexPath(sub)); err == nil {
 		return sub
 	}
 	if _, err := os.Stat(filepath.Join(sub, "shards")); err == nil {

@@ -218,24 +218,52 @@ func TestForkedFilesDoNotCompileIntoTheWiki(t *testing.T) {
 		t.Fatalf("GenerateMemoryWiki: %v", err)
 	}
 
-	pages, err := filepath.Glob(filepath.Join(wikiDir, "*.md"))
-	if err != nil {
-		t.Fatal(err)
+	live, superseded, ids := indexedMemoryPages(t, wikiDir)
+	if live != 1 || superseded != 0 {
+		t.Errorf("indexed %d live and %d superseded rows, want 1 and 0 — the twin reached the index", live, superseded)
 	}
-	var memoryPages int
-	for _, p := range pages {
-		base := filepath.Base(p)
-		if base == "index.md" || base == "log.md" {
+	for _, got := range ids {
+		if got != id {
+			t.Errorf("indexed entity_id %q, want the chain id %q", got, id)
+		}
+	}
+}
+
+// indexedMemoryPages reports how many live and superseded rows the compiled index holds.
+//
+// It replaced globbing `*.md` in the wiki directory: pages are not written any more, and the
+// index is what a search can answer with.
+func indexedMemoryPages(t *testing.T, wikiDir string) (live, superseded int, ids []string) {
+	t.Helper()
+	db, err := wiki.OpenWikiDB(context.Background(), wikiDir)
+	if err != nil {
+		t.Fatalf("opening the memory index: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	entries, err := db.Browse(context.Background(), wiki.BrowseFilter{ClusterID: -1, Limit: 10000})
+	if err != nil {
+		t.Fatalf("browsing the memory index: %v", err)
+	}
+	for _, e := range entries {
+		res, err := db.Search(context.Background(), e.Title, 50)
+		if err != nil {
 			continue
 		}
-		if strings.HasSuffix(base, "_2.md") {
-			t.Errorf("a duplicate page was compiled: %s", base)
+		for _, r := range res {
+			if r.Slug != e.Slug {
+				continue
+			}
+			ids = append(ids, r.EntityID)
+			if r.Superseded {
+				superseded++
+			} else {
+				live++
+			}
+			break
 		}
-		memoryPages++
 	}
-	if memoryPages != 1 {
-		t.Errorf("compiled %d pages, want 1 — the twin reached the wiki", memoryPages)
-	}
+	return live, superseded, ids
 }
 
 func TestIsForkedMemoryFileName(t *testing.T) {
