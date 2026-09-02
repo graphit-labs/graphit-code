@@ -68,7 +68,7 @@ func TestLanceWikiRebuildAndKeywordSearch(t *testing.T) {
 			"Project and user scopes, and how they are pulled.",
 			"A scope is pulled on first use and merged rather than replaced."),
 	}
-	if err := db.Rebuild(ctx, chunks, nil, nil, nil); err != nil {
+	if err := db.Sync(ctx, chunks, nil, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -97,10 +97,10 @@ func TestLanceWikiRebuildAndKeywordSearch(t *testing.T) {
 func TestLanceWikiSlugIsSearchable(t *testing.T) {
 	ctx := context.Background()
 	db := newWikiForTest(t)
-	if err := db.Rebuild(ctx, []WikiChunk{
+	if err := db.Sync(ctx, []WikiChunk{
 		lanceChunk("icebug-remote-graph", "Untitled", "", "Body with no useful words."),
 		lanceChunk("something-else", "Other", "", "Different body entirely."),
-	}, nil, nil, nil); err != nil {
+	}, nil, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -118,14 +118,14 @@ func TestLanceWikiRebuildDropsRemovedPages(t *testing.T) {
 	ctx := context.Background()
 	db := newWikiForTest(t)
 
-	if err := db.Rebuild(ctx, []WikiChunk{
+	if err := db.Sync(ctx, []WikiChunk{
 		lanceChunk("goes-away", "Goes Away", "", "This page is about departure."),
-	}, nil, nil, nil); err != nil {
+	}, nil, nil); err != nil {
 		t.Fatalf("first rebuild: %v", err)
 	}
-	if err := db.Rebuild(ctx, []WikiChunk{
+	if err := db.Sync(ctx, []WikiChunk{
 		lanceChunk("stays", "Stays", "", "This page is about persistence."),
-	}, nil, nil, nil); err != nil {
+	}, nil, nil); err != nil {
 		t.Fatalf("second rebuild: %v", err)
 	}
 
@@ -151,7 +151,7 @@ func TestLanceWikiXRefsAreBidirectionalAndWalkDepth(t *testing.T) {
 		lanceChunk("c", "Page C", "", "Gamma."),
 	}
 	xrefs := map[string][]string{"a": {"b"}, "b": {"c"}}
-	if err := db.Rebuild(ctx, chunks, xrefs, nil, nil); err != nil {
+	if err := db.Sync(ctx, chunks, xrefs, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -207,10 +207,10 @@ func TestLanceWikiSlugWithAQuoteIsFilteredSafely(t *testing.T) {
 	db := newWikiForTest(t)
 
 	tricky := "what's-new"
-	if err := db.Rebuild(ctx, []WikiChunk{
+	if err := db.Sync(ctx, []WikiChunk{
 		lanceChunk(tricky, "What's New", "", "Recent changes."),
 		lanceChunk("other", "Other", "", "Unrelated."),
-	}, map[string][]string{tricky: {"other"}}, nil, nil); err != nil {
+	}, map[string][]string{tricky: {"other"}}, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -236,7 +236,7 @@ func TestLanceWikiBrowseFiltersAndIsOrdered(t *testing.T) {
 	guide := lanceChunk("guide-1", "Guide", "", "Body.")
 	guide.DocType = "guide"
 
-	if err := db.Rebuild(ctx, []WikiChunk{specs, specA, guide}, nil, nil, nil); err != nil {
+	if err := db.Sync(ctx, []WikiChunk{specs, specA, guide}, nil, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -270,13 +270,13 @@ func TestLanceWikiSyncLogSurvivesARebuild(t *testing.T) {
 	db := newWikiForTest(t)
 
 	first := &SyncLogEntry{Timestamp: "2026-08-01T00:00:00Z", TotalDocs: 1, ArticlesWritten: 1}
-	if err := db.Rebuild(ctx, []WikiChunk{lanceChunk("a", "A", "", "x")}, nil, first, nil); err != nil {
+	if err := db.Sync(ctx, []WikiChunk{lanceChunk("a", "A", "", "x")}, nil, first); err != nil {
 		t.Fatalf("first rebuild: %v", err)
 	}
 	second := &SyncLogEntry{Timestamp: "2026-08-02T00:00:00Z", TotalDocs: 2, ArticlesWritten: 2,
 		Added: []string{"b"}}
-	if err := db.Rebuild(ctx, []WikiChunk{lanceChunk("a", "A", "", "x"), lanceChunk("b", "B", "", "y")},
-		nil, second, nil); err != nil {
+	if err := db.Sync(ctx, []WikiChunk{lanceChunk("a", "A", "", "x"), lanceChunk("b", "B", "", "y")},
+		nil, second); err != nil {
 		t.Fatalf("second rebuild: %v", err)
 	}
 
@@ -301,9 +301,9 @@ func TestLanceWikiEmbeddingsAttachBySlugAndAreCounted(t *testing.T) {
 	ctx := context.Background()
 	db := newWikiForTest(t)
 
-	if err := db.Rebuild(ctx, []WikiChunk{
+	if err := db.Sync(ctx, []WikiChunk{
 		lanceChunk("a", "A", "", "First."), lanceChunk("b", "B", "", "Second."),
-	}, nil, nil, nil); err != nil {
+	}, nil, nil); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
 
@@ -358,21 +358,39 @@ func slugsOfChunks(rs []chunkRow) []string {
 	return out
 }
 
-// A rebuild carries cached vectors back in, keyed by content hash, so a page whose text did not
-// change is not re-embedded.
-func TestLanceWikiRebuildReusesCachedVectors(t *testing.T) {
+// A one-document change leaves every unchanged row in place, including its embedding. A full table
+// rewrite would clear this vector, so the assertion pins the row-level delta rather than merely the
+// final document set.
+func TestLanceWikiSyncTouchesOnlyTheChangedDocument(t *testing.T) {
 	ctx := context.Background()
 	db := newWikiForTest(t)
 
 	vec := make([]float32, ai.EmbeddingDimensions)
 	vec[7] = 1
-	cache := EmbeddingCache{"h-a": vec}
-
-	if err := db.Rebuild(ctx, []WikiChunk{lanceChunk("a", "A", "", "Text.")}, nil, nil, cache); err != nil {
-		t.Fatalf("rebuild: %v", err)
+	chunks := []WikiChunk{
+		lanceChunk("a", "A", "", "Text that will change."),
+		lanceChunk("b", "B", "", "Text that stays unchanged."),
 	}
-	if embedded, total := db.EmbeddingStats(ctx); embedded != 1 || total != 1 {
-		t.Errorf("cached vector was not carried into the rebuild: %d/%d", embedded, total)
+	if err := db.Sync(ctx, chunks, nil, nil); err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	if err := db.SetChunkVector(ctx, "b", vec); err != nil {
+		t.Fatalf("set vector: %v", err)
+	}
+	chunks[0] = lanceChunk("a", "A", "", "A different body.")
+	chunks[0].ContentHash = "h-a-v2"
+	if err := db.Sync(ctx, chunks, nil, nil); err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+	if embedded, total := db.EmbeddingStats(ctx); embedded != 1 || total != 2 {
+		t.Errorf("unchanged vector did not survive the sync: %d/%d", embedded, total)
+	}
+	stored, err := db.StoredEmbeddings(ctx)
+	if err != nil {
+		t.Fatalf("stored embeddings: %v", err)
+	}
+	if len(stored) != 1 || stored[0].ContentHash != "h-b" {
+		t.Errorf("stored embeddings = %+v, want only the unchanged b row", stored)
 	}
 }
 
@@ -387,11 +405,17 @@ func TestLanceWikiHybridSearchUsesTheEngineFusion(t *testing.T) {
 	vecB := make([]float32, ai.EmbeddingDimensions)
 	vecB[1] = 1
 
-	if err := db.Rebuild(ctx, []WikiChunk{
+	if err := db.Sync(ctx, []WikiChunk{
 		lanceChunk("alpha", "Alpha Page", "", "Content about registries."),
 		lanceChunk("beta", "Beta Page", "", "Content about scopes."),
-	}, nil, nil, EmbeddingCache{"h-alpha": vecA, "h-beta": vecB}); err != nil {
-		t.Fatalf("rebuild: %v", err)
+	}, nil, nil); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if err := db.SetChunkVector(ctx, "alpha", vecA); err != nil {
+		t.Fatalf("set alpha vector: %v", err)
+	}
+	if err := db.SetChunkVector(ctx, "beta", vecB); err != nil {
+		t.Fatalf("set beta vector: %v", err)
 	}
 
 	got, err := db.HybridSearch(ctx, "registries", vecA, 5)
@@ -407,7 +431,7 @@ func TestLanceWikiHybridSearchUsesTheEngineFusion(t *testing.T) {
 }
 
 // A published wiki is read-only, and the write paths have to refuse rather than half-apply.
-func TestLanceWikiRebuildRefusedWhenRemote(t *testing.T) {
+func TestLanceWikiSyncRefusedWhenRemote(t *testing.T) {
 	// Constructed directly against an s3:// URI so no bucket is needed: Open marks the store
 	// remote from the scheme, and every write consults that flag.
 	db, err := OpenWikiDBAt(context.Background(), lancestore.Config{URI: "s3://example/wiki"})
@@ -419,9 +443,9 @@ func TestLanceWikiRebuildRefusedWhenRemote(t *testing.T) {
 	if !db.Remote() {
 		t.Fatal("a store opened on s3:// is not marked remote")
 	}
-	err = db.Rebuild(context.Background(), []WikiChunk{lanceChunk("a", "A", "", "x")}, nil, nil, nil)
+	err = db.Sync(context.Background(), []WikiChunk{lanceChunk("a", "A", "", "x")}, nil, nil)
 	if err == nil {
-		t.Fatal("rebuilding a published wiki was allowed")
+		t.Fatal("synchronizing a published wiki was allowed")
 	}
 	if !strings.Contains(fmt.Sprint(err), "read-only") {
 		t.Errorf("the refusal does not name the reason: %v", err)

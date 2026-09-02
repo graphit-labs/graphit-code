@@ -255,8 +255,7 @@ func TestMemoryService_EnsureInitialised_NilStore(t *testing.T) {
 		scope:   MemoryScopeProject,
 		scopeID: "test",
 	}
-	// With nil gitStore, should only call syncToLocalFast which errors but doesn't fail
-	// syncToLocalFast requires gitStore so returns error that is only logged
+	// With a nil store, the post-write wiki sync may fail but the completed write is not rolled back.
 	err := svc.EnsureInitialised()
 	if err != nil {
 		t.Errorf("EnsureInitialised should not return error: %v", err)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -388,117 +389,104 @@ func buildChunkRow(c WikiChunk, vec []float32) lancestore.Row {
 	return row
 }
 
-// CheckAllHashesMatch reports whether every given chunk is already indexed with the same content
-// hash, which is how a caller skips a rebuild that would change nothing.
-//
-// Not merely an optimisation: a wiki rebuild drops and rewrites four tables, and doing that when
-// nothing changed churns the published artifact — every object re-uploaded for an identical
-// result.
-func (w *WikiDB) CheckAllHashesMatch(ctx context.Context, chunks []WikiChunk) bool {
-	if len(chunks) == 0 {
-		return false
-	}
-	if err := w.ensureTables(ctx); err != nil {
-		return false
-	}
-	n, err := w.chunks.Count(ctx)
-	if err != nil || int(n) != len(chunks) {
-		return false
-	}
-	hits, err := w.chunks.Search(ctx, lancestore.Query{
-		Filter: "word_count >= 0", Limit: len(chunks) + 1,
-	})
-	if err != nil {
-		return false
-	}
-	indexed := make(map[string]string, len(hits))
-	for _, h := range hits {
-		indexed[str(h.Row["slug"])] = str(h.Row["content_hash"])
-	}
-	for _, c := range chunks {
-		if c.ContentHash == "" || indexed[c.Slug] != c.ContentHash {
-			return false
-		}
-	}
-	return true
-}
-
-// ---------- rebuild ----------
+// ---------- incremental sync ----------
 
 const lanceWikiWriteBatch = 500
 
-// Rebuild replaces the whole index from the compiled chunks.
+// Sync makes the stored wiki equal to the compiled corpus without replacing any table.
 //
-// A wiki rebuild is all-or-nothing by nature: the pages are recompiled from their sources and the
-// index is derived from them, so there is no delta to apply and nothing to preserve. Tables are
-// dropped and rewritten, and the indexes are built last.
-func (w *WikiDB) Rebuild(ctx context.Context, chunks []WikiChunk, xrefs map[string][]string,
-	logEntry *SyncLogEntry, embCache EmbeddingCache) error {
+// Slug is the document key. New and changed rows are upserted, missing slugs are deleted, and
+// unchanged rows are not touched. Vectors survive any derived-field update whose content hash is
+// unchanged. Cross-references are updated by source slug with the same rule.
+func (w *WikiDB) Sync(ctx context.Context, chunks []WikiChunk, xrefs map[string][]string,
+	logEntry *SyncLogEntry) error {
 	if w.Remote() {
 		return lancestore.ErrReadOnly
 	}
 	t0 := time.Now()
-
-	// The sync log is the ONE table that survives a rebuild: it is the history of rebuilds, so
-	// clearing it on every rebuild would leave it permanently one entry long.
-	previousLog, err := w.recentSyncLog(ctx, syncLogKeep)
-	if err != nil {
-		w.log().Warn("could not read the existing sync log before rebuilding", "error", err)
-	}
-
-	for _, name := range []string{lanceChunksTable, lanceXRefsTable, lanceSyncLogTable, lanceMetaTable} {
-		if err := w.store.DropTable(ctx, name); err != nil {
-			return fmt.Errorf("clearing %s: %w", name, err)
-		}
-	}
-	if err := w.createTables(ctx); err != nil {
+	if err := w.ensureTables(ctx); err != nil {
 		return err
 	}
 
-	var (
-		batch    []lancestore.Row
-		vecCount int
-	)
-	flush := func() error {
-		if len(batch) == 0 {
-			return nil
-		}
-		if err := w.chunks.Append(ctx, batch); err != nil {
-			return fmt.Errorf("writing %d chunks: %w", len(batch), err)
-		}
-		batch = batch[:0]
-		return nil
+	existing, err := w.Chunks(ctx)
+	if err != nil {
+		return fmt.Errorf("reading current wiki rows: %w", err)
 	}
+	existingBySlug := make(map[string]WikiChunk, len(existing))
+	for _, c := range existing {
+		existingBySlug[c.Slug] = c
+	}
+	desiredBySlug := make(map[string]WikiChunk, len(chunks))
 	for _, c := range chunks {
-		var vec []float32
-		if embCache != nil {
-			vec = embCache[c.ContentHash]
+		desiredBySlug[c.Slug] = c
+	}
+
+	var deleted []string
+	for slug := range existingBySlug {
+		if _, ok := desiredBySlug[slug]; !ok {
+			deleted = append(deleted, slug)
 		}
-		row := buildChunkRow(c, vec)
-		if row[lanceWikiVector] != nil {
-			vecCount++
-		}
-		batch = append(batch, row)
-		if len(batch) >= lanceWikiWriteBatch {
-			if err := flush(); err != nil {
-				return err
+	}
+	if err := w.chunks.DeleteByKey(ctx, "slug", deleted); err != nil {
+		return fmt.Errorf("deleting %d wiki rows: %w", len(deleted), err)
+	}
+
+	embeddings := make(map[string][]float32)
+	if stored, serr := w.StoredEmbeddings(ctx); serr == nil {
+		for _, e := range stored {
+			if len(e.Vector) > 0 {
+				embeddings[e.ContentHash] = e.Vector
 			}
 		}
 	}
-	if err := flush(); err != nil {
-		return err
+
+	changedRows := make([]lancestore.Row, 0)
+	for _, c := range chunks {
+		if old, ok := existingBySlug[c.Slug]; ok && old == c {
+			continue
+		}
+		changedRows = append(changedRows, buildChunkRow(c, embeddings[c.ContentHash]))
+	}
+	changedCount := len(changedRows)
+	for len(changedRows) > 0 {
+		n := min(len(changedRows), lanceWikiWriteBatch)
+		if err := w.chunks.Upsert(ctx, "slug", changedRows[:n]); err != nil {
+			return fmt.Errorf("upserting %d wiki rows: %w", n, err)
+		}
+		changedRows = changedRows[n:]
 	}
 
-	if err := w.writeXRefs(ctx, xrefs); err != nil {
-		return err
+	currentRefs, err := w.AllXRefs(ctx)
+	if err != nil {
+		return fmt.Errorf("reading current cross-references: %w", err)
 	}
-
-	// The preserved history goes back first, so the new entry is the most recent row.
-	for i := len(previousLog) - 1; i >= 0; i-- {
-		if err := w.appendSyncLog(ctx, previousLog[i]); err != nil {
-			w.log().Warn("could not restore a sync log entry", "error", err)
+	refSources := make(map[string]bool, len(currentRefs)+len(xrefs))
+	for src := range currentRefs {
+		refSources[src] = true
+	}
+	for src := range xrefs {
+		refSources[src] = true
+	}
+	changedRefs := make(map[string][]string)
+	var changedRefSources []string
+	for src := range refSources {
+		oldTargets := sortedUnique(currentRefs[src])
+		newTargets := sortedUnique(xrefs[src])
+		if slices.Equal(oldTargets, newTargets) {
+			continue
+		}
+		changedRefSources = append(changedRefSources, src)
+		if len(newTargets) > 0 {
+			changedRefs[src] = newTargets
 		}
 	}
+	if err := w.xrefs.DeleteByKey(ctx, "source_slug", changedRefSources); err != nil {
+		return fmt.Errorf("deleting changed cross-references: %w", err)
+	}
+	if err := w.writeXRefs(ctx, changedRefs); err != nil {
+		return err
+	}
+
 	if logEntry != nil {
 		if err := w.appendSyncLog(ctx, *logEntry); err != nil {
 			return err
@@ -506,23 +494,61 @@ func (w *WikiDB) Rebuild(ctx context.Context, chunks []WikiChunk, xrefs map[stri
 	}
 
 	idx := lanceChunkIndexes()
-	if vecCount < lanceWikiMinRowsForVectorIndex {
+	embedded, _ := w.EmbeddingStats(ctx)
+	if embedded < lanceWikiMinRowsForVectorIndex {
 		idx = withoutWikiColumn(idx, lanceWikiVector)
-		w.log().Info("wiki vector index not built: too few embeddings to train on",
-			"vectors", vecCount, "required", lanceWikiMinRowsForVectorIndex,
-			"impact", "semantic search still answers, by scanning instead of by index")
 	}
 	if err := w.chunks.EnsureIndexes(ctx, idx...); err != nil {
 		return err
 	}
+	if len(deleted) > 0 || changedCount > 0 {
+		if err := w.chunks.FoldNewRowsIntoIndexes(ctx); err != nil {
+			return err
+		}
+	}
 
-	w.log().Info("wiki index rebuild", "chunks", len(chunks), "vectors", vecCount,
-		"duration_ms", time.Since(t0).Seconds()*1000)
-
-	// A rebuild replaces the whole chunk set, leaving the superseded copy and the fragments
-	// behind it on disk. Nothing else reclaims them.
-	w.Maintain(ctx)
+	w.log().Info("wiki index sync", "desired_chunks", len(chunks), "upserted", changedCount, "deleted", len(deleted),
+		"changed_refs", len(changedRefSources), "duration_ms", time.Since(t0).Seconds()*1000)
+	w.maintainIfDue(ctx)
 	return nil
+}
+
+func sortedUnique(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := append([]string(nil), values...)
+	sort.Strings(out)
+	n := 0
+	for _, value := range out {
+		if n == 0 || out[n-1] != value {
+			out[n] = value
+			n++
+		}
+	}
+	return out[:n]
+}
+
+const wikiMaintenanceInterval = 15 * time.Minute
+
+func (w *WikiDB) maintainIfDue(ctx context.Context) {
+	const key = "last_maintenance"
+	if w.meta == nil {
+		return
+	}
+	hits, err := w.meta.Search(ctx, lancestore.Query{
+		Filter: fmt.Sprintf("key = %s", lanceQuote(key)), Limit: 1,
+	})
+	if err == nil && len(hits) > 0 {
+		if last, parseErr := time.Parse(time.RFC3339, str(hits[0].Row["value"])); parseErr == nil && time.Since(last) < wikiMaintenanceInterval {
+			return
+		}
+	}
+	w.Maintain(ctx)
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := w.meta.Upsert(ctx, "key", []lancestore.Row{{"key": key, "value": now}}); err != nil {
+		w.log().Warn("recording wiki maintenance", "error", err)
+	}
 }
 
 func withoutWikiColumn(in []lancestore.Index, column string) []lancestore.Index {
@@ -533,23 +559,6 @@ func withoutWikiColumn(in []lancestore.Index, column string) []lancestore.Index 
 		}
 	}
 	return out
-}
-
-func (w *WikiDB) createTables(ctx context.Context) error {
-	var err error
-	if w.chunks, err = w.store.CreateTable(ctx, lanceChunksTable, lanceChunksSchema(ai.ResolveConfiguredEmbeddingDimensions())); err != nil {
-		return err
-	}
-	if w.xrefs, err = w.store.CreateTable(ctx, lanceXRefsTable, lanceXRefsSchema()); err != nil {
-		return err
-	}
-	if w.syncLog, err = w.store.CreateTable(ctx, lanceSyncLogTable, lanceSyncLogSchema()); err != nil {
-		return err
-	}
-	if w.meta, err = w.store.CreateTable(ctx, lanceMetaTable, lanceMetaSchema()); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (w *WikiDB) ensureTables(ctx context.Context) error {
@@ -1068,8 +1077,7 @@ func (w *WikiDB) EmbeddingStats(ctx context.Context) (embedded, total int) {
 	return len(hits), total
 }
 
-// StoredEmbeddings returns every vector, so a caller can carry them into the shard cache and have
-// them survive the next rebuild without re-running the model.
+// StoredEmbeddings returns every vector stored in the wiki table.
 func (w *WikiDB) StoredEmbeddings(ctx context.Context) ([]StoredEmbedding, error) {
 	if err := w.ensureTables(ctx); err != nil {
 		return nil, err

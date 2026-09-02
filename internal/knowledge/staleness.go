@@ -1,15 +1,10 @@
 package knowledge
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
-
-const manifestFileName = ".manifest.json"
 
 // Manifest tracks source file hashes for staleness detection.
 type Manifest struct {
@@ -23,33 +18,20 @@ type StaleInfo struct {
 	Reason string // human-readable reason
 }
 
-// LoadManifest reads the manifest from the wiki directory.
-// Returns an empty manifest if the file doesn't exist.
-func LoadManifest(wikiDir string) *Manifest {
+// ManifestFromChunks derives the previous source state from the table itself.
+func ManifestFromChunks(chunks []wiki.WikiChunk) *Manifest {
 	m := &Manifest{
 		SourceHashes: make(map[string]string),
 		PageSources:  make(map[string]string),
 	}
-	data, err := os.ReadFile(filepath.Join(wikiDir, manifestFileName))
-	if err != nil {
-		return m
-	}
-	_ = json.Unmarshal(data, m)
-	if m.SourceHashes == nil {
-		m.SourceHashes = make(map[string]string)
-	}
-	if m.PageSources == nil {
-		m.PageSources = make(map[string]string)
+	for _, chunk := range chunks {
+		if chunk.Source == "" {
+			continue
+		}
+		m.SourceHashes[chunk.Source] = chunk.ContentHash
+		m.PageSources[chunk.Slug] = chunk.Source
 	}
 	return m
-}
-
-func SaveManifest(wikiDir string, m *Manifest) {
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(filepath.Join(wikiDir, manifestFileName), data, 0o644)
 }
 
 // DetectStalePages compares old and new manifests and uses the cross-ref graph

@@ -26,24 +26,8 @@ import (
 // install and nothing is converted on publish: the directory IS the queryable artifact, which is
 // also what lets it be read straight off S3 without being downloaded at all.
 
-// BundleDir is where an artifact keeps its index, relative to its root.
-const BundleDir = WikiIndexDirName
-
-// HasBundle reports whether dir holds a finished export.
-func HasBundle(dir string) bool {
-	info, err := os.Stat(BundlePath(dir))
-	return err == nil && info.IsDir()
-}
-
-// BundlePath is the index directory inside an artifact root.
-func BundlePath(root string) string { return filepath.Join(root, BundleDir) }
-
-// ExportToParquet copies the index of the wiki at wikiDir into outDir.
-//
-// The name is kept because callers and artifact layouts use it, and because what it produces is
-// still a directory of Parquet-family files — Lance's data files are Parquet-encoded. What is no
-// longer true is that anything is transformed on the way out.
-func ExportToParquet(ctx context.Context, wikiDir, outDir string) (int64, error) {
+// StagePublishedIndex validates a local wiki and copies its Lance index into stagingRoot.
+func StagePublishedIndex(ctx context.Context, wikiDir, stagingRoot string) (int64, error) {
 	src := WikiIndexPath(wikiDir)
 	info, err := os.Stat(src)
 	if err != nil || !info.IsDir() {
@@ -61,38 +45,11 @@ func ExportToParquet(ctx context.Context, wikiDir, outDir string) (int64, error)
 	}
 	_ = db.Close()
 
-	n, err := copyDirTree(src, outDir)
+	n, err := copyDirTree(src, WikiIndexPath(stagingRoot))
 	if err != nil {
 		return 0, fmt.Errorf("wiki export: %w", err)
 	}
 	return n, nil
-}
-
-// ImportFromParquet places a published index into the wiki at wikiDir.
-//
-// It reports how many chunks landed, for the same reason BuildDBFromCache does — zero is a real
-// answer rather than an error, and a caller that read it as success would leave a healthy, empty
-// index behind.
-func ImportFromParquet(ctx context.Context, wikiDir, inDir string) (int, error) {
-	info, err := os.Stat(inDir)
-	if err != nil || !info.IsDir() {
-		return 0, fmt.Errorf("wiki import: no index at %s", inDir)
-	}
-	if _, err := copyDirTree(inDir, WikiIndexPath(wikiDir)); err != nil {
-		return 0, fmt.Errorf("wiki import: %w", err)
-	}
-
-	db, err := OpenWikiDB(ctx, wikiDir)
-	if err != nil {
-		return 0, fmt.Errorf("wiki import: the copied index does not open: %w", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	chunks, _, _, _, err := db.Stats(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("wiki import: count: %w", err)
-	}
-	return chunks, nil
 }
 
 // copyDirTree copies a directory recursively, returning the bytes written.

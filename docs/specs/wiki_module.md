@@ -19,26 +19,26 @@ related:
 
 # Wiki Module Specification
 
-The Wiki module converts raw documentation files into a structured, agent-navigable knowledge base.
-Instead of relying solely on black-box vector databases, it builds an interconnected Obsidian-style markdown wiki graph.
-This format enables AI agents to explore technical manuals through deterministic backlinks and fuzzy cross-references.
+The Wiki module compiles documentation and memory records into a structured, agent-navigable
+LanceDB store. Page content, metadata, embeddings, cross-references, and sync history are tables in
+one `index.lance/` directory; rendered Markdown is an output format, not a second store.
 
 ---
 
-## 📂 Obsidian Wiki Compilation
+## 📂 Wiki compilation
 
 On synchronization (`graphit sync`), the indexer pipeline scans the project's documentation tree — `knowledge.docs_dir`, which defaults to `docs` — plus the project root's README.
 The set of file extensions to index is configurable via `knowledge.extensions` (comma-separated, e.g., `md,yaml,json,proto`). By default, it indexes 16 extensions covering markdown, structured data, schema, and spec formats.
 
-It compiles these files into a structured wiki in the global brand directory —
+It compiles these files into a wiki in the global brand directory —
 `~/.graphit/wiki/knowledge/project/<project-id>/` — which is the one place every wiki
-tool opens for that project. An imported context compiles to
-`~/.graphit/wiki/knowledge/context/<name>/`. Nothing is written into the project; see
+tool opens for that project. A versioned Hub knowledge artifact is mounted directly from its
+`s3://` prefix and is not downloaded or recompiled by the consumer. Nothing is written into the project; see
 [Storage Layout](../architecture/storage_layout.md):
 
-- **`index.md`**: The entry point.
-  Lists all indexed pages, computed community clusters, "God Nodes" (the most connected documents), and global network metrics.
-- **`log.md`**: An updates timeline tracking modified files.
+- **`index.lance/`**: the complete queryable artifact.
+- **Virtual `index.md` and `log.md` views**: rendered from the `chunks` and `sync_log` tables when
+  a caller requests or exports them; they are not persisted beside the store.
 - **Wikilink Parsing**:
   The indexer parses legacy Obsidian-style double-bracket page references.
   It registers references as edges in a temporary graph to analyze connections.
@@ -47,8 +47,7 @@ tool opens for that project. An imported context compiles to
 
 The walk is scoped, but the paths it reports are not. `knowledge.WikiScope` names
 what under the root is read; the root itself stays the **project directory**, so
-every path the wiki records — the `source:` field on a page, the `.manifest.json`
-entry, the process-cache key — is relative to the project root.
+every `source` path stored in the table is relative to the project root.
 
 ```go
 type WikiScope struct {
@@ -89,9 +88,10 @@ Collection therefore starts at the **docs tree** while resolving against the
 **project** (`NewKnowledgeIgnoreCheckerIn`). That combination is what makes both
 levels work at once: a root-level pattern applies from the root, and a
 `.wikiignore` kept inside the docs tree applies within the docs tree. Passing the
-project as the start directory as well would have read only the root one. Both are
-registered as `StatPreCheck` watch files, so editing either invalidates the
-fast-path that would otherwise skip the rebuild.
+project as the start directory as well would have read only the root one. The source tree is
+enumerated and hashed on sync. `FastPathCheck` compares the resulting slug/hash projection with the
+`chunks` table, so edits, additions, deletions, and ignore-file changes cannot be hidden by a
+sidecar cache.
 
 Collection only ever walks upward, so an ignore file deeper than the docs tree —
 `docs/specs/.wikiignore` — is not read. That is true of the AST side as well and
@@ -105,70 +105,20 @@ Documents found by the walk and named in `ExtraFiles` are de-duplicated by path,
 so `knowledge.docs_dir=.` — where the walk already finds the README — indexes it
 once, not twice.
 
-An **imported context** passes the zero `WikiScope`: its extracted docs tree
-already *is* the root, so there is nothing to narrow.
-
 ### Multi-Format Rendering
 
 The pipeline treats file types differently based on their content nature:
 
 | File Type | Splitting | Content Rendering |
 |---|---|---|
-| Markdown (`.md`, `.markdown`, `.mdx`) | Split by `## H2` headers into parent/child pages | Rendered as native markdown |
-| Structured data (`.yaml`, `.json`, `.graphql`, `.xml`) | Kept as a single page | Wrapped in a fenced code block with syntax highlighting (e.g., ` ```yaml `) |
-| Other formats (`.proto`, `.rst`, `.txt`, etc.) | Kept as a single page | Wrapped in a plain fenced code block (` ``` `) |
+| Markdown (`.md`, `.markdown`, `.mdx`) | One row per document | Stored as authored |
+| Structured data (`.yaml`, `.json`, `.graphql`, `.xml`) | One row per document | Stored as authored |
+| Other formats (`.proto`, `.rst`, `.txt`, etc.) | One row per document | Stored as authored |
 
-Only languages supported by the UI renderer (Prism) receive language tags. Unsupported languages render as plain monospaced text.
+The document is the unit for every format. This keeps one stable slug and one row per source and
+prevents empty heading fragments from entering retrieval.
 
-## 🗂️ Process Cache: one file per source file
-
-`internal/wiki/process_cache.go` holds the processed chunks and the embedding vectors of
-every source document, keyed by content hash. When a document has not changed, its
-chunks and vectors are reused rather than re-derived — and re-deriving a vector means
-running the ONNX embedding model, which is the expensive half of a sync.
-
-**The cache is the source of truth; `index.lance/` is always rebuilt from it.**
-
-Every file in the cache belongs to exactly one source document:
-
-```
-shards/<relPath>.wiki.json   processed chunks — complete enough to rebuild a WikiChunk
-shards/<relPath>.emb.json    embedding vectors (content_hash → base64 blob)
-shards/<relPath>.meta.json   hash, mtime, size, slug, outgoing cross-refs
-watch/<name>.json            stat of a non-source file whose change invalidates the wiki
-```
-
-### Why there is no shared index file
-
-This used to keep one `manifest.json` with an entry per source document, which is the
-obvious design and the wrong one here: a memory scope's cache travels in a git branch
-that **every developer on a team pushes to**. Two people compiling independently produce
-two divergent versions of that single file, git cannot merge JSON, and the rebase the
-memory store depends on fails on every concurrent push.
-
-Per-file sidecars remove the shared write target entirely — two people adding different
-memories add different files, which git merges without being asked. The index is rebuilt
-by walking the shard tree on open, one pass over a few hundred small files.
-
-### The shard is a COMPLETE chunk
-
-`CachedChunk` carries every field of a `WikiChunk` that cannot be derived from the cache
-key or the body: title, body, summary, doc type, breadcrumb, cross-refs, **cluster,
-confidence, updated date and importance**. Derived rather than stored: `Source` is the
-cache key, `Slug` is in the sidecar (one per file, not one per chunk), and `WordCount` is
-counted from the body.
-
-That completeness is a requirement, not a convenience: it is what lets
-`wiki.BuildDBFromCache(dir)` build a search index **with no source document anywhere on
-the machine**, which is how a published knowledge context is installed. A field left out
-of `CachedChunk` is silently lost on such an install.
-
-The corpus-level fields — slug and community — are only knowable after the whole corpus
-has been processed, so they are recorded separately by `StoreDerived`, which writes
-nothing when every value already matches. Without that guard the cache would stop being
-incremental: `StoreDerived` is called for every document on every run.
-
-### The index itself (`index.lance/`)
+### The store (`index.lance/`)
 
 `index.lance/` is a **LanceDB** dataset directory, written and read by
 `internal/wiki/store.go`. **Four** tables:
@@ -177,8 +127,8 @@ incremental: `StoreDerived` is called for every document on every run.
 |---|---|
 | `chunks` | one row per chunk: the page, its search document, and its vector as a COLUMN |
 | `xrefs` | cross-references, as `source_slug` → `target_slug` |
-| `sync_log` | the sync timeline, bounded at 50 entries |
-| `meta` | persistent counters that survive a rebuild |
+| `sync_log` | the sync timeline; readers return at most the configured recent window |
+| `meta` | maintenance timestamps and store metadata |
 
 **There is no `chunk_emb`, and its absence is the design.** The embedding is a column of the
 chunk, so deleting the chunk deletes its vector and the class of bug where a stale vector answers
@@ -202,15 +152,14 @@ endpoints would silently drop exactly the dangling links a docs lint exists to r
 walks them in Go, with a visited set. This has now survived a round trip through TWO storage
 engines unchanged, which is the best evidence the reasoning was about the data and not the storage.
 
-**`Rebuild` drops and rewrites.** Under SQLite it wrote a fresh database and renamed it over the
-live one, forced by `sqlite-vec`'s inability to reclaim a deleted row's space. Here a write produces
-a new immutable version of the dataset, so there is no log to checkpoint and no `-wal`/`-shm` to
-clean up after: what is on disk after a write is the whole truth, and a copy of the directory is a
-valid dataset.
+**`Sync` is row-incremental.** It compares the desired corpus with the current table by slug,
+deletes only rows that disappeared, and upserts only rows whose compiled value changed. An
+unchanged row keeps its embedding. Cross-reference sources are updated by the same delta rule.
+New rows are folded into existing indexes, and compaction/version pruning run on a maintenance
+schedule rather than on every sync.
 
-**The sync log is the ONE table that survives a rebuild**, because it is the history *of* rebuilds.
-Clearing it on every rebuild would leave it permanently one entry long, which reads as "this wiki
-has only ever synced once".
+**The sync log is append-only history.** Incremental writes never drop it; catalogue and export
+surfaces read its newest entries directly from the table.
 
 **A vector index needs 256 rows to train.** Below that floor it is skipped and semantic search
 answers by scanning. A wiki with fewer than 256 pages therefore has no vector index, and that is
@@ -227,21 +176,21 @@ page file is ever transferred. Two consequences that surprise:
   published store, so a mounted wiki once answered every query with "read-only". A mounted
   artifact's tables exist by definition; they are OPENED.
 
-A **memory** wiki is deliberately never mounted. It is read-and-write and multi-writer, so it
-carries its source and is compiled locally. The distinction is mutability, not file format.
+A **memory** wiki is deliberately never published as a versioned knowledge artifact. Its source
+table is read-and-write and multi-writer; each machine compiles the local query projection for the
+scope it uses. The distinction is mutability, not file format.
 
 ### Staleness Tracking
 
-A `.manifest.json` file (local, git-ignored) persists SHA-256 content hashes of source files across syncs.
-It is the knowledge module's own file (`internal/knowledge/staleness.go`) and is unrelated
-to the process cache above — for a while both existed side by side under confusingly
-similar names, and only this one remains.
-When a source file changes, the corresponding wiki page is marked as stale in its frontmatter (`stale_since`, `stale_reason`).
+The previous source/path/hash projection is derived from the current `chunks` rows; no manifest
+sidecar exists. When a source file changes, the corresponding row is marked through the
+`stale_since` and `stale_reason` columns.
 Staleness propagates transitively: if page A references page B, and B's source changes, A is also marked stale.
 
 ### Breadcrumbs & ToC
 
-Each split child page includes a breadcrumb trail (e.g., `> Parent > Section`) and a link back to its parent page, enabling hierarchical navigation in the wiki explorer.
+Each knowledge row carries its source path as a breadcrumb, so file and directory terms participate
+in retrieval without splitting a document into synthetic child pages.
 
 ### Reading Frontmatter
 
@@ -261,9 +210,8 @@ as the author wrote it — while keeping YAML's type resolution out of the way, 
 that happens to be all digits stays the string it was.
 
 `ExtractTitle` and `ExtractSummary` (`internal/wiki/docutil.go`) try this first and **fall back
-to a line scan** when it returns `ok=false`. The fallback is not redundancy for its own sake:
-wiki pages themselves are still written with hand-assembled frontmatter, so a title containing
-`": "` produces a block that does not parse, and the scan is what keeps such a page readable.
+to a line scan** when it returns `ok=false`, so malformed or absent source frontmatter does not
+make a document unreadable.
 
 Summaries are capped at 200 characters, counted in **runes**, so a multi-byte character is
 never cut in half.

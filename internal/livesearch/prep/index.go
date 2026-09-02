@@ -18,8 +18,8 @@ import (
 // compiles its documentation wiki, and a session has no daemon and no time for one,
 // so preparation built one itself. That is no longer necessary, and it was never
 // harmless. It is unnecessary because an installed knowledge context now arrives
-// already compiled — the Hub install runs wiki.BuildDBFromCache, so every context has
-// its own searchable index before this code would have run. It was harmful because
+// already compiled — a Hub knowledge artifact is a versioned LanceDB index mounted from S3. It was
+// harmful because
 // the only place it could compile to was the wiki keyed by this workspace's project
 // ID, and a throwaway search does not get a documentation wiki of its own.
 //

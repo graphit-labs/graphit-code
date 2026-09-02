@@ -53,25 +53,6 @@ func indexedMemoryPages(t *testing.T, wikiDir string) (live, superseded int, ids
 	return live, superseded, ids
 }
 
-func TestIsForkedMemoryFileName(t *testing.T) {
-	tests := []struct {
-		name string
-		want bool
-	}{
-		{"01ARZ3NDEKTSV4RRFFQ69G5FAV.md", false},
-		{"01ARZ3NDEKTSV4RRFFQ69G5FAV_important_.md", true},
-		{"01ARZ3NDEKTSV4RRFFQ69G5FAV_2.md", true},
-		{"MEM1.md", false},
-		{"index.md", false},
-		{"a-hand-written-fixture-name-that-is-long.md", false},
-	}
-	for _, tc := range tests {
-		if got := isForkedMemoryFileName(tc.name); got != tc.want {
-			t.Errorf("isForkedMemoryFileName(%q) = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
 // A search result budget must count memories, not index rows: collapsing a chain after ranking
 // would otherwise silently shrink the answer.
 func TestTopKCountsDistinctMemories(t *testing.T) {
@@ -274,8 +255,8 @@ func TestSupersessionColumnsRoundTripThroughTheIndex(t *testing.T) {
 			Superseded: true, CurrentID: "adr-0007", WordCount: 6,
 		},
 	}
-	if err := wiki.RebuildDB(context.Background(), wikiDir, chunks, nil, nil, nil); err != nil {
-		t.Fatalf("RebuildDB: %v", err)
+	if err := wiki.SyncDB(context.Background(), wikiDir, chunks, nil, nil); err != nil {
+		t.Fatalf("SyncDB: %v", err)
 	}
 
 	db, err := wiki.OpenWikiDB(context.Background(), wikiDir)

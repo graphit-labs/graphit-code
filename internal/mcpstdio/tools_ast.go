@@ -281,7 +281,7 @@ func registerASTTools(server *mcp.Server) {
 		ms, msErr := memory.NewMemoryStore()
 		if msErr == nil {
 			memsvc := memory.NewMemoryServiceForContext(input.Context, ms)
-			_ = memsvc.SyncToLocal()
+			_ = memsvc.SyncWiki()
 			_ = memsvc.Close()
 		}
 

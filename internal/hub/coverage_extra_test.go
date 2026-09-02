@@ -357,7 +357,7 @@ func TestHubService_Unlink_Success(t *testing.T) {
 	})
 }
 
-func TestHubService_EnsureKnowledgeAvailable_VersionBranches(t *testing.T) {
+func TestHubService_ResolveKnowledgeMount_VersionBranches(t *testing.T) {
 	t.Parallel()
 
 	t.Run("invalid version constraint", func(t *testing.T) {
@@ -370,7 +370,7 @@ func TestHubService_EnsureKnowledgeAvailable_VersionBranches(t *testing.T) {
 			"my-kn": {ID: "my-kn", Type: TypeKnowledge, Latest: "1.0.0"},
 		}
 		svc := &HubService{registry: m}
-		_, err := svc.EnsureKnowledgeAvailable(context.Background(), "my-kn@!!!invalid")
+		_, err := svc.ResolveKnowledgeMount(context.Background(), "my-kn@!!!invalid")
 		if err == nil {
 			t.Error("expected error for invalid constraint")
 		}
@@ -386,7 +386,7 @@ func TestHubService_EnsureKnowledgeAvailable_VersionBranches(t *testing.T) {
 			"my-kn": {ID: "my-kn", Type: TypeKnowledge, Latest: "2.0.0", Versions: []string{"1.0.0", "2.0.0"}},
 		}
 		svc := &HubService{registry: m}
-		_, err := svc.EnsureKnowledgeAvailable(context.Background(), "my-kn@^99.0.0")
+		_, err := svc.ResolveKnowledgeMount(context.Background(), "my-kn@^99.0.0")
 		if err == nil {
 			t.Error("expected error for no matching version")
 		}

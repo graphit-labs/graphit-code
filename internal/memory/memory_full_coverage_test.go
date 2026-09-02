@@ -234,7 +234,7 @@ func TestMemoryService_AddMemory_WithTypeAndTags(t *testing.T) {
 	}
 }
 
-func TestMemoryService_SyncToLocal_WithGitStore(t *testing.T) {
+func TestMemoryServiceSyncWiki(t *testing.T) {
 	wtBase := filepath.Join(t.TempDir(), "wt")
 	store := &MemoryStore{tableBase: wtBase}
 
@@ -253,9 +253,9 @@ func TestMemoryService_SyncToLocal_WithGitStore(t *testing.T) {
 		t.Fatalf("AddMemory: %v", err)
 	}
 
-	err = svc.SyncToLocal()
+	err = svc.SyncWiki()
 	if err != nil {
-		t.Fatalf("SyncToLocal: %v", err)
+		t.Fatalf("SyncWiki: %v", err)
 	}
 
 	// The sync may or may not find the file depending on branch setup

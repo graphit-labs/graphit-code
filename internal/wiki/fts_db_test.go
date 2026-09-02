@@ -77,8 +77,8 @@ func rebuiltTestDB(t *testing.T) *WikiDB {
 		"autenticacao": {"indexacao"},
 		"indexacao":    {"implantacao"},
 	}
-	if err := db.Rebuild(context.Background(), testChunks(), xrefs, nil, nil); err != nil {
-		t.Fatalf("Rebuild: %v", err)
+	if err := db.Sync(context.Background(), testChunks(), xrefs, nil); err != nil {
+		t.Fatalf("Sync: %v", err)
 	}
 	return db
 }
@@ -111,8 +111,8 @@ func TestWikiDBReopenKeepsContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenWikiDB: %v", err)
 	}
-	if err := db.Rebuild(context.Background(), testChunks(), nil, nil, nil); err != nil {
-		t.Fatalf("Rebuild: %v", err)
+	if err := db.Sync(context.Background(), testChunks(), nil, nil); err != nil {
+		t.Fatalf("Sync: %v", err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -203,9 +203,9 @@ func TestWikiDBSearchHandlesAccents(t *testing.T) {
 	}
 }
 
-// A rebuild replaces the index rather than appending to it: content that is gone
+// A sync removes content that is gone
 // from the input must be gone from the index.
-func TestWikiDBRebuildDropsRemovedChunks(t *testing.T) {
+func TestWikiDBSyncDropsRemovedChunks(t *testing.T) {
 	db := rebuiltTestDB(t)
 
 	if res, _ := db.Search(context.Background(), "credenciais", 5); len(res) == 0 {
@@ -213,8 +213,8 @@ func TestWikiDBRebuildDropsRemovedChunks(t *testing.T) {
 	}
 
 	kept := testChunks()[1:]
-	if err := db.Rebuild(context.Background(), kept, nil, nil, nil); err != nil {
-		t.Fatalf("second Rebuild: %v", err)
+	if err := db.Sync(context.Background(), kept, nil, nil); err != nil {
+		t.Fatalf("second Sync: %v", err)
 	}
 
 	res, err := db.Search(context.Background(), "credenciais", 5)
@@ -223,8 +223,7 @@ func TestWikiDBRebuildDropsRemovedChunks(t *testing.T) {
 	}
 	for _, r := range res {
 		if r.Slug == "autenticacao" {
-			t.Error("a chunk dropped from the input is still in the index — a rebuild " +
-				"is appending instead of replacing")
+			t.Error("a chunk dropped from the input is still in the index")
 		}
 	}
 
@@ -234,26 +233,6 @@ func TestWikiDBRebuildDropsRemovedChunks(t *testing.T) {
 	}
 	if chunks != len(kept) {
 		t.Errorf("%d chunks after the rebuild, want %d", chunks, len(kept))
-	}
-}
-
-// CheckAllHashesMatch is the fast path that decides whether a rebuild is needed
-// at all, so a wrong answer either wastes a full rebuild or serves stale pages.
-func TestWikiDBCheckAllHashesMatch(t *testing.T) {
-	db := rebuiltTestDB(t)
-
-	if !db.CheckAllHashesMatch(context.Background(), testChunks()) {
-		t.Error("identical chunks reported as changed — every sync would rebuild")
-	}
-
-	changed := testChunks()
-	changed[0].ContentHash = "h-auth-modificado"
-	if db.CheckAllHashesMatch(context.Background(), changed) {
-		t.Error("a changed hash reported as matching — the wiki would serve stale content")
-	}
-
-	if db.CheckAllHashesMatch(context.Background(), testChunks()[1:]) {
-		t.Error("a removed chunk reported as matching")
 	}
 }
 

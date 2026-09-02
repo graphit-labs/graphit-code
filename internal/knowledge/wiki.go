@@ -98,9 +98,7 @@ func (s WikiScope) walkRoots(absRoot string) []string {
 	return []string{s.walkRoot(absRoot)}
 }
 
-// enumerateKnowledgeSources walks the scope once. Both the added-document check
-// in StatPreCheck and the generation pass read from this single result — walking
-// twice per index is what this exists to avoid.
+// enumerateKnowledgeSources walks the scope once for the generation pass.
 func enumerateKnowledgeSources(absRoot string, scope WikiScope, exts map[string]bool, ic ignorer.DirScope) ([]knowledgeSource, error) {
 	var sources []knowledgeSource
 	seen := make(map[string]bool)
@@ -159,14 +157,6 @@ func enumerateKnowledgeSources(absRoot string, scope WikiScope, exts map[string]
 	return sources, nil
 }
 
-func knowledgeSourceRelPaths(sources []knowledgeSource) []string {
-	names := make([]string, len(sources))
-	for i, s := range sources {
-		names[i] = s.relPath
-	}
-	return names
-}
-
 // GenerateKnowledgeWiki compiles the documents under rootPath into the wiki at
 // wikiDir. scope narrows which of them are read; see WikiScope.
 func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowedExts map[string]bool, scope WikiScope) (*WikiResult, error) {
@@ -190,99 +180,37 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		exts = supportedKnowledgeExts
 	}
 
-	// Load process cache (JSON shards) for incremental rebuilds.
-	processCache, _ := wiki.NewWikiProcessCache(wikiDir)
-
 	candidates, err := enumerateKnowledgeSources(absRoot, scope, exts, ic)
 	if err != nil {
 		return nil, fmt.Errorf("walking docs: %w", err)
 	}
 
-	// STAT PRE-CHECK (shared AST pattern via wiki.StatPreCheck)
-	// If all cached source files are stat-unchanged, no document was added and
-	// the index already holds content, skip the full rebuild entirely.
-	// Both ignore files are watched: editing either changes what is in scope, and
-	// a stat-unchanged tree would otherwise skip the rebuild that has to notice.
-	watchFiles := []string{KnowledgeIgnoreFile}
-	if rel, relErr := filepath.Rel(absRoot, walkRoot); relErr == nil && rel != "." {
-		watchFiles = append(watchFiles, filepath.Join(rel, KnowledgeIgnoreFile))
-	}
-	if wiki.StatPreCheck(ctx, absRoot, wikiDir, processCache, wiki.StatPreCheckOpts{
-		WatchFiles:         watchFiles,
-		CurrentSourceFiles: func() []string { return knowledgeSourceRelPaths(candidates) },
-	}) {
-		return &WikiResult{OutputDir: wikiDir}, nil
-	}
-
-	// Track which source files exist for pruning stale cache entries.
-	validPaths := make(map[string]bool)
-
 	type sourceFile struct {
 		relPath     string
 		data        []byte
 		contentHash string
-		ext         string
 		mtime       int64
-		size        int64
 	}
 	sources := make([]sourceFile, 0, len(candidates))
 
 	for _, c := range candidates {
-		// Stat-cache fast-path: if mtime+size match the processCache, the
-		// content hasn't changed. Skip ReadFile and use the cached hash.
-		// This is the same technique as git's index stat caching.
-		if processCache != nil {
-			if cachedHash, ok := processCache.StatMatch(c.relPath, c.mtime, c.size); ok {
-				validPaths[c.relPath] = true
-				sources = append(sources, sourceFile{
-					relPath:     c.relPath,
-					contentHash: cachedHash,
-					ext:         c.ext,
-					mtime:       c.mtime,
-					size:        c.size,
-				})
-				continue
-			}
-		}
-
-		// Stat didn't match (or no cache): read the file and hash it.
 		data, readErr := os.ReadFile(filepath.Join(absRoot, c.relPath))
 		if readErr != nil {
 			continue
 		}
 
 		contentHash := fmt.Sprintf("%x", sha256.Sum256(data))[:16]
-		validPaths[c.relPath] = true
 		sources = append(sources, sourceFile{
 			relPath:     c.relPath,
 			data:        data,
 			contentHash: contentHash,
-			ext:         c.ext,
 			mtime:       c.mtime,
-			size:        c.size,
 		})
-		// If hash matches cache, record the new mtime so next sync can skip
-		// ReadFile entirely via StatMatch (same as AST's StoreMtime pattern).
-		if processCache != nil && !processCache.HasChanged(c.relPath, contentHash) {
-			processCache.StoreMtime(c.relPath, c.mtime, c.size)
-		}
 	}
 
-	// Before pruning: identify deleted keys that had outgoing cross-refs.
-	// If any exist, their targets will lose a backlink → graph rebuild needed.
-	var deletedWithRefs []string
-	if processCache != nil {
-		for _, key := range processCache.AllCacheKeys() {
-			if !validPaths[key] && len(processCache.GetOutRefs(key)) > 0 {
-				deletedWithRefs = append(deletedWithRefs, key)
-			}
-		}
-		processCache.Prune(validPaths)
-	}
-
-	// Process sources: one wiki document per source file, cached when unchanged.
-	// Track changed keys and their cross-refs for incremental graph detection.
-	// oldOutRefs is captured BEFORE WikiProcessCache.Store resets the entry.
+	// Process sources: one wiki document per source file. The compiled table is the cache: the
+	// incremental writer below compares these rows with what is already stored and preserves
+	// unchanged rows and their embeddings.
 	//
 	// THE DOCUMENT IS THE UNIT. A source file is never split into per-heading
 	// pieces. Splitting produced one page per heading, and a heading whose whole
@@ -290,47 +218,9 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	// index — which still carried a title into the ranking and outranked the
 	// prose it was supposed to introduce. It also made a document's own page the
 	// empty one whenever the document opened with a single H1.
-	var changedKeys []string
-	oldOutRefs := make(map[string][]string)
-	newOutRefs := make(map[string][]string)
 	var docs []knowledgeDoc
 	for _, src := range sources {
 		updatedAt := time.Unix(0, src.mtime).UTC().Format("2006-01-02")
-
-		// Try cache first.
-		if processCache != nil && !processCache.HasChanged(src.relPath, src.contentHash) {
-			if cached := processCache.Get(src.relPath, src.contentHash); len(cached) > 0 {
-				cc := cached[0]
-				docs = append(docs, knowledgeDoc{
-					title:       cc.Title,
-					path:        src.relPath,
-					summary:     cc.Summary,
-					docType:     cc.DocType,
-					body:        cc.Body,
-					breadcrumb:  cc.Breadcrumb,
-					contentHash: cc.ContentHash,
-					crossRefs:   cc.CrossRefs,
-					isMarkdown:  cc.IsMarkdown,
-					updatedAt:   updatedAt,
-				})
-				continue
-			}
-		}
-
-		// Cache miss or changed — process from source.
-		//
-		// The stat fast-path above leaves data nil when it trusted mtime+size, so
-		// the content has to be read HERE rather than assumed present: reaching
-		// this point with a stat hit and a cache miss would otherwise index the
-		// document as empty, which reads as "the document says nothing" instead
-		// of as a cache fault.
-		if src.data == nil {
-			data, readErr := os.ReadFile(filepath.Join(absRoot, src.relPath))
-			if readErr != nil {
-				continue
-			}
-			src.data = data
-		}
 		content := string(src.data)
 
 		doc := knowledgeDoc{
@@ -345,37 +235,9 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 			breadcrumb:  filepath.ToSlash(src.relPath),
 			contentHash: src.contentHash,
 			crossRefs:   wiki.ExtractCrossRefs(content),
-			isMarkdown:  src.ext == ".md" || src.ext == ".markdown" || src.ext == ".mdx",
 			updatedAt:   updatedAt,
 		}
 		docs = append(docs, doc)
-
-		// Store in cache.
-		if processCache != nil {
-			// Save old cross-refs BEFORE Store() resets the manifest entry.
-			oldOutRefs[src.relPath] = processCache.GetOutRefs(src.relPath)
-
-			processCache.Store(src.relPath, src.contentHash, []wiki.CachedChunk{{
-				Title:       doc.title,
-				Body:        doc.body,
-				Summary:     doc.summary,
-				DocType:     doc.docType,
-				Breadcrumb:  doc.breadcrumb,
-				ContentHash: doc.contentHash,
-				CrossRefs:   doc.crossRefs,
-				IsMarkdown:  doc.isMarkdown,
-			}})
-			// Record mtime+size so the next sync can skip ReadFile via StatMatch.
-			processCache.StoreMtime(src.relPath, src.mtime, src.size)
-			// Collect new cross-refs (stored to processCache after CrossRefsUnchanged).
-			newOutRefs[src.relPath] = doc.crossRefs
-		}
-		changedKeys = append(changedKeys, src.relPath)
-	}
-
-	// Save process cache to disk.
-	if processCache != nil {
-		_ = processCache.Save()
 	}
 
 	// The path breaks ties, which makes the order TOTAL: sort.Slice is not stable,
@@ -401,6 +263,10 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	indexedHashes, err := wiki.IndexedPageHashes(ctx, wikiDir)
 	if err != nil {
 		return nil, fmt.Errorf("reading the compiled index: %w", err)
+	}
+	indexedChunks, err := wiki.IndexedChunks(ctx, wikiDir)
+	if err != nil {
+		return nil, fmt.Errorf("reading the compiled corpus: %w", err)
 	}
 
 	// First pass: resolve slugs and map titles (cheap — no I/O).
@@ -438,38 +304,17 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		}
 	}
 
-	// FAST PATH: use wiki.FastPathCheck which checks processCache (O(1) per entry — no disk I/O)
-	// and the index's own slug set to detect deletions.
-	// Only enter the full pipeline if something actually changed.
+	// FAST PATH: the table's own slug/hash projection is the evidence that no work is needed.
 	fastEntries := make([]wiki.DocHashEntry, len(docs))
 	for i, doc := range docs {
 		fastEntries[i] = wiki.DocHashEntry{
-			CacheKey:    doc.path,
 			ContentHash: doc.contentHash,
 			Slug:        docSlugs[i],
 		}
 	}
-	if wiki.FastPathCheck(ctx, wikiDir, fastEntries, processCache) {
-		// Nothing changed — skip ALL expensive phases, but keep the manifest
-		// current so DetectStalePages has a baseline on the NEXT run.
-		if len(candidates) > 0 {
-			m := LoadManifest(wikiDir)
-			m.SourceHashes = make(map[string]string, len(docs))
-			m.PageSources = make(map[string]string, len(docs))
-			for i, doc := range docs {
-				m.SourceHashes[doc.path] = doc.contentHash
-				m.PageSources[docSlugs[i]] = doc.path
-			}
-			SaveManifest(wikiDir, m)
-		}
+	if wiki.FastPathCheck(ctx, wikiDir, fastEntries) {
 		return result, nil
 	}
-
-	// There was a second skip gate here, for `processCache == nil`: it read the `content_hash`
-	// out of each page's frontmatter and compared it against the source. It is gone rather than
-	// ported to the index, because FastPathCheck above already asks the index the same question —
-	// the only thing this branch did that the fast path does not is work without a process cache,
-	// and a build with no cache is a build that has to run.
 
 	// Full pipeline: something changed or first run.
 	compiledTargets := wiki.BuildAutoLinkTargets(titlesMap)
@@ -483,7 +328,7 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	//
 	// This loop used to end in `writePageIfChanged(<wikiDir>/<slug>.md, knowledgeEntityPage(doc))`,
 	// followed by an `os.Remove` sweep over the slugs no document claimed any more. Both are gone:
-	// RebuildDB below receives these same documents and is the only place one becomes readable, so
+	// SyncDB below receives these same documents and is the only place one becomes readable, so
 	// the page was a second copy of it — written, pruned, and then read back by the cross-reference
 	// pass, the lint and the explorer, all of which now read the index instead.
 	//
@@ -494,8 +339,8 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	// added/updated/deleted are decided by comparing against the index, and the comparison is on
 	// the SOURCE content hash. `writePageIfChanged` compared rendered bytes, which counted a
 	// document as "updated" when a sibling was added and changed its autolinks. That distinction
-	// existed to avoid a pointless file write; there is no file to write, and RebuildDB rewrites
-	// every row regardless, so the cheaper and more honest signal is whether the document itself
+	// existed to avoid a pointless file write; there is no file to write, so the cheaper and more
+	// honest signal is whether the document itself
 	// changed.
 	for i := range docs {
 		slug := docSlugs[i]
@@ -551,21 +396,8 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		return result, nil
 	}
 
-	// Phase 1: Cross-ref graph + backlink injection
-	// Skip if cross-refs haven't changed: no file gained/lost/changed any
-	// wikilink reference, so backlinks are already correct on disk.
-	crossRefsOK := processCache != nil &&
-		wiki.CrossRefsUnchanged(deletedWithRefs, changedKeys, oldOutRefs, newOutRefs)
-
-	// Persist new cross-refs now that the comparison is done.
-	if processCache != nil {
-		for _, key := range changedKeys {
-			if refs, ok := newOutRefs[key]; ok {
-				processCache.StoreOutRefs(key, refs)
-			}
-		}
-		_ = processCache.Save()
-	}
+	// Phase 1: Cross-reference graph. It is rebuilt in memory; the table sync below updates only
+	// source slugs whose edge set changed, so no sidecar graph cache is needed.
 	// `index.md` is not written. It was a catalogue of slugs, titles, types and clusters,
 	// rewritten in full on every build — and rewritten twice more below, once for the clusters and
 	// once for the staleness. Everything on it is a column, so the catalogue is a Browse query:
@@ -575,59 +407,30 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	// The cross-reference graph is built from the edges this pass just resolved, not by reading
 	// pages back and re-extracting their links with two regexes. Same edge set — it is the one
 	// written to the `xrefs` table below — derived once, by the pass that owns it.
-	var graph *wiki.CrossRefGraph
-	if !crossRefsOK {
-		graph = wiki.BuildCrossRefGraphFromRefs(knowledgePageEdges(docs, docSlugs))
-		stats := wiki.CrossRefStats(graph)
-		result.BacklinksAdded = stats.BacklinksAdded
-		result.OrphanPages = stats.OrphanPages
-		result.BrokenLinks = stats.BrokenLinks
-	}
+	graph := wiki.BuildCrossRefGraphFromRefs(knowledgePageEdges(docs, docSlugs))
+	stats := wiki.CrossRefStats(graph)
+	result.BacklinksAdded = stats.BacklinksAdded
+	result.OrphanPages = stats.OrphanPages
+	result.BrokenLinks = stats.BrokenLinks
 
 	// Phase 2: Community detection
-	var communities []KnowledgeCommunity
-	if crossRefsOK {
-		// Cross-refs identical to last run → graph is the same → reuse cached
-		// cluster assignments without rebuilding the community graph.
-		if slugToCluster, slugToClusterName, clOK := loadClusterCache(wikiDir); clOK {
-			for i := range docs {
-				slug := docSlugs[i]
-				if cid, ok := slugToCluster[slug]; ok {
-					docs[i].cluster = cid
-					docs[i].clusterName = slugToClusterName[slug]
-				} else {
-					docs[i].cluster = -1
-				}
-			}
-		}
-	} else if graph != nil {
-		communities = DetectKnowledgeCommunities(graph)
-		result.Communities = len(communities)
-
-		if len(communities) > 0 {
-			slugToCluster, slugToClusterName := AssignCommunities(communities)
-			// Persist cluster assignments for reuse when cross-refs are unchanged.
-			saveClusterCache(wikiDir, slugToCluster, slugToClusterName)
-
-			// The cluster lands on the document, and that is the whole of it. There used to be a
-			// second pass here re-rendering every clustered page and a third rewriting index.md,
-			// because the cluster had to reach the file after the file had already been written.
-			// It reaches the `cluster_id`/`cluster_name` columns instead, and those are filled
-			// from these same documents when the chunks are built below.
-			for i := range docs {
-				slug := docSlugs[i]
-				if cid, ok := slugToCluster[slug]; ok {
-					docs[i].cluster = cid
-					docs[i].clusterName = slugToClusterName[slug]
-				} else {
-					docs[i].cluster = -1
-				}
+	communities := DetectKnowledgeCommunities(graph)
+	result.Communities = len(communities)
+	if len(communities) > 0 {
+		slugToCluster, slugToClusterName := AssignCommunities(communities)
+		for i := range docs {
+			slug := docSlugs[i]
+			if cid, ok := slugToCluster[slug]; ok {
+				docs[i].cluster = cid
+				docs[i].clusterName = slugToClusterName[slug]
+			} else {
+				docs[i].cluster = -1
 			}
 		}
 	}
 
 	// Phase 3: Staleness tracking
-	oldManifest := LoadManifest(wikiDir)
+	oldManifest := ManifestFromChunks(indexedChunks)
 	newManifest := &Manifest{
 		SourceHashes: make(map[string]string),
 		PageSources:  make(map[string]string),
@@ -650,7 +453,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 			}
 		}
 	}
-	SaveManifest(wikiDir, newManifest)
 
 	// Phase 4: Lint
 	if graph != nil {
@@ -664,7 +466,7 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 	sort.Strings(updated)
 	sort.Strings(deleted)
 
-	// Phase 5: Build WikiDB for FTS5 search
+	// Phase 5: incrementally synchronize the LanceDB wiki.
 	wikiChunks := make([]wiki.WikiChunk, 0, len(docs))
 	xrefs := make(map[string][]string)
 	for i, doc := range docs {
@@ -702,22 +504,6 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 			xrefs[slug] = slugRefs
 		}
 
-		// The corpus-level fields go into the cache here, and only here, because
-		// this is the first point at which they all exist: the slug was assigned
-		// after collision resolution, and the community after the whole graph was
-		// built. Without them a shard is not a complete chunk, and a consumer that
-		// installs this wiki without its sources — which is how a published
-		// knowledge context arrives — would lose them.
-		if processCache != nil {
-			processCache.StoreDerived(doc.path, wiki.DerivedChunkFields{
-				Slug:        slug,
-				ClusterID:   doc.cluster,
-				ClusterName: doc.clusterName,
-				Confidence:  confidence,
-				Updated:     doc.updatedAt,
-				Important:   important,
-			})
-		}
 	}
 
 	// Details cover the pages this sync TOUCHED, not the whole corpus. Recording
@@ -745,20 +531,13 @@ func GenerateKnowledgeWiki(ctx context.Context, rootPath, wikiDir string, allowe
 		}
 	}
 
-	_ = wiki.RebuildDB(ctx, wikiDir, wikiChunks, xrefs, syncLogEntry, processCache)
-
-	// Record ignore file mtime so StatPreCheck detects changes next run.
-	if processCache != nil {
-		ignPath := filepath.Join(absRoot, KnowledgeIgnoreFile)
-		if info, err := os.Stat(ignPath); err == nil {
-			processCache.StoreWatchFile(KnowledgeIgnoreFile, info.ModTime().UnixNano(), info.Size())
-		}
-		_ = processCache.Save()
+	if err := wiki.SyncDB(ctx, wikiDir, wikiChunks, xrefs, syncLogEntry); err != nil {
+		return nil, err
 	}
 
 	// `log.md` is not appended. The same information — the timestamp, the counts, and the three
 	// slug lists with their titles and summaries — is the `sync_log` row written above by
-	// RebuildDB; `graphit wiki log` and `graphit_wiki_log` read it, and `graphit wiki export`
+	// SyncDB; `graphit wiki log` and `graphit_wiki_log` read it, and `graphit wiki export`
 	// renders the page for whoever wants the file.
 
 	return result, nil
@@ -833,7 +612,6 @@ type knowledgeDoc struct {
 	clusterName string // label of the community
 	staleSince  string // ISO date if page is stale, empty otherwise
 	staleReason string // why it's stale
-	isMarkdown  bool   // true for .md/.markdown/.mdx — rendered as prose, not fenced
 	updatedAt   string // source mtime as YYYY-MM-DD; keeps the page byte-stable
 }
 

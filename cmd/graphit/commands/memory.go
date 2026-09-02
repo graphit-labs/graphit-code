@@ -20,13 +20,12 @@ Scopes:
   user     Belongs to the user, cross-project (--user flag).
 
 Commands:
-  index    Index memory files into the graph and regenerate the wiki
+  index    Synchronize the compiled wiki from the memory table
   query    Query the memory graph (Cypher or AI natural language)
   install  Import an external memory context from another project
   remove   Remove the project memory graph or an imported context
-  sync     Re-sync an imported context from the global cache
-  export   Export the project memory wiki and graph to the hub
-  list     List all installed memory contexts
+  sync     Recompile an imported context from its table
+  list     List memories
   rule     Customize the global memory agent rule
   insert   Add a new memory entry
   delete   Delete a memory entry by slug
@@ -42,13 +41,11 @@ Examples:
 
 	cmd.AddCommand(
 		newMemoryIndexCmd(),
-		newMemoryWatchCmd(),
 		newMemoryQueryCmd(),
 		newMemorySchemaCmd(),
 		newMemoryInstallCmd(),
 		newMemoryRemoveCmd(),
 		newMemorySyncCmd(),
-		newMemoryExportCmd(),
 		newMemoryListCmd(),
 		newMemoryInsertCmd(),
 		newMemoryUpdateCmd(),
@@ -69,15 +66,10 @@ func newMemoryIndexCmd() *cobra.Command {
 	var reset bool
 	cmd := &cobra.Command{
 		Use:   "index",
-		Short: "Index memory files into the graph and regenerate the wiki",
-		Long: `Index all local memory .md files and regenerate the
-navigable wiki under ` + brand.DotDir() + `/memory/{project,user}/wiki/.
+		Short: "Synchronize the compiled wiki from the memory table",
+		Long: `Compile the authoritative memory table into its local searchable wiki.
 
---reset clears the wiki first and rebuilds every page, chunk and vector from the
-memories themselves. Prefer it whenever the index looks stale in a way a normal
-run does not fix: an ordinary index skips work whose source hash is unchanged, so
-an index that is empty or wrong for a reason OTHER than a changed memory is
-exactly what it cannot repair.
+--reset clears the derived wiki first and compiles it again from the table.
 
 Discarding the wiki is safe because none of it is source. The memories live in
 their own store, outside the wiki; the wiki is derived from them.
@@ -94,31 +86,6 @@ Examples:
 	}
 	cmd.Flags().BoolVar(&userScope, "user", false, "Index user-scope memories (cross-project)")
 	cmd.Flags().BoolVar(&reset, "reset", false, "Clear the wiki and rebuild it from the memories")
-	return cmd
-}
-
-func newMemoryWatchCmd() *cobra.Command {
-	var userScope bool
-	var useLouvain bool
-	cmd := &cobra.Command{
-		Use:   "watch",
-		Short: "Watch memory files for changes and re-index incrementally",
-		Long: `Watch the memory directory for file changes and incrementally re-index
-modified files, then regenerate the memory wiki. Only project scope is supported.
-
-Examples:
-  ` + brand.BinName() + ` memory watch
-  ` + brand.BinName() + ` memory watch --user`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			scope := "project"
-			if userScope {
-				scope = "user"
-			}
-			return runMemoryWatch(scope, useLouvain)
-		},
-	}
-	cmd.Flags().BoolVar(&userScope, "user", false, "Watch user-scope memories")
-	cmd.Flags().BoolVar(&useLouvain, "louvain", false, "Use Louvain community detection on wiki regeneration")
 	return cmd
 }
 
@@ -151,7 +118,7 @@ func newMemoryQueryCmd() *cobra.Command {
 		Short: "Search the memory wiki using AI",
 		Long: `Search the memory wiki using the AI consultation cycle.
 
-The wiki module presents index.md to the AI, then cycles through page
+The wiki module renders the catalogue from LanceDB for the AI, then cycles through page
 requests until the AI has enough context to answer the query. No Cypher
 or raw graph access is needed — only the generated wiki is used.
 
@@ -176,8 +143,7 @@ func newMemoryInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install <project-id-or-name>",
 		Short: "Import and sync memory from an external project",
-		Long: `Fetch and index memory from another project's memory branch, making it
-available at ` + brand.DotDir() + `/memory/<name>/wiki/.
+		Long: `Open another project's memory table and compile its local query projection.
 
 Examples:
   ` + brand.BinName() + ` memory install team-shared-lib
@@ -216,9 +182,8 @@ func newMemorySyncCmd() *cobra.Command {
 	var context string
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Re-sync an imported memory context from the global cache",
-		Long: `Re-installs files for imported memory contexts from the global cache.
-Use --context to specify which context to sync.
+		Short: "Recompile an imported memory context",
+		Long: `Synchronize an imported context's local wiki from its authoritative table.
 
 Examples:
   ` + brand.BinName() + ` memory sync --context team-shared-lib`,
@@ -230,26 +195,11 @@ Examples:
 	return cmd
 }
 
-func newMemoryExportCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "export",
-		Short: "Export the project memory wiki and graph to the hub",
-		Long: `Export the project's memory wiki (plain markdown) and wiki
-(Parquet via EXPORT DATABASE) so other projects can install it.
-
-Examples:
-  ` + brand.BinName() + ` memory export`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runMemoryExport()
-		},
-	}
-}
-
 func newMemoryListCmd() *cobra.Command {
 	var userScope bool
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List all installed memory contexts (including the local project)",
+		Short: "List memories in the project or user scope",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runMemoryList(userScope)
 		},
@@ -270,7 +220,7 @@ func newMemoryInsertCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "insert <title>",
 		Short: "Add a new memory entry",
-		Long: `Create a new persistent memory file in the memory store.
+		Long: `Create a new persistent memory record in the memory store.
 
 Without --user: scoped to the current project (default).
 With --user: global user memory (cross-project).

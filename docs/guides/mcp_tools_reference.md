@@ -30,8 +30,8 @@ The platform provides multiple retrieval tools across three tiers. Use this matr
 
 | Tool | Backend | AI? | Scope Params | Best for |
 |------|---------|-----|-------------|----------|
-| `graphit_memory_search` | Text match on raw `.md` files | No | `scope` (project/user) | Quick keyword match in memories — instant, lightweight |
-| `graphit_knowledge_search` | BM25 on wiki `.md` pages | No | `context` (empty=project, named=hub import) | Keyword search in project docs |
+| `graphit_memory_search` | LanceDB BM25 on the compiled memory wiki | No | `scope` (project/user) | Ranked keyword match in memories |
+| `graphit_knowledge_search` | LanceDB BM25 | No | `context` (empty=project, named=Hub install) | Keyword search in project or mounted docs |
 | `graphit_wiki_search` | BM25 + semantic on `index.lance/` | Semantic mode | `wikis[]` (project, memory), `hub_refs[]` | Multi-source search, semantic search |
 | `graphit_wiki_browse` | LanceDB `index.lance/` catalog | No | `wiki` (project/memory), `context` | Listing all documents with filters |
 | `graphit_knowledge_query` | AI + BM25 multi-turn | Yes | `context` | Deep AI-synthesized answer from project docs |
@@ -39,7 +39,7 @@ The platform provides multiple retrieval tools across three tiers. Use this matr
 
 **Key parameter differences:**
 - **`scope`** (Memory tools): `"project"` (default) = project-specific memories, `"user"` = personal cross-project memories
-- **`context`** (Knowledge/Memory tools): empty = local project, `"<name>"` = an imported context, whose wiki lives at `~/.graphit/wiki/knowledge/context/<name>/` — see [Storage Layout](../architecture/storage_layout.md)
+- **`context`** (Knowledge/Memory tools): empty = local project, `"<name>"` = an installed context. A Hub knowledge context is a versioned `s3://` mount — see [Storage Layout](../architecture/storage_layout.md)
 - **`wikis`** (Wiki search): `["project"]` = knowledge wiki, `["memory"]` = memory wiki, both for multi-source
 - **`hub_refs`** (Wiki search): `["artifact-id@version"]` to include hub knowledge artifacts
 
@@ -415,17 +415,6 @@ Tools for indexing, querying, and managing the project documentation knowledge g
 
 ---
 
-### `graphit_knowledge_install`
-
-**Description:** Import an external knowledge context from the hub.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `name` | string | ✅ | Name of the knowledge context to import from the hub |
-
----
-
 ### `graphit_knowledge_remove`
 
 **Description:** Remove the project knowledge graph or an imported context.
@@ -439,18 +428,7 @@ Tools for indexing, querying, and managing the project documentation knowledge g
 
 ### `graphit_knowledge_sync`
 
-**Description:** Re-sync an imported context from the global cache or rebuild local wiki.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-| `context` | string | | Sync a specific imported context by name. If empty, syncs local `docs/` index. |
-
----
-
-### `graphit_knowledge_export`
-
-**Description:** Export the project knowledge wiki and graph to the hub.
+**Description:** Rebuild the local project wiki from its documentation sources.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -530,7 +508,7 @@ Tools for managing the project and user persistent memory store.
 
 ### `graphit_memory_search`
 
-**Description:** Search for text matching in raw memory files.
+**Description:** Search the compiled LanceDB memory wiki.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -621,25 +599,15 @@ Tools for managing the project and user persistent memory store.
 
 ---
 
-### `graphit_memory_export`
-
-**Description:** Index and sync project memories back to the local git repository.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `project_dir` | string | ✅ | Project directory |
-
----
-
 ### `graphit_memory_schema`
 
-**Description:** Show the memory graph database schema details.
+**Description:** Show the authoritative memory table schema.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project_dir` | string | ✅ | Project directory |
 
-**Returns:** Text describing node labels (`Document`, `Section`), edge labels (`REFERENCES`, `CONTAINS`), and their properties.
+**Returns:** Text describing the primary key, record metadata, revision-chain, scope, and embedding columns.
 
 ---
 

@@ -89,10 +89,9 @@ type Daemon struct {
 	// project. Guarded by mu.
 	grammarSigs map[string]string
 
-	// globalModules belong to the machine rather than to a project — the memory watcher,
-	// whose one root covers every scope, and the embedding server, whose ONNX session every
-	// process on the machine shares. They are supervised like a project's modules; see
-	// SuperviseGlobal for why they used to not be.
+	// globalModules belong to the machine rather than to a project — for example the embedding
+	// server, whose ONNX session every process on the machine shares, and the optional unified UI.
+	// They are supervised like a project's modules.
 	globalModules []WatchModule
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/chat"
 	"github.com/graphit-labs/graphit-code/internal/hub"
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
@@ -61,14 +62,14 @@ func (m *mockChatEngine) Send(_ context.Context, _ string) (string, error) {
 	return m.response, m.err
 }
 
-// mockHubService implements the EnsureKnowledgeAvailable interface for testing.
+// mockHubService implements the mounted-knowledge resolver for testing.
 type mockHubService struct {
 	dir string
 	err error
 }
 
-func (m *mockHubService) EnsureKnowledgeAvailable(_ context.Context, _ string) (string, error) {
-	return m.dir, m.err
+func (m *mockHubService) ResolveKnowledgeMount(_ context.Context, _ string) (hub.MountedWiki, error) {
+	return hub.MountedWiki{Config: lancestore.Config{URI: m.dir}}, m.err
 }
 
 func TestResolveEcosystemSource_LockManagerError(t *testing.T) {
@@ -183,7 +184,7 @@ func TestResolveHubKnowledgeSource_EnsureKnowledgeError(t *testing.T) {
 	}
 
 	newHubService = func(_ *hub.RegistryManager) interface {
-		EnsureKnowledgeAvailable(ctx context.Context, ref string) (string, error)
+		ResolveKnowledgeMount(ctx context.Context, ref string) (hub.MountedWiki, error)
 	} {
 		return &mockHubService{err: errors.New("knowledge not found")}
 	}
@@ -212,7 +213,7 @@ func TestResolveHubKnowledgeSource_Success_WithVersion(t *testing.T) {
 	}
 
 	newHubService = func(_ *hub.RegistryManager) interface {
-		EnsureKnowledgeAvailable(ctx context.Context, ref string) (string, error)
+		ResolveKnowledgeMount(ctx context.Context, ref string) (hub.MountedWiki, error)
 	} {
 		return &mockHubService{dir: wikiDir}
 	}
@@ -231,6 +232,9 @@ func TestResolveHubKnowledgeSource_Success_WithVersion(t *testing.T) {
 	if src.Dir != wikiDir {
 		t.Errorf("Dir = %q; want %q", src.Dir, wikiDir)
 	}
+	if src.StoreConfig == nil || src.StoreConfig.URI != wikiDir {
+		t.Fatalf("StoreConfig = %#v; want mounted URI %q", src.StoreConfig, wikiDir)
+	}
 }
 
 func TestResolveHubKnowledgeSource_Success_WithoutVersion(t *testing.T) {
@@ -247,7 +251,7 @@ func TestResolveHubKnowledgeSource_Success_WithoutVersion(t *testing.T) {
 	}
 
 	newHubService = func(_ *hub.RegistryManager) interface {
-		EnsureKnowledgeAvailable(ctx context.Context, ref string) (string, error)
+		ResolveKnowledgeMount(ctx context.Context, ref string) (hub.MountedWiki, error)
 	} {
 		return &mockHubService{dir: wikiDir}
 	}
@@ -277,7 +281,7 @@ func TestResolveSources_WithValidHubRef(t *testing.T) {
 	}
 
 	newHubService = func(_ *hub.RegistryManager) interface {
-		EnsureKnowledgeAvailable(ctx context.Context, ref string) (string, error)
+		ResolveKnowledgeMount(ctx context.Context, ref string) (hub.MountedWiki, error)
 	} {
 		return &mockHubService{dir: wikiDir}
 	}
@@ -312,7 +316,7 @@ func TestResolveSources_WikiAndHubMixed(t *testing.T) {
 	}
 
 	newHubService = func(_ *hub.RegistryManager) interface {
-		EnsureKnowledgeAvailable(ctx context.Context, ref string) (string, error)
+		ResolveKnowledgeMount(ctx context.Context, ref string) (hub.MountedWiki, error)
 	} {
 		return &mockHubService{dir: hubDir}
 	}

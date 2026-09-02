@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/config"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
 func writeDoc(t *testing.T, root, rel, body string) {
@@ -288,7 +289,11 @@ func gitInit(t *testing.T) string {
 
 func manifestSources(t *testing.T, wikiDir string) map[string]bool {
 	t.Helper()
-	m := LoadManifest(wikiDir)
+	chunks, err := wiki.IndexedChunks(context.Background(), wikiDir)
+	if err != nil {
+		t.Fatalf("reading indexed chunks: %v", err)
+	}
+	m := ManifestFromChunks(chunks)
 	out := make(map[string]bool, len(m.SourceHashes))
 	for path := range m.SourceHashes {
 		out[path] = true

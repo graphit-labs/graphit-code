@@ -1,10 +1,6 @@
 package mcpstdio
 
-import (
-	"os"
-	"path/filepath"
-	"testing"
-)
+import "testing"
 
 func TestResolveWikiDir(t *testing.T) {
 	t.Run("unknown module returns empty", func(t *testing.T) {
@@ -33,74 +29,6 @@ func TestLoadProjectLockInfo_NoLockfile(t *testing.T) {
 	if ides != nil {
 		t.Errorf("expected nil ides, got %v", ides)
 	}
-}
-
-func TestCopyDirRecursive(t *testing.T) {
-	t.Parallel()
-
-	t.Run("copy files and subdirectories", func(t *testing.T) {
-		t.Parallel()
-		src := t.TempDir()
-		dst := filepath.Join(t.TempDir(), "dest")
-
-		if err := os.MkdirAll(filepath.Join(src, "subdir"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(src, "file1.txt"), []byte("content1"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(src, "subdir", "file2.txt"), []byte("content2"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-
-		if err := copyDirRecursive(src, dst); err != nil {
-			t.Fatalf("copyDirRecursive error: %v", err)
-		}
-
-		// Verify files
-		data1, err := os.ReadFile(filepath.Join(dst, "file1.txt"))
-		if err != nil {
-			t.Fatalf("file1.txt not copied: %v", err)
-		}
-		if string(data1) != "content1" {
-			t.Errorf("file1.txt = %q; want %q", data1, "content1")
-		}
-
-		data2, err := os.ReadFile(filepath.Join(dst, "subdir", "file2.txt"))
-		if err != nil {
-			t.Fatalf("subdir/file2.txt not copied: %v", err)
-		}
-		if string(data2) != "content2" {
-			t.Errorf("subdir/file2.txt = %q; want %q", data2, "content2")
-		}
-	})
-
-	t.Run("nonexistent source returns error", func(t *testing.T) {
-		t.Parallel()
-		dst := filepath.Join(t.TempDir(), "dest")
-		err := copyDirRecursive("/nonexistent-src-dir-test-xyz", dst)
-		if err == nil {
-			t.Error("expected error for nonexistent source")
-		}
-	})
-
-	t.Run("empty source directory", func(t *testing.T) {
-		t.Parallel()
-		src := t.TempDir()
-		dst := filepath.Join(t.TempDir(), "dest")
-
-		if err := copyDirRecursive(src, dst); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		info, err := os.Stat(dst)
-		if err != nil {
-			t.Fatalf("dest dir not created: %v", err)
-		}
-		if !info.IsDir() {
-			t.Error("dest should be a directory")
-		}
-	})
 }
 
 func TestResolveIDEFromProject(t *testing.T) {

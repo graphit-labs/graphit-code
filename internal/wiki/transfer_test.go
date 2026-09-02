@@ -4,18 +4,12 @@ package wiki
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 )
 
-// TestWikiParquetRoundTrip exports a built wiki and loads it into an empty one, then checks
-// that what a consumer actually does with a wiki still works: counting, full-text search and
-// reading a chunk back whole.
-//
-// Counting alone would not catch the failure worth catching. COPY maps Parquet columns by
-// POSITION, so a mismatch preserves every count and moves the values one column over —
-// which is why the assertions here read fields rather than totals.
-func TestWikiParquetRoundTrip(t *testing.T) {
+func TestStagePublishedIndexCopiesAQueryableWiki(t *testing.T) {
 	tmp := t.TempDir()
 
 	srcDir := filepath.Join(tmp, "src")
@@ -26,36 +20,27 @@ func TestWikiParquetRoundTrip(t *testing.T) {
 	}
 	chunks := testChunks()
 	xrefs := map[string][]string{"autenticacao": {"indexacao"}}
-	if err := src.Rebuild(ctx, chunks, xrefs, &SyncLogEntry{
+	if err := src.Sync(ctx, chunks, xrefs, &SyncLogEntry{
 		Timestamp: "2026-08-18T00:00:00Z", TotalDocs: len(chunks), ArticlesWritten: len(chunks),
-	}, nil); err != nil {
+	}); err != nil {
 		_ = src.Close()
 		t.Fatalf("build src: %v", err)
 	}
 	_ = src.Close()
 
-	out := filepath.Join(tmp, "artifact", BundleDir)
-	written, err := ExportToParquet(ctx, srcDir, out)
+	out := filepath.Join(tmp, "artifact")
+	written, err := StagePublishedIndex(ctx, srcDir, out)
 	if err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	if written == 0 {
 		t.Fatal("export copied no bytes")
 	}
-	if !HasBundle(filepath.Join(tmp, "artifact")) {
-		t.Fatal("finished export is not detected as a bundle")
+	if _, err := os.Stat(WikiIndexPath(out)); err != nil {
+		t.Fatalf("published index is missing: %v", err)
 	}
 
-	dstDir := filepath.Join(tmp, "dst")
-	n, err := ImportFromParquet(ctx, dstDir, out)
-	if err != nil {
-		t.Fatalf("import: %v", err)
-	}
-	if n != len(chunks) {
-		t.Fatalf("imported %d chunks, wrote %d", n, len(chunks))
-	}
-
-	dst, err := OpenWikiDB(ctx, dstDir)
+	dst, err := OpenWikiDB(ctx, out)
 	if err != nil {
 		t.Fatalf("open dst: %v", err)
 	}
@@ -69,10 +54,10 @@ func TestWikiParquetRoundTrip(t *testing.T) {
 		t.Errorf("chunks=%d slugs=%d, want %d of each", gotChunks, gotSlugs, len(chunks))
 	}
 	if gotXRefs == 0 {
-		t.Error("cross-references did not survive the round trip")
+		t.Error("cross-references did not survive publication")
 	}
 	if gotLogs == 0 {
-		t.Error("the sync log did not survive the round trip")
+		t.Error("the sync log did not survive publication")
 	}
 
 	// The index has to ANSWER, not merely exist. What changed is why that is a real test: it is no

@@ -16,38 +16,22 @@ import (
 // The memory STORE, as a table.
 //
 // This is the authored data — what a unit writes when it records a memory — and it is deliberately
-// NOT the wiki index. The two have different lifecycles and conflating them is what would make a
-// compile destructive: `wiki.RebuildDB` drops and recreates its tables on every build, which is
-// correct for a derived artifact and fatal for the only copy of something. So the store is its own
-// table, the index is compiled from it, and the split is what keeps "rebuild the index" a safe
-// operation.
-//
-// IT REPLACES A DIRECTORY THAT WAS ALSO A TRANSPORT. The raw markdown store was multi-writer: every
-// unit sharing a scope uploaded its files to the same S3 prefix and merged on read, and that worked
-// because each memory was its own object named by a ULID, so two units adding memories could not
-// collide. A shared remote table has to survive the same concurrency, which is what T0 proved —
-// concurrent appends, deletes and same-key upserts on a remote Lance table produced no conflicts,
-// and the commit retry covers the maintenance path that does.
+// NOT the wiki index. The two have different lifecycles: this table is authoritative and may live
+// directly on S3, while the wiki is a disposable local query projection synchronized row by row.
 
 const memoryTableName = "memories"
 
 // MemoryRecord is one memory, live or archived, with every field the markdown file carried.
 //
-// The field list is not a design choice — it is an inventory. Six of these existed ONLY in the file
-// and had no column anywhere in the wiki, so a record type that omitted them would lose them
-// silently on migration: `Scope`, `ScopeID`, `ProjectID`, `UpdatedBy`, `Tags`, and `UpdatedAt` (the
-// wiki's `updated` column is stamped with the COMPILE date, so a memory's real last-write time
-// survives nowhere else).
+// The field list is the complete persistence contract; authored metadata must not depend on the
+// compiled wiki projection.
 type MemoryRecord struct {
 	// ID is the chain identity: a live memory and every archived revision of it share one.
 	ID string
 	// RevisionID is an archived revision's own address, empty on a live memory. That emptiness is
 	// the definition of the head of a chain.
 	RevisionID string
-	// Superseded marks an archived revision. It was decided by the file's LOCATION (`history/`)
-	// rather than by what it said about itself, because an archive written before `revision_id`
-	// existed declares nothing — and a location cannot be wrong. A row has no location, so this
-	// becomes explicit, which is why the migration derives it from the path one last time.
+	// Superseded marks an archived revision explicitly.
 	Superseded bool
 
 	Title string
@@ -61,10 +45,7 @@ type MemoryRecord struct {
 	Revision  int
 	UpdatedBy string
 
-	// Previous and Next are the two directions of the chain. They held PATHS
-	// (`history/<id>/<rev>.md`), which is what they still hold after a migration — rewriting them
-	// into row keys would break every archive that already points at one, so the values are carried
-	// across verbatim and interpreted by whoever walks them.
+	// Previous and Next are logical addresses in the two-way revision chain.
 	Previous string
 	Next     string
 
@@ -72,15 +53,12 @@ type MemoryRecord struct {
 	ScopeID   string
 	ProjectID string
 
-	// ContentHash is the hash of the markdown file this record came from, which is what makes a
-	// migration verifiable: the same bytes must produce the same hash on both sides.
+	// ContentHash is the stable hash used to synchronize the compiled wiki.
 	ContentHash string
 
 	// Embedding is the memory's vector, carried in the store so it TRAVELS.
 	//
-	// It is the reason `shardsync.go` can retire. That file exists to mirror the wiki's shard cache
-	// into the raw prefix so a memory written by a colleague arrives with its vector already
-	// computed; a column does the same thing without a second mechanism.
+	// It travels with the authoritative table; no embedding sidecar exists.
 	Embedding []float32
 }
 
@@ -98,9 +76,7 @@ func (r MemoryRecord) Key() string {
 
 // Markdown renders the record back into the file format.
 //
-// It exists for the migration's verification — the same bytes must hash to the same value — and for
-// an export, so a store with no files can still produce them. It is the inverse of the parse, and it
-// goes through `renderMemoryFile` rather than reimplementing the shape, so the two cannot disagree.
+// It is the presentation form returned by memory reads. The store persists the fields as columns.
 func (r MemoryRecord) Markdown() string {
 	return renderMemoryFile(MemoryFrontmatter{
 		ID:         r.ID,
@@ -325,8 +301,8 @@ func (t *MemoryTable) Maintain(ctx context.Context) error {
 	return err
 }
 
-// EnsureIndexes builds the scalar indexes. Separate from opening because a fresh store has no rows
-// to index and a migration wants them built once at the end.
+// EnsureIndexes builds the scalar indexes. It is separate from opening because a fresh store has no
+// rows to index.
 func (t *MemoryTable) EnsureIndexes(ctx context.Context) error {
 	return t.table.EnsureIndexes(ctx, memoryTableIndexes()...)
 }

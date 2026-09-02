@@ -383,7 +383,7 @@ func TestSearchMultiWiki_WithHubRefs(t *testing.T) {
 		return &hub.RegistryManager{}, nil
 	}
 	newHubService = func(_ *hub.RegistryManager) interface {
-		EnsureKnowledgeAvailable(ctx context.Context, ref string) (string, error)
+		ResolveKnowledgeMount(ctx context.Context, ref string) (hub.MountedWiki, error)
 	} {
 		return &mockHubService{dir: hubDir}
 	}

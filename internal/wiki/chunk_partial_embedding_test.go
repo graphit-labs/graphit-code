@@ -36,21 +36,9 @@ func partialChunks(n int) []WikiChunk {
 	return chunks
 }
 
-// TestRebuildIndexesAWikiWhoseEmbeddingIsPartial pins the shape a real wiki produces and a
-// synthetic fixture does not: one insert batch holding both chunks that carry a vector and
-// chunks that do not.
-//
-// The driver builds a single LIST for the whole $batch parameter and refuses mixed element
-// types, so before writeChunks partitioned the batch this failed the ENTIRE rebuild with
-// "failed to create LIST value ... please make sure all the values are of the same type" —
-// which the atomic swap turns into the worst available outcome: the temp store is discarded,
-// the live index is left as it was, and nothing about the directory says the index is stale.
-//
-// Partial embedding is the normal state of a wiki, not an edge case. A chunk gets a vector
-// only if its text is unchanged, already in the cache, and long enough, so any wiki the
-// embedder has not finished — and any wiki holding one short page — lands here. The existing
-// fixtures never did, because they give every chunk a vector or none.
-func TestRebuildIndexesAWikiWhoseEmbeddingIsPartial(t *testing.T) {
+// Partial embedding is the normal state of a wiki while the embedder is catching up. Syncing the
+// corpus must keep both embedded and pending rows queryable.
+func TestSyncIndexesAWikiWhoseEmbeddingIsPartial(t *testing.T) {
 	chunks := partialChunks(6)
 
 	for _, tc := range []struct {
@@ -65,16 +53,16 @@ func TestRebuildIndexesAWikiWhoseEmbeddingIsPartial(t *testing.T) {
 		{"none of them", func(int) bool { return false }, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cache := EmbeddingCache{}
-			for i, c := range chunks {
-				if tc.cached(i) {
-					cache[c.ContentHash] = unitVec(i)
-				}
-			}
-
 			db := newTestWikiDB(t)
-			if err := db.Rebuild(context.Background(), chunks, nil, nil, cache); err != nil {
-				t.Fatalf("Rebuild with a partially embedded wiki: %v", err)
+			if err := db.Sync(context.Background(), chunks, nil, nil); err != nil {
+				t.Fatalf("Sync: %v", err)
+			}
+			for i, chunk := range chunks {
+				if tc.cached(i) {
+					if err := db.SetChunkVector(context.Background(), chunk.Slug, unitVec(i)); err != nil {
+						t.Fatalf("SetChunkVector(%s): %v", chunk.Slug, err)
+					}
+				}
 			}
 
 			total, _, _, _, err := db.Stats(context.Background())
@@ -82,7 +70,7 @@ func TestRebuildIndexesAWikiWhoseEmbeddingIsPartial(t *testing.T) {
 				t.Fatalf("Stats: %v", err)
 			}
 			if total != len(chunks) {
-				t.Errorf("indexed %d chunks, want %d — a rebuild that drops rows is the "+
+				t.Errorf("indexed %d chunks, want %d — a sync that drops rows is the "+
 					"failure this test exists to catch", total, len(chunks))
 			}
 
@@ -95,25 +83,21 @@ func TestRebuildIndexesAWikiWhoseEmbeddingIsPartial(t *testing.T) {
 	}
 }
 
-// TestPartialEmbeddingSurvivesMoreThanOneBatchWorth runs the same mix over a corpus large
-// enough to cross any batch boundary a write might introduce.
-//
-// The write is one transaction with a prepared statement today, so there is no boundary to
-// cross — which is exactly why the size is spelled out here rather than derived from a
-// constant that no longer exists. The test is about the corpus, and it keeps its meaning if
-// batching ever comes back.
+// TestPartialEmbeddingSurvivesMoreThanOneBatchWorth runs the same mix over a corpus that crosses
+// the sync write boundary.
 func TestPartialEmbeddingSurvivesMoreThanOneBatchWorth(t *testing.T) {
 	chunks := partialChunks(507)
-	cache := EmbeddingCache{}
-	for i, c := range chunks {
-		if i%3 == 0 {
-			cache[c.ContentHash] = unitVec(i % ai.EmbeddingDimensions)
-		}
-	}
 
 	db := newTestWikiDB(t)
-	if err := db.Rebuild(context.Background(), chunks, nil, nil, cache); err != nil {
-		t.Fatalf("Rebuild across a flush boundary: %v", err)
+	if err := db.Sync(context.Background(), chunks, nil, nil); err != nil {
+		t.Fatalf("Sync across a flush boundary: %v", err)
+	}
+	for i, chunk := range chunks {
+		if i%3 == 0 {
+			if err := db.SetChunkVector(context.Background(), chunk.Slug, unitVec(i%ai.EmbeddingDimensions)); err != nil {
+				t.Fatalf("SetChunkVector(%s): %v", chunk.Slug, err)
+			}
+		}
 	}
 	total, _, _, _, err := db.Stats(context.Background())
 	if err != nil {

@@ -22,9 +22,9 @@ func TestMountedWikiURIPointsAtThePublishedIndex(t *testing.T) {
 	// The URI must end at the index directory, not at the artifact root: the engine opens a
 	// dataset, and pointing it one level up makes it fail with a message about a missing manifest
 	// that names neither the artifact nor the reason.
-	if !strings.HasSuffix(mount.Config.URI, "/"+wiki.BundleDir) {
+	if !strings.HasSuffix(mount.Config.URI, "/"+wiki.WikiIndexDirName) {
 		t.Errorf("the mount URI does not end at the index directory %q: %s",
-			wiki.BundleDir, mount.Config.URI)
+			wiki.WikiIndexDirName, mount.Config.URI)
 	}
 	if !strings.HasPrefix(mount.Config.URI, "s3://") {
 		t.Errorf("the mount URI is not an s3:// location: %s", mount.Config.URI)

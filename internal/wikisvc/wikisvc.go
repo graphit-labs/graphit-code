@@ -28,7 +28,7 @@ var (
 	}
 
 	newHubService = func(reg *hub.RegistryManager) interface {
-		EnsureKnowledgeAvailable(ctx context.Context, ref string) (string, error)
+		ResolveKnowledgeMount(ctx context.Context, ref string) (hub.MountedWiki, error)
 	} {
 		return hub.NewHubService(reg)
 	}
@@ -148,7 +148,7 @@ func (s *WikiService) ResolveHubKnowledgeSource(ctx context.Context, ref string)
 	}
 
 	hubSvc := newHubService(reg)
-	wikiDir, err := hubSvc.EnsureKnowledgeAvailable(ctx, ref)
+	mount, err := hubSvc.ResolveKnowledgeMount(ctx, ref)
 	if err != nil {
 		return wiki.WikiSource{}, err
 	}
@@ -159,9 +159,10 @@ func (s *WikiService) ResolveHubKnowledgeSource(ctx context.Context, ref string)
 	}
 
 	return wiki.WikiSource{
-		ID:    "hub/" + artifactID,
-		Label: artifactID,
-		Dir:   wikiDir,
+		ID:          "hub/" + artifactID,
+		Label:       artifactID,
+		Dir:         mount.Config.URI,
+		StoreConfig: &mount.Config,
 	}, nil
 }
 

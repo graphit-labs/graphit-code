@@ -257,6 +257,9 @@ When an ignore file is modified:
 
 - **AST sync**: The next `graphit sync` or daemon cycle detects changed files. Files that are now ignored are removed from the graph database and shard cache (including `.nodes.json`, `.edges.json`, and `.emb.json` files). Files that are now included are parsed and added.
 
-- **Knowledge sync**: The next `graphit sync` detects the ignore file mtime change (tracked via `StatPreCheck` watch files), forces a full walk, prunes removed files from the process cache, removes their wiki pages, and rebuilds the cross-reference graph, backlinks, communities, and the search index.
+- **Knowledge sync**: The next `graphit sync` enumerates the current source set, recomputes the
+  cross-reference graph and communities, deletes ignored slugs from LanceDB, and upserts only rows
+  whose compiled value changed.
 
-In both cases, empty shard directories are cleaned up automatically after file removal.
+AST shard directories are cleaned up automatically after file removal. Knowledge has no shard
+directory.

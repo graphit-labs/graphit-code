@@ -3,14 +3,26 @@ package wiki
 import (
 	"context"
 	"fmt"
-	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"strings"
+
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
+	"github.com/graphit-labs/graphit-code/internal/textslice"
 )
 
 type WikiSource struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Dir   string `json:"dir"`
+	// StoreConfig is set for an immutable Hub artifact mounted directly from object storage.
+	// It is runtime connection state, not chat-session metadata.
+	StoreConfig *lancestore.Config `json:"-"`
+}
+
+func (s WikiSource) Open(ctx context.Context) (*WikiDB, error) {
+	if s.StoreConfig != nil {
+		return OpenWikiDBAt(ctx, *s.StoreConfig)
+	}
+	return OpenWikiDB(ctx, s.Dir)
 }
 
 type MultiWikiSearchConfig struct {
@@ -35,7 +47,12 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 	}
 
 	if len(cfg.Sources) == 1 {
-		return SearchWiki(ctx, client, query, SearchConfig{
+		db, err := cfg.Sources[0].Open(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = db.Close() }()
+		return SearchWikiFrom(ctx, client, db, query, SearchConfig{
 			WikiDir:   cfg.Sources[0].Dir,
 			ModuleTag: cfg.Sources[0].Label,
 			MaxTurns:  cfg.MaxTurns,
@@ -55,7 +72,12 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 		// The catalogue comes from the index. It used to be `index.md` read off disk, a page
 		// rewritten on every build; the table already knows every slug, so the overview is a
 		// query and cannot disagree with what is searchable.
-		overview := WikiOverview(ctx, src.Dir)
+		db, err := src.Open(ctx)
+		if err != nil {
+			continue
+		}
+		overview := WikiOverviewFrom(ctx, db)
+		_ = db.Close()
 		if overview == "" {
 			continue
 		}
@@ -142,7 +164,12 @@ func SearchMultiWiki(ctx context.Context, client AIClient, query string, cfg Mul
 		var loaded []string
 		foundAny := false
 		for _, pg := range pages {
-			content, resolvedSlug := loadWikiPageFromIndex(ctx, pg.dir, pg.page)
+			db, err := pg.source.Open(ctx)
+			if err != nil {
+				continue
+			}
+			content, resolvedSlug := loadWikiPageFrom(ctx, db, pg.page)
+			_ = db.Close()
 			if content != "" {
 				foundAny = true
 				if !loadedPages[resolvedSlug] {
@@ -206,7 +233,12 @@ func BM25SearchMulti(ctx context.Context, sources []WikiSource, query string, to
 
 	var allResults []BM25ResultWithSource
 	for _, src := range sources {
-		results := BM25Search(ctx, src.Dir, query, topNPerSource)
+		db, err := src.Open(ctx)
+		if err != nil {
+			continue
+		}
+		results := BM25SearchFrom(ctx, db, query, topNPerSource)
+		_ = db.Close()
 		for _, r := range results {
 			allResults = append(allResults, BM25ResultWithSource{
 				BM25Result:  r,
@@ -273,7 +305,7 @@ ANSWER REQUIREMENTS — CRITICAL:
 type multiPageRequest struct {
 	sourceID string
 	page     string
-	dir      string
+	source   WikiSource
 }
 
 func parseMultiPageList(ctx context.Context, reply string, sources []WikiSource) []multiPageRequest {
@@ -323,7 +355,7 @@ func parseMultiPageList(ctx context.Context, reply string, sources []WikiSource)
 				requests = append(requests, multiPageRequest{
 					sourceID: sourceID,
 					page:     pageName,
-					dir:      src.Dir,
+					source:   src,
 				})
 			}
 		} else if pageName == "" {
@@ -335,11 +367,17 @@ func parseMultiPageList(ctx context.Context, reply string, sources []WikiSource)
 				continue
 			}
 			for _, src := range sources {
-				if content, _ := loadWikiPageFromIndex(ctx, src.Dir, page); content != "" {
+				db, err := src.Open(ctx)
+				if err != nil {
+					continue
+				}
+				content, _ := loadWikiPageFrom(ctx, db, page)
+				_ = db.Close()
+				if content != "" {
 					requests = append(requests, multiPageRequest{
 						sourceID: src.ID,
 						page:     page,
-						dir:      src.Dir,
+						source:   src,
 					})
 					break
 				}
@@ -361,7 +399,16 @@ func WikiOverview(ctx context.Context, wikiDir string) string {
 		return ""
 	}
 	defer func() { _ = db.Close() }()
+	return WikiOverviewFrom(ctx, db)
+}
 
+// WikiOverviewFrom renders the catalogue from an already-open index. It is the mounted-wiki
+// counterpart of WikiOverview: callers that opened an immutable S3 index must keep using that
+// same handle instead of turning its URI back into a local directory.
+func WikiOverviewFrom(ctx context.Context, db *WikiDB) string {
+	if db == nil {
+		return ""
+	}
 	entries, err := db.Browse(ctx, BrowseFilter{ClusterID: -1, Limit: 500})
 	if err != nil || len(entries) == 0 {
 		return ""
@@ -385,8 +432,8 @@ func WikiOverview(ctx context.Context, wikiDir string) string {
 //
 // It replaced loadWikiPage, which did os.ReadFile on `<dir>/<slug>.md`. The pages are not written
 // any more, so a multi-wiki loop that read them found nothing and answered in one turn.
-func loadWikiPageFromIndex(ctx context.Context, wikiDir, page string) (content, slug string) {
-	res, err := ReadPageAt(ctx, wikiDir, page, textslice.Request{})
+func loadWikiPageFrom(ctx context.Context, db *WikiDB, page string) (content, slug string) {
+	res, err := ReadPageFrom(ctx, db, page, textslice.Request{})
 	if err != nil {
 		return "", ""
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
 )
 
 func setupMultiWikiDirs(t *testing.T) (string, string) {
@@ -26,7 +28,7 @@ func setupMultiWikiDirs(t *testing.T) (string, string) {
 func indexedWiki(t *testing.T, chunks []WikiChunk) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := RebuildDB(context.Background(), dir, chunks, nil, nil, nil); err != nil {
+	if err := SyncDB(context.Background(), dir, chunks, nil, nil); err != nil {
 		t.Fatalf("building the probe index: %v", err)
 	}
 	return dir
@@ -55,6 +57,28 @@ func TestSearchMultiWiki_SingleSource(t *testing.T) {
 	}
 	if result.Answer == "" {
 		t.Error("expected non-empty answer")
+	}
+}
+
+func TestSearchMultiWiki_SingleMountedSourceUsesStoreConfig(t *testing.T) {
+	t.Parallel()
+	dir, _ := setupMultiWikiDirs(t)
+	cfg := lancestore.Config{URI: WikiIndexPath(dir)}
+	client := &mockAIClient{responses: []string{"DONE: Mounted source answer."}}
+
+	result, err := SearchMultiWiki(context.Background(), client, "design", MultiWikiSearchConfig{
+		Sources: []WikiSource{{
+			ID:          "hub/design",
+			Label:       "Published design",
+			Dir:         "/path-that-must-not-be-opened",
+			StoreConfig: &cfg,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("mounted source: %v", err)
+	}
+	if result.Answer != "Mounted source answer." {
+		t.Fatalf("answer = %q", result.Answer)
 	}
 }
 

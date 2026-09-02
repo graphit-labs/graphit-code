@@ -178,10 +178,8 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 | `graphit_knowledge_search` | BM25 keyword search across the knowledge wiki. |
 | `graphit_knowledge_schema` | Show the knowledge graph schema and wiki directory info. |
 | `graphit_knowledge_lint` | Audit the wiki for structural issues. Supports deep AI analysis and auto-fix. |
-| `graphit_knowledge_install` | Import an external knowledge context from the hub. |
 | `graphit_knowledge_remove` | Remove an imported context or clear local knowledge. |
-| `graphit_knowledge_sync` | Re-sync an imported context or rebuild local wiki from docs. |
-| `graphit_knowledge_export` | Export knowledge wiki and docs to the hub git repository. |
+| `graphit_knowledge_sync` | Rebuild the local project wiki from docs. |
 | `graphit_knowledge_list` | List all articles in the local knowledge wiki. |
 
 ### 4. Memory Tools (`tools_memory.go`)
@@ -192,7 +190,7 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 | `graphit_memory_update` | Update title or content of an existing memory. |
 | `graphit_memory_delete` | Delete a memory by ID. |
 | `graphit_memory_list` | List all memories in project or user scope. |
-| `graphit_memory_search` | Text search across raw memory files. |
+| `graphit_memory_search` | Ranked search across the compiled LanceDB memory wiki. |
 | `graphit_memory_query` | AI-powered memory search with synthesized response. |
 | `graphit_memory_important` | List all memories marked as important. |
 | `graphit_memory_promote` | Promote a memory to important status. |
@@ -200,7 +198,6 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 | `graphit_memory_consolidate` | Analyze memory wiki for staleness, duplicates, and contradictions. Supports auto-apply. |
 
 | `graphit_memory_index` | Regenerate the semantic wiki index of memory store. |
-| `graphit_memory_export` | Index and sync project memories to git repository. |
 | `graphit_memory_schema` | Show the memory graph schema. |
 | `graphit_memory_remove` | Remove a memory context sync connection. |
 | `graphit_memory_sync` | Sync memories from an external context. |

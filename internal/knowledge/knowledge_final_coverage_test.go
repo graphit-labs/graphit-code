@@ -1,8 +1,6 @@
 package knowledge
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -156,49 +154,20 @@ func TestExtToLangCoverage(t *testing.T) {
 	}
 }
 
-func TestSaveAndLoadManifest(t *testing.T) {
-	dir := t.TempDir()
-
-	m := &Manifest{
-		SourceHashes: map[string]string{"src/a.go": "hash_a"},
-		PageSources:  map[string]string{"page_a": "src/a.go"},
+func TestManifestFromChunks(t *testing.T) {
+	m := ManifestFromChunks([]wiki.WikiChunk{
+		{Slug: "page_a", Source: "src/a.go", ContentHash: "hash_a"},
+		{Slug: "page_b", Source: "src/b.go", ContentHash: "hash_b"},
+		{Slug: "generated", ContentHash: "ignored"},
+	})
+	if m.SourceHashes["src/a.go"] != "hash_a" || m.SourceHashes["src/b.go"] != "hash_b" {
+		t.Errorf("source hashes = %v", m.SourceHashes)
 	}
-	SaveManifest(dir, m)
-
-	loaded := LoadManifest(dir)
-	if loaded.SourceHashes["src/a.go"] != "hash_a" {
-		t.Error("loaded manifest should have source hash")
+	if m.PageSources["page_a"] != "src/a.go" || m.PageSources["page_b"] != "src/b.go" {
+		t.Errorf("page sources = %v", m.PageSources)
 	}
-	if loaded.PageSources["page_a"] != "src/a.go" {
-		t.Error("loaded manifest should have page source")
-	}
-}
-
-func TestLoadManifestMissing(t *testing.T) {
-	m := LoadManifest(t.TempDir())
-	if m == nil {
-		t.Fatal("expected non-nil manifest for missing file")
-	}
-	if m.SourceHashes == nil || m.PageSources == nil {
-		t.Error("maps should be initialized even for missing manifest")
-	}
-}
-
-func TestSaveManifestMarshalAndReload(t *testing.T) {
-	dir := t.TempDir()
-
-	m := &Manifest{
-		SourceHashes: map[string]string{"a": "1", "b": "2"},
-		PageSources:  map[string]string{"p1": "a", "p2": "b"},
-	}
-	SaveManifest(dir, m)
-
-	data, err := os.ReadFile(filepath.Join(dir, manifestFileName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "source_hashes") {
-		t.Error("manifest JSON should contain source_hashes key")
+	if _, ok := m.PageSources["generated"]; ok {
+		t.Error("a row without a source entered the staleness manifest")
 	}
 }
 

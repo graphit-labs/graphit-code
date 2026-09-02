@@ -31,7 +31,7 @@ func exportChunk(slug, title string) WikiChunk {
 func exportTo(t *testing.T, chunks []WikiChunk, xrefs map[string][]string, moduleTag string) (string, *ExportResult) {
 	t.Helper()
 	wikiDir := t.TempDir()
-	if err := RebuildDB(context.Background(), wikiDir, chunks, xrefs, nil, nil); err != nil {
+	if err := SyncDB(context.Background(), wikiDir, chunks, xrefs, nil); err != nil {
 		t.Fatalf("building the index: %v", err)
 	}
 	out := filepath.Join(t.TempDir(), "md")
@@ -202,7 +202,7 @@ func TestExportMarkdownWritesTheLogFromTheSyncHistory(t *testing.T) {
 		Added:           []string{"alpha"},
 		Details:         map[string]LogDocDetails{"alpha": {Title: "Alpha", Summary: "The first page."}},
 	}
-	if err := RebuildDB(context.Background(), wikiDir, []WikiChunk{exportChunk("alpha", "Alpha")}, nil, entry, nil); err != nil {
+	if err := SyncDB(context.Background(), wikiDir, []WikiChunk{exportChunk("alpha", "Alpha")}, nil, entry); err != nil {
 		t.Fatal(err)
 	}
 

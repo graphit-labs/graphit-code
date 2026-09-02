@@ -12,7 +12,3 @@ func isolateHome(t *testing.T) string {
 	t.Setenv("USERPROFILE", home)
 	return home
 }
-
-// publishFrom compiles a docs tree the way a producer does, then returns the directory
-// that would be pushed to the branch — the compiled wiki without its database, which is
-// what SyncCopyDirExcept(wiki.IsDerivedFile) leaves behind.

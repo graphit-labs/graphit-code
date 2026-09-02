@@ -17,37 +17,10 @@ type WikiResult struct {
 	ArticlesWritten int
 }
 
-// isForkedMemoryFileName reports whether a name is a memory id with something appended.
-//
-// Deliberately narrow: it rejects `<ulid><anything>.md` and nothing else, so a store whose files
-// are named by some other convention still compiles. The general protection against a duplicate
-// page is dedupMemoryDocsByID, which works on the declared id rather than on the name.
-func isForkedMemoryFileName(name string) bool {
-	stem := strings.TrimSuffix(name, ".md")
-	if len(stem) <= 26 || IsMemoryID(stem) {
-		return false
-	}
-	return IsMemoryID(stem[:26])
-}
-
 // GenerateMemoryWikiFromTable compiles a scope's wiki from its store instead of from files.
 //
-// This is the reader half of moving the memory store into LanceDB. It shares its whole tail with the
-// markdown generator — see compileMemoryWiki — because sorting, slug resolution, the incremental
-// gate and the rebuild never cared where a document came from.
-//
-// Four things the markdown path needs are ABSENT here rather than ported, and each is a mechanism
-// the table makes unnecessary:
-//
-//   - `ImportShards` pulled a colleague's precomputed vectors out of the raw prefix. A record
-//     carries its own `embedding` column, which is why that column exists.
-//   - `StatPreCheck` was a stat-based gate to avoid READING files. Reading the rows IS the
-//     enumeration, so there is nothing to skip ahead of; `FastPathCheck` in the tail still gates the
-//     expensive half by comparing content hashes against the index.
-//   - `dedupMemoryDocsByID` resolved two files claiming one id. A table keyed by the declared id
-//     cannot express that, which is the same reason repair.go becomes unnecessary.
-//   - `ExportShards` mirrored the cache back into the raw prefix for the next publish. There is no
-//     publish step: the table is written where it lives.
+// The table supplies the whole corpus in one read. `FastPathCheck` compares it with the compiled
+// wiki, and each record carries its embedding in the authoritative store.
 func GenerateMemoryWikiFromTable(ctx context.Context, tbl *MemoryTable, wikiDir string, logger ...*slog.Logger) (*WikiResult, error) {
 	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating wiki dir: %w", err)
@@ -58,38 +31,18 @@ func GenerateMemoryWikiFromTable(ctx context.Context, tbl *MemoryTable, wikiDir 
 		return nil, fmt.Errorf("listing the memory store: %w", err)
 	}
 
-	processCache, _ := wiki.NewWikiProcessCache(wikiDir)
 	docs := make([]memDoc, 0, len(records))
-	validPaths := make(map[string]bool, len(records))
 	for _, rec := range records {
 		doc := memDocFromRecord(rec)
 		docs = append(docs, doc)
-		validPaths[doc.filename] = true
-		// The cache is still populated, keyed by the document's path form. It is the VECTOR cache
-		// for the embedder, and keeping one key format means a scope migrated from files reuses the
-		// vectors it already had instead of recomputing every one.
-		if processCache != nil {
-			processCache.Store(doc.filename, doc.contentHash, []wiki.CachedChunk{{
-				Title:       doc.title,
-				Body:        doc.body,
-				DocType:     doc.memType,
-				ContentHash: doc.contentHash,
-			}})
-		}
-	}
-	if processCache != nil {
-		processCache.Prune(validPaths)
 	}
 
-	return compileMemoryWiki(ctx, docs, wikiDir, processCache, logger...), nil
+	return compileMemoryWiki(ctx, docs, wikiDir, logger...), nil
 }
 
 // memDocFromRecord is the store's row in the shape the compiler expects.
 //
-// `filename` keeps holding the PATH a memory would have had — `<id>.md`, or
-// `history/<id>/<rev>.md` for a revision. It is the process cache's key and the sort's final
-// tiebreak, and keeping it identical to what the markdown path produced is what makes a migrated
-// scope compile to the same slugs, the same cache entries and the same order.
+// `filename` is the logical source label exposed by wiki results and the sort's final tiebreak.
 func memDocFromRecord(rec MemoryRecord) memDoc {
 	rel := MemoryFileName(rec.ID)
 	if rec.Superseded && rec.RevisionID != "" {
@@ -116,8 +69,8 @@ func memDocFromRecord(rec MemoryRecord) memDoc {
 //
 // It is the SOURCE-AGNOSTIC half of the generator, and factoring it out is what makes moving the
 // store a change of enumeration rather than a rewrite: sorting, slug resolution, the incremental
-// gate and the rebuild all take documents and never ask where they came from.
-func compileMemoryWiki(ctx context.Context, docs []memDoc, wikiDir string, processCache *wiki.WikiProcessCache, logger ...*slog.Logger) *WikiResult {
+// gate and synchronization all take documents and never ask where they came from.
+func compileMemoryWiki(ctx context.Context, docs []memDoc, wikiDir string, logger ...*slog.Logger) *WikiResult {
 	sort.Slice(docs, func(i, j int) bool {
 		// Live memories before superseded revisions: the head of a chain is what a reader wants,
 		// and the index page is ordered by this.
@@ -143,29 +96,26 @@ func compileMemoryWiki(ctx context.Context, docs []memDoc, wikiDir string, proce
 		slugs[i] = wiki.UniqueSlug(doc.slugBase(), usedSlugs)
 	}
 
-	// FAST PATH: use wiki.FastPathCheck — checks processCache (O(1) per entry) and the index's
-	// own slug set to detect deletions.
+	// FAST PATH: the index's own slug/hash projection detects additions, changes and deletions.
 	fastEntries := make([]wiki.DocHashEntry, len(docs))
 	for i, doc := range docs {
 		fastEntries[i] = wiki.DocHashEntry{
-			CacheKey:    doc.filename,
 			ContentHash: doc.contentHash,
 			Slug:        slugs[i],
 		}
 	}
-	if wiki.FastPathCheck(ctx, wikiDir, fastEntries, processCache) {
-		_ = processCache.Save()
+	if wiki.FastPathCheck(ctx, wikiDir, fastEntries) {
 		return result
 	}
 
 	// NO PAGES ARE WRITTEN, and nothing is pruned.
 	//
 	// There used to be a loop here rendering `<slug>.md` per memory and a pass deleting the pages
-	// no memory claimed any more. Both are gone: `RebuildDB` below receives these same docs and is
+	// no memory claimed any more. Both are gone: `SyncDB` below receives these same docs and is
 	// the only place a memory becomes readable, so the page was a second copy of it — written,
 	// pruned, and then read by a fallback that existed because the two could disagree.
 	//
-	// ArticlesWritten now counts the documents the rebuild carries rather than the files a loop
+	// ArticlesWritten now counts the documents the synchronization carries rather than files a loop
 	// created. It keeps its meaning for every caller that reports it, and it is what decides
 	// whether a sync log entry is written below.
 	result.ArticlesWritten = len(docs)
@@ -208,9 +158,7 @@ func compileMemoryWiki(ctx context.Context, docs []memDoc, wikiDir string, proce
 		wikiChunks = append(wikiChunks, chunk)
 	}
 
-	// Pass a logEntry only when articles were actually written so that
-	// pipeline.RebuildDB can use CheckAllHashesMatch to skip the expensive
-	// index rebuild when the store is already in sync.
+	// Pass a log entry only when the source table changed.
 	var logEntry *wiki.SyncLogEntry
 	if result.ArticlesWritten > 0 {
 		logEntry = &wiki.SyncLogEntry{
@@ -222,27 +170,17 @@ func compileMemoryWiki(ctx context.Context, docs []memDoc, wikiDir string, proce
 
 	// The error is REPORTED — and reported somewhere a person will actually see it.
 	//
-	// It used to be `_ =`, and that turned every failure of the index build into a silent
-	// success: the shards were written, "Memory index complete" was printed, and the store
-	// stayed empty. At the time search still answered, because it fell back to a BM25 scan
-	// over the markdown — so nothing looked broken while every query re-read the whole
-	// directory. That fallback is gone, which makes reporting this error the only signal
-	// there is: an empty store now answers nothing at all.
+	// A failure cannot be swallowed: LanceDB is the only query surface, so an empty or stale store
+	// must be visible to the operator. The report uses the caller's logger when supplied and the
+	// default logger otherwise.
 	//
-	// Replacing `_ =` with a log line was only half of it, because the line went to
+	// Replacing a discarded error with a log line was only half of it, because the line went to
 	// `slogutil.Resolve(nil)` — which is the NOP handler. The report was written and
 	// discarded, so the failure stayed exactly as invisible as it had been, and the next
-	// session read "RebuildDB returns no error" off an empty log and looked elsewhere for
-	// a bug that was announcing itself into /dev/null. errLogger is the fix: a caller's
-	// logger when there is one, the default logger when there is not, never the NOP.
-	//
-	// Measured on the machine this was written on: 152 pages and 152 shards beside a 16 KB
-	// database, surviving a full `memory index --reset`, with no error anywhere.
-	//
-	// It is a warning rather than a returned error because the pages ARE written and the
-	// shard export below still has to run: a failed index is a degraded wiki, not a
-	// lost memory.
-	if err := wiki.RebuildDB(ctx, wikiDir, wikiChunks, nil, logEntry, processCache); err != nil {
+	// session saw no error. errLogger is the fix: a caller's logger when there is one, the default
+	// logger when there is not, never the NOP. It is logged rather than returned because the
+	// authoritative memory-table read has already succeeded and the wiki can be retried.
+	if err := wiki.SyncDB(ctx, wikiDir, wikiChunks, nil, logEntry); err != nil {
 		errLogger(logger).Error("memory wiki index build failed, so this scope's memories are "+
 			"not searchable", "dir", wikiDir, "error", err)
 	}

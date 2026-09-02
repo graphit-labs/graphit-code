@@ -191,7 +191,7 @@ func (m *MemoryService) EnsureInitialised() error {
 		}
 	}
 
-	if err := m.syncToLocalFast(); err != nil {
+	if err := m.syncWikiAfterWrite(); err != nil {
 		m.log().Warn("init local sync failed", "scope", m.scope, "scopeID", m.scopeID, "error", err)
 	}
 	return nil
@@ -249,7 +249,7 @@ func (m *MemoryService) AddMemory(title, body string, opts MemoryOpts) (string, 
 		return "", fmt.Errorf("storing the memory: %w", err)
 	}
 
-	if err := m.syncToLocalFast(); err != nil {
+	if err := m.syncWikiAfterWrite(); err != nil {
 		m.log().Warn("post-write sync failed", "op", "add", "id", id, "error", err)
 	}
 	return id, nil
@@ -312,7 +312,7 @@ func (m *MemoryService) updateMemory(id, newTitle, newBody, memType string) erro
 		return fmt.Errorf("storing the updated memory: %w", err)
 	}
 
-	if err := m.syncToLocalFast(); err != nil {
+	if err := m.syncWikiAfterWrite(); err != nil {
 		m.log().Warn("post-write sync failed", "op", "update", "id", id, "error", err)
 	}
 	return nil
@@ -348,7 +348,7 @@ func (m *MemoryService) RemoveMemory(id string) error {
 		return fmt.Errorf("removing the memory: %w", err)
 	}
 
-	if err := m.syncToLocalFast(); err != nil {
+	if err := m.syncWikiAfterWrite(); err != nil {
 		m.log().Warn("post-write sync failed", "op", "remove", "id", id, "error", err)
 	}
 	return nil
@@ -493,7 +493,7 @@ func (m *MemoryService) changeRelevance(id string, promote bool) error {
 		verb = "demote"
 	}
 
-	if err := m.syncToLocalFast(); err != nil {
+	if err := m.syncWikiAfterWrite(); err != nil {
 		m.log().Warn("post-write sync failed", "op", verb, "id", id, "error", err)
 	}
 	return nil
@@ -553,18 +553,8 @@ func (m *MemoryService) LiveMemories(ctx context.Context) ([]MemoryRecord, error
 	return tbl.Live(ctx)
 }
 
-// SyncToLocal recompiles this scope's wiki from its store.
-//
-// THERE IS NOTHING LEFT TO SYNC, and the name is kept only because callers use it. It used to pull
-// the remote prefix into a local raw directory and then compile from those files, with a fast path
-// that skipped the network and a slow one that did not — a distinction that meant something while
-// the truth was a directory that could be behind a bucket. The store IS the bucket now: a read is
-// already current, so the only work left is the compile.
-// It does NOT re-derive m.wikiDir. It used to, on every call, which was a no-op for a service built
-// by the constructor — that sets the same value — and silently discarded the field as an OVERRIDE
-// for anything that set it directly, so a caller pointing a scope at a chosen wiki directory got the
-// machine's real one from the first write onwards.
-func (m *MemoryService) SyncToLocal() error {
+// SyncWiki recompiles this scope's local query projection from its authoritative table.
+func (m *MemoryService) SyncWiki() error {
 	m.ensureWikiDir()
 	if err := m.IndexMemories(context.Background()); err != nil {
 		m.log().Warn("wiki indexing failed", "scope", m.scope, "scopeID", m.scopeID, "error", err)
@@ -572,12 +562,9 @@ func (m *MemoryService) SyncToLocal() error {
 	return nil
 }
 
-// syncToLocalFast is what the write paths call after a write.
-//
-// It is SyncToLocal, and the two are no longer different: the "fast" one skipped the network. Kept as
-// a separate name because the write paths read better for it — a write recompiles, it does not sync.
-func (m *MemoryService) syncToLocalFast() error {
-	return m.SyncToLocal()
+// syncWikiAfterWrite keeps the write paths explicit about the derived work they trigger.
+func (m *MemoryService) syncWikiAfterWrite() error {
+	return m.SyncWiki()
 }
 
 func (m *MemoryService) IndexMemories(ctx context.Context) error {

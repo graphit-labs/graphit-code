@@ -510,13 +510,13 @@ func TestImportantFlagRoundTrip_Boost(t *testing.T) {
 
 // Recompiling after a write must NOT fail the write.
 //
-// This asserted the opposite — that `syncToLocalFast` errors when the store is unusable — and that
+// This asserted the opposite — that `syncWikiAfterWrite` errors when the store is unusable — and that
 // was right while it also did the syncing: a failed pull meant the local copy was wrong. It only
 // recompiles now, and it runs AFTER a write that already succeeded, so turning a failed recompile
 // into an error would report a stored memory as unstored. The failure is logged instead.
-func TestSyncToLocalDoesNotFailAWriteThatAlreadySucceeded(t *testing.T) {
+func TestSyncWikiAfterWriteDoesNotFailAWriteThatAlreadySucceeded(t *testing.T) {
 	svc := &MemoryService{}
-	if err := svc.syncToLocalFast(); err != nil {
+	if err := svc.syncWikiAfterWrite(); err != nil {
 		t.Errorf("recompiling must not fail the write it follows: %v", err)
 	}
 }

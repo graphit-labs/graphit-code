@@ -26,7 +26,7 @@ The anfibolio path is the slow one.
 			DocType: "specification", Confidence: 0.9, WordCount: 12},
 		{Slug: "wollastonita", Title: "Wollastonita", Body: "# Wollastonita\n", WordCount: 1},
 	}
-	if err := RebuildDB(context.Background(), dir, chunks, nil, nil, nil); err != nil {
+	if err := SyncDB(context.Background(), dir, chunks, nil, nil); err != nil {
 		t.Fatalf("building the probe index: %v", err)
 	}
 	return dir
@@ -197,7 +197,7 @@ func TestReadPageCarriesTheRevisionChainTheMemoryProtocolReadsOffIt(t *testing.T
 		Previous:    "0000",
 		Next:        "01ENTITY.md",
 	}
-	if err := RebuildDB(context.Background(), dir, []WikiChunk{archived}, nil, nil, nil); err != nil {
+	if err := SyncDB(context.Background(), dir, []WikiChunk{archived}, nil, nil); err != nil {
 		t.Fatalf("building the index: %v", err)
 	}
 
@@ -260,10 +260,10 @@ func TestReadPageCarriesTheRevisionChainTheMemoryProtocolReadsOffIt(t *testing.T
 func TestReadPageHeaderParsesEvenForAHostileTitle(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	if err := RebuildDB(context.Background(), dir, []WikiChunk{{
+	if err := SyncDB(context.Background(), dir, []WikiChunk{{
 		Slug: "hostile", Title: "Storage: where every artifact lives", Body: "body\n",
 		DocType: "decision", Summary: "> a folded scalar header", WordCount: 1, ClusterID: -1,
-	}}, nil, nil, nil); err != nil {
+	}}, nil, nil); err != nil {
 		t.Fatalf("building the index: %v", err)
 	}
 

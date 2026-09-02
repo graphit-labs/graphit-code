@@ -592,7 +592,7 @@ func MandateTrigger() string {
 			"a search result is marked `superseded` — it is an OLD revision of the memory named in `current`, so read that one before you state anything about how the system behaves today",
 			"the question is how a belief in this project CHANGED — what a memory said before a correction, or why it was revised. Every superseded revision is searchable and the chain is walkable through `previous`; do not answer that from the current memory alone",
 		},
-		[]string{"memory_search", "memory_insert", "memory_update", "memory_list", "memory_important", "memory_promote", "memory_demote", "memory_delete", "memory_index", "memory_schema", "memory_export", "memory_sync", "memory_remove", "wiki_source"},
+		[]string{"memory_search", "memory_insert", "memory_update", "memory_list", "memory_important", "memory_promote", "memory_demote", "memory_delete", "memory_index", "memory_schema", "memory_sync", "memory_remove", "wiki_source"},
 	)
 }
 

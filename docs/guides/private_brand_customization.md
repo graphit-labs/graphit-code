@@ -55,7 +55,7 @@ with `BRAND=acme-code` uses `~/.acme-code/` and `ACME_CODE_*` variables. The
 environment-only `<PREFIX>_GLOBAL_DIR` can relocate that directory before config
 resolution begins.
 
-Global state includes configuration, global rules, raw memory, compiled AST/wiki
+Global state includes configuration, global rules, authoritative memory tables, compiled AST/wiki
 stores, runtime payloads, models, and daemon metadata. Project-local source,
 `graphit.lock.json`, rule/query overrides, and generated runtime state remain
 separate. See [Storage Layout](../architecture/storage_layout.md).

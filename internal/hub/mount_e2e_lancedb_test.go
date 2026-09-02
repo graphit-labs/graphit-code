@@ -5,7 +5,6 @@ package hub
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -73,9 +72,8 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 			DocType: "reference", Source: "memory-scopes.md", ContentHash: "h2",
 			WordCount: 11, ClusterID: -1, Confidence: 1},
 	}
-	if err := src.Rebuild(ctx, chunks, map[string][]string{"hub-s3-layout": {"memory-scopes"}},
-		&wiki.SyncLogEntry{Timestamp: "2026-08-23T00:00:00Z", TotalDocs: 2, ArticlesWritten: 2},
-		nil); err != nil {
+	if err := src.Sync(ctx, chunks, map[string][]string{"hub-s3-layout": {"memory-scopes"}},
+		&wiki.SyncLogEntry{Timestamp: "2026-08-23T00:00:00Z", TotalDocs: 2, ArticlesWritten: 2}); err != nil {
 		_ = src.Close()
 		t.Fatalf("build the source wiki: %v", err)
 	}
@@ -83,7 +81,7 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 
 	// ---- publish it: the index directory travels as itself ----
 	stage := t.TempDir()
-	if _, err := wiki.ExportToParquet(ctx, srcDir, filepath.Join(stage, wiki.BundleDir)); err != nil {
+	if _, err := wiki.StagePublishedIndex(ctx, srcDir, stage); err != nil {
 		t.Fatalf("export for publishing: %v", err)
 	}
 	if err := st.PublishArtifact(ctx, TypeKnowledge, "acme-docs", "1.0.0", "acme", stage); err != nil {
@@ -101,7 +99,7 @@ func TestPublishedWikiIsReadDirectlyFromObjectStorage(t *testing.T) {
 		// The published bytes, addressed where the fake bucket mirrored them — a directory this
 		// test did not build and does not write to. The store's read-only flag is set by hand
 		// because the local scheme cannot imply it, and it is the flag every write path consults.
-		cfg = lancestore.Config{URI: filepath.Join(stage, wiki.BundleDir)}
+		cfg = lancestore.Config{URI: wiki.WikiIndexPath(stage)}
 	}
 	t.Logf("reading on-the-fly from %s", cfg.URI)
 
@@ -179,8 +177,8 @@ func TestPublishedWikiRefusesWrites(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	if err := db.Rebuild(ctx, []wiki.WikiChunk{{Slug: "x", Title: "X"}}, nil, nil, nil); err == nil {
-		t.Error("rebuilding a published wiki was allowed")
+	if err := db.Sync(ctx, []wiki.WikiChunk{{Slug: "x", Title: "X"}}, nil, nil); err == nil {
+		t.Error("synchronizing a published wiki was allowed")
 	}
 }
 
@@ -229,14 +227,14 @@ func TestPublishedWikiCarriesItsIndexes(t *testing.T) {
 			ContentHash: "h" + slug, WordCount: 8 + i, ClusterID: -1, Confidence: 1,
 		})
 	}
-	if err := src.Rebuild(ctx, chunks, map[string][]string{"alpha": {"beta"}}, nil, nil); err != nil {
+	if err := src.Sync(ctx, chunks, map[string][]string{"alpha": {"beta"}}, nil); err != nil {
 		_ = src.Close()
 		t.Fatalf("build: %v", err)
 	}
 	_ = src.Close()
 
 	stage := t.TempDir()
-	if _, err := wiki.ExportToParquet(ctx, srcDir, filepath.Join(stage, wiki.BundleDir)); err != nil {
+	if _, err := wiki.StagePublishedIndex(ctx, srcDir, stage); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	if err := st.PublishArtifact(ctx, TypeKnowledge, "acme-docs", "2.0.0", "acme", stage); err != nil {
@@ -257,7 +255,7 @@ func TestPublishedWikiCarriesItsIndexes(t *testing.T) {
 
 	joined := strings.Join(keys, "\n")
 	for _, want := range []struct{ frag, why string }{
-		{wiki.BundleDir + "/chunks.lance/", "the pages table"},
+		{wiki.WikiIndexDirName + "/chunks.lance/", "the pages table"},
 		{"/_versions/", "the manifest, without which the dataset cannot be opened at all"},
 		{"/data/", "the row data"},
 		{"/_indices/", "THE INVERTED INDEX — this is what makes installing a copy instead of a rebuild"},
@@ -274,10 +272,10 @@ func TestPublishedWikiCarriesItsIndexes(t *testing.T) {
 	if !ok {
 		t.Fatal("no mount for the artifact just published")
 	}
-	if !strings.Contains(mount.Config.URI, "/"+wiki.BundleDir) {
+	if !strings.Contains(mount.Config.URI, "/"+wiki.WikiIndexDirName) {
 		t.Errorf("the mount URI %q does not address the uploaded index directory", mount.Config.URI)
 	}
-	prefix := ArtifactPrefix(TypeKnowledge, "acme-docs", "2.0.0", "acme") + "/" + wiki.BundleDir
+	prefix := ArtifactPrefix(TypeKnowledge, "acme-docs", "2.0.0", "acme") + "/" + wiki.WikiIndexDirName
 	if !strings.Contains(joined, prefix+"/") {
 		t.Errorf("nothing was uploaded under %q, which is where the mount reads from", prefix)
 	}

@@ -172,21 +172,23 @@ of T1.
   archived revision is just another row and `history/` stops being a directory.
   `ListMemories`, `ListImportantMemories`, `consolidate`, `repair` and `dream` read the table.
   `shardsync.go` dies with the raw store. `ScopeStore` becomes a thin remote-writable Lance
-  handle. Constraint: T0 must have passed; the raw store is deleted only after a migration
-  that reads it and writes the table, verified by count and by content hash.
+  handle. Constraint: T0 must have passed. Per the user's 2026-09-02 clarification, test data may
+  be discarded and no migration or compatibility reader is retained.
 
-- [ ] **T3 — Knowledge builds into a local table and publishes by writing it to S3.** Spec:
+- [x] **T3 — Knowledge builds into a local table and publishes by writing it to S3.** DONE
+  2026-09-02. Spec:
   `internal/knowledge`, `internal/wiki/transfer.go`, `internal/hub`. Local build unchanged in
   shape but with no page output; export writes the table to the published prefix instead of a
   Parquet bundle; a Hub context is opened read-only at its `s3://` URI and never downloaded.
   Constraint: depends on D1 for whether `docs/` remains the input.
 
-- [ ] **T4 — Incremental, on the table.** Spec: `Upsert` by `slug` for changed documents,
+- [x] **T4 — Incremental, on the table.** DONE 2026-09-02. Spec: `Upsert` by `slug` for changed documents,
   `DeleteByKey` for removed ones, `FoldNewRowsIntoIndexes` after a batch, `Compact` and
   `PruneVersions` on a schedule. Done means a one-document change does not rewrite the table
   and does not drop four tables, which is what `RebuildDB` does today.
 
-- [ ] **T5 — Rules, specs, ADR, and the memory that says the wiki has three artifacts.**
+- [x] **T5 — Rules, specs, ADR, and the memory that says the wiki has three artifacts.** DONE
+  2026-09-02.
   Several memories and the knowledge/memory skills describe the page files as the source of
   truth. All of them become wrong on T1 and have to be corrected in the same pass.
 
@@ -2565,3 +2567,145 @@ The investigation established the two live knowledge-publish mechanisms that T3 
 
 Next: revalidate callers and tests against the current AST graph, commit the completed R1–R4 slice as
 its own reviewable unit, then implement T3 without mixing the memory cleanup with the publish rewrite.
+
+### 2026-09-02 (R1–R4 committed; T3 implementation opened without compatibility work)
+
+R1–R4 were rechecked with `go test -tags lancedb ./internal/memory ./internal/daemon
+./internal/livesearch/prep`, `go build ./...`, and `go build -tags lancedb ./...`, then committed as
+**95b2a36** (`refactor(memory): remove the last raw-store paths`).
+
+The user clarified that this project is still in development: existing data is test data and may be
+discarded. T3 therefore has no backward-compatibility or migration requirement. The legacy
+unversioned knowledge-context transport is removed rather than adapted.
+
+T3 now proceeds as a destructive simplification to the single target mechanism:
+
+1. rename the neutral operation around a published wiki from Parquet import/export to publishing or
+   staging a Lance index for a versioned Hub artifact;
+2. delete the legacy CLI/MCP `knowledge export` and `knowledge install` context transport instead of
+   preserving it as an alias, adapter, fallback, or migration path; Hub publish/install is the sole
+   publication surface;
+3. delete context-directory publish/fetch, shard rebuild, bundle import, and old compatibility tests
+   once their callers disappear; no existing local context data will be migrated;
+4. preserve the non-`lancedb` refusal as an explicit capability error — such a binary cannot search a
+   Lance index locally or remotely, so retaining a shard fallback would only preserve a second store;
+5. make installed versioned knowledge artifacts discoverable and readable by the remaining knowledge
+   surfaces through their immutable S3 mount, then cover that shape with unit tests plus the existing
+   MinIO E2E.
+
+### 2026-09-02 (T3 legacy context transport removed)
+
+The destructive simplification requested by the user is now implemented in the production surface:
+
+- CLI `knowledge install` and `knowledge export` were deleted; `hub install --type knowledge` and
+  `hub submit --type knowledge` are the only installation/publication route;
+- MCP `graphit_knowledge_install` and `graphit_knowledge_export` were deleted for the same reason;
+- context-specific `knowledge sync` was deleted. Sync now only rebuilds the current project's wiki;
+- `S3Store.ContextPrefix`, `PublishContextDir`, and `FetchContextDir` were deleted, so the unversioned
+  `contexts/knowledge/<project>` object layout no longer exists in code;
+- the shard-based imported-context compiler and its compatibility tests were deleted. No existing
+  local context data is migrated.
+
+The remaining T3 work is consumer-side: make versioned Hub knowledge claims listable and ensure every
+knowledge reader that accepts a context opens the mounted Lance index directly, then remove stale
+surface assertions and documentation.
+
+### 2026-09-02 (T3 consumer paths now mount the versioned index)
+
+The remaining hidden copy was removed from multi-wiki Hub references:
+
+- `HubService.EnsureKnowledgeAvailable`, which cloned a knowledge artifact for an ad-hoc search,
+  became `ResolveKnowledgeMount` and now returns the immutable Lance mount only;
+- `wiki.WikiSource` can carry a runtime `lancestore.Config`, so single-source and multi-source AI
+  consultation, catalogue reads, page reads, and BM25 all use the mounted database handle;
+- CLI knowledge search/query/lint and MCP knowledge search/list/lint now open installed Hub contexts
+  through that same mount rather than resolving a nonexistent local directory;
+- `InstalledContextsIn` treats a versioned Hub claim as installed without demanding local bytes;
+- a build without LanceDB refuses knowledge install/mount explicitly instead of falling back to a
+  download or another store.
+
+Targeted LanceDB-tagged tests pass for `internal/wiki`, `internal/hub`, `internal/knowledge`,
+`internal/mcpstdio`, `internal/wikisvc`, and `cmd/graphit/commands`. T3 still needs the final dead-code
+and generated-surface sweep, full build/test gates, and the task's direct-S3 E2E when an endpoint is
+available.
+
+### 2026-09-02 (T4 incremental table synchronization implemented)
+
+The destructive wiki rebuild has been removed. `WikiDB.Sync` now reads the table's current
+slug/content projection, deletes only slugs absent from the desired corpus, and `Upsert`s only new
+or changed slugs. An unchanged row is never rewritten, so its embedding remains in the sole LanceDB
+store without an embedding shard or process cache. Cross-references follow the same rule: only
+sources whose normalized edge set changed are deleted/reinserted. New/deleted rows are folded into
+the existing indexes, while compaction and version pruning run on a timestamped maintenance
+schedule instead of a rebuild counter.
+
+The generators now derive all incremental evidence from LanceDB itself:
+
+- `FastPathCheck` compares the desired slug/hash projection directly with `chunks`;
+- knowledge staleness derives its previous source manifest from stored chunks, so
+  `manifest.json`, `StatPreCheck`, and the process cache are gone;
+- memory and knowledge call `SyncDB`; the old `RebuildDB`, cache-replay builder, shard embedding
+  export, and cache-only tests have been removed;
+- regression coverage proves that additions, changes and deletions defeat the fast path, that
+  deleted vector rows disappear, and that an unchanged row keeps its embedding across a sync.
+
+The first post-conversion checkpoint passes with `-tags lancedb` for wiki, knowledge, memory, Hub,
+MCP, CLI, wikisvc, daemon, and UI server. Remaining work in this slice: remove stale comments/dead
+helpers, add the explicit one-document delta assertion, and run the repository-wide gates.
+
+### 2026-09-02 (T5 current contracts aligned; false compatibility surfaces removed)
+
+The one-document delta is now pinned directly: the fixture changes row A and requires row B's
+existing embedding to survive. This would fail under a drop/recreate implementation. Dead
+`CheckAllHashesMatch`, `createTables`, `EmbeddingCache`, the stat/process-cache tests, and the
+file-name repair guard were removed rather than retained as compatibility helpers.
+
+The current architecture, storage, wiki, memory, Hub/S3, daemon, retrieval, MCP, ignore-file, and
+brand documents now describe the LanceDB-only system. Historical task/changelog records were left
+chronological on purpose. In particular:
+
+- memory is an authoritative local-or-S3 Lance table plus a local Lance wiki projection;
+- a local wiki contains only `index.lance/`; catalogue/page/log Markdown is rendered on demand;
+- a Hub knowledge artifact is a versioned `index.lance/` opened at its derived `s3://` URI;
+- the removed process cache, manifests, shards, raw-memory directory, and unversioned knowledge
+  context prefix no longer appear as current behavior.
+
+Two user-facing operations that had become lies were deleted instead of aliased: CLI `memory
+export` and MCP `graphit_memory_export` only recompiled the wiki and then claimed to have exported
+to Git. CLI `memory watch` watched a filesystem that no longer exists. The residual method name
+`SyncToLocal` became `SyncWiki`, and both CLI/MCP memory schema output now describes the table
+instead of a nonexistent graph. The obsolete `BuildDBFromCache` backlog item was removed through
+the backlog registry because the function and its entire mechanism are gone.
+
+The persistent project memories were reconciled in the same pass. The current “one wiki artifact”
+memory now names `index.lance` as the only persisted representation and no longer lists the removed
+process cache. The earlier per-file-cache decision was superseded with the direct incremental
+LanceDB synchronization model. Both memories explicitly record that no format migration or
+compatibility reader survives this development-stage reset.
+
+After formatting, the affected modules pass their LanceDB-tagged test suites: memory, MCP, CLI,
+daemon, wiki, knowledge, Hub, wikisvc, and UI server. Repository-wide build, test, lint, direct-S3
+E2E availability, final index sync, and commit were still pending at that checkpoint.
+
+### 2026-09-02 (T3–T5 verified and Graphit indexes synchronized)
+
+The repository-wide gates pass:
+
+- `git diff --check`;
+- `go build ./...`;
+- `go build -tags lancedb ./...`;
+- `go test -tags lancedb -count=1 ./...` (all packages);
+- `make lint` (0 issues).
+
+The first lint pass identified three uncalled local-reader wrappers left behind by the transport
+cleanup: `noKnowledgeToSearch`, `loadWikiPageFromIndex`, and `bm25PreFilter`. The AST graph confirmed
+that none had callers, and they were deleted; their focused MCP/wiki tests and lint then passed.
+
+The direct publication/mount test also passes explicitly together with read-only refusal and index
+transport coverage. This host has no `GRAPHIT_LANCE_S3_ENDPOINT`/`GRAPHIT_LANCE_S3_BUCKET`, so the E2E
+ran the identical publish → resolve mount → open → search → read → xref wiring against the local URI
+transport. A live MinIO network run was therefore unavailable, not failed.
+
+`graphit_sync` then completed successfully after the code, current documentation, task log, and
+persistent-memory corrections were in place. The AST, project wiki, and memory wiki therefore all
+describe the LanceDB-only state before the final commit.

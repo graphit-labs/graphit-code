@@ -58,14 +58,20 @@ func (r *LintReport) Summary() string {
 // computed at compile time from the same body, and staleness is what the compiler decided rather
 // than something re-derived from a date in a file.
 func LintWiki(ctx context.Context, wikiDir string, cfg LintConfig) (*LintReport, error) {
-	report := &LintReport{}
-
 	db, err := OpenWikiDB(ctx, wikiDir)
 	if err != nil {
 		return nil, fmt.Errorf("opening the wiki index: %w", err)
 	}
 	defer func() { _ = db.Close() }()
+	return LintWikiFrom(ctx, db, wikiDir, cfg)
+}
 
+// LintWikiFrom audits an already-open local or mounted index.
+func LintWikiFrom(ctx context.Context, db *WikiDB, source string, cfg LintConfig) (*LintReport, error) {
+	if db == nil {
+		return nil, fmt.Errorf("wiki index not open")
+	}
+	report := &LintReport{}
 	chunks, err := db.Chunks(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("reading the indexed pages: %w", err)
@@ -74,7 +80,7 @@ func LintWiki(ctx context.Context, wikiDir string, cfg LintConfig) (*LintReport,
 	// so a lint pointed at a directory that holds no wiki would otherwise answer
 	// "0 pages — no issues found", which is the most misleading answer available here.
 	if len(chunks) == 0 {
-		return nil, fmt.Errorf("the wiki at %s holds no pages — index it first", wikiDir)
+		return nil, fmt.Errorf("the wiki at %s holds no pages — index it first", source)
 	}
 	edges, err := db.AllXRefs(ctx)
 	if err != nil {

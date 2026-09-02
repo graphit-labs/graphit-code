@@ -159,16 +159,12 @@ over Hub rules, which win over compiled defaults.
 
 ## Collaboration channels
 
-There are two distribution channels:
+There is one knowledge distribution channel: `hub submit` publishes a named, versioned artifact and
+`hub install` records the selected version. Knowledge readers derive its immutable `s3://` LanceDB
+URI and query it in place; there is no unversioned project-identity export/install channel.
 
-- The artifact channel (`hub submit` / `hub install`) publishes a named,
-  versioned, discoverable artifact.
-- The project-identity channel (`knowledge export` / `knowledge install`) publishes
-  the project's compiled documentation context and synchronizes the matching
-  memory scope by project ID.
-
-Memory is mutable and multi-writer, so it is not a versioned Hub artifact. It uses
-the bucket's `memory/<scope>/<id>/` namespace and the merge/publish semantics in
+Memory is mutable and multi-writer, so it is not a versioned Hub artifact. Its authoritative LanceDB
+table uses the bucket's `memory/<scope>/<id>/` namespace and the direct-write semantics in
 [Memory Module](memory_module.md).
 
 ## Security and failure behavior

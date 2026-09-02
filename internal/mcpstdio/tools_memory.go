@@ -75,10 +75,6 @@ type memoryIndexInput struct {
 	Scope      string `json:"scope,omitempty" jsonschema:"Scope: project (default) or user"`
 }
 
-type memoryExportInput struct {
-	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
-}
-
 type memorySchemaInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
 }
@@ -385,35 +381,10 @@ func registerMemoryTools(server *mcp.Server) {
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        brand.MCPToolName("memory", "export"),
-		Description: "Index and sync project memories back to the local git repository.",
-	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memoryExportInput) (*mcp.CallToolResult, any, error) {
-		projectDir, err := resolveProjectDir(input.ProjectDir)
-		if err != nil {
-			return errResult(err)
-		}
-
-		err = withProjectDir(projectDir, func() error {
-			svc, err := newMemorySvc(false, projectDir)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = svc.Close() }()
-
-			_ = svc.IndexMemories(ctx)
-			return svc.SyncToLocal()
-		})
-		if err != nil {
-			return errResult(err)
-		}
-		return textResult("Project memories exported to git repository.")
-	}))
-
-	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("memory", "schema"),
-		Description: "Show the memory graph database schema details.",
+		Description: "Show the authoritative memory table schema.",
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input memorySchemaInput) (*mcp.CallToolResult, any, error) {
-		return textResult("Memory Graph Schema\nNode labels: Document, Section\nEdge labels: REFERENCES, CONTAINS\nProperties:\n - Document: id, title, scope, scope_id, created_at, tags\n - Section: name, summary, section_level")
+		return textResult("Memory Table Schema\nPrimary key: key\nCore columns: id, revision_id, superseded, title, body, type, tags_json\nLifecycle columns: created_at, updated_at, revision, previous, next, updated_by\nScope columns: scope, scope_id, project_id\nVector column: embedding")
 	}))
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -464,7 +435,7 @@ func registerMemoryTools(server *mcp.Server) {
 			svc := memory.NewMemoryServiceForContext(cleanCtx, ms)
 			defer func() { _ = svc.Close() }()
 
-			return svc.SyncToLocal()
+			return svc.SyncWiki()
 		})
 		if err != nil {
 			return errResult(err)

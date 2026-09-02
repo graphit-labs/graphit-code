@@ -8,6 +8,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/store"
+	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
 // SyncModule — Name
@@ -16,7 +17,11 @@ import (
 // itself lives in the global store, keyed by the project's identity.
 func wikiSources(t *testing.T, projectDir string) map[string]bool {
 	t.Helper()
-	m := knowledge.LoadManifest(store.KnowledgeProjectDir(projectDir))
+	chunks, err := wiki.IndexedChunks(context.Background(), store.KnowledgeProjectDir(projectDir))
+	if err != nil {
+		t.Fatalf("reading indexed chunks: %v", err)
+	}
+	m := knowledge.ManifestFromChunks(chunks)
 	out := make(map[string]bool, len(m.SourceHashes))
 	for path := range m.SourceHashes {
 		out[path] = true

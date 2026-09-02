@@ -54,9 +54,7 @@ func (s *S3Store) MountedWikiAt(artifactID, version, projectID string) (MountedW
 	if s == nil || !s.Configured() || version == "" {
 		return MountedWiki{}, false
 	}
-	// The index directory INSIDE the artifact prefix. wiki.BundleDir is the same constant the
-	// publisher writes to, so the two cannot drift apart without a compile error.
-	uri := s.ArtifactURI(TypeKnowledge, artifactID, version, projectID, wiki.BundleDir)
+	uri := s.ArtifactURI(TypeKnowledge, artifactID, version, projectID, wiki.WikiIndexDirName)
 	if uri == "" {
 		return MountedWiki{}, false
 	}

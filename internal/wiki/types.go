@@ -143,15 +143,8 @@ type LogDocDetails struct {
 	Summary string `json:"summary"`
 }
 
-// EmbeddingCache maps a chunk's content hash to its vector, so a rebuild can restore
-// embeddings for unchanged text instead of paying for the model again.
-//
-// It holds []float32 rather than a serialized blob: the blob was sqlite-vec's wire format,
-// and nothing outside the storage layer should have had to know it.
-type EmbeddingCache map[string][]float32
-
 // StoredEmbedding is one indexed vector with the source file and content hash it belongs to,
-// which is what the process cache keys its shards by.
+// so callers can inspect or reuse indexed embeddings without a sidecar cache.
 type StoredEmbedding struct {
 	Source      string
 	ContentHash string

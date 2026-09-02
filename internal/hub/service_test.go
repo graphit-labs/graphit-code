@@ -667,7 +667,7 @@ func TestHubService_Unlink_Validation(t *testing.T) {
 	})
 }
 
-func TestHubService_EnsureKnowledgeAvailable(t *testing.T) {
+func TestHubService_ResolveKnowledgeMount(t *testing.T) {
 	t.Parallel()
 	m := &RegistryManager{
 		entries:  make(map[ArtifactType]map[string]*Entry),
@@ -677,7 +677,7 @@ func TestHubService_EnsureKnowledgeAvailable(t *testing.T) {
 
 	t.Run("entry not found", func(t *testing.T) {
 		t.Parallel()
-		_, err := svc.EnsureKnowledgeAvailable(context.Background(), "nonexistent")
+		_, err := svc.ResolveKnowledgeMount(context.Background(), "nonexistent")
 		if err == nil {
 			t.Error("expected error for nonexistent entry")
 		}
@@ -685,7 +685,7 @@ func TestHubService_EnsureKnowledgeAvailable(t *testing.T) {
 
 	t.Run("with version", func(t *testing.T) {
 		t.Parallel()
-		_, err := svc.EnsureKnowledgeAvailable(context.Background(), "nonexistent@1.0.0")
+		_, err := svc.ResolveKnowledgeMount(context.Background(), "nonexistent@1.0.0")
 		if err == nil {
 			t.Error("expected error for nonexistent entry")
 		}
@@ -701,7 +701,7 @@ func TestHubService_EnsureKnowledgeAvailable(t *testing.T) {
 			"my-knowledge": {ID: "my-knowledge", Type: TypeKnowledge, Latest: "1.0.0", Versions: []string{"1.0.0"}},
 		}
 		svc2 := &HubService{registry: m2}
-		_, err := svc2.EnsureKnowledgeAvailable(context.Background(), "my-knowledge")
+		_, err := svc2.ResolveKnowledgeMount(context.Background(), "my-knowledge")
 		if err == nil {
 			t.Error("expected error when registry not ready")
 		}

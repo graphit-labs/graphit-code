@@ -28,7 +28,6 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
 	"github.com/graphit-labs/graphit-code/internal/output"
-	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/store"
 	"github.com/graphit-labs/graphit-code/internal/textslice"
 	"github.com/graphit-labs/graphit-code/internal/uiserver"
@@ -1011,7 +1010,7 @@ func runASTImport(sourcePath, name string, reset bool, workers int) error {
 		ms, msErr := memory.NewMemoryStore()
 		if msErr == nil {
 			memsvc := memory.NewMemoryServiceForContext(name, ms)
-			if err := memsvc.SyncToLocal(); err != nil {
+			if err := memsvc.SyncWiki(); err != nil {
 				p.StepWarn("Memory context %q: %v", name, err)
 			} else {
 				p.Step("Memory context compiled from %s", memsvc.TableURI())
@@ -1136,14 +1135,8 @@ func runASTSource(relPath, contextName, entity, entityType string, head, tail, s
 	return nil
 }
 
-func runKnowledgeSync(contextName string) error {
+func runKnowledgeSync() error {
 	p := output.NewPrinter("")
-
-	if contextName != "" {
-
-		p.Running("Syncing knowledge context %q from hub…", contextName)
-		return runKnowledgeImport(contextName, false, false)
-	}
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -1157,32 +1150,65 @@ func runKnowledgeSync(contextName string) error {
 
 func runKnowledgeList() error {
 	p := output.NewPrinter("")
-	wikiDir := knowledge.WikiDir()
-	// The index is the list. This used to read the wiki directory and skip the two reserved page
-	// names; neither the pages nor the reserved names exist, and a slug in the index is exactly a
-	// document a search can reach.
-	slugs := wiki.ListPagesAt(context.Background(), wikiDir)
-	if len(slugs) == 0 {
-		p.Info("No knowledge wiki found. Run '%s knowledge index' first.", brand.BinName())
-		return nil
+	p.ListItem("project (local)")
+	contexts := knowledge.InstalledContexts()
+	for _, name := range contexts {
+		p.ListItem("%s", name)
 	}
-	for _, slug := range slugs {
-		p.ListItem("%s", slug)
-	}
-	p.Count("document", len(slugs))
+	p.Count("knowledge context", len(contexts)+1)
 	return nil
+}
+
+func openKnowledgeForRead(ctx context.Context, contextName string) (*wiki.WikiDB, string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, "", err
+	}
+	if contextName != "" {
+		if rec, ok := store.LookupContext(wd, store.KindKnowledge, contextName); ok && rec.IsHub() {
+			st, err := hub.NewS3Store(ctx, nil, loadProjectConfig())
+			if err != nil {
+				return nil, "", fmt.Errorf("opening Hub store: %w", err)
+			}
+			mount, ok := st.MountedWikiFor(wd, contextName)
+			if !ok {
+				return nil, "", fmt.Errorf("knowledge context %q is a Hub artifact, but its object store is not configured", contextName)
+			}
+			db, err := wiki.OpenWikiDBAt(ctx, mount.Config)
+			if err != nil {
+				return nil, "", fmt.Errorf("opening knowledge artifact %s@%s: %w", mount.ArtifactID, mount.Version, err)
+			}
+			if !db.HasContent(ctx) {
+				_ = db.Close()
+				return nil, "", fmt.Errorf("knowledge artifact %s@%s has no indexed content", mount.ArtifactID, mount.Version)
+			}
+			return db, mount.Config.URI, nil
+		}
+	}
+
+	wikiDir := knowledge.WikiDirForContextIn(wd, contextName)
+	db, err := wiki.OpenWikiDB(ctx, wikiDir)
+	if err != nil {
+		return nil, "", fmt.Errorf("opening knowledge wiki: %w", err)
+	}
+	if !db.HasContent(ctx) {
+		_ = db.Close()
+		return nil, "", fmt.Errorf("knowledge wiki at %s has no indexed content", wikiDir)
+	}
+	return db, wikiDir, nil
 }
 
 func runKnowledgeSearch(term string, contextName string) error {
 	ctx := context.Background()
 	p := output.NewPrinter("")
 
-	wikiDir := knowledge.WikiDir()
-	if contextName != "" {
-		wikiDir = knowledge.WikiDirForContext(contextName)
+	db, _, err := openKnowledgeForRead(ctx, contextName)
+	if err != nil {
+		return err
 	}
+	defer func() { _ = db.Close() }()
 
-	results := wiki.BM25Search(ctx, wikiDir, term, 0)
+	results := wiki.BM25SearchFrom(ctx, db, term, 0)
 	if len(results) == 0 {
 		p.Info("No knowledge matching %q.", term)
 		return nil
@@ -1199,10 +1225,11 @@ func runKnowledgeQuery(query string, contextName string) error {
 	p := output.NewPrinter("")
 	ctx := context.Background()
 
-	wikiDir := knowledge.WikiDir()
-	if contextName != "" {
-		wikiDir = knowledge.WikiDirForContext(contextName)
+	db, _, err := openKnowledgeForRead(ctx, contextName)
+	if err != nil {
+		return err
 	}
+	defer func() { _ = db.Close() }()
 
 	aiClient, err := ai.NewClientFromConfig()
 	if err != nil {
@@ -1210,8 +1237,7 @@ func runKnowledgeQuery(query string, contextName string) error {
 	}
 
 	p.Running("Searching knowledge wiki…")
-	result, err := wiki.SearchWiki(ctx, aiClient, query, wiki.SearchConfig{
-		WikiDir:   wikiDir,
+	result, err := wiki.SearchWikiFrom(ctx, aiClient, db, query, wiki.SearchConfig{
 		ModuleTag: "knowledge",
 		UseBM25:   true,
 	})
@@ -1258,59 +1284,6 @@ func runKnowledgeIndex(root string, scope knowledge.WikiScope, workers int, rese
 	return nil
 }
 
-func runKnowledgeImport(name string, reset, useLouvain bool) error {
-	p := output.NewPrinter("")
-	ctx := context.Background()
-
-	st, err := hub.NewS3Store(ctx, nil, loadProjectConfig())
-	if err != nil || !st.Configured() {
-		return fmt.Errorf("hub not configured — run '%s setup' first", brand.BinName())
-	}
-
-	task := p.StartTask("Importing knowledge context %q...", name)
-
-	// What the context carries is the COMPILED wiki, so nothing is generated here:
-	// the shards and the embedding vectors arrive together and only the search index
-	// has to be built from them.
-	task.Update("Fetching compiled wiki from %s...", hub.ContextPrefix("knowledge", name))
-	dir, err := knowledge.ResetContextWiki(name)
-	if err != nil {
-		task.Fail("%v", err)
-		return err
-	}
-	if err := st.FetchContextDir(ctx, "knowledge", name, "wiki", dir); err != nil {
-		task.Fail("Fetch failed: %v", err)
-		return fmt.Errorf("fetching knowledge from hub: %w", err)
-	}
-	p.Step("Wiki synced → %s", dir)
-
-	task.Update("Indexing...")
-	chunks, err := knowledge.IndexContextWiki(ctx, name)
-	if err != nil {
-		task.Fail("Indexing failed: %v", err)
-		return fmt.Errorf("indexing: %w", err)
-	}
-	if chunks == 0 {
-		task.Done("Nothing indexed")
-		p.Warn("Context %q published no compiled wiki — ask its publisher to run 'knowledge export'", name)
-	} else {
-		task.Done("Indexed %d chunks", chunks)
-	}
-
-	wd, _ := os.Getwd()
-	if err := store.AddContext(wd, store.KindKnowledge, store.ContextRecord{Name: name}); err != nil {
-		p.StepWarn("Registering context %q: %v", name, err)
-	}
-
-	memory.OnHubImport(ctx, name, nil)
-	p.Step("Memory auto-cycle triggered for context %q (background)", name)
-
-	p.Success("Context %q ready", name)
-	p.Step("Query: %s knowledge query \"...\" --context %s", brand.BinName(), name)
-	refreshModuleRule("knowledge", wd, "")
-	return nil
-}
-
 func runKnowledgeClean() error {
 	p := output.NewPrinter("")
 	wikiDir := knowledge.WikiDir()
@@ -1324,22 +1297,18 @@ func runKnowledgeClean() error {
 
 func runKnowledgeLint(contextName string, staleDays int) error {
 	p := output.NewPrinter("")
-
-	wikiDir := knowledge.WikiDir()
-	if contextName != "" {
-		wikiDir = knowledge.WikiDirForContext(contextName)
+	ctx := context.Background()
+	db, source, err := openKnowledgeForRead(ctx, contextName)
+	if err != nil {
+		return err
 	}
-
-	if _, err := os.Stat(wikiDir); err != nil {
-		p.Info("No knowledge wiki found at %s. Run '%s knowledge index' first.", wikiDir, brand.BinName())
-		return nil
-	}
+	defer func() { _ = db.Close() }()
 
 	p.Running("Auditing knowledge wiki…")
 
 	cfg := wiki.LintConfig{StaleDays: staleDays}
 
-	report, err := wiki.LintWiki(context.Background(), wikiDir, cfg)
+	report, err := wiki.LintWikiFrom(ctx, db, source, cfg)
 	if err != nil {
 		return fmt.Errorf("lint failed: %w", err)
 	}
@@ -1666,9 +1635,8 @@ func runMemoryIndex(userScope, reset bool) error {
 	// `knowledge index --reset`.
 	//
 	// It exists because an ordinary index cannot repair an index that is wrong for a
-	// reason other than a changed memory: generation skips any source whose content hash
-	// is unchanged, so a wiki that is empty while its shards are present and current is
-	// precisely the state a re-run reports "completed" over without touching.
+	// reason other than a changed memory. The normal incremental path compares the source table
+	// with the wiki table; --reset deliberately discards the derived side before compiling it again.
 	//
 	// Nothing discarded here is source. The memories live in their own store, outside the
 	// wiki; the chunks and the vectors are all derived from them.
@@ -1741,7 +1709,7 @@ func runMemoryImport(projectID string) error {
 	defer func() { _ = svc.Close() }()
 
 	task := p.StartTask("Importing external memory context %q...", projectID)
-	if err := svc.SyncToLocal(); err != nil {
+	if err := svc.SyncWiki(); err != nil {
 		task.Fail("Sync failed: %v", err)
 		return err
 	}
@@ -1831,32 +1799,8 @@ func runMemoryClean() error {
 		return fmt.Errorf("removing memory wiki: %w", err)
 	}
 	_ = os.MkdirAll(wikiDir, 0o755)
-	p.Success("Project memory wiki cleared. Raw memories are preserved in the git repository.")
+	p.Success("Project memory wiki cleared. The authoritative memory table was preserved.")
 	p.Step("Rebuild: %s memory index", brand.BinName())
-	return nil
-}
-
-func runMemoryExport() error {
-	p := output.NewPrinter("")
-	ctx := context.Background()
-
-	svc, _, err := newMemorySvc(false)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = svc.Close() }()
-
-	p.Running("Indexing and exporting project memories…")
-	if err := svc.IndexMemories(ctx); err != nil {
-		p.Warn("Wiki regeneration: %v", err)
-	}
-
-	if err := svc.SyncToLocal(); err != nil {
-		p.Warn("Git sync: %v", err)
-	}
-
-	p.Success("Memories exported to git repository")
-	p.Step("Other projects can import with: %s memory install <project-id>", brand.BinName())
 	return nil
 }
 
@@ -1880,12 +1824,11 @@ func runMemoryRemoveContext(contextName string) error {
 
 func runMemorySchema(contextName string) error {
 	p := output.NewPrinter("")
-	p.Header("Memory Graph Schema")
-	p.Info("Node labels:  Document, Section")
-	p.Info("Edge labels:  REFERENCES, CONTAINS")
-	p.Info("Key properties:")
-	p.Info("  Document: id (ULID), title, scope, scope_id, created_at, tags")
-	p.Info("  Section:  name, summary, section_level")
+	p.Header("Memory Table Schema")
+	p.Info("Primary key: key (live: <id>; revision: <id>/<revision-id>)")
+	p.Info("Core columns: id, revision_id, superseded, title, body, type, tags_json")
+	p.Info("Lifecycle columns: created_at, updated_at, revision, previous, next, updated_by")
+	p.Info("Scope columns: scope, scope_id, project_id; vector column: embedding")
 	return nil
 }
 
@@ -1897,20 +1840,12 @@ func runMemorySync(contextName string) error {
 	}
 	defer func() { _ = svc.Close() }()
 	task := p.StartTask("Syncing memory context %q...", contextName)
-	if err := svc.SyncToLocal(); err != nil {
+	if err := svc.SyncWiki(); err != nil {
 		task.Fail("Sync failed: %v", err)
 		return err
 	}
 	task.Done("Sync complete")
 	return nil
-}
-
-func runMemoryWatch(rootPath string, useLouvain bool) error {
-	p := output.NewPrinter("")
-	p.Running("Watching %s for changes…", rootPath)
-	return watchAndReindex(rootPath, useLouvain, func() error {
-		return memory.RunProjectCycle(context.Background()).Err
-	})
 }
 
 func runMemoryConsolidate(userScope, dryRun bool) error {
@@ -2140,56 +2075,6 @@ func runKnowledgeRemoveContext(contextName string) error {
 	}
 	p.Success("Removed knowledge context %q", contextName)
 	refreshModuleRule("knowledge", wd, "")
-	return nil
-}
-
-func runKnowledgeExport() error {
-	p := output.NewPrinter("")
-
-	ctx := context.Background()
-
-	st, err := hub.NewS3Store(ctx, nil, loadProjectConfig())
-	if err != nil || !st.Configured() {
-		return fmt.Errorf("hub not configured — run '%s setup' first", brand.BinName())
-	}
-
-	lf, err := hub.LoadLockfile(lockfilePath())
-	if err != nil || lf == nil {
-		return fmt.Errorf("project not initialised — run '%s init' first", brand.BinName())
-	}
-
-	// The documentation tree is NOT published: it lives in this project's own
-	// repository, and the consumer never compiles it. What travels is the compiled
-	// wiki plus its shards, so the consumer indexes rather than re-derives — and
-	// never pays for the embedding model over text whose vectors shipped with it.
-	wikiDir := knowledge.WikiDir()
-	if _, err := os.Stat(wikiDir); err != nil {
-		return fmt.Errorf("no compiled wiki at %s — run '%s knowledge index' first",
-			wikiDir, brand.BinName())
-	}
-
-	prefix := hub.ContextPrefix("knowledge", lf.Project.ID)
-	p.Running("Exporting knowledge to %s…", prefix)
-
-	// The rebuildable index is left behind: it is derived, it is the largest thing
-	// in the directory, and a consumer rebuilds it from the shards in seconds. Staging into
-	// a temporary directory is what lets that exclusion happen before anything is uploaded.
-	staged, err := os.MkdirTemp("", brand.TempDirPrefix("knowledge-export"))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.RemoveAll(staged) }()
-
-	if err := paths.SyncCopyDirExcept(wikiDir, staged, wiki.IsDerivedFile); err != nil {
-		return fmt.Errorf("staging wiki: %w", err)
-	}
-	if err := st.PublishContextDir(ctx, "knowledge", lf.Project.ID, "wiki", staged); err != nil {
-		return fmt.Errorf("publishing wiki: %w", err)
-	}
-	p.Step("wiki/ → %s/wiki (shards, without the rebuildable index)", prefix)
-
-	p.Success("Knowledge exported to %s", prefix)
-	p.Step("Other projects can import with: %s knowledge install %s", brand.BinName(), lf.Project.ID)
 	return nil
 }
 

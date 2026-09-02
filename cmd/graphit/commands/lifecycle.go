@@ -1015,7 +1015,7 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 		go func() {
 			defer wg.Done()
 			if projSvc, _, svcErr := newMemorySvc(false); svcErr == nil {
-				projResult <- syncResult{err: projSvc.SyncToLocal()}
+				projResult <- syncResult{err: projSvc.SyncWiki()}
 				_ = projSvc.Close()
 			} else {
 				projResult <- syncResult{}
@@ -1024,7 +1024,7 @@ func runSyncPhase1(ctx context.Context, wd string, idesToSync []string, p *outpu
 		go func() {
 			defer wg.Done()
 			if userSvc, _, svcErr := newMemorySvc(true); svcErr == nil {
-				userResult <- syncResult{err: userSvc.SyncToLocal()}
+				userResult <- syncResult{err: userSvc.SyncWiki()}
 				_ = userSvc.Close()
 			} else {
 				userResult <- syncResult{}

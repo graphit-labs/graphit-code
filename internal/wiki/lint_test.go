@@ -73,7 +73,7 @@ func lintChunk(slug, title string) WikiChunk {
 func indexedWikiWithXRefs(t *testing.T, chunks []WikiChunk, xrefs map[string][]string) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := RebuildDB(context.Background(), dir, chunks, xrefs, nil, nil); err != nil {
+	if err := SyncDB(context.Background(), dir, chunks, xrefs, nil); err != nil {
 		t.Fatalf("building the lint fixture index: %v", err)
 	}
 	return dir
@@ -269,20 +269,9 @@ func TestParseFMInstant(t *testing.T) {
 	}
 }
 
-// 🔒 THE SELF-FULFILLING CACHE, pinned so it cannot come back.
-//
-// FastPathCheck used to ask the process cache whether any document had changed. The generation pass
-// populates that cache with each document's NEW hash BEFORE calling the check, so the check asked a
-// question it had already answered: `HasChanged` said no for every entry, including a document that
-// had just been edited, and the rebuild was skipped in 110 ms.
-//
-// It was invisible for as long as search could fall back to scanning the `.md` pages, because those
-// were rewritten from the fresh sources. Making the index the single artifact removed the mask, and
-// the bug reproduced on the first edit to a real document.
-//
-// This test reproduces exactly that arrangement: a cache that already agrees with the new hash, and
-// an index that does not. The fast path must refuse.
-func TestFastPathCheckIgnoresAProcessCacheThatAlreadyAgrees(t *testing.T) {
+// The table is the authority for the fast path: a source hash newer than the stored row must force
+// a sync.
+func TestFastPathCheckTrustsOnlyTheStoredTable(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
@@ -296,20 +285,10 @@ func TestFastPathCheckIgnoresAProcessCacheThatAlreadyAgrees(t *testing.T) {
 		ContentHash: oldHash, WordCount: 4, ClusterID: -1,
 	}}, nil)
 
-	cache, err := NewWikiProcessCache(dir)
-	if err != nil {
-		t.Fatalf("process cache: %v", err)
-	}
-	// Exactly what the generation pass does before calling the check: record the NEW hash.
-	cache.Store("docs/edited.md", newHash, []CachedChunk{{
-		Title: "Edited", Body: "the freshly read body", ContentHash: newHash,
-	}})
+	entries := []DocHashEntry{{ContentHash: newHash, Slug: slug}}
 
-	entries := []DocHashEntry{{CacheKey: "docs/edited.md", ContentHash: newHash, Slug: slug}}
-
-	if FastPathCheck(ctx, dir, entries, cache) {
-		t.Fatal("the fast path skipped a rebuild for an EDITED document — it is trusting the cache " +
-			"the same pass just populated instead of the index")
+	if FastPathCheck(ctx, dir, entries) {
+		t.Fatal("the fast path skipped a sync for an edited document")
 	}
 
 	// And it does skip once the index actually holds that hash, or the check would never let a
@@ -318,11 +297,7 @@ func TestFastPathCheckIgnoresAProcessCacheThatAlreadyAgrees(t *testing.T) {
 		Slug: slug, Title: "Edited", Body: "the freshly read body", DocType: "document",
 		ContentHash: newHash, WordCount: 4, ClusterID: -1,
 	}}, nil)
-	currentCache, err := NewWikiProcessCache(current)
-	if err != nil {
-		t.Fatalf("process cache: %v", err)
-	}
-	if !FastPathCheck(ctx, current, entries, currentCache) {
+	if !FastPathCheck(ctx, current, entries) {
 		t.Error("the fast path refused a corpus the index already holds at the same hash")
 	}
 }
@@ -341,21 +316,17 @@ func TestFastPathCheckNoticesAdditionsAndDeletions(t *testing.T) {
 		}
 	}
 	dir := indexedWikiWithXRefs(t, []WikiChunk{chunk("alpha"), chunk("beta")}, nil)
-	cache, err := NewWikiProcessCache(dir)
-	if err != nil {
-		t.Fatalf("process cache: %v", err)
-	}
 	entry := func(slug string) DocHashEntry {
-		return DocHashEntry{CacheKey: "docs/" + slug + ".md", ContentHash: hash, Slug: slug}
+		return DocHashEntry{ContentHash: hash, Slug: slug}
 	}
 
-	if !FastPathCheck(ctx, dir, []DocHashEntry{entry("alpha"), entry("beta")}, cache) {
+	if !FastPathCheck(ctx, dir, []DocHashEntry{entry("alpha"), entry("beta")}) {
 		t.Fatal("an unchanged corpus must take the fast path")
 	}
-	if FastPathCheck(ctx, dir, []DocHashEntry{entry("alpha"), entry("beta"), entry("gamma")}, cache) {
+	if FastPathCheck(ctx, dir, []DocHashEntry{entry("alpha"), entry("beta"), entry("gamma")}) {
 		t.Error("a document the index has never seen must not take the fast path")
 	}
-	if FastPathCheck(ctx, dir, []DocHashEntry{entry("alpha")}, cache) {
+	if FastPathCheck(ctx, dir, []DocHashEntry{entry("alpha")}) {
 		t.Error("an indexed document that no entry claims — a deletion — must not take the fast path")
 	}
 }

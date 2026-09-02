@@ -399,54 +399,6 @@ func (s *S3Store) DownloadArtifact(ctx context.Context, artType ArtifactType, id
 	return dest, nil
 }
 
-// ---------- published contexts ----------
-//
-// A context is an UNVERSIONED per-project publication, latest-wins: `knowledge export`
-// replaces what the project published last time. It mirrors the branch it replaces
-// (knowledge/project/<id>) rather than the versioned artifact prefix, because there is no
-// version in this path and inventing one would change what the command means.
-
-const contextsPrefix = "contexts"
-
-// ContextPrefix is where one project's published context lives.
-func ContextPrefix(kind, projectID string) string {
-	return s3store.JoinKey(contextsPrefix, kind, projectID)
-}
-
-// PublishContextDir replaces one subdirectory of a published context.
-//
-// The old prefix is deleted first, so a page removed at the source disappears here too —
-// mirroring, not merging, which is what the worktree copy it replaces also did.
-func (s *S3Store) PublishContextDir(ctx context.Context, kind, projectID, subdir, srcDir string) error {
-	if !s.Configured() {
-		return s3store.ErrNotConfigured
-	}
-	prefix := s3store.JoinKey(ContextPrefix(kind, projectID), subdir)
-	if err := s.objects.DeletePrefix(ctx, prefix); err != nil {
-		return fmt.Errorf("clearing %s: %w", prefix, err)
-	}
-	if err := s.objects.UploadDir(ctx, srcDir, prefix); err != nil {
-		return fmt.Errorf("publishing %s: %w", prefix, err)
-	}
-	return nil
-}
-
-// FetchContextDir downloads one subdirectory of a published context.
-//
-// An absent prefix is NOT an error: a project that published no compiled wiki fetches
-// nothing and indexes zero chunks, which the caller reports rather than hides. That is the
-// behaviour of the branch extraction it replaces.
-func (s *S3Store) FetchContextDir(ctx context.Context, kind, projectID, subdir, destDir string) error {
-	if !s.Configured() {
-		return s3store.ErrNotConfigured
-	}
-	prefix := s3store.JoinKey(ContextPrefix(kind, projectID), subdir)
-	if err := s.objects.DownloadPrefix(ctx, prefix, destDir); err != nil {
-		return fmt.Errorf("fetching %s: %w", prefix, err)
-	}
-	return nil
-}
-
 // ---------- telemetry ----------
 //
 // AN EVENT IS UPLOADED WHEN IT HAPPENS. It is not queued.

@@ -54,7 +54,7 @@ func indexChunk(t *testing.T, dir string, c wiki.WikiChunk) error {
 		}
 	}
 	out = append(out, c)
-	return wiki.RebuildDB(ctx, dir, out, nil, nil, nil)
+	return wiki.SyncDB(ctx, dir, out, nil, nil)
 }
 
 func firstHeadingOrSlug(content, slug string) string {

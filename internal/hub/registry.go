@@ -474,15 +474,12 @@ func (m *RegistryManager) PublishEntry(ctx context.Context, entryID string, loca
 		defer func() { _ = os.RemoveAll(prepared) }()
 		publishPath = prepared
 	case TypeKnowledge:
-		if prepared, err := prepareKnowledgePublish(ctx, localPath); err == nil {
-			defer func() { _ = os.RemoveAll(prepared) }()
-			publishPath = prepared
-		} else {
-			// Not fatal: publishing the directory as it stands still carries the shards,
-			// which is what a consumer knew how to index before tables travelled at all.
-			slog.Warn("knowledge-publish: table export unavailable, publishing shards",
-				"error", err)
+		prepared, err := prepareKnowledgePublish(ctx, localPath)
+		if err != nil {
+			return fmt.Errorf("preparing knowledge publish: %w", err)
 		}
+		defer func() { _ = os.RemoveAll(prepared) }()
+		publishPath = prepared
 	}
 
 	if err := m.store.PublishArtifact(ctx, meta.Type, entryID, version, meta.ProjectID, publishPath); err != nil {
@@ -772,13 +769,11 @@ func (m *RegistryManager) Store() *S3Store {
 	return m.store
 }
 
-// MountsKnowledge reports whether a knowledge artifact can be read where it lives instead of
-// downloaded.
+// MountsKnowledge reports whether a knowledge artifact can be read where it lives.
 //
 // It is a capability question, not a preference: it needs a configured bucket AND a binary with
 // the search engine linked in. Without the engine there is nothing that can open an `s3://` index,
-// so a build without the `lancedb` tag must still download — and answering yes there would leave a
-// context installed with no bytes and no way to read them.
+// so a build without the `lancedb` tag refuses the install instead of inventing a second store.
 func (m *RegistryManager) MountsKnowledge() bool { return m.MountsArtifact(TypeKnowledge) }
 
 // MountsArtifact reports whether an artifact of this type can be read where it lives.
@@ -959,9 +954,9 @@ func copyFileWithBrand(src, dst string) error {
 
 // prepareKnowledgePublish stages what a knowledge artifact carries.
 //
-// It publishes the wiki's own TABLES as Parquet, for the same reason an AST artifact does: the
-// artifact is written by one project, pinned by its version and never compiled by a consumer, so
-// having every consumer re-derive the same frozen index repeats work for a value already computed.
+// It stages the wiki's Lance index directory as-is: the artifact is written by one project, pinned
+// by its version and never compiled by a consumer, so having every consumer re-derive the same
+// frozen index would repeat work for a value already computed.
 //
 // THE TABLES ARE ALL OF IT. A loop here also copied every `.md` beside them, on the reasoning that
 // the pages were what a reader opens and nothing could reconstruct them without the sources. Both
@@ -977,7 +972,7 @@ func prepareKnowledgePublish(ctx context.Context, srcDir string) (string, error)
 	if err != nil {
 		return "", err
 	}
-	if _, err := wiki.ExportToParquet(ctx, srcDir, wiki.BundlePath(tmpDir)); err != nil {
+	if _, err := wiki.StagePublishedIndex(ctx, srcDir, tmpDir); err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return "", err
 	}

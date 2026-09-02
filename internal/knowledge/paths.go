@@ -59,13 +59,6 @@ func WikiDirForContext(name string) string {
 	return WikiDirForContextIn(wd, name)
 }
 
-// ContextWriteDir is where a context's wiki is COMPILED, which is not always where
-// it is read from: an installed artifact is read from its `wiki/` subdirectory, and
-// a locally built one from the context directory itself.
-func ContextWriteDir(name string) string {
-	return store.KnowledgeContextDir(name)
-}
-
 // InstalledContextsIn lists the knowledge contexts projectDir has imported.
 //
 // It reads the project's registry, not a directory. Listing the global wiki root
@@ -74,6 +67,12 @@ func ContextWriteDir(name string) string {
 func InstalledContextsIn(projectDir string) []string {
 	var names []string
 	for _, name := range store.ContextNames(projectDir, store.KindKnowledge) {
+		if rec, ok := store.LookupContext(projectDir, store.KindKnowledge, name); ok && rec.IsHub() {
+			// Published knowledge is mounted from its immutable object-store URI. There
+			// is deliberately no local directory whose existence could prove the claim.
+			names = append(names, name)
+			continue
+		}
 		if _, err := os.Stat(WikiDirForContextIn(projectDir, name)); err == nil {
 			names = append(names, name)
 		}

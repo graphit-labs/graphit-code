@@ -238,8 +238,8 @@ func TestWikiDBHybridSearchCombinesBothPasses(t *testing.T) {
 	})
 }
 
-// A rebuild must not leave vectors pointing at chunks that no longer exist.
-func TestWikiDBRebuildResetsEmbeddingState(t *testing.T) {
+// A sync must not leave vectors pointing at chunks that no longer exist.
+func TestWikiDBSyncRemovesDeletedEmbeddingState(t *testing.T) {
 	db := embeddedTestDB(t)
 
 	embedded, _ := db.EmbeddingStats(context.Background())
@@ -248,8 +248,8 @@ func TestWikiDBRebuildResetsEmbeddingState(t *testing.T) {
 	}
 
 	kept := testChunks()[1:]
-	if err := db.Rebuild(context.Background(), kept, nil, nil, nil); err != nil {
-		t.Fatalf("Rebuild: %v", err)
+	if err := db.Sync(context.Background(), kept, nil, nil); err != nil {
+		t.Fatalf("Sync: %v", err)
 	}
 
 	_, total := db.EmbeddingStats(context.Background())
@@ -263,38 +263,7 @@ func TestWikiDBRebuildResetsEmbeddingState(t *testing.T) {
 	}
 	for _, r := range res {
 		if r.Slug == "autenticacao" {
-			t.Error("a chunk dropped by the rebuild is still reachable through its vector")
+			t.Error("a chunk deleted by the sync is still reachable through its vector")
 		}
-	}
-}
-
-// optimizeTables merges FTS segments and only runs on every tenth rebuild, so
-// nine rebuilds out of ten never reach it. Driving the counter there is the only
-// way the merge path gets executed at all before a user hits it in production.
-func TestWikiDBOptimizeRunsOnTheTenthRebuild(t *testing.T) {
-	db := rebuiltTestDB(t)
-
-	// One rebuild already happened; nine more crosses the threshold.
-	for i := 0; i < 9; i++ {
-		if err := db.Rebuild(context.Background(), testChunks(), nil, nil, nil); err != nil {
-			t.Fatalf("rebuild %d: %v", i+2, err)
-		}
-	}
-
-	// The merge must leave the index usable, which is the whole risk here.
-	res, err := db.Search(context.Background(), "credenciais", 5)
-	if err != nil {
-		t.Fatalf("Search after the optimize pass: %v", err)
-	}
-	if len(res) == 0 {
-		t.Error("the FTS index returns nothing after segment optimization")
-	}
-
-	chunks, _, _, _, err := db.Stats(context.Background())
-	if err != nil {
-		t.Fatalf("Stats: %v", err)
-	}
-	if chunks != len(testChunks()) {
-		t.Errorf("%d chunks after ten rebuilds, want %d", chunks, len(testChunks()))
 	}
 }

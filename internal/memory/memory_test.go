@@ -526,10 +526,10 @@ func TestMemoryService_NoGitStore_Errors(t *testing.T) {
 		t.Error("DemoteMemory should error without gitStore")
 	}
 
-	// SyncToLocal is deliberately NOT in this list any more. Every call above is a WRITE, and a
-	// write with no store must refuse. SyncToLocal only recompiles, and it runs after a write that
+	// SyncWiki is deliberately NOT in this list any more. Every call above is a WRITE, and a
+	// write with no store must refuse. SyncWiki only recompiles, and it runs after a write that
 	// already succeeded — erroring there would report a stored memory as unstored.
-	if err := svc.SyncToLocal(); err != nil {
+	if err := svc.SyncWiki(); err != nil {
 		t.Errorf("recompiling must not fail: %v", err)
 	}
 }

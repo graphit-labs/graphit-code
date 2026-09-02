@@ -54,10 +54,7 @@ registry/
 artifacts/
   <folder>/<project>/<id>/<version>/…                   file-based artifact types
   ast/<project>/<version>/…                             graph + search stores
-  knowledge/<project>/<version>/…                       wiki + search stores
-
-contexts/
-  knowledge/<projectID>/wiki/…                          published compiled wiki, unversioned
+  knowledge/<project>/<version>/index.lance/            complete published wiki
 
 events/
   <project>/<artifactType>/<ULID>_<action>.json         telemetry, append-only
@@ -66,7 +63,7 @@ rules/
   <name>.md                                             team-wide rule overrides
 
 memory/
-  <scope>/<id>/…                                        published memory stores
+  <scope>/<id>/…                                        authoritative LanceDB memory tables
 ```
 
 Where:
@@ -79,18 +76,6 @@ Where:
 - `<project>` is the publishing project's remote id, or `_global`.
 - `ast` and `knowledge` omit the `<id>` segment, because a project publishes exactly one of
   each — the same rule `hub.ArtifactBranchName` already applies to branch names today.
-
-### A context is unversioned; an artifact version is not
-
-`contexts/<kind>/<projectID>/<subdir>/` is what `knowledge export` publishes: the project's
-compiled wiki, latest-wins, replacing what it published last time. It has no version segment
-because the command has no version — it mirrors the `knowledge/project/<id>` branch it
-replaces, and inventing a version would change what the command means.
-
-Publishing a context **deletes the prefix before uploading**, so a page removed at the source
-disappears here too. That is mirroring rather than merging, which is what the worktree copy it
-replaces also did. Fetching a context that was never published is **not an error**: it fetches
-nothing and the consumer indexes zero chunks, which the caller reports rather than hides.
 
 ### An artifact version is a prefix, not a file
 
@@ -111,12 +96,13 @@ This is the part that makes installation stop downloading.
 |---|---|---|
 | graph | LadybugDB | `s3://<bucket>/<prefix>/artifacts/ast/<project>/<version>/graph` as a table's `storage`, with `format = 'icebug-disk'` |
 | search | LanceDB | `s3://<bucket>/<prefix>/artifacts/ast/<project>/<version>/search` as the connection target |
+| knowledge wiki | LanceDB | `s3://<bucket>/<prefix>/artifacts/knowledge/<project>/<version>/index.lance` as the connection target |
 
 Both URIs come from `s3store.Store.URI`, which is why its exact shape (`s3://bucket/key`,
 never an HTTPS endpoint URL) is load-bearing rather than cosmetic.
 
-Installing an artifact therefore records the URI and runs the mount DDL. **No bytes of graph
-or index are transferred at install time.** File-based artifact types — rules, skills,
+Installing a mountable artifact therefore records its versioned claim and derives the URI at read
+time. **No knowledge-index bytes are transferred at install time.** File-based artifact types — rules, skills,
 commands, agents, MCP configs, languages — are still downloaded, because the IDE reads them
 from disk.
 

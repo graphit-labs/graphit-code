@@ -12,26 +12,24 @@ func newKnowledgeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "knowledge",
 		Aliases: []string{"kn"},
-		Short:   "Knowledge wiki — index, query, and manage knowledge contexts.",
+		Short:   "Knowledge wiki — index, query, and inspect knowledge contexts.",
 		Long: brand.DisplayName + ` Knowledge — LLM wiki generated from docs/.
 
-Indexes docs/ into a navigable knowledge graph wiki. Supports importing
-external knowledge contexts from the hub and querying with natural language or Cypher.
+Indexes docs/ into a navigable knowledge wiki. Versioned external contexts are
+installed through the Hub and queried here.
 
 Commands:
   index    Index the project docs/ into the knowledge graph and wiki
   query    Query the knowledge graph (Cypher or AI natural language)
-  install  Import an external knowledge context from the hub
   remove   Remove the project knowledge graph or an imported context
-  sync     Re-sync an imported context from the global cache
-  export   Export the project wiki and graph to the hub
+  sync     Rebuild the local project wiki
   list     List all installed knowledge contexts
   rule     Customize the global knowledge agent rule
 
 Examples:
   ` + brand.BinName() + ` knowledge index --louvain
   ` + brand.BinName() + ` knowledge query "how does auth work?" --ai
-  ` + brand.BinName() + ` knowledge install team-platform
+  ` + brand.BinName() + ` hub install team-platform --type knowledge
   ` + brand.BinName() + ` knowledge remove --context team-platform
   ` + brand.BinName() + ` knowledge list`,
 	}
@@ -43,10 +41,8 @@ Examples:
 		newKnowledgeSearchCmd(),
 		newKnowledgeLintCmd(),
 		newKnowledgeSchemaCmd(),
-		newKnowledgeInstallCmd(),
 		newKnowledgeRemoveCmd(),
 		newKnowledgeSyncCmd(),
-		newKnowledgeExportCmd(),
 		newKnowledgeListCmd(),
 		newModuleRuleCmd("knowledge"),
 	)
@@ -59,7 +55,6 @@ func newKnowledgeIndexCmd() *cobra.Command {
 		reset      bool
 		useLouvain bool
 		workers    int
-		context    string
 	)
 	cmd := &cobra.Command{
 		Use:   "index [path]",
@@ -74,13 +69,11 @@ Passing a path indexes that directory wholesale instead, README rule included or
 not — it is an explicit request, so it is taken literally.
 
 Project flags (--reset, --louvain) apply to the local project index.
-Use --context <name> to re-index a specific imported context.
 
 Examples:
   ` + brand.BinName() + ` knowledge index
   ` + brand.BinName() + ` knowledge index --reset --louvain
-  ` + brand.BinName() + ` knowledge index documentation/
-  ` + brand.BinName() + ` knowledge index --context team-platform`,
+  ` + brand.BinName() + ` knowledge index documentation/`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
@@ -97,7 +90,6 @@ Examples:
 	cmd.Flags().BoolVar(&reset, "reset", false, "Clear graph and re-index from scratch (project only)")
 	cmd.Flags().BoolVar(&useLouvain, "louvain", false, "Use Louvain community detection (project only)")
 	cmd.Flags().IntVar(&workers, "workers", 0, "Parallel workers (0 = sequential)")
-	cmd.Flags().StringVar(&context, "context", "", "Re-index a specific imported context by name")
 	return cmd
 }
 
@@ -150,25 +142,6 @@ Examples:
 	return cmd
 }
 
-func newKnowledgeInstallCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "install <name>",
-		Short: "Import an external knowledge context from the hub",
-		Long: `Fetch another project's knowledge artifact from the hub (wiki)
-and install it locally at ` + brand.DotDir() + `/knowledge/<name>/.
-
-The hub artifact already contains the built wiki and graph — no re-indexing needed.
-
-Examples:
-  ` + brand.BinName() + ` knowledge install team-platform`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runKnowledgeImport(args[0], false, false)
-		},
-	}
-	return cmd
-}
-
 func newKnowledgeRemoveCmd() *cobra.Command {
 	var context string
 	cmd := &cobra.Command{
@@ -192,35 +165,15 @@ Examples:
 }
 
 func newKnowledgeSyncCmd() *cobra.Command {
-	var context string
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Re-sync an imported context from the global cache",
-		Long: `Re-installs files for an imported context from the global cache.
-Use --context to specify which context to sync. Without it, syncs all.
+		Short: "Rebuild the local project knowledge wiki",
+		Long: `Re-index the configured documentation scope into the local project wiki.
 
 Examples:
-  ` + brand.BinName() + ` knowledge sync
-  ` + brand.BinName() + ` knowledge sync --context team-platform`,
+	  ` + brand.BinName() + ` knowledge sync`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runKnowledgeSync(context)
-		},
-	}
-	cmd.Flags().StringVar(&context, "context", "", "Sync a specific imported context by name")
-	return cmd
-}
-
-func newKnowledgeExportCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "export",
-		Short: "Export the project knowledge wiki and graph to the hub",
-		Long: `Export the project's knowledge wiki (plain markdown) and wiki
-(Parquet via EXPORT DATABASE) so other projects can import it.
-
-Examples:
-  ` + brand.BinName() + ` knowledge export`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runKnowledgeExport()
+			return runKnowledgeSync()
 		},
 	}
 	return cmd

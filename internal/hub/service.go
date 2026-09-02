@@ -13,11 +13,11 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/config"
 	ideAdapter "github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
+	"github.com/graphit-labs/graphit-code/internal/lancestore"
 	"github.com/graphit-labs/graphit-code/internal/paths"
 	"github.com/graphit-labs/graphit-code/internal/projectlock"
 	"github.com/graphit-labs/graphit-code/internal/slogutil"
 	"github.com/graphit-labs/graphit-code/internal/store"
-	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
 type HubService struct {
@@ -26,11 +26,6 @@ type HubService struct {
 	tracker  *EventTracker
 	lockMgr  *GlobalLockManager
 }
-
-// transientOwnerKey owns a download made to answer one question rather than to install
-// anything — EnsureKnowledgeAvailable. Like store.GlobalOwnerKey it has no project
-// directory, which is what keeps ValidateProjectDirs from pruning it.
-const transientOwnerKey = "__transient__"
 
 func (s *HubService) log() *slog.Logger { return slogutil.Resolve(s.Logger) }
 
@@ -201,6 +196,9 @@ func (s *HubService) Install(
 	// measured and recorded in docs/tasks/hub-em-s3-icebug-e-lancedb.md, and stated again in
 	// internal/ast/icebug_transfer.go where a caller will meet them.
 	mountArtifact := s.registry.MountsArtifact(artType)
+	if artType == TypeKnowledge && s.registry.IsReady() && !lancestore.Available() {
+		return nil, fmt.Errorf("installing knowledge artifact %q: %w", realID, lancestore.ErrNotBuilt)
+	}
 
 	var cachePath string
 	var cloneDir string
@@ -225,50 +223,6 @@ func (s *HubService) Install(
 		cachePath = cloneDir
 
 		switch artType {
-		case TypeKnowledge:
-			// One copy per machine, in the global wiki root, shared by every project
-			// that installs the artifact. The project records that it has it; it does
-			// not carry the pages, which an agent reads through the wiki MCP tools
-			// rather than off disk.
-			//
-			// The artifact is placed and then INDEXED, never recompiled: it was
-			// published compiled, shards and embedding vectors included, so running
-			// the generator again would re-derive pages from sources that need not
-			// have travelled and re-run the embedding model over text whose vectors
-			// are already in hand.
-			contextName := store.ContextNameFor(realID, entry.ProjectID)
-			// VERSIONED, like the AST store beside it. It used to land in the
-			// unversioned context directory, so two projects pinned to different
-			// versions of the same artifact shared one copy and the last install
-			// silently won — while both lockfiles recorded a version nothing enforced.
-			//
-			// internal/knowledge cannot be reached from here — it imports this
-			// package for its rule installation — so the two primitives it would
-			// have offered are used directly. They live in internal/wiki, which is
-			// neutral to both.
-			ctxDir, err := wiki.ResetDir(store.KnowledgeHubDir(contextName, resolvedVersion))
-			if err != nil {
-				return nil, err
-			}
-			if err := paths.SafeCopyDir(publishedWikiDir(cloneDir), ctxDir); err != nil {
-				return nil, fmt.Errorf("copying knowledge to the global wiki: %w", err)
-			}
-			// An artifact that carries its tables is LOADED, not indexed: the publisher
-			// already chunked, embedded and assembled, so the consumer copies rows in
-			// and builds only the indexes, which are engine structures and cannot
-			// travel. Artifacts published before that carry shards and still take the
-			// path below, which is why both exist.
-			if wiki.HasBundle(ctxDir) {
-				if _, err := wiki.ImportFromParquet(ctx, ctxDir, wiki.BundlePath(ctxDir)); err != nil {
-					return nil, fmt.Errorf("loading knowledge context %q: %w", contextName, err)
-				}
-			} else if _, err := wiki.BuildDBFromCache(ctx, ctxDir); err != nil {
-				return nil, fmt.Errorf("indexing knowledge context %q: %w", contextName, err)
-			}
-			// Nothing is registered here. The lockfile entry written after this switch
-			// records the claim, with the version that keys the directory above — the
-			// second registry that used to be written at this point is gone.
-
 		case TypeAST:
 			// The store is shared between every project pinned to this version and
 			// nothing is placed in the project itself: resolution reads the
@@ -945,26 +899,6 @@ func (s *HubService) UninstallAll(ctx context.Context, ide, projectDir string) e
 	return os.Remove(pp.LockFilePath)
 }
 
-// publishedWikiDir locates the compiled wiki inside a downloaded knowledge artifact.
-//
-// An artifact published by `knowledge export` carries it under `wiki/`, next to
-// whatever else its author chose to include. One submitted with `hub submit
-// --local-path <a wiki dir>` IS the wiki. Both shapes are legitimate, and telling
-// them apart by looking for the compiled index is more honest than demanding a convention the
-// publisher never agreed to.
-func publishedWikiDir(cloneDir string) string {
-	sub := filepath.Join(cloneDir, "wiki")
-	// Recognised by the index, which is the artifact. It used to be `index.md`, a generated page
-	// that is no longer written — so a wiki published after that change would not have been found.
-	if _, err := os.Stat(wiki.WikiIndexPath(sub)); err == nil {
-		return sub
-	}
-	if _, err := os.Stat(filepath.Join(sub, "shards")); err == nil {
-		return sub
-	}
-	return cloneDir
-}
-
 func (s *HubService) postInstallHook(ctx context.Context, artType ArtifactType, id, dir string, pp *paths.ProjectPaths) error {
 
 	return nil
@@ -1210,7 +1144,9 @@ func ideArtifactPath(projectDir, ide, artifactType, artifactName string) (string
 	return ideAdapter.ArtifactTypePath(projectDir, ide, artifactType, artifactName)
 }
 
-func (s *HubService) EnsureKnowledgeAvailable(ctx context.Context, artifactID string) (string, error) {
+// ResolveKnowledgeMount resolves a versioned knowledge artifact to the immutable Lance index it
+// publishes. It never downloads, imports, or registers a transient local copy.
+func (s *HubService) ResolveKnowledgeMount(ctx context.Context, artifactID string) (MountedWiki, error) {
 
 	reqVersion := ""
 	realID := artifactID
@@ -1220,49 +1156,25 @@ func (s *HubService) EnsureKnowledgeAvailable(ctx context.Context, artifactID st
 
 	entry := s.registry.GetEntry(realID, TypeKnowledge)
 	if entry == nil {
-		return "", fmt.Errorf("knowledge artifact %q not found in hub registry", realID)
+		return MountedWiki{}, fmt.Errorf("knowledge artifact %q not found in hub registry", realID)
 	}
 
 	resolvedVersion, err := resolveEntryVersion(entry, reqVersion)
 	if err != nil {
-		return "", err
+		return MountedWiki{}, err
 	}
 
 	if !s.registry.IsReady() {
-		return "", fmt.Errorf("hub registry not available — cannot download knowledge artifact %q", realID)
+		return MountedWiki{}, fmt.Errorf("hub registry not available — cannot mount knowledge artifact %q", realID)
 	}
-
-	cloneDir, err := s.registry.EnsureArtifactClone(ctx, TypeKnowledge, realID, resolvedVersion, entry.ProjectID)
-	if err != nil {
-		return "", fmt.Errorf("downloading knowledge artifact %s@%s: %w", realID, resolvedVersion, err)
+	if !s.registry.MountsKnowledge() {
+		return MountedWiki{}, fmt.Errorf("mounting knowledge artifact %s@%s: %w", realID, resolvedVersion, lancestore.ErrNotBuilt)
 	}
-
-	if s.lockMgr != nil {
-		versionHash := ""
-		if entry.Hashes != nil {
-			versionHash = entry.Hashes[resolvedVersion]
-		}
-		if _, err := s.lockMgr.RegisterInstall(InstallRecord{
-			ID:          realID,
-			Version:     resolvedVersion,
-			Type:        TypeKnowledge,
-			Name:        entry.Name,
-			Description: entry.Description,
-			Hash:        versionHash,
-			CachePath:   cloneDir,
-			PublisherID: entry.ProjectID,
-			Owner:       transientOwnerKey,
-			LocalPath:   cloneDir,
-		}); err != nil {
-			s.log().Warn("register transient install", "id", realID, "version", resolvedVersion, "error", err)
-		}
+	mount, ok := s.registry.Store().MountedWikiAt(realID, resolvedVersion, entry.ProjectID)
+	if !ok {
+		return MountedWiki{}, fmt.Errorf("cannot resolve mount for knowledge artifact %s@%s", realID, resolvedVersion)
 	}
-
-	wikiDir := filepath.Join(cloneDir, "wiki")
-	if info, err := os.Stat(wikiDir); err == nil && info.IsDir() {
-		return wikiDir, nil
-	}
-	return cloneDir, nil
+	return mount, nil
 }
 
 func findCanonicalFile(artType, dir string) string {

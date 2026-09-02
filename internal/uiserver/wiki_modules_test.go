@@ -72,7 +72,7 @@ func writeWiki(t *testing.T, dir string, pages ...string) {
 		})
 	}
 	entry := &wiki.SyncLogEntry{TotalDocs: len(chunks), ArticlesWritten: len(chunks)}
-	if err := wiki.RebuildDB(context.Background(), dir, chunks, nil, entry, nil); err != nil {
+	if err := wiki.SyncDB(context.Background(), dir, chunks, nil, entry); err != nil {
 		t.Fatalf("compiling the wiki at %s: %v", dir, err)
 	}
 }

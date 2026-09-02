@@ -139,12 +139,11 @@ coordinates the daemon against a concurrent CLI sync.
 
 ### 3. Global Modules
 Modules that run once per daemon (not per-project):
-- **`MemorySyncModule`**: Holds one recursive watch over the worktree base directory (`~/.graphit/memory-wt/`), which this tool owns — so a single watch covers every branch, including worktrees created later, picked up when their directory appears. Debounces 1 second, capped at 10. On each batch it recompiles only the branches whose worktree contains a touched path, via `memory.RunCycle`; a lost-events batch has no reliable path list, so it recompiles every branch.
 - **`EmbedServer`**: Shared ONNX embedding model server for vector search.
 
 ### 4. Filesystem Change Detection
 
-Every watcher in the daemon — `SyncModule`, `MemorySyncModule`, and the standalone
+Every watcher in the daemon — `SyncModule` and the standalone
 `ast.Watcher` — is built on `internal/fswatch`, which reports changes from the operating
 system's own notification API (`fsnotify`: inotify on Linux, kqueue on BSD/macOS,
 `ReadDirectoryChangesW` on Windows).

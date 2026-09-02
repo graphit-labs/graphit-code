@@ -11,9 +11,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 )
 
-// GenerateKnowledgeWiki shares StatPreCheck with the memory wiki, where a file
-// the cache had never seen was invisible to the pre-check. This pins whether a
-// doc added without touching any existing doc reaches the index.
+// A new document must reach the index even when no existing source changed.
 func TestGenerateKnowledgeWiki_IndexesDocAddedAfterFirstRun(t *testing.T) {
 	root := t.TempDir()
 	wikiDir := t.TempDir()
@@ -36,7 +34,7 @@ func TestGenerateKnowledgeWiki_IndexesDocAddedAfterFirstRun(t *testing.T) {
 		t.Fatalf("first GenerateKnowledgeWiki: %v", err)
 	}
 
-	// first.md is left untouched, so every cached stat still matches.
+	// first.md is left untouched.
 	writeDoc("second.md", "# Second Doc\n\nThe second document mentions zarquonterm.\n")
 
 	if _, err := GenerateKnowledgeWiki(ctx, root, wikiDir, nil, WikiScope{}); err != nil {

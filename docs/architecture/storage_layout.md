@@ -103,42 +103,28 @@ Things worth knowing before you set it:
 │   └── queries/                         USER grammar query overrides (not a store)
 ├── wiki/
 │   ├── knowledge/
-│   │   ├── project/<project-id>/        a project's documentation wiki
-│   │   ├── context/<name>/              a locally imported documentation wiki
-│   │   └── hub/<context-id>/<version>/  a Hub documentation wiki, shared per version
+│   │   ├── project/<project-id>/        a project's local `index.lance/`
+│   │   ├── context/<name>/              a linked/local documentation wiki
+│   │   └── hub/<context-id>/<version>/  logical version key; Hub data stays at its `s3://` URI
 │   └── memory/<scope>/<scope-id>/       a memory wiki (scope: project | user | <context>)
-├── memory-raw/memory-<scope>-<id>/      the raw memory store — the source of truth
-│   └── .wiki/shards/…                       the scope's shards, uploaded with it
-│   └── history/<id>/NNNN.md                 previous revisions of a page
+├── memory-table/memory-<scope>-<id>/    authoritative LanceDB memory table in local-only mode
 ├── models/coderankembed/                the embedding model — downloaded at setup
 │   ├── model.onnx                           ~132 MB, NOT carried in the binary
 │   └── tokenizer.json
 └── …                                    hub clones, registry cache, global lock, runtime
 ```
 
-Every wiki directory — knowledge or memory, project or context — has the same shape:
+Every local wiki directory — knowledge or memory, project or context — has the same shape:
 
 ```
 <wiki dir>/
-├── <Slug>.md                    one page per source document
-├── index.md, log.md             the catalogue and the sync timeline
-├── index.lance/                 the search index — DERIVED, rebuildable
-├── .manifest.json               knowledge staleness hashes (knowledge only)
-├── .cluster_cache.json          community assignments (knowledge only)
-└── shards/<relPath>.wiki.json   the processed chunks
-    <relPath>.emb.json           the embedding vectors
-    <relPath>.meta.json          hash, stat, slug and outgoing cross-refs
+└── index.lance/                 chunks, vectors, xrefs, sync history, and metadata
 ```
 
-There is **no shared index file** in that directory, and that is deliberate: a memory scope is
-multi-writer — every developer on a team pushes to it — so a single file holding an entry per
-document is a shared write target that the last upload wins. Per-file sidecars remove it, so two
-people adding different memories add different files and both survive.
-
-The reasoning came from git, where the shared file conflicted on every concurrent push and git
-could not merge JSON. **It outlived git**, because object storage has no merge at all: a whole-file
-upload simply overwrites. See
-[Wiki Module](../specs/wiki_module.md#-process-cache-one-file-per-source-file).
+Generated pages, manifests, community caches, and embedding shards do not exist. Catalogue, page,
+and log Markdown are rendered from the tables on demand. A remote knowledge artifact is the same
+Lance directory under a versioned object prefix and is opened there rather than copied here. See
+[Wiki Module](../specs/wiki_module.md#the-store-indexlance).
 
 ### Two engines, and which one owns what
 
@@ -389,8 +375,7 @@ See [One registry for context membership](../tasks/one-registry-for-context-memb
 The previous layout compiled into the global directory **and** replicated into every
 project that read it. Three costs, and the third is the one that hurt:
 
-1. **Disk.** A graph plus its search index, and a wiki plus its chunk and embedding
-   shards, once per consuming project.
+1. **Disk.** A graph plus its search index, or a wiki index, once per consuming project.
 2. **Work.** A compile per copy, or a copy per compile, plus a fan-out pass on every
    change and a Windows-specific failure mode where a replica held open by a reader
    cannot be overwritten.

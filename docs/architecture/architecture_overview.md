@@ -94,7 +94,7 @@ The knowledge source is the maintained documentation tree plus the root README. 
 
 ### Memory
 
-Project and user memory are independent scopes backed by structured Markdown sources and compiled memory wikis. Project memory belongs to one registered repository identity. User memory follows the user across projects.
+Project and user memory are independent scopes backed by authoritative LanceDB tables and compiled memory wikis. Project memory belongs to one registered repository identity. User memory follows the user across projects.
 
 ### Hub and ecosystem
 
@@ -121,7 +121,7 @@ See [Storage Layout](storage_layout.md) for concrete paths and lifecycle rules.
 
 ## Trust boundaries
 
-- Source, mutable indexes, and raw memory remain local unless an explicit publish or remote configuration is used.
+- Source and mutable indexes remain local unless an explicit publish or remote configuration is used. With S3 configured, a memory scope's authoritative LanceDB table lives directly at its remote URI.
 - S3-compatible storage is an optional shared boundary with its own credential and access controls.
 - The UI server is a network boundary and has no built-in authentication.
 - Coding-agent CLIs and IDE adapters are external processes; Graphit prepares their workspace and tool configuration but does not replace their own permission model.

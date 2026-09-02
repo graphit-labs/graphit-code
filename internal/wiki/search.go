@@ -29,6 +29,18 @@ type SearchResult struct {
 }
 
 func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchConfig) (*SearchResult, error) {
+	db, err := OpenWikiDB(ctx, cfg.WikiDir)
+	if err != nil {
+		return nil, fmt.Errorf("opening wiki at %s: %w", cfg.WikiDir, err)
+	}
+	defer func() { _ = db.Close() }()
+	return SearchWikiFrom(ctx, client, db, query, cfg)
+}
+
+// SearchWikiFrom runs the consultation cycle against an already-open index. Published Hub
+// knowledge uses this entry point because its index is mounted directly from object storage and
+// has no local directory to reopen.
+func SearchWikiFrom(ctx context.Context, client AIClient, db *WikiDB, query string, cfg SearchConfig) (*SearchResult, error) {
 	if cfg.MaxTurns <= 0 {
 		cfg.MaxTurns = 6
 	}
@@ -37,9 +49,9 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 	// fall back to reading `index.md` off disk when a Browse returned nothing — a page the build
 	// rewrote every time, so the fallback could only ever answer with what the index already knew,
 	// or with something staler.
-	catalogue := WikiOverview(ctx, cfg.WikiDir)
+	catalogue := WikiOverviewFrom(ctx, db)
 	if catalogue == "" {
-		return nil, fmt.Errorf("wiki not found at %s — run '%s index' first", cfg.WikiDir, cfg.ModuleTag)
+		return nil, fmt.Errorf("wiki has no indexed content — run '%s index' first", cfg.ModuleTag)
 	}
 
 	systemPrompt := buildSearchSystemPrompt(cfg.ModuleTag)
@@ -49,7 +61,7 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 	result.TokensSent += len(catalogue) / 4
 
 	if cfg.UseBM25 {
-		bm25Ctx := bm25PreFilter(ctx, cfg.WikiDir, query, cfg.BM25TopN)
+		bm25Ctx := bm25PreFilterFrom(ctx, db, query, cfg.BM25TopN)
 		if bm25Ctx != "" {
 			context_ += "\n\n" + bm25Ctx
 			result.TokensSent += len(bm25Ctx) / 4
@@ -122,7 +134,7 @@ func SearchWiki(ctx context.Context, client AIClient, query string, cfg SearchCo
 		var loaded []string
 		foundAny := false
 		for _, page := range pages {
-			content, resolvedSlug := loadWikiPageFromIndex(ctx, cfg.WikiDir, page)
+			content, resolvedSlug := loadWikiPageFrom(ctx, db, page)
 			if content != "" {
 				foundAny = true
 				if !loadedPages[resolvedSlug] {
@@ -199,21 +211,27 @@ func searchCompiledWiki(ctx context.Context, wikiDir, query string, topN int) (r
 		return nil, false
 	}
 	defer db.Close()
+	return searchCompiledWikiFrom(ctx, db, query, topN)
+}
 
+func searchCompiledWikiFrom(ctx context.Context, db *WikiDB, query string, topN int) (results []WikiSearchResult, authoritative bool) {
+	if db == nil {
+		return nil, false
+	}
 	if !db.HasContent(ctx) {
 		return nil, false
 	}
-	results, err = db.Search(ctx, query, topN)
+	results, err := db.Search(ctx, query, topN)
 	if err != nil {
 		return nil, false
 	}
 	return results, true
 }
 
-func bm25PreFilter(ctx context.Context, wikiDir, query string, topN int) string {
+func bm25PreFilterFrom(ctx context.Context, db *WikiDB, query string, topN int) string {
 	// The compiled index answers when it has content and ranked something. It falling
 	// through is not a clean miss — see BM25Search for why the scan stays underneath.
-	if results, authoritative := searchCompiledWiki(ctx, wikiDir, query, topN); authoritative && len(results) > 0 {
+	if results, authoritative := searchCompiledWikiFrom(ctx, db, query, topN); authoritative && len(results) > 0 {
 		var b strings.Builder
 		b.WriteString("=== FTS5 Relevant Pages (pre-filtered) ===\n")
 		fmt.Fprintf(&b, "Query: %q — top %d by BM25+FTS5 relevance:\n\n", query, len(results))
@@ -246,6 +264,12 @@ func bm25PreFilter(ctx context.Context, wikiDir, query string, topN int) string 
 // which is the distinction that remains meaningful.
 func BM25Search(ctx context.Context, wikiDir, query string, topN int) []BM25Result {
 	compiled, _ := searchCompiledWiki(ctx, wikiDir, query, topN)
+	return wikiFTSToB25Results(compiled)
+}
+
+// BM25SearchFrom searches an already-open local or mounted wiki index.
+func BM25SearchFrom(ctx context.Context, db *WikiDB, query string, topN int) []BM25Result {
+	compiled, _ := searchCompiledWikiFrom(ctx, db, query, topN)
 	return wikiFTSToB25Results(compiled)
 }
 

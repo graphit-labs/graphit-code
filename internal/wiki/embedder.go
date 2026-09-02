@@ -146,18 +146,6 @@ func (e *WikiEmbedder) RunCycle(ctx context.Context, wikiDir string) (int, error
 
 	e.log().Info("wiki embedding cycle", "embedded", done)
 
-	// Auto-export embeddings to per-file shards for cache persistence.
-	if done > 0 {
-		if pc, err := NewWikiProcessCache(wikiDir); err == nil {
-			exported := pc.ExportAllEmbeddingsFromDB(ctx, db)
-			if saveErr := pc.Save(); saveErr != nil {
-				e.log().Warn("save embedding shards", "error", saveErr)
-			} else if exported > 0 {
-				e.log().Info("wiki embedding shards exported", "vectors", exported)
-			}
-		}
-	}
-
 	return done, nil
 }
 

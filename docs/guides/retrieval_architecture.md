@@ -10,27 +10,23 @@ This document explains how data flows through the retrieval pipeline, which tool
 
 The retrieval system is organized into three tiers of increasing sophistication:
 
-### Tier 1: Raw File Search
+### Tier 1: Direct ranked search
 
 **Tools:** `graphit_memory_search`
 
 Ranked matching over the compiled memory wiki, which lives once in the global brand directory. This tier is:
 
-- **Lightweight** — no indexes, no databases
-- **No AI** — pure text matching
-- **Instant** — O(n) scan over small files
+- **Lightweight** — one indexed query
+- **No AI** — engine-ranked text matching
+- **Fast** — no source-file scan
 - **Best for** — quick keyword lookups, checking if a memory exists
 
 ```
 ~/.graphit/
-├── memory-wt/                       raw markdown, the git worktree — the source of truth
+├── memory-table/                    authoritative tables in local-only mode
 │   ├── memory-project-<id>/
-│   │   ├── decision-001.md
-│   │   └── context-002.md
 │   └── memory-user-<hash>/
-│       ├── preference-001.md
-│       └── workflow-002.md
-└── wiki/memory/                     the compiled wiki — what memory_search opens
+└── wiki/memory/                     compiled query projections
     ├── project/<id>/
     └── user/<hash>/
 ```
@@ -39,29 +35,21 @@ Ranked matching over the compiled memory wiki, which lives once in the global br
 
 **Tools:** `graphit_knowledge_search`, `graphit_wiki_search`, `graphit_wiki_browse`
 
-Operates on compiled wiki artifacts — either `.md` files or an `index.lance/` LanceDB index:
+Operates on `index.lance/` stores locally or at a mounted Hub `s3://` URI:
 
 | Tool | Backend | What it searches |
 |------|---------|-----------------|
-| `knowledge_search` | BM25 on `.md` files | `~/.graphit/wiki/knowledge/project/<project-id>/` or `.../context/<name>/` |
+| `knowledge_search` | LanceDB BM25 | local project `index.lance/` or a mounted Hub artifact |
 | `wiki_search` | BM25 + semantic on `index.lance/` | `~/.graphit/wiki/knowledge/project/<project-id>/index.lance/` or `~/.graphit/wiki/memory/project/<project-id>/index.lance/` |
 | `wiki_browse` | LanceDB catalog on `index.lance/` | Same as `wiki_search` |
 
 ```
 ~/.graphit/wiki/
 ├── knowledge/
-│   ├── project/<project-id>/
-│   │   ├── index.md
-│   │   ├── page-001.md
-│   │   └── index.lance/      ← BM25/semantic index
-│   └── context/<name>/            an imported artifact; a published one keeps
-│       ├── docs/                  its markdown here …
-│       └── wiki/                  … and its pages here, which is what is read
-│           ├── index.md
-│           └── index.lance/
+│   └── project/<project-id>/
+│       └── index.lance/      ← complete local knowledge wiki
 └── memory/project/<project-id>/
-    ├── index.md
-    └── index.lance/          ← BM25/semantic index
+    └── index.lance/          ← complete memory query projection
 ```
 
 > There is no wiki inside a project. Every one of them lives once, in the global brand
@@ -98,13 +86,13 @@ Uses an AI model to synthesize answers from wiki pages found via BM25 retrieval.
 
 | Tool | Module | Searches | Backend | AI? | Scope Params |
 |------|--------|----------|---------|-----|-------------|
-| `graphit_knowledge_search` | knowledge | project knowledge wiki | BM25 on `.md` files | No | `context` (empty = project, named = hub import) |
+| `graphit_knowledge_search` | knowledge | project or Hub knowledge wiki | LanceDB BM25 | No | `context` (empty = project, named = installed Hub artifact) |
 | `graphit_knowledge_query` | knowledge | project knowledge wiki | AI + BM25 multi-turn | Yes | `context` |
 | `graphit_wiki_search` | wiki | multiple wikis simultaneously | BM25/semantic on `index.lance/` | Semantic mode only | `wikis[]` (project, memory), `hub_refs[]` |
 | `graphit_wiki_browse` | wiki | single wiki catalog | LanceDB `index.lance/` | No | `wiki` (project or memory) |
 | `graphit_wiki_xrefs` | wiki | single wiki cross-refs | LanceDB `index.lance/` | No | `wiki` (project or memory) |
 | `graphit_wiki_log` | wiki | single wiki sync history | LanceDB `index.lance/` | No | `wiki` (project or memory) |
-| `graphit_memory_search` | memory | raw memory files | text matching (grep) | No | `scope` (project or user) |
+| `graphit_memory_search` | memory | compiled memory wiki | LanceDB BM25 | No | `scope` (project or user) |
 | `graphit_memory_query` | memory | memory wiki | AI + BM25 | Yes | `scope`, `context` |
 
 > [!NOTE]
@@ -116,12 +104,12 @@ Uses an AI model to synthesize answers from wiki pages found via BM25 retrieval.
 
 ### Memory: `scope` parameter
 
-Controls which pool of raw memory files is searched.
+Controls which authoritative memory scope is projected and searched.
 
 | Value | Description | Storage Path |
 |-------|-------------|-------------|
-| `"project"` (default) | Project-specific memories | `~/.graphit/memory-wt/memory-project-<project-id>/` |
-| `"user"` | Personal cross-project memories | `~/.graphit/memory-wt/memory-user-<hash>/` |
+| `"project"` (default) | Project-specific memories | local or S3 `memory/project/<project-id>` table |
+| `"user"` | Personal cross-project memories | local or S3 `memory/user/<hash>` table |
 
 ```jsonc
 // Search project memories (default)
@@ -138,7 +126,7 @@ Controls which knowledge wiki is searched. An empty context targets the local pr
 | Value | Description | Storage Path |
 |-------|-------------|-------------|
 | `""` (default) | Local project wiki from `docs/` | `~/.graphit/wiki/knowledge/project/<project-id>/` |
-| `"<name>"` | Hub-imported knowledge artifact | `~/.graphit/wiki/knowledge/context/<name>/` |
+| `"<name>"` | Installed Hub knowledge artifact | versioned `s3://` LanceDB mount |
 
 ```jsonc
 // Search local project knowledge
@@ -192,16 +180,16 @@ graphit_wiki_xrefs(wiki: "project", ai_optimized: true)
 
 ---
 
-## 4. Filesystem Path Resolution
+## 4. Store resolution
 
-Every tool resolves to a specific filesystem path based on its scope parameters:
+Every tool resolves to a local directory or immutable object-store URI based on its scope:
 
 | Tool | Scope | Resolves To |
 |------|-------|------------|
 | `knowledge_search` | no context | `~/.graphit/wiki/knowledge/project/<project-id>/` |
-| `knowledge_search` | `context: "X"` | `~/.graphit/wiki/knowledge/context/X/` |
+| `knowledge_search` | `context: "X"` | versioned Hub `s3://…/index.lance` |
 | `knowledge_query` | no context | `~/.graphit/wiki/knowledge/project/<project-id>/` |
-| `knowledge_query` | `context: "X"` | `~/.graphit/wiki/knowledge/context/X/` |
+| `knowledge_query` | `context: "X"` | versioned Hub `s3://…/index.lance` |
 | `wiki_search` | `wikis: ["project"]` | `~/.graphit/wiki/knowledge/project/<project-id>/index.lance/` |
 | `wiki_search` | `wikis: ["memory"]` | `~/.graphit/wiki/memory/project/<project-id>/index.lance/` |
 | `wiki_browse` | `wiki: "project"` | `~/.graphit/wiki/knowledge/project/<project-id>/index.lance/` |
@@ -241,15 +229,13 @@ graphit_hub_show(id: "nextjs-docs")
 ### Step 3: Install the Artifact
 
 ```jsonc
-// Either of these works:
 graphit_hub_install(id: "nextjs-docs")
-graphit_knowledge_install(name: "nextjs-docs")
 
-// Installs to: ~/.graphit/wiki/knowledge/context/nextjs-docs/ — once per machine,
-// and the project records that it may query it, as an artifact entry in graphit.lock.json
+// Records the selected version in graphit.lock.json. The index remains on S3.
 ```
 
-The wiki itself is shared: a second project installing the same artifact adds a claim and copies nothing. Its pages are read with `graphit_wiki_source` (`context: "nextjs-docs"`), never off disk.
+The wiki itself is shared: a second project installing the same artifact adds a claim and copies
+nothing. Its rows are read through the knowledge/wiki tools, never as files.
 
 ### Step 4: Search the Installed Artifact
 
