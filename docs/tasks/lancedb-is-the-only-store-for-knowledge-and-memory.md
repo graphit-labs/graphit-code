@@ -197,6 +197,21 @@ of T1.
 - [ ] `search_body` still repeats `body`, because the engine's FTS targets one column. Unchanged
   by this work and still worth measuring — see
   `docs/tasks/memory-revision-chain-searchable-history.md`.
+- [ ] `lancestore.Table.Upsert` is a delete followed by an append, not one atomic transaction. Its
+  retry and concurrent-write coverage pass, but a process failure between the two operations can
+  temporarily remove a key.
+- [ ] `MemoryTable.Maintain` folds indexes, compacts and prunes versions, but has no production
+  caller. Remote authoritative memory tables therefore have no scheduled maintenance owner yet.
+- [ ] `MemoryTable.List` and `Live` use a fixed 100,000-row limit instead of pagination.
+- [ ] `WikiPageMeta.Tags` is still derived from `doc_type` and `important`, rather than stored as a
+  first-class column. No current consumer loses information, but the value is synthesized.
+- [ ] The conventional no-tag `go test ./...` command compiles LanceDB-dependent tests against the
+  intentional disabled-store stub and fails. CI and the supported product build use
+  `make test`/`-tags lancedb`; the test files should eventually carry the build constraint or assert
+  the capability error explicitly.
+- [ ] `TestOnHubImport` produced one race-mode teardown failure (`TempDir` still non-empty) during
+  the final audit. It passed 10 isolated `-race` repetitions and the complete CI-equivalent rerun,
+  so this is a non-reproduced cleanup flake rather than a demonstrated product failure.
 
 ## Progress Log
 
@@ -2701,10 +2716,16 @@ The first lint pass identified three uncalled local-reader wrappers left behind 
 cleanup: `noKnowledgeToSearch`, `loadWikiPageFromIndex`, and `bm25PreFilter`. The AST graph confirmed
 that none had callers, and they were deleted; their focused MCP/wiki tests and lint then passed.
 
-The direct publication/mount test also passes explicitly together with read-only refusal and index
-transport coverage. This host has no `GRAPHIT_LANCE_S3_ENDPOINT`/`GRAPHIT_LANCE_S3_BUCKET`, so the E2E
-ran the identical publish → resolve mount → open → search → read → xref wiring against the local URI
-transport. A live MinIO network run was therefore unavailable, not failed.
+The direct publication/mount test first passed through the local transport. The user then identified
+a live MinIO at `localhost:9000`; against a dedicated temporary bucket, the real-network E2E passed
+publish → resolve `s3://` mount → open → search → read → xref, index transport, and read-only refusal.
+The test bucket and its objects were removed afterwards.
+
+The exact CI gate, `make test`, was also audited. Its first run had one teardown-only failure in
+`TestOnHubImport` (`TempDir` cleanup found a directory still being written). The test passed 10
+isolated `-race` repetitions, and a second complete `make test` passed every package. Separately,
+`go test ./...` without the required LanceDB build tag fails because several LanceDB-dependent tests
+are not build-constrained; the CI and supported build deliberately use `-tags lancedb`.
 
 `graphit_sync` then completed successfully after the code, current documentation, task log, and
 persistent-memory corrections were in place. The AST, project wiki, and memory wiki therefore all
