@@ -269,7 +269,7 @@ func (s *Service) Claim(ctx context.Context, id, actor string, lease time.Durati
 		next.ClaimEpoch++
 		next.ClaimedAt = stamp(now)
 		next.HeartbeatAt = stamp(now)
-		next.LeaseExpiresAt = stamp(now.Add(lease))
+		next.LeaseExpiresAt = renewedLeaseExpiry(current.LeaseExpiresAt, now, lease)
 		next.Revision++
 		next.UpdatedAt = stamp(now)
 		next.LastEvent = newEvent(next, "claimed", actor, current.Status, next.Status, "task claimed", next.NextStep)
@@ -540,7 +540,7 @@ func (s *Service) AddComment(ctx context.Context, id, token, actor, kind, body, 
 			lease = DefaultLease
 		}
 		next.HeartbeatAt = stamp(now)
-		next.LeaseExpiresAt = stamp(now.Add(lease))
+		next.LeaseExpiresAt = renewedLeaseExpiry(current.LeaseExpiresAt, now, lease)
 		out = Comment{ID: commentID, TaskID: id, IdempotencyKey: key, Sequence: next.CommentSequence, Kind: kind, Body: body, Actor: actor, At: next.UpdatedAt, Revision: next.Revision}
 		next.LastComment = out
 		next.LastEvent = newEvent(next, "commented", actor, current.Status, next.Status, kind+": "+body, next.NextStep)
@@ -593,7 +593,7 @@ func (s *Service) claimMutation(ctx context.Context, id, token, actor string, le
 				lease = DefaultLease
 			}
 			next.HeartbeatAt = stamp(now)
-			next.LeaseExpiresAt = stamp(now.Add(lease))
+			next.LeaseExpiresAt = renewedLeaseExpiry(current.LeaseExpiresAt, now, lease)
 		}
 		next.Revision++
 		next.UpdatedAt = stamp(now)
@@ -1206,7 +1206,14 @@ func clearClaim(v *Task) {
 
 const timestampLayout = "2006-01-02T15:04:05.000000000Z"
 
-func stamp(v time.Time) string     { return v.UTC().Format(timestampLayout) }
+func stamp(v time.Time) string { return v.UTC().Format(timestampLayout) }
+func renewedLeaseExpiry(current string, now time.Time, lease time.Duration) string {
+	next := stamp(now.Add(lease))
+	if current > next {
+		return current
+	}
+	return next
+}
 func canonicalKey(v string) string { return strings.ToLower(strings.Join(strings.Fields(v), "-")) }
 func taskIDDigest(project, key string) string {
 	sum := sha256.Sum256([]byte(project + "\x00" + key))

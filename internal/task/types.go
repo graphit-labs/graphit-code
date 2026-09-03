@@ -140,4 +140,4 @@ type Removal struct {
 	RemovedAt string `json:"removed_at"`
 }
 
-const DefaultLease = 15 * time.Minute
+const DefaultLease = time.Hour

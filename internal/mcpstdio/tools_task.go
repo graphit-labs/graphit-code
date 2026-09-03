@@ -57,7 +57,7 @@ type taskClaimInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory (required)"`
 	ID         string `json:"id" jsonschema:"Ready task ID (required)"`
 	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Lease      string `json:"lease,omitempty" jsonschema:"Lease duration such as 15m; default 15m"`
+	Lease      string `json:"lease,omitempty" jsonschema:"Lease duration such as 2h; default 1h"`
 }
 
 type taskProgressInput struct {
@@ -67,7 +67,7 @@ type taskProgressInput struct {
 	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
 	Summary    string `json:"summary" jsonschema:"What landed or was verified (required)"`
 	NextStep   string `json:"next_step,omitempty" jsonschema:"Exact next action for this or a takeover agent"`
-	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 15m"`
+	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
 }
 
 type taskHeartbeatInput struct {
@@ -75,7 +75,7 @@ type taskHeartbeatInput struct {
 	ID         string `json:"id" jsonschema:"Claimed task ID (required)"`
 	ClaimToken string `json:"claim_token" jsonschema:"Fencing token returned by claim (required)"`
 	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
-	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 15m"`
+	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
 }
 
 type taskReleaseInput struct {
@@ -134,7 +134,7 @@ type taskCheckInput struct {
 	CheckID    string `json:"check_id" jsonschema:"Acceptance or test check ID (required)"`
 	Passed     bool   `json:"passed" jsonschema:"Whether this check passed"`
 	Evidence   string `json:"evidence" jsonschema:"Concrete command output, observation, or artifact proving the result (required)"`
-	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 15m"`
+	Lease      string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
 }
 
 type taskCommentInput struct {
@@ -145,7 +145,7 @@ type taskCommentInput struct {
 	Kind           string `json:"kind" jsonschema:"note, decision, problem, lesson, or knowledge (required)"`
 	Body           string `json:"body" jsonschema:"Durable self-contained comment (required)"`
 	IdempotencyKey string `json:"idempotency_key,omitempty" jsonschema:"Stable caller key; defaults to canonical kind and body"`
-	Lease          string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 15m"`
+	Lease          string `json:"lease,omitempty" jsonschema:"Renewed lease duration such as 2h; never shortens a longer active lease"`
 }
 
 type taskDependencyInput struct {
@@ -153,6 +153,14 @@ type taskDependencyInput struct {
 	ID         string `json:"id" jsonschema:"Task that will depend on another task"`
 	DependsOn  string `json:"depends_on" jsonschema:"Blocking task ID"`
 	AgentID    string `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+}
+
+type taskBatchInput struct {
+	ProjectDir  string                     `json:"project_dir" jsonschema:"Project directory (required)"`
+	Operations  []graphtask.BatchOperation `json:"operations" jsonschema:"Ordered task mutations; 1 to 100 items"`
+	AgentID     string                     `json:"agent_id,omitempty" jsonschema:"Stable current-agent identity; host session identity is used when omitted"`
+	Lease       string                     `json:"lease,omitempty" jsonschema:"Default lease for claim-renewing items; default 1h"`
+	AiOptimized *bool                      `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
 func taskActor(req *mcp.CallToolRequest, explicit string) string {
@@ -232,6 +240,17 @@ func taskSearchResult(value page.Page[graphtask.SearchResult], optimized *bool) 
 }
 
 func registerTaskTools(server *mcp.Server) {
+	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "batch"), Description: "Run 1-100 task mutations in input order and return an explicit success or error for every item. Existing fencing and lifecycle checks apply to each item."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskBatchInput) (*mcp.CallToolResult, any, error) {
+		svc, _, err := taskService(in.ProjectDir)
+		if err != nil {
+			return errResult(err)
+		}
+		value, err := svc.Batch(ctx, graphtask.BatchInput{Operations: in.Operations, Lease: in.Lease, Actor: taskActor(req, in.AgentID)})
+		if err != nil {
+			return errResult(err)
+		}
+		return taskResult(value, in.AiOptimized)
+	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "create"), Description: "Create an idempotent open task in the shared LanceDB task store. Open and unclaimed is the backlog state."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCreateInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
 		if err != nil {

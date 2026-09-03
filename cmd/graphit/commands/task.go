@@ -3,7 +3,9 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -19,7 +21,7 @@ func newTaskCmd() *cobra.Command {
 Open, unclaimed tasks are the backlog. Dependencies determine readiness. Agents
 must claim before work, checkpoint progress, and complete or release the claim.
 The returned claim token fences stopped or replaced agents from later writes.`}
-	cmd.AddCommand(newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
+	cmd.AddCommand(newTaskBatchCmd(), newTaskCreateCmd(), newTaskListCmd(), newTaskGetCmd(), newTaskSearchCmd(), newTaskClaimCmd(), newTaskProgressCmd(), newTaskHeartbeatCmd(), newTaskReleaseCmd(), newTaskCompleteCmd(), newTaskCancelCmd(), newTaskRemoveCmd(), newTaskFlagCmd(), newTaskUnflagCmd(), newTaskCheckCmd(), newTaskCommentCmd(), newTaskDependencyCmd(), newModuleRuleCmd("task"))
 	return cmd
 }
 
@@ -64,6 +66,61 @@ func cliTaskLease(value string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid positive lease duration %q", value)
 	}
 	return d, nil
+}
+
+func newTaskBatchCmd() *cobra.Command {
+	var actor string
+	cmd := &cobra.Command{Use: "batch <file|->", Short: "Run ordered task mutations from JSON", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		var input graphtask.BatchInput
+		if err := decodeTaskBatch(cmd.InOrStdin(), args[0], &input); err != nil {
+			return err
+		}
+		input.Actor = cliTaskActor(actor)
+		svc, err := currentTaskService()
+		if err != nil {
+			return err
+		}
+		result, err := svc.Batch(cmd.Context(), input)
+		if err != nil {
+			return err
+		}
+		if err := printTaskJSON(result); err != nil {
+			return err
+		}
+		if result.Failed > 0 {
+			return fmt.Errorf("task batch completed with %d failed operation(s)", result.Failed)
+		}
+		return nil
+	}}
+	cmd.Flags().StringVar(&actor, "agent", "", "Agent identity (defaults to this Graphit unit)")
+	return cmd
+}
+
+func decodeTaskBatch(stdin io.Reader, source string, input *graphtask.BatchInput) error {
+	reader := stdin
+	var file *os.File
+	if source != "-" {
+		var err error
+		file, err = os.Open(source)
+		if err != nil {
+			return fmt.Errorf("opening task batch: %w", err)
+		}
+		defer file.Close()
+		reader = file
+	}
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(input); err != nil {
+		return fmt.Errorf("decoding task batch: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return errors.New("decoding task batch: multiple JSON values are not allowed")
+		}
+		return fmt.Errorf("decoding task batch: %w", err)
+	}
+	return nil
 }
 
 func newTaskCreateCmd() *cobra.Command {
@@ -167,7 +224,7 @@ func newTaskClaimCmd() *cobra.Command {
 		return printTaskJSON(v)
 	}}
 	cmd.Flags().StringVar(&actor, "agent", "", "Agent identity")
-	cmd.Flags().StringVar(&leaseText, "lease", "15m", "Claim lease duration")
+	cmd.Flags().StringVar(&leaseText, "lease", graphtask.DefaultLease.String(), "Claim lease duration")
 	return cmd
 }
 
@@ -176,7 +233,7 @@ func claimFlags(cmd *cobra.Command, token, actor, lease *string) {
 	_ = cmd.MarkFlagRequired("claim-token")
 	cmd.Flags().StringVar(actor, "agent", "", "Agent identity")
 	if lease != nil {
-		cmd.Flags().StringVar(lease, "lease", "15m", "Renewed lease duration")
+		cmd.Flags().StringVar(lease, "lease", graphtask.DefaultLease.String(), "Renewed lease duration")
 	}
 }
 

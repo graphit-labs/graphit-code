@@ -155,7 +155,7 @@ Start with the document that matches your intent:
 - [MCP tools reference](docs/guides/mcp_tools_reference.md) — agent-facing tool contracts.
 - [Architecture overview](docs/architecture/architecture_overview.md) — system boundaries and data flow.
 - [Storage layout](docs/architecture/storage_layout.md) — what lives in a project and what lives globally.
-- [Task module](docs/specs/task_module.md) — shared lifecycle, tables, claims, checks, hooks, and takeover guarantees.
+- [Task module](docs/specs/task_module.md) — shared lifecycle, ordered batches, durable claims, checks, hooks, and takeover guarantees.
 - [UI specification](docs/specs/ui_dashboard.md) — Observatory behavior and backend contract.
 - [Documentation hub](docs/README.md) — the complete maintained documentation map.
 

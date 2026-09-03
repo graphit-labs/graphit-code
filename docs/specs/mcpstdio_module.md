@@ -261,6 +261,7 @@ tasks; deterministic ownership belongs to the Task module.
 | Tool | Description |
 |---|---|
 | `graphit_task_search`, `graphit_task_get`, `graphit_task_list` | Discover and retrieve current/prior work, audit history, checks, comments, dependencies, and subtasks. |
+| `graphit_task_batch` | Run up to 100 ordered mutations with an explicit result for every item while reusing the normal lifecycle gates. |
 | `graphit_task_create` | Idempotently create a robust task specification in shared LanceDB tables. |
 | `graphit_task_claim`, `graphit_task_heartbeat`, `graphit_task_release` | Own and transfer work through leases and fencing tokens. |
 | `graphit_task_progress`, `graphit_task_comment_add` | Preserve resumable checkpoints and typed findings. |
@@ -268,6 +269,7 @@ tasks; deterministic ownership belongs to the Task module.
 | `graphit_task_flag`, `graphit_task_unflag` | Gate completion with a recorded reason and resolve the gate. |
 | `graphit_task_dependency_add`, `graphit_task_dependency_remove` | Maintain cycle-checked ordering edges. |
 | `graphit_task_complete` | Complete only after flags, checks, and subtasks satisfy deterministic gates. |
+| `graphit_task_cancel`, `graphit_task_remove` | Cancel with durable history or hard-remove certainly obsolete, unreferenced work with exact-ID confirmation. |
 
 ---
 

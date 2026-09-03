@@ -12,6 +12,7 @@ Graphit Task is the only task-control source of truth. Always use it instead of 
 Before material work, search prior tasks with `graphit_task_search` and follow `next_cursor` until the relevant history is covered; use `graphit_task_list` with `ready: true` to find unblocked work and `graphit_task_get` to read dependencies, progress, next step, and audit history. Resume an existing task instead of duplicating it.
 
 Create missing work with `graphit_task_create`, a stable `idempotency_key`, robust self-contained description (objective, context, scope, constraints, intended result), explicit acceptance criteria, and concrete tests/validations. Use `parent_id` for subtasks and dependency IDs for ordering; an unclaimed `open` task is the backlog. Add/remove dependencies with `graphit_task_dependency_add`/`graphit_task_dependency_remove`; never encode relations only in prose.
+For two or more independent mutations, prefer `graphit_task_batch`; it runs in input order and reports every item. Inspect all results and never use batching to bypass claims, checks, flags, dependencies, or removal confirmation.
 
 Claim with `graphit_task_claim` before changing project state. A claim returns a fencing token; keep it private and pass it to progress, heartbeat, release, and complete. A rejected claim means another agent owns the task—choose other ready work. Never bypass a claim or edit task tables directly.
 
@@ -25,4 +26,4 @@ On a direction change, clean obsolete work immediately: use `graphit_task_cancel
 
 Every mutation is revision-checked and audited. Dependencies gate readiness; expired or stopped claims become open for takeover. Search is discovery; `get` and filtered `list` read authoritative state.
 
-Tool index: `graphit_task_search`, `graphit_task_list`, `graphit_task_get`, `graphit_task_create`, `graphit_task_claim`, `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_comment_add`, `graphit_task_check`, `graphit_task_flag`, `graphit_task_unflag`, `graphit_task_release`, `graphit_task_complete`, `graphit_task_cancel`, `graphit_task_remove`, `graphit_task_dependency_add`, `graphit_task_dependency_remove`.
+Tool index: `graphit_task_search`, `graphit_task_list`, `graphit_task_get`, `graphit_task_batch`, `graphit_task_create`, `graphit_task_claim`, `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_comment_add`, `graphit_task_check`, `graphit_task_flag`, `graphit_task_unflag`, `graphit_task_release`, `graphit_task_complete`, `graphit_task_cancel`, `graphit_task_remove`, `graphit_task_dependency_add`, `graphit_task_dependency_remove`.

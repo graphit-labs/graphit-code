@@ -104,7 +104,7 @@ func (s *Service) HeartbeatOwned(ctx context.Context, actor string, lease time.D
 			next := current
 			now := s.now().UTC()
 			next.HeartbeatAt = stamp(now)
-			next.LeaseExpiresAt = stamp(now.Add(lease))
+			next.LeaseExpiresAt = renewedLeaseExpiry(current.LeaseExpiresAt, now, lease)
 			next.UpdatedAt = stamp(now)
 			next.Revision++
 			next.LastEvent = newEvent(next, "heartbeat", actor, current.Status, next.Status, next.ProgressSummary, next.NextStep)

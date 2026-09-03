@@ -454,6 +454,7 @@ Manages deterministic project work in the shared LanceDB task store.
 graphit task <subcommand> [flags]
 ```
 **Subcommands:**
+- `batch <file|->`: Run 1-100 ordered mutations from a JSON object with `operations` and optional default `lease`; `-` reads standard input. Every item reports success or an explicit error, and the command exits non-zero if any item fails.
 - `create <title>`: Create an idempotent task with required description, acceptance criteria, and tests; `--parent` creates a subtask.
 - `list` / `ready`: List tasks or only dependency-ready work; filter by status, owner, or parent.
 - `get`, `search`: Retrieve authoritative history or search task/comment text.
@@ -464,6 +465,9 @@ graphit task <subcommand> [flags]
 - `complete`: Finish only after every check and subtask passes and no flag remains.
 - `cancel`: Preserve an obsolete task as an audited terminal record with a required reason.
 - `remove` / `rm`: Hard-delete certainly erroneous work with `--confirm <exact-id>` and `--reason`; referenced tasks are refused.
+
+Claims default to one hour. Renewing through heartbeat, progress, checks, comments, or lifecycle
+hooks never shortens a longer active lease.
 
 Open, unclaimed tasks are the backlog; no Markdown task files are created. On a direction change,
 cancel or remove obsolete work immediately instead of leaving task garbage. See

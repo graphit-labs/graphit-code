@@ -4,6 +4,3 @@ args = ['mcp', '--stdio']
 command = '/usr/local/bin/graphit'
 
 [mcp_servers.graphit-code-stdio-mcp.env]
-
-[mcp_servers.graphit-code-stdio-mcp.tools.graphit_task_cancel]
-approval_mode = "approve"

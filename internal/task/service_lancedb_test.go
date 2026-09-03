@@ -199,6 +199,93 @@ func TestConcurrentClaimHasExactlyOneWinner(t *testing.T) {
 	}
 }
 
+func TestBatchRunsEveryItemInOrderAndPreservesLifecycleChecks(t *testing.T) {
+	ctx := context.Background()
+	svc := OpenAt("project-batch", t.TempDir())
+	createResult, err := svc.Batch(ctx, BatchInput{Actor: "agent-a", Operations: []BatchOperation{
+		{Key: "first", Action: "create", Title: "Batch-controlled work", Description: "Exercise ordered batch checks and completion without bypassing lifecycle invariants.", AcceptanceCriteria: []string{"The acceptance condition passes"}, Tests: []string{"The targeted test passes"}, IdempotencyKey: "batch-controlled-work"},
+		{Key: "second", Action: "create", Title: "Second batch task", Description: "Verify that multiple task specifications can be created in one ordered request.", AcceptanceCriteria: []string{"The task is created"}, Tests: []string{"Read the created task"}, IdempotencyKey: "second-batch-task"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createResult.Succeeded != 2 || createResult.Failed != 0 || len(createResult.Results) != 2 {
+		t.Fatalf("unexpected create batch: %#v", createResult)
+	}
+	created, ok := createResult.Results[0].Value.(Task)
+	if !ok || created.ID == "" || createResult.Results[1].ID == "" {
+		t.Fatalf("create batch did not return task identities: %#v", createResult)
+	}
+	claimed, err := svc.Claim(ctx, created.ID, "agent-a", 2*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	passed := true
+	operations := make([]BatchOperation, 0, len(claimed.Checks)+2)
+	for _, check := range claimed.Checks {
+		operations = append(operations, BatchOperation{Action: "check", ID: created.ID, ClaimToken: claimed.ClaimToken, CheckID: check.ID, Passed: &passed, Evidence: "verified in the batch test"})
+	}
+	operations = append(operations,
+		BatchOperation{Key: "invalid", Action: "unknown", ID: created.ID},
+		BatchOperation{Key: "finish", Action: "complete", ID: created.ID, ClaimToken: claimed.ClaimToken, Summary: "all checks passed"},
+	)
+
+	result, err := svc.Batch(ctx, BatchInput{Operations: operations, Actor: "agent-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Results) != len(operations) || result.Succeeded != len(operations)-1 || result.Failed != 1 {
+		t.Fatalf("unexpected batch summary: %#v", result)
+	}
+	for index, item := range result.Results {
+		if item.Index != index {
+			t.Fatalf("result %d has index %d", index, item.Index)
+		}
+	}
+	if result.Results[len(result.Results)-2].OK || result.Results[len(result.Results)-2].Error == "" {
+		t.Fatalf("invalid operation did not report an explicit failure: %#v", result.Results[len(result.Results)-2])
+	}
+	if !result.Results[len(result.Results)-1].OK {
+		t.Fatalf("completion after an independent failure did not run: %#v", result.Results[len(result.Results)-1])
+	}
+	detail, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Task.Status != StatusCompleted {
+		t.Fatalf("task status = %s, want completed", detail.Task.Status)
+	}
+}
+
+func TestLeaseRenewalNeverShortensAnActiveClaim(t *testing.T) {
+	ctx := context.Background()
+	svc := OpenAt("project-lease-renewal", t.TempDir())
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	input := testCreate("Long-running work", "long-running-work")
+	input.Actor = "agent-a"
+	created, err := svc.Create(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := svc.Claim(ctx, created.ID, "agent-a", 4*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := claimed.LeaseExpiresAt
+	now = now.Add(10 * time.Minute)
+	renewed, err := svc.Heartbeat(ctx, created.ID, claimed.ClaimToken, "agent-a", DefaultLease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renewed.LeaseExpiresAt != want {
+		t.Fatalf("heartbeat shortened lease: got %s want %s", renewed.LeaseExpiresAt, want)
+	}
+	if DefaultLease != time.Hour {
+		t.Fatalf("default lease = %s, want 1h", DefaultLease)
+	}
+}
+
 func TestCompactTaskIDsLengthenOnCollision(t *testing.T) {
 	ctx := context.Background()
 	projectID := "project-short-id"

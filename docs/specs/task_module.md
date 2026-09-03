@@ -84,7 +84,8 @@ open --claim--> in_progress --complete--> completed
 An unclaimed `open` task is backlog. A task is ready when it is open and all dependency tasks are
 completed. Claim is atomic, assigns one owner, increments `claim_epoch`, returns a unique fencing
 token, and refuses an agent that already owns another live task. All owner mutations require the
-current token. Release or lease expiry clears ownership while preserving progress, comments,
+current token. The default lease is one hour. Heartbeats, progress, checks, and comments extend it
+but never shorten a longer active lease. Release or lease expiry clears ownership while preserving progress, comments,
 checks, and `next_step`, so another agent can resume without reconstructing history.
 
 Completion is rejected unless every invariant is true:
@@ -142,11 +143,21 @@ its always-loaded token cost remains small.
 
 ## Interfaces
 
-The CLI group is `graphit task`; its subcommands cover create, list/ready, get, search, claim,
+The CLI group is `graphit task`; its subcommands cover batch, create, list/ready, get, search, claim,
 progress, heartbeat, comment, check, flag/unflag, dependency add/remove, release, complete,
 cancel, and confirmed remove.
 The MCP tools expose the same operations as `graphit_task_*` and return compact TOON by default for
 read-heavy calls.
+
+`graphit_task_batch` and `graphit task batch <file|->` accept one to 100 mutations. The CLI input is
+a JSON object containing `operations` and an optional default `lease`; `-` reads the object from
+standard input. Each operation names an `action` and the same fields used by its single-task
+counterpart. Items run sequentially in input order, every item is attempted, and the result contains
+the original index, optional correlation key, normalized action, task ID, success flag, value or
+explicit error. A failed item therefore cannot make later independent outcomes ambiguous. Batch is
+a transport optimization, not a weaker lifecycle path: every item invokes the same LanceDB-backed
+service method and retains claim fencing, dependency, check, flag, cancellation, and confirmed
+removal rules. A batch cannot be used to claim multiple live tasks for one agent.
 
 `task_search` uses LanceDB full-text indexes over task specs/check evidence and comment bodies. It
 accepts `page_size` plus the opaque `cursor` returned as `next_cursor`; `top_k` remains the cap for
@@ -160,6 +171,7 @@ ordered comments.
 | Concern | Location |
 |---|---|
 | Domain service and invariants | `internal/task/service.go` |
+| Ordered batch dispatch | `internal/task/batch.go` |
 | Schemas and projections | `internal/task/table.go` |
 | Hook identity and lifecycle maintenance | `internal/task/hook.go` |
 | Skill and mandate | `internal/task/rule.go`, `internal/task/rule_compact.go` |

@@ -19,6 +19,7 @@ func RuleContent() string {
 		"Before material work, search prior tasks with " + t("task", "search") + " and follow `next_cursor` until the relevant history is covered; use " + t("task", "list") + " with `ready: true` to find unblocked work and " + t("task", "get") + " to read dependencies, progress, next step, and audit history. Resume an existing task instead of duplicating it.",
 		"",
 		"Create missing work with " + t("task", "create") + ", a stable `idempotency_key`, robust self-contained description (objective, context, scope, constraints, intended result), explicit acceptance criteria, and concrete tests/validations. Use `parent_id` for subtasks and dependency IDs for ordering; an unclaimed `open` task is the backlog. Add/remove dependencies with " + t("task", "dependency", "add") + "/" + t("task", "dependency", "remove") + "; never encode relations only in prose.",
+		"For two or more independent mutations, prefer " + t("task", "batch") + "; it runs in input order and reports every item. Inspect all results and never use batching to bypass claims, checks, flags, dependencies, or removal confirmation.",
 		"",
 		"Claim with " + t("task", "claim") + " before changing project state. A claim returns a fencing token; keep it private and pass it to progress, heartbeat, release, and complete. A rejected claim means another agent owns the task—choose other ready work. Never bypass a claim or edit task tables directly.",
 		"",
@@ -32,7 +33,7 @@ func RuleContent() string {
 		"",
 		"Every mutation is revision-checked and audited. Dependencies gate readiness; expired or stopped claims become open for takeover. Search is discovery; `get` and filtered `list` read authoritative state.",
 		"",
-		"Tool index: `graphit_task_search`, `graphit_task_list`, `graphit_task_get`, `graphit_task_create`, `graphit_task_claim`, `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_comment_add`, `graphit_task_check`, `graphit_task_flag`, `graphit_task_unflag`, `graphit_task_release`, `graphit_task_complete`, `graphit_task_cancel`, `graphit_task_remove`, `graphit_task_dependency_add`, `graphit_task_dependency_remove`.",
+		"Tool index: `graphit_task_search`, `graphit_task_list`, `graphit_task_get`, `graphit_task_batch`, `graphit_task_create`, `graphit_task_claim`, `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_comment_add`, `graphit_task_check`, `graphit_task_flag`, `graphit_task_unflag`, `graphit_task_release`, `graphit_task_complete`, `graphit_task_cancel`, `graphit_task_remove`, `graphit_task_dependency_add`, `graphit_task_dependency_remove`.",
 	}, "\n") + "\n"
 }
 
@@ -50,6 +51,6 @@ func MandateTrigger() string {
 			"cancelling or certainly removing obsolete work so no task garbage remains",
 			"an agent starts, stops, resumes, delegates, or finishes a work unit",
 		},
-		[]string{"task_search", "task_list", "task_get", "task_create", "task_claim", "task_progress", "task_comment_add", "task_check", "task_flag", "task_release", "task_complete", "task_cancel", "task_remove"},
+		[]string{"task_search", "task_list", "task_get", "task_batch", "task_create", "task_claim", "task_progress", "task_comment_add", "task_check", "task_flag", "task_release", "task_complete", "task_cancel", "task_remove"},
 	)
 }
