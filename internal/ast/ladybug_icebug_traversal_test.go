@@ -2,16 +2,8 @@ package ast
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"sort"
-	"strconv"
 	"testing"
-	"time"
-
-	"github.com/graphit-labs/graphit-code/internal/brand"
-	"github.com/graphit-labs/graphit-code/internal/config"
-	"github.com/graphit-labs/graphit-code/internal/s3store"
 )
 
 func TestMountedIcebugPlansBoundedInboundTraversalAsOneHopFrontiers(t *testing.T) {
@@ -94,113 +86,6 @@ func TestMountedIcebugBoundedTraversalPreservesGlobalDistinct(t *testing.T) {
 	}
 }
 
-func TestMountedIcebugRealGraphBoundedTraversalCost(t *testing.T) {
-	storePath := os.Getenv("GRAPHIT_REAL_STORE")
-	if storePath == "" {
-		t.Skip("set GRAPHIT_REAL_STORE to a populated ladybugdb")
-	}
-	query := "MATCH (caller)-[:CALLS*1..3]->(t) WHERE " +
-		"(label(t) = 'Function' OR label(t) = 'Method') AND " +
-		"t.uid IN ['internal/ast/ladybug.go::runQuery'] RETURN DISTINCT caller.uid"
-
-	mounted := NewLadybugDBReadOnly(LadybugConfig{StoreDir: filepath.Dir(storePath), IcebugDir: filepath.Join(filepath.Dir(storePath), "graph.icebug")})
-	if err := mounted.connect(); err != nil {
-		t.Fatalf("open store graph: %v", err)
-	}
-	defer func() { _ = mounted.Close() }()
-	start := time.Now()
-	got, err := mounted.Query(context.Background(), query, nil)
-	took := time.Since(start)
-	if err != nil {
-		t.Fatalf("mounted query: %v", err)
-	}
-	t.Logf("bounded 3-hop traversal over Icebug: rows=%d took=%s", len(got.Records), took)
-	if len(got.Records) == 0 {
-		t.Fatal("bounded traversal returned no rows")
-	}
-	if len(got.Records) == 0 {
-		t.Fatal("bounded traversal returned no callers")
-	}
-	if took > 5*time.Second {
-		t.Fatalf("bounded 3-hop traversal took %s, want <= 5s", took)
-	}
-}
-
-func TestMountedIcebugRemoteRealGraphBoundedTraversalCost(t *testing.T) {
-	if os.Getenv("GRAPHIT_REMOTE_ICEBUG_TEST") == "" {
-		t.Skip("set GRAPHIT_REMOTE_ICEBUG_TEST=1 with a configured Hub bucket")
-	}
-	globalDir := os.Getenv("GRAPHIT_REMOTE_GLOBAL_DIR")
-	if globalDir == "" {
-		t.Skip("set GRAPHIT_REMOTE_GLOBAL_DIR to the installed Graphit global directory")
-	}
-	t.Setenv(brand.EnvVar("GLOBAL_DIR"), globalDir)
-	storePath := os.Getenv("GRAPHIT_REAL_STORE")
-	if storePath == "" {
-		t.Skip("set GRAPHIT_REAL_STORE to a populated ladybugdb")
-	}
-	ctx := context.Background()
-	objectStore, err := s3store.New(ctx, config.HubS3Config())
-	if err != nil {
-		t.Fatalf("open Hub object store: %v", err)
-	}
-	if err := objectStore.EnsureBucket(ctx); err != nil {
-		t.Fatalf("reach Hub bucket: %v", err)
-	}
-	prefix := s3store.JoinKey("diagnostics", "icebug-three-hop-"+strconv.FormatInt(time.Now().UnixNano(), 10))
-	t.Cleanup(func() {
-		if err := objectStore.DeletePrefix(context.Background(), prefix); err != nil {
-			t.Errorf("delete remote diagnostic prefix: %v", err)
-		}
-	})
-
-	query := "MATCH (caller)-[:CALLS*1..3]->(t) WHERE " +
-		"(label(t) = 'Function' OR label(t) = 'Method') AND " +
-		"t.uid IN ['internal/ast/ladybug.go::runQuery'] RETURN DISTINCT caller.uid"
-	native := NewLadybugDBReadOnly(LadybugConfig{StoreDir: filepath.Dir(storePath), IcebugDir: filepath.Join(filepath.Dir(storePath), "graph.icebug")})
-	if err := native.connect(); err != nil {
-		t.Fatalf("open native graph: %v", err)
-	}
-	want, err := native.Query(ctx, query, nil)
-	if err != nil {
-		t.Fatalf("native query: %v", err)
-	}
-	if err := native.Close(); err != nil {
-		t.Fatalf("close native graph: %v", err)
-	}
-
-	mountedPath := filepath.Join(t.TempDir(), "store")
-	if schema, err := bundleSchemaBytes(filepath.Dir(storePath)); err == nil {
-		if err := MountIcebugGraph(ctx, mountedPath, string(schema), nil); err != nil {
-			t.Fatalf("mount remote Icebug: %v", err)
-		}
-	} else {
-		t.Fatalf("read store schema: %v", err)
-	}
-	mounted := NewLadybugDBReadOnly(LadybugConfig{StoreDir: mountedPath, IcebugDir: mountedPath})
-	if err := mounted.connect(); err != nil {
-		t.Fatalf("open remote mounted graph: %v", err)
-	}
-	defer func() { _ = mounted.Close() }()
-
-	start := time.Now()
-	got, err := mounted.Query(ctx, query, nil)
-	took := time.Since(start)
-	if err != nil {
-		t.Fatalf("remote mounted query: %v", err)
-	}
-	t.Logf("bounded 3-hop traversal over S3 Icebug: rows=%d took=%s", len(got.Records), took)
-	if gotUIDs, wantUIDs := recordStrings(got, "caller.uid"), recordStrings(want, "caller.uid"); !sameStrings(gotUIDs, wantUIDs) {
-		t.Fatalf("remote mounted callers = %v, native callers = %v", gotUIDs, wantUIDs)
-	}
-	if len(got.Records) == 0 {
-		t.Fatal("remote bounded traversal returned no callers")
-	}
-	if took > 10*time.Second {
-		t.Fatalf("remote bounded 3-hop traversal took %s, want <= 10s", took)
-	}
-}
-
 func mountedIcebugTraversalFixture(t *testing.T) *LadybugBackend {
 	t.Helper()
 	entry := &parseCacheEntry{
@@ -251,16 +136,4 @@ func sameStrings(got, want []string) bool {
 		}
 	}
 	return true
-}
-
-func bundleSchemaBytes(storeDir string) ([]byte, error) {
-	for _, p := range []string{
-		filepath.Join(storeDir, "schema.cypher"),
-		filepath.Join(storeDir, "graph.icebug", "schema.cypher"),
-	} {
-		if raw, err := os.ReadFile(p); err == nil {
-			return raw, nil
-		}
-	}
-	return nil, os.ErrNotExist
 }

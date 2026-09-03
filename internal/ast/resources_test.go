@@ -1,7 +1,6 @@
 package ast
 
 import (
-	"os"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/sysutil"
@@ -41,14 +40,10 @@ func TestBoundedDBBufferPool(t *testing.T) {
 	})
 
 	t.Run("a large machine gives the writer a large pool", func(t *testing.T) {
-		requireDerivedBufferPool(t)
-		limit := sysutil.MemoryLimitBytes()
-		if limit < 16*gib {
-			t.Skipf("machine reports %d MiB, needs >= 16 GiB to assert this", limit>>20)
-		}
+		t.Setenv("GRAPHIT_DB_BUFFER_MB", "")
+		limit := uint64(32 * gib)
 		def := uint64(float64(limit) * 0.8)
 		got := boundedDBBufferPool(def, false)
-		t.Logf("limit %d MiB -> write pool %d MiB", limit>>20, got>>20)
 		if got < 4*gib {
 			t.Errorf("write pool = %d MiB on a %d MiB machine, want >= 4 GiB",
 				got>>20, limit>>20)
@@ -56,14 +51,10 @@ func TestBoundedDBBufferPool(t *testing.T) {
 	})
 
 	t.Run("a read handle stays bounded even on a large machine", func(t *testing.T) {
-		requireDerivedBufferPool(t)
-		limit := sysutil.MemoryLimitBytes()
-		if limit < 16*gib {
-			t.Skipf("machine reports %d MiB, needs >= 16 GiB to assert this", limit>>20)
-		}
+		t.Setenv("GRAPHIT_DB_BUFFER_MB", "")
+		limit := uint64(32 * gib)
 		def := uint64(float64(limit) * 0.8)
 		got := boundedDBBufferPool(def, true)
-		t.Logf("limit %d MiB -> read pool %d MiB", limit>>20, got>>20)
 		if got > dbBufferPoolCeilRead {
 			t.Errorf("read pool = %d MiB, want <= %d MiB",
 				got>>20, dbBufferPoolCeilRead>>20)
@@ -73,13 +64,6 @@ func TestBoundedDBBufferPool(t *testing.T) {
 				got>>20, boundedDBBufferPool(def, false)>>20)
 		}
 	})
-}
-
-func requireDerivedBufferPool(t *testing.T) {
-	t.Helper()
-	if v := os.Getenv("GRAPHIT_DB_BUFFER_MB"); v != "" {
-		t.Skipf("GRAPHIT_DB_BUFFER_MB=%s overrides the derived pool", v)
-	}
 }
 
 // TestAntlrHeapBudget checks the ANTLR cache budget scales with the machine and

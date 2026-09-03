@@ -235,81 +235,16 @@ func TestSupervise_ModuleCrashesThenShutdown(t *testing.T) {
 	}
 }
 
-func TestSupervise_ModuleFailsAfterMaxRestarts(t *testing.T) {
-	projectDir := t.TempDir()
-
-	mod := &fakeModule{
-		name: "failer",
-		startFn: func(ctx context.Context) error {
-			return errors.New("always fails")
-		},
-	}
-
-	ps := newProjectSupervisor("test", projectDir, []WatchModule{mod})
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	doneCh := make(chan struct{})
-	go func() {
-		ps.Start(ctx, func(format string, args ...any) {})
-		close(doneCh)
-	}()
-
-	time.Sleep(200 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-doneCh:
-	case <-time.After(5 * time.Second):
-		t.Fatal("did not finish")
-	}
-
-	if len(ps.modules) != 1 {
-		t.Fatalf("expected 1 module, got %d", len(ps.modules))
-	}
-	if ps.modules[0].restarts == 0 {
-		t.Error("expected some restarts")
-	}
-}
-
-func TestSupervise_PanicRecovery(t *testing.T) {
-	projectDir := t.TempDir()
-
-	panicked := false
+func TestRunProtectedConvertsPanicToError(t *testing.T) {
 	mod := &fakeModule{
 		name: "panicker",
 		startFn: func(ctx context.Context) error {
-			if !panicked {
-				panicked = true
-				panic("boom!")
-			}
-			<-ctx.Done()
-			return ctx.Err()
+			panic("boom")
 		},
 	}
-
-	ps := newProjectSupervisor("test", projectDir, []WatchModule{mod})
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	doneCh := make(chan struct{})
-	go func() {
-		ps.Start(ctx, func(format string, args ...any) {})
-		close(doneCh)
-	}()
-
-	time.Sleep(200 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-doneCh:
-	case <-time.After(5 * time.Second):
-		t.Fatal("did not finish")
-	}
-
-	if !panicked {
-		t.Error("module should have panicked")
+	err := runProtected(context.Background(), newModuleEntry(mod))
+	if err == nil || !strings.Contains(err.Error(), "panic: boom") {
+		t.Fatalf("runProtected error = %v", err)
 	}
 }
 

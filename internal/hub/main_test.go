@@ -7,6 +7,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/git"
 	"github.com/graphit-labs/graphit-code/internal/testsupport"
+	"github.com/graphit-labs/graphit-code/internal/testsupport/testenv"
 )
 
 // See internal/memory/main_test.go for the full reasoning. This package commits into
@@ -32,6 +33,5 @@ func TestMain(m *testing.M) {
 		_ = os.Setenv(k, v)
 	}
 
-	code := m.Run()
-	os.Exit(code)
+	os.Exit(testenv.Run(m))
 }

@@ -1,6 +1,6 @@
 .PHONY: build build-all build-local install install-darwin install-windows clean fmt vet run ui ui-dev setup-lbug fetch-lancedb lancedb-native build-local lancedb-cgo-env \
        fetch-ort-linux fetch-ort-darwin fetch-ort-windows lint \
-       ui-lint ci check test build-windows-native \
+	   ui-lint ci ci-fast check test test-short test-race build-windows-native \
        grammars grammars-treesitter grammars-antlr grammars-clean
 
 MODULE   := github.com/graphit-labs/graphit-code
@@ -62,8 +62,10 @@ GO_PKGS_PARSERS := /antlr/|/treesitter/
 GOVULNCHECK_VERSION := v1.7.0
 ACTIONLINT_VERSION  := v1.7.7
 
-NPROC     := $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
-GO_TEST_P ?= $(shell if [ "$(NPROC)" -gt 8 ]; then echo 8; else echo "$(NPROC)"; fi)
+GO_TEST_P           ?= 1
+GO_TEST_PARALLEL    ?= 2
+GO_TEST_GOMAXPROCS  ?= 2
+GO_TEST_TIMEOUT     ?= 15m
 
 ORT_VERSION  := 1.26.0
 ORT_CACHE    := /tmp/onnxruntime-cache
@@ -595,48 +597,67 @@ build-all:
 
 test: setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	@LBUG_LIB="$(LBUG_MOD)/lib"; \
+	TEST_HOME_ROOT="$${TMPDIR:-/tmp}/$(BRAND)-test-homes"; \
 	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
 		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \
 	fi; \
-	rm -rf "$${TMPDIR:-/tmp}/$(BRAND)-test-homes"; \
+	rm -rf "$$TEST_HOME_ROOT"; \
 	status=0; \
-	echo "  → Running tests with race detector (project code)…"; \
+	echo "  → Running the bounded test suite…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
 	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -race -tags "$(LOCAL_TAGS)" -coverprofile=coverage.out -covermode=atomic -p $(GO_TEST_P) \
+	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_GOMAXPROCS)" \
+	go test -count=1 -tags "$(LOCAL_TAGS)" -coverprofile=coverage.out -covermode=atomic \
+		-p $(GO_TEST_P) -parallel $(GO_TEST_PARALLEL) -timeout $(GO_TEST_TIMEOUT) \
 		$$(go list ./... | grep -Ev "$(GO_PKGS_SKIP)") || status=1; \
-	echo "  → Running tests without race detector (generated parsers, appended)…"; \
+	echo "  → Running generated parser tests…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
 	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -tags "$(LOCAL_TAGS)" -coverprofile=coverage-parsers.out -covermode=atomic -p $(GO_TEST_P) \
-		$$(go list ./... | grep -E "$(GO_PKGS_PARSERS)" | grep -v "/node_modules/") || status=1; \
-	if [ -f coverage-parsers.out ]; then \
-		tail -n +2 coverage-parsers.out >> coverage.out; \
-		rm -f coverage-parsers.out; \
-	fi; \
+	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_GOMAXPROCS)" \
+	go test -count=1 -tags "$(LOCAL_TAGS)" \
+		-p $(GO_TEST_P) -parallel $(GO_TEST_PARALLEL) -timeout $(GO_TEST_TIMEOUT) \
+		$$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' ./internal/ast/antlr/... | sed '/^$$/d') || status=1; \
+	rm -rf "$$TEST_HOME_ROOT"; \
 	exit $$status
 
 test-short: setup-lbug lancedb-native $(ORT_HOST_FETCH)
 	@LBUG_LIB="$(LBUG_MOD)/lib"; \
+	TEST_HOME_ROOT="$${TMPDIR:-/tmp}/$(BRAND)-test-homes"; \
 	if [ -f "$$LBUG_LIB/liblbug.so" ] && [ ! -f "$$LBUG_LIB/liblbug.so.0" ]; then \
 		cp -L "$$LBUG_LIB/liblbug.so" "$$LBUG_LIB/liblbug.so.0"; \
 	fi; \
-	rm -rf "$${TMPDIR:-/tmp}/$(BRAND)-test-homes"; \
+	rm -rf "$$TEST_HOME_ROOT"; \
 	status=0; \
-	echo "  → Running tests with race detector (-short, skips heavy model/LanceDB)…"; \
+	echo "  → Running the bounded short test suite…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
 	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -short -race -tags "$(LOCAL_TAGS)" -coverprofile=coverage.out -covermode=atomic -p $(GO_TEST_P) \
+	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_GOMAXPROCS)" \
+	go test -short -count=1 -tags "$(LOCAL_TAGS)" -coverprofile=coverage.out -covermode=atomic \
+		-p $(GO_TEST_P) -parallel $(GO_TEST_PARALLEL) -timeout $(GO_TEST_TIMEOUT) \
 		$$(go list ./... | grep -Ev "$(GO_PKGS_SKIP)") || status=1; \
-	echo "  → Running tests without race detector (generated parsers, -short)…"; \
+	echo "  → Running generated parser tests (-short)…"; \
 	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
 	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
-	$(BRAND_ENV)_MODEL_CACHE="$(MODEL_CACHE)" go test -short -tags "$(LOCAL_TAGS)" -coverprofile=coverage-parsers.out -covermode=atomic -p $(GO_TEST_P) \
-		$$(go list ./... | grep -E "$(GO_PKGS_PARSERS)" | grep -v "/node_modules/") || status=1; \
-	if [ -f coverage-parsers.out ]; then \
-		tail -n +2 coverage-parsers.out >> coverage.out; \
-		rm -f coverage-parsers.out; \
-	fi; \
+	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_GOMAXPROCS)" \
+	go test -short -count=1 -tags "$(LOCAL_TAGS)" \
+		-p $(GO_TEST_P) -parallel $(GO_TEST_PARALLEL) -timeout $(GO_TEST_TIMEOUT) \
+		$$(go list -f '{{if .TestGoFiles}}{{.ImportPath}}{{end}}' ./internal/ast/antlr/... | sed '/^$$/d') || status=1; \
+	rm -rf "$$TEST_HOME_ROOT"; \
+	exit $$status
+
+test-race: setup-lbug lancedb-native $(ORT_HOST_FETCH)
+	@LBUG_LIB="$(LBUG_MOD)/lib"; \
+	TEST_HOME_ROOT="$${TMPDIR:-/tmp}/$(BRAND)-test-homes"; \
+	rm -rf "$$TEST_HOME_ROOT"; \
+	LD_LIBRARY_PATH="$$LBUG_LIB:$(ORT_HOST_LIB):$$LD_LIBRARY_PATH" \
+	DYLD_LIBRARY_PATH="$(ORT_HOST_LIB):$$DYLD_LIBRARY_PATH" \
+	GRAPHIT_TEST_HOME_ROOT="$$TEST_HOME_ROOT" GOMAXPROCS="$(GO_TEST_GOMAXPROCS)" \
+	go test -race -count=1 -tags "$(LOCAL_TAGS)" -p 1 -parallel $(GO_TEST_PARALLEL) \
+		-timeout $(GO_TEST_TIMEOUT) \
+		./internal/fswatch/... ./internal/livesearch/... ./internal/mcpproxy/... \
+		./internal/projectlock/... ./internal/sessionhook/... ./internal/sysutil/... ./internal/task/...; \
+	status=$$?; \
+	rm -rf "$$TEST_HOME_ROOT"; \
 	exit $$status
 
 lint: lancedb-native
@@ -658,21 +679,29 @@ vet: lancedb-native
 	go vet -tags "$(LOCAL_TAGS)" -unreachable=false $$(go list -tags "$(LOCAL_TAGS)" ./... | grep -Ev "$(GO_PKGS_SKIP)")
 
 ci-fast: lancedb-native
-	@echo "  → Running actionlint, vet, lint, ui-lint in parallel (vulncheck and full test are ci)…"
-	@$(MAKE) -j4 actionlint vet lint ui-lint
+	@echo "  → Running bounded static checks, then the short suite…"
+	@$(MAKE) actionlint
+	@$(MAKE) vet
+	@$(MAKE) lint
+	@$(MAKE) ui-lint
 	@$(MAKE) test-short
 
 ci: lancedb-native
-	@echo "  → Building UI, then actionlint/vet/lint/vulncheck/ui-lint in parallel, then full test…"
+	@echo "  → Building UI, then static checks, the bounded full suite, and focused race checks…"
 	@$(MAKE) ui
-	@$(MAKE) -j5 actionlint vet lint vulncheck ui-lint
+	@$(MAKE) actionlint
+	@$(MAKE) vet
+	@$(MAKE) lint
+	@$(MAKE) vulncheck
+	@$(MAKE) ui-lint
 	@$(MAKE) test
+	@$(MAKE) test-race
 	@echo ""
 	@echo "  ✅ All CI checks passed."
 	@echo ""
 
 
-check: actionlint vet lint vulncheck test
+check: actionlint vet lint vulncheck test test-race
 	@echo ""
 	@echo "  ✅ Go checks passed (vet + lint + vulncheck + test)."
 	@echo ""

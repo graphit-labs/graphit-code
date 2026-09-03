@@ -9,6 +9,7 @@ import (
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
 	"github.com/graphit-labs/graphit-code/internal/store"
+	"github.com/graphit-labs/graphit-code/internal/testsupport/testenv"
 )
 
 // TestMain points the global brand directory at a scratch directory for the whole
@@ -19,16 +20,7 @@ import (
 // developer's real store — and read from it, which is worse, because it would pass
 // for the wrong reason.
 func TestMain(m *testing.M) {
-	home, err := os.MkdirTemp("", "graphit-wikisvc-home-")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "cannot create a scratch home:", err)
-		os.Exit(1)
-	}
-	_ = os.Setenv("HOME", home)
-	_ = os.Setenv("USERPROFILE", home)
-	code := m.Run()
-	_ = os.RemoveAll(home)
-	os.Exit(code)
+	os.Exit(testenv.Run(m))
 }
 
 var seedCounter atomic.Int64

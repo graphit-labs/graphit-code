@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	"github.com/graphit-labs/graphit-code/internal/testsupport/testenv"
 )
 
 // The model-cache override is CLEARED for this package, and that is the opposite of what
@@ -23,5 +24,5 @@ import (
 // forgets. A test that genuinely wants the shared cache can still set it with t.Setenv.
 func TestMain(m *testing.M) {
 	_ = os.Unsetenv(brand.EnvVar("MODEL_CACHE"))
-	os.Exit(m.Run())
+	os.Exit(testenv.Run(m))
 }

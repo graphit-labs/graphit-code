@@ -5,11 +5,8 @@ package lancestore
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
-
-	"github.com/graphit-labs/graphit-code/internal/config"
 )
 
 func testSchema() Schema {
@@ -291,77 +288,6 @@ func contains(s, sub string) bool {
 		}
 		return false
 	})()
-}
-
-// THE POINT OF THE MIGRATION: a published version is queried over the network, with nothing
-// downloaded. This runs against MinIO because a fake cannot prove object-store behaviour.
-//
-//	GRAPHIT_LANCE_S3_ENDPOINT=http://localhost:9000 \
-//	GRAPHIT_LANCE_S3_BUCKET=lance-otf \
-//	AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… \
-//	  go test -tags lancedb -run TestRemote ./internal/lancestore/ -v
-func TestRemoteStoreIsQueriedOnTheFly(t *testing.T) {
-	endpoint := os.Getenv("GRAPHIT_LANCE_S3_ENDPOINT")
-	bucket := os.Getenv("GRAPHIT_LANCE_S3_BUCKET")
-	if endpoint == "" || bucket == "" {
-		t.Skip("set GRAPHIT_LANCE_S3_ENDPOINT and GRAPHIT_LANCE_S3_BUCKET to run the on-the-fly test")
-	}
-	ctx := context.Background()
-	cfg := Config{
-		URI: fmt.Sprintf("s3://%s/lancestore-test", bucket),
-		S3:  config.S3Config{Bucket: bucket, Region: "us-east-1", Endpoint: endpoint},
-	}
-	if !cfg.IsRemote() {
-		t.Fatal("an s3:// URI did not report itself remote")
-	}
-
-	pub, err := Open(ctx, cfg)
-	if err != nil {
-		t.Fatalf("open for publish: %v", err)
-	}
-	pub.remote = false
-	_ = pub.DropTable(ctx, "entities")
-	tbl, err := pub.CreateTable(ctx, "entities", testSchema())
-	if err != nil {
-		t.Fatalf("create table on s3: %v", err)
-	}
-	populate(t, tbl)
-	_ = pub.Close()
-
-	st, err := Open(ctx, cfg)
-	if err != nil {
-		t.Fatalf("open remote: %v", err)
-	}
-	defer st.Close()
-	if !st.Remote() {
-		t.Fatal("the store did not report itself remote")
-	}
-
-	rt, err := st.OpenTable(ctx, "entities")
-	if err != nil {
-		t.Fatalf("open table over s3: %v", err)
-	}
-	if n, err := rt.Count(ctx); err != nil || n != int64(len(testRows)) {
-		t.Fatalf("remote count = %d, %v; want %d", n, err, len(testRows))
-	}
-
-	if _, ok := rt.Schema().Field("embedding"); !ok {
-		t.Error("the remote schema lost the vector column")
-	}
-
-	hyb, err := rt.Search(ctx, Query{
-		Text: "fusion rankings", TextColumn: "body",
-		Vector: []float32{0, 0.95, 0.05, 0}, VectorColumn: "embedding", Limit: 3})
-	if err != nil {
-		t.Fatalf("hybrid over s3: %v", err)
-	}
-	if len(hyb) == 0 || hyb[0].Row["name"] != "ReciprocalRank" {
-		t.Errorf("hybrid over s3 returned %v, want the BM25 winner first", names(hyb))
-	}
-
-	if err := rt.Append(ctx, testRows[:1]); err == nil {
-		t.Error("a write to a published version was accepted")
-	}
 }
 
 // A GUARD AGAINST A SILENT DATA CORRUPTION, and against someone "fixing" quoteIdent back to

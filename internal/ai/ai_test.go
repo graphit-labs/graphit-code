@@ -1003,42 +1003,14 @@ func TestModelManager_download(t *testing.T) {
 	})
 }
 
-// No bundled models sit next to a test binary in /tmp/go-build, so findBundledModels
-// returns "" and EnsureModel falls through to the cache, finds it empty, and
-// downloads. Pointed at a local server that is what happens, and it is checkable:
-// before, this reached huggingface.co and accepted either outcome.
-func TestModelManager_EnsureModel_BundledModels(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	mgr := modelServer(t, tmpDir)
-
-	modelPath, tokenizerPath, err := mgr.EnsureModel(context.Background())
-	if err != nil {
-		t.Fatalf("EnsureModel fell through to download and failed: %v", err)
-	}
-	if modelPath != filepath.Join(tmpDir, modelFileName) {
-		t.Errorf("model path = %q; want it in the cache dir, not a bundled dir", modelPath)
-	}
-	if tokenizerPath != filepath.Join(tmpDir, tokenizerFileName) {
-		t.Errorf("tokenizer path = %q; want it in the cache dir", tokenizerPath)
-	}
-}
-
 func TestModelManager_EnsureModel_CachedModels(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	modelPath := filepath.Join(tmpDir, modelFileName)
 	tokenizerPath := filepath.Join(tmpDir, tokenizerFileName)
 
-	modelData := make([]byte, modelONNXMinSize+1)
-	tokenizerData := make([]byte, tokenizerJSONMinSize+1)
-
-	if err := os.WriteFile(modelPath, modelData, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(tokenizerPath, tokenizerData, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	sparseFile(t, modelPath, modelONNXMinSize+1)
+	sparseFile(t, tokenizerPath, tokenizerJSONMinSize+1)
 
 	mgr := &ModelManager{cacheDir: tmpDir}
 	mp, tp, err := mgr.EnsureModel(context.Background())
@@ -1050,127 +1022,6 @@ func TestModelManager_EnsureModel_CachedModels(t *testing.T) {
 	}
 	if tp != tokenizerPath {
 		t.Errorf("tokenizerPath = %q; want %q", tp, tokenizerPath)
-	}
-}
-
-func TestModelManager_EnsureModel_DownloadModel(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping heavy model download in -short mode")
-	}
-	tmpDir := t.TempDir()
-
-	tooSmall := make([]byte, 50)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write(tooSmall)
-	}))
-	defer srv.Close()
-
-	mgr := &ModelManager{
-		cacheDir:     tmpDir,
-		modelURL:     srv.URL + "/" + modelFileName,
-		tokenizerURL: srv.URL + "/" + tokenizerFileName,
-	}
-
-	_, _, err := mgr.EnsureModel(context.Background())
-	if err == nil {
-		t.Fatal("a 50-byte model was accepted; the size floor is what stops a truncated download")
-	}
-	if !strings.Contains(err.Error(), "too small") {
-		t.Errorf("error = %v; want it to name the size problem", err)
-	}
-}
-
-func TestModelManager_EnsureModel_DownloadSuccess(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping heavy model download in -short mode")
-	}
-	tmpDir := t.TempDir()
-
-	modelContent := make([]byte, modelONNXMinSize+1)
-	tokenizerContent := make([]byte, tokenizerJSONMinSize+1)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "model.onnx") {
-			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(modelContent)))
-			_, _ = w.Write(modelContent)
-		} else if strings.Contains(r.URL.Path, "tokenizer.json") {
-			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(tokenizerContent)))
-			_, _ = w.Write(tokenizerContent)
-		} else {
-			w.WriteHeader(404)
-		}
-	}))
-	defer srv.Close()
-
-	mgr := &ModelManager{cacheDir: tmpDir}
-
-	modelDest := filepath.Join(tmpDir, modelFileName)
-	if err := mgr.download(context.Background(), srv.URL+"/model.onnx", modelDest); err != nil {
-		t.Fatalf("download model failed: %v", err)
-	}
-
-	tokenizerDest := filepath.Join(tmpDir, tokenizerFileName)
-	if err := mgr.download(context.Background(), srv.URL+"/tokenizer.json", tokenizerDest); err != nil {
-		t.Fatalf("download tokenizer failed: %v", err)
-	}
-
-	mp, tp, err := mgr.EnsureModel(context.Background())
-	if err != nil {
-		t.Fatalf("EnsureModel failed: %v", err)
-	}
-	if mp != modelDest {
-		t.Errorf("model path = %q; want %q", mp, modelDest)
-	}
-	if tp != tokenizerDest {
-		t.Errorf("tokenizer path = %q; want %q", tp, tokenizerDest)
-	}
-}
-
-// A cached tokenizer is valid and the cached model is not, so only the model is
-// re-fetched. The tokenizer's mtime is the evidence: an untouched file means the
-// second download branch was correctly skipped.
-func TestModelManager_EnsureModel_NeedDownloadModelTooSmall(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping heavy model download in -short mode")
-	}
-	tmpDir := t.TempDir()
-
-	if err := os.WriteFile(filepath.Join(tmpDir, modelFileName), []byte("tiny"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tokenizerPath := filepath.Join(tmpDir, tokenizerFileName)
-	sparseFile(t, tokenizerPath, tokenizerJSONMinSize+1)
-	before, err := os.Stat(tokenizerPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	mgr := modelServer(t, tmpDir)
-	if _, _, err := mgr.EnsureModel(context.Background()); err != nil {
-		t.Fatalf("EnsureModel could not replace the undersized model: %v", err)
-	}
-
-	if info, err := os.Stat(filepath.Join(tmpDir, modelFileName)); err != nil {
-		t.Fatal(err)
-	} else if info.Size() < modelONNXMinSize {
-		t.Errorf("model is still %d bytes; it was not replaced", info.Size())
-	}
-	after, err := os.Stat(tokenizerPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !after.ModTime().Equal(before.ModTime()) {
-		t.Error("the already-valid tokenizer was downloaded again")
-	}
-}
-
-func TestNewLocalEmbeddingClient_Fails(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	seedModelCache(t, home)
-	_, err := NewLocalEmbeddingClient()
-	if err == nil {
-		t.Log("NewLocalEmbeddingClient succeeded - model may be cached in default location")
 	}
 }
 
@@ -1217,5 +1068,30 @@ func TestLazyEmbeddingClient_MultipleCalls(t *testing.T) {
 		if err == nil {
 			t.Errorf("call %d: expected error", i)
 		}
+	}
+}
+
+func TestModelManagerEnsureArtifact(t *testing.T) {
+	server := artifactServer(t, map[string][]byte{
+		"/valid": []byte("complete artifact"),
+		"/tiny":  []byte("x"),
+	})
+	manager := &ModelManager{cacheDir: t.TempDir()}
+
+	path, err := manager.ensureArtifact(context.Background(), modelArtifact{
+		name: "artifact.bin", source: server + "/valid", minSize: 8,
+	})
+	if err != nil {
+		t.Fatalf("ensure valid artifact: %v", err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "complete artifact" {
+		t.Fatalf("artifact = %q, %v", data, err)
+	}
+
+	_, err = manager.ensureArtifact(context.Background(), modelArtifact{
+		name: "tiny.bin", source: server + "/tiny", minSize: 8,
+	})
+	if err == nil || !strings.Contains(err.Error(), "too small") {
+		t.Fatalf("small artifact error = %v", err)
 	}
 }

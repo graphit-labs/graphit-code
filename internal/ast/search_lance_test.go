@@ -608,18 +608,3 @@ func TestLanceEntitiesWithoutEmbeddingsAreStillSearchable(t *testing.T) {
 		t.Errorf("an entity without an embedding is not searchable: %v", got)
 	}
 }
-
-// A published index is read-only, and both write paths have to say so rather than half-applying.
-func TestLanceWritesAreRefusedOnAPublishedIndex(t *testing.T) {
-	ctx := context.Background()
-	idx := newLanceIndexForTest(t)
-	if err := idx.RebuildFromCache(ctx, newShardCacheForTest(t,
-		entryWith("a.go", "package a", cachedEntity{Name: "x"})), nil); err != nil {
-		t.Fatalf("rebuild: %v", err)
-	}
-
-	remote := &SearchIndex{store: idx.store, files: idx.files, entities: idx.entities}
-	if !remote.Remote() {
-		t.Skip("this store is local; the read-only path is covered in lancestore against MinIO")
-	}
-}

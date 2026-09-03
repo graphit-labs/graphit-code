@@ -4,22 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/graphit-labs/graphit-code/internal/ast"
 )
 
-// collectFilesForPath is the CLI's discovery pass, and it runs where the pipeline's
-// own discovery does not: `ast index` feeds the pipeline a scoped ChangedPaths list,
-// so collectFiles — which applies the ignore checker — never executes. Whatever
-// ignore rules are honoured therefore depends on THIS function applying them. These
-// tests pin that: .gitignore and .astignore have to be obeyed, a scoped path
-// (`ast index internal/ui`) still obeys the PROJECT-root rules, and nothing — not
-// even a dot-directory — is excluded structurally: exclusion comes from the rules.
 func TestCollectFilesForPathHonorsGitignore(t *testing.T) {
 	root := t.TempDir()
-	if !ast.HasParserForExtensionIn(root, ".js") {
-		t.Skip("grammar unavailable on this machine")
-	}
 	mk := func(rel, body string) {
 		t.Helper()
 		p := filepath.Join(root, rel)
@@ -33,7 +21,7 @@ func TestCollectFilesForPathHonorsGitignore(t *testing.T) {
 	mk("keep/a.js", "const a = 1;")
 	mk("node_modules/pkg/b.js", "const b = 1;")
 	mk("internal/ui/node_modules/pkg/c.js", "const c = 1;")
-	mk(".gitignore", "internal/ui/node_modules/\n")
+	mk(".gitignore", "node_modules/\n")
 
 	files, err := collectFilesForPath(root, root)
 	if err != nil {
@@ -47,9 +35,6 @@ func TestCollectFilesForPathHonorsGitignore(t *testing.T) {
 
 func TestCollectFilesForPathHonorsAstignore(t *testing.T) {
 	root := t.TempDir()
-	if !ast.HasParserForExtensionIn(root, ".go") && !ast.HasParserForExtensionIn(root, ".js") {
-		t.Skip("grammar unavailable on this machine")
-	}
 	mk := func(rel, body string) {
 		t.Helper()
 		p := filepath.Join(root, rel)
@@ -74,14 +59,8 @@ func TestCollectFilesForPathHonorsAstignore(t *testing.T) {
 	}
 }
 
-// Dot-directories are not excluded structurally: the rules decide. A dot-directory
-// with no rule against it is indexed; the same directory is skipped once a rule
-// names it.
 func TestCollectFilesForPathDotDirectoriesAreRuledByIgnores(t *testing.T) {
 	root := t.TempDir()
-	if !ast.HasParserForExtensionIn(root, ".js") {
-		t.Skip("grammar unavailable on this machine")
-	}
 	mk := func(rel, body string) {
 		t.Helper()
 		p := filepath.Join(root, rel)
@@ -122,14 +101,8 @@ func TestCollectFilesForPathDotDirectoriesAreRuledByIgnores(t *testing.T) {
 	}
 }
 
-// A scoped index (`ast index internal/ui`) walks only the subdirectory but must
-// honour the rules anchored at the PROJECT root — that is what the boundary
-// argument exists for.
 func TestCollectFilesForPathScopedStaysInsideProjectBoundary(t *testing.T) {
 	root := t.TempDir()
-	if !ast.HasParserForExtensionIn(root, ".js") {
-		t.Skip("grammar unavailable on this machine")
-	}
 	mk := func(rel, body string) {
 		t.Helper()
 		p := filepath.Join(root, rel)
@@ -157,9 +130,6 @@ func TestCollectFilesForPathScopedStaysInsideProjectBoundary(t *testing.T) {
 
 func TestCollectFilesForPathHonorsSubdirectoryGitignore(t *testing.T) {
 	root := t.TempDir()
-	if !ast.HasParserForExtensionIn(root, ".js") {
-		t.Skip("grammar unavailable on this machine")
-	}
 	mk := func(rel, body string) {
 		t.Helper()
 		p := filepath.Join(root, rel)

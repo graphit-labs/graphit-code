@@ -25,6 +25,23 @@ func serveBytes(t *testing.T, n int64, declareLength bool) string {
 	return srv.URL + "/" + modelFileName
 }
 
+func writeZeros(w http.ResponseWriter, size int64) (int64, error) {
+	buffer := make([]byte, 32<<10)
+	var written int64
+	for written < size {
+		chunk := int64(len(buffer))
+		if remaining := size - written; remaining < chunk {
+			chunk = remaining
+		}
+		n, err := w.Write(buffer[:chunk])
+		written += int64(n)
+		if err != nil {
+			return written, err
+		}
+	}
+	return written, nil
+}
+
 type progressCall struct {
 	file       string
 	downloaded int64
@@ -121,18 +138,23 @@ func TestDownloadWithoutAProgressHookStillWritesTheFile(t *testing.T) {
 
 // EnsureModel is the whole reason the hook exists, and it downloads two files.
 // Both have to be named, or a progress line cannot say which one is moving.
-func TestEnsureModelReportsBothFilesByName(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping heavy model download in -short mode")
-	}
-	cacheDir := t.TempDir()
-	m := modelServer(t, cacheDir)
+func TestEnsureArtifactsReportEachFileByName(t *testing.T) {
+	server := artifactServer(t, map[string][]byte{
+		"/" + modelFileName:     []byte("model"),
+		"/" + tokenizerFileName: []byte("tokenizer"),
+	})
+	m := &ModelManager{cacheDir: t.TempDir()}
 
 	seen := map[string]bool{}
 	m.OnProgress = func(file string, _, _ int64) { seen[file] = true }
 
-	if _, _, err := m.EnsureModel(context.Background()); err != nil {
-		t.Fatalf("EnsureModel: %v", err)
+	for _, artifact := range []modelArtifact{
+		{name: modelFileName, source: server + "/" + modelFileName, minSize: 1},
+		{name: tokenizerFileName, source: server + "/" + tokenizerFileName, minSize: 1},
+	} {
+		if _, err := m.ensureArtifact(context.Background(), artifact); err != nil {
+			t.Fatalf("ensure %s: %v", artifact.name, err)
+		}
 	}
 
 	for _, want := range []string{modelFileName, tokenizerFileName} {
@@ -145,9 +167,6 @@ func TestEnsureModelReportsBothFilesByName(t *testing.T) {
 // A cache hit reports nothing, which is how the setup step tells "downloaded"
 // apart from "was already there" without a second question.
 func TestEnsureModelReportsNothingWhenTheCacheIsAlreadyValid(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping heavy model download in -short mode")
-	}
 	cacheDir := t.TempDir()
 	sparseFile(t, filepath.Join(cacheDir, modelFileName), modelONNXMinSize+1)
 	sparseFile(t, filepath.Join(cacheDir, tokenizerFileName), tokenizerJSONMinSize+1)

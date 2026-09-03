@@ -215,7 +215,7 @@ func TestProxyEmbeddingClient_EmbedBatch(t *testing.T) {
 
 func TestProxyEmbeddingClient_EmbedBatch_Empty(t *testing.T) {
 	t.Parallel()
-	client := &proxyEmbeddingClient{sockFile: "/tmp/nonexistent.sock", modelName: "test"}
+	client := &proxyEmbeddingClient{sockFile: filepath.Join(t.TempDir(), "unused.sock"), modelName: "test"}
 	vecs, err := client.EmbedBatch(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -299,7 +299,7 @@ func TestProxyEmbeddingClient_ServerError(t *testing.T) {
 
 func TestProxyEmbeddingClient_ConnectionRefused(t *testing.T) {
 	t.Parallel()
-	client := &proxyEmbeddingClient{sockFile: "/tmp/nonexistent-graphit-sock-test.sock", modelName: "test"}
+	client := &proxyEmbeddingClient{sockFile: filepath.Join(t.TempDir(), "missing.sock"), modelName: "test"}
 	_, err := client.EmbedBatch(context.Background(), []string{"test"})
 	if err == nil {
 		t.Error("expected error for connection refused")
@@ -308,7 +308,7 @@ func TestProxyEmbeddingClient_ConnectionRefused(t *testing.T) {
 
 func TestProxyEmbeddingClient_ModelName(t *testing.T) {
 	t.Parallel()
-	client := &proxyEmbeddingClient{sockFile: "/tmp/test.sock", modelName: "my-model"}
+	client := &proxyEmbeddingClient{sockFile: filepath.Join(t.TempDir(), "unused.sock"), modelName: "my-model"}
 	if client.ModelName() != "my-model" {
 		t.Errorf("ModelName = %q; want 'my-model'", client.ModelName())
 	}
@@ -419,38 +419,21 @@ func TestNewProxyEmbeddingClient_SocketExists(t *testing.T) {
 }
 
 func TestModelManager_EnsureModel_CreateCacheDir(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping heavy model download in -short mode")
-	}
 	t.Parallel()
 
 	tmpDir := t.TempDir()
 	deepCacheDir := filepath.Join(tmpDir, "a", "b", "c", "cache")
 
-	mgr := modelServer(t, deepCacheDir)
-	if _, _, err := mgr.EnsureModel(context.Background()); err != nil {
-		t.Fatalf("EnsureModel: %v", err)
+	server := artifactServer(t, map[string][]byte{"/artifact": []byte("content")})
+	mgr := &ModelManager{cacheDir: deepCacheDir}
+	if _, err := mgr.ensureArtifact(context.Background(), modelArtifact{
+		name: "artifact.bin", source: server + "/artifact", minSize: 1,
+	}); err != nil {
+		t.Fatalf("ensureArtifact: %v", err)
 	}
 
 	if _, statErr := os.Stat(deepCacheDir); statErr != nil {
 		t.Errorf("expected cache dir to be created: %v", statErr)
-	}
-}
-
-func TestModelManager_EnsureModel_TokenizerMissingModelValid(t *testing.T) {
-	t.Parallel()
-
-	cacheDir := t.TempDir()
-	mgr := &ModelManager{cacheDir: cacheDir}
-
-	modelPath := filepath.Join(cacheDir, modelFileName)
-	if err := os.WriteFile(modelPath, make([]byte, modelONNXMinSize+1), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	_, _, err := mgr.EnsureModel(context.Background())
-	if err == nil {
-		t.Log("EnsureModel succeeded — tokenizer may exist elsewhere")
 	}
 }
 

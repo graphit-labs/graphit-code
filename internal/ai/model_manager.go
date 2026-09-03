@@ -45,23 +45,12 @@ type ModelManager struct {
 	// OnProgress, when set, reports download progress. Nil means the download
 	// runs silently, which is what every non-interactive caller wants.
 	OnProgress ProgressFunc
-
-	modelURL     string
-	tokenizerURL string
 }
 
-func (m *ModelManager) modelSource() string {
-	if m.modelURL != "" {
-		return m.modelURL
-	}
-	return modelONNXURL
-}
-
-func (m *ModelManager) tokenizerSource() string {
-	if m.tokenizerURL != "" {
-		return m.tokenizerURL
-	}
-	return tokenizerJSONURL
+type modelArtifact struct {
+	name    string
+	source  string
+	minSize int64
 }
 
 func (m *ModelManager) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
@@ -110,32 +99,43 @@ func (m *ModelManager) EnsureModel(ctx context.Context) (modelPath, tokenizerPat
 		return cachedModel, cachedTokenizer, nil
 	}
 
-	if err := os.MkdirAll(m.cacheDir, 0o755); err != nil {
-		return "", "", fmt.Errorf("create model cache dir: %w", err)
-	}
-
 	if !m.isValid(cachedModel, modelONNXMinSize) {
 		m.log().Info("downloading model", "model", "CodeRankEmbed-137M-INT8", "size", "~132MB")
-		if err := m.download(ctx, m.modelSource(), cachedModel); err != nil {
-			return "", "", fmt.Errorf("download model: %w", err)
-		}
-		if !m.isValid(cachedModel, modelONNXMinSize) {
-			return "", "", fmt.Errorf("downloaded model too small — expected at least %d bytes", modelONNXMinSize)
-		}
-		m.log().Info("model download complete")
 	}
-
+	modelPath, err = m.ensureArtifact(ctx, modelArtifact{
+		name: modelFileName, source: modelONNXURL, minSize: modelONNXMinSize,
+	})
+	if err != nil {
+		return "", "", err
+	}
 	if !m.isValid(cachedTokenizer, tokenizerJSONMinSize) {
 		m.log().Info("downloading tokenizer")
-		if err := m.download(ctx, m.tokenizerSource(), cachedTokenizer); err != nil {
-			return "", "", fmt.Errorf("download tokenizer: %w", err)
-		}
-		if !m.isValid(cachedTokenizer, tokenizerJSONMinSize) {
-			return "", "", fmt.Errorf("downloaded tokenizer too small — expected at least %d bytes", tokenizerJSONMinSize)
-		}
+	}
+	tokenizerPath, err = m.ensureArtifact(ctx, modelArtifact{
+		name: tokenizerFileName, source: tokenizerJSONURL, minSize: tokenizerJSONMinSize,
+	})
+	if err != nil {
+		return "", "", err
 	}
 
-	return cachedModel, cachedTokenizer, nil
+	return modelPath, tokenizerPath, nil
+}
+
+func (m *ModelManager) ensureArtifact(ctx context.Context, artifact modelArtifact) (string, error) {
+	path := filepath.Join(m.cacheDir, artifact.name)
+	if m.isValid(path, artifact.minSize) {
+		return path, nil
+	}
+	if err := os.MkdirAll(m.cacheDir, 0o755); err != nil {
+		return "", fmt.Errorf("create model cache dir: %w", err)
+	}
+	if err := m.download(ctx, artifact.source, path); err != nil {
+		return "", fmt.Errorf("download %s: %w", artifact.name, err)
+	}
+	if !m.isValid(path, artifact.minSize) {
+		return "", fmt.Errorf("downloaded %s too small — expected at least %d bytes", artifact.name, artifact.minSize)
+	}
+	return path, nil
 }
 
 func (m *ModelManager) isValid(path string, minSize int64) bool {

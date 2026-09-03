@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/graphit-labs/graphit-code/internal/testsupport/testenv"
 )
 
 func TestTestHomeIsIsolated(t *testing.T) {
@@ -13,16 +15,22 @@ func TestTestHomeIsIsolated(t *testing.T) {
 		t.Fatalf("UserHomeDir: %v", err)
 	}
 
-	if isolatedTestHome == "" {
-		t.Fatal("init did not isolate HOME — testing.Testing() was false inside a test binary")
+	if testenv.Home() == "" {
+		t.Fatal("test environment did not create an isolated home")
 	}
-	if home != isolatedTestHome {
-		t.Fatalf("a test binary resolved its home to %q instead of the isolated %q — "+
-			"whatever this suite writes into GlobalDir() is landing in the operator's real home",
-			home, isolatedTestHome)
+	if home != testenv.Home() {
+		t.Fatalf("UserHomeDir() = %q, want isolated home %q", home, testenv.Home())
 	}
-	if root := filepath.Join(os.TempDir(), "graphit-test-homes"); !strings.HasPrefix(home, root+string(os.PathSeparator)) {
-		t.Fatalf("isolated home %q is not under %q, which is the directory make test sweeps", home, root)
+	root := os.Getenv("GRAPHIT_TEST_HOME_ROOT")
+	if root == "" {
+		root = filepath.Join(os.TempDir(), "graphit-test-homes")
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		t.Fatalf("absolute test home root: %v", err)
+	}
+	if !strings.HasPrefix(home, root+string(os.PathSeparator)) {
+		t.Fatalf("isolated home %q is not under %q", home, root)
 	}
 
 	if v, ok := os.LookupEnv(EnvVar("GLOBAL_DIR")); ok {

@@ -172,28 +172,3 @@ func TestNullableVectorPreservesNullAndValue(t *testing.T) {
 		}
 	}
 }
-
-func BenchmarkRecordOfAllNullVectors(b *testing.B) {
-	const (
-		dim  = 768
-		rows = 2_000
-	)
-	schema := Schema{Fields: []Field{
-		{Name: "uid", Type: FieldString},
-		{Name: "v", Type: FieldVector, Dim: dim, Nullable: true},
-	}}
-	batch := make([]Row, rows)
-	for i := range batch {
-		batch[i] = Row{"uid": itoa(i), "v": nil}
-	}
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		rec, err := recordOf(schema, batch)
-		if err != nil {
-			b.Fatal(err)
-		}
-		rec.Release()
-	}
-}

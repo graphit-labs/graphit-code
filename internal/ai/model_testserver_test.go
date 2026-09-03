@@ -5,8 +5,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
@@ -27,49 +25,19 @@ func sparseFile(t *testing.T, path string, size int64) {
 	}
 }
 
-func modelServer(t *testing.T, cacheDir string) *ModelManager {
+func artifactServer(t *testing.T, content map[string][]byte) string {
 	t.Helper()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var size int64
-		switch {
-		case strings.Contains(r.URL.Path, modelFileName):
-			size = modelONNXMinSize + 1
-		case strings.Contains(r.URL.Path, tokenizerFileName):
-			size = tokenizerJSONMinSize + 1
-		default:
+		body, ok := content[r.URL.Path]
+		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		w.Header().Set("Content-Length", strconv.FormatInt(size, 10))
-		w.WriteHeader(http.StatusOK)
-		_, _ = writeZeros(w, size)
+		_, _ = w.Write(body)
 	}))
 	t.Cleanup(srv.Close)
-
-	return &ModelManager{
-		cacheDir:     cacheDir,
-		modelURL:     srv.URL + "/" + modelFileName,
-		tokenizerURL: srv.URL + "/" + tokenizerFileName,
-	}
-}
-
-func writeZeros(w http.ResponseWriter, n int64) (int64, error) {
-	const chunk = 1 << 20
-	buf := make([]byte, chunk)
-	var written int64
-	for written < n {
-		size := int64(chunk)
-		if remaining := n - written; remaining < size {
-			size = remaining
-		}
-		got, err := w.Write(buf[:size])
-		written += int64(got)
-		if err != nil {
-			return written, err
-		}
-	}
-	return written, nil
+	return srv.URL
 }
 
 func seedModelCache(t *testing.T, home string) {

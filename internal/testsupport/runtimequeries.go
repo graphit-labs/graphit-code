@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	_ "github.com/graphit-labs/graphit-code/internal/testsupport/testenv"
 	"github.com/graphit-labs/graphit-code/internal/version"
 )
 

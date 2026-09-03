@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/graphit-labs/graphit-code/internal/testsupport"
+	"github.com/graphit-labs/graphit-code/internal/testsupport/testenv"
 )
 
 // TestMain checks that this package got the grammar definitions it parses with.
@@ -24,5 +25,5 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "cannot seed grammar queries: %v\n", err)
 		os.Exit(1)
 	}
-	os.Exit(m.Run())
+	os.Exit(testenv.Run(m))
 }

@@ -94,25 +94,3 @@ func splitCypherStatements(src string) []string {
 	}
 	return out
 }
-
-type backendConn struct{ be *LadybugBackend }
-
-func (c backendConn) Exec(cypher string, params map[string]any) error {
-	if len(params) == 0 {
-		return c.be.execQuery(cypher)
-	}
-	_, err := c.be.Query(context.Background(), cypher, params)
-	return err
-}
-
-func (c backendConn) Query(cypher string, params map[string]any) ([]map[string]any, error) {
-	res, err := c.be.Query(context.Background(), cypher, params)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]map[string]any, 0, len(res.Records))
-	for _, rec := range res.Records {
-		out = append(out, map[string]any(rec))
-	}
-	return out, nil
-}

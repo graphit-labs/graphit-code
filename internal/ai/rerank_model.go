@@ -35,9 +35,6 @@ type RerankModelManager struct {
 
 	// OnProgress, when set, reports download progress. Nil downloads silently.
 	OnProgress ProgressFunc
-
-	modelURL     string
-	tokenizerURL string
 }
 
 func (m *RerankModelManager) log() *slog.Logger { return slogutil.Resolve(m.Logger) }
@@ -87,7 +84,7 @@ func (m *RerankModelManager) Ensure(ctx context.Context) (modelPath, tokenizerPa
 		m.log().Info("downloading reranker model",
 			"model", rerankModelName, "size", "~1.04GiB",
 			"why", "reranking was enabled and the model is not present")
-		if err := dl.download(ctx, m.modelSource(), modelPath); err != nil {
+		if err := dl.download(ctx, rerankModelURL, modelPath); err != nil {
 			return "", "", fmt.Errorf("download reranker model: %w", err)
 		}
 		if !isValidFile(modelPath, rerankModelMinSize) {
@@ -97,7 +94,7 @@ func (m *RerankModelManager) Ensure(ctx context.Context) (modelPath, tokenizerPa
 	}
 
 	if !isValidFile(tokenizerPath, rerankTokenizerMinSize) {
-		if err := dl.download(ctx, m.tokenizerSourceURL(), tokenizerPath); err != nil {
+		if err := dl.download(ctx, rerankTokenizerURL, tokenizerPath); err != nil {
 			return "", "", fmt.Errorf("download reranker tokenizer: %w", err)
 		}
 		if !isValidFile(tokenizerPath, rerankTokenizerMinSize) {
@@ -108,20 +105,6 @@ func (m *RerankModelManager) Ensure(ctx context.Context) (modelPath, tokenizerPa
 
 	m.log().Info("reranker model ready", "dir", m.cacheDir)
 	return modelPath, tokenizerPath, nil
-}
-
-func (m *RerankModelManager) modelSource() string {
-	if m.modelURL != "" {
-		return m.modelURL
-	}
-	return rerankModelURL
-}
-
-func (m *RerankModelManager) tokenizerSourceURL() string {
-	if m.tokenizerURL != "" {
-		return m.tokenizerURL
-	}
-	return rerankTokenizerURL
 }
 
 func isValidFile(path string, minSize int64) bool {

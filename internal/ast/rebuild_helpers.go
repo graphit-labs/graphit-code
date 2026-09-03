@@ -3,8 +3,6 @@ package ast
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
-	"os"
 )
 
 // engineOwnedRelTypes are the relation types the ENGINE routes through a path of its
@@ -79,13 +77,4 @@ func estimateRowBytes(row map[string]any) int {
 		}
 	}
 	return n
-}
-
-func writeJSONFile(path string, data []map[string]any) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-	return json.NewEncoder(f).Encode(data)
 }

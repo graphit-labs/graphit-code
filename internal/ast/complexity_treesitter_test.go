@@ -8,11 +8,9 @@ import (
 
 func loadGoLangForComplexityTest(t *testing.T) *sitter.Language {
 	t.Helper()
-	loader := NewDynGrammarLoader(WithProjectDir("."))
-	t.Cleanup(loader.Close)
-	lang, err := loader.Load("go")
-	if err != nil {
-		t.Skipf("go grammar not available: %v", err)
+	lang := NativeLanguage("go")
+	if lang == nil {
+		t.Fatal("native Go grammar is unavailable")
 	}
 	return lang
 }
@@ -51,8 +49,6 @@ func goComplexityConfig() *ExternalQueryFile {
 	}
 }
 
-// TestComplexityWalksRealSyntaxTree checks the tree-sitter-side matcher against
-// a real parsed Go function, counting known branches instead of scanning text.
 func TestComplexityWalksRealSyntaxTree(t *testing.T) {
 	lang := loadGoLangForComplexityTest(t)
 	langConfig := goComplexityConfig()
@@ -104,9 +100,6 @@ func TestComplexityWalksRealSyntaxTree(t *testing.T) {
 	}
 }
 
-// TestComplexityStopsAtNestedDeclaration checks that a nested function literal's
-// branches are not folded into the enclosing entity's score — each is scored on
-// its own, matching how the graph stores them as separate entities.
 func TestComplexityStopsAtNestedDeclaration(t *testing.T) {
 	lang := loadGoLangForComplexityTest(t)
 	langConfig := goComplexityConfig()
@@ -147,9 +140,6 @@ func TestComplexityStopsAtNestedDeclaration(t *testing.T) {
 	}
 }
 
-// TestComplexityMatcherOffWithoutConfig confirms the matcher stays inert for a
-// language YAML with no `complexity:` block — score() then returns the base 1,
-// not a guess scanned from text.
 func TestComplexityMatcherOffWithoutConfig(t *testing.T) {
 	lang := loadGoLangForComplexityTest(t)
 	if m := newComplexityMatcher(nil, lang); m.on {

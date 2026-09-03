@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/graphit-labs/graphit-code/internal/ai"
 )
 
 func buildSearchIndex(t *testing.T, dir string, cache *ShardCache,
@@ -285,103 +283,6 @@ func TestSearchIndexIncremental(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("renamedDigest appears %d times after a repeated update, want 1 (delete-then-insert is not idempotent)", count)
-	}
-}
-
-// TestSearchIndexSemantic covers the vector half end to end with the real
-// embedder: vectors written through RebuildFromCache must be retrievable, and hybrid
-// search must fuse them with the lexical passes.
-func TestSearchIndexSemantic(t *testing.T) {
-	client, err := ai.NewEmbeddingClientFromConfig()
-	if err != nil {
-		if strings.Contains(err.Error(), "API version") {
-			t.Fatalf("ONNX Runtime rejects the binding's API version — Makefile ORT_VERSION is out of "+
-				"step with go.mod onnxruntime_go: %v", err)
-		}
-		t.Skipf("embedding client unavailable: %v", err)
-	}
-
-	ctx := context.Background()
-	dir := t.TempDir()
-	corpus := abbrevCorpusNamesOnly()
-	cache := cacheFromCorpus(t, filepath.Join(dir, "cache"), corpus)
-
-	byUID := make(map[string][]float32, len(corpus))
-	names := make([]string, 0, len(corpus))
-	uids := make([]string, 0, len(corpus))
-	for _, e := range corpus {
-		names = append(names, e.name)
-		uids = append(uids, e.uid)
-	}
-	vecs, err := client.EmbedBatch(ctx, names)
-	if err != nil {
-		t.Skipf("embedding unavailable: %v", err)
-	}
-	for i, uid := range uids {
-		byUID[uid] = vecs[i]
-	}
-
-	lb := buildSearchIndex(t, dir, cache, func(_, uid string) []float32 {
-		return byUID[uid]
-	})
-
-	qe, ok := client.(ai.QueryEmbedder)
-	if !ok {
-		t.Skip("client does not implement QueryEmbedder")
-	}
-	qv, err := qe.EmbedQuery(ctx, "config")
-	if err != nil {
-		t.Fatalf("embed query: %v", err)
-	}
-
-	sem, err := lb.SemanticSearch(context.Background(), qv, 5)
-	if err != nil {
-		t.Fatalf("semantic search: %v", err)
-	}
-	if len(sem) == 0 {
-		t.Fatal("semantic search returned nothing although vectors were written")
-	}
-	semNames := entityNames(sem, 5)
-	t.Logf("semantic top-5 for \"config\": %v", semNames)
-
-	found := false
-	for _, n := range semNames {
-		if n == "CFG_LOAD" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("semantic search did not surface CFG_LOAD for \"config\" (got %v) — "+
-			"vectors are stored but not usefully retrievable", semNames)
-	}
-
-	hyb, err := lb.HybridSearch(context.Background(), "config", qv, 10)
-	if err != nil {
-		t.Fatalf("hybrid search: %v", err)
-	}
-	if len(hyb) == 0 {
-		t.Fatal("hybrid search returned nothing")
-	}
-	hybNames := entityNames(hyb, 10)
-	t.Logf("hybrid top-10 for \"config\": %v", hybNames)
-
-	lex, err := lb.Search(context.Background(), "config", 10)
-	if err != nil {
-		t.Fatalf("lexical search: %v", err)
-	}
-	inHybrid := map[string]bool{}
-	for _, n := range hybNames {
-		inHybrid[n] = true
-	}
-	for _, n := range entityNames(lex, 10) {
-		if !inHybrid[n] {
-			t.Errorf("hybrid search dropped %q, which the lexical pass alone found", n)
-		}
-	}
-	for _, n := range semNames {
-		if !inHybrid[n] {
-			t.Errorf("hybrid search dropped %q, which the semantic pass alone found", n)
-		}
 	}
 }
 

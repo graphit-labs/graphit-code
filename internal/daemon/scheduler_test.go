@@ -1,7 +1,10 @@
+//go:build linux
+
 package daemon
 
 import (
-	"os/exec"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -121,44 +124,57 @@ func TestSchedulerStatus_NoCrontab(t *testing.T) {
 	}
 }
 
-func TestInstallScheduler_RequiresCrontab(t *testing.T) {
-	if _, err := exec.LookPath("crontab"); err != nil {
-		t.Skip("crontab not in PATH")
-	}
-
-	out, _ := exec.Command("crontab", "-l").Output()
-	defer func() {
-		cmd := exec.Command("crontab", "-")
-		cmd.Stdin = strings.NewReader(string(out))
-		_ = cmd.Run()
-	}()
-
+func TestInstallAndRemoveScheduler(t *testing.T) {
+	state := fakeCrontab(t)
 	if err := InstallScheduler(); err != nil {
 		t.Fatalf("InstallScheduler: %v", err)
 	}
-
-	status := SchedulerStatus()
-	if !strings.Contains(status, "installed") {
-		t.Errorf("expected 'installed' in status after install, got %q", status)
+	content, err := os.ReadFile(state)
+	if err != nil {
+		t.Fatalf("read installed crontab: %v", err)
+	}
+	if !strings.Contains(string(content), cronMarker()) {
+		t.Fatalf("installed crontab does not contain marker: %s", content)
+	}
+	if status := SchedulerStatus(); !strings.HasPrefix(status, "installed") {
+		t.Fatalf("SchedulerStatus after install = %q", status)
 	}
 
 	if err := RemoveScheduler(); err != nil {
 		t.Fatalf("RemoveScheduler: %v", err)
 	}
-
-	status = SchedulerStatus()
-	if !strings.Contains(status, "not installed") {
-		t.Errorf("expected 'not installed' after remove, got %q", status)
+	if status := SchedulerStatus(); !strings.HasPrefix(status, "not installed") {
+		t.Fatalf("SchedulerStatus after remove = %q", status)
+	}
+	if _, err := os.Stat(state); !os.IsNotExist(err) {
+		t.Fatalf("crontab state still exists after removal: %v", err)
 	}
 }
 
-func TestRemoveScheduler_NoCrontab(t *testing.T) {
-	if _, err := exec.LookPath("crontab"); err != nil {
-		t.Skip("crontab not in PATH")
+func TestRemoveSchedulerWithoutCrontab(t *testing.T) {
+	fakeCrontab(t)
+	if err := RemoveScheduler(); err != nil {
+		t.Fatalf("RemoveScheduler: %v", err)
 	}
+}
 
-	err := RemoveScheduler()
-	if err != nil {
-		t.Logf("RemoveScheduler returned error (may be expected): %v", err)
+func fakeCrontab(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	state := filepath.Join(dir, "state")
+	script := filepath.Join(dir, "crontab")
+	content := `#!/bin/sh
+case "$1" in
+  -l) [ -f "$CRONTAB_STATE" ] || exit 1; /bin/cat "$CRONTAB_STATE" ;;
+  -r) /bin/rm -f "$CRONTAB_STATE" ;;
+  -) /bin/cat > "$CRONTAB_STATE" ;;
+  *) exit 2 ;;
+esac
+`
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
 	}
+	t.Setenv("CRONTAB_STATE", state)
+	t.Setenv("PATH", dir)
+	return state
 }

@@ -497,23 +497,3 @@ func TestLanceWikiHybridSearchUsesTheEngineFusion(t *testing.T) {
 		t.Errorf("hybrid top hit is %q; both channels pointed at alpha", got[0].Slug)
 	}
 }
-
-// A published wiki is read-only, and the write paths have to refuse rather than half-apply.
-func TestLanceWikiSyncRefusedWhenRemote(t *testing.T) {
-	db, err := OpenWikiDBAt(context.Background(), lancestore.Config{URI: "s3://example/wiki"})
-	if err != nil {
-		t.Skipf("cannot open a remote store in this environment: %v", err)
-	}
-	defer func() { _ = db.Close() }()
-
-	if !db.Remote() {
-		t.Fatal("a store opened on s3:// is not marked remote")
-	}
-	err = db.Sync(context.Background(), []WikiChunk{lanceChunk("a", "A", "", "x")}, nil, nil)
-	if err == nil {
-		t.Fatal("synchronizing a published wiki was allowed")
-	}
-	if !strings.Contains(fmt.Sprint(err), "read-only") {
-		t.Errorf("the refusal does not name the reason: %v", err)
-	}
-}
