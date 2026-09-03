@@ -68,11 +68,11 @@ Tools for project initialization, syncing, updating, removing, and configuration
 
 ### `graphit_mandates`
 
-**Description:** Return only the dynamic Graphit mandates for the project where the MCP server started. This is the Graphit instruction block that was formerly materialized in `AGENTS.md`.
+**Description:** Return the project-independent Graphit mandates formerly materialized in `AGENTS.md`.
 
 _No parameters._
 
-The tool resolves the project once from the MCP server's startup directory by walking up to the Graphit lockfile. Each call rebuilds the mandates from the current lockfile and module rules. Its result uses the same mandate builder as the native session hook, but excludes mandatory memory, memory bootstrap instructions, and installed Hub rules.
+The tool does not resolve a project or read a lockfile. Each call rebuilds all module mandates from global overrides and framework defaults. Mandatory memory, memory bootstrap instructions, installed Hub rules, and project configuration are excluded.
 
 ---
 

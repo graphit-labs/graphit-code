@@ -63,14 +63,12 @@ func Build(projectDir string, includeMandatory bool) sessionhook.Context {
 	return context
 }
 
-// Mandates returns only the resident module router that used to be materialized
-// in agent instruction files. Mandatory memory and installed Hub rules belong to
-// the wider session bootstrap and are intentionally excluded.
-func Mandates(projectDir string) string {
-	if projectDir == "" {
-		return ""
-	}
-	return loadMandateContext(projectDir, loadProjectConfig(projectDir))
+// Mandates returns the project-independent module router that used to be
+// materialized in agent instruction files. It resolves global overrides and
+// otherwise uses the framework defaults; project config, mandatory memory, and
+// installed Hub rules are intentionally excluded.
+func Mandates() string {
+	return loadMandateContext("", nil)
 }
 
 func loadProjectConfig(projectDir string) config.ConfigMap {

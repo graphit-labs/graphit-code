@@ -35,7 +35,7 @@ Depois da resolução, o comando lê a configuração e o lockfile desse projeto
 
 O Graphit não cria nem atualiza `AGENTS.md`, `CLAUDE.md` ou equivalentes para entregar essas instruções. Esses arquivos, quando existem, pertencem ao usuário. Skills continuam físicas nos diretórios nativos porque os hosts precisam descobri-las e carregá-las sob demanda.
 
-Agentes externos que acessam o projeto pelo MCP podem recuperar somente o bloco dinâmico de mandates com `graphit_mandates`, sem parâmetros. A tool fixa a raiz a partir do diretório de trabalho no início do servidor MCP e, em cada chamada, usa o mesmo builder do hook sobre o lockfile atual. Memórias obrigatórias, instruções de bootstrap e rules instaladas do Hub não fazem parte desse retorno.
+Agentes externos podem recuperar somente os mandates globais do framework com `graphit_mandates`, sem parâmetros. A tool não resolve projeto nem lê lockfile; ela usa o mesmo builder de mandates do hook com overrides globais e defaults do framework. Memórias obrigatórias, instruções de bootstrap, rules instaladas do Hub e configuração de projeto não fazem parte desse retorno.
 
 ### Reinjeção de invariantes
 

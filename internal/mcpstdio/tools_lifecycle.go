@@ -3,7 +3,6 @@ package mcpstdio
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -78,19 +77,15 @@ type configListInput struct {
 type versionInput struct{}
 
 func registerLifecycleTools(server *mcp.Server) {
-	mandatesProjectDir, mandatesProjectErr := resolveMandatesProjectDir()
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("mandates"),
-		Description: "Return the dynamic Graphit mandates for the project where this MCP server started, equivalent to the Graphit content formerly materialized in AGENTS.md. Takes no parameters.",
+		Description: "Return the project-independent Graphit mandates formerly materialized in AGENTS.md. Takes no parameters and does not read project state.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		},
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input mandatesInput) (*mcp.CallToolResult, any, error) {
-		if mandatesProjectErr != nil {
-			return errResult(mandatesProjectErr)
-		}
 		return &mcp.CallToolResult{
-			Content: []mcp.Content{&mcp.TextContent{Text: sessioncontext.Mandates(mandatesProjectDir)}},
+			Content: []mcp.Content{&mcp.TextContent{Text: sessioncontext.Mandates()}},
 		}, nil, nil
 	}))
 
@@ -484,18 +479,6 @@ func registerLifecycleTools(server *mcp.Server) {
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input versionInput) (*mcp.CallToolResult, any, error) {
 		return textResult(version.Version)
 	}))
-}
-
-func resolveMandatesProjectDir() (string, error) {
-	start, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("resolving MCP server working directory: %w", err)
-	}
-	projectDir := sessioncontext.FindProjectRoot(start)
-	if projectDir == "" {
-		return "", fmt.Errorf("no Graphit project found from %s: %s is missing", start, brand.LockFileName())
-	}
-	return projectDir, nil
 }
 
 func removeRetiredImprovementsGuidance(projectDir, ideName string) {
