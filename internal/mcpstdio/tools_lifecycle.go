@@ -76,6 +76,19 @@ type configListInput struct {
 
 type versionInput struct{}
 
+// syncASTPipelineOptions keeps every derived AST artifact in the same project-scoped
+// store as the graph itself. StoreDir already names that directory; taking its parent
+// would drop the project identity and make unrelated MCP syncs share one shard cache.
+func syncASTPipelineOptions(projectDir string, projectCfg config.ConfigMap) ast.PipelineOptions {
+	cfg := astConfigForProject(projectDir, "")
+	return ast.PipelineOptions{
+		Workers:          4,
+		IndexSource:      config.ResolveIndexSource(nil, projectCfg),
+		CacheDir:         cfg.StoreDir,
+		GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
+	}
+}
+
 func registerLifecycleTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("mandates"),
@@ -183,12 +196,7 @@ func registerLifecycleTools(server *mcp.Server) {
 		if !config.IsModuleDisabled("ast", nil, projectCfg) {
 			db, err := openASTDBReadWrite(projectDir, "")
 			if err == nil {
-				pipeOpts := ast.PipelineOptions{
-					Workers:          4,
-					IndexSource:      config.ResolveIndexSource(nil, projectCfg),
-					CacheDir:         filepath.Dir(astConfigForProject(projectDir, "").StoreDir),
-					GrammarOverrides: config.ResolveGrammarOverrides(nil, projectCfg),
-				}
+				pipeOpts := syncASTPipelineOptions(projectDir, projectCfg)
 				_, _ = ast.RunPipeline(ctx, db, projectDir, pipeOpts)
 				_ = db.Close()
 			}

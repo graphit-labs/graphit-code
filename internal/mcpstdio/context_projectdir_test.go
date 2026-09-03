@@ -57,6 +57,30 @@ func TestASTConfigForProjectResolvesTheNamedProjectsStore(t *testing.T) {
 	}
 }
 
+// TestSyncASTPipelineOptionsKeepsTheProjectIDInTheCachePath is the regression
+// test for MCP sync writing manifest.json and shards/ into the shared
+// ~/.graphit/ast/project parent. StoreDir already is the cache directory; taking
+// filepath.Dir(StoreDir) strips this identity segment.
+func TestSyncASTPipelineOptionsKeepsTheProjectIDInTheCachePath(t *testing.T) {
+	t.Setenv("LADYBUGDB_PATH", "")
+	isolateHome(t)
+
+	project := t.TempDir()
+	lock := []byte(`{"project":{"id":"01KSH1CRFFG8Z74B5ZS78WW808"}}`)
+	if err := os.WriteFile(filepath.Join(project, brand.LockFileName()), lock, 0o644); err != nil {
+		t.Fatalf("write project lock: %v", err)
+	}
+
+	got := syncASTPipelineOptions(project, nil).CacheDir
+	want := store.ASTProjectDir(project)
+	if got != want {
+		t.Fatalf("CacheDir = %q; want project-scoped store %q", got, want)
+	}
+	if got == filepath.Dir(want) {
+		t.Fatalf("CacheDir = %q; project identity was stripped", got)
+	}
+}
+
 // TestASTConfigForProjectKeepsAbsolutePaths guards the environment override, which
 // names a store outright and must not be rewritten.
 func TestASTConfigForProjectKeepsAbsolutePaths(t *testing.T) {
