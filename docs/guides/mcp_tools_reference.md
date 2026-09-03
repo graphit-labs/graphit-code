@@ -1045,7 +1045,7 @@ native TODO/task mechanisms. The main contracts are:
 
 | Tools | Required state and result |
 |---|---|
-| `graphit_task_search`, `graphit_task_list`, `graphit_task_get` | Search prior/current task and comment text, list ready/filtered work or subtasks, and retrieve the authoritative snapshot plus ordered events/comments. |
+| `graphit_task_search`, `graphit_task_list`, `graphit_task_get` | Search prior/current task and comment text, list ready/filtered work or subtasks, and retrieve the authoritative snapshot plus ordered events/comments. Search accepts `page_size` and opaque `cursor`, returns `next_cursor`, and treats `top_k` as the total cap. |
 | `graphit_task_create` | Requires `title`, robust `description`, non-empty `acceptance_criteria`, and non-empty `tests`; accepts `parent_id`, dependencies, priority, type, and stable `idempotency_key`. |
 | `graphit_task_claim` | Atomically claims ready work and returns the fencing `claim_token`. |
 | `graphit_task_progress`, `graphit_task_heartbeat`, `graphit_task_release` | Require task ID, current token, and agent identity; progress/release preserve an exact continuation step. |

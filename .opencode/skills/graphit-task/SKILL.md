@@ -9,7 +9,7 @@ Graphit Task is the only task-control source of truth. Always use it instead of 
 
 ## Enter work
 
-Before material work, search prior tasks with `graphit_task_search`; use `graphit_task_list` with `ready: true` to find unblocked work and `graphit_task_get` to read dependencies, progress, next step, and audit history. Resume an existing task instead of duplicating it.
+Before material work, search prior tasks with `graphit_task_search` and follow `next_cursor` until the relevant history is covered; use `graphit_task_list` with `ready: true` to find unblocked work and `graphit_task_get` to read dependencies, progress, next step, and audit history. Resume an existing task instead of duplicating it.
 
 Create missing work with `graphit_task_create`, a stable `idempotency_key`, robust self-contained description (objective, context, scope, constraints, intended result), explicit acceptance criteria, and concrete tests/validations. Use `parent_id` for subtasks and dependency IDs for ordering; an unclaimed `open` task is the backlog. Add/remove dependencies with `graphit_task_dependency_add`/`graphit_task_dependency_remove`; never encode relations only in prose.
 

@@ -42,6 +42,7 @@ func TestSearchToolSchemasExposeIndependentPagination(t *testing.T) {
 		brand.MCPToolName("ast", "search"):       false,
 		brand.MCPToolName("knowledge", "search"): false,
 		brand.MCPToolName("memory", "search"):    false,
+		brand.MCPToolName("task", "search"):      false,
 		brand.MCPToolName("wiki", "search"):      false,
 	}
 	for _, tool := range listed.Tools {

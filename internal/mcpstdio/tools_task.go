@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/graphit-labs/graphit-code/internal/brand"
+	page "github.com/graphit-labs/graphit-code/internal/pagination"
 	graphtask "github.com/graphit-labs/graphit-code/internal/task"
+	"github.com/graphit-labs/graphit-code/internal/toon"
 )
 
 type taskCreateInput struct {
@@ -44,7 +47,9 @@ type taskListInput struct {
 type taskSearchInput struct {
 	ProjectDir  string `json:"project_dir" jsonschema:"Project directory (required)"`
 	Query       string `json:"query" jsonschema:"Keywords for LanceDB full-text search"`
-	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum hits; default 20"`
+	TopK        int    `json:"top_k,omitempty" jsonschema:"Maximum number of results (default: 20)"`
+	PageSize    int    `json:"page_size,omitempty" jsonschema:"Results per page (default: 20, max: 100); top_k remains the total-result cap"`
+	Cursor      string `json:"cursor,omitempty" jsonschema:"Opaque next_cursor returned by the preceding page of this exact search"`
 	AiOptimized *bool  `json:"ai_optimized,omitempty" jsonschema:"Set false for verbose JSON; default compact TOON"`
 }
 
@@ -193,6 +198,39 @@ func taskResult(value any, optimized *bool) (*mcp.CallToolResult, any, error) {
 	return jsonResult(value)
 }
 
+const defaultTaskSearchLimit = 20
+
+type taskSearcher interface {
+	Search(context.Context, string, int) ([]graphtask.SearchResult, error)
+}
+
+func paginateTaskSearch(ctx context.Context, searcher taskSearcher, in taskSearchInput) (page.Page[graphtask.SearchResult], error) {
+	topK := in.TopK
+	if topK == 0 {
+		topK = defaultTaskSearchLimit
+	}
+	query := strings.TrimSpace(in.Query)
+	window, err := openPage(in.PageSize, in.Cursor, topK, defaultTaskSearchLimit, struct {
+		Tool, ProjectDir, Query string
+		TopK                    int
+	}{"task_search", in.ProjectDir, query, topK})
+	if err != nil {
+		return page.Page[graphtask.SearchResult]{}, err
+	}
+	results, err := searcher.Search(ctx, query, window.FetchLimit)
+	if err != nil {
+		return page.Page[graphtask.SearchResult]{}, err
+	}
+	return page.Finish(window, results), nil
+}
+
+func taskSearchResult(value page.Page[graphtask.SearchResult], optimized *bool) (*mcp.CallToolResult, any, error) {
+	if aiOpt(optimized) {
+		return textResult(paginationTOON(toon.FormatAny(value.Results), value.NextCursor))
+	}
+	return jsonResult(value)
+}
+
 func registerTaskTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "create"), Description: "Create an idempotent open task in the shared LanceDB task store. Open and unclaimed is the backlog state."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskCreateInput) (*mcp.CallToolResult, any, error) {
 		svc, _, err := taskService(in.ProjectDir)
@@ -234,19 +272,17 @@ func registerTaskTools(server *mcp.Server) {
 		}
 		return taskResult(value, in.AiOptimized)
 	}))
-	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "search"), Description: "Search prior and current tasks with LanceDB full-text ranking; use task_get for authoritative details."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSearchInput) (*mcp.CallToolResult, any, error) {
-		if in.TopK < 0 {
-			return errResult(fmt.Errorf("top_k cannot be negative"))
-		}
-		svc, _, err := taskService(in.ProjectDir)
+	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "search"), Description: "Search prior and current tasks with LanceDB full-text ranking and opaque cursor pagination; use task_get for authoritative details."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskSearchInput) (*mcp.CallToolResult, any, error) {
+		svc, projectDir, err := taskService(in.ProjectDir)
 		if err != nil {
 			return errResult(err)
 		}
-		value, err := svc.Search(ctx, in.Query, in.TopK)
+		in.ProjectDir = projectDir
+		value, err := paginateTaskSearch(ctx, svc, in)
 		if err != nil {
 			return errResult(err)
 		}
-		return taskResult(value, in.AiOptimized)
+		return taskSearchResult(value, in.AiOptimized)
 	}))
 	mcp.AddTool(server, &mcp.Tool{Name: brand.MCPToolName("task", "claim"), Description: "Atomically claim one ready task. Returns the fencing token required by every owner mutation."}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, in taskClaimInput) (*mcp.CallToolResult, any, error) {
 		lease, err := parseTaskLease(in.Lease)

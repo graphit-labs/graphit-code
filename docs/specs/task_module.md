@@ -148,9 +148,12 @@ cancel, and confirmed remove.
 The MCP tools expose the same operations as `graphit_task_*` and return compact TOON by default for
 read-heavy calls.
 
-`task_search` uses LanceDB full-text indexes over task specs/check evidence and comment bodies.
-Search is discovery; `task_get` is the authoritative retrieval call and includes the snapshot,
-ordered events, and ordered comments.
+`task_search` uses LanceDB full-text indexes over task specs/check evidence and comment bodies. It
+accepts `page_size` plus the opaque `cursor` returned as `next_cursor`; `top_k` remains the cap for
+the complete ranked result set. The cursor is bound to the query, project, page size, and cap, so a
+changed request fails instead of silently skipping or duplicating work. Search is discovery;
+`task_get` is the authoritative retrieval call and includes the snapshot, ordered events, and
+ordered comments.
 
 ## Source map
 

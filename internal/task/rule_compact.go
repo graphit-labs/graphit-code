@@ -16,7 +16,7 @@ func RuleContent() string {
 		"",
 		"## Enter work",
 		"",
-		"Before material work, search prior tasks with " + t("task", "search") + "; use " + t("task", "list") + " with `ready: true` to find unblocked work and " + t("task", "get") + " to read dependencies, progress, next step, and audit history. Resume an existing task instead of duplicating it.",
+		"Before material work, search prior tasks with " + t("task", "search") + " and follow `next_cursor` until the relevant history is covered; use " + t("task", "list") + " with `ready: true` to find unblocked work and " + t("task", "get") + " to read dependencies, progress, next step, and audit history. Resume an existing task instead of duplicating it.",
 		"",
 		"Create missing work with " + t("task", "create") + ", a stable `idempotency_key`, robust self-contained description (objective, context, scope, constraints, intended result), explicit acceptance criteria, and concrete tests/validations. Use `parent_id` for subtasks and dependency IDs for ordering; an unclaimed `open` task is the backlog. Add/remove dependencies with " + t("task", "dependency", "add") + "/" + t("task", "dependency", "remove") + "; never encode relations only in prose.",
 		"",
