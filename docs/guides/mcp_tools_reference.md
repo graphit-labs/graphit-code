@@ -66,6 +66,16 @@ The platform provides multiple retrieval tools across three tiers. Use this matr
 
 Tools for project initialization, syncing, updating, removing, and configuration management.
 
+### `graphit_mandates`
+
+**Description:** Return only the dynamic Graphit mandates for the project where the MCP server started. This is the Graphit instruction block that was formerly materialized in `AGENTS.md`.
+
+_No parameters._
+
+The tool resolves the project once from the MCP server's startup directory by walking up to the Graphit lockfile. Each call rebuilds the mandates from the current lockfile and module rules. Its result uses the same mandate builder as the native session hook, but excludes mandatory memory, memory bootstrap instructions, and installed Hub rules.
+
+---
+
 ### `graphit_init`
 
 **Description:** Initialize a new project in the given project directory, creating project identity and lockfiles.

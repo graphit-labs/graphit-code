@@ -35,6 +35,8 @@ Depois da resolução, o comando lê a configuração e o lockfile desse projeto
 
 O Graphit não cria nem atualiza `AGENTS.md`, `CLAUDE.md` ou equivalentes para entregar essas instruções. Esses arquivos, quando existem, pertencem ao usuário. Skills continuam físicas nos diretórios nativos porque os hosts precisam descobri-las e carregá-las sob demanda.
 
+Agentes externos que acessam o projeto pelo MCP podem recuperar somente o bloco dinâmico de mandates com `graphit_mandates`, sem parâmetros. A tool fixa a raiz a partir do diretório de trabalho no início do servidor MCP e, em cada chamada, usa o mesmo builder do hook sobre o lockfile atual. Memórias obrigatórias, instruções de bootstrap e rules instaladas do Hub não fazem parte desse retorno.
+
 ### Reinjeção de invariantes
 
 Quando o estado do projeto está disponível, a reinjeção usa diretamente o contexto residente dinâmico, sem duplicar um segundo preâmbulo. `CoreInvariant` é somente o fallback curto para uma execução que não conseguiu carregar esse estado. Se a MCP tool exigida não estiver disponível no agente atual, ele continua com suas tools nativas padrão. A única substituição proibida é chamar o CLI do Graphit como se fosse MCP.

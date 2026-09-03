@@ -3,6 +3,7 @@ package mcpstdio
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/graphit-labs/graphit-code/internal/hub/adapters/ide"
 	"github.com/graphit-labs/graphit-code/internal/knowledge"
 	"github.com/graphit-labs/graphit-code/internal/memory"
+	"github.com/graphit-labs/graphit-code/internal/sessioncontext"
 	"github.com/graphit-labs/graphit-code/internal/version"
 	"github.com/graphit-labs/graphit-code/internal/wiki"
 	"github.com/oklog/ulid/v2"
@@ -35,6 +37,8 @@ type syncInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory to sync (required)"`
 	IDE        string `json:"ide,omitempty" jsonschema:"Target IDE"`
 }
+
+type mandatesInput struct{}
 
 type updateInput struct {
 	ProjectDir string `json:"project_dir" jsonschema:"Project directory to update (required)"`
@@ -74,6 +78,22 @@ type configListInput struct {
 type versionInput struct{}
 
 func registerLifecycleTools(server *mcp.Server) {
+	mandatesProjectDir, mandatesProjectErr := resolveMandatesProjectDir()
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        brand.MCPToolName("mandates"),
+		Description: "Return the dynamic Graphit mandates for the project where this MCP server started, equivalent to the Graphit content formerly materialized in AGENTS.md. Takes no parameters.",
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: true,
+		},
+	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input mandatesInput) (*mcp.CallToolResult, any, error) {
+		if mandatesProjectErr != nil {
+			return errResult(mandatesProjectErr)
+		}
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: sessioncontext.Mandates(mandatesProjectDir)}},
+		}, nil, nil
+	}))
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("init"),
 		Description: "Initialize a new project in the given project directory, creating project identity and lockfiles.",
@@ -464,6 +484,18 @@ func registerLifecycleTools(server *mcp.Server) {
 	}, safeTool(func(ctx context.Context, req *mcp.CallToolRequest, input versionInput) (*mcp.CallToolResult, any, error) {
 		return textResult(version.Version)
 	}))
+}
+
+func resolveMandatesProjectDir() (string, error) {
+	start, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolving MCP server working directory: %w", err)
+	}
+	projectDir := sessioncontext.FindProjectRoot(start)
+	if projectDir == "" {
+		return "", fmt.Errorf("no Graphit project found from %s: %s is missing", start, brand.LockFileName())
+	}
+	return projectDir, nil
 }
 
 func removeRetiredImprovementsGuidance(projectDir, ideName string) {
