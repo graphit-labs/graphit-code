@@ -79,7 +79,7 @@ type versionInput struct{}
 func registerLifecycleTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        brand.MCPToolName("mandates"),
-		Description: "Return the project-independent Graphit mandates formerly materialized in AGENTS.md. Takes no parameters and does not read project state.",
+		Description: "Return the dynamic Graphit mandates resolved from global config, global rule overrides, and framework defaults. Takes no parameters and does not read project state.",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		},

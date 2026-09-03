@@ -63,10 +63,11 @@ func Build(projectDir string, includeMandatory bool) sessionhook.Context {
 	return context
 }
 
-// Mandates returns the project-independent module router that used to be
-// materialized in agent instruction files. It resolves global overrides and
-// otherwise uses the framework defaults; project config, mandatory memory, and
-// installed Hub rules are intentionally excluded.
+// Mandates returns the global module router that used to be materialized in
+// agent instruction files. A nil project config is intentional: IsModuleDisabled
+// still resolves environment, global config, and compiled defaults through the
+// canonical config schema. Global rule overrides are also resolved dynamically;
+// project config, mandatory memory, and installed Hub rules are excluded.
 func Mandates() string {
 	return loadMandateContext("", nil)
 }

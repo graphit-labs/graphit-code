@@ -143,7 +143,7 @@ Tool names use `brand.MCPToolName(group, action)` which produces names like `gra
 
 | Tool | Description |
 |---|---|
-| `graphit_mandates` | Return the project-independent framework mandates; takes no parameters and reads no lockfile. |
+| `graphit_mandates` | Resolve dynamic mandates from global config/rule overrides and framework defaults; takes no parameters and reads no lockfile. |
 | `graphit_init` | Initialize a new project: create lockfile, generate ULID, set up gitignore, register in global lock. |
 | `graphit_sync` | Full sync: reindex AST, rebuild knowledge wiki, run memory cycle, sync hub, install IDE rules. |
 | `graphit_update` | Update all installed hub artifacts to latest versions and refresh IDE rules. |

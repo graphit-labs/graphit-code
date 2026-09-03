@@ -68,11 +68,11 @@ Tools for project initialization, syncing, updating, removing, and configuration
 
 ### `graphit_mandates`
 
-**Description:** Return the project-independent Graphit mandates formerly materialized in `AGENTS.md`.
+**Description:** Return the dynamic global Graphit mandates formerly materialized in `AGENTS.md`.
 
 _No parameters._
 
-The tool does not resolve a project or read a lockfile. Each call rebuilds all module mandates from global overrides and framework defaults. Mandatory memory, memory bootstrap instructions, installed Hub rules, and project configuration are excluded.
+The tool does not resolve a project or read a lockfile. Each call uses the canonical config schema to resolve module enablement from environment, global configuration, and framework defaults, then applies global rule overrides. Mandatory memory, memory bootstrap instructions, installed Hub rules, and project configuration are excluded.
 
 ---
 
