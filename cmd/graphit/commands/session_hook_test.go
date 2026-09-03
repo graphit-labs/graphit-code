@@ -126,7 +126,7 @@ func TestSessionHookLoadsProjectMandateOverrideFromNativeCWD(t *testing.T) {
 	}
 }
 
-func TestResolveSessionHookProjectDirFromNativeHostInputs(t *testing.T) {
+func TestResolveSessionHookProjectDirFromNativeHostInputsWithoutGit(t *testing.T) {
 	projectDir := t.TempDir()
 	workingDir := filepath.Join(projectDir, "packages", "api")
 	if err := os.MkdirAll(workingDir, 0o755); err != nil {
@@ -159,6 +159,9 @@ func TestResolveSessionHookProjectDirFromNativeHostInputs(t *testing.T) {
 	}
 
 	otherProject := t.TempDir()
+	if err := hub.SaveLockfile(filepath.Join(otherProject, brand.LockFileName()), &hub.Lockfile{}); err != nil {
+		t.Fatal(err)
+	}
 	if got := resolveSessionHookProjectDir(otherProject, []byte(`{"cwd":`+strconv.Quote(workingDir)+`}`)); got != otherProject {
 		t.Fatalf("explicit diagnostic project = %q, want %q", got, otherProject)
 	}
@@ -177,6 +180,26 @@ func TestResolveSessionHookProjectDirFromProcessCWD(t *testing.T) {
 
 	if got := resolveSessionHookProjectDir("", nil); got != projectDir {
 		t.Fatalf("resolved project = %q, want %q", got, projectDir)
+	}
+}
+
+func TestResolveSessionHookProjectDirRequiresGraphitLockfile(t *testing.T) {
+	gitOnlyRoot := t.TempDir()
+	workingDir := filepath.Join(gitOnlyRoot, "packages", "api")
+	if err := os.MkdirAll(filepath.Join(gitOnlyRoot, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(workingDir)
+
+	input := []byte(`{"cwd":` + strconv.Quote(workingDir) + `}`)
+	if got := resolveSessionHookProjectDir("", input); got != "" {
+		t.Fatalf("resolved project = %q without %s; .git must not define a Graphit project", got, brand.LockFileName())
+	}
+	if got := resolveSessionHookProjectDir(gitOnlyRoot, nil); got != "" {
+		t.Fatalf("explicit start resolved project = %q without %s", got, brand.LockFileName())
 	}
 }
 

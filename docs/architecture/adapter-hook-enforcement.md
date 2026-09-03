@@ -29,7 +29,7 @@ A busca contextual permanece semântica: a skill manda pesquisar o pedido atual,
 
 ### Contexto residente dinâmico
 
-No mesmo evento, `_session-hook` resolve a raiz em runtime a partir do campo nativo do host: `cwd` em Claude, Codex, Gemini e Kiro; `workspace_roots` no Cursor; e `workspacePaths` no Antigravity. A partir de cada candidato, sobe até o lockfile Graphit mais próximo; o cwd do processo é o fallback. OpenCode inicia o subprocesso com seu `directory` runtime como cwd. Nenhum checkout absoluto da máquina que executou o sync é serializado no hook. O flag `--project-dir` permanece somente como override explícito para diagnóstico.
+No mesmo evento, `_session-hook` resolve a raiz em runtime a partir do campo nativo do host: `cwd` em Claude, Codex, Gemini e Kiro; `workspace_roots` no Cursor; e `workspacePaths` no Antigravity. A partir de cada candidato, sobe até o lockfile Graphit mais próximo; o cwd do processo fornece o último candidato. OpenCode inicia o subprocesso com seu `directory` runtime como cwd. `.git` nunca define uma raiz Graphit: projetos sem Git funcionam pelo lockfile, e a ausência do lockfile deixa a raiz não resolvida e ativa apenas o fallback compacto. Nenhum checkout absoluto da máquina que executou o sync é serializado no hook. O flag `--project-dir` permanece somente como ponto inicial explícito para diagnóstico e também precisa alcançar um lockfile.
 
 Depois da resolução, o comando lê a configuração e o lockfile desse projeto. Ele compõe, em ordem estável, somente os mandates dos módulos habilitados e os corpos dos artifacts Hub de tipo `rule` instalados. Rules são lidas no artifact autoritativo (`RULE.md`), inclusive links locais; não são copiadas para diretórios de rules da IDE.
 

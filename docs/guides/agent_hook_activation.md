@@ -19,7 +19,7 @@ related:
 
 # Agent Hook Activation
 
-`graphit init` and `graphit sync` write the project hook and MCP configuration for the selected adapter. A hook cannot grant trust to itself: when an agent requires approval for project code, each user must approve the checkout on that machine. This approval is intentionally stored by the host outside the repository.
+`graphit init` and `graphit sync` write the project hook and MCP configuration for the selected adapter. At runtime, Graphit finds the project by walking upward from the directory reported by the host until it finds the Graphit lockfile. Git is not required and `.git` is never used as the project boundary. A hook cannot grant trust to itself: when an agent requires approval for project code, each user must approve the checkout on that machine. This approval is intentionally stored by the host outside the repository.
 
 Hook activation and MCP availability are separate checks:
 

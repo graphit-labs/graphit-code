@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide takes a repository from no Graphit installation to a working agent integration, current local indexes, and the Graphite Observatory UI.
+This guide takes a project directory from no Graphit installation to a working agent integration, current local indexes, and the Graphite Observatory UI. Git is optional.
 
 ## What you will have
 
@@ -8,7 +8,7 @@ After the first run:
 
 - the `graphit` launcher and machine-wide runtime are installed;
 - the local embedding model is available to search modules;
-- the repository is registered and configured for your selected IDE;
+- the project directory is registered and configured for your selected IDE;
 - AST, knowledge, and memory indexes reflect the current project;
 - the daemon can keep those indexes current;
 - the UI can inspect the same project context exposed to agents.
@@ -52,9 +52,9 @@ Setup prepares the global Graphit directory and downloads the local embedding mo
 
 If credentials are configured explicitly, both access and secret keys must be present. Leaving them unset lets AWS-compatible clients use the standard provider chain. See [S3 Credentials and UI Network Configuration](s3-and-ui-network.md).
 
-## 3. Initialize a repository
+## 3. Initialize a project
 
-Run initialization from the repository Graphit should understand:
+Run initialization from the project root Graphit should understand:
 
 ```bash
 cd your-project
@@ -63,7 +63,7 @@ graphit init --ide codex
 
 Replace `codex` with the IDE or coding-agent adapter you use. Run `graphit init --help` to see supported identifiers and options.
 
-Initialization registers the project and installs the selected adapter's hooks, MCP configuration, skills, commands, and agents. Graphit mandates and installed Hub rules are delivered dynamically by the hooks; Graphit does not manage `AGENTS.md`, `CLAUDE.md`, or IDE rule files for that purpose. Review generated changes before committing them.
+Initialization registers the project and installs the selected adapter's hooks, MCP configuration, skills, commands, and agents. Graphit mandates and installed Hub rules are delivered dynamically by the hooks; Graphit does not manage `AGENTS.md`, `CLAUDE.md`, or IDE rule files for that purpose. Review generated changes before sharing or committing them.
 
 Each developer must complete any trust or activation step required by their agent on their own machine. Follow [Activate Graphit Hooks in Each Agent](agent_hook_activation.md) for exact per-adapter instructions.
 

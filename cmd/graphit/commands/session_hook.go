@@ -34,13 +34,14 @@ func newSessionHookCmd() *cobra.Command {
 				return fmt.Errorf("reading session hook input: %w", err)
 			}
 			projectDir = resolveSessionHookProjectDir(projectDir, input)
-			projectCfg := loadProjectConfigFromDir(projectDir)
-			context := sessionhook.Context{
-				Instructions:   loadHookInstructionContext(projectDir, projectCfg),
-				MemoryDisabled: config.IsModuleDisabled("memory", nil, projectCfg),
-			}
-			if !context.MemoryDisabled && hookInputNeedsMandatory(format, input) {
-				context.Mandatory, context.MandatoryLoaded = loadMandatoryHookContext(projectDir)
+			context := sessionhook.Context{}
+			if projectDir != "" {
+				projectCfg := loadProjectConfigFromDir(projectDir)
+				context.Instructions = loadHookInstructionContext(projectDir, projectCfg)
+				context.MemoryDisabled = config.IsModuleDisabled("memory", nil, projectCfg)
+				if !context.MemoryDisabled && hookInputNeedsMandatory(format, input) {
+					context.Mandatory, context.MandatoryLoaded = loadMandatoryHookContext(projectDir)
+				}
 			}
 			payload, err := sessionhook.RenderWithContext(format, input, context)
 			if err != nil {
@@ -54,7 +55,7 @@ func newSessionHookCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "", "session hook output format")
-	cmd.Flags().StringVar(&projectDir, "project-dir", "", "active project directory")
+	cmd.Flags().StringVar(&projectDir, "project-dir", "", "starting directory for Graphit project discovery")
 	_ = cmd.MarkFlagRequired("format")
 	return cmd
 }
@@ -68,16 +69,7 @@ func resolveSessionHookProjectDir(explicit string, input []byte) string {
 
 	candidates := make([]string, 0, 5)
 	if explicit != "" {
-		if root := findSessionHookProjectRoot(explicit); root != "" {
-			return root
-		}
-		if root := findSessionHookGitRoot(explicit); root != "" {
-			return root
-		}
-		if abs, err := filepath.Abs(explicit); err == nil {
-			return filepath.Clean(abs)
-		}
-		return explicit
+		return findSessionHookProjectRoot(explicit)
 	}
 
 	var event hookInput
@@ -95,31 +87,10 @@ func resolveSessionHookProjectDir(explicit string, input []byte) string {
 			return root
 		}
 	}
-	for _, candidate := range candidates {
-		if root := findSessionHookGitRoot(candidate); root != "" {
-			return root
-		}
-	}
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
-		}
-		if abs, err := filepath.Abs(candidate); err == nil {
-			return filepath.Clean(abs)
-		}
-	}
 	return ""
 }
 
 func findSessionHookProjectRoot(start string) string {
-	return findSessionHookAncestor(start, brand.LockFileName())
-}
-
-func findSessionHookGitRoot(start string) string {
-	return findSessionHookAncestor(start, ".git")
-}
-
-func findSessionHookAncestor(start, marker string) string {
 	if start == "" {
 		return ""
 	}
@@ -132,7 +103,7 @@ func findSessionHookAncestor(start, marker string) string {
 	}
 	dir = filepath.Clean(dir)
 	for {
-		if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, brand.LockFileName())); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
