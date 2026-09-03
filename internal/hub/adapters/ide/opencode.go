@@ -190,6 +190,7 @@ func (a *OpenCodeAdapter) syncSessionStartHook(projectDir string) error {
 
 	fallback := strconv.Quote(sessionhook.Protocol())
 	invariant := strconv.Quote(sessionhook.CoreInvariant())
+	unitReminder := strconv.Quote(sessionhook.UnitCompletionReminder())
 	executable := strconv.Quote(getGraphitExecutable())
 	content := opencodeManagedMarker + "\n" +
 		"const initializedSessions = new Set()\n" +
@@ -204,11 +205,23 @@ func (a *OpenCodeAdapter) syncSessionStartHook(projectDir string) error {
 		"    } catch {}\n" +
 		"    return bootstrap\n" +
 		"  }\n" +
+		"  const dispatchFinalSync = () => {\n" +
+		"    try {\n" +
+		"      const subprocess = Bun.spawn([" + executable + ", \"_session-hook\", \"--format\", \"no-output\", \"--sync\"], { cwd: directory, stdout: \"ignore\", stderr: \"ignore\" })\n" +
+		"      subprocess.unref()\n" +
+		"    } catch {}\n" +
+		"  }\n" +
 		"  return {\n" +
 		"  event: async ({ event }) => {\n" +
+		"    if (event.type === \"session.idle\") dispatchFinalSync()\n" +
 		"    if (event.type === \"session.deleted\") {\n" +
+		"      dispatchFinalSync()\n" +
 		"      initializedSessions.delete(event.properties.info.id)\n" +
 		"    }\n" +
+		"  },\n" +
+		"  \"tool.execute.after\": async (_input, output) => {\n" +
+		"    const reminder = " + unitReminder + "\n" +
+		"    if (typeof output.output === \"string\" && !output.output.includes(reminder)) output.output += `\\n\\n${reminder}`\n" +
 		"  },\n" +
 		"  \"experimental.chat.system.transform\": async (input, output) => {\n" +
 		"    if (!input.sessionID) return\n" +

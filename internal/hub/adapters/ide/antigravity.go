@@ -67,6 +67,15 @@ func (a *AntigravityAdapter) syncSessionStartHook(projectDir string) error {
 			"command": sessionHookCommand(sessionhook.FormatFirstInvocation),
 			"timeout": 10,
 		}},
+		"PostInvocation": []any{map[string]any{
+			"type":    "command",
+			"command": sessionHookCommand(sessionhook.FormatPostInvocation),
+			"timeout": 10,
+		}},
+		"Stop": []any{map[string]any{
+			"type":    "command",
+			"command": finalSyncHookCommand(sessionhook.FormatAntigravityStop),
+		}},
 	}
 	if existing, ok := root[antigravitySearchGuardName]; ok && containsManagedCommand(existing, "guard-antigravity") {
 		delete(root, antigravitySearchGuardName)

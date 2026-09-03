@@ -2,7 +2,7 @@
   "hooks": [
     {
       "action": {
-        "command": "\"/usr/local/bin/graphit\" _session-hook --format plain-context",
+        "command": "'/usr/local/bin/graphit' _session-hook --format plain-context",
         "type": "command"
       },
       "description": "Initialize Graphit memory before the first response.",
@@ -12,7 +12,47 @@
     },
     {
       "action": {
-        "command": "\"/usr/local/bin/graphit\" _session-hook --format plain-context",
+        "prompt": "Graphit invariant: when a Graphit skill and MCP tool cover the current action, use them before native equivalents and load only that skill, once, at the moment it is needed. Resuming, re-entering, or continuing interrupted work reapplies this priority before the next action. If the required Graphit tool is unavailable in this agent, continue with its default native tools. Do not substitute the Graphit CLI for MCP.",
+        "type": "agent"
+      },
+      "description": "Reassert Graphit-first routing on every submitted or resumed turn.",
+      "enabled": true,
+      "name": "graphit-resume-routing",
+      "trigger": "UserPromptSubmit"
+    },
+    {
+      "action": {
+        "command": "'/usr/local/bin/graphit' _session-hook --format plain-unit",
+        "type": "command"
+      },
+      "description": "Checkpoint task management after the smallest completed work unit.",
+      "enabled": true,
+      "name": "graphit-task-checkpoint",
+      "trigger": "PostToolUse"
+    },
+    {
+      "action": {
+        "prompt": "Graphit task checkpoint: if the action that just finished completed the smallest independently reportable unit of the current task, update the active task manager and task log now with what landed and what comes next. Do not defer that update until the end.",
+        "type": "agent"
+      },
+      "description": "Update task management as soon as a spec task completes.",
+      "enabled": true,
+      "name": "graphit-task-completed",
+      "trigger": "PostTaskExec"
+    },
+    {
+      "action": {
+        "command": "'/usr/local/bin/graphit' _session-hook --format no-output --sync",
+        "type": "command"
+      },
+      "description": "Dispatch a complete Graphit sync asynchronously whenever the agent stops.",
+      "enabled": true,
+      "name": "graphit-final-sync",
+      "trigger": "Stop"
+    },
+    {
+      "action": {
+        "command": "'/usr/local/bin/graphit' _session-hook --format plain-context",
         "type": "command"
       },
       "description": "Initialize Graphit memory when the CLI agent starts.",

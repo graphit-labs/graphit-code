@@ -58,6 +58,18 @@ func (a *CursorAdapter) syncSessionStartHook(projectDir string) error {
 	if err := reconcileDirectCommandHookMatched(path, "preToolUse", "Task", sessionhook.FormatCursorSubagentTask); err != nil {
 		return err
 	}
+	if err := reconcileDirectCommandHook(path, "postToolUse", sessionhook.FormatCursorUnit); err != nil {
+		return err
+	}
+	if err := reconcileDirectFinalSyncHook(path, "subagentStop", sessionhook.FormatCursorStop); err != nil {
+		return err
+	}
+	if err := reconcileDirectFinalSyncHook(path, "stop", sessionhook.FormatCursorStop); err != nil {
+		return err
+	}
+	if err := reconcileDirectFinalSyncHook(path, "sessionEnd", sessionhook.FormatSessionEnd); err != nil {
+		return err
+	}
 	if err := removeDirectCommandHook(path, "subagentStart", "cursor-subagent-gate"); err != nil {
 		return err
 	}
@@ -81,6 +93,18 @@ func (a *CursorAdapter) removeSessionStartHook(projectDir string) error {
 		return err
 	}
 	if err := removeDirectCommandHook(path, "preToolUse", sessionhook.FormatCursorSubagentTask); err != nil {
+		return err
+	}
+	if err := removeDirectCommandHook(path, "postToolUse", sessionhook.FormatCursorUnit); err != nil {
+		return err
+	}
+	if err := removeDirectCommandHook(path, "subagentStop", sessionhook.FormatCursorStop); err != nil {
+		return err
+	}
+	if err := removeDirectCommandHook(path, "stop", sessionhook.FormatCursorStop); err != nil {
+		return err
+	}
+	if err := removeDirectCommandHook(path, "sessionEnd", sessionhook.FormatSessionEnd); err != nil {
 		return err
 	}
 	if err := removeDirectCommandHook(path, "subagentStart", "cursor-subagent-gate"); err != nil {

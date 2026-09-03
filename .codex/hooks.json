@@ -1,10 +1,40 @@
 {
   "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "'/usr/local/bin/graphit' _session-hook --format post-tool-use",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "'/usr/local/bin/graphit' _session-hook --format session-end --sync",
+            "type": "command"
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [
           {
-            "command": "\"/usr/local/bin/graphit\" _session-hook --format session-start",
+            "command": "'/usr/local/bin/graphit' _session-hook --format session-start",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "'/usr/local/bin/graphit' _session-hook --format stop --sync",
             "type": "command"
           }
         ]
@@ -14,7 +44,27 @@
       {
         "hooks": [
           {
-            "command": "\"/usr/local/bin/graphit\" _session-hook --format subagent-start",
+            "command": "'/usr/local/bin/graphit' _session-hook --format subagent-start",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "'/usr/local/bin/graphit' _session-hook --format stop --sync",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "'/usr/local/bin/graphit' _session-hook --format user-prompt",
             "type": "command"
           }
         ]

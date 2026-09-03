@@ -58,6 +58,21 @@ func (a *ClaudeAdapter) syncSessionStartHook(projectDir string) error {
 	if err := reconcileGroupedCommandHook(path, "SubagentStart", sessionhook.FormatSubagentStart); err != nil {
 		return err
 	}
+	if err := reconcileGroupedCommandHook(path, "UserPromptSubmit", sessionhook.FormatUserPrompt); err != nil {
+		return err
+	}
+	if err := reconcileGroupedCommandHook(path, "PostToolUse", sessionhook.FormatPostToolUse); err != nil {
+		return err
+	}
+	if err := reconcileGroupedFinalSyncHook(path, "SubagentStop", sessionhook.FormatStop); err != nil {
+		return err
+	}
+	if err := reconcileGroupedFinalSyncHook(path, "Stop", sessionhook.FormatStop); err != nil {
+		return err
+	}
+	if err := reconcileGroupedFinalSyncHook(path, "SessionEnd", sessionhook.FormatSessionEnd); err != nil {
+		return err
+	}
 	return removeGroupedCommandHook(path, "PreToolUse", "guard-claude")
 }
 
@@ -75,6 +90,21 @@ func (a *ClaudeAdapter) removeSessionStartHook(projectDir string) error {
 		return err
 	}
 	if err := removeGroupedCommandHook(path, "SubagentStart", sessionhook.FormatSubagentStart); err != nil {
+		return err
+	}
+	if err := removeGroupedCommandHook(path, "UserPromptSubmit", sessionhook.FormatUserPrompt); err != nil {
+		return err
+	}
+	if err := removeGroupedCommandHook(path, "PostToolUse", sessionhook.FormatPostToolUse); err != nil {
+		return err
+	}
+	if err := removeGroupedCommandHook(path, "SubagentStop", sessionhook.FormatStop); err != nil {
+		return err
+	}
+	if err := removeGroupedCommandHook(path, "Stop", sessionhook.FormatStop); err != nil {
+		return err
+	}
+	if err := removeGroupedCommandHook(path, "SessionEnd", sessionhook.FormatSessionEnd); err != nil {
 		return err
 	}
 	return removeGroupedCommandHook(path, "PreToolUse", "guard-claude")

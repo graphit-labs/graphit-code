@@ -17,6 +17,18 @@ const (
 	FormatToolContext        = "tool-context"
 	FormatSubagentStart      = "subagent-start"
 	FormatCursorSubagentTask = "cursor-subagent-task"
+	FormatUserPrompt         = "user-prompt"
+	FormatPostToolUse        = "post-tool-use"
+	FormatAfterTool          = "after-tool"
+	FormatCursorUnit         = "cursor-unit"
+	FormatPlainUnit          = "plain-unit"
+	FormatPostInvocation     = "post-invocation"
+	FormatStop               = "stop"
+	FormatCursorStop         = "cursor-stop"
+	FormatAfterAgent         = "after-agent"
+	FormatAntigravityStop    = "antigravity-stop"
+	FormatSessionEnd         = "session-end"
+	FormatNoOutput           = "no-output"
 )
 
 const SubagentProtocolMarker = "GRAPHIT_SUBAGENT_PROTOCOL_V1"
@@ -35,7 +47,14 @@ type Context struct {
 // compaction, for subagents, or at another model boundary. Procedures belong in
 // the just-in-time skills; this text only preserves routing and precedence.
 func CoreInvariant() string {
-	return "Graphit invariant: when a Graphit skill and MCP tool cover the current action, use them before native equivalents and load only that skill, once, at the moment it is needed. If the required Graphit tool is unavailable in this agent, continue with its default native tools. Do not substitute the Graphit CLI for MCP."
+	return "Graphit invariant: when a Graphit skill and MCP tool cover the current action, use them before native equivalents and load only that skill, once, at the moment it is needed. Resuming, re-entering, or continuing interrupted work reapplies this priority before the next action. If the required Graphit tool is unavailable in this agent, continue with its default native tools. Do not substitute the Graphit CLI for MCP."
+}
+
+// UnitCompletionReminder is injected after the smallest objective work boundary
+// the host exposes. The hook cannot decide whether a semantic unit is complete,
+// so it asks the agent to make that judgment immediately instead of at turn end.
+func UnitCompletionReminder() string {
+	return "Graphit task checkpoint: if the action that just finished completed the smallest independently reportable unit of the current task, update the active task manager and task log now with what landed and what comes next. Do not defer that update until the end."
 }
 
 // SubagentProtocol is self-contained because subagents may start with neither
@@ -110,9 +129,9 @@ func RenderWithMandatory(format string, input []byte, mandatory ...string) ([]by
 }
 
 // RenderWithContext renders a native hook payload with current project
-// instructions. Full bootstrap formats include memory; repeated model
-// boundaries receive the smaller routing context plus the dynamic mandates and
-// Hub rules.
+// instructions. Full bootstrap formats include memory and current project
+// mandates. Repeated model boundaries receive only compact invariant/reminder
+// text so long-lived sessions do not accumulate the startup context.
 func RenderWithContext(format string, input []byte, context Context) ([]byte, error) {
 	switch strings.ToLower(format) {
 	case FormatSessionStart:
@@ -130,7 +149,7 @@ func RenderWithContext(format string, input []byte, context Context) ([]byte, er
 		return json.Marshal(map[string]any{
 			"hookSpecificOutput": map[string]any{
 				"hookEventName":     "BeforeAgent",
-				"additionalContext": routingContext(context.Instructions),
+				"additionalContext": CoreInvariant(),
 			},
 		})
 	case FormatSubagentStart:
@@ -142,8 +161,43 @@ func RenderWithContext(format string, input []byte, context Context) ([]byte, er
 		})
 	case FormatCursorSubagentTask:
 		return renderCursorSubagentTask(input, context)
+	case FormatUserPrompt:
+		return json.Marshal(map[string]any{
+			"hookSpecificOutput": map[string]any{
+				"hookEventName":     "UserPromptSubmit",
+				"additionalContext": CoreInvariant(),
+			},
+		})
 	case FormatToolContext:
 		return json.Marshal(map[string]any{"additional_context": routingContext(context.Instructions)})
+	case FormatPostToolUse:
+		return json.Marshal(map[string]any{
+			"hookSpecificOutput": map[string]any{
+				"hookEventName":     "PostToolUse",
+				"additionalContext": UnitCompletionReminder(),
+			},
+		})
+	case FormatAfterTool:
+		return json.Marshal(map[string]any{
+			"hookSpecificOutput": map[string]any{
+				"hookEventName":     "AfterTool",
+				"additionalContext": UnitCompletionReminder(),
+			},
+		})
+	case FormatCursorUnit:
+		return json.Marshal(map[string]any{"additional_context": UnitCompletionReminder()})
+	case FormatPlainUnit:
+		return []byte(UnitCompletionReminder()), nil
+	case FormatPostInvocation:
+		return json.Marshal(map[string]any{
+			"injectSteps": []any{map[string]any{"ephemeralMessage": UnitCompletionReminder()}},
+		})
+	case FormatStop, FormatCursorStop, FormatAfterAgent, FormatSessionEnd:
+		return []byte(`{}`), nil
+	case FormatAntigravityStop:
+		return json.Marshal(map[string]any{"decision": "stop"})
+	case FormatNoOutput:
+		return nil, nil
 	case FormatFirstInvocation:
 		var event struct {
 			InvocationNum *int `json:"invocationNum"`
@@ -157,6 +211,8 @@ func RenderWithContext(format string, input []byte, context Context) ([]byte, er
 		injected := routingContext(context.Instructions)
 		if *event.InvocationNum == 0 {
 			injected = protocolWithContext(context)
+		} else {
+			injected = CoreInvariant()
 		}
 		return json.Marshal(map[string]any{
 			"injectSteps": []any{map[string]any{"ephemeralMessage": injected}},

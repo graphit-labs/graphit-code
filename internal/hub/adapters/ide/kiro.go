@@ -8,8 +8,12 @@ import (
 )
 
 const (
-	kiroManagedHookName = "graphit-memory-session-start"
-	kiroSearchGuardName = "graphit-native-search-guard"
+	kiroManagedHookName   = "graphit-memory-session-start"
+	kiroResumeHookName    = "graphit-resume-routing"
+	kiroUnitHookName      = "graphit-task-checkpoint"
+	kiroTaskHookName      = "graphit-task-completed"
+	kiroFinalSyncHookName = "graphit-final-sync"
+	kiroSearchGuardName   = "graphit-native-search-guard"
 )
 
 type KiroAdapter struct {
@@ -62,7 +66,17 @@ func (a *KiroAdapter) syncSessionStartHook(projectDir string) error {
 	if err != nil {
 		return fmt.Errorf("reconciling %s: %w", path, err)
 	}
-	hooks = filterNamedHooks(filterNamedHooks(filterNamedHooks(hooks, kiroManagedHookName), kiroManagedHookName+"-cli"), kiroSearchGuardName)
+	for _, name := range []string{
+		kiroManagedHookName,
+		kiroManagedHookName + "-cli",
+		kiroResumeHookName,
+		kiroUnitHookName,
+		kiroTaskHookName,
+		kiroFinalSyncHookName,
+		kiroSearchGuardName,
+	} {
+		hooks = filterNamedHooks(hooks, name)
+	}
 	hooks = append(hooks, map[string]any{
 		"name":        kiroManagedHookName,
 		"description": "Initialize Graphit memory before the first response.",
@@ -71,6 +85,46 @@ func (a *KiroAdapter) syncSessionStartHook(projectDir string) error {
 		"action": map[string]any{
 			"type":    "command",
 			"command": sessionHookCommand(sessionhook.FormatPlainContext),
+		},
+	})
+	hooks = append(hooks, map[string]any{
+		"name":        kiroResumeHookName,
+		"description": "Reassert Graphit-first routing on every submitted or resumed turn.",
+		"enabled":     true,
+		"trigger":     "UserPromptSubmit",
+		"action": map[string]any{
+			"type":   "agent",
+			"prompt": sessionhook.CoreInvariant(),
+		},
+	})
+	hooks = append(hooks, map[string]any{
+		"name":        kiroUnitHookName,
+		"description": "Checkpoint task management after the smallest completed work unit.",
+		"enabled":     true,
+		"trigger":     "PostToolUse",
+		"action": map[string]any{
+			"type":    "command",
+			"command": sessionHookCommand(sessionhook.FormatPlainUnit),
+		},
+	})
+	hooks = append(hooks, map[string]any{
+		"name":        kiroTaskHookName,
+		"description": "Update task management as soon as a spec task completes.",
+		"enabled":     true,
+		"trigger":     "PostTaskExec",
+		"action": map[string]any{
+			"type":   "agent",
+			"prompt": sessionhook.UnitCompletionReminder(),
+		},
+	})
+	hooks = append(hooks, map[string]any{
+		"name":        kiroFinalSyncHookName,
+		"description": "Dispatch a complete Graphit sync asynchronously whenever the agent stops.",
+		"enabled":     true,
+		"trigger":     "Stop",
+		"action": map[string]any{
+			"type":    "command",
+			"command": finalSyncHookCommand(sessionhook.FormatNoOutput),
 		},
 	})
 	hooks = append(hooks, map[string]any{
@@ -101,7 +155,18 @@ func (a *KiroAdapter) removeSessionStartHook(projectDir string) error {
 	if !ok {
 		return nil
 	}
-	remaining := filterNamedHooks(filterNamedHooks(filterNamedHooks(hooks, kiroManagedHookName), kiroManagedHookName+"-cli"), kiroSearchGuardName)
+	remaining := hooks
+	for _, name := range []string{
+		kiroManagedHookName,
+		kiroManagedHookName + "-cli",
+		kiroResumeHookName,
+		kiroUnitHookName,
+		kiroTaskHookName,
+		kiroFinalSyncHookName,
+		kiroSearchGuardName,
+	} {
+		remaining = filterNamedHooks(remaining, name)
+	}
 	if len(remaining) == 0 {
 		delete(root, "hooks")
 	} else {

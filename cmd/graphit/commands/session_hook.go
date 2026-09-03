@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/graphit-labs/graphit-code/internal/sessioncontext"
@@ -15,6 +16,7 @@ import (
 func newSessionHookCmd() *cobra.Command {
 	var format string
 	var projectDir string
+	var syncBeforeOutput bool
 
 	cmd := &cobra.Command{
 		Use:    "_session-hook",
@@ -27,7 +29,16 @@ func newSessionHookCmd() *cobra.Command {
 				return fmt.Errorf("reading session hook input: %w", err)
 			}
 			projectDir = resolveSessionHookProjectDir(projectDir, input)
-			context := sessioncontext.Build(projectDir, hookInputNeedsMandatory(format, input))
+			if syncBeforeOutput {
+				if err := dispatchFinalHookSync(projectDir); err != nil {
+					return err
+				}
+			}
+			includeMandatory := hookInputNeedsMandatory(format, input)
+			context := sessionhook.Context{}
+			if includeMandatory || strings.EqualFold(format, sessionhook.FormatToolContext) {
+				context = sessioncontext.Build(projectDir, includeMandatory)
+			}
 			payload, err := sessionhook.RenderWithContext(format, input, context)
 			if err != nil {
 				return err
@@ -41,8 +52,40 @@ func newSessionHookCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&format, "format", "", "session hook output format")
 	cmd.Flags().StringVar(&projectDir, "project-dir", "", "starting directory for Graphit project discovery")
+	cmd.Flags().BoolVar(&syncBeforeOutput, "sync", false, "dispatch a full project sync asynchronously before rendering completion output")
 	_ = cmd.MarkFlagRequired("format")
 	return cmd
+}
+
+// dispatchFinalHookSync starts the exact installed Graphit runtime and returns
+// without waiting. os/exec and Process.Release are portable across Linux,
+// Windows, and macOS; no host shell or platform-specific quoting is involved.
+func dispatchFinalHookSync(projectDir string) error {
+	if projectDir == "" {
+		return fmt.Errorf("no Graphit project lockfile was found from the hook input")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolving the active Graphit executable: %w", err)
+	}
+	return dispatchFinalHookSyncExecutable(projectDir, executable)
+}
+
+func dispatchFinalHookSyncExecutable(projectDir, executable string) error {
+	command := finalHookSyncCommand(projectDir, executable)
+	if err := command.Start(); err != nil {
+		return fmt.Errorf("starting asynchronous project sync: %w", err)
+	}
+	if err := command.Process.Release(); err != nil {
+		return fmt.Errorf("releasing asynchronous project sync: %w", err)
+	}
+	return nil
+}
+
+func finalHookSyncCommand(projectDir, executable string) *exec.Cmd {
+	command := exec.Command(executable, "sync")
+	command.Dir = projectDir
+	return command
 }
 
 func resolveSessionHookProjectDir(explicit string, input []byte) string {

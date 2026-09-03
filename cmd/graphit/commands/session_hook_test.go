@@ -29,6 +29,38 @@ func TestSessionHookCommandRendersFormatPayload(t *testing.T) {
 	}
 }
 
+func TestSessionHookFinalSyncRequiresResolvedProject(t *testing.T) {
+	t.Parallel()
+
+	missingProject := filepath.Join(t.TempDir(), "missing-project")
+	cmd := newSessionHookCmd()
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{"--format", "stop", "--sync", "--project-dir", missingProject})
+	cmd.SetIn(strings.NewReader("{}"))
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "lockfile") {
+		t.Fatalf("unresolved sync error = %v", err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("unresolved sync unexpectedly rendered completion output: %s", output.String())
+	}
+}
+
+func TestFinalHookSyncCommandIsPortable(t *testing.T) {
+	t.Parallel()
+	projectDir := t.TempDir()
+	command := finalHookSyncCommand(projectDir, "graphit-test")
+	if len(command.Args) != 2 || command.Args[0] != "graphit-test" || command.Args[1] != "sync" {
+		t.Fatalf("sync arguments = %q, want [graphit-test sync]", command.Args)
+	}
+	if command.Dir != projectDir {
+		t.Fatalf("sync cwd = %q, want %q", command.Dir, projectDir)
+	}
+}
+
 func TestSessionHookLoadsEnabledMandatesAndInstalledHubRulesDynamically(t *testing.T) {
 	projectDir := t.TempDir()
 	ruleDir := filepath.Join(t.TempDir(), "rule")
@@ -234,8 +266,8 @@ func TestSessionHookCommandFirstInvocationReadsPipedPayload(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "GRAPHIT_SYSTEM_MANDATE") || strings.Contains(output.String(), "Graphit session bootstrap") {
-		t.Fatalf("non-first invocation did not contain only resident instructions: %s", output.String())
+	if !strings.Contains(output.String(), "Graphit invariant") || strings.Contains(output.String(), "GRAPHIT_SYSTEM_MANDATE") || strings.Contains(output.String(), "Graphit session bootstrap") {
+		t.Fatalf("non-first invocation did not contain only the compact invariant: %s", output.String())
 	}
 }
 

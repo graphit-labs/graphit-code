@@ -6,12 +6,49 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
+	"runtime"
 	"strings"
 )
 
 func sessionHookCommand(format string) string {
-	return strconv.Quote(getGraphitExecutable()) + " _session-hook --format " + format
+	return quoteHookCommandArgument(runtime.GOOS, getGraphitExecutable()) + " _session-hook --format " + format
+}
+
+func quoteHookCommandArgument(goos, argument string) string {
+	if goos == "windows" {
+		return quoteWindowsCommandArgument(argument)
+	}
+	return "'" + strings.ReplaceAll(argument, "'", "'\"'\"'") + "'"
+}
+
+// quoteWindowsCommandArgument follows the CommandLineToArgvW-compatible
+// backslash/quote rules used by Windows process launchers. It deliberately does
+// not invoke cmd.exe or PowerShell.
+func quoteWindowsCommandArgument(argument string) string {
+	var quoted strings.Builder
+	quoted.WriteByte('"')
+	backslashes := 0
+	for _, char := range argument {
+		switch char {
+		case '\\':
+			backslashes++
+		case '"':
+			quoted.WriteString(strings.Repeat("\\", backslashes*2+1))
+			quoted.WriteRune(char)
+			backslashes = 0
+		default:
+			quoted.WriteString(strings.Repeat("\\", backslashes))
+			quoted.WriteRune(char)
+			backslashes = 0
+		}
+	}
+	quoted.WriteString(strings.Repeat("\\", backslashes*2))
+	quoted.WriteByte('"')
+	return quoted.String()
+}
+
+func finalSyncHookCommand(format string) string {
+	return sessionHookCommand(format) + " --sync"
 }
 
 func isManagedSessionCommand(value any, format string, legacyAdapters ...string) bool {
@@ -35,6 +72,14 @@ func reconcileDirectCommandHook(path, event, format string, legacyAdapters ...st
 }
 
 func reconcileDirectCommandHookMatched(path, event, matcher, format string, legacyAdapters ...string) error {
+	return reconcileDirectCommandHookWith(path, event, matcher, format, sessionHookCommand(format), legacyAdapters...)
+}
+
+func reconcileDirectFinalSyncHook(path, event, format string) error {
+	return reconcileDirectCommandHookWith(path, event, "", format, finalSyncHookCommand(format))
+}
+
+func reconcileDirectCommandHookWith(path, event, matcher, format, command string, legacyAdapters ...string) error {
 	root, err := readJSONObject(path)
 	if err != nil {
 		return err
@@ -48,7 +93,7 @@ func reconcileDirectCommandHookMatched(path, event, matcher, format string, lega
 		return fmt.Errorf("reconciling %s: %w", path, err)
 	}
 	entries = filterDirectCommandHooks(entries, format, legacyAdapters...)
-	entry := map[string]any{"command": sessionHookCommand(format)}
+	entry := map[string]any{"command": command}
 	if matcher != "" {
 		entry["matcher"] = matcher
 	}
@@ -103,6 +148,14 @@ func reconcileGroupedCommandHook(path, event, format string, legacyAdapters ...s
 }
 
 func reconcileGroupedCommandHookMatched(path, event, matcher, format string, legacyAdapters ...string) error {
+	return reconcileGroupedCommandHookWith(path, event, matcher, format, sessionHookCommand(format), legacyAdapters...)
+}
+
+func reconcileGroupedFinalSyncHook(path, event, format string) error {
+	return reconcileGroupedCommandHookWith(path, event, "", format, finalSyncHookCommand(format))
+}
+
+func reconcileGroupedCommandHookWith(path, event, matcher, format, command string, legacyAdapters ...string) error {
 	root, err := readJSONObject(path)
 	if err != nil {
 		return err
@@ -116,12 +169,8 @@ func reconcileGroupedCommandHookMatched(path, event, matcher, format string, leg
 		return fmt.Errorf("reconciling %s: %w", path, err)
 	}
 	groups = filterGroupedCommandHooks(groups, format, legacyAdapters...)
-	group := map[string]any{
-		"hooks": []any{map[string]any{
-			"type":    "command",
-			"command": sessionHookCommand(format),
-		}},
-	}
+	handler := map[string]any{"type": "command", "command": command}
+	group := map[string]any{"hooks": []any{handler}}
 	if matcher != "" {
 		group["matcher"] = matcher
 	}

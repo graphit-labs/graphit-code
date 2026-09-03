@@ -136,6 +136,9 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 			if tc.adapter == "opencode" && (!strings.Contains(configContent, `Bun.spawnSync`) || !strings.Contains(configContent, `experimental.chat.system.transform`) || !strings.Contains(configContent, `experimental.session.compacting`)) {
 				t.Fatalf("OpenCode plugin must load memory and inject at model/compaction boundaries: %s", configContent)
 			}
+			if tc.adapter != "opencode" && !strings.Contains(configContent, "--sync") {
+				t.Fatalf("%s must install an asynchronous final-sync dispatcher: %s", tc.adapter, configContent)
+			}
 			if tc.adapter == "kiro" && strings.Count(configContent, "_session-hook --format plain-context") != 2 {
 				t.Fatalf("Kiro must cover IDE SessionStart and CLI AgentSpawn: %s", configContent)
 			}
@@ -146,11 +149,58 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 				t.Fatalf("%s must bootstrap subagents: %s", tc.adapter, configContent)
 			}
 			if tc.adapter == "cursor" {
-				for _, required := range []string{"preToolUse", "cursor-subagent-task", `"matcher": "Task"`} {
+				for _, required := range []string{"preToolUse", "cursor-subagent-task", `"matcher": "Task"`, "postToolUse", "cursor-unit", "subagentStop", "stop", "cursor-stop", "sessionEnd", "session-end --sync"} {
 					if !strings.Contains(configContent, required) {
-						t.Fatalf("Cursor subagent protocol injection is incomplete; missing %q: %s", required, configContent)
+						t.Fatalf("Cursor lifecycle is incomplete; missing %q: %s", required, configContent)
 					}
 				}
+				if strings.Count(configContent, "_session-hook --format cursor-stop --sync") != 2 {
+					t.Fatalf("Cursor must sync both subagent and main-agent completion: %s", configContent)
+				}
+			}
+			if tc.adapter == "claude" || tc.adapter == "codex" {
+				for _, required := range []string{"UserPromptSubmit", "user-prompt", "PostToolUse", "post-tool-use", "SubagentStop", "Stop", "SessionEnd", "session-end --sync"} {
+					if !strings.Contains(configContent, required) {
+						t.Fatalf("%s lifecycle is incomplete; missing %q: %s", tc.adapter, required, configContent)
+					}
+				}
+				if strings.Count(configContent, "_session-hook --format stop --sync") != 2 {
+					t.Fatalf("%s must sync both subagent and main-agent completion: %s", tc.adapter, configContent)
+				}
+			}
+			if tc.adapter == "gemini" {
+				for _, required := range []string{"AfterTool", "after-tool", "AfterAgent", "after-agent --sync", "SessionEnd", "session-end --sync"} {
+					if !strings.Contains(configContent, required) {
+						t.Fatalf("Gemini lifecycle is incomplete; missing %q: %s", required, configContent)
+					}
+				}
+			}
+			if tc.adapter == "kiro" {
+				for _, required := range []string{"UserPromptSubmit", "PostToolUse", "PostTaskExec", "Stop", "plain-unit", "no-output --sync", "smallest independently reportable unit"} {
+					if !strings.Contains(configContent, required) {
+						t.Fatalf("Kiro lifecycle is incomplete; missing %q: %s", required, configContent)
+					}
+				}
+			}
+			if tc.adapter == "antigravity" {
+				for _, required := range []string{"PreInvocation", "PostInvocation", "post-invocation", "Stop", "antigravity-stop --sync"} {
+					if !strings.Contains(configContent, required) {
+						t.Fatalf("Antigravity lifecycle is incomplete; missing %q: %s", required, configContent)
+					}
+				}
+				if strings.Contains(configContent, `"PostToolUse"`) {
+					t.Fatalf("Antigravity PostToolUse accepts only {}; task feedback must remain on PostInvocation: %s", configContent)
+				}
+			}
+			if tc.adapter == "opencode" {
+				for _, required := range []string{`"tool.execute.after"`, `event.type === "session.idle"`, `event.type === "session.deleted"`, `Bun.spawn([`, `subprocess.unref()`, `"no-output", "--sync"`, "smallest independently reportable unit"} {
+					if !strings.Contains(configContent, required) {
+						t.Fatalf("OpenCode lifecycle is incomplete; missing %q: %s", required, configContent)
+					}
+				}
+			}
+			if strings.Contains(configContent, `"timeout": 600`) {
+				t.Fatalf("%s final sync must not reserve a synchronous wait timeout: %s", tc.adapter, configContent)
 			}
 			for _, forbidden := range []string{"guard-", "cursor-subagent-gate", `"failClosed": true`, "nativeDiscoveryTools", `tool.execute.before`, "blocked by Graphit"} {
 				if strings.Contains(configContent, forbidden) {
@@ -183,6 +233,29 @@ func TestEveryAdapterInstallsOneOrderedSessionMemoryHook(t *testing.T) {
 			}
 			if strings.Contains(string(remaining), "graphit_memory_mandatory") || strings.Contains(string(remaining), "_session-hook") {
 				t.Fatalf("managed hook remained after removal: %s", remaining)
+			}
+		})
+	}
+}
+
+func TestHookExecutableQuotingIsPortable(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		goos     string
+		argument string
+		want     string
+	}{
+		{name: "linux spaces and apostrophe", goos: "linux", argument: "/opt/Graphit's Tools/graphit", want: `'/opt/Graphit'"'"'s Tools/graphit'`},
+		{name: "macOS spaces", goos: "darwin", argument: "/Applications/Graphit Tools/graphit", want: `'/Applications/Graphit Tools/graphit'`},
+		{name: "Windows spaces", goos: "windows", argument: `C:\Program Files\Graphit\graphit.exe`, want: `"C:\Program Files\Graphit\graphit.exe"`},
+		{name: "Windows trailing slash", goos: "windows", argument: `C:\Graphit\`, want: `"C:\Graphit\\"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := quoteHookCommandArgument(tc.goos, tc.argument); got != tc.want {
+				t.Fatalf("quoted argument = %q, want %q", got, tc.want)
 			}
 		})
 	}

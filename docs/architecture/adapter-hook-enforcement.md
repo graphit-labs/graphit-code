@@ -2,7 +2,7 @@
 title: Adapter hook enforcement
 type: architecture
 status: active
-updated: 2026-09-02
+updated: 2026-09-03
 tags: [adapters, hooks, mandates, skills, enforcement]
 ---
 
@@ -39,7 +39,15 @@ Agentes externos podem recuperar somente os mandates globais com `graphit_mandat
 
 ### Reinjeção de invariantes
 
-Quando o estado do projeto está disponível, a reinjeção usa diretamente o contexto residente dinâmico, sem duplicar um segundo preâmbulo. `CoreInvariant` é somente o fallback curto para uma execução que não conseguiu carregar esse estado. Se a MCP tool exigida não estiver disponível no agente atual, ele continua com suas tools nativas padrão. A única substituição proibida é chamar o CLI do Graphit como se fosse MCP.
+O contexto residente completo é reservado para início real de sessão ou subagente e para a reconstrução excepcional após compactação. Limites recorrentes de prompt ou invocação recebem somente `CoreInvariant`, o lembrete curto de precedência Graphit-first; eles não reconstroem nem repetem memória obrigatória, mandates, rules ou o bootstrap inicial. Limites pós-ação recebem somente `UnitCompletionReminder`. Se a MCP tool exigida não estiver disponível no agente atual, ele continua com suas tools nativas padrão. A única substituição proibida é chamar o CLI do Graphit como se fosse MCP.
+
+Retomar, reentrar ou continuar trabalho interrompido reaplica essa precedência antes da próxima ação. O hook só reinsere o roteador: a classificação do domínio continua a cargo do agente, que carrega a skill correspondente apenas quando o próximo passo encontra um trigger.
+
+### Checkpoint de tarefa e finalização
+
+O Graphit trata a menor unidade semanticamente reportável como um checkpoint, não como sinônimo mecânico de qualquer tool call. Nos eventos pós-ação disponíveis, o hook pede ao agente que decida se a unidade terminou e, em caso positivo, atualize imediatamente o gerenciador ativo e o task log com o que foi entregue e o próximo passo. Kiro também possui `PostTaskExec`, que fornece um boundary objetivo de task de spec.
+
+Depois da última atualização de tarefa, o evento final dispara `graphit sync` em segundo plano. `_session-hook --sync` inicia o executável Graphit ativo com o argumento `sync`, libera o processo filho e devolve imediatamente o payload nativo de conclusão; não espera indexação, lock ou processo terminar. Falha ao iniciar o dispatcher é erro do hook, mas a sincronização já iniciada não controla nem atrasa a resposta final do agente.
 
 ### Subagentes: três garantias diferentes
 
@@ -63,6 +71,24 @@ Para código local suportado, a skill ainda orienta AST-first. Conteúdo não in
 
 ## Matriz por adapter
 
+### Ciclo de trabalho
+
+| Adapter | Retomada/reinjeção | Menor unidade disponível | Finalização assíncrona |
+|---|---|---|---|
+| Claude Code | `SessionStart`/`SubagentStart` carregam o bootstrap; `UserPromptSubmit` reinjeta só o invariant compacto | `PostToolUse` pede avaliação e atualização imediata | `SubagentStop`, `Stop` e `SessionEnd` disparam sync |
+| Codex | `SessionStart`/`SubagentStart` carregam o bootstrap; `UserPromptSubmit` reinjeta só o invariant compacto | `PostToolUse` pede avaliação e atualização imediata | `SubagentStop`, `Stop` e `SessionEnd` disparam sync |
+| Cursor | `sessionStart`; `preToolUse(Task)` inicializa o filho | `postToolUse` pede avaliação e atualização imediata | `subagentStop`, `stop` e `sessionEnd` local disparam sync |
+| Gemini CLI | `SessionStart` carrega o bootstrap; `BeforeAgent` reinjeta só o invariant compacto | `AfterTool` pede avaliação e atualização imediata | `AfterAgent` e `SessionEnd` disparam sync |
+| Kiro | `SessionStart`, `UserPromptSubmit` e `AgentSpawn` | `PostToolUse` avalia a unidade; `PostTaskExec` cobre task de spec | `Stop` dispara sync |
+| Antigravity | `PreInvocation` carrega o bootstrap na invocação zero e só o invariant nas seguintes | `PostInvocation` pede avaliação e atualização imediata | `Stop` dispara sync |
+| OpenCode | transform de system por sessão e hook de compactação | `tool.execute.after` pede avaliação e atualização imediata | `session.idle` e `session.deleted` usam `Bun.spawn(...).unref()` |
+
+Todos os disparos finais são fire-and-forget. O dispatcher usa APIs de processo do runtime; OpenCode usa array de argumentos, e os hosts cujo schema exige uma command string recebem o executável escapado conforme o sistema operacional. Não há script auxiliar dependente de shell, e a configuração gerada não contém paths do checkout; esse é o contrato comum para Linux, Windows e macOS.
+
+Os eventos presentes na API não são tratados como cobertura automática. Antigravity oferece `PostToolUse`, mas esse evento aceita somente `{}` como saída e não consegue reinjetar a orientação de gerenciamento da tarefa; por isso o adapter usa `PostInvocation`, que suporta `injectSteps[].ephemeralMessage`, e não instala um `PostToolUse` vazio. Pelo mesmo critério, `beforeSubmitPrompt` do Cursor não substitui um boundary de reinjeção porque sua saída não oferece contexto adicional. Limitações nativas ficam explícitas, em vez de serem mascaradas por hooks sem efeito.
+
+### Subagentes e visibilidade
+
 | Adapter | Instrução no subagente | Visibilidade das MCP tools | Fallback e limite |
 |---|---|---|---|
 | Claude Code | `SubagentStart` injeta `SubagentProtocol`; não depende de `CLAUDE.md`, que alguns built-ins não carregam. | O filho herda as tools do pai, salvo filtros/background e `tools`/`disallowedTools` do agente customizado. | Uma allowlist que remova MCP deixa o filho usar suas tools nativas permitidas. |
@@ -79,6 +105,8 @@ Cada adapter concreto possui sync, remoção, formato e path do seu host. `Folde
 
 `graphit sync` reconcilia cada adapter como uma única unidade de lifecycle: skills/commands/agents físicos, configuração MCP local ao projeto e hooks nativos da IDE. Isso ocorre em toda sincronização, não apenas no `init`. O writer substitui entradas Graphit anteriores pelo estado atual, preserva entradas pertencentes ao usuário e precisa ser idempotente. Artifacts `rule` ficam no cache/lockfile autoritativo e são consumidos no próximo hook; sync não os materializa na IDE.
 
+Há dois contratos de espera distintos: uma invocação explícita de CLI ou MCP reporta seu próprio resultado ao chamador; a invocação automática de finalização apenas a dispara e não espera. Assim, o agente encerra sem ficar preso à indexação, mas todo boundary final suportado inicia uma tentativa completa de reconciliação.
+
 Uma atualização parcial não pode ser anunciada como sucesso. Falhas de resolução ou escrita do MCP, assim como falhas de parsing ou escrita dos hooks, sobem por `SyncIDEAdapter`; tanto o CLI quanto a tool `graphit_sync` devolvem erro. O teste integrado troca o executável Graphit entre duas sincronizações e verifica, nos sete adapters, que MCP e hooks recebem o valor novo e descartam o antigo.
 
 ## O que permanece semântico
@@ -90,6 +118,7 @@ Não é seguro automatizar sem um modelo:
 - selecionar quais resultados de memória/wiki devem ser lidos;
 - decidir se uma descoberta é durável, duplicada, contraditória ou merece promoção;
 - produzir e manter um task log que explique objetivo, decisões, progresso e dívida;
+- reconhecer se uma ação concluiu a menor unidade independentemente reportável antes de atualizar esse log;
 - decidir quando freshness precisa ser provada antes de uma conclusão.
 
 Esses itens permanecem nos mandates/skills, mas sem manuais de schemas, justificativas genéricas ou exemplos repetitivos.
@@ -100,7 +129,7 @@ Esses itens permanecem nos mandates/skills, mas sem manuais de schemas, justific
 - Cada mandate de módulo tem limite próprio e contém apenas request-shapes + tools de entrada.
 - Cada skill compacta tem um teto absoluto testado entre 5 e 6,5 KB; a geração real também é comparada ao baseline abaixo.
 - Toda tool do módulo continua aparecendo uma vez no `Tool index`; detalhes de argumentos vêm do schema publicado pela própria tool.
-- O bootstrap de memória ocorre uma vez por sessão/subagente quando memory está habilitado. Boundaries repetidos recebem mandates/rules atuais sem repetir a memória obrigatória.
+- O bootstrap de memória e o contexto dinâmico completo ocorrem apenas no início real de sessão/subagente. Boundaries recorrentes de prompt/invocação recebem só `CoreInvariant`; checkpoints pós-ação recebem só `UnitCompletionReminder`. A compactação pode reconstruir contexto dinâmico porque representa perda efetiva de contexto, não um evento normal de cada turno.
 
 ### Resultado medido
 
@@ -126,4 +155,4 @@ As quatro skills juntas caíram de 227.799 para 11.154 bytes (95,1%). O antigo a
 - [Google Antigravity hooks](https://antigravity.google/docs/ide/hooks/) e [Antigravity subagents](https://www.antigravity.google/docs/subagents/)
 - [OpenCode plugins/hooks](https://opencode.ai/docs/plugins/) e [OpenCode agents](https://opencode.ai/docs/agents/)
 
-As capacidades foram verificadas em 2026-09-02. Mudanças de fornecedor devem alterar primeiro esta matriz e seus testes de adapter; nunca devem ser simuladas por uma abstração comum que o host não suporta.
+As capacidades foram verificadas em 2026-09-03. Mudanças de fornecedor devem alterar primeiro esta matriz e seus testes de adapter; nunca devem ser simuladas por uma abstração comum que o host não suporta.
