@@ -7,6 +7,10 @@ MODULE   := github.com/graphit-labs/graphit-code
 CMD      := ./cmd/graphit
 BIN_DIR  := .build
 
+UI_DIR         := internal/ui
+UI_NPM_CONFIG  := $(UI_DIR)/.npmrc
+UI_NPM_STATE   := $(UI_DIR)/node_modules/.package-lock.json
+
 BRAND        ?= graphit
 BRAND_ENV    := $(shell echo $(BRAND) | tr '[:lower:]' '[:upper:]')
 DISPLAY_NAME ?= Graphit Code: A Powerful Agent Harness for Enterprise Software Ecosystems
@@ -319,10 +323,12 @@ endef
 
 
 
-ui:
-	cd internal/ui && npm ci --prefer-offline
-	@printf 'module nodemodules\n\ngo 1.26\n' > internal/ui/node_modules/go.mod
-	cd internal/ui && npm run build
+$(UI_NPM_STATE): $(UI_NPM_CONFIG) $(UI_DIR)/package.json $(UI_DIR)/package-lock.json
+	cd $(UI_DIR) && npm ci
+
+ui: $(UI_NPM_STATE)
+	@printf 'module nodemodules\n\ngo 1.26\n' > $(UI_DIR)/node_modules/go.mod
+	cd $(UI_DIR) && npm run build
 
 ui-dev:
 	cd internal/ui && npm run dev
