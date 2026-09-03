@@ -63,7 +63,9 @@ graphit init --ide codex
 
 Replace `codex` with the IDE or coding-agent adapter you use. Run `graphit init --help` to see supported identifiers and options.
 
-Initialization registers the project and installs managed instructions and MCP configuration for the selected adapter. Review generated changes before committing them.
+Initialization registers the project and installs the selected adapter's hooks, MCP configuration, skills, commands, and agents. Graphit mandates and installed Hub rules are delivered dynamically by the hooks; Graphit does not manage `AGENTS.md`, `CLAUDE.md`, or IDE rule files for that purpose. Review generated changes before committing them.
+
+Each developer must complete any trust or activation step required by their agent on their own machine. Follow [Activate Graphit Hooks in Each Agent](agent_hook_activation.md) for exact per-adapter instructions.
 
 ## 4. Build the first indexes
 
@@ -91,7 +93,7 @@ To serve a whole team instead of one machine, run it as a container: the daemon 
 
 ## 6. Verify the agent tools
 
-Start a fresh session in the configured IDE and ask the agent to:
+First complete the adapter-specific trust and hook check in [Activate Graphit Hooks in Each Agent](agent_hook_activation.md). Then start a fresh session in the configured IDE and ask the agent to:
 
 1. list available Graphit MCP tools;
 2. search the project AST for a known symbol;
@@ -163,5 +165,6 @@ Run `graphit sync` from the repository root. If the problem persists, inspect da
 - [User Manual](user_manual.md) for daily workflows.
 - [CLI Command Reference](cli_reference.md) for command syntax.
 - [MCP Tools Reference](mcp_tools_reference.md) for agent-facing contracts.
+- [Agent Hook Activation](agent_hook_activation.md) for trust, reload, and verification steps per adapter.
 - [Architecture Overview](../architecture/architecture_overview.md) for system boundaries.
 - [Storage Layout](../architecture/storage_layout.md) for local and shared data locations.

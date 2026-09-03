@@ -51,7 +51,7 @@ Um subagente só está corretamente coberto quando três camadas independentes e
 
 O Graphit preserva allowlists de subagentes pertencentes ao usuário. Alterá-las silenciosamente poderia conceder acesso que foi removido de propósito. Quando uma allowlist exclui Graphit, o subagente mantém o trabalho com as tools permitidas pelo host.
 
-Há um limite externo incontornável: hooks do projeto precisam estar habilitados e o workspace precisa ser confiável. Cursor Cloud ainda executa turnos exploratórios somente leitura antes de carregar hooks do repositório. Nenhum arquivo do projeto consegue aplicar Graphit-first antes de o próprio host carregá-lo; nesse intervalo, o agente opera normalmente com as capacidades padrão. Para usar Graphit também no cloud, o MCP precisa estar configurado na camada de time/enterprise do host.
+Há um limite externo incontornável: quando o host exige confiança ou permite desabilitar hooks, um arquivo do próprio projeto não pode aprovar a si mesmo. Cursor Cloud também executa turnos exploratórios somente leitura antes de carregar hooks do repositório. Nenhum arquivo do projeto consegue aplicar Graphit-first antes de o próprio host carregá-lo; nesse intervalo, o agente opera normalmente com as capacidades padrão. Para usar Graphit também no cloud, o MCP precisa estar configurado na camada de time/enterprise do host. As ações concretas de confiança, ativação, reload e verificação são documentadas separadamente para cada adapter em [Activate Graphit Hooks in Each Agent](../guides/agent_hook_activation.md); uma ressalva arquitetural genérica não substitui instruções ao usuário.
 
 ### Fallback nativo
 

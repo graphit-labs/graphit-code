@@ -16,6 +16,7 @@ related:
   - "docs/guides/mcp_tools_reference.md"
   - "docs/guides/cli_reference.md"
   - "docs/guides/user_manual.md"
+  - "docs/guides/agent_hook_activation.md"
 ---
 
 # Troubleshooting
@@ -48,6 +49,7 @@ This guide covers common issues you may encounter when using Graphit Code and ho
 - [Knowledge Issues](#knowledge-issues)
 - [Hub Issues](#hub-issues)
 - [MCP Connection Issues](#mcp-connection-issues)
+- [Agent Hook and Bootstrap Issues](#agent-hook-and-bootstrap-issues)
 - [Dream Module Issues](#dream-module-issues)
 - [Getting Help](#getting-help)
 
@@ -890,7 +892,7 @@ MCP stdio error: ...
 **Solutions:**
 1. Verify the Graphit binary is accessible from your IDE's configured MCP server command.
 2. Check your IDE's MCP server configuration:
-   - **Claude:** Check `.claude/mcp.json`
+   - **Claude:** Check `.mcp.json`
    - **Cursor:** Check `.cursor/mcp.json`
    - **Gemini:** Check `.gemini/settings.json`
 3. Ensure the binary path is absolute or resolvable from your `PATH`.
@@ -921,6 +923,33 @@ Every MCP tool call automatically tries to ensure the daemon is running. If it f
 ```
 
 This is logged to stderr and does not block the tool call. The tool will continue executing, but features that depend on the daemon (like embedding proxy) may not work.
+
+---
+
+## Agent Hook and Bootstrap Issues
+
+### Graphit tools exist, but the agent ignores Graphit-first instructions
+
+**Cause:** MCP availability and hook execution are independent. The MCP configuration can expose `graphit_*` tools while the host withholds, disables, or has not yet reloaded the project hook that injects Graphit's mandates and installed Hub rules.
+
+**Solutions:**
+
+1. Run `graphit sync` from the repository.
+2. Complete the trust, enablement, reload, and verification steps for your adapter in [Activate Graphit Hooks in Each Agent](agent_hook_activation.md).
+3. Start a new agent session; an already-running session does not retroactively receive its start hook.
+4. Check both the hook and the Graphit MCP tools. Seeing only one does not prove the other is active.
+
+### Main agent uses Graphit, but a subagent does not
+
+**Cause:** The host can give a child different MCP servers, tool allowlists, or permissions. Instructions injected at a subagent boundary cannot expose a tool the host omitted.
+
+**Solutions:**
+
+1. Inspect the custom agent's tool allowlist or deny list and permit the Graphit MCP tools when Graphit-first behavior is required.
+2. Follow the adapter-specific subagent note in [Agent Hook Activation](agent_hook_activation.md).
+3. For Cursor Cloud, configure MCP at the team/enterprise layer or use a local/self-hosted agent; cloud agents do not run `sessionStart` and cannot use your local MCP configuration.
+
+If the host does not provide the hook boundary or Graphit tools to that child, native-tool fallback is expected. Do not block the subagent solely because Graphit is unavailable.
 
 ---
 
